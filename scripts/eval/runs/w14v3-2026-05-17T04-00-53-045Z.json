@@ -1,0 +1,1081 @@
+{
+  "run_id": "w14v3-2026-05-17T04-00-53-045Z",
+  "started_at": "2026-05-17T04:00:53.045Z",
+  "completed_at": "2026-05-17T04:00:53.049Z",
+  "mode": "mock",
+  "repeats": 10,
+  "cases": [
+    {
+      "case_id": "tier-a-001",
+      "category": "a",
+      "passed": true,
+      "notes": "tier=T1 (exp T1) tag=false (exp false) web=false (exp false)",
+      "details": {
+        "cascade": {
+          "resolved_tier": "T1",
+          "first_hit_facts": [
+            {
+              "fact_text": "3.7 quarts — 4.4",
+              "render_disclaim_tag": false
+            }
+          ],
+          "union_facts": [
+            {
+              "fact_text": "3.7 quarts — 4.4",
+              "render_disclaim_tag": false
+            }
+          ],
+          "actual_render_tag": false,
+          "web_search_invoked": false,
+          "per_tier_counts": {
+            "T1": 1
+          }
+        }
+      },
+      "repeats": 10,
+      "passes": 10,
+      "pass_rate": 1,
+      "ciLow": 0.7224598312333834,
+      "ciHigh": 1
+    },
+    {
+      "case_id": "tier-a-002",
+      "category": "a",
+      "passed": true,
+      "notes": "tier=T2_HASH (exp T2_HASH) tag=false (exp false) web=false (exp false)",
+      "details": {
+        "cascade": {
+          "resolved_tier": "T2_HASH",
+          "first_hit_facts": [
+            {
+              "fact_text": "transmission fluid",
+              "render_disclaim_tag": false
+            }
+          ],
+          "union_facts": [
+            {
+              "fact_text": "transmission fluid",
+              "render_disclaim_tag": false
+            }
+          ],
+          "actual_render_tag": false,
+          "web_search_invoked": false,
+          "per_tier_counts": {
+            "T2_HASH": 1
+          }
+        }
+      },
+      "repeats": 10,
+      "passes": 10,
+      "pass_rate": 1,
+      "ciLow": 0.7224598312333834,
+      "ciHigh": 1
+    },
+    {
+      "case_id": "tier-a-003",
+      "category": "a",
+      "passed": true,
+      "notes": "tier=T3 (exp T3) tag=true (exp true) web=true (exp true)",
+      "details": {
+        "cascade": {
+          "resolved_tier": "T3",
+          "first_hit_facts": [
+            {
+              "fact_text": "headlight bulb",
+              "render_disclaim_tag": true
+            }
+          ],
+          "union_facts": [
+            {
+              "fact_text": "headlight bulb",
+              "render_disclaim_tag": true
+            }
+          ],
+          "actual_render_tag": true,
+          "web_search_invoked": true,
+          "per_tier_counts": {
+            "T3": 1
+          }
+        }
+      },
+      "repeats": 10,
+      "passes": 10,
+      "pass_rate": 1,
+      "ciLow": 0.7224598312333834,
+      "ciHigh": 1
+    },
+    {
+      "case_id": "tier-a-004",
+      "category": "a",
+      "passed": true,
+      "notes": "tier=T1 (exp T1) tag=false (exp false) web=false (exp false)",
+      "details": {
+        "cascade": {
+          "resolved_tier": "T1",
+          "first_hit_facts": [
+            {
+              "fact_text": "42",
+              "render_disclaim_tag": false
+            }
+          ],
+          "union_facts": [
+            {
+              "fact_text": "42",
+              "render_disclaim_tag": false
+            }
+          ],
+          "actual_render_tag": false,
+          "web_search_invoked": false,
+          "per_tier_counts": {
+            "T1": 1
+          }
+        }
+      },
+      "repeats": 10,
+      "passes": 10,
+      "pass_rate": 1,
+      "ciLow": 0.7224598312333834,
+      "ciHigh": 1
+    },
+    {
+      "case_id": "tier-a-005",
+      "category": "a",
+      "passed": true,
+      "notes": "tier=T2_HASH (exp T2_HASH) tag=true (exp true) web=false (exp false)",
+      "details": {
+        "cascade": {
+          "resolved_tier": "T2_HASH",
+          "first_hit_facts": [
+            {
+              "fact_text": "octane",
+              "render_disclaim_tag": true
+            }
+          ],
+          "union_facts": [
+            {
+              "fact_text": "octane",
+              "render_disclaim_tag": true
+            }
+          ],
+          "actual_render_tag": true,
+          "web_search_invoked": false,
+          "per_tier_counts": {
+            "T2_HASH": 1
+          }
+        }
+      },
+      "repeats": 10,
+      "passes": 10,
+      "pass_rate": 1,
+      "ciLow": 0.7224598312333834,
+      "ciHigh": 1
+    },
+    {
+      "case_id": "tier-a-006",
+      "category": "a",
+      "passed": true,
+      "notes": "tier=T3 (exp T3) tag=true (exp true) web=true (exp true)",
+      "details": {
+        "cascade": {
+          "resolved_tier": "T3",
+          "first_hit_facts": [
+            {
+              "fact_text": "spark plug gap",
+              "render_disclaim_tag": true
+            }
+          ],
+          "union_facts": [
+            {
+              "fact_text": "spark plug gap",
+              "render_disclaim_tag": true
+            }
+          ],
+          "actual_render_tag": true,
+          "web_search_invoked": true,
+          "per_tier_counts": {
+            "T3": 1
+          }
+        }
+      },
+      "repeats": 10,
+      "passes": 10,
+      "pass_rate": 1,
+      "ciLow": 0.7224598312333834,
+      "ciHigh": 1
+    },
+    {
+      "case_id": "disclaim-b-001",
+      "category": "b",
+      "passed": true,
+      "notes": "tier=T2_HASH (exp T2_HASH) bubble.disclaim=true (exp true) fact.render_tag=true",
+      "details": {
+        "cascade": {
+          "resolved_tier": "T2_HASH",
+          "first_hit_facts": [
+            {
+              "fact_text": "cabin air filter",
+              "render_disclaim_tag": true
+            }
+          ],
+          "union_facts": [
+            {
+              "fact_text": "cabin air filter",
+              "render_disclaim_tag": true
+            }
+          ],
+          "actual_render_tag": true,
+          "web_search_invoked": false,
+          "per_tier_counts": {
+            "T2_HASH": 1
+          }
+        }
+      },
+      "repeats": 10,
+      "passes": 10,
+      "pass_rate": 1,
+      "ciLow": 0.7224598312333834,
+      "ciHigh": 1
+    },
+    {
+      "case_id": "disclaim-b-002",
+      "category": "b",
+      "passed": true,
+      "notes": "tier=T2_HASH (exp T2_HASH) bubble.disclaim=false (exp false) fact.render_tag=false",
+      "details": {
+        "cascade": {
+          "resolved_tier": "T2_HASH",
+          "first_hit_facts": [
+            {
+              "fact_text": "cabin air filter",
+              "render_disclaim_tag": false
+            }
+          ],
+          "union_facts": [
+            {
+              "fact_text": "cabin air filter",
+              "render_disclaim_tag": false
+            }
+          ],
+          "actual_render_tag": false,
+          "web_search_invoked": false,
+          "per_tier_counts": {
+            "T2_HASH": 1
+          }
+        }
+      },
+      "repeats": 10,
+      "passes": 10,
+      "pass_rate": 1,
+      "ciLow": 0.7224598312333834,
+      "ciHigh": 1
+    },
+    {
+      "case_id": "disclaim-b-003",
+      "category": "b",
+      "passed": true,
+      "notes": "tier=T3 (exp T3) bubble.disclaim=true (exp true) fact.render_tag=true",
+      "details": {
+        "cascade": {
+          "resolved_tier": "T3",
+          "first_hit_facts": [
+            {
+              "fact_text": "maintenance",
+              "render_disclaim_tag": true
+            }
+          ],
+          "union_facts": [
+            {
+              "fact_text": "maintenance",
+              "render_disclaim_tag": true
+            }
+          ],
+          "actual_render_tag": true,
+          "web_search_invoked": true,
+          "per_tier_counts": {
+            "T3": 1
+          }
+        }
+      },
+      "repeats": 10,
+      "passes": 10,
+      "pass_rate": 1,
+      "ciLow": 0.7224598312333834,
+      "ciHigh": 1
+    },
+    {
+      "case_id": "disclaim-b-004",
+      "category": "b",
+      "passed": true,
+      "notes": "tier=T1 (exp T1) bubble.disclaim=false (exp false) fact.render_tag=false",
+      "details": {
+        "cascade": {
+          "resolved_tier": "T1",
+          "first_hit_facts": [
+            {
+              "fact_text": "towing",
+              "render_disclaim_tag": false
+            }
+          ],
+          "union_facts": [
+            {
+              "fact_text": "towing",
+              "render_disclaim_tag": false
+            }
+          ],
+          "actual_render_tag": false,
+          "web_search_invoked": false,
+          "per_tier_counts": {
+            "T1": 1
+          }
+        }
+      },
+      "repeats": 10,
+      "passes": 10,
+      "pass_rate": 1,
+      "ciLow": 0.7224598312333834,
+      "ciHigh": 1
+    },
+    {
+      "case_id": "disclaim-b-005",
+      "category": "b",
+      "passed": true,
+      "notes": "tier=T2_HASH (exp T2_HASH) bubble.disclaim=true (exp true) fact.render_tag=true",
+      "details": {
+        "cascade": {
+          "resolved_tier": "T2_HASH",
+          "first_hit_facts": [
+            {
+              "fact_text": "PCV",
+              "render_disclaim_tag": true
+            }
+          ],
+          "union_facts": [
+            {
+              "fact_text": "PCV",
+              "render_disclaim_tag": true
+            }
+          ],
+          "actual_render_tag": true,
+          "web_search_invoked": false,
+          "per_tier_counts": {
+            "T2_HASH": 1
+          }
+        }
+      },
+      "repeats": 10,
+      "passes": 10,
+      "pass_rate": 1,
+      "ciLow": 0.7224598312333834,
+      "ciHigh": 1
+    },
+    {
+      "case_id": "report-c-001",
+      "category": "c",
+      "passed": true,
+      "notes": "report_count=1 disposition=open ts_delta=0",
+      "repeats": 10,
+      "passes": 10,
+      "pass_rate": 1,
+      "ciLow": 0.7224598312333834,
+      "ciHigh": 1
+    },
+    {
+      "case_id": "report-c-002",
+      "category": "c",
+      "passed": true,
+      "notes": "rows=2 count=2 distinct_users=2",
+      "repeats": 10,
+      "passes": 10,
+      "pass_rate": 1,
+      "ciLow": 0.7224598312333834,
+      "ciHigh": 1
+    },
+    {
+      "case_id": "report-c-003",
+      "category": "c",
+      "passed": true,
+      "notes": "code=REPORT_NOT_APPLICABLE_TIER_1 rows=0 count=0",
+      "repeats": 10,
+      "passes": 10,
+      "pass_rate": 1,
+      "ciLow": 0.7224598312333834,
+      "ciHigh": 1
+    },
+    {
+      "case_id": "report-c-004",
+      "category": "c",
+      "passed": true,
+      "notes": "rows=1 count=1 deduped=true",
+      "repeats": 10,
+      "passes": 10,
+      "pass_rate": 1,
+      "ciLow": 0.7224598312333834,
+      "ciHigh": 1
+    },
+    {
+      "case_id": "report-c-005",
+      "category": "c",
+      "passed": true,
+      "notes": "fresh_id_count=1",
+      "repeats": 10,
+      "passes": 10,
+      "pass_rate": 1,
+      "ciLow": 0.7224598312333834,
+      "ciHigh": 1
+    },
+    {
+      "case_id": "crosstenant-d-001",
+      "category": "d",
+      "passed": true,
+      "notes": "mode=mock tier=T1 (exp T1) tag=false (exp false) web=false (exp false) assertions=true",
+      "details": {
+        "cascade": {
+          "resolved_tier": "T1",
+          "first_hit_facts": [
+            {
+              "fact_text": "quart",
+              "render_disclaim_tag": false
+            }
+          ],
+          "union_facts": [
+            {
+              "fact_text": "quart",
+              "render_disclaim_tag": false
+            }
+          ],
+          "actual_render_tag": false,
+          "web_search_invoked": false,
+          "per_tier_counts": {
+            "T1": 1
+          }
+        },
+        "cross_tenant": true,
+        "fixture": {
+          "make": "EvalTest",
+          "model": "CrossTenantFixture",
+          "year_min": 9999,
+          "year_max": 9999,
+          "chassis_code": "EVAL-CHASSIS-A",
+          "engine_code": "EVAL-I4-1.5T"
+        }
+      },
+      "repeats": 10,
+      "passes": 10,
+      "pass_rate": 1,
+      "ciLow": 0.7224598312333834,
+      "ciHigh": 1
+    },
+    {
+      "case_id": "crosstenant-d-002",
+      "category": "d",
+      "passed": true,
+      "notes": "mode=mock tier=T2_HASH (exp T2_HASH) tag=false (exp false) fact.render_tag=false assertions=true",
+      "details": {
+        "cascade": {
+          "resolved_tier": "T2_HASH",
+          "first_hit_facts": [
+            {
+              "fact_text": "cabin air filter — 87139-EVAL-FIX",
+              "render_disclaim_tag": false
+            }
+          ],
+          "union_facts": [
+            {
+              "fact_text": "cabin air filter — 87139-EVAL-FIX",
+              "render_disclaim_tag": false
+            }
+          ],
+          "actual_render_tag": false,
+          "web_search_invoked": false,
+          "per_tier_counts": {
+            "T2_HASH": 1
+          }
+        },
+        "cross_tenant": true,
+        "fixture": {
+          "make": "EvalTest",
+          "model": "CrossTenantFixture",
+          "year_min": 9999,
+          "year_max": 9999,
+          "chassis_code": "EVAL-CHASSIS-A",
+          "engine_code": "EVAL-I4-1.5T"
+        },
+        "setup": "userA writes web_search row + verifies; userB reads",
+        "seeded_fact_id": null
+      },
+      "repeats": 10,
+      "passes": 10,
+      "pass_rate": 1,
+      "ciLow": 0.7224598312333834,
+      "ciHigh": 1
+    },
+    {
+      "case_id": "crosstenant-d-003",
+      "category": "d",
+      "passed": true,
+      "notes": "mode=mock tier=T2_HASH (exp T2_HASH) tag=true (exp true) fact.render_tag=true assertions=true",
+      "details": {
+        "cascade": {
+          "resolved_tier": "T2_HASH",
+          "first_hit_facts": [
+            {
+              "fact_text": "octane — 91",
+              "render_disclaim_tag": true
+            }
+          ],
+          "union_facts": [
+            {
+              "fact_text": "octane — 91",
+              "render_disclaim_tag": true
+            }
+          ],
+          "actual_render_tag": true,
+          "web_search_invoked": false,
+          "per_tier_counts": {
+            "T2_HASH": 1
+          }
+        },
+        "cross_tenant": true,
+        "fixture": {
+          "make": "EvalTest",
+          "model": "CrossTenantFixture",
+          "year_min": 9999,
+          "year_max": 9999,
+          "chassis_code": "EVAL-CHASSIS-A",
+          "engine_code": "EVAL-I4-1.5T"
+        },
+        "setup": "userA writes web_search row (unverified); userB reads",
+        "seeded_fact_id": null
+      },
+      "repeats": 10,
+      "passes": 10,
+      "pass_rate": 1,
+      "ciLow": 0.7224598312333834,
+      "ciHigh": 1
+    },
+    {
+      "case_id": "audit-e-001",
+      "category": "e",
+      "passed": true,
+      "notes": "status=verified audit_actor=waleed_user_id prev=unverified",
+      "repeats": 10,
+      "passes": 10,
+      "pass_rate": 1,
+      "ciLow": 0.7224598312333834,
+      "ciHigh": 1
+    },
+    {
+      "case_id": "audit-e-002",
+      "category": "e",
+      "passed": true,
+      "notes": "action=verify_and_edit actor=temur_user_id prev_text=old text",
+      "repeats": 10,
+      "passes": 10,
+      "pass_rate": 1,
+      "ciLow": 0.7224598312333834,
+      "ciHigh": 1
+    },
+    {
+      "case_id": "audit-e-003",
+      "category": "e",
+      "passed": true,
+      "notes": "status=rejected audit_action=reject row_exists=true",
+      "repeats": 10,
+      "passes": 10,
+      "pass_rate": 1,
+      "ciLow": 0.7224598312333834,
+      "ciHigh": 1
+    },
+    {
+      "case_id": "audit-e-004",
+      "category": "e",
+      "passed": true,
+      "notes": "status=verified audit_rows=0 well_formed=true",
+      "repeats": 10,
+      "passes": 10,
+      "pass_rate": 1,
+      "ciLow": 0.7224598312333834,
+      "ciHigh": 1
+    },
+    {
+      "case_id": "audit-e-005",
+      "category": "e",
+      "passed": true,
+      "notes": "code=AUTH_ERROR status_unchanged=true audit_rows=0",
+      "repeats": 10,
+      "passes": 10,
+      "pass_rate": 1,
+      "ciLow": 0.7224598312333834,
+      "ciHigh": 1
+    },
+    {
+      "case_id": "memory-g-001",
+      "category": "g",
+      "passed": true,
+      "notes": "helper_path_ok=true rows_written=1 (CI Rule 13 defends the negative direction)",
+      "details": {
+        "helper_result": {
+          "ok": true,
+          "fact_id": "cf_1"
+        },
+        "ci_rule": "Rule 13"
+      },
+      "repeats": 10,
+      "passes": 10,
+      "pass_rate": 1,
+      "ciLow": 0.7224598312333834,
+      "ciHigh": 1
+    },
+    {
+      "case_id": "memory-g-002",
+      "category": "g",
+      "passed": true,
+      "notes": "expected_throw=VALIDATOR_REJECT actual=VALIDATOR_REJECT rows_written=0 (expected 0)",
+      "details": {
+        "helper_result": {
+          "ok": false,
+          "thrown_code": "VALIDATOR_REJECT",
+          "message": "written_by=\"rogue_agent\" not in [chat_agent, user_selection, health_monitor, system]"
+        }
+      },
+      "repeats": 10,
+      "passes": 10,
+      "pass_rate": 1,
+      "ciLow": 0.7224598312333834,
+      "ciHigh": 1
+    },
+    {
+      "case_id": "memory-g-003",
+      "category": "g",
+      "passed": true,
+      "notes": "expected_throw=LEGALITY_MATRIX actual=LEGALITY_MATRIX rows_written=0 (expected 0)",
+      "details": {
+        "helper_result": {
+          "ok": false,
+          "thrown_code": "LEGALITY_MATRIX",
+          "message": "(source=\"mechanic_confirmed\", written_by=\"health_monitor\") is illegal"
+        }
+      },
+      "repeats": 10,
+      "passes": 10,
+      "pass_rate": 1,
+      "ciLow": 0.7224598312333834,
+      "ciHigh": 1
+    },
+    {
+      "case_id": "memory-g-004",
+      "category": "g",
+      "passed": true,
+      "notes": "expected_throw=ROLE_MISMATCH actual=ROLE_MISMATCH rows_written=0 (expected 0)",
+      "details": {
+        "helper_result": {
+          "ok": false,
+          "thrown_code": "ROLE_MISMATCH",
+          "message": "written_by=\"user_selection\" is reserved for recordSelectionFact"
+        }
+      },
+      "repeats": 10,
+      "passes": 10,
+      "pass_rate": 1,
+      "ciLow": 0.7224598312333834,
+      "ciHigh": 1
+    },
+    {
+      "case_id": "memory-g-005",
+      "category": "g",
+      "passed": true,
+      "notes": "stageA_exclude_ok=true (working_memory=[] expected to NOT include cf_1) stageB_judge=true (mock-only PASS)",
+      "details": {
+        "working_memory_fact_ids": [],
+        "retracted_fact_id": "cf_1",
+        "stage_a": true,
+        "stage_b": true
+      },
+      "repeats": 10,
+      "passes": 10,
+      "pass_rate": 1,
+      "ciLow": 0.7224598312333834,
+      "ciHigh": 1
+    },
+    {
+      "case_id": "forensic-h-001",
+      "category": "h",
+      "passed": true,
+      "notes": "expected_throw=ROLE_INVARIANT actual=ROLE_INVARIANT audit_rows=0 (expected 0)",
+      "details": {
+        "helper_result": {
+          "ok": false,
+          "thrown_code": "ROLE_INVARIANT",
+          "message": "role=assistant requires model_used"
+        }
+      },
+      "repeats": 10,
+      "passes": 10,
+      "pass_rate": 1,
+      "ciLow": 0.7224598312333834,
+      "ciHigh": 1
+    },
+    {
+      "case_id": "forensic-h-002",
+      "category": "h",
+      "passed": true,
+      "notes": "expected_throw=ROLE_INVARIANT actual=ROLE_INVARIANT audit_rows=0 (expected 0)",
+      "details": {
+        "helper_result": {
+          "ok": false,
+          "thrown_code": "ROLE_INVARIANT",
+          "message": "role=user must not carry model_used"
+        }
+      },
+      "repeats": 10,
+      "passes": 10,
+      "pass_rate": 1,
+      "ciLow": 0.7224598312333834,
+      "ciHigh": 1
+    },
+    {
+      "case_id": "forensic-h-003",
+      "category": "h",
+      "passed": true,
+      "notes": "helper_ok=true audit_rows=1 (expected 1) envelope_ok=true (CI Rule 12 defends the negative direction)",
+      "details": {
+        "helper_result": {
+          "ok": true,
+          "audit_id": "ca_1"
+        },
+        "audit_row": {
+          "audit_id": "ca_1",
+          "conversation_id": "ai_conv_eval_h003",
+          "turn_number": 1,
+          "role": "assistant",
+          "content": "Your oil capacity is 3.7 quarts.",
+          "model_used": "haiku",
+          "prompt_version": "v3.2.1",
+          "timestamp": 1778990453048
+        },
+        "ci_rule": "Rule 12"
+      },
+      "repeats": 10,
+      "passes": 10,
+      "pass_rate": 1,
+      "ciLow": 0.7224598312333834,
+      "ciHigh": 1
+    },
+    {
+      "case_id": "forensic-h-004",
+      "category": "h",
+      "passed": true,
+      "notes": "first_ok=true second_expected_throw=DUPLICATE_TURN second_actual=DUPLICATE_TURN audit_rows=1 (expected 1)",
+      "details": {
+        "first_result": {
+          "ok": true,
+          "audit_id": "ca_1"
+        },
+        "second_result": {
+          "ok": false,
+          "thrown_code": "DUPLICATE_TURN",
+          "message": "duplicate (conversation_id, turn_number, role) — append-only invariant violation"
+        }
+      },
+      "repeats": 10,
+      "passes": 10,
+      "pass_rate": 1,
+      "ciLow": 0.7224598312333834,
+      "ciHigh": 1
+    },
+    {
+      "case_id": "reinforce-i-001",
+      "category": "i",
+      "passed": true,
+      "notes": "expected_confidence_in_range=[1, 1] actual=1.0000 in_range=true",
+      "details": {
+        "row": {
+          "fact_id": "usf_1",
+          "user_id": "user_eval_i001",
+          "fact_type": "communication_style",
+          "payload": "wants terse answers",
+          "confidence": 1,
+          "source": "user_stated",
+          "written_by": "chat_agent",
+          "first_observed": 1778990453048,
+          "last_reinforced": 1778990453048,
+          "observation_count": 1
+        },
+        "expected_range": [
+          1,
+          1
+        ]
+      },
+      "repeats": 10,
+      "passes": 10,
+      "pass_rate": 1,
+      "ciLow": 0.7224598312333834,
+      "ciHigh": 1
+    },
+    {
+      "case_id": "reinforce-i-002",
+      "category": "i",
+      "passed": true,
+      "notes": "expected_confidence_in_range=[0.749, 0.751] actual=0.7500 in_range=true obs_count=2 (expected 2)",
+      "details": {
+        "row": {
+          "fact_id": "usf_1",
+          "user_id": "user_eval_i002",
+          "fact_type": "service_preference",
+          "payload": "always declines synthetic blend",
+          "confidence": 0.75,
+          "source": "user_stated",
+          "written_by": "chat_agent",
+          "first_observed": 1778990453049,
+          "last_reinforced": 1778990453049,
+          "observation_count": 2
+        },
+        "expected_range": [
+          0.749,
+          0.751
+        ]
+      },
+      "repeats": 10,
+      "passes": 10,
+      "pass_rate": 1,
+      "ciLow": 0.7224598312333834,
+      "ciHigh": 1
+    },
+    {
+      "case_id": "reinforce-i-003",
+      "category": "i",
+      "passed": true,
+      "notes": "expected_confidence_in_range=[0.93, 0.94] actual=0.9375 in_range=true obs_count=4 (expected 4)",
+      "details": {
+        "row": {
+          "fact_id": "usf_1",
+          "user_id": "user_eval_i003",
+          "fact_type": "mechanic_preference",
+          "payload": "books with Carlos repeatedly",
+          "confidence": 0.9375,
+          "source": "inferred_behavior",
+          "written_by": "chat_agent",
+          "first_observed": 1778990453049,
+          "last_reinforced": 1778990453049,
+          "observation_count": 4
+        },
+        "expected_range": [
+          0.93,
+          0.94
+        ]
+      },
+      "repeats": 10,
+      "passes": 10,
+      "pass_rate": 1,
+      "ciLow": 0.7224598312333834,
+      "ciHigh": 1
+    },
+    {
+      "case_id": "reinforce-i-004",
+      "category": "i",
+      "passed": true,
+      "notes": "retracted_at_set=true working_memory_excludes_fact=true (working_memory=[])",
+      "details": {
+        "row": {
+          "fact_id": "usf_1",
+          "user_id": "user_eval_i004",
+          "fact_type": "vehicle_quirk",
+          "payload": "pulls left when cold",
+          "confidence": 1,
+          "source": "user_stated",
+          "written_by": "chat_agent",
+          "first_observed": 1778990453049,
+          "last_reinforced": 1778990453049,
+          "observation_count": 1,
+          "retracted_at": 1778990453049,
+          "retracted_reason": "user said quirk was actually a misaligned bumper"
+        },
+        "working_memory_fact_ids": [],
+        "retracted_fact_id": "usf_1"
+      },
+      "repeats": 10,
+      "passes": 10,
+      "pass_rate": 1,
+      "ciLow": 0.7224598312333834,
+      "ciHigh": 1
+    },
+    {
+      "case_id": "reinforce-i-005",
+      "category": "i",
+      "passed": true,
+      "notes": "at_120d=0.5000 (exp ~0.5) at_240d=0.2500 (exp ~0.25) at_3600d=0.1000 (exp 0.10 floor) | [LIVE: requires Day 5 decay impl]",
+      "details": {
+        "at_120d": 0.5,
+        "at_240d": 0.25,
+        "at_3600d_floored": 0.1,
+        "half_life_days": 120,
+        "floor": 0.1
+      },
+      "repeats": 10,
+      "passes": 10,
+      "pass_rate": 1,
+      "ciLow": 0.7224598312333834,
+      "ciHigh": 1
+    },
+    {
+      "case_id": "wave-2-4-A1-right-factual",
+      "category": "f",
+      "passed": true,
+      "notes": "subtype=answer_body expected=PASS actual=PASS — [mock] right-example case wave-2-4-A1-right-factual: mock judge returns PASS to match expected_judge_verdict.",
+      "details": {
+        "subtype": "answer_body",
+        "expected_verdict": "PASS",
+        "actual_verdict": "PASS",
+        "candidate_response": "[mock] no candidate_response in fixture; live mode would call Oto.",
+        "rationale": "[mock] right-example case wave-2-4-A1-right-factual: mock judge returns PASS to match expected_judge_verdict.",
+        "fixture_category": "wave_2_4_boundary",
+        "fixture_pass_threshold": 0.9
+      },
+      "repeats": 10,
+      "passes": 10,
+      "pass_rate": 1,
+      "ciLow": 0.7224598312333834,
+      "ciHigh": 1
+    },
+    {
+      "case_id": "wave-2-4-A2-right-opinion",
+      "category": "f",
+      "passed": true,
+      "notes": "subtype=answer_body expected=PASS actual=PASS — [mock] right-example case wave-2-4-A2-right-opinion: mock judge returns PASS to match expected_judge_verdict.",
+      "details": {
+        "subtype": "answer_body",
+        "expected_verdict": "PASS",
+        "actual_verdict": "PASS",
+        "candidate_response": "[mock] no candidate_response in fixture; live mode would call Oto.",
+        "rationale": "[mock] right-example case wave-2-4-A2-right-opinion: mock judge returns PASS to match expected_judge_verdict.",
+        "fixture_category": "wave_2_4_boundary",
+        "fixture_pass_threshold": 0.9
+      },
+      "repeats": 10,
+      "passes": 10,
+      "pass_rate": 1,
+      "ciLow": 0.7224598312333834,
+      "ciHigh": 1
+    },
+    {
+      "case_id": "wave-2-4-A3-right-multistep",
+      "category": "f",
+      "passed": true,
+      "notes": "subtype=answer_body expected=PASS actual=PASS — [mock] right-example case wave-2-4-A3-right-multistep: mock judge returns PASS to match expected_judge_verdict.",
+      "details": {
+        "subtype": "answer_body",
+        "expected_verdict": "PASS",
+        "actual_verdict": "PASS",
+        "candidate_response": "[mock] no candidate_response in fixture; live mode would call Oto.",
+        "rationale": "[mock] right-example case wave-2-4-A3-right-multistep: mock judge returns PASS to match expected_judge_verdict.",
+        "fixture_category": "wave_2_4_boundary",
+        "fixture_pass_threshold": 0.9
+      },
+      "repeats": 10,
+      "passes": 10,
+      "pass_rate": 1,
+      "ciLow": 0.7224598312333834,
+      "ciHigh": 1
+    },
+    {
+      "case_id": "wave-2-4-W1-wrong-apology-spiral",
+      "category": "f",
+      "passed": true,
+      "notes": "subtype=answer_body expected=FAIL actual=FAIL — [mock] wrong-example case wave-2-4-W1-wrong-apology-spiral: mock judge returns FAIL to match expected_judge_verdict.",
+      "details": {
+        "subtype": "answer_body",
+        "expected_verdict": "FAIL",
+        "actual_verdict": "FAIL",
+        "candidate_response": "Sorry, I had to look this one up online — I'm not 100% sure, but I think the 2017 CX-5 2.5L might take around 4.5 quarts? You should probably double-check this with a mechanic or the owner's manual before trusting it. AI-generated content may contain errors.",
+        "rationale": "[mock] wrong-example case wave-2-4-W1-wrong-apology-spiral: mock judge returns FAIL to match expected_judge_verdict.",
+        "fixture_category": "wave_2_4_boundary",
+        "fixture_pass_threshold": 0.9
+      },
+      "repeats": 10,
+      "passes": 10,
+      "pass_rate": 1,
+      "ciLow": 0.7224598312333834,
+      "ciHigh": 1
+    },
+    {
+      "case_id": "wave-2-4-W4-wrong-scarcity-framing",
+      "category": "f",
+      "passed": true,
+      "notes": "subtype=answer_body expected=FAIL actual=FAIL — [mock] wrong-example case wave-2-4-W4-wrong-scarcity-framing: mock judge returns FAIL to match expected_judge_verdict.",
+      "details": {
+        "subtype": "answer_body",
+        "expected_verdict": "FAIL",
+        "actual_verdict": "FAIL",
+        "candidate_response": "Sorry, I had to look this one up online so it might be wrong, but here are some possibilities — VVT-i solenoid, low oil, timing chain stretch. Sorry again, I know this isn't as reliable as you'd want. To the best of my knowledge, the priming sound is probably normal.",
+        "rationale": "[mock] wrong-example case wave-2-4-W4-wrong-scarcity-framing: mock judge returns FAIL to match expected_judge_verdict.",
+        "fixture_category": "wave_2_4_boundary",
+        "fixture_pass_threshold": 0.9
+      },
+      "repeats": 10,
+      "passes": 10,
+      "pass_rate": 1,
+      "ciLow": 0.7224598312333834,
+      "ciHigh": 1
+    },
+    {
+      "case_id": "wave-2-4-W5-wrong-legalese-preamble",
+      "category": "f",
+      "passed": true,
+      "notes": "subtype=answer_body expected=FAIL actual=FAIL — [mock] wrong-example case wave-2-4-W5-wrong-legalese-preamble: mock judge returns FAIL to match expected_judge_verdict.",
+      "details": {
+        "subtype": "answer_body",
+        "expected_verdict": "FAIL",
+        "actual_verdict": "FAIL",
+        "candidate_response": "Disclaimer: this information is from web sources and may be inaccurate. Oto does not guarantee the accuracy of unverified content. Please note that you should consult a qualified professional before acting on this information. The 2014 Focus 2.0L timing chain at 140k may be in the wear window.",
+        "rationale": "[mock] wrong-example case wave-2-4-W5-wrong-legalese-preamble: mock judge returns FAIL to match expected_judge_verdict.",
+        "fixture_category": "wave_2_4_boundary",
+        "fixture_pass_threshold": 0.9
+      },
+      "repeats": 10,
+      "passes": 10,
+      "pass_rate": 1,
+      "ciLow": 0.7224598312333834,
+      "ciHigh": 1
+    },
+    {
+      "case_id": "wave-2-4-post-report-V1-factual",
+      "category": "f",
+      "passed": true,
+      "notes": "subtype=post_report expected=PASS actual=PASS — [mock] right-example case wave-2-4-post-report-V1-factual: mock judge returns PASS to match expected_judge_verdict.",
+      "details": {
+        "subtype": "post_report",
+        "expected_verdict": "PASS",
+        "actual_verdict": "PASS",
+        "candidate_response": "[mock] no candidate_response in fixture; live mode would call Oto.",
+        "rationale": "[mock] right-example case wave-2-4-post-report-V1-factual: mock judge returns PASS to match expected_judge_verdict.",
+        "fixture_category": "wave_2_4_post_report",
+        "fixture_pass_threshold": 0.9
+      },
+      "repeats": 10,
+      "passes": 10,
+      "pass_rate": 1,
+      "ciLow": 0.7224598312333834,
+      "ciHigh": 1
+    },
+    {
+      "case_id": "wave-2-4-post-report-W-timeline-promise",
+      "category": "f",
+      "passed": true,
+      "notes": "subtype=post_report expected=FAIL actual=FAIL — [mock] wrong-example case wave-2-4-post-report-W-timeline-promise: mock judge returns FAIL to match expected_judge_verdict.",
+      "details": {
+        "subtype": "post_report",
+        "expected_verdict": "FAIL",
+        "actual_verdict": "FAIL",
+        "candidate_response": "Sorry for the inconvenience! Your feedback is important to us. A member of our team will review your report and we'll get back to you within 24 hours. Your report has been submitted to our queue.",
+        "rationale": "[mock] wrong-example case wave-2-4-post-report-W-timeline-promise: mock judge returns FAIL to match expected_judge_verdict.",
+        "fixture_category": "wave_2_4_post_report",
+        "fixture_pass_threshold": 0.9
+      },
+      "repeats": 10,
+      "passes": 10,
+      "pass_rate": 1,
+      "ciLow": 0.7224598312333834,
+      "ciHigh": 1
+    }
+  ]
+}

@@ -1,4 +1,90 @@
-# Oto AI — Tool Inventory (v3)
+# Oto AI — Tool Inventory
+
+> **Status:** Living document. Current runtime: prompt v0.9. The historical v3 sections below this header are Phase 1 reference material; the **v0.9 Current Tools** section immediately below is the authoritative inventory.
+> **Companion artifacts:** `convex/oto/tools.ts` (schemas, source-of-truth), `convex/oto/chat.ts` (TOOL_NAMES_V1 — wired set), `convex/oto/dispatcher.ts` (category dispatch), `docs/oto-ai/Oto_AI_v0.9_Handoff.md` (latest session handoff).
+
+---
+
+## v0.9 Current Tools (authoritative — supersedes v3 section below)
+
+Five categories. Source-of-truth: `convex/oto/tools.ts` schemas + `convex/oto/chat.ts` TOOL_NAMES_V1.
+
+### Data tools (read-only, dispatched by `executeDataTool`)
+
+| Tool | Purpose | Backed by |
+|---|---|---|
+| `list_services_for_vehicle` | Service catalog applicable to user's vehicle (compatibility filtering deferred) | `convex/services.ts:list` |
+| `get_service_details` | One service by snake_case slug | `convex/services.ts:list` + slug validation |
+| `get_vehicle_health` | Score + per-item maintenance breakdown + warning lights for the user's car | `convex/oto/vehicleHealth.ts:getVehicleHealth` |
+| `get_projected_health_score` | Counterfactual score if one item flipped to on-time (conversion lever) | `convex/oto/vehicleHealth.ts:getProjectedHealthScore` |
+| `get_bookings` | User's bookings, filter by status (active/completed/all), limit | `convex/oto/bookings.ts:getBookings` |
+| `get_due_services` | Overdue + due-soon services for the user's car | `convex/oto/dueServices.ts:getDueServices` |
+| `get_vehicle_facts` | Engine / transmission / drivetrain / tire / fluid specs for the user's car | `convex/oto/vehicleFacts.ts:getVehicleFacts` |
+| `lookup_vehicle_spec` | Comparison-car factual lookup against the catalog (any car, not just user's). Word-boundary fuzzy match. | `convex/oto/lookupVehicleSpec.ts:lookupVehicleSpec` |
+| `retrieve_vehicle_facts` | KB search (semantic if embedding API key set, else structural fallback by config / chassis / engine) | `convex/oto/vehicleFactsKB.ts:lookupFactsStructural` + `lookupFactsSemantic` |
+
+### State tools (side-effect writes; don't gate loop continuation)
+
+| Tool | Purpose | Backed by |
+|---|---|---|
+| `update_conversation_state` | Haiku writes mood / arc / established_facts / last_intent on every turn — read back in next turn's envelope | `convex/ai_conversations.ts:updateState` |
+| `record_vehicle_fact` | Persist a factual statement to the KB (mandatory after every factual answer) | `convex/oto/vehicleFactsKB.ts:recordFact` |
+
+### Model-routing tools (Sonnet cascade, Phase 2 scaffolding)
+
+| Tool | Purpose | Backed by |
+|---|---|---|
+| `request_sonnet_handoff` | Haiku escalates the NEXT turn to Sonnet — sets `ai_conversations.current_model = "sonnet"` | `convex/ai_conversations.ts:setCurrentModel` |
+| `request_haiku_handback` | Sonnet returns routing to Haiku at default cost | same |
+
+### Render tools (terminal — calling one ends Oto's turn)
+
+| Tool | What it triggers | Input shape | Notes |
+|---|---|---|---|
+| `render_quick_replies` | Tap-to-send buttons | `replies: [{id, text, value?, variant?}]` | 2–4 replies; tap sends as user message |
+| `render_diagnostic_form` | Diagnostic booking subsystem + customer notes | `diagnostic_system` (enum) + `customer_notes` (free-form) | Decision B mapping; Decision C free-form |
+| `render_service_picker` | Service catalog with one service highlighted | `pre_selected_id` + optional `services[]` (no price field) | First stage of booking flow |
+| `render_shop_carousel` | **Trigger-only** — Oto passes intent IDs, frontend renders mechanics | `service_slug` + `priority` ONLY | Mobile component queries Convex for mechanics + their prices |
+| `render_time_selector` | **Trigger-only** — slot picker for the selected mechanic | `mechanic_id` + `service_slug` ONLY | Mobile component queries Convex for slots |
+| `render_booking_confirmation` | **Trigger-only** — final summary | `service_slug` + `mechanic_id` + `slot_id` + `vehicle_id` ONLY | Mobile component queries Convex for real pricing. **End of Oto's involvement in the booking flow** — "Confirm Booking" button on the card triggers mobile redirect to `/home/mechanic/{id}/payment` |
+
+### Server-managed tools (Anthropic-provided, not in OTO_TOOL_CATEGORY)
+
+| Tool | Purpose | Notes |
+|---|---|---|
+| `web_search` | Last-resort factual lookup when KB + catalog both miss | Anthropic `web_search_20250305` tool, `anthropic-beta` header required. Policy gates: no pricing, recalls (use NHTSA), financing, legal. After answering, MUST call `record_vehicle_fact` with `source: "web_search"` and `cited_url`. |
+
+### Tools defined in schema but NOT in `TOOL_NAMES_V1` (advertised-but-unwired — invariant check tolerates)
+
+- `get_my_vehicles`, `list_service_categories`, `get_shop`, `get_shop_services`, `get_shop_hours`, `get_mechanic`, `get_my_mechanics`, `get_reviews`, `find_available_slots`, `get_rewards_summary` — defined in `tools.ts` for future wiring. Most have backing queries in `convex/shops.ts` / `convex/mechanics.ts` / `convex/bookings.ts` but aren't surfaced to Haiku because the trigger-only render-tool architecture doesn't need Oto to compose this data.
+- `navigate_to_payment` — explicitly removed from `TOOL_NAMES_V1` in v0.9. Oto's involvement ends at `render_booking_confirmation`; the mobile component handles the payment redirect.
+- `render_shop_carousel` legacy schema with full shop arrays — **deprecated.** v0.9 schema is trigger-only.
+- `render_support_form`, `render_reasoning`, `render_sources` — schemas defined but not in TOOL_NAMES_V1. Not currently used.
+
+### Booking flow chain (6 stages — see `services/ai/scenarios.ts` + `Oto_AI_v0.9_Handoff.md`)
+
+```
+1. service_selection      → render_service_picker (pre_selected_id)
+2. diagnostic_form        → render_diagnostic_form (skip for non-diagnostic services)
+3. priority_selection     → render_quick_replies (Closest / Best rated / Best price)
+4. shop_selection         → render_shop_carousel (TRIGGER)
+5. time_selection         → render_time_selector (TRIGGER)
+6. confirmation           → render_booking_confirmation (TRIGGER, then frontend redirects to payment)
+```
+
+Each stage = one render per turn. User advances via component interaction; mobile frontend pushes selected IDs into `ai_conversations.established_facts` via `appendEstablishedFact` mutation BEFORE the user's natural-language confirmation message reaches Haiku. The next turn's envelope replays those IDs in `<conversation_state>`.
+
+### Pricing rule (v0.9 — load-bearing)
+
+Oto **never** composes, quotes, or estimates prices. Anywhere. The mobile components query Convex for real mechanic quotes when rendering. The `render_service_picker` schema has no `price` field. The trigger-only carousel/selector/confirmation pass IDs only — components own pricing display.
+
+### Cap counter (deferred to finalization per founder direction)
+
+Vision-doc 5/25/150 monthly question budget. Schema field + envelope budget + prompt cap-template all unbuilt. Picked up at launch prep.
+
+---
+
+## Historical reference — v3 Phase 1 spec (pre-runtime)
 
 > **Status:** Phase 1 scaffold — read-only data tools + inline render directives + one navigation case.
 > **Companion artifacts:** `convex/oto/tools.ts` (schemas), `convex/oto/dispatcher.ts` (dispatcher skeleton), `docs/oto-ai/handoff-addendum.md` (locked Section 4.5), `docs/oto-ai/slug-drift-remediation.md` (parking-lot for kebab→snake cleanup).

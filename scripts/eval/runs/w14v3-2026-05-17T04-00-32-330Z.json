@@ -1,0 +1,98 @@
+{
+  "run_id": "w14v3-2026-05-17T04-00-32-330Z",
+  "started_at": "2026-05-17T04:00:32.330Z",
+  "completed_at": "2026-05-17T04:00:32.331Z",
+  "mode": "mock",
+  "repeats": 1,
+  "cases": [
+    {
+      "case_id": "memory-g-001",
+      "category": "g",
+      "passed": true,
+      "notes": "helper_path_ok=true rows_written=1 (CI Rule 13 defends the negative direction)",
+      "details": {
+        "helper_result": {
+          "ok": true,
+          "fact_id": "cf_1"
+        },
+        "ci_rule": "Rule 13"
+      },
+      "repeats": 1,
+      "passes": 1,
+      "pass_rate": 1,
+      "ciLow": 0.20654329147389294,
+      "ciHigh": 1
+    },
+    {
+      "case_id": "memory-g-002",
+      "category": "g",
+      "passed": true,
+      "notes": "expected_throw=VALIDATOR_REJECT actual=VALIDATOR_REJECT rows_written=0 (expected 0)",
+      "details": {
+        "helper_result": {
+          "ok": false,
+          "thrown_code": "VALIDATOR_REJECT",
+          "message": "written_by=\"rogue_agent\" not in [chat_agent, user_selection, health_monitor, system]"
+        }
+      },
+      "repeats": 1,
+      "passes": 1,
+      "pass_rate": 1,
+      "ciLow": 0.20654329147389294,
+      "ciHigh": 1
+    },
+    {
+      "case_id": "memory-g-003",
+      "category": "g",
+      "passed": true,
+      "notes": "expected_throw=LEGALITY_MATRIX actual=LEGALITY_MATRIX rows_written=0 (expected 0)",
+      "details": {
+        "helper_result": {
+          "ok": false,
+          "thrown_code": "LEGALITY_MATRIX",
+          "message": "(source=\"mechanic_confirmed\", written_by=\"health_monitor\") is illegal"
+        }
+      },
+      "repeats": 1,
+      "passes": 1,
+      "pass_rate": 1,
+      "ciLow": 0.20654329147389294,
+      "ciHigh": 1
+    },
+    {
+      "case_id": "memory-g-004",
+      "category": "g",
+      "passed": true,
+      "notes": "expected_throw=ROLE_MISMATCH actual=ROLE_MISMATCH rows_written=0 (expected 0)",
+      "details": {
+        "helper_result": {
+          "ok": false,
+          "thrown_code": "ROLE_MISMATCH",
+          "message": "written_by=\"user_selection\" is reserved for recordSelectionFact"
+        }
+      },
+      "repeats": 1,
+      "passes": 1,
+      "pass_rate": 1,
+      "ciLow": 0.20654329147389294,
+      "ciHigh": 1
+    },
+    {
+      "case_id": "memory-g-005",
+      "category": "g",
+      "passed": true,
+      "notes": "stageA_exclude_ok=true (working_memory=[] expected to NOT include cf_1) stageB_judge=true (mock-only PASS)",
+      "details": {
+        "working_memory_fact_ids": [],
+        "retracted_fact_id": "cf_1",
+        "stage_a": true,
+        "stage_b": true
+      },
+      "repeats": 1,
+      "passes": 1,
+      "pass_rate": 1,
+      "ciLow": 0.20654329147389294,
+      "ciHigh": 1
+    }
+  ]
+}

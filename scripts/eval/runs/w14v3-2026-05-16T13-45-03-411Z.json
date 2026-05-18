@@ -1,0 +1,139 @@
+{
+  "run_id": "w14v3-2026-05-16T13-45-03-411Z",
+  "started_at": "2026-05-16T13:45:03.411Z",
+  "completed_at": "2026-05-16T13:45:03.412Z",
+  "mode": "mock",
+  "repeats": 1,
+  "cases": [
+    {
+      "case_id": "crosstenant-d-001",
+      "category": "d",
+      "passed": true,
+      "notes": "mode=mock tier=T1 (exp T1) tag=false (exp false) web=false (exp false) assertions=true",
+      "details": {
+        "cascade": {
+          "resolved_tier": "T1",
+          "first_hit_facts": [
+            {
+              "fact_text": "quart",
+              "render_disclaim_tag": false
+            }
+          ],
+          "union_facts": [
+            {
+              "fact_text": "quart",
+              "render_disclaim_tag": false
+            }
+          ],
+          "actual_render_tag": false,
+          "web_search_invoked": false,
+          "per_tier_counts": {
+            "T1": 1
+          }
+        },
+        "cross_tenant": true,
+        "fixture": {
+          "make": "EvalTest",
+          "model": "CrossTenantFixture",
+          "year_min": 9999,
+          "year_max": 9999,
+          "chassis_code": "EVAL-CHASSIS-A",
+          "engine_code": "EVAL-I4-1.5T"
+        }
+      },
+      "repeats": 1,
+      "passes": 1,
+      "pass_rate": 1,
+      "ciLow": 0.20654329147389294,
+      "ciHigh": 1
+    },
+    {
+      "case_id": "crosstenant-d-002",
+      "category": "d",
+      "passed": true,
+      "notes": "mode=mock tier=T2_HASH (exp T2_HASH) tag=false (exp false) fact.render_tag=false assertions=true",
+      "details": {
+        "cascade": {
+          "resolved_tier": "T2_HASH",
+          "first_hit_facts": [
+            {
+              "fact_text": "cabin air filter — 87139-EVAL-FIX",
+              "render_disclaim_tag": false
+            }
+          ],
+          "union_facts": [
+            {
+              "fact_text": "cabin air filter — 87139-EVAL-FIX",
+              "render_disclaim_tag": false
+            }
+          ],
+          "actual_render_tag": false,
+          "web_search_invoked": false,
+          "per_tier_counts": {
+            "T2_HASH": 1
+          }
+        },
+        "cross_tenant": true,
+        "fixture": {
+          "make": "EvalTest",
+          "model": "CrossTenantFixture",
+          "year_min": 9999,
+          "year_max": 9999,
+          "chassis_code": "EVAL-CHASSIS-A",
+          "engine_code": "EVAL-I4-1.5T"
+        },
+        "setup": "userA writes web_search row + verifies; userB reads",
+        "seeded_fact_id": null
+      },
+      "repeats": 1,
+      "passes": 1,
+      "pass_rate": 1,
+      "ciLow": 0.20654329147389294,
+      "ciHigh": 1
+    },
+    {
+      "case_id": "crosstenant-d-003",
+      "category": "d",
+      "passed": true,
+      "notes": "mode=mock tier=T2_HASH (exp T2_HASH) tag=true (exp true) fact.render_tag=true assertions=true",
+      "details": {
+        "cascade": {
+          "resolved_tier": "T2_HASH",
+          "first_hit_facts": [
+            {
+              "fact_text": "octane — 91",
+              "render_disclaim_tag": true
+            }
+          ],
+          "union_facts": [
+            {
+              "fact_text": "octane — 91",
+              "render_disclaim_tag": true
+            }
+          ],
+          "actual_render_tag": true,
+          "web_search_invoked": false,
+          "per_tier_counts": {
+            "T2_HASH": 1
+          }
+        },
+        "cross_tenant": true,
+        "fixture": {
+          "make": "EvalTest",
+          "model": "CrossTenantFixture",
+          "year_min": 9999,
+          "year_max": 9999,
+          "chassis_code": "EVAL-CHASSIS-A",
+          "engine_code": "EVAL-I4-1.5T"
+        },
+        "setup": "userA writes web_search row (unverified); userB reads",
+        "seeded_fact_id": null
+      },
+      "repeats": 1,
+      "passes": 1,
+      "pass_rate": 1,
+      "ciLow": 0.20654329147389294,
+      "ciHigh": 1
+    }
+  ]
+}

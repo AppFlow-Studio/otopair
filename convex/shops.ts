@@ -403,6 +403,7 @@ export const updateMySchedulingSettings = mutation({
     noShowThresholdMinutes: v.number(),
     overrunDefaultExtensionPercent: v.number(),
     overrunExtensionFloorMinutes: v.number(),
+    bufferMinutes: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const { user } = await getCurrentUser(ctx);
@@ -421,6 +422,13 @@ export const updateMySchedulingSettings = mutation({
     if (!Number.isFinite(args.overrunExtensionFloorMinutes) || args.overrunExtensionFloorMinutes < 0) {
       throw new Error("Overrun extension floor must be 0 or greater.");
     }
+    const ALLOWED_BUFFERS = [10, 15, 20, 30];
+    if (
+      args.bufferMinutes != null &&
+      !ALLOWED_BUFFERS.includes(Math.round(args.bufferMinutes))
+    ) {
+      throw new Error("Buffer minutes must be one of 10, 15, 20, or 30.");
+    }
 
     await ctx.db.patch(primary.shop._id, {
       no_show_threshold_minutes: Number.isFinite(args.noShowThresholdMinutes)
@@ -436,6 +444,9 @@ export const updateMySchedulingSettings = mutation({
       )
         ? Math.round(args.overrunExtensionFloorMinutes)
         : DEFAULT_OVERRUN_EXTENSION_FLOOR_MINUTES,
+      ...(args.bufferMinutes != null
+        ? { buffer_minutes: Math.round(args.bufferMinutes) }
+        : {}),
     });
 
     return primary.shop._id;

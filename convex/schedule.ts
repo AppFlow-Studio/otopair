@@ -55,6 +55,32 @@ async function resolveServiceNames(ctx: any, serviceIds?: Array<any>) {
   return names;
 }
 
+/** Like `resolveServiceNames` but appends the per-service option label
+ *  (e.g. "Brake Pad Replacement — Front and rear", "Tire Rotation — Front 2 only")
+ *  when the booking has a selected_service_options entry for that service.
+ *  Used by the mechanic's schedule so the option is visible at a glance. */
+async function resolveServiceLabels(
+  ctx: any,
+  serviceIds: Array<any> | undefined,
+  selectedOptions:
+    | Array<{ service_id: any; option_label?: string }>
+    | undefined,
+): Promise<string[]> {
+  if (!serviceIds || serviceIds.length === 0) return [];
+  const byServiceId = new Map<string, string>();
+  for (const opt of selectedOptions ?? []) {
+    if (opt.option_label) byServiceId.set(String(opt.service_id), opt.option_label);
+  }
+  return await Promise.all(
+    serviceIds.map(async (serviceId: any) => {
+      const service = await ctx.db.get(serviceId);
+      const name = service?.name ?? "Unknown Service";
+      const label = byServiceId.get(String(serviceId));
+      return label ? `${name} — ${label}` : name;
+    }),
+  );
+}
+
 async function resolveVehicleDisplay(ctx: any, vin?: string | null): Promise<string | null> {
   if (!vin) return null;
   const vehicle = await ctx.db
@@ -301,10 +327,15 @@ export const getBookingsForRange = query({
           mechanicName: mechanic
             ? `${mechanic.first_name} ${mechanic.last_name}`.trim()
             : null,
-          serviceNames: await resolveServiceNames(ctx, booking.service_ids),
+          serviceNames: await resolveServiceLabels(
+            ctx,
+            booking.service_ids,
+            booking.selected_service_options,
+          ),
           vehicleDisplay: await resolveVehicleDisplay(ctx, booking.vin),
           licensePlate: booking.vin ? String(booking.vin).slice(-4) : null,
           totalCost: booking.total_cost,
+          customerNote: booking.customer_notes ?? null,
           recommendationState: booking.recommendation_state ?? null,
           diagnosticFollowupState: booking.diagnostic_followup_state ?? null,
         };
@@ -468,6 +499,7 @@ export const blockSlot = mutation({
         start_time: args.startTime,
         end_time: args.endTime,
         is_available: false,
+        block_kind: "manual",
         ...(args.title ? { title: args.title } : {}),
         ...(args.note ? { note: args.note } : {}),
       });
@@ -633,6 +665,7 @@ export const blockMechanicDay = mutation({
         start_time: openTime,
         end_time: closeTime,
         is_available: false,
+        block_kind: "auto_day_block",
       });
     } else {
       const bookedIntervals = mechanicBookings.map((booking: any) => ({
@@ -666,6 +699,7 @@ export const blockMechanicDay = mutation({
           start_time: gap.start,
           end_time: gap.end,
           is_available: false,
+          block_kind: "auto_day_block",
         });
       }
     }
@@ -733,6 +767,7 @@ export const copyBlockedSlotsToNextWeek = mutation({
         start_time: slot.start_time,
         end_time: slot.end_time,
         is_available: false,
+        block_kind: slot.block_kind ?? "manual",
         title: slot.title ?? undefined,
         note: slot.note ?? undefined,
       });
@@ -785,6 +820,7 @@ export const getShopServicesWithCategories = query({
             _id: service._id as string,
             name: service.name as string,
             slug: (service.slug ?? "") as string,
+            hasOptions: Boolean(service.has_options),
             defaultLaborHours: (service.default_labor_hours ?? 1) as number,
             displayOrder: (service.display_order ?? 0) as number,
             categoryId: service.service_category_id as string,
@@ -797,6 +833,7 @@ export const getShopServicesWithCategories = query({
       _id: string;
       name: string;
       slug: string;
+      hasOptions: boolean;
       defaultLaborHours: number;
       displayOrder: number;
       categoryId: string;

@@ -5,6 +5,20 @@
 
 ---
 
+## v0.9 Status note (read first)
+
+The "render, don't navigate" decision below is **still load-bearing** and now extends further. v0.9 codifies:
+
+- The 6-stage booking-flow chain (service_selection → confirmation) — each stage = ONE render tool per turn, user advances via component interaction
+- Trigger-only render schemas — Oto passes IDs only for `render_shop_carousel` / `render_time_selector` / `render_booking_confirmation`; the mobile components query Convex for real mechanic data and pricing
+- The `navigate_to_payment` tool is removed from `TOOL_NAMES_V1` in v0.9. **The "Confirm Booking" button on the booking_confirmation card is what triggers the mobile redirect to `/home/mechanic/{id}/payment`.** Oto's involvement ends at stage 6. There is no Oto turn for the payment hand-off.
+
+The scaffold map below (Section 4.5.1) is still accurate as a snapshot. The `services/ai/scenarios.ts` 7-stage rule engine has been retired; the v0.9 system prompt + render-tool chain replace it. The `ChatMessage` envelope fields documented below are still the wire-level shape — but for shop / time / booking confirmation, Haiku now passes IDs only and the mobile component fills in the data via Convex queries.
+
+For current state, see `Oto_AI_v0.9_Handoff.md`. The historical Section 4.5 body remains valuable for architectural rationale.
+
+---
+
 ## 4.5 The existing scaffold
 
 Phase 1 is **not greenfield**. There is a working chat in the app today, backed by a rule-based scenario engine, that already owns the full UI for the conversational booking flow. Phase 1's job is to **replace the rule engine with Claude while preserving the UI**. Map the scaffold before you draft tools.

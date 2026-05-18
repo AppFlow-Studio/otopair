@@ -1,20 +1,96 @@
+// import { cronJobs } from "convex/server";
+// import { internal } from "./_generated/api";
+// import { isLateStartTestModeEnabled } from "./lib/late_start";
+
+// const crons = cronJobs();
+
+// // crons.daily(
+// //   "mark-estimated-health-scores",
+// //   { hourUTC: 6, minuteUTC: 0 },
+// //   internal.checkin.markEstimatedHealthScores
+// // );
+
+// // Run account cleanup every day at 7:00 AM
+// crons.daily(
+//   "cleanup-expired-accounts",
+//   { hourUTC: 7, minuteUTC: 0 },
+//   internal.cleanup.cleanupExpiredAccounts,
+// );
+
+// // ─── Marketplace VIN Discovery Pipeline ─────────────────────────
+
+// Health Points decay — 2 pts per 30-day window per vehicle. The
+// mutation is idempotent within a window so a daily run is fine
+// (decay only fires when a full 30-day chunk has elapsed for a row).
+// crons.daily(
+//   "health-points-decay",
+//   { hourUTC: 8, minuteUTC: 0 },
+//   internal.healthPoints.applyDecay,
+// );
+
+// // Scrape CarGurus for VINs — runs twice daily (8 AM and 6 PM UTC)
+// crons.daily(
+//   "marketplace-scrape-cargurus-morning",
+//   { hourUTC: 8, minuteUTC: 0 },
+//   internal.vehicleEnrichment.marketplaceScraper.runScheduledScrape,
+//   { source: "cargurus" }
+// );
+
+// crons.daily(
+//   "marketplace-scrape-cargurus-evening",
+//   { hourUTC: 18, minuteUTC: 0 },
+//   internal.vehicleEnrichment.marketplaceScraper.runScheduledScrape,
+//   { source: "carscom" }
+// );
+
+// // Process VIN queue every 10 minutes — pick up pending VINs and trigger enrichment.
+// // Gated by env var ENRICHMENT_PAUSED — set to "true" in Convex env to pause without redeploying.
+// crons.interval(
+//   "process-vin-queue",
+//   { minutes: 10 },
+//   internal.vehicleEnrichment.marketplaceScraper.processVinQueue,
+// );
+
+// crons.interval(
+//   "revert-expired-booking-reschedules",
+//   { minutes: 15 },
+//   internal.bookings.revertExpiredReschedules,
+// );
+
+// crons.interval(
+//   "process-customer-late-monitors",
+//   { minutes: 1 },
+//   internal.bookings.processCustomerLateMonitors,
+// );
+
+// crons.interval(
+//   "process-overrun-checkins",
+//   { minutes: 1 },
+//   internal.bookings.processOverrunCheckins,
+// );
+
+
+// export default crons;
+
 import { cronJobs } from "convex/server";
 import { internal } from "./_generated/api";
 import { isLateStartTestModeEnabled } from "./lib/late_start";
 
 const crons = cronJobs();
 
-// crons.daily(
-//   "mark-estimated-health-scores",
-//   { hourUTC: 6, minuteUTC: 0 },
-//   internal.checkin.markEstimatedHealthScores
-// );
-
-// Run account cleanup every day at 7:00 AM
 crons.daily(
-  "cleanup-expired-accounts",
-  { hourUTC: 7, minuteUTC: 0 },
-  internal.cleanup.cleanupExpiredAccounts,
+  "expire-stale-recommendations",
+  { hourUTC: 6, minuteUTC: 0 },
+  internal.jobRecommendations.expireOlderThan12Months,
+);
+
+// Penalty depends on rec age (30-day ramp), so refresh nightly even when
+// no rec lifecycle event fires. Runs 30 min after expiry so newly-expired
+// recs are out of the open set first.
+crons.daily(
+  "recompute-rec-penalties",
+  { hourUTC: 6, minuteUTC: 30 },
+  internal.jobRecommendations.recomputeAllRecPenalties,
 );
 
 // Health Points decay — 2 pts per 30-day window per vehicle. The
@@ -24,37 +100,6 @@ crons.daily(
   "health-points-decay",
   { hourUTC: 8, minuteUTC: 0 },
   internal.healthPoints.applyDecay,
-);
-
-// ─── Marketplace VIN Discovery Pipeline ─────────────────────────
-
-// Scrape CarGurus for VINs — runs twice daily (8 AM and 6 PM UTC)
-crons.daily(
-  "marketplace-scrape-cargurus-morning",
-  { hourUTC: 8, minuteUTC: 0 },
-  internal.vehicleEnrichment.marketplaceScraper.runScheduledScrape,
-  { source: "cargurus" }
-);
-
-crons.daily(
-  "marketplace-scrape-cargurus-evening",
-  { hourUTC: 18, minuteUTC: 0 },
-  internal.vehicleEnrichment.marketplaceScraper.runScheduledScrape,
-  { source: "carscom" }
-);
-
-// Process VIN queue every 10 minutes — pick up pending VINs and trigger enrichment.
-// Gated by env var ENRICHMENT_PAUSED — set to "true" in Convex env to pause without redeploying.
-crons.interval(
-  "process-vin-queue",
-  { minutes: 10 },
-  internal.vehicleEnrichment.marketplaceScraper.processVinQueue,
-);
-
-crons.interval(
-  "revert-expired-booking-reschedules",
-  { minutes: 15 },
-  internal.bookings.revertExpiredReschedules,
 );
 
 crons.interval(
