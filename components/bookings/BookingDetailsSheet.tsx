@@ -21,6 +21,7 @@ import {
   ScrollView,
   StyleSheet,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
@@ -57,9 +58,7 @@ import { RescheduleSheet, type RescheduleSheetRef } from "./RescheduleSheet";
 // CONSTANTS (sheet mechanics — frozen)
 // ============================================================================
 
-const { height: SCREEN_HEIGHT } = Dimensions.get("window");
-
-const VISIBLE_MED = SCREEN_HEIGHT * 0.66;
+const { height: FALLBACK_SCREEN_HEIGHT } = Dimensions.get("window");
 
 const SIDE_INSET_MAX = 10;
 const CORNER_RADIUS = 46;
@@ -141,6 +140,7 @@ export const BookingDetailsSheet = forwardRef<BookingDetailsSheetRef, BookingDet
     } = props;
 
     const insets = useSafeAreaInsets();
+    const { height: screenHeight } = useWindowDimensions();
     const [booking, setBooking] = useState<Booking | null>(null);
     // 0 = mid (default on open), 1 = full. Peek snap is gone — drag below mid dismisses.
     const [detentJs, setDetentJs] = useState<0 | 1>(0);
@@ -148,11 +148,18 @@ export const BookingDetailsSheet = forwardRef<BookingDetailsSheetRef, BookingDet
     // Sheet height so that at full snap the sheet spans from below the status bar
     // all the way down to the screen bottom (full snap touches the edge).
     const FULL_HEIGHT = useMemo(
-      () => SCREEN_HEIGHT - Math.max(insets.top, 12) - 8,
-      [insets.top],
+      () => screenHeight - Math.max(insets.top, 12) - 8,
+      [insets.top, screenHeight],
     );
 
-    const H_MED = VISIBLE_MED;
+    const H_MED = useMemo(() => {
+      const viewportHeight = screenHeight || FALLBACK_SCREEN_HEIGHT;
+      const target = Math.max(
+        viewportHeight * 0.66,
+        Math.min(viewportHeight * 0.76, 640),
+      );
+      return Math.min(target, FULL_HEIGHT);
+    }, [FULL_HEIGHT, screenHeight]);
     const H_FULL = FULL_HEIGHT;
 
     const sheetHeight = useSharedValue(0);
@@ -511,7 +518,11 @@ function MidContent({
   const contactDisabled = !shopPhone;
 
   return (
-    <View style={styles.midContainer}>
+    <ScrollView
+      style={styles.midScroll}
+      contentContainerStyle={styles.midContainer}
+      showsVerticalScrollIndicator={false}
+    >
       {/* Top block — pushed to top */}
       <View>
         <SheetHeader onClose={onClose} />
@@ -621,7 +632,7 @@ function MidContent({
           Swipe up for full details
         </Text>
       </View>
-    </View>
+    </ScrollView>
   );
 }
 
@@ -1065,10 +1076,13 @@ const styles = StyleSheet.create({
   },
 
   // Mid content
-  midContainer: {
+  midScroll: {
     flex: 1,
+  },
+  midContainer: {
+    flexGrow: 1,
     paddingHorizontal: 20,
-    paddingBottom:85,
+    paddingBottom: 24,
     justifyContent: "space-between",
   },
   midBottomBlock: {

@@ -23,8 +23,10 @@ import {
   ActivityIndicator,
   Animated,
   Pressable,
+  ScrollView,
   StyleSheet,
   TextInput,
+  useWindowDimensions,
   View,
 } from "react-native";
 
@@ -36,13 +38,14 @@ import { Text } from "@/components/shared-ui";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { Booking } from "@/components/bookings/BookingCard";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // Two heights — the sheet animates between them when the mechanic
 // section toggles open. Module-scoped + memoized below so the array
 // reference is stable per branch (passing `[N]` inline would
 // retrigger FloatingSheet's enter animation on every render).
-const SNAP_HEIGHTS_COLLAPSED = [580];
-const SNAP_HEIGHTS_EXPANDED = [780];
+const COLLAPSED_SHEET_MIN_HEIGHT = 580;
+const EXPANDED_SHEET_MIN_HEIGHT = 780;
 
 const RATING_LABELS: Record<number, { text: string; color: string }> = {
   0: { text: "Tap a star to rate", color: "#9CA3AF" },
@@ -77,6 +80,8 @@ interface Props {
 export const LeaveReviewSheet = forwardRef<LeaveReviewSheetRef, Props>(
   ({ onClose, onSubmitted }, ref) => {
     const sheetRef = React.useRef<FloatingSheetRef>(null);
+    const insets = useSafeAreaInsets();
+    const { height: screenHeight } = useWindowDimensions();
     const [booking, setBooking] = useState<Booking | null>(null);
     const [userId, setUserId] = useState<string | null>(null);
     // Default to 5 stars — most reviews are positive and pre-filling
@@ -254,17 +259,31 @@ export const LeaveReviewSheet = forwardRef<LeaveReviewSheetRef, Props>(
 
     const ratingLabel = RATING_LABELS[rating] ?? RATING_LABELS[0];
     const submitDisabled = submitting || rating < 1;
+    const snapHeights = useMemo(() => {
+      const maxSheetHeight = screenHeight - Math.max(insets.top, 12) - 8;
+      const collapsedHeight = Math.min(
+        maxSheetHeight,
+        Math.max(COLLAPSED_SHEET_MIN_HEIGHT, screenHeight * 0.76),
+      );
+      const expandedHeight = Math.min(
+        maxSheetHeight,
+        Math.max(EXPANDED_SHEET_MIN_HEIGHT, screenHeight * 0.9),
+      );
+
+      return [mechanicIncluded ? expandedHeight : collapsedHeight];
+    }, [insets.top, mechanicIncluded, screenHeight]);
 
     return (
       <FloatingSheet
         ref={sheetRef}
-        snapHeights={
-          mechanicIncluded ? SNAP_HEIGHTS_EXPANDED : SNAP_HEIGHTS_COLLAPSED
-        }
+        snapHeights={snapHeights}
         onClose={handleClose}
         showBackdrop
       >
-        <View style={styles.body}>
+        <ScrollView
+          contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + 18 }]}
+          showsVerticalScrollIndicator={false}
+        >
           <View style={styles.header}>
             <Text
               size="2xl"
@@ -480,7 +499,7 @@ export const LeaveReviewSheet = forwardRef<LeaveReviewSheetRef, Props>(
               Not now
             </Text>
           </Pressable>
-        </View>
+        </ScrollView>
       </FloatingSheet>
     );
   },

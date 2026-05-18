@@ -9,8 +9,8 @@
  * USED IN: app/(main-tabs)/home/shop/[id]/index.tsx
  */
 
-import React from "react";
-import { Linking, Pressable, StyleSheet, View } from "react-native";
+import React, { useMemo, useState } from "react";
+import { Linking, PixelRatio, Pressable, StyleSheet, View } from "react-native";
 
 import { Bookmark, Calendar, Navigation, Phone, Star } from "lucide-react-native";
 
@@ -25,18 +25,50 @@ interface ShopHeroCardProps {
   isSaved?: boolean;
 }
 
+const ACTION_LABEL_MAX_SIZE = 12;
+const ACTION_LABEL_MIN_SIZE = 10;
+const ACTION_LABEL_LONGEST = "Directions";
+const ACTION_LABEL_WIDTH_RATIO = 0.62;
+const ACTION_BUTTON_COUNT = 4;
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
+}
+
+function getActionLabelSize(rowWidth: number, gap: number, horizontalPadding: number, fontScale: number): number {
+  if (rowWidth <= 0) return ACTION_LABEL_MAX_SIZE;
+
+  const chipWidth = (rowWidth - gap * (ACTION_BUTTON_COUNT - 1)) / ACTION_BUTTON_COUNT;
+  const availableLabelWidth = chipWidth - horizontalPadding;
+  const fittedSize =
+    availableLabelWidth / (ACTION_LABEL_LONGEST.length * ACTION_LABEL_WIDTH_RATIO * fontScale);
+
+  return clamp(fittedSize, ACTION_LABEL_MIN_SIZE, ACTION_LABEL_MAX_SIZE);
+}
+
 export function ShopHeroCard({
   shop,
   onSchedulePress,
   onSavePress,
   isSaved = false,
 }: ShopHeroCardProps) {
+  const [actionsWidth, setActionsWidth] = useState(0);
   const rating = typeof shop.rating === "number" ? shop.rating : null;
   const reviewCount = shop.reviewCount ?? 0;
   const distanceMi =
     typeof shop.distanceKm === "number"
       ? (shop.distanceKm * 0.621371).toFixed(1)
       : null;
+  const actionLabelSize = useMemo(
+    () =>
+      getActionLabelSize(
+        actionsWidth,
+        Spacing.sm,
+        Spacing.xs * 2,
+        PixelRatio.getFontScale(),
+      ),
+    [actionsWidth],
+  );
 
   const handleCall = () => {
     if (shop.phone) {
@@ -94,7 +126,10 @@ export function ShopHeroCard({
         </Text>
       ) : null}
 
-      <View style={styles.actions}>
+      <ActionRow
+        onLayoutWidth={setActionsWidth}
+        labelSize={actionLabelSize}
+      >
         <ActionChip
           icon={<Phone size={18} color={BrandColors.primary} />}
           label="Call"
@@ -123,7 +158,30 @@ export function ShopHeroCard({
           onPress={onSchedulePress}
           primary
         />
-      </View>
+      </ActionRow>
+    </View>
+  );
+}
+
+function ActionRow({
+  children,
+  labelSize,
+  onLayoutWidth,
+}: {
+  children: React.ReactNode;
+  labelSize: number;
+  onLayoutWidth: (width: number) => void;
+}) {
+  return (
+    <View
+      style={styles.actions}
+      onLayout={(event) => onLayoutWidth(event.nativeEvent.layout.width)}
+    >
+      {React.Children.map(children, (child) =>
+        React.isValidElement<ActionChipProps>(child)
+          ? React.cloneElement(child, { labelSize })
+          : child,
+      )}
     </View>
   );
 }
@@ -134,9 +192,10 @@ interface ActionChipProps {
   onPress?: () => void;
   primary?: boolean;
   disabled?: boolean;
+  labelSize?: number;
 }
 
-function ActionChip({ icon, label, onPress, primary, disabled }: ActionChipProps) {
+function ActionChip({ icon, label, onPress, primary, disabled, labelSize = ACTION_LABEL_MAX_SIZE }: ActionChipProps) {
   return (
     <Pressable
       onPress={onPress}
@@ -150,9 +209,12 @@ function ActionChip({ icon, label, onPress, primary, disabled }: ActionChipProps
     >
       {icon}
       <Text
-        size="xs"
+        size={labelSize}
         weight="semiBold"
         color={primary ? "#FFFFFF" : BrandColors.primary}
+        numberOfLines={1}
+        lineHeight={1.15}
+        center
       >
         {label}
       </Text>
