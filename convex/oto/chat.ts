@@ -108,6 +108,7 @@ const TOOL_NAMES_V1 = [
   "retract_conversation_fact",
   // Render tools — general-purpose chat UI affordances.
   "render_quick_replies",
+  "render_reasoning",
   "render_record_confirmation",
   // Booking flow — Sprint 4 Day 1 Pass B consolidation. Single terminal
   // render replacing the prior 6-tool chain (render_service_picker /
