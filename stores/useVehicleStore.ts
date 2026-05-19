@@ -40,6 +40,9 @@ export interface Vehicle {
   isDefault?: boolean;
   /** Convex engine ID for car-specific service labor/parts (from vehicles.engine_id) */
   engineId?: string;
+  /** Convex vehicle_owners._id for this ownership row — needed for per-vehicle
+   *  features like the quick-read gate that key off the `vehicle_owners` table. */
+  ownershipId?: string;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -76,7 +79,7 @@ interface VehicleState {
 interface ConvexVehicleOwnership {
   vin: string;
   vehicle: { year?: number; metadata?: unknown; engine_id?: string; image_url?: string } | null;
-  ownership?: { is_primary?: boolean; mileage?: number; nickname?: string };
+  ownership?: { _id?: string; is_primary?: boolean; mileage?: number; nickname?: string };
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -153,6 +156,7 @@ export const useVehicleStore = create<VehicleState>()((set, get) => ({
         mileage: r.ownership?.mileage,
         isDefault: r.ownership?.is_primary ?? ids.length === 0,
         engineId: r.vehicle?.engine_id as string | undefined,
+        ownershipId: r.ownership?._id,
         imageSource: isTransparent ? { uri: imageUrl } : undefined,
       };
       vehiclesRecord[vin] = v;

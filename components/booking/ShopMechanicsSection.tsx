@@ -6,7 +6,7 @@
  *          showing only that mechanic's reviews (queried via
  *          api.reviews.getByMechanicId).
  *
- * USED IN: app/(main-tabs)/home/shop/[id]/index.tsx (MECHANICS tab)
+ * USED IN: app/booking/shop/[id]/index.tsx (MECHANICS tab)
  *
  * PROPS:
  *   - shopId: Convex shops _id as string

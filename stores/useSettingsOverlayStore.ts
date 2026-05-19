@@ -1,11 +1,17 @@
 /**
  * useSettingsOverlayStore
  *
- * PURPOSE: Drives the shared-element open animation that lifts the
- *          Settings page on top of Home. The Home initials button
- *          measures itself with `view.measureInWindow` and writes the
- *          screen-space rect here; the SettingsOverlay reads that
- *          rect to know where the card should grow from.
+ * PURPOSE: Hands off the avatar's screen rect from
+ *          ProfileInitialsButton (which measures itself with
+ *          `view.measureInWindow`) to the profile-overlay route
+ *          (which uses it as the morph anchor — the card grows
+ *          from this rect to fullscreen and shrinks back on
+ *          close).
+ *
+ *          Open/close lifecycle is owned by the router now —
+ *          the overlay is a route (`app/profile-overlay.tsx`),
+ *          so navigation pushes destinations on top of it
+ *          naturally and back gestures reveal it underneath.
  *
  * USED IN:
  *   - components/home/ProfileInitialsButton.tsx (writes)
@@ -24,30 +30,11 @@ export interface SettingsOverlayRect {
 }
 
 interface SettingsOverlayState {
-  isOpen: boolean;
-  /** True from open() until the close animation fully unmounts. */
-  isMounted: boolean;
-  /** Kept for the Android/iOS <= 25 host, which owns local mount state. */
-  isTransitionVisible: boolean;
   fromRect: SettingsOverlayRect | null;
-  open: (rect: SettingsOverlayRect) => void;
-  close: () => void;
-  finishClose: () => void;
+  setFromRect: (rect: SettingsOverlayRect | null) => void;
 }
 
 export const useSettingsOverlayStore = create<SettingsOverlayState>((set) => ({
-  isOpen: false,
-  isMounted: false,
-  isTransitionVisible: false,
   fromRect: null,
-  open: (rect) =>
-    set({
-      isOpen: true,
-      isMounted: true,
-      isTransitionVisible: true,
-      fromRect: rect,
-    }),
-  close: () => set({ isOpen: false }),
-  finishClose: () =>
-    set({ isMounted: false, isTransitionVisible: false, fromRect: null }),
+  setFromRect: (rect) => set({ fromRect: rect }),
 }));

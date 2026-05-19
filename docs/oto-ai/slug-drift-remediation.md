@@ -1,6 +1,6 @@
 # Services-Slug Drift — Remediation Plan
 
-> **Status:** Surfaced 2026-05-11 during Oto AI tool-layer reconciliation. **Not in scope for the current Oto AI session.** This document parks the work for a future cleanup pass.
+> **Status:** Surfaced 2026-05-11 during Oto AI tool-layer reconciliation. **Still parked as of v0.9 (2026-05-14).** The Oto AI work through v0.9 has not touched any of the listed drift sites — those failures still latent in `convex/bookings.ts`, `maintenance_pipeline.ts`, `job_actuals.ts`, `packageRules.ts`, and the stale seed files. Picked up at a dedicated cleanup pass.
 > **Owner-decision needed before any of this is done** — the fixes have cross-feature blast radius and at least one of them (`seed.ts`) is potentially destructive.
 
 ---

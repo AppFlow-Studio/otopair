@@ -14,7 +14,7 @@
 
 // 1. React & React Native
 import React, { useCallback, useMemo } from "react";
-import { Image, ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
+import { Image, ScrollView, StyleSheet, TextInput, TouchableOpacity, View } from "react-native";
 
 // 2. Third-party libraries
 import { BottomSheetScrollView } from "@gorhom/bottom-sheet";
@@ -56,6 +56,21 @@ const SERVICE_FEE_RATE = 0.07;
 const SERVICE_FEE_MINIMUM = 4.99;
 const TAXES_AND_FEES = 5.0;
 
+// "8:15 AM" + 45 min → "9:00 AM". Returns null if input can't be parsed.
+function addMinutesToTimeLabel(label: string, minutes: number): string | null {
+  const match = label.trim().match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  if (!match) return null;
+  let hour = parseInt(match[1], 10) % 12;
+  if (match[3].toUpperCase() === "PM") hour += 12;
+  const total = hour * 60 + parseInt(match[2], 10) + minutes;
+  const wrapped = ((total % 1440) + 1440) % 1440;
+  const h24 = Math.floor(wrapped / 60);
+  const mm = wrapped % 60;
+  const period = h24 >= 12 ? "PM" : "AM";
+  const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
+  return `${h12}:${String(mm).padStart(2, "0")} ${period}`;
+}
+
 // ============================================================================
 // MAIN COMPONENT
 // ============================================================================
@@ -72,6 +87,8 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
   const selectedMechanicId = useBookingStore((state) => state.selectedMechanicId);
   const getFormattedAppointmentDate = useBookingStore((state) => state.getFormattedAppointmentDate);
   const getFormattedAppointmentTime = useBookingStore((state) => state.getFormattedAppointmentTime);
+  const customerNotes = useBookingStore((state) => state.customerNotes);
+  const setCustomerNotes = useBookingStore((state) => state.setCustomerNotes);
 
   // ═══════════════ MECHANIC STORE ═══════════════
   const getMechanicById = useMechanicStore((state) => state.getMechanicById);
@@ -152,9 +169,15 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
     ? `${selectedVehicle.year} ${selectedVehicle.make} ${selectedVehicle.model}`
     : "No vehicle selected";
 
-  // Format appointment display
-  const appointmentDisplay =
-    appointmentDate && appointmentTime ? `${appointmentDate} · ${appointmentTime}` : "Not scheduled";
+  // Format appointment display with computed end time (start – end)
+  const appointmentDisplay = useMemo(() => {
+    if (!appointmentDate || !appointmentTime) return "Not scheduled";
+    const totalMinutes = Math.max(0, Math.round((breakdown.laborHours ?? 0) * 60));
+    const endLabel = addMinutesToTimeLabel(appointmentTime, totalMinutes);
+    return endLabel
+      ? `${appointmentDate} · ${appointmentTime} – ${endLabel}`
+      : `${appointmentDate} · ${appointmentTime}`;
+  }, [appointmentDate, appointmentTime, breakdown.laborHours]);
 
   // Payment method
   const selectedPaymentMethod = getSelectedPaymentMethod();
@@ -355,6 +378,34 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
               ${breakdown.total.toFixed(2)}
             </Text>
           </View>
+        </View>
+
+        {/* Notes for the mechanic — read on the schedule card before
+            the job starts (e.g. "wheel lock is in the glovebox"). */}
+        <View style={styles.notesSection}>
+          <View style={styles.notesHeader}>
+            <FileText size={18} color="#6B7280" />
+            <Text size="md" weight="semiBold" color={BrandColors.primary}>
+              Notes for the mechanic
+            </Text>
+          </View>
+          <Text size="sm" weight="regular" color="#6B7280" style={styles.notesHelper}>
+            Anything the mechanic should know before starting? (Optional)
+          </Text>
+          <TextInput
+            value={customerNotes}
+            onChangeText={setCustomerNotes}
+            placeholder="e.g. wheel lock is in the glovebox, please use the rear gate to enter"
+            placeholderTextColor="#9CA3AF"
+            multiline
+            numberOfLines={3}
+            maxLength={500}
+            style={styles.notesInput}
+            textAlignVertical="top"
+          />
+          <Text size="xs" weight="regular" color="#9CA3AF" style={styles.notesCounter}>
+            {customerNotes.length}/500
+          </Text>
         </View>
 
         {/* Payment Options Section */}
@@ -583,6 +634,39 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.sm,
     paddingVertical: 4,
     borderRadius: BorderRadius.md,
+  },
+
+  // Notes Section
+  notesSection: {
+    marginBottom: Spacing.lg,
+    padding: Spacing.lg,
+    backgroundColor: BrandColors.white,
+    borderRadius: BorderRadius.xl,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+  },
+  notesHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.xs,
+    marginBottom: Spacing.xs,
+  },
+  notesHelper: {
+    marginBottom: Spacing.sm,
+  },
+  notesInput: {
+    minHeight: 80,
+    padding: Spacing.md,
+    backgroundColor: "#F8FAFC",
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    color: BrandColors.primary,
+    fontSize: 14,
+  },
+  notesCounter: {
+    marginTop: Spacing.xs,
+    textAlign: "right",
   },
 
   // Payment Section

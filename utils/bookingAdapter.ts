@@ -213,7 +213,7 @@ export function adaptConvexBookingWithDetailsToCard(row: ConvexBookingWithDetail
     date: formatBookingDate(row.scheduled_date),
     time: formatBookingTime(row.scheduled_time),
     status: displayStatus as BookingCardBooking["status"],
-    totalCost: row.status === "completed" ? row.total_cost : undefined,
+    totalCost: row.total_cost,
     notes,
     createdAt: row._creationTime,
     vin: row.vin,

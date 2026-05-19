@@ -43,8 +43,6 @@ import MaskedView from "@react-native-masked-view/masked-view";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 
-import { useSettingsOverlayStore } from "@/stores/useSettingsOverlayStore";
-
 // Native iOS 26 liquid glass (optional). Mirrors the home/ai-chat pattern —
 // falls back to the existing gradient pill when the lib is unavailable.
 let LiquidGlassView: React.ComponentType<any> | null = null;
@@ -156,26 +154,11 @@ export function SettingsContent({
   onScrollOffsetChange,
 }: SettingsContentProps) {
   const insets = useSafeAreaInsets();
-  const baseRouter = useRouter();
-  const closeSettingsOverlay = useSettingsOverlayStore((s) => s.close);
-
-  // Settings rows render inside the SettingsOverlay, a React Native
-  // <Modal> drawn above the Expo Router stack. Push synchronously so
-  // the navigation registers under the user's tap, then dismiss the
-  // overlay on the next frame so the destination is visible.
-  const router = useMemo(
-    () => ({
-      push: (path: Parameters<typeof baseRouter.push>[0]) => {
-        baseRouter.push(path);
-        requestAnimationFrame(() => closeSettingsOverlay());
-      },
-      replace: (path: Parameters<typeof baseRouter.replace>[0]) => {
-        baseRouter.replace(path);
-        requestAnimationFrame(() => closeSettingsOverlay());
-      },
-    }),
-    [baseRouter, closeSettingsOverlay],
-  );
+  // Settings rows now render inside the /profile-overlay ROUTE (was a
+  // Modal). Normal router.push stacks destinations on top of the
+  // overlay; back gestures reveal the overlay still mounted underneath.
+  // No wrapping needed — let Expo Router handle the navigation.
+  const router = useRouter();
 
   const { signOut, userId: clerkUserId } = useAuth();
   const { user: clerkUser } = useUser();
@@ -740,10 +723,7 @@ export function SettingsContent({
         <View style={styles.stickySide}>
           <Pressable
             onPress={() => router.push("/membership")}
-            style={({ pressed }) => [
-              styles.upgradePillWrapper,
-              pressed && { opacity: 0.85 },
-            ]}
+            style={({ pressed }) => pressed && { opacity: 0.85 }}
           >
             {isLiquidGlassEnabled && LiquidGlassView ? (
               <LiquidGlassView
@@ -885,10 +865,6 @@ const styles = StyleSheet.create({
   },
   stickyName: {
     textAlign: "center",
-  },
-  upgradePillWrapper: {
-    borderRadius: 999,
-    overflow: "hidden",
   },
   upgradePill: {
     flexDirection: "row",

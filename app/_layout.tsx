@@ -268,6 +268,14 @@ export default function RootLayout() {
                     <Stack.Screen name="(tell-us-about)" options={{ headerShown: false }} />
                     <Stack.Screen name="(tire-booking)" options={{ headerShown: false }} />
                     <Stack.Screen
+                      name="booking"
+                      options={{
+                        headerShown: false,
+                        presentation: "fullScreenModal",
+                        animation: "slide_from_bottom",
+                      }}
+                    />
+                    <Stack.Screen
                       name="coming-soon"
                       options={{
                         animation: "fade_from_bottom",
@@ -275,6 +283,7 @@ export default function RootLayout() {
                       }}
                     />
                     <Stack.Screen name="add-vehicle" options={{ headerShown: false }} />
+                    <Stack.Screen name="recommendation/[recId]" options={{ headerShown: false, animation: "slide_from_right" }} />
                     <Stack.Screen name="add-car-info" options={{ headerShown: false }} />
                     <Stack.Screen
                       name="vehicle-added"
@@ -298,6 +307,30 @@ export default function RootLayout() {
                     <Stack.Screen name="membership" options={{ headerShown: false }} />
                     <Stack.Screen name="suggested-deals" options={{ headerShown: false }} />
                     <Stack.Screen name="settings" options={{ headerShown: false }} />
+                    {/* Profile/settings overlay — Revolut-style.
+                        `containedTransparentModal` keeps the home screen
+                        visible behind the morph (so the BlurView has
+                        something real to blur) and contains the modal
+                        within the parent stack context.
+                        Trade-off: any modal-family presentation puts
+                        UINavigationController into "modal stack mode" on
+                        iOS, so destinations pushed from rows inside the
+                        overlay animate slide-from-bottom rather than the
+                        normal slide-from-right. We accept this — losing
+                        home visibility during the morph (the alternative,
+                        `presentation: "card"`) was a worse trade.
+                        `animation: "none"` disables the default present
+                        animation so it doesn't compound with the
+                        Reanimated morph spring inside SettingsOverlay. */}
+                    <Stack.Screen
+                      name="profile-overlay"
+                      options={{
+                        presentation: "containedTransparentModal",
+                        animation: "none",
+                        headerShown: false,
+                        contentStyle: { backgroundColor: "transparent" },
+                      }}
+                    />
                   </Stack>
                   <StatusBar style="auto" />
                 </ThemeProvider>

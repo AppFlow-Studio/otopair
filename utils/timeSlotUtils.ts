@@ -27,6 +27,30 @@ export function hhmmToDisplayTime(hhmm: string): string {
   return `${h - 12}:${String(m).padStart(2, "0")} PM`;
 }
 
+/** Today's date as "YYYY-MM-DD" in the device's local timezone. */
+export function todayLocalISO(): string {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, "0");
+  const d = String(now.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+/**
+ * Earliest bookable slot time as "HH:MM" in local time:
+ * now + 15 min, rounded up to the next 15-min boundary.
+ * Returns "24:00" when past midnight (all today's slots have passed).
+ */
+export function minBookableHHMM(): string {
+  const now = new Date();
+  const rawMin = now.getHours() * 60 + now.getMinutes() + 15;
+  const rounded = Math.ceil(rawMin / 15) * 15;
+  if (rounded >= 1440) return "24:00";
+  const hh = String(Math.floor(rounded / 60)).padStart(2, "0");
+  const mm = String(rounded % 60).padStart(2, "0");
+  return `${hh}:${mm}`;
+}
+
 const DAY_ABBREV = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 /** Parse YYYY-MM-DD and return { dayOfWeek, day } for display */

@@ -53,6 +53,7 @@ export type ConversationStage =
   | "diagnosis"
   | "question"
   | "service_selection"
+  | "diagnostic_form"
   | "priority_selection"
   | "shop_selection"
   | "time_selection"
@@ -215,6 +216,7 @@ export const DEFAULT_SUGGESTIONS: Record<ConversationStage, Suggestion[]> = {
     { id: "no", text: "No", value: "no" },
   ],
   service_selection: [],
+  diagnostic_form: [],
   priority_selection: [
     { id: "closest", text: "Closest", value: "closest" },
     { id: "best_rated", text: "Best rated", value: "best_rated" },

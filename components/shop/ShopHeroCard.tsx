@@ -6,7 +6,7 @@
  *          distance, address) and a row of quick actions
  *          (Call / Directions / Save / Book).
  *
- * USED IN: app/(main-tabs)/home/shop/[id]/index.tsx
+ * USED IN: app/booking/shop/[id]/index.tsx
  */
 
 import React, { useMemo, useState } from "react";

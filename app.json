@@ -105,8 +105,9 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "c7b3e990-bfa1-44db-8ae3-d2add4598a76"
+        "projectId": "556287b6-2b93-4418-8e8a-15bf5594b496"
       }
-    }
+    },
+    "owner": "otopair-dev"
   }
 }

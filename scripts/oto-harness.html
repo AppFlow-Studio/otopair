@@ -1,0 +1,1807 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Oto AI Harness</title>
+<style>
+  :root {
+    --bg: #0e1116;
+    --panel: #151a21;
+    --panel-2: #1c232c;
+    --border: #2a3340;
+    --border-soft: #1f2630;
+    --text: #d8dee6;
+    --text-dim: #8c97a6;
+    --text-mute: #5d6775;
+    --accent: #5299fe;
+    --accent-dim: #2c5fa0;
+    --user: #2f80ed;
+    --assistant: #1f2630;
+    --good: #4caf50;
+    --warn: #ffb648;
+    --err: #ef5350;
+    --tool-use: #b075ff;
+    --tool-result: #75d3ff;
+    --mono: ui-monospace, SFMono-Regular, Menlo, "DejaVu Sans Mono", monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; height: 100%;
+    background: var(--bg); color: var(--text);
+    font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  }
+  header {
+    display: flex; align-items: center; gap: 12px;
+    padding: 8px 14px; border-bottom: 1px solid var(--border);
+    background: var(--panel);
+  }
+  header h1 { margin: 0; font-size: 14px; font-weight: 600; letter-spacing: 0.2px; }
+  header .meta { color: var(--text-dim); font-family: var(--mono); font-size: 11px; }
+  header .spacer { flex: 1; }
+  header .pill {
+    padding: 3px 8px; border-radius: 10px; font-size: 11px;
+    background: var(--panel-2); border: 1px solid var(--border); color: var(--text-dim);
+  }
+  header .pill.ok { color: var(--good); border-color: #1d3a23; background: #11210f; }
+  header .pill.err { color: var(--err); border-color: #3a1d20; background: #21110f; }
+
+  main {
+    display: grid;
+    grid-template-columns: 380px 1fr 1fr;
+    height: calc(100vh - 41px);
+    overflow: hidden;
+  }
+  .col { overflow: auto; border-right: 1px solid var(--border); padding: 12px; }
+  .col:last-child { border-right: none; }
+  .col h2 {
+    margin: 0 0 8px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.8px;
+    color: var(--text-mute); font-weight: 600;
+  }
+
+  /* settings */
+  .settings { background: var(--panel); border-radius: 6px; padding: 10px; margin-bottom: 10px; border: 1px solid var(--border-soft); }
+  .settings label { display: block; font-size: 11px; color: var(--text-dim); margin-bottom: 3px; margin-top: 8px; }
+  .settings label:first-child { margin-top: 0; }
+  .settings input[type=text], .settings input[type=password], .settings textarea, .settings select {
+    width: 100%; padding: 6px 8px; background: var(--bg); color: var(--text);
+    border: 1px solid var(--border); border-radius: 4px; font-family: var(--mono); font-size: 12px;
+  }
+  .settings textarea { resize: vertical; min-height: 60px; max-height: 160px; }
+  .settings .row { display: flex; gap: 6px; align-items: center; }
+  .settings .row > * { flex: 1; }
+  .settings .check { display: flex; gap: 6px; align-items: center; margin-top: 8px; font-size: 12px; color: var(--text-dim); }
+  .settings .check input { flex: 0 0 auto; }
+  .settings button {
+    background: var(--accent-dim); color: white; border: none; padding: 6px 10px;
+    border-radius: 4px; cursor: pointer; font-size: 12px;
+  }
+  .settings button:hover { background: var(--accent); }
+  .settings button.ghost { background: transparent; border: 1px solid var(--border); color: var(--text-dim); }
+  .settings button.ghost:hover { color: var(--text); border-color: var(--accent); }
+  .settings button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .notice { font-size: 11px; color: var(--text-mute); padding: 6px 8px; background: var(--panel-2); border-radius: 4px; margin-top: 8px; line-height: 1.5; }
+  .notice b { color: var(--text-dim); }
+
+  /* chat */
+  .chat-wrap { display: flex; flex-direction: column; height: 100%; }
+  .chat-feed { flex: 1; overflow-y: auto; padding-right: 4px; }
+  .chat-feed:empty::after {
+    content: "No messages yet. Paste your Clerk JWT, choose a conversation, and type something.";
+    display: block; color: var(--text-mute); padding: 30px 10px; text-align: center; font-size: 12px;
+  }
+  .bubble {
+    margin-bottom: 8px; padding: 8px 10px; border-radius: 8px;
+    max-width: 92%; word-wrap: break-word; font-size: 13px;
+  }
+  .bubble.user { background: var(--user); color: white; margin-left: auto; }
+  .bubble.assistant { background: var(--assistant); border: 1px solid var(--border-soft); }
+  .bubble.assistant.empty::after { content: "(empty text — render-only turn)"; color: var(--text-mute); font-style: italic; font-size: 12px; }
+  .bubble .role-line { font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--text-mute); margin-bottom: 3px; }
+  .bubble.user .role-line { color: #cfdcef; }
+
+  .qr-row { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px; }
+  .qr-btn {
+    background: var(--panel-2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 14px; padding: 4px 10px; font-size: 12px; cursor: pointer;
+  }
+  .qr-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .qr-btn .qr-action { font-size: 10px; color: var(--text-mute); }
+
+  .form-preview {
+    margin-top: 8px; padding: 8px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px;
+    font-size: 12px;
+  }
+  .form-preview .row-label { color: var(--text-mute); font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px; }
+  .form-preview pre { margin: 4px 0; font-size: 11px; white-space: pre-wrap; color: var(--text); }
+
+  .chat-input {
+    margin-top: 8px; display: flex; gap: 6px;
+  }
+  .chat-input textarea {
+    flex: 1; background: var(--panel); border: 1px solid var(--border); color: var(--text);
+    padding: 8px; border-radius: 6px; resize: vertical; min-height: 38px; max-height: 200px;
+    font: 13px/1.4 inherit;
+  }
+  .chat-input button {
+    background: var(--accent); color: white; border: none; padding: 0 14px; border-radius: 6px;
+    cursor: pointer; font-weight: 600; font-size: 13px;
+  }
+  .chat-input button:disabled { opacity: 0.5; cursor: not-allowed; background: var(--accent-dim); }
+
+  .status-line { font-size: 11px; color: var(--text-mute); padding: 6px 2px; min-height: 18px; }
+  .status-line.err { color: var(--err); }
+  .status-line.busy { color: var(--warn); }
+
+  /* trace */
+  .trace-empty { color: var(--text-mute); padding: 30px 10px; text-align: center; font-size: 12px; }
+  .trace-turn {
+    background: var(--panel); border: 1px solid var(--border-soft); border-radius: 6px;
+    margin-bottom: 10px; overflow: hidden;
+  }
+  .trace-turn-head {
+    padding: 8px 10px; border-bottom: 1px solid var(--border-soft); background: var(--panel-2);
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  }
+  .trace-turn-head .label { font-weight: 600; font-size: 12px; }
+  .trace-turn-head .stat {
+    font-family: var(--mono); font-size: 11px; color: var(--text-dim);
+    padding: 2px 6px; background: var(--bg); border-radius: 3px; border: 1px solid var(--border-soft);
+  }
+  .trace-turn-head .stat b { color: var(--text); font-weight: 600; }
+  .trace-turn-body { padding: 8px 10px; }
+
+  details.section {
+    background: var(--bg); border: 1px solid var(--border-soft); border-radius: 4px;
+    margin-bottom: 6px; padding: 0;
+  }
+  details.section > summary {
+    padding: 6px 10px; cursor: pointer; font-size: 12px; color: var(--text-dim);
+    list-style: none; user-select: none; display: flex; align-items: center; gap: 6px;
+  }
+  details.section > summary::-webkit-details-marker { display: none; }
+  details.section > summary::before { content: "▸"; color: var(--text-mute); font-size: 10px; transition: transform 0.1s; display: inline-block; }
+  details.section[open] > summary::before { transform: rotate(90deg); }
+  details.section > summary:hover { color: var(--text); }
+  details.section .sec-body { padding: 6px 10px 10px; border-top: 1px solid var(--border-soft); }
+  details.section .sec-head-meta { color: var(--text-mute); font-family: var(--mono); font-size: 11px; margin-left: auto; }
+
+  .iter-card {
+    background: var(--panel-2); border: 1px solid var(--border-soft); border-radius: 4px;
+    margin-bottom: 6px;
+  }
+  .iter-head {
+    padding: 6px 10px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap;
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .iter-head .pill {
+    font-size: 10px; padding: 1px 6px; border-radius: 8px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.4px;
+  }
+  .pill.branch-data_continue { background: #1b2c1c; color: var(--good); }
+  .pill.branch-terminal { background: #2c1d3a; color: var(--tool-use); }
+  .pill.branch-text_only { background: #1d2c3a; color: var(--tool-result); }
+  .iter-body { padding: 6px 10px; }
+  .iter-body details { margin-bottom: 4px; }
+  .iter-body summary { cursor: pointer; font-size: 11px; color: var(--text-dim); padding: 2px 0; user-select: none; }
+  .iter-body summary:hover { color: var(--text); }
+
+  pre.json {
+    margin: 4px 0 0; padding: 8px; background: var(--bg); border: 1px solid var(--border-soft);
+    border-radius: 4px; overflow: auto; max-height: 320px; font-family: var(--mono); font-size: 11px;
+    line-height: 1.4; color: var(--text); white-space: pre;
+  }
+  pre.envelope { white-space: pre-wrap; font-family: var(--mono); font-size: 11px; }
+  .tok-key { color: #a8c5ec; }
+  .tok-str { color: #d1d6c7; }
+  .tok-num { color: #f0c896; }
+  .tok-bool { color: var(--warn); }
+  .tok-null { color: var(--text-mute); }
+  .tok-tool-use { color: var(--tool-use); font-weight: 600; }
+  .tok-tool-result { color: var(--tool-result); font-weight: 600; }
+  .tok-text-type { color: var(--good); }
+
+  .badge {
+    display: inline-block; padding: 1px 5px; border-radius: 3px; font-family: var(--mono);
+    font-size: 10px; margin-right: 4px;
+  }
+  .badge.tool-use { background: #2a1d3a; color: var(--tool-use); border: 1px solid #4a3a5a; }
+  .badge.tool-result { background: #1d2a3a; color: var(--tool-result); border: 1px solid #3a4a5a; }
+  .badge.text { background: #1d3a23; color: var(--good); border: 1px solid #2d5a33; }
+
+  .tool-row {
+    background: var(--bg); border: 1px solid var(--border-soft); border-radius: 4px;
+    padding: 6px 8px; margin-bottom: 4px;
+  }
+  .tool-row .tool-name {
+    font-family: var(--mono); font-weight: 600; font-size: 12px;
+  }
+  .tool-row .tool-name.tu { color: var(--tool-use); }
+  .tool-row .tool-name.tr { color: var(--tool-result); }
+  .tool-row .tool-id { font-family: var(--mono); font-size: 10px; color: var(--text-mute); margin-left: 6px; }
+
+  /* misc */
+  .kv {
+    font-family: var(--mono); font-size: 11px; color: var(--text-dim);
+    padding: 2px 0;
+  }
+  .kv .k { color: var(--text-mute); }
+  .kv .v { color: var(--text); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Oto AI Harness</h1>
+  <span id="hdrModel" class="meta">claude-haiku-4-5-20251001</span>
+  <span class="spacer"></span>
+  <span id="hdrAuth" class="pill">no auth</span>
+  <span id="hdrConv" class="pill">no convo</span>
+  <span id="hdrVeh" class="pill">no vehicle</span>
+</header>
+
+<main>
+  <!-- LEFT: settings + diagnostics -->
+  <section class="col">
+    <h2>Settings</h2>
+    <div class="settings">
+      <label>Convex URL</label>
+      <input id="setConvexUrl" type="text" placeholder="https://flippant-mink-750.convex.cloud" />
+
+      <label>Clerk Publishable Key
+        <span style="color:var(--text-mute); float:right; font-family:var(--mono); font-size:10px;" id="clerkSdkMeta"></span>
+      </label>
+      <input id="setPubKey" type="text" placeholder="pk_test_… (from .env.local EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY)" />
+
+      <div class="row" style="margin-top: 6px;">
+        <button id="btnSignIn">Sign in</button>
+        <button id="btnSignOut" class="ghost" style="display:none">Sign out</button>
+        <button id="btnRefreshToken" class="ghost" style="display:none">Refresh JWT</button>
+      </div>
+      <div id="clerkStatus" class="notice" style="margin-top:6px">Initializing Clerk…</div>
+
+      <details style="margin-top:8px">
+        <summary style="cursor:pointer; font-size:11px; color:var(--text-dim);">Manual JWT (fallback)</summary>
+        <label>Clerk JWT
+          <span style="color:var(--text-mute); float:right; font-family:var(--mono); font-size:10px;" id="jwtMeta"></span>
+        </label>
+        <textarea id="setJwt" placeholder="paste a Bearer token issued for the Convex audience"></textarea>
+      </details>
+
+      <label>Vehicle
+        <span style="float:right; color:var(--text-mute); font-family:var(--mono); font-size:10px;" id="vehCount"></span>
+      </label>
+      <div class="row">
+        <select id="setVeh" style="flex: 1; min-width: 0;">
+          <option value="">— use default (most recent) —</option>
+        </select>
+        <button id="btnRefreshVehs" class="ghost" title="Reload vehicle list" style="flex: 0 0 auto;">↻</button>
+      </div>
+
+      <label>Conversation
+        <span style="float:right; color:var(--text-mute); font-family:var(--mono); font-size:10px;" id="convoCount"></span>
+      </label>
+      <div class="row">
+        <select id="setConvo" style="flex: 1; min-width: 0;">
+          <option value="">— pick or create one —</option>
+        </select>
+        <button id="btnRefreshConvos" class="ghost" title="Reload conversation list" style="flex: 0 0 auto;">↻</button>
+        <button id="btnNewConvo" class="ghost" title="Create a fresh ai_conversations row scoped to your user" style="flex: 0 0 auto;">+ new</button>
+      </div>
+
+      <div class="check">
+        <input type="checkbox" id="setSkipPersist" checked />
+        <label for="setSkipPersist" style="margin:0;">debug_skip_persist (do NOT write to ai_messages)</label>
+      </div>
+
+      <div class="row" style="margin-top: 10px;">
+        <button id="btnSave">Save</button>
+        <button id="btnClear" class="ghost">Clear</button>
+      </div>
+
+      <div class="notice">
+        <b>Auth.</b> Clerk's JS SDK loads on page open. Sign-in opens the hosted modal; <code>ConvexHttpClient.setAuth()</code> calls <code>session.getToken({template:"convex"})</code> on every backend call and on token-rejection refresh — same wiring <code>ConvexProviderWithClerk</code> uses in <code>app/_layout.tsx</code>.<br>
+        <b>file:// caveat.</b> Clerk and esm.sh may reject the "null" origin. If load errors out, serve via <code>npx serve scripts</code> and reopen on <code>http://localhost</code>.<br>
+        <b>Persistence.</b> Keep <i>debug_skip_persist</i> on while iterating; turn it off when you want to leave a paper trail.
+      </div>
+    </div>
+
+    <h2 style="margin-top: 16px;">Run Summary</h2>
+    <div id="runSummary" class="settings">
+      <div class="kv"><span class="k">last status:</span> <span class="v" id="sumStatus">—</span></div>
+      <div class="kv"><span class="k">iterations:</span> <span class="v" id="sumIters">—</span></div>
+      <div class="kv"><span class="k">tokens (in / out):</span> <span class="v" id="sumTokens">—</span></div>
+      <div class="kv"><span class="k">total latency:</span> <span class="v" id="sumLatency">—</span></div>
+      <div class="kv"><span class="k">hit_cap:</span> <span class="v" id="sumCap">—</span></div>
+      <div class="kv"><span class="k">persisted:</span> <span class="v" id="sumPersist">—</span></div>
+    </div>
+
+    <h2 style="margin-top: 16px;">Cheatsheet</h2>
+    <div class="notice" style="line-height:1.6;">
+      <b>Trace branches.</b><br>
+      <span style="color:var(--good)">data_continue</span> — Haiku called data tools; loop continues.<br>
+      <span style="color:var(--tool-use)">terminal</span> — render/nav tool fired; turn ends.<br>
+      <span style="color:var(--tool-result)">text_only</span> — pure prose; turn ends.<br><br>
+      <b>Block 2 verification.</b> Send "How is my car doing?" — expect <i>get_vehicle_health</i> in iter 1 returning real items (not "vehicle not found").
+    </div>
+  </section>
+
+  <!-- MIDDLE: chat -->
+  <section class="col">
+    <h2>Conversation</h2>
+    <div class="chat-wrap">
+      <div id="chatFeed" class="chat-feed"></div>
+      <div id="statusLine" class="status-line"></div>
+      <div class="chat-input">
+        <textarea id="chatInput" placeholder="Ask Oto something. Enter to send, Shift+Enter for newline." rows="2"></textarea>
+        <button id="btnSend">Send</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- RIGHT: trace -->
+  <section class="col">
+    <h2>Trace</h2>
+    <div id="tracePanel"><div class="trace-empty">Trace lights up after the first send.</div></div>
+  </section>
+</main>
+
+<script type="module">
+// Canonical clients — same SDKs the mobile app loads, just the browser variants.
+// ConvexHttpClient owns the auth integration: setAuth() takes a fetcher and
+// the client itself decides when to refresh (incl. on 401). Clerk is loaded
+// with `new Clerk(pubKey)` per the official JS quickstart.
+// Pinned to the same majors the otopair project uses (package.json):
+//   convex ^1.31.6  → matches the server you're calling
+//   @clerk/clerk-expo ^2.19.21 → clerk-js 5.x is the browser equivalent
+import { Clerk } from "https://esm.sh/@clerk/clerk-js@5";
+import { ConvexHttpClient } from "https://esm.sh/convex@^1.31/browser";
+
+// ===========================================================================
+// State + persistence
+// ===========================================================================
+
+const LS_KEY = "oto-harness-v1";
+// Defaults pulled from .env.local — same values the mobile app loads via
+// EXPO_PUBLIC_*. Harness uses Clerk's publishable key directly (same way the
+// app's ClerkProvider does in app/_layout.tsx); Convex's react-clerk
+// integration is React-only, so the harness manually calls
+// getToken({ template: "convex" }) and forwards as Bearer auth.
+const DEFAULTS = {
+  convexUrl: "https://flippant-mink-750.convex.cloud",
+  publishableKey: "pk_test_YWxsb3dpbmctbGFkeWJpcmQtMjAuY2xlcmsuYWNjb3VudHMuZGV2JA",
+  jwt: "",
+  // Selected vehicle's Convex `vehicles._id` — same identifier convention as
+  // conversations (and as Directive 7's envelope). VIN is looked up at send
+  // time from the in-memory vehicles list and passed as vehicleVin (which is
+  // still what the action's arg validator expects).
+  vehicleId: "",
+  conversationId: "",
+  skipPersist: true,
+};
+// In-memory cache of the owned-vehicles query. Populated by loadVehicles().
+// Used at send time to translate settings.vehicleId → row.vin for the action.
+let vehiclesList = [];
+
+let settings = loadSettings();
+let turns = []; // each: { user, assistant: { text, quickReplies, showDiagnosticForm }, trace, latencyMs, error? }
+let pending = false;
+
+function loadSettings() {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if (!raw) return { ...DEFAULTS };
+    return { ...DEFAULTS, ...JSON.parse(raw) };
+  } catch (e) { return { ...DEFAULTS }; }
+}
+function saveSettings() {
+  localStorage.setItem(LS_KEY, JSON.stringify(settings));
+}
+
+// ===========================================================================
+// DOM refs
+// ===========================================================================
+
+const $ = (id) => document.getElementById(id);
+const elConvexUrl = $("setConvexUrl");
+const elJwt = $("setJwt");
+const elVeh = $("setVeh");
+const elConvo = $("setConvo");
+const elSkip = $("setSkipPersist");
+const elJwtMeta = $("jwtMeta");
+const elFeed = $("chatFeed");
+const elTrace = $("tracePanel");
+const elInput = $("chatInput");
+const elStatus = $("statusLine");
+const elBtnSend = $("btnSend");
+const elBtnNewConvo = $("btnNewConvo");
+
+const elHdrAuth = $("hdrAuth");
+const elHdrConv = $("hdrConv");
+const elHdrVeh = $("hdrVeh");
+
+const elSumStatus = $("sumStatus");
+const elSumIters = $("sumIters");
+const elSumTokens = $("sumTokens");
+const elSumLatency = $("sumLatency");
+const elSumCap = $("sumCap");
+const elSumPersist = $("sumPersist");
+
+// ===========================================================================
+// Init UI from settings
+// ===========================================================================
+
+function applySettingsToUI() {
+  elConvexUrl.value = settings.convexUrl;
+  elJwt.value = settings.jwt;
+  elVeh.value = settings.vehicleId || "";
+  elConvo.value = settings.conversationId;
+  elSkip.checked = !!settings.skipPersist;
+  const pk = $("setPubKey");
+  if (pk) pk.value = settings.publishableKey || "";
+  updateHeader();
+}
+
+function pullSettingsFromUI() {
+  settings.convexUrl = elConvexUrl.value.trim();
+  settings.jwt = elJwt.value.trim();
+  settings.vehicleId = elVeh.value;
+  settings.conversationId = elConvo.value;
+  settings.skipPersist = elSkip.checked;
+  const pk = $("setPubKey");
+  if (pk) settings.publishableKey = pk.value.trim();
+}
+
+function updateHeader() {
+  if (settings.jwt) {
+    elHdrAuth.textContent = "auth: " + truncate(settings.jwt, 8) + "…";
+    elHdrAuth.className = "pill ok";
+    try {
+      const parts = settings.jwt.split(".");
+      if (parts.length === 3) {
+        const payload = JSON.parse(atob(parts[1].replace(/-/g, "+").replace(/_/g, "/")));
+        const exp = payload.exp ? new Date(payload.exp * 1000) : null;
+        if (exp) {
+          const now = Date.now();
+          const remaining = (exp.getTime() - now) / 1000;
+          if (remaining < 0) {
+            elJwtMeta.textContent = "EXPIRED " + Math.abs(Math.round(remaining)) + "s ago";
+            elJwtMeta.style.color = "var(--err)";
+            elHdrAuth.className = "pill err";
+          } else {
+            elJwtMeta.textContent = "expires in " + Math.round(remaining) + "s";
+            elJwtMeta.style.color = remaining < 60 ? "var(--warn)" : "var(--text-mute)";
+          }
+        }
+      }
+    } catch (e) { elJwtMeta.textContent = "(could not parse exp)"; }
+  } else {
+    elHdrAuth.textContent = "no auth";
+    elHdrAuth.className = "pill err";
+    elJwtMeta.textContent = "";
+  }
+
+  elHdrConv.textContent = settings.conversationId
+    ? "convo: " + truncate(settings.conversationId, 8)
+    : "no convo";
+  elHdrConv.className = settings.conversationId ? "pill ok" : "pill";
+
+  if (settings.vehicleId) {
+    const row = vehiclesList.find((r) => r.vehicle?._id === settings.vehicleId);
+    const label = row
+      ? (row.ownership?.nickname || formatVehicleShort(row))
+      : truncate(settings.vehicleId, 8) + "…";
+    elHdrVeh.textContent = "veh: " + label;
+    elHdrVeh.className = "pill ok";
+  } else {
+    elHdrVeh.textContent = "no vehicle";
+    elHdrVeh.className = "pill";
+  }
+}
+
+function formatVehicleShort(row) {
+  const year = row.vehicle?.year;
+  const meta = row.vehicle?.metadata || {};
+  const ymm = [year, meta.make, meta.model].filter(Boolean).join(" ");
+  if (ymm) return ymm;
+  return row.vin ? "VIN…" + row.vin.slice(-6) : truncate(row.vehicle?._id || "", 8);
+}
+
+function truncate(s, n) { return s.length > n ? s.slice(0, n) : s; }
+
+applySettingsToUI();
+
+// ===========================================================================
+// Convex client — single instance, lazily (re)built when convexUrl changes.
+//
+// ConvexHttpClient.setAuth(token: string) takes the literal JWT, NOT a
+// fetcher function (that's the ConvexReactClient API). So before each call
+// we pull a fresh token from Clerk and stamp it on the client. Clerk's
+// getToken caches internally so the overhead is just a function call when
+// the cached token is still valid.
+// ===========================================================================
+
+let convex = null;
+let convexUrlAtBuild = null;
+
+function ensureConvexClient() {
+  if (convex && convexUrlAtBuild === settings.convexUrl) return convex;
+  if (!settings.convexUrl) throw new Error("Convex URL not set");
+  convex = new ConvexHttpClient(settings.convexUrl);
+  convexUrlAtBuild = settings.convexUrl;
+  return convex;
+}
+
+async function stampAuth({ forceRefreshToken } = {}) {
+  const client = ensureConvexClient();
+  // Prefer a live Clerk session; fall back to the manual JWT textarea so the
+  // file:// / no-clerk path still works.
+  let token = null;
+  if (clerkInstance && clerkInstance.session) {
+    try {
+      token = await clerkInstance.session.getToken({
+        template: "convex",
+        skipCache: !!forceRefreshToken,
+      });
+      if (token) {
+        settings.jwt = token;
+        if (elJwt) elJwt.value = token;
+        updateHeader();
+      }
+    } catch (e) {
+      console.error("[harness] Clerk getToken failed", e);
+    }
+  }
+  if (!token) token = settings.jwt || null;
+  if (token) {
+    client.setAuth(token);
+  } else {
+    client.clearAuth();
+  }
+  return token;
+}
+
+async function callConvex(kind, path, args) {
+  const client = ensureConvexClient();
+  await stampAuth();
+  if (kind === "query") return await client.query(path, args);
+  if (kind === "mutation") return await client.mutation(path, args);
+  if (kind === "action") return await client.action(path, args);
+  throw new Error("unknown convex call kind: " + kind);
+}
+
+// ===========================================================================
+// Conversation list — dropdown population + create
+// ===========================================================================
+
+function ago(ts) {
+  if (!ts) return "?";
+  const s = Math.floor((Date.now() - ts) / 1000);
+  if (s < 60) return s + "s";
+  const m = Math.floor(s / 60);
+  if (m < 60) return m + "m";
+  const h = Math.floor(m / 60);
+  if (h < 24) return h + "h";
+  const d = Math.floor(h / 24);
+  return d + "d";
+}
+
+function formatConvoOption(row) {
+  const idShort = truncate(row._id, 8);
+  const msgs = (row.message_count ?? 0) + "m";
+  const when = ago(row._creationTime ?? row.started_at) + " ago";
+  const scenario = row.scenario_detected ? " · " + row.scenario_detected : "";
+  const booking = row.led_to_booking ? " · booked" : "";
+  return `${idShort}… · ${msgs} · ${when}${scenario}${booking}`;
+}
+
+async function loadConversations({ silent } = {}) {
+  if (!silent) setStatus("loading conversations…", "busy");
+  try {
+    await maybeRefreshJwt();
+    const rows = await callConvex("query", "ai_conversations:getByUserId", {});
+    const list = Array.isArray(rows) ? rows : [];
+
+    // Rebuild the <select> options. Preserve the currently-selected id if it
+    // still exists in the list; otherwise leave the placeholder selected.
+    const current = settings.conversationId;
+    elConvo.innerHTML = "";
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = list.length
+      ? `— ${list.length} convo${list.length === 1 ? "" : "s"}, pick one —`
+      : "— no conversations yet, click + new —";
+    elConvo.appendChild(placeholder);
+
+    let matched = false;
+    for (const row of list) {
+      const opt = document.createElement("option");
+      opt.value = row._id;
+      opt.textContent = formatConvoOption(row);
+      if (row._id === current) {
+        opt.selected = true;
+        matched = true;
+      }
+      elConvo.appendChild(opt);
+    }
+    if (!matched && current) {
+      // Saved id isn't in the user's list — keep it as a stale entry so the
+      // value persists, but flag it.
+      const opt = document.createElement("option");
+      opt.value = current;
+      opt.textContent = `${truncate(current, 8)}… · not in your list`;
+      opt.selected = true;
+      elConvo.appendChild(opt);
+    }
+
+    const cc = $("convoCount");
+    if (cc) cc.textContent = list.length + " convo" + (list.length === 1 ? "" : "s");
+    if (!silent) setStatus("loaded " + list.length + " conversation" + (list.length === 1 ? "" : "s"), "");
+
+    // Auto-load message history for the currently-selected conversation
+    // (page boot with a saved id, or after a refresh).
+    if (matched && settings.conversationId) {
+      loadConversationHistory(settings.conversationId);
+    }
+  } catch (e) {
+    if (!silent) setStatus("load conversations failed: " + e.message, "err");
+    console.error("[harness] loadConversations failed", e);
+  }
+}
+
+function formatVehicleOption(row) {
+  const idShort = truncate(row.vehicle?._id || "", 8);
+  const nickname = row.ownership?.nickname;
+  const ymm = formatVehicleShort(row);
+  const vinTail = row.vin ? "VIN…" + row.vin.slice(-6) : "";
+  const parts = [nickname, ymm, vinTail].filter(Boolean);
+  // Always end with id-short for disambiguation (Waleed asked for vehicle ID
+  // surfacing — same shape as the conversations dropdown).
+  parts.push(idShort + "…");
+  return parts.join(" · ");
+}
+
+async function loadVehicles({ silent } = {}) {
+  if (!silent) setStatus("loading vehicles…", "busy");
+  try {
+    await maybeRefreshJwt();
+    const rows = await callConvex("query", "vehicles:getMyVehicles", {});
+    const list = Array.isArray(rows) ? rows : [];
+    vehiclesList = list;
+
+    const current = settings.vehicleId;
+    elVeh.innerHTML = "";
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = list.length
+      ? "— default (most recent) —"
+      : "— no vehicles in your account —";
+    elVeh.appendChild(placeholder);
+
+    let matched = false;
+    for (const row of list) {
+      const id = row.vehicle?._id;
+      if (!id) continue;
+      const opt = document.createElement("option");
+      opt.value = id;
+      opt.textContent = formatVehicleOption(row);
+      if (id === current) {
+        opt.selected = true;
+        matched = true;
+      }
+      elVeh.appendChild(opt);
+    }
+    if (!matched && current) {
+      const opt = document.createElement("option");
+      opt.value = current;
+      opt.textContent = truncate(current, 8) + "… · not in your vehicles list";
+      opt.selected = true;
+      elVeh.appendChild(opt);
+    }
+
+    const vc = $("vehCount");
+    if (vc) vc.textContent = list.length + " veh" + (list.length === 1 ? "" : "s");
+    updateHeader();
+    if (!silent) setStatus("loaded " + list.length + " vehicle" + (list.length === 1 ? "" : "s"), "");
+  } catch (e) {
+    if (!silent) setStatus("load vehicles failed: " + e.message, "err");
+    console.error("[harness] loadVehicles failed", e);
+  }
+}
+
+async function createNewConversation() {
+  setStatus("creating conversation…", "busy");
+  try {
+    await maybeRefreshJwt();
+    // 1. Get the user row for the signed-in Clerk identity.
+    //    users:getCurrentUser pulls identity.subject server-side from the JWT.
+    const user = await callConvex("query", "users:getCurrentUser", {});
+    if (!user || !user._id) {
+      throw new Error("getCurrentUser returned no user (token invalid, or no users row for this clerk id)");
+    }
+    const conversationId = await callConvex("mutation", "ai_conversations:create", {
+      user_id: user._id,
+      session_id: "harness-" + Date.now(),
+    });
+    settings.conversationId = conversationId;
+    saveSettings();
+    updateHeader();
+    setStatus("created " + truncate(conversationId, 12) + "… — refreshing list", "");
+    turns = [];
+    renderChat();
+    renderTrace();
+    // Re-pull list so the new row appears and is selected.
+    await loadConversations({ silent: true });
+  } catch (e) {
+    setStatus("new conversation failed: " + e.message, "err");
+    console.error(e);
+  }
+}
+
+// ===========================================================================
+// Send a message
+// ===========================================================================
+
+async function sendMessage(message, { quickReply } = {}) {
+  if (pending) return;
+  if (!message || !message.trim()) return;
+  if (!settings.conversationId) {
+    setStatus("set a conversation id first (or click + new)", "err");
+    return;
+  }
+
+  pending = true;
+  elBtnSend.disabled = true;
+  setStatus(quickReply ? "quick reply sending…" : "sending…", "busy");
+
+  const turn = { user: message, assistant: null, trace: null, latencyMs: null, error: null };
+  turns.push(turn);
+  renderChat();
+
+  const t0 = Date.now();
+  try {
+    await maybeRefreshJwt();
+    const args = {
+      conversationId: settings.conversationId,
+      message,
+      debug: true,
+      debug_skip_persist: !!settings.skipPersist,
+    };
+    // Action contract still expects vehicleVin. Translate id → vin from the
+    // cached vehicles list so the harness UX is id-keyed but the wire shape
+    // stays the same (no chat.ts arg change).
+    if (settings.vehicleId) {
+      const row = vehiclesList.find((r) => r.vehicle?._id === settings.vehicleId);
+      if (row?.vin) {
+        args.vehicleVin = row.vin;
+      } else {
+        console.warn("[harness] vehicleId set but not found in vehiclesList — sending without vehicleVin");
+      }
+    }
+
+    const value = await callConvex("action", "oto/chat:sendMessage", args);
+    const latencyMs = Date.now() - t0;
+
+    turn.assistant = {
+      text: value.text || "",
+      quickReplies: value.quickReplies || null,
+      showDiagnosticForm: value.showDiagnosticForm || null,
+      showServicePicker: value.showServicePicker || false,
+      pickerServices: value.pickerServices || null,
+      pickerPreSelectedId: value.pickerPreSelectedId || null,
+      shopCarousel: value.shopCarousel || null,
+      timeSelector: value.timeSelector || null,
+      bookingConfirmation: value.bookingConfirmation || null,
+      reasoning: value.reasoning || null,
+      sources: value.sources || null,
+    };
+    turn.trace = value.trace || null;
+    turn.latencyMs = latencyMs;
+
+    setStatus("ok — " + latencyMs + "ms", "");
+  } catch (e) {
+    turn.error = e.message;
+    turn.latencyMs = Date.now() - t0;
+    setStatus("error: " + e.message, "err");
+    console.error("[harness] send failed", e);
+  } finally {
+    pending = false;
+    elBtnSend.disabled = false;
+    renderChat();
+    renderTrace();
+    updateRunSummary();
+  }
+}
+
+function setStatus(msg, cls) {
+  elStatus.textContent = msg;
+  elStatus.className = "status-line " + (cls || "");
+}
+
+// ===========================================================================
+// Render — chat feed
+// ===========================================================================
+
+function renderChat() {
+  elFeed.innerHTML = "";
+  for (let i = 0; i < turns.length; i++) {
+    const turn = turns[i];
+
+    const u = document.createElement("div");
+    u.className = "bubble user";
+    u.innerHTML = `<div class="role-line">user · turn ${i+1}</div>` + escapeHtml(turn.user);
+    elFeed.appendChild(u);
+
+    if (turn.error) {
+      const err = document.createElement("div");
+      err.className = "bubble assistant";
+      err.style.borderColor = "var(--err)";
+      err.style.color = "var(--err)";
+      err.innerHTML = `<div class="role-line" style="color:var(--err)">error</div>${escapeHtml(turn.error)}`;
+      elFeed.appendChild(err);
+      continue;
+    }
+
+    if (!turn.assistant) {
+      const wait = document.createElement("div");
+      wait.className = "bubble assistant";
+      wait.innerHTML = `<div class="role-line">oto</div><span style="color:var(--text-mute);font-style:italic">…thinking</span>`;
+      elFeed.appendChild(wait);
+      continue;
+    }
+
+    const a = document.createElement("div");
+    a.className = "bubble assistant" + (turn.assistant.text ? "" : " empty");
+    a.innerHTML = `<div class="role-line">oto</div>${escapeHtml(turn.assistant.text)}`;
+
+    // quick replies
+    if (Array.isArray(turn.assistant.quickReplies) && turn.assistant.quickReplies.length) {
+      const qrRow = document.createElement("div");
+      qrRow.className = "qr-row";
+      for (const qr of turn.assistant.quickReplies) {
+        const text = qr.text || qr.label || JSON.stringify(qr);
+        const action = qr.action || qr.intent || null;
+        const btn = document.createElement("button");
+        btn.className = "qr-btn";
+        btn.innerHTML = `${escapeHtml(text)}${action ? ` <span class="qr-action">→ ${escapeHtml(action)}</span>` : ""}`;
+        btn.onclick = () => sendMessage(text, { quickReply: true });
+        // only enable on the last turn
+        if (i !== turns.length - 1) btn.disabled = true;
+        qrRow.appendChild(btn);
+      }
+      a.appendChild(qrRow);
+    }
+
+    // diagnostic form preview
+    if (turn.assistant.showDiagnosticForm) {
+      const form = turn.assistant.showDiagnosticForm;
+      const card = document.createElement("div");
+      card.className = "form-preview";
+      card.innerHTML = `
+        <div class="row-label">render_diagnostic_form</div>
+        <div class="kv"><span class="k">initialSystem:</span> <span class="v">${escapeHtml(form.initialSystem || "(not set)")}</span></div>
+        <div class="row-label" style="margin-top:4px">initialNotes:</div>
+        <pre>${escapeHtml(form.initialNotes || "(not set)")}</pre>
+      `;
+      a.appendChild(card);
+    }
+
+    // service picker preview
+    if (turn.assistant.showServicePicker) {
+      const services = Array.isArray(turn.assistant.pickerServices)
+        ? turn.assistant.pickerServices
+        : [];
+      const card = document.createElement("div");
+      card.className = "form-preview";
+      const rows = services
+        .map(
+          (s) => `
+          <div style="padding:6px 8px; background:var(--bg); border:1px solid var(--border-soft); border-radius:4px; margin-bottom:4px;">
+            <div style="font-weight:600; font-size:12px;">${escapeHtml(s.name || s.id || "(unnamed)")}</div>
+            <div class="kv">
+              <span class="k">category:</span> <span class="v">${escapeHtml(s.category || "—")}</span>
+              ${s.price ? `<span class="k" style="margin-left:8px">price:</span> <span class="v">${escapeHtml(s.price)}</span>` : ""}
+              ${s.duration ? `<span class="k" style="margin-left:8px">duration:</span> <span class="v">${escapeHtml(s.duration)}</span>` : ""}
+            </div>
+            ${s.description ? `<div style="font-size:11px; color:var(--text-dim); margin-top:3px;">${escapeHtml(s.description)}</div>` : ""}
+          </div>
+        `,
+        )
+        .join("");
+      const preSel = turn.assistant.pickerPreSelectedId;
+      card.innerHTML = `
+        <div class="row-label">render_service_picker${preSel ? ` — pre-selected: <span style="color:var(--accent)">${escapeHtml(preSel)}</span>` : ""}</div>
+        ${services.length === 0 ? `<div style="color:var(--text-mute); font-style:italic; font-size:11px;">(default catalog mode — no services passed)</div>` : rows}
+      `;
+      a.appendChild(card);
+    }
+
+    // shop carousel trigger — Oto passes service_slug + priority only; the
+    // mobile component renders actual mechanics from Convex.
+    if (turn.assistant.shopCarousel) {
+      const sc = turn.assistant.shopCarousel;
+      const card = document.createElement("div");
+      card.className = "form-preview";
+      card.innerHTML = `
+        <div class="row-label">render_shop_carousel — trigger</div>
+        <div class="kv"><span class="k">service_slug:</span> <span class="v">${escapeHtml(sc.service_slug || "—")}</span></div>
+        <div class="kv"><span class="k">priority:</span> <span class="v">${escapeHtml(sc.priority || "—")}</span></div>
+        <div style="margin-top:6px; font-size:11px; color:var(--text-dim); font-style:italic;">(mobile component queries Convex for mechanics filtered by this priority)</div>
+      `;
+      a.appendChild(card);
+    }
+
+    // time selector trigger — mechanic_id + service_slug only; component fetches slots.
+    if (turn.assistant.timeSelector) {
+      const ts = turn.assistant.timeSelector;
+      const card = document.createElement("div");
+      card.className = "form-preview";
+      card.innerHTML = `
+        <div class="row-label">render_time_selector — trigger</div>
+        <div class="kv"><span class="k">mechanic_id:</span> <span class="v">${escapeHtml(truncate(String(ts.mechanic_id || "—"), 28))}</span></div>
+        <div class="kv"><span class="k">service_slug:</span> <span class="v">${escapeHtml(ts.service_slug || "—")}</span></div>
+        <div style="margin-top:6px; font-size:11px; color:var(--text-dim); font-style:italic;">(mobile component queries Convex for available slots)</div>
+      `;
+      a.appendChild(card);
+    }
+
+    // booking confirmation trigger — IDs only; component computes pricing.
+    if (turn.assistant.bookingConfirmation) {
+      const bc = turn.assistant.bookingConfirmation;
+      const card = document.createElement("div");
+      card.className = "form-preview";
+      card.innerHTML = `
+        <div class="row-label">render_booking_confirmation — trigger</div>
+        <div class="kv"><span class="k">service_slug:</span> <span class="v">${escapeHtml(bc.service_slug || "—")}</span></div>
+        <div class="kv"><span class="k">mechanic_id:</span> <span class="v">${escapeHtml(truncate(String(bc.mechanic_id || "—"), 28))}</span></div>
+        <div class="kv"><span class="k">slot_id:</span> <span class="v">${escapeHtml(String(bc.slot_id || "—"))}</span></div>
+        ${bc.vehicle_id ? `<div class="kv"><span class="k">vehicle_id:</span> <span class="v">${escapeHtml(truncate(String(bc.vehicle_id), 28))}</span></div>` : ""}
+        <div style="margin-top:6px; font-size:11px; color:var(--text-dim); font-style:italic;">(mobile component renders summary card with real pricing from Convex)</div>
+      `;
+      a.appendChild(card);
+    }
+
+    // reasoning steps
+    if (Array.isArray(turn.assistant.reasoning) && turn.assistant.reasoning.length > 0) {
+      const card = document.createElement("div");
+      card.className = "form-preview";
+      const rows = turn.assistant.reasoning
+        .map(
+          (step, idx) => `
+          <div style="padding:4px 0;">
+            <div style="font-weight:600; font-size:11px;">${idx + 1}. ${escapeHtml(step.title || "")}</div>
+            ${step.detail ? `<div style="font-size:11px; color:var(--text-dim); margin-left:14px;">${escapeHtml(step.detail)}</div>` : ""}
+          </div>
+        `,
+        )
+        .join("");
+      card.innerHTML = `
+        <div class="row-label">render_reasoning</div>
+        ${rows}
+      `;
+      a.appendChild(card);
+    }
+
+    // sources
+    if (Array.isArray(turn.assistant.sources) && turn.assistant.sources.length > 0) {
+      const card = document.createElement("div");
+      card.className = "form-preview";
+      const rows = turn.assistant.sources
+        .map(
+          (src) => `
+          <div style="padding:3px 0; font-size:11px;">
+            <span style="font-weight:600;">${escapeHtml(src.title || "(no title)")}</span>
+            ${src.url ? ` · <span style="color:var(--accent); word-break:break-all;">${escapeHtml(src.url)}</span>` : ""}
+            ${src.details ? `<div style="color:var(--text-dim);">${escapeHtml(src.details)}</div>` : ""}
+          </div>
+        `,
+        )
+        .join("");
+      card.innerHTML = `
+        <div class="row-label">render_sources (${turn.assistant.sources.length})</div>
+        ${rows}
+      `;
+      a.appendChild(card);
+    }
+
+    elFeed.appendChild(a);
+  }
+  elFeed.scrollTop = elFeed.scrollHeight;
+}
+
+// ===========================================================================
+// Render — trace panel
+// ===========================================================================
+
+function renderTrace() {
+  elTrace.innerHTML = "";
+  if (!turns.length) {
+    elTrace.innerHTML = `<div class="trace-empty">Trace lights up after the first send.</div>`;
+    return;
+  }
+  for (let i = 0; i < turns.length; i++) {
+    const turn = turns[i];
+    if (!turn.trace) continue;
+    const t = turn.trace;
+
+    const card = document.createElement("div");
+    card.className = "trace-turn";
+
+    // header line
+    const usage = t.usage_total || { input_tokens: 0, output_tokens: 0 };
+    const head = document.createElement("div");
+    head.className = "trace-turn-head";
+    head.innerHTML = `
+      <span class="label">Turn ${i+1}</span>
+      <span class="stat"><b>${t.iterations_used || 0}</b> iter</span>
+      <span class="stat"><b>${usage.input_tokens}</b> in / <b>${usage.output_tokens}</b> out</span>
+      <span class="stat"><b>${turn.latencyMs}</b>ms</span>
+      ${t.hit_cap ? '<span class="stat" style="color:var(--warn)">hit_cap</span>' : ""}
+      ${t.forced_final ? '<span class="stat" style="color:var(--warn)">forced_final</span>' : ""}
+      <span class="stat">${t.persisted ? "persisted" : "skip_persist"}</span>
+    `;
+    card.appendChild(head);
+
+    const body = document.createElement("div");
+    body.className = "trace-turn-body";
+
+    // envelope
+    body.appendChild(makeDetail(
+      `<span>envelope</span><span class="sec-head-meta">${(t.envelope || "").length} chars</span>`,
+      `<pre class="envelope">${escapeHtml(t.envelope || "")}</pre>`,
+      false,
+    ));
+
+    // system prompt
+    body.appendChild(makeDetail(
+      `<span>system prompt</span><span class="sec-head-meta">v${t.system_prompt_version || "?"} · ${t.system_prompt_chars || 0} chars</span>`,
+      `<pre class="envelope">${escapeHtml(t.system_prompt || "")}</pre>`,
+      false,
+    ));
+
+    // tools advertised
+    body.appendChild(makeDetail(
+      `<span>tools advertised</span><span class="sec-head-meta">${(t.tools_advertised || []).length} tools</span>`,
+      `<pre class="json">${highlightJson(JSON.stringify(t.tools_advertised || [], null, 2))}</pre>`,
+      false,
+    ));
+
+    // iterations
+    const iters = t.iterations || [];
+    for (let j = 0; j < iters.length; j++) {
+      body.appendChild(renderIter(iters[j]));
+    }
+    if (t.forced_final) {
+      body.appendChild(renderForcedFinal(t.forced_final));
+    }
+
+    // outputs
+    body.appendChild(makeDetail(
+      `<span>final outputs</span>`,
+      `
+        <div class="kv"><span class="k">final_text:</span></div>
+        <pre class="json">${escapeHtml(t.final_text || "(empty)")}</pre>
+        <div class="kv" style="margin-top:6px"><span class="k">quick_replies:</span></div>
+        <pre class="json">${highlightJson(JSON.stringify(t.quick_replies, null, 2))}</pre>
+        <div class="kv" style="margin-top:6px"><span class="k">show_diagnostic_form:</span></div>
+        <pre class="json">${highlightJson(JSON.stringify(t.show_diagnostic_form, null, 2))}</pre>
+      `,
+      true,
+    ));
+
+    card.appendChild(body);
+    elTrace.appendChild(card);
+  }
+
+  // scroll the most recent into view
+  if (elTrace.lastChild) elTrace.lastChild.scrollIntoView({ block: "end" });
+}
+
+function renderIter(it) {
+  const wrap = document.createElement("div");
+  wrap.className = "iter-card";
+
+  const dataNames = (it.data_tool_uses || []).map(x => x.name).join(", ");
+  const terminalNames = (it.terminal_tool_uses || []).map(x => x.name).join(", ");
+  const stop = it.response?.stop_reason || "?";
+
+  const head = document.createElement("div");
+  head.className = "iter-head";
+  head.innerHTML = `
+    <span style="font-weight:600">iter ${it.iteration}</span>
+    <span class="pill branch-${it.branch}">${it.branch}</span>
+    <span class="stat"><b>${it.response?.usage?.input_tokens || 0}</b> in / <b>${it.response?.usage?.output_tokens || 0}</b> out</span>
+    <span class="stat"><b>${it.latency_ms}</b>ms</span>
+    <span class="stat">stop=<b>${stop}</b></span>
+    ${dataNames ? `<span class="stat">data: <b>${escapeHtml(dataNames)}</b></span>` : ""}
+    ${terminalNames ? `<span class="stat">terminal: <b>${escapeHtml(terminalNames)}</b></span>` : ""}
+  `;
+  wrap.appendChild(head);
+
+  const body = document.createElement("div");
+  body.className = "iter-body";
+
+  // request messages
+  body.appendChild(makeDetail(
+    `<span>request → Anthropic</span><span class="sec-head-meta">${it.request.message_count} msg · ${it.request.tools_advertised_count} tools</span>`,
+    `<pre class="json">${highlightJson(JSON.stringify(it.request.messages, null, 2))}</pre>`,
+    false,
+  ));
+
+  // response content blocks
+  const blockSummary = (it.response.content || []).map(b => {
+    if (b.type === "text") return `<span class="badge text">text · ${(b.text||"").length}ch</span>`;
+    if (b.type === "tool_use") return `<span class="badge tool-use">tool_use · ${escapeHtml(b.name)}</span>`;
+    return `<span class="badge">${escapeHtml(b.type)}</span>`;
+  }).join("");
+
+  body.appendChild(makeDetail(
+    `<span>response ← Anthropic</span><span class="sec-head-meta">${blockSummary}</span>`,
+    `<pre class="json">${highlightJson(JSON.stringify(it.response, null, 2))}</pre>`,
+    true,
+  ));
+
+  // tool dispatch + results
+  if ((it.data_tool_uses || []).length || (it.terminal_tool_uses || []).length) {
+    const toolList = document.createElement("div");
+    toolList.style.marginTop = "4px";
+    const allUses = [...(it.data_tool_uses || []), ...(it.terminal_tool_uses || [])];
+    for (const tu of allUses) {
+      const matched = (it.tool_results || []).find(r => r.tool_use_id === tu.id);
+      const row = document.createElement("div");
+      row.className = "tool-row";
+      row.innerHTML = `
+        <div><span class="tool-name tu">${escapeHtml(tu.name)}</span><span class="tool-id">${escapeHtml(tu.id || "")}</span></div>
+      `;
+      // input
+      row.appendChild(makeDetail(
+        `<span style="color:var(--tool-use)">input</span>`,
+        `<pre class="json">${highlightJson(JSON.stringify(tu.input, null, 2))}</pre>`,
+        false,
+      ));
+      // result
+      if (matched) {
+        const isError = matched.is_error === true;
+        row.appendChild(makeDetail(
+          `<span style="color:${isError ? "var(--err)" : "var(--tool-result)"}">result${isError ? " (error)" : ""}</span>`,
+          `<pre class="json">${highlightJson(safeJsonString(matched.content))}</pre>`,
+          false,
+        ));
+      } else {
+        const note = document.createElement("div");
+        note.style.fontSize = "11px";
+        note.style.color = "var(--text-mute)";
+        note.style.padding = "2px 0";
+        note.textContent = "(no matching tool_result — dispatch failed before push?)";
+        row.appendChild(note);
+      }
+      toolList.appendChild(row);
+    }
+    body.appendChild(makeDetail(
+      `<span>dispatched tools</span><span class="sec-head-meta">${allUses.length} call(s) · ${(it.tool_results||[]).length} result(s)</span>`,
+      "",
+      true,
+    )).querySelector(".sec-body").appendChild(toolList);
+  }
+
+  // text block
+  if (it.text_block != null) {
+    body.appendChild(makeDetail(
+      `<span>text block</span><span class="sec-head-meta">${(it.text_block || "").length}ch</span>`,
+      `<pre class="envelope">${escapeHtml(it.text_block || "")}</pre>`,
+      false,
+    ));
+  }
+
+  wrap.appendChild(body);
+  return wrap;
+}
+
+function renderForcedFinal(ff) {
+  const detail = makeDetail(
+    `<span style="color:var(--warn)">forced_final (tools disabled)</span><span class="sec-head-meta">${ff.latency_ms}ms · stop=${ff.response?.stop_reason || "?"}</span>`,
+    `<pre class="json">${highlightJson(JSON.stringify(ff.response, null, 2))}</pre>`,
+    true,
+  );
+  return detail;
+}
+
+function makeDetail(summaryHTML, bodyHTML, open) {
+  const d = document.createElement("details");
+  d.className = "section";
+  if (open) d.open = true;
+  d.innerHTML = `<summary>${summaryHTML}</summary><div class="sec-body">${bodyHTML}</div>`;
+  return d;
+}
+
+function safeJsonString(v) {
+  if (typeof v === "string") {
+    try { return JSON.stringify(JSON.parse(v), null, 2); } catch (e) { return JSON.stringify(v); }
+  }
+  return JSON.stringify(v, null, 2);
+}
+
+function escapeHtml(s) {
+  if (s == null) return "";
+  return String(s)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
+// Minimal JSON syntax highlight
+function highlightJson(s) {
+  if (s == null) return "";
+  s = String(s)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+  return s
+    .replace(/"([^"\\]*(?:\\.[^"\\]*)*)"(\s*:)/g, '<span class="tok-key">"$1"</span>$2')
+    .replace(/: "tool_use"/g, ': <span class="tok-tool-use">"tool_use"</span>')
+    .replace(/: "tool_result"/g, ': <span class="tok-tool-result">"tool_result"</span>')
+    .replace(/: "text"/g, ': <span class="tok-text-type">"text"</span>')
+    .replace(/: "([^"\\]*(?:\\.[^"\\]*)*)"/g, ': <span class="tok-str">"$1"</span>')
+    .replace(/: (-?\d+\.?\d*)/g, ': <span class="tok-num">$1</span>')
+    .replace(/: (true|false)/g, ': <span class="tok-bool">$1</span>')
+    .replace(/: null/g, ': <span class="tok-null">null</span>');
+}
+
+function updateRunSummary() {
+  if (!turns.length) return;
+  const last = turns[turns.length - 1];
+  const t = last.trace;
+  if (last.error) {
+    elSumStatus.textContent = "error";
+    elSumStatus.style.color = "var(--err)";
+    return;
+  }
+  elSumStatus.textContent = "ok";
+  elSumStatus.style.color = "var(--good)";
+  if (t) {
+    elSumIters.textContent = t.iterations_used || 0;
+    const u = t.usage_total || {};
+    elSumTokens.textContent = (u.input_tokens || 0) + " / " + (u.output_tokens || 0);
+    elSumLatency.textContent = last.latencyMs + "ms";
+    elSumCap.textContent = t.hit_cap ? "YES" : "no";
+    elSumCap.style.color = t.hit_cap ? "var(--warn)" : "var(--text)";
+    elSumPersist.textContent = t.persisted ? "YES" : "no";
+  }
+}
+
+// ===========================================================================
+// Event wiring
+// ===========================================================================
+
+$("btnSave").onclick = () => {
+  pullSettingsFromUI();
+  saveSettings();
+  updateHeader();
+  setStatus("settings saved", "");
+};
+
+$("btnClear").onclick = () => {
+  if (!confirm("Clear conversation feed and trace? (settings stay.)")) return;
+  turns = [];
+  renderChat();
+  renderTrace();
+  setStatus("", "");
+};
+
+elBtnSend.onclick = () => {
+  pullSettingsFromUI();
+  saveSettings();
+  const msg = elInput.value.trim();
+  if (!msg) return;
+  elInput.value = "";
+  sendMessage(msg);
+};
+
+elInput.onkeydown = (e) => {
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    elBtnSend.click();
+  }
+};
+
+elBtnNewConvo.onclick = () => {
+  pullSettingsFromUI();
+  saveSettings();
+  createNewConversation();
+};
+
+$("btnRefreshConvos").onclick = () => loadConversations();
+$("btnRefreshVehs").onclick = () => loadVehicles();
+
+// Live-update header on JWT field change (so you can see expiry immediately)
+elJwt.addEventListener("input", () => {
+  settings.jwt = elJwt.value.trim();
+  updateHeader();
+});
+elConvo.addEventListener("change", () => {
+  settings.conversationId = elConvo.value;
+  saveSettings();
+  updateHeader();
+  // New convo = clear the in-memory feed/trace, then load history so the
+  // chat surface mirrors what the user actually said across past turns.
+  // Useful for comparing iterations of prompts/tool uses across conversations.
+  turns = [];
+  renderChat();
+  renderTrace();
+  if (settings.conversationId) {
+    loadConversationHistory(settings.conversationId);
+  }
+});
+
+async function loadConversationHistory(conversationId) {
+  setStatus("loading history…", "busy");
+  try {
+    await stampAuth();
+    const messages = await callConvex("query", "ai_messages:getByConversationId", {
+      conversationId,
+    });
+    if (!Array.isArray(messages) || messages.length === 0) {
+      setStatus("empty conversation", "");
+      return;
+    }
+    // Sort oldest-first and pair user → assistant into "turns" the way the
+    // harness already renders. If trailing user message has no assistant
+    // response (e.g. in-flight or crashed turn), still show it.
+    const sorted = [...messages].sort((a, b) => (a.timestamp ?? a._creationTime) - (b.timestamp ?? b._creationTime));
+    const restoredTurns = [];
+    let pendingUser = null;
+    for (const m of sorted) {
+      if (m.role === "user") {
+        if (pendingUser) {
+          // Two user msgs in a row — assistant turn missing. Render an empty placeholder.
+          restoredTurns.push({
+            user: pendingUser.content,
+            assistant: { text: "(no assistant response recorded)", quickReplies: null, showDiagnosticForm: null },
+            trace: null,
+            latencyMs: null,
+            error: null,
+            historical: true,
+          });
+        }
+        pendingUser = m;
+      } else if (m.role === "assistant" && pendingUser) {
+        restoredTurns.push({
+          user: pendingUser.content,
+          assistant: {
+            text: m.content,
+            quickReplies: m.metadata?.quickReplies ?? null,
+            showDiagnosticForm: m.metadata?.showDiagnosticForm ?? null,
+          },
+          trace: null,
+          latencyMs: null,
+          error: null,
+          historical: true,
+        });
+        pendingUser = null;
+      }
+    }
+    if (pendingUser) {
+      restoredTurns.push({
+        user: pendingUser.content,
+        assistant: null,
+        trace: null,
+        latencyMs: null,
+        error: "(no assistant response yet for this turn)",
+        historical: true,
+      });
+    }
+    turns = restoredTurns;
+    renderChat();
+    renderTrace();
+    setStatus("loaded " + restoredTurns.length + " historical turn" + (restoredTurns.length === 1 ? "" : "s"), "");
+  } catch (e) {
+    setStatus("history load failed: " + e.message, "err");
+    console.error("[harness] loadConversationHistory failed", e);
+  }
+}
+elVeh.addEventListener("change", () => {
+  settings.vehicleId = elVeh.value;
+  saveSettings();
+  updateHeader();
+});
+elSkip.addEventListener("change", () => {
+  settings.skipPersist = elSkip.checked;
+  saveSettings();
+});
+
+// Refresh JWT expiry every 5s
+setInterval(updateHeader, 5000);
+
+// Auto-resize textarea
+elInput.addEventListener("input", () => {
+  elInput.style.height = "auto";
+  elInput.style.height = Math.min(200, elInput.scrollHeight) + "px";
+});
+
+// ===========================================================================
+// Clerk integration — canonical JS quickstart pattern.
+//
+//   const clerk = new Clerk(publishableKey);
+//   await clerk.load();
+//   clerk.openSignIn();                                 // hosted modal
+//   await clerk.session.getToken({ template: "convex" });
+//
+// The Convex client owns the token lifecycle via setAuth() (wired up in
+// ensureConvexClient above). This block just signs the user in and exposes
+// the session — no manual JWT shuttling, no script injection.
+// ===========================================================================
+
+const elClerkStatus = $("clerkStatus");
+const elClerkSdkMeta = $("clerkSdkMeta");
+const elBtnSignIn = $("btnSignIn");
+const elBtnSignOut = $("btnSignOut");
+const elBtnRefreshToken = $("btnRefreshToken");
+const elPubKey = $("setPubKey");
+
+let clerkInstance = null;
+let clerkInitInFlight = null;
+
+function setClerkStatus(msg, cls) {
+  if (!elClerkStatus) return;
+  elClerkStatus.textContent = msg;
+  elClerkStatus.style.color = cls === "err" ? "var(--err)"
+    : cls === "ok" ? "var(--good)"
+    : "var(--text-mute)";
+}
+
+function updateAuthButtons() {
+  const signedIn = !!(clerkInstance && clerkInstance.user);
+  elBtnSignIn.style.display = signedIn ? "none" : "";
+  elBtnSignOut.style.display = signedIn ? "" : "none";
+  elBtnRefreshToken.style.display = signedIn ? "" : "none";
+}
+
+async function initClerk() {
+  if (clerkInitInFlight) return clerkInitInFlight;
+  if (clerkInstance && clerkInstance.loaded) return clerkInstance;
+  clerkInitInFlight = (async () => {
+    try {
+      if (!settings.publishableKey) {
+        setClerkStatus("no publishable key — manual JWT only", "");
+        return null;
+      }
+      setClerkStatus("loading Clerk…", "");
+      clerkInstance = new Clerk(settings.publishableKey);
+      await clerkInstance.load();
+      if (elClerkSdkMeta) {
+        elClerkSdkMeta.textContent = "v" + (clerkInstance.version || "?");
+      }
+
+      // Reflect session changes in the UI and ensure Convex picks up the new
+      // identity on its next call (the setAuth fetcher will be re-invoked).
+      // On a fresh sign-in, refresh the vehicle + conversation dropdowns so
+      // the user lands on their own data without a manual refresh click.
+      let lastUserId = clerkInstance.user?.id || null;
+      clerkInstance.addListener(() => {
+        const u = clerkInstance.user;
+        if (u) {
+          setClerkStatus("signed in: " + (u.primaryEmailAddress?.emailAddress || u.id), "ok");
+          if (u.id !== lastUserId) {
+            lastUserId = u.id;
+            loadVehicles({ silent: true });
+            loadConversations({ silent: true });
+          }
+        } else {
+          lastUserId = null;
+          setClerkStatus("signed out", "");
+        }
+        updateAuthButtons();
+      });
+
+      const u = clerkInstance.user;
+      setClerkStatus(
+        u ? "signed in: " + (u.primaryEmailAddress?.emailAddress || u.id) : "Clerk loaded — click Sign in",
+        u ? "ok" : "",
+      );
+      updateAuthButtons();
+      // If we already have a session from token-cache (page reload while
+      // signed in), pull the lists immediately.
+      if (u) {
+        loadVehicles({ silent: true });
+        loadConversations({ silent: true });
+      }
+      return clerkInstance;
+    } catch (e) {
+      console.error("[harness] Clerk init failed", e);
+      setClerkStatus("Clerk init failed: " + e.message + " — paste JWT manually as fallback", "err");
+      return null;
+    } finally {
+      clerkInitInFlight = null;
+    }
+  })();
+  return clerkInitInFlight;
+}
+
+// Convex client refreshes the token on demand. This is purely for the UI —
+// surfaces the current token in the header pill so we can read the expiry.
+async function refreshJwtFromClerk() {
+  if (!clerkInstance || !clerkInstance.session) return;
+  try {
+    const token = await clerkInstance.session.getToken({ template: "convex" });
+    if (!token) {
+      setClerkStatus("getToken({template:'convex'}) returned null — is the JWT template configured?", "err");
+      return;
+    }
+    settings.jwt = token;
+    elJwt.value = token;
+    saveSettings();
+    updateHeader();
+  } catch (e) {
+    setClerkStatus("getToken failed: " + e.message, "err");
+  }
+}
+
+// Pre-call hook for createNewConversation / sendMessage. Just ensures the UI's
+// JWT pill is current — the Convex client will refresh internally regardless.
+async function maybeRefreshJwt() {
+  if (clerkInstance && clerkInstance.session) {
+    await refreshJwtFromClerk();
+  }
+}
+
+elBtnSignIn.onclick = async () => {
+  pullSettingsFromUI();
+  saveSettings();
+  const c = await initClerk();
+  if (!c) return;
+  // Don't pass afterSignInUrl/afterSignUpUrl — those default to Clerk's
+  // configured fallback (https). Passing `window.location.href` from a
+  // file:// page triggers Clerk's "prohibited URL scheme" reject. The modal
+  // closes on its own after email/password sign-in; the addListener handler
+  // picks up the session change. OAuth providers (Google, Apple) still
+  // require an http(s) origin — serve via `npx serve scripts` if you need
+  // those.
+  c.openSignIn();
+};
+
+elBtnSignOut.onclick = async () => {
+  if (!clerkInstance) return;
+  await clerkInstance.signOut();
+  settings.jwt = "";
+  elJwt.value = "";
+  saveSettings();
+  updateHeader();
+};
+
+elBtnRefreshToken.onclick = () => refreshJwtFromClerk();
+
+elPubKey.addEventListener("change", () => {
+  pullSettingsFromUI();
+  saveSettings();
+  setClerkStatus("publishable key changed — reload to re-init Clerk", "");
+});
+
+// Build the Convex client now so its setAuth fetcher is wired before any
+// call. Then load Clerk so signed-in state is restored from token-cache.
+try { ensureConvexClient(); } catch (e) { console.warn("[harness] convex client init deferred:", e.message); }
+
+// Debug surface — expose key globals so DevTools / harness driver can poke at
+// state without going through the SDK. Safe in a dev harness; no PII leaked
+// that isn't already in localStorage.
+window.__oto = {
+  get clerk() { return clerkInstance; },
+  get convex() { return convex; },
+  get vehiclesList() { return vehiclesList; },
+  get turns() { return turns; },
+  get settings() { return settings; },
+  loadVehicles, loadConversations,
+  stampAuth,
+  callConvex,
+  // Fire one isolated-conversation variation. Returns a compact summary so
+  // we can survey routing/branching without scrolling through 13 trace cards.
+  runVariation: async (message, opts = {}) => {
+    const t0 = Date.now();
+    await stampAuth();
+    const user = await callConvex("query", "users:getCurrentUser", {});
+    if (!user?._id) throw new Error("not authenticated");
+    const conversationId = await callConvex("mutation", "ai_conversations:create", {
+      user_id: user._id,
+      session_id: "variation-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8),
+    });
+    const args = {
+      conversationId,
+      message,
+      debug: true,
+      debug_skip_persist: true,
+    };
+    // Vehicle: explicit VIN > current dropdown > skip
+    let vehicleVin = opts.vehicleVin;
+    if (!vehicleVin && settings.vehicleId) {
+      const row = vehiclesList.find((r) => r.vehicle?._id === settings.vehicleId);
+      if (row?.vin) vehicleVin = row.vin;
+    }
+    if (vehicleVin) args.vehicleVin = vehicleVin;
+    const r = await callConvex("action", "oto/chat:sendMessage", args);
+    const tr = r.trace;
+    const iters = (tr?.iterations || []).map((i) => ({
+      branch: i.branch,
+      data: i.data_tool_uses.map((t) => t.name),
+      terminal: i.terminal_tool_uses.map((t) => t.name),
+      stop: i.response?.stop_reason,
+    }));
+    return {
+      message,
+      latency_ms: Date.now() - t0,
+      iters,
+      tokens_in: tr?.usage_total?.input_tokens,
+      tokens_out: tr?.usage_total?.output_tokens,
+      hit_cap: tr?.hit_cap,
+      text: r.text,
+      quick_replies: r.quickReplies ? r.quickReplies.map((q) => q.text || q.label) : null,
+      show_diagnostic_form: r.showDiagnosticForm
+        ? {
+            system: r.showDiagnosticForm.initialSystem,
+            notes: r.showDiagnosticForm.initialNotes,
+          }
+        : null,
+    };
+  },
+  runSuite: async (variations) => {
+    const out = [];
+    for (const v of variations) {
+      try {
+        out.push(await window.__oto.runVariation(v));
+      } catch (e) {
+        out.push({ message: v, error: e.message });
+      }
+    }
+    return out;
+  },
+  // ---------------------------------------------------------------------------
+  // Block 7 — eval harness runner.
+  // Loads scripts/oto-eval-cases.json, runs each case (one fresh conversation
+  // per case, multi-turn supported), asserts the trace + response shape.
+  // Returns { passed, failed, total, results: [...] } per Locked Principle #8.
+  // ---------------------------------------------------------------------------
+  runEval: async () => {
+    const res = await fetch("/oto-eval-cases.json", { cache: "no-store" });
+    if (!res.ok) throw new Error("Could not load oto-eval-cases.json — is it in scripts/?");
+    const data = await res.json();
+    const cases = data.cases || [];
+    await stampAuth();
+    const me = await callConvex("query", "users:getCurrentUser", {});
+    const results = [];
+    const skipped = [];
+    for (const c of cases) {
+      // Disabled cases (Sprint 2 drift-audit additions): preserved in the JSON
+      // for historical intent, but not executed. They surface in the result
+      // payload under `skipped` so a future re-enablement is one-flag away.
+      if (c.disabled === true) {
+        skipped.push({ name: c.name, description: c.description, reason: c.disabled_reason || "(no reason given)" });
+        continue;
+      }
+      const caseResult = { name: c.name, description: c.description, turns: [], passed: true, failures: [] };
+      try {
+        await stampAuth();
+        const cid = await callConvex("mutation", "ai_conversations:create", {
+          user_id: me._id,
+          session_id: "eval-" + c.name + "-" + Date.now(),
+        });
+        const vinTail = c.vehicle_vin_tail || "N96146";
+        const row = vehiclesList.find((r) => r.vin?.endsWith(vinTail));
+        const vehicleVin = row?.vin;
+        for (let i = 0; i < c.turns.length; i++) {
+          const t = c.turns[i];
+          await stampAuth();
+          const r = await callConvex("action", "oto/chat:sendMessage", {
+            conversationId: cid,
+            message: t.user,
+            debug: true,
+            debug_skip_persist: true,
+            ...(vehicleVin ? { vehicleVin } : {}),
+          });
+          const tr = r.trace || {};
+          const iters = tr.iterations || [];
+          const lastIter = iters[iters.length - 1] || {};
+          const toolsThisTurn = [];
+          for (const it of iters) {
+            for (const tu of it.data_tool_uses || []) toolsThisTurn.push(tu.name);
+            for (const tu of it.state_tool_uses || []) toolsThisTurn.push(tu.name);
+            for (const tu of it.terminal_tool_uses || []) toolsThisTurn.push(tu.name);
+          }
+          const text = (r.text || "").toLowerCase();
+          const turnResult = {
+            turn: i + 1,
+            user: t.user,
+            text: r.text,
+            tools_seen: toolsThisTurn,
+            branch: lastIter.branch,
+            form_system: r.showDiagnosticForm?.initialSystem || null,
+            checks: [],
+          };
+          const e = t.expect || {};
+          if (Array.isArray(e.tools_called)) {
+            for (const expected of e.tools_called) {
+              const ok = toolsThisTurn.includes(expected);
+              turnResult.checks.push({ kind: "tools_called", expected, ok });
+              if (!ok) {
+                caseResult.passed = false;
+                caseResult.failures.push(`turn ${i+1}: missing tool call "${expected}" (saw: ${toolsThisTurn.join(", ") || "none"})`);
+              }
+            }
+          }
+          if (e.branch) {
+            const ok = lastIter.branch === e.branch;
+            turnResult.checks.push({ kind: "branch", expected: e.branch, actual: lastIter.branch, ok });
+            if (!ok) {
+              caseResult.passed = false;
+              caseResult.failures.push(`turn ${i+1}: branch "${lastIter.branch}" !== expected "${e.branch}"`);
+            }
+          }
+          if (Array.isArray(e.text_contains)) {
+            for (const needle of e.text_contains) {
+              const ok = text.includes(String(needle).toLowerCase());
+              turnResult.checks.push({ kind: "text_contains", needle, ok });
+              if (!ok) {
+                caseResult.passed = false;
+                caseResult.failures.push(`turn ${i+1}: text missing "${needle}"`);
+              }
+            }
+          }
+          if (Array.isArray(e.text_not_contains)) {
+            for (const banned of e.text_not_contains) {
+              const ok = !text.includes(String(banned).toLowerCase());
+              turnResult.checks.push({ kind: "text_not_contains", banned, ok });
+              if (!ok) {
+                caseResult.passed = false;
+                caseResult.failures.push(`turn ${i+1}: text should not contain "${banned}" — found in response`);
+              }
+            }
+          }
+          if (e.form_system) {
+            const ok = (r.showDiagnosticForm?.initialSystem || null) === e.form_system;
+            turnResult.checks.push({ kind: "form_system", expected: e.form_system, actual: r.showDiagnosticForm?.initialSystem, ok });
+            if (!ok) {
+              caseResult.passed = false;
+              caseResult.failures.push(`turn ${i+1}: diagnostic_system "${r.showDiagnosticForm?.initialSystem}" !== "${e.form_system}"`);
+            }
+          }
+          caseResult.turns.push(turnResult);
+        }
+      } catch (err) {
+        caseResult.passed = false;
+        caseResult.failures.push("threw: " + (err.message || String(err)));
+      }
+      results.push(caseResult);
+    }
+    const passed = results.filter((r) => r.passed).length;
+    return {
+      total: results.length,
+      passed,
+      failed: results.length - passed,
+      skipped_count: skipped.length,
+      results,
+      skipped,
+    };
+  },
+};
+
+if (location.protocol === "file:") {
+  // file:// is a dead end for Clerk:
+  //   • redirect URLs of file:// scheme are rejected outright
+  //   • Clerk's modal defaults to redirecting to "/" after sign-in, which
+  //     on file:// resolves to the OS root (C:/)
+  //   • OAuth callbacks have nowhere to go
+  // Block the auth flow before the user clicks anything, with a loud notice
+  // pointing at the fix.
+  setClerkStatus(
+    "file:// origin — Clerk auth WILL break. Run `cd " + "scripts && npx serve` and reopen on http://localhost:3000/oto-harness.html. Manual JWT paste still works.",
+    "err",
+  );
+  elBtnSignIn.disabled = true;
+  elBtnSignIn.title = "Disabled on file:// — see status above";
+} else if (settings.publishableKey) {
+  initClerk();
+} else {
+  setClerkStatus("no publishable key — manual JWT only", "");
+}
+</script>
+</body>
+</html>

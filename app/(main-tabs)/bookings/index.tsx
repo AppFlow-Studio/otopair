@@ -16,6 +16,7 @@
  *
  * OWNER: Waleed Mansour
  */
+import { ProfileInitialsButton } from "@/components/home/ProfileInitialsButton";
 import { BookingCard, type Booking } from "@/components/bookings/BookingCard";
 import { PendingQuoteCard } from "@/components/bookings/PendingQuoteCard";
 import { QuoteListSheet, type QuoteListSheetRef } from "@/components/bookings/QuoteListSheet";
@@ -25,17 +26,19 @@ import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/Flo
 import { useMyBookingsWithDetails } from "@/hooks/useMyBookingsWithDetails";
 import { useUserFromConvex } from "@/hooks/useUserFromConvex";
 import { CompletedBookingReviewCard } from "@/components/bookings/CompletedBookingReviewCard";
+import { CustomerLateBanner } from "@/components/bookings/CustomerLateBanner";
 import { LeaveReviewSheet, type LeaveReviewSheetRef } from "@/components/bookings/LeaveReviewSheet";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useBookingsBadgeStore } from "@/stores/useBookingsBadgeStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
+import { useRecHistoryFromConvex } from "@/hooks/useRecHistoryFromConvex";
 import { useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { useFocusEffect, useLocalSearchParams } from "expo-router";
-import { Calendar, Car, Check, ListFilter } from "lucide-react-native";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
+import { Calendar, Car, Check, ChevronRight, ListFilter } from "lucide-react-native";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Image, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
+import { Alert, Image, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
 import Animated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import SegmentedControl from "@react-native-segmented-control/segmented-control";
@@ -68,8 +71,12 @@ export default function BookingsScreen() {
     isLoading,
   } = useMyBookingsWithDetails();
   const { userId } = useUserFromConvex();
+  const router = useRouter();
 
-  const { tab: tabParam } = useLocalSearchParams<{ tab?: string }>();
+  const { tab: tabParam, bookingId: bookingIdParam } = useLocalSearchParams<{
+    tab?: string;
+    bookingId?: string;
+  }>();
   const initialTab: TabType = TAB_ORDER.includes(tabParam as TabType)
     ? (tabParam as TabType)
     : "bookings";
@@ -110,6 +117,18 @@ export default function BookingsScreen() {
   const filterVehicle = filterVehicleId
     ? allVehicles.find((v) => v.id === filterVehicleId)
     : null;
+
+  // Active-rec count for the entry-point card. Scoped to the currently
+  // filtered vehicle when one is selected, else the primary garaged car.
+  const activeVin =
+    filterVehicle?.vin ?? useVehicleStore.getState().getSelectedVehicle()?.vin;
+  const { history: recHistory } = useRecHistoryFromConvex(activeVin);
+  const activeRecCount = recHistory.filter(
+    (r) =>
+      r.status === "open" ||
+      r.status === "acknowledged" ||
+      (r.status === "dismissed" && r.dismissed_reason === "hidden_by_driver"),
+  ).length;
   const matchesListFilter = useCallback(
     (b: Booking) => {
       if (!filterVehicle) return true;
@@ -150,8 +169,8 @@ export default function BookingsScreen() {
   const cancelConvexBooking = useMutation(api.bookings.cancelBooking);
   const handleCancelBooking = useCallback(
     (bookingId: string) => {
-      const isSynthesized = bookingId.startsWith("tire_quote_");
-      if (isSynthesized) {
+      const isLocalId = bookingId.startsWith("tire_quote_") || bookingId.startsWith("booking_");
+      if (isLocalId) {
         cancelLocalBooking(bookingId);
       } else {
         void cancelConvexBooking({ bookingId: bookingId as Id<"bookings"> });
@@ -180,6 +199,20 @@ export default function BookingsScreen() {
       detailsSheetRef.current?.open(booking);
     }
   };
+
+  // Deep-link from AI chat's BookingCard: `/bookings?bookingId=<id>` opens
+  // the detail sheet for the matching booking. The ref guard prevents the
+  // sheet from re-opening every time the bookings list refetches.
+  const openedBookingIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!bookingIdParam || isLoading) return;
+    if (openedBookingIdRef.current === bookingIdParam) return;
+    const booking = allBookings.find((b) => b.id === bookingIdParam);
+    if (booking) {
+      openedBookingIdRef.current = bookingIdParam;
+      detailsSheetRef.current?.open(booking);
+    }
+  }, [bookingIdParam, isLoading, allBookings]);
 
   const quoteListSheetRef = useRef<QuoteListSheetRef>(null);
   const handleViewQuotes = (bookingId: string) => {
@@ -217,9 +250,35 @@ export default function BookingsScreen() {
     });
   }, []);
 
-  const handleReschedule = (bookingId?: string) => {
-    console.log("Reschedule booking:", bookingId || "live");
-  };
+  // Reschedule = cancel the current booking after confirmation, so the
+  // driver can book a new slot fresh. We don't have in-place reschedule
+  // yet, and surfacing "cancel" via the late-banner CTA matches the
+  // current product spec.
+  const handleReschedule = useCallback(
+    (bookingId?: string) => {
+      if (!bookingId) return;
+      Alert.alert(
+        "Reschedule appointment?",
+        "This will cancel your current booking. You'll need to book a new time slot.",
+        [
+          { text: "Keep booking", style: "cancel" },
+          {
+            text: "Cancel & reschedule",
+            style: "destructive",
+            onPress: () => {
+              const isLocalId = bookingId.startsWith("tire_quote_") || bookingId.startsWith("booking_");
+              if (!isLocalId) {
+                void cancelConvexBooking({ bookingId: bookingId as Id<"bookings"> });
+              } else {
+                cancelLocalBooking(bookingId);
+              }
+            },
+          },
+        ],
+      );
+    },
+    [cancelConvexBooking],
+  );
 
   const handleDownloadPdf = (bookingId: string) => {
     console.log("Download PDF for booking:", bookingId);
@@ -243,11 +302,18 @@ export default function BookingsScreen() {
             scrollEventThrottle={16}
             refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#3B82F6" />}
           >
-            {/* Header */}
+            {/* Header — profile button left, title centered, mirrored
+                spacer right so the title stays optically centered. */}
             <View style={styles.header}>
-              <Text weight="bold" size="xl" color="#FFFFFF">
-                My Bookings
-              </Text>
+              <View style={styles.headerSide}>
+                <ProfileInitialsButton />
+              </View>
+              <View style={styles.headerCenter}>
+                <Text weight="bold" size="xl" color="#FFFFFF">
+                  My Bookings
+                </Text>
+              </View>
+              <View style={styles.headerSide} />
             </View>
 
             {/* Tab Switcher */}
@@ -308,12 +374,37 @@ export default function BookingsScreen() {
               </View>
             ) : null}
 
+            {/* Mechanic-rec history entry point. Surfaces hidden + resolved
+                recs so drivers can address what's still dragging their VHS. */}
+            {activeTab === "bookings" ? (
+              <Pressable
+                onPress={() => router.push("/bookings/recommended")}
+                style={({ pressed }) => [
+                  styles.recHistoryCard,
+                  pressed && { opacity: 0.85 },
+                ]}
+              >
+                <Text weight="semiBold" style={styles.recHistoryTitle}>
+                  Recommended services
+                </Text>
+                {activeRecCount > 0 ? (
+                  <View style={styles.recHistoryBadge}>
+                    <Text weight="semiBold" style={styles.recHistoryBadgeText}>
+                      {activeRecCount}
+                    </Text>
+                  </View>
+                ) : null}
+                <ChevronRight size={18} color="#C7C7CC" />
+              </Pressable>
+            ) : null}
+
             {/* Booking Content. The Bookings tab includes in-progress
                 cards now — their per-card progress bar communicates
                 status inline, replacing the old Live Tracker tab.
                 Completed-but-unreviewed bookings get a "Leave a review"
                 card pinned at the very top until the user reviews. */}
             <View style={styles.content}>
+              <CustomerLateBanner onReschedule={(bookingId) => handleReschedule(String(bookingId))} />
               {activeTab === "bookings" && visibleReviewBookings.length > 0
                 ? visibleReviewBookings.map((booking) => (
                     <CompletedBookingReviewCard
@@ -479,6 +570,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 8,
     paddingBottom: 20,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  headerSide: {
+    width: 40,
+  },
+  headerCenter: {
+    flex: 1,
     alignItems: "center",
   },
   segmentedWrapper: {
@@ -584,6 +683,37 @@ const styles = StyleSheet.create({
   content: {
     paddingHorizontal: 20,
     paddingTop: 16,
+  },
+  recHistoryCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginHorizontal: 20,
+    marginTop: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 12,
+    borderWidth: 0.5,
+    borderColor: "rgba(0,0,0,0.06)",
+  },
+  recHistoryTitle: {
+    flex: 1,
+    fontSize: 14,
+    color: "#141C24",
+  },
+  recHistoryBadge: {
+    minWidth: 22,
+    height: 22,
+    paddingHorizontal: 7,
+    borderRadius: 11,
+    backgroundColor: "#5299FE",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  recHistoryBadgeText: {
+    fontSize: 12,
+    color: "#FFFFFF",
   },
   emptyState: {
     alignItems: "center",

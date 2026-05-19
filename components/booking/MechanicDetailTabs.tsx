@@ -6,7 +6,7 @@
  *          tab fills with BrandColors.secondary and white text;
  *          inactive tabs are transparent with muted text.
  *
- * USED IN: app/(main-tabs)/home/shop/[id]/index.tsx
+ * USED IN: app/booking/mechanic/[id]/index.tsx, app/booking/shop/[id]/index.tsx
  *
  * PROPS:
  *   - activeTab: Currently active tab id
@@ -21,12 +21,7 @@ import { ScrollView, Pressable, StyleSheet, View } from "react-native";
 import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 import { BorderRadius, Shadows } from "@/constants/theme";
 
-export type MechanicDetailTab =
-  | "services"
-  | "schedule"
-  | "reviews"
-  | "portfolio"
-  | "mechanics";
+export type MechanicDetailTab = "reviews" | "mechanics" | "portfolio";
 
 interface MechanicDetailTabsProps {
   activeTab: MechanicDetailTab;
@@ -34,8 +29,6 @@ interface MechanicDetailTabsProps {
 }
 
 const TABS: { id: MechanicDetailTab; label: string }[] = [
-  { id: "services", label: "Services" },
-  { id: "schedule", label: "Schedule" },
   { id: "reviews", label: "Reviews" },
   { id: "mechanics", label: "Mechanics" },
   { id: "portfolio", label: "Portfolio" },

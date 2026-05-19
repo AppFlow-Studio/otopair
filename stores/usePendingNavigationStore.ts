@@ -5,7 +5,7 @@
  *          Used when we need to router.back() first (e.g. from a modal) and then
  *          navigate elsewhere once the back destination regains focus.
  *
- * USED IN: app/(main-tabs)/home/map.tsx (sets flag), app/(main-tabs)/home/index.tsx (consumes)
+ * USED IN: app/booking/map.tsx (sets flag), app/(main-tabs)/home/index.tsx (consumes)
  *
  * FLOW: Map sets pendingNavigateToCars=true, calls router.back() → Home gains focus →
  *       useFocusEffect sees flag → router.navigate to cars → clears flag

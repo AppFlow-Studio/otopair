@@ -13,7 +13,7 @@ import { useMemo } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { MechanicAvailabilitySlot } from "@/stores/types/store.types";
-import { dateToDayDisplay, hhmmToDisplayTime } from "@/utils/timeSlotUtils";
+import { dateToDayDisplay, hhmmToDisplayTime, minBookableHHMM, todayLocalISO } from "@/utils/timeSlotUtils";
 
 const DEFAULT_LIMIT_PER_MECHANIC = 12;
 
@@ -22,29 +22,41 @@ export function useNextAvailabilityPerMechanicForShop(
   limitPerMechanic: number = DEFAULT_LIMIT_PER_MECHANIC,
 ) {
   const isRealShopId = shopId != null && shopId.length > 10;
+  // See useNextAvailabilityForShop: pass the user's local cutoff so the
+  // server can drop past slots before slicing to `limitPerMechanic`.
+  const cutoffDate = todayLocalISO();
+  const cutoffTime = minBookableHHMM();
   const convexResult = useQuery(
     api.time_slots.getNextAvailableByShopPerMechanic,
     isRealShopId
       ? {
           shopId: shopId as Id<"shops">,
           limitPerMechanic,
+          cutoffDate,
+          cutoffTime,
         }
       : "skip",
   );
 
   const slotsByMechanicId = useMemo((): Record<string, MechanicAvailabilitySlot[]> => {
     if (!convexResult || !Array.isArray(convexResult)) return {};
+    // Belt-and-braces — server applies the same filter, but re-check
+    // here for older convex deploys.
+    const today = todayLocalISO();
+    const minTime = minBookableHHMM();
     const map: Record<string, MechanicAvailabilitySlot[]> = {};
     for (const { mechanicId, slots } of convexResult) {
       const key = mechanicId as string;
-      map[key] = slots.map((s) => {
-        const { dayOfWeek, day } = dateToDayDisplay(s.date);
-        return {
-          dayOfWeek,
-          day,
-          time: hhmmToDisplayTime(s.start_time),
-        };
-      });
+      map[key] = slots
+        .filter((s) => s.date !== today || s.start_time >= minTime)
+        .map((s) => {
+          const { dayOfWeek, day } = dateToDayDisplay(s.date);
+          return {
+            dayOfWeek,
+            day,
+            time: hhmmToDisplayTime(s.start_time),
+          };
+        });
     }
     return map;
   }, [convexResult]);

@@ -94,11 +94,12 @@ interface AIInputBoxProps {
 // CONSTANTS
 // ============================================================================
 
-// TextInput height constants
-const LINE_HEIGHT = 22;
-const VERTICAL_PADDING = 10; // padding top + bottom inside input
-const MIN_HEIGHT = LINE_HEIGHT + VERTICAL_PADDING; // Single line ~32px
-const MAX_HEIGHT = LINE_HEIGHT * 6 + VERTICAL_PADDING; // ~6 lines max ~142px
+// TextInput height constants. Keep VERTICAL_PADDING in sync with the
+// textInput style's actual paddingVertical (6 top + 6 bottom = 12).
+const LINE_HEIGHT = 26;
+const VERTICAL_PADDING = 12;
+const MIN_HEIGHT = LINE_HEIGHT + VERTICAL_PADDING; // 1 line, ~38px
+const MAX_HEIGHT = LINE_HEIGHT * 8 + VERTICAL_PADDING; // 8 lines, then scroll
 
 const SPRING_CONFIG = { damping: 20, stiffness: 300, mass: 0.8 };
 const TIMING_CONFIG = { duration: 150 };
@@ -317,11 +318,16 @@ export function AIInputBox({
     });
   }, [isAttachmentOpen]);
 
-  // Handle content size changes for auto-expand/shrink
+  // Handle content size changes for auto-expand/shrink. `contentSize.height`
+  // is the height of the text content only — it does NOT include the
+  // TextInput's own padding. Add VERTICAL_PADDING so the rendered box is
+  // tall enough to show the last line without clipping the descenders.
   const handleContentSizeChange = useCallback((event: any) => {
     const contentHeight = event.nativeEvent.contentSize.height;
-    // Clamp between min and max
-    const newHeight = Math.max(MIN_HEIGHT, Math.min(contentHeight, MAX_HEIGHT));
+    const newHeight = Math.max(
+      MIN_HEIGHT,
+      Math.min(contentHeight + VERTICAL_PADDING, MAX_HEIGHT),
+    );
     setInputHeight(newHeight);
   }, []);
 
@@ -518,12 +524,13 @@ const styles = StyleSheet.create({
   },
   inputCardOuter: {
     borderRadius: 24,
-    backgroundColor: 'rgba(255,255,255,0.85)',
+    // Softer opacity so the input reads as a glass card on the gradient.
+    backgroundColor: 'rgba(255,255,255,0.7)',
     borderWidth: 1,
     borderColor: 'rgba(0,0,0,0.06)',
   },
   inputCardOuterFocused: {
-    backgroundColor: 'rgba(255,255,255,0.95)',
+    backgroundColor: 'rgba(255,255,255,0.92)',
     borderColor: 'rgba(0,0,0,0.08)',
   },
   inputCardInner: {
@@ -556,12 +563,15 @@ const styles = StyleSheet.create({
   },
   textInput: {
     flex: 1,
-    fontSize: 16,
+    fontSize: 18,
     fontFamily: FontFamily.regular,
-    color: BrandColors.primary,
+    color: '#000000',
     lineHeight: LINE_HEIGHT,
     paddingVertical: 6,
     paddingHorizontal: 8,
+    // Vertical-center the placeholder/single-line text; on iOS multiline
+    // TextInputs ignore this and flow top-down naturally, so it doesn't
+    // re-introduce the long-message clipping issue we fixed earlier.
     textAlignVertical: 'center',
   },
   rightButtonsRow: {

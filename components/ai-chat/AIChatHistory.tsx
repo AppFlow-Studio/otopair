@@ -20,13 +20,17 @@ import { Text } from '@/components/shared-ui';
 
 // 4. Constants, hooks, types
 import { BrandColors, BorderRadius, Spacing, FontFamily } from '@/constants/theme';
-import type { Conversation } from '@/stores/useAIChatStore';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
+export interface AIChatHistoryItem {
+  id: string;
+  title: string;
+}
+
 interface AIChatHistoryProps {
   onClose: () => void;
-  conversations: Conversation[];
+  conversations: AIChatHistoryItem[];
   onSelectConversation: (conversationId: string) => void;
   isLoading?: boolean;
   paddingTop: number;
@@ -107,7 +111,7 @@ const styles = StyleSheet.create({
   recentsLabel: {
     fontSize: 13,
     lineHeight: 18,
-    color: 'rgba(0,0,0,0.4)',
+    color: '#000000',
     paddingHorizontal: Spacing.lg,
     marginTop: Spacing.xl,
     marginBottom: Spacing.xs,
@@ -154,7 +158,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.lg,
   },
   emptyText: {
-    color: 'rgba(0,0,0,0.4)',
+    color: '#000000',
     fontSize: 16,
     marginBottom: Spacing.xs,
   },

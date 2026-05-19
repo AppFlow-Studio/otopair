@@ -52,26 +52,26 @@ export function useMechanicsFromConvex() {
 
   const mechanics: Mechanic[] = useMemo(() => {
     if (!convexMechanics) return [];
-    // ─── TEMP: Only surface mechanics belonging to Chelala Service
-    // Center. Same rationale as the Chelala filter in
-    // `useShopsFromConvex.ts` — keep mobile in sync with the only shop
-    // wired up end-to-end on otopair-web. Remove when more shops go
-    // live. ───
-    const chelalaOnly = convexMechanics.filter((m) =>
-      (m.shop?.name ?? "").toLowerCase().includes("chelala"),
-    );
     // Dedupe by (shop, full-name) — the `mechanics` table has duplicate
     // rows for some mechanics (likely a seed re-run), so without this the
     // picker shows "Luke / Luke / James / James". Keep the first row for
     // each name within a shop.
     const seen = new Set<string>();
-    const deduped = chelalaOnly.filter((m) => {
+    const deduped = (convexMechanics as ConvexMechanicListRow[]).filter((m) => {
       const key = `${String(m.shop_id)}::${(m.first_name ?? "").trim().toLowerCase()}::${(m.last_name ?? "").trim().toLowerCase()}`;
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
     });
-    return deduped.map((m) => mapConvexMechanicToStore(m as ConvexMechanicListRow));
+    // ─── TEMP: After dedup, only surface mechanics belonging to Chelala
+    // Service Center. Same rationale as the Chelala filter in
+    // `useShopsFromConvex.ts` — keep mobile in sync with the only shop
+    // wired up end-to-end on otopair-web. Remove when more shops go
+    // live. ───
+    const chelalaOnly = deduped.filter((m) =>
+      (m.shop?.name ?? "").toLowerCase().includes("chelala"),
+    );
+    return chelalaOnly.map((m) => mapConvexMechanicToStore(m as ConvexMechanicListRow));
   }, [convexMechanics]);
 
   useEffect(() => {

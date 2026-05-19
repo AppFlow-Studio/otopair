@@ -104,7 +104,7 @@ function adaptLocalBookingToCard(
 }
 
 export function useMyBookingsWithDetails() {
-  const { userId, isLoading: isUserLoading } = useUserFromConvex();
+  const { userId } = useUserFromConvex();
   const rows = useQuery(api.bookings.getByUserIdWithDetails, userId ? { userId } : "skip");
   // Booking IDs the user has already submitted a review for. Drives the
   // "Leave a review" card on completed bookings — once a review exists,
@@ -124,19 +124,8 @@ export function useMyBookingsWithDetails() {
   const selectedMechanicSlot = useBookingStore((s) => s.selectedMechanicSlot);
 
   return useMemo(() => {
-    if (!userId) {
-      return {
-        liveBooking: null,
-        upcomingBookings: [],
-        quoteBookings: [],
-        pendingReviewBookings: [],
-        historyBookings: [],
-        isLoading: isUserLoading,
-      };
-    }
-
     // --- Convex bookings ---
-    const list: ConvexBookingWithDetails[] = rows ?? [];
+    const list = rows ?? [];
     const liveRows = list.filter(isLive);
     const upcomingRows = list.filter(isUpcoming);
     const historyRows = list.filter(isHistory);
@@ -151,7 +140,7 @@ export function useMyBookingsWithDetails() {
     // tab. The per-card progress bar now communicates status inline.
     const isQuoteStage = (r: ConvexBookingWithDetails) =>
       r.status === "pending_quote" || r.status === "quotes_ready";
-    const serviceRows = [...liveRows, ...upcomingRows.filter((r: ConvexBookingWithDetails) => !isQuoteStage(r))];
+    const serviceRows = [...liveRows, ...upcomingRows.filter((r) => !isQuoteStage(r))];
     const quoteRows = upcomingRows.filter(isQuoteStage);
 
     const upcomingBookings: BookingCardBooking[] = serviceRows
@@ -166,20 +155,20 @@ export function useMyBookingsWithDetails() {
       )
       .map(adaptConvexBookingWithDetailsToCard);
 
-    // Pull completed-but-unreviewed rows out of history — they need a
-    // dedicated "Leave a review" card at the top of the Bookings tab.
-    // Cancelled bookings stay in history regardless.
+    // Surface completed-but-unreviewed rows as a "Leave a review" card at
+    // the top of the Bookings tab, but ALSO keep them in Booking History
+    // so users can still find their paid service on the history list
+    // before they get around to reviewing.
     const reviewedSet = new Set(reviewedBookingIds ?? []);
     const isPendingReview = (r: ConvexBookingWithDetails) =>
       r.status === "completed" && !reviewedSet.has(String(r._id));
     const pendingReviewRows = historyRows.filter(isPendingReview);
-    const trueHistoryRows = historyRows.filter((r: ConvexBookingWithDetails) => !isPendingReview(r));
 
     const pendingReviewBookings: BookingCardBooking[] = pendingReviewRows
-      .sort((a: ConvexBookingWithDetails, b: ConvexBookingWithDetails) => (b._creationTime ?? 0) - (a._creationTime ?? 0))
+      .sort((a, b) => (b._creationTime ?? 0) - (a._creationTime ?? 0))
       .map(adaptConvexBookingWithDetailsToCard);
 
-    const historyBookings: BookingCardBooking[] = trueHistoryRows
+    const historyBookings: BookingCardBooking[] = historyRows
       .sort((a: ConvexBookingWithDetails, b: ConvexBookingWithDetails) =>
         new Date(b.scheduled_date).getTime() - new Date(a.scheduled_date).getTime(),
       )
@@ -192,7 +181,7 @@ export function useMyBookingsWithDetails() {
     };
     const getMechanicName = (shopId: string) => {
       // Use the selected slot's mechanic name if it matches the shop
-      if (selectedMechanicSlot?.shopId === shopId && selectedMechanicSlot.mechanicName) {
+      if (shopId && selectedMechanicSlot?.shopId === shopId && selectedMechanicSlot?.mechanicName) {
         return selectedMechanicSlot.mechanicName;
       }
       return undefined;
@@ -266,5 +255,5 @@ export function useMyBookingsWithDetails() {
       historyBookings,
       isLoading: rows === undefined,
     };
-  }, [userId, isUserLoading, rows, reviewedBookingIds, localBookings, localBookingIds, availableServices, getShopById, getVehicleById, getSelectedVehicle, selectedMechanicSlot]);
+  }, [rows, reviewedBookingIds, localBookings, localBookingIds, availableServices, getShopById, getVehicleById, getSelectedVehicle, selectedMechanicSlot]);
 }

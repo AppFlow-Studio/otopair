@@ -1,14 +1,6 @@
 // 1. React & React Native
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  ActivityIndicator,
-  Image,
-  Platform,
-  Pressable,
-  StyleSheet,
-  View,
-  useWindowDimensions,
-} from 'react-native';
+import { ActivityIndicator, Alert, Image, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated from 'react-native-reanimated';
 
@@ -41,6 +33,7 @@ import { useVehicleOwnershipFromConvex } from '@/hooks/useVehicleOwnershipFromCo
 import { fetchVehicleImageUrl } from '@/utils/vehicleImage';
 import { adaptConvexBookingWithDetailsToCard } from '@/utils/bookingAdapter';
 import { BookingDetailsSheet, type BookingDetailsSheetRef } from '@/components/bookings/BookingDetailsSheet';
+import { CustomerLateBanner } from '@/components/bookings/CustomerLateBanner';
 import { LeaveReviewSheet, type LeaveReviewSheetRef } from '@/components/bookings/LeaveReviewSheet';
 import { useMyBookingsWithDetails } from '@/hooks/useMyBookingsWithDetails';
 import { useUserFromConvex } from '@/hooks/useUserFromConvex';
@@ -99,10 +92,7 @@ import { MoreServicesSection } from "@/components/home/MoreServicesSection";
 import { SuggestionsSection } from "@/components/home/SuggestionsSection";
 import { VehicleMaintenanceCard } from "@/components/home/VehicleMaintenanceCard";
 import { ProfileInitialsButton } from "@/components/home/ProfileInitialsButton";
-import { SettingsOverlay } from "@/components/settings/SettingsOverlay";
-
-const isIOS26OrNewer =
-  Platform.OS === "ios" && parseInt(String(Platform.Version), 10) >= 26;
+import { OtoPairIcon } from "@/components/icons/oto-pair";
 
 function formatBookingDate(dateStr: string): string {
   const [y, m, d] = dateStr.split('-').map(Number);
@@ -119,7 +109,19 @@ function formatBookingTime(timeStr: string): string {
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
-  const { height } = useWindowDimensions();
+  // Lock `insets.top` to its first-render value for the lifetime of the
+  // screen. The app is portrait-only (app.json), so legitimate top-inset
+  // changes don't happen — but transparent Modal mounts (the settings
+  // overlay, etc.) DO cause iOS to re-emit a transient `insets.top` to
+  // safe-area-context subscribers. Without this lock,
+  // `paddingTop: insets.top + 12` on the ScrollView jiggles for a frame
+  // when the overlay's <Modal> mounts, shifting the home content (and
+  // the profile button) up and then back down on every press.
+  const initialInsetTopRef = useRef<number | null>(null);
+  if (initialInsetTopRef.current === null) {
+    initialInsetTopRef.current = insets.top;
+  }
+  const stableInsetTop = initialInsetTopRef.current;
   const router = useRouter();
   const { isNewUser, shouldShowReactivationSheet, setShouldShowReactivationSheet } = useAuthStore();
   const { vehicles: listVehicles, hasVehicles, isLoading: vehiclesLoading } = useVehicleOwnershipFromConvex();
@@ -139,11 +141,7 @@ export default function HomeScreen() {
   // Reactivation bottom sheet (from temur-dev)
   const sheetRef = useRef<BottomSheetModal>(null);
   const hasPresentedReactivationRef = useRef(false);
-  const reactivationSheetHeight = useMemo(() => {
-    const maxHeight = Math.max(height - insets.top - 72, 320);
-    return Math.min(Math.max(height * 0.5, 400), maxHeight);
-  }, [height, insets.top]);
-  const snapPoints = useMemo(() => [reactivationSheetHeight], [reactivationSheetHeight]);
+  const snapPoints = useMemo(() => ["42%"], []);
 
   useEffect(() => {
     if (shouldShowReactivationSheet && showWelcome) {
@@ -413,7 +411,7 @@ export default function HomeScreen() {
   };
 
   const handleMapPress = () => {
-    router.push("/home/map");
+    router.push("/booking/map");
   };
 
   // Notifications bell — opens the global NotificationsSheet and
@@ -463,7 +461,36 @@ export default function HomeScreen() {
   const cancelConvexBooking = useMutation(api.bookings.cancelBooking);
   const handleAppointmentCancel = useCallback(
     (bookingId: string) => {
-      void cancelConvexBooking({ bookingId: bookingId as Id<"bookings"> });
+      const isLocalId = bookingId.startsWith("tire_quote_") || bookingId.startsWith("booking_");
+      if (!isLocalId) {
+        void cancelConvexBooking({ bookingId: bookingId as Id<"bookings"> });
+      }
+    },
+    [cancelConvexBooking],
+  );
+
+  // Reschedule from the late banner = confirm-then-cancel. We don't have
+  // in-place reschedule yet; the spec is to drop the slot so the driver
+  // can book fresh.
+  const handleRescheduleConfirm = useCallback(
+    (bookingId: string) => {
+      Alert.alert(
+        "Reschedule appointment?",
+        "This will cancel your current booking. You'll need to book a new time slot.",
+        [
+          { text: "Keep booking", style: "cancel" },
+          {
+            text: "Cancel & reschedule",
+            style: "destructive",
+            onPress: () => {
+              const isLocalId = bookingId.startsWith("tire_quote_") || bookingId.startsWith("booking_");
+              if (!isLocalId) {
+                void cancelConvexBooking({ bookingId: bookingId as Id<"bookings"> });
+              }
+            },
+          },
+        ],
+      );
     },
     [cancelConvexBooking],
   );
@@ -560,9 +587,15 @@ export default function HomeScreen() {
           {/* Full Page Scroll */}
           <Animated.ScrollView
             style={styles.scrollView}
-            contentContainerStyle={[styles.scrollContent, { paddingTop: insets.top + 12 }]}
+            contentContainerStyle={[styles.scrollContent, { paddingTop: stableInsetTop + 12 }]}
             showsVerticalScrollIndicator={false}
             scrollEnabled={!isCardSwiping}
+            // Prevent iOS from re-adjusting the scroll content when a
+            // transparent Modal (e.g. the settings overlay) mounts and
+            // triggers a transient safe-area renegotiation — without
+            // this, the home content shifts up then back down on press.
+            contentInsetAdjustmentBehavior="never"
+            automaticallyAdjustContentInsets={false}
             onScroll={scrollHandler}
             scrollEventThrottle={16}
           >
@@ -577,14 +610,7 @@ export default function HomeScreen() {
                   <Text size="xl" color="#FFFFFF" weight="bold">
                     Otopair
                   </Text>
-                  <Text
-                    weight="semiBold"
-                    size="sm"
-                    color="#FFFFFF"
-                    numberOfLines={1}
-                    ellipsizeMode="tail"
-                    style={styles.locationLabel}
-                  >
+                  <Text weight="semiBold" size="sm" color="#FFFFFF">
                     {locationName}
                   </Text>
                 </View>
@@ -678,6 +704,13 @@ export default function HomeScreen() {
 
             {/* Content Area */}
             <View style={styles.content}>
+              {/* Running-late / overrun banner — self-renders when the
+                  shop has fired a customer_late_push_reminder or
+                  overrun_customer_resolution notification. Reschedule
+                  triggers a confirm-then-cancel flow. */}
+              <CustomerLateBanner
+                onReschedule={(bookingId) => handleRescheduleConfirm(String(bookingId))}
+              />
               {/* Action Cards Carousel */}
               {visibleCardIds.length > 0 && <View style={styles.carouselContainer}>
                 <ActionCardsCarousel
@@ -697,7 +730,7 @@ export default function HomeScreen() {
                   resumeServicesPreview={resumeServicesPreview}
                   resumeVehicleName={resumeVehicleName}
                   resumeVehicleImage={resumeVehicleImage}
-                  onResumePress={() => router.push('/home/map')}
+                  onResumePress={() => router.push('/booking/map?openServices=true')}
                   // Account Setup
                   showAccountSetup={showAccountSetup}
                   onAccountSetupDismiss={() => setAccountSetupDismissed(true)}
@@ -743,7 +776,7 @@ export default function HomeScreen() {
                     vehicles={mappedVehicles.length > 0 ? mappedVehicles : undefined}
                     onBookNow={(vehicleId, serviceId) => {
                       useVehicleStore.getState().selectVehicle(vehicleId);
-                      router.push('/home/map');
+                      router.push('/booking/map?openServices=true');
                     }}
                     onSwipeStart={() => setIsCardSwiping(true)}
                     onSwipeEnd={() => setIsCardSwiping(false)}
@@ -828,9 +861,8 @@ export default function HomeScreen() {
         View Details button. Mirrors the bookings tab's wiring. */}
     <BookingDetailsSheet ref={detailsSheetRef} />
 
-    {/* iOS 26 keeps the existing shared-element Settings overlay path.
-        Android and iOS <= 25 use the dedicated host in the tabs layout. */}
-    {isIOS26OrNewer ? <SettingsOverlay /> : null}
+    {/* Settings overlay now lives at the `/profile-overlay` route
+        (app/profile-overlay.tsx) so it can open from any tab via router.push. */}
 
     {/* Auto-prompt: if the user has a completed-but-unreviewed booking,
         this sheet pops on focus / cold start until they submit a review. */}
@@ -904,12 +936,6 @@ const styles = StyleSheet.create({
     gap: 0,
     marginTop: -7,
     marginLeft: 12,
-    flex: 1,
-    minWidth: 0,
-    paddingRight: 12,
-  },
-  locationLabel: {
-    flexShrink: 1,
   },
   headerRight: {
     flexDirection: "row",

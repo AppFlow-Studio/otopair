@@ -8,7 +8,9 @@ import { useUnseenBookingsCount } from "@/hooks/useUnseenBookingsCount";
 import { useVehicleOwnershipFromConvex } from "@/hooks/useVehicleOwnershipFromConvex";
 import { NotificationsSheet } from "@/components/notifications/NotificationsSheet";
 import { RescheduleDecisionOverlay } from "@/components/notifications/RescheduleDecisionOverlay";
-import { SettingsContainerTransformOverlay } from "@/components/settings/SettingsContainerTransformOverlay";
+// SettingsOverlay is no longer mounted at the layout — it lives at
+// the /profile-overlay route now (see app/profile-overlay.tsx) so
+// destinations pushed from inside it stack on top.
 
 /** Hydrates vehicle and booking stores with Convex data when main tabs are active. */
 function HydrateBookingData() {
@@ -61,6 +63,7 @@ export default function TabLayout() {
             options={{
               title: 'Oto',
             }}
+            
           />
           <Tabs.Screen
             name="index"
@@ -69,7 +72,6 @@ export default function TabLayout() {
             }}
           />
         </Tabs>
-        <SettingsContainerTransformOverlay />
         <NotificationsSheet />
         <RescheduleDecisionOverlay />
       </>

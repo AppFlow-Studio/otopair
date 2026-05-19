@@ -25,6 +25,8 @@ import type { Source } from "@/components/ai-chat/AISources";
 import type { QuickReply } from "@/components/ai-chat/AIQuickReplies";
 import type { Suggestion } from "@/components/ai-chat/PromptSuggestions";
 import type { Shop as StoreShop, Mechanic, MechanicAvailabilitySlot } from "@/stores/types/store.types";
+import type { DiagnosticSystem } from "@/lib/diagnostic-checklist-templates";
+import type { MaintenanceType } from "@/utils/maintenanceStatus";
 
 // ============================================================================
 // CONVERSATION STAGES
@@ -35,6 +37,7 @@ export type ConversationStage =
   | "diagnosis"
   | "question"
   | "service_selection"
+  | "diagnostic_form"
   | "priority_selection"
   | "shop_selection"
   | "time_selection"
@@ -127,13 +130,73 @@ export interface ChatMessage {
   quickReplies?: QuickReply[];
   sections?: MessageSection[];
   isStreaming?: boolean;
-  // Shop carousel data
-  shops?: AIShop[];
-  // Service picker flag
-  showServicePicker?: boolean;
+  // Record confirmation prompt — Oto fires this when a user-described symptom
+  // contradicts a self_reported maintenance_record. Component shows the
+  // record's stated state and offers Confirm / Update buttons. Trigger-only:
+  // the component queries Convex directly for the record contents.
+  // See: convex/oto/tools.ts → render_record_confirmation.
+  showRecordConfirmation?: {
+    vehicle_id: string; // vehicles._id
+    maintenance_type: MaintenanceType;
+  };
+  // Sprint 4 Day 1 Pass B — render_book_service. Single terminal booking
+  // render — mobile BookServiceComponent drives every sub-stage internally
+  // (service select → options → notes → mechanic → time → review → pay).
+  // See: docs/SPRINT_4_FRONTEND_BOOK_SERVICE_TICKET.md, convex/oto/dispatcher.ts.
+  bookService?: BookServicePayload;
+  // Sprint 3 Day 2 §14.1 — tap-to-redirect to one of 9 in-app destinations.
+  linkButton?: LinkButtonPayload;
+  // Sprint 3 Day 5 §14.3 — single booking detail card. Trigger-only: the
+  // mobile component queries Convex for the booking row.
+  bookingCard?: { booking_id: string };
+  // Sprint 3 Day 5 §14.3 — multi-booking list card. Trigger-only.
+  bookingsList?: { booking_ids: string[] };
   // Metadata
   scenarioType?: ScenarioType;
   stage?: ConversationStage;
+}
+
+// Sprint 4 Day 1 Pass B — payload for `render_book_service` AI tool.
+// Backend produces this via convex/oto/dispatcher.ts → renderD("bookService", …).
+// `vehicle_id` is resolved on the frontend from the anchored chat vehicle
+// (one-chat-one-car per Sprint 3 Day 4 §15.12), not from this payload.
+export interface BookServicePayload {
+  // ≥1. Multi-service bundling supported (e.g. ["oil_change","tire_rotation"]).
+  service_slugs: string[];
+  // Present iff one of the slugs is "diagnostic_scan".
+  diagnostic_system?:
+    | "brakes"
+    | "tires_wheels"
+    | "engine"
+    | "battery_electrical"
+    | "not_sure";
+  // 2-3 sentence service-advisor summary. Present iff diagnostic OR Oto has
+  // narrowing context worth anchoring.
+  customer_notes?: string;
+  // Default mechanic-sort order for sub-stage 4 (mechanic selection).
+  recommended_priority?: "closest" | "best_rated" | "best_price";
+  // Pre-selected mechanic for sub-stage 4 (e.g. user's preferred mechanic).
+  recommended_mechanic_id?: string;
+}
+
+// Sprint 3 Day 2 §14.1 — payload for `render_link_button`. 9 destinations.
+// Backend produces this via convex/oto/dispatcher.ts → renderD("linkButton", …).
+export type LinkButtonDestination =
+  | "terms_of_service"
+  | "privacy_policy"
+  | "settings"
+  | "profile"
+  | "transaction_history"
+  | "customer_support"
+  | "feedback"
+  | "bug_report"
+  | "vehicle_onboarding";
+
+export interface LinkButtonPayload {
+  destination: LinkButtonDestination;
+  // Optional CTA override. When absent, the component picks a default label
+  // for the destination.
+  label?: string;
 }
 
 // ============================================================================
@@ -152,6 +215,10 @@ export interface ConversationState {
   // Service details
   serviceName: string | null;
   servicePrice: string | null;
+  // Diagnostic form state — persists for the rest of the conversation so the
+  // AI can reference back to the user's confirmed subsystem and notes.
+  selectedDiagnosticSystem?: DiagnosticSystem;
+  diagnosticNotes?: string;
   // UI state
   isProcessing: boolean;
   suggestions: Suggestion[];
@@ -173,6 +240,14 @@ export interface ScenarioResponse {
   shops?: AIShop[];
   timeSlots?: TimeSlot[];
   showServicePicker?: boolean;
+  showDiagnosticForm?: {
+    initialSystem?: DiagnosticSystem;
+    initialNotes?: string;
+  };
+  showRecordConfirmation?: {
+    vehicle_id: string;
+    maintenance_type: MaintenanceType;
+  };
 }
 
 // ============================================================================

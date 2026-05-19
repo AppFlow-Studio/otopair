@@ -10,7 +10,7 @@
  *          ShopHeroCard below this — keep this component purely the
  *          map + a floating back button.
  *
- * USED IN: app/(main-tabs)/home/shop/[id]/index.tsx
+ * USED IN: app/booking/mechanic/[id]/index.tsx, app/booking/shop/[id]/index.tsx
  *
  * PROPS:
  *   - shop: Shop containing latitude/longitude
@@ -20,7 +20,7 @@
  */
 
 import React, { useMemo } from "react";
-import { Image, Pressable, StyleSheet, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
 
 import { ArrowLeft } from "lucide-react-native";
 import MapView, { Marker, PROVIDER_DEFAULT, type Region } from "react-native-maps";
@@ -65,7 +65,7 @@ export function MechanicDetailHeader({ shop, onBack }: MechanicDetailHeaderProps
       latitudeDelta: MAP_DELTA,
       longitudeDelta: MAP_DELTA,
     }),
-    [hasCoords, shop.latitude, shop.longitude],
+    [shop.latitude, shop.longitude],
   );
 
   return (
@@ -80,25 +80,22 @@ export function MechanicDetailHeader({ shop, onBack }: MechanicDetailHeaderProps
           pitchEnabled={false}
           rotateEnabled={false}
           zoomTapEnabled={false}
-          showsUserLocation={false}
+          showsUserLocation
           showsMyLocationButton={false}
           toolbarEnabled={false}
           showsCompass={false}
           showsPointsOfInterest
+          legalLabelInsets={{ top: -1000, left: -1000, right: -1000, bottom: -1000 }}
         >
           <Marker
             coordinate={{
               latitude: shop.latitude as number,
               longitude: shop.longitude as number,
             }}
-            anchor={{ x: 0.5, y: 0.9 }}
+            anchor={{ x: 0.5, y: 0.5 }}
           >
-            <View style={styles.markerWrap}>
-              <Image
-                source={require("@/assets/images/otopair-ai-logo.png")}
-                style={styles.markerImage}
-                resizeMode="contain"
-              />
+            <View style={styles.shopDotRing}>
+              <View style={styles.shopDotInner} />
             </View>
           </Marker>
         </MapView>
@@ -134,18 +131,24 @@ const styles = StyleSheet.create({
   mapFallback: {
     backgroundColor: "#DBEAFE",
   },
-  markerWrap: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+  // Shop's location marker — small two-layer blue dot styled to read
+  // like the iOS native location indicator, but in OtoPair brand blue
+  // so it's visually distinct from the user's own blue location halo
+  // (now also visible via showsUserLocation).
+  shopDotRing: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
     backgroundColor: "#FFFFFF",
     alignItems: "center",
     justifyContent: "center",
-    ...Shadows.md,
+    ...Shadows.sm,
   },
-  markerImage: {
-    width: 40,
-    height: 40,
+  shopDotInner: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: BrandColors.secondary,
   },
   backButtonContainer: {
     position: "absolute",

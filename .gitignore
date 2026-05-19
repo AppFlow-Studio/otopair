@@ -30,6 +30,10 @@ yarn-error.*
 .DS_Store
 *.pem
 
+# editor swap files
+*.swp
+*.swo
+
 # local env files
 .env
 .env*.local
@@ -66,3 +70,6 @@ _generated/server.js
 
 # Local backup archives — not for the repo
 *.zip
+
+# Eval run secrets (Clerk JWT, ~1-hour lifetime; refreshed per session)
+scripts/eval/runs/.jwt-env.sh

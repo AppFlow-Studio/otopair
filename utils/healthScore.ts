@@ -115,6 +115,45 @@ export interface HealthScoreInput {
    * score, capped at +3. Never hides real problems — score still can't
    * exceed 100. Caller supplies the buffer via `api.healthPoints.getPoints`. */
   hpBuffer?: number;
+  /** Additive penalty (0–25) from open mechanic recommendations.
+   *  Read from vehicle_owners.health_score_rec_penalty; subtracted before clamp. */
+  recPenalty?: number;
+  /** Open mileage-based recommendations from job_recommendations. Each
+   *  rec contributes a penalty that ramps in as the odometer approaches
+   *  target_mileage and pegs at full once the threshold is reached. */
+  mileageRecs?: Array<{ target_mileage: number }>;
+}
+
+const MILEAGE_REC_PENALTY_PER_REC = 8;
+const MILEAGE_REC_RAMP_WINDOW = 5_000;
+const MILEAGE_REC_PENALTY_CAP = 20;
+
+/**
+ * Penalty for open recommendations with a target_mileage threshold.
+ * Zero until the vehicle is within MILEAGE_REC_RAMP_WINDOW miles of the
+ * target, then linearly ramps to MILEAGE_REC_PENALTY_PER_REC, pinned at
+ * that value once the odometer crosses the threshold. Summed across recs,
+ * capped at MILEAGE_REC_PENALTY_CAP so a single vehicle can't be zeroed
+ * out by recs alone.
+ */
+function mileageRecPenalty(
+  odometerMiles: number,
+  recs?: Array<{ target_mileage: number }>,
+): number {
+  if (!recs || recs.length === 0) return 0;
+  let total = 0;
+  for (const rec of recs) {
+    const target = rec.target_mileage;
+    if (!Number.isFinite(target) || target <= 0) continue;
+    const distance = target - odometerMiles;
+    if (distance <= 0) {
+      total += MILEAGE_REC_PENALTY_PER_REC;
+    } else if (distance < MILEAGE_REC_RAMP_WINDOW) {
+      const proximity = 1 - distance / MILEAGE_REC_RAMP_WINDOW;
+      total += MILEAGE_REC_PENALTY_PER_REC * proximity;
+    }
+  }
+  return Math.min(MILEAGE_REC_PENALTY_CAP, total);
 }
 
 /**
@@ -155,9 +194,15 @@ export function computeVehicleHealthScore(input: HealthScoreInput): number {
   const warningReserve = Math.max(0, 15 - penalty);
 
   // ── Blend ─────────────────────────────────────────────────────
-  const raw = (maintenancePct * 0.60) + (usagePct * 0.25) + warningReserve;
+  let raw = (maintenancePct * 0.60) + (usagePct * 0.25) + warningReserve;
+
+  // Subtract open-recommendation penalty before clamp so 0/100 bounds still hold.
+  raw -= input.recPenalty ?? 0;
+  raw -= mileageRecPenalty(odometerMiles, input.mileageRecs);
 
   const rounded = Math.max(0, Math.min(100, Math.round(raw)));
+  // HP buffer adds on top of the clamped score (Rewards Framework v3 §11),
+  // capped so total can't exceed 100.
   const buffer = Math.max(0, Math.min(3, hpBuffer ?? 0));
   return Math.min(100, rounded + buffer);
 }
@@ -185,6 +230,8 @@ export interface HealthFactor {
   label: string;
   /** Optional supporting line, e.g. mileage figure or item description. */
   detail?: string;
+  /** Optional third line, used by booking entries for the completion date. */
+  subDetail?: string;
   /** Absolute pts contribution — always positive; the bucket implies sign. */
   pts: number;
 }
@@ -311,4 +358,150 @@ export function computeHealthScoreFactors(input: HealthScoreInput): {
   negatives.sort((a, b) => b.pts - a.pts);
 
   return { positives, negatives };
+}
+
+// ============================================================================
+// PER-BOOKING HELPING FACTORS
+// ============================================================================
+
+export interface CompletedBooking {
+  /** Convex bookings _id as string. */
+  id: string;
+  /** Display names of services covered by the booking, e.g. ["Oil Change", "Tire Rotation"]. */
+  services: string[];
+  /** Unix ms; null if the booking row has no completion timestamp. */
+  completedAt: number | null;
+  /** Resolved shop display name. Empty string falls back to "Service center" at render time. */
+  shopName: string;
+}
+
+/**
+ * Attributes each currently-on-time maintenance item's score
+ * contribution to the most-recent completed booking that touched
+ * it. Returns one HealthFactor per booking that holds at least one
+ * maintenance type on_time. Older bookings for the same type are
+ * folded into the most-recent one (no double counting).
+ *
+ * The per-booking pts sum equals the per-item on_time pts that
+ * `computeHealthScoreFactors` would have generated — so the
+ * headline score is unchanged; we're just regrouping the credit
+ * from "per maintenance item" to "per booking the user completed."
+ *
+ * Bookings that touched only untracked services (body work,
+ * diagnostics, etc.) don't appear here — they have no maintenance
+ * coverage signal.
+ */
+// Substring keywords used to map a maintenance type (oil, brakes, …)
+// to specific booking service names ("Oil Change", "Brake Pad
+// Replacement", "Battery Replacement", …). Mirrors the SLUG_TO_TYPE
+// table in convex/bookings.ts so client-side attribution and the
+// backend's maintenance-record upsert stay aligned. Lowercase keys.
+const TYPE_KEYWORDS: Record<string, string[]> = {
+  oil: ["oil"],
+  brakes: ["brake"],
+  tires: ["tire", "wheel"],
+  battery: ["battery"],
+  inspection: ["inspect", "emission"],
+  fluids: ["fluid", "flush", "coolant"],
+  filters: ["filter"],
+  wipers: ["wiper", "blade"],
+  engine_parts: ["spark plug", "belt"],
+  diagnostics: ["diagnostic"],
+};
+
+export function computeBookingHelpingFactors(
+  input: HealthScoreInput,
+  completedBookings: CompletedBooking[],
+): HealthFactor[] {
+  const { maintenanceItems } = input;
+  if (!completedBookings || completedBookings.length === 0) return [];
+
+  const totalForWeighting = Math.max(maintenanceItems.length, 1);
+  const perItemWeight = 60 / totalForWeighting;
+
+  // Sort bookings newest → oldest so "find" returns the most recent.
+  const sorted = [...completedBookings].sort(
+    (a, b) => (b.completedAt ?? 0) - (a.completedAt ?? 0),
+  );
+
+  // Accumulator: bookingId → { booking, serviceLabels, totalPts }
+  // `serviceLabels` collects the BOOKING's own service names that
+  // matched (e.g. "Battery Replacement") — those are user-facing and
+  // descriptive. The maintenance item's type-level label
+  // ("Battery check") would read awkwardly in the entry.
+  const acc = new Map<
+    string,
+    { booking: CompletedBooking; serviceLabels: string[]; pts: number }
+  >();
+
+  for (const item of maintenanceItems) {
+    if (item.status !== "on_time") continue;
+    const score = STATUS_SCORE[item.status];
+    const pts = Math.round((score - 0.5) * perItemWeight);
+    if (pts <= 0) continue;
+
+    // `item.id` is e.g. "user-battery" or "unknown-oil" — strip the
+    // prefix to get the type identifier, then look up its keywords.
+    const itemType = item.id.replace(/^(unknown-|user-)/, "");
+    const keywords = TYPE_KEYWORDS[itemType] ?? [];
+    const itemKey = item.serviceName.trim().toLowerCase();
+
+    // Score-factor → booking match: a booking matches when any of
+    // its service names contains a keyword for the item's type.
+    // Falls back to exact-name match so existing behavior never
+    // regresses on types not yet in TYPE_KEYWORDS.
+    const matchesItem = (s: string) => {
+      const lower = s.toLowerCase();
+      if (keywords.some((kw) => lower.includes(kw))) return true;
+      return lower.trim() === itemKey;
+    };
+
+    const match = sorted.find((b) => b.services.some(matchesItem));
+    if (!match) continue; // credit came from a user-entered record, not a booking
+
+    // Pull the booking's own labels that matched this type — those
+    // are what we show to the user.
+    const matchedLabels = match.services.filter(matchesItem);
+
+    const existing = acc.get(match.id);
+    if (existing) {
+      for (const label of matchedLabels) {
+        if (!existing.serviceLabels.includes(label)) {
+          existing.serviceLabels.push(label);
+        }
+      }
+      existing.pts += pts;
+    } else {
+      acc.set(match.id, {
+        booking: match,
+        serviceLabels: [...new Set(matchedLabels)],
+        pts,
+      });
+    }
+  }
+
+  const result: HealthFactor[] = [];
+  for (const { booking, serviceLabels, pts } of acc.values()) {
+    const label = booking.shopName.trim() || "Service center";
+    const detail =
+      serviceLabels.length === 1
+        ? serviceLabels[0]
+        : serviceLabels.join(" · ");
+    const subDetail = formatBookingCompletionDate(booking.completedAt);
+    result.push({ label, detail, subDetail, pts });
+  }
+  result.sort((a, b) => b.pts - a.pts);
+  return result;
+}
+
+function formatBookingCompletionDate(
+  completedAt: number | null,
+): string | undefined {
+  if (!completedAt) return undefined;
+  const formatted = new Intl.DateTimeFormat("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  }).format(new Date(completedAt));
+  return `Completed ${formatted}`;
 }

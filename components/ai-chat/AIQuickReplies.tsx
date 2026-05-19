@@ -20,7 +20,7 @@
  */
 
 // 1. React & React Native
-import React from "react";
+import React, { useState } from "react";
 import { View, Pressable, StyleSheet } from "react-native";
 
 // 2. Expo & Third-party
@@ -134,9 +134,21 @@ function QuickReplyButton({
 // ============================================================================
 
 export function AIQuickReplies({ replies, onSelect, disabled = false }: AIQuickRepliesProps) {
+  // Once any reply is tapped, freeze the whole group so a fast double-tap or
+  // a second tap on a sibling can't fire two user-turns. The component
+  // remounts on each new assistant message (parent re-keys), so this resets
+  // naturally for the next turn.
+  const [hasTapped, setHasTapped] = useState(false);
+
   if (replies.length === 0) {
     return null;
   }
+
+  const handlePress = (reply: QuickReply) => {
+    if (hasTapped || disabled) return;
+    setHasTapped(true);
+    onSelect(reply);
+  };
 
   return (
     <View style={styles.container}>
@@ -144,8 +156,8 @@ export function AIQuickReplies({ replies, onSelect, disabled = false }: AIQuickR
         <QuickReplyButton
           key={reply.id}
           reply={reply}
-          onPress={() => onSelect(reply)}
-          disabled={disabled}
+          onPress={() => handlePress(reply)}
+          disabled={disabled || hasTapped}
           index={index}
         />
       ))}

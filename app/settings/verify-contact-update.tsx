@@ -279,7 +279,7 @@ export default function VerifyContactUpdateScreen() {
 
     updateData(storePayload);
     await persistProfileField(payload);
-    router.replace("/settings");
+    router.replace("/home");
   }, [
     pendingEmail,
     pendingPhone,

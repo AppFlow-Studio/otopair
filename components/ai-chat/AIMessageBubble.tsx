@@ -508,7 +508,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   messageText: {
-    color: 'rgba(0,0,0,0.8)',
+    color: '#000000',
     lineHeight: 22,
     fontSize: 15,
     fontFamily: FontFamily.regular,
@@ -542,7 +542,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   sectionContent: {
-    color: BrandColors.primary,
+    color: '#000000',
     lineHeight: 22,
   },
   listContainer: {
@@ -560,7 +560,7 @@ const styles = StyleSheet.create({
   },
   listText: {
     flex: 1,
-    color: BrandColors.primary,
+    color: '#000000',
     lineHeight: 22,
   },
   // Actions

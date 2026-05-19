@@ -308,6 +308,10 @@ const styles = StyleSheet.create({
   appleButton: {
     backgroundColor: "#000000",
   },
+  appleIcon: {
+    fontSize: FontSize.xl,
+    color: BrandColors.white,
+  },
   appleText: {
     fontSize: FontSize.md,
     fontFamily: FontFamily.semiBold,

@@ -9,8 +9,9 @@
  *   - Welcome screen on first visit (AIWelcomeScreen)
  *   - Greeting with suggestions when no messages (AIGreeting)
  *   - Message bubbles with reasoning, sources, quick replies (AIMessageBubble)
- *   - Service picker for scheduling (AIServicePicker)
- *   - Mechanic carousel for booking (AIBookingCarousel)
+ *   - Consolidated booking flow rendered when Oto fires render_book_service
+ *     (BookServiceComponent — Sprint 4 Day 1 Pass B)
+ *   - Maintenance-record trust protocol (AIRecordConfirmation)
  *   - Chat history sidebar (AIChatHistory)
  *   - Scenario-based conversation engine (scenarioEngine)
  *
@@ -48,6 +49,7 @@ import * as Speech from "expo-speech";
 
 // 3. Shared UI (design system)
 import { Text } from "@/components/shared-ui";
+import { ProfileInitialsButton } from "@/components/home/ProfileInitialsButton";
 
 // 4. Flow-specific components
 import {
@@ -58,36 +60,39 @@ import {
   AITypingIndicator,
   AIChatHistory,
   PromptSuggestions,
-  AIBookingCarousel,
   AIWelcomeScreen,
-  AIServicePicker,
+  AIRecordConfirmation,
+  type RecordConfirmationDecision,
+  BookServiceComponent,
+  LinkButton,
+  BookingCard,
+  BookingsList,
+  AIFeedbackModal,
+  type FeedbackRating,
   AIToast,
   AIAttachmentPanel,
   AISelectedImages,
   type AIMessage,
   type Suggestion,
   type QuickReply,
-  type ServiceOption,
-  type SelectedTimeSlot,
   type VehicleCard,
 } from "@/components/ai-chat";
 
 // 5. Constants, hooks, types, stores
 import { BrandColors, Spacing, FontFamily } from "@/constants/theme";
 import { useAIChatStore } from "@/stores/useAIChatStore";
-import { useBookingStore } from "@/stores/useBookingStore";
 import { useVoiceRecording } from "@/hooks/useVoiceRecording";
 import { useVehicleOwnershipFromConvex } from "@/hooks/useVehicleOwnershipFromConvex";
 import { useUserFromConvex } from "@/hooks/useUserFromConvex";
 import { formatMake } from "@/utils/formatMake";
 import { createInitialState, processUserMessage, WELCOME_SUGGESTIONS } from "@/services/ai/scenarioEngine";
-import type { ConversationState, ChatMessage, AIMechanic, SelectedService } from "@/services/ai/types";
+import type { ConversationState, ChatMessage } from "@/services/ai/types";
 
 // Oto AI minimal end-to-end loop (Phase 1 spike) — feature-flagged so we can
 // flip back to the rule engine instantly.
-import { useAction, useMutation } from "convex/react";
+import { useAction, useMutation, useQuery, useConvex } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import type { Id } from "@/convex/_generated/dataModel";
+import type { Id, Doc } from "@/convex/_generated/dataModel";
 
 // ============================================================================
 // CONSTANTS
@@ -129,18 +134,43 @@ export default function AIChatScreen() {
   const hasSeenWelcome = useAIChatStore((state) => state.hasSeenWelcome);
   const setHasSeenWelcome = useAIChatStore((state) => state.setHasSeenWelcome);
 
-  // Chat history state (from Zustand store)
-  const conversations = useAIChatStore((state) => state.conversations);
+  // Chat history state — sidebar list now sourced from Convex so Oto-AI-path
+  // conversations show up across mounts. saveCurrentConversation/loadConversation
+  // still drive the legacy rule-engine paths until those are retired in Phase 2.
   const saveCurrentConversation = useAIChatStore((state) => state.saveCurrentConversation);
   const loadConversation = useAIChatStore((state) => state.loadConversation);
   const startNewConversation = useAIChatStore((state) => state.startNewConversation);
 
-  // Booking store for navigation to payment
-  const selectMechanic = useBookingStore((state) => state.selectMechanic);
-  const setScheduledAppointment = useBookingStore((state) => state.setScheduledAppointment);
-  const toggleServiceSelection = useBookingStore((state) => state.toggleServiceSelection);
-  const clearSelectedServices = useBookingStore((state) => state.clearSelectedServices);
-  const setBookingStage = useBookingStore((state) => state.setBookingStage);
+  const convex = useConvex();
+  const convexConversationsRaw = useQuery(api.ai_conversations.getByUserId);
+  const conversations = React.useMemo(() => {
+    const rows = convexConversationsRaw ?? [];
+    return rows.map((row: Doc<"ai_conversations">) => {
+      // Build a compact, topic-y title from Oto's running summary.
+      // Sequence: strip the "User …" prefix Oto narrates with → take
+      // just the first sentence → cap at 32 chars so the sidebar row
+      // never gets cut off mid-word by numberOfLines.
+      const raw = (row.arc_summary ?? row.scenario_detected ?? "").trim();
+      let title = "New conversation";
+      if (raw.length > 0) {
+        let cleaned = raw
+          .replace(/^(the\s+user|user)\s+/i, "")
+          .replace(/\s+/g, " ")
+          .trim();
+        // First sentence only — Oto's summaries often stack 2-3 sentences.
+        const firstSentence = cleaned.split(/(?<=[.!?])\s+/)[0] ?? cleaned;
+        cleaned = firstSentence.replace(/[.!?]+$/, "").trim();
+        if (cleaned.length > 0) {
+          cleaned = cleaned[0].toUpperCase() + cleaned.slice(1);
+          title = cleaned.length > 32 ? `${cleaned.slice(0, 32).trim()}…` : cleaned;
+        }
+      }
+      return {
+        id: row._id as string,
+        title,
+      };
+    });
+  }, [convexConversationsRaw]);
 
   // Conversation state (using scenario engine)
   const [state, setState] = useState<ConversationState>(createInitialState);
@@ -154,6 +184,22 @@ export default function AIChatScreen() {
   const createConversation = useMutation(api.ai_conversations.create);
   const [convexConversationId, setConvexConversationId] =
     useState<Id<"ai_conversations"> | null>(null);
+  // appendEstablishedFact — mobile-side write into ai_conversations.established_facts
+  // so Haiku reads selections from <conversation_state> on the next turn instead of
+  // re-deriving them from natural-language history. Decision D: "IDs come from
+  // <conversation_state>, NEVER from user text." Wired into every render-target
+  // confirmation handler below. Fire-and-forget — mutation is fast (~50ms) and
+  // the next Anthropic turn takes much longer to set up, so the race is benign.
+  const appendEstablishedFact = useMutation(api.ai_conversations.appendEstablishedFact);
+  const pushFact = useCallback(
+    (fact: string) => {
+      if (!convexConversationId) return;
+      appendEstablishedFact({ id: convexConversationId, fact }).catch((e) => {
+        console.warn("[ai-chat] appendEstablishedFact failed (non-fatal):", e?.message);
+      });
+    },
+    [appendEstablishedFact, convexConversationId],
+  );
   // Stable session id for this mount — used when lazily creating the
   // ai_conversations row on first send.
   const sessionIdRef = useRef<string>(
@@ -204,6 +250,19 @@ export default function AIChatScreen() {
       setSelectedVehicleVin(primary?.vin ?? greetingVehicles[0].vin);
     }
   }, [greetingVehicles, selectedVehicleVin, rawVehicles]);
+
+  // Short personalized name for the active vehicle — drives the empty-chat
+  // greeting headline ("Hi — how can I help with your <X>?"). Prefer the
+  // model (M550i, A4, MKX); fall back to make+model if model alone is
+  // ambiguous; final fallback is the generic "car".
+  const vehicleShortName = React.useMemo(() => {
+    if (!selectedVehicleVin) return "car";
+    const v = greetingVehicles.find((r) => r.vin === selectedVehicleVin);
+    if (!v) return "car";
+    if (v.model && v.model.trim().length > 0) return v.model.trim();
+    if (v.make && v.make.trim().length > 0) return v.make.trim();
+    return "car";
+  }, [selectedVehicleVin, greetingVehicles]);
 
   // Local UI state
   const [inputValue, setInputValue] = useState("");
@@ -330,79 +389,175 @@ export default function AIChatScreen() {
     await startRecording();
   }, [isProcessing, startRecording]);
 
-  // Handle microphone press out - stop recording and get transcription
+  // ──────────────────────────────────────────────────────────────────────
+  // sendToOtoAI — single funnel for every user-input surface
+  //
+  // Lifted from the Oto-AI branch of handleSend so quick-reply taps,
+  // service-picker confirms, voice-transcription auto-sends, and welcome-
+  // screen suggestion tiles all reach Haiku the same way typed Send does.
+  // The Convex chat action loads server-side history for context and
+  // persists both turns; this helper only handles the local UI side
+  // (snappy user-message echo + AI response merge + processing flag).
+  //
+  // `attachedImages` is optional because two callers (typed Send + voice
+  // transcription) can attach images while quick-reply / service-picker /
+  // suggestion-tile paths never do.
+  // ──────────────────────────────────────────────────────────────────────
+  const sendToOtoAI = useCallback(
+    async (messageText: string, attachedImages?: string[]) => {
+      if (isProcessing) return;
+      const hasText = messageText.trim().length > 0;
+      const hasImages = !!attachedImages && attachedImages.length > 0;
+      if (!hasText && !hasImages) return;
+
+      if (!convexUser?._id) {
+        // Auth not ready yet — bail out gracefully.
+        showToast("Still signing you in — try again in a sec.");
+        return;
+      }
+
+      setIsProcessing(true);
+
+      const userMessage: ChatMessage = {
+        id: `user_${Date.now()}`,
+        role: "user",
+        content: messageText,
+        timestamp: new Date().toISOString(),
+        images: hasImages ? attachedImages : undefined,
+      };
+
+      // Show user message immediately for snappy UX. The Convex action
+      // persists both turns server-side — saveCurrentConversation would
+      // dual-persist locally, so we deliberately skip it here.
+      setState((prev) => ({ ...prev, messages: [...prev.messages, userMessage] }));
+
+      try {
+        // Lazy-create the ai_conversations row on the first send. Same
+        // guard handleSend used; lives in the helper so every input
+        // surface (not just typed Send) gets the same treatment.
+        let conversationId = convexConversationId;
+        if (!conversationId) {
+          conversationId = await createConversation({
+            user_id: convexUser._id as Id<"users">,
+            session_id: sessionIdRef.current,
+          });
+          setConvexConversationId(conversationId);
+        }
+
+        const {
+          text,
+          quickReplies,
+          showRecordConfirmation,
+          bookService,
+          linkButton,
+          bookingCard,
+          bookingsList,
+        } = await sendMessageAction({
+          conversationId,
+          message: messageText,
+          // Pass the frontend's vehicle-picker selection so the action
+          // doesn't fall back to "most recently added" when the user has
+          // explicitly chosen a different car.
+          vehicleVin: selectedVehicleVin ?? undefined,
+        });
+
+        // Record-confirmation envelope — fired when Oto detects a symptom
+        // contradicts a self_reported maintenance record and wants the user
+        // to verify (or correct) the record before reasoning further.
+        const recordConfirmEnvelope = showRecordConfirmation as
+          | { vehicle_id: string; maintenance_type: import("@/utils/maintenanceStatus").MaintenanceType }
+          | undefined;
+
+        // Sprint 4 Day 1 Pass B — typed view of the bookService envelope.
+        // This is now the only terminal-stage render in the booking flow.
+        const bookServiceEnvelope = bookService as
+          | import("@/services/ai/types").BookServicePayload
+          | undefined;
+        // Sprint 3 Day 2/5/6 — other live render envelopes.
+        const linkButtonEnvelope = linkButton as
+          | import("@/services/ai/types").LinkButtonPayload
+          | undefined;
+        const bookingCardEnvelope = bookingCard as
+          | { booking_id: string }
+          | undefined;
+        const bookingsListEnvelope = bookingsList as
+          | { booking_ids: string[] }
+          | undefined;
+
+        const nextStage: ChatMessage["stage"] = bookServiceEnvelope
+          ? "confirmation"
+          : undefined;
+
+        const aiMessage: ChatMessage = {
+          id: `ai_${Date.now()}`,
+          role: "assistant",
+          content: text,
+          timestamp: new Date().toISOString(),
+          isStreaming: true,
+          quickReplies: quickReplies as QuickReply[] | undefined,
+          showRecordConfirmation: recordConfirmEnvelope,
+          bookService: bookServiceEnvelope,
+          linkButton: linkButtonEnvelope,
+          bookingCard: bookingCardEnvelope,
+          bookingsList: bookingsListEnvelope,
+          stage: nextStage,
+        };
+        setState((prev) => ({
+          ...prev,
+          messages: [...prev.messages, aiMessage],
+          currentStage: nextStage ?? prev.currentStage,
+        }));
+
+        // Stop the streaming animation after a beat. Reuses the rule
+        // engine's animation cadence so the bubble feels consistent.
+        setTimeout(() => {
+          setState((prev) => ({
+            ...prev,
+            messages: prev.messages.map((m) =>
+              m.id === aiMessage.id ? { ...m, isStreaming: false } : m
+            ),
+          }));
+          setIsProcessing(false);
+        }, Math.min(text.length * 30, 3000));
+      } catch (err) {
+        // Surface the error in-chat so the loop is debuggable without
+        // having to open the inspector. Refine before launch.
+        const errorMessage =
+          err instanceof Error ? err.message : "Something went wrong.";
+        setState((prev) => ({
+          ...prev,
+          messages: [
+            ...prev.messages,
+            {
+              id: `err_${Date.now()}`,
+              role: "assistant",
+              content: `(Oto error: ${errorMessage})`,
+              timestamp: new Date().toISOString(),
+            },
+          ],
+        }));
+        setIsProcessing(false);
+      }
+    },
+    [
+      isProcessing,
+      convexUser?._id,
+      convexConversationId,
+      createConversation,
+      sendMessageAction,
+      selectedVehicleVin,
+      showToast,
+    ]
+  );
+
+  // Handle microphone press out - stop recording and route transcription
+  // through the same Oto-AI helper as typed Send.
   const handleMicPressOut = useCallback(async () => {
     const transcription = await stopRecording();
-    if (transcription) {
-      setInputValue(transcription);
-      // Auto-send the transcribed message after a brief delay
-      setTimeout(() => {
-        if (transcription.trim()) {
-          // Set input and trigger send
-          setInputValue("");
-          setIsProcessing(true);
-
-          // Process with scenario engine
-          const { newState, response } = processUserMessage(state, transcription);
-
-          // Add user message immediately
-          const updatedState = {
-            ...state,
-            messages: newState.messages,
-            currentStage: newState.currentStage,
-            currentScenario: newState.currentScenario,
-            selectedPriority: newState.selectedPriority,
-            selectedShop: newState.selectedShop,
-            selectedTime: newState.selectedTime,
-          };
-          setState(updatedState);
-
-          // Simulate AI "thinking" delay
-          setTimeout(() => {
-            // Create AI response message
-            const aiMessage: ChatMessage = {
-              id: `ai_${Date.now()}`,
-              role: "assistant",
-              content: response.message,
-              timestamp: new Date().toISOString(),
-              reasoning: response.reasoning,
-              sources: response.sources,
-              quickReplies: response.quickReplies,
-              sections: response.sections,
-              shops: response.shops,
-              showServicePicker: response.showServicePicker,
-              stage: response.nextStage,
-              isStreaming: true,
-            };
-
-            setState((prevState) => {
-              const newState = {
-                ...prevState,
-                messages: [...prevState.messages, aiMessage],
-                suggestions: response.suggestions,
-                currentStage: response.nextStage,
-              };
-              queueMicrotask(() => saveCurrentConversation(newState));
-              return newState;
-            });
-
-            // Stop streaming after animation
-            setTimeout(() => {
-              setState((prev) => {
-                const finalState = {
-                  ...prev,
-                  messages: prev.messages.map((m) => (m.id === aiMessage.id ? { ...m, isStreaming: false } : m)),
-                };
-                setTimeout(() => saveCurrentConversation(finalState), 0);
-                return finalState;
-              });
-              setIsProcessing(false);
-            }, response.message.length * 30);
-          }, 1500);
-        }
-      }, 300);
+    if (transcription && transcription.trim()) {
+      sendToOtoAI(transcription);
     }
-  }, [stopRecording, state, saveCurrentConversation]);
+  }, [stopRecording, sendToOtoAI]);
 
   // Handle sending a message
   const handleSend = useCallback(() => {
@@ -418,108 +573,22 @@ export default function AIChatScreen() {
     setInputValue("");
     setSelectedImages([]); // Clear selected images
     setIsAttachmentOpen(false); // Close attachment panel
-    setIsProcessing(true);
 
     // Use a default message for image-only sends
     const messageText = trimmedInput || (hasImages ? "Here's an image for you to analyze" : "");
 
     // ── Oto AI path (feature-flagged) ───────────────────────────────────
-    // Minimal end-to-end Phase 1 loop: lazy-create the ai_conversations row
-    // on first send, then call the Convex action which talks to Anthropic
-    // and persists both turns. Rule-engine code below is preserved and
+    // All four user-input surfaces funnel through sendToOtoAI so the
+    // Convex action sees a single, history-aware entrypoint regardless of
+    // whether the user typed, tapped a quick-reply, dictated, or confirmed
+    // a service-picker selection. Rule-engine code below is preserved and
     // re-enabled by flipping USE_OTO_AI_ACTION to false.
     if (USE_OTO_AI_ACTION) {
-      if (!convexUser?._id) {
-        // Auth not ready yet — bail out gracefully.
-        setIsProcessing(false);
-        showToast("Still signing you in — try again in a sec.");
-        return;
-      }
-
-      const userMessage: ChatMessage = {
-        id: `user_${Date.now()}`,
-        role: "user",
-        content: messageText,
-        timestamp: new Date().toISOString(),
-        images: attachedImages.length > 0 ? attachedImages : undefined,
-      };
-
-      // Show user message immediately for snappy UX. Note: the Convex
-      // action also persists this turn server-side, so we do NOT call
-      // saveCurrentConversation here (which would dual-persist locally).
-      setState((prev) => ({ ...prev, messages: [...prev.messages, userMessage] }));
-
-      (async () => {
-        try {
-          // Lazy-create the ai_conversations row on the first send.
-          let conversationId = convexConversationId;
-          if (!conversationId) {
-            conversationId = await createConversation({
-              user_id: convexUser._id as Id<"users">,
-              session_id: sessionIdRef.current,
-            });
-            setConvexConversationId(conversationId);
-          }
-
-          const { text, quickReplies } = await sendMessageAction({
-            conversationId,
-            message: messageText,
-            // Pass the frontend's vehicle-picker selection so the action
-            // doesn't fall back to "most recently added" when the user has
-            // explicitly chosen a different car.
-            vehicleVin: selectedVehicleVin ?? undefined,
-          });
-
-          const aiMessage: ChatMessage = {
-            id: `ai_${Date.now()}`,
-            role: "assistant",
-            content: text,
-            timestamp: new Date().toISOString(),
-            isStreaming: true,
-            // Render directives emitted by the AI's tool calls — currently
-            // only `render_quick_replies` is wired. AIMessageBubble forwards
-            // `quickReplies` to the existing AIQuickReplies component.
-            quickReplies: quickReplies as QuickReply[] | undefined,
-          };
-          setState((prev) => ({
-            ...prev,
-            messages: [...prev.messages, aiMessage],
-          }));
-
-          // Stop the streaming animation after a beat. Reuses the rule
-          // engine's animation cadence so the bubble feels consistent.
-          setTimeout(() => {
-            setState((prev) => ({
-              ...prev,
-              messages: prev.messages.map((m) =>
-                m.id === aiMessage.id ? { ...m, isStreaming: false } : m
-              ),
-            }));
-            setIsProcessing(false);
-          }, Math.min(text.length * 30, 3000));
-        } catch (err) {
-          // Surface the error in-chat so the loop is debuggable without
-          // having to open the inspector. Refine before launch.
-          const message =
-            err instanceof Error ? err.message : "Something went wrong.";
-          setState((prev) => ({
-            ...prev,
-            messages: [
-              ...prev.messages,
-              {
-                id: `err_${Date.now()}`,
-                role: "assistant",
-                content: `(Oto error: ${message})`,
-                timestamp: new Date().toISOString(),
-              },
-            ],
-          }));
-          setIsProcessing(false);
-        }
-      })();
-
+      sendToOtoAI(messageText, attachedImages.length > 0 ? attachedImages : undefined);
       return;
     }
+
+    setIsProcessing(true);
 
     // ── Rule-engine path (legacy — left intact for flip-back) ───────────
     // Process with scenario engine
@@ -540,6 +609,10 @@ export default function AIChatScreen() {
     // Simulate AI "thinking" delay
     setTimeout(() => {
       // Create AI response message
+      // Rule-engine fallback path (USE_OTO_AI_ACTION=false). Booking-related
+      // fields (shops / showServicePicker / showDiagnosticForm) were dropped
+      // in Sprint 4 Day 1 Pass B — the rule engine no longer drives booking
+      // UI; Oto's render_book_service is the only path to BookServiceComponent.
       const aiMessage: ChatMessage = {
         id: `ai_${Date.now()}`,
         role: "assistant",
@@ -549,8 +622,6 @@ export default function AIChatScreen() {
         sources: response.sources,
         quickReplies: response.quickReplies,
         sections: response.sections,
-        shops: response.shops,
-        showServicePicker: response.showServicePicker,
         stage: response.nextStage,
         isStreaming: true,
       };
@@ -587,266 +658,65 @@ export default function AIChatScreen() {
     isProcessing,
     saveCurrentConversation,
     selectedImages,
-    // Oto AI path deps
-    convexUser?._id,
-    convexConversationId,
-    createConversation,
-    sendMessageAction,
-    selectedVehicleVin,
-    showToast,
+    sendToOtoAI,
   ]);
 
-  // Handle suggestion press
+  // Welcome-screen suggestion tile tap. Routes through Haiku so prompt
+  // suggestions ("Schedule Services for my Vehicle", "Something Feels Off")
+  // produce real responses instead of rule-engine catch-alls.
   const handleSuggestionPress = useCallback(
     (suggestion: Suggestion | string) => {
       const text = typeof suggestion === "string" ? suggestion : suggestion.text;
-      const value = typeof suggestion === "string" ? suggestion : suggestion.value || suggestion.text;
-
-      setInputValue(text);
-
-      // Auto-send after brief delay for natural feel
-      setTimeout(() => {
-        if (value && !isProcessing) {
-          setInputValue("");
-          setIsProcessing(true);
-
-          const { newState, response } = processUserMessage(state, value);
-
-          setState((prevState) => ({
-            ...prevState,
-            messages: newState.messages,
-            currentStage: newState.currentStage,
-            currentScenario: newState.currentScenario,
-            selectedPriority: newState.selectedPriority,
-            selectedShop: newState.selectedShop,
-            selectedTime: newState.selectedTime,
-          }));
-
-          setTimeout(() => {
-            const aiMessage: ChatMessage = {
-              id: `ai_${Date.now()}`,
-              role: "assistant",
-              content: response.message,
-              timestamp: new Date().toISOString(),
-              reasoning: response.reasoning,
-              sources: response.sources,
-              quickReplies: response.quickReplies,
-              sections: response.sections,
-              shops: response.shops,
-              showServicePicker: response.showServicePicker,
-              stage: response.nextStage,
-              isStreaming: true,
-            };
-
-            setState((prevState) => {
-              const newStateWithMessage = {
-                ...prevState,
-                messages: [...prevState.messages, aiMessage],
-                suggestions: response.suggestions,
-                currentStage: response.nextStage,
-              };
-              // Save conversation to store after state is set
-              queueMicrotask(() => saveCurrentConversation(newStateWithMessage));
-              return newStateWithMessage;
-            });
-
-            setTimeout(() => {
-              setState((prev) => {
-                const finalState = {
-                  ...prev,
-                  messages: prev.messages.map((m) => (m.id === aiMessage.id ? { ...m, isStreaming: false } : m)),
-                };
-                // Save final state to store after setState completes
-                setTimeout(() => saveCurrentConversation(finalState), 0);
-                return finalState;
-              });
-              setIsProcessing(false);
-            }, response.message.length * 30);
-          }, 1500);
-        }
-      }, 100);
+      sendToOtoAI(text);
     },
-    [state, isProcessing, saveCurrentConversation]
+    [sendToOtoAI]
   );
 
-  // Handle quick reply selection
+  // In-conversation quick-reply tap. Uses reply.value (canonical text Haiku
+  // should see) with reply.text as the display-label fallback — this is the
+  // distinction the v0.6 prompt's render_quick_replies tool relies on.
   const handleQuickReplySelect = useCallback(
     (reply: QuickReply) => {
-      handleSuggestionPress({ id: reply.id, text: reply.text, value: reply.value });
+      const text = reply.value || reply.text;
+      sendToOtoAI(text);
     },
-    [handleSuggestionPress]
+    [sendToOtoAI]
   );
 
-  // Handle Book Now from mechanic carousel - navigates to payment screen
-  const handleBookNow = useCallback(
-    (mechanic: AIMechanic, timeSlot: SelectedTimeSlot) => {
-      // Map AI service selection to booking store service IDs
-      const serviceIdMapping: Record<string, string> = {
-        svc_oil_change: "svc_oil_change",
-        svc_air_filter: "svc_filter_change",
-        svc_fluid_check: "svc_fluid_change",
-        svc_tire_rotation: "svc_tire_rotation",
-        svc_tire_balance: "svc_tire_balance",
-        svc_tire_pressure: "svc_tire_rotation",
-        svc_brake_inspection: "svc_brake_pads",
-        svc_brake_pads: "svc_brake_pads",
-        svc_brake_fluid: "svc_brake_fluid",
-        svc_diagnostic_scan: "svc_engine_diagnostic",
-        svc_check_engine: "svc_engine_diagnostic",
-        svc_battery_test: "svc_electrical_check",
-      };
-
-      // Clear existing services and add selected ones from AI chat
-      clearSelectedServices();
-
-      // Add services from AI state
-      state.selectedServices.forEach((service) => {
-        const mappedId = serviceIdMapping[service.id] || service.id;
-        toggleServiceSelection(mappedId);
-      });
-
-      // If no services selected, add a default service based on scenario type
-      if (state.selectedServices.length === 0) {
-        const scenario = state.currentScenario as string;
-        switch (scenario) {
-          case "brake_noise":
-            toggleServiceSelection("svc_brake_pads");
-            break;
-          case "check_engine":
-            toggleServiceSelection("svc_engine_diagnostic");
-            break;
-          case "tire_pressure":
-            toggleServiceSelection("svc_tire_rotation");
-            break;
-          case "vague_issue":
-            toggleServiceSelection("svc_electrical_check");
-            break;
-          case "oil_change":
-          default:
-            toggleServiceSelection("svc_oil_change");
-            break;
-        }
+  // Handle the user's decision from AIRecordConfirmation. The component has
+  // already written to maintenance_records (confirm path stamps
+  // confirmedHealthyAt; update path rewrites lastServiceDate + lastServiceMileage
+  // with serviceSource: "ai_chat_correction"). All we do here is send a
+  // synthetic user message to Oto so it sees the outcome on the next turn
+  // and can react to it — e.g., "OK so that record was older than expected,
+  // let me adjust the brake recommendation."
+  const handleRecordDecision = useCallback(
+    (decision: RecordConfirmationDecision) => {
+      if (isProcessing) return;
+      let echoText: string;
+      let factText: string;
+      if (decision.kind === "confirmed") {
+        echoText = `Confirmed — ${decision.type} record is correct as-is.`;
+        factText = `confirmed ${decision.type} record current as of now`;
+      } else {
+        const dateStr = new Date(decision.lastServiceDate).toLocaleDateString(
+          undefined,
+          { month: "long", year: "numeric" },
+        );
+        const mileagePart = decision.lastServiceMileage
+          ? ` at ${decision.lastServiceMileage.toLocaleString()} mi`
+          : "";
+        echoText = `Updated — last ${decision.type} service was actually in ${dateStr}${mileagePart}.`;
+        factText = `corrected ${decision.type} last_service to ${dateStr}${mileagePart}`;
       }
-
-      // Select the mechanic (use the mechanic's actual ID from mock data)
-      selectMechanic(mechanic.id.toString());
-
-      // Set the scheduled appointment from the time slot
-      const currentYear = new Date().getFullYear();
-      const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-      const currentMonth = new Date().getMonth();
-      const dayNum = parseInt(timeSlot.day);
-
-      // Create ISO date string
-      const appointmentDate = new Date(currentYear, currentMonth, dayNum);
-      const isoDate = appointmentDate.toISOString().split("T")[0];
-      const displayDate = `${dayNum} ${months[currentMonth]} ${currentYear}`;
-
-      setScheduledAppointment({
-        date: isoDate,
-        time: timeSlot.time,
-        displayDate,
-      });
-
-      // Set booking stage to payment
-      setBookingStage("payment", "forward");
-
-      // Navigate to payment screen
-      router.push(`/home/mechanic/${mechanic.id}/payment`);
+      // Decision D: write to established_facts so Oto reads the trust-protocol
+      // outcome from <conversation_state>, not from echo-message text. The
+      // synthetic echoText still goes through sendToOtoAI for chat-history
+      // continuity, but the fact is the canonical state signal.
+      pushFact(factText);
+      sendToOtoAI(echoText);
     },
-    [
-      state.selectedServices,
-      clearSelectedServices,
-      toggleServiceSelection,
-      selectMechanic,
-      setScheduledAppointment,
-      setBookingStage,
-      router,
-    ]
-  );
-
-  // Handle service selection from service picker
-  const handleServiceSelect = useCallback(
-    (services: ServiceOption[]) => {
-      if (services.length === 0 || isProcessing) return;
-
-      setIsProcessing(true);
-
-      // Convert ServiceOption to SelectedService
-      const selectedServices: SelectedService[] = services.map((s) => ({
-        id: s.id,
-        name: s.name,
-        estimatedPrice: s.price,
-      }));
-
-      // Create service names for display
-      const serviceNames = services.map((s) => s.name).join(", ");
-
-      // Add user message showing selected services
-      const userMessage: ChatMessage = {
-        id: `user_${Date.now()}`,
-        role: "user",
-        content: serviceNames,
-        timestamp: new Date().toISOString(),
-        stage: "service_selection",
-      };
-
-      // Update state with selected services AND user message
-      setState((prev) => ({
-        ...prev,
-        selectedServices,
-        messages: [...prev.messages, userMessage],
-      }));
-
-      // Simulate AI response delay
-      setTimeout(() => {
-        // Create AI response confirming selection
-        const aiMessage: ChatMessage = {
-          id: `ai_${Date.now()}`,
-          role: "assistant",
-          content: `Great choices! You selected **${serviceNames}**.\n\nHow would you like me to find mechanics?`,
-          timestamp: new Date().toISOString(),
-          quickReplies: [
-            { id: "closest", text: "Closest", value: "closest", variant: "default" },
-            { id: "best_rated", text: "Best rated", value: "best_rated", variant: "default" },
-            { id: "best_price", text: "Best price", value: "best_price", variant: "default" },
-          ],
-          stage: "priority_selection",
-          isStreaming: true,
-        };
-
-        setState((prevState) => {
-          const newStateWithMessage = {
-            ...prevState,
-            messages: [...prevState.messages, aiMessage],
-            currentStage: "priority_selection" as const,
-            suggestions: [
-              { id: "closest", text: "Closest", value: "closest" },
-              { id: "best_rated", text: "Best rated", value: "best_rated" },
-              { id: "best_price", text: "Best price", value: "best_price" },
-            ],
-          };
-          // Save conversation to store after state is set
-          queueMicrotask(() => saveCurrentConversation(newStateWithMessage));
-          return newStateWithMessage;
-        });
-
-        // Stop streaming
-        setTimeout(() => {
-          setState((prev) => {
-            const finalState = {
-              ...prev,
-              messages: prev.messages.map((m) => (m.id === aiMessage.id ? { ...m, isStreaming: false } : m)),
-            };
-            // Save final state to store after setState completes
-            setTimeout(() => saveCurrentConversation(finalState), 0);
-            return finalState;
-          });
-          setIsProcessing(false);
-        }, aiMessage.content.length * 30);
-      }, 1000);
-    },
-    [isProcessing, saveCurrentConversation]
+    [isProcessing, pushFact, sendToOtoAI],
   );
 
   // Handle copy message
@@ -868,17 +738,41 @@ export default function AIChatScreen() {
     showToast("Playing audio...");
   }, [showToast]);
 
-  // Handle feedback
-  const handleLike = useCallback(() => {
-    showToast("Thank you for your feedback!");
-  }, [showToast]);
+  // Sprint 4 — thumbs up / down open the feedback modal so the user can add
+  // a comment + tags. The modal submits to api.ai_feedback.submit; the row
+  // links back to the conversation for owner-side review.
+  const [feedbackModalState, setFeedbackModalState] = useState<{
+    rating: FeedbackRating;
+    messageContent: string;
+    messageId?: Id<"ai_messages">;
+  } | null>(null);
 
-  const handleDislike = useCallback(() => {
-    showToast("Thank you for your feedback!");
-  }, [showToast]);
+  const openFeedbackModal = useCallback(
+    (rating: FeedbackRating, message: ChatMessage) => {
+      // We don't yet persist a stable ai_messages id alongside the in-memory
+      // ChatMessage (the persistence is fire-and-forget inside chat.ts). Pass
+      // the content snapshot as the durable reference; message_id stays
+      // undefined for now.
+      setFeedbackModalState({
+        rating,
+        messageContent: message.content,
+      });
+    },
+    [],
+  );
 
-  // Start new chat
+  const closeFeedbackModal = useCallback(() => {
+    setFeedbackModalState(null);
+  }, []);
+
+  // Start new chat. Guarded while a response is in flight — clearing
+  // convexConversationId mid-send would orphan the captured ID in the
+  // active sendToOtoAI closure.
   const startNewChat = useCallback(() => {
+    if (isProcessing) {
+      showToast("Wait for the current response to finish before starting a new chat.");
+      return;
+    }
     startNewConversation(); // Reset in store (clears currentConversationId)
     setState(createInitialState());
     setInputValue("");
@@ -892,19 +786,43 @@ export default function AIChatScreen() {
     sessionIdRef.current = `oto_${Date.now()}_${Math.random()
       .toString(36)
       .slice(2, 10)}`;
-  }, [startNewConversation]);
+  }, [isProcessing, showToast, startNewConversation]);
 
-  // Handle selecting a conversation from history
+  // Handle selecting a conversation from history. The sidebar now lists
+  // server-side ai_conversations rows, so by default we hydrate state from
+  // Convex; the Zustand path is kept as a fallback for any conversations
+  // still living in the legacy rule-engine store.
   const handleSelectConversation = useCallback(
-    (conversationId: string) => {
+    async (conversationId: string) => {
       const loadedState = loadConversation(conversationId);
       if (loadedState) {
         setState(loadedState);
         setInputValue("");
         setIsProcessing(false);
+        return;
+      }
+      try {
+        const rows = await convex.query(api.ai_messages.getByConversationId, {
+          conversationId: conversationId as Id<"ai_conversations">,
+        });
+        const messages: ChatMessage[] = (rows ?? [])
+          .slice()
+          .sort((a: any, b: any) => a.timestamp - b.timestamp)
+          .map((row: any) => ({
+            id: row._id as string,
+            role: row.role === "user" ? "user" : "assistant",
+            content: row.content,
+            timestamp: new Date(row.timestamp).toISOString(),
+          }));
+        setState((prev) => ({ ...prev, messages }));
+        setConvexConversationId(conversationId as Id<"ai_conversations">);
+        setInputValue("");
+        setIsProcessing(false);
+      } catch (err) {
+        showToast("Couldn't load that conversation.");
       }
     },
-    [loadConversation]
+    [loadConversation, convex, showToast]
   );
 
   // Model selector
@@ -1037,8 +955,11 @@ export default function AIChatScreen() {
     opacity: interpolate(drawerProgress.value, [0, 1], [1, 0.35]),
   }));
 
-  // Determine if we should show chat greeting (no messages yet)
-  const showChatGreeting = state.messages.length === 0;
+  // Determine if we should show chat greeting. Hide as soon as the user has
+  // either picked a car (Sprint 4 — no synthetic first message; the picker
+  // sets context and the user types their real first message into the input)
+  // or sent at least one message.
+  const showChatGreeting = state.messages.length === 0 && !isCarConfirmed;
 
   // Show welcome screen if not seen
   if (!hasSeenWelcome) {
@@ -1047,9 +968,10 @@ export default function AIChatScreen() {
 
   return (
     <View style={styles.drawerRoot}>
-      {/* Sidebar gradient — covers full screen behind everything */}
+      {/* Sidebar background — solid white so the AIChatHistory list
+          reads as a clean panel instead of a gray drawer. */}
       <LinearGradient
-        colors={['#EDEDED', '#EDEDED']}
+        colors={['#FFFFFF', '#FFFFFF']}
         locations={[0, 1]}
         style={StyleSheet.absoluteFillObject}
       />
@@ -1079,11 +1001,16 @@ export default function AIChatScreen() {
         />
       )}
 
-      {/* Background Gradient — fades out when messages exist, revealing white root */}
+      {/* Ambient gradient — matches the onboarding + about-you palette
+          (#7BB8FF → #BFDBFE → #FFFFFF, top to bottom) so the AI surface
+          shares the same airy blue-to-white feel as the rest of the
+          pre-app flows. Always full opacity; messages render on top. */}
       <Animated.View style={[StyleSheet.absoluteFillObject, gradientFadeStyle]} pointerEvents="none">
         <LinearGradient
-          colors={['#FFFFFF', '#FFFFFF']}
-          locations={[0, 1]}
+          colors={['#A5CDFF', '#D6E8FF', '#FFFFFF']}
+          locations={[0, 0.55, 1]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 0, y: 1 }}
           style={StyleSheet.absoluteFillObject}
         />
       </Animated.View>
@@ -1094,7 +1021,7 @@ export default function AIChatScreen() {
       {/* Header — absolutely positioned, floats above scroll */}
       {(showOtoMenu || showRightMenu) && <Pressable style={styles.otoMenuOverlay} onPress={closeOtoMenu} />}
       <Animated.View style={[styles.headerFloating, { paddingTop: insets.top }, (showOtoMenu || showRightMenu) && { zIndex: 100 }]}>
-        {/* Left: Hamburger circle */}
+        {/* Left: Hamburger + Profile avatar */}
         <View style={styles.headerSide}>
           {isLiquidGlassEnabled && LiquidGlassView ? (
             <Pressable onPress={toggleDrawer}>
@@ -1110,6 +1037,7 @@ export default function AIChatScreen() {
               <AlignLeft size={22} color="#000000" />
             </Pressable>
           )}
+          <ProfileInitialsButton />
         </View>
 
         {/* Center: Oto model selector */}
@@ -1315,109 +1243,137 @@ export default function AIChatScreen() {
               onVehicleSelect={setSelectedVehicleVin}
               keyboardVisible={isKeyboardVisible && isCarConfirmed}
               onVehicleConfirm={(vin, vehicle) => {
+                // Sprint 3 Day 4 §15.12 / Sprint 4 ticket §9 — confirming a
+                // car selects vehicle context only. The user types their real
+                // first message; the vehicleVin arg on sendMessage carries
+                // the context to Oto without a synthetic injection.
                 setSelectedVehicleVin(vin);
                 setIsCarConfirmed(true);
                 if (vehicle) setSelectedVehicle(vehicle);
-                if (vehicle) {
-                  setTimeout(() => {
-                    setIsProcessing(true);
-                    const vehicleLabel = `${vehicle.year} ${vehicle.make} ${vehicle.model}`;
-                    const { newState: ns, response } = processUserMessage(state, vehicleLabel);
-                    setState((prev) => ({
-                      ...prev,
-                      messages: ns.messages,
-                      currentStage: ns.currentStage,
-                      currentScenario: ns.currentScenario,
-                      selectedPriority: ns.selectedPriority,
-                      selectedShop: ns.selectedShop,
-                      selectedTime: ns.selectedTime,
-                    }));
-                    setTimeout(() => {
-                      const aiMsg: ChatMessage = {
-                        id: `ai_${Date.now()}`,
-                        role: "assistant",
-                        content: response.message,
-                        timestamp: new Date().toISOString(),
-                        reasoning: response.reasoning,
-                        sources: response.sources,
-                        quickReplies: response.quickReplies,
-                        sections: response.sections,
-                        shops: response.shops,
-                        showServicePicker: response.showServicePicker,
-                        stage: response.nextStage,
-                        isStreaming: true,
-                      };
-                      setState((prev) => {
-                        const updated = {
-                          ...prev,
-                          messages: [...prev.messages, aiMsg],
-                          suggestions: response.suggestions,
-                          currentStage: response.nextStage,
-                        };
-                        queueMicrotask(() => saveCurrentConversation(updated));
-                        return updated;
-                      });
-                      setTimeout(() => {
-                        setState((prev) => {
-                          const final = {
-                            ...prev,
-                            messages: prev.messages.map((m) =>
-                              m.id === aiMsg.id ? { ...m, isStreaming: false } : m
-                            ),
-                          };
-                          setTimeout(() => saveCurrentConversation(final), 0);
-                          return final;
-                        });
-                        setIsProcessing(false);
-                      }, response.message.length * 30);
-                    }, 1500);
-                  }, 800);
-                }
               }}
             />
           ) : (
             <>
-              {state.messages.map((message) => (
-                <View key={message.id}>
-                  <AIMessageBubble
-                    message={message as AIMessage}
-                    onCopy={() => handleCopy(message.content)}
-                    onSpeak={() => handleSpeak(message.content)}
-                    onLike={handleLike}
-                    onDislike={handleDislike}
-                    onQuickReplySelect={handleQuickReplySelect}
-                  />
-                  {/* Service Picker (for service selection) */}
-                  {message.role === "assistant" &&
-                    message.showServicePicker &&
-                    state.currentStage === "service_selection" && (
+              {/* Empty-state greeting headline — per Sprint 4 brief §3.2,
+                  the entry screen should lead with a personalized concierge
+                  line, not a booking menu. Shown only on the first turn;
+                  vanishes once any message has been sent. */}
+              {state.messages.length === 0 && (
+                <View style={styles.emptyStateGreetingWrap}>
+                  <Text style={styles.emptyStateGreetingHeadline} weight="semiBold">
+                    Hi, how can I help with your {vehicleShortName}?
+                  </Text>
+                </View>
+              )}
+              {state.messages.map((message) => {
+                // Sprint 4 §"Cross-cutting frontend rules" — terminal
+                // renders are mutually exclusive. The dispatcher and prompt
+                // both enforce this server-side; this guard is defensive
+                // insurance against a malformed envelope ever reaching the
+                // client. Priority order matches the handoff doc:
+                // bookService → showRecordConfirmation → bookingCard /
+                // bookingsList → linkButton. When any terminal is set, we
+                // also drop quickReplies from the bubble so a confused
+                // payload can't double-render a tap surface.
+                const isAssistant = message.role === "assistant";
+                const terminalKind: "bookService" | "recordConfirm" | "bookingCard" | "bookingsList" | "linkButton" | null =
+                  isAssistant
+                    ? message.bookService
+                      ? "bookService"
+                      : message.showRecordConfirmation
+                        ? "recordConfirm"
+                        : message.bookingCard
+                          ? "bookingCard"
+                          : message.bookingsList
+                            ? "bookingsList"
+                            : message.linkButton
+                              ? "linkButton"
+                              : null
+                    : null;
+                const messageForBubble = terminalKind
+                  ? { ...message, quickReplies: undefined }
+                  : message;
+                return (
+                  <View key={message.id}>
+                    <AIMessageBubble
+                      message={messageForBubble as AIMessage}
+                      onCopy={() => handleCopy(message.content)}
+                      onSpeak={() => handleSpeak(message.content)}
+                      onLike={() => openFeedbackModal("thumbs_up", message)}
+                      onDislike={() => openFeedbackModal("thumbs_down", message)}
+                      onQuickReplySelect={handleQuickReplySelect}
+                    />
+                    {terminalKind === "bookService" && message.bookService && (
                       <View style={styles.servicePickerContainer}>
-                        <AIServicePicker onConfirm={handleServiceSelect} disabled={isProcessing} />
+                        <BookServiceComponent
+                          payload={message.bookService}
+                          disabled={isProcessing}
+                          onBookAndPay={(mechanicId) => {
+                            pushFact(`selected mechanic_id: ${mechanicId}`);
+                          }}
+                          onDismiss={() => {
+                            pushFact("booking_flow_dismissed");
+                          }}
+                        />
                       </View>
                     )}
-                  {/* Mechanic Carousel (for mechanic selection messages) */}
-                  {message.role === "assistant" && message.shops && message.shops.length > 0 && (
-                    <View style={styles.carouselContainer}>
-                      <AIBookingCarousel shops={message.shops} onBookNow={handleBookNow} />
-                    </View>
-                  )}
-                </View>
-              ))}
-              {/* Only show typing indicator if not already shown inside message with reasoning */}
-              {isProcessing && !state.messages.some(m => m.role === 'assistant' && m.reasoning && m.reasoning.length > 0 && m.isStreaming) && (
-                <View style={styles.typingIndicatorWrapper}>
-                  <AITypingIndicator />
-                </View>
-              )}
-              {/* Suggestions directly under AI message */}
-              {state.suggestions.length > 0 && !isProcessing && !isAttachmentOpen && (
-                <PromptSuggestions
-                  stage={state.currentStage}
-                  suggestions={state.suggestions}
-                  onSelect={handleSuggestionPress}
-                  disabled={isProcessing}
-                />
-              )}
+                    {terminalKind === "recordConfirm" && message.showRecordConfirmation && (
+                      <View style={styles.servicePickerContainer}>
+                        <AIRecordConfirmation
+                          vehicleId={message.showRecordConfirmation.vehicle_id}
+                          maintenanceType={message.showRecordConfirmation.maintenance_type}
+                          onDecision={handleRecordDecision}
+                          disabled={isProcessing}
+                        />
+                      </View>
+                    )}
+                    {terminalKind === "bookingCard" && message.bookingCard && (
+                      <BookingCard bookingId={message.bookingCard.booking_id} />
+                    )}
+                    {terminalKind === "bookingsList" && message.bookingsList && (
+                      <BookingsList bookingIds={message.bookingsList.booking_ids} />
+                    )}
+                    {terminalKind === "linkButton" && message.linkButton && (
+                      <LinkButton payload={message.linkButton} />
+                    )}
+                  </View>
+                );
+              })}
+              {/* Typing indicator: show only while we're WAITING for the
+                  assistant's reply. The moment any assistant message lands
+                  in the list (= last message flips to role 'assistant'),
+                  its streaming bubble takes over the visual focus and the
+                  indicator hides immediately — independent of whether the
+                  message has reasoning, sources, or render envelopes. */}
+              {(() => {
+                const lastMsg = state.messages[state.messages.length - 1];
+                const isWaitingForReply = !lastMsg || lastMsg.role !== "assistant";
+                return isProcessing && isWaitingForReply ? (
+                  <View style={styles.typingIndicatorWrapper}>
+                    <AITypingIndicator />
+                  </View>
+                ) : null;
+              })()}
+              {/* Seed suggestions — only on the first turn of a chat, never
+                  after the user has sent a message. Visually de-emphasized
+                  per brief §3.2: the greeting headline is primary, these
+                  are optional shortcuts. */}
+              {state.messages.length === 0 &&
+                state.suggestions.length > 0 &&
+                !isProcessing &&
+                !isAttachmentOpen && (
+                  <View style={styles.emptyStateSuggestionsWrap}>
+                    <Text style={styles.emptyStateSuggestionsCaption}>
+                      or pick a shortcut
+                    </Text>
+                    <PromptSuggestions
+                      stage={state.currentStage}
+                      suggestions={state.suggestions}
+                      onSelect={handleSuggestionPress}
+                      disabled={isProcessing}
+                    />
+                  </View>
+                )}
             </>
           )}
         </ScrollView>
@@ -1470,6 +1426,19 @@ export default function AIChatScreen() {
         onDismiss={() => setToastVisible(false)}
       />
 
+      {/* Sprint 4 — per-message feedback modal. Thumbs-up / thumbs-down on
+          the message bubble opens this; submit writes to api.ai_feedback. */}
+      {feedbackModalState && convexConversationId && (
+        <AIFeedbackModal
+          visible={true}
+          rating={feedbackModalState.rating}
+          conversationId={convexConversationId}
+          messageId={feedbackModalState.messageId}
+          messageContent={feedbackModalState.messageContent}
+          onClose={closeFeedbackModal}
+        />
+      )}
+
       </Animated.View>
         </Animated.View>
       </GestureDetector>
@@ -1488,7 +1457,8 @@ const styles = StyleSheet.create({
   },
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    // transparent so the LinearGradient layer underneath shows through
+    backgroundColor: 'transparent',
   },
   header: {
     flexDirection: "row",
@@ -1509,12 +1479,18 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.md,
     zIndex: 10,
   },
+  // Left + right zones share the same width so the centered "Oto" pill
+  // stays optically centered. 40 (hamburger) + 10 (gap) + 40 (avatar) =
+  // 90 on the left; the right side reserves the same width with the
+  // compose pill anchored to the far right.
   headerSide: {
-    width: 50,
-    alignItems: "flex-start",
+    width: 90,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
   },
   headerSideRight: {
-    width: 50,
+    width: 90,
     alignItems: "flex-end",
   },
   headerCenter: {
@@ -1640,14 +1616,34 @@ const styles = StyleSheet.create({
   chatContentGreeting: {
     flexGrow: 0,
   },
-  carouselContainer: {
-    marginBottom: Spacing.md,
-  },
   typingIndicatorWrapper: {
     paddingHorizontal: Spacing.lg,
   },
   servicePickerContainer: {
     marginHorizontal: Spacing.md,
     marginBottom: Spacing.md,
+  },
+  emptyStateGreetingWrap: {
+    paddingHorizontal: Spacing.lg,
+    paddingTop: Spacing["2xl"],
+    paddingBottom: Spacing.md,
+    alignItems: "center",
+  },
+  emptyStateGreetingHeadline: {
+    fontSize: 22,
+    lineHeight: 30,
+    color: "#000000",
+    textAlign: "center",
+  },
+  emptyStateSuggestionsWrap: {
+    opacity: 0.7,
+    marginTop: Spacing.md,
+    gap: Spacing.xs,
+  },
+  emptyStateSuggestionsCaption: {
+    fontSize: 12,
+    color: "#000000",
+    textAlign: "center",
+    marginBottom: Spacing.xs,
   },
 });

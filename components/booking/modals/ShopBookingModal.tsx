@@ -7,8 +7,8 @@
  *
  * FLOW: Booking
  *
- * USED IN: app/(main-tabs)/home/shop/[id]/index.tsx
- *          app/(main-tabs)/home/mechanic/[id]/index.tsx (Services tab)
+ * USED IN: app/(booking)/shop/[id]/index.tsx
+ *          app/(booking)/mechanic/[id]/index.tsx (Services tab)
  *
  * OWNER: Waleed Mansour
  */
@@ -411,7 +411,7 @@ export function ShopBookingModal({ visible, shopId, mechanicId, onClose, onConti
       onClose();
 
       // Navigate to payment screen
-      router.push(`/home/mechanic/${effectiveMechanicId}/payment`);
+      router.push(`/booking/mechanic/${effectiveMechanicId}/payment`);
     }
   }, [
     selectedDate,
@@ -700,11 +700,11 @@ export function ShopBookingModal({ visible, shopId, mechanicId, onClose, onConti
               </View>
             )}
 
-            {/* Add Another Service Button */}
+            {/* Add (Another) Service Button */}
             <TouchableOpacity style={styles.addServiceButton} onPress={handleAddService} activeOpacity={0.7}>
               <Plus size={18} color={BrandColors.secondary} />
               <Text size="md" weight="semiBold" color={BrandColors.secondary}>
-                Add another service
+                {selectedServices.length === 0 ? "Add a service" : "Add another service"}
               </Text>
             </TouchableOpacity>
           </View>

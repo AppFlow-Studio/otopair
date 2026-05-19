@@ -152,8 +152,8 @@ export function SuggestionsSection({ onCardPress }: SuggestionsSectionProps) {
         },
       });
     } else {
-      // Navigate to map; sheet auto-defers and slides up
-      router.push('/home/map');
+      // Navigate to map with services sheet open
+      router.push('/booking/map?openServices=true');
     }
   };
 

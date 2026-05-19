@@ -85,6 +85,7 @@ export default function DeleteAccountScreen() {
   const sheetRef = useRef<BottomSheetModal>(null);
   const sheetScrollRef = useRef<BottomSheetScrollView>(null);
   const snapPoints = useMemo(() => ["88%"], []);
+  const isCodeComplete = useMemo(() => code.join("").length === 6, [code]);
 
   useEffect(() => {
     let interval: any;

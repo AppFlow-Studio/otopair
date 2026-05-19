@@ -11,7 +11,6 @@ export default function SettingsLayout() {
                 gestureDirection: "horizontal",
             }}
         >
-            <Stack.Screen name="index" />
             <Stack.Screen name="notification-preferences" />
             <Stack.Screen name="refer-a-friend" />
             <Stack.Screen name="faq" />

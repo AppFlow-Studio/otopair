@@ -9,16 +9,17 @@
  * USED IN: app/(main-tabs)/settings/index.tsx (My Garage section).
  */
 
-import React, { useCallback, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Image,
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   TextInput,
   View,
 } from "react-native";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Calendar, Car, Check, ChevronDown, ChevronLeft, Search, SlidersHorizontal } from "lucide-react-native";
 
@@ -36,10 +37,26 @@ export default function BookingHistoryScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { historyBookings } = useMyBookingsWithDetails();
+  const { openBookingId } = useLocalSearchParams<{ openBookingId?: string }>();
 
   const [searchQuery, setSearchQuery] = useState("");
+  const [showCancelled, setShowCancelled] = useState(false);
   const detailsSheetRef = useRef<BookingDetailsSheetRef>(null);
   const vehiclePickerRef = useRef<FloatingSheetRef>(null);
+  const filterSheetRef = useRef<FloatingSheetRef>(null);
+  const autoOpenedRef = useRef<string | null>(null);
+
+  // Auto-open the details sheet when arriving with `openBookingId` (used by
+  // the Recommended-services screen to deep-link the resolving booking).
+  useEffect(() => {
+    if (!openBookingId) return;
+    if (autoOpenedRef.current === openBookingId) return;
+    const booking = historyBookings.find((b) => b.id === openBookingId);
+    if (!booking) return;
+    autoOpenedRef.current = openBookingId;
+    detailsSheetRef.current?.open(booking);
+    router.setParams({ openBookingId: undefined });
+  }, [openBookingId, historyBookings, router]);
 
   // Vehicle filter
   const vehiclesRecord = useVehicleStore((s) => s.vehicles);
@@ -53,7 +70,9 @@ export default function BookingHistoryScreen() {
     ? allVehicles.find((v) => v.id === filterVehicleId)
     : null;
 
-  const filtered = historyBookings.filter((b) => {
+  // Vehicle + search filter is shared between the visible list and the
+  // hidden-cancelled count, so apply it once and split by status after.
+  const matchesVehicleAndSearch = (b: typeof historyBookings[number]) => {
     if (filterVehicle) {
       // Prefer VIN match (unambiguous). Fall back to name+year prefix
       // match if either side lacks a VIN.
@@ -75,7 +94,11 @@ export default function BookingHistoryScreen() {
       b.mechanicName.toLowerCase().includes(q) ||
       b.shopName.toLowerCase().includes(q)
     );
-  });
+  };
+  const scoped = historyBookings.filter(matchesVehicleAndSearch);
+  const filtered = showCancelled
+    ? scoped
+    : scoped.filter((b) => b.status !== "cancelled");
 
   const handleViewDetails = useCallback((bookingId: string) => {
     const booking = historyBookings.find((b) => b.id === bookingId);
@@ -92,7 +115,7 @@ export default function BookingHistoryScreen() {
     <>
       <View style={styles.screen}>
         {/* Header */}
-        <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
+        <View style={[styles.header, { paddingTop: insets.top / 2 }]}>
           <Pressable onPress={handleBack} hitSlop={12} style={styles.backButton}>
             <ChevronLeft size={26} color="#1A1A1A" />
           </Pressable>
@@ -154,11 +177,19 @@ export default function BookingHistoryScreen() {
               value={searchQuery}
               onChangeText={setSearchQuery}
             />
-            <Pressable style={styles.filterButton}>
-              <SlidersHorizontal size={18} color="#6B7280" strokeWidth={2} />
+            <Pressable
+              style={styles.filterButton}
+              onPress={() => filterSheetRef.current?.open()}
+            >
+              <SlidersHorizontal
+                size={18}
+                color={showCancelled ? "#5299FE" : "#6B7280"}
+                strokeWidth={2}
+              />
             </Pressable>
           </View>
         </View>
+
 
         {/* List */}
         <ScrollView
@@ -201,6 +232,31 @@ export default function BookingHistoryScreen() {
       </View>
 
       <BookingDetailsSheet ref={detailsSheetRef} />
+
+      {/* Filter sheet — accessed via the sliders icon in the search bar. */}
+      <FloatingSheet ref={filterSheetRef} snapHeights={[200]} showBackdrop>
+        <View style={styles.sheetContent}>
+          <Text size="lg" weight="bold" color="#1A1A1A" style={styles.sheetTitle}>
+            Filters
+          </Text>
+          <View style={styles.filterRow}>
+            <View style={styles.filterRowText}>
+              <Text size="md" weight="semiBold" color="#1F2937">
+                Show cancelled
+              </Text>
+              <Text size="sm" weight="regular" color="#8E8E93">
+                Include cancelled bookings in the list
+              </Text>
+            </View>
+            <Switch
+              value={showCancelled}
+              onValueChange={setShowCancelled}
+              trackColor={{ false: "#E5E7EB", true: "#5299FE" }}
+              thumbColor="#FFFFFF"
+            />
+          </View>
+        </View>
+      </FloatingSheet>
 
       {/* Vehicle picker sheet — drives the filter button above. */}
       <FloatingSheet
@@ -422,6 +478,17 @@ const styles = StyleSheet.create({
   },
   filterButton: {
     padding: 4,
+  },
+  filterRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 8,
+  },
+  filterRowText: {
+    flex: 1,
+    gap: 2,
+    marginRight: 16,
   },
   listContent: {
     padding: 20,
