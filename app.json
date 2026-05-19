@@ -10,7 +10,11 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.otopair.app"
+      "bundleIdentifier": "com.otopair.app",
+      "infoPlist": {
+        "NSSpeechRecognitionUsageDescription": "Allow Otopair to use speech recognition to transcribe your voice.",
+        "NSMicrophoneUsageDescription": "Allow Otopair to use the microphone for voice input."
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -24,14 +28,14 @@
       "predictiveBackGestureEnabled": false,
       "package": "com.otopair.app",
       "permissions": [
-        "CAMERA",
-        "ACCESS_COARSE_LOCATION",
-        "ACCESS_FINE_LOCATION",
-        "RECORD_AUDIO",
-        "READ_CALENDAR",
-        "WRITE_CALENDAR",
-        "POST_NOTIFICATIONS",
-        "VIBRATE"
+        "android.permission.CAMERA",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_CALENDAR",
+        "android.permission.WRITE_CALENDAR",
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.VIBRATE"
       ]
     },
     "web": {
@@ -97,6 +101,13 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "556287b6-2b93-4418-8e8a-15bf5594b496"
+      }
+    },
+    "owner": "otopair-dev"
   }
 }

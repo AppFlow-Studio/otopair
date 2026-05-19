@@ -31,7 +31,11 @@
       "Bash(sed -n '748,752p' /Users/temurbeksayfutdinov/Documents/AppFlowStudios/otopair/stores/useBookingStore.ts)",
       "mcp__claude_ai_Otopair_Convex_MCP__list_tables",
       "Read(//Users/temurbeksayfutdinov/Documents/AppFlowStudios/otopair-web/convex/**)",
-      "mcp__claude_ai_Otopair_Convex_MCP__get_doc"
+      "mcp__claude_ai_Otopair_Convex_MCP__get_doc",
+      "Bash(cp /Users/temurbeksayfutdinov/Documents/AppFlowStudios/otopair/ai_feedback.ts /Users/temurbeksayfutdinov/Documents/AppFlowStudios/otopair-web/convex/ai_feedback.ts)",
+      "Bash(cp /Users/temurbeksayfutdinov/Documents/AppFlowStudios/otopair/oto/bookings.ts /Users/temurbeksayfutdinov/Documents/AppFlowStudios/otopair-web/convex/oto/bookings.ts)",
+      "Bash(awk '/^export const|^export async function|^async function|^function/ {last=NR\" \"$0} NR==8067 {print last; exit}' convex/bookings.ts)",
+      "Bash(git ls-tree *)"
     ]
   }
 }
