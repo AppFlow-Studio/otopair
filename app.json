@@ -13,7 +13,8 @@
       "bundleIdentifier": "com.otopair.app",
       "infoPlist": {
         "NSSpeechRecognitionUsageDescription": "Allow Otopair to use speech recognition to transcribe your voice.",
-        "NSMicrophoneUsageDescription": "Allow Otopair to use the microphone for voice input."
+        "NSMicrophoneUsageDescription": "Allow Otopair to use the microphone for voice input.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
