@@ -98,7 +98,7 @@ export default function BookingsScreen() {
   // ═══════════════ LOCAL STATE ═══════════════
   const [sheetAnimatedIndex, setSheetAnimatedIndex] = useState<SharedValue<number> | null>(null);
   const [mapRelevantIndex, setMapRelevantIndex] = useState<SharedValue<number> | null>(null);
-  const [selectedMapShopId, setSelectedMapShopId] = useState<number | null>(null);
+  const [selectedMapShopId, setSelectedMapShopId] = useState<string | null>(null);
   const [shopPreviewRequestKey, setShopPreviewRequestKey] = useState(0);
   const [focusedShop, setFocusedShop] = useState<Shop | null>(null);
 
@@ -177,14 +177,14 @@ export default function BookingsScreen() {
 
   // Search result handlers
   const handleSearchSelectShop = useCallback(
-    (shopId: number) => {
+    (shopId: string) => {
       router.push(`/booking/shop/${shopId}`);
     },
     [router]
   );
 
   const handleSearchSelectMechanic = useCallback(
-    (mechanicId: number) => {
+    (mechanicId: string) => {
       router.push(`/booking/mechanic/${mechanicId}`);
     },
     [router]
@@ -202,7 +202,7 @@ export default function BookingsScreen() {
   );
 
   // Called when shop changes in the carousel (from ServiceBottomSheet)
-  const handleShopChange = useCallback((shop: { id: number; latitude: number; longitude: number }) => {
+  const handleShopChange = useCallback((shop: { id: string; latitude: number; longitude: number }) => {
     // Focus the map on the new shop
     if (mapRef.current) {
       mapRef.current.animateToRegion(

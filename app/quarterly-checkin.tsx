@@ -86,9 +86,11 @@ export default function QuarterlyCheckinScreen(props: QuarterlyCheckinProps = {}
   const scrollRef = useRef<ScrollView>(null);
 
   // Filter questions based on conditional logic
+  type CheckinQuestion = NonNullable<typeof questionSet>["questions"][number];
+  type CheckinOption = NonNullable<CheckinQuestion["options"]>[number];
   const visibleQuestions = useMemo(() => {
     if (!questionSet?.questions) return [];
-    return questionSet.questions.filter((q) => {
+    return questionSet.questions.filter((q: CheckinQuestion) => {
       // Q5 is absorbed into Q4's inline rendering
       if (q.id === "Q5") return false;
       // Q6 only shown for endurance and weekend modes
@@ -391,7 +393,7 @@ export default function QuarterlyCheckinScreen(props: QuarterlyCheckinProps = {}
             {/* Multi-select (Q2) */}
             {currentQuestion.type === "multi_select" && currentQuestion.options && (
               <View style={styles.optionsContainer}>
-                {currentQuestion.options.map((opt) => {
+                {currentQuestion.options.map((opt: CheckinOption) => {
                   const selected = ((answers[currentQuestion.id] as string[]) ?? []).includes(opt.value);
                   return (
                     <Pressable
@@ -502,7 +504,7 @@ export default function QuarterlyCheckinScreen(props: QuarterlyCheckinProps = {}
                 currentQuestion.type === "four_option") &&
               currentQuestion.options && (
                 <View style={styles.optionsContainer}>
-                  {currentQuestion.options.map((opt) => {
+                  {currentQuestion.options.map((opt: CheckinOption) => {
                     const selected = answers[currentQuestion.id] === opt.value;
                     return (
                       <Pressable
@@ -525,7 +527,7 @@ export default function QuarterlyCheckinScreen(props: QuarterlyCheckinProps = {}
             {/* Text expand (Q5 symptoms) */}
             {currentQuestion.type === "text_expand" && currentQuestion.options && (
               <View style={styles.optionsContainer}>
-                {currentQuestion.options.map((opt) => {
+                {currentQuestion.options.map((opt: CheckinOption) => {
                   const selected = answers[currentQuestion.id] === opt.value;
                   return (
                     <Pressable
@@ -615,7 +617,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingHorizontal: Spacing.xl,
-    paddingTop: Spacing.xxl,
+    paddingTop: Spacing["2xl"],
     paddingBottom: 100,
   },
   questionText: {
@@ -713,7 +715,7 @@ const styles = StyleSheet.create({
   },
   questionCount: {
     color: "#9CA3AF",
-    marginBottom: Spacing.xxl,
+    marginBottom: Spacing["2xl"],
   },
   startButton: {
     marginBottom: Spacing.lg,
@@ -759,13 +761,13 @@ const styles = StyleSheet.create({
     color: "#6B7280",
     textAlign: "center",
     lineHeight: 24,
-    marginBottom: Spacing.xxl,
+    marginBottom: Spacing["2xl"],
   },
   modeTransitionBanner: {
     backgroundColor: "#EFF6FF",
     borderRadius: BorderRadius.lg,
     padding: Spacing.lg,
-    marginBottom: Spacing.xxl,
+    marginBottom: Spacing["2xl"],
     marginHorizontal: Spacing.md,
   },
   modeTransitionText: {

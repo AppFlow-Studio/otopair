@@ -18,7 +18,22 @@ import {
 // TYPES
 // ============================================================================
 
+export type TextVariant =
+    | 'h1'
+    | 'h2'
+    | 'h3'
+    | 'h4'
+    | 'body'
+    | 'bodyBold'
+    | 'caption'
+    | 'small'
+    | 'xsmall'
+    | 'label';
+
 export interface TextProps extends RNTextProps {
+    /** Semantic style preset. Sets defaults for size+weight; explicit
+     *  size/weight props still win if also supplied. */
+    variant?: TextVariant;
     /** Font weight preset */
     weight?: 'light' | 'regular' | 'medium' | 'semiBold' | 'bold' | 'extraBold';
     /** Font size preset or custom number */
@@ -42,6 +57,22 @@ export interface TextProps extends RNTextProps {
     style?: StyleProp<TextStyle>;
 }
 
+const variantDefaults: Record<
+    TextVariant,
+    { size: FontSizeKey; weight: NonNullable<TextProps['weight']> }
+> = {
+    h1: { size: '4xl', weight: 'bold' },
+    h2: { size: '3xl', weight: 'bold' },
+    h3: { size: '2xl', weight: 'semiBold' },
+    h4: { size: 'xl', weight: 'semiBold' },
+    body: { size: 'md', weight: 'regular' },
+    bodyBold: { size: 'md', weight: 'bold' },
+    caption: { size: 'sm', weight: 'regular' },
+    small: { size: 'sm', weight: 'regular' },
+    xsmall: { size: 'xs', weight: 'regular' },
+    label: { size: 'sm', weight: 'medium' },
+};
+
 // ============================================================================
 // WEIGHT MAPPING
 // ============================================================================
@@ -60,8 +91,9 @@ const weightToFamily: Record<NonNullable<TextProps['weight']>, string> = {
 // ============================================================================
 
 export function Text({
-    weight = 'regular',
-    size = 'md',
+    variant,
+    weight,
+    size,
     color,
     lightColor,
     darkColor,
@@ -76,11 +108,15 @@ export function Text({
 }: TextProps) {
     const colorScheme = useColorScheme() ?? 'light';
 
+    // Variant sets defaults; explicit size/weight props override.
+    const resolvedSize = size ?? (variant ? variantDefaults[variant].size : 'md');
+    const resolvedWeight = weight ?? (variant ? variantDefaults[variant].weight : 'regular');
+
     // Determine font family
-    const fontFamily = italic ? FontFamily.italic : weightToFamily[weight];
+    const fontFamily = italic ? FontFamily.italic : weightToFamily[resolvedWeight];
 
     // Determine font size
-    const fontSize = typeof size === 'number' ? size : FontSize[size];
+    const fontSize = typeof resolvedSize === 'number' ? resolvedSize : FontSize[resolvedSize];
 
     // Determine text color
     let textColor = color;

@@ -106,17 +106,17 @@ interface ServiceBottomSheetProps {
   /** Callback to expose map-relevant index (smoothly animates when opening car selection so map controls don't pop) */
   onMapRelevantIndexChange?: (mapRelevantIndex: SharedValue<number>) => void;
   /** Called when a shop is selected from search */
-  onSelectShop?: (shopId: number) => void;
+  onSelectShop?: (shopId: string) => void;
   /** Called when a mechanic is selected from search */
   onSelectMechanic?: (mechanicId: string) => void;
   /** Callback when search mode changes (for hiding/showing map controls) */
   onSearchModeChange?: (isSearching: boolean) => void;
   /** Currently selected shop ID from map pin (triggers shop preview mode) */
-  selectedShopId?: number | null;
+  selectedShopId?: string | null;
   /** Incrementing key to force shop preview when same shop is tapped again */
   shopPreviewKey?: number;
   /** Called when active shop changes in carousel (for map focus) */
-  onShopChange?: (shop: { id: number; latitude: number; longitude: number }) => void;
+  onShopChange?: (shop: { id: string; latitude: number; longitude: number }) => void;
   /** Called when shop preview is closed */
   onShopClose?: () => void;
   /** Called when "Add a vehicle" is tapped in car selection (e.g. navigate to My Cars) */
@@ -388,7 +388,7 @@ export function ServiceBottomSheet({
   }, [recentShopIdsForDisplay, getShopById]);
 
   const recentMechanics = useMemo(() => {
-    return recentlyBookedMechanicIds
+    return (recentlyBookedMechanicIds as string[])
       .map((id) => getMechanicById(id))
       .filter((m): m is NonNullable<typeof m> => m !== undefined);
   }, [recentlyBookedMechanicIds, getMechanicById]);
@@ -496,6 +496,69 @@ export function ServiceBottomSheet({
       const atExpanded = Math.round(v) >= expandedIndex;
       runOnJS(setIsAtExpandedSnap)(atExpanded);
     }
+  );
+
+  // ═══════════════ COMPUTED VALUES ═══════════════
+  // Hoisted above the useEffects that depend on snapToIndexSafe /
+  // snapPointsLength — without this ordering, TypeScript flags TDZ
+  // (the closures capture the bindings, which are valid at call time
+  //  in JS but read-before-declaration to tsc).
+  const offsetPercent = (offsetY / SCREEN_HEIGHT) * 100;
+
+  // Get snap points config, fallback to discovery for stages handled by pages
+  const stageConfig =
+    currentStage === "discovery" || currentStage === "service_selection" || currentStage === "service_options" || currentStage === "mechanic_selection"
+      ? SNAP_POINTS_CONFIG[currentStage]
+      : SNAP_POINTS_CONFIG.discovery;
+
+  const carSelectionHeightPx = useMemo(() => {
+    if (vehicleCount === 0) return CAR_SELECTION_EMPTY_HEIGHT;
+    const visibleRows = Math.min(vehicleCount, CAR_SELECTION_MAX_VISIBLE);
+    return (
+      CAR_SELECTION_HANDLE_HEIGHT +
+      CAR_SELECTION_HEADER_HEIGHT +
+      visibleRows * CAR_SELECTION_ROW_HEIGHT +
+      CAR_SELECTION_ADD_ROW_HEIGHT +
+      CAR_SELECTION_FOOTER_HEIGHT +
+      CAR_SELECTION_PADDING
+    );
+  }, [vehicleCount]);
+
+  const carSelectionSnapPercent = useMemo(() => {
+    const percent = (carSelectionHeightPx / SCREEN_HEIGHT) * 100;
+    return Math.min(92, Math.max(35, percent));
+  }, [carSelectionHeightPx]);
+
+  // Service sheet: 4 snap points only (no car selection). When car panel is open: 5 points, ascending, last = max height.
+  const snapPoints = useMemo(() => {
+    const base = [
+      `${stageConfig.collapsed - offsetPercent}%`,
+      `${stageConfig.preview - offsetPercent}%`,
+      `${stageConfig.mid - offsetPercent}%`,
+      `${stageConfig.expanded - offsetPercent}%`,
+    ];
+    if (!showCarPreview) {
+      return base;
+    }
+    const carPercent = Math.min(carSelectionSnapPercent, stageConfig.expanded - offsetPercent);
+    return [
+      `${stageConfig.collapsed - offsetPercent}%`,
+      `${stageConfig.preview - offsetPercent}%`,
+      `${stageConfig.mid - offsetPercent}%`,
+      `${carPercent}%`,
+      `${stageConfig.expanded - offsetPercent}%`,
+    ];
+  }, [showCarPreview, stageConfig, offsetPercent, carSelectionSnapPercent]);
+
+  const snapPointsLength = snapPoints.length;
+
+  const snapToIndexSafe = useCallback(
+    (index: number) => {
+      const maxIndex = Math.max(0, snapPointsLength - 1);
+      const clamped = Math.min(maxIndex, Math.max(-1, index));
+      bottomSheetRef.current?.snapToIndex(clamped);
+    },
+    [snapPointsLength]
   );
 
   useEffect(() => {
@@ -622,64 +685,10 @@ export function ServiceBottomSheet({
     snapToIndexSafe(1);
   }, [selectedShopId, shopPreviewKey, animatedIndex, dismissShopPreview, showCarPreview, snapToIndexSafe]);
 
-  // ═══════════════ COMPUTED VALUES ═══════════════
-  const offsetPercent = (offsetY / SCREEN_HEIGHT) * 100;
-
-  // Get snap points config, fallback to discovery for stages handled by pages
-  const stageConfig =
-    currentStage === "discovery" || currentStage === "service_selection" || currentStage === "service_options" || currentStage === "mechanic_selection"
-      ? SNAP_POINTS_CONFIG[currentStage]
-      : SNAP_POINTS_CONFIG.discovery;
-
-  const carSelectionHeightPx = useMemo(() => {
-    if (vehicleCount === 0) return CAR_SELECTION_EMPTY_HEIGHT;
-    const visibleRows = Math.min(vehicleCount, CAR_SELECTION_MAX_VISIBLE);
-    return (
-      CAR_SELECTION_HANDLE_HEIGHT +
-      CAR_SELECTION_HEADER_HEIGHT +
-      visibleRows * CAR_SELECTION_ROW_HEIGHT +
-      CAR_SELECTION_ADD_ROW_HEIGHT +
-      CAR_SELECTION_FOOTER_HEIGHT +
-      CAR_SELECTION_PADDING
-    );
-  }, [vehicleCount]);
-
-  const carSelectionSnapPercent = useMemo(() => {
-    const percent = (carSelectionHeightPx / SCREEN_HEIGHT) * 100;
-    return Math.min(92, Math.max(35, percent));
-  }, [carSelectionHeightPx]);
-
-  // Service sheet: 4 snap points only (no car selection). When car panel is open: 5 points, ascending, last = max height.
-  const snapPoints = useMemo(() => {
-    const base = [
-      `${stageConfig.collapsed - offsetPercent}%`,
-      `${stageConfig.preview - offsetPercent}%`,
-      `${stageConfig.mid - offsetPercent}%`,
-      `${stageConfig.expanded - offsetPercent}%`,
-    ];
-    if (!showCarPreview) {
-      return base;
-    }
-    const carPercent = Math.min(carSelectionSnapPercent, stageConfig.expanded - offsetPercent);
-    return [
-      `${stageConfig.collapsed - offsetPercent}%`,
-      `${stageConfig.preview - offsetPercent}%`,
-      `${stageConfig.mid - offsetPercent}%`,
-      `${carPercent}%`,
-      `${stageConfig.expanded - offsetPercent}%`,
-    ];
-  }, [showCarPreview, stageConfig, offsetPercent, carSelectionSnapPercent]);
-
-  const snapPointsLength = snapPoints.length;
-
-  const snapToIndexSafe = useCallback(
-    (index: number) => {
-      const maxIndex = Math.max(0, snapPointsLength - 1);
-      const clamped = Math.min(maxIndex, Math.max(-1, index));
-      bottomSheetRef.current?.snapToIndex(clamped);
-    },
-    [snapPointsLength]
-  );
+  // ═══════════════ COMPUTED VALUES (continued) ═══════════════
+  // (snapPoints, snapPointsLength, and snapToIndexSafe were hoisted above
+  //  the useEffect blocks that depend on them — see the COMPUTED VALUES
+  //  section earlier in this component.)
 
   const bottomSheetIndexUnclamped = showCarPreview
     ? CAR_SELECTION_SNAP_INDEX
@@ -742,7 +751,7 @@ export function ServiceBottomSheet({
 
   // Handle shop press from search
   const handleSearchShopPress = useCallback(
-    (shopId: number) => {
+    (shopId: string) => {
       exitSearchMode();
       onSelectShop?.(shopId);
     },
@@ -760,7 +769,7 @@ export function ServiceBottomSheet({
 
   // Handle remove recent shop
   const handleRemoveRecentShop = useCallback(
-    (shopId: number) => {
+    (shopId: string) => {
       removeRecentShop(shopId);
     },
     [removeRecentShop]
@@ -774,7 +783,7 @@ export function ServiceBottomSheet({
 
   // Handle shop change from carousel
   const handleShopPreviewChange = useCallback(
-    (shop: { id: number; latitude: number; longitude: number }) => {
+    (shop: { id: string; latitude: number; longitude: number }) => {
       onShopChange?.(shop);
     },
     [onShopChange]
@@ -786,7 +795,7 @@ export function ServiceBottomSheet({
 
   // Handle shop details press
   const handleShopPreviewDetails = useCallback(
-    (shop: { id: number }) => {
+    (shop: { id: string }) => {
       onSelectShop?.(shop.id);
     },
     [onSelectShop]

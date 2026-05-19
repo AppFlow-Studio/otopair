@@ -33,8 +33,8 @@ import { openMapsForAddress, openPhone } from "@/utils/linking";
 // ============================================================================
 
 interface ShopPreviewContentProps {
-  /** Currently selected shop ID from map pin */
-  selectedShopId: number | null;
+  /** Currently selected shop ID from map pin (Convex _id as string) */
+  selectedShopId: string | null;
   /** Called when active shop changes (for map focus) */
   onShopChange?: (shop: Shop) => void;
   /** Called when user taps "Details" on a shop */
