@@ -48,6 +48,7 @@ import { Country } from "react-native-country-picker-modal";
 import { useOnboardingStore } from "@/stores/useOnboardingStore";
 import { useUser, useSignUp } from "@clerk/clerk-expo";
 import { Search } from "lucide-react-native";
+import { OnboardingSurfaceColors } from "../onboardingColors";
 // Try to import getAllCountries from the library
 let getAllCountries: ((locale?: string) => Promise<Country[]>) | undefined;
 try {
@@ -464,7 +465,14 @@ export function PhoneNumberStep({ onNext, onBack, progress }: PhoneNumberStepPro
         </ScrollView>
 
         {/* Country Picker Bottom Sheet */}
-        <Modal visible={showCountryPicker} transparent animationType="none" onRequestClose={handleClosePicker}>
+        <Modal
+          visible={showCountryPicker}
+          transparent
+          animationType="none"
+          statusBarTranslucent
+          navigationBarTranslucent
+          onRequestClose={handleClosePicker}
+        >
           <GestureHandlerRootView style={{ flex: 1 }}>
             <Pressable style={styles.bottomSheetBackdrop} onPress={handleClosePicker}>
               <Animated.View
@@ -490,11 +498,15 @@ export function PhoneNumberStep({ onNext, onBack, progress }: PhoneNumberStepPro
 
                     <View style={[styles.bottomSheetHeader, { gap: width < 360 ? Spacing.xs : Spacing.md }]}>
                       <View style={styles.searchContainer}>
-                        <Search size={width < 360 ? 18 : 20} color="#9CA3AF" style={styles.searchIcon} />
+                        <Search
+                          size={width < 360 ? 18 : 20}
+                          color={OnboardingSurfaceColors.placeholder}
+                          style={styles.searchIcon}
+                        />
                         <TextInput
                           style={styles.searchInput}
                           placeholder="Search country / region"
-                          placeholderTextColor="#9CA3AF"
+                          placeholderTextColor={OnboardingSurfaceColors.placeholder}
                           value={searchQuery}
                           onChangeText={setSearchQuery}
                           autoFocus={false}
@@ -530,7 +542,14 @@ export function PhoneNumberStep({ onNext, onBack, progress }: PhoneNumberStepPro
         </Modal>
 
         {/* Confirmation Modal */}
-        <Modal visible={showConfirmationModal} transparent animationType="fade" onRequestClose={handleGoBack}>
+        <Modal
+          visible={showConfirmationModal}
+          transparent
+          animationType="fade"
+          statusBarTranslucent
+          navigationBarTranslucent
+          onRequestClose={handleGoBack}
+        >
           <Pressable style={styles.confirmationModalBackdrop} onPress={handleGoBack}>
             <Pressable style={styles.confirmationModal} onPress={(e) => e.stopPropagation()}>
               <Text style={styles.confirmationPhoneNumber}>
@@ -644,13 +663,15 @@ const styles = StyleSheet.create({
   continueButtonContainer: { marginTop: 0 },
   bottomSheetBackdrop: {
     flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    backgroundColor: OnboardingSurfaceColors.backdrop,
     justifyContent: "flex-end",
   },
   bottomSheet: {
-    backgroundColor: "#1F2937",
+    backgroundColor: OnboardingSurfaceColors.card,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
+    borderWidth: 1,
+    borderColor: OnboardingSurfaceColors.border,
     maxHeight: "100%",
     paddingTop: Spacing.md,
   },
@@ -658,7 +679,7 @@ const styles = StyleSheet.create({
   bottomSheetHandle: {
     width: 40,
     height: 4,
-    backgroundColor: "#6B7280",
+    backgroundColor: OnboardingSurfaceColors.handle,
     borderRadius: 2,
     alignSelf: "center",
     marginBottom: Spacing.md,
@@ -673,12 +694,12 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#374151",
+    backgroundColor: OnboardingSurfaceColors.cardSoft,
     borderRadius: 12,
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.sm,
     borderWidth: 1,
-    borderColor: "#4B5563",
+    borderColor: OnboardingSurfaceColors.borderStrong,
     minWidth: 0,
   },
   searchIcon: { marginRight: Spacing.xs },
@@ -686,7 +707,7 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: FontSize.md,
     fontFamily: FontFamily.regular,
-    color: '#0F172A',
+    color: OnboardingSurfaceColors.text,
     paddingVertical: 0,
     minWidth: 0,
   },
@@ -698,7 +719,7 @@ const styles = StyleSheet.create({
   cancelButtonText: {
     fontSize: FontSize.md,
     fontFamily: FontFamily.medium,
-    color: '#0F172A',
+    color: OnboardingSurfaceColors.linkText,
   },
   countryList: { flex: 1 },
   countryListContent: { paddingBottom: Spacing.lg },
@@ -708,9 +729,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.lg,
     paddingVertical: Spacing.md,
     borderBottomWidth: 1,
-    borderBottomColor: "#374151",
+    borderBottomColor: OnboardingSurfaceColors.border,
   },
-  countryItemSelected: { backgroundColor: "#374151" },
+  countryItemSelected: { backgroundColor: OnboardingSurfaceColors.selected },
   countryItemFlag: {
     width: 32,
     height: 24,
@@ -722,7 +743,7 @@ const styles = StyleSheet.create({
   countryItemCode: {
     fontSize: FontSize.md,
     fontFamily: FontFamily.medium,
-    color: '#0F172A',
+    color: OnboardingSurfaceColors.text,
     marginRight: Spacing.md,
     minWidth: 50,
   },
@@ -730,46 +751,48 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: FontSize.md,
     fontFamily: FontFamily.regular,
-    color: '#0F172A',
+    color: OnboardingSurfaceColors.text,
   },
   emptyContainer: { padding: Spacing["2xl"], alignItems: "center" },
   emptyText: {
     fontSize: FontSize.md,
     fontFamily: FontFamily.regular,
-    color: "#829BAD",
+    color: OnboardingSurfaceColors.mutedText,
   },
   confirmationModalBackdrop: {
     flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.7)",
+    backgroundColor: OnboardingSurfaceColors.backdrop,
     justifyContent: "center",
     alignItems: "center",
     paddingHorizontal: Spacing.lg,
   },
   confirmationModal: {
-    backgroundColor: "#374151",
+    backgroundColor: OnboardingSurfaceColors.card,
     borderRadius: 20,
     padding: Spacing["2xl"],
     width: "100%",
     maxWidth: 400,
+    borderWidth: 1,
+    borderColor: OnboardingSurfaceColors.border,
   },
   confirmationPhoneNumber: {
     fontSize: FontSize["2xl"],
     fontFamily: FontFamily.bold,
-    color: '#0F172A',
+    color: OnboardingSurfaceColors.text,
     textAlign: "center",
     marginBottom: Spacing.lg,
   },
   confirmationQuestion: {
     fontSize: FontSize.md,
     fontFamily: FontFamily.regular,
-    color: "#829BAD",
+    color: OnboardingSurfaceColors.mutedText,
     textAlign: "center",
     marginBottom: Spacing["2xl"],
     lineHeight: 22,
   },
   confirmationButtons: { gap: Spacing.md },
   confirmButton: {
-    backgroundColor: '#EFF6FF',
+    backgroundColor: OnboardingSurfaceColors.primaryButton,
     borderRadius: 12,
     paddingVertical: Spacing.md,
     paddingHorizontal: Spacing.lg,
@@ -778,20 +801,20 @@ const styles = StyleSheet.create({
   confirmButtonText: {
     fontSize: FontSize.lg,
     fontFamily: FontFamily.semiBold,
-    color: "#000000",
+    color: OnboardingSurfaceColors.primaryButtonText,
   },
   goBackButton: {
-    backgroundColor: "#374151",
+    backgroundColor: OnboardingSurfaceColors.secondaryButton,
     borderRadius: 12,
     paddingVertical: Spacing.md,
     paddingHorizontal: Spacing.lg,
     alignItems: "center",
     borderWidth: 1,
-    borderColor: "#4B5563",
+    borderColor: OnboardingSurfaceColors.borderStrong,
   },
   goBackButtonText: {
     fontSize: FontSize.lg,
     fontFamily: FontFamily.semiBold,
-    color: '#0F172A',
+    color: OnboardingSurfaceColors.secondaryButtonText,
   },
 });

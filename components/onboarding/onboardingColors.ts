@@ -1,0 +1,17 @@
+export const OnboardingSurfaceColors = {
+  backdrop: "rgba(15, 23, 42, 0.42)",
+  card: "#FFFFFF",
+  cardSoft: "#F8FBFF",
+  selected: "#EFF6FF",
+  border: "#E2E8F0",
+  borderStrong: "#BFDBFE",
+  handle: "#93C5FD",
+  text: "#0F172A",
+  mutedText: "#475569",
+  placeholder: "#9CA3AF",
+  primaryButton: "#141C24",
+  primaryButtonText: "#FFFFFF",
+  secondaryButton: "#FFFFFF",
+  secondaryButtonText: "#0F172A",
+  linkText: "#1E40AF",
+} as const;

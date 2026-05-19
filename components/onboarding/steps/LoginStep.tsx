@@ -247,10 +247,7 @@ export function LoginStep({ onBack }: LoginStepProps) {
                 {loading === "apple" ? (
                   <ActivityIndicator size="small" color="#fff" />
                 ) : (
-                  <>
-                    <Text style={styles.appleIcon}></Text>
-                    <Text style={styles.appleText}>Continue with Apple</Text>
-                  </>
+                  <Text style={styles.appleText}>Continue with Apple</Text>
                 )}
               </Pressable>
 
@@ -378,14 +375,10 @@ const styles = StyleSheet.create({
   appleButton: {
     backgroundColor: "#000000",
   },
-  appleIcon: {
-    fontSize: FontSize.xl,
-    color: '#0F172A',
-  },
   appleText: {
     fontSize: FontSize.md,
     fontFamily: FontFamily.semiBold,
-    color: '#0F172A',
+    color: BrandColors.white,
   },
   emailButton: {
     backgroundColor: "#5299FE",

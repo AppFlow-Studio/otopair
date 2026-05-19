@@ -46,6 +46,7 @@ import { useUser, useSignUp } from "@clerk/clerk-expo";
 import { useOnboardingPersistence } from "@/hooks/useOnboardingPersistence";
 import { useEnsureConvexUser } from "@/hooks/useEnsureConvexUser";
 import { X } from "lucide-react-native";
+import { OnboardingSurfaceColors } from "../onboardingColors";
 
 interface ConfirmPhoneNumberStepProps {
   onNext: () => void;
@@ -367,7 +368,14 @@ export function ConfirmPhoneNumberStep({ onNext, onBack, progress }: ConfirmPhon
         <View style={{ flex: 1 }} />
       </View>
 
-      <Modal visible={showErrorModal} transparent animationType="none" onRequestClose={handleCloseErrorModal}>
+      <Modal
+        visible={showErrorModal}
+        transparent
+        animationType="none"
+        statusBarTranslucent
+        navigationBarTranslucent
+        onRequestClose={handleCloseErrorModal}
+      >
         <Pressable style={styles.errorModalBackdrop} onPress={handleCloseErrorModal}>
           <Animated.View
             style={[
@@ -476,24 +484,26 @@ const styles = StyleSheet.create({
   },
   errorModalBackdrop: {
     flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.7)",
+    backgroundColor: OnboardingSurfaceColors.backdrop,
     justifyContent: "flex-end",
     alignItems: "center",
   },
   errorModal: {
-    backgroundColor: "#1F2937",
-    borderRadius: 50,
+    backgroundColor: OnboardingSurfaceColors.card,
+    borderRadius: 28,
     padding: Spacing["2xl"],
     paddingBottom: Spacing["3xl"],
     alignItems: "center",
     width: "95%",
     alignSelf: "center",
     marginBottom: Spacing.lg,
+    borderWidth: 1,
+    borderColor: OnboardingSurfaceColors.border,
   },
   errorModalHandle: {
     width: 40,
     height: 4,
-    backgroundColor: "#6B7280",
+    backgroundColor: OnboardingSurfaceColors.handle,
     borderRadius: 2,
     marginBottom: Spacing.xs,
   },
@@ -501,20 +511,20 @@ const styles = StyleSheet.create({
   errorTitle: {
     fontSize: FontSize["2xl"],
     fontFamily: FontFamily.bold,
-    color: '#0F172A',
+    color: OnboardingSurfaceColors.text,
     textAlign: "center",
     marginBottom: Spacing.md,
   },
   errorMessage: {
     fontSize: FontSize.md,
     fontFamily: FontFamily.regular,
-    color: "#829BAD",
+    color: OnboardingSurfaceColors.mutedText,
     textAlign: "center",
     marginBottom: Spacing["2xl"],
     lineHeight: 22,
   },
   errorButton: {
-    backgroundColor: '#EFF6FF',
+    backgroundColor: OnboardingSurfaceColors.primaryButton,
     borderRadius: 12,
     paddingVertical: Spacing.md,
     paddingHorizontal: Spacing["2xl"],
@@ -524,6 +534,6 @@ const styles = StyleSheet.create({
   errorButtonText: {
     fontSize: FontSize.lg,
     fontFamily: FontFamily.semiBold,
-    color: "#000000",
+    color: OnboardingSurfaceColors.primaryButtonText,
   },
 });

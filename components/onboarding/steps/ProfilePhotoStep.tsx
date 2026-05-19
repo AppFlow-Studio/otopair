@@ -49,6 +49,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Plus } from "lucide-react-native";
+import { OnboardingSurfaceColors } from "../onboardingColors";
 // @ts-ignore Expo module available at runtime
 import * as ImagePicker from "expo-image-picker";
 
@@ -211,6 +212,8 @@ export function ProfilePhotoStep({ onNext, onBack, progress }: ProfilePhotoStepP
         visible={showPhotoModal}
         transparent
         animationType="fade"
+        statusBarTranslucent
+        navigationBarTranslucent
         onRequestClose={handleCloseModal}
       >
         <Pressable
@@ -345,30 +348,32 @@ const styles = StyleSheet.create({
   },
   photoModalBackdrop: {
     flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.7)",
+    backgroundColor: OnboardingSurfaceColors.backdrop,
     justifyContent: "center",
     alignItems: "center",
     paddingHorizontal: Spacing.lg,
   },
   photoModalCard: {
-    backgroundColor: "#374151",
+    backgroundColor: OnboardingSurfaceColors.card,
     borderRadius: 20,
     padding: Spacing["2xl"],
     width: "100%",
     maxWidth: 400,
     alignItems: "center",
+    borderWidth: 1,
+    borderColor: OnboardingSurfaceColors.border,
   },
   photoModalTitle: {
     fontSize: FontSize["2xl"],
     fontFamily: FontFamily.bold,
-    color: '#0F172A',
+    color: OnboardingSurfaceColors.text,
     textAlign: "center",
     marginBottom: Spacing.md,
   },
   photoModalSubtitle: {
     fontSize: FontSize.md,
     fontFamily: FontFamily.regular,
-    color: "#829BAD",
+    color: OnboardingSurfaceColors.mutedText,
     textAlign: "center",
     marginBottom: Spacing["2xl"],
     lineHeight: 22,
@@ -378,7 +383,7 @@ const styles = StyleSheet.create({
     gap: Spacing.md,
   },
   photoModalPrimaryButton: {
-    backgroundColor: '#EFF6FF',
+    backgroundColor: OnboardingSurfaceColors.primaryButton,
     borderRadius: 12,
     paddingVertical: Spacing.md,
     paddingHorizontal: Spacing.lg,
@@ -387,21 +392,21 @@ const styles = StyleSheet.create({
   photoModalPrimaryText: {
     fontSize: FontSize.lg,
     fontFamily: FontFamily.semiBold,
-    color: "#000000",
+    color: OnboardingSurfaceColors.primaryButtonText,
   },
   photoModalSecondaryButton: {
-    backgroundColor: "#374151",
+    backgroundColor: OnboardingSurfaceColors.secondaryButton,
     borderRadius: 12,
     paddingVertical: Spacing.md,
     paddingHorizontal: Spacing.lg,
     alignItems: "center",
     borderWidth: 1,
-    borderColor: "#4B5563",
+    borderColor: OnboardingSurfaceColors.borderStrong,
   },
   photoModalSecondaryText: {
     fontSize: FontSize.lg,
     fontFamily: FontFamily.semiBold,
-    color: '#0F172A',
+    color: OnboardingSurfaceColors.secondaryButtonText,
   },
   photoModalTextButton: {
     paddingVertical: Spacing.sm,
@@ -410,7 +415,7 @@ const styles = StyleSheet.create({
   photoModalTextButtonLabel: {
     fontSize: FontSize.md,
     fontFamily: FontFamily.semiBold,
-    color: "#829BAD",
+    color: OnboardingSurfaceColors.linkText,
   },
 });
 
