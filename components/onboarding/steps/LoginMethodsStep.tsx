@@ -151,7 +151,7 @@ export function LoginMethodsStep({ onNext, onBack }: LoginMethodsStepProps) {
             onPress={handleGoogleLogin}
             disabled={loginLoading}
             variant="secondary"
-            backgroundColor="rgba(255, 255, 255, 0.1)"
+            backgroundColor="#FFFFFF"
             textColor={BrandColors.white}
             leftIcon={<FontAwesome name="google" size={20} color={BrandColors.white} />}
             style={styles.socialButton}
@@ -163,7 +163,7 @@ export function LoginMethodsStep({ onNext, onBack }: LoginMethodsStepProps) {
               onPress={handleAppleLogin}
               disabled={loginLoading}
               variant="secondary"
-              backgroundColor="rgba(255, 255, 255, 0.1)"
+              backgroundColor="#FFFFFF"
               textColor={BrandColors.white}
               leftIcon={<FontAwesome name="apple" size={22} color={BrandColors.white} style={{ marginBottom: 2 }} />}
               style={styles.socialButton}
@@ -212,7 +212,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: FontSize["4xl"],
     fontFamily: FontFamily.bold,
-    color: BrandColors.white,
+    color: '#0F172A',
     textAlign: "center",
     lineHeight: 44,
   },
@@ -222,7 +222,7 @@ const styles = StyleSheet.create({
   },
   socialButton: {
     borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.2)",
+    borderColor: "#E2E8F0",
   },
   signUpContainer: {
     flexDirection: "row",
@@ -232,20 +232,20 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   signUpText: {
-    color: BrandColors.white,
+    color: '#0F172A',
     opacity: 0.8,
     fontSize: FontSize.md,
     fontFamily: FontFamily.medium,
   },
   signUpLink: {
-    color: BrandColors.white,
+    color: '#0F172A',
     fontSize: FontSize.md,
     fontFamily: FontFamily.bold,
     textDecorationLine: "underline",
   },
   loginErrorText: {
     textAlign: "center",
-    color: "#FCA5A5",
+    color: "#DC2626",
     fontSize: FontSize.sm,
     fontFamily: FontFamily.medium,
     marginTop: Spacing.md,

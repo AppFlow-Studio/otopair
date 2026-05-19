@@ -40,6 +40,7 @@ import ReAnimated, {
   interpolate,
   useAnimatedStyle,
   useSharedValue,
+  withDelay,
   withSpring,
   withTiming,
   runOnJS,
@@ -57,7 +58,12 @@ import { router } from 'expo-router';
 
 // 5. Responsive utilities
 import { scale, verticalScale, moderateScale, isTablet } from '@/utils/responsive';
-import { computeHealthScoreFactors, type HealthFactor } from '@/utils/healthScore';
+import {
+  computeBookingHelpingFactors,
+  computeHealthScoreFactors,
+  type CompletedBooking,
+  type HealthFactor,
+} from '@/utils/healthScore';
 
 
 // ============================================================================
@@ -128,6 +134,9 @@ interface CarCarouselProps {
   knownIssues?: string[];
   /** Health Points bonus buffer (0–3) — shown as a positive factor. */
   hpBuffer?: number;
+  /** Completed bookings for the active vehicle. Each becomes a
+   *  per-booking entry in "What's helping" with its pts contribution. */
+  completedBookings?: CompletedBooking[];
 }
 
 // ============================================================================
@@ -399,6 +408,7 @@ interface VehicleHealthModalProps {
   onResumeCheckin?: () => void;
   knownIssues?: string[];
   hpBuffer?: number;
+  completedBookings?: CompletedBooking[];
 }
 
 const VehicleHealthModal = ({
@@ -414,6 +424,7 @@ const VehicleHealthModal = ({
   onResumeCheckin,
   knownIssues,
   hpBuffer,
+  completedBookings,
 }: VehicleHealthModalProps) => {
   const slideAnim = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -439,17 +450,38 @@ const VehicleHealthModal = ({
 
   // Score factors breakdown — same formula as the displayed score, but
   // split into "what's helping" vs "what's hurting" with pts deltas.
-  const { positives: factorsPositive, negatives: factorsNegative } = useMemo(() => {
+  //
+  // The helping side regroups credit: per-item "On-time: X" entries
+  // get attributed to the most-recent completed booking that touched
+  // each type (so the user sees real history, not abstract item
+  // status). Non-booking positives (low mileage / no warning lights
+  // / rewards bonus) stay.
+  const { factorsPositive, factorsNegative } = useMemo(() => {
     if (!realItems || realItems.length === 0) {
-      return { positives: [] as HealthFactor[], negatives: [] as HealthFactor[] };
+      return {
+        factorsPositive: [] as HealthFactor[],
+        factorsNegative: [] as HealthFactor[],
+      };
     }
-    return computeHealthScoreFactors({
+    const input = {
       maintenanceItems: realItems,
       odometerMiles: realMileage ?? 0,
       knownIssues,
       hpBuffer,
-    });
-  }, [realItems, realMileage, knownIssues, hpBuffer]);
+    };
+    const { positives, negatives } = computeHealthScoreFactors(input);
+    const nonOnTimePositives = positives.filter(
+      (f) => !f.label.startsWith("On-time:"),
+    );
+    const bookingPositives = computeBookingHelpingFactors(
+      input,
+      completedBookings ?? [],
+    );
+    return {
+      factorsPositive: [...nonOnTimePositives, ...bookingPositives],
+      factorsNegative: negatives,
+    };
+  }, [realItems, realMileage, knownIssues, hpBuffer, completedBookings]);
 
   // Use the unified health score passed from parent
   const calculatedCondition = healthPercentage;
@@ -811,6 +843,9 @@ const VehicleHealthModal = ({
                           <Text style={modalStyles.factorLabel}>{f.label}</Text>
                           {f.detail ? (
                             <Text style={modalStyles.factorDetail}>{f.detail}</Text>
+                          ) : null}
+                          {f.subDetail ? (
+                            <Text style={modalStyles.factorDetail}>{f.subDetail}</Text>
                           ) : null}
                         </View>
                         <View style={[modalStyles.factorPill, modalStyles.factorPillPositive]}>
@@ -1586,6 +1621,7 @@ export function CarCarousel({
   hideGroundShadow = false,
   knownIssues,
   hpBuffer,
+  completedBookings,
 }: CarCarouselProps) {
   "use no memo";
   // ↑ Opt this file out of React Compiler. The compiler was freezing
@@ -1842,15 +1878,16 @@ export function CarCarousel({
       rotation.value = withTiming(snappedRotation, {
         duration: 350,
         easing: SETTLE_EASING,
-      }, (finished) => {
-        'worklet';
-        if (finished) {
-          // Fade the ground line + shadow back in under the now-active
-          // car after the settle completes, so they appear with the
-          // car instead of mid-swipe.
-          panActive.value = withTiming(0, { duration: 180 });
-        }
       });
+
+      // Fade the ground line + shadow back in once the settle has
+      // finished. Driving this off `withDelay` (instead of the rotation
+      // timing's completion callback) ensures the fade-in still fires
+      // when a rapid follow-up swipe interrupts the rotation — the new
+      // swipe's onStart resets panActive to 1, and once that swipe ends
+      // it queues its own delayed fade-in. Without this, a rapid swipe
+      // sequence leaves panActive stuck at 1 and the line never returns.
+      panActive.value = withDelay(350, withTiming(0, { duration: 180 }));
     });
 
   // Rotate to specific index
@@ -2043,7 +2080,7 @@ export function CarCarousel({
               bottomOffset={groundLineBottom}
               tint={groundLineTint}
               tintTransparent={groundLineTintTransparent}
-              height={StyleSheet.hairlineWidth}
+              height={1.5}
             />
           </ReAnimated.View>
 
@@ -2394,6 +2431,7 @@ export function CarCarousel({
         onResumeCheckin={onResumeCheckin}
         knownIssues={knownIssues}
         hpBuffer={hpBuffer}
+        completedBookings={completedBookings}
       />
 
       {/* Compact-mode vehicle picker. Mounted lazily — `showCarSheet`

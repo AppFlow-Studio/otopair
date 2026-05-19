@@ -24,11 +24,12 @@ import {
   Animated,
   Pressable,
   StyleSheet,
+  TextInput,
   View,
 } from "react-native";
 
 import { useMutation } from "convex/react";
-import { Star } from "lucide-react-native";
+import { ChevronDown, ChevronUp, Star } from "lucide-react-native";
 
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
 import { Text } from "@/components/shared-ui";
@@ -36,12 +37,12 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { Booking } from "@/components/bookings/BookingCard";
 
-const SHEET_HEIGHT = 540;
-// Stable array reference — passing `[SHEET_HEIGHT]` inline causes
-// FloatingSheet's enter-animation effect (which depends on `snaps`) to
-// retrigger on every state change in this sheet, slamming the sheet to
-// height 0 and animating back up. Keep it module-scoped.
-const SNAP_HEIGHTS = [SHEET_HEIGHT];
+// Two heights — the sheet animates between them when the mechanic
+// section toggles open. Module-scoped + memoized below so the array
+// reference is stable per branch (passing `[N]` inline would
+// retrigger FloatingSheet's enter animation on every render).
+const SNAP_HEIGHTS_COLLAPSED = [580];
+const SNAP_HEIGHTS_EXPANDED = [780];
 
 const RATING_LABELS: Record<number, { text: string; color: string }> = {
   0: { text: "Tap a star to rate", color: "#9CA3AF" },
@@ -82,6 +83,14 @@ export const LeaveReviewSheet = forwardRef<LeaveReviewSheetRef, Props>(
     // matches the "you're rating, drag down to lower" pattern.
     const [rating, setRating] = useState(5);
     const [selectedTags, setSelectedTags] = useState<string[]>([]);
+    // Mechanic review — opt-out. Defaults to expanded so the mechanic
+    // section auto-renders with 5 stars whenever the booking has a
+    // mechanic. User can collapse to skip the mechanic review. The
+    // effect below re-syncs to `mechanicAvailable` whenever a new
+    // booking opens the sheet.
+    const [mechanicIncluded, setMechanicIncluded] = useState(true);
+    const [mechanicRating, setMechanicRating] = useState(5);
+    const [mechanicComment, setMechanicComment] = useState("");
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
@@ -89,6 +98,9 @@ export const LeaveReviewSheet = forwardRef<LeaveReviewSheetRef, Props>(
 
     // One Animated.Value per star for the pop-on-tap micro-interaction.
     const starScales = useRef<Animated.Value[]>(
+      [1, 2, 3, 4, 5].map(() => new Animated.Value(1)),
+    ).current;
+    const mechStarScales = useRef<Animated.Value[]>(
       [1, 2, 3, 4, 5].map(() => new Animated.Value(1)),
     ).current;
 
@@ -109,12 +121,36 @@ export const LeaveReviewSheet = forwardRef<LeaveReviewSheetRef, Props>(
       [starScales],
     );
 
+    const popMechStarsUpTo = useCallback(
+      (n: number) => {
+        mechStarScales.slice(0, n).forEach((anim, i) => {
+          anim.stopAnimation();
+          anim.setValue(0.85);
+          Animated.spring(anim, {
+            toValue: 1,
+            useNativeDriver: true,
+            friction: 4,
+            tension: 180,
+            delay: i * 35,
+          }).start();
+        });
+      },
+      [mechStarScales],
+    );
+
     useImperativeHandle(ref, () => ({
       open: (b, uid) => {
         setBooking(b);
         setUserId(uid);
         setRating(5);
         setSelectedTags([]);
+        // Opt-out: auto-expand the mechanic section whenever the booking
+        // has a mechanic. The mechanicAvailable effect below double-checks
+        // once `booking` propagates, but this initial set keeps the UI
+        // from flashing collapsed on first paint.
+        setMechanicIncluded(!!(b.mechanicId && b.mechanicName));
+        setMechanicRating(5);
+        setMechanicComment("");
         setError(null);
         sheetRef.current?.open();
         // Stagger the default 5-star fill on open for a small "ta-da".
@@ -134,6 +170,22 @@ export const LeaveReviewSheet = forwardRef<LeaveReviewSheetRef, Props>(
       },
       [popStarsUpTo],
     );
+
+    const handleMechStarPress = useCallback(
+      (n: number) => {
+        setMechanicRating(n);
+        popMechStarsUpTo(n);
+      },
+      [popMechStarsUpTo],
+    );
+
+    const toggleMechanic = useCallback(() => {
+      setMechanicIncluded((prev) => {
+        const next = !prev;
+        if (next) popMechStarsUpTo(5);
+        return next;
+      });
+    }, [popMechStarsUpTo]);
 
     const toggleTag = useCallback((tag: string) => {
       setSelectedTags((prev) =>
@@ -160,16 +212,19 @@ export const LeaveReviewSheet = forwardRef<LeaveReviewSheetRef, Props>(
         }
         // Selected tags become the review comment so they make it to
         // the backend without a schema change.
-        const finalComment = selectedTags.join(" · ");
+        const finalShopComment = selectedTags.join(" · ");
+        const includeMechanic = mechanicIncluded && !!booking.mechanicId;
         await submitReview({
           booking_id: booking.id as Id<"bookings">,
           user_id: userId as Id<"users">,
           shop_id: booking.shopId as Id<"shops">,
-          mechanic_id: booking.mechanicId
+          shop_rating: rating,
+          shop_comment: finalShopComment,
+          mechanic_id: includeMechanic
             ? (booking.mechanicId as Id<"mechanics">)
             : undefined,
-          rating,
-          comment: finalComment,
+          mechanic_rating: includeMechanic ? mechanicRating : undefined,
+          mechanic_comment: includeMechanic ? mechanicComment.trim() : undefined,
         });
         onSubmitted?.(booking.id);
         sheetRef.current?.close();
@@ -178,7 +233,38 @@ export const LeaveReviewSheet = forwardRef<LeaveReviewSheetRef, Props>(
       } finally {
         setSubmitting(false);
       }
-    }, [booking, userId, rating, selectedTags, submitReview, onSubmitted]);
+    }, [
+      booking,
+      userId,
+      rating,
+      selectedTags,
+      // Mechanic-side values were missing here — the closure was capturing
+      // their initial-render values (mechanicComment: "", mechanicRating: 5,
+      // mechanicIncluded: false at the time of writing) so the user's typed
+      // comment never reached the backend. Add them so handleSubmit always
+      // reads the live state.
+      mechanicIncluded,
+      mechanicRating,
+      mechanicComment,
+      submitReview,
+      onSubmitted,
+    ]);
+
+    const mechanicAvailable = !!(booking?.mechanicId && booking?.mechanicName);
+    // Keep `mechanicIncluded` in sync with availability. Defaults to ON
+    // when a mechanic is on the booking (opt-out), OFF when there isn't.
+    // Re-runs each time a different booking opens the sheet.
+    React.useEffect(() => {
+      setMechanicIncluded(mechanicAvailable);
+    }, [mechanicAvailable]);
+    const mechanicFirstName = useMemo(() => {
+      const name = booking?.mechanicName?.trim() ?? "";
+      return name.length > 0 ? name.split(/\s+/)[0] : null;
+    }, [booking]);
+    const mechanicInitial = useMemo(() => {
+      const name = booking?.mechanicName?.trim() ?? "";
+      return name.length > 0 ? name.charAt(0).toUpperCase() : "?";
+    }, [booking]);
 
     const summaryLine = useMemo(() => {
       if (!booking) return "";
@@ -201,7 +287,9 @@ export const LeaveReviewSheet = forwardRef<LeaveReviewSheetRef, Props>(
     return (
       <FloatingSheet
         ref={sheetRef}
-        snapHeights={SNAP_HEIGHTS}
+        snapHeights={
+          mechanicIncluded ? SNAP_HEIGHTS_EXPANDED : SNAP_HEIGHTS_COLLAPSED
+        }
         onClose={handleClose}
         showBackdrop
       >
@@ -312,6 +400,71 @@ export const LeaveReviewSheet = forwardRef<LeaveReviewSheetRef, Props>(
                   </Pressable>
                 );
               })}
+            </View>
+          ) : null}
+
+          {mechanicAvailable ? (
+            <View style={styles.mechanicSection}>
+              <Pressable onPress={toggleMechanic} style={styles.mechanicToggle}>
+                <View style={styles.mechanicAvatar}>
+                  <Text size="md" weight="bold" color="#2F6DCC">
+                    {mechanicInitial}
+                  </Text>
+                </View>
+                <View style={styles.mechanicToggleText}>
+                  <Text size="sm" weight="semiBold" color="#141C24">
+                    Also review your mechanic
+                  </Text>
+                  <Text size="xs" weight="regular" color="#6B7280">
+                    {mechanicFirstName} worked on this booking
+                  </Text>
+                </View>
+                {mechanicIncluded ? (
+                  <ChevronUp size={18} color="#6B7280" />
+                ) : (
+                  <ChevronDown size={18} color="#6B7280" />
+                )}
+              </Pressable>
+
+              {mechanicIncluded ? (
+                <View style={styles.mechanicBody}>
+                  <View style={styles.mechStarsRow}>
+                    {[1, 2, 3, 4, 5].map((n) => {
+                      const filled = mechanicRating >= n;
+                      return (
+                        <Pressable
+                          key={n}
+                          onPress={() => handleMechStarPress(n)}
+                          hitSlop={6}
+                          style={styles.starButton}
+                        >
+                          <Animated.View
+                            style={{
+                              transform: [{ scale: mechStarScales[n - 1] }],
+                            }}
+                          >
+                            <Star
+                              size={28}
+                              color={filled ? "#F59E0B" : "#E5E7EB"}
+                              fill={filled ? "#F59E0B" : "transparent"}
+                              strokeWidth={1.5}
+                            />
+                          </Animated.View>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                  <TextInput
+                    value={mechanicComment}
+                    onChangeText={setMechanicComment}
+                    placeholder={`A note for ${mechanicFirstName ?? "your mechanic"} (optional)`}
+                    placeholderTextColor="#9CA3AF"
+                    multiline
+                    maxLength={280}
+                    style={styles.mechanicCommentInput}
+                  />
+                </View>
+              ) : null}
             </View>
           ) : null}
 
@@ -442,6 +595,55 @@ const styles = StyleSheet.create({
   },
   chipPressed: {
     opacity: 0.7,
+  },
+  mechanicSection: {
+    backgroundColor: "#F8FAFC",
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#EEF2F7",
+    overflow: "hidden",
+  },
+  mechanicToggle: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+  },
+  mechanicAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "#EAF2FF",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  mechanicToggleText: {
+    flex: 1,
+    gap: 2,
+  },
+  mechanicBody: {
+    paddingHorizontal: 14,
+    paddingBottom: 14,
+    gap: 10,
+  },
+  mechStarsRow: {
+    flexDirection: "row",
+    gap: 6,
+    alignSelf: "center",
+  },
+  mechanicCommentInput: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    minHeight: 64,
+    fontFamily: "Urbanist-Regular",
+    fontSize: 14,
+    color: "#141C24",
+    textAlignVertical: "top",
   },
   error: {
     textAlign: "center",

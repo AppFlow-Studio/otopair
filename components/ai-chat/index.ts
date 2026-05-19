@@ -14,8 +14,8 @@
  *   - AISources - Source citation pills
  *   - AIQuickReplies - In-conversation action buttons
  *   - PromptSuggestions - Stage-aware suggestion pills
- *   - AIServicePicker - Service selection cards
- *   - AIBookingCarousel - Mechanic booking carousel
+ *   - BookServiceComponent - Consolidated booking flow (Sprint 4 Pass B)
+ *   - AIRecordConfirmation - Maintenance-record trust protocol
  *   - AIWelcomeScreen - Welcome/disclaimer screen
  *   - AIChatHistory - Chat history sidebar
  *   - AIAttachmentPanel - Discord-style attachment picker panel
@@ -51,9 +51,20 @@ export { AIQuickReplies, PRIORITY_REPLIES, CONFIRMATION_REPLIES, type QuickReply
 // BOOKING FLOW COMPONENTS
 // ============================================================================
 
-export { AIBookingCarousel, type SelectedTimeSlot } from "./AIBookingCarousel";
 export { AIWelcomeScreen } from "./AIWelcomeScreen";
-export { AIServicePicker, DEFAULT_SERVICES, type ServiceOption } from "./AIServicePicker";
+export {
+  AIRecordConfirmation,
+  type RecordConfirmationDecision,
+} from "./AIRecordConfirmation";
+// Sprint 4 — feedback modal triggered by the thumbs-up / thumbs-down buttons.
+export { AIFeedbackModal, type FeedbackRating } from "./AIFeedbackModal";
+// Sprint 4 Day 1 Pass B — single consolidated booking surface. Renders when
+// message.bookService is set; owns service → options → notes → mechanic →
+// time → review → pay-screen handoff internally.
+export { BookServiceComponent } from "./BookServiceComponent";
+// Sprint 3 Days 2 / 5 — the smaller render surfaces Oto can fire alongside
+// the message bubble.
+export { LinkButton, BookingCard, BookingsList } from "./OtoRenderTools";
 
 // ============================================================================
 // LEGACY (deprecated - use alternatives above)

@@ -64,6 +64,12 @@ export type TellUsAboutStep =
   | "decisionStyle"
   | "complete";
 
+// Light palette: white at the top, gentle mid-blue, blue-300 at the
+// saturated end. Airy and clearly branded without overwhelming the
+// content. Bottom stop is matched by FadeFooterContainer so the
+// fade above the CTA blends invisibly.
+const LIGHT_PALETTE: [string, string, string] = ['#7BB8FF', '#BFDBFE', '#FFFFFF'];
+
 // Step indices for interpolation mapping to SHARED_GRADIENT_CONFIGS
 const STEP_INDICES: Record<TellUsAboutStep, number> = {
   experience: 0,
@@ -486,6 +492,7 @@ export function TellUsAboutFlow({ initialStep = 'experience' }: TellUsAboutFlowP
           progress={animationProgress}
           fromIndex={STEP_INDICES[fromStep]}
           toIndex={STEP_INDICES[toStep]}
+          colors={LIGHT_PALETTE}
         />
       </View>
 

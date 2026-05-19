@@ -183,8 +183,8 @@ export function ServiceBundlesSection({
       // Let parent handle navigation
       onBookNow(bundleId);
     } else {
-      // Default: navigate to map with services sheet open
-      router.push('/home/map?openServices=true');
+      // Default: navigate to map; sheet auto-defers and slides up
+      router.push('/home/map');
     }
   };
 

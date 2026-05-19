@@ -1,6 +1,6 @@
 // 1. React & React Native
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Image, Pressable, StyleSheet, View, useWindowDimensions, ActivityIndicator } from 'react-native';
+import { ActivityIndicator, Image, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated from 'react-native-reanimated';
 
@@ -92,7 +92,6 @@ import { MoreServicesSection } from "@/components/home/MoreServicesSection";
 import { SuggestionsSection } from "@/components/home/SuggestionsSection";
 import { VehicleMaintenanceCard } from "@/components/home/VehicleMaintenanceCard";
 import { ProfileInitialsButton } from "@/components/home/ProfileInitialsButton";
-import { SettingsOverlay } from "@/components/settings/SettingsOverlay";
 import { OtoPairIcon } from "@/components/icons/oto-pair";
 
 function formatBookingDate(dateStr: string): string {
@@ -110,7 +109,19 @@ function formatBookingTime(timeStr: string): string {
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
-  const { height } = useWindowDimensions();
+  // Lock `insets.top` to its first-render value for the lifetime of the
+  // screen. The app is portrait-only (app.json), so legitimate top-inset
+  // changes don't happen — but transparent Modal mounts (the settings
+  // overlay, etc.) DO cause iOS to re-emit a transient `insets.top` to
+  // safe-area-context subscribers. Without this lock,
+  // `paddingTop: insets.top + 12` on the ScrollView jiggles for a frame
+  // when the overlay's <Modal> mounts, shifting the home content (and
+  // the profile button) up and then back down on every press.
+  const initialInsetTopRef = useRef<number | null>(null);
+  if (initialInsetTopRef.current === null) {
+    initialInsetTopRef.current = insets.top;
+  }
+  const stableInsetTop = initialInsetTopRef.current;
   const router = useRouter();
   const { isNewUser, shouldShowReactivationSheet, setShouldShowReactivationSheet } = useAuthStore();
   const { vehicles: listVehicles, hasVehicles, isLoading: vehiclesLoading } = useVehicleOwnershipFromConvex();
@@ -130,11 +141,7 @@ export default function HomeScreen() {
   // Reactivation bottom sheet (from temur-dev)
   const sheetRef = useRef<BottomSheetModal>(null);
   const hasPresentedReactivationRef = useRef(false);
-  const reactivationSheetHeight = useMemo(() => {
-    const maxHeight = Math.max(height - insets.top - 72, 320);
-    return Math.min(Math.max(height * 0.5, 400), maxHeight);
-  }, [height, insets.top]);
-  const snapPoints = useMemo(() => [reactivationSheetHeight], [reactivationSheetHeight]);
+  const snapPoints = useMemo(() => ["42%"], []);
 
   useEffect(() => {
     if (shouldShowReactivationSheet && showWelcome) {
@@ -551,9 +558,15 @@ export default function HomeScreen() {
           {/* Full Page Scroll */}
           <Animated.ScrollView
             style={styles.scrollView}
-            contentContainerStyle={[styles.scrollContent, { paddingTop: insets.top + 12 }]}
+            contentContainerStyle={[styles.scrollContent, { paddingTop: stableInsetTop + 12 }]}
             showsVerticalScrollIndicator={false}
             scrollEnabled={!isCardSwiping}
+            // Prevent iOS from re-adjusting the scroll content when a
+            // transparent Modal (e.g. the settings overlay) mounts and
+            // triggers a transient safe-area renegotiation — without
+            // this, the home content shifts up then back down on press.
+            contentInsetAdjustmentBehavior="never"
+            automaticallyAdjustContentInsets={false}
             onScroll={scrollHandler}
             scrollEventThrottle={16}
           >
@@ -568,14 +581,7 @@ export default function HomeScreen() {
                   <Text size="xl" color="#FFFFFF" weight="bold">
                     Otopair
                   </Text>
-                  <Text
-                    weight="semiBold"
-                    size="sm"
-                    color="#FFFFFF"
-                    numberOfLines={1}
-                    ellipsizeMode="tail"
-                    style={styles.locationLabel}
-                  >
+                  <Text weight="semiBold" size="sm" color="#FFFFFF">
                     {locationName}
                   </Text>
                 </View>
@@ -586,10 +592,10 @@ export default function HomeScreen() {
                 {/* Gold Tier Badge - Clickable */}
                 <Pressable
                   onPress={() => {
-                    setShowLoyaltyCard(true);
                     if (hasUnseenCredits && userId) {
                       void markCreditsSeen({ userId });
                     }
+                    router.push("/membership");
                   }}
                   style={({ pressed }) => [styles.goldTierBadge, pressed && styles.goldTierBadgePressed]}
                 >
@@ -684,7 +690,7 @@ export default function HomeScreen() {
                   resumeServicesPreview={resumeServicesPreview}
                   resumeVehicleName={resumeVehicleName}
                   resumeVehicleImage={resumeVehicleImage}
-                  onResumePress={() => router.push('/home/map?openServices=true')}
+                  onResumePress={() => router.push('/home/map')}
                   // Account Setup
                   showAccountSetup={showAccountSetup}
                   onAccountSetupDismiss={() => setAccountSetupDismissed(true)}
@@ -736,13 +742,13 @@ export default function HomeScreen() {
               )}
 
               {/* Vehicle Maintenance - with dynamic margin based on active card */}
-              <View style={{ marginTop: visibleCardIds.length > 0 ? getCardMargin(activeCardIndex) : 0 }}>
+              <View style={{ marginTop: (visibleCardIds.length > 0 ? getCardMargin(activeCardIndex) : 0) + 24 }}>
                 {hasVehicles ? (
                   <VehicleMaintenanceCard
                     vehicles={mappedVehicles.length > 0 ? mappedVehicles : undefined}
                     onBookNow={(vehicleId, serviceId) => {
                       useVehicleStore.getState().selectVehicle(vehicleId);
-                      router.push('/home/map?openServices=true');
+                      router.push('/home/map');
                     }}
                     onSwipeStart={() => setIsCardSwiping(true)}
                     onSwipeEnd={() => setIsCardSwiping(false)}
@@ -763,8 +769,10 @@ export default function HomeScreen() {
             </View>
           </Animated.ScrollView>
 
-          {/* Loyalty Card Overlay */}
-          {showLoyaltyCard && (
+          {/* Loyalty Card Overlay — commented out; the trophy icon now
+              navigates straight to /membership instead of opening this
+              popover. Restore the block to bring the inline preview back. */}
+          {/* {showLoyaltyCard && (
             <LoyaltyCard
               totalPoints={1240}
               currentTier="Gold Member"
@@ -778,7 +786,7 @@ export default function HomeScreen() {
                 router.push("/membership");
               }}
             />
-          )}
+          )} */}
 
           <BottomSheetModal
             ref={sheetRef}
@@ -825,10 +833,8 @@ export default function HomeScreen() {
         View Details button. Mirrors the bookings tab's wiring. */}
     <BookingDetailsSheet ref={detailsSheetRef} />
 
-    {/* Shared-element overlay that lifts Settings on top of Home when
-        the initials button in the header is tapped. Driven by
-        useSettingsOverlayStore. */}
-    <SettingsOverlay />
+    {/* Shared-element overlay moved up to `(main-tabs)/_layout.tsx` so it
+        can open from any tab (e.g., the AI chat's render_link_button). */}
 
     {/* Auto-prompt: if the user has a completed-but-unreviewed booking,
         this sheet pops on focus / cold start until they submit a review. */}
@@ -902,12 +908,6 @@ const styles = StyleSheet.create({
     gap: 0,
     marginTop: -7,
     marginLeft: 12,
-    flex: 1,
-    minWidth: 0,
-    paddingRight: 12,
-  },
-  locationLabel: {
-    flexShrink: 1,
   },
   headerRight: {
     flexDirection: "row",

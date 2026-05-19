@@ -2,21 +2,15 @@
  * Tire Booking · Requesting route
  *
  * Full-screen "your request is in progress" surface shown after the user taps
- * Get Quotes on the configuration page. A seamlessly-looping isometric
- * tire-grid (ported from the Claude Design handoff) plays in the background;
- * a FloatingSheet hosts the QuoteRequestStatus body with title, ETA range,
- * vehicle, and tire selection.
+ * Get Quotes on the configuration page. A Lottie pin-drop plays in the
+ * background; a FloatingSheet hosts <QuoteRequestStatus> with the Confirm
+ * (8s auto-fire countdown) + Go back actions.
  *
- * Two actions live inside the sheet:
- *   - **View** (primary) → routes to the Upcoming tab in bookings.
- *   - **Go back** (secondary) → closes the sheet and returns to the config
- *     page. The in-flight request is left running in the background either
- *     way — per the Apr 23 meeting, shop quotes come back asynchronously.
- *
- * BACKUP: a simpler city-skyline Lottie (`assets/animations/muv-car-city-skyline.json`)
- * is kept on disk as a fallback. To swap it in, replace <TireGridBackground />
- * below with the Lottie render block that lived here previously (see git
- * history for the original block).
+ * On Confirm (tap or auto-fire), the tire quote is submitted and the
+ * <QuoteRequestConfirmationSheet> "Quote requests sent" Modal slides up over
+ * the loading screen. Its CTA ("Back to booking") routes to the Bookings tab
+ * — or, in inline-modal mode, calls onConfirmed so the parent dismisses the
+ * outer Modal first.
  */
 
 import React, { useCallback, useEffect, useRef } from "react";
@@ -31,32 +25,34 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 
+import {
+  QuoteRequestConfirmationSheet,
+  type QuoteRequestConfirmationSheetRef,
+} from "@/components/bookings/QuoteRequestConfirmationSheet";
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
 import { QuoteRequestStatus } from "@/components/tire-booking/QuoteRequestStatus";
 import { Text } from "@/components/shared-ui";
-// Earlier backgrounds parked on disk for revert if needed:
-// import { TireGridBackground } from "@/components/tire-booking/TireGridBackground";
-// import { RequestingMapBackground } from "@/components/tire-booking/RequestingMapBackground";
-// import { RequestingPinAnimation } from "@/components/tire-booking/RequestingPinAnimation";
 import { TIRE_TIERS, TIRE_TYPES } from "@/constants/tireFlow";
 import { useCreateTireQuoteRequest } from "@/hooks/useCreateTireQuoteRequest";
 import { useTireBookingStore } from "@/stores/useTireBookingStore";
 
-const { width: SCREEN_W, height: SCREEN_HEIGHT } = Dimensions.get("window");
+const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 const SHEET_HEIGHT = Math.round(SCREEN_HEIGHT * 0.52);
 
 interface TireRequestingScreenProps {
-  /** Modal-mode close — when set, "Go back" closes the modal entirely. */
+  /** Modal-mode close — when set, "Go back" closes the outer modal entirely. */
   onClose?: () => void;
-  /** Modal-mode confirm — when set, "View" / auto-confirm calls this
-   *  instead of router.replace. Parent should close the modal AND
-   *  navigate to the bookings tab from its own (live) router context. */
+  /** Modal-mode confirm — when set, "Back to booking" calls this instead of
+   *  router.replace. Parent should close the outer modal AND navigate to the
+   *  bookings tab from its own live router context. */
   onConfirmed?: () => void;
 }
 
 export default function TireRequestingScreen({ onClose, onConfirmed }: TireRequestingScreenProps = {}) {
   const router = useRouter();
-  const sheetRef = useRef<FloatingSheetRef>(null);
+  const statusSheetRef = useRef<FloatingSheetRef>(null);
+  const confirmSheetRef = useRef<QuoteRequestConfirmationSheetRef>(null);
+  const confirmedRef = useRef(false);
 
   const createTireQuoteRequest = useCreateTireQuoteRequest();
   const tireSize = useTireBookingStore((s) => s.tireSize);
@@ -73,30 +69,33 @@ export default function TireRequestingScreen({ onClose, onConfirmed }: TireReque
     copyOpacity.value = withDelay(2050, withTiming(1, { duration: 600 }));
   }, [copyOpacity]);
 
-  // Open the sheet as soon as the route mounts.
+  // Open the status sheet on mount.
   useEffect(() => {
-    sheetRef.current?.open();
+    statusSheetRef.current?.open();
   }, []);
 
-  const handleClose = () => {
-    // Fires after the sheet finishes closing. We pop back to the config
-    // page so the user sees their tire selections again.
+  // Fired after the status FloatingSheet finishes its close animation
+  // via the Go back path.
+  const handleStatusSheetClosed = useCallback(() => {
+    if (confirmedRef.current) return;
     if (onClose) {
       onClose();
       return;
     }
     if (router.canGoBack()) router.back();
     else router.replace("/(main-tabs)/home");
-  };
+  }, [onClose, router]);
 
-  const handleGoBack = () => {
-    sheetRef.current?.close();
-  };
+  const handleGoBack = useCallback(() => {
+    statusSheetRef.current?.close();
+  }, []);
 
+  // Confirm tap (or 8s auto-fire) — submit the quote and slide the
+  // "Quote requests sent" Modal up over the loading screen.
   const handleViewUpcoming = useCallback(() => {
-    // Confirm tap (or 8s auto-fire) — this is when the booking record is
-    // actually written. Get Quotes only opens the requesting sheet; tapping
-    // Go back leaves no trace on the Upcoming tab.
+    if (confirmedRef.current) return;
+    confirmedRef.current = true;
+
     const tierLabel = TIRE_TIERS.find((t) => t.id === tier)?.label ?? "";
     const typeLabel = TIRE_TYPES.find((t) => t.id === tireType)?.label ?? "";
     const tierAndType = [tierLabel, typeLabel].filter(Boolean).join(" ");
@@ -118,40 +117,30 @@ export default function TireRequestingScreen({ onClose, onConfirmed }: TireReque
       },
     });
 
-    // `requestSubmitted` triggers the one-shot confirmation sheet on the
-    // Upcoming tab. Consumed + cleared on arrival.
+    // Close the status sheet first, then slide up the confirmation Modal.
+    // Stagger so the nested Modal doesn't race the FloatingSheet's close.
+    statusSheetRef.current?.close();
+    setTimeout(() => {
+      confirmSheetRef.current?.open();
+    }, 250);
+  }, [createTireQuoteRequest, selectedTirePositions.length, tier, tireSize, tireType]);
+
+  const handleBackToBooking = useCallback(() => {
+    confirmSheetRef.current?.close();
     if (onConfirmed) {
-      // Modal mode — close the inner FloatingSheet (which has its own
-      // native Modal) BEFORE the parent dismisses the outer Modal. iOS
-      // hangs with a black screen if you dismiss a Modal while a nested
-      // Modal is still presented. Delay onConfirmed so the FloatingSheet
-      // animation completes first.
-      sheetRef.current?.close();
+      // Inline-modal mode — let the nested Modal finish its close animation
+      // before the parent dismisses the outer Modal, or iOS hangs with a
+      // black screen.
       setTimeout(() => {
         onConfirmed();
       }, 300);
       return;
     }
-    router.replace({
-      pathname: "/(main-tabs)/bookings",
-      params: { tab: "bookings", requestSubmitted: "1" },
-    });
-  }, [
-    createTireQuoteRequest,
-    router,
-    selectedTirePositions.length,
-    tier,
-    tireSize,
-    tireType,
-    onConfirmed,
-  ]);
+    router.replace("/(main-tabs)/bookings");
+  }, [onConfirmed, router]);
 
   return (
     <View style={styles.screen}>
-      {/* Authoritative Lottie export from Claude Design — the same
-          "OtoPair Pin Loader" prototype, now as a single animated asset
-          so we don't have to maintain a hand-built recreate. The 600x600
-          source is centered and scaled to fill the screen. */}
       <LottieView
         source={require("@/assets/animations/logo-loading-animation.json")}
         autoPlay
@@ -160,10 +149,6 @@ export default function TireRequestingScreen({ onClose, onConfirmed }: TireReque
         style={styles.lottie}
       />
 
-      {/* Contextual loading copy layered on top of the Lottie. Fades in
-          after the pin lands (~2s in) so it reads as a follow-up beat
-          rather than competing with the drop animation. Native RN Text so
-          the font matches the rest of the app. */}
       <Animated.View style={[styles.copyOverlay, copyAnimStyle]} pointerEvents="none">
         <Text size="md" weight="bold" color="#000000" center>
           Searching for nearby tire shops
@@ -173,11 +158,10 @@ export default function TireRequestingScreen({ onClose, onConfirmed }: TireReque
         </Text>
       </Animated.View>
 
-      {/* Bottom sheet hosting the status body. */}
       <FloatingSheet
-        ref={sheetRef}
+        ref={statusSheetRef}
         snapHeights={[SHEET_HEIGHT]}
-        onClose={handleClose}
+        onClose={handleStatusSheetClosed}
         cornerRadius={24}
       >
         <QuoteRequestStatus
@@ -185,6 +169,11 @@ export default function TireRequestingScreen({ onClose, onConfirmed }: TireReque
           onViewUpcoming={handleViewUpcoming}
         />
       </FloatingSheet>
+
+      <QuoteRequestConfirmationSheet
+        ref={confirmSheetRef}
+        onViewBooking={handleBackToBooking}
+      />
     </View>
   );
 }
@@ -192,16 +181,11 @@ export default function TireRequestingScreen({ onClose, onConfirmed }: TireReque
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    // Match the Lottie's first frame (light edge of the radial gradient)
-    // so there's no flash of contrasting color before the JSON paints.
     backgroundColor: "#FFFFFF",
   },
   lottie: {
     ...StyleSheet.absoluteFillObject,
   },
-  // Position the copy in the upper visible area, well below where the
-  // pin settles in the Lottie (~28% from top of screen) and well above
-  // the FloatingSheet which covers the bottom 52%.
   copyOverlay: {
     position: "absolute",
     top: "37%",

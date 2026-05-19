@@ -144,7 +144,7 @@ export default function BookingConfirmingScreen() {
       <LottieView
         source={require("@/assets/animations/logo-loading-animation.json")}
         autoPlay
-        loop
+        loop={false}
         resizeMode="cover"
         style={[
           styles.lottie,

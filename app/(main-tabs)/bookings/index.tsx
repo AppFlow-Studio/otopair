@@ -16,14 +16,11 @@
  *
  * OWNER: Waleed Mansour
  */
+import { ProfileInitialsButton } from "@/components/home/ProfileInitialsButton";
 import { BookingCard, type Booking } from "@/components/bookings/BookingCard";
 import { PendingQuoteCard } from "@/components/bookings/PendingQuoteCard";
 import { QuoteListSheet, type QuoteListSheetRef } from "@/components/bookings/QuoteListSheet";
 import { BookingDetailsSheet, type BookingDetailsSheetRef } from "@/components/bookings/BookingDetailsSheet";
-import {
-  QuoteRequestConfirmationSheet,
-  type QuoteRequestConfirmationSheetRef,
-} from "@/components/bookings/QuoteRequestConfirmationSheet";
 import { ScrollDrivenGradientBackground, Text } from "@/components/shared-ui";
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
 import { useMyBookingsWithDetails } from "@/hooks/useMyBookingsWithDetails";
@@ -36,7 +33,7 @@ import { useVehicleStore } from "@/stores/useVehicleStore";
 import { useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
+import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { Calendar, Car, Check, ListFilter } from "lucide-react-native";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Image, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
@@ -56,7 +53,6 @@ const TAB_ORDER: TabType[] = ["bookings", "quotes"];
 // ============================================================================
 
 export default function BookingsScreen() {
-  const router = useRouter();
   const insets = useSafeAreaInsets();
   // historyBookings is still imported because handleViewDetails opens the
   // details sheet for *any* booking id we know about (incl. ones a user
@@ -74,8 +70,10 @@ export default function BookingsScreen() {
   } = useMyBookingsWithDetails();
   const { userId } = useUserFromConvex();
 
-  const { tab: tabParam, requestSubmitted: requestSubmittedParam } =
-    useLocalSearchParams<{ tab?: string; requestSubmitted?: string }>();
+  const { tab: tabParam, bookingId: bookingIdParam } = useLocalSearchParams<{
+    tab?: string;
+    bookingId?: string;
+  }>();
   const initialTab: TabType = TAB_ORDER.includes(tabParam as TabType)
     ? (tabParam as TabType)
     : "bookings";
@@ -100,7 +98,6 @@ export default function BookingsScreen() {
   );
   const [refreshing, setRefreshing] = useState(false);
   const detailsSheetRef = useRef<BookingDetailsSheetRef>(null);
-  const confirmSheetRef = useRef<QuoteRequestConfirmationSheetRef>(null);
   const vehiclePickerRef = useRef<FloatingSheetRef>(null);
 
 
@@ -139,25 +136,6 @@ export default function BookingsScreen() {
     },
     [filterVehicle],
   );
-
-  // One-shot: when we arrive here with `requestSubmitted=1` (from the tire
-  // "Requesting" screen's View button), auto-open the confirmation sheet
-  // *after* the Expo Router tab/stack transition settles. Without the delay,
-  // the Modal's slide-up overlaps the route transition and the user lands on
-  // a screen that's already fully open.
-  useEffect(() => {
-    if (requestSubmittedParam !== "1") return;
-    const timer = setTimeout(() => {
-      confirmSheetRef.current?.open();
-      // Strip the param AFTER opening so we don't re-trigger on re-renders.
-      router.setParams({ requestSubmitted: undefined });
-    }, 800);
-    return () => clearTimeout(timer);
-  }, [requestSubmittedParam, router]);
-
-  const handleConfirmSheetViewBooking = useCallback(() => {
-    confirmSheetRef.current?.close();
-  }, []);
 
   // Cancel: soft-deletes by flipping `status` to "cancelled". Convex
   // mutation handles server-backed bookings (idempotent —
@@ -206,6 +184,20 @@ export default function BookingsScreen() {
       detailsSheetRef.current?.open(booking);
     }
   };
+
+  // Deep-link from AI chat's BookingCard: `/bookings?bookingId=<id>` opens
+  // the detail sheet for the matching booking. The ref guard prevents the
+  // sheet from re-opening every time the bookings list refetches.
+  const openedBookingIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!bookingIdParam || isLoading) return;
+    if (openedBookingIdRef.current === bookingIdParam) return;
+    const booking = allBookings.find((b) => b.id === bookingIdParam);
+    if (booking) {
+      openedBookingIdRef.current = bookingIdParam;
+      detailsSheetRef.current?.open(booking);
+    }
+  }, [bookingIdParam, isLoading, allBookings]);
 
   const quoteListSheetRef = useRef<QuoteListSheetRef>(null);
   const handleViewQuotes = (bookingId: string) => {
@@ -269,11 +261,18 @@ export default function BookingsScreen() {
             scrollEventThrottle={16}
             refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#3B82F6" />}
           >
-            {/* Header */}
+            {/* Header — profile button left, title centered, mirrored
+                spacer right so the title stays optically centered. */}
             <View style={styles.header}>
-              <Text weight="bold" size="xl" color="#FFFFFF">
-                My Bookings
-              </Text>
+              <View style={styles.headerSide}>
+                <ProfileInitialsButton />
+              </View>
+              <View style={styles.headerCenter}>
+                <Text weight="bold" size="xl" color="#FFFFFF">
+                  My Bookings
+                </Text>
+              </View>
+              <View style={styles.headerSide} />
             </View>
 
             {/* Tab Switcher */}
@@ -399,11 +398,6 @@ export default function BookingsScreen() {
 
     <BookingDetailsSheet ref={detailsSheetRef} />
 
-    <QuoteRequestConfirmationSheet
-      ref={confirmSheetRef}
-      onViewBooking={handleConfirmSheetViewBooking}
-    />
-
     <QuoteListSheet ref={quoteListSheetRef} />
 
     <LeaveReviewSheet ref={reviewSheetRef} />
@@ -510,6 +504,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 8,
     paddingBottom: 20,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  headerSide: {
+    width: 40,
+  },
+  headerCenter: {
+    flex: 1,
     alignItems: "center",
   },
   segmentedWrapper: {

@@ -700,11 +700,11 @@ export function ShopBookingModal({ visible, shopId, mechanicId, onClose, onConti
               </View>
             )}
 
-            {/* Add Another Service Button */}
+            {/* Add (Another) Service Button */}
             <TouchableOpacity style={styles.addServiceButton} onPress={handleAddService} activeOpacity={0.7}>
               <Plus size={18} color={BrandColors.secondary} />
               <Text size="md" weight="semiBold" color={BrandColors.secondary}>
-                Add another service
+                {selectedServices.length === 0 ? "Add a service" : "Add another service"}
               </Text>
             </TouchableOpacity>
           </View>

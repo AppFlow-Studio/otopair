@@ -1,0 +1,19 @@
+========================================================================
+Wave 1.4 v3 — programmatic cases — w14v3-2026-05-17T04-00-42-125Z
+mode=mock  repeats=1  category=i  cases=5
+========================================================================
+
+(i) Asymptotic reinforcement + decay  [Wave 3 Day 4]
+------------------------------------------------------------------------
+  PASS  reinforce-i-001  pass=1/1 (100.0% [20.7..100.0])
+         expected_confidence_in_range=[1, 1] actual=1.0000 in_range=true
+  PASS  reinforce-i-002  pass=1/1 (100.0% [20.7..100.0])
+         expected_confidence_in_range=[0.749, 0.751] actual=0.7500 in_range=true obs_count=2 (expected 2)
+  PASS  reinforce-i-003  pass=1/1 (100.0% [20.7..100.0])
+         expected_confidence_in_range=[0.93, 0.94] actual=0.9375 in_range=true obs_count=4 (expected 4)
+  PASS  reinforce-i-004  pass=1/1 (100.0% [20.7..100.0])
+         retracted_at_set=true working_memory_excludes_fact=true (working_memory=[])
+  PASS  reinforce-i-005  pass=1/1 (100.0% [20.7..100.0])
+         at_120d=0.5000 (exp ~0.5) at_240d=0.2500 (exp ~0.25) at_3600d=0.1000 (exp 0.10 floor) | [LIVE: requires Day 5 decay impl]
+========================================================================
+Overall: 5/5 cases passing all repeats

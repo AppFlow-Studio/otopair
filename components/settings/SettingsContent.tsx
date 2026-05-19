@@ -98,7 +98,6 @@ import { useAuth, useUser } from "@clerk/clerk-expo";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useAuthStore } from "@/stores/useAuthStore";
-import { useSettingsOverlayStore } from "@/stores/useSettingsOverlayStore";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useOnboardingStore } from "@/stores/useOnboardingStore";
 import { usePaymentStore } from "@/stores/usePaymentStore";
@@ -142,26 +141,11 @@ interface SettingsContentProps {
 
 export function SettingsContent({ avatarOverride, translucent }: SettingsContentProps) {
   const insets = useSafeAreaInsets();
-  const baseRouter = useRouter();
-  const closeSettingsOverlay = useSettingsOverlayStore((s) => s.close);
-
-  // Settings rows render inside the SettingsOverlay, a React Native
-  // <Modal> drawn above the Expo Router stack. Push synchronously so
-  // the navigation registers under the user's tap, then dismiss the
-  // overlay on the next frame so the destination is visible.
-  const router = useMemo(
-    () => ({
-      push: (path: Parameters<typeof baseRouter.push>[0]) => {
-        baseRouter.push(path);
-        requestAnimationFrame(() => closeSettingsOverlay());
-      },
-      replace: (path: Parameters<typeof baseRouter.replace>[0]) => {
-        baseRouter.replace(path);
-        requestAnimationFrame(() => closeSettingsOverlay());
-      },
-    }),
-    [baseRouter, closeSettingsOverlay],
-  );
+  // Settings rows now render inside the /profile-overlay ROUTE (was a
+  // Modal). Normal router.push stacks destinations on top of the
+  // overlay; back gestures reveal the overlay still mounted underneath.
+  // No wrapping needed — let Expo Router handle the navigation.
+  const router = useRouter();
 
   const { signOut } = useAuth();
   const { user: clerkUser } = useUser();
@@ -183,19 +167,6 @@ export function SettingsContent({ avatarOverride, translucent }: SettingsContent
   );
 
   const resetAuth = useAuthStore((s) => s.reset);
-
-  // When rendered inside the Home → Settings overlay, navigating to a
-  // sub-page should dismiss the overlay first so the destination isn't
-  // hidden behind the lifted Settings card.
-  const navigate = useCallback(
-    (href: Parameters<typeof router.push>[0]) => {
-      if (useSettingsOverlayStore.getState().isOpen) {
-        useSettingsOverlayStore.getState().closeInstant();
-      }
-      router.push(href);
-    },
-    [router],
-  );
 
   const [biometricLabel, setBiometricLabel] = useState("Biometric Login");
 
@@ -518,23 +489,23 @@ export function SettingsContent({ avatarOverride, translucent }: SettingsContent
             icon={<CreditCard size={18} color="#FFFFFF" />}
             label="Payment Methods"
             value={paymentMethodCount > 0 ? paymentMethodCount : undefined}
-            onPress={() => navigate("/payments")}
+            onPress={() => router.push("/payments")}
           />
           <SettingsRow
             icon={<Receipt size={18} color="#FFFFFF" />}
             label="Transactions & Receipts"
             value={transactionCount > 0 ? transactionCount : undefined}
-            onPress={() => navigate("/settings/transactions")}
+            onPress={() => router.push("/settings/transactions")}
           />
           <SettingsRow
             icon={<Award size={18} color="#FFFFFF" />}
             label="Loyalty & Rewards"
-            onPress={() => navigate("/membership")}
+            onPress={() => router.push("/membership")}
           />
           <SettingsRow
             icon={<UserPlus size={18} color="#FFFFFF" />}
             label="Refer a Friend"
-            onPress={() => navigate("/settings/refer-a-friend")}
+            onPress={() => router.push("/settings/refer-a-friend")}
             isLast
           />
         </SettingsCard>
@@ -544,12 +515,12 @@ export function SettingsContent({ avatarOverride, translucent }: SettingsContent
           <SettingsRow
             icon={<Headset size={18} color="#FFFFFF" />}
             label="Contact Us"
-            onPress={() => navigate("/settings/contact-us")}
+            onPress={() => router.push("/settings/contact-us")}
           />
           <SettingsRow
             icon={<HelpCircle size={18} color="#FFFFFF" />}
             label="FAQ"
-            onPress={() => navigate("/settings/faq")}
+            onPress={() => router.push("/settings/faq")}
           />
           <SettingsRow
             icon={<MessageSquare size={18} color="#FFFFFF" />}
@@ -570,13 +541,13 @@ export function SettingsContent({ avatarOverride, translucent }: SettingsContent
             <SettingsRow
               icon={<Lock size={18} color="#FFFFFF" />}
               label="Change Password"
-              onPress={() => navigate("/settings/change-password")}
+              onPress={() => router.push("/settings/change-password")}
             />
           ) : null}
           <SettingsRow
             icon={<ShieldCheck size={18} color="#FFFFFF" />}
             label="Two-Factor Authentication"
-            onPress={() => navigate("/settings/two-factor-method")}
+            onPress={() => router.push("/settings/two-factor-method")}
           />
           <SettingsRow
             icon={
@@ -587,12 +558,12 @@ export function SettingsContent({ avatarOverride, translucent }: SettingsContent
               )
             }
             label={biometricLabel}
-            onPress={() => navigate("/settings/biometric-setup")}
+            onPress={() => router.push("/settings/biometric-setup")}
           />
           <SettingsRow
             icon={<Shield size={18} color="#FFFFFF" />}
             label="Permissions"
-            onPress={() => navigate("/settings/permissions")}
+            onPress={() => router.push("/settings/permissions")}
             isLast
           />
         </SettingsCard>
@@ -602,13 +573,13 @@ export function SettingsContent({ avatarOverride, translucent }: SettingsContent
           <SettingsRow
             icon={<CircleDollarSign size={18} color="#FFFFFF" />}
             label="Pricing Transparency"
-            onPress={() => navigate("/settings/pricing-transparency")}
+            onPress={() => router.push("/settings/pricing-transparency")}
           />
           <SettingsRow
             icon={<RotateCcw size={18} color="#FFFFFF" />}
             label="How Your Data Is Used"
             onPress={() =>
-              navigate({
+              router.push({
                 pathname: "/coming-soon",
                 params: { serviceName: "How Your Data Is Used" },
               } as any)
@@ -617,12 +588,12 @@ export function SettingsContent({ avatarOverride, translucent }: SettingsContent
           <SettingsRow
             icon={<Shield size={18} color="#FFFFFF" />}
             label="Privacy Policy"
-            onPress={() => navigate("/settings/privacy-policy")}
+            onPress={() => router.push("/settings/privacy-policy")}
           />
           <SettingsRow
             icon={<FileText size={18} color="#FFFFFF" />}
             label="Terms and Conditions"
-            onPress={() => navigate("/settings/terms-and-conditions")}
+            onPress={() => router.push("/settings/terms-and-conditions")}
             isLast
           />
         </SettingsCard>
@@ -644,12 +615,17 @@ export function SettingsContent({ avatarOverride, translucent }: SettingsContent
             <SettingsRow
               icon={<Code size={18} color="#FFFFFF" />}
               label="[Dev] Run Onboarding Flow"
-              onPress={() => router.push("/(onboarding)" as any)}
+              onPress={() =>
+                router.push({
+                  pathname: "/(onboarding)",
+                  params: { initialStep: "welcome" },
+                } as any)
+              }
             />
             <SettingsRow
               icon={<Code size={18} color="#FFFFFF" />}
               label="[Dev] Run About You Flow"
-              onPress={() => router.push("/(tell-us-about)" as any)}
+              onPress={() => router.push("/(tell-us-about)/flow" as any)}
               isLast
             />
           </SettingsCard>
@@ -727,11 +703,8 @@ export function SettingsContent({ avatarOverride, translucent }: SettingsContent
         </View>
         <View style={styles.stickySide}>
           <Pressable
-            onPress={() => navigate("/membership")}
-            style={({ pressed }) => [
-              styles.upgradePillWrapper,
-              pressed && { opacity: 0.85 },
-            ]}
+            onPress={() => router.push("/membership")}
+            style={({ pressed }) => pressed && { opacity: 0.85 }}
           >
             {isLiquidGlassEnabled && LiquidGlassView ? (
               <LiquidGlassView
@@ -873,10 +846,6 @@ const styles = StyleSheet.create({
   },
   stickyName: {
     textAlign: "center",
-  },
-  upgradePillWrapper: {
-    borderRadius: 999,
-    overflow: "hidden",
   },
   upgradePill: {
     flexDirection: "row",

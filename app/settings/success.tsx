@@ -72,7 +72,7 @@ export default function SuccessScreen() {
 
   useEffect(() => {
     const backAction = () => {
-      router.replace("/settings");
+      router.replace("/home");
       return true;
     };
 
@@ -171,7 +171,7 @@ export default function SuccessScreen() {
       <View>
         <FooterButton
           label="Done"
-          onPress={() => router.replace("/settings")}
+          onPress={() => router.replace("/home")}
         />
       </View>
     </View>

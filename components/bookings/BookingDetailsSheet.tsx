@@ -541,10 +541,8 @@ function MidContent({
               <Text size="xs" weight="medium" color="#8E8E93">
                 SERVICE
               </Text>
-              <Text size="md" weight="semiBold" color="#1A1A1A" numberOfLines={1}>
-                {booking.services.length > 1
-                  ? `${booking.services[0]} + ${booking.services.length - 1} more`
-                  : (booking.services[0] ?? "Service")}
+              <Text size="md" weight="semiBold" color="#1A1A1A">
+                {(booking.services ?? []).join(" · ") || "Service"}
               </Text>
             </View>
           </View>

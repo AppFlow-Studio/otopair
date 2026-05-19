@@ -44,7 +44,7 @@ import { ChevronDown, Check } from 'lucide-react-native';
 import { Text } from '@/components/shared-ui';
 
 // 4. Constants, hooks, types
-import { BrandColors, BorderRadius, Spacing, FontFamily } from '@/constants/theme';
+import { BrandColors, BorderRadius, Spacing, FontFamily, Fonts } from '@/constants/theme';
 
 // ============================================================================
 // TYPES
@@ -608,7 +608,7 @@ const styles = StyleSheet.create({
     color: BrandColors.primary,
   },
   codeText: {
-    fontFamily: FontFamily.mono || 'monospace',
+    fontFamily: Fonts?.mono ?? 'monospace',
     backgroundColor: '#F3F4F6',
     color: BrandColors.secondary,
     paddingHorizontal: 4,

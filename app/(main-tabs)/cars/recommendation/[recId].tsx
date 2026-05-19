@@ -25,8 +25,10 @@ import { useMutation } from "convex/react";
 
 import { Text } from "@/components/shared-ui";
 import { api } from "@/convex/_generated/api";
-import { useDriverRecommendationsFromConvex } from "@/hooks/useDriverRecommendationsFromConvex";
-import type { DriverRecommendation } from "@/hooks/useMaintenanceData";
+import {
+  useDriverRecommendationsFromConvex,
+  type DriverRecommendation,
+} from "@/hooks/useDriverRecommendationsFromConvex";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { scale, moderateScale } from "@/utils/responsive";

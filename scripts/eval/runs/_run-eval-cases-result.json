@@ -1,0 +1,365 @@
+{
+  "timestamp": "2026-05-17T23:13:48.159Z",
+  "repeat": 3,
+  "passed": 1,
+  "failed": 5,
+  "disabled": 9,
+  "results": [
+    {
+      "name": "book_service_single_diagnostic",
+      "pass": false,
+      "attempts": [
+        {
+          "name": "book_service_single_diagnostic",
+          "pass": false,
+          "turnResults": [
+            {
+              "idx": 0,
+              "pass": true,
+              "reasons": []
+            },
+            {
+              "idx": 1,
+              "pass": false,
+              "reasons": [
+                "tools_called missing: render_book_service (fired: get_vehicle_health, update_conversation_state, render_record_confirmation)",
+                "text_contains missing: \"book\""
+              ],
+              "text": "Your brakes show on_time in the history, but the squealing you're describing contradicts that — could be the record is outdated. Quick check: does that ~3-month-old service date still match what you remember?",
+              "toolsFired": [
+                "get_vehicle_health",
+                "update_conversation_state",
+                "render_record_confirmation"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "book_service_single_diagnostic",
+          "pass": false,
+          "turnResults": [
+            {
+              "idx": 0,
+              "pass": true,
+              "reasons": []
+            },
+            {
+              "idx": 1,
+              "pass": false,
+              "reasons": [
+                "text_contains missing: \"book\""
+              ],
+              "text": "",
+              "toolsFired": [
+                "update_conversation_state",
+                "render_book_service"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "book_service_single_diagnostic",
+          "pass": false,
+          "turnResults": [
+            {
+              "idx": 0,
+              "pass": true,
+              "reasons": []
+            },
+            {
+              "idx": 1,
+              "pass": false,
+              "reasons": [
+                "text_contains missing: \"book\""
+              ],
+              "text": "",
+              "toolsFired": [
+                "update_conversation_state",
+                "render_book_service"
+              ]
+            }
+          ]
+        }
+      ],
+      "passCount": 0
+    },
+    {
+      "name": "book_service_single_routine",
+      "pass": false,
+      "attempts": [
+        {
+          "name": "book_service_single_routine",
+          "pass": true,
+          "turnResults": [
+            {
+              "idx": 0,
+              "pass": true,
+              "reasons": []
+            }
+          ]
+        },
+        {
+          "name": "book_service_single_routine",
+          "pass": false,
+          "turnResults": [
+            {
+              "idx": 0,
+              "pass": false,
+              "reasons": [
+                "text_contains missing: \"oil\""
+              ],
+              "text": "",
+              "toolsFired": [
+                "update_conversation_state",
+                "render_book_service"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "book_service_single_routine",
+          "pass": false,
+          "turnResults": [
+            {
+              "idx": 0,
+              "pass": false,
+              "reasons": [
+                "text_contains missing: \"oil\""
+              ],
+              "text": "",
+              "toolsFired": [
+                "update_conversation_state",
+                "render_book_service"
+              ]
+            }
+          ]
+        }
+      ],
+      "passCount": 1
+    },
+    {
+      "name": "book_service_multi_bundle",
+      "pass": false,
+      "attempts": [
+        {
+          "name": "book_service_multi_bundle",
+          "pass": false,
+          "turnResults": [
+            {
+              "idx": 0,
+              "pass": false,
+              "reasons": [
+                "text_contains missing: \"oil\"",
+                "text_contains missing: \"tire\""
+              ],
+              "text": "Neither service is flagged as due, but bundling them is still smart. Setting up the booking now.",
+              "toolsFired": [
+                "get_due_services",
+                "update_conversation_state",
+                "render_book_service"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "book_service_multi_bundle",
+          "pass": false,
+          "turnResults": [
+            {
+              "idx": 0,
+              "pass": false,
+              "reasons": [
+                "text_contains missing: \"oil\"",
+                "text_contains missing: \"tire\""
+              ],
+              "text": "",
+              "toolsFired": [
+                "update_conversation_state",
+                "render_book_service"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "book_service_multi_bundle",
+          "pass": false,
+          "turnResults": [
+            {
+              "idx": 0,
+              "pass": false,
+              "reasons": [
+                "text_contains missing: \"oil\"",
+                "text_contains missing: \"tire\""
+              ],
+              "text": "",
+              "toolsFired": [
+                "update_conversation_state",
+                "render_book_service"
+              ]
+            }
+          ]
+        }
+      ],
+      "passCount": 0
+    },
+    {
+      "name": "book_service_diagnostic_phrasing_correct",
+      "pass": false,
+      "attempts": [
+        {
+          "name": "book_service_diagnostic_phrasing_correct",
+          "pass": false,
+          "turnResults": [
+            {
+              "idx": 0,
+              "pass": false,
+              "reasons": [
+                "text_contains missing: \"book\"",
+                "text_contains missing: \"diagnostic\""
+              ],
+              "text": "I'll help narrow this down. A clunk from the front over bumps typically comes from suspension wear — loose strut mounts, worn control-arm bushings, or a sway-bar link. Quick question: does the clunk happen on the bump itself, or after you've passed over it when the suspension is rebounding?",
+              "toolsFired": [
+                "update_conversation_state"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "book_service_diagnostic_phrasing_correct",
+          "pass": false,
+          "turnResults": [
+            {
+              "idx": 0,
+              "pass": false,
+              "reasons": [
+                "text_contains missing: \"book\"",
+                "text_contains missing: \"diagnostic\""
+              ],
+              "text": "Clunk over bumps typically points to worn suspension bushings, struts, or control-arm links — the stuff that absorbs impact. Your car's health shows routine maintenance on track, so this is worth a closer look. Is the clunk loud or subtle? And does it happen on bigger bumps only, or even small dips?",
+              "toolsFired": [
+                "get_vehicle_health",
+                "update_conversation_state"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "book_service_diagnostic_phrasing_correct",
+          "pass": false,
+          "turnResults": [
+            {
+              "idx": 0,
+              "pass": false,
+              "reasons": [
+                "text_contains missing: \"book\"",
+                "text_contains missing: \"diagnostic\""
+              ],
+              "text": "I'll narrow this down with a couple of quick questions.\n\nWhen you say clunk — is it a single hard thud as the wheel hits the bump, or more of a metallic rattle that lasts a moment? And does it happen the same way on both sides, or noticeably worse on the driver side?",
+              "toolsFired": [
+                "update_conversation_state"
+              ]
+            }
+          ]
+        }
+      ],
+      "passCount": 0
+    },
+    {
+      "name": "book_service_pivot_to_settings_redirect",
+      "pass": false,
+      "attempts": [
+        {
+          "name": "book_service_pivot_to_settings_redirect",
+          "pass": false,
+          "turnResults": [
+            {
+              "idx": 0,
+              "pass": false,
+              "reasons": [
+                "tools_called missing: render_book_service (fired: update_conversation_state)"
+              ],
+              "text": "I'd be happy to help you book a diagnostic. To prefill the form, I need one quick detail: what symptom or issue should the mechanic focus on?",
+              "toolsFired": [
+                "update_conversation_state"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "book_service_pivot_to_settings_redirect",
+          "pass": false,
+          "turnResults": [
+            {
+              "idx": 0,
+              "pass": false,
+              "reasons": [
+                "tools_called missing: render_book_service (fired: update_conversation_state)"
+              ],
+              "text": "Need one quick thing — what's going on with the car? (Engine noise, warning light, something else?) That context helps the mechanic prioritize the scan.",
+              "toolsFired": [
+                "update_conversation_state"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "book_service_pivot_to_settings_redirect",
+          "pass": true,
+          "turnResults": [
+            {
+              "idx": 0,
+              "pass": true,
+              "reasons": []
+            },
+            {
+              "idx": 1,
+              "pass": true,
+              "reasons": []
+            }
+          ]
+        }
+      ],
+      "passCount": 1
+    },
+    {
+      "name": "book_service_deprecated_tools_not_fired",
+      "pass": true,
+      "attempts": [
+        {
+          "name": "book_service_deprecated_tools_not_fired",
+          "pass": true,
+          "turnResults": [
+            {
+              "idx": 0,
+              "pass": true,
+              "reasons": []
+            }
+          ]
+        },
+        {
+          "name": "book_service_deprecated_tools_not_fired",
+          "pass": true,
+          "turnResults": [
+            {
+              "idx": 0,
+              "pass": true,
+              "reasons": []
+            }
+          ]
+        },
+        {
+          "name": "book_service_deprecated_tools_not_fired",
+          "pass": true,
+          "turnResults": [
+            {
+              "idx": 0,
+              "pass": true,
+              "reasons": []
+            }
+          ]
+        }
+      ],
+      "passCount": 3
+    }
+  ]
+}
