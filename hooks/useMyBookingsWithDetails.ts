@@ -181,7 +181,7 @@ export function useMyBookingsWithDetails() {
     };
     const getMechanicName = (shopId: string) => {
       // Use the selected slot's mechanic name if it matches the shop
-      if (selectedMechanicSlot?.shopId === shopId && selectedMechanicSlot.mechanicName) {
+      if (shopId && selectedMechanicSlot?.shopId === shopId && selectedMechanicSlot?.mechanicName) {
         return selectedMechanicSlot.mechanicName;
       }
       return undefined;
