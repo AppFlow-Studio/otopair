@@ -1,37 +1,48 @@
-// Metro config — routes `@/convex/*` imports to the real otopair-web/convex
-// folder. The repo has otopair/convex as a symlink to ../otopair-web/convex,
-// but Metro's resolver doesn't follow that symlink reliably, so we resolve
-// `@/convex/*` ourselves and leave the rest of the `@/*` alias alone.
+// Metro config — `@/convex/*` resolution has two modes:
+//
+// LOCAL DEV (otopair-web sibling repo present): redirect `@/convex/*` to
+//   `../otopair-web/convex` so edits there hot-reload in the app. The
+//   `convex/` entry in this repo is a symlink to that same path, but
+//   Metro's resolver doesn't follow it reliably — hence the explicit
+//   redirect.
+//
+// EAS BUILD (no sibling repo): fall through to the default `@/*` alias,
+//   which resolves `@/convex/*` against `./convex/*` — a real directory
+//   that must be vendored on the build branch before pushing.
 
 const path = require("path");
+const fs = require("fs");
 const { getDefaultConfig } = require("expo/metro-config");
 
 const projectRoot = __dirname;
 const webConvexRoot = path.resolve(projectRoot, "../otopair-web/convex");
+const useExternalConvex = fs.existsSync(webConvexRoot);
 
 const config = getDefaultConfig(projectRoot);
 
-// Watch the otopair-web convex folder so edits there trigger reloads.
-config.watchFolders = [...(config.watchFolders ?? []), webConvexRoot];
+if (useExternalConvex) {
+  // Watch the otopair-web convex folder so edits there trigger reloads.
+  config.watchFolders = [...(config.watchFolders ?? []), webConvexRoot];
 
-// Files under otopair-web/convex resolve `convex/server` etc. against the
-// project's node_modules, not otopair-web's. Tell Metro where to look.
-config.resolver.nodeModulesPaths = [
-  ...(config.resolver.nodeModulesPaths ?? []),
-  path.resolve(projectRoot, "node_modules"),
-];
+  // Files under otopair-web/convex resolve `convex/server` etc. against the
+  // project's node_modules, not otopair-web's. Tell Metro where to look.
+  config.resolver.nodeModulesPaths = [
+    ...(config.resolver.nodeModulesPaths ?? []),
+    path.resolve(projectRoot, "node_modules"),
+  ];
 
-const originalResolveRequest = config.resolver.resolveRequest;
-config.resolver.resolveRequest = (context, moduleName, platform) => {
-  if (moduleName === "@/convex" || moduleName.startsWith("@/convex/")) {
-    const sub = moduleName.slice("@/convex".length);
-    const target = sub.length === 0 ? webConvexRoot : path.join(webConvexRoot, sub);
-    return context.resolveRequest(context, target, platform);
-  }
-  if (typeof originalResolveRequest === "function") {
-    return originalResolveRequest(context, moduleName, platform);
-  }
-  return context.resolveRequest(context, moduleName, platform);
-};
+  const originalResolveRequest = config.resolver.resolveRequest;
+  config.resolver.resolveRequest = (context, moduleName, platform) => {
+    if (moduleName === "@/convex" || moduleName.startsWith("@/convex/")) {
+      const sub = moduleName.slice("@/convex".length);
+      const target = sub.length === 0 ? webConvexRoot : path.join(webConvexRoot, sub);
+      return context.resolveRequest(context, target, platform);
+    }
+    if (typeof originalResolveRequest === "function") {
+      return originalResolveRequest(context, moduleName, platform);
+    }
+    return context.resolveRequest(context, moduleName, platform);
+  };
+}
 
 module.exports = config;
