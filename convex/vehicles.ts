@@ -315,10 +315,13 @@ export const getMyVehicles = query({
 
     const results = await Promise.all(
       ownerships.map(async (ownership) => {
+        // `.first()` rather than `.unique()` — `vehicles.vin` is indexed
+        // but not constrained unique, and dirty rows shouldn't crash the
+        // list query. `migrations:dedupeVehiclesByVin` collapses dupes.
         const vehicle = await ctx.db
           .query("vehicles")
           .withIndex("by_vin", (q) => q.eq("vin", ownership.vin))
-          .unique();
+          .first();
 
         const trim = vehicle?.trim_id ? await ctx.db.get(vehicle.trim_id) : null;
 
@@ -348,15 +351,16 @@ export const listVehiclesByUser = query({
         q.eq("user_id", args.userId).eq("status", "active")
       )
       .collect();
-    
-    // Fetch vehicle for each ownership
+
+    // Fetch vehicle for each ownership. See `getMyVehicles` above for the
+    // `.first()` rationale — same VIN dirty-data tolerance.
     const results = await Promise.all(
       ownerships.map(async (ownership) => {
         const vehicle = await ctx.db
           .query("vehicles")
           .withIndex("by_vin", (q) => q.eq("vin", ownership.vin))
-          .unique();
-        
+          .first();
+
         return {
           vin: ownership.vin,
           vehicle,
@@ -364,7 +368,7 @@ export const listVehiclesByUser = query({
         };
       })
     );
-    
+
     return results;
   },
 });

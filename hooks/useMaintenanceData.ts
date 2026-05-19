@@ -97,6 +97,38 @@ export function useMaintenanceRecords(
  * @param make - Vehicle make (e.g. "Volkswagen") for per-make interval overrides
  * @param drivingConditions - "city" | "highway" | "mixed" — adjusts intervals
  */
+/** Minimal shape of a driver-visible mechanic recommendation, mirrored from
+ *  api.jobRecommendations.getDriverVisibleRecsForVehicle. Kept local to
+ *  avoid a circular import with useDriverRecommendationsFromConvex. */
+interface DriverRecommendationLike {
+  _id: string;
+  service_id: string | null;
+  service_name: string;
+  urgency: "next_visit" | "within_3_months" | "soon";
+  reason: string | null;
+  shop_name: string | null;
+  mechanic_name: string | null;
+  target_mileage?: number | null;
+  scheduled_at?: number | null;
+  scheduled_mechanic_name?: string | null;
+}
+
+function recUrgencyToStatus(
+  urgency: DriverRecommendationLike["urgency"],
+): MaintenanceItem["status"] {
+  if (urgency === "soon") return "overdue";
+  if (urgency === "next_visit") return "due_soon";
+  return "needs_attention";
+}
+
+function recUrgencyDetail(
+  urgency: DriverRecommendationLike["urgency"],
+): string {
+  if (urgency === "soon") return "Service soon";
+  if (urgency === "next_visit") return "Next visit";
+  return "Within 3 months";
+}
+
 export function useMergedMaintenance(
   vehicleOwnerId: Id<"vehicle_owners"> | undefined,
   currentOdometer: number | null,
@@ -104,7 +136,8 @@ export function useMergedMaintenance(
   drivingConditions?: string,
   avgMonthlyDriving?: string,
   knownIssues?: string[],
-  vehicleYear?: number
+  vehicleYear?: number,
+  driverRecommendations?: DriverRecommendationLike[],
 ) {
   const { records, items: userItems } = useMaintenanceRecords(vehicleOwnerId, currentOdometer, make, drivingConditions, avgMonthlyDriving, knownIssues);
 
@@ -201,8 +234,32 @@ export function useMergedMaintenance(
       result.push(inspectionItem);
     }
 
+    // Append mechanic-submitted job recommendations as urgent cards. Each
+    // rec carries its source id so the tracker shows the "Take Action" CTA
+    // and routes to /recommendation/[recId].
+    if (driverRecommendations && driverRecommendations.length > 0) {
+      for (const rec of driverRecommendations) {
+        result.push({
+          id: `rec-${rec._id}`,
+          serviceName: rec.service_name,
+          description: rec.reason ?? "Recommended by your mechanic",
+          detail: recUrgencyDetail(rec.urgency),
+          status: recUrgencyToStatus(rec.urgency),
+          sourceRecommendationId: rec._id,
+          mechanicProvenance: {
+            shopName: rec.shop_name,
+            mechanicName: rec.mechanic_name,
+          },
+          recUrgency: rec.urgency,
+          scheduledAt: rec.scheduled_at ?? null,
+          scheduledMechanicName: rec.scheduled_mechanic_name ?? null,
+          serviceId: rec.service_id ?? null,
+        });
+      }
+    }
+
     return result.map(enrichUrgentItem);
-  }, [userItems, records, knownIssues, vehicleYear]);
+  }, [userItems, records, knownIssues, vehicleYear, driverRecommendations]);
 
   // Expose raw records so the modal can pre-fill from existing data
   const recordsByType = useMemo(() => {

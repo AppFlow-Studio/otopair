@@ -227,9 +227,21 @@ export default function RecommendedHistoryScreen() {
             collapsible
             initiallyOpen
           >
-            {groups.other.map((item) => (
-              <Row key={item._id} item={item} />
-            ))}
+            {groups.other.map((item) => {
+              const isActive =
+                item.status === "open" || item.status === "acknowledged";
+              return (
+                <Row
+                  key={item._id}
+                  item={item}
+                  onPress={
+                    isActive
+                      ? () => router.push(`/recommendation/${item._id}`)
+                      : undefined
+                  }
+                />
+              );
+            })}
           </Section>
         </ScrollView>
       )}
