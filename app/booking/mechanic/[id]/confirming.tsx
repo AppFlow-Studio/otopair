@@ -89,7 +89,7 @@ export default function BookingConfirmingScreen() {
     if (navigatedRef.current) return;
     navigatedRef.current = true;
     if (router.canGoBack()) router.back();
-    else router.replace(`/home/mechanic/${id}/payment`);
+    else router.replace(`/booking/mechanic/${id}/payment`);
   }, [router, id]);
 
   const handleGoBack = useCallback(() => {
@@ -118,22 +118,25 @@ export default function BookingConfirmingScreen() {
     if (!selectedMechanicId) {
       navigatedRef.current = true;
       router.replace({
-        pathname: `/home/mechanic/${id}/payment`,
+        pathname: `/booking/mechanic/${id}/payment`,
         params: { confirmError: "No mechanic selected." },
       });
       return;
     }
     setSubmitting(true);
     try {
-      await createBookingConvex(selectedMechanicId, bookingType || "book_now");
+      const bookingIds = await createBookingConvex(selectedMechanicId, bookingType || "book_now");
       if (navigatedRef.current) return;
       navigatedRef.current = true;
-      router.replace(`/home/mechanic/${id}/confirmation`);
+      router.replace({
+        pathname: `/booking/mechanic/${id}/confirmation`,
+        params: bookingIds[0] ? { bookingDbId: bookingIds[0] } : {},
+      });
     } catch (err) {
       if (navigatedRef.current) return;
       navigatedRef.current = true;
       router.replace({
-        pathname: `/home/mechanic/${id}/payment`,
+        pathname: `/booking/mechanic/${id}/payment`,
         params: { confirmError: extractErrorMessage(err) },
       });
     }

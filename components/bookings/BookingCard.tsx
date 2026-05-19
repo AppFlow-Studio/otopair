@@ -355,22 +355,52 @@ export function BookingCard({
         )
       ) : (
         <View style={styles.historyInfoContainer}>
-          <View style={styles.historyInfoRow}>
-            <Text weight="regular" size="sm" color="#6B7280">
-              Completed On
-            </Text>
-            <Text weight="semiBold" size="sm" color="#5299FE">
-              {booking.date}
-            </Text>
-          </View>
-          <View style={styles.historyInfoRow}>
-            <Text weight="regular" size="sm" color="#6B7280">
-              Total Cost
-            </Text>
-            <Text weight="semiBold" size="sm" color="#5299FE">
-              ${booking.totalCost?.toFixed(2) || '0.00'}
-            </Text>
-          </View>
+          {/* Cancelled rows shouldn't fake a "Total Cost: $0.00" — many never
+              reached a confirmed quote (tire-quote requests abandoned in
+              pending_quote), so the dollar amount is meaningless. Show a
+              status pill instead, and label the date as "Cancelled On" when
+              one exists. */}
+          {booking.status === 'cancelled' ? (
+            <>
+              {booking.date ? (
+                <View style={styles.historyInfoRow}>
+                  <Text weight="regular" size="sm" color="#6B7280">
+                    Cancelled On
+                  </Text>
+                  <Text weight="semiBold" size="sm" color="#6B7280">
+                    {booking.date}
+                  </Text>
+                </View>
+              ) : null}
+              <View style={styles.historyInfoRow}>
+                <Text weight="regular" size="sm" color="#6B7280">
+                  Status
+                </Text>
+                <Text weight="semiBold" size="sm" color={STATUS_CONFIG.cancelled.textColor}>
+                  Not charged
+                </Text>
+              </View>
+            </>
+          ) : (
+            <>
+              <View style={styles.historyInfoRow}>
+                <Text weight="regular" size="sm" color="#6B7280">
+                  Completed On
+                </Text>
+                <Text weight="semiBold" size="sm" color="#5299FE">
+                  {booking.date}
+                </Text>
+              </View>
+              <View style={styles.historyInfoRow}>
+                <Text weight="regular" size="sm" color="#6B7280">
+                  Total Cost
+                </Text>
+                <Text weight="semiBold" size="sm" color="#5299FE">
+                  ${booking.totalCost?.toFixed(2) || '0.00'}
+                </Text>
+              </View>
+            </>
+          )}
         </View>
       )}
 

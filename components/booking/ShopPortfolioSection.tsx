@@ -3,7 +3,7 @@
  *
  * PURPOSE: Displays portfolio images/gallery for a shop from Convex (cdn_assets + shop_portfolio).
  *
- * USED IN: app/(main-tabs)/home/shop/[id].tsx, app/(main-tabs)/home/mechanic/[id].tsx (Portfolio tab)
+ * USED IN: app/(booking)/shop/[id].tsx, app/(booking)/mechanic/[id].tsx (Portfolio tab)
  *
  * OWNER: Temurbek Sayfutdinov
  */

@@ -4,7 +4,7 @@
  * PURPOSE: Displays reviews for a shop from Convex (api.reviews.getByShopId).
  *          Shows rating summary and list of customer reviews.
  *
- * USED IN: app/(main-tabs)/home/shop/[id]/index.tsx (Reviews tab)
+ * USED IN: app/(booking)/shop/[id]/index.tsx (Reviews tab)
  *
  * OWNER: Waleed Mansour
  */

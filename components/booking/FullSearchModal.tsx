@@ -4,7 +4,7 @@
  * PURPOSE: Search sheet that matches ServiceBottomSheet exactly.
  *          Uses BottomSheet with same snap points and styling for seamless transition.
  *
- * USED IN: app/(main-tabs)/home/map.tsx
+ * USED IN: app/(booking)/map.tsx
  *
  * PROPS:
  *   - visible (boolean): Whether the modal is visible

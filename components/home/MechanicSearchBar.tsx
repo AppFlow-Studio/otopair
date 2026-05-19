@@ -16,7 +16,7 @@
  *   <MechanicSearchBar
  *     value={searchQuery}
  *     onChangeText={setSearchQuery}
- *     onMapPress={() => router.push('/home/map')}
+ *     onMapPress={() => router.push('/booking/map')}
  *   />
  *
  * OWNER: Ahmad Hamoudeh

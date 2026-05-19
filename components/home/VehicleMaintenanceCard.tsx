@@ -158,7 +158,7 @@ export function VehicleMaintenanceCard({
     if (onBookNow) {
       onBookNow(vehicleId, serviceId);
     } else {
-      router.push('/home/map');
+      router.push('/booking/map?openServices=true');
     }
   };
 
@@ -411,7 +411,7 @@ const styles = StyleSheet.create({
     marginTop: 16,
   },
   sectionHeader: {
-    marginBottom: 10,
+    marginBottom: 28,
     fontStyle: 'italic',
   },
   swiperWrapper: {

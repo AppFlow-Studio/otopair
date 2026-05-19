@@ -320,7 +320,7 @@ export function MechanicSelectionContent({
   // Handle shop details button
   const handleShopDetails = useCallback(
     (shopId: string) => {
-      router.push(`/home/shop/${shopId}`);
+      router.push(`/booking/shop/${shopId}`);
     },
     [router],
   );
@@ -366,8 +366,12 @@ export function MechanicSelectionContent({
       const currentMonth = now.getMonth();
       const currentYear = now.getFullYear();
       const dayNum = parseInt(slot.day, 10);
+      // Compare against today *at midnight*, not `now`, so a same-day slot
+      // doesn't get bumped to next month (local-midnight < now is always
+      // true later in the day).
+      const todayMidnight = new Date(currentYear, currentMonth, now.getDate());
       let targetDate = new Date(currentYear, currentMonth, dayNum);
-      if (targetDate < now) {
+      if (targetDate < todayMidnight) {
         targetDate = new Date(currentYear, currentMonth + 1, dayNum);
       }
       const months = ["Jan.", "Feb.", "Mar.", "Apr.", "May", "Jun.", "Jul.", "Aug.", "Sep.", "Oct.", "Nov.", "Dec."];
@@ -397,7 +401,7 @@ export function MechanicSelectionContent({
     onSelectMechanic?.();
 
     // Navigate to payment page
-    router.push(`/home/mechanic/${effectiveMechanicId}/payment`);
+    router.push(`/booking/mechanic/${effectiveMechanicId}/payment`);
   }, [
     selectedMechanicSlot,
     shopList,

@@ -12,6 +12,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import * as Haptics from 'expo-haptics';
+import { useTabBarVisibilityStore } from "@/stores/useTabBarVisibilityStore";
 
 export function TabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
@@ -92,9 +93,12 @@ export function TabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   // Get options for the currently focused route
   const focusedOptions = descriptors[state.routes[state.index].key].options;
 
-  // Check if tab bar should be hidden based on options
+  // Check if tab bar should be hidden based on options OR via the
+  // `useTabBarVisibilityStore` flag (set by nested screens like
+  // home/map that can't reach this navigator's descriptor via setOptions).
+  const hiddenByStore = useTabBarVisibilityStore((s) => s.hidden);
   const tabBarStyle = StyleSheet.flatten(focusedOptions.tabBarStyle) as any;
-  if (tabBarStyle?.display === 'none') {
+  if (hiddenByStore || tabBarStyle?.display === 'none') {
     return null;
   }
   

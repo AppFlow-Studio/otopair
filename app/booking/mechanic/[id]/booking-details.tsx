@@ -7,7 +7,7 @@
  *
  * FLOW: Booking (mechanic detail → booking-details → payment → confirmation)
  *
- * ROUTE: /home/mechanic/[id]/booking-details
+ * ROUTE: /booking/mechanic/[id]/booking-details
  *
  * OWNER: Temurbek Sayfutdinov
  *
@@ -120,7 +120,7 @@ export default function BookingDetailsScreen() {
   }, [router, setBookingStage]);
 
   const handleContinue = useCallback(() => {
-    router.push(`/home/mechanic/${id}/payment`);
+    router.push(`/booking/mechanic/${id}/payment`);
   }, [router, id]);
 
   const handleAddMore = useCallback(() => {

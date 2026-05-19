@@ -1487,13 +1487,13 @@ export default function CarsHomeScreen() {
                 useBookingStore.getState().setSourceRecommendationId(
                   tapped?.sourceRecommendationId ?? null,
                 );
-                router.push('/home/map');
+                router.push('/booking/map');
               }}
               onTakeAction={(item) => {
                 const vin = activeVehicle?.vin;
                 if (vin) useVehicleStore.getState().selectVehicle(vin.toUpperCase().trim());
                 if (!item.sourceRecommendationId) return;
-                router.push(`/cars/recommendation/${item.sourceRecommendationId}`);
+                router.push(`/recommendation/${item.sourceRecommendationId}`);
               }}
               onAddInfo={(id) => {
                 const type = id.replace(/^(unknown-|user-)/, "") as MaintenanceType;
@@ -1525,7 +1525,7 @@ export default function CarsHomeScreen() {
                   tireStore.setType(tireSpecs.type as any);
                   tireStore.setTier(tireSpecs.tier as any);
                 }
-                router.push('/home/map');
+                router.push('/booking/map');
               }}
             />
           ) : null}

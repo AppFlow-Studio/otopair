@@ -248,6 +248,14 @@ export default function RootLayout() {
                     <Stack.Screen name="(tell-us-about)" options={{ headerShown: false }} />
                     <Stack.Screen name="(tire-booking)" options={{ headerShown: false }} />
                     <Stack.Screen
+                      name="booking"
+                      options={{
+                        headerShown: false,
+                        presentation: "fullScreenModal",
+                        animation: "slide_from_bottom",
+                      }}
+                    />
+                    <Stack.Screen
                       name="coming-soon"
                       options={{
                         animation: "fade_from_bottom",
@@ -255,6 +263,7 @@ export default function RootLayout() {
                       }}
                     />
                     <Stack.Screen name="add-vehicle" options={{ headerShown: false }} />
+                    <Stack.Screen name="recommendation/[recId]" options={{ headerShown: false, animation: "slide_from_right" }} />
                     <Stack.Screen name="add-car-info" options={{ headerShown: false }} />
                     <Stack.Screen
                       name="vehicle-added"

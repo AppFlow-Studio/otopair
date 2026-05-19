@@ -6,7 +6,7 @@
  *          tab fills with BrandColors.secondary and white text;
  *          inactive tabs are transparent with muted text.
  *
- * USED IN: app/(main-tabs)/home/shop/[id]/index.tsx
+ * USED IN: app/booking/mechanic/[id]/index.tsx, app/booking/shop/[id]/index.tsx
  *
  * PROPS:
  *   - activeTab: Currently active tab id

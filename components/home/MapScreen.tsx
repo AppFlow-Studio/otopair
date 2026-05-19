@@ -4,7 +4,7 @@
  * PURPOSE: Displays a full-screen map with nearby mechanic locations, a header overlay with location info,
  *          and a floating mechanic summary card; used for browsing shops from the Home flow.
  *
- * USED IN: app/(main-tabs)/home/map.tsx
+ * USED IN: app/(booking)/map.tsx
  *
  * PROPS:
  *   - None (screen-level component; uses internal hooks and navigation)

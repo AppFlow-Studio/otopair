@@ -7,7 +7,7 @@
  *
  * FLOW: Booking
  *
- * USED IN: app/(main-tabs)/home/mechanic/[id]/index.tsx
+ * USED IN: app/(booking)/mechanic/[id]/index.tsx
  *          components/booking/sheets/MechanicSelectionContent.tsx
  *
  * OWNER: Waleed Mansour
@@ -79,6 +79,25 @@ const MONTHS = [
 ];
 
 const DEFAULT_TIME_SLOTS = ["9:00 AM", "10:00 AM", "1:00 PM", "2:00 PM", "3:00 PM"];
+
+/** Parses "9:00 AM" → { hours: 9, minutes: 0 } in 24-hour values */
+function parseDisplayTime(displayTime: string): { hours: number; minutes: number } | null {
+  const match = displayTime.match(/^(\d+):(\d+)\s*(AM|PM)$/i);
+  if (!match) return null;
+  let hours = parseInt(match[1], 10);
+  const minutes = parseInt(match[2], 10);
+  const period = match[3].toUpperCase();
+  if (period === "PM" && hours !== 12) hours += 12;
+  if (period === "AM" && hours === 12) hours = 0;
+  return { hours, minutes };
+}
+
+/** Returns the earliest bookable minute-of-day: now + 15 min, rounded up to next 15-min boundary */
+function getMinBookableMinutes(): number {
+  const now = new Date();
+  const rawMinutes = now.getHours() * 60 + now.getMinutes() + 15;
+  return Math.ceil(rawMinutes / 15) * 15;
+}
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
 const CALENDAR_PADDING = Spacing.xl * 2;
@@ -227,11 +246,33 @@ export function AvailabilityModal({ visible, mechanicId, shopId, onClose, onConf
   const bookedDays = useConvexCalendar ? convexCalendar.bookedDayNumbers : getBookedDayNumbers();
 
   const timeSlots = useMemo(() => {
+    let slots: string[];
     if (effectiveShopId && selectedDateISO && convexTimeOptions.length > 0) {
-      return convexTimeOptions;
+      slots = convexTimeOptions;
+    } else {
+      const s = getTimeSlotsForSelectedDate();
+      slots = s.length > 0 ? s : DEFAULT_TIME_SLOTS;
     }
-    const slots = getTimeSlotsForSelectedDate();
-    return slots.length > 0 ? slots : DEFAULT_TIME_SLOTS;
+
+    // When the selected date is today, strip slots before now + 15 min (rounded to 15-min boundary)
+    if (selectedDate) {
+      const now = new Date();
+      const isToday =
+        selectedDate.getFullYear() === now.getFullYear() &&
+        selectedDate.getMonth() === now.getMonth() &&
+        selectedDate.getDate() === now.getDate();
+
+      if (isToday) {
+        const minMinutes = getMinBookableMinutes();
+        slots = slots.filter((slot) => {
+          const parsed = parseDisplayTime(slot);
+          if (!parsed) return true;
+          return parsed.hours * 60 + parsed.minutes >= minMinutes;
+        });
+      }
+    }
+
+    return slots;
   }, [effectiveShopId, selectedDateISO, convexTimeOptions, selectedDate, getTimeSlotsForSelectedDate]);
 
   const selectedDayNumber = selectedDate?.getDate() ?? null;
@@ -245,6 +286,9 @@ export function AvailabilityModal({ visible, mechanicId, shopId, onClose, onConf
     const startOffset = firstDay === 0 ? 6 : firstDay - 1;
     const daysInMonth = new Date(year, month + 1, 0).getDate();
     const daysInPrevMonth = new Date(year, month, 0).getDate();
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
 
     const days: CalendarDay[] = [];
 
@@ -261,7 +305,11 @@ export function AvailabilityModal({ visible, mechanicId, shopId, onClose, onConf
     for (let i = 1; i <= daysInMonth; i++) {
       let status: DayStatus = "normal";
 
-      if (i === selectedDayNumber) {
+      const dayDate = new Date(year, month, i);
+      if (dayDate < today) {
+        // Past days are not selectable
+        status = "disabled";
+      } else if (i === selectedDayNumber) {
         status = "selected";
       } else if (availableDays.includes(i)) {
         status = "available";
@@ -312,7 +360,7 @@ export function AvailabilityModal({ visible, mechanicId, shopId, onClose, onConf
 
   const handleDayPress = useCallback(
     (day: CalendarDay) => {
-      if (!day.isCurrentMonth || day.status === "booked") return;
+      if (!day.isCurrentMonth || day.status === "booked" || day.status === "disabled") return;
       const newDate = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day.date);
       selectDate(newDate);
     },
@@ -400,7 +448,7 @@ export function AvailabilityModal({ visible, mechanicId, shopId, onClose, onConf
   // ═══════════════ RENDER HELPERS ═══════════════
   const renderDayCell = useCallback(
     (day: CalendarDay, index: number) => {
-      const isDisabled = !day.isCurrentMonth;
+      const isDisabled = !day.isCurrentMonth || day.status === "disabled";
       const isBooked = day.status === "booked";
       const isSelected = day.status === "selected";
       const isAvailable = day.status === "available";

@@ -11,12 +11,12 @@
  */
 
 // 1. React & React Native
-import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { BackHandler, InteractionManager, Platform, StyleSheet, TouchableOpacity, View } from "react-native";
 
 // 2. Third-party libraries
 import { BlurView } from "expo-blur";
-import { useFocusEffect, useNavigation, useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { ChevronLeft } from "lucide-react-native";
 import MapView from "react-native-maps";
 import Animated, { Extrapolation, interpolate, SharedValue, useAnimatedStyle } from "react-native-reanimated";
@@ -69,30 +69,7 @@ const VERTICAL_OFFSET = 55;
 export default function BookingsScreen() {
   // ═══════════════ HOOKS ═══════════════
   const router = useRouter();
-  const navigation = useNavigation();
   const insets = useSafeAreaInsets();
-
-  // Every entry into the map gets the same deferred slide-up: render
-  // the map alone for a beat, then let the sheet glide up. Tune the
-  // delay here if it ever needs to change globally.
-  const sheetInitialDelayMs = 1000;
-
-  // Hide tab bar when map is open so bottom sheet can cover it
-  useLayoutEffect(() => {
-    const parent = navigation.getParent();
-    if (parent) {
-      parent.setOptions({
-        tabBarStyle: { display: "none" },
-      });
-    }
-    return () => {
-      if (parent) {
-        parent.setOptions({
-          tabBarStyle: undefined,
-        });
-      }
-    };
-  }, [navigation]);
 
   // ═══════════════ REFS ═══════════════
   const mapRef = useRef<MapView>(null);
@@ -201,14 +178,14 @@ export default function BookingsScreen() {
   // Search result handlers
   const handleSearchSelectShop = useCallback(
     (shopId: number) => {
-      router.push(`/home/shop/${shopId}`);
+      router.push(`/booking/shop/${shopId}`);
     },
     [router]
   );
 
   const handleSearchSelectMechanic = useCallback(
     (mechanicId: number) => {
-      router.push(`/home/mechanic/${mechanicId}`);
+      router.push(`/booking/mechanic/${mechanicId}`);
     },
     [router]
   );
@@ -395,7 +372,6 @@ export default function BookingsScreen() {
         onShopClose={handleShopClose}
         onAddVehicle={handleAddVehicle}
         onBackHandlerChange={handleBottomSheetBackHandlerChange}
-        initialDelayMs={sheetInitialDelayMs}
       />
     </View>
   );

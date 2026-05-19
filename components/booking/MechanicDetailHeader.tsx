@@ -10,7 +10,7 @@
  *          ShopHeroCard below this — keep this component purely the
  *          map + a floating back button.
  *
- * USED IN: app/(main-tabs)/home/shop/[id]/index.tsx
+ * USED IN: app/booking/mechanic/[id]/index.tsx, app/booking/shop/[id]/index.tsx
  *
  * PROPS:
  *   - shop: Shop containing latitude/longitude

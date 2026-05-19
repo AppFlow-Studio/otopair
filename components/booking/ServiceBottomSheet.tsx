@@ -10,7 +10,7 @@
  *
  * FLOW: discovery → service_selection → mechanic_selection → [navigates to pages]
  *
- * USED IN: app/(main-tabs)/home/map.tsx
+ * USED IN: app/(booking)/map.tsx
  *
  * PROPS:
  *   - offsetY (number): Vertical offset to shift bottom sheet down (pixels) [optional]
@@ -819,6 +819,9 @@ export function ServiceBottomSheet({
     if (onAddVehicleProp) {
       onAddVehicleProp();
     } else {
+      // Dismiss the booking fullScreenModal before landing on Cars,
+      // otherwise the map stays mounted behind the tab content.
+      router.dismissAll();
       router.navigate("/(main-tabs)/cars");
     }
   }, [router, onAddVehicleProp]);
@@ -971,9 +974,12 @@ export function ServiceBottomSheet({
     const currentYear = now.getFullYear();
     const dayNum = parseInt(slot.day, 10);
 
-    // Construct date from slot day
+    // Construct date from slot day. Compare against today *at midnight* so a
+    // same-day slot doesn't get bumped to next month any time we run this
+    // after midnight (local-midnight < `now` is always true later in the day).
+    const todayMidnight = new Date(currentYear, currentMonth, now.getDate());
     let targetDate = new Date(currentYear, currentMonth, dayNum);
-    if (targetDate < now) {
+    if (targetDate < todayMidnight) {
       targetDate = new Date(currentYear, currentMonth + 1, dayNum);
     }
 
@@ -1005,7 +1011,7 @@ export function ServiceBottomSheet({
     setBookingStage("payment", "forward");
 
     // Navigate to payment page
-    router.push(`/home/mechanic/${effectiveMechanicId}/payment`);
+    router.push(`/booking/mechanic/${effectiveMechanicId}/payment`);
   }, [
     selectedMechanicSlot,
     mechanicIds,
@@ -1706,6 +1712,10 @@ export function ServiceBottomSheet({
           setShowTireBookingModal(false);
           bottomSheetRef.current?.close();
           setTimeout(() => {
+            // Pop the booking fullScreenModal off the root stack before
+            // landing on Bookings → otherwise the map underneath leaks
+            // through as a background on the tabs.
+            router.dismissAll();
             router.navigate("/(main-tabs)/bookings?tab=quotes&requestSubmitted=1");
           }, 350);
         }}

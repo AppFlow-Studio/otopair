@@ -315,7 +315,10 @@ export const ConfirmationModal = forwardRef<ConfirmationModalRef, ConfirmationMo
   const handleBackToHome = useCallback(() => {
     bottomSheetModalRef.current?.dismiss();
     onBackToHome();
-    // Navigate to home screen
+    // Pop the booking fullScreenModal off the root stack before landing
+    // on home — otherwise the map underneath leaks through behind the
+    // home tab.
+    router.dismissAll();
     router.replace("/home");
   }, [onBackToHome, router]);
 

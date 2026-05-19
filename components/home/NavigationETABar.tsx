@@ -91,7 +91,7 @@ export function NavigationETABar({
   const currentLongitude = userLocation?.longitude ?? DEFAULT_LOCATION.longitude;
   
   const handleNavigate = () => {
-    router.push('/home/map');
+    router.push('/booking/map');
   };
 
   return (

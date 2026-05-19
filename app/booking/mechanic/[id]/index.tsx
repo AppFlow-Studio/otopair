@@ -9,7 +9,7 @@
  *
  * USED IN: Navigation from components/booking/sheets/MechanicSelectionContent.tsx
  *
- * ROUTE: /home/mechanic/[id]
+ * ROUTE: /booking/mechanic/[id]
  *
  * OWNER: Temurbek Sayfutdinov
  */
@@ -133,7 +133,7 @@ export default function MechanicDetailScreen() {
     (mechanicId: string) => {
       // Since user selected a specific time slot, this is a scheduled booking
       setBookingTypeAndProceed("schedule_later", mechanicId);
-      router.push(`/home/mechanic/${id}/booking-details`);
+      router.push(`/booking/mechanic/${id}/booking-details`);
     },
     [setBookingTypeAndProceed, router, id],
   );

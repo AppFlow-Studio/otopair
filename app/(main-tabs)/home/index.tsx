@@ -1,6 +1,6 @@
 // 1. React & React Native
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Image, Pressable, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated from 'react-native-reanimated';
 
@@ -33,6 +33,7 @@ import { useVehicleOwnershipFromConvex } from '@/hooks/useVehicleOwnershipFromCo
 import { fetchVehicleImageUrl } from '@/utils/vehicleImage';
 import { adaptConvexBookingWithDetailsToCard } from '@/utils/bookingAdapter';
 import { BookingDetailsSheet, type BookingDetailsSheetRef } from '@/components/bookings/BookingDetailsSheet';
+import { CustomerLateBanner } from '@/components/bookings/CustomerLateBanner';
 import { LeaveReviewSheet, type LeaveReviewSheetRef } from '@/components/bookings/LeaveReviewSheet';
 import { useMyBookingsWithDetails } from '@/hooks/useMyBookingsWithDetails';
 import { useUserFromConvex } from '@/hooks/useUserFromConvex';
@@ -411,7 +412,7 @@ export default function HomeScreen() {
   };
 
   const handleMapPress = () => {
-    router.push("/home/map");
+    router.push("/booking/map");
   };
 
   // Notifications bell — opens the global NotificationsSheet and
@@ -461,7 +462,36 @@ export default function HomeScreen() {
   const cancelConvexBooking = useMutation(api.bookings.cancelBooking);
   const handleAppointmentCancel = useCallback(
     (bookingId: string) => {
-      void cancelConvexBooking({ bookingId: bookingId as Id<"bookings"> });
+      const isLocalId = bookingId.startsWith("tire_quote_") || bookingId.startsWith("booking_");
+      if (!isLocalId) {
+        void cancelConvexBooking({ bookingId: bookingId as Id<"bookings"> });
+      }
+    },
+    [cancelConvexBooking],
+  );
+
+  // Reschedule from the late banner = confirm-then-cancel. We don't have
+  // in-place reschedule yet; the spec is to drop the slot so the driver
+  // can book fresh.
+  const handleRescheduleConfirm = useCallback(
+    (bookingId: string) => {
+      Alert.alert(
+        "Reschedule appointment?",
+        "This will cancel your current booking. You'll need to book a new time slot.",
+        [
+          { text: "Keep booking", style: "cancel" },
+          {
+            text: "Cancel & reschedule",
+            style: "destructive",
+            onPress: () => {
+              const isLocalId = bookingId.startsWith("tire_quote_") || bookingId.startsWith("booking_");
+              if (!isLocalId) {
+                void cancelConvexBooking({ bookingId: bookingId as Id<"bookings"> });
+              }
+            },
+          },
+        ],
+      );
     },
     [cancelConvexBooking],
   );
@@ -675,6 +705,13 @@ export default function HomeScreen() {
 
             {/* Content Area */}
             <View style={styles.content}>
+              {/* Running-late / overrun banner — self-renders when the
+                  shop has fired a customer_late_push_reminder or
+                  overrun_customer_resolution notification. Reschedule
+                  triggers a confirm-then-cancel flow. */}
+              <CustomerLateBanner
+                onReschedule={(bookingId) => handleRescheduleConfirm(String(bookingId))}
+              />
               {/* Action Cards Carousel */}
               {visibleCardIds.length > 0 && <View style={styles.carouselContainer}>
                 <ActionCardsCarousel
@@ -690,7 +727,7 @@ export default function HomeScreen() {
                   resumeServicesPreview={resumeServicesPreview}
                   resumeVehicleName={resumeVehicleName}
                   resumeVehicleImage={resumeVehicleImage}
-                  onResumePress={() => router.push('/home/map')}
+                  onResumePress={() => router.push('/booking/map?openServices=true')}
                   // Account Setup
                   showAccountSetup={showAccountSetup}
                   onAccountSetupDismiss={() => setAccountSetupDismissed(true)}
@@ -748,7 +785,7 @@ export default function HomeScreen() {
                     vehicles={mappedVehicles.length > 0 ? mappedVehicles : undefined}
                     onBookNow={(vehicleId, serviceId) => {
                       useVehicleStore.getState().selectVehicle(vehicleId);
-                      router.push('/home/map');
+                      router.push('/booking/map?openServices=true');
                     }}
                     onSwipeStart={() => setIsCardSwiping(true)}
                     onSwipeEnd={() => setIsCardSwiping(false)}
