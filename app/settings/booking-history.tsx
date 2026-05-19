@@ -115,7 +115,7 @@ export default function BookingHistoryScreen() {
     <>
       <View style={styles.screen}>
         {/* Header */}
-        <View style={[styles.header, { paddingTop: insets.top / 2 }]}>
+        <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
           <Pressable onPress={handleBack} hitSlop={12} style={styles.backButton}>
             <ChevronLeft size={26} color="#1A1A1A" />
           </Pressable>

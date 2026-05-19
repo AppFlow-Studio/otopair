@@ -219,7 +219,7 @@ export default function TireBookingScreen({ onClose, onConfirmed }: TireBookingS
   return (
     <View style={styles.screen}>
       {/* Top bar */}
-      <View style={[styles.topBar, { paddingTop: insets.top / 2}]}>
+      <View style={[styles.topBar, { paddingTop: insets.top + 8 }]}>
         <TouchableOpacity onPress={handleBack} hitSlop={12} style={styles.topBarSlot}>
           <ChevronLeft size={26} color="#1A1A1A" />
         </TouchableOpacity>
