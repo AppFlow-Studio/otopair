@@ -48,7 +48,7 @@ import {
   Image,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Camera, Plus } from "lucide-react-native";
+import { Plus } from "lucide-react-native";
 // @ts-ignore Expo module available at runtime
 import * as ImagePicker from "expo-image-picker";
 
@@ -158,10 +158,6 @@ export function ProfilePhotoStep({ onNext, onBack, progress }: ProfilePhotoStepP
     onNext();
   };
 
-  const handleSkip = () => {
-    onNext();
-  };
-
   const canContinue = imageUri !== null;
 
   return (
@@ -179,7 +175,10 @@ export function ProfilePhotoStep({ onNext, onBack, progress }: ProfilePhotoStepP
             {imageUri ? (
               <Image source={{ uri: imageUri }} style={styles.photoPreview} />
             ) : (
-              <Camera size={64} color={BrandColors.white} strokeWidth={1.5} />
+              <View style={styles.defaultAvatar}>
+                <View style={styles.defaultAvatarHead} />
+                <View style={styles.defaultAvatarBody} />
+              </View>
             )}
           </Pressable>
           <Pressable style={styles.plusBadge} onPress={handlePhotoPress}>
@@ -190,7 +189,7 @@ export function ProfilePhotoStep({ onNext, onBack, progress }: ProfilePhotoStepP
         <View style={styles.headerContent}>
           <Text style={styles.title}>Add your profile photo</Text>
           <Text style={styles.subtitle}>
-            Let's see the face behind the wheel!
+            Let&apos;s see the face behind the wheel!
           </Text>
         </View>
 
@@ -270,12 +269,37 @@ const styles = StyleSheet.create({
     width: 200,
     height: 200,
     borderRadius: 100,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#E5E7EB',
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: '#E2E8F0',
+    borderWidth: 3,
+    borderColor: '#94A3B8',
     overflow: 'hidden',
+  },
+  defaultAvatar: {
+    width: "100%",
+    height: "100%",
+    backgroundColor: "#F3F4F6",
+    alignItems: "center",
+    justifyContent: "flex-end",
+  },
+  defaultAvatarHead: {
+    position: "absolute",
+    top: 42,
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+    backgroundColor: "#374151",
+  },
+  defaultAvatarBody: {
+    width: 142,
+    height: 88,
+    borderTopLeftRadius: 72,
+    borderTopRightRadius: 72,
+    borderBottomLeftRadius: 34,
+    borderBottomRightRadius: 34,
+    backgroundColor: "#374151",
+    marginBottom: -20,
   },
   photoPreview: {
     width: '100%',

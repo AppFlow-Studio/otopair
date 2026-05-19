@@ -119,7 +119,7 @@ export async function clearOnboardingResumeState(clerkUserId?: string | null) {
 // are excluded — if the user closes during those, they aren't signed in yet and
 // will be sent to the beginning of onboarding normally by index.tsx.
 export const RESUMABLE_STEPS = new Set([
-  "phone", "confirm", "name", "emailConfirm", "profilePhoto",
+  "phone", "confirm", "name", "profilePhoto",
   "userIntent", "heardAbout", "visitReason", "zipCode",
   "pushNotifications", "locationServices",
 ] as const);
@@ -214,7 +214,6 @@ export function getIncompleteOnboardingStepsFromResumeData(
     { step: "phone", isComplete: !!data.phoneNumber },
     { step: "confirm", isComplete: data.phoneVerified },
     { step: "name", isComplete: !!(data.firstName && data.lastName) },
-    { step: "emailConfirm", isComplete: data.emailConfirmed },
     { step: "profilePhoto", isComplete: !!data.profilePhotoUri },
     {
       step: "userIntent",

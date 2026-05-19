@@ -12,7 +12,6 @@ const OAUTH_SIGNUP_STEPS = [
   "phone",
   "confirm",
   "name",
-  "emailConfirm",
   "profilePhoto",
   "userIntent",
   "heardAbout",

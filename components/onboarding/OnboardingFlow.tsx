@@ -19,10 +19,10 @@
  *   />
  */
 
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { BackHandler, StyleSheet, View, Keyboard } from 'react-native';
 import { router } from 'expo-router';
-import Animated, {
+import {
     useSharedValue,
     withTiming,
     Easing,
@@ -47,7 +47,6 @@ import { LoginStep } from './steps/LoginStep';
 import { PhoneNumberStep } from './steps/PhoneNumberStep';
 import { ConfirmPhoneNumberStep } from './steps/ConfirmPhoneNumberStep';
 import { NameStep } from './steps/NameStep';
-import { EmailConfirmStep } from './steps/EmailConfirmStep';
 import { ProfilePhotoStep } from './steps/ProfilePhotoStep';
 import { UserIntentStep } from './steps/UserIntentStep';
 import { HeardAboutStep } from './steps/HeardAboutStep';
@@ -118,7 +117,6 @@ const PROGRESS_STEPS: OnboardingStep[] = [
     'phone',
     'confirm',
     'name',
-    'emailConfirm',
     'profilePhoto',
     'userIntent',
     'heardAbout',
@@ -128,6 +126,24 @@ const PROGRESS_STEPS: OnboardingStep[] = [
     'locationServices',
 ];
 
+const HIDDEN_STEP_REDIRECTS: Partial<Record<OnboardingStep, OnboardingStep>> = {
+  emailConfirm: 'profilePhoto',
+};
+
+function getVisibleStep(step: OnboardingStep): OnboardingStep {
+  return HIDDEN_STEP_REDIRECTS[step] ?? step;
+}
+
+function getVisibleSteps(steps: OnboardingStep[]): OnboardingStep[] {
+  return steps.reduce<OnboardingStep[]>((visibleSteps, step) => {
+    const visibleStep = getVisibleStep(step);
+    if (visibleSteps[visibleSteps.length - 1] !== visibleStep) {
+      visibleSteps.push(visibleStep);
+    }
+    return visibleSteps;
+  }, []);
+}
+
 // Helper to get incomplete onboarding steps based on store data
 export function getIncompleteOnboardingSteps(): OnboardingStep[] {
   const { data } = useOnboardingStore.getState();
@@ -136,7 +152,6 @@ export function getIncompleteOnboardingSteps(): OnboardingStep[] {
         { step: 'phone', isComplete: () => !!data.phoneNumber },
         { step: 'confirm', isComplete: () => !!data.phoneVerified },
         { step: 'name', isComplete: () => !!(data.firstName && data.lastName) },
-        { step: 'emailConfirm', isComplete: () => !!data.emailConfirmed },
         { step: 'profilePhoto', isComplete: () => !!data.profilePhotoUri },
         { step: 'userIntent', isComplete: () => !!(data.userIntentions && data.userIntentions.length > 0) },
         { step: 'heardAbout', isComplete: () => !!data.heardAboutOtopair },
@@ -155,12 +170,12 @@ export function OnboardingFlow({
   isResumeMode = false,
   disableBack = false,
 }: OnboardingFlowProps) {
-  const { data } = useOnboardingStore();
-  const [currentStep, setCurrentStep] = useState<OnboardingStep>(initialStep);
-  const [fromStep, setFromStep] = useState<OnboardingStep>(initialStep);
-  const [toStep, setToStep] = useState<OnboardingStep>(initialStep);
+  const initialVisibleStep = getVisibleStep(initialStep);
+  const [currentStep, setCurrentStep] = useState<OnboardingStep>(initialVisibleStep);
+  const [fromStep, setFromStep] = useState<OnboardingStep>(initialVisibleStep);
+  const [toStep, setToStep] = useState<OnboardingStep>(initialVisibleStep);
   const [backDisabledStep] = useState<OnboardingStep | null>(
-    disableBack ? initialStep : null,
+    disableBack ? initialVisibleStep : null,
   );
   const { isSignedIn, userId: clerkUserId } = useAuth();
   const completeOnboarding = useMutation(api.users.completeOnboarding);
@@ -199,7 +214,7 @@ export function OnboardingFlow({
 
   // Progress should always represent the full onboarding sequence. filteredSteps
   // only controls navigation for explicit "finish account setup" flows.
-  const navigationSteps = filteredSteps;
+  const navigationSteps = filteredSteps ? getVisibleSteps(filteredSteps) : undefined;
   // Get progress info for the current step
   const getProgressInfo = () => {
     const stepIndex = PROGRESS_STEPS.indexOf(currentStep);
@@ -214,6 +229,7 @@ export function OnboardingFlow({
 
   // Handle step changes with animation
   const goToStep = (nextStep: OnboardingStep) => {
+    nextStep = getVisibleStep(nextStep);
     if (nextStep === currentStep) return;
 
     // Dismiss keyboard when transitioning
@@ -285,7 +301,7 @@ export function OnboardingFlow({
         goToStep("name");
         break;
       case "profilePhoto":
-        goToStep("emailConfirm");
+        goToStep("name");
         break;
       case 'userIntent':
                 goToStep('profilePhoto');
@@ -415,7 +431,7 @@ export function OnboardingFlow({
         goToStep("name");
         break;
       case "name":
-        goToStep("emailConfirm");
+        goToStep("profilePhoto");
         break;
       case "emailConfirm":
         goToStep("profilePhoto");
@@ -465,7 +481,7 @@ export function OnboardingFlow({
     } else {
       router.replace("/(main-tabs)/home");
     }
-  }, [currentStep, isResumeMode, isSignedIn]);
+  }, [completeOnboarding, currentStep, isResumeMode, isSignedIn]);
     // Render the current step component
     const renderStep = () => {
         switch (currentStep) {
@@ -490,8 +506,6 @@ export function OnboardingFlow({
                 return <ConfirmPhoneNumberStep onNext={goNext} onBack={effectiveGoBack} progress={progressInfo} />;
             case 'name':
                 return <NameStep onNext={goNext} onBack={effectiveGoBack} progress={progressInfo} />;
-            case 'emailConfirm':
-                return <EmailConfirmStep onNext={goNext} onBack={effectiveGoBack} progress={progressInfo} />;
             case 'profilePhoto':
                 return <ProfilePhotoStep onNext={goNext} onBack={effectiveGoBack} progress={progressInfo} />;
             case 'userIntent':

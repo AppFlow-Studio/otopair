@@ -15,7 +15,7 @@
 import { useState, useEffect } from "react";
 import { useAuth, useSSO } from "@clerk/clerk-expo";
 import * as WebBrowser from "expo-web-browser";
-import { BrandColors, FontFamily, FontSize, Spacing, Text, BorderRadius } from "@/components/shared-ui";
+import { BrandColors, FontFamily, FontSize, Spacing, Text } from "@/components/shared-ui";
 import { Image } from "expo-image";
 import {
   KeyboardAvoidingView,
@@ -24,6 +24,7 @@ import {
   View,
   Pressable,
   ActivityIndicator,
+  useWindowDimensions,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useOnboardingStore } from "@/stores/useOnboardingStore";
@@ -43,6 +44,7 @@ interface SignupStepProps {
 
 export function SignupStep({ onNext, onBack, onEmailSignup, onLogin }: SignupStepProps) {
   const insets = useSafeAreaInsets();
+  const { height } = useWindowDimensions();
   const { isSignedIn, isLoaded } = useAuth();
   const { updateData } = useOnboardingStore();
   const ensureConvexUser = useEnsureConvexUser();
@@ -52,6 +54,7 @@ export function SignupStep({ onNext, onBack, onEmailSignup, onLogin }: SignupSte
 
   const { startSSOFlow: startGoogleSSO } = useSSO();
   const { startSSOFlow: startAppleSSO } = useSSO();
+  const isCompact = height < 720;
 
   // Already signed in → redirect to home (index may have sent here if me was loading)
   useEffect(() => {
@@ -143,20 +146,22 @@ export function SignupStep({ onNext, onBack, onEmailSignup, onLogin }: SignupSte
     <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.keyboardView}>
       <View style={[styles.container, dynamicStyles.container]}>
         {/* Header Content */}
-        <View style={styles.headerContent}>
-          <Text style={styles.title}>Welcome to Otopair</Text>
-          <Text style={styles.subtitle}>
-            Your smart assistant for car health, repair tips, and maintenance reminders.
-          </Text>
-        </View>
+        <View style={[styles.content, isCompact && styles.contentCompact]}>
+          <View style={styles.logoFrame}>
+            <Image
+              source={require("@/assets/images/homelogo.png")}
+              style={styles.logo}
+              contentFit="contain"
+              accessibilityLabel="Otopair"
+            />
+          </View>
 
-        {/* Hero Image */}
-        <View style={styles.imageContainer}>
-          <Image
-            source={require("@/assets/images/onboarding/onboarding-home.png")}
-            style={styles.heroImage}
-            contentFit="cover"
-          />
+          <View style={styles.headerContent}>
+            <Text style={styles.title}>Welcome to Otopair</Text>
+            <Text style={styles.subtitle}>
+              Your smart assistant for car health, repair tips, and maintenance reminders.
+            </Text>
+          </View>
         </View>
 
         {/* Auth Buttons */}
@@ -186,10 +191,7 @@ export function SignupStep({ onNext, onBack, onEmailSignup, onLogin }: SignupSte
             {loading === "apple" ? (
               <ActivityIndicator size="small" color="#fff" />
             ) : (
-              <>
-                <Text style={styles.appleIcon}></Text>
-                <Text style={styles.appleText}>Continue with Apple</Text>
-              </>
+              <Text style={styles.appleText}>Continue with Apple</Text>
             )}
           </Pressable>
 
@@ -223,17 +225,27 @@ const styles = StyleSheet.create({
   },
   container: {
     flex: 1,
+    justifyContent: "space-between",
+  },
+  content: {
+    flex: 1,
+    justifyContent: "center",
+    paddingHorizontal: Spacing["2xl"],
+    gap: Spacing["2xl"],
+  },
+  contentCompact: {
+    gap: Spacing.xl,
   },
   headerContent: {
-    paddingHorizontal: Spacing["2xl"],
-    marginBottom: Spacing.md,
+    alignItems: "center",
   },
   title: {
     fontSize: FontSize["4xl"],
     fontFamily: FontFamily.bold,
     color: '#0F172A',
-    marginBottom: Spacing.xs,
+    marginBottom: Spacing.sm,
     lineHeight: Spacing["5xl"],
+    textAlign: "center",
   },
   subtitle: {
     fontSize: FontSize.lg,
@@ -241,17 +253,29 @@ const styles = StyleSheet.create({
     color: '#0F172A',
     opacity: 0.9,
     lineHeight: Spacing["2xl"],
-    marginBottom: Spacing.sm,
+    textAlign: "center",
+    maxWidth: 320,
   },
-  imageContainer: {
-    flex: 2,
-    paddingHorizontal: Spacing.lg,
-    marginBottom: Spacing.sm,
-  },
-  heroImage: {
-    flex: 1,
-    width: "100%",
-    borderRadius: BorderRadius["2xl"],
+  logoFrame: {
+  width: 175,
+  height: 175,
+  alignSelf: "center",
+  alignItems: "center",
+  justifyContent: "center",
+  borderRadius: 90,
+  backgroundColor: "rgba(255, 255, 255, 0.72)",
+  borderWidth: 1.5,
+  borderColor: "rgba(255, 255, 255, 1)",
+  shadowColor: "#1E40AF",
+  shadowOffset: { width: 0, height: 8 },
+  shadowOpacity: 0.10,
+  shadowRadius: 20,
+  elevation: 6,
+},
+  logo: {
+    width: 226,
+    height: 226,
+    transform: [{ translateX: -11 }, { translateY: -14 }],
   },
   buttonsContainer: {
     paddingHorizontal: Spacing["2xl"],
@@ -262,11 +286,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     paddingVertical: Spacing.md,
-    borderRadius: BorderRadius.lg,
+    borderRadius: 16,
     gap: Spacing.sm,
+    minHeight: 54,
   },
   googleButton: {
-    backgroundColor: '#EFF6FF',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: "rgba(15, 23, 42, 0.10)",
   },
   googleIcon: {
     fontSize: FontSize.xl,
@@ -281,14 +308,10 @@ const styles = StyleSheet.create({
   appleButton: {
     backgroundColor: "#000000",
   },
-  appleIcon: {
-    fontSize: FontSize.xl,
-    color: '#0F172A',
-  },
   appleText: {
     fontSize: FontSize.md,
     fontFamily: FontFamily.semiBold,
-    color: '#0F172A',
+    color: BrandColors.white,
   },
   emailButton: {
     backgroundColor: "#5299FE",
@@ -298,7 +321,7 @@ const styles = StyleSheet.create({
   emailText: {
     fontSize: FontSize.md,
     fontFamily: FontFamily.semiBold,
-    color: '#0F172A',
+    color: BrandColors.white,
   },
   errorText: {
     textAlign: "center",
