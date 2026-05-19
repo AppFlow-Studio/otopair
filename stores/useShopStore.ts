@@ -79,17 +79,10 @@ const DEFAULT_FILTERS: ShopFilters = {
 // ─────────────────────────────────────────────────────────────
 
 export const useShopStore = create<ShopState>()((set, get) => {
-  // ─── TEMP: Skip the MOCK_SHOPS seed so the home/map/booking surfaces
-  // stay empty until `useShopsFromConvex` hydrates the store with the
-  // Chelala-only filter result. Re-enable the seed below (or drop the
-  // upstream filter) when more shops launch on otopair-web. ───
+  // Skip the MOCK_SHOPS seed — `useShopsFromConvex` hydrates the store
+  // with real Convex data.
   const initialShops: Record<string, Shop> = {};
   const initialShopIds: string[] = [];
-  // MOCK_SHOPS.forEach((shop) => {
-  //   const id = String(shop.id);
-  //   initialShops[id] = { ...shop, id };
-  //   initialShopIds.push(id);
-  // });
 
   return {
     // ═══════════════ INITIAL STATE ═══════════════

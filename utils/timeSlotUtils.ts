@@ -37,8 +37,12 @@ export function todayLocalISO(): string {
 }
 
 /**
- * Earliest bookable slot time as "HH:MM" in local time:
- * now + 15 min, rounded up to the next 15-min boundary.
+ * Earliest bookable slot time as "HH:MM" in local time.
+ * Uses the current minute as the floor — a slot stays visible until its
+ * start time actually passes. No lead-time buffer: at 8:53am a 9:00 slot
+ * is still bookable because the user can confirm in seconds, and hiding
+ * opening-time slots an hour before they hit makes shops look empty in
+ * the booking flow.
  * Returns "24:00" when past midnight (all today's slots have passed).
  */
 export function minBookableHHMM(): string {
@@ -54,7 +58,10 @@ export function minBookableHHMM(): string {
 const DAY_ABBREV = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 /** Parse YYYY-MM-DD and return { dayOfWeek, day } for display */
-export function dateToDayDisplay(dateStr: string): { dayOfWeek: string; day: string } {
+export function dateToDayDisplay(dateStr: string): {
+  dayOfWeek: string;
+  day: string;
+} {
   const [y, m, d] = dateStr.split("-").map(Number);
   const date = new Date(y, m - 1, d);
   return {

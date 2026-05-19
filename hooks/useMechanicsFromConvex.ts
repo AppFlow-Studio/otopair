@@ -63,15 +63,7 @@ export function useMechanicsFromConvex() {
       seen.add(key);
       return true;
     });
-    // ─── TEMP: After dedup, only surface mechanics belonging to Chelala
-    // Service Center. Same rationale as the Chelala filter in
-    // `useShopsFromConvex.ts` — keep mobile in sync with the only shop
-    // wired up end-to-end on otopair-web. Remove when more shops go
-    // live. ───
-    const chelalaOnly = deduped.filter((m) =>
-      (m.shop?.name ?? "").toLowerCase().includes("chelala"),
-    );
-    return chelalaOnly.map((m) => mapConvexMechanicToStore(m as ConvexMechanicListRow));
+    return deduped.map((m) => mapConvexMechanicToStore(m));
   }, [convexMechanics]);
 
   useEffect(() => {
