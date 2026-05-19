@@ -169,7 +169,7 @@ export const QuoteListSheet = forwardRef<QuoteListSheetRef, Props>(
       >
         <View style={styles.fullScreen}>
           {/* Header bar with close button */}
-          <View style={[styles.topBar, { paddingTop: insets.top + 8 }]}>
+          <View style={[styles.topBar, { paddingTop: insets.top / 2}]}>
             <Text size="lg" weight="bold" color="#1A1A1A">
               Your quotes
             </Text>
