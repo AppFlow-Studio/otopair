@@ -765,6 +765,14 @@ export default function AIChatScreen() {
       const loadedState = loadConversation(conversationId);
       if (loadedState) {
         setState(loadedState);
+        // Fix (2026-05-18) -- always sync convexConversationId to the selected
+        // conversation, even on the Zustand-load early-return path. Previously
+        // this branch skipped the sync, so the next send would still use the
+        // PRIOR conversation's id -- causing <conversation_state> (mood,
+        // arc_summary, last_user_intent, established_facts) from the prior
+        // chat to leak into the new chat's envelope. User-reported as
+        // "switching between previous chats leaks context".
+        setConvexConversationId(conversationId as Id<"ai_conversations">);
         setInputValue("");
         setIsProcessing(false);
         return;
