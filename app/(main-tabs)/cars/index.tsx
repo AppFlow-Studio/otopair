@@ -13,7 +13,8 @@ import ReAnimated, {
 } from "react-native-reanimated";
 import { useIsFocused } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
-import { ArrowLeft } from "lucide-react-native";
+import { ArrowLeft, Check as CheckIcon, Copy, Info, X } from "lucide-react-native";
+import * as Clipboard from "expo-clipboard";
 import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
@@ -42,6 +43,7 @@ const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 
 // 5. Flow-specific components
 import CarCarousel, { Vehicle } from "@/components/cars/CarCarousel";
+import { ProfileInitialsButton } from "@/components/home/ProfileInitialsButton";
 import LoyaltyPoints from "@/components/cars/LoyaltyPoints";
 import MaintenanceTracker from "@/components/cars/MaintenanceTracker";
 import MaintenanceInputModal from "@/components/cars/MaintenanceInputModal";
@@ -957,6 +959,17 @@ export default function CarsHomeScreen() {
   const [maintenanceModalVisible, setMaintenanceModalVisible] = useState(false);
   const [maintenanceModalType, setMaintenanceModalType] = useState<MaintenanceType>("oil");
 
+  // VIN info modal — opened from the (i) button in the top-right of the
+  // cars page header. Shows the active vehicle's VIN.
+  const [vinModalVisible, setVinModalVisible] = useState(false);
+  const [vinCopied, setVinCopied] = useState(false);
+  const handleCopyVin = useCallback(async () => {
+    if (!activeVehicle?.vin) return;
+    await Clipboard.setStringAsync(activeVehicle.vin);
+    setVinCopied(true);
+    setTimeout(() => setVinCopied(false), 1500);
+  }, [activeVehicle?.vin]);
+
   // Edit-picker bottom sheet state
   const [showEditPicker, setShowEditPicker] = useState(false);
   const [editPickerModal, setEditPickerModal] = useState(false);
@@ -1209,37 +1222,66 @@ export default function CarsHomeScreen() {
           </ReAnimated.View>
         </View>
 
-        {/* Dev/debug buttons — top left */}
-        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: scale(6), paddingHorizontal: scale(16), marginBottom: scale(4), zIndex: 10, position: "relative" }}>
-          {isPreOnboardingComplete && showPostOnboardingContent && activeOwnershipId && (
+        {/* Profile button (far left) + dev pills + VIN info button (right) */}
+        <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: scale(16), marginBottom: scale(4), zIndex: 10, position: "relative" }}>
+          <ProfileInitialsButton />
+          <View style={{ flex: 1, flexDirection: "row", flexWrap: "wrap", gap: scale(6), marginLeft: scale(12) }}>
+            {/* Redo Info — commented out (dev-only). Uncomment to restore.
+            {isPreOnboardingComplete && showPostOnboardingContent && activeOwnershipId && (
+              <Pressable
+                style={({ pressed }) => [{ paddingVertical: scale(4), paddingHorizontal: scale(10), borderRadius: moderateScale(12), backgroundColor: "rgba(82,153,254,0.1)" }, pressed && { opacity: 0.7 }]}
+                onPress={async () => {
+                  try {
+                    await resetOnboarding({ vehicleOwnerId: activeOwnershipId });
+                    setLocalOnboardingDone(false);
+                  } catch (err) {
+                    console.warn("Reset onboarding failed:", err);
+                  }
+                }}
+              >
+                <Text weight="semiBold" size="xs" color="#5299FE">Redo Info</Text>
+              </Pressable>
+            )}
+            */}
+            {/* Remove — commented out (dev-only). Uncomment to restore.
+            {!!activeVehicle?.vin && !!userId && (
+              <Pressable
+                style={({ pressed }) => [{ paddingVertical: scale(4), paddingHorizontal: scale(10), borderRadius: moderateScale(12), backgroundColor: "rgba(239,68,68,0.12)" }, pressed && { opacity: 0.7 }]}
+                onPress={handleRemoveActiveVehicle}
+              >
+                <Text weight="semiBold" size="xs" color="#DC2626">Remove</Text>
+              </Pressable>
+            )}
+            */}
+            {/* Demo Check-In — commented out (dev-only). Uncomment to restore.
+            {activeOwnershipId && isPreOnboardingComplete && (
+              <Pressable
+                style={({ pressed }) => [{ paddingVertical: scale(4), paddingHorizontal: scale(10), borderRadius: moderateScale(12), backgroundColor: "rgba(0,0,0,0.05)" }, pressed && { opacity: 0.7 }]}
+                onPress={() => router.push({ pathname: "/quarterly-checkin", params: { vehicleOwnerId: activeOwnershipId, vehicleName: activeVehicle?.make ? `${activeVehicle.make} ${activeVehicle.model ?? ""}`.trim() : undefined } })}
+              >
+                <Text weight="semiBold" size="xs" color="#6B7280">Demo Check-In</Text>
+              </Pressable>
+            )}
+            */}
+          </View>
+          {!!activeVehicle?.vin && (
             <Pressable
-              style={({ pressed }) => [{ paddingVertical: scale(4), paddingHorizontal: scale(10), borderRadius: moderateScale(12), backgroundColor: "rgba(82,153,254,0.1)" }, pressed && { opacity: 0.7 }]}
-              onPress={async () => {
-                try {
-                  await resetOnboarding({ vehicleOwnerId: activeOwnershipId });
-                  setLocalOnboardingDone(false);
-                } catch (err) {
-                  console.warn("Reset onboarding failed:", err);
-                }
-              }}
+              accessibilityLabel="Show VIN"
+              hitSlop={10}
+              onPress={() => setVinModalVisible(true)}
+              style={({ pressed }) => [
+                {
+                  width: scale(28),
+                  height: scale(28),
+                  borderRadius: scale(14),
+                  alignItems: "center",
+                  justifyContent: "center",
+                  backgroundColor: "rgba(15,23,42,0.06)",
+                },
+                pressed && { opacity: 0.6 },
+              ]}
             >
-              <Text weight="semiBold" size="xs" color="#5299FE">Redo Info</Text>
-            </Pressable>
-          )}
-          {!!activeVehicle?.vin && !!userId && (
-            <Pressable
-              style={({ pressed }) => [{ paddingVertical: scale(4), paddingHorizontal: scale(10), borderRadius: moderateScale(12), backgroundColor: "rgba(239,68,68,0.12)" }, pressed && { opacity: 0.7 }]}
-              onPress={handleRemoveActiveVehicle}
-            >
-              <Text weight="semiBold" size="xs" color="#DC2626">Remove</Text>
-            </Pressable>
-          )}
-          {activeOwnershipId && isPreOnboardingComplete && (
-            <Pressable
-              style={({ pressed }) => [{ paddingVertical: scale(4), paddingHorizontal: scale(10), borderRadius: moderateScale(12), backgroundColor: "rgba(0,0,0,0.05)" }, pressed && { opacity: 0.7 }]}
-              onPress={() => router.push({ pathname: "/quarterly-checkin", params: { vehicleOwnerId: activeOwnershipId, vehicleName: activeVehicle?.make ? `${activeVehicle.make} ${activeVehicle.model ?? ""}`.trim() : undefined } })}
-            >
-              <Text weight="semiBold" size="xs" color="#6B7280">Demo Check-In</Text>
+              <Info size={scale(16)} color="#475569" strokeWidth={2.2} />
             </Pressable>
           )}
         </View>
@@ -1500,6 +1542,62 @@ export default function CarsHomeScreen() {
           }}
         />
       )}
+
+      {/* ═══════════════════════════════════════════════════════════════════
+          VIN INFO MODAL
+      ═══════════════════════════════════════════════════════════════════ */}
+      <Modal
+        visible={vinModalVisible}
+        transparent
+        animationType="fade"
+        statusBarTranslucent
+        onRequestClose={() => setVinModalVisible(false)}
+      >
+        <Pressable
+          style={vinModalStyles.backdrop}
+          onPress={() => setVinModalVisible(false)}
+        >
+          <View
+            style={vinModalStyles.card}
+            onStartShouldSetResponder={() => true}
+          >
+            <Pressable
+              accessibilityLabel="Close"
+              hitSlop={16}
+              onPress={() => setVinModalVisible(false)}
+              style={({ pressed }) => [vinModalStyles.closeBtn, pressed && { opacity: 0.6 }]}
+            >
+              <X size={22} color="#475569" strokeWidth={2.4} />
+            </Pressable>
+            <Text weight="bold" size="lg" color="#0F172A" style={vinModalStyles.title}>
+              Vehicle VIN
+            </Text>
+            {activeVehicle ? (
+              <Text weight="semiBold" size="sm" color="#64748B" style={vinModalStyles.subtitle}>
+                {`${activeVehicle.year ?? ""} ${activeVehicle.make ?? ""} ${activeVehicle.model ?? ""}`.trim()}
+              </Text>
+            ) : null}
+            <View style={vinModalStyles.vinBox}>
+              <Text style={vinModalStyles.vinText} numberOfLines={1}>
+                {activeVehicle?.vin || "—"}
+              </Text>
+              <Pressable
+                accessibilityLabel={vinCopied ? "VIN copied" : "Copy VIN"}
+                hitSlop={8}
+                onPress={handleCopyVin}
+                disabled={!activeVehicle?.vin}
+                style={({ pressed }) => [vinModalStyles.copyIconBtn, pressed && { opacity: 0.6 }]}
+              >
+                {vinCopied ? (
+                  <CheckIcon size={scale(16)} color="#10B981" strokeWidth={2.4} />
+                ) : (
+                  <Copy size={scale(16)} color="#5299FE" strokeWidth={2.2} />
+                )}
+              </Pressable>
+            </View>
+          </View>
+        </Pressable>
+      </Modal>
 
       {/* ═══════════════════════════════════════════════════════════════════
           EDIT PICKER BOTTOM SHEET
@@ -1992,6 +2090,67 @@ export default function CarsHomeScreen() {
 // ============================================================================
 // EDIT PICKER BOTTOM SHEET STYLES
 // ============================================================================
+
+const vinModalStyles = StyleSheet.create({
+  backdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.45)",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: scale(24),
+  },
+  card: {
+    width: "100%",
+    maxWidth: scale(360),
+    backgroundColor: "#FFFFFF",
+    borderRadius: moderateScale(20),
+    paddingTop: scale(20),
+    paddingBottom: scale(20),
+    paddingHorizontal: scale(20),
+  },
+  closeBtn: {
+    position: "absolute",
+    top: scale(8),
+    right: scale(8),
+    width: scale(40),
+    height: scale(40),
+    borderRadius: scale(20),
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(15,23,42,0.06)",
+  },
+  title: {
+    marginBottom: scale(4),
+    paddingRight: scale(44),
+  },
+  subtitle: {
+    marginBottom: scale(14),
+  },
+  vinBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(15,23,42,0.04)",
+    borderRadius: moderateScale(12),
+    paddingVertical: scale(12),
+    paddingLeft: scale(14),
+    paddingRight: scale(8),
+    gap: scale(8),
+  },
+  vinText: {
+    flex: 1,
+    fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
+    fontSize: moderateScale(15),
+    color: "#0F172A",
+    letterSpacing: 1.2,
+  },
+  copyIconBtn: {
+    width: scale(30),
+    height: scale(30),
+    borderRadius: scale(15),
+    alignItems: "center",
+    justifyContent: "center",
+  },
+});
 
 const pickerStyles = StyleSheet.create({
   backdrop: {

@@ -14,14 +14,58 @@
  */
 
 // 1. React & React Native
-import React, { useCallback, useMemo, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
 
 // 2. Expo & Third-party
 import { useRouter } from "expo-router";
 import { useQuery } from "convex/react";
-import Animated, { FadeIn, FadeInUp } from "react-native-reanimated";
-import { ArrowLeft, Check, Clock, Star, X } from "lucide-react-native";
+import Animated, {
+  Easing,
+  FadeIn,
+  FadeInRight,
+  FadeInUp,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
+import {
+  AlertTriangle,
+  ArrowLeft,
+  Calendar,
+  Check,
+  Circle,
+  Clock,
+  Disc,
+  Droplet,
+  Gauge,
+  MapPin,
+  Pencil,
+  Scan,
+  Star,
+  Wind,
+  Wrench,
+  X,
+} from "lucide-react-native";
+
+// Per-service icon mapping for Stage 1. Falls back to Wrench for any
+// service ID not explicitly mapped here.
+const SERVICE_ICONS: Record<
+  string,
+  React.ComponentType<{ size?: number; color?: string; strokeWidth?: number }>
+> = {
+  svc_oil_change: Droplet,
+  svc_air_filter: Wind,
+  svc_fluid_check: Droplet,
+  svc_tire_rotation: Circle,
+  svc_tire_balance: Circle,
+  svc_tire_pressure: Gauge,
+  svc_brake_inspection: Disc,
+  svc_brake_pads: Disc,
+  svc_brake_fluid: Disc,
+  svc_diagnostic_scan: Scan,
+  svc_check_engine: AlertTriangle,
+};
 
 // 3. Shared UI (design system)
 import { Text } from "@/components/shared-ui";
@@ -31,6 +75,7 @@ import { BorderRadius, BrandColors, FontFamily, Spacing } from "@/constants/them
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useMechanicsFromConvex } from "@/hooks/useMechanicsFromConvex";
+import { useServicesFromConvex } from "@/hooks/useServicesFromConvex";
 import { useShopsFromConvex } from "@/hooks/useShopsFromConvex";
 import type { BookServicePayload } from "@/services/ai/types";
 import { useBookingStore } from "@/stores/useBookingStore";
@@ -183,11 +228,16 @@ export function BookServiceComponent({
 }: BookServiceComponentProps) {
   const router = useRouter();
 
-  // Hydrate mechanic + shop stores in the background (these queries are also
-  // used by other surfaces, so they're already warm if the user has been
-  // browsing the app).
+  // Hydrate mechanic + shop + services stores in the background (these
+  // queries are also used by other surfaces, so they're already warm if the
+  // user has been browsing the app). Services in particular must be hydrated
+  // here — otherwise a user entering the booking flow directly from AI chat
+  // (without visiting Home first) reaches the pay-screen with an empty
+  // `availableServices` store and the booking creation rejects with "No
+  // services selected" because none of the local catalog ids will match.
   useMechanicsFromConvex();
   useShopsFromConvex();
+  useServicesFromConvex();
 
   const allMechanicsList = useMechanicStore((s) => s.mechanicIds);
   const getMechanicById = useMechanicStore((s) => s.getMechanicById);
@@ -201,6 +251,11 @@ export function BookServiceComponent({
   const selectMechanic = useBookingStore((s) => s.selectMechanic);
   const setScheduledAppointment = useBookingStore((s) => s.setScheduledAppointment);
   const setBookingStage = useBookingStore((s) => s.setBookingStage);
+  // Real Convex services list (hydrated globally by useServicesFromConvex).
+  // We need the canonical `Id<"services">` values at toggle time — the
+  // pay-screen's createBookingConvex filters availableServices by id, and
+  // our local catalog ids ("svc_oil_change") will never match.
+  const availableConvexServices = useBookingStore((s) => s.availableServices);
 
   // ──────────────────────────────────────────────────────────────────────
   // Internal state — driven by payload prefill; user can override at any
@@ -239,6 +294,12 @@ export function BookServiceComponent({
   const [selectedSlotId, setSelectedSlotId] = useState<string | null>(null);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // Inline failure surface — fires when the Book & Pay handoff can't
+  // happen because the Convex services list hasn't hydrated or the
+  // selected names don't match any Convex row. Surfaces above the
+  // footer button so the user sees why nothing is happening instead of
+  // a generic "Booking Failed" two screens later.
+  const [bookHandoffError, setBookHandoffError] = useState<string | null>(null);
 
   const hasDiagnostic = selectedIds.has("svc_diagnostic_scan");
   const selectedServiceOptions: ServiceOption[] = useMemo(
@@ -278,7 +339,16 @@ export function BookServiceComponent({
   );
 
   // ──────────────────────────────────────────────────────────────────────
-  // Sorted mechanic list — applies the user's priority chip selection
+  // Sorted mechanic list — applies the user's priority chip selection.
+  //
+  // TODO (multi-service intersection — handoff §1 fixup): when
+  // `selectedIds.size > 1`, this should additionally filter to mechanics
+  // whose shops offer ALL selected services. The shops_services join
+  // doesn't have a server-side `getMechanicsForServices` helper yet, so
+  // for now we trust Oto's prompt (which picks shops covering the slugs)
+  // and surface every active mechanic. Booking creation will reject any
+  // mechanic whose shop doesn't carry the chosen services. Backend
+  // (Waleed's lane) needs a join query before we can hide them here.
   // ──────────────────────────────────────────────────────────────────────
   const sortedMechanics = useMemo(() => {
     const all = allMechanicsList
@@ -372,6 +442,33 @@ export function BookServiceComponent({
     if (disabled || isSubmitting) return;
     if (!selectedMechanicId || !selectedSlot) return;
 
+    // Resolve each selected local catalog service to its real Convex
+    // `Id<"services">` by name match. We must never put a local-catalog
+    // string into the booking store — the pay-screen's
+    // `useCreateBookingConvex` filters availableServices by Convex `_id`
+    // and a missing match throws "No services selected". If the Convex
+    // services list hasn't hydrated yet, surface a clear inline error
+    // and let the user retry once the data lands.
+    const convexIdsToToggle: string[] = [];
+    for (const s of selectedServiceOptions) {
+      const convexMatch = availableConvexServices.find(
+        (cs) => cs.name.trim().toLowerCase() === s.name.trim().toLowerCase(),
+      );
+      if (convexMatch) {
+        convexIdsToToggle.push(convexMatch.id);
+      }
+    }
+
+    if (convexIdsToToggle.length === 0) {
+      setBookHandoffError(
+        availableConvexServices.length === 0
+          ? "Loading services — try again in a moment."
+          : "Couldn't match those services to our catalog. Please pick from the list and try again.",
+      );
+      return;
+    }
+
+    setBookHandoffError(null);
     setIsSubmitting(true);
 
     // Mirror the existing handleBookNow flow (ai-chat/index.tsx:692-774) so
@@ -379,10 +476,7 @@ export function BookServiceComponent({
 
     // 1) Clear + re-toggle services into the booking-store's service IDs.
     clearSelectedServices();
-    selectedServiceOptions.forEach((s) => {
-      const storeId = LOCAL_ID_TO_STORE_ID[s.id] ?? s.id;
-      toggleServiceSelection(storeId);
-    });
+    convexIdsToToggle.forEach((id) => toggleServiceSelection(id));
 
     // 2) Select mechanic.
     selectMechanic(selectedMechanicId);
@@ -406,14 +500,22 @@ export function BookServiceComponent({
     onBookAndPay?.(selectedMechanicId);
 
     // 5) Navigate. The pay-screen reads the booking store + creates the
-    //    booking row via useCreateBookingConvex.
-    router.push(`/home/mechanic/${selectedMechanicId}/payment`);
+    //    booking row via useCreateBookingConvex. Reset isSubmitting in a
+    //    finally block — without this, the chat-message-mounted form
+    //    stays stuck on "Booking…" forever after the user returns from
+    //    the payment screen.
+    try {
+      router.push(`/home/mechanic/${selectedMechanicId}/payment`);
+    } finally {
+      setIsSubmitting(false);
+    }
   }, [
     disabled,
     isSubmitting,
     selectedMechanicId,
     selectedSlot,
     selectedServiceOptions,
+    availableConvexServices,
     clearSelectedServices,
     toggleServiceSelection,
     selectMechanic,
@@ -506,9 +608,24 @@ export function BookServiceComponent({
         ) : (
           <View style={styles.headerIconButton} />
         )}
-        <Text style={styles.headerTitle} weight="semiBold">
-          {stageTitle(stage)}
-        </Text>
+        <View style={styles.headerTitleWrap}>
+          <Text style={styles.headerTitle} weight="semiBold">
+            {stageTitle(stage)}
+          </Text>
+          {headerSubtitle(
+            stage,
+            selectedServiceOptions,
+            selectedMechanic?.name ?? null,
+          ) ? (
+            <Text style={styles.headerSubtitle} size="xs">
+              {headerSubtitle(
+                stage,
+                selectedServiceOptions,
+                selectedMechanic?.name ?? null,
+              )}
+            </Text>
+          ) : null}
+        </View>
         <Pressable
           onPress={onDismiss}
           disabled={disabled}
@@ -522,70 +639,85 @@ export function BookServiceComponent({
       {/* Stepper */}
       <Stepper currentStage={stage} hasDiagnostic={hasDiagnostic} onJump={jumpToStage} />
 
-      {/* Stage body */}
+      {/* Stage body — Animated.View wrapper keyed on the stage number so
+          the body remounts + slides in from the right whenever the user
+          advances. (Going back also re-triggers, which feels right —
+          each stage entrance has a fresh sense of motion.) */}
       <ScrollView
         style={styles.body}
         contentContainerStyle={styles.bodyContent}
         showsVerticalScrollIndicator={false}
         nestedScrollEnabled
       >
-        {stage === 1 && (
-          <Stage1Services
-            selectedIds={selectedIds}
-            onToggle={toggleServiceLocal}
-            disabled={disabled}
-          />
-        )}
-        {stage === 2 && <Stage2Options services={selectedServiceOptions} />}
-        {stage === 3 && hasDiagnostic && (
-          <Stage3Notes
-            system={diagnosticSystem}
-            notes={customerNotes}
-            onSystemChange={setDiagnosticSystem}
-            onNotesChange={setCustomerNotes}
-            disabled={disabled}
-          />
-        )}
-        {stage === 4 && (
-          <Stage4Mechanic
-            mechanics={sortedMechanics}
-            priority={priority}
-            onPriorityChange={setPriority}
-            selectedMechanicId={selectedMechanicId}
-            onSelect={handleMechanicSelect}
-            recommendedMechanicId={payload.recommended_mechanic_id}
-            getShopName={(id) => getShopById(id)?.name ?? null}
-            disabled={disabled}
-          />
-        )}
-        {stage === 5 && (
-          <Stage5Time
-            slots={slots ?? []}
-            isLoading={slots === undefined && selectedMechanicId !== null}
-            mechanicSelected={selectedMechanicId !== null}
-            selectedSlotId={selectedSlotId}
-            onSelect={setSelectedSlotId}
-            disabled={disabled}
-          />
-        )}
-        {stage === 6 && (
-          <Stage6Confirm
-            services={selectedServiceOptions}
-            hasDiagnostic={hasDiagnostic}
-            diagnosticSystem={diagnosticSystem}
-            customerNotes={customerNotes}
-            mechanicName={selectedMechanic ? selectedMechanic.name : null}
-            shopName={selectedShop?.name ?? null}
-            laborRate={selectedShop?.labor_rate ?? null}
-            slotIsoDate={selectedSlot?.date ?? null}
-            slotStartTime={selectedSlot?.start_time ?? null}
-            onJump={jumpToStage}
-          />
-        )}
+        <Animated.View
+          key={stage}
+          entering={FadeInRight.duration(280).easing(Easing.out(Easing.cubic))}
+        >
+          {stage === 1 && (
+            <Stage1Services
+              selectedIds={selectedIds}
+              onToggle={toggleServiceLocal}
+              disabled={disabled}
+            />
+          )}
+          {stage === 2 && <Stage2Options services={selectedServiceOptions} />}
+          {stage === 3 && hasDiagnostic && (
+            <Stage3Notes
+              system={diagnosticSystem}
+              notes={customerNotes}
+              onSystemChange={setDiagnosticSystem}
+              onNotesChange={setCustomerNotes}
+              disabled={disabled}
+            />
+          )}
+          {stage === 4 && (
+            <Stage4Mechanic
+              mechanics={sortedMechanics}
+              priority={priority}
+              onPriorityChange={setPriority}
+              selectedMechanicId={selectedMechanicId}
+              onSelect={handleMechanicSelect}
+              recommendedMechanicId={payload.recommended_mechanic_id}
+              getShopName={(id) => getShopById(id)?.name ?? null}
+              disabled={disabled}
+            />
+          )}
+          {stage === 5 && (
+            <Stage5Time
+              slots={slots ?? []}
+              isLoading={slots === undefined && selectedMechanicId !== null}
+              mechanicSelected={selectedMechanicId !== null}
+              selectedSlotId={selectedSlotId}
+              onSelect={setSelectedSlotId}
+              disabled={disabled}
+            />
+          )}
+          {stage === 6 && (
+            <Stage6Confirm
+              services={selectedServiceOptions}
+              hasDiagnostic={hasDiagnostic}
+              diagnosticSystem={diagnosticSystem}
+              customerNotes={customerNotes}
+              mechanicName={selectedMechanic ? selectedMechanic.name : null}
+              shopName={selectedShop?.name ?? null}
+              laborRate={selectedShop?.labor_rate ?? null}
+              slotIsoDate={selectedSlot?.date ?? null}
+              slotStartTime={selectedSlot?.start_time ?? null}
+              onJump={jumpToStage}
+            />
+          )}
+        </Animated.View>
       </ScrollView>
 
       {/* Footer */}
       <View style={styles.footer}>
+        {bookHandoffError && stage === 6 ? (
+          <View style={styles.handoffError}>
+            <Text style={styles.handoffErrorText} weight="medium">
+              {bookHandoffError}
+            </Text>
+          </View>
+        ) : null}
         <Pressable
           onPress={footer.onPress}
           disabled={!footer.enabled || disabled}
@@ -596,6 +728,13 @@ export function BookServiceComponent({
             (!footer.enabled || disabled) && styles.footerButtonDisabled,
           ]}
         >
+          {isSubmitting ? (
+            <ActivityIndicator
+              color={BrandColors.white}
+              size="small"
+              style={styles.footerSpinner}
+            />
+          ) : null}
           <Text
             style={[styles.footerButtonText, footer.enabled && styles.footerButtonTextEnabled]}
             weight="semiBold"
@@ -615,32 +754,40 @@ export function BookServiceComponent({
 function Stepper({
   currentStage,
   hasDiagnostic,
-  onJump,
 }: {
   currentStage: Stage;
   hasDiagnostic: boolean;
-  onJump: (s: Stage) => void;
+  // Kept on the prop list for API stability; the new stepper is read-only.
+  onJump?: (s: Stage) => void;
 }) {
+  // Skipping stage 3 when there's no diagnostic keeps the user's mental
+  // count honest — they see "Step 4 of 5" instead of jumping 2→4 of 6.
   const stages: Stage[] = hasDiagnostic ? [1, 2, 3, 4, 5, 6] : [1, 2, 4, 5, 6];
+  const totalSteps = stages.length;
+  const currentIndex = Math.max(0, stages.indexOf(currentStage));
+  // Always fill at least a sliver so step 1 doesn't look empty.
+  const targetWidth = ((currentIndex + 1) / totalSteps) * 100;
+
+  const widthSV = useSharedValue(targetWidth);
+  useEffect(() => {
+    widthSV.value = withTiming(targetWidth, {
+      duration: 300,
+      easing: Easing.out(Easing.cubic),
+    });
+  }, [targetWidth, widthSV]);
+
+  const barStyle = useAnimatedStyle(() => ({
+    width: `${widthSV.value}%`,
+  }));
+
   return (
-    <View style={styles.stepper}>
-      {stages.map((s) => {
-        const isCurrent = s === currentStage;
-        const isPast = s < currentStage;
-        return (
-          <Pressable
-            key={s}
-            onPress={() => isPast && onJump(s)}
-            disabled={!isPast}
-            hitSlop={6}
-            style={[
-              styles.stepDot,
-              isCurrent && styles.stepDotActive,
-              isPast && styles.stepDotDone,
-            ]}
-          />
-        );
-      })}
+    <View style={styles.stepperRow}>
+      <Text style={styles.stepperLabel} weight="semiBold">
+        Step {currentIndex + 1} of {totalSteps}
+      </Text>
+      <View style={styles.stepperTrack}>
+        <Animated.View style={[styles.stepperFill, barStyle]} />
+      </View>
     </View>
   );
 }
@@ -659,6 +806,33 @@ function stageTitle(stage: Stage): string {
       return "Pick a time";
     case 6:
       return "Review & book";
+  }
+}
+
+// Dynamic subtitle that updates as the user makes selections, giving
+// per-stage context under the title without adding chrome.
+function headerSubtitle(
+  stage: Stage,
+  services: ServiceOption[],
+  mechanicName: string | null,
+): string | null {
+  const count = services.length;
+  switch (stage) {
+    case 1:
+      return null;
+    case 2:
+    case 3:
+      return count > 0
+        ? `${count} service${count === 1 ? "" : "s"} selected`
+        : null;
+    case 4:
+      return count > 0
+        ? `${count} service${count === 1 ? "" : "s"} · pick who works on it`
+        : null;
+    case 5:
+      return mechanicName ? `Mechanic: ${mechanicName}` : null;
+    case 6:
+      return "Final review";
   }
 }
 
@@ -684,6 +858,7 @@ function Stage1Services({
       <View style={styles.serviceList}>
         {DEFAULT_SERVICES.map((s, i) => {
           const selected = selectedIds.has(s.id);
+          const IconComponent = SERVICE_ICONS[s.id] ?? Wrench;
           return (
             <Animated.View key={s.id} entering={FadeInUp.delay(i * 20).duration(160)}>
               <Pressable
@@ -695,6 +870,13 @@ function Stage1Services({
                   pressed && !disabled && styles.serviceRowPressed,
                 ]}
               >
+                <View style={styles.serviceIconWrap}>
+                  <IconComponent
+                    size={18}
+                    color={BrandColors.secondary}
+                    strokeWidth={2}
+                  />
+                </View>
                 <View style={styles.serviceRowInfo}>
                   <Text
                     style={[styles.serviceName, selected && styles.serviceNameSelected]}
@@ -901,6 +1083,14 @@ function Stage4Mechanic({
             const selected = m.id === selectedMechanicId;
             const recommended = recommendedMechanicId !== undefined && m.id === recommendedMechanicId;
             const shopName = getShopName(m.shopId);
+            const initials = m.name
+              .split(/\s+/)
+              .filter(Boolean)
+              .slice(0, 2)
+              .map((part) => part[0]?.toUpperCase() ?? "")
+              .join("");
+            const distanceLabel =
+              m.distanceMi > 0 ? `${m.distanceMi.toFixed(1)} mi` : null;
             return (
               <Animated.View key={m.id} entering={FadeInUp.delay(i * 20).duration(160)}>
                 <Pressable
@@ -913,23 +1103,62 @@ function Stage4Mechanic({
                     pressed && !disabled && styles.mechanicRowPressed,
                   ]}
                 >
+                  {recommended ? (
+                    <View style={styles.otoPickBadge}>
+                      <Star
+                        size={10}
+                        color="#92400E"
+                        fill="#92400E"
+                        strokeWidth={0}
+                      />
+                      <Text style={styles.otoPickBadgeText} weight="semiBold">
+                        Oto's Pick
+                      </Text>
+                    </View>
+                  ) : null}
+                  <View style={styles.mechanicAvatar}>
+                    <Text style={styles.mechanicAvatarText} weight="semiBold">
+                      {initials || "M"}
+                    </Text>
+                  </View>
                   <View style={styles.mechanicInfo}>
                     <Text
                       style={[styles.mechanicName, selected && styles.mechanicNameSelected]}
                       weight="semiBold"
                     >
                       {m.name}
-                      {recommended ? "  ★" : ""}
                     </Text>
-                    <Text style={styles.mechanicMeta} size="sm">
-                      {shopName ?? "Shop"} · {m.title}
-                    </Text>
+                    {shopName ? (
+                      <Text style={styles.mechanicShop} size="sm">
+                        {shopName}
+                      </Text>
+                    ) : null}
                     <View style={styles.mechanicMetaRow}>
                       <Star size={11} color="#F59E0B" fill="#F59E0B" />
                       <Text style={styles.mechanicMetaSmall} size="xs">
                         {(m.rating ?? 0).toFixed(1)}
                         {m.reviewCount !== undefined ? ` (${m.reviewCount})` : ""}
                       </Text>
+                      {m.title ? (
+                        <>
+                          <Text style={styles.mechanicMetaDot} size="xs">
+                            ·
+                          </Text>
+                          <Text style={styles.mechanicMetaSmall} size="xs">
+                            {m.title}
+                          </Text>
+                        </>
+                      ) : null}
+                      {distanceLabel ? (
+                        <>
+                          <Text style={styles.mechanicMetaDot} size="xs">
+                            ·
+                          </Text>
+                          <Text style={styles.mechanicMetaSmall} size="xs">
+                            {distanceLabel}
+                          </Text>
+                        </>
+                      ) : null}
                     </View>
                   </View>
                   <View
@@ -1089,27 +1318,64 @@ function Stage6Confirm({
         Final review. Tap any row to edit. Payment confirms on the next screen.
       </Text>
 
-      <Row
-        label="Services"
-        value={services.map((s) => s.name).join(", ") || "—"}
-        onEdit={() => onJump(1)}
-      />
-      {hasDiagnostic && (
-        <Row label="Diagnostic system" value={systemLabel} onEdit={() => onJump(3)} />
-      )}
-      {hasDiagnostic && customerNotes.trim() && (
-        <Row label="Notes" value={customerNotes.trim()} onEdit={() => onJump(3)} />
-      )}
-      <Row
-        label="Mechanic"
-        value={mechanicName ? `${mechanicName}${shopName ? ` · ${shopName}` : ""}` : "—"}
-        onEdit={() => onJump(4)}
-      />
-      <Row label="When" value={slotLabel} onEdit={() => onJump(5)} />
-      <Row
-        label="Labor rate"
-        value={laborRate !== null ? `$${laborRate.toFixed(0)}/hr (shop posted)` : "—"}
-      />
+      {/* Hero card — shop + mechanic + appointment all at-a-glance. */}
+      <View style={styles.reviewHero}>
+        <View style={styles.reviewHeroHeader}>
+          <View style={styles.reviewHeroIconWrap}>
+            <Wrench size={18} color={BrandColors.secondary} strokeWidth={2} />
+          </View>
+          <View style={styles.reviewHeroText}>
+            <Text style={styles.reviewHeroShop} weight="semiBold" numberOfLines={1}>
+              {shopName ?? "Service center"}
+            </Text>
+            {mechanicName ? (
+              <Text style={styles.reviewHeroMechanic} size="sm">
+                with {mechanicName}
+              </Text>
+            ) : null}
+          </View>
+        </View>
+        <View style={styles.reviewHeroDivider} />
+        <View style={styles.reviewHeroFooter}>
+          <Calendar size={14} color="#6B7280" strokeWidth={2} />
+          <Text style={styles.reviewHeroDate} size="sm" weight="medium">
+            {slotLabel}
+          </Text>
+        </View>
+      </View>
+
+      {/* Unified summary card — internal dividers between rows. */}
+      <View style={styles.reviewSummaryCard}>
+        <ReviewSummaryRow
+          label="Services"
+          value={services.map((s) => s.name).join(" · ") || "—"}
+          onEdit={() => onJump(1)}
+        />
+        {hasDiagnostic && (
+          <ReviewSummaryRow
+            label="Diagnostic system"
+            value={systemLabel}
+            onEdit={() => onJump(3)}
+            divider
+          />
+        )}
+        {hasDiagnostic && customerNotes.trim() && (
+          <ReviewSummaryRow
+            label="Notes"
+            value={customerNotes.trim()}
+            onEdit={() => onJump(3)}
+            divider
+          />
+        )}
+        <ReviewSummaryRow
+          label="Labor rate"
+          value={
+            laborRate !== null ? `$${laborRate.toFixed(0)}/hr (shop posted)` : "—"
+          }
+          divider
+        />
+      </View>
+
       <Text style={styles.disclaimer} size="xs">
         Final total is calculated on the payment screen from the shop's posted
         labor rate and parts estimate.
@@ -1118,32 +1384,42 @@ function Stage6Confirm({
   );
 }
 
-function Row({
+function ReviewSummaryRow({
   label,
   value,
   onEdit,
+  divider,
 }: {
   label: string;
   value: string;
   onEdit?: () => void;
+  divider?: boolean;
 }) {
   return (
-    <View style={styles.reviewRow}>
-      <View style={styles.reviewRowText}>
-        <Text style={styles.reviewLabel} size="xs" weight="semiBold">
-          {label}
-        </Text>
-        <Text style={styles.reviewValue} size="sm">
-          {value}
-        </Text>
-      </View>
-      {onEdit && (
-        <Pressable onPress={onEdit} hitSlop={6} style={styles.reviewEdit}>
-          <Text style={styles.reviewEditText} size="xs" weight="semiBold">
-            Edit
+    <View>
+      {divider ? <View style={styles.reviewSummaryDivider} /> : null}
+      <View style={styles.reviewSummaryRow}>
+        <View style={styles.reviewRowText}>
+          <Text style={styles.reviewLabel} size="xs" weight="semiBold">
+            {label}
           </Text>
-        </Pressable>
-      )}
+          <Text style={styles.reviewValue} size="sm">
+            {value}
+          </Text>
+        </View>
+        {onEdit && (
+          <Pressable
+            onPress={onEdit}
+            hitSlop={6}
+            style={({ pressed }) => [
+              styles.reviewEditIcon,
+              pressed && { opacity: 0.6 },
+            ]}
+          >
+            <Pencil size={14} color="#9CA3AF" strokeWidth={2} />
+          </Pressable>
+        )}
+      </View>
     </View>
   );
 }
@@ -1203,33 +1479,47 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  headerTitle: {
+  headerTitleWrap: {
     flex: 1,
-    textAlign: "center",
+    alignItems: "center",
+    gap: 2,
+  },
+  headerTitle: {
     color: BrandColors.primary,
     fontSize: 15,
     fontFamily: FontFamily.semiBold,
+    textAlign: "center",
   },
-  // Stepper — subtle progress indicator, not a chrome-heavy toolbar
-  stepper: {
+  headerSubtitle: {
+    color: "#6B7280",
+    fontSize: 11,
+    textAlign: "center",
+  },
+  // Progress strip — visible "Step X of Y" label + filling bar.
+  stepperRow: {
     flexDirection: "row",
-    justifyContent: "center",
     alignItems: "center",
-    gap: 5,
-    paddingVertical: Spacing.xs,
+    gap: Spacing.md,
+    paddingHorizontal: Spacing.lg,
+    paddingTop: Spacing.xs,
+    paddingBottom: Spacing.sm,
   },
-  stepDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: "#E5E7EB",
+  stepperLabel: {
+    fontSize: 13,
+    color: BrandColors.primary,
+    fontFamily: FontFamily.semiBold,
   },
-  stepDotActive: {
-    width: 16,
+  stepperTrack: {
+    flex: 1,
+    height: 4,
+    backgroundColor: "rgba(0,0,0,0.08)",
+    borderRadius: 2,
+    overflow: "hidden",
+  },
+  stepperFill: {
+    height: "100%",
     backgroundColor: BrandColors.secondary,
-  },
-  stepDotDone: {
-    backgroundColor: BrandColors.secondary + "55",
+    borderRadius: 2,
   },
   // Body
   body: {
@@ -1268,6 +1558,15 @@ const styles = StyleSheet.create({
     padding: Spacing.md,
     borderWidth: 1,
     borderColor: "#E5E7EB",
+    gap: Spacing.sm + 2,
+  },
+  serviceIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: BrandColors.secondary + "1A",
+    alignItems: "center",
+    justifyContent: "center",
   },
   serviceRowSelected: {
     borderColor: BrandColors.secondary,
@@ -1379,35 +1678,58 @@ const styles = StyleSheet.create({
     gap: Spacing.xs,
   },
   mechanicRow: {
+    position: "relative",
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: BrandColors.white,
     borderRadius: BorderRadius.lg,
     padding: Spacing.md,
+    paddingTop: Spacing.md + 4,
     borderWidth: 1,
     borderColor: "#E5E7EB",
+    gap: Spacing.md,
   },
   mechanicRowSelected: {
     borderColor: BrandColors.secondary,
     backgroundColor: BrandColors.secondary + "0D",
   },
   mechanicRowRecommended: {
-    borderColor: BrandColors.secondary + "55",
+    borderColor: "#FACC15",
+    backgroundColor: "#FFFBEB",
   },
   mechanicRowPressed: {
     backgroundColor: "#F9FAFB",
   },
+  mechanicAvatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: BrandColors.secondary + "1A",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  mechanicAvatarText: {
+    color: BrandColors.secondary,
+    fontSize: 16,
+    fontFamily: FontFamily.semiBold,
+  },
   mechanicInfo: {
     flex: 1,
     marginRight: Spacing.sm,
+    gap: 2,
   },
   mechanicName: {
     color: BrandColors.primary,
-    fontSize: 14,
-    lineHeight: 18,
+    fontSize: 15,
+    lineHeight: 20,
   },
   mechanicNameSelected: {
     color: BrandColors.secondary,
+  },
+  mechanicShop: {
+    color: "#374151",
+    fontSize: 13,
+    lineHeight: 16,
   },
   mechanicMeta: {
     color: "#6B7280",
@@ -1419,9 +1741,36 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 4,
     marginTop: 4,
+    flexWrap: "wrap",
   },
   mechanicMetaSmall: {
-    color: "#9CA3AF",
+    color: "#6B7280",
+  },
+  mechanicMetaDot: {
+    color: "#D1D5DB",
+    marginHorizontal: 1,
+  },
+  // Oto's Pick badge — gold, top-right, sits over the row's top border.
+  otoPickBadge: {
+    position: "absolute",
+    top: -8,
+    right: Spacing.md,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "#FEF3C7",
+    borderRadius: BorderRadius.full,
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    borderWidth: 1,
+    borderColor: "#FACC15",
+    zIndex: 1,
+  },
+  otoPickBadgeText: {
+    color: "#92400E",
+    fontSize: 10,
+    fontFamily: FontFamily.semiBold,
+    letterSpacing: 0.3,
   },
   // Time slots (stage 5) — chip styling mirrors carousel slot pattern
   dayBlock: {
@@ -1464,15 +1813,72 @@ const styles = StyleSheet.create({
     color: BrandColors.secondary,
   },
   // Review (stage 6)
-  reviewRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
+  reviewHero: {
     backgroundColor: BrandColors.white,
-    borderRadius: BorderRadius.lg,
+    borderRadius: BorderRadius.xl,
     padding: Spacing.md,
-    gap: Spacing.sm,
     borderWidth: 1,
     borderColor: "#E5E7EB",
+    gap: Spacing.sm,
+  },
+  reviewHeroHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm + 2,
+  },
+  reviewHeroIconWrap: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: BrandColors.secondary + "1A",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  reviewHeroText: {
+    flex: 1,
+    gap: 2,
+  },
+  reviewHeroShop: {
+    fontSize: 16,
+    color: BrandColors.primary,
+    lineHeight: 20,
+  },
+  reviewHeroMechanic: {
+    color: "#6B7280",
+    fontSize: 13,
+    lineHeight: 16,
+  },
+  reviewHeroDivider: {
+    height: 1,
+    backgroundColor: "#F3F4F6",
+  },
+  reviewHeroFooter: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.xs + 2,
+  },
+  reviewHeroDate: {
+    color: BrandColors.primary,
+    fontSize: 13,
+  },
+  reviewSummaryCard: {
+    backgroundColor: BrandColors.white,
+    borderRadius: BorderRadius.xl,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    overflow: "hidden",
+  },
+  reviewSummaryRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.md,
+    gap: Spacing.sm,
+  },
+  reviewSummaryDivider: {
+    height: 1,
+    backgroundColor: "#F3F4F6",
+    marginHorizontal: Spacing.md,
   },
   reviewRowText: {
     flex: 1,
@@ -1488,12 +1894,12 @@ const styles = StyleSheet.create({
     color: BrandColors.primary,
     lineHeight: 18,
   },
-  reviewEdit: {
-    paddingVertical: 2,
-    paddingHorizontal: Spacing.xs + 2,
-  },
-  reviewEditText: {
-    color: BrandColors.secondary,
+  reviewEditIcon: {
+    width: 28,
+    height: 28,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 14,
   },
   disclaimer: {
     color: "#9CA3AF",
@@ -1521,11 +1927,30 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: "rgba(0, 0, 0, 0.05)",
   },
+  handoffError: {
+    marginBottom: Spacing.sm,
+    paddingVertical: Spacing.xs,
+    paddingHorizontal: Spacing.sm,
+    backgroundColor: "rgba(254, 226, 226, 0.85)",
+    borderRadius: BorderRadius.md,
+  },
+  handoffErrorText: {
+    fontSize: 12,
+    color: "#B91C1C",
+    fontFamily: FontFamily.medium,
+    textAlign: "center",
+  },
   footerButton: {
     backgroundColor: "#E4E7EC",
     borderRadius: BorderRadius.lg,
     paddingVertical: Spacing.md,
+    flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
+    gap: Spacing.sm,
+  },
+  footerSpinner: {
+    // Aligns the spinner vertically with the label text on the row.
   },
   footerButtonEnabled: {
     backgroundColor: BrandColors.secondary,

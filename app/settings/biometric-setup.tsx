@@ -190,7 +190,7 @@ export default function BiometricSetupScreen() {
       biometricLoginType: null,
       biometricLoginSkipped: true,
     });
-    router.replace('/settings');
+    router.replace('/home');
   }, [router, updateData]);
 
   return (

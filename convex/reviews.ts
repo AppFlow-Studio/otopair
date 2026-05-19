@@ -35,17 +35,33 @@ export const getById = query({
 export const getByShopId = query({
   args: { shopId: v.id("shops") },
   handler: async (ctx, args) => {
-    const reviews = await ctx.db
+    const rows = await ctx.db
       .query("reviews")
       .withIndex("by_shop_id", (q) => q.eq("shop_id", args.shopId))
       .collect();
-    // Pure-shop reviews only — mechanic-tagged rows (mechanic_id
-    // defined) belong to the mechanic's surface, not the shop's
-    // customer-reviews list. See plan: per-mechanic comment
-    // shouldn't leak into the shop's review feed.
-    const pureShopReviews = reviews.filter((r) => r.mechanic_id === undefined);
+
+    // Group rows by booking — one customer = one entry on the shop's
+    // Customer Reviews list, regardless of whether they wrote a
+    // pure-shop row, a mechanic-tagged row, or both. We prefer the
+    // pure-shop row when present (it carries the shop-level tags),
+    // otherwise fall back to the mechanic row (legacy reviews
+    // pre-date the two-row pattern and only have a mechanic-tagged
+    // row). This matches the user's mental model that a "shop
+    // review" = "a customer's review of their visit to this shop."
+    const byBooking = new Map<string, typeof rows[number]>();
+    for (const r of rows) {
+      const key = String(r.booking_id);
+      const existing = byBooking.get(key);
+      if (!existing) {
+        byBooking.set(key, r);
+      } else if (existing.mechanic_id !== undefined && r.mechanic_id === undefined) {
+        // Prefer pure-shop row over mechanic-tagged row for the same booking.
+        byBooking.set(key, r);
+      }
+    }
+
     return await Promise.all(
-      pureShopReviews.map(async (review) => {
+      Array.from(byBooking.values()).map(async (review) => {
         const user = await ctx.db.get(review.user_id);
         return { ...review, mechanic: null, user };
       }),
@@ -136,8 +152,9 @@ export const submit = mutation({
     });
 
     // 2. Optional mechanic review
+    let mechanicReviewId: string | null = null;
     if (args.mechanic_id && args.mechanic_rating !== undefined) {
-      await ctx.db.insert("reviews", {
+      mechanicReviewId = await ctx.db.insert("reviews", {
         booking_id: args.booking_id,
         user_id: args.user_id,
         shop_id: args.shop_id,
@@ -148,23 +165,38 @@ export const submit = mutation({
       });
     }
 
-    // Recompute aggregate over the shop's PURE shop reviews only —
-    // mechanic-tagged rows belong to the mechanic's headline, not the
-    // shop's. This keeps the shop's rating + count consistent with what
-    // getByShopId returns to the UI. Re-scan instead of incremental
-    // because the cached aggregate isn't always present (legacy data)
-    // and the scan is cheap given realistic review counts per shop.
+    // Diagnostic — confirms in `npx convex dev` console whether the
+    // mechanic row was actually written this turn. Easy to grep when
+    // a user reports "mechanic review didn't show up."
+    // eslint-disable-next-line no-console
+    console.log("[reviews.submit]", {
+      booking_id: String(args.booking_id),
+      shop_review_id: String(shopReviewId),
+      mechanic_id: args.mechanic_id ? String(args.mechanic_id) : null,
+      mechanic_review_id: mechanicReviewId ? String(mechanicReviewId) : null,
+      mechanic_review_written: mechanicReviewId !== null,
+    });
+
+    // Recompute aggregate over EVERY row touching this shop — both
+    // pure-shop rows and mechanic-tagged rows. Count is the number
+    // of DISTINCT booking_ids (so a booking with both a shop row +
+    // a mechanic row counts as 1 customer, not 2). Rating is the
+    // simple average across all rows (each row is one data point of
+    // a customer's experience at this shop). Matches what
+    // getByShopId returns to the Customer Reviews list above.
     const allShopRows = await ctx.db
       .query("reviews")
       .withIndex("by_shop_id", (q) => q.eq("shop_id", args.shop_id))
       .collect();
-    const shopReviews = allShopRows.filter((r) => r.mechanic_id === undefined);
-    const shopMean = shopReviews.length
-      ? shopReviews.reduce((sum, r) => sum + r.rating, 0) / shopReviews.length
+    const distinctBookingIds = new Set(
+      allShopRows.map((r) => String(r.booking_id)),
+    );
+    const shopMean = allShopRows.length
+      ? allShopRows.reduce((sum, r) => sum + r.rating, 0) / allShopRows.length
       : 0;
     await ctx.db.patch(args.shop_id, {
       rating: shopMean,
-      review_count: shopReviews.length,
+      review_count: distinctBookingIds.size,
     });
 
     if (args.mechanic_id && args.mechanic_rating !== undefined) {
@@ -203,11 +235,11 @@ export const submit = mutation({
 
 /**
  * One-time sweep: recomputes `shops.rating` + `shops.review_count`
- * across every shop, counting only PURE shop reviews
- * (`mechanic_id === undefined`). Useful right after the shop-list
- * filter lands so existing aggregates that were inflated by
- * mechanic-tagged rows snap back to truth without waiting for the
- * next real review submission.
+ * across every shop. Count = distinct booking_ids that have ANY
+ * review row at this shop (pure-shop OR mechanic-tagged), so legacy
+ * reviews from before the two-row pattern still contribute. Rating
+ * = simple average across every row. Matches the user-facing model
+ * where "review count" = "customers who reviewed us."
  *
  *   npx convex run reviews:recomputeShopAggregates
  */
@@ -221,13 +253,13 @@ export const recomputeShopAggregates = internalMutation({
         .query("reviews")
         .withIndex("by_shop_id", (q) => q.eq("shop_id", shop._id))
         .collect();
-      const pure = rows.filter((r) => r.mechanic_id === undefined);
-      const mean = pure.length
-        ? pure.reduce((s, r) => s + r.rating, 0) / pure.length
+      const distinctBookingIds = new Set(rows.map((r) => String(r.booking_id)));
+      const mean = rows.length
+        ? rows.reduce((s, r) => s + r.rating, 0) / rows.length
         : 0;
       await ctx.db.patch(shop._id, {
         rating: mean,
-        review_count: pure.length,
+        review_count: distinctBookingIds.size,
       });
       shopsUpdated += 1;
     }

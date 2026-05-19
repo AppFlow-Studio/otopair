@@ -104,6 +104,10 @@ export function AIRecordConfirmation({
   const [step, setStep] = useState<"prompt" | "form">("prompt");
   const [submitting, setSubmitting] = useState(false);
   const [resolved, setResolved] = useState(false);
+  // Inline failure surface — fires when upsertRecord throws. Console warns
+  // are kept for telemetry; this string drives a small banner so the user
+  // can retry instead of seeing a silent no-op tap.
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Update-form local state
   const [newDate, setNewDate] = useState<Date | null>(null);
@@ -138,6 +142,7 @@ export function AIRecordConfirmation({
   // ---------------------------------------------------------------------------
   const handleConfirm = useCallback(async () => {
     if (submitting || resolved || !data) return;
+    setErrorMessage(null);
     setSubmitting(true);
     try {
       await upsertRecord({
@@ -155,6 +160,7 @@ export function AIRecordConfirmation({
     } catch (err) {
       // Surface failure but don't block the user from retrying.
       console.warn("[AIRecordConfirmation] confirm failed", err);
+      setErrorMessage("Couldn't save that. Tap to retry.");
     } finally {
       setSubmitting(false);
     }
@@ -182,6 +188,7 @@ export function AIRecordConfirmation({
     const parsedMileage = newMileageStr.trim()
       ? Number.parseInt(newMileageStr.replace(/[^0-9]/g, ""), 10)
       : undefined;
+    setErrorMessage(null);
     setSubmitting(true);
     try {
       await upsertRecord({
@@ -208,6 +215,7 @@ export function AIRecordConfirmation({
       });
     } catch (err) {
       console.warn("[AIRecordConfirmation] update failed", err);
+      setErrorMessage("Couldn't save that. Tap to retry.");
     } finally {
       setSubmitting(false);
     }
@@ -282,6 +290,14 @@ export function AIRecordConfirmation({
         </View>
       )}
 
+      {errorMessage && (
+        <View style={styles.errorBanner}>
+          <Text style={styles.errorText} weight="medium">
+            {errorMessage}
+          </Text>
+        </View>
+      )}
+
       {step === "form" && (
         <View style={styles.formBlock}>
           <Text style={styles.formLabel} weight="medium">
@@ -301,7 +317,7 @@ export function AIRecordConfirmation({
             value={newMileageStr}
             onChangeText={setNewMileageStr}
             placeholder="e.g. 38000"
-            placeholderTextColor={BrandColors.textTertiary}
+            placeholderTextColor={NEUTRAL_TEXT_DIM}
             keyboardType="number-pad"
             editable={!submitting && !disabled}
             style={styles.mileageInput}
@@ -447,6 +463,18 @@ const styles = StyleSheet.create({
   resolvedText: {
     fontSize: 12,
     color: BrandColors.white,
+    fontFamily: FontFamily.medium,
+  },
+  errorBanner: {
+    marginTop: Spacing.xs,
+    paddingVertical: Spacing.xs,
+    paddingHorizontal: Spacing.sm,
+    backgroundColor: "rgba(254, 226, 226, 0.85)",
+    borderRadius: BorderRadius.md,
+  },
+  errorText: {
+    fontSize: 12,
+    color: "#B91C1C",
     fontFamily: FontFamily.medium,
   },
 });

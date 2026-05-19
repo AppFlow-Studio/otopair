@@ -362,12 +362,12 @@ const styles = StyleSheet.create({
   },
   appleIcon: {
     fontSize: FontSize.xl,
-    color: '#0F172A',
+    color: '#FFFFFF',
   },
   appleText: {
     fontSize: FontSize.md,
     fontFamily: FontFamily.semiBold,
-    color: '#0F172A',
+    color: '#FFFFFF',
   },
   emailButton: {
     backgroundColor: "#5299FE",

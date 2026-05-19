@@ -83,8 +83,12 @@ export const LeaveReviewSheet = forwardRef<LeaveReviewSheetRef, Props>(
     // matches the "you're rating, drag down to lower" pattern.
     const [rating, setRating] = useState(5);
     const [selectedTags, setSelectedTags] = useState<string[]>([]);
-    // Optional mechanic review — collapsed by default; user opts in.
-    const [mechanicIncluded, setMechanicIncluded] = useState(false);
+    // Mechanic review — opt-out. Defaults to expanded so the mechanic
+    // section auto-renders with 5 stars whenever the booking has a
+    // mechanic. User can collapse to skip the mechanic review. The
+    // effect below re-syncs to `mechanicAvailable` whenever a new
+    // booking opens the sheet.
+    const [mechanicIncluded, setMechanicIncluded] = useState(true);
     const [mechanicRating, setMechanicRating] = useState(5);
     const [mechanicComment, setMechanicComment] = useState("");
     const [submitting, setSubmitting] = useState(false);
@@ -140,7 +144,11 @@ export const LeaveReviewSheet = forwardRef<LeaveReviewSheetRef, Props>(
         setUserId(uid);
         setRating(5);
         setSelectedTags([]);
-        setMechanicIncluded(false);
+        // Opt-out: auto-expand the mechanic section whenever the booking
+        // has a mechanic. The mechanicAvailable effect below double-checks
+        // once `booking` propagates, but this initial set keeps the UI
+        // from flashing collapsed on first paint.
+        setMechanicIncluded(!!(b.mechanicId && b.mechanicName));
         setMechanicRating(5);
         setMechanicComment("");
         setError(null);
@@ -225,9 +233,30 @@ export const LeaveReviewSheet = forwardRef<LeaveReviewSheetRef, Props>(
       } finally {
         setSubmitting(false);
       }
-    }, [booking, userId, rating, selectedTags, submitReview, onSubmitted]);
+    }, [
+      booking,
+      userId,
+      rating,
+      selectedTags,
+      // Mechanic-side values were missing here — the closure was capturing
+      // their initial-render values (mechanicComment: "", mechanicRating: 5,
+      // mechanicIncluded: false at the time of writing) so the user's typed
+      // comment never reached the backend. Add them so handleSubmit always
+      // reads the live state.
+      mechanicIncluded,
+      mechanicRating,
+      mechanicComment,
+      submitReview,
+      onSubmitted,
+    ]);
 
     const mechanicAvailable = !!(booking?.mechanicId && booking?.mechanicName);
+    // Keep `mechanicIncluded` in sync with availability. Defaults to ON
+    // when a mechanic is on the booking (opt-out), OFF when there isn't.
+    // Re-runs each time a different booking opens the sheet.
+    React.useEffect(() => {
+      setMechanicIncluded(mechanicAvailable);
+    }, [mechanicAvailable]);
     const mechanicFirstName = useMemo(() => {
       const name = booking?.mechanicName?.trim() ?? "";
       return name.length > 0 ? name.split(/\s+/)[0] : null;

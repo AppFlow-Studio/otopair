@@ -111,7 +111,7 @@ const styles = StyleSheet.create({
   recentsLabel: {
     fontSize: 13,
     lineHeight: 18,
-    color: 'rgba(0,0,0,0.4)',
+    color: '#000000',
     paddingHorizontal: Spacing.lg,
     marginTop: Spacing.xl,
     marginBottom: Spacing.xs,
@@ -158,7 +158,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.lg,
   },
   emptyText: {
-    color: 'rgba(0,0,0,0.4)',
+    color: '#000000',
     fontSize: 16,
     marginBottom: Spacing.xs,
   },

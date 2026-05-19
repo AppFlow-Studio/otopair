@@ -346,6 +346,24 @@ export interface CompletedBooking {
  * diagnostics, etc.) don't appear here — they have no maintenance
  * coverage signal.
  */
+// Substring keywords used to map a maintenance type (oil, brakes, …)
+// to specific booking service names ("Oil Change", "Brake Pad
+// Replacement", "Battery Replacement", …). Mirrors the SLUG_TO_TYPE
+// table in convex/bookings.ts so client-side attribution and the
+// backend's maintenance-record upsert stay aligned. Lowercase keys.
+const TYPE_KEYWORDS: Record<string, string[]> = {
+  oil: ["oil"],
+  brakes: ["brake"],
+  tires: ["tire", "wheel"],
+  battery: ["battery"],
+  inspection: ["inspect", "emission"],
+  fluids: ["fluid", "flush", "coolant"],
+  filters: ["filter"],
+  wipers: ["wiper", "blade"],
+  engine_parts: ["spark plug", "belt"],
+  diagnostics: ["diagnostic"],
+};
+
 export function computeBookingHelpingFactors(
   input: HealthScoreInput,
   completedBookings: CompletedBooking[],
@@ -361,10 +379,14 @@ export function computeBookingHelpingFactors(
     (a, b) => (b.completedAt ?? 0) - (a.completedAt ?? 0),
   );
 
-  // Accumulator: bookingId → { booking, names, totalPts }
+  // Accumulator: bookingId → { booking, serviceLabels, totalPts }
+  // `serviceLabels` collects the BOOKING's own service names that
+  // matched (e.g. "Battery Replacement") — those are user-facing and
+  // descriptive. The maintenance item's type-level label
+  // ("Battery check") would read awkwardly in the entry.
   const acc = new Map<
     string,
-    { booking: CompletedBooking; types: string[]; pts: number }
+    { booking: CompletedBooking; serviceLabels: string[]; pts: number }
   >();
 
   for (const item of maintenanceItems) {
@@ -373,29 +395,53 @@ export function computeBookingHelpingFactors(
     const pts = Math.round((score - 0.5) * perItemWeight);
     if (pts <= 0) continue;
 
+    // `item.id` is e.g. "user-battery" or "unknown-oil" — strip the
+    // prefix to get the type identifier, then look up its keywords.
+    const itemType = item.id.replace(/^(unknown-|user-)/, "");
+    const keywords = TYPE_KEYWORDS[itemType] ?? [];
     const itemKey = item.serviceName.trim().toLowerCase();
-    const match = sorted.find((b) =>
-      b.services.some((s) => s.trim().toLowerCase() === itemKey),
-    );
+
+    // Score-factor → booking match: a booking matches when any of
+    // its service names contains a keyword for the item's type.
+    // Falls back to exact-name match so existing behavior never
+    // regresses on types not yet in TYPE_KEYWORDS.
+    const matchesItem = (s: string) => {
+      const lower = s.toLowerCase();
+      if (keywords.some((kw) => lower.includes(kw))) return true;
+      return lower.trim() === itemKey;
+    };
+
+    const match = sorted.find((b) => b.services.some(matchesItem));
     if (!match) continue; // credit came from a user-entered record, not a booking
+
+    // Pull the booking's own labels that matched this type — those
+    // are what we show to the user.
+    const matchedLabels = match.services.filter(matchesItem);
 
     const existing = acc.get(match.id);
     if (existing) {
-      existing.types.push(item.serviceName);
+      for (const label of matchedLabels) {
+        if (!existing.serviceLabels.includes(label)) {
+          existing.serviceLabels.push(label);
+        }
+      }
       existing.pts += pts;
     } else {
       acc.set(match.id, {
         booking: match,
-        types: [item.serviceName],
+        serviceLabels: [...new Set(matchedLabels)],
         pts,
       });
     }
   }
 
   const result: HealthFactor[] = [];
-  for (const { booking, types, pts } of acc.values()) {
+  for (const { booking, serviceLabels, pts } of acc.values()) {
     const label = booking.shopName.trim() || "Service center";
-    const detail = types.length === 1 ? types[0] : types.join(" · ");
+    const detail =
+      serviceLabels.length === 1
+        ? serviceLabels[0]
+        : serviceLabels.join(" · ");
     const subDetail = formatBookingCompletionDate(booking.completedAt);
     result.push({ label, detail, subDetail, pts });
   }

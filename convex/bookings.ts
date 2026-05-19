@@ -305,6 +305,27 @@ export const getById = query({
 });
 
 /**
+ * QUERY: getMany
+ * Batch fetch up to 10 bookings by id in one round-trip. Used by the Oto
+ * AI `render_bookings_list` component so a 10-card list doesn't fan out
+ * into 10 separate `useQuery` calls.
+ *
+ * Returns nulls in-place for missing ids so the caller can keep its
+ * positional pairing with the input array (e.g. for "Couldn't find
+ * that booking" placeholders in the list).
+ */
+export const getMany = query({
+  args: { ids: v.array(v.id("bookings")) },
+  handler: async (ctx, args) => {
+    if (args.ids.length === 0) return [];
+    if (args.ids.length > 10) {
+      throw new Error("getMany supports at most 10 booking ids per call.");
+    }
+    return await Promise.all(args.ids.map((id) => ctx.db.get(id)));
+  },
+});
+
+/**
  * QUERY: getByUserId
  * Get all bookings for a specific user.
  * Used to show user's booking history.

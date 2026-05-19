@@ -9,21 +9,35 @@
  *          avatar from the button position to the natural Settings
  *          avatar slot.
  *
+ *          As of the Revolut-style refactor, this lives at the
+ *          `/profile-overlay` route (presented as `transparentModal`,
+ *          `animation: 'none'`) so that destination screens pushed
+ *          from inside settings rows stack ON TOP of the overlay
+ *          rather than under it. Back gestures return the user here
+ *          with the overlay still mounted in its same state.
+ *
  *          Visually identical to the Settings tab once open — the
  *          settings render tree is reused via <SettingsContent />.
  *
- * USED IN: app/(main-tabs)/home/index.tsx (mounted once)
+ * USED IN: app/profile-overlay.tsx (single mount, route-driven)
  *
  * OWNER: Ahmad Hamoudeh
  */
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
+  BackHandler,
   Dimensions,
   Image,
-  Modal,
   Pressable,
   StyleSheet,
+  Text,
   View,
 } from "react-native";
 import Animated, {
@@ -40,6 +54,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQuery } from "convex/react";
 import { useShallow } from "zustand/react/shallow";
 import { X } from "lucide-react-native";
+import { useFocusEffect, useRouter } from "expo-router";
 
 import { SettingsContent } from "@/components/settings/SettingsContent";
 import { api } from "@/convex/_generated/api";
@@ -57,27 +72,34 @@ const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get("window");
 // floating avatar's size FROM the button's size TO this value.
 const AVATAR_TARGET_SIZE = 72;
 
-// Settle ~520ms, no overshoot — feels like a deliberate expand
-// instead of a slam. Tightening damping + lowering stiffness gives
-// the card room to "grow" rather than snap to size.
-const SPRING_CONFIG = { damping: 26, stiffness: 110, mass: 1.05 } as const;
+// Lighter, slightly snappier spring with imperceptible overshoot —
+// reads as a fluid Revolut-style shared-element morph rather than a
+// deliberate "expand". Combined with the matched AvatarSlider content
+// and cross-fade handoffs, the motion feels like a single continuous
+// element.
+const SPRING_CONFIG = { damping: 20, stiffness: 130, mass: 1.0 } as const;
+
+// Fallback morph anchor if the screen is reached without the avatar
+// having written its rect (e.g. deep link to /profile-overlay). A
+// centered 56×56 spot keeps the morph looking intentional rather than
+// flying in from {0,0}.
+const FALLBACK_RECT: SettingsOverlayRect = {
+  x: SCREEN_W / 2 - 28,
+  y: SCREEN_H / 2 - 28,
+  width: 56,
+  height: 56,
+};
 
 export function SettingsOverlay() {
   const insets = useSafeAreaInsets();
-  // Pull all three open/mount/rect values in a single subscription so
-  // we never re-render with a partially-applied state combo (e.g.
-  // isMounted=true but fromRect=null, which used to paint the card at
-  // the fallback {0,0,56,56} rect for one frame — that's what looked
-  // like the button "jumping to the top-left corner.")
-  const { isOpen, isMounted, fromRect } = useSettingsOverlayStore(
-    useShallow((s) => ({
-      isOpen: s.isOpen,
-      isMounted: s.isMounted,
-      fromRect: s.fromRect,
-    })),
-  );
-  const closeStore = useSettingsOverlayStore((s) => s.close);
-  const finishClose = useSettingsOverlayStore((s) => s.finishClose);
+  const router = useRouter();
+
+  // Capture the rect ONCE at mount. After this, the floating-avatar
+  // morph anchor is fixed — even if the user scrolls or rotates,
+  // close-morph still lands at the original spot.
+  const initialRect = useSettingsOverlayStore.getState().fromRect;
+  const rectRef = useRef<SettingsOverlayRect>(initialRect ?? FALLBACK_RECT);
+  const rect = rectRef.current;
 
   // Identity for the floating avatar — sourced exactly like the home
   // button + Settings avatar so the three never disagree.
@@ -118,48 +140,52 @@ export function SettingsOverlay() {
 
   const progress = useSharedValue(0);
 
-  // Drive the open/close springs in response to store changes. Mount
-  // state is owned by the store (isMounted) so the home button hide and
-  // the overlay render flip on the same frame — no gap where neither is
-  // visible, no late "fall in" once the spring kicks in.
+  // OPEN morph runs on mount. Defer the spring one frame so the first
+  // paint lands at progress=0 (card sitting at the avatar rect) before
+  // animating outward — otherwise the very first frame could draw a
+  // partially-grown card.
   useEffect(() => {
-    if (isOpen && fromRect) {
-      setSettled(false);
-      progress.value = 0;
-      // Defer the spring until after this render commits so the first
-      // frame paints at progress=0 (card at button rect) before
-      // animating outward.
-      requestAnimationFrame(() => {
-        progress.value = withSpring(1, SPRING_CONFIG, (finished) => {
-          if (finished) {
-            runOnJS(setSettled)(true);
-          }
-        });
+    setSettled(false);
+    progress.value = 0;
+    const raf = requestAnimationFrame(() => {
+      progress.value = withSpring(1, SPRING_CONFIG, (finished) => {
+        if (finished) {
+          runOnJS(setSettled)(true);
+        }
       });
-    } else if (isMounted) {
-      // Re-instate the floating avatar before reversing the spring so
-      // the user sees the avatar shrink back into the home button.
-      setSettled(false);
-      progress.value = withSpring(
-        0,
-        SPRING_CONFIG,
-        (finished) => {
-          if (finished) {
-            runOnJS(finishClose)();
-          }
-        },
-      );
-    }
-    // isMounted intentionally not in deps — we only react to store
-    // open/close changes.
+    });
+    return () => cancelAnimationFrame(raf);
+    // mount-only: re-running this would replay the open animation
+    // mid-session, which is wrong.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, fromRect]);
+  }, []);
 
-  const handleClose = () => {
-    closeStore();
-  };
+  // CLOSE: reverse the spring then pop the route. Triggered by X
+  // button or hardware back. Swipe-back gestures bypass this and use
+  // the default pop (no morph) — acceptable per the plan.
+  const handleClose = useCallback(() => {
+    setSettled(false);
+    progress.value = withSpring(0, SPRING_CONFIG, (finished) => {
+      if (finished) {
+        runOnJS(router.back)();
+      }
+    });
+  }, [progress, router]);
 
-  const rect = fromRect ?? { x: 0, y: 0, width: 56, height: 56 };
+  // Intercept Android hardware back so the close morph plays before
+  // pop. Without this, hardware back would instantly unmount the
+  // screen with no morph. Only active while this route is focused
+  // (i.e. user is on /profile-overlay itself, not on a destination
+  // pushed on top of it).
+  useFocusEffect(
+    useCallback(() => {
+      const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+        handleClose();
+        return true;
+      });
+      return () => sub.remove();
+    }, [handleClose]),
+  );
 
   // ── Animated styles ────────────────────────────────────────────────
 
@@ -266,14 +292,36 @@ export function SettingsOverlay() {
     ),
   }));
 
-  // SettingsContent body fades in once the card has mostly opened.
-  // Pushing the fade window later (was 0.4→0.9) lets the user see the
-  // card grow first, then the rows appear — feels less like everything
-  // is happening at once.
+  // SettingsContent body fades in midway through the morph so the
+  // settings rows appear *with* the avatar settling into place, not
+  // after it. Earlier overlap reads as a more layered, Revolut-style
+  // reveal.
   const bodyStyle = useAnimatedStyle(() => ({
     opacity: interpolate(
       progress.value,
-      [0.65, 1],
+      [0.45, 0.9],
+      [0, 1],
+      Extrapolation.CLAMP,
+    ),
+  }));
+
+  // Floating avatar cross-fades to the natural avatar inside
+  // SettingsContent at the very end of the morph — no unmount, no
+  // 1-frame blank, the two copies overlap during the handoff. Same
+  // range used on `naturalAvatarOpacityStyle` below (inverted) so the
+  // visual transfer is symmetric.
+  const floatingAvatarOpacityStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(
+      progress.value,
+      [0.95, 1],
+      [1, 0],
+      Extrapolation.CLAMP,
+    ),
+  }));
+  const naturalAvatarOpacityStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(
+      progress.value,
+      [0.95, 1],
       [0, 1],
       Extrapolation.CLAMP,
     ),
@@ -289,21 +337,8 @@ export function SettingsOverlay() {
     ),
   }));
 
-  // Belt-and-suspenders: also gate on fromRect being set. With the
-  // combined useShallow selector above this should never trip, but
-  // returning null here guarantees we never paint the card at the
-  // fallback {0,0,56,56} top-left rect even if a race ever did slip
-  // through.
-  if (!isMounted || !fromRect) return null;
-
   return (
-    <Modal
-      transparent
-      visible={isMounted}
-      animationType="none"
-      presentationStyle="overFullScreen"
-      onRequestClose={handleClose}
-    >
+    <View style={StyleSheet.absoluteFillObject}>
       {/* Backdrop blur over Home */}
       <Animated.View
         style={[StyleSheet.absoluteFill, backdropStyle]}
@@ -367,46 +402,69 @@ export function SettingsOverlay() {
             translucent
             avatarOverride={
               settled ? undefined : (
-                <View
-                  style={{
-                    width: AVATAR_TARGET_SIZE,
-                    height: AVATAR_TARGET_SIZE,
-                  }}
-                />
+                <Animated.View
+                  style={[
+                    {
+                      width: AVATAR_TARGET_SIZE,
+                      height: AVATAR_TARGET_SIZE,
+                      borderRadius: AVATAR_TARGET_SIZE / 2,
+                      overflow: "hidden",
+                    },
+                    naturalAvatarOpacityStyle,
+                  ]}
+                  pointerEvents="none"
+                >
+                  {photoUri ? (
+                    <Image
+                      source={{ uri: photoUri }}
+                      style={StyleSheet.absoluteFill}
+                    />
+                  ) : (
+                    <LinearGradient
+                      colors={["#5299FE", "#C5DAFF"]}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={[StyleSheet.absoluteFill, styles.floatingAvatarFill]}
+                    >
+                      <Text style={styles.naturalOverrideInitials}>
+                        {initials}
+                      </Text>
+                    </LinearGradient>
+                  )}
+                </Animated.View>
               )
             }
           />
         </Animated.View>
 
         {/* Floating avatar — animates from button rect to Settings slot.
-            Hidden once `settled` because the natural copy inside
-            SettingsContent is now in charge (and scrolls correctly).
+            Cross-fades into the natural avatar at the tail of the
+            spring (progress 0.95 → 1) rather than unmounting on
+            `settled`, so there's no 1-frame blank during the handoff.
             Mirrors the home button's image-or-initials choice so the
             shared element is visually identical at progress=0. */}
-        {settled ? null : (
-          <Animated.View
-            style={[styles.floatingAvatar, avatarStyle]}
-            pointerEvents="none"
-          >
-            {photoUri ? (
-              <Image
-                source={{ uri: photoUri }}
-                style={StyleSheet.absoluteFill}
-              />
-            ) : (
-              <LinearGradient
-                colors={["#5299FE", "#C5DAFF"]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={[StyleSheet.absoluteFill, styles.floatingAvatarFill]}
-              >
-                <Animated.Text style={[styles.initialsText, initialsTextStyle]}>
-                  {initials}
-                </Animated.Text>
-              </LinearGradient>
-            )}
-          </Animated.View>
-        )}
+        <Animated.View
+          style={[styles.floatingAvatar, avatarStyle, floatingAvatarOpacityStyle]}
+          pointerEvents="none"
+        >
+          {photoUri ? (
+            <Image
+              source={{ uri: photoUri }}
+              style={StyleSheet.absoluteFill}
+            />
+          ) : (
+            <LinearGradient
+              colors={["#5299FE", "#C5DAFF"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={[StyleSheet.absoluteFill, styles.floatingAvatarFill]}
+            >
+              <Animated.Text style={[styles.initialsText, initialsTextStyle]}>
+                {initials}
+              </Animated.Text>
+            </LinearGradient>
+          )}
+        </Animated.View>
 
         {/* X close — top-left, fades in last */}
         <Animated.View
@@ -428,7 +486,7 @@ export function SettingsOverlay() {
           </Pressable>
         </Animated.View>
       </Animated.View>
-    </Modal>
+    </View>
   );
 }
 
@@ -454,6 +512,18 @@ const styles = StyleSheet.create({
   },
   initialsText: {
     fontFamily: "Urbanist-SemiBold",
+    color: "#FFFFFF",
+    letterSpacing: 0.5,
+    includeFontPadding: false,
+    textAlignVertical: "center",
+  },
+  // Static initials rendered into the natural-avatar slot during the
+  // overlay's open animation — fades in at progress 0.95→1 right as
+  // the floating avatar fades out. Matches the natural slider's
+  // "initials" panel exactly so the handoff is visually invisible.
+  naturalOverrideInitials: {
+    fontFamily: "Urbanist-SemiBold",
+    fontSize: 24,
     color: "#FFFFFF",
     letterSpacing: 0.5,
     includeFontPadding: false,

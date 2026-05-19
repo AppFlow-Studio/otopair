@@ -758,9 +758,20 @@ export const completeVehiclePreOnboarding = mutation({
     vehicleOwnerId: v.id("vehicle_owners"),
   },
   handler: async (ctx, args) => {
-    await ctx.db.patch(args.vehicleOwnerId, {
+    // Schedule the first quarterly check-in 90 days from now if the
+    // owner doesn't already have one. After that first check-in
+    // completes, completeCheckin re-stamps the field, so the recurring
+    // 90-day loop drives itself.
+    const owner = await ctx.db.get(args.vehicleOwnerId);
+    const now = Date.now();
+    const NINETY_DAYS_MS = 90 * 24 * 60 * 60 * 1000;
+    const patch: Record<string, unknown> = {
       preOnboardingComplete: true,
-    });
+    };
+    if (owner && owner.next_checkin_due == null) {
+      patch.next_checkin_due = now + NINETY_DAYS_MS;
+    }
+    await ctx.db.patch(args.vehicleOwnerId, patch);
     return { success: true };
   },
 });
@@ -874,6 +885,13 @@ export const saveVehiclePreOnboarding = mutation({
       drivingConditions,
       knownIssues,
       preOnboardingComplete: isComplete,
+      // First quarterly check-in is scheduled 90 days out when the
+      // owner finishes onboarding (and doesn't already have one).
+      // After that, completeCheckin re-stamps the field every visit
+      // so the recurring 90-day loop drives itself.
+      ...(isComplete && owner.next_checkin_due == null
+        ? { next_checkin_due: Date.now() + 90 * 24 * 60 * 60 * 1000 }
+        : {}),
       // Maintenance Intelligence fields
       usage_pattern: drivingConditions,
       vehicle_age_years: vehicle?.year

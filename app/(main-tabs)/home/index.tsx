@@ -92,7 +92,6 @@ import { MoreServicesSection } from "@/components/home/MoreServicesSection";
 import { SuggestionsSection } from "@/components/home/SuggestionsSection";
 import { VehicleMaintenanceCard } from "@/components/home/VehicleMaintenanceCard";
 import { ProfileInitialsButton } from "@/components/home/ProfileInitialsButton";
-import { SettingsOverlay } from "@/components/settings/SettingsOverlay";
 import { OtoPairIcon } from "@/components/icons/oto-pair";
 
 function formatBookingDate(dateStr: string): string {
@@ -834,10 +833,8 @@ export default function HomeScreen() {
         View Details button. Mirrors the bookings tab's wiring. */}
     <BookingDetailsSheet ref={detailsSheetRef} />
 
-    {/* Shared-element overlay that lifts Settings on top of Home when
-        the initials button in the header is tapped. Driven by
-        useSettingsOverlayStore. */}
-    <SettingsOverlay />
+    {/* Shared-element overlay moved up to `(main-tabs)/_layout.tsx` so it
+        can open from any tab (e.g., the AI chat's render_link_button). */}
 
     {/* Auto-prompt: if the user has a completed-but-unreviewed booking,
         this sheet pops on focus / cold start until they submit a review. */}

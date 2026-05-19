@@ -39,6 +39,13 @@ type AvatarSliderProps = {
   intervalMs?: number;
   /** ms for the slide/crossfade itself. Default 450. */
   durationMs?: number;
+  /** When true, the auto-flip interval is suspended. Whatever panel is
+   *  current at the moment `paused` flips true stays visible until
+   *  `paused` flips back to false. Used by the SettingsOverlay's
+   *  shared-element transition so the home button, the floating avatar,
+   *  and the natural avatar can all "freeze" on the same panel for the
+   *  duration of the open/close animation. */
+  paused?: boolean;
   style?: ViewStyle;
 };
 
@@ -47,6 +54,7 @@ export function AvatarSlider({
   panels,
   intervalMs = 5000,
   durationMs = 450,
+  paused = false,
   style,
 }: AvatarSliderProps) {
   // `cycleSV` flips between even / odd to decide which of `panels[0]`
@@ -57,6 +65,7 @@ export function AvatarSlider({
   const progress = useSharedValue(0);
 
   useEffect(() => {
+    if (paused) return;
     const id = setInterval(() => {
       progress.value = withTiming(
         1,
@@ -74,7 +83,7 @@ export function AvatarSlider({
       );
     }, intervalMs);
     return () => clearInterval(id);
-  }, [intervalMs, durationMs, progress, cycleSV]);
+  }, [intervalMs, durationMs, progress, cycleSV, paused]);
 
   // Each panel is conditionally treated as "current" (sliding out
   // leftward) or "incoming" (sliding in from the right) based on

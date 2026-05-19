@@ -16,6 +16,7 @@
  *
  * OWNER: Waleed Mansour
  */
+import { ProfileInitialsButton } from "@/components/home/ProfileInitialsButton";
 import { BookingCard, type Booking } from "@/components/bookings/BookingCard";
 import { PendingQuoteCard } from "@/components/bookings/PendingQuoteCard";
 import { QuoteListSheet, type QuoteListSheetRef } from "@/components/bookings/QuoteListSheet";
@@ -69,7 +70,10 @@ export default function BookingsScreen() {
   } = useMyBookingsWithDetails();
   const { userId } = useUserFromConvex();
 
-  const { tab: tabParam } = useLocalSearchParams<{ tab?: string }>();
+  const { tab: tabParam, bookingId: bookingIdParam } = useLocalSearchParams<{
+    tab?: string;
+    bookingId?: string;
+  }>();
   const initialTab: TabType = TAB_ORDER.includes(tabParam as TabType)
     ? (tabParam as TabType)
     : "bookings";
@@ -181,6 +185,20 @@ export default function BookingsScreen() {
     }
   };
 
+  // Deep-link from AI chat's BookingCard: `/bookings?bookingId=<id>` opens
+  // the detail sheet for the matching booking. The ref guard prevents the
+  // sheet from re-opening every time the bookings list refetches.
+  const openedBookingIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!bookingIdParam || isLoading) return;
+    if (openedBookingIdRef.current === bookingIdParam) return;
+    const booking = allBookings.find((b) => b.id === bookingIdParam);
+    if (booking) {
+      openedBookingIdRef.current = bookingIdParam;
+      detailsSheetRef.current?.open(booking);
+    }
+  }, [bookingIdParam, isLoading, allBookings]);
+
   const quoteListSheetRef = useRef<QuoteListSheetRef>(null);
   const handleViewQuotes = (bookingId: string) => {
     quoteListSheetRef.current?.open(bookingId);
@@ -243,11 +261,18 @@ export default function BookingsScreen() {
             scrollEventThrottle={16}
             refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#3B82F6" />}
           >
-            {/* Header */}
+            {/* Header — profile button left, title centered, mirrored
+                spacer right so the title stays optically centered. */}
             <View style={styles.header}>
-              <Text weight="bold" size="xl" color="#FFFFFF">
-                My Bookings
-              </Text>
+              <View style={styles.headerSide}>
+                <ProfileInitialsButton />
+              </View>
+              <View style={styles.headerCenter}>
+                <Text weight="bold" size="xl" color="#FFFFFF">
+                  My Bookings
+                </Text>
+              </View>
+              <View style={styles.headerSide} />
             </View>
 
             {/* Tab Switcher */}
@@ -479,6 +504,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 8,
     paddingBottom: 20,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  headerSide: {
+    width: 40,
+  },
+  headerCenter: {
+    flex: 1,
     alignItems: "center",
   },
   segmentedWrapper: {

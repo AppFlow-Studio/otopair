@@ -256,7 +256,7 @@ export function AIGreeting({
           </Animated.View>
 
           <Animated.View entering={FadeIn.delay(300).duration(500)}>
-            <Text style={styles.subtitle}>
+            <Text style={styles.subtitle} weight="semiBold">
               {hasVehicles
                 ? (tappedVin ? 'Getting things ready...' : 'Which car can I help with today?')
                 : 'What can I help you with today?'}
@@ -374,12 +374,12 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   subtitle: {
-    fontSize: 15,
-    lineHeight: 22,
-    color: 'rgba(0,0,0,0.45)',
+    // Match the greeting headline above — same size, weight, color, family.
+    fontSize: 24,
+    lineHeight: 32,
+    color: '#000000',
     textAlign: 'center',
     marginTop: Spacing.sm,
-    fontFamily: FontFamily.regular,
   },
   // Vehicle section
   vehiclesSection: {

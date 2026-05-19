@@ -49,6 +49,7 @@ import * as Speech from "expo-speech";
 
 // 3. Shared UI (design system)
 import { Text } from "@/components/shared-ui";
+import { ProfileInitialsButton } from "@/components/home/ProfileInitialsButton";
 
 // 4. Flow-specific components
 import {
@@ -144,13 +145,31 @@ export default function AIChatScreen() {
   const convexConversationsRaw = useQuery(api.ai_conversations.getByUserId);
   const conversations = React.useMemo(() => {
     const rows = convexConversationsRaw ?? [];
-    return rows.map((row: Doc<"ai_conversations">) => ({
-      id: row._id as string,
-      title:
-        row.scenario_detected && row.scenario_detected.length > 0
-          ? row.scenario_detected
-          : `Conversation ${new Date(row.started_at).toLocaleDateString()}`,
-    }));
+    return rows.map((row: Doc<"ai_conversations">) => {
+      // Build a compact, topic-y title from Oto's running summary.
+      // Sequence: strip the "User …" prefix Oto narrates with → take
+      // just the first sentence → cap at 32 chars so the sidebar row
+      // never gets cut off mid-word by numberOfLines.
+      const raw = (row.arc_summary ?? row.scenario_detected ?? "").trim();
+      let title = "New conversation";
+      if (raw.length > 0) {
+        let cleaned = raw
+          .replace(/^(the\s+user|user)\s+/i, "")
+          .replace(/\s+/g, " ")
+          .trim();
+        // First sentence only — Oto's summaries often stack 2-3 sentences.
+        const firstSentence = cleaned.split(/(?<=[.!?])\s+/)[0] ?? cleaned;
+        cleaned = firstSentence.replace(/[.!?]+$/, "").trim();
+        if (cleaned.length > 0) {
+          cleaned = cleaned[0].toUpperCase() + cleaned.slice(1);
+          title = cleaned.length > 32 ? `${cleaned.slice(0, 32).trim()}…` : cleaned;
+        }
+      }
+      return {
+        id: row._id as string,
+        title,
+      };
+    });
   }, [convexConversationsRaw]);
 
   // Conversation state (using scenario engine)
@@ -231,6 +250,19 @@ export default function AIChatScreen() {
       setSelectedVehicleVin(primary?.vin ?? greetingVehicles[0].vin);
     }
   }, [greetingVehicles, selectedVehicleVin, rawVehicles]);
+
+  // Short personalized name for the active vehicle — drives the empty-chat
+  // greeting headline ("Hi — how can I help with your <X>?"). Prefer the
+  // model (M550i, A4, MKX); fall back to make+model if model alone is
+  // ambiguous; final fallback is the generic "car".
+  const vehicleShortName = React.useMemo(() => {
+    if (!selectedVehicleVin) return "car";
+    const v = greetingVehicles.find((r) => r.vin === selectedVehicleVin);
+    if (!v) return "car";
+    if (v.model && v.model.trim().length > 0) return v.model.trim();
+    if (v.make && v.make.trim().length > 0) return v.make.trim();
+    return "car";
+  }, [selectedVehicleVin, greetingVehicles]);
 
   // Local UI state
   const [inputValue, setInputValue] = useState("");
@@ -936,9 +968,10 @@ export default function AIChatScreen() {
 
   return (
     <View style={styles.drawerRoot}>
-      {/* Sidebar gradient — covers full screen behind everything */}
+      {/* Sidebar background — solid white so the AIChatHistory list
+          reads as a clean panel instead of a gray drawer. */}
       <LinearGradient
-        colors={['#EDEDED', '#EDEDED']}
+        colors={['#FFFFFF', '#FFFFFF']}
         locations={[0, 1]}
         style={StyleSheet.absoluteFillObject}
       />
@@ -968,11 +1001,16 @@ export default function AIChatScreen() {
         />
       )}
 
-      {/* Background Gradient — fades out when messages exist, revealing white root */}
+      {/* Ambient gradient — matches the onboarding + about-you palette
+          (#7BB8FF → #BFDBFE → #FFFFFF, top to bottom) so the AI surface
+          shares the same airy blue-to-white feel as the rest of the
+          pre-app flows. Always full opacity; messages render on top. */}
       <Animated.View style={[StyleSheet.absoluteFillObject, gradientFadeStyle]} pointerEvents="none">
         <LinearGradient
-          colors={['#FFFFFF', '#FFFFFF']}
-          locations={[0, 1]}
+          colors={['#A5CDFF', '#D6E8FF', '#FFFFFF']}
+          locations={[0, 0.55, 1]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 0, y: 1 }}
           style={StyleSheet.absoluteFillObject}
         />
       </Animated.View>
@@ -983,7 +1021,7 @@ export default function AIChatScreen() {
       {/* Header — absolutely positioned, floats above scroll */}
       {(showOtoMenu || showRightMenu) && <Pressable style={styles.otoMenuOverlay} onPress={closeOtoMenu} />}
       <Animated.View style={[styles.headerFloating, { paddingTop: insets.top }, (showOtoMenu || showRightMenu) && { zIndex: 100 }]}>
-        {/* Left: Hamburger circle */}
+        {/* Left: Hamburger + Profile avatar */}
         <View style={styles.headerSide}>
           {isLiquidGlassEnabled && LiquidGlassView ? (
             <Pressable onPress={toggleDrawer}>
@@ -999,6 +1037,7 @@ export default function AIChatScreen() {
               <AlignLeft size={22} color="#000000" />
             </Pressable>
           )}
+          <ProfileInitialsButton />
         </View>
 
         {/* Center: Oto model selector */}
@@ -1215,43 +1254,70 @@ export default function AIChatScreen() {
             />
           ) : (
             <>
-              {state.messages.map((message) => (
-                <View key={message.id}>
-                  <AIMessageBubble
-                    message={message as AIMessage}
-                    onCopy={() => handleCopy(message.content)}
-                    onSpeak={() => handleSpeak(message.content)}
-                    onLike={() => openFeedbackModal("thumbs_up", message)}
-                    onDislike={() => openFeedbackModal("thumbs_down", message)}
-                    onQuickReplySelect={handleQuickReplySelect}
-                  />
-                  {/* Sprint 4 Day 1 Pass B — single consolidated booking
-                      surface. When bookService is set, this owns the full
-                      flow (service select → options → notes → mechanic →
-                      time → review → pay) and the legacy render branches
-                      below are skipped. */}
-                  {message.role === "assistant" && message.bookService && (
-                    <View style={styles.servicePickerContainer}>
-                      <BookServiceComponent
-                        payload={message.bookService}
-                        disabled={isProcessing}
-                        onBookAndPay={(mechanicId) => {
-                          // Record fact for next Oto turn — mirrors the
-                          // existing handleBookNow telemetry pattern.
-                          pushFact(`selected mechanic_id: ${mechanicId}`);
-                        }}
-                        onDismiss={() => {
-                          // The chat conversation resumes; Oto's next turn
-                          // will see <conversation_state> reflect the
-                          // abandoned booking via established_facts.
-                          pushFact("booking_flow_dismissed");
-                        }}
-                      />
-                    </View>
-                  )}
-                  {/* Record Confirmation — symptom-vs-record trust protocol */}
-                  {message.role === "assistant" &&
-                    message.showRecordConfirmation && (
+              {/* Empty-state greeting headline — per Sprint 4 brief §3.2,
+                  the entry screen should lead with a personalized concierge
+                  line, not a booking menu. Shown only on the first turn;
+                  vanishes once any message has been sent. */}
+              {state.messages.length === 0 && (
+                <View style={styles.emptyStateGreetingWrap}>
+                  <Text style={styles.emptyStateGreetingHeadline} weight="semiBold">
+                    Hi, how can I help with your {vehicleShortName}?
+                  </Text>
+                </View>
+              )}
+              {state.messages.map((message) => {
+                // Sprint 4 §"Cross-cutting frontend rules" — terminal
+                // renders are mutually exclusive. The dispatcher and prompt
+                // both enforce this server-side; this guard is defensive
+                // insurance against a malformed envelope ever reaching the
+                // client. Priority order matches the handoff doc:
+                // bookService → showRecordConfirmation → bookingCard /
+                // bookingsList → linkButton. When any terminal is set, we
+                // also drop quickReplies from the bubble so a confused
+                // payload can't double-render a tap surface.
+                const isAssistant = message.role === "assistant";
+                const terminalKind: "bookService" | "recordConfirm" | "bookingCard" | "bookingsList" | "linkButton" | null =
+                  isAssistant
+                    ? message.bookService
+                      ? "bookService"
+                      : message.showRecordConfirmation
+                        ? "recordConfirm"
+                        : message.bookingCard
+                          ? "bookingCard"
+                          : message.bookingsList
+                            ? "bookingsList"
+                            : message.linkButton
+                              ? "linkButton"
+                              : null
+                    : null;
+                const messageForBubble = terminalKind
+                  ? { ...message, quickReplies: undefined }
+                  : message;
+                return (
+                  <View key={message.id}>
+                    <AIMessageBubble
+                      message={messageForBubble as AIMessage}
+                      onCopy={() => handleCopy(message.content)}
+                      onSpeak={() => handleSpeak(message.content)}
+                      onLike={() => openFeedbackModal("thumbs_up", message)}
+                      onDislike={() => openFeedbackModal("thumbs_down", message)}
+                      onQuickReplySelect={handleQuickReplySelect}
+                    />
+                    {terminalKind === "bookService" && message.bookService && (
+                      <View style={styles.servicePickerContainer}>
+                        <BookServiceComponent
+                          payload={message.bookService}
+                          disabled={isProcessing}
+                          onBookAndPay={(mechanicId) => {
+                            pushFact(`selected mechanic_id: ${mechanicId}`);
+                          }}
+                          onDismiss={() => {
+                            pushFact("booking_flow_dismissed");
+                          }}
+                        />
+                      </View>
+                    )}
+                    {terminalKind === "recordConfirm" && message.showRecordConfirmation && (
                       <View style={styles.servicePickerContainer}>
                         <AIRecordConfirmation
                           vehicleId={message.showRecordConfirmation.vehicle_id}
@@ -1261,35 +1327,53 @@ export default function AIChatScreen() {
                         />
                       </View>
                     )}
-                  {/* Link Button — render_link_button (9 destinations) */}
-                  {message.role === "assistant" && message.linkButton && (
-                    <LinkButton payload={message.linkButton} />
-                  )}
-                  {/* Booking Card — render_booking_card (single booking) */}
-                  {message.role === "assistant" && message.bookingCard && (
-                    <BookingCard bookingId={message.bookingCard.booking_id} />
-                  )}
-                  {/* Bookings List — render_bookings_list (multi) */}
-                  {message.role === "assistant" && message.bookingsList && (
-                    <BookingsList bookingIds={message.bookingsList.booking_ids} />
-                  )}
-                </View>
-              ))}
-              {/* Only show typing indicator if not already shown inside message with reasoning */}
-              {isProcessing && !state.messages.some(m => m.role === 'assistant' && m.reasoning && m.reasoning.length > 0 && m.isStreaming) && (
-                <View style={styles.typingIndicatorWrapper}>
-                  <AITypingIndicator />
-                </View>
-              )}
-              {/* Suggestions directly under AI message */}
-              {state.suggestions.length > 0 && !isProcessing && !isAttachmentOpen && (
-                <PromptSuggestions
-                  stage={state.currentStage}
-                  suggestions={state.suggestions}
-                  onSelect={handleSuggestionPress}
-                  disabled={isProcessing}
-                />
-              )}
+                    {terminalKind === "bookingCard" && message.bookingCard && (
+                      <BookingCard bookingId={message.bookingCard.booking_id} />
+                    )}
+                    {terminalKind === "bookingsList" && message.bookingsList && (
+                      <BookingsList bookingIds={message.bookingsList.booking_ids} />
+                    )}
+                    {terminalKind === "linkButton" && message.linkButton && (
+                      <LinkButton payload={message.linkButton} />
+                    )}
+                  </View>
+                );
+              })}
+              {/* Typing indicator: show only while we're WAITING for the
+                  assistant's reply. The moment any assistant message lands
+                  in the list (= last message flips to role 'assistant'),
+                  its streaming bubble takes over the visual focus and the
+                  indicator hides immediately — independent of whether the
+                  message has reasoning, sources, or render envelopes. */}
+              {(() => {
+                const lastMsg = state.messages[state.messages.length - 1];
+                const isWaitingForReply = !lastMsg || lastMsg.role !== "assistant";
+                return isProcessing && isWaitingForReply ? (
+                  <View style={styles.typingIndicatorWrapper}>
+                    <AITypingIndicator />
+                  </View>
+                ) : null;
+              })()}
+              {/* Seed suggestions — only on the first turn of a chat, never
+                  after the user has sent a message. Visually de-emphasized
+                  per brief §3.2: the greeting headline is primary, these
+                  are optional shortcuts. */}
+              {state.messages.length === 0 &&
+                state.suggestions.length > 0 &&
+                !isProcessing &&
+                !isAttachmentOpen && (
+                  <View style={styles.emptyStateSuggestionsWrap}>
+                    <Text style={styles.emptyStateSuggestionsCaption}>
+                      or pick a shortcut
+                    </Text>
+                    <PromptSuggestions
+                      stage={state.currentStage}
+                      suggestions={state.suggestions}
+                      onSelect={handleSuggestionPress}
+                      disabled={isProcessing}
+                    />
+                  </View>
+                )}
             </>
           )}
         </ScrollView>
@@ -1373,7 +1457,8 @@ const styles = StyleSheet.create({
   },
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    // transparent so the LinearGradient layer underneath shows through
+    backgroundColor: 'transparent',
   },
   header: {
     flexDirection: "row",
@@ -1394,12 +1479,18 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.md,
     zIndex: 10,
   },
+  // Left + right zones share the same width so the centered "Oto" pill
+  // stays optically centered. 40 (hamburger) + 10 (gap) + 40 (avatar) =
+  // 90 on the left; the right side reserves the same width with the
+  // compose pill anchored to the far right.
   headerSide: {
-    width: 50,
-    alignItems: "flex-start",
+    width: 90,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
   },
   headerSideRight: {
-    width: 50,
+    width: 90,
     alignItems: "flex-end",
   },
   headerCenter: {
@@ -1531,5 +1622,28 @@ const styles = StyleSheet.create({
   servicePickerContainer: {
     marginHorizontal: Spacing.md,
     marginBottom: Spacing.md,
+  },
+  emptyStateGreetingWrap: {
+    paddingHorizontal: Spacing.lg,
+    paddingTop: Spacing["2xl"],
+    paddingBottom: Spacing.md,
+    alignItems: "center",
+  },
+  emptyStateGreetingHeadline: {
+    fontSize: 22,
+    lineHeight: 30,
+    color: "#000000",
+    textAlign: "center",
+  },
+  emptyStateSuggestionsWrap: {
+    opacity: 0.7,
+    marginTop: Spacing.md,
+    gap: Spacing.xs,
+  },
+  emptyStateSuggestionsCaption: {
+    fontSize: 12,
+    color: "#000000",
+    textAlign: "center",
+    marginBottom: Spacing.xs,
   },
 });

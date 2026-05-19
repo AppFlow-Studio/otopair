@@ -16,11 +16,12 @@
  */
 
 import React from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { Dimensions, Pressable, StyleSheet, View } from "react-native";
 
 import { useRouter } from "expo-router";
 import { useQuery } from "convex/react";
 import Animated, { FadeIn } from "react-native-reanimated";
+import { useSettingsOverlayStore } from "@/stores/useSettingsOverlayStore";
 import {
   ArrowUpRight,
   Bug,
@@ -29,7 +30,6 @@ import {
   CreditCard,
   FileText,
   HelpCircle,
-  Settings as SettingsIcon,
   ShieldCheck,
   Star,
   User,
@@ -66,10 +66,13 @@ const DESTINATION_CONFIG: Record<LinkButtonDestination, DestinationConfig> = {
     Icon: ShieldCheck,
     route: "/settings/privacy-policy",
   },
+  // Profile is the SettingsOverlay (home button → settings card animation).
+  // The standalone /settings route was removed in favor of the overlay;
+  // route to Home so the user can tap their profile avatar to open it.
   settings: {
-    defaultLabel: "Open Settings",
-    Icon: SettingsIcon,
-    route: "/settings",
+    defaultLabel: "Open Profile",
+    Icon: User,
+    route: "/home",
   },
   profile: {
     defaultLabel: "Open Profile",
@@ -105,17 +108,31 @@ const DESTINATION_CONFIG: Record<LinkButtonDestination, DestinationConfig> = {
 
 export function LinkButton({ payload }: { payload: LinkButtonPayload }) {
   const router = useRouter();
+  const setFromRect = useSettingsOverlayStore((s) => s.setFromRect);
   const cfg = DESTINATION_CONFIG[payload.destination];
   if (!cfg) return null;
   const label = payload.label ?? cfg.defaultLabel;
   const Icon = cfg.Icon;
 
+  // The `settings` destination opens the SettingsOverlay route. The
+  // shared-element morph from the Home profile button doesn't make sense
+  // here (the chat pill isn't a "preview" of the settings card), so we
+  // skip the morph by writing a fullscreen rect — the overlay's size
+  // interpolation becomes a no-op and only the backdrop fade plays.
+  const handlePress = () => {
+    if (payload.destination === "settings") {
+      const { width, height } = Dimensions.get("window");
+      setFromRect({ x: 0, y: 0, width, height });
+      router.push("/profile-overlay");
+      return;
+    }
+    router.push(cfg.route as never);
+  };
+
   return (
     <Animated.View entering={FadeIn.duration(150)} style={styles.containerPadded}>
       <Pressable
-        // Cast: Expo-Router's typed-routes union is regenerated per route and
-        // we don't want every destination here to fight the inferred type.
-        onPress={() => router.push(cfg.route as never)}
+        onPress={handlePress}
         style={({ pressed }) => [styles.linkButton, pressed && styles.linkButtonPressed]}
       >
         <View style={styles.linkIconWrap}>
@@ -143,29 +160,64 @@ export function BookingCard({ bookingId }: { bookingId: string }) {
 // ============================================================================
 
 export function BookingsList({ bookingIds }: { bookingIds: string[] }) {
+  // Batched fetch — one query covers up to 10 ids, returning nulls in-place
+  // for missing rows. Replaces the prior N-fold `useQuery(getById)` pattern
+  // so a 10-booking response doesn't fan out into 10 round trips.
+  const bookings = useQuery(
+    api.bookings.getMany,
+    bookingIds && bookingIds.length > 0
+      ? { ids: bookingIds as Id<"bookings">[] }
+      : "skip",
+  );
+
   if (!bookingIds || bookingIds.length === 0) return null;
+
   return (
     <Animated.View entering={FadeIn.duration(150)} style={styles.containerPadded}>
       <View style={styles.listStack}>
-        {bookingIds.map((id) => (
-          <BookingRow key={id} bookingId={id} variant="row" />
+        {bookingIds.map((id, i) => (
+          <BookingRow
+            key={id}
+            bookingId={id}
+            booking={bookings === undefined ? undefined : (bookings[i] ?? null)}
+            variant="row"
+          />
         ))}
       </View>
     </Animated.View>
   );
 }
 
+// Minimal shape the row needs from a booking. Both `api.bookings.getById`
+// and `api.bookings.getMany` return rows that satisfy this (or null/undefined
+// for missing / loading).
+type BookingRowData = {
+  status?: string;
+  scheduled_date?: string;
+  scheduled_time?: string;
+} | null | undefined;
+
 // Shared single-booking renderer. `card` is a slightly bigger standalone
-// surface; `row` is a compact list item.
+// surface; `row` is a compact list item. The `booking` prop lets the
+// parent inject a pre-fetched row (BookingsList does this with getMany);
+// when omitted, the row fetches its own row via getById (BookingCard
+// path).
 function BookingRow({
   bookingId,
+  booking: bookingProp,
   variant,
 }: {
   bookingId: string;
+  booking?: BookingRowData;
   variant: "card" | "row";
 }) {
   const router = useRouter();
-  const booking = useQuery(api.bookings.getById, { id: bookingId as Id<"bookings"> });
+  const ownQuery = useQuery(
+    api.bookings.getById,
+    bookingProp === undefined ? { id: bookingId as Id<"bookings"> } : "skip",
+  );
+  const booking: BookingRowData =
+    bookingProp !== undefined ? bookingProp : (ownQuery as BookingRowData);
 
   // Loading / not-found states are short and minimal — the booking row is
   // contextual UI, not a hero card.
@@ -198,7 +250,9 @@ function BookingRow({
       style={variant === "card" ? styles.containerPadded : undefined}
     >
       <Pressable
-        onPress={() => router.push(`/bookings` as never)}
+        onPress={() =>
+          router.push(`/(main-tabs)/bookings?bookingId=${bookingId}` as never)
+        }
         style={({ pressed }) => [
           styles.bookingCard,
           variant === "card" && styles.bookingCardWide,

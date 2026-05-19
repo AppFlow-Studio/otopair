@@ -3,22 +3,29 @@
  *
  * PURPOSE: Circular orange initials button that sits in the Home
  *          header where the OtoPair logo used to be. Tapping it
- *          captures its on-screen rect and triggers the
- *          SettingsOverlay's shared-element open animation
- *          (settings page grows from this button to fullscreen).
+ *          captures its on-screen rect, writes it to the overlay
+ *          store as the morph anchor, and pushes the
+ *          `/profile-overlay` route which renders SettingsOverlay's
+ *          shared-element open animation.
  *
  * USED IN: app/(main-tabs)/home/index.tsx
  *
  * OWNER: Ahmad Hamoudeh
  */
 
-import React, { useMemo, useRef } from "react";
+import React, { useEffect, useMemo, useRef } from "react";
 import { Image, StyleSheet, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
-import { runOnJS } from "react-native-reanimated";
+import Animated, {
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
 import { LinearGradient } from "expo-linear-gradient";
 import { useQuery } from "convex/react";
 import { useShallow } from "zustand/react/shallow";
+import { usePathname, useRouter } from "expo-router";
 
 import { Text } from "@/components/shared-ui";
 import { AvatarSlider } from "@/components/settings/AvatarSlider";
@@ -34,6 +41,8 @@ const BUTTON_SIZE = 40;
 
 export function ProfileInitialsButton() {
   const viewRef = useRef<View>(null);
+  const router = useRouter();
+  const pathname = usePathname();
   const me = useQuery(api.users.getMe);
   const { firstName, lastName, profilePhotoUri: storedPhoto } =
     useOnboardingStore(
@@ -43,9 +52,23 @@ export function ProfileInitialsButton() {
         profilePhotoUri: s.data.profilePhotoUri,
       })),
     );
-  const open = useSettingsOverlayStore((s) => s.open);
-  const isOpen = useSettingsOverlayStore((s) => s.isOpen);
-  const isMounted = useSettingsOverlayStore((s) => s.isMounted);
+  const setFromRect = useSettingsOverlayStore((s) => s.setFromRect);
+
+  // The avatar must stay hidden whenever the overlay is somewhere on
+  // the stack — either focused (/profile-overlay) OR underneath a
+  // destination pushed from it (/settings/*, /payments, etc.). The
+  // home screen is mounted the whole time below the overlay route, so
+  // without this the original avatar would peek through the overlay's
+  // floating animated avatar and visually double.
+  //
+  // Heuristic: hide on the overlay route itself AND any route that's
+  // commonly pushed from inside it. Simpler than tracking history
+  // ourselves — pathname is always current to the focused route.
+  const overlayLifecycleActive =
+    pathname === "/profile-overlay" ||
+    pathname.startsWith("/settings") ||
+    pathname.startsWith("/payments") ||
+    pathname.startsWith("/membership");
 
   const initials = useMemo(
     () =>
@@ -69,10 +92,12 @@ export function ProfileInitialsButton() {
   }, [me?.profile_photo_storage_id, me?.profile_photo_url, storedPhoto]);
 
   const handlePress = () => {
-    // Ignore taps while the overlay is already open / animating in.
-    if (isOpen) return;
+    // Ignore taps while the overlay (or one of its destinations) is
+    // already up — re-pushing the route would stack a duplicate.
+    if (overlayLifecycleActive) return;
     viewRef.current?.measureInWindow((x, y, width, height) => {
-      open({ x, y, width, height });
+      setFromRect({ x, y, width, height });
+      router.push("/profile-overlay");
     });
   };
 
@@ -85,48 +110,57 @@ export function ProfileInitialsButton() {
     runOnJS(handlePress)();
   });
 
-  // While the SettingsOverlay is mounted (open or animating closed), the
-  // floating avatar inside the overlay sits at the same on-screen
-  // position as this home button (and then slides to its settled
-  // top-center position during the open animation). Rendering both at
-  // once made the user see a "second AH" floating away — which they
-  // described as "the button moves up then back down". Hide the
-  // contents (not the wrapper, so layout + measureInWindow stay stable)
-  // for the entire open + close lifecycle.
-  const showContents = !isMounted;
+  // Cross-fade the button content while the overlay is alive, rather
+  // than conditionally unmounting it. The overlay's floating avatar
+  // renders the SAME `AvatarSlider` (paused on the same panel) at the
+  // SAME on-screen position at progress=0 — so a brief overlap during
+  // the 90 ms fade is invisible. The fade-out replaces the previous
+  // hard pop the user saw as a button glitch.
+  const contentOpacity = useSharedValue(1);
+  useEffect(() => {
+    contentOpacity.value = withTiming(overlayLifecycleActive ? 0 : 1, {
+      duration: 90,
+    });
+  }, [overlayLifecycleActive, contentOpacity]);
+  const contentStyle = useAnimatedStyle(() => ({
+    opacity: contentOpacity.value,
+  }));
 
   return (
     <GestureDetector gesture={tap}>
     <View ref={viewRef} style={styles.button}>
-      {showContents && (photoUri ? (
-        <Image source={{ uri: photoUri }} style={styles.image} />
-      ) : (
-        <LinearGradient
-          colors={["#5299FE", "#C5DAFF"]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.placeholder}
-        >
-          <AvatarSlider
-            size={BUTTON_SIZE}
-            panels={[
-              <Text
-                weight="semiBold"
-                size="sm"
-                color="#FFFFFF"
-                style={styles.text}
-              >
-                {initials}
-              </Text>,
-              <Image
-                source={OTO_LOGO_3D}
-                style={{ width: 38, height: 38 }}
-                resizeMode="contain"
-              />,
-            ]}
-          />
-        </LinearGradient>
-      ))}
+      <Animated.View style={[StyleSheet.absoluteFill, contentStyle]}>
+        {photoUri ? (
+          <Image source={{ uri: photoUri }} style={styles.image} />
+        ) : (
+          <LinearGradient
+            colors={["#5299FE", "#C5DAFF"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.placeholder}
+          >
+            <AvatarSlider
+              size={BUTTON_SIZE}
+              paused={overlayLifecycleActive}
+              panels={[
+                <Text
+                  weight="semiBold"
+                  size="sm"
+                  color="#FFFFFF"
+                  style={styles.text}
+                >
+                  {initials}
+                </Text>,
+                <Image
+                  source={OTO_LOGO_3D}
+                  style={{ width: 38, height: 38 }}
+                  resizeMode="contain"
+                />,
+              ]}
+            />
+          </LinearGradient>
+        )}
+      </Animated.View>
     </View>
     </GestureDetector>
   );
@@ -138,12 +172,6 @@ const styles = StyleSheet.create({
     height: BUTTON_SIZE,
     borderRadius: BUTTON_SIZE / 2,
     overflow: "hidden",
-  },
-  buttonPressed: {
-    opacity: 0.85,
-  },
-  buttonHidden: {
-    opacity: 0,
   },
   image: {
     width: BUTTON_SIZE,

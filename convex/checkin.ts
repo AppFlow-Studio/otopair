@@ -624,3 +624,34 @@ export const markEstimatedHealthScores = internalMutation({
     }
   },
 });
+
+/**
+ * One-shot backfill: any vehicle_owner row whose pre-onboarding is
+ * complete but has no `next_checkin_due` gets scheduled 90 days from
+ * now. Without this, existing users (onboarded before the auto-
+ * scheduling change) would never see the CheckinBanner because their
+ * `next_checkin_due` is null and getCheckinStatus returns "not_due".
+ *
+ * Safe to re-run — only patches rows where the field is currently
+ * unset.
+ *
+ *   npx convex run checkin:backfillFirstCheckinSchedules
+ */
+export const backfillFirstCheckinSchedules = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now();
+    const NINETY_DAYS_MS = 90 * 24 * 60 * 60 * 1000;
+    const owners = await ctx.db.query("vehicle_owners").collect();
+    let patched = 0;
+    for (const owner of owners) {
+      if (!owner.preOnboardingComplete) continue;
+      if (owner.next_checkin_due != null) continue;
+      await ctx.db.patch(owner._id, {
+        next_checkin_due: now + NINETY_DAYS_MS,
+      });
+      patched += 1;
+    }
+    return { patched, total: owners.length };
+  },
+});

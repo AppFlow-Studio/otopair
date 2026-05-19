@@ -44,9 +44,17 @@ export const getBookings = query({
       v.literal("all"),
     ),
     limit: v.optional(v.number()),
+    // Optional vehicle scope. When set, only bookings whose VIN matches
+    // (case-insensitive, trimmed) are returned — used by Oto when the
+    // user's question is scoped to a specific car ("for this car", "on
+    // my MKX"). When omitted, returns bookings across all vehicles.
+    vehicle_vin: v.optional(v.string()),
   },
   // @ts-expect-error TS2589 — see above.
-  handler: async (ctx: any, { status_filter, limit }): Promise<OtoBookingSummary[]> => {
+  handler: async (
+    ctx: any,
+    { status_filter, limit, vehicle_vin },
+  ): Promise<OtoBookingSummary[]> => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("unauthenticated");
 
@@ -61,24 +69,38 @@ export const getBookings = query({
       .withIndex("by_user_id", (q: any) => q.eq("user_id", user._id))
       .collect();
 
+    const vinTarget =
+      vehicle_vin && vehicle_vin.trim().length > 0
+        ? vehicle_vin.toUpperCase().trim()
+        : null;
+
     // Filter by status_filter first to avoid enriching rows we'll drop.
-    const filtered = rows.filter((b) => {
-      if (status_filter === "all") return true;
-      if (status_filter === "active") return ACTIVE_STATUSES.has(b.status);
-      if (status_filter === "completed") return b.status === "completed";
-      return false;
+    const filtered = rows.filter((b: any) => {
+      // Status check
+      if (status_filter === "active") {
+        if (!ACTIVE_STATUSES.has(b.status)) return false;
+      } else if (status_filter === "completed") {
+        if (b.status !== "completed") return false;
+      }
+      // VIN scope (optional). Bookings missing a vin row get filtered out
+      // when a target is set — they can't be claimed for any specific car.
+      if (vinTarget) {
+        const rowVin = (b.vin ?? "").toUpperCase().trim();
+        if (rowVin !== vinTarget) return false;
+      }
+      return true;
     });
 
     // Newest first by _creationTime — bookings.scheduled_at may be unset for
     // quote-stage rows, so _creationTime is the only universally-present
     // ordering field.
-    filtered.sort((a, b) => b._creationTime - a._creationTime);
+    filtered.sort((a: any, b: any) => b._creationTime - a._creationTime);
 
     const cap = Math.min(20, Math.max(1, limit ?? 5));
     const limited = filtered.slice(0, cap);
 
     return await Promise.all(
-      limited.map(async (b) => {
+      limited.map(async (b: any) => {
         const shop = b.shop_id ? await ctx.db.get(b.shop_id) : null;
         const mechanic = b.mechanic_id ? await ctx.db.get(b.mechanic_id) : null;
         const serviceIds = b.service_ids ?? [];
@@ -127,9 +149,14 @@ export const getBookings = query({
 export const getPendingBookings = query({
   args: {
     limit: v.optional(v.number()),
+    // See getBookings.vehicle_vin — same semantics.
+    vehicle_vin: v.optional(v.string()),
   },
   // @ts-expect-error TS2589 — see getBookings above.
-  handler: async (ctx: any, { limit }): Promise<OtoBookingSummary[]> => {
+  handler: async (
+    ctx: any,
+    { limit, vehicle_vin },
+  ): Promise<OtoBookingSummary[]> => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("unauthenticated");
 
@@ -144,19 +171,31 @@ export const getPendingBookings = query({
       .withIndex("by_user_id", (q: any) => q.eq("user_id", user._id))
       .collect();
 
+    const vinTarget =
+      vehicle_vin && vehicle_vin.trim().length > 0
+        ? vehicle_vin.toUpperCase().trim()
+        : null;
+
     // Pending-only filter — strict subset of getBookings's "active" set.
-    const filtered = rows.filter((b) => b.status === "pending");
+    const filtered = rows.filter((b: any) => {
+      if (b.status !== "pending") return false;
+      if (vinTarget) {
+        const rowVin = (b.vin ?? "").toUpperCase().trim();
+        if (rowVin !== vinTarget) return false;
+      }
+      return true;
+    });
 
     // Newest first by _creationTime — bookings.scheduled_at may be unset for
     // quote-stage rows, so _creationTime is the only universally-present
     // ordering field.
-    filtered.sort((a, b) => b._creationTime - a._creationTime);
+    filtered.sort((a: any, b: any) => b._creationTime - a._creationTime);
 
     const cap = Math.min(20, Math.max(1, limit ?? 5));
     const limited = filtered.slice(0, cap);
 
     return await Promise.all(
-      limited.map(async (b) => {
+      limited.map(async (b: any) => {
         const shop = b.shop_id ? await ctx.db.get(b.shop_id) : null;
         const mechanic = b.mechanic_id ? await ctx.db.get(b.mechanic_id) : null;
         const serviceIds = b.service_ids ?? [];
