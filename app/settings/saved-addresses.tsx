@@ -29,6 +29,7 @@ import SegmentedControl from "@react-native-segmented-control/segmented-control"
 
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { useToast } from "@/hooks/useToast";
 import { useUserFromConvex } from "@/hooks/useUserFromConvex";
 import {
   BlurHeaderOverlay,
@@ -68,6 +69,7 @@ function iconForType(type: AddressType, color: string, size = 20) {
 export default function SavedAddressesScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const toast = useToast();
   const { userId } = useUserFromConvex();
 
   const addresses = useQuery(
@@ -154,8 +156,9 @@ export default function SavedAddressesScreen() {
       sheetRef.current?.close();
     } catch (e) {
       console.warn("Saving address failed:", e);
+      toast.error("Couldn't save this address.");
     }
-  }, [userId, canSave, isEditMode, editingId, type, label, address, notes, makePrimary, addMutation, updateMutation]);
+  }, [userId, canSave, isEditMode, editingId, type, label, address, notes, makePrimary, addMutation, updateMutation, toast]);
 
   const handleDelete = useCallback(() => {
     if (!isEditMode || !editingId) return;
@@ -173,6 +176,7 @@ export default function SavedAddressesScreen() {
               sheetRef.current?.close();
             } catch (e) {
               console.warn("Deleting address failed:", e);
+              toast.error("Couldn't delete this address.");
             }
           },
         },

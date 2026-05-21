@@ -37,6 +37,9 @@ import { DiscardServiceModal } from "@/components/booking/sheets/DiscardServiceM
 
 // 5. Constants, hooks, types, stores
 import { BorderRadius } from "@/constants/theme";
+import { useBookingStatusToasts } from "@/hooks/useBookingStatusToasts";
+import { usePaymentStatusToasts } from "@/hooks/usePaymentStatusToasts";
+import type { Id } from "@/convex/_generated/dataModel";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
 import { useShopStore } from "@/stores/useShopStore";
@@ -50,6 +53,15 @@ export default function BookingDetailsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
+
+  // Subscription-driven toasts. The hooks pass "skip" to Convex when id
+  // is undefined or not a real booking id, so local/tire-quote ids
+  // (which don't have a Convex row) safely no-op.
+  const convexBookingId = id && !id.startsWith("tire_quote_") && !id.startsWith("booking_")
+    ? (id as Id<"bookings">)
+    : undefined;
+  useBookingStatusToasts(convexBookingId);
+  usePaymentStatusToasts(convexBookingId);
 
   // ═══════════════ BOOKING STORE ═══════════════
   const selectedServiceIds = useBookingStore((state) => state.selectedServiceIds);

@@ -40,6 +40,7 @@ import {
 import { api } from "@/convex/_generated/api";
 import { useOnboardingStore } from "@/stores/useOnboardingStore";
 import { useOnboardingPersistence } from "@/hooks/useOnboardingPersistence";
+import { useToast } from "@/hooks/useToast";
 
 // Try to import getAllCountries from the country picker module.
 let getAllCountries: ((locale?: string) => Promise<Country[]>) | undefined;
@@ -52,6 +53,7 @@ try {
 
 export default function EditProfileScreen() {
   const insets = useSafeAreaInsets();
+  const toast = useToast();
   const router = useRouter();
   const params = useLocalSearchParams<{ showPhotos?: string }>();
   const { user: clerkUser } = useUser();
@@ -384,6 +386,7 @@ export default function EditProfileScreen() {
           await persistProfilePhoto(editPhotoUri);
         } catch (error) {
           console.warn("Convex photo update failed:", error);
+          toast.error("Couldn't update your profile photo.");
         }
       }
 
@@ -398,6 +401,7 @@ export default function EditProfileScreen() {
         });
       } catch (error) {
         console.warn("Convex name update failed:", error);
+        toast.error("Couldn't update your name.");
       }
 
       if (emailChanged || phoneChanged) {
@@ -421,6 +425,7 @@ export default function EditProfileScreen() {
         });
       } catch (error) {
         console.warn("Convex profile contact update failed:", error);
+        toast.error("Couldn't update your contact info.");
       }
 
       router.back();

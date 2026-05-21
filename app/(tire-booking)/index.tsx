@@ -486,7 +486,7 @@ function TierCard({
   }));
 
   const handlePress = useCallback(() => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    haptics.step();
     scale.value = withSequence(
       withTiming(0.98, { duration: 150, easing: Easing.out(Easing.cubic) }),
       withTiming(1, { duration: 150, easing: Easing.out(Easing.cubic) }),

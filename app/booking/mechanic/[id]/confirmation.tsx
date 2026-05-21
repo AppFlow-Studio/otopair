@@ -41,6 +41,7 @@ import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { BorderRadius, Shadows } from "@/constants/theme";
+import { useToast } from "@/hooks/useToast";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
 import { useShopStore } from "@/stores/useShopStore";
@@ -198,6 +199,7 @@ export default function ConfirmationScreen() {
   // ═══════════════ HOOKS ═══════════════
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const toast = useToast();
   const { height: windowHeight } = useWindowDimensions();
   const { id: bookingId, bookingDbId } = useLocalSearchParams<{ id: string; bookingDbId?: string }>();
   const isCompactLayout = windowHeight < 860;
@@ -331,7 +333,7 @@ export default function ConfirmationScreen() {
     const dateStr = scheduledAppointment?.date ?? localBooking?.scheduledDate;
     const timeStr = scheduledAppointment?.time ?? localBooking?.scheduledTime ?? "2:00 PM";
     if (!dateStr) {
-      Alert.alert("No date", "Appointment date is missing.");
+      toast.warning("Pick a date first.");
       return;
     }
     try {
@@ -364,24 +366,25 @@ export default function ConfirmationScreen() {
 
       const { status } = await Calendar.requestCalendarPermissionsAsync();
       if (status !== "granted") {
-        Alert.alert("Calendar access", "Calendar permission is required to add the appointment.");
+        toast.error(
+          "Couldn't add to your calendar.",
+          "Open Settings to grant access.",
+        );
         return;
       }
       const calendars = await Calendar.getCalendarsAsync(Calendar.EntityTypes.EVENT);
       const writable = calendars.filter((c) => c.allowsModifications !== false);
       const calendarId = writable[0]?.id ?? calendars[0]?.id;
       if (!calendarId) {
-        Alert.alert("Calendar", "No calendar available to add the event.");
+        toast.error("Couldn't add to your calendar.");
         return;
       }
       await Calendar.createEventAsync(calendarId, eventDetails);
-      Alert.alert("Added", "Appointment added to your calendar.");
+      toast.success("Added to your calendar.");
     } catch (e) {
-      if (Platform.OS === "web") {
-        Alert.alert("Not supported", "Adding to calendar is not supported on web.");
-        return;
-      }
-      Alert.alert("Error", "Could not add to calendar. Please try again.");
+      // PLAN §B.7: never interpolate raw OS error strings into user-facing toasts.
+      console.error("[confirmation] add-to-calendar failed", e);
+      toast.error("Couldn't add to your calendar.");
     }
   }, [shop?.name, localShop?.name, mechanic?.name, mechanic?.shopName, scheduledAppointment?.date, scheduledAppointment?.time, localBooking, fullAddress]);
 

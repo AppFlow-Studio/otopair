@@ -47,7 +47,9 @@ All five types share these container defaults; type-specific overrides below.
 | Property | Value |
 |---|---|
 | Width | `screen width - 32px` (16px horizontal inset) |
+| Max width (tablet / iPad) | `480 px`, `alignSelf: 'center'` — toast never spans a full landscape tablet |
 | Min height | 56 px |
+| Max height | 40% of screen height — content scrolls within if reached, though approved strings should never hit this |
 | Corner radius | 16 px |
 | Padding | 14 px top/bottom, 16 px left/right |
 | Internal layout | row: icon (32px container) → 12px gap → text column → 12px gap → optional dismiss tap area |
@@ -55,12 +57,19 @@ All five types share these container defaults; type-specific overrides below.
 | Touch target | full container, tap dismisses |
 | Swipe to dismiss | swipe **up** dismisses; downward gestures ignored (avoids tab-bar confusion) |
 | Close button | none — tap-anywhere-to-dismiss + swipe-up + auto-dismiss are sufficient |
+| Title length | wraps to **2 lines max**, ellipsizes beyond (`numberOfLines={2}`) |
+| Body length | wraps to **3 lines max**, ellipsizes beyond (`numberOfLines={3}`) |
 
 ### Shared text styles
 | Slot | Font | Size | Line-height | Color (light) | Color (dark) |
 |---|---|---|---|---|---|
 | Title | `Urbanist-SemiBold` | 15 px | 20 px | `#1A1A1A` | `#F8FAFC` |
 | Body | `Urbanist-Regular` | 13 px | 18 px | `#374151` | `#CBD5E1` |
+
+### Dynamic Type scaling
+| Slot | Behavior |
+|---|---|
+| Title + Body | Multiply base size by `min(PixelRatio.getFontScale(), 1.6)`. The clamp prevents Dynamic Type XXL/XXXL from breaking layout while still honoring the user's accessibility preference within a safe range. |
 
 ### Shared motion
 | Phase | Spec |
@@ -119,7 +128,11 @@ All five types share these container defaults; type-specific overrides below.
 
 ## B.4 — Haptic ladder `[Senior UX Engineer]`
 
-Philosophy: **haptics confirm, they do not announce.** When `AccessibilityInfo.isReduceMotionEnabled()` is `true`, all haptics are suppressed and toast motion crossfades.
+Philosophy: **haptics confirm, they do not announce.**
+
+When `AccessibilityInfo.isReduceMotionEnabled()` is `true`, toast motion crossfades instead of sliding. **Haptics are NOT suppressed by Reduce Motion** — these are independent iOS accessibility preferences (Reduce Motion targets vestibular comfort; haptics are governed by the system Vibration setting). iOS suppresses haptics natively when the system Vibration setting is off; we do not override or duplicate that check.
+
+Out of scope for MVP: an in-app "Reduce in-app haptics" toggle in `settings/notification-preferences.tsx`. Added post-launch if users request it.
 
 | Event | Haptic API |
 |---|---|
@@ -141,6 +154,12 @@ Philosophy: **haptics confirm, they do not announce.** When `AccessibilityInfo.i
 - Modal open / close
 - Toast Info appear
 - Any tap that does not commit to a server change
+
+### CTA-toast double-haptic suppression
+
+When a primary CTA fires a mutation that will produce a toast (via `useMutationWithToast`), the CTA haptic is suppressed and only the toast haptic fires. Rule of thumb for devs: **if your `onPress` calls a mutation wrapped in `useMutationWithToast`, do NOT also call `haptics.cta()`** — the toast haptic is the confirmation. Two haptics 200ms apart feel buggy, not crisp.
+
+`lib/haptics.ts` exposes a `haptics.ctaSilent()` no-op for buttons where consistency in the call-site shape matters (so the dev still writes `onPress={() => { haptics.ctaSilent(); doThing(); }}` and the next reader can tell the absence of haptic is intentional, not a bug).
 
 ---
 
@@ -175,7 +194,11 @@ declare function useToast(): ToastHandle;
 ### 2. Mutation wrapper — `useMutationWithToast()`
 
 ```ts
-import { FunctionReference } from "convex/server";
+import {
+  FunctionArgs,
+  FunctionReference,
+  FunctionReturnType,
+} from "convex/server";
 import { useMutation } from "convex/react";
 
 interface MutationToastConfig<TArgs, TResult> {
@@ -189,8 +212,8 @@ declare function useMutationWithToast<
   Mutation extends FunctionReference<"mutation">
 >(
   mutation: Mutation,
-  config: MutationToastConfig<Mutation["_args"], Mutation["_returnType"]>,
-): (args: Mutation["_args"]) => Promise<Mutation["_returnType"]>;
+  config: MutationToastConfig<FunctionArgs<Mutation>, FunctionReturnType<Mutation>>,
+): (args: FunctionArgs<Mutation>) => Promise<FunctionReturnType<Mutation>>;
 ```
 
 Wraps `useMutation`, returns the same callable but fires the right toast + haptic on `.then`/`.catch`. Mirrors the `LeaveReviewSheet` try/catch pattern so call sites lose ~10 lines of boilerplate per mutation.
@@ -204,12 +227,18 @@ declare function usePaymentStatusToasts(bookingId: Id<"bookings"> | undefined): 
 
 Internally each:
 1. `useQuery` against `booking_status_history` / `payment_status_history` filtered by `bookingId`, ordered by `created_at_ms desc`.
-2. Tracks `lastSeenAt` in a `useRef` (initialized to `Date.now()` on mount so historical rows don't all fire at once).
-3. On a new row whose `created_at_ms > lastSeenAt`, looks up the transition in the `TRANSITION_TO_TOAST` map (see §B.7) and fires the configured toast.
+2. Tracks `lastSeenAt` in a `useRef`. **Initialization:** stays `null` until the first successful Convex query response, then sets to `max(existingRows.changedAt)`. This closes the gap where a status change that landed 2 seconds before mount would otherwise be missed (a naive `Date.now()`-on-mount would skip it). Before the first response, no toasts fire.
+3. On a new row whose `created_at_ms > lastSeenAt` **AND** `changed_by !== currentUserId`, looks up the transition in the `TRANSITION_TO_TOAST` map (see §B.7) and fires the configured toast.
 
 This is the **critical** mode for mechanic-side actions (accept, in-progress, complete) that flow through the server, not the client. The consumer hears about them by subscribing.
 
 **Mount point:** the booking detail screen for that booking's lifetime. A global mount in `_layout.tsx` would over-toast across screen switches.
+
+#### Self-action filtering
+
+Both `useBookingStatusToasts` and `usePaymentStatusToasts` must ignore status-history rows where `changed_by === currentUserId`. Rationale: the mutation wrapper (`useMutationWithToast`) already fires a toast for the user's own action; the subscription hook only surfaces server-side or counterparty-side changes (mechanic acceptance, Stripe webhook fires, ETA updates pushed by the shop). Without this filter, the consumer sees two toasts for every action they themselves initiate.
+
+Implementation: pull `currentUserId` via `useEnsureConvexUser()` (returns the Convex `users` row id, which is what `booking_status_history.changed_by` stores) and skip matching rows in the reactive map. For payment_status_history, the same rule applies — although in practice Stripe webhook writes never carry the user's id, the filter is defensive against future server changes.
 
 ---
 
@@ -234,7 +263,11 @@ hooks/                                  # CREATE (Phase 2)
   useMutationWithToast.ts
   useBookingStatusToasts.ts
   usePaymentStatusToasts.ts
-  useReducedMotion.ts                   # Wraps AccessibilityInfo + listener
+  useReducedMotion.ts                   # Thin re-export of lib/accessibility for symmetry
+
+lib/                                    # CREATE (Phase 2) — boundary enforced by ESLint rule
+  haptics.ts                            # ONLY file that imports expo-haptics; exposes named helpers
+  accessibility.ts                      # Reactive Reduce Motion flag + listener (used by haptics + toast motion)
 
 constants/
   theme.ts                              # MODIFY (Phase 2) — add SemanticColors export
@@ -244,9 +277,12 @@ components/shared-ui/
 
 app/
   _layout.tsx                           # MODIFY (Phase 2) — wrap with <ToastProvider>
+  dev/toast-playground.tsx              # CREATE (Phase 2) — dev-only visual checkpoint
+
+eslint.config.js                        # MODIFY (Phase 2) — no-restricted-imports rule for expo-haptics
 
 components/ai-chat/
-  AIToast.tsx                           # DEPRECATE (Phase 2) — migrate call sites, delete file
+  AIToast.tsx                           # DEPRECATE (Phase 2) — see PRE-DELETE step below
   (call sites)                          # MIGRATE per §B.7
 
 components/navigation/
@@ -254,6 +290,8 @@ components/navigation/
 components/ui/
   haptic-tab.tsx                        # DELETE (Phase 2) — out of policy
 ```
+
+**PRE-DELETE step (AIToast.tsx):** before removing `components/ai-chat/AIToast.tsx`, run `grep -rn "AIToast" app/ components/ hooks/` to list every importer. Today the audit shows exactly one importer (`app/(main-tabs)/ai-chat/index.tsx`) and one local `showToast` helper that wraps it. Migrate each importer to `useToast()` (calling `toast.info("Message copied")` / `toast.error("Couldn't load that conversation.")` / etc. per the strings already approved in §B.7), then delete the file. Do not delete before grep returns 0 importers — silent runtime failures are not acceptable on the June 1 ship.
 
 ---
 
@@ -266,7 +304,10 @@ Cross-references `AUDIT.md` §A.1.1 + §A.1.2. Every row gets a target type + si
 | Site | Type | Approved string |
 |---|---|---|
 | `app/booking/mechanic/[id]/confirmation.tsx:378` (calendar add success) | Success | "Added to your calendar." |
-| `app/booking/mechanic/[id]/confirmation.tsx:367,374,381,384` (calendar errors) | Error | "Couldn't add to calendar. {reason}." (reason from os) |
+| `app/booking/mechanic/[id]/confirmation.tsx:367` (calendar permission) | Error | "Couldn't add to your calendar. Open Settings to grant access." |
+| `app/booking/mechanic/[id]/confirmation.tsx:374,381,384` (calendar errors) | Error | "Couldn't add to your calendar." |
+
+> **Rule (Trust-Engineering Reviewer):** NEVER interpolate raw OS error strings into user-facing toasts. OS errors are unbounded in length, often contain implementation jargon ("EINTR", "NSURLErrorDomain"), and can leak internal state. Always pick a sanitized, dashboard-tone fallback. Internal logging captures the raw error for debugging.
 | `app/booking/mechanic/[id]/confirmation.tsx:334` (no date) | Warning | "Pick a date first." |
 | `app/coming-soon.tsx:63,76,83` (notification permission) | Info/Success/Error | "Notifications enabled." / "Notifications stay off — change anytime in Settings." / "Couldn't update notification settings." |
 | `app/membership.tsx:245` (referral picked) | Success | "Referral added." |
@@ -305,34 +346,35 @@ Cross-references `AUDIT.md` §A.1.1 + §A.1.2. Every row gets a target type + si
 
 `useBookingStatusToasts(bookingId)` registers on the booking-detail screen and maps:
 
-| `new_status` | Toast type | String |
-|---|---|---|
-| `confirmed` | Trust-Moment | "Booking confirmed for {weekday}, {time}." |
-| `declined_by_shop` | Warning | "{Shop} can't take this booking. Tap to see alternatives." |
-| `vehicle_at_shop` | Info | "Vehicle checked in. Your mechanic will review shortly." |
-| `in_progress` | Info | "{Mechanic} started work on your vehicle." |
-| `completed` | Success | "Service complete. Tap to review the invoice." |
-| `cancelled_by_user` | Success | "Booking cancelled. Any payment hold will release within 7 days." |
-| `cancelled_by_mechanic` | Warning | "{Shop} cancelled this booking. Tap to rebook." |
-| `rescheduled` | Info | "Rescheduled to {weekday}, {time}." |
-| `quote_revised` | Warning | "Quote revised — review the change before approving." |
-| `eta_updated` | Info | "{Mechanic} updated their ETA to {time}." |
-| `diagnostic_resolved` (no followup) | Trust-Moment | "Diagnostic complete — no additional work needed." |
-| `parts_under_low` (derived) | Trust-Moment | "Parts came in ${diff} under the estimate." |
-| `parts_over_high` (derived) | Warning | "Parts ran ${diff} over the high estimate. Tap to review." |
-| `completed_early` (derived: actual < 0.9 × est) | Trust-Moment | "Finished {n} minutes ahead of estimate." |
+| `new_status` | Toast type | String | `onPress` route |
+|---|---|---|---|
+| `confirmed` | Trust-Moment | "Booking confirmed for {weekday}, {time}." | `/booking/mechanic/{id}/booking-details` |
+| `declined_by_shop` | Warning | "{Shop} can't take this booking. Tap to see alternatives." | intended `/discover?service={serviceId}` → fallback `/(main-tabs)/home` (**TODO Phase 2:** build deep-linked discover route or keep fallback) |
+| `vehicle_at_shop` | Info | "Vehicle checked in. Your mechanic will review shortly." | `/booking/mechanic/{id}/booking-details` |
+| `in_progress` | Info | "{Mechanic} started work on your vehicle." | `/booking/mechanic/{id}/booking-details` |
+| `completed` | Success | "Service complete. Tap to review the invoice." | intended `/booking/{id}/invoice` → fallback `/booking/mechanic/{id}/booking-details` (**TODO Phase 2:** build dedicated invoice screen pre-launch) |
+| `cancelled_by_user` | Success | "Booking cancelled. Any payment hold will release within 7 days." | none (no tap action) |
+| `cancelled_by_mechanic` | Warning | "{Shop} cancelled this booking. Tap to rebook." | intended `/discover?service={serviceId}&original_booking={id}` → fallback `/(main-tabs)/home` (**TODO Phase 2**) |
+| `rescheduled` | Info | "Rescheduled to {weekday}, {time}." | `/booking/mechanic/{id}/booking-details` |
+| `quote_revised` | Warning | "Quote revised — review the change before approving." | intended `/booking/{id}/quote-review` → fallback `/booking/mechanic/{id}/booking-details` (**TODO Phase 2:** build dedicated quote-review screen) |
+| `eta_updated` | Info | "{Mechanic} updated their ETA to {time}." | `/booking/mechanic/{id}/booking-details` |
+| `diagnostic_resolved` (no followup) | Trust-Moment | "Diagnostic complete — no additional work needed." | `/booking/mechanic/{id}/booking-details` |
+| `parts_under_low` (derived) | Trust-Moment | "Parts came in ${diff} under the estimate." | intended `/booking/{id}/parts-detail` → fallback `/booking/mechanic/{id}/booking-details` (**TODO Phase 2**) |
+| `parts_over_high` (derived) | Warning | "Parts ran ${diff} over the high estimate. Tap to review." | intended `/booking/{id}/parts-detail` → fallback `/booking/mechanic/{id}/booking-details` (**TODO Phase 2**) |
+| `completed_early` (derived: actual < 0.9 × est) | Trust-Moment | "Finished {n} minutes ahead of estimate." | `/booking/mechanic/{id}/booking-details` |
+| `no_show` | Warning | "Marked as no-show. Tap to dispute or reschedule." | intended `/booking/{id}/dispute` → fallback `/booking/mechanic/{id}/booking-details` (**TODO Phase 2:** build dispute screen or keep Alert.alert reschedule like today) |
 
 `usePaymentStatusToasts(bookingId)` maps:
 
-| Payment state | Toast type | String |
-|---|---|---|
-| `authorized` | Info | "Card held for ${amount}. You're only charged after service." |
-| `captured` | Success | "Charged ${amount} to •••• {last4}." |
-| `refunded` (full) | Success | "${amount} refunded to •••• {last4}." |
-| `partial_refund` | Info | "Refunded ${amount} of ${total} to •••• {last4}." |
-| `failed` / `declined` | Error | "Payment didn't go through. Tap to update your card." |
-| `dispute_opened` | Warning | "We received a dispute on this charge. Tap for details." |
-| hold released after cancel | Trust-Moment | "Payment hold released. ${amount} back on •••• {last4} within 7 days." |
+| Payment state | Toast type | String | `onPress` route |
+|---|---|---|---|
+| `authorized` | Info | "Card held for ${amount}. You're only charged after service." | `/booking/mechanic/{id}/booking-details` |
+| `captured` | Success | "Charged ${amount} to •••• {last4}." | `/booking/mechanic/{id}/booking-details` |
+| `refunded` (full) | Success | "${amount} refunded to •••• {last4}." | `/booking/mechanic/{id}/booking-details` |
+| `partial_refund` | Info | "Refunded ${amount} of ${total} to •••• {last4}." | `/booking/mechanic/{id}/booking-details` |
+| `failed` / `declined` | Error | "Payment didn't go through. Tap to update your card." | intended `/booking/{id}/payment-method` → fallback `/payments` (existing standalone payments screen) (**TODO Phase 2:** build per-booking payment-method swap screen) |
+| `dispute_opened` | Warning | "We received a dispute on this charge. Tap for details." | intended `/booking/{id}/payment-detail` → fallback `/booking/mechanic/{id}/booking-details` (**TODO Phase 2**) |
+| hold released after cancel | Trust-Moment | "Payment hold released. ${amount} back on •••• {last4} within 7 days." | none (no tap action) |
 
 ---
 
@@ -344,7 +386,8 @@ Cross-references `AUDIT.md` §A.1.1 + §A.1.2. Every row gets a target type + si
 |---|---|---|---|---|---|
 | Light mode | ✅ baseline | ✅ baseline | ✅ baseline | ✅ baseline | ✅ baseline + gradient + BlurView underlay |
 | Dark mode | full dark spec hex match | full dark spec | full dark spec | full dark spec | dark gradient + BlurView tint="dark" |
-| VoiceOver on | `accessibilityRole="alert"`, title + body announced once, "double tap to dismiss" hint | role="status" (polite, not interrupting) | role="alert" | role="alert" | role="status" |
+| VoiceOver on (iOS) | `accessibilityRole="alert"`, title + body announced once, "double tap to dismiss" hint | role="status" (polite, not interrupting) | role="alert" | role="alert" | role="status" |
+| TalkBack / live region (Android) | `accessibilityLiveRegion="polite"` (matches iOS `role="status"` — passive confirmation) | `accessibilityLiveRegion="polite"` | `accessibilityLiveRegion="assertive"` | `accessibilityLiveRegion="assertive"` | `accessibilityLiveRegion="polite"` |
 | Reduce Motion on | crossfade only, 200ms, no haptic | crossfade only | crossfade only, no haptic | crossfade only, no haptic | crossfade only, no haptic |
 | Dynamic Type XXL | container grows; title/body wrap; min height grows; no truncation | same | same | same | same |
 | App backgrounded mid-toast | toast suppressed on background, not redelivered on foreground | same | same | same | same |
@@ -369,3 +412,11 @@ Additional regression cases:
 - Sound — toasts are silent; haptics replace audio
 - Per-toast theming overrides at call site (the 5 types are the API; no `customColor` prop)
 - Web/RSC support — toasts are mobile-only
+
+### Convex `notifications` table — selective write-through
+
+**Trust-Moment toasts ALSO write a row to the `notifications` Convex table** so they surface in the booking detail timeline and seed the post-launch notification-inbox feature with the data users most want to revisit. Specifically: parts under estimate, diagnostic clean, finished ahead of estimate, and payment-hold released.
+
+**Other toast variants (Success / Info / Warning / Error) do NOT write to `notifications`.** They are ephemeral feedback for the current session only — duplicating every save-succeeded confirmation into a persistent inbox is noise.
+
+The write happens server-side at the same point the trust event is detected (e.g., the `completeJob` mutation that records `actual_parts_cost` also writes a `notifications` row if `actual_parts_cost < parts_cost_low`). The client just reads the row; it does not initiate the write. This keeps the inbox source-of-truth on the server and avoids client-side write paths that could be skipped if the app is backgrounded.

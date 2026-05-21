@@ -55,6 +55,7 @@ import { api } from "@/convex/_generated/api";
 
 // 3. Shared UI
 import { FadeInStagger, ScrollDrivenGradientBackground, Text } from "@/components/shared-ui";
+import { useToast } from "@/hooks/useToast";
 
 // 4. Constants & Hooks
 import { Spacing } from "@/constants/theme";
@@ -115,6 +116,7 @@ const EARN_REWARDS = [
 // ============================================================================
 
 export default function MembershipPage() {
+  const toast = useToast();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { userId } = useUserFromConvex();
@@ -880,14 +882,14 @@ export default function MembershipPage() {
                         await updateRedemptionPreference({ userId, autoApplyToBooking: true });
                       } else {
                         await redeemSelected({ userId, option: "giftcard" });
-                        Alert.alert(
-                          "Done",
-                          "Your credits have been converted to a gift card. Processing takes 1-3 business days."
+                        toast.success(
+                          "Gift card on its way — arrives within 3 business days.",
                         );
                       }
                       closeRedeemSheet();
                     } catch (e) {
-                      Alert.alert("Error", (e as Error).message);
+                      console.error("[membership] redeem failed", e);
+                      toast.error("Couldn't redeem. Try again.");
                     } finally {
                       setIsRedeeming(false);
                     }

@@ -1,6 +1,8 @@
 import { useEffect } from "react";
 import {
   AccessibilityRole,
+  Dimensions,
+  PixelRatio,
   Platform,
   Pressable,
   StyleSheet,
@@ -30,7 +32,7 @@ import {
   TRUST_SHADOW,
   VARIANT_TOKENS,
 } from "./tokens";
-import type { ToastQueueItem } from "./types";
+import type { ToastQueueItem, ToastVariant } from "./types";
 
 const ENTER_SPRING = { damping: 18, stiffness: 220, mass: 0.6 } as const;
 const EXIT_TIMING = { duration: 220, easing: Easing.in(Easing.cubic) } as const;
@@ -38,7 +40,19 @@ const REDUCE_FADE = { duration: 200, easing: Easing.linear } as const;
 const SWIPE_DISMISS_THRESHOLD = 32;
 const SWIPE_VELOCITY_THRESHOLD = 600;
 
-const POLITE_VARIANTS = new Set(["info", "trust"]);
+const TABLET_MAX_WIDTH = 480;
+
+const POLITE_VARIANTS = new Set<ToastVariant>(["info", "trust", "success"]);
+
+function liveRegion(variant: ToastVariant): "polite" | "assertive" {
+  // PLAN §B.7: assertive for Error/Warning, polite for Success/Info/Trust.
+  return variant === "error" || variant === "warning" ? "assertive" : "polite";
+}
+
+function dynamicTypeScale(base: number): number {
+  const scale = Math.min(PixelRatio.getFontScale(), 1.6);
+  return base * scale;
+}
 
 interface Props {
   item: ToastQueueItem;
@@ -128,6 +142,9 @@ export function Toast({ item, topOffset, onRequestDismiss }: Props) {
   const shadow = isTrust ? TRUST_SHADOW[scheme] : TOAST_SHADOW[scheme];
   const role: AccessibilityRole = POLITE_VARIANTS.has(item.variant) ? "summary" : "alert";
 
+  const screen = Dimensions.get("window");
+  const maxHeight = screen.height * 0.4;
+
   return (
     <GestureDetector gesture={swipeGesture}>
       <Animated.View
@@ -138,7 +155,7 @@ export function Toast({ item, topOffset, onRequestDismiss }: Props) {
           onPress={handlePress}
           accessible
           accessibilityRole={role}
-          accessibilityLiveRegion={POLITE_VARIANTS.has(item.variant) ? "polite" : "assertive"}
+          accessibilityLiveRegion={liveRegion(item.variant)}
           accessibilityLabel={item.body ? `${item.title}. ${item.body}` : item.title}
           accessibilityHint="Double tap to dismiss"
           style={[
@@ -146,6 +163,7 @@ export function Toast({ item, topOffset, onRequestDismiss }: Props) {
             {
               backgroundColor: isTrust ? "transparent" : palette.bg,
               borderColor: palette.border,
+              maxHeight,
             },
             shadow,
           ]}
@@ -158,14 +176,30 @@ export function Toast({ item, topOffset, onRequestDismiss }: Props) {
             <View style={styles.textCol}>
               <Animated.Text
                 numberOfLines={2}
-                style={[styles.title, { color: textColors.title }]}
+                ellipsizeMode="tail"
+                style={[
+                  styles.title,
+                  {
+                    color: textColors.title,
+                    fontSize: dynamicTypeScale(15),
+                    lineHeight: dynamicTypeScale(20),
+                  },
+                ]}
               >
                 {item.title}
               </Animated.Text>
               {item.body ? (
                 <Animated.Text
                   numberOfLines={3}
-                  style={[styles.body, { color: textColors.body }]}
+                  ellipsizeMode="tail"
+                  style={[
+                    styles.body,
+                    {
+                      color: textColors.body,
+                      fontSize: dynamicTypeScale(13),
+                      lineHeight: dynamicTypeScale(18),
+                    },
+                  ]}
                 >
                   {item.body}
                 </Animated.Text>
@@ -183,11 +217,14 @@ const styles = StyleSheet.create({
     position: "absolute",
     left: 16,
     right: 16,
-    // sit above gorhom bottom sheets and most app surfaces
+    alignItems: "center",
     zIndex: 9999,
     ...(Platform.OS === "android" ? { elevation: 24 } : null),
   },
   container: {
+    width: "100%",
+    maxWidth: TABLET_MAX_WIDTH,
+    alignSelf: "center",
     minHeight: 56,
     borderRadius: 16,
     borderWidth: 1,
@@ -205,13 +242,9 @@ const styles = StyleSheet.create({
   },
   title: {
     fontFamily: FontFamily.semiBold,
-    fontSize: 15,
-    lineHeight: 20,
   },
   body: {
     fontFamily: FontFamily.regular,
-    fontSize: 13,
-    lineHeight: 18,
     marginTop: 2,
   },
 });

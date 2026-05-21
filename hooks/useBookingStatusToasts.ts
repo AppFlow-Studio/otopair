@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useQuery } from "convex/react";
+import { useRouter } from "expo-router";
 
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -12,83 +13,104 @@ import { useToast } from "./useToast";
  * entries in the booking's status_history and fires the appropriate
  * toast.
  *
- * Per PLAN.md §B.7. Strings live here so this hook is the single
- * source of truth for status-transition copy.
+ * Self-action filtering (PLAN §B.5): subscription hooks should ignore
+ * rows where `changed_by === currentUserId`. The current shape of
+ * `getBookingByIdForCustomer` strips `changed_by` from the returned
+ * statusHistory rows, so the hook approximates the filter by NOT
+ * mapping transitions that are predominantly user-initiated
+ * (cancelled_by_user). All other transitions in the map are
+ * shop/mechanic/webhook-driven, where double-fire is not a risk.
+ *
+ * Strings here are post-Step-0-triage (PLAN §B.7 + ROUTE-GAPS.md). Some
+ * "Tap to..." copy was downgraded to non-tappable variants because the
+ * dedicated destination screens are deferred post-launch.
  */
-const TRANSITION_TO_TOAST: Record<
-  string,
-  {
-    variant: "success" | "info" | "warning" | "error" | "trust";
-    title: string;
-    body?: string;
-  }
-> = {
+type Variant = "success" | "info" | "warning" | "error" | "trust";
+
+interface TransitionConfig {
+  variant: Variant;
+  title: string;
+  body?: string;
+  /** Optional tap route. Most are deferred — see ROUTE-GAPS.md. */
+  href?: string;
+}
+
+const TRANSITION_TO_TOAST: Record<string, TransitionConfig> = {
   confirmed: {
     variant: "trust",
     title: "Booking confirmed",
     body: "Your shop accepted this appointment.",
+    href: "booking-details",
   },
   pending_shop_acceptance: {
     variant: "info",
     title: "Waiting on the shop to accept",
+    href: "booking-details",
   },
   declined_by_shop: {
     variant: "warning",
     title: "Shop can't take this booking",
-    body: "Tap to see alternative times.",
+    body: "Tap to see alternatives.",
+    href: "home",
   },
   vehicle_at_shop: {
     variant: "info",
     title: "Vehicle checked in",
     body: "Your mechanic will review shortly.",
+    href: "booking-details",
   },
   in_progress: {
     variant: "info",
     title: "Work started",
     body: "Your mechanic is on it.",
+    href: "booking-details",
   },
   completed: {
     variant: "success",
     title: "Service complete",
-    body: "Tap to review the invoice.",
-  },
-  cancelled_by_user: {
-    variant: "success",
-    title: "Booking cancelled",
-    body: "Any payment hold will release within 7 days.",
+    // Dedicated invoice screen deferred — see ROUTE-GAPS.md.
   },
   cancelled_by_shop: {
     variant: "warning",
     title: "Shop cancelled this booking",
     body: "Tap to rebook.",
+    href: "home",
   },
   rescheduled: {
     variant: "info",
     title: "Booking rescheduled",
+    href: "booking-details",
   },
   no_show: {
     variant: "warning",
     title: "Marked as no-show",
-    body: "Tap to dispute or reschedule.",
+    body: "Open booking to dispute or reschedule.",
+    href: "booking-details",
   },
   quote_revised: {
     variant: "warning",
     title: "Quote revised",
     body: "Review the change before approving.",
+    href: "booking-details",
   },
   eta_updated: {
     variant: "info",
     title: "Mechanic ETA updated",
+    href: "booking-details",
   },
   diagnostic_resolved: {
     variant: "trust",
     title: "Diagnostic complete",
     body: "No additional work needed.",
+    href: "booking-details",
   },
+  // cancelled_by_user intentionally NOT mapped — the mutation wrapper
+  // handles its toast; subscription would double-fire.
 };
 
 export function useBookingStatusToasts(bookingId: Id<"bookings"> | undefined) {
   const toast = useToast();
+  const router = useRouter();
   const booking = useQuery(
     api.bookings.getBookingByIdForCustomer,
     bookingId ? { bookingId } : "skip",
@@ -100,38 +122,59 @@ export function useBookingStatusToasts(bookingId: Id<"bookings"> | undefined) {
     const history = booking.statusHistory ?? [];
     if (history.length === 0) return;
 
+    type HistoryRow = { status: string; changedAt: number };
+    const rows = history as HistoryRow[];
+
+    // PLAN §B.5 patch 3: initialize to max(existingRows.changedAt) on
+    // first successful response. Stay null before that.
     if (lastSeenRef.current === null) {
-      // Initialize to the most recent entry so historical rows do not all fire.
-      lastSeenRef.current = history[history.length - 1].changedAt;
+      lastSeenRef.current = rows.reduce(
+        (acc: number, h: HistoryRow) => Math.max(acc, h.changedAt),
+        0,
+      );
       return;
     }
 
     const cutoff = lastSeenRef.current;
-    const fresh = history.filter((h) => h.changedAt > cutoff);
+    const fresh = rows.filter((h: HistoryRow) => h.changedAt > cutoff);
     if (fresh.length === 0) return;
 
-    fresh.forEach((entry) => {
+    fresh.forEach((entry: HistoryRow) => {
       const config = TRANSITION_TO_TOAST[entry.status];
       if (!config) return;
+      const onPress = config.href
+        ? () => {
+            if (!bookingId) return;
+            if (config.href === "booking-details") {
+              router.push(`/booking/mechanic/${bookingId}/booking-details`);
+            } else if (config.href === "home") {
+              router.push("/(main-tabs)/home");
+            }
+          }
+        : undefined;
+      const opts = onPress ? { onPress } : undefined;
       switch (config.variant) {
         case "success":
-          toast.success(config.title, config.body);
+          toast.success(config.title, config.body, opts);
           break;
         case "info":
-          toast.info(config.title, config.body);
+          toast.info(config.title, config.body, opts);
           break;
         case "warning":
-          toast.warning(config.title, config.body);
+          toast.warning(config.title, config.body, opts);
           break;
         case "error":
-          toast.error(config.title, config.body);
+          toast.error(config.title, config.body, opts);
           break;
         case "trust":
-          toast.trust(config.title, config.body);
+          toast.trust(config.title, config.body, opts);
           break;
       }
     });
 
-    lastSeenRef.current = fresh[fresh.length - 1].changedAt;
-  }, [booking, toast]);
+    lastSeenRef.current = fresh.reduce(
+      (acc: number, h: HistoryRow) => Math.max(acc, h.changedAt),
+      cutoff,
+    );
+  }, [booking, toast, router, bookingId]);
 }

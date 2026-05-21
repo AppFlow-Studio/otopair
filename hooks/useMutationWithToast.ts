@@ -1,6 +1,10 @@
 import { useCallback } from "react";
 import { useMutation } from "convex/react";
-import type { FunctionReference } from "convex/server";
+import type {
+  FunctionArgs,
+  FunctionReference,
+  FunctionReturnType,
+} from "convex/server";
 
 import type { ToastOptions } from "@/components/toast/types";
 
@@ -14,7 +18,7 @@ type ToastSpec<T> =
 export interface MutationToastConfig<TArgs, TResult> {
   success?: ToastSpec<{ result: TResult; args: TArgs }>;
   error?: ToastSpec<{ error: Error; args: TArgs }>;
-  /** Whether to fire haptic. Defaults to true on success/error. */
+  /** Currently unused — toast haptic fires on appear. Kept for forward-compat. */
   haptic?: boolean;
   /** Suppress the error toast (still rethrows). */
   suppressError?: boolean;
@@ -30,7 +34,7 @@ function resolveToast<T>(
 }
 
 /**
- * Convex mutation wrapper that fires the right toast + haptic on settle.
+ * Convex mutation wrapper that fires the right toast on settle.
  * Mirrors the LeaveReviewSheet try/catch pattern so call sites can drop
  * the boilerplate.
  *
@@ -45,16 +49,18 @@ export function useMutationWithToast<
   Mutation extends FunctionReference<"mutation">,
 >(
   mutation: Mutation,
-  config: MutationToastConfig<Mutation["_args"], Mutation["_returnType"]>,
-): (args: Mutation["_args"]) => Promise<Mutation["_returnType"]> {
+  config: MutationToastConfig<
+    FunctionArgs<Mutation>,
+    FunctionReturnType<Mutation>
+  >,
+): (args: FunctionArgs<Mutation>) => Promise<FunctionReturnType<Mutation>> {
   const toast = useToast();
-  // Convex's useMutation returns a callable; we keep its full typing.
   const run = useMutation(mutation);
 
   return useCallback(
-    async (args: Mutation["_args"]) => {
+    async (args: FunctionArgs<Mutation>) => {
       try {
-        const result = (await run(args)) as Mutation["_returnType"];
+        const result = (await run(args)) as FunctionReturnType<Mutation>;
         const success = resolveToast(config.success, { result, args });
         if (success) {
           const opts: Omit<ToastOptions, "title" | "body"> = {};
@@ -72,7 +78,6 @@ export function useMutationWithToast<
         throw error;
       }
     },
-    // run identity is stable; deps captured intentionally
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [run, toast, config.success, config.error, config.suppressError],
   );
