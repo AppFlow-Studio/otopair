@@ -1149,6 +1149,10 @@ export default defineSchema({
     // Set when a Clerk user.created webhook claimed a pre-existing
     // "shop-created-*" walk-in stub user by matching email or phone.
     walkInClaimedAt: v.optional(v.number()),
+    // URL-safe token embedded in the post-job claim deep link sent to
+    // mechanic-created walk-in clients. Resolved by /claim/[token].
+    claim_token: v.optional(v.string()),
+    claim_token_expires_at: v.optional(v.number()),
     // -------------------------------------------------------------------
     // [RESTORED post-merge — Sprint 2 Wave 7.3 rate-limiting fields]
     // Wave 7.3 — per-user moat-read counter (queryMoat.ts enforcement).
@@ -1162,7 +1166,8 @@ export default defineSchema({
   })
     .index("by_clerkUserId", ["clerkUserId"])
     .index("by_isPendingDeletion", ["isPendingDeletion"])
-    .index("by_email", ["email"]),
+    .index("by_email", ["email"])
+    .index("by_claim_token", ["claim_token"]),
 
   // [I] Daniel/Waleed
   user_settings_preferences: defineTable({
@@ -1334,6 +1339,9 @@ export default defineSchema({
     deletionSurveyReason: v.optional(v.string()),
     deletionSurveyResponse: v.optional(v.string()),
     deletionSurveyImprovement: v.optional(v.string()),
+    // Per-staff "Mark all read" timestamp for the notification-bell feed.
+    // Anything with created_at > this value is shown as unread.
+    notifications_last_seen_at: v.optional(v.number()),
   })
     .index("by_user_id", ["user_id"])
     .index("by_shop_id", ["shop_id"])
@@ -1352,6 +1360,11 @@ export default defineSchema({
     token: v.optional(v.string()),
     expires_at: v.optional(v.number()),
     accepted_at: v.optional(v.number()),
+    // Set when the shop owner closes out a pending invite on the invitee's
+    // behalf (no Clerk signup occurred). The mechanic profile is schedulable
+    // immediately; the invite acts as an audit record of who accepted.
+    accepted_by_admin: v.optional(v.boolean()),
+    accepted_by_user_id: v.optional(v.id("users")),
     created_at: v.optional(v.number()),
   })
     .index("by_shop_id", ["shop_id"])
@@ -3361,4 +3374,41 @@ export default defineSchema({
   })
     .index("by_vehicle_owner", ["vehicleOwnerId"])
     .index("by_vehicle_and_type", ["vehicleOwnerId", "snapshotType"]),
+
+  // ===== TELNYX MESSAGING =====
+  // Inbound SMS/MMS received at a Telnyx number. One row per `message.received` webhook.
+  telnyx_inbound_messages: defineTable({
+    event_id: v.string(),
+    telnyx_message_id: v.string(),
+    from_phone: v.string(),
+    to_phone: v.string(),
+    text: v.optional(v.string()),
+    message_type: v.optional(v.string()),
+    media: v.optional(v.array(v.any())),
+    occurred_at_ms: v.number(),
+    raw_payload: v.any(),
+    received_at_ms: v.number(),
+  })
+    .index("by_event_id", ["event_id"])
+    .index("by_telnyx_message_id", ["telnyx_message_id"])
+    .index("by_from_phone", ["from_phone"]),
+
+  // Outbound delivery-report events (message.sent / message.finalized).
+  // Append-only; latest row per telnyx_message_id reflects current status.
+  telnyx_message_events: defineTable({
+    event_id: v.string(),
+    event_type: v.string(),
+    telnyx_message_id: v.string(),
+    direction: v.optional(v.string()),
+    from_phone: v.optional(v.string()),
+    to_phone: v.optional(v.string()),
+    status: v.optional(v.string()),
+    errors: v.optional(v.array(v.any())),
+    occurred_at_ms: v.number(),
+    raw_payload: v.any(),
+    received_at_ms: v.number(),
+  })
+    .index("by_event_id", ["event_id"])
+    .index("by_telnyx_message_id", ["telnyx_message_id"])
+    .index("by_event_type", ["event_type"]),
 });

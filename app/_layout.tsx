@@ -19,6 +19,7 @@ import { LogBox } from "react-native";
 // existing error modal — the LogBox dump is just dev-time noise on top.
 // Errors still log to Metro for debugging; this only hides the overlay.
 import { ErrorBoundary as AppErrorBoundary, ErrorModalHost, errorBus } from "@/lib/error-ui";
+import { ToastProvider } from "@/components/toast";
 import { api } from "@/convex/_generated/api";
 
 import { useColorScheme } from "@/hooks/use-color-scheme";
@@ -252,6 +253,7 @@ export default function RootLayout() {
             <KeyboardProvider>
             <GestureHandlerRootView style={{ flex: 1 }}>
               <BottomSheetModalProvider>
+                <ToastProvider>
                 <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
                   <Stack
                     screenOptions={{
@@ -334,6 +336,7 @@ export default function RootLayout() {
                   </Stack>
                   <StatusBar style="auto" />
                 </ThemeProvider>
+                </ToastProvider>
               </BottomSheetModalProvider>
             </GestureHandlerRootView>
             </KeyboardProvider>

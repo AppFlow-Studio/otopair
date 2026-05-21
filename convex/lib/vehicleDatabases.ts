@@ -39,20 +39,7 @@ export async function advancedVinDecode(vin: string): Promise<any | null> {
     });
 
     if (!response.ok) {
-      // Include the body so we can distinguish "no key" (401),
-      // "wrong/expired key" (403 with auth message), and
-      // "endpoint not in plan" (403 with access message). All
-      // three look the same in summary form.
-      let bodyHint = "";
-      try {
-        bodyHint = (await response.text()).slice(0, 300);
-      } catch {}
-      console.log(
-        `[vdb] API error: ${response.status} — falling back to NHTSA. ` +
-        `Body: ${bodyHint}. ` +
-        `If 401/403: confirm VEHICLE_DATABASES_API_KEY is set on Convex (npx convex env set VEHICLE_DATABASES_API_KEY <key>) ` +
-        `with the same value as the client's EXPO_PUBLIC_VEHICLE_DB_API_KEY.`,
-      );
+      console.log(`[vdb] API error: ${response.status} — falling back to NHTSA`);
       return null;
     }
 
@@ -755,15 +742,6 @@ export function extractVDBFields(data: any) {
     make: data.make || null,
     model: data.model || null,
     trim: data.trim || null,
-    // Raw VDB style + trim_and_style — used downstream to construct
-    // the canonical `vehicle-images` YMMT URL. The catalog uses a
-    // different (model, trim) shape than the decode endpoint:
-    //   decode:  model="530i", trim_and_style="xDrive Sedan ..."
-    //   catalog: model="530",  trim="i-xDrive Sedan ..."
-    // We pass these through so the picker can build a small combo
-    // matrix and probe `vehicle-images` directly.
-    style: data.style || null,
-    trimAndStyle: data.trim_and_style || null,
     bodyType: data.vehicle?.body_type || null,
     doors: data.vehicle?.doors ? parseInt(data.vehicle.doors) : null,
 
