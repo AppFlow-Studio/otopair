@@ -35,7 +35,9 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useQuery } from "convex/react";
 
+import { api } from "@/convex/_generated/api";
 import { Chip, Text } from "@/components/shared-ui";
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
 import { TierInfoSheet, type TierInfoSheetRef } from "@/components/tire-booking/TierInfoSheet";
@@ -52,6 +54,11 @@ import {
 } from "@/constants/tireFlow";
 import { useTireBookingStore, type TirePosition } from "@/stores/useTireBookingStore";
 import { useVehicleStore, type Vehicle } from "@/stores/useVehicleStore";
+
+type TireSizeOption = {
+  size: string;
+  source: "verified" | "oem_default" | null;
+};
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 
@@ -103,21 +110,42 @@ export default function TireBookingScreen({ onClose, onConfirmed }: TireBookingS
   const fireRequest = useTireBookingStore((s) => s.fireRequest);
   const resetTireStore = useTireBookingStore((s) => s.reset);
 
-  // OEM sizes for current vehicle
-  const sizes = useMemo<string[]>(() => {
-    const make = selectedVehicle?.make;
-    if (make && MOCK_OEM_SIZES_BY_MAKE[make]) {
-      return MOCK_OEM_SIZES_BY_MAKE[make];
+  // Real per-vehicle tire options from Convex: verified passport sizes first,
+  // then OEM defaults from trim_specs. Falls back to the static mock list
+  // (`MOCK_OEM_SIZES_BY_MAKE`) only when unauthenticated, offline, or VIN
+  // missing — so demo / pre-onboarding flows still work.
+  const tireOptions = useQuery(
+    api.vehicles.getTireOptionsForVehicle,
+    selectedVehicle?.vin ? { vin: selectedVehicle.vin } : "skip",
+  );
+  const sizeOptions = useMemo<TireSizeOption[]>(() => {
+    if (tireOptions && tireOptions.sizes.length > 0) {
+      return tireOptions.sizes;
     }
-    return DEFAULT_OEM_SIZES;
-  }, [selectedVehicle?.make]);
+    const make = selectedVehicle?.make;
+    const fallback =
+      make && MOCK_OEM_SIZES_BY_MAKE[make]
+        ? MOCK_OEM_SIZES_BY_MAKE[make]
+        : DEFAULT_OEM_SIZES;
+    return fallback.map((size) => ({ size, source: null }));
+  }, [tireOptions, selectedVehicle?.make]);
+  const sizes = useMemo<string[]>(
+    () => sizeOptions.map((option) => option.size),
+    [sizeOptions],
+  );
 
   // If the current tireSize doesn't belong to the newly selected vehicle's
   // OEM list (e.g. user switched cars mid-flow), clear it so the chips show
-  // as nothing-selected instead of lying.
+  // as nothing-selected instead of lying. When there's exactly one known
+  // size (e.g. passport says 225/65R17 front+rear and trim_specs agrees)
+  // pre-select it so the user sees a chosen chip and the CTA unlocks.
   React.useEffect(() => {
     if (tireSize && !sizes.includes(tireSize)) {
       setTireSize("");
+      return;
+    }
+    if (!tireSize && sizes.length === 1) {
+      setTireSize(sizes[0]);
     }
   }, [sizes, tireSize, setTireSize]);
 
@@ -192,7 +220,10 @@ export default function TireBookingScreen({ onClose, onConfirmed }: TireBookingS
 
   // ── Derived ────────────────────────────────────────────────────────────────
   const selectedCount = selectedTirePositions.length;
-  const showSizeSection = sizes.length > 1;
+  // Render the SIZE section whenever there's at least one known size so the
+  // user can see the Verified/OEM-default provenance pill — not just when
+  // we're asking them to disambiguate between multiple OEM options.
+  const showSizeSection = sizes.length >= 1;
   const sizeChosen = !!tireSize && sizes.includes(tireSize);
 
   const ctaDisabled =
@@ -285,13 +316,32 @@ export default function TireBookingScreen({ onClose, onConfirmed }: TireBookingS
               SIZE
             </Text>
             <View style={styles.chipRow}>
-              {sizes.map((size) => (
-                <Chip
-                  key={size}
-                  label={size}
-                  selected={size === tireSize}
-                  onPress={() => setTireSize(size)}
-                />
+              {sizeOptions.map((option) => (
+                <View key={option.size} style={styles.chipWithCaption}>
+                  <Chip
+                    label={option.size}
+                    selected={option.size === tireSize}
+                    onPress={() => setTireSize(option.size)}
+                  />
+                  {option.source ? (
+                    <View
+                      style={[
+                        styles.sourcePill,
+                        option.source === "verified"
+                          ? styles.sourcePillVerified
+                          : styles.sourcePillOem,
+                      ]}
+                    >
+                      <Text
+                        size="xs"
+                        weight="semiBold"
+                        color={option.source === "verified" ? "#0A8754" : "#6B7280"}
+                      >
+                        {option.source === "verified" ? "Mechanic Verified" : "OEM default"}
+                      </Text>
+                    </View>
+                  ) : null}
+                </View>
               ))}
             </View>
           </View>
@@ -559,6 +609,24 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     gap: 8,
     marginTop: 10,
+  },
+  chipWithCaption: {
+    alignItems: "center",
+    gap: 4,
+  },
+  sourcePill: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  sourcePillVerified: {
+    backgroundColor: "rgba(10,135,84,0.08)",
+    borderColor: "rgba(10,135,84,0.25)",
+  },
+  sourcePillOem: {
+    backgroundColor: "rgba(107,114,128,0.08)",
+    borderColor: "rgba(107,114,128,0.25)",
   },
 
   tierList: {
