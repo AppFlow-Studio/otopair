@@ -8,6 +8,7 @@ import { useUnseenBookingsCount } from "@/hooks/useUnseenBookingsCount";
 import { useVehicleOwnershipFromConvex } from "@/hooks/useVehicleOwnershipFromConvex";
 import { NotificationsSheet } from "@/components/notifications/NotificationsSheet";
 import { RescheduleDecisionOverlay } from "@/components/notifications/RescheduleDecisionOverlay";
+import { UpdateAvailableBanner } from "@/components/system/UpdateAvailableBanner";
 // SettingsOverlay is no longer mounted at the layout — it lives at
 // the /profile-overlay route now (see app/profile-overlay.tsx) so
 // destinations pushed from inside it stack on top.
@@ -74,6 +75,7 @@ export default function TabLayout() {
         </Tabs>
         <NotificationsSheet />
         <RescheduleDecisionOverlay />
+        <UpdateAvailableBanner />
       </>
     );
   }
@@ -103,6 +105,7 @@ export default function TabLayout() {
       </NativeTabs>
       <NotificationsSheet />
       <RescheduleDecisionOverlay />
+      <UpdateAvailableBanner />
     </>
   );
 }

@@ -9,7 +9,8 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "lint": "expo lint",
-    "migrate": "node scripts/migrate-to-temurbek.js"
+    "migrate": "node scripts/migrate-to-temurbek.js",
+    "clone:dev": "bash scripts/clone-convex-deployment.sh"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",
