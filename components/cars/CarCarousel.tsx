@@ -29,6 +29,11 @@ import {
 // 2. Expo & Third-party
 import SegmentedControl from '@react-native-segmented-control/segmented-control';
 import { LinearGradient } from 'expo-linear-gradient';
+// expo-image (aliased) for the active-car render only. RN's built-in
+// `<Image>` softens the semi-transparent alpha pixels in VDB's baked
+// drop shadows on iOS — same PNG renders cleanly via expo-image's
+// SDWebImage decoder, matching the Oto AI greeting carousel.
+import { Image as ExpoImage } from 'expo-image';
 import { Calendar, Check, ChevronDown, ChevronLeft, ChevronRight, Info, Plus, X, XCircle } from 'lucide-react-native';
 import { CarSelectionContent } from '@/components/booking/sheets/CarSelectionContent';
 import { FloatingSheet, type FloatingSheetRef } from '@/components/shared-ui/FloatingSheet';
@@ -1582,15 +1587,17 @@ const CircularCarouselItem = memo(({ item, index, rotation, totalItems }: Carous
         </View>
       )}
       
-      {/* Car Image */}
-      <Image
+      {/* Car Image — uses expo-image so VDB's baked alpha drop
+          shadow renders faithfully (RN's built-in Image washed it out
+          on iOS). */}
+      <ExpoImage
         source={imageSource}
         style={[
           styles.carouselCarImage,
           item.make === 'Lexus' && styles.carouselCarImageLexus,
           item.make === 'Lamborghini' && styles.carouselCarImageLambo,
         ]}
-        resizeMode="contain"
+        contentFit="contain"
         onError={() => setHasImageError(true)}
       />
       
@@ -2063,19 +2070,32 @@ export function CarCarousel({
             style={[StyleSheet.absoluteFill, groundFadeStyle]}
             pointerEvents="none"
           >
-            {/* Ground shadow temporarily disabled — re-enable by
-                uncommenting the block below. */}
-            {/* {hideGroundShadow ? null : (
+            {/* Ground shadow disabled — VDB sometimes bakes a soft
+                drop shadow into the PNG (e.g. pure-white.jpg) and
+                sometimes ships a bare silhouette (e.g.
+                platinum-gray-metallic.jpg). We rely on VDB's baked
+                shadow when present. Re-enable below if VDB starts
+                shipping bare silhouettes across the board.
+            {hideGroundShadow ? null : (
               <CarGroundShadow
                 width={CAR_CARD_WIDTH * groundShadowSize.widthFactor}
                 height={groundShadowSize.height}
                 bottom={groundLineBottom}
                 offsetY={groundShadowSize.offsetY}
                 offsetX={0}
-                centerOpacity={0.85}
-                tintRgb="0, 0, 0"
+                centerOpacity={0.35}
+                tintRgb={groundShadowTintRgb ?? "60, 15, 25"}
               />
-            )} */}
+            )}
+            */}
+            {/* GroundLine disabled — VDB's transparent-bg PNGs ship with
+                a baked soft drop shadow under the car, and the pink
+                hairline sat exactly where that natural shadow renders,
+                visually flattening it into "just a line." Letting the
+                baked shadow read alone matches how the Oto AI greeting
+                carousel grounds its cars. Re-enable if a future surface
+                needs a synthetic ground primitive for non-baked-shadow
+                fallbacks.
             <GroundLine
               width={SCREEN_WIDTH}
               bottomOffset={groundLineBottom}
@@ -2083,6 +2103,7 @@ export function CarCarousel({
               tintTransparent={groundLineTintTransparent}
               height={1.5}
             />
+            */}
           </ReAnimated.View>
 
           {sortedVehicles.map((item, index) => (
@@ -2562,10 +2583,12 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
     zIndex: 1,
-    // `scale: 0.85` zooms out the car a touch so it doesn't dominate
-    // the frame. `translateY` keeps the bottom (tires) at roughly the
-    // same Y after the scale-down so the ground line still lands at
-    // the tire base without retuning per-body-style offsets.
+    // Restored after the expo-image swap. The 0.85 scale is what the
+    // user prefers visually (the car not dominating the frame); the
+    // earlier "remove the transform" experiment was misdiagnosing —
+    // the shadow was washed out by RN's Image decoder, not by the
+    // scale. With expo-image, the baked alpha shadow scales WITH the
+    // car at 0.85 and still reads cleanly.
     transform: [{ translateY: scale(22) }, { scale: 0.85 }],
   },
   carouselCarImageLexus: {

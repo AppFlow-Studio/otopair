@@ -50,7 +50,13 @@ import { buildYearOptions, useMakes, useModels } from "@/hooks/useYmmtCatalog";
 import { Text } from "@/components/shared-ui";
 import { Input } from "@/components/shared-ui/Input";
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
-import { fetchVehicleImageUrl, useVdbTrims, useVehicleImage } from "@/utils/vehicleImage";
+import {
+  fetchVehicleImageUrl,
+  useVdbColorsForVin,
+  useVdbTrims,
+  useVehicleImage,
+} from "@/utils/vehicleImage";
+import { ColorSwatchSkeletonList } from "@/components/shared-ui/ColorSwatchSkeleton";
 
 // 5. Constants
 import { Spacing, BorderRadius, BrandColors } from "@/constants/theme";
@@ -63,8 +69,13 @@ const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 
 const getKeyboardOffset = () => 0;
 
-// Vehicle colours
-const COLOURS = [
+// Generic vehicle colour fallback — only shown when VDB returns no
+// recognizable paint variants for this car (rare; usually means the
+// VIN/YMMT lookup failed entirely). The dynamic list from
+// `useVdbColorsForVin` is preferred so the user only picks paints
+// VDB actually has for their vehicle.
+type ColorOption = { id: string; label: string; color: string };
+const FALLBACK_COLOURS: ColorOption[] = [
   { id: "black", label: "Black", color: "#1a1a1a" },
   { id: "midnight-silver", label: "Midnight Silver", color: "#4A4A4A" },
   { id: "silver", label: "Silver", color: "#C0C0C0" },
@@ -123,7 +134,11 @@ export default function AddVehicleDetailsScreen() {
   const [trim, setTrim] = useState(isManualEntry ? "" : "F Sport");
   const [drivetrain, setDrivetrain] = useState(isManualEntry ? "" : "All-Wheel Drive (AWD)");
   const [bodyStyle, setBodyStyle] = useState(isManualEntry ? "" : "suv");
-  const [selectedColor, setSelectedColor] = useState(isManualEntry ? "" : "midnight-silver");
+  // Color id is no longer pre-seeded — the dynamic VDB list resolves
+  // post-mount and the old "midnight-silver" default rarely matches
+  // a real VDB marketing paint name. User picks from the actual
+  // paint variants their car comes in.
+  const [selectedColor, setSelectedColor] = useState("");
   const [mileage, setMileage] = useState("");
   const [isEditing, setIsEditing] = useState(isManualEntry);
   const [sheetMode, setSheetMode] = useState<SheetMode>("brand");
@@ -158,6 +173,40 @@ export default function AddVehicleDetailsScreen() {
     effectiveTrim,
   );
 
+  // VDB's paint variants for this exact vehicle. Replaces the static
+  // FALLBACK_COLOURS palette whenever VDB has data for the car —
+  // user sees only paint options that actually exist on the model.
+  // `colorsLoading` drives the skeleton in the picker sheet so the
+  // generic fallback never flashes during the in-flight window.
+  const {
+    colors: vdbColors,
+    isLoading: colorsLoading,
+    hasVdbData: hasVdbColors,
+  } = useVdbColorsForVin({
+    vin,
+    year: yearNum,
+    make: brand,
+    model,
+    trim: effectiveTrim,
+  });
+  const activeColors: ColorOption[] = useMemo(
+    () =>
+      hasVdbColors
+        ? vdbColors.map((c) => ({ id: c.id, label: c.label, color: c.hex }))
+        : FALLBACK_COLOURS,
+    [hasVdbColors, vdbColors],
+  );
+
+  // If the currently-selected id isn't in the new palette (e.g. VDB
+  // data just resolved and replaced the fallback list), clear it so
+  // the user re-picks from real options. No-op when the id is valid.
+  useEffect(() => {
+    if (!selectedColor) return;
+    if (activeColors.some((c) => c.id === selectedColor)) return;
+    setSelectedColor("");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeColors]);
+
   // Crossfade the VDB image over the covered-car placeholder as it
   // arrives. Driven by URL presence — when carImageUrl flips null→string
   // we fade in over 300ms; when it flips back to null (user clears a
@@ -180,7 +229,7 @@ export default function AddVehicleDetailsScreen() {
     return !!(brand && model && year && selectedColor && trim && drivetrain);
   }, [brand, model, year, selectedColor, trim, drivetrain]);
 
-  const getColorById = (id: string) => COLOURS.find((c) => c.id === id) || null;
+  const getColorById = (id: string) => activeColors.find((c) => c.id === id) || null;
   const getBodyStyleById = (id: string) => BODY_STYLES.find((b) => b.id === id) || null;
 
   const canPickModel = !!(year && brand);
@@ -284,15 +333,25 @@ export default function AddVehicleDetailsScreen() {
       });
       createdOwnershipId = String(ownershipId);
 
-      // Kick off the vehicle-image fetch after the vehicle row exists
-      // (so `saveVehicleImageUrl` can patch by VIN) but before we
-      // navigate, so the image is cached in Convex by the time the cars
-      // page reads it. Fire-and-forget — don't block navigation on a
-      // network round-trip. Manual-entry vehicles have a synthetic
-      // `MANUAL-…` VIN; pass undefined to the fetcher in that case so it
-      // falls through to the YMMT path instead of trying to look up the
-      // fake VIN.
-      if (brand && model) {
+      // Persist the rendered image URL so the cars page can short-circuit
+      // its own fetch.
+      //
+      // Preferred path: when the user picked from the VDB-driven palette,
+      // each picker option already carries the exact image URL it was
+      // parsed from. Save THAT directly — bypasses the
+      // `findColorImage()` keyword round-trip, which has been observed
+      // to mis-match for some marketing paint names (e.g. picking a gray
+      // VW Tiguan paint and getting back the neutral white EVOX render).
+      //
+      // Fallback: legacy ymmt-only fetch when the picker had no VDB data
+      // (manual entry with no VIN, or VDB had no record for this car).
+      const pickedVdbColor = vdbColors.find((c) => c.id === selectedColor);
+      if (pickedVdbColor) {
+        saveVehicleImageUrl({
+          vin: normalizedVin,
+          image_url: pickedVdbColor.imageUrl,
+        });
+      } else if (brand && model) {
         const yearNum = year ? parseFloat(year) : undefined;
         const vinForLookup =
           normalizedVin.length === 17 ? normalizedVin : undefined;
@@ -350,7 +409,7 @@ export default function AddVehicleDetailsScreen() {
       case "brand": return [...new Set((makes ?? []).map((m) => m.name))];
       case "model": return [...new Set((ymmtModels ?? []).map((m) => m.name))];
       case "year": return YEARS;
-      case "color": return COLOURS;
+      case "color": return activeColors;
       case "bodyStyle": return BODY_STYLES;
       case "trim": return vdbTrims;
       case "drivetrain": return DRIVETRAINS;
@@ -773,7 +832,9 @@ export default function AddVehicleDetailsScreen() {
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
           >
-            {isPickerLoading ? (
+            {sheetMode === "color" && colorsLoading ? (
+              <ColorSwatchSkeletonList rows={5} />
+            ) : isPickerLoading ? (
               <View style={styles.emptyState}>
                 <ActivityIndicator color={BrandColors.secondary} />
                 <Text size="sm" color="#8E8E93" style={{ marginTop: Spacing.sm }}>

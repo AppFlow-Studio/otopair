@@ -90,6 +90,12 @@ export default function AddVehicleScreen() {
             displacement: result.displacement,
             cylinders: String(result.cylinders),
             fuelType: result.fuelType,
+            nhtsaModel: result.nhtsaModel ?? "",
+            nhtsaSeries: result.nhtsaSeries ?? "",
+            nhtsaTrim: result.nhtsaTrim ?? "",
+            vdbDecodedModel: result.vdbDecodedModel ?? "",
+            vdbDecodedStyle: result.vdbDecodedStyle ?? "",
+            vdbDecodedTrimAndStyle: result.vdbDecodedTrimAndStyle ?? "",
           },
         });
       } else {

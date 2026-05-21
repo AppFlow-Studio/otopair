@@ -82,6 +82,12 @@ export default function VinScannerScreen() {
               displacement: decoded.displacement,
               cylinders: String(decoded.cylinders),
               fuelType: decoded.fuelType,
+              nhtsaModel: decoded.nhtsaModel ?? "",
+              nhtsaSeries: decoded.nhtsaSeries ?? "",
+              nhtsaTrim: decoded.nhtsaTrim ?? "",
+              vdbDecodedModel: decoded.vdbDecodedModel ?? "",
+              vdbDecodedStyle: decoded.vdbDecodedStyle ?? "",
+              vdbDecodedTrimAndStyle: decoded.vdbDecodedTrimAndStyle ?? "",
             },
           });
         } else {

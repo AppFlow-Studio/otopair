@@ -58,10 +58,12 @@ function formatMileage(mileage: number | undefined): string {
   return `${mileage.toLocaleString()} mi`;
 }
 
-/** Truncate VIN for display */
+/** Display VIN in full uppercase. Previous behavior was to truncate
+ *  to the first 11 chars with an ellipsis — user prefers the full
+ *  17-char VIN visible (fits in the row at the existing font size). */
 function truncateVin(vin: string | undefined): string {
   if (!vin) return "";
-  return vin.length > 11 ? `${vin.slice(0, 11)}...` : vin;
+  return vin.toUpperCase();
 }
 
 // ============================================================================
@@ -104,7 +106,7 @@ function CarSelectionCardComponent({
               </Text>
             </View>
             {vehicle.vin && (
-              <Text size="xs" color="#9CA3AF" style={styles.vin}>
+              <Text size="xs" color="#000000" style={styles.vin}>
                 {truncateVin(vehicle.vin)}
               </Text>
             )}

@@ -38,7 +38,7 @@ import { computeVehicleHealthScore, type HealthScoreInput } from "@/utils/health
 // 4. Shared UI
 import { Text } from "@/components/shared-ui";
 import { OilIcon, BrakesIcon, TireIcon, BatteryIcon, WarningIcon } from "@/components/cars/ServiceIcons";
-import { fetchVehicleImageUrl } from "@/utils/vehicleImage";
+import { fetchVehicleImageUrl, inferColorFamily } from "@/utils/vehicleImage";
 import { isDarkColor } from "@/utils/contrast";
 import { scale, verticalScale, moderateScale } from '@/utils/responsive';
 
@@ -695,7 +695,32 @@ export default function CarsHomeScreen() {
     if (!listVehicles?.length) return;
     const TARGET_VIN = "1FMUK8KHXSGD02351"; // temp: force Ford back to exterior[] front-angle shot
     listVehicles.forEach((r: any) => {
-      if (!r.vin || vehicleImageUrls[r.vin]) return;
+      if (!r.vin) return;
+
+      const localUrl = vehicleImageUrls[r.vin];
+      const convexImageUrl =
+        typeof r.vehicle?.image_url === "string" &&
+        r.vehicle.image_url.includes("/transparent/")
+          ? r.vehicle.image_url
+          : null;
+
+      // Skip the effect body only when local state already matches
+      // Convex's authoritative URL. Without this, the old write-once
+      // guard (`if vehicleImageUrls[r.vin] return`) latched the FIRST
+      // value forever — so a remove + re-add (same VIN, new color)
+      // kept showing the prior color in the carousel even though
+      // Convex's `image_url` had updated. Reading from Convex on
+      // mismatch keeps the carousel in sync without a relaunch.
+      if (localUrl && localUrl === convexImageUrl) return;
+
+      // Local and Convex disagree (or local hadn't been populated
+      // yet) — adopt Convex's URL as truth and let the next render
+      // settle. Falls through to the existing cached/fetch flow
+      // below when Convex has no usable transparent URL of its own.
+      if (convexImageUrl && localUrl !== convexImageUrl) {
+        setVehicleImageUrls((prev) => ({ ...prev, [r.vin]: convexImageUrl }));
+        return;
+      }
 
       if (r.vin === TARGET_VIN) {
         // temp: restore original Ford exterior image
@@ -766,8 +791,14 @@ export default function CarsHomeScreen() {
       const o = r.ownership;
       const meta = v ? (v as { metadata?: { make?: string; model?: string; color?: string; body_style?: string } }).metadata : undefined;
       const paintColor = meta?.color;
+      // `metadata.color` may be a legacy family id ("red") OR a VDB
+      // filename slug ("delmonico-red-pearl-coat"). Reverse-match to a
+      // family id so the gradient lookup hits — otherwise we'd fall
+      // through to DEFAULT_GRADIENTS and the bg would tint by list
+      // index (e.g. a red Ram getting a saturated blue background).
+      const familyId = inferColorFamily(paintColor);
       const gradient =
-        (paintColor && COLOR_GRADIENTS[paintColor]) ||
+        (familyId && COLOR_GRADIENTS[familyId]) ||
         DEFAULT_GRADIENTS[i % DEFAULT_GRADIENTS.length];
       const displayMake = titleCase(meta?.make || o?.nickname?.split(" ")[1] || "Vehicle");
       const displayModel = titleCase(meta?.model || o?.nickname?.split(" ").slice(2).join(" ") || r.vin.slice(-6));
@@ -1329,7 +1360,6 @@ export default function CarsHomeScreen() {
               </Pressable>
             )}
             */}
-            {/* Remove — commented out (dev-only). Uncomment to restore.
             {!!activeVehicle?.vin && !!userId && (
               <Pressable
                 style={({ pressed }) => [{ paddingVertical: scale(4), paddingHorizontal: scale(10), borderRadius: moderateScale(12), backgroundColor: "rgba(239,68,68,0.12)" }, pressed && { opacity: 0.7 }]}
@@ -1338,7 +1368,6 @@ export default function CarsHomeScreen() {
                 <Text weight="semiBold" size="xs" color="#DC2626">Remove</Text>
               </Pressable>
             )}
-            */}
             {/* Demo Check-In — commented out (dev-only). Uncomment to restore.
             {activeOwnershipId && isPreOnboardingComplete && (
               <Pressable

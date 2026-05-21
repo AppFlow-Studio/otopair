@@ -89,7 +89,7 @@ import { LoyaltyCard } from "@/components/home/LoyaltyCard";
 import { MechanicSearchBar } from "@/components/home/MechanicSearchBar";
 import { ServiceBundlesSection } from "@/components/home/ServiceBundlesSection";
 import { MoreServicesSection } from "@/components/home/MoreServicesSection";
-import { SuggestionsSection } from "@/components/home/SuggestionsSection";
+import { ProviderTypesSection } from "@/components/home/ProviderTypesSection";
 import { VehicleMaintenanceCard } from "@/components/home/VehicleMaintenanceCard";
 import { ProfileInitialsButton } from "@/components/home/ProfileInitialsButton";
 import { OtoPairIcon } from "@/components/icons/oto-pair";
@@ -224,7 +224,11 @@ export default function HomeScreen() {
   const hasCreateAccount = !!(me?.first_name && me?.last_name) || me?.onboardingCompleted === true;
   const hasAboutYou = me?.tellUsAboutCompleted === true;
   const isAccountSetupComplete = hasCreateAccount && hasAboutYou && hasVehicles;
-  const showAccountSetup = !isAccountSetupComplete && !accountSetupDismissed;
+  // TEMP: force the Finish-setup card visible so the redesigned tiles
+  // can be reviewed even after the user has completed setup. Revert
+  // this to `!isAccountSetupComplete && !accountSetupDismissed` once
+  // QA is done.
+  const showAccountSetup = !accountSetupDismissed;
 
   // Car setup: prefer incomplete vehicles, then completed-but-not-acknowledged.
   // `incompleteVehicles` is the full list of not-yet-onboarded cars so we can
@@ -786,14 +790,14 @@ export default function HomeScreen() {
                 )}
               </View>
 
-              {/* More Services Section */}
+              {/* More Services Section (6-card service-type grid) */}
               <MoreServicesSection />
 
               {/* Service Bundles Section */}
               <ServiceBundlesSection />
 
-              {/* Suggestions Section */}
-              <SuggestionsSection />
+              {/* Provider Types Section ("More" — 3 provider cards) */}
+              <ProviderTypesSection />
             </View>
           </Animated.ScrollView>
 
