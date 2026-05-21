@@ -13,8 +13,6 @@ import React from 'react';
 import { Dimensions, Image, ImageSourcePropType, Pressable, StyleSheet, View } from 'react-native';
 
 // 2. Expo & Third-party
-import { BlurView } from 'expo-blur';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import {
   AlertCircle,
@@ -65,14 +63,14 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
 // Toggle this to true once you've added the 3D icon images
 const USE_3D_ICONS = true;
 
-// Calculate card width for 3 columns × 2 rows grid
+// Matched to ProviderTypesSection so the two grids on home share the
+// same design system: 25% screen width, 88 px tall, 92 px icons.
 const GRID_PADDING = 16;
 const GRID_GAP = 10;
-// Use 27% width to leave room for gaps between cards
-const CARD_WIDTH = SCREEN_WIDTH * 0.27;
-const CARD_HEIGHT = 95;
+const CARD_WIDTH = SCREEN_WIDTH * 0.25;
+const CARD_HEIGHT = 88;
 const ICON_SIZE = 28;
-const IMAGE_ICON_SIZE = 85;
+const IMAGE_ICON_SIZE = 92;
 
 // Service cards data - using new icons from newIcons folder
 const SERVICE_CARDS: ServiceCard[] = [
@@ -153,24 +151,6 @@ export function MoreServicesSection() {
             onPress={() => handleCardPress(card.id)}
           >
             <View style={styles.card}>
-              {/* Glassy/Glossy Effect Layers */}
-              <BlurView intensity={100} tint="light" style={StyleSheet.absoluteFill} />
-              <LinearGradient
-                colors={['rgba(255, 255, 255, 0.6)', 'rgba(255, 255, 255, 0.55)']}
-                style={StyleSheet.absoluteFill}
-              />
-              {/* Glossy top highlight - stronger */}
-              <LinearGradient
-                colors={['rgba(255, 255, 255, 0.7)', 'rgba(255, 255, 255, 0.3)', 'rgba(255, 255, 255, 0)']}
-                locations={[0, 0.2, 0.5]}
-                style={styles.glossyHighlight}
-              />
-              {/* Additional shine layer */}
-              <LinearGradient
-                colors={['rgba(255, 255, 255, 0.5)', 'rgba(255, 255, 255, 0)', 'rgba(255, 255, 255, 0)']}
-                locations={[0, 0.15, 0.4]}
-                style={styles.glossyShine}
-              />
               
               {/* Card Content */}
               <View style={styles.cardContent} pointerEvents="box-none">
@@ -254,13 +234,8 @@ const styles = StyleSheet.create({
     height: '100%',
     borderRadius: 8,
     overflow: 'hidden',
-    backgroundColor: 'transparent',
+    backgroundColor: '#FFFFFF',
     position: 'relative',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.12,
-    shadowRadius: 12,
-    elevation: 4,
   },
   glossyHighlight: {
     position: 'absolute',
@@ -300,12 +275,17 @@ const styles = StyleSheet.create({
   imageIcon: {
     width: IMAGE_ICON_SIZE,
     height: IMAGE_ICON_SIZE,
-    marginTop: 0, // Allow icon to extend upward
+    marginTop: 0,
+    // Shape-aware drop shadow matching ProviderTypesSection.
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.28,
+    shadowRadius: 7,
   },
   cardLabel: {
     marginBottom: 2,
-    fontSize: 14,
-    lineHeight: 18,
+    fontSize: 11,
+    lineHeight: 14,
   },
   cardSubText: {
     fontSize: 10,

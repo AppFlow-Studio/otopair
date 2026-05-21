@@ -7,7 +7,7 @@
  */
 
 // 1. React & React Native
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Dimensions,
@@ -16,6 +16,12 @@ import {
   StyleSheet,
   View,
 } from 'react-native';
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+} from 'react-native-reanimated';
+import { Image as ExpoImage } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 
@@ -23,7 +29,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ArrowLeft, Bell, Car, History, MapPin, Plus, Wrench } from 'lucide-react-native';
-import { useAction, useQuery } from 'convex/react';
+import { useAction, useMutation, useQuery } from 'convex/react';
 
 // 3. App imports
 import { Text } from '@/components/shared-ui';
@@ -31,12 +37,69 @@ import { Spacing } from '@/constants/theme';
 import { api } from '@/convex/_generated/api';
 import { Id } from '@/convex/_generated/dataModel';
 import { scale, verticalScale, moderateScale } from '@/utils/responsive';
+import { useVdbColorsForVin } from '@/utils/vehicleImage';
+import { ColorSwatchSkeletonRow } from '@/components/shared-ui/ColorSwatchSkeleton';
 
 // ============================================================================
 // COMPONENT
 // ============================================================================
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
+
+// One swatch in the color picker — owns its own scale animation so the
+// parent doesn't need to manage N shared values. Springs to 1.08 on
+// select, back to 1.0 on deselect.
+function ColorSwatchItem({
+  color,
+  isSelected,
+  onPress,
+}: {
+  color: { id: string; label: string; hex: string };
+  isSelected: boolean;
+  onPress: () => void;
+}) {
+  const scaleSv = useSharedValue(1);
+  useEffect(() => {
+    scaleSv.value = withSpring(isSelected ? 1.08 : 1, {
+      damping: 15,
+      stiffness: 180,
+    });
+  }, [isSelected, scaleSv]);
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scaleSv.value }],
+  }));
+
+  const isWhite = color.hex.toUpperCase() === '#FFFFFF';
+
+  return (
+    <Pressable onPress={onPress} style={styles.swatchPress} hitSlop={6}>
+      <Animated.View
+        style={[
+          styles.swatchRingWrapper,
+          isSelected && styles.swatchRingActive,
+          animatedStyle,
+        ]}
+      >
+        <View
+          style={[
+            styles.swatchCircle,
+            { backgroundColor: color.hex },
+            isWhite && styles.swatchCircleWhite,
+          ]}
+        />
+      </Animated.View>
+      <Text
+        size="xs"
+        color={isSelected ? '#1F2937' : '#6B7280'}
+        center
+        numberOfLines={2}
+        style={styles.swatchLabel}
+      >
+        {color.label}
+      </Text>
+    </Pressable>
+  );
+}
 
 export default function AddVehicleReviewScreen() {
   const insets = useSafeAreaInsets();
@@ -53,6 +116,21 @@ export default function AddVehicleReviewScreen() {
     displacement: string;
     cylinders: string;
     fuelType: string;
+    /** NHTSA's raw Model field — often the specific designation
+     *  (e.g. "530i") that VDB's catalog uses, even when our merged
+     *  `model` has been overwritten to a family name. Highest-
+     *  priority discovery candidate. */
+    nhtsaModel?: string;
+    /** NHTSA's raw Series field (e.g. "5-Series"). */
+    nhtsaSeries?: string;
+    /** NHTSA's raw Trim field. */
+    nhtsaTrim?: string;
+    /** VDB advanced-vin-decode fields — used to build the
+     *  YMMT combo matrix for `vehicle-images` direct probes when
+     *  the VIN URL has no record. */
+    vdbDecodedModel?: string;
+    vdbDecodedStyle?: string;
+    vdbDecodedTrimAndStyle?: string;
   }>();
 
   const [isConfirming, setIsConfirming] = useState(false);
@@ -60,8 +138,13 @@ export default function AddVehicleReviewScreen() {
   const [selectedColor, setSelectedColor] = useState('');
 
   const confirmVehicle = useAction(api.vehicle_pipeline.confirmVehicleForUser);
+  const saveVehicleImageUrl = useMutation(api.vehicles.saveVehicleImageUrl);
 
-  const CAR_COLORS = [
+  // VDB's paint variants for this VIN. Falls back to a generic
+  // palette only if VDB has no record / no recognizable paint names —
+  // otherwise the user picks from colors VDB actually has for the car.
+  type ColorOption = { id: string; label: string; hex: string };
+  const FALLBACK_COLORS: ColorOption[] = [
     { id: 'black', label: 'Black', hex: '#1a1a1a' },
     { id: 'midnight-silver', label: 'Midnight Silver', hex: '#4A4A4A' },
     { id: 'silver', label: 'Silver', hex: '#C0C0C0' },
@@ -73,6 +156,47 @@ export default function AddVehicleReviewScreen() {
     { id: 'beige', label: 'Beige', hex: '#D4B896' },
     { id: 'brown', label: 'Brown', hex: '#8B4513' },
   ];
+  const yearNum = params.year ? parseInt(params.year, 10) : undefined;
+  const { colors: vdbColors, isLoading: vdbLoading, hasVdbData } = useVdbColorsForVin({
+    vin: params.vin,
+    year: yearNum,
+    make: params.make,
+    model: params.model,
+    trim: params.trim,
+    // NHTSA's raw model/series/trim from the decode — drives VDB
+    // model discovery when the catalog uses a different model string
+    // than our merged result (e.g. merged "5 Series" vs NHTSA's
+    // "530i" which matches VDB's "530" catalog after token-strip).
+    nhtsaModel: params.nhtsaModel,
+    nhtsaSeries: params.nhtsaSeries,
+    nhtsaTrim: params.nhtsaTrim,
+    // VDB advanced-vin-decode fields — used to build a (model, trim)
+    // combo matrix when the VIN URL has no record but the catalog
+    // does. For BMW: VDB decode returns model="530i", catalog
+    // expects model="530" + trim="i-xDrive Sedan ...".
+    vdbDecodedModel: params.vdbDecodedModel,
+    vdbDecodedStyle: params.vdbDecodedStyle,
+    vdbDecodedTrimAndStyle: params.vdbDecodedTrimAndStyle,
+  });
+  // FALLBACK_COLORS is reached ONLY after the network finishes with no
+  // usable VDB record. While `vdbLoading` is true, the JSX renders a
+  // skeleton instead — the generic palette never flashes in front of
+  // the user during the in-flight window.
+  const CAR_COLORS: ColorOption[] = hasVdbData
+    ? vdbColors.map((c) => ({ id: c.id, label: c.label, hex: c.hex }))
+    : FALLBACK_COLORS;
+
+  // Drives the live car-image preview in the vehicle card. Priority:
+  //  1. Picked color's image (instant swap on tap)
+  //  2. Black variant if VDB has one (`#1A1A1A` = FAMILY_HEX.black)
+  //  3. First VDB variant
+  //  4. null → fall back to the lucide Car icon (loading / vdb-empty)
+  const previewImageUrl: string | null =
+    (selectedColor &&
+      vdbColors.find((c) => c.id === selectedColor)?.imageUrl) ||
+    vdbColors.find((c) => c.hex.toUpperCase() === '#1A1A1A')?.imageUrl ||
+    vdbColors[0]?.imageUrl ||
+    null;
 
   const me = useQuery(api.users.getMe);
 
@@ -106,6 +230,22 @@ export default function AddVehicleReviewScreen() {
       });
 
       if (result.success) {
+        // When the user picked from the VDB palette, persist the exact
+        // image URL straight from the picker option. This bypasses the
+        // cars-page `findColorImage()` keyword round-trip (which has
+        // been observed to mis-match for some marketing paint names,
+        // e.g. a gray VW Tiguan pick rendering as a neutral white EVOX).
+        // Fire-and-forget — the cars page falls back to its own fetch
+        // if this hasn't landed by the time the user gets there.
+        const pickedVdbColor = vdbColors.find((c) => c.id === selectedColor);
+        if (pickedVdbColor && params.vin) {
+          saveVehicleImageUrl({
+            vin: params.vin,
+            image_url: pickedVdbColor.imageUrl,
+          }).catch(() => {
+            // Non-fatal: cars page useEffect will retry.
+          });
+        }
         router.replace({
           pathname: '/vehicle-added',
           params: {
@@ -182,9 +322,23 @@ export default function AddVehicleReviewScreen() {
 
         {/* Vehicle Card */}
         <View style={styles.vehicleCard}>
-          <View style={[styles.vehicleIconContainer, { backgroundColor: carCircleBg }]}>
-            <Car size={scale(32)} color="#5299FE" strokeWidth={1.5} />
-          </View>
+          {/* Live VDB car-image preview — swaps in real time as the user
+              taps a swatch below. Defaults to the black variant before
+              any pick, falls back to the lucide Car icon while VDB is
+              loading or returned nothing usable. */}
+          {previewImageUrl ? (
+            <ExpoImage
+              source={{ uri: previewImageUrl }}
+              style={styles.vehiclePreviewImage}
+              contentFit="contain"
+              transition={180}
+              cachePolicy="memory-disk"
+            />
+          ) : (
+            <View style={[styles.vehicleIconContainer, { backgroundColor: carCircleBg }]}>
+              <Car size={scale(32)} color="#5299FE" strokeWidth={1.5} />
+            </View>
+          )}
           <Text weight="bold" size="xl" color="#333333" style={styles.vehicleYear}>
             {params.year}
           </Text>
@@ -201,34 +355,39 @@ export default function AddVehicleReviewScreen() {
           </View>
         </View>
 
-        {/* Color Picker */}
-        <View style={styles.colorSection}>
-          <Text weight="semiBold" size="sm" color="#333333" style={styles.colorLabel}>
-            What color is your {params.make}?
-          </Text>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.colorRow}
-          >
-            {CAR_COLORS.map((c) => (
-              <Pressable
-                key={c.id}
-                onPress={() => setSelectedColor(c.id)}
-                style={[
-                  styles.colorSwatch,
-                  { backgroundColor: c.hex },
-                  c.id === 'white' && styles.colorSwatchWhite,
-                  selectedColor === c.id && styles.colorSwatchSelected,
-                ]}
-              />
-            ))}
-          </ScrollView>
-          {/* Always rendered with a non-breaking-space fallback so the
-              layout below doesn't shift when a color is picked. */}
-          <Text size="xs" color="#888888" style={styles.colorName}>
-            {selectedSwatch?.label ?? ' '}
-          </Text>
+        {/* Color Picker — wrapped in a white card matching `vehicleCard`'s
+            shadow so the section reads as a peer of the vehicle summary
+            above. Bigger swatches with marketing-name labels; selected
+            swatch springs and gets a blue ring. */}
+        <View style={styles.colorCard}>
+          <View style={styles.colorHeaderRow}>
+            <Text weight="semiBold" size="md" color="#1F2937">
+              Choose your {params.make}'s color
+            </Text>
+            <Text size="xs" color="#9CA3AF" numberOfLines={1} style={styles.colorHeaderRight}>
+              {selectedSwatch
+                ? selectedSwatch.label
+                : `${CAR_COLORS.length} colors`}
+            </Text>
+          </View>
+          {vdbLoading ? (
+            <ColorSwatchSkeletonRow count={6} />
+          ) : (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.colorRow}
+            >
+              {CAR_COLORS.map((c) => (
+                <ColorSwatchItem
+                  key={c.id}
+                  color={c}
+                  isSelected={selectedColor === c.id}
+                  onPress={() => setSelectedColor(c.id)}
+                />
+              ))}
+            </ScrollView>
+          )}
         </View>
 
         {/* Feature preview */}
@@ -340,6 +499,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: scale(16),
   },
+  vehiclePreviewImage: {
+    // Wider landscape area replaces the round icon when a VDB image
+    // is available. contentFit="contain" preserves aspect ratio so
+    // letterboxing is invisible against the white card.
+    width: scale(220),
+    height: scale(130),
+    marginBottom: scale(8),
+  },
   vehicleYear: {
     marginBottom: scale(2),
   },
@@ -358,33 +525,72 @@ const styles = StyleSheet.create({
   vinText: {
     letterSpacing: 1,
   },
-  colorSection: {
+  colorCard: {
     marginTop: scale(20),
     marginHorizontal: Spacing.lg,
-    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: moderateScale(18),
+    paddingVertical: scale(16),
+    paddingLeft: scale(16),
+    paddingRight: scale(8),
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    elevation: 3,
   },
-  colorLabel: {
-    marginBottom: scale(12),
+  colorHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: scale(14),
+    paddingRight: scale(8),
+    gap: scale(8),
+  },
+  colorHeaderRight: {
+    maxWidth: scale(140),
+    textAlign: 'right',
   },
   colorRow: {
-    gap: scale(10),
-    paddingHorizontal: scale(4),
+    gap: scale(14),
+    paddingVertical: scale(4),
+    paddingRight: scale(8),
   },
-  colorSwatch: {
-    width: scale(36),
-    height: scale(36),
-    borderRadius: scale(18),
+  swatchPress: {
+    width: scale(64),
+    alignItems: 'center',
   },
-  colorSwatchWhite: {
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
+  // Always-present wrapper reserves space for the ring so the layout
+  // doesn't shift when a swatch is selected. Border color is
+  // transparent by default, switches to brand blue when active.
+  swatchRingWrapper: {
+    width: scale(60),
+    height: scale(60),
+    borderRadius: scale(30),
+    borderWidth: 2,
+    borderColor: 'transparent',
+    padding: scale(4),
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  colorSwatchSelected: {
-    borderWidth: 3,
+  swatchRingActive: {
     borderColor: '#5299FE',
   },
-  colorName: {
-    marginTop: scale(8),
+  swatchCircle: {
+    width: scale(48),
+    height: scale(48),
+    borderRadius: scale(24),
+  },
+  // White swatches need a faint border so they don't disappear into
+  // the white card background.
+  swatchCircleWhite: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: '#D1D5DB',
+  },
+  swatchLabel: {
+    marginTop: scale(6),
+    fontSize: scale(11),
+    lineHeight: scale(14),
   },
   connectSection: {
     marginTop: scale(28),
