@@ -149,8 +149,7 @@ export function getIncompleteOnboardingSteps(): OnboardingStep[] {
   const { data } = useOnboardingStore.getState();
 
     const stepChecks: { step: OnboardingStep; isComplete: () => boolean }[] = [
-        { step: 'phone', isComplete: () => !!data.phoneNumber },
-        { step: 'confirm', isComplete: () => !!data.phoneVerified },
+        { step: 'phone', isComplete: () => !!data.phoneNumber && !!data.phoneVerified },
         { step: 'name', isComplete: () => !!(data.firstName && data.lastName) },
         { step: 'profilePhoto', isComplete: () => !!data.profilePhotoUri },
         { step: 'userIntent', isComplete: () => !!(data.userIntentions && data.userIntentions.length > 0) },
@@ -171,11 +170,12 @@ export function OnboardingFlow({
   disableBack = false,
 }: OnboardingFlowProps) {
   const initialVisibleStep = getVisibleStep(initialStep);
+  const shouldDisableInitialBack = disableBack && initialVisibleStep !== "confirm";
   const [currentStep, setCurrentStep] = useState<OnboardingStep>(initialVisibleStep);
   const [fromStep, setFromStep] = useState<OnboardingStep>(initialVisibleStep);
   const [toStep, setToStep] = useState<OnboardingStep>(initialVisibleStep);
   const [backDisabledStep] = useState<OnboardingStep | null>(
-    disableBack ? initialVisibleStep : null,
+    shouldDisableInitialBack ? initialVisibleStep : null,
   );
   const { isSignedIn, userId: clerkUserId } = useAuth();
   const completeOnboarding = useMutation(api.users.completeOnboarding);
