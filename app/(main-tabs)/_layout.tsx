@@ -8,7 +8,16 @@ import { useUnseenBookingsCount } from "@/hooks/useUnseenBookingsCount";
 import { useVehicleOwnershipFromConvex } from "@/hooks/useVehicleOwnershipFromConvex";
 import { NotificationsSheet } from "@/components/notifications/NotificationsSheet";
 import { RescheduleDecisionOverlay } from "@/components/notifications/RescheduleDecisionOverlay";
-import { UpdateAvailableBanner } from "@/components/system/UpdateAvailableBanner";
+// OTA update banner only matters in EAS builds. In a local dev build
+// expo-updates' native module isn't linked, and the static import chain
+// (UpdateAvailableBanner → useEasUpdate → expo-updates) throws "Cannot
+// find native module 'ExpoUpdates'" at MODULE-LOAD time — before any
+// render-time gate can run. A conditional require keeps the chain from
+// loading at all in dev; in EAS builds (__DEV__ false, expo-updates
+// linked) the real component loads and works as designed.
+const UpdateAvailableBanner: React.ComponentType = __DEV__
+  ? () => null
+  : require("@/components/system/UpdateAvailableBanner").UpdateAvailableBanner;
 // SettingsOverlay is no longer mounted at the layout — it lives at
 // the /profile-overlay route now (see app/profile-overlay.tsx) so
 // destinations pushed from inside it stack on top.
