@@ -12,9 +12,10 @@
  *   - onLogin (() => void): Callback to navigate to login screen
  */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useAuth, useSSO } from "@clerk/clerk-expo";
 import * as WebBrowser from "expo-web-browser";
+import { useConvex } from "convex/react";
 import { BrandColors, FontFamily, FontSize, Spacing, Text } from "@/components/shared-ui";
 import { Image } from "expo-image";
 import {
@@ -32,6 +33,7 @@ import { useEnsureConvexUser } from "@/hooks/useEnsureConvexUser";
 import { Mail } from "lucide-react-native";
 import { useAuthStore } from "@/stores/useAuthStore";
 import { router } from "expo-router";
+import { api } from "@/convex/_generated/api";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -48,6 +50,7 @@ export function SignupStep({ onNext, onBack, onEmailSignup, onLogin }: SignupSte
   const { isSignedIn, isLoaded } = useAuth();
   const { updateData } = useOnboardingStore();
   const ensureConvexUser = useEnsureConvexUser();
+  const convex = useConvex();
   const { isNewUser, setIsNewUser, setIsAuthenticated } = useAuthStore();
   const [loading, setLoading] = useState<"google" | "apple" | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -56,7 +59,27 @@ export function SignupStep({ onNext, onBack, onEmailSignup, onLogin }: SignupSte
   const { startSSOFlow: startAppleSSO } = useSSO();
   const isCompact = height < 720;
 
-  // Already signed in → redirect to home (index may have sent here if me was loading)
+  const navigateAfterExistingAccountAuth = useCallback(async () => {
+    let me: { onboardingCompleted?: boolean } | null = null;
+
+    try {
+      me = await convex.query(api.users.getMe, {});
+    } catch (error) {
+      console.error("Failed to load onboarding state after signup auth:", error);
+    }
+
+    if (me?.onboardingCompleted === true) {
+      router.replace("/(main-tabs)/home");
+      return;
+    }
+
+    router.replace({
+      pathname: "/(onboarding)",
+      params: { isResumeMode: "true" },
+    });
+  }, [convex]);
+
+  // Already signed in: route by Convex onboarding state, not directly home.
   useEffect(() => {
     if (loading !== null || isNewUser) {
       return;
@@ -65,9 +88,19 @@ export function SignupStep({ onNext, onBack, onEmailSignup, onLogin }: SignupSte
     if (isLoaded && isSignedIn) {
       setIsNewUser(false);
       setIsAuthenticated(true);
-      router.replace("/(main-tabs)/home");
+      navigateAfterExistingAccountAuth().catch((error) => {
+        console.error("Failed to navigate existing signed-in user:", error);
+      });
     }
-  }, [isLoaded, isNewUser, isSignedIn, loading, setIsAuthenticated, setIsNewUser]);
+  }, [
+    isLoaded,
+    isNewUser,
+    isSignedIn,
+    loading,
+    navigateAfterExistingAccountAuth,
+    setIsAuthenticated,
+    setIsNewUser,
+  ]);
 
   const dynamicStyles = {
     container: { paddingTop: insets.top + Spacing.lg },
@@ -117,7 +150,7 @@ export function SignupStep({ onNext, onBack, onEmailSignup, onLogin }: SignupSte
         // signIn = existing account (email matched); signUp = new account
         if (signIn) {
           setIsNewUser(false);
-          router.replace("/(main-tabs)/home");
+          await navigateAfterExistingAccountAuth();
         } else {
           onNext();
         }
