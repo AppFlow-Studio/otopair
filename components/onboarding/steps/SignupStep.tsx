@@ -44,7 +44,7 @@ interface SignupStepProps {
   onLogin: () => void;
 }
 
-export function SignupStep({ onNext, onBack, onEmailSignup, onLogin }: SignupStepProps) {
+export function SignupStep({ onBack, onEmailSignup, onLogin }: SignupStepProps) {
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
   const { isSignedIn, isLoaded } = useAuth();
@@ -54,6 +54,7 @@ export function SignupStep({ onNext, onBack, onEmailSignup, onLogin }: SignupSte
   const { isNewUser, setIsNewUser, setIsAuthenticated } = useAuthStore();
   const [loading, setLoading] = useState<"google" | "apple" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [ssoNavigationPending, setSsoNavigationPending] = useState(false);
 
   const { startSSOFlow: startGoogleSSO } = useSSO();
   const { startSSOFlow: startAppleSSO } = useSSO();
@@ -81,7 +82,7 @@ export function SignupStep({ onNext, onBack, onEmailSignup, onLogin }: SignupSte
 
   // Already signed in: route by Convex onboarding state, not directly home.
   useEffect(() => {
-    if (loading !== null || isNewUser) {
+    if (loading !== null || ssoNavigationPending || isNewUser) {
       return;
     }
 
@@ -100,6 +101,7 @@ export function SignupStep({ onNext, onBack, onEmailSignup, onLogin }: SignupSte
     navigateAfterExistingAccountAuth,
     setIsAuthenticated,
     setIsNewUser,
+    ssoNavigationPending,
   ]);
 
   const dynamicStyles = {
@@ -112,6 +114,7 @@ export function SignupStep({ onNext, onBack, onEmailSignup, onLogin }: SignupSte
     setLoading(strategy);
     setError(null);
     setIsNewUser(true);
+    setSsoNavigationPending(true);
 
     try {
       const startSSO = strategy === "google" ? startGoogleSSO : startAppleSSO;
@@ -125,6 +128,7 @@ export function SignupStep({ onNext, onBack, onEmailSignup, onLogin }: SignupSte
       // User cancelled OAuth (dismissed browser) - do not proceed
       const cancelled = authSessionResult && "type" in authSessionResult && authSessionResult.type !== "success";
       if (cancelled) {
+        setSsoNavigationPending(false);
         return;
       }
 
@@ -150,18 +154,15 @@ export function SignupStep({ onNext, onBack, onEmailSignup, onLogin }: SignupSte
         // signIn = existing account (email matched); signUp = new account
         if (signIn) {
           setIsNewUser(false);
-          await navigateAfterExistingAccountAuth();
-        } else {
-          onNext();
         }
       } else if (signUp && signUp.status === "missing_requirements") {
         // OAuth succeeded but Clerk requires phone before completing sign-up (e.g. instance config)
         // signUp is in memory; PhoneNumberStep will use signUp.update + preparePhoneNumberVerification
         // ConfirmPhoneNumberStep will complete verification and set session - no re-auth needed
-        // Do NOT use || !createdSessionId - that would incorrectly proceed when user cancels OAuth
-        onNext();
+        // The oauth-callback route owns post-SSO navigation to avoid duplicate onboarding remounts.
       }
     } catch (err) {
+      setSsoNavigationPending(false);
       const message = err instanceof Error ? err.message : "Authentication failed";
       setError(message);
       console.error(`${strategy} OAuth error:`, err);
