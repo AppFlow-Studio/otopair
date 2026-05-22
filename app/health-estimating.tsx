@@ -383,7 +383,7 @@ export default function HealthEstimatingScreen() {
   // Distribute bubbles in rows, alternating left/right
   const bubbleSlots = useMemo(() => {
     const shuffled = [...ALL_FACTS].sort(() => Math.random() - 0.5);
-    const count = height < 740 ? 5 : 6;
+    const count = height < 740 ? 3 : 4;
     return shuffled.slice(0, count).map((fact, i): BubbleSlot => ({
       fact,
       row: i,
@@ -529,7 +529,7 @@ export default function HealthEstimatingScreen() {
       />
 
       {/* Header */}
-      <View style={[styles.header, { paddingTop: insets.top + verticalScale(52) }]}>
+      <View style={[styles.header, { paddingTop: insets.top + verticalScale(20) }]}>
         <View style={styles.titleWrap}>
           <Animated.View style={[styles.titleAbsolute, loadingTitleStyle]}>
             <Text weight="bold" style={styles.title}>
@@ -671,8 +671,8 @@ const styles = StyleSheet.create({
   },
   bubblesArea: {
     paddingHorizontal: scale(20),
-    paddingTop: scale(24),
-    gap: scale(16),
+    paddingTop: 0,
+    gap: scale(12),
   },
   bubblesScroll: {
     flex: 1,
@@ -685,8 +685,8 @@ const styles = StyleSheet.create({
   },
   coveredCar: {
     width: "100%",
-    height: scale(110),
-    marginTop: scale(4),
+    height: scale(120),
+    marginTop: 0,
   },
   ctaWrap: {
     position: "absolute",

@@ -2089,9 +2089,16 @@ export default function CarsHomeScreen() {
           {/* Building phase: car image + sequential AI task list */}
           {gearsPhase !== 'looping' && (
             <Animated.View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, opacity: lottieFadeOut }}>
-              {/* Car image at top — VDB image if available, otherwise
+              {/* Title — matches ready phase positioning so the two
+                  states share the same structural layout. */}
+              <View style={{ alignItems: 'center', marginTop: insets.top + scale(12) }}>
+                <Text weight="bold" size="3xl" color="#0F172A" style={{ textAlign: 'center' }}>
+                  Building your vehicle profile
+                </Text>
+              </View>
+              {/* Car image — VDB image if available, otherwise
                   the covered-car placeholder (manual-entry vehicles). */}
-              <Animated.View style={{ opacity: carPulseAnim, width: scale(280), height: scale(170), alignSelf: 'center', marginTop: verticalScale(100) }}>
+              <Animated.View style={{ opacity: carPulseAnim, width: scale(140), height: scale(85), alignSelf: 'center', marginTop: scale(8) }}>
                 <Image
                   source={activeVehicle?.imageSource ?? require('@/assets/images/covered-car.png')}
                   style={{ width: '100%', height: '100%' }}
@@ -2101,7 +2108,7 @@ export default function CarsHomeScreen() {
               {/* Sequential step list */}
               <ScrollView
                 ref={aiStepsScrollRef}
-                style={{ flex: 1, marginTop: scale(24) }}
+                style={{ flex: 1, marginTop: scale(8) }}
                 contentContainerStyle={{ paddingHorizontal: scale(28), paddingBottom: aiStepBottomClearance }}
                 showsVerticalScrollIndicator={false}
                 scrollEventThrottle={16}
@@ -2123,14 +2130,14 @@ export default function CarsHomeScreen() {
                       {/* Connecting line from previous step */}
                       {idx > 0 && (
                         <View style={{ marginLeft: scale(15), width: 2, overflow: 'hidden' }}>
-                          <Animated.View style={{ width: 2, height: lineHeights[idx - 1].interpolate({ inputRange: [0, 1], outputRange: [0, scale(16)] }), backgroundColor: isCompleted ? '#5299FE' : '#E2E8F0' }} />
+                          <Animated.View style={{ width: 2, height: lineHeights[idx - 1].interpolate({ inputRange: [0, 1], outputRange: [0, scale(4)] }), backgroundColor: isCompleted ? '#5299FE' : '#E2E8F0' }} />
                         </View>
                       )}
                       {/* Step row */}
-                      <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: scale(6) }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: scale(3) }}>
                         {/* Icon circle */}
                         <Animated.View style={{
-                          width: scale(32), height: scale(32), borderRadius: scale(16),
+                          width: scale(28), height: scale(28), borderRadius: scale(14),
                           backgroundColor: isCompleted ? '#5299FE' : isActive ? 'rgba(82,153,254,0.12)' : '#F1F5F9',
                           alignItems: 'center', justifyContent: 'center',
                           transform: [{ scale: stepIconScales[idx] }],
@@ -2163,15 +2170,16 @@ export default function CarsHomeScreen() {
           {/* Ready phase: title + car image + completed steps */}
           {gearsPhase === 'ready' && (
             <Animated.View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, opacity: carImageFadeIn }}>
-              {/* Title — near top */}
-              <View style={{ alignItems: 'center', marginTop: verticalScale(72) }}>
+              {/* Title — near top, respecting safe area inset so it
+                  doesn't clip the dynamic island / notch. */}
+              <View style={{ alignItems: 'center', marginTop: insets.top + scale(12) }}>
                 <Text weight="bold" size="3xl" color="#0F172A" style={{ textAlign: 'center' }}>
                   Vehicle profile optimized
                 </Text>
               </View>
               {/* Car image — VDB if available, covered-car otherwise. */}
-              <Animated.View style={{ alignSelf: 'center', marginTop: scale(16), transform: [{ scale: carImageFadeIn.interpolate({ inputRange: [0, 1], outputRange: [0.9, 1] }) }] }}>
-                <View style={{ width: scale(280), height: scale(170), alignItems: 'center', justifyContent: 'center' }}>
+              <Animated.View style={{ alignSelf: 'center', marginTop: scale(8), transform: [{ scale: carImageFadeIn.interpolate({ inputRange: [0, 1], outputRange: [0.9, 1] }) }] }}>
+                <View style={{ width: scale(140), height: scale(85), alignItems: 'center', justifyContent: 'center' }}>
                   <Image
                     source={activeVehicle?.imageSource ?? require('@/assets/images/covered-car.png')}
                     style={{ width: '100%', height: '100%' }}
@@ -2182,7 +2190,7 @@ export default function CarsHomeScreen() {
               {/* Completed steps list */}
               <ScrollView
                 ref={aiStepsScrollRef}
-                style={{ flex: 1, marginTop: scale(20) }}
+                style={{ flex: 1, marginTop: scale(8) }}
                 contentContainerStyle={{ paddingHorizontal: scale(28), paddingBottom: aiStepBottomClearance }}
                 showsVerticalScrollIndicator={false}
                 scrollEventThrottle={16}
@@ -2197,11 +2205,11 @@ export default function CarsHomeScreen() {
                 {AI_STEPS.map((step, idx) => (
                   <View key={idx}>
                     {idx > 0 && (
-                      <View style={{ marginLeft: scale(15), width: 2, height: scale(16), backgroundColor: '#5299FE' }} />
+                      <View style={{ marginLeft: scale(14), width: 2, height: scale(4), backgroundColor: '#5299FE' }} />
                     )}
-                    <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: scale(6) }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: scale(3) }}>
                       <View style={{
-                        width: scale(32), height: scale(32), borderRadius: scale(16),
+                        width: scale(28), height: scale(28), borderRadius: scale(14),
                         backgroundColor: '#5299FE',
                         alignItems: 'center', justifyContent: 'center',
                       }}>
