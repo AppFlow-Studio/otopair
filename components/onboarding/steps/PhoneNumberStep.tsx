@@ -58,6 +58,30 @@ try {
   console.log("getAllCountries not available in library");
 }
 
+const normalizePhoneForComparison = (phone: string | undefined | null) =>
+  (phone ?? "").replace(/\D/g, "");
+
+const getClerkErrorCode = (err: unknown) =>
+  (err as any)?.errors?.[0]?.code ?? (err as any)?.code;
+
+const isIdentifierAlreadyTakenError = (err: unknown) => {
+  const code = getClerkErrorCode(err);
+  const message = err instanceof Error ? err.message : String((err as any)?.message ?? "");
+  return code === "form_identifier_exists" || message.toLowerCase().includes("phone number is taken");
+};
+
+const cleanupStaleUnverifiedPhoneNumbers = async (user: any, phoneToKeep: string) => {
+  await Promise.allSettled(
+    user.phoneNumbers
+      .filter(
+        (p: any) =>
+          p.verification?.status !== "verified" &&
+          normalizePhoneForComparison(p.phoneNumber) !== phoneToKeep,
+      )
+      .map((p: any) => p.destroy()),
+  );
+};
+
 interface PhoneNumberStepProps {
   onNext: () => void;
   onBack: () => void;
@@ -282,9 +306,11 @@ export function PhoneNumberStep({ onNext, onBack, progress }: PhoneNumberStepPro
 
   const handleConfirmPhoneNumber = async () => {
     const fullPhoneNumber = `+${getCallingCode()}${phoneNumber.replace(/\D/g, "")}`;
+    const normalizedFullPhoneNumber = normalizePhoneForComparison(fullPhoneNumber);
     updateData({
       phoneNumber: fullPhoneNumber,
       phoneCountryCode: countryCode,
+      phoneVerified: false,
     });
     setShowConfirmationModal(false);
     setPrepError(null);
@@ -296,16 +322,59 @@ export function PhoneNumberStep({ onNext, onBack, progress }: PhoneNumberStepPro
 
     if (user) {
       try {
-        const phoneNumberResource = await user.createPhoneNumber({
-          phoneNumber: fullPhoneNumber,
-        });
-        await phoneNumberResource.prepareVerification();
-        updateData({ phoneNumberId: phoneNumberResource.id });
-        console.log("Phone verification prepared via user for:", fullPhoneNumber);
-        prepared = true;
+        await cleanupStaleUnverifiedPhoneNumbers(user, normalizedFullPhoneNumber);
+        const existingPhoneNumber = user.phoneNumbers.find(
+          (p) => normalizePhoneForComparison(p.phoneNumber) === normalizedFullPhoneNumber,
+        );
+        if (existingPhoneNumber) {
+          const isVerified = existingPhoneNumber.verification?.status === "verified";
+          if (!isVerified) {
+            await existingPhoneNumber.prepareVerification();
+          }
+          updateData({
+            phoneNumberId: existingPhoneNumber.id,
+            phoneVerified: isVerified,
+          });
+          console.log("Phone verification resumed via existing user phone for:", fullPhoneNumber);
+          prepared = true;
+        } else {
+          const phoneNumberResource = await user.createPhoneNumber({
+            phoneNumber: fullPhoneNumber,
+          });
+          await phoneNumberResource.prepareVerification();
+          updateData({ phoneNumberId: phoneNumberResource.id });
+          console.log("Phone verification prepared via user for:", fullPhoneNumber);
+          prepared = true;
+        }
       } catch (err) {
-        console.error("Failed to prepare phone verification via user:", err);
-        setPrepError(err instanceof Error ? err.message : "Couldn't send verification code. Please try again.");
+        if (isIdentifierAlreadyTakenError(err)) {
+          try {
+            await user.reload();
+            const existingPhoneNumber = user.phoneNumbers.find(
+              (p) => normalizePhoneForComparison(p.phoneNumber) === normalizedFullPhoneNumber,
+            );
+            if (existingPhoneNumber) {
+              const isVerified = existingPhoneNumber.verification?.status === "verified";
+              if (!isVerified) {
+                await existingPhoneNumber.prepareVerification();
+              }
+              updateData({
+                phoneNumberId: existingPhoneNumber.id,
+                phoneVerified: isVerified,
+              });
+              console.log("Phone verification resumed after Clerk duplicate response for:", fullPhoneNumber);
+              prepared = true;
+            } else {
+              setPrepError("That phone number is already associated with another account.");
+            }
+          } catch (retryErr) {
+            console.error("Failed to resume existing phone verification:", retryErr);
+            setPrepError("Couldn't send verification code. Please try again.");
+          }
+        } else {
+          console.error("Failed to prepare phone verification via user:", err);
+          setPrepError(err instanceof Error ? err.message : "Couldn't send verification code. Please try again.");
+        }
       }
     } else if (signUp) {
       try {

@@ -48,6 +48,21 @@ import { useEnsureConvexUser } from "@/hooks/useEnsureConvexUser";
 import { X } from "lucide-react-native";
 import { OnboardingSurfaceColors } from "../onboardingColors";
 
+const destroyOtherPhoneNumbers = async (user: any, phoneNumberIdToKeep: string) => {
+  await user.update({ primaryPhoneNumberId: phoneNumberIdToKeep });
+  await user.reload();
+  const cleanupResults = await Promise.allSettled(
+    user.phoneNumbers
+      .filter((p: any) => p.id !== phoneNumberIdToKeep)
+      .map((p: any) => p.destroy()),
+  );
+  const failedCleanup = cleanupResults.filter((result) => result.status === "rejected");
+  if (failedCleanup.length > 0) {
+    console.warn("Failed to remove one or more secondary phone numbers:", failedCleanup);
+  }
+  await user.reload();
+};
+
 interface ConfirmPhoneNumberStepProps {
   onNext: () => void;
   onBack: () => void;
@@ -170,6 +185,7 @@ export function ConfirmPhoneNumberStep({ onNext, onBack, progress }: ConfirmPhon
         // OAuth flow: verify via user object
         const phoneNumberId = data.phoneNumberId;
         const phoneNumberResource = user.phoneNumbers.find((p) => p.id === phoneNumberId);
+        let verifiedPhoneNumberResource = phoneNumberResource;
 
         if (phoneNumberResource) {
           await phoneNumberResource.attemptVerification({ code: fullCode });
@@ -179,6 +195,7 @@ export function ConfirmPhoneNumberStep({ onNext, onBack, progress }: ConfirmPhon
           const latestPhone = user.phoneNumbers?.[user.phoneNumbers.length - 1];
           if (latestPhone) {
             await latestPhone.attemptVerification({ code: fullCode });
+            verifiedPhoneNumberResource = latestPhone;
             console.log("Phone verified successfully (fallback)");
           } else {
             setErrorMessage("Verification wasn't started. Go back and confirm your number to receive a code.");
@@ -187,9 +204,15 @@ export function ConfirmPhoneNumberStep({ onNext, onBack, progress }: ConfirmPhon
           }
         }
 
+        if (verifiedPhoneNumberResource?.id) {
+          await destroyOtherPhoneNumbers(user, verifiedPhoneNumberResource.id);
+        }
+
         const phoneToSave =
           data.phoneNumber ??
-          (user?.phoneNumbers?.[0]?.phoneNumber ?? user?.phoneNumbers?.[user.phoneNumbers.length - 1]?.phoneNumber);
+          verifiedPhoneNumberResource?.phoneNumber ??
+          user?.primaryPhoneNumber?.phoneNumber ??
+          user?.phoneNumbers?.[0]?.phoneNumber;
         updateData({ phoneVerified: true });
         await persistProfileField(
           { phone: phoneToSave || undefined, phoneVerified: true },
