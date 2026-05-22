@@ -34,7 +34,6 @@ export { AIMessageBubble, type AIMessage } from "./AIMessageBubble";
 export { AIInputBox } from "./AIInputBox";
 export { AITypingIndicator } from "./AITypingIndicator";
 export { AIChatHistory } from "./AIChatHistory";
-export { AIToast } from "./AIToast";
 export { AIAttachmentPanel } from "./AIAttachmentPanel";
 export { AISelectedImages } from "./AISelectedImages";
 

@@ -113,74 +113,13 @@ export const processVin = internalAction({
       }
 
       // ════════════════════════════════════════════════════════════
-      // YMMT VALIDATION — does VDB agree with NHTSA on year/make/model?
-      //
-      // VDB occasionally returns wrong YMMT for a VIN (e.g. a Honda
-      // VIN comes back as a Toyota). NHTSA's vPIC is the authoritative
-      // government VIN database for basic year/make/model/trim, so
-      // when the two disagree we trust NHTSA for the YMMT-display
-      // fields. VDB still wins for the deep specs (engine, tires,
-      // drivetrain, etc.) because those are VIN-byte-derived and tend
-      // to be correct even when VDB's display strings are off.
-      //
-      // Fuzzy substring match handles representation differences
-      // ("Toyota" vs "TOYOTA MOTOR CORPORATION"). Same pattern
-      // `utils/vehicleImage.ts:180` uses for its image-fetch
-      // make-validation, so the two sites behave consistently.
-      // ════════════════════════════════════════════════════════════
-      const fuzzyMatch = (a: string | undefined | null, b: string | undefined | null) => {
-        // Normalize separators so "Alfa_romeo" (VDB) compares equal to
-        // "ALFA ROMEO" (NHTSA). Runs of underscore/dash/whitespace
-        // collapse to a single space before substring matching. Same
-        // normalization is duplicated in `utils/vehicleImage.ts` for
-        // its make-mismatch guard.
-        const norm = (s: string | undefined | null) =>
-          (s ?? "").toLowerCase().replace(/[\s_-]+/g, " ").trim();
-        const A = norm(a);
-        const B = norm(b);
-        if (!A || !B) return true; // one side missing = no conflict to detect
-        return A.includes(B) || B.includes(A);
-      };
-      const ymmtAgrees = (() => {
-        if (!vdb || !nhtsa.make || !nhtsa.model) return true; // VDB null or NHTSA blank = no conflict
-        const yearOk =
-          !vdb.year ||
-          !nhtsa.year ||
-          vdb.year === parseInt(nhtsa.year);
-        return yearOk && fuzzyMatch(vdb.make, nhtsa.make) && fuzzyMatch(vdb.model, nhtsa.model);
-      })();
-      const trustVdbYmmt = ymmtAgrees;
-      if (vdb && !trustVdbYmmt) {
-        console.warn(
-          `[decode] VDB/NHTSA YMMT MISMATCH — VIN ${args.vin} → ` +
-            `VDB="${vdb.year} ${vdb.make} ${vdb.model}" vs ` +
-            `NHTSA="${nhtsa.year} ${nhtsa.make} ${nhtsa.model}". ` +
-            `Preferring NHTSA's YMMT; keeping VDB's deep specs.`,
-        );
-      }
-
-      // ════════════════════════════════════════════════════════════
-      // MERGE
-      // - YMMT fields: VDB-first when both sources agree, NHTSA-first
-      //   when they disagree (NHTSA is authoritative for basic VIN
-      //   decode).
-      // - Deep spec fields: always VDB-first (unchanged).
+      // MERGE: VDB wins, NHTSA fills gaps
       // ════════════════════════════════════════════════════════════
       const merged = {
-        make: trustVdbYmmt
-          ? (vdb?.make || nhtsa.make || "")
-          : (nhtsa.make || vdb?.make || ""),
-        model: trustVdbYmmt
-          ? (vdb?.model || nhtsa.model || "")
-          : (nhtsa.model || vdb?.model || ""),
-        year: trustVdbYmmt
-          ? (vdb?.year || parseInt(nhtsa.year || "0"))
-          : (parseInt(nhtsa.year || "0") || vdb?.year || 0),
-        // Trim is tied to model. When we don't trust VDB's model, we
-        // can't trust its trim either — drop straight to NHTSA's.
-        trim: trustVdbYmmt
-          ? (vdb?.trim || nhtsa.trim || "Base")
-          : (nhtsa.trim || "Base"),
+        make: vdb?.make || nhtsa.make || "",
+        model: vdb?.model || nhtsa.model || "",
+        year: vdb?.year || parseInt(nhtsa.year || "0"),
+        trim: vdb?.trim || nhtsa.trim || "Base",
         trim2: nhtsa.trim2 || "",
         series: nhtsa.series || "",
         series2: nhtsa.series2 || "",
@@ -418,23 +357,6 @@ export const processVin = internalAction({
         // NHTSA-only base key (deterministic per VIN, computed before
         // Claude normalization). Used for dedup in confirmVehicleForUser.
         nhtsaVinKey,
-        // Raw NHTSA series/trim/MODEL — passed downstream so VDB
-        // image/color lookups can discover the catalog's canonical
-        // model. NHTSA often returns the specific designation
-        // (e.g. "530i") in `Model`, which is exactly what VDB's
-        // catalog needs — but our merged.model gets overwritten by
-        // VDB's family name or AI normalization to "5 Series" by the
-        // time it reaches the picker. Passing the raw NHTSA model
-        // through gives the discovery the right candidate.
-        nhtsaModel: nhtsa.model || "",
-        nhtsaSeries: nhtsa.series || nhtsa.series2 || "",
-        nhtsaTrim: nhtsa.trim || nhtsa.trim2 || "",
-        // Raw VDB decode fields — used to build the YMMT combo matrix
-        // for `vehicle-images` discovery when the VIN endpoint 404s.
-        // Without these, the picker can't construct the catalog URL.
-        vdbDecodedModel: vdb?.model || "",
-        vdbDecodedStyle: (vdb as any)?.style || "",
-        vdbDecodedTrimAndStyle: (vdb as any)?.trimAndStyle || "",
         // VDB trim data for pre-population
         vdbTrimData: vdb ? {
           frontTireSize: vdb.frontTireSize,
@@ -1052,19 +974,6 @@ export const decodeVin = action({
       // can use it for cache lookups even if Claude rewrote the trim/model
       // between decode and confirm.
       nhtsaVinKey: result.nhtsaVinKey,
-      // Raw NHTSA model/series/trim — forwarded to the picker so it
-      // can do VDB model discovery. For BMW VINs NHTSA's model is
-      // often "530i" (exactly what VDB needs) while the merged
-      // result has been overwritten to "5 Series" by VDB or AI norm.
-      nhtsaModel: result.nhtsaModel,
-      nhtsaSeries: result.nhtsaSeries,
-      nhtsaTrim: result.nhtsaTrim,
-      // Raw VDB decode — picker uses these to build the YMMT combo
-      // matrix for `vehicle-images` direct probes when the VIN URL
-      // returns no record.
-      vdbDecodedModel: result.vdbDecodedModel,
-      vdbDecodedStyle: result.vdbDecodedStyle,
-      vdbDecodedTrimAndStyle: result.vdbDecodedTrimAndStyle,
     };
   },
 });

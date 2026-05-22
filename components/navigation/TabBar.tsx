@@ -11,7 +11,7 @@ import Animated, {
   runOnJS 
 } from "react-native-reanimated";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
-import * as Haptics from 'expo-haptics';
+// Tab taps intentionally do not fire haptics — see docs/notifications/PLAN.md §B.4.
 import { useTabBarVisibilityStore } from "@/stores/useTabBarVisibilityStore";
 
 export function TabBar({ state, descriptors, navigation }: BottomTabBarProps) {
@@ -39,7 +39,6 @@ export function TabBar({ state, descriptors, navigation }: BottomTabBarProps) {
     
     if (!isFocused) {
       navigation.navigate(route.name, route.params);
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
   }, [navigation, state.index, state.routes, visibleRoutes]);
 
@@ -139,7 +138,6 @@ export function TabBar({ state, descriptors, navigation }: BottomTabBarProps) {
 
                 if (!isFocused && !event.defaultPrevented) {
                   navigation.navigate(route.name, route.params);
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                 }
               };
 

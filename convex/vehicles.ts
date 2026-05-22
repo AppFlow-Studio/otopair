@@ -1,4 +1,4 @@
-import { internalMutation, query, mutation } from "./_generated/server";
+import { internalMutation, internalQuery, query, mutation } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { awardPointsImpl } from "./healthPoints";
@@ -7,6 +7,7 @@ import {
   ownershipDurationToMonths,
   calculatePrevOwnerAnnualRate,
 } from "./lib/classifier";
+import { resolveTireSizesForVin } from "./lib/vehicle_passports";
 
 /**
  * vehicles.ts - Canonical vehicle catalog management
@@ -291,6 +292,21 @@ export const getVehicleBookingInfo = query({
 });
 
 /**
+ * Tire-size options for a specific vehicle (by VIN), annotated with source.
+ *
+ * Returns sizes the customer booking flow (mobile Shop Tires) should offer:
+ * passport-recorded sizes first (`source: "verified"`), then OEM defaults from
+ * `trim_specs` (`source: "oem_default"`). `lastKnown` carries the most recently
+ * recorded brand/model/run-flat so the mobile UI can pre-select tier hints.
+ */
+export const getTireOptionsForVehicle = query({
+  args: { vin: v.string() },
+  handler: async (ctx, args) => {
+    return await resolveTireSizesForVin(ctx, args.vin);
+  },
+});
+
+/**
  * List all active vehicles for the currently authenticated user.
  * Returns null if not authenticated, empty array if no vehicles.
  */
@@ -315,13 +331,10 @@ export const getMyVehicles = query({
 
     const results = await Promise.all(
       ownerships.map(async (ownership) => {
-        // `.first()` rather than `.unique()` — `vehicles.vin` is indexed
-        // but not constrained unique, and dirty rows shouldn't crash the
-        // list query. `migrations:dedupeVehiclesByVin` collapses dupes.
         const vehicle = await ctx.db
           .query("vehicles")
           .withIndex("by_vin", (q) => q.eq("vin", ownership.vin))
-          .first();
+          .unique();
 
         const trim = vehicle?.trim_id ? await ctx.db.get(vehicle.trim_id) : null;
 
@@ -351,16 +364,15 @@ export const listVehiclesByUser = query({
         q.eq("user_id", args.userId).eq("status", "active")
       )
       .collect();
-
-    // Fetch vehicle for each ownership. See `getMyVehicles` above for the
-    // `.first()` rationale — same VIN dirty-data tolerance.
+    
+    // Fetch vehicle for each ownership
     const results = await Promise.all(
       ownerships.map(async (ownership) => {
         const vehicle = await ctx.db
           .query("vehicles")
           .withIndex("by_vin", (q) => q.eq("vin", ownership.vin))
-          .first();
-
+          .unique();
+        
         return {
           vin: ownership.vin,
           vehicle,
@@ -368,7 +380,7 @@ export const listVehiclesByUser = query({
         };
       })
     );
-
+    
     return results;
   },
 });
@@ -404,6 +416,31 @@ export const clearVehicleImageUrl = mutation({
     if (vehicle) {
       await ctx.db.patch(vehicle._id, { image_url: undefined });
     }
+  },
+});
+
+/**
+ * Internal query that returns the cached image URL + key vehicle
+ * fields for a VIN. Called by the Node-only `lib.vehicle_image`
+ * resolver before deciding whether to hit the VDB API.
+ */
+export const getCachedVehicleImage = internalQuery({
+  args: { vin: v.string() },
+  handler: async (ctx, args) => {
+    const vehicle = await ctx.db
+      .query("vehicles")
+      .withIndex("by_vin", (q) =>
+        q.eq("vin", args.vin.toUpperCase().trim()),
+      )
+      .unique();
+    if (!vehicle) return null;
+    return {
+      image_url: (vehicle as any).image_url ?? null,
+      year: (vehicle as any).year ?? null,
+      make: (vehicle as any).metadata?.make ?? null,
+      model: (vehicle as any).metadata?.model ?? null,
+      trim: (vehicle as any).metadata?.trim ?? null,
+    };
   },
 });
 

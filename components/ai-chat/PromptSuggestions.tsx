@@ -24,7 +24,7 @@
 // 1. React & React Native
 import React from "react";
 import { View, Pressable, StyleSheet } from "react-native";
-import * as Haptics from "expo-haptics";
+import { haptics } from "@/lib/haptics";
 
 // 2. Expo & Third-party
 import Animated, { FadeInUp, useAnimatedStyle, useSharedValue, withSpring } from "react-native-reanimated";
@@ -102,7 +102,7 @@ function SuggestionCard({
   };
 
   const handlePress = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    haptics.selection();
     onPress();
   };
 

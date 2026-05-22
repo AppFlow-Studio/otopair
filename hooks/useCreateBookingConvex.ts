@@ -15,6 +15,7 @@ import { useCallback } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useUserFromConvex } from "./useUserFromConvex";
+import { useToast } from "./useToast";
 import { useVehicleOwnershipFromConvex } from "./useVehicleOwnershipFromConvex";
 import { useMechanicStore } from "@/stores/useMechanicStore";
 import { useShopStore } from "@/stores/useShopStore";
@@ -24,6 +25,7 @@ import { displayTimeToHHMM } from "@/utils/timeSlotUtils";
 
 export function useCreateBookingConvex() {
   const createBatch = useMutation(api.bookings.createBatch);
+  const toast = useToast();
   const { userId } = useUserFromConvex();
   const { primaryVin } = useVehicleOwnershipFromConvex();
   const getMechanicById = useMechanicStore((s) => s.getMechanicById);
@@ -147,24 +149,43 @@ export function useCreateBookingConvex() {
 
       const trimmedNotes = customerNotes.trim();
 
-      const bookingIds = await createBatch({
-        user_id: userId,
-        vin,
-        shop_id: shopId as Id<"shops">,
-        mechanic_id: mechanicId ? (mechanicId as Id<"mechanics">) : undefined,
-        time_slot_id: timeSlotId,
-        scheduled_date: scheduledDateVal,
-        scheduled_time: scheduledTimeVal,
-        services,
-        taxes_and_fees: TAXES_AND_FEES,
-        platform_fee: PLATFORM_FEE,
-        source_recommendation_id: sourceRecommendationId
-          ? (sourceRecommendationId as Id<"job_recommendations">)
-          : undefined,
-        customer_notes: trimmedNotes.length > 0 ? trimmedNotes : undefined,
-        selected_service_options:
-          selectedOptionsPayload.length > 0 ? selectedOptionsPayload : undefined,
-      });
+      // Toast surface for the booking-create funnel. The booking is in
+      // `pending_shop_acceptance` after this call resolves, NOT `confirmed`,
+      // so we use Info (not Success). The Trust-Moment "Booking confirmed"
+      // toast fires later via `useBookingStatusToasts` when the shop accepts.
+      // Diagnostic: docs/notifications/DIAGNOSTIC-2026-05-21.md.
+      let bookingIds: string[];
+      try {
+        bookingIds = await createBatch({
+          user_id: userId,
+          vin,
+          shop_id: shopId as Id<"shops">,
+          mechanic_id: mechanicId ? (mechanicId as Id<"mechanics">) : undefined,
+          time_slot_id: timeSlotId,
+          scheduled_date: scheduledDateVal,
+          scheduled_time: scheduledTimeVal,
+          services,
+          taxes_and_fees: TAXES_AND_FEES,
+          platform_fee: PLATFORM_FEE,
+          source_recommendation_id: sourceRecommendationId
+            ? (sourceRecommendationId as Id<"job_recommendations">)
+            : undefined,
+          customer_notes: trimmedNotes.length > 0 ? trimmedNotes : undefined,
+          selected_service_options:
+            selectedOptionsPayload.length > 0 ? selectedOptionsPayload : undefined,
+        });
+      } catch (err) {
+        toast.error(
+          "Couldn't submit booking.",
+          "Try again.",
+        );
+        throw err;
+      }
+
+      toast.info(
+        "Booking submitted.",
+        "We'll let you know as soon as your shop confirms.",
+      );
 
       // Clear the rec link so subsequent (unrelated) bookings don't reuse it.
       if (sourceRecommendationId) setSourceRecommendationId(null);
@@ -188,6 +209,7 @@ export function useCreateBookingConvex() {
       setSourceRecommendationId,
       selectedServiceOptions,
       customerNotes,
+      toast,
     ],
   );
 

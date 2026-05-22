@@ -26,6 +26,7 @@ import { BrandColors, Spacing, Text, BlurHeaderOverlay } from '@/components/shar
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
 import { api } from '@/convex/_generated/api';
 import { usePreferencesPersistence } from '@/hooks/usePreferencesPersistence';
+import { useToast } from '@/hooks/useToast';
 
 type NotificationKey = 'offers' | 'rewards' | 'pass' | 'other' | 'bookings';
 
@@ -95,6 +96,7 @@ const ToggleSwitch = ({
 export default function NotificationPreferencesScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const toast = useToast();
   const { data, updateData } = useOnboardingStore();
 
   // Convex integration
@@ -169,6 +171,7 @@ export default function NotificationPreferencesScreen() {
       }, 500);
     } catch (error) {
       console.error('Error saving notification preferences:', error);
+      toast.error("Couldn't save your notification settings.");
       setErrorMessage('Unable to save changes. Please try again.');
       setIsSaving(false);
     }

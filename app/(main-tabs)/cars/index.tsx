@@ -17,7 +17,8 @@ import { ArrowLeft, Check as CheckIcon, Copy, Info, X } from "lucide-react-nativ
 import * as Clipboard from "expo-clipboard";
 import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import * as Haptics from "expo-haptics";
+import { haptics } from "@/lib/haptics";
+import { useToast } from "@/hooks/useToast";
 import * as DocumentPicker from "expo-document-picker";
 import { WebView } from "react-native-webview";
 import Svg, { Circle, Defs, LinearGradient as SvgLinearGradient, Stop } from "react-native-svg";
@@ -145,6 +146,7 @@ const { width: SCREEN_WIDTH } = Dimensions.get("window");
 // ============================================================================
 
 export default function CarsHomeScreen() {
+  const toast = useToast();
   const insets = useSafeAreaInsets();
   const aiStepBottomClearance = scale(118) + insets.bottom;
   const isFocused = useIsFocused();
@@ -278,7 +280,7 @@ export default function CarsHomeScreen() {
       Animated.timing(healthPageFade, { toValue: 1, duration: 300, easing: Easing.out(Easing.ease), useNativeDriver: true }),
     ]).start(() => {
       // Phase 2: Ring bounces in with glow
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      haptics.success();
       Animated.parallel([
         Animated.spring(ringScale, { toValue: 1, tension: 60, friction: 7, useNativeDriver: true }),
         Animated.timing(ringGlow, { toValue: 1, duration: 600, useNativeDriver: true }),
@@ -306,7 +308,7 @@ export default function CarsHomeScreen() {
           if (scoreCountRef.current) clearInterval(scoreCountRef.current);
           setDisplayedScore(target);
           setRingProgress(target);
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+          haptics.cta();
         }
       }, stepDuration);
 
@@ -356,7 +358,7 @@ export default function CarsHomeScreen() {
         Animated.timing(healthPageFade, { toValue: 1, duration: 300, easing: Easing.out(Easing.ease), useNativeDriver: true }),
       ]).start(() => {
         // Phase 2: Ring bounces in with lighter haptic
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        haptics.step();
         Animated.parallel([
           Animated.spring(ringScale, { toValue: 1, tension: 60, friction: 7, useNativeDriver: true }),
           Animated.timing(ringGlow, { toValue: 1, duration: 600, useNativeDriver: true }),
@@ -470,7 +472,7 @@ export default function CarsHomeScreen() {
         ]).start(() => {
           const target = latestScoreRef.current;
           // Ring bounce + glow
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          haptics.success();
           Animated.parallel([
             Animated.spring(ringScale, { toValue: 1, tension: 60, friction: 7, useNativeDriver: true }),
             Animated.timing(ringGlow, { toValue: 1, duration: 600, useNativeDriver: true }),
@@ -498,7 +500,7 @@ export default function CarsHomeScreen() {
               if (scoreCountRef.current) clearInterval(scoreCountRef.current);
               setDisplayedScore(target);
               setRingProgress(target);
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+              haptics.cta();
             }
           }, stepDuration);
 
@@ -906,6 +908,10 @@ export default function CarsHomeScreen() {
       } catch (err) {
         console.warn("[AutoComplete] Failed for new vehicle:", err);
         autoCompleteFired.current = false;
+        toast.error(
+          "Couldn't auto-fill vehicle details.",
+          "Enter them manually below.",
+        );
       }
     })();
   }, [isNewVehicle, activeOwnershipId, autoCompleteNewVehicle]);
@@ -1229,9 +1235,10 @@ export default function CarsHomeScreen() {
         await updateOwnershipPrimary({ vin: vehicleId, userId, is_primary: isDefault });
       } catch (e) {
         console.warn("Failed to set primary vehicle", e);
+        toast.error("Couldn't set as primary. Try again.");
       }
     },
-    [userId, updateOwnershipPrimary],
+    [userId, updateOwnershipPrimary, toast],
   );
 
   const handleRemoveActiveVehicle = useCallback(() => {
@@ -1251,6 +1258,7 @@ export default function CarsHomeScreen() {
               await removeOwner({ vin, userId });
             } catch (err) {
               console.warn("Remove vehicle failed:", err);
+              toast.error("Couldn't remove this vehicle. Try again.");
             }
           },
         },

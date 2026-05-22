@@ -17,7 +17,7 @@ import Svg, { Path } from "react-native-svg";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import * as Haptics from "expo-haptics";
+import { haptics } from "@/lib/haptics";
 import { useMutation } from "convex/react";
 
 import { Text } from "@/components/shared-ui";
@@ -213,7 +213,7 @@ function ChatBubble({
   const handlePop = useCallback(() => {
     if (popped) return;
     setPopped(true);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    haptics.step();
     popScale.value = withSequence(
       withTiming(1.08, { duration: 100 }),
       withTiming(0, { duration: 220, easing: Easing.in(Easing.ease) })
@@ -514,7 +514,7 @@ export default function HealthEstimatingScreen() {
   const handleViewScore = useCallback(() => {
     if (navigatedRef.current) return;
     navigatedRef.current = true;
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    haptics.cta();
     router.replace("/(main-tabs)/cars");
   }, [params.flow, params.vehicleOwnerId]);
 
