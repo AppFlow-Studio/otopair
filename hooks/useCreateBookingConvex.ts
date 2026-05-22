@@ -17,6 +17,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { useUserFromConvex } from "./useUserFromConvex";
 import { useToast } from "./useToast";
 import { useVehicleOwnershipFromConvex } from "./useVehicleOwnershipFromConvex";
+import { computeBookingTax } from "@/lib/tax";
 import { useMechanicStore } from "@/stores/useMechanicStore";
 import { useShopStore } from "@/stores/useShopStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
@@ -126,13 +127,25 @@ export function useCreateBookingConvex() {
       const scheduledDateVal = scheduledAppointment?.date ?? new Date().toISOString().split("T")[0];
       const scheduledTimeVal = scheduledAppointment?.time ? displayTimeToHHMM(scheduledAppointment.time) : "09:00";
 
-      const TAXES_AND_FEES = 5.0;
       // Service fee: 7% of service subtotal, $4.99 minimum, no cap
       // TODO: When subscriptions are wired, waive service fee for Preferred/Elite subscribers
       const SERVICE_FEE_RATE = 0.07;
       const SERVICE_FEE_MINIMUM = 4.99;
       const servicesSubtotal = services.reduce((sum, s) => sum + s.labor_cost + s.parts_cost, 0);
       const PLATFORM_FEE = servicesSubtotal > 0 ? Math.max(servicesSubtotal * SERVICE_FEE_RATE, SERVICE_FEE_MINIMUM) : 0;
+      // Tax: client-side display value only. Convex `createBatch` will
+      // recompute server-side using the same `computeBookingTax` util —
+      // see convex/bookings.ts. If they disagree (e.g. client tampered
+      // with shop data) the server value wins. We send this for the
+      // optimistic UI and as a cross-check.
+      const totalLabor = services.reduce((sum, s) => sum + s.labor_cost, 0);
+      const totalParts = services.reduce((sum, s) => sum + s.parts_cost, 0);
+      const TAXES_AND_FEES = computeBookingTax({
+        laborDollars: totalLabor,
+        partsDollars: totalParts,
+        state: shop?.state,
+        zip: shop?.zip,
+      }).taxDollars;
 
       // Snapshot per-service option picks (e.g. Brake Pads → Front and rear)
       // so the booking row carries the labels forward to the mechanic's

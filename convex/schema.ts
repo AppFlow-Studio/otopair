@@ -1658,6 +1658,7 @@ export default defineSchema({
     .index("by_user_id", ["user_id"])
     .index("by_status", ["status"])
     .index("by_idempotency_key", ["idempotency_key"])
+    .index("by_stripe_payment_intent_id", ["stripe_payment_intent_id"])
     .index("by_created_at", ["created_at"]),
 
   // [I]

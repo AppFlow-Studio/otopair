@@ -920,8 +920,52 @@ export const createBatch = mutation({
 
     const labor_cost = args.services.reduce((sum, s) => sum + s.labor_cost, 0);
     const parts_cost = args.services.reduce((sum, s) => sum + s.parts_cost, 0);
-    const taxes_and_fees = args.taxes_and_fees ?? 0;
-    const platform_fee = args.platform_fee ?? 0;
+
+    // ── Server-authoritative fee + tax derivation ─────────────────────
+    // We deliberately IGNORE args.taxes_and_fees and args.platform_fee from
+    // the client. The client computes those for optimistic display only;
+    // the source of truth lives here so a malicious or stale client can't
+    // undercharge. The same `computeBookingTax` util drives both display
+    // and persisted value, so they always agree when the client is
+    // honest.
+    const shop = await ctx.db.get(args.shop_id);
+    const { computeBookingTax: computeBookingTaxImpl } = await import(
+      "../lib/tax"
+    );
+
+    const PLATFORM_FEE_RATE = 0.07;
+    const PLATFORM_FEE_FLOOR = 4.99;
+    const servicesSubtotal = labor_cost + parts_cost;
+    const platform_fee =
+      servicesSubtotal > 0
+        ? Math.max(servicesSubtotal * PLATFORM_FEE_RATE, PLATFORM_FEE_FLOOR)
+        : 0;
+    const taxes_and_fees = computeBookingTaxImpl({
+      laborDollars: labor_cost,
+      partsDollars: parts_cost,
+      state: shop?.state ?? null,
+      zip: shop?.zip ?? null,
+    }).taxDollars;
+
+    // Optional cross-check: warn (don't reject) when client and server
+    // disagree by > $0.05 — useful telemetry for shop/state misconfig.
+    if (
+      args.taxes_and_fees != null &&
+      Math.abs(args.taxes_and_fees - taxes_and_fees) > 0.05
+    ) {
+      console.warn(
+        `[createBatch] tax mismatch client=${args.taxes_and_fees} server=${taxes_and_fees} shop=${args.shop_id}`,
+      );
+    }
+    if (
+      args.platform_fee != null &&
+      Math.abs(args.platform_fee - platform_fee) > 0.05
+    ) {
+      console.warn(
+        `[createBatch] platform_fee mismatch client=${args.platform_fee} server=${platform_fee} shop=${args.shop_id}`,
+      );
+    }
+
     const total_cost = labor_cost + parts_cost + taxes_and_fees + platform_fee;
     const estimated_labor_minutes = args.services.reduce((sum, s) => sum + (s.labor_hours ?? 0) * 60, 0);
 
@@ -1551,13 +1595,7 @@ export const markPostThresholdNoShow = mutation({
       changedBy: user._id,
       reason: "post_threshold_customer_no_show",
     });
-
-    await ctx.scheduler.runAfter(
-      0,
-      (internal as any).lib.stripe_void.voidBookingAuthorization,
-      { bookingId: booking._id },
-    );
-
+    // Stripe void is scheduled centrally by applyBookingStatusTransition.
     return result;
   },
 });
@@ -5862,6 +5900,36 @@ export async function applyBookingStatusTransition(
       patch.updated_at,
     );
     await upsertOverrunCheckinForBooking(ctx, nextBooking, patch.updated_at);
+  }
+
+  // ── Stripe capture / void hooks ───────────────────────────────────────
+  // Capture the held authorization when the mechanic *completes* the job
+  // (not on shop accept). The booking is held in `requires_capture` for
+  // the full booking → service → complete lifecycle, then funds move.
+  //
+  // ⚠ Authorization expiry: Stripe card auths typically expire after 7
+  // days. Bookings scheduled more than ~5 days out (book + service window
+  // > 7 days) risk auth expiry before capture — track via a future cron
+  // that re-auths or alerts near the limit.
+  if (newStatus === "completed") {
+    await ctx.scheduler.runAfter(
+      0,
+      (internal as any).payments_stripe.capturePaymentIntentForBooking,
+      { bookingId: booking._id },
+    );
+  }
+  // Void the authorization on any pre-capture terminal transition. The
+  // action checks the payments row's status and skips if already captured.
+  if (
+    newStatus === "cancelled" ||
+    newStatus === "declined" ||
+    newStatus === "no_show"
+  ) {
+    await ctx.scheduler.runAfter(
+      0,
+      (internal as any).lib.stripe_void.voidBookingAuthorization,
+      { bookingId: booking._id },
+    );
   }
 
   return { success: true, oldStatus: booking.status, newStatus };

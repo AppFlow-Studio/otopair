@@ -175,6 +175,10 @@ export interface Shop {
   // ─── Location ───
   /** Street address (or full address line) */
   address: string;
+  /** US state code (e.g. "NY"). Drives the booking sales-tax line. */
+  state?: string;
+  /** Shop's ZIP code. ZIP-3 prefix used for metro-level tax overrides. */
+  zip?: string;
   /** Shop phone for Contact / tel: link */
   phone?: string;
   /** Latitude coordinate */

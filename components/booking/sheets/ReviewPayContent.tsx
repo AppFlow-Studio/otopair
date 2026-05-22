@@ -29,6 +29,7 @@ import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 // 4. Constants, hooks, types
 import { getPartsBreakdown } from "@/constants/services";
 import { BorderRadius, Shadows, getSheetContentPadding } from "@/constants/theme";
+import { computeBookingTax } from "@/lib/tax";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
 import { usePaymentStore } from "@/stores/usePaymentStore";
@@ -54,7 +55,7 @@ interface ReviewPayContentProps {
 // TODO: When subscriptions are wired, waive service fee for Preferred/Elite subscribers
 const SERVICE_FEE_RATE = 0.07;
 const SERVICE_FEE_MINIMUM = 4.99;
-const TAXES_AND_FEES = 5.0;
+// Tax is derived from shop's state via `computeTaxDollars` (lib/tax.ts).
 
 // "8:15 AM" + 45 min → "9:00 AM". Returns null if input can't be parsed.
 function addMinutesToTimeLabel(label: string, minutes: number): string | null {
@@ -135,17 +136,23 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
     const laborCost = laborHours * rate;
     const partsCost = Math.max(0, servicesTotal - laborCost);
     const serviceFee = servicesTotal > 0 ? Math.max(servicesTotal * SERVICE_FEE_RATE, SERVICE_FEE_MINIMUM) : 0;
+    const taxesAndFees = computeBookingTax({
+      laborDollars: laborCost,
+      partsDollars: partsCost,
+      state: shop?.state,
+      zip: shop?.zip,
+    }).taxDollars;
 
     return {
       laborHours,
       laborCost: Math.max(0, laborCost),
       partsCost,
-      taxesAndFees: TAXES_AND_FEES,
+      taxesAndFees,
       platformFee: serviceFee,
       subtotal: servicesTotal,
-      total: servicesTotal + TAXES_AND_FEES + serviceFee,
+      total: servicesTotal + taxesAndFees + serviceFee,
     };
-  }, [selectedServices, laborRate]);
+  }, [selectedServices, laborRate, shop?.state, shop?.zip]);
 
   // Per-service line total (labor + parts) so breakdown lines sum to subtotal
   const getServiceLineTotal = useCallback(

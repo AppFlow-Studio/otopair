@@ -32,6 +32,7 @@ import { BookingPageHeader } from "@/components/booking/pages";
 import { getPartsBreakdown } from "@/constants/services";
 import { BorderRadius, Shadows } from "@/constants/theme";
 import { useCreateBookingConvex } from "@/hooks/useCreateBookingConvex";
+import { computeBookingTax } from "@/lib/tax";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
 import { usePaymentStore } from "@/stores/usePaymentStore";
@@ -46,7 +47,9 @@ import { useVehicleStore } from "@/stores/useVehicleStore";
 // TODO: When subscriptions are wired, waive service fee for Preferred/Elite subscribers
 const SERVICE_FEE_RATE = 0.07;
 const SERVICE_FEE_MINIMUM = 4.99;
-const TAXES_AND_FEES = 5.0;
+// Tax is derived from shop's state via `computeTaxDollars` — no flat
+// constant. See lib/tax.ts for the state rate table + the TODO to move
+// to Stripe Tax for jurisdiction-accurate calculation.
 
 // ============================================================================
 // COMPONENT
@@ -127,17 +130,25 @@ export default function PaymentScreen() {
     const laborCost = laborHours * rate;
     const partsCost = Math.max(0, servicesTotal - laborCost);
     const serviceFee = servicesTotal > 0 ? Math.max(servicesTotal * SERVICE_FEE_RATE, SERVICE_FEE_MINIMUM) : 0;
+    // Tax honors per-state service-taxability rule (e.g. CA exempts repair
+    // labor → only parts are taxed) + ZIP-3 metro overrides.
+    const taxesAndFees = computeBookingTax({
+      laborDollars: laborCost,
+      partsDollars: partsCost,
+      state: shop?.state,
+      zip: shop?.zip,
+    }).taxDollars;
 
     return {
       laborHours,
       laborCost: Math.max(0, laborCost),
       partsCost: Math.max(0, partsCost),
-      taxesAndFees: TAXES_AND_FEES,
+      taxesAndFees,
       platformFee: serviceFee,
       subtotal: servicesTotal,
-      total: servicesTotal + TAXES_AND_FEES + serviceFee,
+      total: servicesTotal + taxesAndFees + serviceFee,
     };
-  }, [selectedServices, laborRate]);
+  }, [selectedServices, laborRate, shop?.state, shop?.zip]);
 
   // Per-service line total (labor + parts) so breakdown lines sum to subtotal
   const getServiceLineTotal = useCallback(
@@ -181,11 +192,16 @@ export default function PaymentScreen() {
 
   const handleConfirmPayment = useCallback(() => {
     if (!selectedMechanicId) return;
+    if (!hasPayment || !selectedPaymentMethod) {
+      setErrorMessage("Add a payment method to confirm this booking.");
+      setErrorModalVisible(true);
+      return;
+    }
     // Hand off to the confirming screen — it runs the mutation alongside
     // a minimum-display timer for the Lottie loading animation, then
     // routes forward to /confirmation (or back here with an error param).
     router.push(`/booking/mechanic/${id}/confirming`);
-  }, [router, id, selectedMechanicId]);
+  }, [router, id, selectedMechanicId, hasPayment, selectedPaymentMethod]);
 
   const handleApplePay = useCallback(() => {
     // Apple Pay integration would go here
@@ -366,7 +382,7 @@ export default function PaymentScreen() {
           <View style={styles.serviceRow}>
             <View style={styles.feeRow}>
               <Text size="sm" weight="regular" color="#6B7280">
-                Otopair Service Fee — 7%
+                Service Fee — 7%
               </Text>
               <TouchableOpacity style={styles.infoButton} activeOpacity={0.7}>
                 <Info size={14} color="#9CA3AF" />
@@ -478,7 +494,11 @@ export default function PaymentScreen() {
               <ChevronRight size={20} color="#9CA3AF" />
             </View>
           ) : (
-            <View style={styles.savedCardRow}>
+            <TouchableOpacity
+              style={styles.savedCardRow}
+              onPress={() => router.push("/add-payment")}
+              activeOpacity={0.8}
+            >
               <View style={styles.cardBrandIcon}>
                 <Text size="xs" weight="bold" color="#9CA3AF">
                   CARD
@@ -490,7 +510,7 @@ export default function PaymentScreen() {
                 </Text>
               </View>
               <ChevronRight size={20} color="#9CA3AF" />
-            </View>
+            </TouchableOpacity>
           )}
 
           {/* Security Note */}
@@ -506,10 +526,13 @@ export default function PaymentScreen() {
       {/* Footer CTA */}
       <View style={[styles.footer, { paddingBottom: insets.bottom + Spacing.md }]}>
         <TouchableOpacity
-          style={[styles.confirmButton, isSubmitting && styles.confirmButtonDisabled]}
+          style={[
+            styles.confirmButton,
+            (isSubmitting || !hasPayment) && styles.confirmButtonDisabled,
+          ]}
           onPress={handleConfirmPayment}
           activeOpacity={0.8}
-          disabled={isSubmitting}
+          disabled={isSubmitting || !hasPayment}
         >
           {isSubmitting ? (
             <ActivityIndicator color={BrandColors.white} size="small" />

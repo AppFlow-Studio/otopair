@@ -1,19 +1,18 @@
 /**
  * usePaymentStore
  *
- * PURPOSE: Manages user's saved payment methods for booking payments
+ * Local UI-state mirror of the user's saved Stripe card list + which one is
+ * selected for the active booking. Stripe is the source of truth — the list
+ * is hydrated from `usePaymentMethodsFromConvex` (via
+ * `StripePaymentMethodsSync` in the root layout); writes here are display-
+ * only and don't reach Stripe.
  *
- * TABLES: PaymentMethods (future integration with Stripe/payment provider)
- *
- * RELATIONSHIPS:
- *   - PaymentMethod belongs to User
- *
- * OWNER: Waleed Mansour, Daniel Chelala
+ * Mutating Stripe (save / detach / set default) goes through the
+ * `api.payments_stripe.*` actions, not this store.
  */
 
 import { create } from "zustand";
 import type { PaymentMethod, Transaction } from "./types/store.types";
-import { MOCK_TRANSACTIONS } from "./data/mockTransactions";
 
 // ─────────────────────────────────────────────────────────────
 // STORE STATE INTERFACE
@@ -43,6 +42,13 @@ interface PaymentState {
   setDefaultPaymentMethod: (paymentMethodId: string) => void;
   /** Select a payment method for current checkout */
   selectPaymentMethod: (paymentMethodId: string | null) => void;
+  /** Replace the saved-methods list with the canonical Stripe list */
+  hydratePaymentMethods: (paymentMethods: PaymentMethod[]) => void;
+  /** Bumps a counter that `StripePaymentMethodsSync` watches; use after
+   *  adding or removing a card so the list re-pulls from Stripe. */
+  bumpPaymentMethodsRefresh: () => void;
+  /** Counter read by the sync component to trigger a Stripe re-fetch. */
+  paymentMethodsRefreshKey: number;
   /** Set loading state */
   setLoading: (loading: boolean) => void;
   /** Set error state */
@@ -63,27 +69,13 @@ interface PaymentState {
 // STORE IMPLEMENTATION
 // ─────────────────────────────────────────────────────────────
 
-// ─────────────────────────────────────────────────────────────
-// MOCK DATA
-// ─────────────────────────────────────────────────────────────
-
-const MOCK_PAYMENT_METHODS: PaymentMethod[] = [
-  {
-    id: "pm_visa_4242",
-    brand: "visa",
-    last4: "4242",
-    expMonth: 12,
-    expYear: 2026,
-    isDefault: true,
-    createdAt: new Date().toISOString(),
-  },
-];
-
 export const usePaymentStore = create<PaymentState>()((set, get) => ({
   // ═══════════════ INITIAL STATE ═══════════════
-  paymentMethods: MOCK_PAYMENT_METHODS,
-  transactions: MOCK_TRANSACTIONS,
-  selectedPaymentMethodId: MOCK_PAYMENT_METHODS[0]?.id ?? null,
+  // paymentMethods is hydrated by StripePaymentMethodsSync at app startup.
+  paymentMethods: [],
+  transactions: [],
+  selectedPaymentMethodId: null,
+  paymentMethodsRefreshKey: 0,
   isLoading: false,
   error: null,
 
@@ -147,6 +139,24 @@ export const usePaymentStore = create<PaymentState>()((set, get) => ({
   selectPaymentMethod: (paymentMethodId) =>
     set({
       selectedPaymentMethodId: paymentMethodId,
+    }),
+
+  bumpPaymentMethodsRefresh: () =>
+    set((state) => ({ paymentMethodsRefreshKey: state.paymentMethodsRefreshKey + 1 })),
+
+  hydratePaymentMethods: (paymentMethods) =>
+    set((state) => {
+      // Preserve current selection if it still exists, otherwise fall back
+      // to default → first → null.
+      const existingSelection = state.selectedPaymentMethodId;
+      const stillThere = paymentMethods.some((pm) => pm.id === existingSelection);
+      const nextSelected = stillThere
+        ? existingSelection
+        : (paymentMethods.find((pm) => pm.isDefault)?.id ?? paymentMethods[0]?.id ?? null);
+      return {
+        paymentMethods,
+        selectedPaymentMethodId: nextSelected,
+      };
     }),
 
   setLoading: (loading) =>

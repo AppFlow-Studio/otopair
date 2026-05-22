@@ -1,631 +1,103 @@
 /**
  * AddPaymentScreen
  *
- * PURPOSE: Versatile screen for both adding new and editing existing payment methods.
- *          Includes live card preview, smart brand detection, and validation for expiry dates.
+ * Headless. Mounts → fetches a SetupIntent + EphemeralKey from Convex →
+ * opens Stripe's PaymentSheet immediately. When the sheet closes (success
+ * or cancel), bounces back. No intermediate UI.
  *
  * USED IN: app/add-payment.tsx
- *
- * PARAMS:
- *   - mode (optional string): "edit" to enable edit mode
- *   - id (optional string): The unique card identifier when in edit mode
- *
- * EXAMPLE:
- *   router.push('/add-payment') // Add mode
- *   router.push({ pathname: '/add-payment', params: { mode: 'edit', id: 'card_123' } }) // Edit mode
- *
- * OWNER: Daniel Chelala
- * TICKET: OTO-XXX
  */
 
-import React, { useState, useEffect } from 'react';
-import {
-    Dimensions,
-    StyleSheet,
-    TouchableOpacity,
-    View,
-    KeyboardAvoidingView,
-    Platform,
-    ScrollView,
-} from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter, useLocalSearchParams } from 'expo-router';
-import { 
-    Check,
-    Eye,
-    EyeOff
-} from 'lucide-react-native';
-import { 
-    useSharedValue, 
-} from 'react-native-reanimated';
-import { 
-    Text, 
-    BrandColors, 
-    Spacing, 
-    AnimatedGradientBackground,
-    Input,
-    PrimaryButton,
-    BlurHeaderOverlay,
-} from '@/components/shared-ui';
-import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
-import { PaymentIcon } from 'react-native-payment-icons'
-import creditCardType from 'credit-card-type';
-import { useShallow } from 'zustand/react/shallow';
-import { usePaymentStore } from '@/stores/usePaymentStore';
-import type { PaymentCardBrand, PaymentCardImageKey } from '@/stores/types/store.types';
-import { TextInput } from 'react-native';
+import React, { useEffect, useRef } from "react";
+import { StyleSheet, View } from "react-native";
+import { useRouter } from "expo-router";
+import { useAction } from "convex/react";
+import { useStripe } from "@stripe/stripe-react-native";
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const CARD_WIDTH = SCREEN_WIDTH * 0.9;
-const CARD_HEIGHT = 220;
-
-// Local styled input component to match screen aesthetic without modifying shared-ui
-const PaymentInput = ({ 
-    label, 
-    value, 
-    onChangeText, 
-    placeholder, 
-    keyboardType = 'default', 
-    maxLength, 
-    leftElement,
-    rightElement,
-    secureTextEntry = false,
-}: any) => (
-    <View style={styles.inputSpacing}>
-        <Text weight="medium" size="sm" color="#1F2937" style={styles.label}>{label}</Text>
-        <View style={styles.paymentInputContainer}>
-            {leftElement && <View style={styles.leftElement}>{leftElement}</View>}
-            <TextInput
-                value={value}
-                onChangeText={onChangeText}
-                placeholder={placeholder}
-                placeholderTextColor="#9CA3AF"
-                keyboardType={keyboardType}
-                maxLength={maxLength}
-                secureTextEntry={secureTextEntry}
-                autoCorrect={false}
-                spellCheck={false}
-                autoComplete="off"
-                importantForAutofill="no"
-                style={styles.paymentTextInput}
-            />
-            {rightElement && <View style={styles.rightElement}>{rightElement}</View>}
-        </View>
-    </View>
-);
+import { api } from "@/convex/_generated/api";
+import { usePaymentStore } from "@/stores/usePaymentStore";
 
 export function AddPaymentScreen() {
-    const insets = useSafeAreaInsets();
-    const router = useRouter();
-    const { mode, id: cardId } = useLocalSearchParams<{ mode: string; id: string }>();
-    const isEditMode = mode === 'edit';
+  const router = useRouter();
+  const createSetupIntent = useAction(api.payments_stripe.createSetupIntent);
+  const { initPaymentSheet, presentPaymentSheet } = useStripe();
+  const bumpPaymentMethodsRefresh = usePaymentStore(
+    (s) => s.bumpPaymentMethodsRefresh,
+  );
 
-    const { addPaymentMethod, updatePaymentMethod, paymentMethods } = usePaymentStore(
-        useShallow((state) => ({
-            addPaymentMethod: state.addPaymentMethod,
-            updatePaymentMethod: state.updatePaymentMethod,
-            paymentMethods: state.paymentMethods,
-        }))
-    );
+  const ranRef = useRef(false);
 
-    // Find card if in edit mode
-    const existingCard = isEditMode ? paymentMethods.find(pm => pm.id === cardId) : null;
-    
-    // Background animation progress (static for this screen)
-    const bgProgress = useSharedValue(0);
-    
-    // Form state
-    const [fullName, setFullName] = useState(existingCard?.cardholderName || '');
-    const [cardNumber, setCardNumber] = useState('');
-    const [expiryDate, setExpiryDate] = useState(
-        existingCard ? `${existingCard.expMonth.toString().padStart(2, '0')}/${existingCard.expYear}` : ''
-    );
-    const [cvv, setCvv] = useState('');
-    const [zipCode, setZipCode] = useState(existingCard?.zipCode || '');
-    // Default behavior:
-    // - First card created should be default
-    // - Subsequent cards should NOT be default unless user opts in
-    const isFirstCard = !isEditMode && paymentMethods.length === 0;
-    const [isDefaultPayment, setIsDefaultPayment] = useState<boolean>(
-        isEditMode ? !!existingCard?.isDefault : isFirstCard
-    );
-    const [agreeTerms, setAgreeTerms] = useState(false);
-    
-    // Visibility states
-    const [isCardNumberVisible, setIsCardNumberVisible] = useState(false);
-    const [isCvvVisible, setIsCvvVisible] = useState(false);
-    
-    // Card brand detection state
-    const [cardBrand, setCardBrand] = useState<string>(existingCard?.brand || 'generic');
-    const [cardNiceType, setCardNiceType] = useState<string>('');
-    const [cvvLength, setCvvLength] = useState<number>(3);
+  useEffect(() => {
+    // StrictMode / focus thrash guard — only run the sheet once per mount.
+    if (ranRef.current) return;
+    ranRef.current = true;
 
-    // Initial detection for prepopulated card numbers
-    useEffect(() => {
-        if (cardNumber) {
-            handleCardNumberChange(cardNumber);
+    const goBack = () => {
+      if (router.canGoBack()) router.back();
+      else router.replace("/payments");
+    };
+
+    const run = async () => {
+      try {
+        const {
+          setupIntentClientSecret,
+          customerId,
+          ephemeralKeySecret,
+        } = await createSetupIntent({});
+
+        const init = await initPaymentSheet({
+          merchantDisplayName: "OtoPair",
+          customerId,
+          customerEphemeralKeySecret: ephemeralKeySecret,
+          setupIntentClientSecret,
+          allowsDelayedPaymentMethods: false,
+          returnURL: "otopair://stripe-redirect",
+        });
+        if (init.error) {
+          // Surface to the global error modal rather than rendering anything
+          // here — this screen is meant to be invisible.
+          console.warn("[AddPayment] initPaymentSheet failed", init.error);
+          goBack();
+          return;
         }
-    }, []);
 
-    // Dynamic placeholders
-    const cardNumberPlaceholder = isEditMode && existingCard
-        ? `**** **** **** ${existingCard.last4}`
-        : "0000 0000 0000 0000";
-    
-    const cvvPlaceholder = isEditMode ? '*'.repeat(cvvLength) : '0'.repeat(cvvLength);
-
-    // Detect card type when number changes
-    const handleCardNumberChange = (text: string) => {
-        // Remove all non-digits for detection
-        const normalized = text.replace(/\D/g, '');
-        
-        // Detect type and filter to only supported brands
-        const results = creditCardType(normalized);
-        const supportedTypes = ['visa', 'mastercard', 'american-express', 'discover'];
-        const supportedResults = results.filter(r => supportedTypes.includes(r.type));
-        
-        const detected = supportedResults.length === 1 ? supportedResults[0] : null;
-        
-        // Determine max length (default to 16 if no type detected)
-        const maxLength = detected ? detected.lengths[detected.lengths.length - 1] : 16;
-        const trimmed = normalized.slice(0, maxLength);
-        
-        if (detected) {
-            // Map detected type to PaymentIcon keys
-            let mappedBrand = detected.type;
-            let mappedNiceType = detected.niceType;
-            if (mappedBrand === 'american-express') {
-                mappedBrand = 'amex';
-                mappedNiceType = 'Amex';
-            }
-            
-            setCardBrand(mappedBrand);
-            setCardNiceType(mappedNiceType);
-            setCvvLength(detected.code.size);
-            
-            // Format with gaps
-            let formatted = '';
-            let lastGap = 0;
-            const gaps = detected.gaps;
-            
-            gaps.forEach((gap) => {
-                if (trimmed.length > gap) {
-                    formatted += trimmed.slice(lastGap, gap) + ' ';
-                    lastGap = gap;
-                }
-            });
-            formatted += trimmed.slice(lastGap);
-            setCardNumber(formatted.trim());
+        const { error } = await presentPaymentSheet();
+        if (error) {
+          if (error.code !== "Canceled") {
+            console.warn("[AddPayment] presentPaymentSheet failed", error);
+          }
         } else {
-            // Ambiguous or unsupported match
-            setCardBrand('generic');
-            setCardNiceType('');
-            setCvvLength(3);
-            
-            // Simple 4-4-4-4 formatting
-            const genericFormatted = trimmed.replace(/(.{4})/g, '$1 ').trim();
-            setCardNumber(genericFormatted);
+          // Card attached — kick the global Stripe re-fetch so consumers
+          // (payments list, booking review) see the new card immediately.
+          bumpPaymentMethodsRefresh();
         }
+      } catch (err) {
+        console.warn("[AddPayment] setup failed", err);
+      } finally {
+        goBack();
+      }
     };
 
-    // Format expiry date as MM/YYYY
-    const handleExpiryDateChange = (text: string) => {
-        // Remove all non-digits
-        const cleanText = text.replace(/\D/g, '');
-        
-        // If user is deleting (new text is shorter than old state), just set it
-        if (text.length < expiryDate.length) {
-            setExpiryDate(text);
-            return;
-        }
+    void run();
+  }, [
+    createSetupIntent,
+    initPaymentSheet,
+    presentPaymentSheet,
+    bumpPaymentMethodsRefresh,
+    router,
+  ]);
 
-        let formatted = cleanText;
-
-        // 1. Month Validation (01-12)
-        if (cleanText.length === 1) {
-            const digit = parseInt(cleanText);
-            if (digit > 1) {
-                // If user types 2-9, auto-format to 02-09
-                formatted = `0${digit}/`;
-            }
-        } else if (cleanText.length >= 2) {
-            let mm = parseInt(cleanText.slice(0, 2));
-            if (mm > 12) mm = 12;
-            if (mm === 0) mm = 1; // Don't allow 00
-            
-            const mmStr = mm.toString().padStart(2, '0');
-            const yyyyPart = cleanText.slice(2, 6);
-
-            // 2. Year Validation (current year or later)
-            if (yyyyPart.length === 4) {
-                const currentYear = new Date().getFullYear();
-                let yyyy = parseInt(yyyyPart);
-                if (yyyy < currentYear) yyyy = currentYear;
-                formatted = `${mmStr}/${yyyy}`;
-            } else {
-                formatted = `${mmStr}/${yyyyPart}`;
-            }
-        }
-
-        setExpiryDate(formatted);
-    };
-
-    const handleSave = () => {
-        // Basic validation
-        if (!fullName || (!isEditMode && !cardNumber) || !expiryDate || (!isEditMode && !cvv) || !zipCode) {
-            console.log('Please fill in all fields');
-            return;
-        }
-
-        // Parse expiry date
-        const [month, year] = expiryDate.split('/');
-        
-        // Extract last 4 digits
-        const last4 = cardNumber ? cardNumber.replace(/\s/g, '').slice(-4) : existingCard?.last4 || '';
-
-        const cardData = {
-            brand: cardBrand as PaymentCardBrand,
-            last4,
-            expMonth: parseInt(month),
-            expYear: parseInt(year),
-            cardholderName: fullName,
-            zipCode,
-        };
-
-        if (isEditMode && cardId) {
-            updatePaymentMethod(cardId, {
-                ...cardData,
-                isDefault: isDefaultPayment,
-            });
-            console.log('Card updated successfully');
-        } else {
-            const nextIndex = paymentMethods.length;
-            const imageKey: PaymentCardImageKey = nextIndex % 2 === 0 ? "mono_1" : "mono_2";
-
-            addPaymentMethod({
-                id: Math.random().toString(36).substr(2, 9), // Simple ID generator
-                ...cardData,
-                isDefault: isDefaultPayment,
-                imageKey,
-                createdAt: new Date().toISOString(),
-            });
-            console.log('Card added successfully');
-        }
-
-        router.back();
-    };
-
-    return (
-        <View style={styles.container}>
-            {/* Background Gradient */}
-            <View style={StyleSheet.absoluteFill}>
-                <AnimatedGradientBackground 
-                    progress={bgProgress} 
-                    fromIndex={0} 
-                    toIndex={0}
-                    colors={[BrandColors.secondary, BrandColors.secondary, '#f4f1f8']}
-                />
-            </View>
-
-            <BlurHeaderOverlay
-                title={isEditMode ? 'Edit Payment Method' : 'Add Payment Method'}
-                titleColor={BrandColors.white}
-                onBack={() => router.back()}
-                gradientColors={[
-                    'rgba(82, 153, 254, 1)',
-                    'rgba(82, 153, 254, 0.7)',
-                    'rgba(82, 153, 254, 0.3)',
-                    'rgba(82, 153, 254, 0)',
-                ]}
-            />
-
-            <KeyboardAvoidingView 
-                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-                style={{ flex: 1 }}
-            >
-                <ScrollView 
-                    showsVerticalScrollIndicator={false}
-                    keyboardShouldPersistTaps="handled"
-                    contentContainerStyle={[styles.scrollContent, { paddingTop: insets.top + 80, paddingBottom: insets.bottom + 40 }]}
-                >
-                    {/* Card Preview */}
-                    <View style={styles.cardPreviewContainer}>
-                        <LinearGradient
-                            colors={['#374151', '#111827']}
-                            start={{ x: 1, y: 0 }}
-                            end={{ x: 0, y: 0 }}
-                            style={StyleSheet.absoluteFill}
-                        />
-                        <View style={styles.cardOverlay}>
-                            <Text weight="bold" size="xl" color="#FFF" style={styles.cardBrand}>Vital</Text>
-                            
-                            <View style={styles.chipContainer}>
-                                <MaterialCommunityIcons name="credit-card-chip" size={36} color={'white'} />
-                            </View>
-
-                            <View style={styles.cardBottom}>
-                                <Text weight="medium" size="md" color="#FFF">{fullName || 'John Doe'}</Text>
-                                <PaymentIcon type={cardBrand as any} width={50}/>
-                            </View>
-                        </View>
-                    </View>
-
-                    {/* Form Container */}
-                    <View style={styles.formContainer}>
-                        <PaymentInput
-                            label="Full Name"
-                            value={fullName}
-                            onChangeText={setFullName}
-                            placeholder="John Doe"
-                        />
-
-                        <PaymentInput
-                            label="Card Number"
-                            value={cardNumber}
-                            onChangeText={handleCardNumberChange}
-                            placeholder={cardNumberPlaceholder}
-                            keyboardType="numeric"
-                            secureTextEntry={!isCardNumberVisible}
-                            leftElement={
-                                cardBrand ? (
-                                    <PaymentIcon type={cardBrand as any} width={40} />
-                                ) : null
-                            }
-                            rightElement={
-                                <TouchableOpacity 
-                                    onPress={() => setIsCardNumberVisible(!isCardNumberVisible)}
-                                    hitSlop={10}
-                                >
-                                    {isCardNumberVisible ? (
-                                        <EyeOff size={20} color="#9CA3AF" />
-                                    ) : (
-                                        <Eye size={20} color="#9CA3AF" />
-                                    )}
-                                </TouchableOpacity>
-                            }
-                        />
-
-                        <View style={styles.row}>
-                            <View style={{ flex: 1 }}>
-                                <PaymentInput
-                                    label="Expiry Date"
-                                    value={expiryDate}
-                                    onChangeText={handleExpiryDateChange}
-                                    placeholder="MM/YYYY"
-                                    keyboardType="numeric"
-                                    maxLength={7}
-                                />
-                            </View>
-                            <View style={{ width: 16 }} />
-                            <View style={{ flex: 1 }}>
-                                <PaymentInput
-                                    label="CVV"
-                                    value={cvv}
-                                    onChangeText={(text: string) => setCvv(text.replace(/\D/g, '').slice(0, cvvLength))}
-                                    placeholder={cvvPlaceholder}
-                                    keyboardType="numeric"
-                                    maxLength={cvvLength}
-                                    secureTextEntry={!isCvvVisible}
-                                    rightElement={
-                                        <TouchableOpacity 
-                                            onPress={() => setIsCvvVisible(!isCvvVisible)}
-                                            hitSlop={10}
-                                        >
-                                            {isCvvVisible ? (
-                                                <EyeOff size={20} color="#9CA3AF" />
-                                            ) : (
-                                                <Eye size={20} color="#9CA3AF" />
-                                            )}
-                                        </TouchableOpacity>
-                                    }
-                                />
-                            </View>
-                        </View>
-
-                        <PaymentInput
-                            label="Zip Code"
-                            value={zipCode}
-                            onChangeText={(text: string) => setZipCode(text.replace(/\D/g, '').slice(0, 5))}
-                            placeholder="00000"
-                            keyboardType="numeric"
-                            maxLength={5}
-                        />
-
-                        {/* Checkboxes - only in add mode */}
-                        {!isEditMode ? (
-                            <>
-                                <TouchableOpacity 
-                                    style={styles.checkboxRow}
-                                    onPress={() => {
-                                        if (isFirstCard) return; // Force default when it's the only card
-                                        setIsDefaultPayment(!isDefaultPayment);
-                                    }}
-                                    activeOpacity={0.7}
-                                    disabled={isFirstCard}
-                                >
-                                    <View
-                                        style={[
-                                            styles.checkbox,
-                                            isDefaultPayment ? styles.checkboxActive : null,
-                                            isFirstCard ? styles.checkboxDisabled : null,
-                                        ]}
-                                    >
-                                        {isDefaultPayment ? <Check size={12} color="#FFF" strokeWidth={3} /> : null}
-                                    </View>
-                                    <Text size="sm" color={isFirstCard ? "#9CA3AF" : "#4B5563"}>
-                                        Set as default payment method
-                                    </Text>
-                                </TouchableOpacity>
-
-                                <TouchableOpacity 
-                                    style={styles.checkboxRow}
-                                    onPress={() => setAgreeTerms(!agreeTerms)}
-                                    activeOpacity={0.7}
-                                >
-                                    <View style={[styles.checkbox, agreeTerms ? styles.checkboxActive : null]}>
-                                        {agreeTerms ? <Check size={12} color="#FFF" strokeWidth={3} /> : null}
-                                    </View>
-                                    <Text size="sm" color="#4B5563">
-                                        Agree to <Text color="#3B82F6" weight="medium">terms and conditions</Text>
-                                    </Text>
-                                </TouchableOpacity>
-                            </>
-                        ) : null}
-
-                        {/* Submit Button */}
-                        <View style={styles.buttonRow}>
-                            {isEditMode ? (
-                                <TouchableOpacity 
-                                    style={styles.discardButton}
-                                    onPress={() => router.back()}
-                                >
-                                    <Text weight="bold" color="#FFF">Discard</Text>
-                                </TouchableOpacity>
-                            ) : null}
-                            <PrimaryButton 
-                                style={[styles.submitButton, isEditMode && { marginTop: 0 }]}
-                                onPress={handleSave}
-                            >
-                                {isEditMode ? 'Save Changes' : 'Add Card'}
-                            </PrimaryButton>
-                        </View>
-                    </View>
-                </ScrollView>
-            </KeyboardAvoidingView>
-        </View>
-    );
+  // Fully transparent passthrough — Stripe's PaymentSheet renders on top
+  // of whichever screen routed here, so the caller stays visible behind
+  // the sheet (no second "page" flash).
+  return <View style={styles.container} />;
 }
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: '#1E3A8A',
-    },
-    scrollContent: {
-        paddingHorizontal: 20,
-        paddingTop: 20,
-    },
-    cardPreviewContainer: {
-        width: CARD_WIDTH,
-        height: CARD_HEIGHT,
-        alignSelf: 'center',
-        marginBottom: 30,
-        borderRadius: 24, // More rounded like a credit card
-        overflow: 'hidden',
-        // Shadow for the card preview
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 10 },
-        shadowOpacity: 0.3,
-        shadowRadius: 15,
-        elevation: 10,
-    },
-    cardOverlay: {
-        ...StyleSheet.absoluteFillObject,
-        padding: 24,
-        justifyContent: 'space-between',
-    },
-    cardBrand: {
-        fontSize: 28,
-    },
-    chipContainer: {
-        flex: 1,
-        justifyContent: 'center',
-    },
-    cardBottom: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'flex-end',
-    },
-    formContainer: {
-        // Transparent white container similar to ActivityRewardsScreen
-        backgroundColor: 'rgba(255, 255, 255, 0.85)',
-        borderRadius: 24,
-        padding: 24,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.1,
-        shadowRadius: 12,
-        elevation: 5,
-    },
-    label: {
-        marginBottom: 8, // Spacing between label and input
-    },
-    paymentInputContainer: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: '#FFFFFF',
-        borderRadius: 16,
-        paddingHorizontal: 16,
-        height: 56,
-        // Shadow for clean card look
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.05,
-        shadowRadius: 10,
-        elevation: 2,
-    },
-    paymentTextInput: {
-        flex: 1,
-        fontSize: 16,
-        color: '#111827',
-        height: '100%',
-        padding: 0,
-    },
-    leftElement: {
-        marginRight: 10,
-    },
-    rightElement: {
-        marginLeft: 10,
-    },
-    inputSpacing: {
-        marginBottom: 24,
-    },
-    row: {
-        flexDirection: 'row',
-    },
-    checkboxRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginBottom: 16,
-        gap: 12,
-    },
-    checkbox: {
-        width: 20,
-        height: 20,
-        borderRadius: 4,
-        borderWidth: 2,
-        borderColor: '#3B82F6',
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    checkboxActive: {
-        backgroundColor: '#3B82F6',
-    },
-    checkboxDisabled: {
-        borderColor: '#D1D5DB',
-        backgroundColor: '#D1D5DB',
-    },
-    submitButton: {
-        flex: 1,
-        marginTop: 10,
-        height: 56,
-        borderRadius: 16,
-        backgroundColor: '#111827', // Very dark blue/black like in the screenshot
-    },
-    buttonRow: {
-        flexDirection: 'row',
-        gap: 12,
-        marginTop: 10,
-    },
-    discardButton: {
-        flex: 0.4,
-        height: 56,
-        borderRadius: 16,
-        backgroundColor: '#EF4444', // Red color for discard
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
+  container: {
+    flex: 1,
+    backgroundColor: "transparent",
+  },
 });
 
 export default AddPaymentScreen;
