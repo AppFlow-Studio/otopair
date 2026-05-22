@@ -149,11 +149,12 @@ export function useCreateBookingConvex() {
 
       const trimmedNotes = customerNotes.trim();
 
-      // Toast surface for the booking-create funnel. The booking is in
-      // `pending_shop_acceptance` after this call resolves, NOT `confirmed`,
-      // so we use Info (not Success). The Trust-Moment "Booking confirmed"
-      // toast fires later via `useBookingStatusToasts` when the shop accepts.
-      // Diagnostic: docs/notifications/DIAGNOSTIC-2026-05-21.md.
+      // Error toast surfaces here; the success "Booking submitted." toast
+      // fires later from confirmation.tsx's Back-to-Home handler so it
+      // lands on the home screen instead of expiring on /confirming.
+      // The booking is in `pending_shop_acceptance` after this resolves,
+      // NOT `confirmed` — the Trust-Moment "Booking confirmed" toast fires
+      // separately via `useBookingStatusToasts` when the shop accepts.
       let bookingIds: string[];
       try {
         bookingIds = await createBatch({
@@ -181,11 +182,6 @@ export function useCreateBookingConvex() {
         );
         throw err;
       }
-
-      toast.info(
-        "Booking submitted.",
-        "We'll let you know as soon as your shop confirms.",
-      );
 
       // Clear the rec link so subsequent (unrelated) bookings don't reuse it.
       if (sourceRecommendationId) setSourceRecommendationId(null);
