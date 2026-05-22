@@ -55,6 +55,8 @@ import { computeInitials } from "@/utils/userInitials";
 const AVATAR_TARGET_SIZE = 72;
 const OPEN_DURATION = Platform.OS === "android" ? 390 : 430;
 const CLOSE_DURATION = Platform.OS === "android" ? 300 : 330;
+const AVATAR_HANDOFF_DURATION = 120;
+const CLOSE_AVATAR_HANDOFF_DURATION = 45;
 const SETTINGS_GRADIENT_TOP = "#1A2C4E";
 const SETTINGS_GRADIENT_BOTTOM = "#0B1120";
 
@@ -120,6 +122,7 @@ export function SettingsContainerTransformOverlay() {
   const isClosingRef = useRef(false);
   const progress = useSharedValue(0);
   const expandedAvatarTop = useSharedValue(insets.top + 40);
+  const floatingAvatarVisibility = useSharedValue(1);
   const currentSettingsScrollYRef = useRef(0);
 
   const resetClosing = useCallback(() => {
@@ -165,6 +168,7 @@ export function SettingsContainerTransformOverlay() {
     measureRoot();
     currentSettingsScrollYRef.current = 0;
     expandedAvatarTop.value = insets.top + 40;
+    floatingAvatarVisibility.value = 1;
     setSettled(false);
     setOpenSequence((value) => value + 1);
     progress.value = 0;
@@ -187,12 +191,19 @@ export function SettingsContainerTransformOverlay() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleClose = useCallback(() => {
-    if (isClosingRef.current) return;
-    isClosingRef.current = true;
+  useEffect(() => {
+    if (!settled || isClosingRef.current) return;
+    const frame = requestAnimationFrame(() => {
+      floatingAvatarVisibility.value = withTiming(0, {
+        duration: AVATAR_HANDOFF_DURATION,
+        easing: Easing.out(Easing.quad),
+      });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [floatingAvatarVisibility, settled]);
+
+  const startCloseAnimation = useCallback(() => {
     setSettled(false);
-    expandedAvatarTop.value =
-      insets.top + 40 - currentSettingsScrollYRef.current;
     progress.value = withTiming(
       0,
       {
@@ -207,7 +218,35 @@ export function SettingsContainerTransformOverlay() {
         }
       },
     );
-  }, [expandedAvatarTop, insets.top, progress, resetClosing, router]);
+  }, [progress, resetClosing, router]);
+
+  const handleClose = useCallback(() => {
+    if (isClosingRef.current) return;
+    isClosingRef.current = true;
+    expandedAvatarTop.value =
+      insets.top + 40 - currentSettingsScrollYRef.current;
+    floatingAvatarVisibility.value = 0;
+    floatingAvatarVisibility.value = withTiming(
+      1,
+      {
+        duration: CLOSE_AVATAR_HANDOFF_DURATION,
+        easing: Easing.out(Easing.quad),
+      },
+      (finished) => {
+        if (finished) {
+          runOnJS(startCloseAnimation)();
+        } else {
+          runOnJS(resetClosing)();
+        }
+      },
+    );
+  }, [
+    expandedAvatarTop,
+    floatingAvatarVisibility,
+    insets.top,
+    resetClosing,
+    startCloseAnimation,
+  ]);
 
   useFocusEffect(
     useCallback(() => {
@@ -350,7 +389,7 @@ export function SettingsContainerTransformOverlay() {
       width: size,
       height: size,
       borderRadius: size / 2,
-      opacity: openOpacity,
+      opacity: openOpacity * floatingAvatarVisibility.value,
       transform: [{ translateX: left }, { translateY: top }],
     };
   });
@@ -427,27 +466,25 @@ export function SettingsContainerTransformOverlay() {
         </Animated.View>
       </Animated.View>
 
-      {!settled ? (
-        <Animated.View
-          pointerEvents="none"
-          style={[styles.floatingAvatar, avatarStyle]}
-        >
-          {photoUri ? (
-            <Image source={{ uri: photoUri }} style={StyleSheet.absoluteFill} />
-          ) : (
-            <LinearGradient
-              colors={["#5299FE", "#C5DAFF"]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={[StyleSheet.absoluteFill, styles.floatingAvatarFill]}
-            >
-              <Animated.Text style={[styles.initialsText, initialsTextStyle]}>
-                {initials}
-              </Animated.Text>
-            </LinearGradient>
-          )}
-        </Animated.View>
-      ) : null}
+      <Animated.View
+        pointerEvents="none"
+        style={[styles.floatingAvatar, avatarStyle]}
+      >
+        {photoUri ? (
+          <Image source={{ uri: photoUri }} style={StyleSheet.absoluteFill} />
+        ) : (
+          <LinearGradient
+            colors={["#5299FE", "#C5DAFF"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={[StyleSheet.absoluteFill, styles.floatingAvatarFill]}
+          >
+            <Animated.Text style={[styles.initialsText, initialsTextStyle]}>
+              {initials}
+            </Animated.Text>
+          </LinearGradient>
+        )}
+      </Animated.View>
 
       <Animated.View
         pointerEvents={settled ? "auto" : "none"}
