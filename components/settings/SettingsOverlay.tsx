@@ -35,6 +35,7 @@ import {
   BackHandler,
   Dimensions,
   Image,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -57,6 +58,7 @@ import { X } from "lucide-react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 
 import { SettingsContent } from "@/components/settings/SettingsContent";
+import { SettingsContainerTransformOverlay } from "@/components/settings/SettingsContainerTransformOverlay";
 import { api } from "@/convex/_generated/api";
 import { useOnboardingStore } from "@/stores/useOnboardingStore";
 import {
@@ -90,7 +92,18 @@ const FALLBACK_RECT: SettingsOverlayRect = {
   height: 56,
 };
 
+const isIOS26OrNewer =
+  Platform.OS === "ios" && parseInt(String(Platform.Version), 10) >= 26;
+
 export function SettingsOverlay() {
+  if (!isIOS26OrNewer) {
+    return <SettingsContainerTransformOverlay />;
+  }
+
+  return <IOSSettingsOverlay />;
+}
+
+function IOSSettingsOverlay() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
 
