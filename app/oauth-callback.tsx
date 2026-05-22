@@ -2,11 +2,13 @@ import { useEffect } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { router } from "expo-router";
 import { useAuth, useSignUp, useUser } from "@clerk/clerk-expo";
+import { useQuery } from "convex/react";
 
 import { BrandColors } from "@/constants/theme";
 import { Text } from "@/components/shared-ui";
 import { useAuthStore } from "@/stores/useAuthStore";
 import { useOnboardingStore } from "@/stores/useOnboardingStore";
+import { api } from "@/convex/_generated/api";
 
 const OAUTH_SIGNUP_STEPS = [
   "phone",
@@ -27,9 +29,11 @@ export default function OAuthCallbackScreen() {
   const { signUp } = useSignUp();
   const isNewUser = useAuthStore((state) => state.isNewUser);
   const updateOnboardingData = useOnboardingStore((state) => state.updateData);
+  const me = useQuery(api.users.getMe, isLoaded && isSignedIn ? undefined : "skip");
 
   useEffect(() => {
     if (!isLoaded) return;
+    if (isSignedIn && !isNewUser && me === undefined) return;
 
     const draftEmail =
       signUp?.emailAddress ||
@@ -60,7 +64,15 @@ export default function OAuthCallbackScreen() {
       }
 
       if (isSignedIn) {
-        router.replace("/(main-tabs)/home");
+        if (me?.onboardingCompleted === true) {
+          router.replace("/(main-tabs)/home");
+          return;
+        }
+
+        router.replace({
+          pathname: "/(onboarding)",
+          params: { isResumeMode: "true" },
+        });
         return;
       }
 
@@ -71,7 +83,7 @@ export default function OAuthCallbackScreen() {
     }, 750);
 
     return () => clearTimeout(timeout);
-  }, [isLoaded, isNewUser, isSignedIn, signUp, updateOnboardingData, user]);
+  }, [isLoaded, isNewUser, isSignedIn, me, signUp, updateOnboardingData, user]);
 
   return (
     <View style={styles.container}>

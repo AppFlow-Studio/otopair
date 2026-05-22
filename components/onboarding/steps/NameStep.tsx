@@ -30,6 +30,7 @@ import {
 } from "@/components/shared-ui";
 import { ProgressBar } from "@/components/shared-ui/ProgressBar";
 import { FooterButton } from "@/components/shared-ui/FooterButton";
+import { BackButton } from "@/components/shared-ui/BackButton";
 import { useEffect, useState } from "react";
 import {
   BackHandler,
@@ -49,9 +50,10 @@ interface NameStepProps {
   onNext: () => void;
   onBack: () => void;
   progress: { total: number; filled: number };
+  allowBack?: boolean;
 }
 
-export function NameStep({ onNext, onBack, progress }: NameStepProps) {
+export function NameStep({ onNext, onBack, progress, allowBack = false }: NameStepProps) {
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
   const { data, updateData } = useOnboardingStore();
@@ -61,9 +63,14 @@ export function NameStep({ onNext, onBack, progress }: NameStepProps) {
   const [lastName, setLastName] = useState(data.lastName || "");
 
   useEffect(() => {
-    const sub = BackHandler.addEventListener("hardwareBackPress", () => true);
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (allowBack) {
+        onBack();
+      }
+      return true;
+    });
     return () => sub.remove();
-  }, []);
+  }, [allowBack, onBack]);
 
   const dynamicStyles = {
     container: { paddingTop: insets.top + Spacing.lg },
@@ -100,7 +107,8 @@ export function NameStep({ onNext, onBack, progress }: NameStepProps) {
         <ProgressBar
           total={progress.total}
           filled={progress.filled}
-          reserveLeftSpace
+          leftElement={allowBack ? <BackButton onBack={onBack} alwaysShow /> : undefined}
+          reserveLeftSpace={!allowBack}
         />
 
         <ScrollView
@@ -110,7 +118,7 @@ export function NameStep({ onNext, onBack, progress }: NameStepProps) {
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.headerContent}>
-            <Text style={styles.title}>What's your name?</Text>
+            <Text style={styles.title}>What&apos;s your name?</Text>
             <Text style={styles.subtitle}>
               Let us know how to properly address you
             </Text>

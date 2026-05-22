@@ -108,6 +108,7 @@ interface OnboardingFlowProps {
   filteredSteps?: OnboardingStep[];
   isResumeMode?: boolean;
   disableBack?: boolean;
+  initialBackToHome?: boolean;
 }
 
 // Steps that show in the progress bar (excludes signup/login screens and complete)
@@ -149,8 +150,7 @@ export function getIncompleteOnboardingSteps(): OnboardingStep[] {
   const { data } = useOnboardingStore.getState();
 
     const stepChecks: { step: OnboardingStep; isComplete: () => boolean }[] = [
-        { step: 'phone', isComplete: () => !!data.phoneNumber },
-        { step: 'confirm', isComplete: () => !!data.phoneVerified },
+        { step: 'phone', isComplete: () => !!data.phoneNumber && !!data.phoneVerified },
         { step: 'name', isComplete: () => !!(data.firstName && data.lastName) },
         { step: 'profilePhoto', isComplete: () => !!data.profilePhotoUri },
         { step: 'userIntent', isComplete: () => !!(data.userIntentions && data.userIntentions.length > 0) },
@@ -169,13 +169,16 @@ export function OnboardingFlow({
   filteredSteps,
   isResumeMode = false,
   disableBack = false,
+  initialBackToHome = false,
 }: OnboardingFlowProps) {
   const initialVisibleStep = getVisibleStep(initialStep);
+  const shouldDisableInitialBack = disableBack && initialVisibleStep !== "confirm";
+  const initialHomeBackStep = initialBackToHome ? initialVisibleStep : null;
   const [currentStep, setCurrentStep] = useState<OnboardingStep>(initialVisibleStep);
   const [fromStep, setFromStep] = useState<OnboardingStep>(initialVisibleStep);
   const [toStep, setToStep] = useState<OnboardingStep>(initialVisibleStep);
   const [backDisabledStep] = useState<OnboardingStep | null>(
-    disableBack ? initialVisibleStep : null,
+    shouldDisableInitialBack ? initialVisibleStep : null,
   );
   const { isSignedIn, userId: clerkUserId } = useAuth();
   const completeOnboarding = useMutation(api.users.completeOnboarding);
@@ -185,6 +188,7 @@ export function OnboardingFlow({
   const animationProgress = useSharedValue(1);
 
   const backDisabledForCurrentStep = currentStep === backDisabledStep;
+  const backToHomeForCurrentStep = currentStep === initialHomeBackStep;
 
   useEffect(() => {
     if (!backDisabledForCurrentStep) return;
@@ -261,6 +265,11 @@ export function OnboardingFlow({
 
   const goBack = async () => {
     if (backDisabledForCurrentStep) return;
+
+    if (backToHomeForCurrentStep) {
+      router.replace("/(main-tabs)/home");
+      return;
+    }
 
     if (navigationSteps) {
       const currentIndex = navigationSteps.indexOf(currentStep);
@@ -501,11 +510,11 @@ export function OnboardingFlow({
             case 'login':
                 return <LoginStep onNext={goNext} onBack={effectiveGoBack} />;
             case 'phone':
-                return <PhoneNumberStep onNext={goNext} onBack={effectiveGoBack} progress={progressInfo} />;
+                return <PhoneNumberStep onNext={goNext} onBack={effectiveGoBack} progress={progressInfo} allowBack={backToHomeForCurrentStep} />;
             case 'confirm':
                 return <ConfirmPhoneNumberStep onNext={goNext} onBack={effectiveGoBack} progress={progressInfo} />;
             case 'name':
-                return <NameStep onNext={goNext} onBack={effectiveGoBack} progress={progressInfo} />;
+                return <NameStep onNext={goNext} onBack={effectiveGoBack} progress={progressInfo} allowBack={backToHomeForCurrentStep} />;
             case 'profilePhoto':
                 return <ProfilePhotoStep onNext={goNext} onBack={effectiveGoBack} progress={progressInfo} />;
             case 'userIntent':

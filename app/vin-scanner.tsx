@@ -88,6 +88,20 @@ export default function VinScannerScreen() {
               vdbDecodedModel: decoded.vdbDecodedModel ?? "",
               vdbDecodedStyle: decoded.vdbDecodedStyle ?? "",
               vdbDecodedTrimAndStyle: decoded.vdbDecodedTrimAndStyle ?? "",
+              // Specs-card fields.
+              horsepower: decoded.horsepower != null ? String(decoded.horsepower) : "",
+              engineDisplacementLiters: decoded.engineDisplacementLiters != null ? String(decoded.engineDisplacementLiters) : "",
+              cylindersConfiguration: decoded.cylindersConfiguration ?? "",
+              mpgCity: decoded.mpgCity != null ? String(decoded.mpgCity) : "",
+              mpgHighway: decoded.mpgHighway != null ? String(decoded.mpgHighway) : "",
+              mpgCombined: decoded.mpgCombined != null ? String(decoded.mpgCombined) : "",
+              frontTireSize: decoded.frontTireSize ?? "",
+              rearTireSize: decoded.rearTireSize ?? "",
+              frontTirePressure: decoded.frontTirePressure != null ? String(decoded.frontTirePressure) : "",
+              rearTirePressure: decoded.rearTirePressure != null ? String(decoded.rearTirePressure) : "",
+              transType: decoded.transType ?? "",
+              transSpeeds: decoded.transSpeeds != null ? String(decoded.transSpeeds) : "",
+              drivetrain: decoded.drivetrain ?? "",
             },
           });
         } else {

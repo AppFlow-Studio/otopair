@@ -65,7 +65,6 @@ import {
   CreditCard,
   FileText,
   Fingerprint,
-  Gem,
   Headset,
   HelpCircle,
   Lock,
@@ -720,38 +719,7 @@ export function SettingsContent({
             {fullName}
           </AnimatedText>
         </View>
-        <View style={styles.stickySide}>
-          <Pressable
-            onPress={() => router.push("/membership")}
-            style={({ pressed }) => pressed && { opacity: 0.85 }}
-          >
-            {isLiquidGlassEnabled && LiquidGlassView ? (
-              <LiquidGlassView
-                interactive
-                effect="regular"
-                style={styles.upgradePillGlass}
-              >
-                <Gem size={14} color="#5299FE" />
-                <Text weight="bold" size="sm" color="#5299FE">
-                  Upgrade
-                </Text>
-              </LiquidGlassView>
-            ) : (
-              <View style={styles.upgradePill}>
-                <LinearGradient
-                  colors={["#5299FE", "#3A78D6"]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  style={StyleSheet.absoluteFill}
-                />
-                <Gem size={14} color="#FFFFFF" />
-                <Text weight="semiBold" size="sm" color="#FFFFFF">
-                  Upgrade
-                </Text>
-              </View>
-            )}
-          </Pressable>
-        </View>
+        <View style={styles.stickySide} />
       </View>
 
       {/* Logout confirmation */}
@@ -865,23 +833,6 @@ const styles = StyleSheet.create({
   },
   stickyName: {
     textAlign: "center",
-  },
-  upgradePill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 999,
-    overflow: "hidden",
-  },
-  upgradePillGlass: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 999,
   },
   identity: {
     alignItems: "center",

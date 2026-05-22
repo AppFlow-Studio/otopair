@@ -12,9 +12,10 @@
  *   - onLogin (() => void): Callback to navigate to login screen
  */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useAuth, useSSO } from "@clerk/clerk-expo";
 import * as WebBrowser from "expo-web-browser";
+import { useConvex } from "convex/react";
 import { BrandColors, FontFamily, FontSize, Spacing, Text } from "@/components/shared-ui";
 import { Image } from "expo-image";
 import {
@@ -32,6 +33,7 @@ import { useEnsureConvexUser } from "@/hooks/useEnsureConvexUser";
 import { Mail } from "lucide-react-native";
 import { useAuthStore } from "@/stores/useAuthStore";
 import { router } from "expo-router";
+import { api } from "@/convex/_generated/api";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -42,32 +44,65 @@ interface SignupStepProps {
   onLogin: () => void;
 }
 
-export function SignupStep({ onNext, onBack, onEmailSignup, onLogin }: SignupStepProps) {
+export function SignupStep({ onBack, onEmailSignup, onLogin }: SignupStepProps) {
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
   const { isSignedIn, isLoaded } = useAuth();
   const { updateData } = useOnboardingStore();
   const ensureConvexUser = useEnsureConvexUser();
+  const convex = useConvex();
   const { isNewUser, setIsNewUser, setIsAuthenticated } = useAuthStore();
   const [loading, setLoading] = useState<"google" | "apple" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [ssoNavigationPending, setSsoNavigationPending] = useState(false);
 
   const { startSSOFlow: startGoogleSSO } = useSSO();
   const { startSSOFlow: startAppleSSO } = useSSO();
   const isCompact = height < 720;
 
-  // Already signed in → redirect to home (index may have sent here if me was loading)
+  const navigateAfterExistingAccountAuth = useCallback(async () => {
+    let me: { onboardingCompleted?: boolean } | null = null;
+
+    try {
+      me = await convex.query(api.users.getMe, {});
+    } catch (error) {
+      console.error("Failed to load onboarding state after signup auth:", error);
+    }
+
+    if (me?.onboardingCompleted === true) {
+      router.replace("/(main-tabs)/home");
+      return;
+    }
+
+    router.replace({
+      pathname: "/(onboarding)",
+      params: { isResumeMode: "true" },
+    });
+  }, [convex]);
+
+  // Already signed in: route by Convex onboarding state, not directly home.
   useEffect(() => {
-    if (loading !== null || isNewUser) {
+    if (loading !== null || ssoNavigationPending || isNewUser) {
       return;
     }
 
     if (isLoaded && isSignedIn) {
       setIsNewUser(false);
       setIsAuthenticated(true);
-      router.replace("/(main-tabs)/home");
+      navigateAfterExistingAccountAuth().catch((error) => {
+        console.error("Failed to navigate existing signed-in user:", error);
+      });
     }
-  }, [isLoaded, isNewUser, isSignedIn, loading, setIsAuthenticated, setIsNewUser]);
+  }, [
+    isLoaded,
+    isNewUser,
+    isSignedIn,
+    loading,
+    navigateAfterExistingAccountAuth,
+    setIsAuthenticated,
+    setIsNewUser,
+    ssoNavigationPending,
+  ]);
 
   const dynamicStyles = {
     container: { paddingTop: insets.top + Spacing.lg },
@@ -79,6 +114,7 @@ export function SignupStep({ onNext, onBack, onEmailSignup, onLogin }: SignupSte
     setLoading(strategy);
     setError(null);
     setIsNewUser(true);
+    setSsoNavigationPending(true);
 
     try {
       const startSSO = strategy === "google" ? startGoogleSSO : startAppleSSO;
@@ -92,6 +128,7 @@ export function SignupStep({ onNext, onBack, onEmailSignup, onLogin }: SignupSte
       // User cancelled OAuth (dismissed browser) - do not proceed
       const cancelled = authSessionResult && "type" in authSessionResult && authSessionResult.type !== "success";
       if (cancelled) {
+        setSsoNavigationPending(false);
         return;
       }
 
@@ -117,18 +154,15 @@ export function SignupStep({ onNext, onBack, onEmailSignup, onLogin }: SignupSte
         // signIn = existing account (email matched); signUp = new account
         if (signIn) {
           setIsNewUser(false);
-          router.replace("/(main-tabs)/home");
-        } else {
-          onNext();
         }
       } else if (signUp && signUp.status === "missing_requirements") {
         // OAuth succeeded but Clerk requires phone before completing sign-up (e.g. instance config)
         // signUp is in memory; PhoneNumberStep will use signUp.update + preparePhoneNumberVerification
         // ConfirmPhoneNumberStep will complete verification and set session - no re-auth needed
-        // Do NOT use || !createdSessionId - that would incorrectly proceed when user cancels OAuth
-        onNext();
+        // The oauth-callback route owns post-SSO navigation to avoid duplicate onboarding remounts.
       }
     } catch (err) {
+      setSsoNavigationPending(false);
       const message = err instanceof Error ? err.message : "Authentication failed";
       setError(message);
       console.error(`${strategy} OAuth error:`, err);

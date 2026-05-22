@@ -21,6 +21,7 @@ export default function OnboardingScreen() {
         initialStep?: string;
         filteredSteps?: string;
         isResumeMode?: string;
+        resumeSource?: string;
     }>();
     const rawMe = useQuery(api.users.getMe, isLoaded && isSignedIn ? undefined : 'skip');
     const me =
@@ -49,6 +50,7 @@ export default function OnboardingScreen() {
     const resetOnboardingData = useOnboardingStore((state) => state.reset);
 
     const isResumeMode = params.isResumeMode === 'true';
+    const isCreateAccountResume = params.resumeSource === 'createAccount';
     const hasExplicitResumeTarget = !!params.initialStep || !!params.filteredSteps;
     const shouldAutoResumeSignedInEntryRef = useRef<boolean | null>(null);
     if (isLoaded && shouldAutoResumeSignedInEntryRef.current === null) {
@@ -287,7 +289,8 @@ export default function OnboardingScreen() {
             initialStep={resolvedInitialStep}
             filteredSteps={resolvedFilteredSteps}
             isResumeMode={resolvedIsResumeMode}
-            disableBack={isAutoResume}
+            disableBack={isAutoResume && !isCreateAccountResume}
+            initialBackToHome={isCreateAccountResume}
         />
     );
 }

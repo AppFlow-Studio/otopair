@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { Platform, Pressable, StyleSheet, View } from "react-native";
 import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
+import DateTimePicker, { DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import ReAnimated, {
   useSharedValue,
   useAnimatedStyle,
@@ -38,9 +39,9 @@ interface QuestionOverlayProps {
   heroIcon: React.ReactNode;
   questions: QuestionDef[];
   initialQuestionIndex: number;
-  initialAnswers: Record<string, string | string[]>;
+  initialAnswers: Record<string, string | number | string[]>;
   onAnswerUpdate: (
-    answers: Record<string, string | string[]>,
+    answers: Record<string, string | number | string[]>,
     questionIndex: number,
     progress: number,
   ) => void;
@@ -64,11 +65,15 @@ export default function QuestionOverlay({
   onDismiss,
 }: QuestionOverlayProps) {
   const [questionIndex, setQuestionIndex] = useState(initialQuestionIndex);
-  const [answers, setAnswers] = useState<Record<string, string | string[]>>(initialAnswers);
+  const [answers, setAnswers] = useState<Record<string, string | number | string[]>>(initialAnswers);
   const [multiSelectValues, setMultiSelectValues] = useState<string[]>([]);
+  const [exactDate, setExactDate] = useState<Date | null>(
+    typeof initialAnswers.exactDate === "number" ? new Date(initialAnswers.exactDate) : null,
+  );
   const isClosing = useRef(false);
   const processing = useRef(false);
   const exitCallback = useRef<(() => void) | null>(null);
+  const scrollViewRef = useRef<any>(null);
 
   const backdropOpacity = useSharedValue(0);
   const contentProgress = useSharedValue(0);
@@ -154,10 +159,22 @@ export default function QuestionOverlay({
   const handleOptionTap = useCallback(
     (optionId: string) => {
       if (isClosing.current || processing.current) return;
-      processing.current = true;
 
       const question = questions[questionIndex];
       const updatedAnswers = { ...answers, [question.key]: optionId };
+
+      // "Specific date" stays open so the user can pick a date. The Confirm
+      // button finishes the flow and writes the timestamp into answers.
+      if (optionId === "exact_date") {
+        setAnswers(updatedAnswers);
+        onAnswerUpdate(updatedAnswers, questionIndex, computeProgress(questionIndex, false));
+        return;
+      }
+
+      // Picking a different option after exact_date — drop any in-progress date.
+      if (exactDate !== null) setExactDate(null);
+
+      processing.current = true;
       setAnswers(updatedAnswers);
 
       setTimeout(() => {
@@ -181,8 +198,39 @@ export default function QuestionOverlay({
         }
       }, 300);
     },
-    [answers, questionIndex, questions, totalQuestions, computeProgress, onAnswerUpdate, onComplete, animateOut],
+    [answers, exactDate, questionIndex, questions, totalQuestions, computeProgress, onAnswerUpdate, onComplete, animateOut, questionFade],
   );
+
+  const handleConfirmExactDate = useCallback(() => {
+    if (isClosing.current || processing.current || !exactDate) return;
+    const question = questions[questionIndex];
+    processing.current = true;
+    const updatedAnswers = {
+      ...answers,
+      [question.key]: "exact_date",
+      exactDate: exactDate.getTime(),
+    };
+    setAnswers(updatedAnswers);
+    onAnswerUpdate(updatedAnswers, questionIndex, 1);
+    animateOut(onComplete);
+  }, [answers, exactDate, questionIndex, questions, onAnswerUpdate, onComplete, animateOut]);
+
+  // Reset the in-progress date when the question changes (e.g., user advanced
+  // to a follow-up). The picker should always start blank on a new question.
+  useEffect(() => {
+    setExactDate(null);
+  }, [questionIndex]);
+
+  // When the user picks "Specific date" (or reopens an overlay that already
+  // has it selected), auto-scroll so the picker + Confirm button come into
+  // view. Small delay lets RN render the new section before we scroll.
+  useEffect(() => {
+    if (answers[currentQuestion.key] !== "exact_date") return;
+    const t = setTimeout(() => {
+      scrollViewRef.current?.scrollToEnd?.({ animated: true });
+    }, 80);
+    return () => clearTimeout(t);
+  }, [answers, currentQuestion.key]);
 
   const handleMultiSelectToggle = useCallback((optionId: string) => {
     setMultiSelectValues((prev) =>
@@ -231,6 +279,7 @@ export default function QuestionOverlay({
         </Pressable>
 
         <ReAnimated.ScrollView
+          ref={scrollViewRef}
           style={{ flex: 1, width: "100%" }}
           contentContainerStyle={st.scrollContent}
           showsVerticalScrollIndicator={false}
@@ -312,6 +361,44 @@ export default function QuestionOverlay({
                 </Text>
               </LinearGradient>
             </Pressable>
+          )}
+
+          {!isMultiSelect && answers[currentQuestion.key] === "exact_date" && (
+            <View style={st.datePickerSection}>
+              <View style={st.datePickerWrap}>
+                <DateTimePicker
+                  value={exactDate ?? new Date()}
+                  mode="date"
+                  display={Platform.OS === "ios" ? "compact" : "default"}
+                  maximumDate={new Date()}
+                  themeVariant="light"
+                  accentColor="#5299FE"
+                  onChange={(_e: DateTimePickerEvent, d?: Date) => {
+                    if (d) setExactDate(d);
+                  }}
+                />
+              </View>
+              <Pressable
+                style={({ pressed }) => [
+                  st.doneButton,
+                  !exactDate && st.doneButtonDisabled,
+                  pressed && exactDate && { opacity: 0.9 },
+                ]}
+                onPress={handleConfirmExactDate}
+                disabled={!exactDate}
+              >
+                <LinearGradient
+                  colors={exactDate ? ["#7BB8FF", "#5299FE", "#3B7FEB"] : ["#CBD5E1", "#CBD5E1", "#CBD5E1"]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={st.doneButtonGradient}
+                >
+                  <Text weight="semiBold" size="md" color="#FFFFFF" style={{ fontSize: ms(17) }}>
+                    Confirm
+                  </Text>
+                </LinearGradient>
+              </Pressable>
+            </View>
           )}
         </ReAnimated.ScrollView>
       </ReAnimated.View>
@@ -529,9 +616,23 @@ const st = StyleSheet.create({
     shadowRadius: 12,
     elevation: 4,
   },
+  doneButtonDisabled: {
+    shadowOpacity: 0,
+    elevation: 0,
+  },
   doneButtonGradient: {
     paddingVertical: s(17),
     alignItems: "center",
     justifyContent: "center",
+  },
+  datePickerSection: {
+    width: "100%",
+    marginTop: s(16),
+    alignItems: "center",
+  },
+  datePickerWrap: {
+    width: "100%",
+    paddingVertical: s(8),
+    alignItems: Platform.OS === "ios" ? "flex-start" : "stretch",
   },
 });

@@ -25,9 +25,10 @@ import { Pressable, StyleSheet, View } from "react-native";
 
 // 2. Expo & Third-party
 import { useRouter } from "expo-router";
+import { useAuth } from "@clerk/clerk-expo";
 import { X } from "lucide-react-native";
 import { Car as PhosphorCar, Check as PhosphorCheck } from "phosphor-react-native";
-import Svg, { Circle, Line, Path, Rect } from "react-native-svg";
+import Svg, { Circle, Path, Rect } from "react-native-svg";
 
 // 3. Shared UI
 import { Text } from "@/components/shared-ui";
@@ -40,6 +41,7 @@ import {
   buildOnboardingResumeData,
   getDevicePermissionState,
   getIncompleteOnboardingStepsFromResumeData,
+  getSavedOnboardingCurrentStep,
 } from "@/lib/onboarding-resume";
 
 // ============================================================================
@@ -175,6 +177,7 @@ export function FinishAccountSetupCard({
   onDismiss,
 }: FinishAccountSetupCardProps) {
   const router = useRouter();
+  const { userId: clerkUserId } = useAuth();
   const me = useQuery(api.users.getMe);
   const onboardingQa = useQuery(
     api.onboarding_questions_answers.getMyQuestionsAndAnswers,
@@ -231,12 +234,25 @@ export function FinishAccountSetupCard({
         resumeData,
         permissions,
       );
+      const savedStep = await getSavedOnboardingCurrentStep(clerkUserId, remaining);
+      const resumeSteps = savedStep
+        ? remaining.includes(savedStep)
+          ? remaining
+          : [savedStep, ...remaining]
+        : remaining;
+
+      if (resumeSteps.length === 0) {
+        return;
+      }
+
       updateOnboardingData(resumeData);
       router.push({
         pathname: "/(onboarding)",
         params: {
+          initialStep: resumeSteps[0],
+          filteredSteps: JSON.stringify(resumeSteps),
           isResumeMode: "true",
-          remainingSteps: JSON.stringify(remaining),
+          resumeSource: "createAccount",
         },
       });
       return;

@@ -26,6 +26,7 @@ import {
   View,
 } from "react-native";
 import { useMutation } from "convex/react";
+import DateTimePicker, { DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import { BlurView } from "expo-blur";
 import Svg, { Circle, Path } from "react-native-svg";
 
@@ -143,6 +144,8 @@ export function MaintenanceInputModal({
 
   // ── Form state (matches CarInfoStepper exactly) ────────────
   const [oilRecency, setOilRecency] = useState<string | null>(null);
+  // Exact date is only used when oilRecency === "exact_date".
+  const [oilExactDate, setOilExactDate] = useState<Date | null>(null);
   const [brakeFeel, setBrakeFeel] = useState<string | null>(null);
   const [tireOriginal, setTireOriginal] = useState<string | null>(null);
   const [batteryReplaced, setBatteryReplaced] = useState<string | null>(null);
@@ -191,11 +194,14 @@ export function MaintenanceInputModal({
     if (existingRecord?.customInputs) {
       const ci = existingRecord.customInputs;
       setOilRecency((ci.recency as string) ?? null);
+      const exactTs = ci.exactDate as number | undefined;
+      setOilExactDate(typeof exactTs === "number" ? new Date(exactTs) : null);
       setBrakeFeel((ci.feel as string) ?? null);
       setTireOriginal((ci.tireOriginal as string) ?? null);
       setBatteryReplaced((ci.batteryReplaced as string) ?? null);
     } else {
       setOilRecency(null);
+      setOilExactDate(null);
       setBrakeFeel(null);
       setTireOriginal(null);
       setBatteryReplaced(null);
@@ -206,22 +212,35 @@ export function MaintenanceInputModal({
   // ── Validation ────────────────────────────────────────────
   const canSave = useMemo(() => {
     switch (maintenanceType) {
-      case "oil":     return oilRecency !== null;
+      case "oil":
+        // "Specific date" requires the date to actually be picked.
+        if (oilRecency === "exact_date") return oilExactDate !== null;
+        return oilRecency !== null;
       case "brakes":  return brakeFeel !== null;
       case "tires":   return tireOriginal !== null;
       case "battery": return batteryReplaced !== null;
       default:        return false;
     }
-  }, [maintenanceType, oilRecency, brakeFeel, tireOriginal, batteryReplaced]);
+  }, [maintenanceType, oilRecency, oilExactDate, brakeFeel, tireOriginal, batteryReplaced]);
 
   // ── Save handler ───────────────────────────────────────────
   const handleSave = useCallback(async () => {
     setSaving(true);
     try {
       switch (maintenanceType) {
-        case "oil":
-          await saveField({ vehicleOwnerId, field: "oil", value: { recency: oilRecency } });
+        case "oil": {
+          // When the user picks a specific date, persist it as a
+          // timestamp alongside the recency key. Other branches still
+          // just carry the bucket string.
+          const exactTs =
+            oilRecency === "exact_date" && oilExactDate ? oilExactDate.getTime() : undefined;
+          await saveField({
+            vehicleOwnerId,
+            field: "oil",
+            value: { recency: oilRecency, ...(exactTs ? { exactDate: exactTs } : {}) },
+          });
           break;
+        }
         case "brakes":
           await saveField({ vehicleOwnerId, field: "brakes", value: { feel: brakeFeel } });
           break;
@@ -250,7 +269,7 @@ export function MaintenanceInputModal({
     }
   }, [
     maintenanceType, vehicleOwnerId,
-    oilRecency, brakeFeel, tireOriginal, batteryReplaced,
+    oilRecency, oilExactDate, brakeFeel, tireOriginal, batteryReplaced,
     warningLightOn, relevantLight, updateWarningLight,
     saveField, onSaved, closeSheet,
   ]);
@@ -303,8 +322,24 @@ export function MaintenanceInputModal({
               { id: "recently",   label: "Recently" },
               { id: "few_months", label: "A few months ago" },
               { id: "over_6mo",   label: "Over 6 months ago" },
+              { id: "exact_date", label: "Specific date" },
               { id: "not_sure",   label: "Not sure" },
             ])}
+            {oilRecency === "exact_date" && (
+              <View style={styles.datePickerWrap}>
+                <DateTimePicker
+                  value={oilExactDate ?? new Date()}
+                  mode="date"
+                  display={Platform.OS === "ios" ? "compact" : "default"}
+                  maximumDate={new Date()}
+                  themeVariant="light"
+                  accentColor="#5299FE"
+                  onChange={(_e: DateTimePickerEvent, date?: Date) => {
+                    if (date) setOilExactDate(date);
+                  }}
+                />
+              </View>
+            )}
           </View>
         );
 
@@ -313,7 +348,7 @@ export function MaintenanceInputModal({
           <View style={styles.fieldGroup}>
             <Text weight="semiBold" size="md" color="#1F2937">How do your brakes feel?</Text>
             {renderOptionCard(brakeFeel, setBrakeFeel, [
-              { id: "fine",      label: "Fine", good: true },
+              { id: "fine",      label: "Fine" },
               { id: "noise",     label: "They make noise" },
               { id: "soft_slow", label: "They feel soft or slow" },
             ])}
@@ -494,6 +529,12 @@ const styles = StyleSheet.create({
   },
   optionList: {
     gap: scale(8),
+  },
+  // Wraps the inline DateTimePicker that appears under the oil options
+  // when the user picks "Specific date".
+  datePickerWrap: {
+    marginTop: scale(4),
+    alignItems: Platform.OS === "ios" ? "flex-start" : "stretch",
   },
   optionCard: {
     flexDirection: "row",
