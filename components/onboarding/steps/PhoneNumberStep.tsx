@@ -49,6 +49,13 @@ import { useOnboardingStore } from "@/stores/useOnboardingStore";
 import { useUser, useSignUp } from "@clerk/clerk-expo";
 import { Search } from "lucide-react-native";
 import { OnboardingSurfaceColors } from "../onboardingColors";
+import {
+  cleanupStaleUnverifiedPhoneNumbers,
+  findPhoneNumberByNormalizedValue,
+  isIdentifierAlreadyTakenError,
+  isPhoneNumberVerified,
+  normalizePhoneForComparison,
+} from "@/lib/clerk-phone-numbers";
 // Try to import getAllCountries from the library
 let getAllCountries: ((locale?: string) => Promise<Country[]>) | undefined;
 try {
@@ -57,30 +64,6 @@ try {
 } catch (e) {
   console.log("getAllCountries not available in library");
 }
-
-const normalizePhoneForComparison = (phone: string | undefined | null) =>
-  (phone ?? "").replace(/\D/g, "");
-
-const getClerkErrorCode = (err: unknown) =>
-  (err as any)?.errors?.[0]?.code ?? (err as any)?.code;
-
-const isIdentifierAlreadyTakenError = (err: unknown) => {
-  const code = getClerkErrorCode(err);
-  const message = err instanceof Error ? err.message : String((err as any)?.message ?? "");
-  return code === "form_identifier_exists" || message.toLowerCase().includes("phone number is taken");
-};
-
-const cleanupStaleUnverifiedPhoneNumbers = async (user: any, phoneToKeep: string) => {
-  await Promise.allSettled(
-    user.phoneNumbers
-      .filter(
-        (p: any) =>
-          p.verification?.status !== "verified" &&
-          normalizePhoneForComparison(p.phoneNumber) !== phoneToKeep,
-      )
-      .map((p: any) => p.destroy()),
-  );
-};
 
 interface PhoneNumberStepProps {
   onNext: () => void;
@@ -323,13 +306,11 @@ export function PhoneNumberStep({ onNext, onBack, progress }: PhoneNumberStepPro
     if (user) {
       try {
         await cleanupStaleUnverifiedPhoneNumbers(user, normalizedFullPhoneNumber);
-        const existingPhoneNumber = user.phoneNumbers.find(
-          (p) => normalizePhoneForComparison(p.phoneNumber) === normalizedFullPhoneNumber,
-        );
+        const existingPhoneNumber = findPhoneNumberByNormalizedValue(user, normalizedFullPhoneNumber);
         if (existingPhoneNumber) {
-          const isVerified = existingPhoneNumber.verification?.status === "verified";
+          const isVerified = isPhoneNumberVerified(existingPhoneNumber);
           if (!isVerified) {
-            await existingPhoneNumber.prepareVerification();
+            await existingPhoneNumber.prepareVerification?.();
           }
           updateData({
             phoneNumberId: existingPhoneNumber.id,
@@ -350,13 +331,11 @@ export function PhoneNumberStep({ onNext, onBack, progress }: PhoneNumberStepPro
         if (isIdentifierAlreadyTakenError(err)) {
           try {
             await user.reload();
-            const existingPhoneNumber = user.phoneNumbers.find(
-              (p) => normalizePhoneForComparison(p.phoneNumber) === normalizedFullPhoneNumber,
-            );
+            const existingPhoneNumber = findPhoneNumberByNormalizedValue(user, normalizedFullPhoneNumber);
             if (existingPhoneNumber) {
-              const isVerified = existingPhoneNumber.verification?.status === "verified";
+              const isVerified = isPhoneNumberVerified(existingPhoneNumber);
               if (!isVerified) {
-                await existingPhoneNumber.prepareVerification();
+                await existingPhoneNumber.prepareVerification?.();
               }
               updateData({
                 phoneNumberId: existingPhoneNumber.id,

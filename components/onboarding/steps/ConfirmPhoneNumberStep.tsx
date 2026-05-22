@@ -47,21 +47,7 @@ import { useOnboardingPersistence } from "@/hooks/useOnboardingPersistence";
 import { useEnsureConvexUser } from "@/hooks/useEnsureConvexUser";
 import { X } from "lucide-react-native";
 import { OnboardingSurfaceColors } from "../onboardingColors";
-
-const destroyOtherPhoneNumbers = async (user: any, phoneNumberIdToKeep: string) => {
-  await user.update({ primaryPhoneNumberId: phoneNumberIdToKeep });
-  await user.reload();
-  const cleanupResults = await Promise.allSettled(
-    user.phoneNumbers
-      .filter((p: any) => p.id !== phoneNumberIdToKeep)
-      .map((p: any) => p.destroy()),
-  );
-  const failedCleanup = cleanupResults.filter((result) => result.status === "rejected");
-  if (failedCleanup.length > 0) {
-    console.warn("Failed to remove one or more secondary phone numbers:", failedCleanup);
-  }
-  await user.reload();
-};
+import { destroyOtherPhoneNumbers } from "@/lib/clerk-phone-numbers";
 
 interface ConfirmPhoneNumberStepProps {
   onNext: () => void;
@@ -205,7 +191,7 @@ export function ConfirmPhoneNumberStep({ onNext, onBack, progress }: ConfirmPhon
         }
 
         if (verifiedPhoneNumberResource?.id) {
-          await destroyOtherPhoneNumbers(user, verifiedPhoneNumberResource.id);
+          await destroyOtherPhoneNumbers(user, verifiedPhoneNumberResource.id, { makePrimary: true });
         }
 
         const phoneToSave =

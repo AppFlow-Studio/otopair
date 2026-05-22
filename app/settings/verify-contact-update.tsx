@@ -23,41 +23,19 @@ import {
 } from "@/components/shared-ui";
 import { useOnboardingPersistence } from "@/hooks/useOnboardingPersistence";
 import { useOnboardingStore } from "@/stores/useOnboardingStore";
+import {
+  cleanupStaleUnverifiedPhoneNumbers,
+  destroyOtherPhoneNumbers,
+  findPhoneNumberByNormalizedValue,
+  isPhoneNumberVerified,
+  normalizePhoneForComparison,
+} from "@/lib/clerk-phone-numbers";
 
 type VerificationTarget = "phone" | "email";
 
 // Prevent duplicate auto-send bursts across rapid remount/re-render cycles in dev.
 const recentAutoSendMap = new Map<string, number>();
 const AUTO_SEND_DEBOUNCE_MS = 5000;
-
-const normalizePhoneForComparison = (phone: string | undefined | null) =>
-  (phone ?? "").replace(/\D/g, "");
-
-const cleanupStaleUnverifiedPhoneNumbers = async (user: any, phoneToKeep: string) => {
-  await Promise.allSettled(
-    user.phoneNumbers
-      .filter(
-        (p: any) =>
-          p.verification?.status !== "verified" &&
-          normalizePhoneForComparison(p.phoneNumber) !== phoneToKeep,
-      )
-      .map((p: any) => p.destroy()),
-  );
-};
-
-const destroyOtherPhoneNumbers = async (user: any, phoneNumberIdToKeep: string) => {
-  await user.reload();
-  const cleanupResults = await Promise.allSettled(
-    user.phoneNumbers
-      .filter((p: any) => p.id !== phoneNumberIdToKeep)
-      .map((p: any) => p.destroy()),
-  );
-  const failedCleanup = cleanupResults.filter((result) => result.status === "rejected");
-  if (failedCleanup.length > 0) {
-    console.warn("Failed to remove one or more secondary phone numbers:", failedCleanup);
-  }
-  await user.reload();
-};
 
 export default function VerifyContactUpdateScreen() {
   const router = useRouter();
@@ -174,16 +152,13 @@ export default function VerifyContactUpdateScreen() {
         const normalizedPendingPhone = normalizePhoneForComparison(pendingPhone);
         await cleanupStaleUnverifiedPhoneNumbers(user, normalizedPendingPhone);
         if (!phoneVerificationRef.current) {
-          const existingUnverifiedPhone = user.phoneNumbers.find(
-            (p) =>
-              p.verification?.status !== "verified" &&
-              normalizePhoneForComparison(p.phoneNumber) === normalizedPendingPhone,
-          );
+          const existingPhone = findPhoneNumberByNormalizedValue(user, normalizedPendingPhone);
           phoneVerificationRef.current =
-            existingUnverifiedPhone ??
-            (await user.createPhoneNumber({
-              phoneNumber: pendingPhone,
-            }));
+            existingPhone && !isPhoneNumberVerified(existingPhone)
+              ? existingPhone
+              : await user.createPhoneNumber({
+                  phoneNumber: pendingPhone,
+                });
         }
         await phoneVerificationRef.current.prepareVerification();
       } else {
