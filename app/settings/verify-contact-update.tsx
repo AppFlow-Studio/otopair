@@ -23,6 +23,13 @@ import {
 } from "@/components/shared-ui";
 import { useOnboardingPersistence } from "@/hooks/useOnboardingPersistence";
 import { useOnboardingStore } from "@/stores/useOnboardingStore";
+import {
+  cleanupStaleUnverifiedPhoneNumbers,
+  destroyOtherPhoneNumbers,
+  findPhoneNumberByNormalizedValue,
+  isPhoneNumberVerified,
+  normalizePhoneForComparison,
+} from "@/lib/clerk-phone-numbers";
 
 type VerificationTarget = "phone" | "email";
 
@@ -67,7 +74,6 @@ export default function VerifyContactUpdateScreen() {
   const inputRefs = useRef<(TextInput | null)[]>([]);
   const phoneVerificationRef = useRef<any>(null);
   const emailVerificationRef = useRef<any>(null);
-  const initialPrimaryPhoneIdRef = useRef<string | null>(null);
   const initialPrimaryEmailIdRef = useRef<string | null>(null);
   const autoPreparedStepsRef = useRef<Record<VerificationTarget, boolean>>({
     phone: false,
@@ -80,9 +86,6 @@ export default function VerifyContactUpdateScreen() {
 
   useEffect(() => {
     if (!user) return;
-    if (initialPrimaryPhoneIdRef.current === null) {
-      initialPrimaryPhoneIdRef.current = user.primaryPhoneNumberId ?? null;
-    }
     if (initialPrimaryEmailIdRef.current === null) {
       initialPrimaryEmailIdRef.current = user.primaryEmailAddressId ?? null;
     }
@@ -146,10 +149,16 @@ export default function VerifyContactUpdateScreen() {
     setErrorMessage(null);
     try {
       if (currentStep === "phone") {
+        const normalizedPendingPhone = normalizePhoneForComparison(pendingPhone);
+        await cleanupStaleUnverifiedPhoneNumbers(user, normalizedPendingPhone);
         if (!phoneVerificationRef.current) {
-          phoneVerificationRef.current = await user.createPhoneNumber({
-            phoneNumber: pendingPhone,
-          });
+          const existingPhone = findPhoneNumberByNormalizedValue(user, normalizedPendingPhone);
+          phoneVerificationRef.current =
+            existingPhone && !isPhoneNumberVerified(existingPhone)
+              ? existingPhone
+              : await user.createPhoneNumber({
+                  phoneNumber: pendingPhone,
+                });
         }
         await phoneVerificationRef.current.prepareVerification();
       } else {
@@ -232,21 +241,9 @@ export default function VerifyContactUpdateScreen() {
       await user.update(userUpdatePayload);
     }
 
-    // 2) Remove previous primary methods so this acts as replace (not append).
-    if (
-      verifyPhone === "1" &&
-      user &&
-      initialPrimaryPhoneIdRef.current &&
-      initialPrimaryPhoneIdRef.current !== phoneVerificationRef.current?.id
-    ) {
-      const previousPrimaryPhone = user.phoneNumbers.find(
-        (p) => p.id === initialPrimaryPhoneIdRef.current,
-      );
-      try {
-        await previousPrimaryPhone?.destroy();
-      } catch (error) {
-        console.warn("Failed to remove previous primary phone number:", error);
-      }
+    // 2) Remove old contact methods so updates act as replace (not append).
+    if (verifyPhone === "1" && user && phoneVerificationRef.current?.id) {
+      await destroyOtherPhoneNumbers(user, phoneVerificationRef.current.id);
     }
 
     if (
@@ -360,7 +357,7 @@ export default function VerifyContactUpdateScreen() {
 
           <View style={styles.header}>
             <Text weight="bold" style={styles.title}>
-              Verify it's you
+              {"Verify it's you"}
             </Text>
             <Text style={styles.subtitle}>
               Enter the 6-digit code sent to {destination}
