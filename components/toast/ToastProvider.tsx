@@ -48,6 +48,9 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   const [current, setCurrent] = useState<ToastQueueItem | null>(null);
   const queueRef = useRef<ToastQueueItem[]>([]);
   const appStateRef = useRef(AppState.currentState);
+  // Tracks the queue-advance timer scheduled from handleDismissed so that
+  // unmount can clear it. Fix from Phase 2.5 STRESS-REPORT §1.2.
+  const advanceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const sub = AppState.addEventListener("change", (next) => {
@@ -59,7 +62,13 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       }
       appStateRef.current = next;
     });
-    return () => sub.remove();
+    return () => {
+      sub.remove();
+      if (advanceTimerRef.current) {
+        clearTimeout(advanceTimerRef.current);
+        advanceTimerRef.current = null;
+      }
+    };
   }, []);
 
   const advance = useCallback(() => {
@@ -110,8 +119,12 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   const handleDismissed = useCallback(
     (id: string) => {
       setCurrent((prev) => (prev?.id === id ? null : prev));
-      // schedule next on next tick
-      setTimeout(advance, 50);
+      // schedule next on next tick — tracked in a ref so unmount can clear
+      if (advanceTimerRef.current) clearTimeout(advanceTimerRef.current);
+      advanceTimerRef.current = setTimeout(() => {
+        advanceTimerRef.current = null;
+        advance();
+      }, 50);
     },
     [advance],
   );

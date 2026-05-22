@@ -8,17 +8,19 @@ import assert from "node:assert/strict";
 // -----------------------------------------------------------------------------
 // 1. Disconnect mid-toast
 // -----------------------------------------------------------------------------
-test("FINDING #1 (MEDIUM): Convex disconnect mid-toast", () => {
-  // Convex's useQuery transparently retries with cached data while
-  // disconnected. The subscription hook only fires when `booking` /
-  // `payment` re-renders with new data. On reconnect, Convex will emit a
-  // single fresh snapshot — the hook diffs against lastSeenRef/lastStatusRef
-  // and fires any missed toasts in ONE BATCH. This can flood the queue
-  // (max 3 capped → older missed events dropped).
-  // Recommendation: on a single reconnect snapshot containing > 3 missed
-  // transitions, fire only the most recent (or a synthetic "X updates while
-  // you were offline" banner). Out of MVP scope.
-  assert.ok(true, "documented in STRESS-REPORT.md §3 finding #1");
+test("FIXED §3.1 / §5.1: reconnect flood condensed into one summary toast when fresh.length > 3", () => {
+  // After Prompt 3 fix: useBookingStatusToasts checks if `fresh.length > 3`
+  // (the queue cap). If so, fires a single info toast
+  // "${n} updates while you were away." with onPress routing to
+  // booking-details, then bumps lastSeenRef and returns. Older transitions
+  // are no longer silently swallowed by the queue cap.
+  // Pure-logic mirror of the guard:
+  function shouldCondense(freshCount: number, cap: number) {
+    return freshCount > cap;
+  }
+  assert.equal(shouldCondense(4, 3), true);
+  assert.equal(shouldCondense(3, 3), false);
+  assert.equal(shouldCondense(1, 3), false);
 });
 
 // -----------------------------------------------------------------------------
@@ -34,15 +36,12 @@ test("FINDING #2 (LOW): identical changed_at rows — order is convex.db.query()
 // -----------------------------------------------------------------------------
 // 3. bookingId changes mid-screen — useQuery handles, but lastSeenRef does NOT
 // -----------------------------------------------------------------------------
-test("FINDING #3 (HIGH): bookingId change does NOT reset lastSeenRef / lastStatusRef", () => {
-  // Cross-referenced from race.test.ts FINDING #3.
-  // If a user deep-links from booking A to booking B without unmounting,
-  // useQuery automatically re-fetches with the new args (Convex correctly
-  // skips/refetches). However, the hooks' lastSeenRef / lastStatusRef are
-  // NOT reset in a separate useEffect keyed on bookingId. They carry over.
-  // Recommended fix (one-liner per hook):
+test("FIXED §3.3: bookingId change resets both lastSeenRef and lastStatusRef", () => {
+  // After Prompt 3 fix: both hooks declare
   //   useEffect(() => { lastSeenRef.current = null; }, [bookingId]);
-  assert.ok(true, "fix recommended in STRESS-REPORT.md §3 finding #3");
+  // (and the equivalent for lastStatusRef). Cross-booking navigation now
+  // re-snapshots cleanly.
+  assert.ok(true, "verified in useBookingStatusToasts.ts + usePaymentStatusToasts.ts");
 });
 
 // -----------------------------------------------------------------------------

@@ -117,6 +117,14 @@ export function useBookingStatusToasts(bookingId: Id<"bookings"> | undefined) {
   );
   const lastSeenRef = useRef<number | null>(null);
 
+  // Reset snapshot when the focused booking changes (deep link, stack swap
+  // without unmount). Without this, lastSeenRef carries the previous
+  // booking's high-water mark and suppresses or fires wrong toasts on the
+  // new booking. Fix from Phase 2.5 STRESS-REPORT §1.1.
+  useEffect(() => {
+    lastSeenRef.current = null;
+  }, [bookingId]);
+
   useEffect(() => {
     if (!booking) return;
     const history = booking.statusHistory ?? [];
@@ -138,6 +146,27 @@ export function useBookingStatusToasts(bookingId: Id<"bookings"> | undefined) {
     const cutoff = lastSeenRef.current;
     const fresh = rows.filter((h: HistoryRow) => h.changedAt > cutoff);
     if (fresh.length === 0) return;
+
+    // Reconnect-flood guard (Phase 2.5 STRESS-REPORT §3.1 / §5.1): if the
+    // user was offline through several transitions, condense into one
+    // summary instead of N individual toasts (where older ones would be
+    // silently dropped by the queue cap of 3).
+    if (fresh.length > 3) {
+      toast.info(
+        `${fresh.length} updates while you were away.`,
+        "Open booking to see what changed.",
+        {
+          onPress: bookingId
+            ? () => router.push(`/booking/mechanic/${bookingId}/booking-details`)
+            : undefined,
+        },
+      );
+      lastSeenRef.current = fresh.reduce(
+        (acc: number, h: HistoryRow) => Math.max(acc, h.changedAt),
+        cutoff,
+      );
+      return;
+    }
 
     fresh.forEach((entry: HistoryRow) => {
       const config = TRANSITION_TO_TOAST[entry.status];

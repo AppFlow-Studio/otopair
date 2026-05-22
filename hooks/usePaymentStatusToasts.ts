@@ -81,6 +81,12 @@ export function usePaymentStatusToasts(bookingId: Id<"bookings"> | undefined) {
   );
   const lastStatusRef = useRef<string | null>(null);
 
+  // Reset snapshot when the focused booking changes (deep link, stack swap
+  // without unmount). Fix from Phase 2.5 STRESS-REPORT §1.1.
+  useEffect(() => {
+    lastStatusRef.current = null;
+  }, [bookingId]);
+
   useEffect(() => {
     if (!payment) return;
     const status = payment.status;

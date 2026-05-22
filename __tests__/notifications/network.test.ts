@@ -8,17 +8,16 @@ import assert from "node:assert/strict";
 // -----------------------------------------------------------------------------
 // 1. Offline mutation queue
 // -----------------------------------------------------------------------------
-test("FINDING #1 (HIGH): offline mutations queued by Convex client, fire serially on reconnect", () => {
-  // Convex's mutation client queues offline mutations. When connectivity
-  // returns, mutations fire in submission order. useMutationWithToast
-  // catches each settle and fires its toast.
-  // Result: if user fires 5 mutations offline → comes online → 5 success
-  // toasts fire in succession. Queue cap is 3 → 2 oldest are dropped.
-  // The user does NOT see toasts for the first 2 mutations even though
-  // they succeeded. Misleading UX.
-  // Recommendation: when on the reconnect-flush path, condense into a
-  // single "5 changes saved" summary toast. Out of MVP scope; flagging.
-  assert.ok(true, "documented");
+test("PARTIALLY FIXED §5.1: subscription-driven flood is now condensed into a summary toast", () => {
+  // After Prompt 3 fix: useBookingStatusToasts condenses fresh.length > 3
+  // into one summary toast. SubsCRIPTION-side reconnect flood is handled.
+  //
+  // CLIENT-MUTATION-side reconnect flood (5 useMutationWithToast calls
+  // queued offline → 5 success toasts on reconnect → cap drops oldest 2)
+  // is NOT addressed in this pass. Tracked for post-launch — the
+  // useMutationWithToast call sites in MVP are user-initiated and
+  // unlikely to occur offline in batches.
+  assert.ok(true, "subscription side resolved; mutation side documented for follow-up");
 });
 
 // -----------------------------------------------------------------------------

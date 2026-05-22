@@ -123,10 +123,20 @@ export function Toast({ item, topOffset, onRequestDismiss }: Props) {
       const fastEnough = event.velocityY < -SWIPE_VELOCITY_THRESHOLD;
       const farEnough = event.translationY < -SWIPE_DISMISS_THRESHOLD;
       if (fastEnough || farEnough) {
-        translateY.value = withSpring(-200, { damping: 22, stiffness: 280 });
-        opacity.value = withTiming(0, { duration: 160 }, (done) => {
-          if (done) runOnJS(finalize)();
-        });
+        if (reduceMotion) {
+          opacity.value = withTiming(0, REDUCE_FADE, (done) => {
+            if (done) runOnJS(finalize)();
+          });
+        } else {
+          translateY.value = withSpring(-200, { damping: 22, stiffness: 280 });
+          opacity.value = withTiming(0, { duration: 160 }, (done) => {
+            if (done) runOnJS(finalize)();
+          });
+        }
+      } else if (reduceMotion) {
+        // Fix from Phase 2.5 STRESS-REPORT §4.4: don't spring under Reduce Motion.
+        translateY.value = withTiming(0, REDUCE_FADE);
+        opacity.value = withTiming(1, REDUCE_FADE);
       } else {
         translateY.value = withSpring(0, ENTER_SPRING);
         opacity.value = withTiming(1, { duration: 160 });
@@ -158,6 +168,16 @@ export function Toast({ item, topOffset, onRequestDismiss }: Props) {
           accessibilityLiveRegion={liveRegion(item.variant)}
           accessibilityLabel={item.body ? `${item.title}. ${item.body}` : item.title}
           accessibilityHint="Double tap to dismiss"
+          // Fix from Phase 2.5 STRESS-REPORT §4.5: explicit VoiceOver dismiss
+          // path since one-finger swipe is intercepted by VoiceOver focus nav.
+          accessibilityActions={[
+            { name: "activate", label: "Dismiss notification" },
+          ]}
+          onAccessibilityAction={(event) => {
+            if (event.nativeEvent.actionName === "activate") {
+              dismiss("tap");
+            }
+          }}
           style={[
             styles.container,
             {

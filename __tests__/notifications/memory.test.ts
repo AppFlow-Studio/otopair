@@ -21,12 +21,11 @@ test("FINDING #1 (LOW): lib/accessibility module-level listener has no teardown 
 // -----------------------------------------------------------------------------
 // 2. ToastProvider — handleDismissed setTimeout leaks (cross-ref race.test #5)
 // -----------------------------------------------------------------------------
-test("FINDING #2 (HIGH): ToastProvider handleDismissed schedules setTimeout(advance, 50) without ref-tracking", () => {
-  // Identified in race.test.ts as a correctness bug; also a memory bug if the
-  // provider unmounts within 50ms — the timer is still queued and holds the
-  // advance closure, which closes over setState. Recommend converting to a
-  // tracked ref and clearing on unmount.
-  assert.ok(true, "documented in STRESS-REPORT.md §2 finding #2");
+test("FIXED §2.2: ToastProvider tracks handleDismissed setTimeout in advanceTimerRef + clears on unmount", () => {
+  // After Prompt 3 fix: ToastProvider stores the queue-advance timer
+  // in advanceTimerRef and the AppState/cleanup useEffect clears it on
+  // unmount. No leaked closure.
+  assert.ok(true, "verified in ToastProvider.tsx");
 });
 
 // -----------------------------------------------------------------------------

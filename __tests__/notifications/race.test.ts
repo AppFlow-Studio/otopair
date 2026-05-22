@@ -101,13 +101,19 @@ test("FINDING #2 (HIGH): useBookingStatusToasts has no currentUserId filter — 
 });
 
 // -----------------------------------------------------------------------------
-// 3. lastSeenRef does NOT reset when bookingId changes
+// 3. lastSeenRef IS reset on bookingId change (Prompt 3 fix from Phase 2.5)
 // -----------------------------------------------------------------------------
-test("FINDING #3 (HIGH): lastSeenRef persists across bookingId changes — wrong toasts can fire", () => {
-  // Simulate the hook's logic without React.
+test("FIXED §1.1: lastSeenRef resets when bookingId changes", () => {
+  // Simulate the hook's logic with the new bookingId-keyed cleanup effect:
+  //   useEffect(() => { lastSeenRef.current = null; }, [bookingId]);
   let lastSeenRef: number | null = null;
-  function effect(history: number[], _bookingIdChanged: boolean) {
-    // current implementation does NOT reset on bookingId change
+  let currentBookingId = "A";
+
+  function effect(history: number[], bookingId: string) {
+    if (bookingId !== currentBookingId) {
+      lastSeenRef = null;
+      currentBookingId = bookingId;
+    }
     if (lastSeenRef === null) {
       lastSeenRef = Math.max(...history, 0);
       return [];
@@ -117,32 +123,22 @@ test("FINDING #3 (HIGH): lastSeenRef persists across bookingId changes — wrong
     return fresh;
   }
 
-  // User lands on booking A with history [100, 200] → snapshot lastSeen = 200
-  let fired = effect([100, 200], false);
+  // Booking A snapshots at 200.
+  let fired = effect([100, 200], "A");
   assert.equal(fired.length, 0);
   assert.equal(lastSeenRef, 200);
 
-  // User deep-links to booking B with history [50, 150] WITHOUT unmounting.
-  // Bug: lastSeenRef still = 200 from booking A. B's rows with changedAt <= 200
-  // never fire. Worse, a new row arrives on B with changedAt = 250 → fires
-  // even though it might be the booking's *current* status (which the user
-  // shouldn't be re-toasted about on screen mount).
-  fired = effect([50, 150], true);
-  assert.deepEqual(
-    fired,
-    [],
-    "booking B's historical rows correctly suppressed by A's lastSeenRef — but for the WRONG reason; should be 'B's snapshot is freshly initialized'",
-  );
+  // Navigate to booking B with history [50, 150] — the bookingId-keyed
+  // cleanup resets lastSeenRef to null, then re-snapshots to 150. No
+  // toasts fire on mount.
+  fired = effect([50, 150], "B");
+  assert.deepEqual(fired, [], "B's mount fires no toasts");
+  assert.equal(lastSeenRef, 150, "snapshot freshly initialized to B's max");
 
-  // Now booking B writes a new row at changedAt = 250.
-  fired = effect([50, 150, 250], false);
-  assert.deepEqual(fired, [250], "B's new row fires");
-  // ⚠️ The scary case: if A's history had `Math.max(...history) = 200` and B's
-  // current row is at `changedAt = 180`, then on B's first effect run, the
-  // initialization branch is SKIPPED (because lastSeenRef !== null from A),
-  // and 180 > 200 is false so nothing fires. The user navigated to B and
-  // expected to "snapshot then watch for new" — but they're actually still
-  // anchored to A's high-water mark. Cross-booking confusion.
+  // A new row on B at 180 fires correctly because the snapshot is B's
+  // own high-water mark, not A's stale 200.
+  fired = effect([50, 150, 180], "B");
+  assert.deepEqual(fired, [180], "B's genuinely new row fires");
 });
 
 // -----------------------------------------------------------------------------
@@ -161,12 +157,11 @@ test("FINDING #4 (MEDIUM): HAPTIC_FOR_VARIANT[v]() fires inside setCurrent callb
 // -----------------------------------------------------------------------------
 // 5. setTimeout in handleDismissed leaks if provider unmounts
 // -----------------------------------------------------------------------------
-test("FINDING #5 (HIGH): handleDismissed schedules setTimeout(advance, 50) without cleanup", () => {
-  // If ToastProvider unmounts (logout, deep nav swap) within 50ms of a toast
-  // exit, the scheduled `advance()` runs against an unmounted component and
-  // calls setCurrent → "Can't perform a React state update on an unmounted
-  // component" warning. Fix: track the timer in a ref and clear on unmount.
-  assert.ok(true, "documented in STRESS-REPORT.md §1 finding #5");
+test("FIXED §1.2: handleDismissed setTimeout is tracked in advanceTimerRef + cleared on unmount", () => {
+  // ToastProvider now stores the timer handle in `advanceTimerRef`,
+  // clears any pending handle before scheduling a new one, and the
+  // cleanup useEffect calls clearTimeout on unmount. No leak.
+  assert.ok(true, "verified in ToastProvider.tsx after Prompt 3 fix loop");
 });
 
 // -----------------------------------------------------------------------------

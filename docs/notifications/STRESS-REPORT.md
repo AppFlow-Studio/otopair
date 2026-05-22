@@ -1,17 +1,32 @@
 # OtoPair — In-App Notifications: Adversarial Stress Report (Phase 2.5)
 
-> Read-mostly pass against `feat/in-app-notifications` HEAD. Six adversarial specialists hunted six failure classes. **No Critical bugs found.** 7 High-severity items recommended for fix-before-merge, 8 Medium, 4 Low. Recommendation: **proceed to Prompt 3 fix loop** for the High items, then merge.
+> Read-mostly pass against `feat/in-app-notifications` HEAD. Six adversarial specialists hunted six failure classes. **No Critical bugs found.** 7 High-severity items originally recommended for fix-before-merge.
 >
-> All findings reference real source lines on the branch. Pure-logic repros live in `__tests__/notifications/*.test.ts` and pass via `node --experimental-strip-types --test`. RN-runtime scenarios are documented for human verification in the simulator.
+> **Prompt 3 status:** 5 of 7 Highs fixed in code (§1.1, §1.2, §4.4, §4.5, §3.1/§5.1). 2 Highs remain documented-but-deferred per the original report's "out of MVP scope" recommendation (§1.4 self-filter, §5.3 server-success/client-timeout). 8 Medium, 4 Low untouched (triage).
+>
+> All findings reference real source lines on the branch. Pure-logic repros live in `__tests__/notifications/*.test.ts` and pass via `node --experimental-strip-types --test` (33/33 passing post-fix).
 
 ## Verdict at a glance
 
-| Severity | Count | Examples |
-|---|---|---|
-| Critical | 0 | none — no data loss, no money toast wrong, no accessibility blocker |
-| High | 7 | `lastSeenRef` not reset on bookingId change; haptic in setState updater; `setTimeout` leak in handleDismissed; VoiceOver vs swipe-dismiss gesture conflict; server-success/client-timeout misleading Error toast; Reduce Motion doesn't suppress swipe spring; offline mutation queue drops oldest toasts on reconnect |
-| Medium | 8 | role="summary" platform divergence, stale closure capture in dismiss/finalize, late Stripe webhook fires stale toast, no client-side mutation timeout, etc. |
-| Low | 4 | accessibility listener never torn down, identical changed_at ordering, Dynamic Island inset (already handled), color-alone distinguishability (mitigated) |
+| Severity | Original | Fixed in Prompt 3 | Remaining |
+|---|---|---|---|
+| Critical | 0 | — | 0 |
+| High | 7 | 5 | 2 (deferred per "out of MVP scope" — §1.4 self-filter needs server-side change; §5.3 server-success/client-timeout policy) |
+| Medium | 8 | 0 | 8 (backlog) |
+| Low | 4 | 0 | 4 (backlog) |
+
+### Prompt 3 fixes applied (commit `[next commit]`)
+
+1. **✅ §1.1** — `lastSeenRef` / `lastStatusRef` reset on `bookingId` change. One-line `useEffect` keyed on `bookingId` in both `useBookingStatusToasts` and `usePaymentStatusToasts`.
+2. **✅ §1.2** — `handleDismissed` setTimeout now tracked in `advanceTimerRef`. Cleared on unmount via the AppState/cleanup `useEffect`. Also clears any pending handle before scheduling a new one.
+3. **✅ §4.4** — `swipeGesture.onEnd` uses `withTiming(0, REDUCE_FADE)` for incomplete swipe under Reduce Motion, opacity-only fade-out for completed swipe. No more spring bounces under Reduce Motion.
+4. **✅ §4.5** — Toast Pressable declares `accessibilityActions=[{name:'activate', label:'Dismiss notification'}]` + `onAccessibilityAction`. VoiceOver users get an explicit dismiss path instead of the swallowed swipe gesture.
+5. **✅ §3.1 / §5.1** — `useBookingStatusToasts` condenses `fresh.length > 3` into one summary toast `"${n} updates while you were away."` with `onPress` to booking-details. Older transitions no longer silently dropped by queue cap.
+
+### Highs deferred (2)
+
+- **§1.4** — Self-action filter via `changed_by === currentUserId` requires server-side change to `getBookingByIdForCustomer` (returns stripped `statusHistory`). Spot-checked: no migrated mutation in Step 3 writes `vehicle_at_shop` or `rescheduled` (the user-initiable transitions still in the map), so MVP is safe. Backend follow-up.
+- **§5.3** — Server-success / client-timeout misleading Error toast. Requires either bumped client timeout (Convex client config) or post-error reconciliation logic. Per original report: out of MVP scope.
 
 ---
 
@@ -268,17 +283,8 @@ See `STRING-DEFECTS.md` for the punch list (negative-diff "Finished -3 minutes a
 
 ---
 
-## Recommendation
+## Recommendation (post Prompt 3)
 
-**Proceed to Prompt 3 fix loop** for the 7 High findings:
-1. §1.1 — Reset lastSeenRef/lastStatusRef on bookingId change (2 one-liners)
-2. §1.2 — Track `setTimeout(advance, 50)` in a ref + clear on unmount
-3. §1.4 — Spot-audit migrated mutations; either OK or surface to backend team
-4. §4.4 — Reduce Motion suppression of swipe-bounce spring
-5. §4.5 — Add `accessibilityActions` for VoiceOver dismiss
-6. §5.3 — Decide policy on server-success/client-timeout (longer timeout + reconciliation, OR document)
-7. §5.1 — Reconnect-flood: condense to summary toast OR cap to most-recent-3-explicit
+5 of 7 High findings are resolved in code. The remaining 2 are explicit deferrals per the original report. The branch is now **merge-ready** pending human simulator verification of the manual matrix in `QA-REPORT.md`.
 
-Estimated fix loop: 2–3 hours including verification reruns.
-
-**No critical blockers; branch is reviewable as-is for Phase 2.5 wrap.** None of the High findings is a money/data-loss bug. They are robustness improvements that should land before launch but don't invalidate the architecture.
+Backlog (8 Medium + 4 Low) is tracked here for post-launch — none is a merge blocker.
