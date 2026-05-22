@@ -30,14 +30,13 @@ import { usePathname, useRouter } from "expo-router";
 import { Text } from "@/components/shared-ui";
 import { AvatarSlider } from "@/components/settings/AvatarSlider";
 import { api } from "@/convex/_generated/api";
-
-// 3D OtoPair pin logo used as the second avatar-slider panel.
-const OTO_LOGO_3D = require("@/assets/images/pin-logo-3d.png");
 import { useOnboardingStore } from "@/stores/useOnboardingStore";
 import { useSettingsOverlayStore } from "@/stores/useSettingsOverlayStore";
 import { computeInitials } from "@/utils/userInitials";
 
 const BUTTON_SIZE = 40;
+// 3D OtoPair pin logo used as the second avatar-slider panel.
+const OTO_LOGO_3D = require("@/assets/images/pin-logo-3d.png");
 
 export function ProfileInitialsButton() {
   const viewRef = useRef<View>(null);
@@ -53,6 +52,7 @@ export function ProfileInitialsButton() {
       })),
     );
   const setFromRect = useSettingsOverlayStore((s) => s.setFromRect);
+  const revealHomeAvatar = useSettingsOverlayStore((s) => s.revealHomeAvatar);
 
   // The avatar must stay hidden whenever the overlay is somewhere on
   // the stack — either focused (/profile-overlay) OR underneath a
@@ -69,6 +69,7 @@ export function ProfileInitialsButton() {
     pathname.startsWith("/settings") ||
     pathname.startsWith("/payments") ||
     pathname.startsWith("/membership");
+  const shouldHideForOverlay = overlayLifecycleActive && !revealHomeAvatar;
 
   const initials = useMemo(
     () =>
@@ -118,10 +119,10 @@ export function ProfileInitialsButton() {
   // hard pop the user saw as a button glitch.
   const contentOpacity = useSharedValue(1);
   useEffect(() => {
-    contentOpacity.value = withTiming(overlayLifecycleActive ? 0 : 1, {
+    contentOpacity.value = withTiming(shouldHideForOverlay ? 0 : 1, {
       duration: 90,
     });
-  }, [overlayLifecycleActive, contentOpacity]);
+  }, [contentOpacity, shouldHideForOverlay]);
   const contentStyle = useAnimatedStyle(() => ({
     opacity: contentOpacity.value,
   }));
@@ -144,6 +145,7 @@ export function ProfileInitialsButton() {
               paused={overlayLifecycleActive}
               panels={[
                 <Text
+                  key="initials"
                   weight="semiBold"
                   size="sm"
                   color="#FFFFFF"
@@ -152,6 +154,7 @@ export function ProfileInitialsButton() {
                   {initials}
                 </Text>,
                 <Image
+                  key="logo"
                   source={OTO_LOGO_3D}
                   style={{ width: 38, height: 38 }}
                   resizeMode="contain"

@@ -83,6 +83,9 @@ export function SettingsContainerTransformOverlay() {
   );
 
   const initialRect = useSettingsOverlayStore.getState().fromRect;
+  const setRevealHomeAvatar = useSettingsOverlayStore(
+    (s) => s.setRevealHomeAvatar,
+  );
   const activeRectRef = useRef<SettingsOverlayRect>(
     initialRect ?? {
       x: window.width / 2 - 28,
@@ -127,7 +130,8 @@ export function SettingsContainerTransformOverlay() {
 
   const resetClosing = useCallback(() => {
     isClosingRef.current = false;
-  }, []);
+    setRevealHomeAvatar(false);
+  }, [setRevealHomeAvatar]);
 
   const measureRoot = useCallback(() => {
     rootRef.current?.measureInWindow((x, y, width, height) => {
@@ -223,6 +227,7 @@ export function SettingsContainerTransformOverlay() {
   const handleClose = useCallback(() => {
     if (isClosingRef.current) return;
     isClosingRef.current = true;
+    setRevealHomeAvatar(true);
     expandedAvatarTop.value =
       insets.top + 40 - currentSettingsScrollYRef.current;
     floatingAvatarVisibility.value = 0;
@@ -245,6 +250,7 @@ export function SettingsContainerTransformOverlay() {
     floatingAvatarVisibility,
     insets.top,
     resetClosing,
+    setRevealHomeAvatar,
     startCloseAnimation,
   ]);
 

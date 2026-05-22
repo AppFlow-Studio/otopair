@@ -106,6 +106,9 @@ export function SettingsOverlay() {
 function IOSSettingsOverlay() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const setRevealHomeAvatar = useSettingsOverlayStore(
+    (s) => s.setRevealHomeAvatar,
+  );
 
   // Capture the rect ONCE at mount. After this, the floating-avatar
   // morph anchor is fixed — even if the user scrolls or rotates,
@@ -177,13 +180,14 @@ function IOSSettingsOverlay() {
   // button or hardware back. Swipe-back gestures bypass this and use
   // the default pop (no morph) — acceptable per the plan.
   const handleClose = useCallback(() => {
+    setRevealHomeAvatar(true);
     setSettled(false);
     progress.value = withSpring(0, SPRING_CONFIG, (finished) => {
       if (finished) {
         runOnJS(router.back)();
       }
     });
-  }, [progress, router]);
+  }, [progress, router, setRevealHomeAvatar]);
 
   // Intercept Android hardware back so the close morph plays before
   // pop. Without this, hardware back would instantly unmount the

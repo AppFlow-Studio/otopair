@@ -31,10 +31,14 @@ export interface SettingsOverlayRect {
 
 interface SettingsOverlayState {
   fromRect: SettingsOverlayRect | null;
+  revealHomeAvatar: boolean;
   setFromRect: (rect: SettingsOverlayRect | null) => void;
+  setRevealHomeAvatar: (reveal: boolean) => void;
 }
 
 export const useSettingsOverlayStore = create<SettingsOverlayState>((set) => ({
   fromRect: null,
-  setFromRect: (rect) => set({ fromRect: rect }),
+  revealHomeAvatar: false,
+  setFromRect: (rect) => set({ fromRect: rect, revealHomeAvatar: false }),
+  setRevealHomeAvatar: (reveal) => set({ revealHomeAvatar: reveal }),
 }));
