@@ -26,6 +26,7 @@ import React, { useEffect, useState } from 'react';
 import {
   Dimensions,
   Image,
+  ImageSourcePropType,
   Pressable,
   StyleSheet,
   View,
@@ -122,6 +123,7 @@ const SAMPLE_VEHICLES: Vehicle[] = [
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const SWIPE_THRESHOLD = SCREEN_WIDTH / 4;
+const FALLBACK_VEHICLE_IMAGE = require('@/assets/images/covered-car.png');
 
 // ============================================================================
 // COMPONENT
@@ -137,6 +139,7 @@ export function VehicleMaintenanceCard({
   const [currentIndex, setCurrentIndex] = useState(0);
   const [backIndex, setBackIndex] = useState(vehicles.length > 1 ? 1 : 0);
   const [fetchedImageUrls, setFetchedImageUrls] = useState<Record<string, string>>({});
+  const [imageLoadErrors, setImageLoadErrors] = useState<Record<string, string | true>>({});
   const [measuredHeights, setMeasuredHeights] = useState<Record<string, number>>({});
 
   // Animated values for the front card
@@ -164,7 +167,6 @@ export function VehicleMaintenanceCard({
 
   const advanceIndex = () => {
     setCurrentIndex((prev) => (prev + 1) % vehicles.length);
-    onSwipeEnd?.();
   };
 
   // After React commits the new front card content, make it visible
@@ -209,8 +211,10 @@ export function VehicleMaintenanceCard({
       } else {
         translateX.value = withSpring(0, { damping: 15, stiffness: 150 });
         rotation.value = withSpring(0, { damping: 15, stiffness: 150 });
-        if (onSwipeEnd) runOnJS(onSwipeEnd)();
       }
+    })
+    .onFinalize(() => {
+      if (onSwipeEnd) runOnJS(onSwipeEnd)();
     });
 
   const frontCardStyle = useAnimatedStyle(() => ({
@@ -221,12 +225,33 @@ export function VehicleMaintenanceCard({
     ],
   }));
 
-  const renderCardContent = (vehicle: Vehicle, maxItems?: number) => {
+  const resolveVehicleImageSource = (vehicle: Vehicle): ImageSourcePropType => {
+    if (vehicle.localImage) return vehicle.localImage;
+
+    const resolvedImageUrl = fetchedImageUrls[vehicle.id] || vehicle.imageUrl;
+    if (!resolvedImageUrl || imageLoadErrors[vehicle.id] === resolvedImageUrl) {
+      return FALLBACK_VEHICLE_IMAGE;
+    }
+
+    return { uri: resolvedImageUrl };
+  };
+
+  const handleVehicleImageError = (vehicle: Vehicle) => {
+    const resolvedImageUrl = fetchedImageUrls[vehicle.id] || vehicle.imageUrl;
+    setImageLoadErrors((prev) => {
+      if (!resolvedImageUrl || prev[vehicle.id] === resolvedImageUrl) {
+        return prev;
+      }
+      return { ...prev, [vehicle.id]: resolvedImageUrl };
+    });
+  };
+
+  const renderCardContent = (vehicle: Vehicle, maxItems?: number, isPreview = false) => {
     const items = maxItems ? vehicle.maintenanceItems.slice(0, maxItems) : vehicle.maintenanceItems;
     return (
-    <View style={styles.card}>
+    <View style={[styles.card, isPreview && styles.cardPreview]}>
       {/* Top Section - Vehicle Info */}
-      <View style={styles.topSection}>
+      <View style={[styles.topSection, isPreview && styles.topSectionPreview]}>
         <LinearGradient
           colors={['#FFFFFF', '#FFFFFF']}
           start={{ x: 0, y: 0 }}
@@ -263,9 +288,10 @@ export function VehicleMaintenanceCard({
               </Text>
             </View>
             <Image
-              source={vehicle.localImage || { uri: fetchedImageUrls[vehicle.id] || vehicle.imageUrl }}
+              source={resolveVehicleImageSource(vehicle)}
               style={styles.vehicleImage}
               resizeMode="contain"
+              onError={() => handleVehicleImageError(vehicle)}
             />
           </View>
         </View>
@@ -342,12 +368,7 @@ export function VehicleMaintenanceCard({
         Vehicle Maintenance
       </Text>
 
-      <View
-        style={styles.swiperWrapper}
-        onTouchStart={() => onSwipeStart?.()}
-        onTouchEnd={() => onSwipeEnd?.()}
-        onTouchCancel={() => onSwipeEnd?.()}
-      >
+      <View style={styles.swiperWrapper}>
         {/* Pre-measure every card so the section keeps a stable height. */}
         <View style={styles.measurementLayer} pointerEvents="none">
           {vehicles.map((vehicle) => (
@@ -382,7 +403,7 @@ export function VehicleMaintenanceCard({
           {/* Back card preview */}
           {canSwipe && (
             <View style={styles.backCard}>
-              {renderCardContent(vehicles[backIndex], 1)}
+              {renderCardContent(vehicles[backIndex], 1, true)}
             </View>
           )}
 
@@ -467,7 +488,6 @@ const styles = StyleSheet.create({
     left: 12,
     right: 12,
     zIndex: 0,
-    opacity: 0.9,
     transform: [{ scale: 0.98 }],
   },
   card: {
@@ -478,6 +498,11 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 5,
     overflow: 'hidden',
+  },
+  cardPreview: {
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 3,
   },
   topSection: {
     borderTopLeftRadius: 12,
@@ -495,6 +520,12 @@ const styles = StyleSheet.create({
     shadowRadius: 10,
     elevation: 6,
     zIndex: 2,
+  },
+  topSectionPreview: {
+    borderWidth: 0,
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
   },
   topSectionInner: {
     padding: 20,
