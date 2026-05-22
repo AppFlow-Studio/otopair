@@ -68,6 +68,7 @@ export function ProfilePhotoStep({ onNext, onBack, progress }: ProfilePhotoStepP
   const [imageUri, setImageUri] = useState<string | null>(
     data.profilePhotoUri ?? null
   );
+  const [hasSelectedNewPhoto, setHasSelectedNewPhoto] = useState(false);
   const [showPhotoModal, setShowPhotoModal] = useState(false);
 
   useEffect(() => {
@@ -111,6 +112,7 @@ export function ProfilePhotoStep({ onNext, onBack, progress }: ProfilePhotoStepP
     if (!result.canceled && result.assets?.length) {
       const uri = result.assets[0].uri;
       setImageUri(uri);
+      setHasSelectedNewPhoto(true);
       updateData({ profilePhotoUri: uri });
     }
   };
@@ -132,6 +134,7 @@ export function ProfilePhotoStep({ onNext, onBack, progress }: ProfilePhotoStepP
     if (!result.canceled && result.assets?.length) {
       const uri = result.assets[0].uri;
       setImageUri(uri);
+      setHasSelectedNewPhoto(true);
       updateData({ profilePhotoUri: uri });
     }
   };
@@ -145,7 +148,7 @@ export function ProfilePhotoStep({ onNext, onBack, progress }: ProfilePhotoStepP
   };
 
   const handleContinue = async () => {
-    if (imageUri) {
+    if (imageUri && hasSelectedNewPhoto) {
       setIsUploading(true);
       try {
         await persistProfilePhoto(imageUri);
