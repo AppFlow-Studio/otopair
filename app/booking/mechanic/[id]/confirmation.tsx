@@ -41,6 +41,7 @@ import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { BorderRadius, Shadows } from "@/constants/theme";
+import { useBookingStatusToasts } from "@/hooks/useBookingStatusToasts";
 import { useToast } from "@/hooks/useToast";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
@@ -204,6 +205,13 @@ export default function ConfirmationScreen() {
   const { id: bookingId, bookingDbId } = useLocalSearchParams<{ id: string; bookingDbId?: string }>();
   const isCompactLayout = windowHeight < 860;
   const isVeryCompactLayout = windowHeight < 760;
+
+  // Listen for the shop's acceptance toast while the user celebrates here.
+  // If they stay on this screen long enough for `pending_shop_acceptance` →
+  // `confirmed` to flip, they'll see the Trust-Moment toast in real time.
+  // If they navigate away, booking-details.tsx picks up the subscription
+  // on their next return. Diagnostic 2026-05-21 Part B.
+  useBookingStatusToasts(bookingDbId as Id<"bookings"> | undefined);
 
   // ═══════════════ STORES ═══════════════
   const selectedMechanicId = useBookingStore((state) => state.selectedMechanicId);
