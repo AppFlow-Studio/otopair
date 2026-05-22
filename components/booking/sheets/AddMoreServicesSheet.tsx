@@ -23,8 +23,11 @@ import { BrandColors, PrimaryButton, Spacing, Text } from "@/components/shared-u
 
 // 4. Constants, hooks, types, stores
 import { BorderRadius, getSheetContentPadding, Shadows } from "@/constants/theme";
+import { useServiceVehicleSpecsForEngine } from "@/hooks/useServiceVehicleSpecsForEngine";
+import { formatDurationForCar } from "@/lib/formatDuration";
 import type { Service, ServiceCategory } from "@/stores/types/store.types";
 import { useBookingStore } from "@/stores/useBookingStore";
+import { useVehicleStore } from "@/stores/useVehicleStore";
 
 // ============================================================================
 // TYPES
@@ -64,6 +67,11 @@ export const AddMoreServicesSheet = forwardRef<AddMoreServicesSheetRef, AddMoreS
     const toggleServiceSelection = useBookingStore((state) => state.toggleServiceSelection);
     const availableServices = useBookingStore((state) => state.availableServices);
     const getServiceCategories = useBookingStore((state) => state.getServiceCategories);
+    const engineId = useVehicleStore((state) => state.getSelectedVehicle()?.engineId);
+
+    // ═══════════════ PER-CAR DURATION SPECS ═══════════════
+    const allServiceIds = useMemo(() => availableServices.map((s) => s.id), [availableServices]);
+    const engineSpecs = useServiceVehicleSpecsForEngine(engineId, allServiceIds);
 
     // ═══════════════ SNAP POINTS ═══════════════
     const snapPoints = useMemo(() => ["85%"], []);
@@ -158,6 +166,8 @@ export const AddMoreServicesSheet = forwardRef<AddMoreServicesSheetRef, AddMoreS
     const renderServiceItem = useCallback(
       (service: Service) => {
         const isSelected = selectedServiceIds.includes(service.id);
+        const hours = engineSpecs[service.id]?.labor_hours ?? service.default_labor_hours;
+        const durationLabel = formatDurationForCar(hours);
 
         return (
           <TouchableOpacity
@@ -167,9 +177,22 @@ export const AddMoreServicesSheet = forwardRef<AddMoreServicesSheetRef, AddMoreS
             activeOpacity={0.7}
           >
             <View style={styles.serviceInfo}>
-              <Text size="md" weight="semiBold" color={BrandColors.primary}>
-                {service.name}
-              </Text>
+              <View style={styles.serviceTitleRow}>
+                <Text
+                  size="md"
+                  weight="semiBold"
+                  color={BrandColors.primary}
+                  style={styles.serviceName}
+                  numberOfLines={1}
+                >
+                  {service.name}
+                </Text>
+                {durationLabel && (
+                  <Text size="xs" weight="medium" color="#6B7280">
+                    Est. Duration {durationLabel}
+                  </Text>
+                )}
+              </View>
               <Text size="sm" weight="regular" color="#6B7280">
                 {service.description}
               </Text>
@@ -177,7 +200,7 @@ export const AddMoreServicesSheet = forwardRef<AddMoreServicesSheetRef, AddMoreS
           </TouchableOpacity>
         );
       },
-      [selectedServiceIds, handleServicePress],
+      [selectedServiceIds, handleServicePress, engineSpecs],
     );
 
     // ═══════════════ RENDER ═══════════════
@@ -325,6 +348,15 @@ const styles = StyleSheet.create({
     backgroundColor: "#F0F7FF",
   },
   serviceInfo: {
+    flex: 1,
+  },
+  serviceTitleRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    justifyContent: "space-between",
+    gap: Spacing.sm,
+  },
+  serviceName: {
     flex: 1,
   },
   emptyState: {

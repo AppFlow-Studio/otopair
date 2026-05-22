@@ -49,6 +49,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Text } from "@/components/shared-ui";
 import { BorderRadius } from "@/constants/theme";
+import { useToast } from "@/hooks/useToast";
 import { useBookingStore } from "@/stores/useBookingStore";
 import type { Booking } from "./BookingCard";
 import { MechanicChatSheet, type MechanicChatSheetRef } from "./MechanicChatSheet";
@@ -752,6 +753,7 @@ function FullContent({
   onRequestReschedule,
   bottomPadding,
 }: FullContentProps) {
+  const toast = useToast();
   const handleCancel = useCallback(() => {
     Alert.alert(
       "Cancel booking?",
@@ -764,12 +766,13 @@ function FullContent({
           onPress: () => {
             useBookingStore.getState().cancelBooking(booking.id);
             onClose();
+            toast.success("Booking cancelled.");
           },
         },
       ],
       { cancelable: true },
     );
-  }, [booking.id, onClose]);
+  }, [booking.id, onClose, toast]);
 
   const handleReschedule = useCallback(() => {
     // Pull the raw scheduledDate/scheduledTime from the local store so the

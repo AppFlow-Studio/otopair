@@ -84,8 +84,8 @@ import { useRecentlyBookedMechanicIdsFromConvex } from "@/hooks/useRecentlyBooke
 import { useRecentlyBookedShopIdsFromConvex } from "@/hooks/useRecentlyBookedShopIdsFromConvex";
 import { useServiceOptionsForSelected } from "@/hooks/useServiceOptionsForSelected";
 import { useServiceVehicleSpecsForEngine } from "@/hooks/useServiceVehicleSpecsForEngine";
-import { useSmartPricing } from "@/hooks/useSmartPricing";
 import { useQuickReadGate } from "@/hooks/useQuickReadGate";
+import { formatDurationForCar } from "@/lib/formatDuration";
 import { QuickReadGateSheet } from "./QuickReadGateSheet";
 import type { ServiceCategory } from "@/stores/types/store.types";
 import { useBookingStore } from "@/stores/useBookingStore";
@@ -333,7 +333,7 @@ export function ServiceBottomSheet({
   );
   const engineSpecs = useServiceVehicleSpecsForEngine(selectedVehicle?.engineId, selectedServiceIds);
   const allServiceIds = useMemo(() => availableServices.map((s) => s.id), [availableServices]);
-  const smartPricing = useSmartPricing(selectedVehicle?.engineId, allServiceIds);
+  const allServicesEngineSpecs = useServiceVehicleSpecsForEngine(selectedVehicle?.engineId, allServiceIds);
 
   // Compute service name for mechanic selection footer
   const mechanicFooterServiceName = useMemo(() => {
@@ -1343,9 +1343,29 @@ export function ServiceBottomSheet({
                 <Wrench size={18} color={BrandColors.secondary} />
               </View>
               <View style={styles.resultContent}>
-                <Text size="md" weight="semiBold" color={BrandColors.primary}>
-                  {suggestion.type === "service" ? suggestion.service.name : suggestion.label}
-                </Text>
+                <View style={styles.suggestionTitleRow}>
+                  <Text
+                    size="md"
+                    weight="semiBold"
+                    color={BrandColors.primary}
+                    style={styles.suggestionName}
+                    numberOfLines={1}
+                  >
+                    {suggestion.type === "service" ? suggestion.service.name : suggestion.label}
+                  </Text>
+                  {suggestion.type === "service" && (() => {
+                    const hours =
+                      allServicesEngineSpecs[suggestion.service.id]?.labor_hours ??
+                      suggestion.service.default_labor_hours;
+                    const durationLabel = formatDurationForCar(hours);
+                    if (!durationLabel) return null;
+                    return (
+                      <Text size="xs" weight="medium" color="#6B7280">
+                        Est. Duration {durationLabel}
+                      </Text>
+                    );
+                  })()}
+                </View>
                 {suggestion.type === "service" && (
                   <Text size="sm" color="#6B7280" numberOfLines={1}>
                     {suggestion.service.description}
@@ -1357,33 +1377,6 @@ export function ServiceBottomSheet({
                   </Text>
                 )}
               </View>
-              {suggestion.type === "service" && (() => {
-                const sp = smartPricing[suggestion.service.id];
-                if (sp?.hasEngineData && sp.result.tier !== "contact") {
-                  return (
-                    <View style={{ alignItems: "flex-end" }}>
-                      <Text size="md" weight="bold" color={BrandColors.secondary}>
-                        {sp.formatted}
-                      </Text>
-                      <Text size="xs" weight="medium" color="#9CA3AF">
-                        {sp.result.label}
-                      </Text>
-                    </View>
-                  );
-                }
-                if (sp?.hasEngineData && sp.result.tier === "contact") {
-                  return (
-                    <Text size="xs" weight="medium" color="#9CA3AF">
-                      Contact for Quote
-                    </Text>
-                  );
-                }
-                return (
-                  <Text size="md" weight="bold" color={BrandColors.secondary}>
-                    ${suggestion.service.price}
-                  </Text>
-                );
-              })()}
             </TouchableOpacity>
           ))}
         </View>
@@ -1419,14 +1412,14 @@ export function ServiceBottomSheet({
                       >
                         {shop.name}
                       </Text>
-                      {shop.rating && (
+                      {shop.rating ? (
                         <View style={styles.ratingBadge}>
                           <Star size={12} color="#F5C254" fill="#F5C254" />
                           <Text size="xs" weight="semiBold" color={BrandColors.primary}>
                             {shop.rating.toFixed(1)}
                           </Text>
                         </View>
-                      )}
+                      ) : null}
                     </View>
                     <Text size="sm" color="#6B7280" numberOfLines={1}>
                       {shop.address}
@@ -1464,14 +1457,14 @@ export function ServiceBottomSheet({
                       >
                         {mechanic.name}
                       </Text>
-                      {mechanic.rating && (
+                      {mechanic.rating ? (
                         <View style={styles.ratingBadge}>
                           <Star size={12} color="#F5C254" fill="#F5C254" />
                           <Text size="xs" weight="semiBold" color={BrandColors.primary}>
                             {mechanic.rating.toFixed(1)}
                           </Text>
                         </View>
-                      )}
+                      ) : null}
                     </View>
                     <Text size="sm" color="#6B7280" numberOfLines={1}>
                       {mechanic.title ?? mechanic.shopName} • {mechanic.yearsExperience} yrs
@@ -1969,6 +1962,15 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   resultContent: {
+    flex: 1,
+  },
+  suggestionTitleRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    justifyContent: "space-between",
+    gap: Spacing.sm,
+  },
+  suggestionName: {
     flex: 1,
   },
   resultHeader: {

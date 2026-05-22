@@ -17,6 +17,7 @@ import { BlurBackdrop } from "@/components/shared-ui/BlurBackdrop";
 import { Bell, MoveRight, Star, Trophy } from 'lucide-react-native';
 import { useMutation, useQuery } from 'convex/react';
 import { api } from '@/convex/_generated/api';
+import { useMutationWithToast } from '@/hooks/useMutationWithToast';
 
 // 3. Shared UI
 import { Button, BrandColors, ScrollDrivenGradientBackground, Text } from "@/components/shared-ui";
@@ -462,7 +463,10 @@ export default function HomeScreen() {
   // Cancel handler — mirror the bookings tab's behavior. Convex bookings
   // get the cancelBooking mutation; tire-quote-prefixed local IDs are
   // out of scope here (those don't surface as upcoming on home).
-  const cancelConvexBooking = useMutation(api.bookings.cancelBooking);
+  const cancelConvexBooking = useMutationWithToast(api.bookings.cancelBooking, {
+    success: "Booking cancelled.",
+    error: "Couldn't cancel this booking. Try again.",
+  });
   const handleAppointmentCancel = useCallback(
     (bookingId: string) => {
       const isLocalId = bookingId.startsWith("tire_quote_") || bookingId.startsWith("booking_");

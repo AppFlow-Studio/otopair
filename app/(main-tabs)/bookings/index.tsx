@@ -32,8 +32,9 @@ import { useBookingStore } from "@/stores/useBookingStore";
 import { useBookingsBadgeStore } from "@/stores/useBookingsBadgeStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 import { useRecHistoryFromConvex } from "@/hooks/useRecHistoryFromConvex";
-import { useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import { useMutationWithToast } from "@/hooks/useMutationWithToast";
+import { useToast } from "@/hooks/useToast";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { Calendar, Car, Check, ChevronRight, ListFilter } from "lucide-react-native";
@@ -166,17 +167,22 @@ export default function BookingsScreen() {
   // `tire_quote_*` id format from `synthesizeTireQuoteBooking`; real
   // Convex ids are base32 and never start with that prefix.
   const cancelLocalBooking = useBookingStore((s) => s.cancelBooking);
-  const cancelConvexBooking = useMutation(api.bookings.cancelBooking);
+  const toast = useToast();
+  const cancelConvexBooking = useMutationWithToast(api.bookings.cancelBooking, {
+    success: "Booking cancelled.",
+    error: "Couldn't cancel this booking. Try again.",
+  });
   const handleCancelBooking = useCallback(
     (bookingId: string) => {
       const isLocalId = bookingId.startsWith("tire_quote_") || bookingId.startsWith("booking_");
       if (isLocalId) {
         cancelLocalBooking(bookingId);
+        toast.success("Booking cancelled.");
       } else {
         void cancelConvexBooking({ bookingId: bookingId as Id<"bookings"> });
       }
     },
-    [cancelConvexBooking, cancelLocalBooking],
+    [cancelConvexBooking, cancelLocalBooking, toast],
   );
 
   const bookings = (
