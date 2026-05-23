@@ -29,7 +29,9 @@ import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 // 4. Constants, hooks, types
 import { getPartsBreakdown } from "@/constants/services";
 import { BorderRadius, Shadows, getSheetContentPadding } from "@/constants/theme";
+import { useBookingPartsBreakdown } from "@/hooks/useBookingPartsBreakdown";
 import { computeBookingTax } from "@/lib/tax";
+import { computePlatformFeeDollars } from "@/lib/platformFee";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
 import { usePaymentStore } from "@/stores/usePaymentStore";
@@ -51,11 +53,9 @@ interface ReviewPayContentProps {
 // CONSTANTS
 // ============================================================================
 
-// Service fee: 7% of service subtotal, $4.99 minimum, no cap
+// Platform fee + tax math live in lib/platformFee.ts and lib/tax.ts —
+// single source of truth shared with the Convex server side.
 // TODO: When subscriptions are wired, waive service fee for Preferred/Elite subscribers
-const SERVICE_FEE_RATE = 0.07;
-const SERVICE_FEE_MINIMUM = 4.99;
-// Tax is derived from shop's state via `computeTaxDollars` (lib/tax.ts).
 
 // "8:15 AM" + 45 min → "9:00 AM". Returns null if input can't be parsed.
 function addMinutesToTimeLabel(label: string, minutes: number): string | null {
@@ -125,17 +125,47 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
     [availableServices, selectedServiceIds],
   );
 
-  // Calculate detailed breakdown (shop labor rate only; DB values only, no fallbacks)
+  // Vehicle-aware OEM parts with real unit prices (from part_fitments + part_prices).
+  // When this returns data we use the per-part totals as the parts subtotal; when
+  // it doesn't (walk-in vehicle, unconfigured vehicle, missing price data) we fall
+  // back to the service's flat `default_parts_estimate`.
+  const { breakdown: pricedPartsByService } = useBookingPartsBreakdown(
+    selectedVehicle?.ownershipId,
+    selectedServiceIds,
+  );
+
+  // Map serviceId → priced parts row so per-line lookups are O(1) below.
+  const pricedPartsMap = useMemo(() => {
+    const map = new Map<string, (typeof pricedPartsByService)[number]>();
+    for (const row of pricedPartsByService) {
+      // The row only counts as "real" if it actually has parts with non-zero
+      // pricing data — otherwise the service falls back to default_parts_estimate.
+      const hasUsablePrices = row.parts.some((p) => p.has_price_data && p.line_total > 0);
+      if (hasUsablePrices) map.set(String(row.serviceId), row);
+    }
+    return map;
+  }, [pricedPartsByService]);
+
+  // Per-service parts cost: real OEM-priced total when available, else the flat
+  // `default_parts_estimate`. Used both for the service line total and to roll
+  // up the parts subtotal that feeds tax + fees + grand total.
+  const getServicePartsCost = useCallback(
+    (service: (typeof selectedServices)[0]) => {
+      const real = pricedPartsMap.get(String(service.id));
+      if (real) return real.partsTotal;
+      return service.default_parts_estimate ?? 0;
+    },
+    [pricedPartsMap],
+  );
+
+  // Calculate detailed breakdown (shop labor rate + per-service parts costs).
   const breakdown = useMemo(() => {
     const rate = laborRate ?? 0;
-    const servicesTotal = selectedServices.reduce(
-      (total, service) => total + rate * (service.default_labor_hours ?? 0) + (service.default_parts_estimate ?? 0),
-      0,
-    );
     const laborHours = selectedServices.reduce((sum, s) => sum + (s.default_labor_hours ?? 0), 0);
-    const laborCost = laborHours * rate;
-    const partsCost = Math.max(0, servicesTotal - laborCost);
-    const serviceFee = servicesTotal > 0 ? Math.max(servicesTotal * SERVICE_FEE_RATE, SERVICE_FEE_MINIMUM) : 0;
+    const laborCost = Math.max(0, laborHours * rate);
+    const partsCost = selectedServices.reduce((sum, s) => sum + getServicePartsCost(s), 0);
+    const servicesTotal = laborCost + partsCost;
+    const serviceFee = computePlatformFeeDollars(servicesTotal);
     const taxesAndFees = computeBookingTax({
       laborDollars: laborCost,
       partsDollars: partsCost,
@@ -145,31 +175,35 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
 
     return {
       laborHours,
-      laborCost: Math.max(0, laborCost),
+      laborCost,
       partsCost,
       taxesAndFees,
       platformFee: serviceFee,
       subtotal: servicesTotal,
       total: servicesTotal + taxesAndFees + serviceFee,
     };
-  }, [selectedServices, laborRate, shop?.state, shop?.zip]);
+  }, [selectedServices, laborRate, shop?.state, shop?.zip, getServicePartsCost]);
 
   // Per-service line total (labor + parts) so breakdown lines sum to subtotal
   const getServiceLineTotal = useCallback(
     (service: (typeof selectedServices)[0]) =>
-      (laborRate ?? 0) * (service.default_labor_hours ?? 0) + (service.default_parts_estimate ?? 0),
-    [laborRate],
+      (laborRate ?? 0) * (service.default_labor_hours ?? 0) + getServicePartsCost(service),
+    [laborRate, getServicePartsCost],
   );
 
-  // Parts breakdown: each part listed and labelled as (Part)
-  const partsBreakdown = useMemo(
-    () =>
-      getPartsBreakdown(
-        selectedServices.map((s) => s.name),
-        breakdown.partsCost,
-      ),
-    [selectedServices, breakdown.partsCost],
-  );
+  // Fallback parts breakdown for services without real OEM-priced data.
+  // We split each unpriced service's default_parts_estimate among the SERVICE_PARTS
+  // names so the line items still sum to that service's parts total.
+  const fallbackPartsBreakdown = useMemo(() => {
+    const unpricedNames: string[] = [];
+    let unpricedTotal = 0;
+    for (const service of selectedServices) {
+      if (pricedPartsMap.has(String(service.id))) continue;
+      unpricedNames.push(service.name);
+      unpricedTotal += service.default_parts_estimate ?? 0;
+    }
+    return getPartsBreakdown(unpricedNames, unpricedTotal);
+  }, [selectedServices, pricedPartsMap]);
 
   // Format vehicle display
   const vehicleDisplay = selectedVehicle
@@ -328,9 +362,32 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
               </Text>
             </View>
 
-            {/* Parts: each part listed and labelled as (Part) */}
-            {partsBreakdown.map((part, index) => (
-              <View key={`${part.name}-${index}`} style={styles.breakdownRow}>
+            {/* Parts: real OEM parts per service (name × qty @ unit price) when
+                priced data is available; otherwise the flat default_parts_estimate
+                split across SERVICE_PARTS labels. */}
+            {selectedServices.map((service) => {
+              const priced = pricedPartsMap.get(String(service.id));
+              if (!priced) return null;
+              return priced.parts.map((part) => {
+                const qtyLabel = part.quantity > 1 ? ` ×${part.quantity}` : "";
+                const unitLabel =
+                  part.quantity > 1 && part.unit_price > 0 ? ` @ $${part.unit_price.toFixed(2)}` : "";
+                return (
+                  <View key={`${service.id}-${part.part_id}`} style={styles.breakdownRow}>
+                    <Text size="sm" weight="regular" color="#6B7280" style={styles.breakdownLabel}>
+                      {part.name} (Part){qtyLabel}
+                      {unitLabel}
+                    </Text>
+                    <Text size="sm" weight="medium" color="#6B7280">
+                      ${part.line_total.toFixed(2)}
+                    </Text>
+                  </View>
+                );
+              });
+            })}
+
+            {fallbackPartsBreakdown.map((part, index) => (
+              <View key={`fallback-${part.name}-${index}`} style={styles.breakdownRow}>
                 <Text size="sm" weight="regular" color="#6B7280">
                   {part.name} (Part)
                 </Text>
@@ -614,6 +671,10 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
     paddingVertical: Spacing.xs,
+    gap: Spacing.sm,
+  },
+  breakdownLabel: {
+    flex: 1,
   },
   feeRow: {
     flexDirection: "row",

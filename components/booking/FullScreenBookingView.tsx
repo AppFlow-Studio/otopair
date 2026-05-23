@@ -27,6 +27,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // 3. Shared UI (design system)
 import { BrandColors, PrimaryButton, Spacing, Text } from "@/components/shared-ui";
+import { computePlatformFeeDollars } from "@/lib/platformFee";
 
 // 4. Local components
 import { AddMoreServicesSheet, AddMoreServicesSheetRef } from "./sheets/AddMoreServicesSheet";
@@ -148,9 +149,9 @@ export function FullScreenBookingView({ onClose }: FullScreenBookingViewProps) {
     }
 
     if (isPaymentStage) {
-      // Service fee: 7% of service subtotal, $4.99 minimum
+      // System-level fee config in lib/platformFee.ts.
       // TODO: When subscriptions are wired, waive service fee for Preferred/Elite subscribers
-      const serviceFee = selectedTotal > 0 ? Math.max(selectedTotal * 0.07, 4.99) : 0;
+      const serviceFee = computePlatformFeeDollars(selectedTotal);
       const totalWithFee = selectedTotal + serviceFee;
       return (
         <View style={[styles.footer, { paddingBottom: footerBottomPadding }]}>

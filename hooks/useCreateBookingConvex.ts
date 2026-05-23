@@ -18,6 +18,7 @@ import { useUserFromConvex } from "./useUserFromConvex";
 import { useToast } from "./useToast";
 import { useVehicleOwnershipFromConvex } from "./useVehicleOwnershipFromConvex";
 import { computeBookingTax } from "@/lib/tax";
+import { computePlatformFeeDollars } from "@/lib/platformFee";
 import { useMechanicStore } from "@/stores/useMechanicStore";
 import { useShopStore } from "@/stores/useShopStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
@@ -127,12 +128,12 @@ export function useCreateBookingConvex() {
       const scheduledDateVal = scheduledAppointment?.date ?? new Date().toISOString().split("T")[0];
       const scheduledTimeVal = scheduledAppointment?.time ? displayTimeToHHMM(scheduledAppointment.time) : "09:00";
 
-      // Service fee: 7% of service subtotal, $4.99 minimum, no cap
+      // Platform fee: system-level config in lib/platformFee.ts. Both the
+      // client display path and the server-authoritative createBatch path
+      // call the same helper, so the customer always sees what we charge.
       // TODO: When subscriptions are wired, waive service fee for Preferred/Elite subscribers
-      const SERVICE_FEE_RATE = 0.07;
-      const SERVICE_FEE_MINIMUM = 4.99;
       const servicesSubtotal = services.reduce((sum, s) => sum + s.labor_cost + s.parts_cost, 0);
-      const PLATFORM_FEE = servicesSubtotal > 0 ? Math.max(servicesSubtotal * SERVICE_FEE_RATE, SERVICE_FEE_MINIMUM) : 0;
+      const PLATFORM_FEE = computePlatformFeeDollars(servicesSubtotal);
       // Tax: client-side display value only. Convex `createBatch` will
       // recompute server-side using the same `computeBookingTax` util —
       // see convex/bookings.ts. If they disagree (e.g. client tampered

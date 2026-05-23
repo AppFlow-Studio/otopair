@@ -38,6 +38,8 @@ import { internal, api } from "./_generated/api";
 import { isTerminal, validateTransition } from "./booking_status_history";
 import { mintClaimToken } from "./walkin_claims";
 import { BOOKING_STATUS_VISUALS, type BookingStatus } from "../lib/booking-status";
+import { computeBookingTax } from "../lib/tax";
+import { computePlatformFeeDollars } from "../lib/platformFee";
 import {
   EARLY_PUSH_THRESHOLD_MS,
   addMinutesToHHMM,
@@ -929,18 +931,10 @@ export const createBatch = mutation({
     // and persisted value, so they always agree when the client is
     // honest.
     const shop = await ctx.db.get(args.shop_id);
-    const { computeBookingTax: computeBookingTaxImpl } = await import(
-      "../lib/tax"
-    );
 
-    const PLATFORM_FEE_RATE = 0.07;
-    const PLATFORM_FEE_FLOOR = 4.99;
     const servicesSubtotal = labor_cost + parts_cost;
-    const platform_fee =
-      servicesSubtotal > 0
-        ? Math.max(servicesSubtotal * PLATFORM_FEE_RATE, PLATFORM_FEE_FLOOR)
-        : 0;
-    const taxes_and_fees = computeBookingTaxImpl({
+    const platform_fee = computePlatformFeeDollars(servicesSubtotal);
+    const taxes_and_fees = computeBookingTax({
       laborDollars: labor_cost,
       partsDollars: parts_cost,
       state: shop?.state ?? null,

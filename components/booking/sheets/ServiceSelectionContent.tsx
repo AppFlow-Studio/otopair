@@ -72,6 +72,7 @@ export function ServiceSelectionContent({ onCategorySelect, onShopTiresRequested
   const availableServices = useBookingStore((state) => state.availableServices);
   const getServiceCategories = useBookingStore((state) => state.getServiceCategories);
   const initialServiceCategory = useBookingStore((state) => state.initialServiceCategory);
+  const selectedServiceOptions = useBookingStore((state) => state.selectedServiceOptions);
   const engineId = useVehicleStore((state) => state.getSelectedVehicle()?.engineId);
 
   // ═══════════════ STATE-EFFECT: Per-car duration specs ═══════════════
@@ -199,6 +200,7 @@ export function ServiceSelectionContent({ onCategorySelect, onShopTiresRequested
       const isSelected = selectedServiceIds.includes(service.id);
       const hours = engineSpecs[service.id]?.labor_hours ?? service.default_labor_hours;
       const durationLabel = formatDurationForCar(hours);
+      const optionLabel = isSelected ? selectedServiceOptions[service.id]?.option_label : undefined;
 
       return (
         <TouchableOpacity
@@ -227,11 +229,16 @@ export function ServiceSelectionContent({ onCategorySelect, onShopTiresRequested
             <Text size="sm" weight="regular" color="#6B7280">
               {service.description}
             </Text>
+            {optionLabel && (
+              <Text size="xs" weight="semiBold" color={BrandColors.secondary} style={styles.optionSelected}>
+                Option Selected: {optionLabel}
+              </Text>
+            )}
           </View>
         </TouchableOpacity>
       );
     },
-    [selectedServiceIds, handleServicePress, engineSpecs],
+    [selectedServiceIds, selectedServiceOptions, handleServicePress, engineSpecs],
   );
 
   // ═══════════════ RENDER ═══════════════
@@ -333,5 +340,8 @@ const styles = StyleSheet.create({
   },
   emptyState: {
     paddingVertical: Spacing["3xl"],
+  },
+  optionSelected: {
+    marginTop: Spacing.xs,
   },
 });

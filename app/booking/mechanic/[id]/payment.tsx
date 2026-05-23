@@ -33,6 +33,7 @@ import { getPartsBreakdown } from "@/constants/services";
 import { BorderRadius, Shadows } from "@/constants/theme";
 import { useCreateBookingConvex } from "@/hooks/useCreateBookingConvex";
 import { computeBookingTax } from "@/lib/tax";
+import { computePlatformFeeDollars } from "@/lib/platformFee";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
 import { usePaymentStore } from "@/stores/usePaymentStore";
@@ -43,13 +44,10 @@ import { useVehicleStore } from "@/stores/useVehicleStore";
 // CONSTANTS
 // ============================================================================
 
-// Service fee: 7% of service subtotal, $4.99 minimum, no cap
+// Platform fee + tax math live in lib/platformFee.ts and lib/tax.ts —
+// single source of truth shared with the Convex server side, so what the
+// customer sees here always matches what gets charged.
 // TODO: When subscriptions are wired, waive service fee for Preferred/Elite subscribers
-const SERVICE_FEE_RATE = 0.07;
-const SERVICE_FEE_MINIMUM = 4.99;
-// Tax is derived from shop's state via `computeTaxDollars` — no flat
-// constant. See lib/tax.ts for the state rate table + the TODO to move
-// to Stripe Tax for jurisdiction-accurate calculation.
 
 // ============================================================================
 // COMPONENT
@@ -129,7 +127,7 @@ export default function PaymentScreen() {
     const laborHours = selectedServices.reduce((sum, s) => sum + (s.default_labor_hours ?? 0), 0);
     const laborCost = laborHours * rate;
     const partsCost = Math.max(0, servicesTotal - laborCost);
-    const serviceFee = servicesTotal > 0 ? Math.max(servicesTotal * SERVICE_FEE_RATE, SERVICE_FEE_MINIMUM) : 0;
+    const serviceFee = computePlatformFeeDollars(servicesTotal);
     // Tax honors per-state service-taxability rule (e.g. CA exempts repair
     // labor → only parts are taxed) + ZIP-3 metro overrides.
     const taxesAndFees = computeBookingTax({

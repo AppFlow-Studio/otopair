@@ -3412,4 +3412,15 @@ export default defineSchema({
     .index("by_event_id", ["event_id"])
     .index("by_telnyx_message_id", ["telnyx_message_id"])
     .index("by_event_type", ["event_type"]),
+
+  // Singleton table for app-level / admin-controlled config (platform fee,
+  // etc.). One row only — accessors enforce this by always using `.first()`
+  // and creating the row lazily with defaults from lib/platformFee.ts.
+  platform_settings: defineTable({
+    platform_fee_rate: v.number(),
+    platform_fee_floor_dollars: v.number(),
+    created_at: v.number(),
+    updated_at: v.number(),
+    updated_by_user_id: v.optional(v.id("users")),
+  }),
 });

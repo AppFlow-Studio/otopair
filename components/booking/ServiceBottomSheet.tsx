@@ -845,13 +845,20 @@ export function ServiceBottomSheet({
     const tireReplacementSelected = availableServices.some(
       (svc) => selectedServiceIds.includes(svc.id) && svc.name === "Tire Replacement",
     );
-    const anyHasOptions = availableServices.some(
+    const servicesNeedingOptions = availableServices.filter(
       (svc) => selectedServiceIds.includes(svc.id) && svc.has_options === true,
+    );
+    // The per-service picker (SingleServiceOptionsSheet) already resolved
+    // these on first tap. Only fall back to the legacy multi-service
+    // ServiceOptionsContent stage if something slipped through unresolved
+    // (e.g. a service was selected before the picker handoff existed).
+    const unresolvedOptions = servicesNeedingOptions.some(
+      (svc) => selectedServiceOptions[svc.id] == null,
     );
     const intent: "tire_modal" | "service_options" | "mechanic_selection" =
       tireReplacementSelected
         ? "tire_modal"
-        : anyHasOptions
+        : unresolvedOptions
           ? "service_options"
           : "mechanic_selection";
 
@@ -880,6 +887,7 @@ export function ServiceBottomSheet({
     setBookingStage,
     availableServices,
     selectedServiceIds,
+    selectedServiceOptions,
     router,
     needsQuickRead,
     quickReadLoading,
@@ -955,11 +963,18 @@ export function ServiceBottomSheet({
   }, [setBookingStage]);
 
   const handleMechanicSelectionGoBack = useCallback(() => {
-    const anyHasOptions = availableServices.some(
-      (svc) => selectedServiceIds.includes(svc.id) && svc.has_options === true,
+    // Only land back on the legacy ServiceOptionsContent stage if some
+    // option is still unresolved. The per-service picker now resolves
+    // options on first tap, so the typical back path is straight to the
+    // service list.
+    const unresolved = availableServices.some(
+      (svc) =>
+        selectedServiceIds.includes(svc.id) &&
+        svc.has_options === true &&
+        selectedServiceOptions[svc.id] == null,
     );
-    setBookingStage(anyHasOptions ? "service_options" : "service_selection", "backward");
-  }, [availableServices, selectedServiceIds, setBookingStage]);
+    setBookingStage(unresolved ? "service_options" : "service_selection", "backward");
+  }, [availableServices, selectedServiceIds, selectedServiceOptions, setBookingStage]);
 
   // Service options complete -> go to mechanic selection
   const handleServiceOptionsContinue = useCallback(() => {
