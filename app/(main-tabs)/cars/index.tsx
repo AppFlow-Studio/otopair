@@ -169,7 +169,11 @@ export default function CarsHomeScreen() {
   const [celebrationActive, setCelebrationActive] = useState(false);
   const [pendingHealthSheet, setPendingHealthSheet] = useState(false);
   const [showHealthRingSheet, setShowHealthRingSheet] = useState(false);
-  const [localOnboardingDone, setLocalOnboardingDone] = useState(false);
+  // Optimistic "just finished onboarding" flag, scoped to the specific
+  // vehicle it was set for (not a global boolean) so it can't leak to
+  // other carousel cars. Derived into `localOnboardingDone` once
+  // activeOwnershipId is known.
+  const [onboardingDoneForId, setOnboardingDoneForId] = useState<string | null>(null);
   // Page-transition animated values (replaces bottom-sheet slide-up)
   const mainPageSlideX = useRef(new Animated.Value(0)).current;
   const mainPageFade = useRef(new Animated.Value(1)).current;
@@ -217,8 +221,6 @@ export default function CarsHomeScreen() {
   const carPulseAnim = useRef(new Animated.Value(1)).current;
   const carPulseLoopRef = useRef<Animated.CompositeAnimation | null>(null);
   const aiStepsScrollRef = useRef<ScrollView>(null);
-  const aiStepsViewportHeightRef = useRef(0);
-  const aiStepsContentHeightRef = useRef(0);
 
   // Emotional animation refs
   const [displayedScore, setDisplayedScore] = useState(0);
@@ -516,23 +518,12 @@ export default function CarsHomeScreen() {
     });
   }, [pageSlideX, pageFade, gearsOverlayOpacity, gearsBtnOpacity, ringScale, ringGlow, titleFade, subtitleFade, benefitsFade, buttonFade, pulseAnim]);
 
+  // One scroll surface now (title + car + steps share a ScrollView), so
+  // just scroll to the bottom to keep the newest step visible. When the
+  // content fits, scrollToEnd is a no-op.
   const scrollAiStepsToLatest = useCallback((animated = true) => {
-    if (aiStepsViewportHeightRef.current <= 0) {
-      return;
-    }
-
-    const visibleContentHeight = Math.max(0, aiStepsContentHeightRef.current - aiStepBottomClearance);
-    const visibleLimit = Math.max(0, aiStepsViewportHeightRef.current - aiStepBottomClearance);
-
-    if (visibleContentHeight <= visibleLimit + scale(4)) {
-      return;
-    }
-
-    aiStepsScrollRef.current?.scrollTo({
-      y: visibleContentHeight - visibleLimit,
-      animated,
-    });
-  }, [aiStepBottomClearance]);
+    aiStepsScrollRef.current?.scrollToEnd({ animated });
+  }, []);
 
   const closeHealthSheet = useCallback(() => {
     if (scoreCountRef.current) clearInterval(scoreCountRef.current);
@@ -571,7 +562,6 @@ export default function CarsHomeScreen() {
         setCompletedSteps(0);
         setActiveStep(0);
         setVisibleAiStepCount(0);
-        aiStepsContentHeightRef.current = 0;
         aiStepsScrollRef.current?.scrollTo({ y: 0, animated: false });
         stepOpacities.forEach(o => o.setValue(0));
         stepIconScales.forEach(s => s.setValue(0.5));
@@ -878,8 +868,12 @@ export default function CarsHomeScreen() {
   const isPreOnboardingComplete = activeOwnership?.preOnboardingComplete === true;
 
   // Onboarding state.
-  // localOnboardingDone is set immediately when the stepper finishes saving,
-  // working around a Convex subscription delay that can leave the field undefined.
+  // localOnboardingDone is the optimistic flag set when the stepper/auto-
+  // complete finishes, working around a Convex subscription delay that can
+  // leave the field undefined. Scoped to the active vehicle so it never
+  // leaks to other carousel cars.
+  const localOnboardingDone =
+    onboardingDoneForId != null && onboardingDoneForId === activeOwnershipId;
   const isOnboardingComplete = activeOwnership?.onboardingComplete === true || localOnboardingDone;
   // True only when onboarding is done AND the entire celebration flow is finished.
   // celebrationFlowActive.current is the synchronous guard that prevents any flash
@@ -888,7 +882,8 @@ export default function CarsHomeScreen() {
   // Show post-onboarding content (MaintenanceTracker, etc.) once onboarding is
   // confirmed and the reveal animation has finished. The health page is a
   // full-screen overlay so content behind it is not visible — no need to gate on sheet flags.
-  const showPostOnboardingContent = isOnboardingComplete && !gearsOverlayVisible;
+  const showPostOnboardingContent =
+    isPreOnboardingComplete && isOnboardingComplete && !gearsOverlayVisible;
   const activeOwnershipMileage = activeOwnership?.mileage as number | undefined;
   const isNewVehicle = isPreOnboardingComplete && !isOnboardingComplete
     && activeOwnershipMileage != null && activeOwnershipMileage <= 1000;
@@ -901,7 +896,7 @@ export default function CarsHomeScreen() {
     (async () => {
       try {
         await autoCompleteNewVehicle({ vehicleOwnerId: activeOwnershipId });
-        setLocalOnboardingDone(true);
+        setOnboardingDoneForId(activeOwnershipId);
         celebrationFlowActive.current = true;
         setCelebrationActive(true);
         setPendingHealthSheet(true);
@@ -1358,7 +1353,7 @@ export default function CarsHomeScreen() {
                 onPress={async () => {
                   try {
                     await resetOnboarding({ vehicleOwnerId: activeOwnershipId });
-                    setLocalOnboardingDone(false);
+                    setOnboardingDoneForId(null);
                   } catch (err) {
                     console.warn("Reset onboarding failed:", err);
                   }
@@ -1889,7 +1884,7 @@ export default function CarsHomeScreen() {
                   onBack={closeHealthSheet}
                   onComplete={() => {
                     console.log('[CarInfoStepper] onComplete fired — SHEET instance');
-                    setLocalOnboardingDone(true);
+                    setOnboardingDoneForId(activeOwnershipId);
                     celebrationFlowActive.current = true;
                     setCelebrationActive(true);
                     animateToConfirmedScore();
@@ -2086,42 +2081,39 @@ export default function CarsHomeScreen() {
       {gearsOverlayVisible && (
         <Animated.View style={[StyleSheet.absoluteFillObject, { opacity: gearsOverlayOpacity, zIndex: 35 }]}>
           <View style={[StyleSheet.absoluteFill, { backgroundColor: '#FFFFFF' }]} pointerEvents="none" />
-          {/* Building phase: car image + sequential AI task list */}
+          {/* Building phase: car image + sequential AI task list, all in
+              ONE ScrollView so title + car + steps scroll as a single
+              surface (no fixed/scroll boundary = no seam). */}
           {gearsPhase !== 'looping' && (
             <Animated.View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, opacity: lottieFadeOut }}>
-              {/* Title — matches ready phase positioning so the two
-                  states share the same structural layout. */}
-              <View style={{ alignItems: 'center', marginTop: insets.top + scale(12) }}>
-                <Text weight="bold" size="3xl" color="#0F172A" style={{ textAlign: 'center' }}>
-                  Building your vehicle profile
-                </Text>
-              </View>
-              {/* Car image — VDB image if available, otherwise
-                  the covered-car placeholder (manual-entry vehicles). */}
-              <Animated.View style={{ opacity: carPulseAnim, width: scale(140), height: scale(85), alignSelf: 'center', marginTop: scale(8) }}>
-                <Image
-                  source={activeVehicle?.imageSource ?? require('@/assets/images/covered-car.png')}
-                  style={{ width: '100%', height: '100%' }}
-                  resizeMode="contain"
-                />
-              </Animated.View>
-              {/* Sequential step list */}
               <ScrollView
                 ref={aiStepsScrollRef}
-                style={{ flex: 1, marginTop: scale(8) }}
-                contentContainerStyle={{ paddingHorizontal: scale(28), paddingBottom: aiStepBottomClearance }}
+                style={{ flex: 1 }}
+                contentContainerStyle={{ paddingTop: insets.top + scale(12), paddingHorizontal: scale(28), paddingBottom: aiStepBottomClearance }}
                 showsVerticalScrollIndicator={false}
                 scrollEventThrottle={16}
-                onLayout={(event) => {
-                  aiStepsViewportHeightRef.current = event.nativeEvent.layout.height;
-                }}
-                onContentSizeChange={(_, contentHeight) => {
-                  aiStepsContentHeightRef.current = contentHeight;
+                onContentSizeChange={() => {
                   if (visibleAiStepCount > 0) {
                     scrollAiStepsToLatest(true);
                   }
                 }}
               >
+                {/* Title */}
+                <View style={{ alignItems: 'center' }}>
+                  <Text weight="bold" size="3xl" color="#0F172A" style={{ textAlign: 'center' }}>
+                    Building your vehicle profile
+                  </Text>
+                </View>
+                {/* Car image — VDB image if available, otherwise
+                    the covered-car placeholder (manual-entry vehicles). */}
+                <Animated.View style={{ opacity: carPulseAnim, width: scale(140), height: scale(85), alignSelf: 'center', marginTop: scale(8), marginBottom: scale(16) }}>
+                  <Image
+                    source={activeVehicle?.imageSource ?? require('@/assets/images/covered-car.png')}
+                    style={{ width: '100%', height: '100%' }}
+                    resizeMode="contain"
+                  />
+                </Animated.View>
+                {/* Sequential step list */}
                 {AI_STEPS.slice(0, visibleAiStepCount).map((step, idx) => {
                   const isCompleted = idx < completedSteps;
                   const isActive = idx === activeStep && idx >= completedSteps;
@@ -2130,14 +2122,14 @@ export default function CarsHomeScreen() {
                       {/* Connecting line from previous step */}
                       {idx > 0 && (
                         <View style={{ marginLeft: scale(15), width: 2, overflow: 'hidden' }}>
-                          <Animated.View style={{ width: 2, height: lineHeights[idx - 1].interpolate({ inputRange: [0, 1], outputRange: [0, scale(4)] }), backgroundColor: isCompleted ? '#5299FE' : '#E2E8F0' }} />
+                          <Animated.View style={{ width: 2, height: lineHeights[idx - 1].interpolate({ inputRange: [0, 1], outputRange: [0, scale(16)] }), backgroundColor: isCompleted ? '#5299FE' : '#E2E8F0' }} />
                         </View>
                       )}
                       {/* Step row */}
-                      <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: scale(3) }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: scale(6) }}>
                         {/* Icon circle */}
                         <Animated.View style={{
-                          width: scale(28), height: scale(28), borderRadius: scale(14),
+                          width: scale(32), height: scale(32), borderRadius: scale(16),
                           backgroundColor: isCompleted ? '#5299FE' : isActive ? 'rgba(82,153,254,0.12)' : '#F1F5F9',
                           alignItems: 'center', justifyContent: 'center',
                           transform: [{ scale: stepIconScales[idx] }],
@@ -2167,49 +2159,42 @@ export default function CarsHomeScreen() {
               </ScrollView>
             </Animated.View>
           )}
-          {/* Ready phase: title + car image + completed steps */}
+          {/* Ready phase: title + car image + completed steps, all in ONE
+              ScrollView (single surface, no seam — same as building). */}
           {gearsPhase === 'ready' && (
             <Animated.View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, opacity: carImageFadeIn }}>
-              {/* Title — near top, respecting safe area inset so it
-                  doesn't clip the dynamic island / notch. */}
-              <View style={{ alignItems: 'center', marginTop: insets.top + scale(12) }}>
-                <Text weight="bold" size="3xl" color="#0F172A" style={{ textAlign: 'center' }}>
-                  Vehicle profile optimized
-                </Text>
-              </View>
-              {/* Car image — VDB if available, covered-car otherwise. */}
-              <Animated.View style={{ alignSelf: 'center', marginTop: scale(8), transform: [{ scale: carImageFadeIn.interpolate({ inputRange: [0, 1], outputRange: [0.9, 1] }) }] }}>
-                <View style={{ width: scale(140), height: scale(85), alignItems: 'center', justifyContent: 'center' }}>
-                  <Image
-                    source={activeVehicle?.imageSource ?? require('@/assets/images/covered-car.png')}
-                    style={{ width: '100%', height: '100%' }}
-                    resizeMode="contain"
-                  />
-                </View>
-              </Animated.View>
-              {/* Completed steps list */}
               <ScrollView
                 ref={aiStepsScrollRef}
-                style={{ flex: 1, marginTop: scale(8) }}
-                contentContainerStyle={{ paddingHorizontal: scale(28), paddingBottom: aiStepBottomClearance }}
+                style={{ flex: 1 }}
+                contentContainerStyle={{ paddingTop: insets.top + scale(12), paddingHorizontal: scale(28), paddingBottom: aiStepBottomClearance }}
                 showsVerticalScrollIndicator={false}
                 scrollEventThrottle={16}
-                onLayout={(event) => {
-                  aiStepsViewportHeightRef.current = event.nativeEvent.layout.height;
-                }}
-                onContentSizeChange={(_, contentHeight) => {
-                  aiStepsContentHeightRef.current = contentHeight;
-                  scrollAiStepsToLatest(true);
-                }}
               >
+                {/* Title */}
+                <View style={{ alignItems: 'center' }}>
+                  <Text weight="bold" size="3xl" color="#0F172A" style={{ textAlign: 'center' }}>
+                    Vehicle profile optimized
+                  </Text>
+                </View>
+                {/* Car image — VDB if available, covered-car otherwise. */}
+                <Animated.View style={{ alignSelf: 'center', marginTop: scale(8), marginBottom: scale(16), transform: [{ scale: carImageFadeIn.interpolate({ inputRange: [0, 1], outputRange: [0.9, 1] }) }] }}>
+                  <View style={{ width: scale(140), height: scale(85), alignItems: 'center', justifyContent: 'center' }}>
+                    <Image
+                      source={activeVehicle?.imageSource ?? require('@/assets/images/covered-car.png')}
+                      style={{ width: '100%', height: '100%' }}
+                      resizeMode="contain"
+                    />
+                  </View>
+                </Animated.View>
+                {/* Completed steps list */}
                 {AI_STEPS.map((step, idx) => (
                   <View key={idx}>
                     {idx > 0 && (
-                      <View style={{ marginLeft: scale(14), width: 2, height: scale(4), backgroundColor: '#5299FE' }} />
+                      <View style={{ marginLeft: scale(15), width: 2, height: scale(16), backgroundColor: '#5299FE' }} />
                     )}
-                    <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: scale(3) }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: scale(6) }}>
                       <View style={{
-                        width: scale(28), height: scale(28), borderRadius: scale(14),
+                        width: scale(32), height: scale(32), borderRadius: scale(16),
                         backgroundColor: '#5299FE',
                         alignItems: 'center', justifyContent: 'center',
                       }}>

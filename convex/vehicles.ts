@@ -1125,6 +1125,21 @@ export const saveOnboardingField = mutation({
       }
     }
 
+    // ── "Never had this serviced" → infer install/service date from
+    // the vehicle's model year (Jan 1). Returns undefined if the vehicle
+    // record or year is missing, in which case the caller falls back to
+    // an undefined lastServiceDate (unknown status). ─────────────────────
+    async function modelYearInstallDate(): Promise<number | undefined> {
+      const owner = await ctx.db.get(vehicleOwnerId);
+      if (!owner) return undefined;
+      const vehicle = await ctx.db
+        .query("vehicles")
+        .withIndex("by_vin", (q) => q.eq("vin", owner.vin))
+        .unique();
+      if (!vehicle?.year) return undefined;
+      return new Date(vehicle.year, 0, 1).getTime();
+    }
+
     // ── Dispatch by field ──────────────────────────────────────────────
     switch (field) {
       case "mileage": {
@@ -1149,6 +1164,10 @@ export const saveOnboardingField = mutation({
           // to compute status against.
           if (v.recency === "exact_date" && v.exactDate) {
             oilDate = v.exactDate;
+          } else if (v.recency === "never") {
+            // "Never had an oil change" — infer the install date from the
+            // vehicle's model year so the interval calc reflects real age.
+            oilDate = await modelYearInstallDate();
           } else {
             const MS = 24 * 60 * 60 * 1000;
             const recencyMap: Record<string, number> = {
@@ -1171,11 +1190,15 @@ export const saveOnboardingField = mutation({
         // CarInfoStepper shape: { recency, original }
         const v = value as { type?: string; date?: number; replaced?: string; replacedWhen?: string; repaired?: string; original?: string; recency?: string; exactDate?: number };
         let tireDate = v.date ?? (v.replacedWhen ? quickReadDateToTimestamp(v.replacedWhen) : undefined);
-        // CarInfoStepper sends `recency` (recently / few_months / over_6mo / exact_date / not_sure).
+        // CarInfoStepper sends `recency` (recently / few_months / over_6mo / exact_date / never / not_sure).
         // Mirror the oil pattern so onboarding answers produce a real lastServiceDate.
         if (!tireDate && v.recency) {
           if (v.recency === "exact_date" && v.exactDate) {
             tireDate = v.exactDate;
+          } else if (v.recency === "never") {
+            // "Never replaced" → these are original tires; install date is the
+            // vehicle's model year.
+            tireDate = await modelYearInstallDate();
           } else {
             const MS = 24 * 60 * 60 * 1000;
             const recencyMap: Record<string, number> = {
@@ -1194,6 +1217,10 @@ export const saveOnboardingField = mutation({
             : v.original === "no" ? "replaced"
             : "dont_know";
         }
+        // "Never" recency implies these are the original tires.
+        if (!tireReplaced && v.recency === "never") {
+          tireReplaced = "original";
+        }
         await upsertRecord("tires", tireDate, undefined, {
           tireServiceType: v.type,
           tireReplaced,
@@ -1211,11 +1238,15 @@ export const saveOnboardingField = mutation({
         // CarInfoStepper shape: { recency, feel }
         const v = value as { date?: number; lastDone?: string; feel?: string; actionStatus?: string; recency?: string; exactDate?: number };
         let brakeDate = v.date ?? (v.lastDone ? quickReadDateToTimestamp(v.lastDone) : undefined);
-        // CarInfoStepper sends `recency` (recently / few_months / over_6mo / exact_date / not_sure).
+        // CarInfoStepper sends `recency` (recently / few_months / over_6mo / exact_date / never / not_sure).
         // Mirror the oil/tires/battery pattern so onboarding answers produce a real lastServiceDate.
         if (!brakeDate && v.recency) {
           if (v.recency === "exact_date" && v.exactDate) {
             brakeDate = v.exactDate;
+          } else if (v.recency === "never") {
+            // "Never serviced" → infer from vehicle model year so the interval
+            // calc reflects real age.
+            brakeDate = await modelYearInstallDate();
           } else {
             const MS = 24 * 60 * 60 * 1000;
             const recencyMap: Record<string, number> = {
@@ -1242,17 +1273,8 @@ export const saveOnboardingField = mutation({
           installDate = new Date(v.modelYear, 0, 1).getTime();
         }
         // Original battery (not replaced) — infer install date from vehicle model year
-        if (v.replaced === "no" && !installDate) {
-          const owner = await ctx.db.get(vehicleOwnerId);
-          if (owner) {
-            const vehicle = await ctx.db
-              .query("vehicles")
-              .withIndex("by_vin", (q) => q.eq("vin", owner.vin))
-              .unique();
-            if (vehicle?.year) {
-              installDate = new Date(vehicle.year, 0, 1).getTime();
-            }
-          }
+        if ((v.replaced === "no" || v.recency === "never") && !installDate) {
+          installDate = await modelYearInstallDate();
         }
         // CarInfoStepper sends `recency` for "When was your battery last replaced?".
         // Honors exact_date when provided; otherwise falls back to a bucketed timestamp.
