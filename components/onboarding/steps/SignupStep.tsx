@@ -61,7 +61,10 @@ export function SignupStep({ onBack, onEmailSignup, onLogin }: SignupStepProps) 
   const isCompact = height < 720;
 
   const navigateAfterExistingAccountAuth = useCallback(async () => {
-    let me: { onboardingCompleted?: boolean } | null = null;
+    let me: {
+      onboardingCompleted?: boolean;
+      essentialOnboardingCompleted?: boolean;
+    } | null = null;
 
     try {
       me = await convex.query(api.users.getMe, {});
@@ -69,7 +72,7 @@ export function SignupStep({ onBack, onEmailSignup, onLogin }: SignupStepProps) 
       console.error("Failed to load onboarding state after signup auth:", error);
     }
 
-    if (me?.onboardingCompleted === true) {
+    if (me?.onboardingCompleted === true || me?.essentialOnboardingCompleted === true) {
       router.replace("/(main-tabs)/home");
       return;
     }

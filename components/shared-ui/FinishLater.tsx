@@ -2,8 +2,10 @@ import React from 'react';
 import { Pressable, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@clerk/clerk-expo';
+import { useMutation } from 'convex/react';
 import * as SecureStore from 'expo-secure-store';
 import { Text } from './Text';
+import { api } from '@/convex/_generated/api';
 import { BrandColors, FontFamily, FontSize, Spacing } from '@/constants/theme';
 import { getOnboardingFinishedLaterKey } from '@/lib/onboarding-resume';
 
@@ -18,13 +20,18 @@ import { getOnboardingFinishedLaterKey } from '@/lib/onboarding-resume';
 export function FinishLater() {
   const router = useRouter();
   const { userId: clerkUserId } = useAuth();
+  const completeEssentialOnboarding = useMutation(api.users.completeEssentialOnboarding);
 
   const handlePress = async () => {
-    try {
-      await SecureStore.setItemAsync(getOnboardingFinishedLaterKey(clerkUserId), 'true');
-    } catch {
-      // swallow — don't block navigation on storage failure
-    }
+    await Promise.all([
+      completeEssentialOnboarding().catch((error) => {
+        console.error('Failed to mark essential onboarding complete:', error);
+      }),
+      SecureStore.setItemAsync(getOnboardingFinishedLaterKey(clerkUserId), 'true').catch(() => {
+        // Do not block navigation on local storage failure.
+      }),
+    ]);
+
     router.replace('/(main-tabs)/home');
   };
 

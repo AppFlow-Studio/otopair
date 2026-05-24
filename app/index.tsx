@@ -47,6 +47,7 @@ export default function Index() {
       rawMeState: rawMe === undefined ? "loading" : rawMe === null ? "null" : "loaded",
       meState: me === undefined ? "loading" : me === null ? "null" : "loaded",
       onboardingCompleted: me?.onboardingCompleted,
+      essentialOnboardingCompleted: me?.essentialOnboardingCompleted,
       hasNavigated: hasNavigated.current,
     });
 
@@ -79,7 +80,17 @@ export default function Index() {
         return;
       }
 
-      // User explicitly chose "Finish later" → respect that, go to home
+      // Required account setup is done; optional onboarding can be completed later from home.
+      if (me?.essentialOnboardingCompleted === true) {
+        console.log("[onboarding-resume:index] navigating home: essential onboarding completed", {
+          convexUserId: me._id,
+          clerkUserId,
+        });
+        hasNavigated.current = true;
+        router.replace("/(main-tabs)/home");
+        return;
+      }
+
       const finishedLaterKey = getOnboardingFinishedLaterKey(clerkUserId);
       const finishedLater = await SecureStore.getItemAsync(finishedLaterKey);
       if (hasNavigated.current) return;
