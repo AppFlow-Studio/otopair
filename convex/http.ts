@@ -11,7 +11,7 @@ import type { ActionCtx } from "./_generated/server";
 import Stripe from "stripe";
 
 const http = httpRouter();
-const STRIPE_API_VERSION = "2026-03-25.dahlia" as const;
+const STRIPE_API_VERSION = "2026-04-22.dahlia" as const;
 
 let stripeClient: Stripe | null = null;
 
@@ -107,6 +107,101 @@ async function handleStripeWebhook(ctx: ActionCtx, request: Request) {
       return new Response("ok", { status: 200 });
     }
 
+    // ── Payment lifecycle events ────────────────────────────────────────
+    if (
+      event.type === "payment_intent.succeeded" ||
+      event.type === "payment_intent.payment_failed" ||
+      event.type === "payment_intent.canceled" ||
+      event.type === "payment_intent.amount_capturable_updated"
+    ) {
+      const pi = event.data.object as Stripe.PaymentIntent;
+      const mapped =
+        event.type === "payment_intent.succeeded"
+          ? "completed"
+          : event.type === "payment_intent.payment_failed"
+            ? "failed"
+            : event.type === "payment_intent.canceled"
+              ? "cancelled"
+              : null;
+      if (mapped) {
+        await ctx.runMutation(
+          internal.payments_stripe.handlePaymentIntentEvent,
+          {
+            stripeEventId: event.id,
+            eventType: event.type,
+            paymentIntentId: pi.id,
+            bookingId:
+              (pi.metadata && (pi.metadata as any).bookingId) || undefined,
+            newStatus: mapped,
+            errorCode: pi.last_payment_error?.code ?? undefined,
+            errorMessage: pi.last_payment_error?.message?.slice(0, 500) ?? undefined,
+            livemode: event.livemode,
+            stripeAccountId:
+              typeof event.account === "string" ? event.account : undefined,
+          },
+        );
+      } else {
+        // amount_capturable_updated is informational — just dedupe-log it.
+        await ctx.runMutation(internal.stripe_webhook_events.record, {
+          eventId: event.id,
+          eventType: event.type,
+          livemode: event.livemode,
+          stripeAccountId:
+            typeof event.account === "string" ? event.account : undefined,
+        });
+      }
+      return new Response("ok", { status: 200 });
+    }
+
+    if (event.type === "charge.refunded") {
+      const charge = event.data.object as Stripe.Charge;
+      const piId =
+        typeof charge.payment_intent === "string"
+          ? charge.payment_intent
+          : charge.payment_intent?.id;
+      if (piId) {
+        const pi = await getStripeForWebhook().paymentIntents.retrieve(piId);
+        await ctx.runMutation(
+          internal.payments_stripe.handlePaymentIntentEvent,
+          {
+            stripeEventId: event.id,
+            eventType: event.type,
+            paymentIntentId: piId,
+            bookingId:
+              (pi.metadata && (pi.metadata as any).bookingId) || undefined,
+            newStatus: "refunded",
+            livemode: event.livemode,
+            stripeAccountId:
+              typeof event.account === "string" ? event.account : undefined,
+          },
+        );
+      } else {
+        await ctx.runMutation(internal.stripe_webhook_events.record, {
+          eventId: event.id,
+          eventType: event.type,
+          livemode: event.livemode,
+        });
+      }
+      return new Response("ok", { status: 200 });
+    }
+
+    // setup_intent.succeeded and charge.dispute.created are logged for now
+    // (PaymentSheet already attaches the PM on success; disputes need a
+    // dedicated handler we'll add later).
+    if (
+      event.type === "setup_intent.succeeded" ||
+      event.type === "charge.dispute.created"
+    ) {
+      await ctx.runMutation(internal.stripe_webhook_events.record, {
+        eventId: event.id,
+        eventType: event.type,
+        livemode: event.livemode,
+        stripeAccountId:
+          typeof event.account === "string" ? event.account : undefined,
+      });
+      return new Response("ok", { status: 200 });
+    }
+
     if (
       event.type === "account.external_account.updated" ||
       event.type === "capability.updated"
@@ -161,6 +256,43 @@ http.route({
   path: "/stripe/connect-webhook",
   method: "POST",
   handler: httpAction(handleStripeWebhook),
+});
+
+
+// ============================================
+// Telnyx Messaging Webhook
+// Configure in Mission Control Portal → Messaging Profile → Webhook URL.
+// Failover URL can point at the same path on a backup deployment.
+// ============================================
+
+http.route({
+  path: "/telnyx/webhook",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    const rawBody = await request.text();
+    const signature = request.headers.get("telnyx-signature-ed25519") ?? undefined;
+    const timestamp = request.headers.get("telnyx-timestamp") ?? undefined;
+
+    try {
+      const result: any = await ctx.runAction(
+        (internal as any).lib.telnyx_webhook.processWebhook,
+        { rawBody, signature, timestamp },
+      );
+
+      if (!result?.ok) {
+        const reason: string = result?.reason ?? "unknown";
+        if (reason === "invalid_signature" || reason === "missing_signature_headers") {
+          return new Response("Invalid signature", { status: 401 });
+        }
+        return new Response(`Bad request: ${reason}`, { status: 400 });
+      }
+
+      return new Response("ok", { status: 200 });
+    } catch (error) {
+      console.error("[Telnyx Webhook] Processing failed:", error);
+      return new Response("Webhook processing failed", { status: 500 });
+    }
+  }),
 });
 
 

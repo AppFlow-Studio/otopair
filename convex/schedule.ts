@@ -227,35 +227,15 @@ export const getScheduleContext = query({
       .collect();
     hours.sort((a: any, b: any) => a.day_of_week - b.day_of_week);
 
-    const allMechanics = await ctx.db
+    // Schedulable mechanics = every active mechanic profile for the shop.
+    // Portal access (shop_users) is a separate concern and intentionally
+    // not required here — a shop-managed mechanic without portal login
+    // is still a real, schedulable resource.
+    const mechanics = await ctx.db
       .query("mechanics")
       .withIndex("by_shop_id", (q: any) => q.eq("shop_id", shop._id))
       .filter((q: any) => q.eq(q.field("is_active"), true))
       .collect();
-
-    const mechanicShopUsers = await ctx.db
-      .query("shop_users")
-      .withIndex("by_shop_id", (q: any) => q.eq("shop_id", shop._id))
-      .filter((q: any) =>
-        q.and(
-          q.neq(q.field("mechanic_id"), undefined),
-          q.neq(q.field("accepted_at"), undefined),
-          q.eq(q.field("is_active"), true),
-          q.or(
-            q.eq(q.field("role"), "shop_mechanic"),
-            q.eq(q.field("role"), "mechanic")
-          )
-        )
-      )
-      .collect();
-
-    const acceptedMechanicIds = new Set(
-      mechanicShopUsers.map((shopUser: any) => String(shopUser.mechanic_id))
-    );
-
-    const mechanics = allMechanics.filter((mechanic: any) =>
-      acceptedMechanicIds.has(String(mechanic._id))
-    );
 
     return {
       shopId: shop._id,
@@ -334,6 +314,25 @@ export const getBookingsForRange = query({
             )
           : estimatedFallback;
 
+        // Captured payment total — sum of payments with status="completed"
+        // for this booking. Only computed for completed bookings so we don't
+        // pay the lookup cost on every upcoming row.
+        let capturedAmount: number | null = null;
+        if (booking.status === "completed") {
+          const payments = await ctx.db
+            .query("payments")
+            .withIndex("by_booking_id", (q: any) =>
+              q.eq("booking_id", booking._id),
+            )
+            .collect();
+          const sum = payments.reduce(
+            (acc: number, p: any) =>
+              p.status === "completed" ? acc + (p.amount ?? 0) : acc,
+            0,
+          );
+          capturedAmount = sum > 0 ? sum : null;
+        }
+
         return {
           _id: booking._id,
           source: booking.source ?? null,
@@ -359,6 +358,7 @@ export const getBookingsForRange = query({
           vehicleDisplay: await resolveVehicleDisplay(ctx, booking.vin),
           licensePlate: booking.vin ? String(booking.vin).slice(-4) : null,
           totalCost: booking.total_cost,
+          capturedAmount,
           customerNote: booking.customer_notes ?? null,
           recommendationState: booking.recommendation_state ?? null,
           diagnosticFollowupState: booking.diagnostic_followup_state ?? null,

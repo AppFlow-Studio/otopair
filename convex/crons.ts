@@ -114,6 +114,12 @@ crons.interval(
 );
 
 crons.interval(
+  "process-appointment-reminder-monitors",
+  { minutes: 1 },
+  internal.bookings.processAppointmentReminderMonitors,
+);
+
+crons.interval(
   "process-overrun-checkins",
   { minutes: 1 },
   internal.bookings.processOverrunCheckins,
@@ -123,6 +129,12 @@ crons.interval(
   "dispatch-pending-sms",
   { minutes: 1 },
   (internal as any).sms_dispatcher.dispatchPendingSms,
+);
+
+crons.interval(
+  "dispatch-pending-emails",
+  { minutes: 1 },
+  (internal as any).email_dispatcher.dispatchPendingEmails,
 );
 
 

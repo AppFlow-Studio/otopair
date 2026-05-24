@@ -827,7 +827,7 @@ export default defineSchema({
     annualMileageBand: v.optional(v.string()),
     usagePattern: v.optional(v.string()),
     lastServiceWhen: v.optional(v.string()),
-    lastServiceWhat: v.optional(v.string()),
+    lastServiceWhat: v.optional(v.array(v.string())),
     serviceLocationPreference: v.optional(v.string()),
     garageRole: v.optional(v.string()),
     avgMonthlyDriving: v.optional(v.string()),
@@ -1149,6 +1149,10 @@ export default defineSchema({
     // Set when a Clerk user.created webhook claimed a pre-existing
     // "shop-created-*" walk-in stub user by matching email or phone.
     walkInClaimedAt: v.optional(v.number()),
+    // URL-safe token embedded in the post-job claim deep link sent to
+    // mechanic-created walk-in clients. Resolved by /claim/[token].
+    claim_token: v.optional(v.string()),
+    claim_token_expires_at: v.optional(v.number()),
     // -------------------------------------------------------------------
     // [RESTORED post-merge — Sprint 2 Wave 7.3 rate-limiting fields]
     // Wave 7.3 — per-user moat-read counter (queryMoat.ts enforcement).
@@ -1162,7 +1166,8 @@ export default defineSchema({
   })
     .index("by_clerkUserId", ["clerkUserId"])
     .index("by_isPendingDeletion", ["isPendingDeletion"])
-    .index("by_email", ["email"]),
+    .index("by_email", ["email"])
+    .index("by_claim_token", ["claim_token"]),
 
   // [I] Daniel/Waleed
   user_settings_preferences: defineTable({
@@ -1285,6 +1290,9 @@ export default defineSchema({
     buffer_minutes: v.optional(v.number()),
     max_bookings_per_mechanic_rolling_hour: v.optional(v.number()),
     entity_label_mode: v.optional(v.string()),
+    // Pre-appointment reminder lead time (minutes). 0/unset = disabled.
+    // 60=1h, 120=2h, 1440=24h, 2880=48h.
+    appointment_reminder_lead_minutes: v.optional(v.number()),
   })
     .index("by_slug", ["slug"])
     .index("by_owner_user_id", ["owner_user_id"])
@@ -1334,6 +1342,9 @@ export default defineSchema({
     deletionSurveyReason: v.optional(v.string()),
     deletionSurveyResponse: v.optional(v.string()),
     deletionSurveyImprovement: v.optional(v.string()),
+    // Per-staff "Mark all read" timestamp for the notification-bell feed.
+    // Anything with created_at > this value is shown as unread.
+    notifications_last_seen_at: v.optional(v.number()),
   })
     .index("by_user_id", ["user_id"])
     .index("by_shop_id", ["shop_id"])
@@ -1352,6 +1363,11 @@ export default defineSchema({
     token: v.optional(v.string()),
     expires_at: v.optional(v.number()),
     accepted_at: v.optional(v.number()),
+    // Set when the shop owner closes out a pending invite on the invitee's
+    // behalf (no Clerk signup occurred). The mechanic profile is schedulable
+    // immediately; the invite acts as an audit record of who accepted.
+    accepted_by_admin: v.optional(v.boolean()),
+    accepted_by_user_id: v.optional(v.id("users")),
     created_at: v.optional(v.number()),
   })
     .index("by_shop_id", ["shop_id"])
@@ -1645,6 +1661,7 @@ export default defineSchema({
     .index("by_user_id", ["user_id"])
     .index("by_status", ["status"])
     .index("by_idempotency_key", ["idempotency_key"])
+    .index("by_stripe_payment_intent_id", ["stripe_payment_intent_id"])
     .index("by_created_at", ["created_at"]),
 
   // [I]
@@ -2215,6 +2232,27 @@ export default defineSchema({
     customer_acknowledged_at_ms: v.optional(v.number()),
     resolved_at_ms: v.optional(v.number()),
     resolved_by_user_id: v.optional(v.id("users")),
+    created_at: v.optional(v.number()),
+    updated_at: v.optional(v.number()),
+  })
+    .index("by_shop_id", ["shop_id"])
+    .index("by_booking_id", ["booking_id"])
+    .index("by_status", ["status"])
+    .index("by_shop_and_status", ["shop_id", "status"]),
+
+  // Pre-appointment reminder monitor. One row per booking with a configured
+  // lead time. Status flips active -> sent when the per-minute cron enqueues
+  // the SMS/email outbox rows; -> resolved if the booking is cancelled,
+  // resolved via lifecycle, or never had a reachable channel.
+  appointment_reminder_monitors: defineTable({
+    shop_id: v.id("shops"),
+    booking_id: v.id("bookings"),
+    status: v.string(), // "active" | "sent" | "resolved"
+    scheduled_start_ms: v.number(),
+    due_at_ms: v.number(),
+    lead_minutes: v.number(),
+    enqueued_at_ms: v.optional(v.number()),
+    resolved_at_ms: v.optional(v.number()),
     created_at: v.optional(v.number()),
     updated_at: v.optional(v.number()),
   })
@@ -3361,4 +3399,41 @@ export default defineSchema({
   })
     .index("by_vehicle_owner", ["vehicleOwnerId"])
     .index("by_vehicle_and_type", ["vehicleOwnerId", "snapshotType"]),
+
+  // ===== TELNYX MESSAGING =====
+  // Inbound SMS/MMS received at a Telnyx number. One row per `message.received` webhook.
+  telnyx_inbound_messages: defineTable({
+    event_id: v.string(),
+    telnyx_message_id: v.string(),
+    from_phone: v.string(),
+    to_phone: v.string(),
+    text: v.optional(v.string()),
+    message_type: v.optional(v.string()),
+    media: v.optional(v.array(v.any())),
+    occurred_at_ms: v.number(),
+    raw_payload: v.any(),
+    received_at_ms: v.number(),
+  })
+    .index("by_event_id", ["event_id"])
+    .index("by_telnyx_message_id", ["telnyx_message_id"])
+    .index("by_from_phone", ["from_phone"]),
+
+  // Outbound delivery-report events (message.sent / message.finalized).
+  // Append-only; latest row per telnyx_message_id reflects current status.
+  telnyx_message_events: defineTable({
+    event_id: v.string(),
+    event_type: v.string(),
+    telnyx_message_id: v.string(),
+    direction: v.optional(v.string()),
+    from_phone: v.optional(v.string()),
+    to_phone: v.optional(v.string()),
+    status: v.optional(v.string()),
+    errors: v.optional(v.array(v.any())),
+    occurred_at_ms: v.number(),
+    raw_payload: v.any(),
+    received_at_ms: v.number(),
+  })
+    .index("by_event_id", ["event_id"])
+    .index("by_telnyx_message_id", ["telnyx_message_id"])
+    .index("by_event_type", ["event_type"]),
 });
