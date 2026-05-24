@@ -43,6 +43,7 @@ export function useCreateBookingConvex() {
   const setSourceRecommendationId = useBookingStore((s) => s.setSourceRecommendationId);
   const selectedServiceOptions = useBookingStore((s) => s.selectedServiceOptions);
   const customerNotes = useBookingStore((s) => s.customerNotes);
+  const selectedDiagnosticSystem = useBookingStore((s) => s.selectedDiagnosticSystem);
 
   // Resolve shopId: from selectedMechanicSlot or from selected mechanic's shop
   const effectiveShopId =
@@ -186,6 +187,7 @@ export function useCreateBookingConvex() {
             ? (sourceRecommendationId as Id<"job_recommendations">)
             : undefined,
           customer_notes: trimmedNotes.length > 0 ? trimmedNotes : undefined,
+          diagnostic_system: selectedDiagnosticSystem ?? undefined,
           selected_service_options:
             selectedOptionsPayload.length > 0 ? selectedOptionsPayload : undefined,
         });
@@ -219,6 +221,7 @@ export function useCreateBookingConvex() {
       setSourceRecommendationId,
       selectedServiceOptions,
       customerNotes,
+      selectedDiagnosticSystem,
       toast,
     ],
   );

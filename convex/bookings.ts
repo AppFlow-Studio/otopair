@@ -875,6 +875,15 @@ export const createBatch = mutation({
     funnel_id: v.optional(v.id("conversion_funnels")),
     source_recommendation_id: v.optional(v.id("job_recommendations")),
     customer_notes: v.optional(v.string()),
+    diagnostic_system: v.optional(
+      v.union(
+        v.literal("brakes"),
+        v.literal("tires_wheels"),
+        v.literal("engine"),
+        v.literal("battery_electrical"),
+        v.literal("not_sure"),
+      ),
+    ),
     selected_service_options: v.optional(
       v.array(
         v.object({
@@ -996,6 +1005,7 @@ export const createBatch = mutation({
       updated_at: now,
       source_recommendation_id: args.source_recommendation_id,
       customer_notes: args.customer_notes?.trim() ? args.customer_notes.trim() : undefined,
+      diagnostic_system: args.diagnostic_system,
       selected_service_options:
         args.selected_service_options && args.selected_service_options.length > 0
           ? args.selected_service_options

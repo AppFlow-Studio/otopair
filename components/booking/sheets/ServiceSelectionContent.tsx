@@ -37,6 +37,15 @@ import { useVehicleStore } from "@/stores/useVehicleStore";
  *  Convex-hydrated catalog uses opaque doc ids — name is the stable
  *  identifier across both. */
 const SHOP_TIRES_SERVICE_NAME = "Tire Replacement";
+const DIAGNOSTIC_SCAN_SERVICE_NAME = "Diagnostic Scan";
+
+const DIAGNOSTIC_SYSTEM_LABELS: Record<string, string> = {
+  brakes: "Brakes",
+  tires_wheels: "Tires & Wheels",
+  engine: "Engine",
+  battery_electrical: "Battery & Electrical",
+  not_sure: "Not sure — mechanic to inspect",
+};
 
 // ============================================================================
 // TYPES
@@ -56,13 +65,17 @@ interface ServiceSelectionContentProps {
    *  picker (SingleServiceOptionsSheet), which on confirm will toggle the
    *  service on with the selected option recorded. */
   onServiceWithOptionsRequested?: (serviceId: string) => void;
+  /** Called when the user taps Diagnostic Scan and it isn't already in the
+   *  cart. The parent opens DiagnosticOptionsSheet so the user picks an
+   *  area + (optional) notes before the service lands in the cart. */
+  onDiagnosticServiceRequested?: () => void;
 }
 
 // ============================================================================
 // COMPONENT
 // ============================================================================
 
-export function ServiceSelectionContent({ onCategorySelect, onShopTiresRequested, onServiceWithOptionsRequested }: ServiceSelectionContentProps) {
+export function ServiceSelectionContent({ onCategorySelect, onShopTiresRequested, onServiceWithOptionsRequested, onDiagnosticServiceRequested }: ServiceSelectionContentProps) {
   // ═══════════════ HOOKS ═══════════════
   const router = useRouter();
 
@@ -73,6 +86,8 @@ export function ServiceSelectionContent({ onCategorySelect, onShopTiresRequested
   const getServiceCategories = useBookingStore((state) => state.getServiceCategories);
   const initialServiceCategory = useBookingStore((state) => state.initialServiceCategory);
   const selectedServiceOptions = useBookingStore((state) => state.selectedServiceOptions);
+  const selectedDiagnosticSystem = useBookingStore((state) => state.selectedDiagnosticSystem);
+  const customerNotes = useBookingStore((state) => state.customerNotes);
   const engineId = useVehicleStore((state) => state.getSelectedVehicle()?.engineId);
 
   // ═══════════════ STATE-EFFECT: Per-car duration specs ═══════════════
@@ -155,9 +170,20 @@ export function ServiceSelectionContent({ onCategorySelect, onShopTiresRequested
           return;
         }
       }
+      // Diagnostic Scan follows the same tap-to-resolve pattern: open the
+      // area-picker sheet so the customer flags the system + (optional)
+      // notes before the service is added. Re-tap removes it. Matched by
+      // name because the catalog id is the Convex _id (varies per env),
+      // not the constants/services.ts slug.
+      if (service?.name === DIAGNOSTIC_SCAN_SERVICE_NAME && !isAlreadySelected) {
+        if (onDiagnosticServiceRequested) {
+          onDiagnosticServiceRequested();
+          return;
+        }
+      }
       toggleServiceSelection(serviceId);
     },
-    [toggleServiceSelection, router, availableServices, onShopTiresRequested, onServiceWithOptionsRequested, selectedServiceIds],
+    [toggleServiceSelection, router, availableServices, onShopTiresRequested, onServiceWithOptionsRequested, onDiagnosticServiceRequested, selectedServiceIds],
   );
 
   const handleCategorySelect = useCallback(
@@ -201,6 +227,13 @@ export function ServiceSelectionContent({ onCategorySelect, onShopTiresRequested
       const hours = engineSpecs[service.id]?.labor_hours ?? service.default_labor_hours;
       const durationLabel = formatDurationForCar(hours);
       const optionLabel = isSelected ? selectedServiceOptions[service.id]?.option_label : undefined;
+      const isDiagnostic = service.name === DIAGNOSTIC_SCAN_SERVICE_NAME;
+      const diagnosticAreaLabel =
+        isDiagnostic && isSelected && selectedDiagnosticSystem
+          ? DIAGNOSTIC_SYSTEM_LABELS[selectedDiagnosticSystem] ?? selectedDiagnosticSystem
+          : null;
+      const diagnosticNotes =
+        isDiagnostic && isSelected ? customerNotes.trim() : "";
 
       return (
         <TouchableOpacity
@@ -234,11 +267,39 @@ export function ServiceSelectionContent({ onCategorySelect, onShopTiresRequested
                 Option Selected: {optionLabel}
               </Text>
             )}
+            {diagnosticAreaLabel && (
+              <View style={styles.diagnosticInline}>
+                <View style={styles.diagnosticInlineRow}>
+                  <Text size="xs" weight="bold" color={BrandColors.secondary} style={styles.diagnosticInlineLabel}>
+                    Selected area:
+                  </Text>
+                  <Text size="xs" weight="semiBold" color={BrandColors.primary} style={styles.diagnosticInlineValue}>
+                    {diagnosticAreaLabel}
+                  </Text>
+                </View>
+                {diagnosticNotes.length > 0 && (
+                  <View style={styles.diagnosticInlineRow}>
+                    <Text size="xs" weight="bold" color={BrandColors.secondary} style={styles.diagnosticInlineLabel}>
+                      Notes:
+                    </Text>
+                    <Text
+                      size="xs"
+                      weight="regular"
+                      color={BrandColors.primary}
+                      style={styles.diagnosticInlineValue}
+                      numberOfLines={3}
+                    >
+                      {diagnosticNotes}
+                    </Text>
+                  </View>
+                )}
+              </View>
+            )}
           </View>
         </TouchableOpacity>
       );
     },
-    [selectedServiceIds, selectedServiceOptions, handleServicePress, engineSpecs],
+    [selectedServiceIds, selectedServiceOptions, selectedDiagnosticSystem, customerNotes, handleServicePress, engineSpecs],
   );
 
   // ═══════════════ RENDER ═══════════════
@@ -343,5 +404,26 @@ const styles = StyleSheet.create({
   },
   optionSelected: {
     marginTop: Spacing.xs,
+  },
+  diagnosticInline: {
+    marginTop: Spacing.sm,
+    padding: Spacing.sm,
+    backgroundColor: "#F0F7FF",
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#BFDBFE",
+    gap: 4,
+  },
+  diagnosticInlineRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: Spacing.xs,
+  },
+  diagnosticInlineLabel: {
+    letterSpacing: 0.3,
+    marginTop: 1,
+  },
+  diagnosticInlineValue: {
+    flex: 1,
   },
 });

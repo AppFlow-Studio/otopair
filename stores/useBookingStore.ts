@@ -16,6 +16,7 @@
 
 import { create } from "zustand";
 import { SERVICE_CATEGORIES, type ServiceCategoryItem } from "@/constants/services";
+import type { DiagnosticSystem } from "@/lib/diagnostic-checklist-templates";
 import type {
   Booking,
   BookingStage,
@@ -121,8 +122,13 @@ interface BookingState {
    *  picker can pre-select it. Cleared by resetBookingFlow. */
   prefilledScheduledAt: number | null;
   /** Free-text notes from the customer that the mechanic should read before
-   *  starting the job (entered on the Review & Pay screen). */
+   *  starting the job (entered on the Review & Pay screen, or on the
+   *  diagnostic options screen when the Diagnostic Scan service is selected). */
   customerNotes: string;
+  /** Diagnostic area the customer picked when booking a Diagnostic Scan.
+   *  Null when no Diagnostic Scan service is in the cart or before the user
+   *  picks one of the five areas on the diagnostic options screen. */
+  selectedDiagnosticSystem: DiagnosticSystem | null;
 
   // ═══════════════ BOOKING STATE ═══════════════
   /** All bookings indexed by ID */
@@ -200,6 +206,8 @@ interface BookingState {
   setPrefilledScheduledAt: (ms: number | null) => void;
   /** Set the customer notes (passed to the booking row as customer_notes). */
   setCustomerNotes: (notes: string) => void;
+  /** Set the diagnostic area selection (null clears it). */
+  setSelectedDiagnosticSystem: (system: DiagnosticSystem | null) => void;
   /** Reset booking flow to initial state */
   resetBookingFlow: () => void;
 
@@ -395,6 +403,7 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
   sourceRecommendationId: null,
   prefilledScheduledAt: null,
   customerNotes: "",
+  selectedDiagnosticSystem: null,
   bookings: {},
   bookingIds: [],
   draftBooking: null,
@@ -605,6 +614,9 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
   setCustomerNotes: (notes) =>
     set({ customerNotes: notes }),
 
+  setSelectedDiagnosticSystem: (system) =>
+    set({ selectedDiagnosticSystem: system }),
+
   resetBookingFlow: () =>
     set({
       bookingStage: "discovery",
@@ -623,6 +635,7 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
       sourceRecommendationId: null,
       prefilledScheduledAt: null,
       customerNotes: "",
+      selectedDiagnosticSystem: null,
       draftBooking: null,
     }),
 

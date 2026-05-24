@@ -153,7 +153,7 @@ export const STATUS_CONFIG: Record<BookingStatus, { label: string; bgColor: stri
     textColor: '#2F6DCC',
   },
   pending_customer_acceptance: {
-    label: 'Action needed',
+    label: 'Rescheduled',
     bgColor: '#FFF6E5',
     textColor: '#C8972E',
   },

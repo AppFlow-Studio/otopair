@@ -19,7 +19,16 @@ import { Image, ScrollView, StyleSheet, TextInput, TouchableOpacity, View } from
 // 2. Third-party libraries
 import { BottomSheetScrollView } from "@gorhom/bottom-sheet";
 import { FontAwesome } from "@expo/vector-icons";
-import { Calendar, Car, ChevronRight, FileText, Info, Lock, Star } from "lucide-react-native";
+import {
+  Calendar,
+  Car,
+  ChevronRight,
+  FileText,
+  Info,
+  Lock,
+  Star,
+  Stethoscope,
+} from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 
@@ -52,6 +61,14 @@ interface ReviewPayContentProps {
 // ============================================================================
 // CONSTANTS
 // ============================================================================
+
+const DIAGNOSTIC_SYSTEM_LABELS: Record<string, string> = {
+  brakes: "Brakes",
+  tires_wheels: "Tires & Wheels",
+  engine: "Engine",
+  battery_electrical: "Battery & Electrical",
+  not_sure: "Not sure — mechanic to inspect",
+};
 
 // Platform fee + tax math live in lib/platformFee.ts and lib/tax.ts —
 // single source of truth shared with the Convex server side.
@@ -90,6 +107,17 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
   const getFormattedAppointmentTime = useBookingStore((state) => state.getFormattedAppointmentTime);
   const customerNotes = useBookingStore((state) => state.customerNotes);
   const setCustomerNotes = useBookingStore((state) => state.setCustomerNotes);
+  const selectedDiagnosticSystem = useBookingStore((state) => state.selectedDiagnosticSystem);
+  // Diagnostic bookings collect notes earlier (on the diagnostic options
+  // sheet) so the Review & Pay notes input would be a duplicate. Matched by
+  // service name because the catalog id is the Convex _id (varies per env).
+  const isDiagnosticBooking = useMemo(
+    () =>
+      selectedServiceIds.some(
+        (id) => availableServices.find((s) => s.id === id)?.name === "Diagnostic Scan",
+      ),
+    [selectedServiceIds, availableServices],
+  );
 
   // ═══════════════ MECHANIC STORE ═══════════════
   const getMechanicById = useMechanicStore((state) => state.getMechanicById);
@@ -326,6 +354,25 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
                 </Text>
               </View>
             </View>
+
+            {isDiagnosticBooking && selectedDiagnosticSystem && (
+              <View style={styles.detailRow}>
+                <Text size="xs" weight="bold" color={BrandColors.secondary} style={styles.detailLabel}>
+                  DIAGNOSTIC FOCUS
+                </Text>
+                <View style={styles.detailContent}>
+                  <Stethoscope size={16} color="#6B7280" />
+                  <Text size="sm" weight="medium" color={BrandColors.primary}>
+                    {DIAGNOSTIC_SYSTEM_LABELS[selectedDiagnosticSystem] ?? selectedDiagnosticSystem}
+                  </Text>
+                </View>
+                {customerNotes.trim().length > 0 && (
+                  <Text size="sm" weight="regular" color="#6B7280" style={styles.diagnosticNotes}>
+                    “{customerNotes.trim()}”
+                  </Text>
+                )}
+              </View>
+            )}
           </View>
         </View>
 
@@ -445,32 +492,36 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
         </View>
 
         {/* Notes for the mechanic — read on the schedule card before
-            the job starts (e.g. "wheel lock is in the glovebox"). */}
-        <View style={styles.notesSection}>
-          <View style={styles.notesHeader}>
-            <FileText size={18} color="#6B7280" />
-            <Text size="md" weight="semiBold" color={BrandColors.primary}>
-              Notes for the mechanic
+            the job starts (e.g. "wheel lock is in the glovebox").
+            Hidden for Diagnostic Scan bookings, which collect notes earlier
+            on the diagnostic options screen. */}
+        {!isDiagnosticBooking && (
+          <View style={styles.notesSection}>
+            <View style={styles.notesHeader}>
+              <FileText size={18} color="#6B7280" />
+              <Text size="md" weight="semiBold" color={BrandColors.primary}>
+                Notes for the mechanic
+              </Text>
+            </View>
+            <Text size="sm" weight="regular" color="#6B7280" style={styles.notesHelper}>
+              Anything the mechanic should know before starting? (Optional)
+            </Text>
+            <TextInput
+              value={customerNotes}
+              onChangeText={setCustomerNotes}
+              placeholder="e.g. wheel lock is in the glovebox, please use the rear gate to enter"
+              placeholderTextColor="#9CA3AF"
+              multiline
+              numberOfLines={3}
+              maxLength={500}
+              style={styles.notesInput}
+              textAlignVertical="top"
+            />
+            <Text size="xs" weight="regular" color="#9CA3AF" style={styles.notesCounter}>
+              {customerNotes.length}/500
             </Text>
           </View>
-          <Text size="sm" weight="regular" color="#6B7280" style={styles.notesHelper}>
-            Anything the mechanic should know before starting? (Optional)
-          </Text>
-          <TextInput
-            value={customerNotes}
-            onChangeText={setCustomerNotes}
-            placeholder="e.g. wheel lock is in the glovebox, please use the rear gate to enter"
-            placeholderTextColor="#9CA3AF"
-            multiline
-            numberOfLines={3}
-            maxLength={500}
-            style={styles.notesInput}
-            textAlignVertical="top"
-          />
-          <Text size="xs" weight="regular" color="#9CA3AF" style={styles.notesCounter}>
-            {customerNotes.length}/500
-          </Text>
-        </View>
+        )}
 
         {/* Payment Options Section */}
         <View style={styles.paymentSection}>
@@ -639,6 +690,10 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: Spacing.sm,
+  },
+  diagnosticNotes: {
+    marginTop: Spacing.xs,
+    fontStyle: "italic",
   },
 
   // Service Card
