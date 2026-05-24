@@ -27,7 +27,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // 3. Shared UI (design system)
 import { BrandColors, PrimaryButton, Spacing, Text } from "@/components/shared-ui";
-import { computePlatformFeeDollars } from "@/lib/platformFee";
 
 // 4. Local components
 import { AddMoreServicesSheet, AddMoreServicesSheetRef } from "./sheets/AddMoreServicesSheet";
@@ -65,7 +64,6 @@ export function FullScreenBookingView({ onClose }: FullScreenBookingViewProps) {
   const prevBookingStage = useBookingStore((state) => state.prevBookingStage);
   const bookingType = useBookingStore((state) => state.bookingType);
   const scheduledAppointment = useBookingStore((state) => state.scheduledAppointment);
-  const selectedTotal = useBookingStore((state) => state.getSelectedServicesTotal());
   const skippedBookingDetails = useBookingStore((state) => state.skippedBookingDetails);
   const setSkippedBookingDetails = useBookingStore((state) => state.setSkippedBookingDetails);
 
@@ -149,10 +147,10 @@ export function FullScreenBookingView({ onClose }: FullScreenBookingViewProps) {
     }
 
     if (isPaymentStage) {
-      // System-level fee config in lib/platformFee.ts.
-      // TODO: When subscriptions are wired, waive service fee for Preferred/Elite subscribers
-      const serviceFee = computePlatformFeeDollars(selectedTotal);
-      const totalWithFee = selectedTotal + serviceFee;
+      // Pre-Job Approval flow: at booking time we authorize a fixed $20
+      // deposit, not the full estimated total. The full range is shown
+      // in the ReviewPayContent breakdown above; the CTA reflects the
+      // actual amount being held on the card right now.
       return (
         <View style={[styles.footer, { paddingBottom: footerBottomPadding }]}>
           <PrimaryButton style={styles.paymentButton} onPress={handlePaymentConfirmed} fullWidth>
@@ -161,7 +159,7 @@ export function FullScreenBookingView({ onClose }: FullScreenBookingViewProps) {
             </Text>
             <View style={styles.amountBadge}>
               <Text size="sm" weight="bold" color={BrandColors.primary}>
-                ${totalWithFee.toFixed(2)}
+                $20 hold
               </Text>
             </View>
           </PrimaryButton>

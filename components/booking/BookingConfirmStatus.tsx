@@ -96,6 +96,15 @@ export function BookingConfirmStatus({ onConfirm, onGoBack, mechanicId }: Props)
       </View>
 
       <View style={[styles.actionColumn, isCompactLayout && styles.actionColumnCompact, isVeryCompactLayout && styles.actionColumnVeryCompact]}>
+        <Text
+          size={isVeryCompactLayout ? "xs" : "sm"}
+          weight="regular"
+          color="#6B7280"
+          style={styles.holdNote}
+        >
+          We&apos;ll place a $20 hold on your card. You&apos;re only charged
+          the actual total after your mechanic inspects your car.
+        </Text>
         <ConfirmCountdownButton onConfirm={onConfirm} />
         <Pressable
           onPress={onGoBack}
@@ -227,5 +236,11 @@ const styles = StyleSheet.create({
   },
   buttonPressed: {
     opacity: 0.85,
+  },
+  holdNote: {
+    textAlign: "center",
+    lineHeight: 18,
+    paddingHorizontal: 4,
+    marginBottom: 4,
   },
 });

@@ -61,6 +61,7 @@ interface ActionCardsCarouselProps {
   appointmentDestinationLatitude?: number;
   appointmentDestinationLongitude?: number;
   appointmentDestinationName?: string;
+  appointmentDestinationAddress?: string;
   onAppointmentViewDetails?: (bookingId: string) => void;
   onAppointmentCancel?: (bookingId: string) => void;
 
@@ -104,10 +105,11 @@ export function ActionCardsCarousel({
   // Upcoming Appointment
   showAppointment = false,
   appointmentBooking,
-  appointmentEtaMinutes = 20,
+  appointmentEtaMinutes,
   appointmentDestinationLatitude,
   appointmentDestinationLongitude,
   appointmentDestinationName,
+  appointmentDestinationAddress,
   onAppointmentViewDetails,
   onAppointmentCancel,
 
@@ -216,6 +218,7 @@ export function ActionCardsCarousel({
                   destinationLatitude={appointmentDestinationLatitude}
                   destinationLongitude={appointmentDestinationLongitude}
                   destinationName={appointmentDestinationName}
+                  destinationAddress={appointmentDestinationAddress}
                 />
               </View>
             ) : null}

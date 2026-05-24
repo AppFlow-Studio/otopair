@@ -225,11 +225,7 @@ export default function HomeScreen() {
   const hasCreateAccount = !!(me?.first_name && me?.last_name) || me?.onboardingCompleted === true;
   const hasAboutYou = me?.tellUsAboutCompleted === true;
   const isAccountSetupComplete = hasCreateAccount && hasAboutYou && hasVehicles;
-  // TEMP: force the Finish-setup card visible so the redesigned tiles
-  // can be reviewed even after the user has completed setup. Revert
-  // this to `!isAccountSetupComplete && !accountSetupDismissed` once
-  // QA is done.
-  const showAccountSetup = !accountSetupDismissed;
+  const showAccountSetup = !isAccountSetupComplete && !accountSetupDismissed;
 
   // Car setup: prefer incomplete vehicles, then completed-but-not-acknowledged.
   // `incompleteVehicles` is the full list of not-yet-onboarded cars so we can
@@ -459,6 +455,29 @@ export default function HomeScreen() {
     () => (upcomingBooking ? adaptConvexBookingWithDetailsToCard(upcomingBooking) : null),
     [upcomingBooking],
   );
+
+  // Pull the shop record for the upcoming booking so we can fall back
+  // to a postal address when the shop hasn't been geocoded (shopLat /
+  // shopLng missing or 0). Without this, the Navigate button would
+  // happily route the user to 0,0 in the middle of the ocean.
+  const upcomingShop = useQuery(
+    api.shops.getById,
+    upcomingBooking?.shop_id
+      ? { id: upcomingBooking.shop_id as Id<"shops"> }
+      : "skip",
+  );
+  const upcomingShopAddress = useMemo(() => {
+    if (!upcomingShop) return undefined;
+    const parts = [
+      upcomingShop.address,
+      upcomingShop.city,
+      upcomingShop.state,
+      upcomingShop.zip,
+    ]
+      .map((p) => (typeof p === "string" ? p.trim() : ""))
+      .filter(Boolean);
+    return parts.length > 0 ? parts.join(", ") : undefined;
+  }, [upcomingShop]);
 
   // Cancel handler — mirror the bookings tab's behavior. Convex bookings
   // get the cancelBooking mutation; tire-quote-prefixed local IDs are
@@ -727,10 +746,10 @@ export default function HomeScreen() {
                   // row + view-details/cancel handlers below.
                   showAppointment={!!upcomingBooking}
                   appointmentBooking={upcomingBookingCard}
-                  appointmentEtaMinutes={20}
                   appointmentDestinationLatitude={upcomingBooking?.shopLat ?? 0}
                   appointmentDestinationLongitude={upcomingBooking?.shopLng ?? 0}
                   appointmentDestinationName={upcomingBooking?.shopName}
+                  appointmentDestinationAddress={upcomingShopAddress}
                   onAppointmentViewDetails={handleAppointmentViewDetails}
                   onAppointmentCancel={handleAppointmentCancel}
                   // Resume Booking

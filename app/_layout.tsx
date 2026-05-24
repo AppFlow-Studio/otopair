@@ -28,6 +28,7 @@ import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useAppFonts } from "@/hooks/use-fonts";
 import { useConsoleToConvex } from "@/hooks/useConsoleToConvex";
 import { useEnsureConvexUser } from "@/hooks/useEnsureConvexUser";
+import { useRefreshPushToken } from "@/hooks/useRefreshPushToken";
 import { clearUserSessionState } from "@/lib/session-state";
 import { useAuthStore } from "@/stores/useAuthStore";
 
@@ -80,6 +81,7 @@ function EnsureConvexUserRecord() {
   const ensureUser = useEnsureConvexUser();
   const lastUserRef = useRef<string | null>(null);
   const [retryTrigger, setRetryTrigger] = useState(0);
+  useRefreshPushToken();
 
   useEffect(() => {
     if (!isSignedIn) {

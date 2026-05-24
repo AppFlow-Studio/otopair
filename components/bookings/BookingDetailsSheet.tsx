@@ -54,6 +54,7 @@ import { useBookingStore } from "@/stores/useBookingStore";
 import type { Booking } from "./BookingCard";
 import { MechanicChatSheet, type MechanicChatSheetRef } from "./MechanicChatSheet";
 import { RescheduleSheet, type RescheduleSheetRef } from "./RescheduleSheet";
+import { ApprovalBanner } from "@/components/booking/ApprovalBanner";
 
 // ============================================================================
 // CONSTANTS (sheet mechanics — frozen)
@@ -204,7 +205,7 @@ export const BookingDetailsSheet = forwardRef<BookingDetailsSheetRef, BookingDet
 
     const liveStatusHistory = useMemo(() => {
       if (!bookingDetail?.statusHistory) return undefined;
-      return bookingDetail.statusHistory.map((h) => ({
+      return bookingDetail.statusHistory.map((h: { status: string; changedAt: number }) => ({
         stage: h.status as BookingStatus,
         timestamp: h.changedAt,
       }));
@@ -795,6 +796,13 @@ function FullContent({
         contentContainerStyle={[styles.fullScroll, { paddingBottom: bottomPadding }]}
         showsVerticalScrollIndicator={false}
       >
+        {/* APPROVAL BANNER — surfaces when an out-of-range estimate is
+            waiting on the customer's decision. */}
+        <ApprovalBanner
+          bookingId={booking.id as any}
+          paymentApprovalState={booking.paymentApprovalState}
+        />
+
         {/* STATUS TIMELINE */}
         <View style={styles.section}>
           <SectionHeader label="Status" />
@@ -899,20 +907,58 @@ function FullContent({
         {/* PAYMENT */}
         <View style={styles.section}>
           <SectionHeader label="Payment" />
-          <View style={styles.paymentRow}>
-            <Text size="md" weight="regular" color="#1A1A1A">
-              Estimated total
-            </Text>
-            {booking.totalCost != null && booking.totalCost > 0 ? (
-              <Text size="md" weight="bold" color="#1A1A1A">
-                ${booking.totalCost.toFixed(2)}
-              </Text>
-            ) : (
-              <Text size="md" weight="regular" color="#8E8E93" style={styles.paymentPending}>
-                Pending confirmation
-              </Text>
-            )}
-          </View>
+          {(() => {
+            // Pre-Job Approval flow: render based on lifecycle stage.
+            //   - captured → show final charged amount
+            //   - disclosed range present → show range pair
+            //   - legacy → show singular total_cost
+            const isCaptured = booking.paymentApprovalState === "captured";
+            const hasRange =
+              booking.disclosedRangeLowCents != null &&
+              booking.disclosedRangeHighCents != null;
+            if (isCaptured && booking.finalCaptureAmountCents != null) {
+              return (
+                <View style={styles.paymentRow}>
+                  <Text size="md" weight="regular" color="#1A1A1A">
+                    Total charged
+                  </Text>
+                  <Text size="md" weight="bold" color="#1A1A1A">
+                    ${(booking.finalCaptureAmountCents / 100).toFixed(2)}
+                  </Text>
+                </View>
+              );
+            }
+            if (hasRange) {
+              const low = (booking.disclosedRangeLowCents! / 100).toFixed(2);
+              const high = (booking.disclosedRangeHighCents! / 100).toFixed(2);
+              return (
+                <View style={styles.paymentRow}>
+                  <Text size="md" weight="regular" color="#1A1A1A">
+                    Estimated total
+                  </Text>
+                  <Text size="md" weight="bold" color="#1A1A1A">
+                    ${low} – ${high}
+                  </Text>
+                </View>
+              );
+            }
+            return (
+              <View style={styles.paymentRow}>
+                <Text size="md" weight="regular" color="#1A1A1A">
+                  Estimated total
+                </Text>
+                {booking.totalCost != null && booking.totalCost > 0 ? (
+                  <Text size="md" weight="bold" color="#1A1A1A">
+                    ${booking.totalCost.toFixed(2)}
+                  </Text>
+                ) : (
+                  <Text size="md" weight="regular" color="#8E8E93" style={styles.paymentPending}>
+                    Pending confirmation
+                  </Text>
+                )}
+              </View>
+            );
+          })()}
         </View>
 
         {/* SECONDARY ACTIONS */}

@@ -39,6 +39,7 @@ import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 import { getPartsBreakdown } from "@/constants/services";
 import { BorderRadius, Shadows, getSheetContentPadding } from "@/constants/theme";
 import { useBookingPartsBreakdown } from "@/hooks/useBookingPartsBreakdown";
+import { deriveDisclosedRange } from "@/lib/disclosedRange";
 import { computeBookingTax } from "@/lib/tax";
 import { computePlatformFeeDollars } from "@/lib/platformFee";
 import { useBookingStore } from "@/stores/useBookingStore";
@@ -201,6 +202,17 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
       zip: shop?.zip,
     }).taxDollars;
 
+    // Pre-Job Approval flow: customer sees a range, not a single price.
+    // ±25% band around parts (labor variance is negligible); tax + fee
+    // recomputed at both endpoints to respect tax brackets and the
+    // platform-fee floor.
+    const range = deriveDisclosedRange({
+      laborCost,
+      partsCost,
+      state: shop?.state,
+      zip: shop?.zip,
+    });
+
     return {
       laborHours,
       laborCost,
@@ -209,6 +221,9 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
       platformFee: serviceFee,
       subtotal: servicesTotal,
       total: servicesTotal + taxesAndFees + serviceFee,
+      rangeLow: range.lowDollars,
+      rangeHigh: range.highDollars,
+      rangeFormatted: range.formatted,
     };
   }, [selectedServices, laborRate, shop?.state, shop?.zip, getServicePartsCost]);
 
@@ -473,11 +488,13 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
           {/* Divider */}
           <View style={styles.serviceDivider} />
 
-          {/* Total */}
+          {/* Estimated total — disclosed as a range. The customer agrees
+              to the band when they book; as long as the mechanic's final
+              set price lands inside it, no further consent is needed. */}
           <View style={styles.totalSection}>
             <View style={styles.totalLeft}>
               <Text size="md" weight="bold" color={BrandColors.primary}>
-                Total
+                Estimated total
               </Text>
               <View style={styles.savingsBadge}>
                 <Text size="xs" weight="semiBold" color={BrandColors.secondary}>
@@ -486,7 +503,14 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
               </View>
             </View>
             <Text size="2xl" weight="bold" color={BrandColors.secondary}>
-              ${breakdown.total.toFixed(2)}
+              {breakdown.rangeFormatted}
+            </Text>
+          </View>
+          <View style={styles.rangeExplainer}>
+            <Info size={12} color="#9CA3AF" />
+            <Text size="xs" weight="regular" color="#6B7280" style={styles.rangeExplainerText}>
+              We&apos;ll place a $20 hold today. You&apos;ll only be charged
+              the actual total after your mechanic inspects your car.
             </Text>
           </View>
         </View>
@@ -757,6 +781,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.sm,
     paddingVertical: 4,
     borderRadius: BorderRadius.md,
+  },
+  rangeExplainer: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: Spacing.xs,
+    marginTop: Spacing.sm,
+    paddingTop: Spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: "#F3F4F6",
+  },
+  rangeExplainerText: {
+    flex: 1,
+    lineHeight: 16,
   },
 
   // Notes Section

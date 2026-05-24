@@ -52,11 +52,13 @@ export const getMyNotifications = query({
         let scheduledTime: string | null = null;
         let shortHandle: string | null = null;
         let rescheduleExpiresAt: number | null = null;
+        let assignedMechanicId: string | null = null;
         if (row.booking_id) {
           const booking: any = await ctx.db.get(row.booking_id);
           if (booking) {
             scheduledDate = booking.scheduled_date ?? null;
             scheduledTime = booking.scheduled_time ?? null;
+            assignedMechanicId = booking.mechanic_id ?? null;
             if (
               (row.category === "booking_reschedule_proposed" ||
                 row.category === "booking_forced_delay_proposed") &&
@@ -119,6 +121,7 @@ export const getMyNotifications = query({
           scheduledDate,
           scheduledTime,
           rescheduleExpiresAt,
+          assignedMechanicId,
         };
       }),
     );

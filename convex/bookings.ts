@@ -40,6 +40,7 @@ import { mintClaimToken } from "./walkin_claims";
 import { BOOKING_STATUS_VISUALS, type BookingStatus } from "../lib/booking-status";
 import { computeBookingTax } from "../lib/tax";
 import { computePlatformFeeDollars } from "../lib/platformFee";
+import { computeDisclosedRange } from "./booking_quotes";
 import {
   EARLY_PUSH_THRESHOLD_MS,
   addMinutesToHHMM,
@@ -457,6 +458,12 @@ export const getByUserIdWithDetails = query({
           shopLat: shop?.lat,
           shopLng: shop?.lng,
           tire_specs: booking.tire_specs,
+          // Pre-Job Approval flow — disclosed range + approval state +
+          // final captured amount. Optional: omitted on legacy rows.
+          disclosed_range_low_cents: booking.disclosed_range_low_cents,
+          disclosed_range_high_cents: booking.disclosed_range_high_cents,
+          payment_approval_state: booking.payment_approval_state,
+          final_capture_amount_cents: booking.final_capture_amount_cents,
         };
       })
     );
@@ -972,6 +979,23 @@ export const createBatch = mutation({
     const total_cost = labor_cost + parts_cost + taxes_and_fees + platform_fee;
     const estimated_labor_minutes = args.services.reduce((sum, s) => sum + (s.labor_hours ?? 0) * 60, 0);
 
+    // ── Pre-Job Approval flow: disclosed range snapshot ──────────────
+    const optionsByServiceId = new Map<string, Id<"service_options">>();
+    for (const opt of args.selected_service_options ?? []) {
+      optionsByServiceId.set(opt.service_id, opt.option_id);
+    }
+    const disclosedRange = await computeDisclosedRange(ctx, {
+      services: args.services.map((s) => ({
+        service_id: s.service_id,
+        parts_cost: s.parts_cost,
+        option_id: optionsByServiceId.get(s.service_id),
+      })),
+      labor_cost_dollars: labor_cost,
+      engine_id: vehicle.engine_id ?? null,
+      shop_state: shop?.state ?? null,
+      shop_zip: shop?.zip ?? null,
+    });
+
     await assertBookingWithinShopHours(ctx, {
       shopId: args.shop_id,
       date: args.scheduled_date,
@@ -1010,6 +1034,11 @@ export const createBatch = mutation({
         args.selected_service_options && args.selected_service_options.length > 0
           ? args.selected_service_options
           : undefined,
+      disclosed_range_low_cents: disclosedRange.low_cents,
+      disclosed_range_high_cents: disclosedRange.high_cents,
+      disclosed_breakdown: disclosedRange.breakdown,
+      disclosed_at_ms: now,
+      payment_approval_state: "none",
     });
 
     await logBookingStatusChange(
@@ -5801,6 +5830,23 @@ export async function applyBookingStatusTransition(
   const error = validateTransition(booking.status, newStatus);
   if (error) throw new Error(error);
 
+  // Pre-Job Approval guard: don't let the mechanic flip a booking into
+  // `in_progress` while it's still waiting on the customer's approval.
+  // Pre-feature bookings (state == null) and approved/in-range bookings
+  // pass. Reauth-required is hard-blocked so the customer can fix payment
+  // before work continues.
+  if (newStatus === "in_progress") {
+    const pas = (booking as any).payment_approval_state as string | undefined;
+    const allowed = new Set([undefined, "none", "in_range", "pre_job_approved"]);
+    if (!allowed.has(pas)) {
+      throw new Error(
+        pas === "reauth_required"
+          ? "Customer needs to update their payment method before work can start."
+          : "Waiting on the customer to approve the updated estimate.",
+      );
+    }
+  }
+
   if (isTerminal(booking.status)) {
     const label =
       BOOKING_STATUS_VISUALS[booking.status as BookingStatus]?.label?.toLowerCase() ??
@@ -5915,10 +5961,15 @@ export async function applyBookingStatusTransition(
   // days. Bookings scheduled more than ~5 days out (book + service window
   // > 7 days) risk auth expiry before capture — track via a future cron
   // that re-auths or alerts near the limit.
+  // Pre-Job Approval flow: capture gates through finalizeAndChargeForBooking,
+  // which decides between direct capture and post-job re-approval based on
+  // whether the mechanic's actuals exceeded the customer-approved set price.
+  // Pre-feature bookings (no disclosed range) take a legacy fall-through
+  // branch inside the action.
   if (newStatus === "completed") {
     await ctx.scheduler.runAfter(
       0,
-      (internal as any).payments_stripe.capturePaymentIntentForBooking,
+      (internal as any).payments_stripe.finalizeAndChargeForBooking,
       { bookingId: booking._id },
     );
   }

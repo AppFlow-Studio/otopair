@@ -47,6 +47,58 @@ export async function openMapsForAddress(address: string): Promise<void> {
 }
 
 /**
+ * Open the device's default maps app with directions to a lat/lng.
+ *
+ * Mirrors `openMapsForAddress` but skips geocoding by passing coordinates
+ * directly. The optional `label` is displayed as the destination name in
+ * the maps app (Apple Maps & Google Maps both honor it).
+ *
+ * - iOS  → Apple Maps via `maps:` scheme (falls back to maps.apple.com).
+ * - Android → `geo:` URI for the app chooser (Google Maps, Waze, etc.).
+ */
+export async function openMapsForCoordinates(
+  latitude: number,
+  longitude: number,
+  label?: string,
+): Promise<void> {
+  const coord = `${latitude},${longitude}`;
+  const encodedLabel = label ? encodeURIComponent(label) : undefined;
+  const webFallback = `https://www.google.com/maps/dir/?api=1&destination=${coord}`;
+
+  const candidates =
+    Platform.OS === "ios"
+      ? [
+          encodedLabel
+            ? `maps://?daddr=${coord}&q=${encodedLabel}`
+            : `maps://?daddr=${coord}`,
+          `http://maps.apple.com/?daddr=${coord}`,
+          webFallback,
+        ]
+      : [
+          encodedLabel ? `geo:${coord}?q=${coord}(${encodedLabel})` : `geo:${coord}?q=${coord}`,
+          webFallback,
+        ];
+
+  for (const url of candidates) {
+    try {
+      const canOpen = await Linking.canOpenURL(url);
+      if (canOpen) {
+        await Linking.openURL(url);
+        return;
+      }
+    } catch {
+      // try next candidate
+    }
+  }
+
+  try {
+    await Linking.openURL(webFallback);
+  } catch {
+    // swallow — caller doesn't need a UI surface for this
+  }
+}
+
+/**
  * Open the phone dialer with a number (prompts user to call).
  */
 export async function openPhone(phone: string): Promise<void> {

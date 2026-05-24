@@ -163,6 +163,15 @@ export interface Booking {
   notes?: string;
   createdAt: string;
   updatedAt: string;
+  /** Pre-Job Approval flow: customer-facing range snapshotted at create. */
+  disclosedRangeLowCents?: number;
+  disclosedRangeHighCents?: number;
+  /** "none" | "in_range" | "pre_job_pending" | "pre_job_approved" |
+   *  "pre_job_declined" | "mid_job_pending" | ... | "captured" |
+   *  "sla_expired". Drives banner/receipt switching on the booking screen. */
+  paymentApprovalState?: string;
+  /** Final captured amount in cents (set after Stripe capture). */
+  finalCaptureAmountCents?: number;
 }
 
 /** A shop/mechanic business entity */
