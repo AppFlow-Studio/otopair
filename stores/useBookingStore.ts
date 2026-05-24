@@ -46,8 +46,6 @@ export interface SelectedMechanicSlot {
   /** Scheduled time (e.g. "09:00") */
   scheduledTime?: string;
 }
-import { useMechanicStore } from "./useMechanicStore";
-import { useVehicleStore } from "./useVehicleStore";
 
 // ─────────────────────────────────────────────────────────────
 // STORE STATE INTERFACE
@@ -208,8 +206,6 @@ interface BookingState {
   setDraftBooking: (draft: Partial<Booking> | null) => void;
   /** Clear all booking state */
   clearBookingState: () => void;
-  /** Create a new booking from current state (local only; use api.bookings.create for Convex) */
-  createBooking: (mechanicId: string, bookingType: BookingType) => string;
   /** Hydrate available services from Convex (replaces/gates MOCK_SERVICES) */
   setAvailableServices: (services: Service[]) => void;
   /** Hydrate service categories from Convex (for Select Services tabs) */
@@ -261,8 +257,6 @@ const DEFAULT_LOCATION: UserLocation = {
   city: "San Francisco",
   state: "CA",
 };
-
-const DEFAULT_SERVICE: ServiceCategory = "basic_maintenance";
 
 // ─────────────────────────────────────────────────────────────
 // MOCK SERVICES DATA
@@ -484,23 +478,10 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
     }),
 
   setBookingsFromConvex: (bookings) =>
-    set((state) => {
-      // Preserve local-only bookings (created outside Convex — e.g. the
-      // tire-flow synthetic booking) so Convex re-syncs don't wipe them.
-      const incomingIds = new Set(bookings.map((b) => b.id));
+    set(() => {
       const byId: Record<string, Booking> = {};
       const ids: string[] = [];
-      // Local-only entries first (stable order).
-      state.bookingIds.forEach((id) => {
-        if (!incomingIds.has(id)) {
-          const existing = state.bookings[id];
-          if (existing) {
-            byId[id] = existing;
-            ids.push(id);
-          }
-        }
-      });
-      // Then the Convex payload overwrites/adds.
+
       bookings.forEach((b) => {
         byId[b.id] = b;
         ids.push(b.id);
@@ -818,48 +799,5 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
         const dateB = new Date(b.scheduledDate);
         return dateA.getTime() - dateB.getTime();
       });
-  },
-
-  createBooking: (mechanicId, bookingType) => {
-    const state = get();
-    const mechanic = useMechanicStore.getState().getMechanicById(mechanicId);
-
-    if (!mechanic) {
-      throw new Error(`Mechanic with ID ${mechanicId} not found`);
-    }
-
-    // Generate unique booking ID
-    const bookingId = `booking_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
-    // Get scheduled date/time from appointment or use defaults
-    const scheduledDate = state.scheduledAppointment?.date || new Date().toISOString().split("T")[0];
-    const scheduledTime = state.scheduledAppointment?.time || "1:00 PM";
-
-    // Create booking object
-    const booking: Booking = {
-      id: bookingId,
-      userId: "current_user_id", // TODO: Get from auth store
-      shopId: String(mechanic.shopId),
-      vehicleId: useVehicleStore.getState().selectedVehicleId ?? "default_vehicle_id",
-      serviceIds: state.selectedServiceIds,
-      status: bookingType === "schedule_later" ? "pending" : "confirmed",
-      scheduledDate,
-      scheduledTime,
-      estimatedDuration: 60, // Default 1 hour
-      totalPrice: state.getSelectedServicesTotal(),
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-
-    // Add to store
-    set((prevState) => ({
-      bookings: {
-        ...prevState.bookings,
-        [bookingId]: booking,
-      },
-      bookingIds: [...prevState.bookingIds, bookingId],
-    }));
-
-    return bookingId;
   },
 }));

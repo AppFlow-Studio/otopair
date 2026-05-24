@@ -133,7 +133,7 @@ export default function BookingsScreen() {
     (b: Booking) => {
       if (!filterVehicle) return true;
       // Prefer VIN match — unambiguous, no name parsing. Both Convex and
-      // local-synthesized bookings now carry the originating VIN so this
+      // Convex-backed bookings carry the originating VIN, so this
       // is the authoritative comparison whenever both sides have one.
       if (filterVehicle.vin && b.vin) {
         return b.vin.toUpperCase() === filterVehicle.vin.toUpperCase();
@@ -155,15 +155,15 @@ export default function BookingsScreen() {
   // Cancel: soft-deletes by flipping `status` to "cancelled". Convex
   // mutation handles server-backed bookings (idempotent —
   // `api.bookings.cancelBooking`); the local Zustand action handles
-  // synthesized tire quotes that never made it to Convex. The card
+  // stale local IDs from older app builds. The card
   // moves to History on next query refresh because `isHistory` matches
   // status "cancelled".
   //
   // Important: we discriminate by id prefix, NOT by store membership.
   // `useBookingsFromConvex` (mounted in `(main-tabs)/_layout.tsx`)
   // hydrates every Convex booking into the local store, so a store hit
-  // doesn't tell us anything. Synthesized tire quotes use the
-  // `tire_quote_*` id format from `synthesizeTireQuoteBooking`; real
+  // doesn't tell us anything. Legacy tire quote rows used the
+  // `tire_quote_*` id format; real
   // Convex ids are base32 and never start with that prefix.
   const cancelLocalBooking = useBookingStore((s) => s.cancelBooking);
   const cancelConvexBooking = useMutation(api.bookings.cancelBooking);
