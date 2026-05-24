@@ -7,8 +7,8 @@
  * USED IN: ShopBookingModal, AvailabilityModal
  */
 
-import { useQuery } from "convex/react";
-import { useMemo } from "react";
+import { useMutation, useQuery } from "convex/react";
+import { useEffect, useMemo } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { displayTimeToHHMM } from "@/utils/timeSlotUtils";
@@ -33,6 +33,19 @@ export function useTimeSlotsForShop(shopId: string | null, date: string | null, 
   // Skip query for mock IDs (e.g. "1", "2") — only call Convex with real IDs
   const isRealShopId = shopId != null && shopId.length > 10;
   const isRealMechanicId = mechanicId != null && mechanicId.length > 10;
+  const refreshShopAvailability = useMutation(api.time_slots.refreshShopAvailability);
+
+  useEffect(() => {
+    if (!isRealShopId || !date) return;
+    void refreshShopAvailability({
+      shopId: shopId as Id<"shops">,
+      date,
+      mechanicId: isRealMechanicId ? (mechanicId as Id<"mechanics">) : undefined,
+    }).catch((error) => {
+      console.warn("[availability] failed to refresh shop slots", error);
+    });
+  }, [date, isRealMechanicId, isRealShopId, mechanicId, refreshShopAvailability, shopId]);
+
   const slots = useQuery(
     api.time_slots.getByShopAndDate,
     isRealShopId && date

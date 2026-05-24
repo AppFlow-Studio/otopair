@@ -138,6 +138,14 @@ export interface MechanicAvailabilitySlot {
   day: string;
   /** Time string (e.g., "9:00 AM") */
   time: string;
+  /** Convex time_slots id, when this slot came from Convex availability */
+  timeSlotId?: string;
+  /** Slot date as YYYY-MM-DD, when this slot came from Convex availability */
+  scheduledDate?: string;
+  /** Slot start time as HH:MM, when this slot came from Convex availability */
+  scheduledTime?: string;
+  /** Convex mechanic id for this slot, when available */
+  mechanicId?: string;
 }
 
 /** Mechanic filter options */
