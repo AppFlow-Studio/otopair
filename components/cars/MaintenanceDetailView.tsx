@@ -36,13 +36,13 @@ interface MaintenanceDetailViewProps {
 // CONSTANTS
 // ============================================================================
 
-const BLUE_GRADIENT: [string, ...string[]] = [
+const BLUE_GRADIENT: readonly [string, string, ...string[]] = [
   '#1A3A5C', '#204B78', '#2E6AAE', '#5299FE', '#6DACFE',
   '#8ABFFE', '#A6D0FE', '#C2E0FE', '#D9ECFE', '#E8F3FE',
   '#F2F8FF', '#F9FCFF', '#FFFFFF',
 ];
 
-const GRADIENT_LOCATIONS: number[] = [
+const GRADIENT_LOCATIONS: readonly [number, number, ...number[]] = [
   0, 0.12, 0.24, 0.36, 0.46, 0.55, 0.63, 0.71, 0.78, 0.84, 0.90, 0.95, 1,
 ];
 

@@ -915,9 +915,11 @@ export const getAllActiveConnections = internalQuery({
 export const getOwnerBySmartcarVehicleId = internalQuery({
   args: { smartcarVehicleId: v.string() },
   handler: async (ctx, args) => {
+    // Legacy Smartcar fallback: keep this type-only escape hatch instead of
+    // reintroducing a vehicle_owners Smartcar index into the active schema.
     return await ctx.db
       .query("vehicle_owners")
-      .withIndex("by_smartcar_vehicle_id", (q) => q.eq("smartcarVehicleId", args.smartcarVehicleId))
+      .withIndex("by_smartcar_vehicle_id" as any, (q: any) => q.eq("smartcarVehicleId", args.smartcarVehicleId))
       .first();
   },
 });
