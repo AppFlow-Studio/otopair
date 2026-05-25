@@ -15,7 +15,7 @@ import {
 } from "@gorhom/bottom-sheet";
 import { BlurBackdrop } from "@/components/shared-ui/BlurBackdrop";
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
-import { Bell, MoveRight, Star, Trophy } from 'lucide-react-native';
+import { Bell, Car, MoveRight, Star, Trophy } from 'lucide-react-native';
 import { useMutation, useQuery } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 
@@ -878,7 +878,7 @@ export default function HomeScreen() {
       <View style={[styles.sheetContentContainer, styles.noVehicleContent]}>
         <View style={styles.sheetTitleWrap}>
           <View style={styles.noVehicleIconWrap}>
-            <Text style={{ fontSize: 26, lineHeight: 26, textAlign: 'center' }}>🚗</Text>
+            <Car size={26} color="#5299FE" />
           </View>
           <Text style={styles.sheetTitle}>Add a vehicle first</Text>
         </View>
