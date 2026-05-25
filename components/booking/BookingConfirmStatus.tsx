@@ -36,6 +36,7 @@ export function BookingConfirmStatus({ onConfirm, onGoBack, mechanicId }: Props)
   const { height: windowHeight } = useWindowDimensions();
   const scheduledAppointment = useBookingStore((s) => s.scheduledAppointment);
   const selectedMechanicId = useBookingStore((s) => s.selectedMechanicId);
+  const disclosedRangeFormatted = useBookingStore((s) => s.disclosedRangeFormatted);
   const getMechanicById = useMechanicStore((s) => s.getMechanicById);
   const getShopById = useShopStore((s) => s.getShopById);
   const selectedVehicle = useVehicleStore((s) =>
@@ -96,14 +97,24 @@ export function BookingConfirmStatus({ onConfirm, onGoBack, mechanicId }: Props)
       </View>
 
       <View style={[styles.actionColumn, isCompactLayout && styles.actionColumnCompact, isVeryCompactLayout && styles.actionColumnVeryCompact]}>
+        {disclosedRangeFormatted ? (
+          <Text
+            size={isVeryCompactLayout ? "sm" : "md"}
+            weight="semiBold"
+            color="#141C24"
+            style={styles.rangeLine}
+          >
+            The estimated price for your car is {disclosedRangeFormatted}.
+          </Text>
+        ) : null}
         <Text
           size={isVeryCompactLayout ? "xs" : "sm"}
           weight="regular"
           color="#6B7280"
           style={styles.holdNote}
         >
-          We&apos;ll place a $20 hold on your card. You&apos;re only charged
-          the actual total after your mechanic inspects your car.
+          A $20 hold will be placed on your card. The final amount is only
+          charged once your mechanic has inspected your car.
         </Text>
         <ConfirmCountdownButton onConfirm={onConfirm} />
         <Pressable
@@ -242,5 +253,11 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     paddingHorizontal: 4,
     marginBottom: 4,
+  },
+  rangeLine: {
+    textAlign: "center",
+    lineHeight: 22,
+    paddingHorizontal: 4,
+    marginBottom: 6,
   },
 });

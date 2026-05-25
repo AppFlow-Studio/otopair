@@ -265,7 +265,7 @@ export default function AboutOtopairScreen() {
               <View style={styles.showcaseServiceRow}>
                 <View style={styles.showcaseFeeRow}>
                   <Text size="sm" weight="regular" color="#6B7280">
-                    Otopair Service Fee — 7%
+                    Service Fee — 7%
                   </Text>
                   <View style={styles.showcaseInfoButton}>
                     <Info size={14} color="#9CA3AF" />

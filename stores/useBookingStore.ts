@@ -107,6 +107,10 @@ interface BookingState {
   bookingType: BookingType | null;
   /** Scheduled appointment date/time */
   scheduledAppointment: ScheduledAppointment | null;
+  /** Customer-facing range snapshot stashed by ReviewPayContent so the
+   *  Confirm screen can quote the same band the customer just agreed to.
+   *  Format: `$108.42 – $138.67`. Cleared on flow reset. */
+  disclosedRangeFormatted: string | null;
   /** Whether booking_details was skipped (direct to payment via "Book Now") */
   skippedBookingDetails: boolean;
   /** Selected slot in mechanic selection screen (before booking) */
@@ -190,6 +194,8 @@ interface BookingState {
   setBookingTypeAndProceed: (type: BookingType, mechanicId: string) => void;
   /** Set the scheduled appointment date/time */
   setScheduledAppointment: (appointment: ScheduledAppointment | null) => void;
+  /** Stash the disclosed price range so the Confirm screen can re-display it. */
+  setDisclosedRangeFormatted: (formatted: string | null) => void;
   /** Set whether booking details was skipped */
   setSkippedBookingDetails: (skipped: boolean) => void;
   /** Set selected mechanic slot in mechanic selection screen */
@@ -397,6 +403,7 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
   selectedMechanicId: null,
   bookingType: null,
   scheduledAppointment: null,
+  disclosedRangeFormatted: null,
   skippedBookingDetails: false,
   selectedMechanicSlot: null,
   selectedServiceOptions: {},
@@ -579,6 +586,11 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
       scheduledAppointment: appointment,
     }),
 
+  setDisclosedRangeFormatted: (formatted) =>
+    set({
+      disclosedRangeFormatted: formatted,
+    }),
+
   setSkippedBookingDetails: (skipped) =>
     set({
       skippedBookingDetails: skipped,
@@ -629,6 +641,7 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
       preSelectedServiceIds: [],
       bookingType: null,
       scheduledAppointment: null,
+      disclosedRangeFormatted: null,
       skippedBookingDetails: false,
       selectedMechanicSlot: null,
       selectedServiceOptions: {},

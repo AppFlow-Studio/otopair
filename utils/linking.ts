@@ -108,3 +108,76 @@ export async function openPhone(phone: string): Promise<void> {
     await Linking.openURL(url);
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// Incoming `otopair://` deep links — used by push notifications fired from
+// the Pre-Job Approval flow (booking_approvals.ts) and any future
+// surface that wants to deep-link the customer to a specific booking.
+//
+// Push payloads use these forms:
+//   otopair://booking/<bookingId>                  → booking detail
+//   otopair://booking/<bookingId>/approve-estimate → approval prompt
+//
+// Expo Router auto-handles deep links when the URL path matches the file-
+// based route. Our approve-estimate route lives at
+// `app/booking/approve-estimate/[id].tsx`, so the push form (which puts the
+// id segment first) doesn't auto-resolve — we route it manually below.
+// ─────────────────────────────────────────────────────────────────────────
+
+export type OtopairDeepLink =
+  | { kind: "approve_estimate"; bookingId: string }
+  | { kind: "booking_detail"; bookingId: string };
+
+/** Parse an `otopair://` URL into a known target. Returns null when the URL
+ *  is unrecognized — caller should ignore (don't navigate to an unknown
+ *  destination). */
+export function parseOtopairDeepLink(url: string): OtopairDeepLink | null {
+  if (!url) return null;
+  // Accept both `otopair://booking/...` and any path that contains it
+  // (some platforms wrap the URL in their own envelope on cold launch).
+  const match = url.match(/otopair:\/\/(.+)$/i);
+  if (!match) return null;
+  const pathAndQuery = match[1].split("?")[0];
+  const segments = pathAndQuery
+    .split("/")
+    .map((s) => decodeURIComponent(s))
+    .filter((s) => s.length > 0);
+
+  if (segments[0] !== "booking" || segments.length < 2) return null;
+
+  const bookingId = segments[1];
+  if (segments[2] === "approve-estimate") {
+    return { kind: "approve_estimate", bookingId };
+  }
+  if (segments.length === 2) {
+    return { kind: "booking_detail", bookingId };
+  }
+  return null;
+}
+
+/** Route a known otopair deep link via expo-router. Safe to call with any
+ *  URL — unknown URLs are silently ignored. Typed loosely on the router so
+ *  this stays decoupled from expo-router's generic Href types. */
+export function routeOtopairDeepLink(
+  router: { push: (target: any) => void },
+  url: string,
+): void {
+  const parsed = parseOtopairDeepLink(url);
+  if (!parsed) return;
+  if (parsed.kind === "approve_estimate") {
+    router.push({
+      pathname: "/booking/approve-estimate/[id]",
+      params: { id: parsed.bookingId },
+    });
+    return;
+  }
+  if (parsed.kind === "booking_detail") {
+    // Bookings list is the surface that opens the detail sheet; navigating
+    // there keeps the user inside the main tab nav. The list reads the
+    // `bookingId` query param to auto-open the detail sheet on land.
+    router.push({
+      pathname: "/(main-tabs)/bookings",
+      params: { bookingId: parsed.bookingId },
+    });
+  }
+}

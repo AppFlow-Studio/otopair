@@ -31,7 +31,10 @@ import { BookingPageHeader } from "@/components/booking/pages";
 // 5. Constants, hooks, types, stores
 import { getPartsBreakdown } from "@/constants/services";
 import { BorderRadius, Shadows } from "@/constants/theme";
+import { useBookingLaborHours } from "@/hooks/useBookingLaborHours";
+import { useBookingPartsBreakdown } from "@/hooks/useBookingPartsBreakdown";
 import { useCreateBookingConvex } from "@/hooks/useCreateBookingConvex";
+import { deriveDisclosedRange } from "@/lib/disclosedRange";
 import { computeBookingTax } from "@/lib/tax";
 import { computePlatformFeeDollars } from "@/lib/platformFee";
 import { useBookingStore } from "@/stores/useBookingStore";
@@ -117,25 +120,106 @@ export default function PaymentScreen() {
   const shop = useMemo(() => (mechanic?.shopId ? getShopById(mechanic.shopId) : null), [mechanic?.shopId, getShopById]);
   const laborRate = shop?.labor_rate;
 
-  // Calculate detailed breakdown (subtotal = sum of labor + parts per service; DB values only, no fallbacks)
+  // Real OEM parts (with per-unit prices) for the booking's vehicle. When this
+  // hook returns data, partsCost uses the real per-service totals; otherwise we
+  // fall back to `service.default_parts_estimate`. While `isPricedPartsLoading`
+  // is true the breakdown shows a skeleton row instead of a stale labor-only
+  // band — the band updates once the query lands.
+  const { breakdown: pricedPartsByService, isLoading: isPricedPartsLoading } =
+    useBookingPartsBreakdown(selectedVehicle?.ownershipId, selectedServiceIds);
+
+  // Map serviceId → priced row so per-line lookups are O(1) below. Any service
+  // with at least one fitment qualifies (parts without prices still render as
+  // "Price TBD" rather than silently swapping in the synthetic fallback).
+  const pricedPartsMap = useMemo(() => {
+    const map = new Map<string, (typeof pricedPartsByService)[number]>();
+    for (const row of pricedPartsByService) {
+      if (row.parts.length > 0) map.set(String(row.serviceId), row);
+    }
+    return map;
+  }, [pricedPartsByService]);
+
+  // Per-service parts cost: priced total when we have any prices; otherwise
+  // the flat default so totals never collapse to $0 just because price data
+  // is incomplete.
+  const getServicePartsCost = useCallback(
+    (service: (typeof selectedServices)[0]) => {
+      const real = pricedPartsMap.get(String(service.id));
+      if (real && real.partsTotal > 0) return real.partsTotal;
+      return service.default_parts_estimate ?? 0;
+    },
+    [pricedPartsMap]
+  );
+
+  // Vehicle-specific labor hours from `labor_times.book_hours` keyed by
+  // vehicle_config_id + service_id. Falls back to `services.default_labor_hours`
+  // for services with no per-vehicle row. Spark plugs on the CR-V drops from
+  // 1.5hr (catalog default) to 0.5hr (book_hours) because the K24W9 is a
+  // 4-cyl inline — much faster than a V6/V8 plug change.
+  const { laborHours: laborHoursByService, isLoading: isLaborHoursLoading } =
+    useBookingLaborHours(selectedVehicle?.ownershipId, selectedServiceIds);
+
+  const laborHoursMap = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const row of laborHoursByService) {
+      map.set(String(row.serviceId), row.hours);
+    }
+    return map;
+  }, [laborHoursByService]);
+
+  const getServiceLaborHours = useCallback(
+    (service: (typeof selectedServices)[0]) => {
+      const variant = laborHoursMap.get(String(service.id));
+      if (typeof variant === "number") return variant;
+      return service.default_labor_hours ?? 0;
+    },
+    [laborHoursMap]
+  );
+
+  // Calculate detailed breakdown — Pre-Job Approval flow: every variable
+  // line renders as a band, not a single price. Parts vary ±25% (real
+  // variance lives in part fitments + engine variant); labor is fixed.
+  // Tax + platform fee recompute at both parts endpoints so brackets +
+  // platform-fee floor are honored. Matches the server math in
+  // convex/booking_quotes.ts and lib/disclosedRange.ts.
   const breakdown = useMemo(() => {
     const rate = laborRate ?? 0;
-    const servicesTotal = selectedServices.reduce(
-      (total, service) => total + rate * (service.default_labor_hours ?? 0) + (service.default_parts_estimate ?? 0),
-      0
-    );
-    const laborHours = selectedServices.reduce((sum, s) => sum + (s.default_labor_hours ?? 0), 0);
+    const laborHours = selectedServices.reduce((sum, s) => sum + getServiceLaborHours(s), 0);
     const laborCost = laborHours * rate;
-    const partsCost = Math.max(0, servicesTotal - laborCost);
+    const partsCost = selectedServices.reduce((sum, s) => sum + getServicePartsCost(s), 0);
+    const servicesTotal = laborCost + partsCost;
     const serviceFee = computePlatformFeeDollars(servicesTotal);
-    // Tax honors per-state service-taxability rule (e.g. CA exempts repair
-    // labor → only parts are taxed) + ZIP-3 metro overrides.
     const taxesAndFees = computeBookingTax({
       laborDollars: laborCost,
       partsDollars: partsCost,
       state: shop?.state,
       zip: shop?.zip,
     }).taxDollars;
+
+    const PARTS_BAND = 0.25;
+    const partsLow = Math.max(0, partsCost * (1 - PARTS_BAND));
+    const partsHigh = partsCost * (1 + PARTS_BAND);
+    const taxLow = computeBookingTax({
+      laborDollars: laborCost,
+      partsDollars: partsLow,
+      state: shop?.state,
+      zip: shop?.zip,
+    }).taxDollars;
+    const taxHigh = computeBookingTax({
+      laborDollars: laborCost,
+      partsDollars: partsHigh,
+      state: shop?.state,
+      zip: shop?.zip,
+    }).taxDollars;
+    const feeLow = computePlatformFeeDollars(laborCost + partsLow);
+    const feeHigh = computePlatformFeeDollars(laborCost + partsHigh);
+
+    const range = deriveDisclosedRange({
+      laborCost,
+      partsCost,
+      state: shop?.state,
+      zip: shop?.zip,
+    });
 
     return {
       laborHours,
@@ -145,25 +229,53 @@ export default function PaymentScreen() {
       platformFee: serviceFee,
       subtotal: servicesTotal,
       total: servicesTotal + taxesAndFees + serviceFee,
+      partsLow,
+      partsHigh,
+      taxLow,
+      taxHigh,
+      feeLow,
+      feeHigh,
+      rangeLow: range.lowDollars,
+      rangeHigh: range.highDollars,
+      rangeFormatted: range.formatted,
     };
-  }, [selectedServices, laborRate, shop?.state, shop?.zip]);
+  }, [selectedServices, laborRate, shop?.state, shop?.zip, getServicePartsCost, getServiceLaborHours]);
 
-  // Per-service line total (labor + parts) so breakdown lines sum to subtotal
-  const getServiceLineTotal = useCallback(
-    (service: (typeof selectedServices)[0]) =>
-      (laborRate ?? 0) * (service.default_labor_hours ?? 0) + (service.default_parts_estimate ?? 0),
-    [laborRate]
+  // Stash the customer-facing range so BookingConfirmStatus can re-quote
+  // the same band the customer just agreed to.
+  const setDisclosedRangeFormatted = useBookingStore((s) => s.setDisclosedRangeFormatted);
+  useEffect(() => {
+    setDisclosedRangeFormatted(breakdown.rangeFormatted);
+  }, [breakdown.rangeFormatted, setDisclosedRangeFormatted]);
+
+  // Per-service line range (labor + parts ±25%) so summary rows show the
+  // same band as the aggregate.
+  const getServiceLineRange = useCallback(
+    (service: (typeof selectedServices)[0]) => {
+      const labor = (laborRate ?? 0) * getServiceLaborHours(service);
+      const parts = getServicePartsCost(service);
+      return {
+        low: labor + parts * 0.75,
+        high: labor + parts * 1.25,
+      };
+    },
+    [laborRate, getServicePartsCost, getServiceLaborHours]
   );
 
-  // Parts breakdown: each part listed and labelled as (Part)
-  const partsBreakdown = useMemo(
-    () =>
-      getPartsBreakdown(
-        selectedServices.map((s) => s.name),
-        breakdown.partsCost
-      ),
-    [selectedServices, breakdown.partsCost]
-  );
+  // Fallback parts breakdown for services without real OEM-priced data.
+  // Splits each unpriced service's default_parts_estimate across SERVICE_PARTS
+  // labels. Services with real fitments render their own lines below and are
+  // skipped here so we never double-count.
+  const fallbackPartsBreakdown = useMemo(() => {
+    const unpricedNames: string[] = [];
+    let unpricedTotal = 0;
+    for (const service of selectedServices) {
+      if (pricedPartsMap.has(String(service.id))) continue;
+      unpricedNames.push(service.name);
+      unpricedTotal += service.default_parts_estimate ?? 0;
+    }
+    return getPartsBreakdown(unpricedNames, unpricedTotal);
+  }, [selectedServices, pricedPartsMap]);
 
   // Format vehicle display
   const vehicleDisplay = selectedVehicle
@@ -329,54 +441,104 @@ export default function PaymentScreen() {
             <FileText size={20} color="#9CA3AF" />
           </View>
 
-          {/* Service names with line total (labor + parts) so lines sum to subtotal */}
-          {selectedServices.map((service) => (
-            <View key={service.id} style={styles.serviceRow}>
-              <Text size="sm" weight="medium" color={BrandColors.primary}>
-                {service.name}
-              </Text>
-              <Text size="sm" weight="semiBold" color={BrandColors.primary}>
-                ${getServiceLineTotal(service).toFixed(2)}
-              </Text>
-            </View>
-          ))}
+          {/* Service names with line range (labor + parts ±25%) so the
+              summary row shows the same band as the aggregate total. */}
+          {selectedServices.map((service) => {
+            const lineRange = getServiceLineRange(service);
+            return (
+              <View key={service.id} style={styles.serviceRow}>
+                <Text size="sm" weight="medium" color={BrandColors.primary}>
+                  {service.name}
+                </Text>
+                <Text size="sm" weight="semiBold" color={BrandColors.primary}>
+                  ${lineRange.low.toFixed(2)} – ${lineRange.high.toFixed(2)}
+                </Text>
+              </View>
+            );
+          })}
 
           {/* Detailed Breakdown */}
           <View style={styles.breakdownSection}>
-            {/* Labor */}
-            <View style={styles.breakdownRow}>
-              <Text size="sm" weight="regular" color="#6B7280">
-                Labor ({breakdown.laborHours} hrs)
-              </Text>
-              <Text size="sm" weight="medium" color="#6B7280">
-                ${breakdown.laborCost.toFixed(2)}
-              </Text>
-            </View>
-
-            {/* Parts: each part listed and labelled as (Part) */}
-            {partsBreakdown.map((part, index) => (
-              <View key={`${part.name}-${index}`} style={styles.breakdownRow}>
+            {/* Labor — uses per-vehicle book hours from `labor_times` when
+                available; renders a skeleton while that query is in flight
+                so the band doesn't snap from default to variant-aware value
+                in front of the customer. */}
+            {isLaborHoursLoading ? (
+              <View style={styles.breakdownRow}>
+                <View style={styles.skeletonLabel} />
+                <View style={styles.skeletonValue} />
+              </View>
+            ) : (
+              <View style={styles.breakdownRow}>
                 <Text size="sm" weight="regular" color="#6B7280">
-                  {part.name} (Part)
+                  Labor ({breakdown.laborHours} hrs)
                 </Text>
                 <Text size="sm" weight="medium" color="#6B7280">
-                  ${part.cost.toFixed(2)}
+                  ${breakdown.laborCost.toFixed(2)}
                 </Text>
               </View>
-            ))}
+            )}
 
-            {/* Taxes & Fees */}
+            {/* Parts: while the priced-parts query is in flight, render a
+                skeleton row per service. When data lands, real OEM parts
+                replace it (name × qty @ unit price). Parts without price
+                data render with "Price TBD". Services with zero fitments
+                fall through to the synthetic SERVICE_PARTS fallback below. */}
+            {isPricedPartsLoading
+              ? selectedServices.map((service) => (
+                  <View key={`skeleton-${service.id}`} style={styles.breakdownRow}>
+                    <View style={styles.skeletonLabel} />
+                    <View style={styles.skeletonValue} />
+                  </View>
+                ))
+              : selectedServices.flatMap((service) => {
+                  const priced = pricedPartsMap.get(String(service.id));
+                  if (!priced) return [];
+                  return priced.parts.map((part) => {
+                    const qtyLabel = part.quantity > 1 ? ` ×${part.quantity}` : "";
+                    const hasPrice = part.has_price_data && part.line_total > 0;
+                    const unitLabel =
+                      hasPrice && part.quantity > 1 && part.unit_price > 0
+                        ? ` @ ~$${part.unit_price.toFixed(2)}`
+                        : "";
+                    return (
+                      <View key={`${service.id}-${part.part_id}`} style={styles.breakdownRow}>
+                        <Text size="sm" weight="regular" color="#6B7280" style={styles.breakdownLabel}>
+                          {part.name} (Part){qtyLabel}
+                          {unitLabel}
+                        </Text>
+                        <Text size="sm" weight="medium" color="#6B7280">
+                          {hasPrice ? `$${part.line_total.toFixed(2)}` : "Price TBD"}
+                        </Text>
+                      </View>
+                    );
+                  });
+                })}
+
+            {!isPricedPartsLoading &&
+              fallbackPartsBreakdown.map((part, index) => (
+                <View key={`fallback-${part.name}-${index}`} style={styles.breakdownRow}>
+                  <Text size="sm" weight="regular" color="#6B7280">
+                    {part.name} (Part)
+                  </Text>
+                  <Text size="sm" weight="medium" color="#6B7280">
+                    ${(part.cost * 0.75).toFixed(2)} – ${(part.cost * 1.25).toFixed(2)}
+                  </Text>
+                </View>
+              ))}
+
+            {/* Taxes & Fees — recomputed at the parts endpoints. */}
             <View style={styles.breakdownRow}>
               <Text size="sm" weight="regular" color="#6B7280">
                 Taxes & Fees
               </Text>
               <Text size="sm" weight="medium" color="#6B7280">
-                ${breakdown.taxesAndFees.toFixed(2)}
+                ${breakdown.taxLow.toFixed(2)} – ${breakdown.taxHigh.toFixed(2)}
               </Text>
             </View>
           </View>
 
-          {/* Otopair Service Fee */}
+          {/* Otopair Service Fee — same band logic as tax. */}
           <View style={styles.serviceRow}>
             <View style={styles.feeRow}>
               <Text size="sm" weight="regular" color="#6B7280">
@@ -387,18 +549,20 @@ export default function PaymentScreen() {
               </TouchableOpacity>
             </View>
             <Text size="sm" weight="medium" color="#6B7280">
-              ${breakdown.platformFee.toFixed(2)}
+              ${breakdown.feeLow.toFixed(2)} – ${breakdown.feeHigh.toFixed(2)}
             </Text>
           </View>
 
           {/* Divider */}
           <View style={styles.serviceDivider} />
 
-          {/* Total */}
+          {/* Estimated price range — Pre-Job Approval flow. Stacked layout
+              gives the range string full card width so the dash + two
+              prices read cleanly without clipping. */}
           <View style={styles.totalSection}>
-            <View style={styles.totalLeft}>
+            <View style={styles.totalHeader}>
               <Text size="md" weight="bold" color={BrandColors.primary}>
-                Total
+                Estimated price range
               </Text>
               <View style={styles.savingsBadge}>
                 <Text size="xs" weight="semiBold" color={BrandColors.secondary}>
@@ -406,9 +570,34 @@ export default function PaymentScreen() {
                 </Text>
               </View>
             </View>
-            <Text size="2xl" weight="bold" color={BrandColors.secondary}>
-              ${breakdown.total.toFixed(2)}
+            <Text
+              size="2xl"
+              weight="bold"
+              color={BrandColors.secondary}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.6}
+            >
+              {breakdown.rangeFormatted}
             </Text>
+          </View>
+
+          {/* $20 hold info block — surfaces the deposit mechanic and the
+              "only charged after inspection" promise alongside the range,
+              so the customer never wonders what hits their card today. */}
+          <View style={styles.holdInfoBlock}>
+            <Info size={14} color={BrandColors.secondary} style={{ marginTop: 2 }} />
+            <View style={{ flex: 1, marginLeft: 8 }}>
+              <Text size="sm" weight="semiBold" color={BrandColors.primary}>
+                A $20 hold will be placed on your card today.
+              </Text>
+              <Text size="xs" weight="regular" color="#6B7280" style={styles.holdInfoBody}>
+                The final amount within this range is only charged once your
+                mechanic has inspected your car. If the work needed turns out
+                to exceed this range, you&apos;ll be asked to approve the new
+                total before any extra work begins.
+              </Text>
+            </View>
           </View>
         </View>
 
@@ -540,8 +729,15 @@ export default function PaymentScreen() {
             </Text>
           )}
           <View style={styles.priceTag}>
-            <Text size="sm" weight="bold" color={BrandColors.primary}>
-              ${breakdown.total.toFixed(2)}
+            <Text
+              size="sm"
+              weight="bold"
+              color={BrandColors.primary}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.7}
+            >
+              {breakdown.rangeFormatted}
             </Text>
           </View>
         </TouchableOpacity>
@@ -681,6 +877,23 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: Spacing.xs,
   },
+  breakdownLabel: {
+    flex: 1,
+    marginRight: Spacing.sm,
+  },
+  skeletonLabel: {
+    flex: 1,
+    height: 12,
+    borderRadius: 4,
+    backgroundColor: "#E5E7EB",
+    marginRight: Spacing.md,
+  },
+  skeletonValue: {
+    width: 64,
+    height: 12,
+    borderRadius: 4,
+    backgroundColor: "#E5E7EB",
+  },
   feeRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -695,10 +908,16 @@ const styles = StyleSheet.create({
     marginVertical: Spacing.md,
   },
   totalSection: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
+    flexDirection: "column",
+    gap: Spacing.sm,
   },
+  totalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+    flexWrap: "wrap",
+  },
+  // Retained for back-compat; new stacked layout uses `totalHeader`.
   totalLeft: {
     gap: Spacing.xs,
   },
@@ -707,6 +926,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.sm,
     paddingVertical: 4,
     borderRadius: BorderRadius.md,
+  },
+  holdInfoBlock: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    backgroundColor: "#F0F7FF",
+    borderColor: "#BFDBFE",
+    borderWidth: 1,
+    borderRadius: BorderRadius.md,
+    padding: Spacing.md,
+    marginTop: Spacing.md,
+  },
+  holdInfoBody: {
+    marginTop: 4,
+    lineHeight: 16,
   },
 
   // Notes Section

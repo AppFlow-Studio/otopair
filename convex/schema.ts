@@ -1691,13 +1691,32 @@ export default defineSchema({
     incremented_total_cents: v.optional(v.number()),
     captured_amount_cents: v.optional(v.number()),
     reauth_payment_intent_id: v.optional(v.string()),
+
+    // Invoice PDF (generated server-side after capture). Identical layout to
+    // the email attachment, stored once in Convex file storage and reused for
+    // both the email send and the mobile "View Receipt PDF" link.
+    invoice_number: v.optional(v.string()),
+    invoice_storage_id: v.optional(v.id("_storage")),
+    invoice_generated_at_ms: v.optional(v.number()),
+    invoice_emailed_at_ms: v.optional(v.number()),
+    receipt_token: v.optional(v.string()),
+    backfilled_at_ms: v.optional(v.number()),
   })
     .index("by_booking_id", ["booking_id"])
     .index("by_user_id", ["user_id"])
     .index("by_status", ["status"])
     .index("by_idempotency_key", ["idempotency_key"])
     .index("by_stripe_payment_intent_id", ["stripe_payment_intent_id"])
-    .index("by_created_at", ["created_at"]),
+    .index("by_created_at", ["created_at"])
+    .index("by_receipt_token", ["receipt_token"]),
+
+  // Single-row-per-year counter for sequential invoice numbering
+  // (INV-<YYYY>-<6-digit zero-padded>). Allocated transactionally inside
+  // invoices.generateAndEmail; never decremented.
+  invoice_counters: defineTable({
+    year: v.number(),
+    next_value: v.number(),
+  }).index("by_year", ["year"]),
 
   // [I]
   payment_status_history: defineTable({
@@ -3513,6 +3532,40 @@ export default defineSchema({
     stripe_action: v.optional(v.string()),
   })
     .index("by_booking_and_cycle", ["booking_id", "cycle"])
-    .index("by_decision", ["decision"])
+    .index("by_decision_state", ["decision"])
     .index("by_sla_expires_at", ["sla_expires_at_ms"]),
+
+  // ─────────────────────────────────────────────────────────────────────
+  // Pre-Job Approval — customer recourse channel. Filed within 14 days of
+  // capture; resolved by ops via `resolveDispute`. Status flips from "open"
+  // → "in_review" → one of the resolved_* terminal states. `resolution`
+  // names the outcome class, `resolution_refund_cents` records any refund.
+  // ─────────────────────────────────────────────────────────────────────
+  booking_disputes: defineTable({
+    booking_id: v.id("bookings"),
+    user_id: v.id("users"),
+
+    // Short reason code chosen on the dispute sheet:
+    //   "wrong_part" | "overcharged" | "work_not_done" | "post_job_declined"
+    //   | "quality_concern" | "other"
+    reason: v.string(),
+    // Optional OEM part numbers the customer is disputing.
+    disputed_part_keys: v.optional(v.array(v.string())),
+    notes: v.optional(v.string()),
+
+    // "open" | "in_review" | "resolved_refund" | "resolved_no_refund"
+    // | "withdrawn"
+    status: v.string(),
+
+    filed_at_ms: v.number(),
+    resolved_at_ms: v.optional(v.number()),
+    resolved_by_user_id: v.optional(v.id("users")),
+    resolution_notes: v.optional(v.string()),
+    // "no_refund" | "partial_refund" | "full_refund"
+    resolution: v.optional(v.string()),
+    resolution_refund_cents: v.optional(v.number()),
+  })
+    .index("by_booking_id", ["booking_id"])
+    .index("by_status", ["status"])
+    .index("by_user_id", ["user_id"]),
 });

@@ -11007,6 +11007,15 @@ export const getBookingByIdForCustomer = query({
         }
       : null;
 
+    // Payment lifecycle — sourced for PaymentBreakdown (receipt UI).
+    // updated_at is the last write made by finalizeAndChargeForBooking when
+    // it patches state→captured, so it stands in for "captured at" without
+    // a dedicated field. Tolerates pre-feature bookings (no payment row).
+    const paymentRow = await ctx.db
+      .query("payments")
+      .withIndex("by_booking_id", (q: any) => q.eq("booking_id", booking._id))
+      .unique();
+
     return {
       id: booking._id,
       status: booking.status,
@@ -11029,6 +11038,19 @@ export const getBookingByIdForCustomer = query({
       totalCost: booking.total_cost,
       statusHistory,
       lateMonitor,
+      // Pre-Job Approval payment lifecycle
+      paymentApprovalState: (booking as any).payment_approval_state ?? null,
+      disclosedRangeLowCents: (booking as any).disclosed_range_low_cents ?? null,
+      disclosedRangeHighCents: (booking as any).disclosed_range_high_cents ?? null,
+      mechanicSetPriceCents: (booking as any).mechanic_set_price_cents ?? null,
+      finalTotalCents: (booking as any).final_total_cents ?? null,
+      finalCaptureAmountCents: (booking as any).final_capture_amount_cents ?? null,
+      finalPartsUsedAtCapture: (booking as any).final_parts_used_at_capture ?? null,
+      holdAmountCents: (paymentRow as any)?.hold_amount_cents ?? null,
+      capturedAtMs:
+        (booking as any).payment_approval_state === "captured"
+          ? ((booking as any).updated_at ?? null)
+          : null,
     };
   },
 });

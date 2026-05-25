@@ -55,6 +55,12 @@ import type { Booking } from "./BookingCard";
 import { MechanicChatSheet, type MechanicChatSheetRef } from "./MechanicChatSheet";
 import { RescheduleSheet, type RescheduleSheetRef } from "./RescheduleSheet";
 import { ApprovalBanner } from "@/components/booking/ApprovalBanner";
+import { PaymentBreakdown } from "@/components/booking/PaymentBreakdown";
+import { ReceiptViewer } from "@/components/booking/ReceiptViewer";
+import {
+  FileDisputeSheet,
+  type FileDisputeSheetRef,
+} from "@/components/booking/FileDisputeSheet";
 
 // ============================================================================
 // CONSTANTS (sheet mechanics — frozen)
@@ -452,6 +458,7 @@ export const BookingDetailsSheet = forwardRef<BookingDetailsSheetRef, BookingDet
               >
                 <FullContent
                   booking={booking}
+                  bookingDetail={bookingDetail}
                   serviceDescription={serviceDescription}
                   serviceDurationMinutes={serviceDurationMinutes}
                   vehicleMileage={vehicleMileage}
@@ -735,6 +742,7 @@ interface FullContentProps {
   shopRating?: { score: number; count: number };
   statusHistory?: Array<{ stage: BookingStatus; timestamp: number }>;
   liveMonitor?: LateMonitor | null;
+  bookingDetail?: any;
   onClose: () => void;
   onRequestReschedule: (bookingId: string, date: string, time: string) => void;
   bottomPadding: number;
@@ -742,6 +750,7 @@ interface FullContentProps {
 
 function FullContent({
   booking,
+  bookingDetail,
   serviceDescription,
   serviceDurationMinutes,
   vehicleMileage,
@@ -754,6 +763,7 @@ function FullContent({
   onRequestReschedule,
   bottomPadding,
 }: FullContentProps) {
+  const disputeSheetRef = useRef<FileDisputeSheetRef>(null);
   const toast = useToast();
   const handleCancel = useCallback(() => {
     Alert.alert(
@@ -909,23 +919,33 @@ function FullContent({
           <SectionHeader label="Payment" />
           {(() => {
             // Pre-Job Approval flow: render based on lifecycle stage.
-            //   - captured → show final charged amount
+            //   - captured → PaymentBreakdown (3-row lifecycle + itemized
+            //     parts + dispute CTA)
             //   - disclosed range present → show range pair
             //   - legacy → show singular total_cost
             const isCaptured = booking.paymentApprovalState === "captured";
             const hasRange =
               booking.disclosedRangeLowCents != null &&
               booking.disclosedRangeHighCents != null;
-            if (isCaptured && booking.finalCaptureAmountCents != null) {
+            if (isCaptured) {
               return (
-                <View style={styles.paymentRow}>
-                  <Text size="md" weight="regular" color="#1A1A1A">
-                    Total charged
-                  </Text>
-                  <Text size="md" weight="bold" color="#1A1A1A">
-                    ${(booking.finalCaptureAmountCents / 100).toFixed(2)}
-                  </Text>
-                </View>
+                <>
+                  <PaymentBreakdown
+                    bookingId={booking.id}
+                    paymentApprovalState={booking.paymentApprovalState}
+                    holdAmountCents={bookingDetail?.holdAmountCents ?? null}
+                    mechanicSetPriceCents={bookingDetail?.mechanicSetPriceCents ?? null}
+                    finalCaptureAmountCents={
+                      bookingDetail?.finalCaptureAmountCents ??
+                      booking.finalCaptureAmountCents ??
+                      null
+                    }
+                    finalPartsUsedAtCapture={bookingDetail?.finalPartsUsedAtCapture ?? null}
+                    capturedAtMs={bookingDetail?.capturedAtMs ?? null}
+                    onFileDispute={() => disputeSheetRef.current?.open(booking.id)}
+                  />
+                  <ReceiptViewer bookingId={booking.id} />
+                </>
               );
             }
             if (hasRange) {
@@ -960,6 +980,10 @@ function FullContent({
             );
           })()}
         </View>
+
+        {/* Dispute sheet — rendered inline so it overlays this view. Opens
+            from PaymentBreakdown's "Something wrong with this charge?" CTA. */}
+        <FileDisputeSheet ref={disputeSheetRef} />
 
         {/* SECONDARY ACTIONS */}
         <View style={styles.secondaryActions}>
