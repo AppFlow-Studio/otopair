@@ -412,9 +412,38 @@ export default defineSchema({
     use_count: v.number(),
     last_used_at: v.number(),
     is_default: v.boolean(),
+    // Mechanic swapped FROM this part to a different one for the same triple.
+    // Counts against the part's default status — when (swap_away + not_used)
+    // exceeds use_count + SHOP_DEMOTE_DELTA, the accrual writer clears
+    // is_default so the cascade picks a different candidate next time.
+    swap_away_count: v.optional(v.number()),
+    // Mechanic explicitly marked this part Not used here. Same demote rule.
+    not_used_count: v.optional(v.number()),
   })
     .index("by_shop_service_config", ["shop_id", "service_id", "vehicle_config_id"])
     .index("by_shop_service", ["shop_id", "service_id"])
+    .index("by_part", ["part_id"]),
+
+  // Per-VIN sticky preference. Captures "THIS specific car had this part
+  // installed for this service" so future bookings on the same VIN surface
+  // the historically-used part first, before the per-shop or cross-shop
+  // aggregates. Identical counter semantics to shop_part_preferences; the
+  // demote rule (swap_away + not_used > use + SHOP_DEMOTE_DELTA) clears the
+  // sticky default when the field stops voting for it.
+  vehicle_part_preferences: defineTable({
+    vin: v.string(),
+    service_id: v.id("services"),
+    part_id: v.id("oem_parts"),
+    use_count: v.number(),
+    swap_away_count: v.optional(v.number()),
+    not_used_count: v.optional(v.number()),
+    last_used_at: v.optional(v.number()),
+    is_default: v.optional(v.boolean()),
+    created_at: v.optional(v.number()),
+    updated_at: v.optional(v.number()),
+  })
+    .index("by_vin_service", ["vin", "service_id"])
+    .index("by_vin_service_part", ["vin", "service_id", "part_id"])
     .index("by_part", ["part_id"]),
 
   // Append-only price snapshots. Every part used on every closed job lands
@@ -473,6 +502,20 @@ export default defineSchema({
     // corrects_snapshot_id; the original gets its superseded_by_id patched.
     corrects_snapshot_id: v.optional(v.id("part_snapshots")),
     superseded_by_id: v.optional(v.id("part_snapshots")),
+
+    // Provenance of swaps + explicit-rejection signals. When the mechanic
+    // swaps Oil Filter A for Oil Filter B at the post-job step, the snapshot
+    // for B carries swap_from_* pointing at A — that's how the preference
+    // accrual loop knows to bump A's swap_away_count. not_used is set when
+    // the row was marked "Not used here": the row is still recorded (audit)
+    // but is excluded from price aggregates and votes against the part's
+    // default status.
+    swap_from_oem_number: v.optional(v.string()),
+    swap_from_part_id: v.optional(v.id("oem_parts")),
+    not_used: v.optional(v.boolean()),
+    // Canonical VIN of the vehicle this part was installed on. Denormalized
+    // for the per-VIN preference lookup so we don't join back to bookings.
+    vin: v.optional(v.string()),
 
     recorded_at: v.number(),
     notes: v.optional(v.string()),
@@ -649,6 +692,10 @@ export default defineSchema({
     status: v.optional(v.string()), // "pending" | "accepted" | "rejected"
     verified_at: v.optional(v.number()),
     created_at: v.optional(v.number()),
+    // Per-field decisions captured at accept time (used by undoMechanicVerification).
+    // Optional because legacy accepted rows predate this field.
+    review_decisions: v.optional(v.any()),
+    reviewer_id: v.optional(v.id("director_users")),
   })
     .index("by_vehicle_config", ["vehicle_config_id"])
     .index("by_mechanic", ["mechanic_id"])
@@ -1138,6 +1185,8 @@ export default defineSchema({
     role: v.optional(v.string()),
     stripe_customer_id: v.optional(v.string()),
     // Expo push token registered by mobile on app open / after onboarding.
+    // Consumed by convex/lib/push_dispatcher.ts. Cleared on
+    // `DeviceNotRegistered` from Expo Push API.
     push_token: v.optional(v.string()),
     push_token_updated_at_ms: v.optional(v.number()),
     isPendingDeletion: v.optional(v.boolean()),
@@ -1593,6 +1642,12 @@ export default defineSchema({
     // ---------------------------------------------------------------------
     // Pre-Job Approval Booking Flow — disclosed range + approval state
     // (see ~/.claude/plans/claude-plans-lets-plan-out-across-gener-binary-biscuit.md)
+    //
+    // disclosed_range_*: customer-facing price band snapshotted at booking
+    // time from service_vehicle_specs.parts_cost_low/high. This IS the
+    // customer's contract — as long as the mechanic's final set price lands
+    // inside the band, no further consent is needed. Field-redaction
+    // helper strips these from mechanic-facing query responses.
     // ---------------------------------------------------------------------
     disclosed_range_low_cents: v.optional(v.number()),
     disclosed_range_high_cents: v.optional(v.number()),
@@ -1608,11 +1663,22 @@ export default defineSchema({
       })
     ),
     disclosed_at_ms: v.optional(v.number()),
+
+    // Orthogonal sub-state alongside `status`. Enum values (string-stored,
+    // validated in mutation code): "none" | "in_range" | "pre_job_pending"
+    // | "pre_job_approved" | "pre_job_declined" | "mid_job_pending"
+    // | "mid_job_approved" | "mid_job_declined" | "post_job_pending"
+    // | "post_job_approved" | "post_job_declined" | "captured"
+    // | "sla_expired" | "reauth_required".
     payment_approval_state: v.optional(v.string()),
+    // max(disclosed_range_high_cents, latest approved estimate). Mid-job
+    // additions gate against this; field-redacted from mechanic queries.
     running_approved_ceiling_cents: v.optional(v.number()),
+    // Mechanic's current target (singular). Set on submitPreJobEstimate.
     mechanic_set_price_cents: v.optional(v.number()),
     estimate_approved_at_ms: v.optional(v.number()),
     estimate_decided_by_user_id: v.optional(v.id("users")),
+
     final_total_cents: v.optional(v.number()),
     final_capture_amount_cents: v.optional(v.number()),
     final_parts_used_at_capture: v.optional(v.array(postjobPartValidator)),
@@ -1690,7 +1756,15 @@ export default defineSchema({
     idempotency_key: v.optional(v.string()),
     created_at: v.optional(v.number()),
     updated_at: v.optional(v.number()),
-    // Pre-Job Approval flow — Stripe hold lifecycle.
+
+    // Pre-Job Approval Booking Flow — Stripe hold lifecycle.
+    // hold_amount_cents: initial PI authorization (always $20 booking deposit
+    // for new flow; legacy bookings use total_cost).
+    // incremented_total_cents: amount after incrementAuthorization() lifts
+    // the hold to the mechanic's set price.
+    // captured_amount_cents: final captured amount at job completion.
+    // reauth_payment_intent_id: set when incrementAuthorization fails and
+    // we void + create a new PI for the higher amount.
     hold_amount_cents: v.optional(v.number()),
     incremented_total_cents: v.optional(v.number()),
     captured_amount_cents: v.optional(v.number()),
@@ -1703,7 +1777,16 @@ export default defineSchema({
     invoice_storage_id: v.optional(v.id("_storage")),
     invoice_generated_at_ms: v.optional(v.number()),
     invoice_emailed_at_ms: v.optional(v.number()),
+    // URL-safe random token embedded in the receipt deep-link sent over
+    // email. Lets walk-in customers who don't have a Clerk account open
+    // /receipts/[bookingId]?t=<token> without signing in. Treated as
+    // capability auth — possession of the token grants read access to the
+    // receipt and PDF.
     receipt_token: v.optional(v.string()),
+    // Set when the row was created by the Stripe-reconciliation backfill
+    // (see convex/payments_backfill.ts) rather than by the live booking
+    // flow. Lets operators tell historical-import rows apart from rows
+    // produced by current bookings without touching status semantics.
     backfilled_at_ms: v.optional(v.number()),
   })
     .index("by_booking_id", ["booking_id"])
@@ -1906,6 +1989,36 @@ export default defineSchema({
     .index("by_mechanic_id", ["mechanic_id"])
     .index("by_created_at", ["created_at"]),
 
+  // Append-only audit log of every change a mechanic makes to a row in a
+  // job_actual's parts_used array. Rows are keyed by `part_key` (oem_number,
+  // falling back to part_name) so the diff can correlate "the same part" across
+  // saves even when its array index changes. One row per *field* per save —
+  // a single save that changes both price and quantity emits two rows.
+  job_actual_part_edits: defineTable({
+    booking_id: v.id("bookings"),
+    job_actual_id: v.id("job_actuals"),
+    part_key: v.string(),
+    edit_type: v.union(
+      v.literal("added"),
+      v.literal("removed"),
+      v.literal("price"),
+      v.literal("quantity"),
+      v.literal("supplied_by"),
+      v.literal("swap"),
+      v.literal("not_used"),
+    ),
+    old_value: v.optional(v.string()),
+    new_value: v.optional(v.string()),
+    // Snapshots so the log row stays readable even if parts_used mutates later.
+    part_name_snapshot: v.optional(v.string()),
+    oem_number_snapshot: v.optional(v.string()),
+    edited_by_user_id: v.id("users"),
+    edited_at: v.number(),
+  })
+    .index("by_booking_id", ["booking_id"])
+    .index("by_job_actual_id", ["job_actual_id"])
+    .index("by_edited_at", ["edited_at"]),
+
   // ===== AI & ANALYTICS =====
 
   // [I]
@@ -1948,6 +2061,18 @@ export default defineSchema({
     // request_haiku_handback resets to default.
     // -----------------------------------------------------------------------
     current_model: v.optional(v.string()),
+    // -----------------------------------------------------------------------
+    // [Ahmad QA #2 — 2026-05-18] Persisted vehicle anchor for the conversation.
+    // Written on first send by chat.ts via ai_conversations.setVehicleId
+    // (the resolved active vehicle's _id). envelope.ts pickActiveVehicleRow
+    // precedence: this column WINS over preferredVin (the frontend's
+    // selectedVehicleVin) once set — so resuming the conversation later (when
+    // the global vehicle picker may have drifted to a different car) still
+    // rebinds the anchor to whatever the chat was created for. Optional
+    // because pre-existing conversations created before this column existed
+    // won't have it; envelope falls through to preferredVin in that case.
+    // -----------------------------------------------------------------------
+    vehicle_id: v.optional(v.id("vehicles")),
   })
     .index("by_user_id", ["user_id"])
     .index("by_session_id", ["session_id"])
@@ -1991,6 +2116,11 @@ export default defineSchema({
     // truncated / re-generated.
     message_content_snapshot: v.string(),
     submitted_at: v.number(),
+    // Director-side triage state. Optional (mobile insert leaves it unset;
+    // server-side `listByStatus` treats unset as "new").
+    review_status: v.optional(v.string()), // new | reviewed | actionable | resolved | wontfix
+    archived: v.optional(v.boolean()),
+    updated_at: v.optional(v.number()),
   })
     .index("by_conversation_id", ["conversation_id"])
     .index("by_user_id", ["user_id"])
@@ -2196,9 +2326,10 @@ export default defineSchema({
     name: v.string(),
     role: v.union(v.literal("superadmin"), v.literal("admin"), v.literal("viewer")),
     totp_secret: v.string(),
+    email: v.optional(v.string()),
     created_at: v.number(),
     last_login: v.optional(v.number()),
-  }),
+  }).index("by_email", ["email"]),
 
   director_sessions: defineTable({
     user_id: v.id("director_users"),
@@ -3557,7 +3688,7 @@ export default defineSchema({
     stripe_action: v.optional(v.string()),
   })
     .index("by_booking_and_cycle", ["booking_id", "cycle"])
-    .index("by_decision_state", ["decision"])
+    .index("by_decision", ["decision"])
     .index("by_sla_expires_at", ["sla_expires_at_ms"]),
 
   // ─────────────────────────────────────────────────────────────────────

@@ -43,9 +43,9 @@ type ClaimedRow = {
   pushToken: string;
 };
 
-export const _claimPendingPushRows = (internalMutation as any)({
+export const _claimPendingPushRows = internalMutation({
   args: {},
-  handler: async (ctx: any): Promise<ClaimedRow[]> => {
+  handler: async (ctx): Promise<ClaimedRow[]> => {
     const pending = await ctx.db
       .query("notification_outbox")
       .withIndex("by_status", (q: any) => q.eq("status", "pending"))
@@ -86,13 +86,13 @@ export const _claimPendingPushRows = (internalMutation as any)({
   },
 });
 
-export const _markPushDispatched = (internalMutation as any)({
+export const _markPushDispatched = internalMutation({
   args: {
     outboxId: v.id("notification_outbox"),
     status: v.string(),
     error: v.optional(v.string()),
   },
-  handler: async (ctx: any, args: any) => {
+  handler: async (ctx, args) => {
     const now = Date.now();
     await ctx.db.patch(args.outboxId, {
       status: args.status,
@@ -104,9 +104,9 @@ export const _markPushDispatched = (internalMutation as any)({
 });
 
 /** Clears the user's push_token when Expo reports DeviceNotRegistered. */
-export const _clearUserPushToken = (internalMutation as any)({
+export const _clearUserPushToken = internalMutation({
   args: { userId: v.id("users") },
-  handler: async (ctx: any, args: any) => {
+  handler: async (ctx, args) => {
     await ctx.db.patch(args.userId, {
       push_token: undefined,
       push_token_updated_at_ms: Date.now(),
@@ -114,11 +114,11 @@ export const _clearUserPushToken = (internalMutation as any)({
   },
 });
 
-export const dispatchPendingPush = (internalAction as any)({
+export const dispatchPendingPush = internalAction({
   args: {},
-  handler: async (ctx: any): Promise<{ sent: number; failed: number }> => {
+  handler: async (ctx): Promise<{ sent: number; failed: number }> => {
     const claimed: ClaimedRow[] = await ctx.runMutation(
-      (internal as any).lib.push_dispatcher._claimPendingPushRows,
+      internal.lib.push_dispatcher._claimPendingPushRows,
       {},
     );
     let sent = 0;
@@ -145,7 +145,7 @@ export const dispatchPendingPush = (internalAction as any)({
         const ticket = Array.isArray(json?.data) ? json.data[0] : json?.data;
         if (ticket?.status === "ok") {
           await ctx.runMutation(
-            (internal as any).lib.push_dispatcher._markPushDispatched,
+            internal.lib.push_dispatcher._markPushDispatched,
             { outboxId: row.outboxId, status: "dispatched" },
           );
           sent += 1;
@@ -153,12 +153,12 @@ export const dispatchPendingPush = (internalAction as any)({
           const errorCode = ticket?.details?.error ?? ticket?.message ?? "unknown";
           if (errorCode === "DeviceNotRegistered") {
             await ctx.runMutation(
-              (internal as any).lib.push_dispatcher._clearUserPushToken,
+              internal.lib.push_dispatcher._clearUserPushToken,
               { userId: row.userId },
             );
           }
           await ctx.runMutation(
-            (internal as any).lib.push_dispatcher._markPushDispatched,
+            internal.lib.push_dispatcher._markPushDispatched,
             {
               outboxId: row.outboxId,
               status: "failed",

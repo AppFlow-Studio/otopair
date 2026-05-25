@@ -136,6 +136,10 @@ export const _recordPaymentIntent = internalMutation({
     stripePaymentIntentId: v.string(),
     status: v.string(),
     idempotencyKey: v.string(),
+    /** Initial hold amount in cents — for the Pre-Job Approval flow this is
+     *  always BOOKING_DEPOSIT_CENTS ($20); legacy bookings hold the full
+     *  total. Persists on payments.hold_amount_cents for downstream
+     *  increment/capture decisions. */
     holdAmountCents: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
@@ -336,6 +340,8 @@ export const handlePaymentIntentEvent = internalMutation({
         { bookingId: payment.booking_id },
       );
     } else if (args.newStatus === "refunded") {
+      // Drop the cached PDF so the next render reflects the refund, then
+      // re-render + re-email the customer with an updated invoice.
       await ctx.scheduler.runAfter(
         0,
         (internal as any).invoices.regenerateInvoice,
@@ -636,14 +642,20 @@ export const createPaymentIntentForBooking = action({
     }
 
     // Pre-Job Approval flow: hold a fixed $20 deposit at booking time, NOT
-    // the full estimated total. Legacy bookings (no disclosed_range fields)
-    // fall through to the original total-cost hold.
+    // the full estimated total. The hold is incremented to the mechanic's
+    // confirmed set price after inspection. Legacy bookings (created
+    // before the disclosed-range fields were added) fall through to the
+    // original total-cost hold so they capture cleanly on completion.
     const usesDeposit = booking.disclosed_range_high_cents != null;
     const amountCents = usesDeposit
       ? BOOKING_DEPOSIT_CENTS
       : Math.round(totalDollars * 100);
 
-    // Platform fee comes from the admin-managed singleton config.
+    // Platform fee comes from the admin-managed singleton config
+    // (`platform_settings`). The booking row itself doesn't carry a
+    // platform_fee — that field was unreliable across creation paths and
+    // didn't match the system's actual rate. Seed-on-read keeps the row
+    // present even on a fresh deploy.
     const settings: any = await ctx.runMutation(
       internal.platform_settings._getOrCreate,
       {},
@@ -656,8 +668,10 @@ export const createPaymentIntentForBooking = action({
             settings.platform_fee_floor_dollars,
           )
         : 0;
+    // Floor at zero, cap at amountCents to satisfy Stripe's constraint.
     // On the deposit path, application_fee on the initial $20 auth is 0 —
-    // applied on the captured final amount via update at capture time.
+    // the fee is applied on the captured final amount via update at
+    // capture time (see finalizeAndChargeForBooking in Phase 2).
     const platformFeeCents = usesDeposit
       ? 0
       : Math.min(
