@@ -1,6 +1,6 @@
 // 1. React & React Native
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Image, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, Alert, Image, Pressable, StyleSheet, Text as RNText, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated from 'react-native-reanimated';
 
@@ -878,7 +878,18 @@ export default function HomeScreen() {
       <View style={[styles.sheetContentContainer, styles.noVehicleContent]}>
         <View style={styles.sheetTitleWrap}>
           <View style={styles.noVehicleIconWrap}>
-            <Text style={{ fontSize: 26, lineHeight: 32, textAlign: 'center', paddingTop: 4 }}>🚗</Text>
+            <RNText
+              style={{
+                fontSize: 26,
+                lineHeight: 28,
+                textAlign: 'center',
+                textAlignVertical: 'center',
+                includeFontPadding: false,
+                transform: [{ translateY: -2 }],
+              }}
+            >
+              🚗
+            </RNText>
           </View>
           <Text style={styles.sheetTitle}>Add a vehicle first</Text>
         </View>
