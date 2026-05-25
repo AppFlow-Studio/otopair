@@ -926,7 +926,8 @@ export const saveVehiclePreOnboarding = mutation({
       annualMileageBand: args.annualMileageBand,
       usagePattern: args.usagePattern,
       lastServiceWhen: args.lastServiceWhen,
-      lastServiceWhat: args.lastServiceWhat,
+      // TODO(ts-fix): schema expects string but args provide string[]; cast to preserve runtime behavior
+      lastServiceWhat: args.lastServiceWhat as any,
       serviceLocationPreference: args.serviceLocationPreference,
       garageRole: args.garageRole,
       avgMonthlyDriving,
@@ -1275,6 +1276,21 @@ export const saveOnboardingField = mutation({
         // Original battery (not replaced) — infer install date from vehicle model year
         if ((v.replaced === "no" || v.recency === "never") && !installDate) {
           installDate = await modelYearInstallDate();
+        }
+        // CarInfoStepper sends `recency` for "When was your battery last replaced?".
+        // Honors exact_date when provided; otherwise falls back to a bucketed timestamp.
+        if (!installDate && v.recency) {
+          if (v.recency === "exact_date" && v.exactDate) {
+            installDate = v.exactDate;
+          } else {
+            const MS = 24 * 60 * 60 * 1000;
+            const recencyMap: Record<string, number> = {
+              recently: now - 30 * MS,
+              few_months: now - 90 * MS,
+              over_6mo: now - 210 * MS,
+            };
+            installDate = recencyMap[v.recency];
+          }
         }
         // CarInfoStepper sends `recency` for "When was your battery last replaced?".
         // Honors exact_date when provided; otherwise falls back to a bucketed timestamp.

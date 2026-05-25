@@ -207,10 +207,10 @@ export const LeaveReviewSheet = forwardRef<LeaveReviewSheetRef, Props>(
       setSubmitting(true);
       setError(null);
       try {
-        // Bail out defensively for local-only synthesized bookings
-        // that don't have a Convex shop_id yet.
+        // Bail out defensively for stale pre-Convex IDs that do not have a
+        // real Convex shop_id.
         if (!booking.id || booking.id.startsWith("tire_quote_")) {
-          throw new Error("Local-only booking — review write skipped.");
+          throw new Error("This booking is not linked to Convex, so the review was skipped.");
         }
         if (!booking.shopId) {
           throw new Error("Missing shop on this booking — can't post a review.");

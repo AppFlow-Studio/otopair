@@ -27,7 +27,8 @@ import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 
 // 4. Constants, hooks, types
 import { useNextAvailabilityForShop } from "@/hooks/useNextAvailabilityForShop";
-import { formatDistanceMiles } from "@/utils/geo";
+import { useDistanceUnit } from "@/hooks/useDistanceUnit";
+import { formatProximityDistanceFromMiles } from "@/utils/geo";
 import { BorderRadius } from "@/constants/theme";
 import type { Mechanic, MechanicAvailabilitySlot } from "@/stores/types/store.types";
 
@@ -173,6 +174,7 @@ export const ShopCard = memo(function ShopCard({
   selectedSlot,
   selectedServices,
 }: ShopCardProps) {
+  const distanceUnit = useDistanceUnit();
   // If only one mechanic, auto-select them (no "Any" option needed)
   const hasSingleMechanic = shop.mechanics.length === 1;
   const defaultMechanicId = hasSingleMechanic ? shop.mechanics[0].id : null;
@@ -311,7 +313,7 @@ export const ShopCard = memo(function ShopCard({
 
           <View style={styles.detailsRow}>
             <Text size="xs" weight="regular" color="#9CA3AF">
-              {formatDistanceMiles(shop.distanceMi)}
+              {formatProximityDistanceFromMiles(shop.distanceMi, distanceUnit)}
             </Text>
             {shop.isVerified && (
               <View style={styles.verifiedBadge}>

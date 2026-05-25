@@ -65,7 +65,7 @@ export function ScrollFadeIn({
   const lastScrollCheck = useRef(0);
   const isCurrentlyVisible = useRef(false);
   const initialCheckDone = useRef(false);
-  const intervalRef = useRef<ReturnType<typeof setInterval>>();
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Animation values
   const opacity = useSharedValue(0);

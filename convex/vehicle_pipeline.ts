@@ -15,6 +15,7 @@
 import { v } from "convex/values";
 import { action, internalAction } from "./_generated/server";
 import { api, internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
 import Anthropic from "@anthropic-ai/sdk";
 import { searchAndFetch } from "./vehicleEnrichment/firecrawl";
 import { advancedVinDecode, extractVDBFields } from "./lib/vehicleDatabases";
@@ -30,9 +31,59 @@ const NHTSA_API = "https://vpic.nhtsa.dot.gov/api/vehicles/decodevinvaluesextend
  * Process a VIN through NHTSA decode → upsert makes/models/trims/engines.
  * Returns the resolved IDs for linking to vehicle records.
  */
+type ProcessVinResult = {
+  makeId: Id<"makes">;
+  modelId: Id<"models">;
+  trimId: Id<"trims">;
+  engineId: Id<"engines">;
+  transmissionId: Id<"transmissions"> | null;
+  make: string;
+  model: string;
+  year: number;
+  trim: string;
+  engineCode: string;
+  cylinders: number;
+  displacement: string;
+  fuelType: string;
+  drivetrain: string;
+  nhtsaVinKey: string;
+  // Raw NHTSA decode passthrough — downstream VDB image/color lookups
+  // use these to discover the catalog's canonical model designation.
+  nhtsaModel: string;
+  nhtsaSeries: string;
+  nhtsaTrim: string;
+  // Raw VDB decode fields — used to build the YMMT combo matrix for
+  // `vehicle-images` discovery when the VIN endpoint 404s.
+  vdbDecodedModel: string;
+  vdbDecodedStyle: string;
+  vdbDecodedTrimAndStyle: string;
+  // Review-screen Specs card fields. Flat (not nested under vdbTrimData)
+  // so router params can forward them directly.
+  horsepower: number | null;
+  engineDisplacementLiters: number | null;
+  cylindersConfiguration: string | null;
+  mpgCity: number | null;
+  mpgHighway: number | null;
+  mpgCombined: number | null;
+  frontTireSize: string | null;
+  rearTireSize: string | null;
+  frontTirePressure: number | null;
+  rearTirePressure: number | null;
+  transType: string | null;
+  transSpeeds: number | null;
+  vdbTrimData: {
+    frontTireSize: string | null;
+    rearTireSize: string | null;
+    frontTirePressure: number | null;
+    rearTirePressure: number | null;
+    wheelTorque: number | null;
+    cca: number | null;
+  } | null;
+};
+
 export const processVin = internalAction({
   args: { vin: v.string() },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<ProcessVinResult | null> => {
     try {
       // ════════════════════════════════════════════════════════════
       // SOURCE 1: Vehicle Databases API (primary — paid, structured)
@@ -113,13 +164,58 @@ export const processVin = internalAction({
       }
 
       // ════════════════════════════════════════════════════════════
-      // MERGE: VDB wins, NHTSA fills gaps
+      // YMMT validation: VDB occasionally returns the wrong basic vehicle
+      // identity for a VIN. Trust NHTSA for year/make/model/trim when the
+      // two disagree, while still using VDB for deep specs.
+      const fuzzyMatch = (
+        a: string | undefined | null,
+        b: string | undefined | null,
+      ) => {
+        const norm = (s: string | undefined | null) =>
+          (s ?? "").toLowerCase().replace(/[\s_-]+/g, " ").trim();
+        const A = norm(a);
+        const B = norm(b);
+        if (!A || !B) return true;
+        return A.includes(B) || B.includes(A);
+      };
+      const ymmtAgrees = (() => {
+        if (!vdb || !nhtsa.make || !nhtsa.model) return true;
+        const yearOk =
+          !vdb.year ||
+          !nhtsa.year ||
+          vdb.year === parseInt(nhtsa.year);
+        return (
+          yearOk &&
+          fuzzyMatch(vdb.make, nhtsa.make) &&
+          fuzzyMatch(vdb.model, nhtsa.model)
+        );
+      })();
+      const trustVdbYmmt = ymmtAgrees;
+      if (vdb && !trustVdbYmmt) {
+        console.warn(
+          `[decode] VDB/NHTSA YMMT MISMATCH — VIN ${args.vin} → ` +
+            `VDB="${vdb.year} ${vdb.make} ${vdb.model}" vs ` +
+            `NHTSA="${nhtsa.year} ${nhtsa.make} ${nhtsa.model}". ` +
+            `Preferring NHTSA's YMMT; keeping VDB's deep specs.`,
+        );
+      }
+
+      // MERGE: VDB wins for basic identity only when it agrees with NHTSA;
+      // deep specs stay VDB-first, NHTSA fills gaps.
       // ════════════════════════════════════════════════════════════
       const merged = {
-        make: vdb?.make || nhtsa.make || "",
-        model: vdb?.model || nhtsa.model || "",
-        year: vdb?.year || parseInt(nhtsa.year || "0"),
-        trim: vdb?.trim || nhtsa.trim || "Base",
+        make: trustVdbYmmt
+          ? (vdb?.make || nhtsa.make || "")
+          : (nhtsa.make || vdb?.make || ""),
+        model: trustVdbYmmt
+          ? (vdb?.model || nhtsa.model || "")
+          : (nhtsa.model || vdb?.model || ""),
+        year: trustVdbYmmt
+          ? (vdb?.year || parseInt(nhtsa.year || "0"))
+          : (parseInt(nhtsa.year || "0") || vdb?.year || 0),
+        trim: trustVdbYmmt
+          ? (vdb?.trim || nhtsa.trim || "Base")
+          : (nhtsa.trim || "Base"),
         trim2: nhtsa.trim2 || "",
         series: nhtsa.series || "",
         series2: nhtsa.series2 || "",
@@ -274,9 +370,9 @@ export const processVin = internalAction({
       // ════════════════════════════════════════════════════════════
       // WRITE TO DATABASE
       // ════════════════════════════════════════════════════════════
-      const makeId = await ctx.runMutation(internal.vehicle_mutations.upsertMake, { name: merged.make });
-      const modelId = await ctx.runMutation(internal.vehicle_mutations.upsertModel, { makeId, name: finalModel });
-      const trimId = await ctx.runMutation(internal.vehicle_mutations.upsertTrim, {
+      const makeId: Id<"makes"> = await ctx.runMutation(internal.vehicle_mutations.upsertMake, { name: merged.make });
+      const modelId: Id<"models"> = await ctx.runMutation(internal.vehicle_mutations.upsertModel, { makeId, name: finalModel });
+      const trimId: Id<"trims"> = await ctx.runMutation(internal.vehicle_mutations.upsertTrim, {
         modelId, name: finalTrim, year: merged.year,
       });
 
@@ -294,7 +390,7 @@ export const processVin = internalAction({
       }
 
       // Engine
-      const engineId = await ctx.runMutation(internal.vehicle_mutations.upsertEngine, {
+      const engineId: Id<"engines"> = await ctx.runMutation(internal.vehicle_mutations.upsertEngine, {
         trimId, engineCode: finalEngineCode,
         cylinders: merged.cylinders, displacement: merged.displacement,
         fuelType: merged.fuelType,
@@ -322,12 +418,12 @@ export const processVin = internalAction({
 
       // Transmission — always create
       const transType = merged.transStyle || "unknown";
-      const transDoc = await ctx.runMutation(api.transmissions.upsertTransmission, {
+      const transDoc: { _id: Id<"transmissions"> } | null = await ctx.runMutation(api.transmissions.upsertTransmission, {
         trim_id: trimId,
         transmission_type: transType,
         confidence_score: transType !== "unknown" ? 0.70 : 0.1,
       });
-      const transmissionId = transDoc?._id ?? null;
+      const transmissionId: Id<"transmissions"> | null = transDoc?._id ?? null;
 
       if (transmissionId) {
         const tp: Record<string, unknown> = {};
@@ -979,16 +1075,61 @@ export const enrichVehicleSpecs = internalAction({
  * Decode a VIN via NHTSA and upsert makes/models/trims/engines.
  * Returns decoded vehicle info for the review screen.
  */
+type DecodeVinResult =
+  | { success: false; error: string }
+  | {
+      success: true;
+      vin: string;
+      makeId: Id<"makes">;
+      modelId: Id<"models">;
+      trimId: Id<"trims">;
+      engineId: Id<"engines">;
+      make: string;
+      model: string;
+      year: number;
+      trim: string;
+      engineCode: string;
+      cylinders: number;
+      displacement: string;
+      fuelType: string;
+      nhtsaVinKey: string;
+      // Raw NHTSA decode passthrough — picker uses these for VDB model
+      // discovery (NHTSA's Model is often the specific designation,
+      // e.g. "530i", while the merged result may have been normalized).
+      nhtsaModel: string;
+      nhtsaSeries: string;
+      nhtsaTrim: string;
+      // Raw VDB decode fields — picker builds the YMMT combo matrix
+      // for `vehicle-images` direct probes when the VIN URL 404s.
+      vdbDecodedModel: string;
+      vdbDecodedStyle: string;
+      vdbDecodedTrimAndStyle: string;
+      // Review-screen Specs card fields. Flat for router param forwarding.
+      horsepower: number | null;
+      engineDisplacementLiters: number | null;
+      cylindersConfiguration: string | null;
+      mpgCity: number | null;
+      mpgHighway: number | null;
+      mpgCombined: number | null;
+      frontTireSize: string | null;
+      rearTireSize: string | null;
+      frontTirePressure: number | null;
+      rearTirePressure: number | null;
+      transType: string | null;
+      transSpeeds: number | null;
+      drivetrain: string;
+    };
+
 export const decodeVin = action({
   args: { vin: v.string() },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<DecodeVinResult> => {
     const vin = args.vin.toUpperCase().trim();
 
     if (vin.length !== 17) {
       return { success: false as const, error: "VIN must be exactly 17 characters" };
     }
 
-    const result = await ctx.runAction(internal.vehicle_pipeline.processVin, { vin });
+    const result: ProcessVinResult | null = await ctx.runAction(internal.vehicle_pipeline.processVin, { vin });
 
     if (!result) {
       return { success: false as const, error: "Could not decode this VIN. Please check and try again." };
@@ -1070,14 +1211,23 @@ export const confirmVehicleForUser = action({
     // lookup for legacy paths that don't pass the NHTSA key.
     nhtsaVinKey: v.optional(v.string()),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<
+    | { success: false; error: string }
+    | {
+        success: true;
+        vehicleOwnerId: Id<"vehicle_owners">;
+        cache_hit: boolean;
+        cache_hit_source: "nhtsa_vin_key" | "config_key" | "none";
+        enrichment_scheduled: boolean;
+      }
+  > => {
     // Resolve current user from auth
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) {
       return { success: false as const, error: "Not authenticated" };
     }
 
-    const user = await ctx.runQuery(internal.vehicle_mutations.getUserByClerkId, {
+    const user: { _id: Id<"users"> } | null = await ctx.runQuery(internal.vehicle_mutations.getUserByClerkId, {
       clerkUserId: identity.subject,
     });
     if (!user) {
@@ -1087,7 +1237,7 @@ export const confirmVehicleForUser = action({
     const vin = args.vin.toUpperCase().trim();
 
     // Upsert vehicle catalog record
-    const vehicle = await ctx.runMutation(api.vehicles.upsertVehicle, {
+    const vehicle: { _id: Id<"vehicles"> } | null = await ctx.runMutation(api.vehicles.upsertVehicle, {
       vin,
       trim_id: args.trimId,
       engine_id: args.engineId,
@@ -1101,7 +1251,7 @@ export const confirmVehicleForUser = action({
     });
 
     // Link vehicle to user
-    const vehicleOwnerId = await ctx.runMutation(api.vehicles.addOwner, {
+    const vehicleOwnerId: Id<"vehicle_owners"> = await ctx.runMutation(api.vehicles.addOwner, {
       vin,
       userId: user._id,
       nickname: `${args.year} ${args.make} ${args.model}`,

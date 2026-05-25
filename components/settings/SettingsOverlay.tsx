@@ -35,6 +35,7 @@ import {
   BackHandler,
   Dimensions,
   Image,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -57,6 +58,7 @@ import { X } from "lucide-react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 
 import { SettingsContent } from "@/components/settings/SettingsContent";
+import { SettingsContainerTransformOverlay } from "@/components/settings/SettingsContainerTransformOverlay";
 import { api } from "@/convex/_generated/api";
 import { useOnboardingStore } from "@/stores/useOnboardingStore";
 import {
@@ -90,9 +92,23 @@ const FALLBACK_RECT: SettingsOverlayRect = {
   height: 56,
 };
 
+const isIOS26OrNewer =
+  Platform.OS === "ios" && parseInt(String(Platform.Version), 10) >= 26;
+
 export function SettingsOverlay() {
+  if (!isIOS26OrNewer) {
+    return <SettingsContainerTransformOverlay />;
+  }
+
+  return <IOSSettingsOverlay />;
+}
+
+function IOSSettingsOverlay() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const setRevealHomeAvatar = useSettingsOverlayStore(
+    (s) => s.setRevealHomeAvatar,
+  );
 
   // Capture the rect ONCE at mount. After this, the floating-avatar
   // morph anchor is fixed — even if the user scrolls or rotates,
@@ -164,13 +180,14 @@ export function SettingsOverlay() {
   // button or hardware back. Swipe-back gestures bypass this and use
   // the default pop (no morph) — acceptable per the plan.
   const handleClose = useCallback(() => {
+    setRevealHomeAvatar(true);
     setSettled(false);
     progress.value = withSpring(0, SPRING_CONFIG, (finished) => {
       if (finished) {
         runOnJS(router.back)();
       }
     });
-  }, [progress, router]);
+  }, [progress, router, setRevealHomeAvatar]);
 
   // Intercept Android hardware back so the close morph plays before
   // pop. Without this, hardware back would instantly unmount the

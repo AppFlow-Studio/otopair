@@ -24,6 +24,7 @@ import { ArrowRight, CheckCircle2 } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Text } from "@/components/shared-ui";
+import { scale, moderateScale } from "@/utils/responsive";
 
 const CHECKS = [
   "Brake health assessment",
@@ -146,10 +147,30 @@ export function QuickReadGateSheet({
                   end={{ x: 1, y: 0 }}
                   style={styles.ctaGradient}
                 >
-                  <Text weight="bold" size="md" color="#FFFFFF">
-                    Get a quick read on your {safeLabel}
-                  </Text>
-                  <ArrowRight size={18} color="#FFFFFF" style={styles.ctaArrow} />
+                  <View style={styles.ctaTextWrap}>
+                    <Text
+                      weight="semiBold"
+                      size="xs"
+                      color="rgba(255,255,255,0.92)"
+                      style={styles.ctaEyebrow}
+                    >
+                      Get a quick read on
+                    </Text>
+                    <Text
+                      weight="bold"
+                      size="md"
+                      color="#FFFFFF"
+                      numberOfLines={1}
+                      adjustsFontSizeToFit
+                      minimumFontScale={0.75}
+                      style={styles.ctaTitle}
+                    >
+                      Your {safeLabel}
+                    </Text>
+                  </View>
+                  <View style={styles.ctaArrowWrap}>
+                    <ArrowRight size={scale(18)} color="#FFFFFF" />
+                  </View>
                 </LinearGradient>
               </Pressable>
               <Text
@@ -230,18 +251,39 @@ const styles = StyleSheet.create({
   cta: {
     alignSelf: "stretch",
     marginTop: 22,
-    borderRadius: 999,
+    borderRadius: moderateScale(24),
     overflow: "hidden",
   },
   ctaGradient: {
-    flexDirection: "row",
+    position: "relative",
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 16,
-    paddingHorizontal: 20,
+    minHeight: scale(54),
+    paddingLeft: scale(18),
+    paddingRight: scale(52),
+    paddingVertical: scale(10),
   },
-  ctaArrow: {
-    marginLeft: 8,
+  ctaTextWrap: {
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 1,
+  },
+  ctaEyebrow: {
+    lineHeight: moderateScale(14),
+  },
+  ctaTitle: {
+    textAlign: "center",
+    lineHeight: moderateScale(20),
+    marginTop: scale(1),
+  },
+  ctaArrowWrap: {
+    position: "absolute",
+    right: scale(18),
+    top: 0,
+    bottom: 0,
+    width: scale(20),
+    alignItems: "center",
+    justifyContent: "center",
   },
   footnote: {
     marginTop: 10,

@@ -2,10 +2,8 @@
  * useCreateTireQuoteRequest
  *
  * Creates a quote-stage tire booking via `api.bookings.createTireQuoteRequest`.
- * Falls back to the local-only synthesis (`synthesizeTireQuoteBooking`) when
- * required data (Convex userId or VIN) isn't available — e.g., the user is
- * unauthenticated or hasn't linked a vehicle in Convex yet. Mirrors the
- * fallback pattern in `useCreateBookingConvex`.
+ * Throws when required Convex data is missing so tire quote requests never
+ * look successful while only living in local state.
  *
  * USED IN: app/(tire-booking)/index.tsx (handleGetQuotes)
  */
@@ -17,10 +15,9 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useUserFromConvex } from "@/hooks/useUserFromConvex";
 import { useVehicleStore } from "@/stores/useVehicleStore";
-import { synthesizeTireQuoteBooking } from "@/utils/tireBookingSynthesize";
 
 interface CreateArgs {
-  /** "4 Premium All-Season · 225/45R18" — used by the local fallback path. */
+  /** "4 Premium All-Season - 225/45R18" */
   tiresLabel: string;
   tireSpecs: {
     size: string;
@@ -34,20 +31,21 @@ export function useCreateTireQuoteRequest() {
   const createConvex = useMutation(api.bookings.createTireQuoteRequest);
   const { userId } = useUserFromConvex();
   const getSelectedVehicle = useVehicleStore((s) => s.getSelectedVehicle);
-  const selectedVehicleId = useVehicleStore((s) => s.selectedVehicleId);
 
   return useCallback(
-    async ({ tiresLabel, tireSpecs }: CreateArgs): Promise<string> => {
+    async ({ tireSpecs }: CreateArgs): Promise<string> => {
       const vehicle = getSelectedVehicle();
       const vin = vehicle?.vin;
 
-      // Fallback: missing Convex prereqs → local-only booking. Card still
-      // shows up in Upcoming, but the website won't see it.
-      if (!userId || !vin) {
-        return synthesizeTireQuoteBooking({
-          vehicleId: selectedVehicleId,
-          tiresLabel,
-        });
+      const missingFields = [
+        !userId ? "user" : null,
+        !vin ? "vehicle VIN" : null,
+      ].filter((field): field is string => field != null);
+
+      if (missingFields.length > 0) {
+        throw new Error(
+          `We couldn't request tire quotes because the ${missingFields.join(", ")} ${missingFields.length === 1 ? "is" : "are"} still loading. Please reselect your vehicle and try again.`,
+        );
       }
 
       const bookingId = await createConvex({
@@ -57,6 +55,6 @@ export function useCreateTireQuoteRequest() {
       });
       return String(bookingId);
     },
-    [createConvex, userId, getSelectedVehicle, selectedVehicleId],
+    [createConvex, userId, getSelectedVehicle],
   );
 }

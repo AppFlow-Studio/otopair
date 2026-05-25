@@ -37,6 +37,7 @@ import { useMechanicStore } from "@/stores/useMechanicStore";
 import { useShopStore } from "@/stores/useShopStore";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useNextAvailabilityPerMechanicForShop } from "@/hooks/useNextAvailabilityPerMechanicForShop";
+import { displayTimeToHHMM } from "@/utils/timeSlotUtils";
 
 // ============================================================================
 // TYPES
@@ -162,7 +163,19 @@ export function ShopDetails({ shopId, onBookNow, onAddMoreServices, onViewAllAva
   // ═══════════════ HANDLERS ═══════════════
   // Helper to convert slot data to ScheduledAppointment
   const convertSlotToAppointment = useCallback(
-    (slot: { day: string; dayOfWeek: string; time: string }): ScheduledAppointment => {
+    (slot: MechanicAvailabilitySlot): ScheduledAppointment => {
+      if (slot.scheduledDate) {
+        const [y, m, d] = slot.scheduledDate.split("-").map(Number);
+        const date = new Date(y, m - 1, d);
+        const months = ["Jan.", "Feb.", "Mar.", "Apr.", "May", "Jun.", "Jul.", "Aug.", "Sep.", "Oct.", "Nov.", "Dec."];
+
+        return {
+          date: slot.scheduledDate,
+          time: slot.time,
+          displayDate: `${date.getDate()} ${months[date.getMonth()]} ${date.getFullYear()}`,
+        };
+      }
+
       const now = new Date();
       const currentMonth = now.getMonth();
       const currentYear = now.getFullYear();
@@ -248,8 +261,9 @@ export function ShopDetails({ shopId, onBookNow, onAddMoreServices, onViewAllAva
             mechanicId,
             mechanicName: mechanic.name,
             slot: { day: slot.day, dayOfWeek: slot.dayOfWeek, time: slot.time },
+            timeSlotId: slot.timeSlotId,
             scheduledDate: appointment.date,
-            scheduledTime: appointment.time,
+            scheduledTime: slot.scheduledTime ?? displayTimeToHHMM(appointment.time),
           });
         }
       }

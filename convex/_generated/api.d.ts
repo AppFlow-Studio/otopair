@@ -155,6 +155,7 @@ import type * as services_constants from "../services/constants.js";
 import type * as services_normalization from "../services/normalization.js";
 import type * as services_sourceScoring from "../services/sourceScoring.js";
 import type * as services_verification from "../services/verification.js";
+import type * as shopCustomers from "../shopCustomers.js";
 import type * as shop_part_preferences from "../shop_part_preferences.js";
 import type * as shop_portfolio from "../shop_portfolio.js";
 import type * as shop_services from "../shop_services.js";
@@ -388,6 +389,7 @@ declare const fullApi: ApiFromModules<{
   "services/normalization": typeof services_normalization;
   "services/sourceScoring": typeof services_sourceScoring;
   "services/verification": typeof services_verification;
+  shopCustomers: typeof shopCustomers;
   shop_part_preferences: typeof shop_part_preferences;
   shop_portfolio: typeof shop_portfolio;
   shop_services: typeof shop_services;

@@ -36,7 +36,9 @@ import { BrandColors, Text } from "@/components/shared-ui";
 
 // 4. Constants, hooks, types, stores
 import { BorderRadius, Spacing } from "@/constants/theme";
+import { useDistanceUnit } from "@/hooks/useDistanceUnit";
 import type { Shop } from "@/stores/types/store.types";
+import { formatProximityDistanceFromKm } from "@/utils/geo";
 
 // ============================================================================
 // TYPES
@@ -59,14 +61,6 @@ export interface ShopCarouselCardProps {
 // HELPERS
 // ============================================================================
 
-/** Format distance for display */
-function formatDistance(km: number | null): string {
-  if (km === null) return "";
-  if (km < 0.1) return "< 0.1 km";
-  if (km < 1) return `${(km * 1000).toFixed(0)} m`;
-  return `${km.toFixed(1)} km`;
-}
-
 /** Get availability label and color */
 function getAvailabilityInfo(availability: number): { label: string; color: string } {
   if (availability === 0) return { label: "Closed", color: "#6B7280" };
@@ -80,6 +74,7 @@ function getAvailabilityInfo(availability: number): { label: string; color: stri
 // ============================================================================
 
 function ShopCarouselCardComponent({ shop, isActive = false, onCall, onDirections, onDetails }: ShopCarouselCardProps) {
+  const distanceUnit = useDistanceUnit();
   const availabilityInfo = getAvailabilityInfo(shop.availability);
 
   return (
@@ -118,7 +113,7 @@ function ShopCarouselCardComponent({ shop, isActive = false, onCall, onDirection
         {shop.distanceKm !== null && (
           <View style={styles.statItem}>
             <Text size="sm" color="#6B7280">
-              {formatDistance(shop.distanceKm)}
+              {formatProximityDistanceFromKm(shop.distanceKm, distanceUnit)}
             </Text>
           </View>
         )}

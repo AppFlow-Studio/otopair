@@ -68,7 +68,11 @@ export function LoginStep({ onBack }: LoginStepProps) {
 
   const navigateAfterLogin = useCallback(async () => {
     let shouldShowReactivationSheet = false;
-    let me: { onboardingCompleted?: boolean; isPendingDeletion?: boolean } | null = null;
+    let me: {
+      onboardingCompleted?: boolean;
+      essentialOnboardingCompleted?: boolean;
+      isPendingDeletion?: boolean;
+    } | null = null;
 
     try {
       me = await convex.query(api.users.getMe, {});
@@ -82,7 +86,7 @@ export function LoginStep({ onBack }: LoginStepProps) {
     }
 
     setShouldShowReactivationSheet(shouldShowReactivationSheet);
-    if (me?.onboardingCompleted === true) {
+    if (me?.onboardingCompleted === true || me?.essentialOnboardingCompleted === true) {
       router.replace("/(main-tabs)/home");
       return;
     }

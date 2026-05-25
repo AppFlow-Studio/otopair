@@ -1,6 +1,6 @@
 // 1. React & React Native
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Image, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, Alert, Image, Pressable, StyleSheet, Text as RNText, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated from 'react-native-reanimated';
 
@@ -14,6 +14,7 @@ import {
   BottomSheetScrollView,
 } from "@gorhom/bottom-sheet";
 import { BlurBackdrop } from "@/components/shared-ui/BlurBackdrop";
+import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
 import { Bell, MoveRight, Star, Trophy } from 'lucide-react-native';
 import { useMutation, useQuery } from 'convex/react';
 import { api } from '@/convex/_generated/api';
@@ -123,6 +124,7 @@ export default function HomeScreen() {
     initialInsetTopRef.current = insets.top;
   }
   const stableInsetTop = initialInsetTopRef.current;
+  const { height: screenHeight } = useWindowDimensions();
   const router = useRouter();
   const { isNewUser, shouldShowReactivationSheet, setShouldShowReactivationSheet } = useAuthStore();
   const { vehicles: listVehicles, hasVehicles, isLoading: vehiclesLoading } = useVehicleOwnershipFromConvex();
@@ -143,6 +145,7 @@ export default function HomeScreen() {
   const sheetRef = useRef<BottomSheetModal>(null);
   const hasPresentedReactivationRef = useRef(false);
   const snapPoints = useMemo(() => ["42%"], []);
+  const noVehicleSheetRef = useRef<FloatingSheetRef>(null);
 
   useEffect(() => {
     if (shouldShowReactivationSheet && showWelcome) {
@@ -412,6 +415,11 @@ export default function HomeScreen() {
   };
 
   const handleMapPress = () => {
+    if (vehiclesLoading) return;
+    if (!hasVehicles) {
+      noVehicleSheetRef.current?.open();
+      return;
+    }
     router.push("/booking/map");
   };
 
@@ -884,6 +892,60 @@ export default function HomeScreen() {
       )}
     </ScrollDrivenGradientBackground>
 
+    {/* No-vehicle gate — shown when user taps into booking without a vehicle */}
+    <FloatingSheet
+      ref={noVehicleSheetRef}
+      snapHeights={[screenHeight * 0.50]}
+      showBackdrop
+    >
+      <View style={[styles.sheetContentContainer, styles.noVehicleContent]}>
+        <View style={styles.sheetTitleWrap}>
+          <View style={styles.noVehicleIconWrap}>
+            <RNText
+              style={{
+                fontSize: 26,
+                lineHeight: 28,
+                textAlign: 'center',
+                textAlignVertical: 'center',
+                includeFontPadding: false,
+                transform: [{ translateY: -2 }],
+              }}
+            >
+              🚗
+            </RNText>
+          </View>
+          <Text style={styles.sheetTitle}>Add a vehicle first</Text>
+        </View>
+
+        <View style={styles.sheetBody}>
+          <Text style={styles.sheetBodyText}>
+            We need to know your vehicle to match you with the right mechanic and services.
+          </Text>
+        </View>
+
+        <View style={styles.sheetActions}>
+          <Pressable
+            style={({ pressed }) => [styles.sheetPrimaryButton, pressed && styles.sheetPressed]}
+            onPress={() => {
+              noVehicleSheetRef.current?.close();
+              router.push('/add-vehicle');
+            }}
+          >
+            <Text weight="semiBold" color="#FFF" style={styles.sheetPrimaryButtonText}>
+              Add a vehicle
+            </Text>
+          </Pressable>
+
+          <Pressable
+            onPress={() => noVehicleSheetRef.current?.close()}
+            style={styles.noVehicleSecondaryAction}
+          >
+            <Text style={styles.noVehicleSecondaryText}>Maybe later</Text>
+          </Pressable>
+        </View>
+      </View>
+    </FloatingSheet>
+
     {/* Booking details sheet — opened by the upcoming appointment card's
         View Details button. Mirrors the bookings tab's wiring. */}
     <BookingDetailsSheet ref={detailsSheetRef} />
@@ -1099,5 +1161,25 @@ const styles = StyleSheet.create({
   sheetPressed: {
     opacity: 0.9,
     transform: [{ scale: 0.99 }],
+  },
+  noVehicleContent: {
+    paddingBottom: 24,
+  },
+  noVehicleIconWrap: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#5299FE1A',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  noVehicleSecondaryAction: {
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  noVehicleSecondaryText: {
+    fontSize: 15,
+    color: '#8A97A8',
   },
 });

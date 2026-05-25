@@ -73,3 +73,6 @@ _generated/server.js
 
 # Eval run secrets (Clerk JWT, ~1-hour lifetime; refreshed per session)
 scripts/eval/runs/.jwt-env.sh
+
+# Superpowers for Claude
+.superpowers/

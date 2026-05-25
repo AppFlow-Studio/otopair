@@ -5,7 +5,8 @@
  * Caches the result by optimistically updating the booking store (Convex reactivity
  * will also refresh useBookingsFromConvex).
  *
- * Falls back to local-only create when Convex data (userId, vin, timeSlotId) is missing.
+ * Throws when Convex data is missing so appointment bookings never look
+ * successful while only living in local state.
  *
  * USED IN: Payment screen, confirmation flow
  */
@@ -38,7 +39,6 @@ export function useCreateBookingConvex() {
   const availableServices = useBookingStore((s) => s.availableServices);
   const selectedMechanicSlot = useBookingStore((s) => s.selectedMechanicSlot);
   const scheduledAppointment = useBookingStore((s) => s.scheduledAppointment);
-  const createBooking = useBookingStore((s) => s.createBooking);
   const sourceRecommendationId = useBookingStore((s) => s.sourceRecommendationId);
   const setSourceRecommendationId = useBookingStore((s) => s.setSourceRecommendationId);
   const selectedServiceOptions = useBookingStore((s) => s.selectedServiceOptions);
@@ -97,9 +97,18 @@ export function useCreateBookingConvex() {
       // VIN whenever the VW is marked primary.
       const vin = getSelectedVehicle()?.vin ?? primaryVin;
 
-      if (!userId || !vin || !shopId || !timeSlotId || selectedServiceIds.length === 0) {
-        const localId = createBooking(mechanicId, bookingType);
-        return [localId];
+      const missingFields = [
+        !userId ? "user" : null,
+        !vin ? "vehicle VIN" : null,
+        !shopId ? "shop" : null,
+        !timeSlotId ? "time slot" : null,
+        selectedServiceIds.length === 0 ? "selected services" : null,
+      ].filter((field): field is string => field != null);
+
+      if (missingFields.length > 0) {
+        throw new Error(
+          `We couldn't create this booking because the ${missingFields.join(", ")} ${missingFields.length === 1 ? "is" : "are"} still loading. Please go back, reselect the appointment time, and try again.`,
+        );
       }
 
       const selectedServices = availableServices.filter((s) => selectedServiceIds.includes(s.id));
@@ -216,7 +225,6 @@ export function useCreateBookingConvex() {
       getShopById,
       resolveTimeSlotId,
       createBatch,
-      createBooking,
       sourceRecommendationId,
       setSourceRecommendationId,
       selectedServiceOptions,

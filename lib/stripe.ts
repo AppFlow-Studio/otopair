@@ -1,9 +1,8 @@
 import Stripe from "stripe";
 
-// Bumped to match the SDK version installed after Temur's `stripe`
-// package bump - the previous "2026-03-25.dahlia" constant was left
-// over from before the lock-file regen.
-export const STRIPE_API_VERSION = "2026-04-22.dahlia" as const;
+// Read the pinned API version directly from the installed Stripe SDK so
+// typechecking stays aligned with dependency upgrades.
+export const STRIPE_API_VERSION = Stripe.API_VERSION;
 
 export type StripeConnectStatus =
   | "not_connected"

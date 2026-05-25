@@ -22,6 +22,8 @@ import { StyleSheet, TouchableOpacity, View } from "react-native";
 
 import { Text } from "@/components/shared-ui";
 import type { TireQuote } from "@/constants/tireFlow";
+import { useDistanceUnit } from "@/hooks/useDistanceUnit";
+import { formatProximityDistanceFromMiles } from "@/utils/geo";
 
 interface Props {
   quote: TireQuote;
@@ -37,6 +39,7 @@ function formatMoney(n: number): string {
 }
 
 export function TireQuoteCard({ quote, variant, onBook }: Props) {
+  const distanceUnit = useDistanceUnit();
   const isPrimary = variant === "primary";
   const perTireLabel = `${formatMoney(quote.perTirePrice)} × ${quote.quantity}`;
   const tiresSubtotal = quote.perTirePrice * quote.quantity;
@@ -58,7 +61,7 @@ export function TireQuoteCard({ quote, variant, onBook }: Props) {
         </Text>
         <View style={styles.metaRow}>
           <Text size="xs" color="#8E8E93">
-            {quote.shopDistanceMi.toFixed(1)} mi · ★ {quote.shopRating.toFixed(1)}
+            {formatProximityDistanceFromMiles(quote.shopDistanceMi, distanceUnit)} · ★ {quote.shopRating.toFixed(1)}
           </Text>
           {quote.verifiedPartner ? (
             <View style={styles.verifiedRow}>
