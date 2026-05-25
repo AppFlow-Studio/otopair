@@ -872,7 +872,7 @@ export default function HomeScreen() {
     {/* No-vehicle gate — shown when user taps into booking without a vehicle */}
     <FloatingSheet
       ref={noVehicleSheetRef}
-      snapHeights={[screenHeight * 0.52]}
+      snapHeights={[screenHeight * 0.50]}
       showBackdrop
     >
       <View style={[styles.sheetContentContainer, styles.noVehicleContent]}>
@@ -1132,9 +1132,9 @@ const styles = StyleSheet.create({
     paddingBottom: 24,
   },
   noVehicleIconWrap: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     backgroundColor: '#5299FE1A',
     alignItems: 'center',
     justifyContent: 'center',
