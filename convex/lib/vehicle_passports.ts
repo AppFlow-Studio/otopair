@@ -142,6 +142,14 @@ export const postjobPartValidator = v.object({
   // flows stamp it so multi-service bookings get accurate per-service
   // analytics (shop_part_preferences, cost-by-service).
   service_id: v.optional(v.id("services")),
+  // Pre-Job Approval flow — manual parts require justification (≥12 chars)
+  // when submitted via booking_approvals.submitPreJobEstimate. Optional photo
+  // evidence via _storage ids. verified_against_catalog_median_cents
+  // snapshots what summarizePartPrices reported at submit time so disputes
+  // can reconstruct whether the row was flagged.
+  justification_text: v.optional(v.string()),
+  evidence_photo_ids: v.optional(v.array(v.id("_storage"))),
+  verified_against_catalog_median_cents: v.optional(v.number()),
 });
 
 export const postjobPhotoValidator = v.object({

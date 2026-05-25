@@ -44,7 +44,7 @@ import type { Id } from '@/convex/_generated/dataModel';
 // TYPES
 // ============================================================================
 
-export type BookingStatus = 'pending' | 'pending_quote' | 'quotes_ready' | 'pending_customer_acceptance' | 'confirmed' | 'in_progress' | 'completed' | 'cancelled' | 'delayed';
+export type BookingStatus = 'pending' | 'pending_quote' | 'quotes_ready' | 'pending_customer_acceptance' | 'confirmed' | 'in_progress' | 'completed' | 'cancelled' | 'delayed' | 'no_show';
 
 export interface Booking {
   id: string;
@@ -83,6 +83,13 @@ export interface Booking {
   shopId?: string;
   /** Convex mechanic_id — optional review association. */
   mechanicId?: string;
+  /** Pre-Job Approval flow: customer-facing range snapshotted at create. */
+  disclosedRangeLowCents?: number;
+  disclosedRangeHighCents?: number;
+  /** Approval/capture lifecycle — drives whether to show range vs final. */
+  paymentApprovalState?: string;
+  /** Final captured amount in cents (set after Stripe capture). */
+  finalCaptureAmountCents?: number;
 }
 
 interface BookingCardProps {
@@ -153,7 +160,7 @@ export const STATUS_CONFIG: Record<BookingStatus, { label: string; bgColor: stri
     textColor: '#2F6DCC',
   },
   pending_customer_acceptance: {
-    label: 'Action needed',
+    label: 'Rescheduled',
     bgColor: '#FFF6E5',
     textColor: '#C8972E',
   },
@@ -181,6 +188,11 @@ export const STATUS_CONFIG: Record<BookingStatus, { label: string; bgColor: stri
     label: 'Delayed',
     bgColor: '#E5E7EB',
     textColor: '#6B7280',
+  },
+  no_show: {
+    label: 'No-show',
+    bgColor: '#FEE2E2',
+    textColor: '#DC2626',
   },
 };
 

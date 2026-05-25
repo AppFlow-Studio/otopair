@@ -21,8 +21,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MOBILE_REPO="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-SOURCE_DEPLOYMENT="${CONVEX_DEPLOYMENT:-}"
-TARGET_DEPLOYMENT=""
+SOURCE_DEPLOYMENT="dev:ardent-crab-641"
+TARGET_DEPLOYMENT="dev:third-bird-914"
 WEB_REPO="${OTOPAIR_WEB_REPO:-$HOME/Documents/AppFlowStudios/otopair-web}"
 AUTO_YES=0
 KEEP_DUMP=0

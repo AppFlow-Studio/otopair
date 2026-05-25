@@ -21,8 +21,10 @@ interface Props {
   /** Open the review sheet for this booking. */
   onLeaveReview: (bookingId: string) => void;
   /** Dismiss the card for the current session (in-memory only — comes back
-   *  next launch unless the user actually submits a review). */
-  onDismiss: (bookingId: string) => void;
+   *  next launch unless the user actually submits a review). Omit to hide
+   *  the X (used on the dedicated Pending Reviews screen where dismiss
+   *  doesn't apply). */
+  onDismiss?: (bookingId: string) => void;
 }
 
 export function CompletedBookingReviewCard({ booking, onLeaveReview, onDismiss }: Props) {
@@ -31,13 +33,15 @@ export function CompletedBookingReviewCard({ booking, onLeaveReview, onDismiss }
 
   return (
     <View style={styles.card}>
-      <Pressable
-        onPress={() => onDismiss(booking.id)}
-        hitSlop={10}
-        style={styles.closeButton}
-      >
-        <X size={16} color="#9CA3AF" strokeWidth={2.2} />
-      </Pressable>
+      {onDismiss ? (
+        <Pressable
+          onPress={() => onDismiss(booking.id)}
+          hitSlop={10}
+          style={styles.closeButton}
+        >
+          <X size={16} color="#9CA3AF" strokeWidth={2.2} />
+        </Pressable>
+      ) : null}
 
       <View style={styles.headerRow}>
         <View style={styles.checkBadge}>

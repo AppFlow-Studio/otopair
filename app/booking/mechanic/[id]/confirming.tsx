@@ -27,11 +27,17 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 
+import { useAction } from "convex/react";
+import { useStripe } from "@stripe/stripe-react-native";
+
 import { Text } from "@/components/shared-ui";
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
 import { BookingConfirmStatus } from "@/components/booking/BookingConfirmStatus";
 import { useCreateBookingConvex } from "@/hooks/useCreateBookingConvex";
 import { useBookingStore } from "@/stores/useBookingStore";
+import { usePaymentStore } from "@/stores/usePaymentStore";
+import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 
 // Copy fade-in is gated to the same landing moment as the tire flow so
 // the timing reads consistently across both surfaces.
@@ -60,6 +66,13 @@ export default function BookingConfirmingScreen() {
   const { createBookingConvex } = useCreateBookingConvex();
   const selectedMechanicId = useBookingStore((s) => s.selectedMechanicId);
   const bookingType = useBookingStore((s) => s.bookingType);
+  const selectedPaymentMethodId = usePaymentStore((s) => s.selectedPaymentMethodId);
+  const createPaymentIntent = useAction(api.payments_stripe.createPaymentIntentForBooking);
+  // The PaymentIntent is created + confirmed server-side. If 3DS is needed,
+  // Stripe returns requires_action and the client *finishes* the challenge
+  // via `handleNextAction(clientSecret)` — NOT `confirmPayment`, which
+  // would error out on an already-confirmed PI.
+  const { handleNextAction } = useStripe();
   const navigatedRef = useRef(false);
   const [submitting, setSubmitting] = useState(false);
   const isCompactLayout = windowHeight < 860;
@@ -123,14 +136,49 @@ export default function BookingConfirmingScreen() {
       });
       return;
     }
+    if (!selectedPaymentMethodId) {
+      navigatedRef.current = true;
+      router.replace({
+        pathname: `/booking/mechanic/${id}/payment`,
+        params: { confirmError: "Add a payment method to confirm." },
+      });
+      return;
+    }
     setSubmitting(true);
     try {
       const bookingIds = await createBookingConvex(selectedMechanicId, bookingType || "book_now");
+      const newBookingId = bookingIds[0];
+
+      // If the booking was created locally (no Convex id), skip the
+      // PaymentIntent step — there's nothing to authorize against yet.
+      // (`createBookingConvex` returns a local-only id when Convex args
+      // are missing; the booking will be re-submitted later.)
+      const isConvexBookingId = typeof newBookingId === "string" && newBookingId.length > 10;
+      if (isConvexBookingId) {
+        const pi = await createPaymentIntent({
+          bookingId: newBookingId as Id<"bookings">,
+          paymentMethodId: selectedPaymentMethodId,
+        });
+
+        if (pi.requiresAction) {
+          const { error } = await handleNextAction(pi.clientSecret);
+          if (error) {
+            throw new Error(error.message ?? "Card authorization failed.");
+          }
+        } else if (
+          pi.status !== "requires_capture" &&
+          pi.status !== "succeeded" &&
+          pi.status !== "processing"
+        ) {
+          throw new Error(`Card authorization failed (status: ${pi.status}).`);
+        }
+      }
+
       if (navigatedRef.current) return;
       navigatedRef.current = true;
       router.replace({
         pathname: `/booking/mechanic/${id}/confirmation`,
-        params: bookingIds[0] ? { bookingDbId: bookingIds[0] } : {},
+        params: newBookingId ? { bookingDbId: newBookingId } : {},
       });
     } catch (err) {
       if (navigatedRef.current) return;
@@ -140,7 +188,17 @@ export default function BookingConfirmingScreen() {
         params: { confirmError: extractErrorMessage(err) },
       });
     }
-  }, [submitting, selectedMechanicId, bookingType, createBookingConvex, router, id]);
+  }, [
+    submitting,
+    selectedMechanicId,
+    selectedPaymentMethodId,
+    bookingType,
+    createBookingConvex,
+    createPaymentIntent,
+    handleNextAction,
+    router,
+    id,
+  ]);
 
   return (
     <View style={styles.screen}>

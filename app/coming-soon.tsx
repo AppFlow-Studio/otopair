@@ -29,6 +29,7 @@ import { ArrowLeft, Bell, Check } from 'lucide-react-native';
 
 // 3. Shared UI
 import { Text } from '@/components/shared-ui';
+import { useToast } from '@/hooks/useToast';
 
 // ============================================================================
 // COMPONENT
@@ -37,6 +38,7 @@ import { Text } from '@/components/shared-ui';
 export default function ComingSoonScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const toast = useToast();
   const [isSubscribed, setIsSubscribed] = useState(false);
   const { serviceName } = useLocalSearchParams<{
     serviceType: string;
@@ -60,10 +62,8 @@ export default function ComingSoonScreen() {
       }
 
       if (finalStatus !== 'granted') {
-        Alert.alert(
-          'Notifications Disabled',
-          'Please enable notifications in your device settings to receive updates about this service.',
-          [{ text: 'OK' }]
+        toast.info(
+          'Notifications stay off — change anytime in Settings.',
         );
         return;
       }
@@ -71,16 +71,14 @@ export default function ComingSoonScreen() {
       // Permission granted - mark as subscribed
       setIsSubscribed(true);
       console.log('Subscribed to notifications for:', serviceName);
-      
-      // Show success feedback
-      Alert.alert(
-        'You\'re on the list!',
-        `We'll notify you when ${serviceName} launches.`,
-        [{ text: 'Great!' }]
+
+      toast.success(
+        'You\'re on the list.',
+        `We'll let you know when ${serviceName} launches.`,
       );
     } catch (error) {
       console.error('Error requesting notification permission:', error);
-      Alert.alert('Error', 'Something went wrong. Please try again.');
+      toast.error('Couldn\'t update notification settings.');
     }
   };
 

@@ -24,19 +24,17 @@ import { BookingDetailsSheet, type BookingDetailsSheetRef } from "@/components/b
 import { ScrollDrivenGradientBackground, Text } from "@/components/shared-ui";
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
 import { useMyBookingsWithDetails } from "@/hooks/useMyBookingsWithDetails";
-import { useUserFromConvex } from "@/hooks/useUserFromConvex";
-import { CompletedBookingReviewCard } from "@/components/bookings/CompletedBookingReviewCard";
 import { CustomerLateBanner } from "@/components/bookings/CustomerLateBanner";
-import { LeaveReviewSheet, type LeaveReviewSheetRef } from "@/components/bookings/LeaveReviewSheet";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useBookingsBadgeStore } from "@/stores/useBookingsBadgeStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 import { useRecHistoryFromConvex } from "@/hooks/useRecHistoryFromConvex";
-import { useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import { useMutationWithToast } from "@/hooks/useMutationWithToast";
+import { useToast } from "@/hooks/useToast";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
-import { Calendar, Car, Check, ChevronRight, ListFilter } from "lucide-react-native";
+import { Calendar, Car, Check, ChevronRight, ListFilter, Star } from "lucide-react-native";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Image, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
 import Animated from "react-native-reanimated";
@@ -70,7 +68,6 @@ export default function BookingsScreen() {
     historyBookings,
     isLoading,
   } = useMyBookingsWithDetails();
-  const { userId } = useUserFromConvex();
   const router = useRouter();
 
   const { tab: tabParam, bookingId: bookingIdParam } = useLocalSearchParams<{
@@ -166,17 +163,22 @@ export default function BookingsScreen() {
   // `tire_quote_*` id format; real
   // Convex ids are base32 and never start with that prefix.
   const cancelLocalBooking = useBookingStore((s) => s.cancelBooking);
-  const cancelConvexBooking = useMutation(api.bookings.cancelBooking);
+  const toast = useToast();
+  const cancelConvexBooking = useMutationWithToast(api.bookings.cancelBooking, {
+    success: "Booking cancelled.",
+    error: "Couldn't cancel this booking. Try again.",
+  });
   const handleCancelBooking = useCallback(
     (bookingId: string) => {
       const isLocalId = bookingId.startsWith("tire_quote_") || bookingId.startsWith("booking_");
       if (isLocalId) {
         cancelLocalBooking(bookingId);
+        toast.success("Booking cancelled.");
       } else {
         void cancelConvexBooking({ bookingId: bookingId as Id<"bookings"> });
       }
     },
-    [cancelConvexBooking, cancelLocalBooking],
+    [cancelConvexBooking, cancelLocalBooking, toast],
   );
 
   const bookings = (
@@ -219,36 +221,14 @@ export default function BookingsScreen() {
     quoteListSheetRef.current?.open(bookingId);
   };
 
-  // ── Leave-a-review flow ──────────────────────────────────────────────────
-  // `pendingReviewBookings` from the hook = completed bookings the user
-  // hasn't reviewed in Convex. `dismissedReviewIds` is in-memory only —
-  // when the user taps the X on the card, it hides for this session but
-  // returns next launch (until they actually submit a review). Once a
-  // review is submitted, `listReviewedBookingIdsForUser` re-runs and
-  // the row is dropped permanently.
-  const reviewSheetRef = useRef<LeaveReviewSheetRef>(null);
-  const [dismissedReviewIds, setDismissedReviewIds] = useState<Set<string>>(
-    () => new Set(),
+  // Count of completed bookings still awaiting a review (scoped to the
+  // active vehicle filter). Drives the circular Star button next to the
+  // "Recommended services" pill — the actual list + LeaveReviewSheet
+  // live on /bookings/pending-reviews.
+  const pendingReviewCount = useMemo(
+    () => pendingReviewBookings.filter(matchesListFilter).length,
+    [pendingReviewBookings, matchesListFilter],
   );
-  const visibleReviewBookings = useMemo(
-    () =>
-      pendingReviewBookings
-        .filter((b) => !dismissedReviewIds.has(b.id))
-        .filter(matchesListFilter),
-    [pendingReviewBookings, dismissedReviewIds, matchesListFilter],
-  );
-  const handleLeaveReview = useCallback((bookingId: string) => {
-    const target = pendingReviewBookings.find((b) => b.id === bookingId);
-    if (!target || !userId) return;
-    reviewSheetRef.current?.open(target, String(userId));
-  }, [pendingReviewBookings, userId]);
-  const handleDismissReviewCard = useCallback((bookingId: string) => {
-    setDismissedReviewIds((prev) => {
-      const next = new Set(prev);
-      next.add(bookingId);
-      return next;
-    });
-  }, []);
 
   // Reschedule = cancel the current booking after confirmation, so the
   // driver can book a new slot fresh. We don't have in-place reschedule
@@ -375,46 +355,62 @@ export default function BookingsScreen() {
             ) : null}
 
             {/* Mechanic-rec history entry point. Surfaces hidden + resolved
-                recs so drivers can address what's still dragging their VHS. */}
+                recs so drivers can address what's still dragging their VHS.
+                The circular Star button sits to its right when there are
+                completed bookings still awaiting a review — keeps both
+                lifecycle prompts compact instead of stacking cards. */}
             {activeTab === "bookings" ? (
-              <Pressable
-                onPress={() => router.push("/bookings/recommended")}
-                style={({ pressed }) => [
-                  styles.recHistoryCard,
-                  pressed && { opacity: 0.85 },
-                ]}
-              >
-                <Text weight="semiBold" style={styles.recHistoryTitle}>
-                  Recommended services
-                </Text>
-                {activeRecCount > 0 ? (
-                  <View style={styles.recHistoryBadge}>
-                    <Text weight="semiBold" style={styles.recHistoryBadgeText}>
-                      {activeRecCount}
-                    </Text>
-                  </View>
+              <View style={styles.recRow}>
+                <Pressable
+                  onPress={() => router.push("/bookings/recommended")}
+                  style={({ pressed }) => [
+                    styles.recHistoryCard,
+                    pressed && { opacity: 0.85 },
+                  ]}
+                >
+                  <Text weight="semiBold" style={styles.recHistoryTitle}>
+                    Recommended services
+                  </Text>
+                  {activeRecCount > 0 ? (
+                    <View style={styles.recHistoryBadge}>
+                      <Text weight="semiBold" style={styles.recHistoryBadgeText}>
+                        {activeRecCount}
+                      </Text>
+                    </View>
+                  ) : null}
+                  <ChevronRight size={18} color="#C7C7CC" />
+                </Pressable>
+                {pendingReviewCount > 0 ? (
+                  <Pressable
+                    onPress={() => router.push("/bookings/pending-reviews")}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Pending reviews, ${pendingReviewCount}`}
+                    style={({ pressed }) => [
+                      styles.pendingReviewsButton,
+                      pressed && { opacity: 0.85 },
+                    ]}
+                  >
+                    <Star size={20} color="#141C24" />
+                    <View style={styles.pendingReviewsBadge}>
+                      <Text
+                        weight="semiBold"
+                        style={styles.pendingReviewsBadgeText}
+                      >
+                        {pendingReviewCount}
+                      </Text>
+                    </View>
+                  </Pressable>
                 ) : null}
-                <ChevronRight size={18} color="#C7C7CC" />
-              </Pressable>
+              </View>
             ) : null}
 
             {/* Booking Content. The Bookings tab includes in-progress
                 cards now — their per-card progress bar communicates
                 status inline, replacing the old Live Tracker tab.
-                Completed-but-unreviewed bookings get a "Leave a review"
-                card pinned at the very top until the user reviews. */}
+                Completed-but-unreviewed bookings live behind the circular
+                Star button above — see /bookings/pending-reviews. */}
             <View style={styles.content}>
               <CustomerLateBanner onReschedule={(bookingId) => handleReschedule(String(bookingId))} />
-              {activeTab === "bookings" && visibleReviewBookings.length > 0
-                ? visibleReviewBookings.map((booking) => (
-                    <CompletedBookingReviewCard
-                      key={`review-${booking.id}`}
-                      booking={booking}
-                      onLeaveReview={handleLeaveReview}
-                      onDismiss={handleDismissReviewCard}
-                    />
-                  ))
-                : null}
               {bookings.length > 0 ? (
                 bookings.map((booking) =>
                   booking.status === "pending_quote" || booking.status === "quotes_ready" ? (
@@ -438,9 +434,6 @@ export default function BookingsScreen() {
                     />
                   ),
                 )
-              ) : activeTab === "bookings" && visibleReviewBookings.length > 0 ? (
-                // Review cards are present — no empty state needed.
-                null
               ) : (
                 <View style={styles.emptyState}>
                   <View style={styles.emptyIconContainer}>
@@ -465,8 +458,6 @@ export default function BookingsScreen() {
     <BookingDetailsSheet ref={detailsSheetRef} />
 
     <QuoteListSheet ref={quoteListSheetRef} />
-
-    <LeaveReviewSheet ref={reviewSheetRef} />
 
     {/* Vehicle picker sheet — drives the filter button above.
         showBackdrop dims + blurs the page behind it. */}
@@ -684,12 +675,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 16,
   },
-  recHistoryCard: {
+  recRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
     marginHorizontal: 20,
     marginTop: 12,
+  },
+  recHistoryCard: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
     paddingVertical: 10,
     paddingHorizontal: 14,
     backgroundColor: "#FFFFFF",
@@ -714,6 +711,35 @@ const styles = StyleSheet.create({
   recHistoryBadgeText: {
     fontSize: 12,
     color: "#FFFFFF",
+  },
+  pendingReviewsButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 0.5,
+    borderColor: "rgba(0,0,0,0.06)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  pendingReviewsBadge: {
+    position: "absolute",
+    top: -2,
+    right: -2,
+    minWidth: 18,
+    height: 18,
+    paddingHorizontal: 5,
+    borderRadius: 9,
+    backgroundColor: "#5299FE",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1.5,
+    borderColor: "#FFFFFF",
+  },
+  pendingReviewsBadgeText: {
+    fontSize: 11,
+    color: "#FFFFFF",
+    lineHeight: 13,
   },
   emptyState: {
     alignItems: "center",

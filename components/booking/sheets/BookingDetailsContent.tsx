@@ -74,6 +74,8 @@ export function BookingDetailsContent({ onAddMore, isFullScreen = false }: Booki
   const setScheduledAppointment = useBookingStore((state) => state.setScheduledAppointment);
   const skipServiceRemovalConfirm = useBookingStore((state) => state.skipServiceRemovalConfirm);
   const setSkipServiceRemovalConfirm = useBookingStore((state) => state.setSkipServiceRemovalConfirm);
+  const selectedDiagnosticSystem = useBookingStore((state) => state.selectedDiagnosticSystem);
+  const customerNotes = useBookingStore((state) => state.customerNotes);
 
   // ═══════════════ SCHEDULE STORE ═══════════════
   const confirmedSelections = useScheduleStore((state) => state.confirmedSelections);
@@ -282,14 +284,25 @@ export function BookingDetailsContent({ onAddMore, isFullScreen = false }: Booki
         </View>
 
         <View style={styles.servicesContainer}>
-          {selectedServices.map((service) => (
-            <ServiceRow
-              key={service.id}
-              service={service}
-              onRemove={() => handleRemoveService(service.id)}
-              priceOverride={getServicePrice(service)}
-            />
-          ))}
+          {selectedServices.map((service) => {
+            const isDiagnostic = service.name === "Diagnostic Scan";
+            return (
+              <ServiceRow
+                key={service.id}
+                service={service}
+                onRemove={() => handleRemoveService(service.id)}
+                priceOverride={getServicePrice(service)}
+                extra={
+                  isDiagnostic && selectedDiagnosticSystem ? (
+                    <DiagnosticSummary
+                      system={selectedDiagnosticSystem}
+                      notes={customerNotes}
+                    />
+                  ) : null
+                }
+              />
+            );
+          })}
 
           {/* Total and Add More Row */}
           <View style={styles.servicesFooter}>
@@ -335,6 +348,50 @@ export function BookingDetailsContent({ onAddMore, isFullScreen = false }: Booki
 
       {/* All Availability Sheet */}
       <AllAvailabilitySheet ref={allAvailabilityRef} onConfirm={handleAvailabilityConfirm} />
+    </View>
+  );
+}
+
+// ============================================================================
+// DIAGNOSTIC SUMMARY (inline within ServiceRow.extra)
+// ============================================================================
+
+const DIAGNOSTIC_SYSTEM_LABELS: Record<string, string> = {
+  brakes: "Brakes",
+  tires_wheels: "Tires & Wheels",
+  engine: "Engine",
+  battery_electrical: "Battery & Electrical",
+  not_sure: "Not sure — mechanic to inspect",
+};
+
+interface DiagnosticSummaryProps {
+  system: string;
+  notes: string;
+}
+
+function DiagnosticSummary({ system, notes }: DiagnosticSummaryProps) {
+  const trimmedNotes = notes.trim();
+  const areaLabel = DIAGNOSTIC_SYSTEM_LABELS[system] ?? system;
+  return (
+    <View style={styles.diagnosticBlock}>
+      <View style={styles.diagnosticLine}>
+        <Text size="xs" weight="bold" color={BrandColors.secondary} style={styles.diagnosticLabel}>
+          Selected area:
+        </Text>
+        <Text size="sm" weight="semiBold" color={BrandColors.primary} style={styles.diagnosticValue}>
+          {areaLabel}
+        </Text>
+      </View>
+      {trimmedNotes.length > 0 && (
+        <View style={styles.diagnosticLine}>
+          <Text size="xs" weight="bold" color={BrandColors.secondary} style={styles.diagnosticLabel}>
+            Notes:
+          </Text>
+          <Text size="sm" weight="regular" color={BrandColors.primary} style={styles.diagnosticValue}>
+            {trimmedNotes}
+          </Text>
+        </View>
+      )}
     </View>
   );
 }
@@ -390,6 +447,29 @@ const styles = StyleSheet.create({
     gap: 4,
     borderWidth: 1,
     borderColor: "#F3F4F6",
+  },
+
+  // Diagnostic inline summary (shown inside the Diagnostic Scan service row)
+  diagnosticBlock: {
+    backgroundColor: "#F0F7FF",
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    borderColor: "#BFDBFE",
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    gap: 4,
+  },
+  diagnosticLine: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: Spacing.xs,
+  },
+  diagnosticLabel: {
+    letterSpacing: 0.3,
+    marginTop: 2,
+  },
+  diagnosticValue: {
+    flex: 1,
   },
 
   // Customer Reviews Section

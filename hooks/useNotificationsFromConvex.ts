@@ -18,6 +18,7 @@ export interface NotificationRow {
   shop_id: Id<"shops"> | null;
   created_at: number;
   status: string;
+  rescheduleExpiresAt?: number | null;
 }
 
 export function useNotificationsFromConvex() {

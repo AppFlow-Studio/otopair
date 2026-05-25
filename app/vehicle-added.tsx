@@ -18,7 +18,7 @@ import { StatusBar } from 'expo-status-bar';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ArrowLeft } from 'lucide-react-native';
-import * as Haptics from 'expo-haptics';
+import { haptics } from '@/lib/haptics';
 import Svg, { Path } from 'react-native-svg';
 
 // 3. Shared UI
@@ -93,7 +93,7 @@ export default function VehicleAddedScreen() {
   // Run animations on mount
   useEffect(() => {
     // Trigger success haptic
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    haptics.success();
 
     // Checkmark circle bounce in
     Animated.spring(checkmarkScale, {

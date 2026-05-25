@@ -31,7 +31,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import Animated, { useAnimatedStyle, useSharedValue, withTiming, withSpring, Easing, interpolate, runOnJS } from "react-native-reanimated";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
-import * as Haptics from "expo-haptics";
+import { haptics } from "@/lib/haptics";
+import { useToast } from "@/hooks/useToast";
 import { useRouter } from "expo-router";
 import { AlignLeft, SquarePen, Ellipsis, Sparkles, History, CarFront, Zap, ChevronDown } from "lucide-react-native";
 import { MenuView } from "@react-native-menu/menu";
@@ -69,7 +70,6 @@ import {
   BookingsList,
   AIFeedbackModal,
   type FeedbackRating,
-  AIToast,
   AIAttachmentPanel,
   AISelectedImages,
   type AIMessage,
@@ -268,11 +268,7 @@ export default function AIChatScreen() {
   const [inputValue, setInputValue] = useState("");
   const [showHistory, setShowHistory] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
-  
-  // Toast state
-  const [toastMessage, setToastMessage] = useState("");
-  const [toastVisible, setToastVisible] = useState(false);
-  
+
   // Car selection state — input bar hidden until car confirmed
   const [isCarConfirmed, setIsCarConfirmed] = useState(false);
   const [selectedVehicle, setSelectedVehicle] = useState<VehicleCard | null>(null);
@@ -281,11 +277,15 @@ export default function AIChatScreen() {
   const [isAttachmentOpen, setIsAttachmentOpen] = useState(false);
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
   const [selectedImages, setSelectedImages] = useState<string[]>([]);
-  
-  const showToast = useCallback((message: string) => {
-    setToastMessage(message);
-    setToastVisible(true);
-  }, []);
+
+  // Unified toast surface (migrated from AIToast — see docs/notifications).
+  const toast = useToast();
+  const showToast = useCallback(
+    (message: string) => {
+      toast.info(message);
+    },
+    [toast],
+  );
 
   // Voice recording hook
   const {
@@ -881,12 +881,12 @@ export default function AIChatScreen() {
   const handleDrawerOpen = useCallback(() => {
     setShowHistory(true);
     Keyboard.dismiss();
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    haptics.selection();
   }, []);
 
   const handleDrawerClose = useCallback(() => {
     setShowHistory(false);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    haptics.selection();
   }, []);
 
   const toggleDrawer = useCallback(() => {
@@ -1092,7 +1092,7 @@ export default function AIChatScreen() {
           ) : isMenuViewAvailable ? (
             <MenuView
               onPressAction={({ nativeEvent }) => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                haptics.selection();
                 if (nativeEvent.event === 'pro') setSelectedModel('pro');
                 else if (nativeEvent.event === 'flash') setSelectedModel('flash');
               }}
@@ -1125,7 +1125,7 @@ export default function AIChatScreen() {
           ) : (
             <Pressable
               onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                haptics.selection();
                 setSelectedModel((prev) => (prev === 'pro' ? 'flash' : 'pro'));
               }}
               style={({ pressed }) => [styles.modelSelectorButton, pressed && styles.headerIconPressed]}
@@ -1419,12 +1419,7 @@ export default function AIChatScreen() {
         </View>
       )}
 
-      {/* Toast Notification */}
-      <AIToast
-        message={toastMessage}
-        visible={toastVisible}
-        onDismiss={() => setToastVisible(false)}
-      />
+      {/* Toast notifications now surface through the global <ToastProvider> in app/_layout.tsx. */}
 
       {/* Sprint 4 — per-message feedback modal. Thumbs-up / thumbs-down on
           the message bubble opens this; submit writes to api.ai_feedback. */}

@@ -16,7 +16,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useMutation, useQuery } from "convex/react";
 import { ArrowLeft, Check } from "lucide-react-native";
 import { LinearGradient } from "expo-linear-gradient";
-import * as Haptics from "expo-haptics";
+import { haptics } from "@/lib/haptics";
 
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -142,7 +142,7 @@ export default function QuarterlyCheckinScreen(props: QuarterlyCheckinProps = {}
 
   const setAnswer = useCallback((questionId: string, value: string | string[]) => {
     setAnswers((prev) => ({ ...prev, [questionId]: value }));
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    haptics.selection();
   }, []);
 
   const handleMultiSelect = useCallback((questionId: string, value: string) => {
@@ -155,7 +155,7 @@ export default function QuarterlyCheckinScreen(props: QuarterlyCheckinProps = {}
       }
       return { ...prev, [questionId]: [...filtered, value] };
     });
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    haptics.selection();
   }, []);
 
   const isOptional = currentQuestion?.visibility === "optional";
@@ -223,7 +223,7 @@ export default function QuarterlyCheckinScreen(props: QuarterlyCheckinProps = {}
         allAnswers.Q7 === "bought_out" || allAnswers.Q10 === "changed";
       setModeTransitioned(didTransition);
       setCompleted(true);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      haptics.success();
       // When the user was forced here by the booking gate, skip the
       // celebration screen and pop straight back so the ServiceBottomSheet
       // can auto-advance to the next stage as soon as Convex reactivity

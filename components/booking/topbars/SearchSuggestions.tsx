@@ -26,7 +26,8 @@ import { BorderRadius, Shadows } from "@/constants/theme";
 import type { ServiceCategory, Shop } from "@/stores/types/store.types";
 import { useRecentlyBookedMechanicIdsFromConvex } from "@/hooks/useRecentlyBookedMechanicIdsFromConvex";
 import { useRecentlyBookedShopIdsFromConvex } from "@/hooks/useRecentlyBookedShopIdsFromConvex";
-import { useSmartPricing } from "@/hooks/useSmartPricing";
+import { useServiceVehicleSpecsForEngine } from "@/hooks/useServiceVehicleSpecsForEngine";
+import { formatDurationForCar } from "@/lib/formatDuration";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
 import { useSearchStore, type SearchSuggestion } from "@/stores/useSearchStore";
@@ -66,9 +67,9 @@ export function SearchSuggestions({
 }: SearchSuggestionsProps) {
   // ═══════════════ STORES ═══════════════
   const availableServices = useBookingStore((state) => state.availableServices);
-  const selectedVehicle = useVehicleStore((state) => state.getSelectedVehicle());
+  const engineId = useVehicleStore((state) => state.getSelectedVehicle()?.engineId);
   const allServiceIds = useMemo(() => availableServices.map((s) => s.id), [availableServices]);
-  const smartPricing = useSmartPricing(selectedVehicle?.engineId, allServiceIds);
+  const engineSpecs = useServiceVehicleSpecsForEngine(engineId, allServiceIds);
   const getSearchSuggestions = useSearchStore((state) => state.getSearchSuggestions);
   const getRecentShopIds = useSearchStore((state) => state.getRecentShopIds);
   const removeRecentShop = useSearchStore((state) => state.removeRecentShop);
@@ -232,40 +233,33 @@ export function SearchSuggestions({
                 <Wrench size={20} color={BrandColors.secondary} />
               </View>
               <View style={styles.serviceCardContent}>
-                <Text size="md" weight="bold" color={BrandColors.primary}>
-                  {serviceSuggestion.service.name}
-                </Text>
+                <View style={styles.serviceTitleRow}>
+                  <Text
+                    size="md"
+                    weight="bold"
+                    color={BrandColors.primary}
+                    style={styles.serviceName}
+                    numberOfLines={1}
+                  >
+                    {serviceSuggestion.service.name}
+                  </Text>
+                  {(() => {
+                    const hours =
+                      engineSpecs[serviceSuggestion.service.id]?.labor_hours ??
+                      serviceSuggestion.service.default_labor_hours;
+                    const durationLabel = formatDurationForCar(hours);
+                    if (!durationLabel) return null;
+                    return (
+                      <Text size="xs" weight="medium" color="#6B7280">
+                        Est. Duration {durationLabel}
+                      </Text>
+                    );
+                  })()}
+                </View>
                 <Text size="xs" color="#6B7280" numberOfLines={1}>
                   {serviceSuggestion.service.description}
                 </Text>
               </View>
-              {(() => {
-                const sp = smartPricing[serviceSuggestion.service.id];
-                if (sp?.hasEngineData && sp.result.tier !== "contact") {
-                  return (
-                    <View style={{ alignItems: "flex-end" }}>
-                      <Text size="lg" weight="bold" color={BrandColors.secondary}>
-                        {sp.formatted}
-                      </Text>
-                      <Text size="xs" weight="medium" color="#9CA3AF">
-                        {sp.result.label}
-                      </Text>
-                    </View>
-                  );
-                }
-                if (sp?.hasEngineData && sp.result.tier === "contact") {
-                  return (
-                    <Text size="xs" weight="medium" color="#9CA3AF">
-                      Contact for Quote
-                    </Text>
-                  );
-                }
-                return (
-                  <Text size="lg" weight="bold" color={BrandColors.secondary}>
-                    ${serviceSuggestion.service.price}
-                  </Text>
-                );
-              })()}
             </TouchableOpacity>
           )}
 
@@ -299,14 +293,14 @@ export function SearchSuggestions({
                           >
                             {shop.name}
                           </Text>
-                          {shop.rating && (
+                          {shop.rating ? (
                             <View style={styles.ratingBadge}>
                               <Star size={12} color="#F5C254" fill="#F5C254" />
                               <Text size="xs" weight="semiBold" color={BrandColors.primary}>
                                 {shop.rating.toFixed(1)}
                               </Text>
                             </View>
-                          )}
+                          ) : null}
                         </View>
                         <Text size="xs" color="#6B7280" numberOfLines={1}>
                           {shop.address}
@@ -344,14 +338,14 @@ export function SearchSuggestions({
                           >
                             {mechanic.name}
                           </Text>
-                          {mechanic.rating && (
+                          {mechanic.rating ? (
                             <View style={styles.ratingBadge}>
                               <Star size={12} color="#F5C254" fill="#F5C254" />
                               <Text size="xs" weight="semiBold" color={BrandColors.primary}>
                                 {mechanic.rating.toFixed(1)}
                               </Text>
                             </View>
-                          )}
+                          ) : null}
                         </View>
                         <Text size="xs" color="#6B7280" numberOfLines={1}>
                           {mechanic.title ?? mechanic.shopName} • {mechanic.yearsExperience} yrs
@@ -491,6 +485,15 @@ const styles = StyleSheet.create({
     ...Shadows.sm,
   },
   serviceCardContent: {
+    flex: 1,
+  },
+  serviceTitleRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    justifyContent: "space-between",
+    gap: Spacing.sm,
+  },
+  serviceName: {
     flex: 1,
   },
   // Matches section

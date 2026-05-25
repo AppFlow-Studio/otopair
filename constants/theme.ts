@@ -40,6 +40,41 @@ export const BrandColors = {
   background: "#f5f5f7",
 } as const;
 
+// Semantic Colors — locked by docs/notifications/PLAN.md §B.2.
+// Used by the in-app toast system and any future surface that needs
+// success/warning/error/info hierarchy. Keep in lockstep with the spec.
+export const SemanticColors = {
+  primaryBlue: "#2563EB",
+  primaryBlueDark: "#1D4ED8",
+  primaryBlueLight: "#EFF6FF",
+  primaryBlueLightAlt: "#DBEAFE",
+  successGreen: "#059669",
+  successGreenLight: "#ECFDF5",
+  warningAmber: "#D97706",
+  warningAmberLight: "#FFFBEB",
+  errorRed: "#DC2626",
+  errorRedLight: "#FEF2F2",
+  textPrimary: "#1A1A1A",
+  textSecondary: "#374151",
+  textMuted: "#6B7280",
+  textDisabled: "#9CA3AF",
+  border: "#E2E8F0",
+  surface: "#F8FAFC",
+  // Dark-mode sheet — keep here so toast tokens can reference symbolically
+  successGreenDarkBg: "#022C22",
+  primaryBlueDarkBg: "#0B1B33",
+  primaryBlueDarkBgAlt: "#0F2A52",
+  warningAmberDarkBg: "#2C1F08",
+  errorRedDarkBg: "#2C0B0B",
+  textPrimaryDark: "#F8FAFC",
+  textSecondaryDark: "#CBD5E1",
+  // Tinted icons for dark variants
+  successGreenLightOnDark: "#10B981",
+  primaryBlueLightOnDark: "#60A5FA",
+  warningAmberLightOnDark: "#FBBF24",
+  errorRedLightOnDark: "#F87171",
+} as const;
+
 // ============================================================================
 // TYPOGRAPHY
 // ============================================================================

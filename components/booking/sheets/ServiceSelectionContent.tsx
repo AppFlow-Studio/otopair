@@ -25,8 +25,11 @@ import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 
 // 4. Constants, hooks, types, stores
 import { BorderRadius } from "@/constants/theme";
+import { useServiceVehicleSpecsForEngine } from "@/hooks/useServiceVehicleSpecsForEngine";
+import { formatDurationForCar } from "@/lib/formatDuration";
 import type { Service, ServiceCategory } from "@/stores/types/store.types";
 import { useBookingStore } from "@/stores/useBookingStore";
+import { useVehicleStore } from "@/stores/useVehicleStore";
 
 /** Service NAME (not id) that hands off to the dedicated Shop Tires
  *  flow instead of being toggled like a regular line-item. We match by
@@ -34,6 +37,15 @@ import { useBookingStore } from "@/stores/useBookingStore";
  *  Convex-hydrated catalog uses opaque doc ids — name is the stable
  *  identifier across both. */
 const SHOP_TIRES_SERVICE_NAME = "Tire Replacement";
+const DIAGNOSTIC_SCAN_SERVICE_NAME = "Diagnostic Scan";
+
+const DIAGNOSTIC_SYSTEM_LABELS: Record<string, string> = {
+  brakes: "Brakes",
+  tires_wheels: "Tires & Wheels",
+  engine: "Engine",
+  battery_electrical: "Battery & Electrical",
+  not_sure: "Not sure — mechanic to inspect",
+};
 
 // ============================================================================
 // TYPES
@@ -53,13 +65,17 @@ interface ServiceSelectionContentProps {
    *  picker (SingleServiceOptionsSheet), which on confirm will toggle the
    *  service on with the selected option recorded. */
   onServiceWithOptionsRequested?: (serviceId: string) => void;
+  /** Called when the user taps Diagnostic Scan and it isn't already in the
+   *  cart. The parent opens DiagnosticOptionsSheet so the user picks an
+   *  area + (optional) notes before the service lands in the cart. */
+  onDiagnosticServiceRequested?: () => void;
 }
 
 // ============================================================================
 // COMPONENT
 // ============================================================================
 
-export function ServiceSelectionContent({ onCategorySelect, onShopTiresRequested, onServiceWithOptionsRequested }: ServiceSelectionContentProps) {
+export function ServiceSelectionContent({ onCategorySelect, onShopTiresRequested, onServiceWithOptionsRequested, onDiagnosticServiceRequested }: ServiceSelectionContentProps) {
   // ═══════════════ HOOKS ═══════════════
   const router = useRouter();
 
@@ -69,6 +85,14 @@ export function ServiceSelectionContent({ onCategorySelect, onShopTiresRequested
   const availableServices = useBookingStore((state) => state.availableServices);
   const getServiceCategories = useBookingStore((state) => state.getServiceCategories);
   const initialServiceCategory = useBookingStore((state) => state.initialServiceCategory);
+  const selectedServiceOptions = useBookingStore((state) => state.selectedServiceOptions);
+  const selectedDiagnosticSystem = useBookingStore((state) => state.selectedDiagnosticSystem);
+  const customerNotes = useBookingStore((state) => state.customerNotes);
+  const engineId = useVehicleStore((state) => state.getSelectedVehicle()?.engineId);
+
+  // ═══════════════ STATE-EFFECT: Per-car duration specs ═══════════════
+  const allServiceIds = useMemo(() => availableServices.map((s) => s.id), [availableServices]);
+  const engineSpecs = useServiceVehicleSpecsForEngine(engineId, allServiceIds);
 
   // ═══════════════ STATE-EFFECT: Local State ═══════════════
   // Read the category signal from the store on first render so entries
@@ -146,9 +170,20 @@ export function ServiceSelectionContent({ onCategorySelect, onShopTiresRequested
           return;
         }
       }
+      // Diagnostic Scan follows the same tap-to-resolve pattern: open the
+      // area-picker sheet so the customer flags the system + (optional)
+      // notes before the service is added. Re-tap removes it. Matched by
+      // name because the catalog id is the Convex _id (varies per env),
+      // not the constants/services.ts slug.
+      if (service?.name === DIAGNOSTIC_SCAN_SERVICE_NAME && !isAlreadySelected) {
+        if (onDiagnosticServiceRequested) {
+          onDiagnosticServiceRequested();
+          return;
+        }
+      }
       toggleServiceSelection(serviceId);
     },
-    [toggleServiceSelection, router, availableServices, onShopTiresRequested, onServiceWithOptionsRequested, selectedServiceIds],
+    [toggleServiceSelection, router, availableServices, onShopTiresRequested, onServiceWithOptionsRequested, onDiagnosticServiceRequested, selectedServiceIds],
   );
 
   const handleCategorySelect = useCallback(
@@ -189,6 +224,16 @@ export function ServiceSelectionContent({ onCategorySelect, onShopTiresRequested
   const renderServiceItem = useCallback(
     (service: Service) => {
       const isSelected = selectedServiceIds.includes(service.id);
+      const hours = engineSpecs[service.id]?.labor_hours ?? service.default_labor_hours;
+      const durationLabel = formatDurationForCar(hours);
+      const optionLabel = isSelected ? selectedServiceOptions[service.id]?.option_label : undefined;
+      const isDiagnostic = service.name === DIAGNOSTIC_SCAN_SERVICE_NAME;
+      const diagnosticAreaLabel =
+        isDiagnostic && isSelected && selectedDiagnosticSystem
+          ? DIAGNOSTIC_SYSTEM_LABELS[selectedDiagnosticSystem] ?? selectedDiagnosticSystem
+          : null;
+      const diagnosticNotes =
+        isDiagnostic && isSelected ? customerNotes.trim() : "";
 
       return (
         <TouchableOpacity
@@ -198,17 +243,63 @@ export function ServiceSelectionContent({ onCategorySelect, onShopTiresRequested
           activeOpacity={0.7}
         >
           <View style={styles.serviceInfo}>
-            <Text size="md" weight="semiBold" color={BrandColors.primary}>
-              {service.name}
-            </Text>
+            <View style={styles.serviceTitleRow}>
+              <Text
+                size="md"
+                weight="semiBold"
+                color={BrandColors.primary}
+                style={styles.serviceName}
+                numberOfLines={1}
+              >
+                {service.name}
+              </Text>
+              {durationLabel && (
+                <Text size="xs" weight="medium" color="#6B7280">
+                  Est. Duration {durationLabel}
+                </Text>
+              )}
+            </View>
             <Text size="sm" weight="regular" color="#6B7280">
               {service.description}
             </Text>
+            {optionLabel && (
+              <Text size="xs" weight="semiBold" color={BrandColors.secondary} style={styles.optionSelected}>
+                Option Selected: {optionLabel}
+              </Text>
+            )}
+            {diagnosticAreaLabel && (
+              <View style={styles.diagnosticInline}>
+                <View style={styles.diagnosticInlineRow}>
+                  <Text size="xs" weight="bold" color={BrandColors.secondary} style={styles.diagnosticInlineLabel}>
+                    Selected area:
+                  </Text>
+                  <Text size="xs" weight="semiBold" color={BrandColors.primary} style={styles.diagnosticInlineValue}>
+                    {diagnosticAreaLabel}
+                  </Text>
+                </View>
+                {diagnosticNotes.length > 0 && (
+                  <View style={styles.diagnosticInlineRow}>
+                    <Text size="xs" weight="bold" color={BrandColors.secondary} style={styles.diagnosticInlineLabel}>
+                      Notes:
+                    </Text>
+                    <Text
+                      size="xs"
+                      weight="regular"
+                      color={BrandColors.primary}
+                      style={styles.diagnosticInlineValue}
+                      numberOfLines={3}
+                    >
+                      {diagnosticNotes}
+                    </Text>
+                  </View>
+                )}
+              </View>
+            )}
           </View>
         </TouchableOpacity>
       );
     },
-    [selectedServiceIds, handleServicePress],
+    [selectedServiceIds, selectedServiceOptions, selectedDiagnosticSystem, customerNotes, handleServicePress, engineSpecs],
   );
 
   // ═══════════════ RENDER ═══════════════
@@ -299,7 +390,40 @@ const styles = StyleSheet.create({
   serviceInfo: {
     flex: 1,
   },
+  serviceTitleRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    justifyContent: "space-between",
+    gap: Spacing.sm,
+  },
+  serviceName: {
+    flex: 1,
+  },
   emptyState: {
     paddingVertical: Spacing["3xl"],
+  },
+  optionSelected: {
+    marginTop: Spacing.xs,
+  },
+  diagnosticInline: {
+    marginTop: Spacing.sm,
+    padding: Spacing.sm,
+    backgroundColor: "#F0F7FF",
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#BFDBFE",
+    gap: 4,
+  },
+  diagnosticInlineRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: Spacing.xs,
+  },
+  diagnosticInlineLabel: {
+    letterSpacing: 0.3,
+    marginTop: 1,
+  },
+  diagnosticInlineValue: {
+    flex: 1,
   },
 });

@@ -46,6 +46,9 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
 import { Bell } from 'lucide-react-native';
+import { useMutation } from 'convex/react';
+import { api } from '@/convex/_generated/api';
+import Constants from 'expo-constants';
 
 interface PushNotificationsStepProps {
     onNext: () => void;
@@ -57,7 +60,8 @@ export function PushNotificationsStep({ onNext, onBack, progress }: PushNotifica
     const insets = useSafeAreaInsets();
     const { height } = useWindowDimensions();
     const { updateData } = useOnboardingStore();
-    
+    const registerPushToken = useMutation(api.users.registerExpoPushToken);
+
     const [requesting, setRequesting] = useState(false);
     const [status, setStatus] = useState<string | null>(null);
     const notificationsModule = useRef<any>(null);
@@ -140,6 +144,30 @@ export function PushNotificationsStep({ onNext, onBack, progress }: PushNotifica
                 setStatus(normalized);
                 recordedStatus = normalized;
                 granted = normalized === 'granted' || normalized === 'provisional';
+
+                // On grant, fetch the Expo push token and register it on the
+                // Convex users row. Failure here is non-blocking — onboarding
+                // continues, the token can be picked up later on app open.
+                if (granted) {
+                    try {
+                        const projectId =
+                            (Constants?.expoConfig?.extra as any)?.eas?.projectId ??
+                            (Constants as any)?.easConfig?.projectId ??
+                            undefined;
+                        const tokenRes =
+                            await notificationsModule.current.getExpoPushTokenAsync(
+                                projectId ? { projectId } : undefined,
+                            );
+                        const token: string | undefined = tokenRes?.data;
+                        if (token) {
+                            await registerPushToken({ token });
+                        }
+                    } catch (err) {
+                        // Token fetch / registration failure is non-fatal —
+                        // the approval flow falls back to in-app banners
+                        // even without push.
+                    }
+                }
             }
         } finally {
             setRequesting(false);

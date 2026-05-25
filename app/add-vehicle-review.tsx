@@ -28,7 +28,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 // 2. Expo & Third-party
 import { StatusBar } from 'expo-status-bar';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { ArrowLeft, Bell, Car, History, MapPin, Plus, Wrench } from 'lucide-react-native';
+import { ArrowLeft, Bell, Car, CircleDot, Cog, Fuel, Gauge, History, MapPin, Plus, Wrench } from 'lucide-react-native';
 import { useAction, useMutation, useQuery } from 'convex/react';
 
 // 3. App imports
@@ -131,6 +131,20 @@ export default function AddVehicleReviewScreen() {
     vdbDecodedModel?: string;
     vdbDecodedStyle?: string;
     vdbDecodedTrimAndStyle?: string;
+    // Specs-card fields. All serialized as strings; empty = unknown.
+    horsepower?: string;
+    engineDisplacementLiters?: string;
+    cylindersConfiguration?: string;
+    mpgCity?: string;
+    mpgHighway?: string;
+    mpgCombined?: string;
+    frontTireSize?: string;
+    rearTireSize?: string;
+    frontTirePressure?: string;
+    rearTirePressure?: string;
+    transType?: string;
+    transSpeeds?: string;
+    drivetrain?: string;
   }>();
 
   const [isConfirming, setIsConfirming] = useState(false);
@@ -286,6 +300,74 @@ export default function AddVehicleReviewScreen() {
     { icon: MapPin, label: 'Book trusted local mechanics' },
   ] as const;
 
+  // Specs card data. Build display strings from router params; empty
+  // string from the parent means "unknown" → render as em-dash.
+  const DASH = '—';
+  const parseOptionalNum = (s: string | undefined): number | null => {
+    if (!s) return null;
+    const n = parseFloat(s);
+    return isNaN(n) ? null : n;
+  };
+
+  const hp = parseOptionalNum(params.horsepower);
+  const litersFromSpecs = parseOptionalNum(params.engineDisplacementLiters);
+  // Fall back to the existing `displacement` param (1.x form, also
+  // liters) when the new specs-specific field is blank — keeps older
+  // decode paths working.
+  const liters = litersFromSpecs ?? parseOptionalNum(params.displacement);
+  const cylConfig = params.cylindersConfiguration || '';
+  const transType = params.transType || '';
+  const transSpeeds = parseOptionalNum(params.transSpeeds);
+  const drivetrain = (params.drivetrain && params.drivetrain !== 'unknown')
+    ? params.drivetrain
+    : '';
+  const mpgCity = parseOptionalNum(params.mpgCity);
+  const mpgHighway = parseOptionalNum(params.mpgHighway);
+  const mpgCombined = parseOptionalNum(params.mpgCombined);
+  const frontTireSize = params.frontTireSize || '';
+  const rearTireSize = params.rearTireSize || '';
+  const frontPsi = parseOptionalNum(params.frontTirePressure);
+  const rearPsi = parseOptionalNum(params.rearTirePressure);
+
+  // Engine tile: "2.0L I-4" primary, "272 hp" secondary.
+  const engineLine1 =
+    liters || cylConfig
+      ? `${liters ? `${liters}L` : ''}${liters && cylConfig ? ' ' : ''}${cylConfig}`.trim()
+      : DASH;
+  const engineLine2 = hp ? `${hp} hp` : DASH;
+
+  // Transmission tile: "Automatic 8sp" primary, "AWD" secondary.
+  const transLine1 =
+    transType || transSpeeds
+      ? `${transType}${transType && transSpeeds ? ' ' : ''}${transSpeeds ? `${transSpeeds}sp` : ''}`.trim()
+      : DASH;
+  const transLine2 = drivetrain || DASH;
+
+  // MPG tile: "City 22 / Hwy 31" primary, "Combined 25" secondary.
+  const mpgLine1 =
+    mpgCity || mpgHighway
+      ? `${mpgCity ?? DASH} / ${mpgHighway ?? DASH}`
+      : DASH;
+  const mpgLine2 = mpgCombined ? `Combined ${mpgCombined}` : DASH;
+
+  // Tires tile: front tire size primary, "F33 R33 psi" secondary.
+  // If front/rear match, show one. Otherwise show separately.
+  const tireSizeLine =
+    frontTireSize && rearTireSize && frontTireSize !== rearTireSize
+      ? `${frontTireSize} / ${rearTireSize}`
+      : (frontTireSize || rearTireSize || DASH);
+  const tirePsiLine =
+    frontPsi || rearPsi
+      ? `F ${frontPsi ?? DASH} · R ${rearPsi ?? DASH} psi`
+      : DASH;
+
+  const specsTiles = [
+    { icon: Gauge, label: 'Engine', line1: engineLine1, line2: engineLine2 },
+    { icon: Cog, label: 'Transmission', line1: transLine1, line2: transLine2 },
+    { icon: Fuel, label: 'MPG', line1: mpgLine1, line2: mpgLine2 },
+    { icon: CircleDot, label: 'Tires', line1: tireSizeLine, line2: tirePsiLine },
+  ];
+
   return (
     <View style={styles.container}>
       <StatusBar style="dark" translucent />
@@ -388,6 +470,43 @@ export default function AddVehicleReviewScreen() {
               ))}
             </ScrollView>
           )}
+        </View>
+
+        {/* Specs card — 2×2 grid of stat tiles, sourced from VDB's
+            advanced-vin-decode response. Missing fields render as
+            em-dash so the layout stays stable for sparse decodes. */}
+        <View style={styles.specsCard}>
+          <Text weight="semiBold" size="md" color="#1F2937" style={styles.specsHeader}>
+            Specs
+          </Text>
+          <View style={styles.specsGrid}>
+            {specsTiles.map(({ icon: Icon, label, line1, line2 }) => (
+              <View key={label} style={styles.specsTile}>
+                <View style={styles.specsTileHeader}>
+                  <Icon size={scale(16)} color="#5299FE" strokeWidth={2} />
+                  <Text size="xs" color="#6B7280" weight="medium">
+                    {label}
+                  </Text>
+                </View>
+                <Text
+                  size="md"
+                  weight="semiBold"
+                  color="#111827"
+                  numberOfLines={1}
+                  style={styles.specsTileLine1}
+                >
+                  {line1}
+                </Text>
+                <Text
+                  size="xs"
+                  color="#6B7280"
+                  numberOfLines={1}
+                >
+                  {line2}
+                </Text>
+              </View>
+            ))}
+          </View>
         </View>
 
         {/* Feature preview */}
@@ -591,6 +710,51 @@ const styles = StyleSheet.create({
     marginTop: scale(6),
     fontSize: scale(11),
     lineHeight: scale(14),
+  },
+  // Specs card — same white-card + shadow treatment as `colorCard`
+  // and `vehicleCard` so the three read as a vertical stack.
+  specsCard: {
+    marginTop: scale(20),
+    marginHorizontal: Spacing.lg,
+    backgroundColor: '#FFFFFF',
+    borderRadius: moderateScale(18),
+    paddingVertical: scale(16),
+    paddingHorizontal: scale(16),
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    elevation: 3,
+  },
+  specsHeader: {
+    marginBottom: scale(14),
+  },
+  // 2×2 grid via flex-wrap. Each tile claims ~48% width so they sit
+  // side-by-side with a small gap. On phones < 380pt wide the wrap
+  // naturally falls back to single-column when content needs more
+  // room — no separate breakpoint logic required.
+  specsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: scale(10),
+  },
+  specsTile: {
+    flexGrow: 1,
+    flexBasis: '47%',
+    backgroundColor: '#F9FAFB',
+    borderRadius: moderateScale(12),
+    paddingVertical: scale(10),
+    paddingHorizontal: scale(12),
+    gap: scale(2),
+  },
+  specsTileHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scale(6),
+    marginBottom: scale(4),
+  },
+  specsTileLine1: {
+    marginTop: scale(2),
   },
   connectSection: {
     marginTop: scale(28),

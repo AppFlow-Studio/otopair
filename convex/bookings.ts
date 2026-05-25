@@ -38,6 +38,9 @@ import { internal, api } from "./_generated/api";
 import { isTerminal, validateTransition } from "./booking_status_history";
 import { mintClaimToken } from "./walkin_claims";
 import { BOOKING_STATUS_VISUALS, type BookingStatus } from "../lib/booking-status";
+import { computeBookingTax } from "../lib/tax";
+import { computePlatformFeeDollars } from "../lib/platformFee";
+import { computeDisclosedRange } from "./booking_quotes";
 import {
   EARLY_PUSH_THRESHOLD_MS,
   addMinutesToHHMM,
@@ -458,6 +461,12 @@ export const getByUserIdWithDetails = query({
           shopLat: shop?.lat,
           shopLng: shop?.lng,
           tire_specs: booking.tire_specs,
+          // Pre-Job Approval flow — disclosed range + approval state +
+          // final captured amount. Optional: omitted on legacy rows.
+          disclosed_range_low_cents: booking.disclosed_range_low_cents,
+          disclosed_range_high_cents: booking.disclosed_range_high_cents,
+          payment_approval_state: booking.payment_approval_state,
+          final_capture_amount_cents: booking.final_capture_amount_cents,
         };
       })
     );
@@ -876,6 +885,15 @@ export const createBatch = mutation({
     funnel_id: v.optional(v.id("conversion_funnels")),
     source_recommendation_id: v.optional(v.id("job_recommendations")),
     customer_notes: v.optional(v.string()),
+    diagnostic_system: v.optional(
+      v.union(
+        v.literal("brakes"),
+        v.literal("tires_wheels"),
+        v.literal("engine"),
+        v.literal("battery_electrical"),
+        v.literal("not_sure"),
+      ),
+    ),
     selected_service_options: v.optional(
       v.array(
         v.object({
@@ -932,13 +950,9 @@ export const createBatch = mutation({
     // and persisted value, so they always agree when the client is
     // honest.
     const shop = await ctx.db.get(args.shop_id);
-    const PLATFORM_FEE_RATE = 0.07;
-    const PLATFORM_FEE_FLOOR = 4.99;
+
     const servicesSubtotal = labor_cost + parts_cost;
-    const platform_fee =
-      servicesSubtotal > 0
-        ? Math.max(servicesSubtotal * PLATFORM_FEE_RATE, PLATFORM_FEE_FLOOR)
-        : 0;
+    const platform_fee = computePlatformFeeDollars(servicesSubtotal);
     const taxes_and_fees = computeBookingTax({
       laborDollars: labor_cost,
       partsDollars: parts_cost,
@@ -967,6 +981,23 @@ export const createBatch = mutation({
 
     const total_cost = labor_cost + parts_cost + taxes_and_fees + platform_fee;
     const estimated_labor_minutes = args.services.reduce((sum, s) => sum + (s.labor_hours ?? 0) * 60, 0);
+
+    // ── Pre-Job Approval flow: disclosed range snapshot ──────────────
+    const optionsByServiceId = new Map<string, Id<"service_options">>();
+    for (const opt of args.selected_service_options ?? []) {
+      optionsByServiceId.set(opt.service_id, opt.option_id);
+    }
+    const disclosedRange = await computeDisclosedRange(ctx, {
+      services: args.services.map((s) => ({
+        service_id: s.service_id,
+        parts_cost: s.parts_cost,
+        option_id: optionsByServiceId.get(s.service_id),
+      })),
+      labor_cost_dollars: labor_cost,
+      engine_id: vehicle.engine_id ?? null,
+      shop_state: shop?.state ?? null,
+      shop_zip: shop?.zip ?? null,
+    });
 
     await assertBookingWithinShopHours(ctx, {
       shopId: args.shop_id,
@@ -1001,10 +1032,16 @@ export const createBatch = mutation({
       updated_at: now,
       source_recommendation_id: args.source_recommendation_id,
       customer_notes: args.customer_notes?.trim() ? args.customer_notes.trim() : undefined,
+      diagnostic_system: args.diagnostic_system,
       selected_service_options:
         args.selected_service_options && args.selected_service_options.length > 0
           ? args.selected_service_options
           : undefined,
+      disclosed_range_low_cents: disclosedRange.low_cents,
+      disclosed_range_high_cents: disclosedRange.high_cents,
+      disclosed_breakdown: disclosedRange.breakdown,
+      disclosed_at_ms: now,
+      payment_approval_state: "none",
     });
 
     await logBookingStatusChange(
@@ -5938,6 +5975,23 @@ export async function applyBookingStatusTransition(
   const error = validateTransition(booking.status, newStatus);
   if (error) throw new Error(error);
 
+  // Pre-Job Approval guard: don't let the mechanic flip a booking into
+  // `in_progress` while it's still waiting on the customer's approval.
+  // Pre-feature bookings (state == null) and approved/in-range bookings
+  // pass. Reauth-required is hard-blocked so the customer can fix payment
+  // before work continues.
+  if (newStatus === "in_progress") {
+    const pas = (booking as any).payment_approval_state as string | undefined;
+    const allowed = new Set([undefined, "none", "in_range", "pre_job_approved"]);
+    if (!allowed.has(pas)) {
+      throw new Error(
+        pas === "reauth_required"
+          ? "Customer needs to update their payment method before work can start."
+          : "Waiting on the customer to approve the updated estimate.",
+      );
+    }
+  }
+
   if (isTerminal(booking.status)) {
     const label =
       BOOKING_STATUS_VISUALS[booking.status as BookingStatus]?.label?.toLowerCase() ??
@@ -6054,10 +6108,15 @@ export async function applyBookingStatusTransition(
   // days. Bookings scheduled more than ~5 days out (book + service window
   // > 7 days) risk auth expiry before capture — track via a future cron
   // that re-auths or alerts near the limit.
+  // Pre-Job Approval flow: capture gates through finalizeAndChargeForBooking,
+  // which decides between direct capture and post-job re-approval based on
+  // whether the mechanic's actuals exceeded the customer-approved set price.
+  // Pre-feature bookings (no disclosed range) take a legacy fall-through
+  // branch inside the action.
   if (newStatus === "completed") {
     await ctx.scheduler.runAfter(
       0,
-      (internal as any).payments_stripe.capturePaymentIntentForBooking,
+      (internal as any).payments_stripe.finalizeAndChargeForBooking,
       { bookingId: booking._id },
     );
   }
@@ -8305,7 +8364,6 @@ export const createByShop = mutation({
           freshBooking,
           "walkin_booking_confirmed",
         );
-        await upsertAppointmentReminderForBooking(ctx, freshBooking);
       }
     }
 
@@ -11219,6 +11277,15 @@ export const getBookingByIdForCustomer = query({
         }
       : null;
 
+    // Payment lifecycle — sourced for PaymentBreakdown (receipt UI).
+    // updated_at is the last write made by finalizeAndChargeForBooking when
+    // it patches state→captured, so it stands in for "captured at" without
+    // a dedicated field. Tolerates pre-feature bookings (no payment row).
+    const paymentRow = await ctx.db
+      .query("payments")
+      .withIndex("by_booking_id", (q: any) => q.eq("booking_id", booking._id))
+      .unique();
+
     return {
       id: booking._id,
       status: booking.status,
@@ -11241,6 +11308,19 @@ export const getBookingByIdForCustomer = query({
       totalCost: booking.total_cost,
       statusHistory,
       lateMonitor,
+      // Pre-Job Approval payment lifecycle
+      paymentApprovalState: (booking as any).payment_approval_state ?? null,
+      disclosedRangeLowCents: (booking as any).disclosed_range_low_cents ?? null,
+      disclosedRangeHighCents: (booking as any).disclosed_range_high_cents ?? null,
+      mechanicSetPriceCents: (booking as any).mechanic_set_price_cents ?? null,
+      finalTotalCents: (booking as any).final_total_cents ?? null,
+      finalCaptureAmountCents: (booking as any).final_capture_amount_cents ?? null,
+      finalPartsUsedAtCapture: (booking as any).final_parts_used_at_capture ?? null,
+      holdAmountCents: (paymentRow as any)?.hold_amount_cents ?? null,
+      capturedAtMs:
+        (booking as any).payment_approval_state === "captured"
+          ? ((booking as any).updated_at ?? null)
+          : null,
     };
   },
 });

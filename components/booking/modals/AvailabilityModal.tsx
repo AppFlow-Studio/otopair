@@ -14,12 +14,13 @@
  */
 
 // 1. React & React Native
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Dimensions, Image, Modal, ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
 
 // 2. Third-party libraries
-import { ChevronLeft, ChevronRight, User, X } from "lucide-react-native";
+import { Calendar as CalendarIcon, ChevronDown, ChevronLeft, ChevronRight, User, X } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import Animated, { FadeIn, FadeOut, LinearTransition } from "react-native-reanimated";
 
 // 3. Shared UI (design system)
 import { BrandColors, PrimaryButton, Spacing, Text } from "@/components/shared-ui";
@@ -29,6 +30,7 @@ import { useCalendarAvailabilityForShop } from "@/hooks/useCalendarAvailabilityF
 import { useTimeSlotsForShop } from "@/hooks/useTimeSlotsForShop";
 import { displayTimeToHHMM } from "@/utils/timeSlotUtils";
 import { BorderRadius, Shadows } from "@/constants/theme";
+import { AnimationDuration } from "@/constants/animations";
 import { useScheduleStore } from "@/stores/useScheduleStore";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
@@ -80,6 +82,12 @@ const MONTHS = [
 
 const DEFAULT_TIME_SLOTS = ["9:00 AM", "10:00 AM", "1:00 PM", "2:00 PM", "3:00 PM"];
 
+const SHORT_MONTHS = ["Jan.", "Feb.", "Mar.", "Apr.", "May", "Jun.", "Jul.", "Aug.", "Sep.", "Oct.", "Nov.", "Dec."];
+
+function formatSelectedDate(date: Date): string {
+  return `${date.getDate()} ${SHORT_MONTHS[date.getMonth()]} ${date.getFullYear()}`;
+}
+
 /** Parses "9:00 AM" → { hours: 9, minutes: 0 } in 24-hour values */
 function parseDisplayTime(displayTime: string): { hours: number; minutes: number } | null {
   const match = displayTime.match(/^(\d+):(\d+)\s*(AM|PM)$/i);
@@ -116,6 +124,17 @@ export function AvailabilityModal({ visible, mechanicId, shopId, onClose, onConf
   // Track selected mechanic within the modal (null = "Any")
   // For single mechanic shops, auto-select that mechanic instead of "Any"
   const [selectedMechanicId, setSelectedMechanicId] = useState<string | null>(mechanicId ?? null);
+
+  // Calendar collapses into a compact selected-date row after a date is picked.
+  const [isCalendarExpanded, setIsCalendarExpanded] = useState(true);
+  const collapseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearCollapseTimeout = useCallback(() => {
+    if (collapseTimeoutRef.current) {
+      clearTimeout(collapseTimeoutRef.current);
+      collapseTimeoutRef.current = null;
+    }
+  }, []);
 
   // ═══════════════ MECHANIC STORE ═══════════════
   const getMechanicsByShopId = useMechanicStore((state) => state.getMechanicsByShopId);
@@ -220,8 +239,29 @@ export function AvailabilityModal({ visible, mechanicId, shopId, onClose, onConf
         // Use provided mechanicId or null for "Any"
         setSelectedMechanicId(mechanicId);
       }
+      // Reset collapse state so the calendar is always expanded on open.
+      clearCollapseTimeout();
+      setIsCalendarExpanded(true);
+    } else {
+      // Closing the modal: cancel any pending collapse to avoid setting
+      // state after unmount and ensure next open starts clean.
+      clearCollapseTimeout();
     }
-  }, [visible, mechanicId, hasSingleMechanic, shopMechanics]);
+  }, [visible, mechanicId, hasSingleMechanic, shopMechanics, clearCollapseTimeout]);
+
+  // Re-expand calendar when the user switches mechanics so they can re-pick
+  // against the new mechanic's availability.
+  useEffect(() => {
+    clearCollapseTimeout();
+    setIsCalendarExpanded(true);
+  }, [selectedMechanicId, clearCollapseTimeout]);
+
+  // Clean up any pending collapse timer on unmount.
+  useEffect(() => {
+    return () => {
+      clearCollapseTimeout();
+    };
+  }, [clearCollapseTimeout]);
 
   // Load schedule when mechanic selection changes
   useEffect(() => {
@@ -363,9 +403,21 @@ export function AvailabilityModal({ visible, mechanicId, shopId, onClose, onConf
       if (!day.isCurrentMonth || day.status === "booked" || day.status === "disabled") return;
       const newDate = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day.date);
       selectDate(newDate);
+      // Let the selection circle highlight for a beat before the calendar
+      // collapses, so the user sees their choice land.
+      clearCollapseTimeout();
+      collapseTimeoutRef.current = setTimeout(() => {
+        setIsCalendarExpanded(false);
+        collapseTimeoutRef.current = null;
+      }, 200);
     },
-    [currentMonth, selectDate],
+    [currentMonth, selectDate, clearCollapseTimeout],
   );
+
+  const handleExpandCalendar = useCallback(() => {
+    clearCollapseTimeout();
+    setIsCalendarExpanded(true);
+  }, [clearCollapseTimeout]);
 
   const handleTimePress = useCallback(
     (time: string) => {
@@ -388,8 +440,7 @@ export function AvailabilityModal({ visible, mechanicId, shopId, onClose, onConf
       confirmSelection();
 
       // Format date as "DD Mon. YYYY"
-      const months = ["Jan.", "Feb.", "Mar.", "Apr.", "May", "Jun.", "Jul.", "Aug.", "Sep.", "Oct.", "Nov.", "Dec."];
-      const displayDate = `${selectedDate.getDate()} ${months[selectedDate.getMonth()]} ${selectedDate.getFullYear()}`;
+      const displayDate = formatSelectedDate(selectedDate);
       const isoDate = selectedDate.toISOString().split("T")[0];
 
       // Update booking store with scheduled appointment and selected mechanic
@@ -572,68 +623,107 @@ export function AvailabilityModal({ visible, mechanicId, shopId, onClose, onConf
             </View>
           )}
 
-          {/* Month Navigation */}
-          <View style={styles.monthNavigation}>
-            <TouchableOpacity style={styles.navButton} onPress={handlePrevMonth} activeOpacity={0.7}>
-              <ChevronLeft size={18} color="#9CA3AF" />
-            </TouchableOpacity>
+          {/* Calendar (full) or compact selected-date row.
+              LinearTransition animates the height delta between the two views;
+              FadeIn/FadeOut handles the cross-fade — matching the spirit of the
+              ProfileInitialsButton transition pattern. */}
+          <Animated.View layout={LinearTransition.duration(AnimationDuration.standard)}>
+            {isCalendarExpanded || !selectedDate ? (
+              <Animated.View
+                key="calendar-full"
+                entering={FadeIn.duration(AnimationDuration.standard)}
+                exiting={FadeOut.duration(AnimationDuration.fast)}
+              >
+                {/* Month Navigation */}
+                <View style={styles.monthNavigation}>
+                  <TouchableOpacity style={styles.navButton} onPress={handlePrevMonth} activeOpacity={0.7}>
+                    <ChevronLeft size={18} color="#9CA3AF" />
+                  </TouchableOpacity>
 
-            <Text size="lg" weight="semiBold" color={BrandColors.primary}>
-              {MONTHS[currentMonth.getMonth()]} {currentMonth.getFullYear()}
-            </Text>
-
-            <TouchableOpacity style={styles.navButton} onPress={handleNextMonth} activeOpacity={0.7}>
-              <ChevronRight size={18} color="#9CA3AF" />
-            </TouchableOpacity>
-          </View>
-
-          {/* Calendar Container */}
-          <View style={styles.calendarContainer}>
-            {/* Weekday Headers */}
-            <View style={styles.weekdaysRow}>
-              {WEEKDAYS.map((day) => (
-                <View key={day} style={styles.weekdayCell}>
-                  <Text size="sm" weight="semiBold" color="#9CA3AF">
-                    {day}
+                  <Text size="lg" weight="semiBold" color={BrandColors.primary}>
+                    {MONTHS[currentMonth.getMonth()]} {currentMonth.getFullYear()}
                   </Text>
-                </View>
-              ))}
-            </View>
 
-            {/* Calendar Grid */}
-            <View style={styles.calendarGrid}>
-              {calendarWeeks.map((week, weekIndex) => (
-                <View key={weekIndex} style={styles.weekRow}>
-                  {week.map((day, dayIndex) => renderDayCell(day, weekIndex * 7 + dayIndex))}
+                  <TouchableOpacity style={styles.navButton} onPress={handleNextMonth} activeOpacity={0.7}>
+                    <ChevronRight size={18} color="#9CA3AF" />
+                  </TouchableOpacity>
                 </View>
-              ))}
-            </View>
-          </View>
 
-          {/* Legend */}
-          <View style={styles.legend}>
-            <View style={styles.legendItem}>
-              <View style={[styles.legendDot, styles.legendAvailable]} />
-              <Text size="sm" weight="medium" color="#6B7280">
-                Available
-              </Text>
-            </View>
-            <View style={styles.legendItem}>
-              <View style={[styles.legendDot, styles.legendBooked]} />
-              <Text size="sm" weight="medium" color="#6B7280">
-                Booked
-              </Text>
-            </View>
-            <View style={styles.legendItem}>
-              <View style={[styles.legendDot, styles.legendSelected]} />
-              <Text size="sm" weight="medium" color="#6B7280">
-                Selected
-              </Text>
-            </View>
-          </View>
+                {/* Calendar Container */}
+                <View style={styles.calendarContainer}>
+                  {/* Weekday Headers */}
+                  <View style={styles.weekdaysRow}>
+                    {WEEKDAYS.map((day) => (
+                      <View key={day} style={styles.weekdayCell}>
+                        <Text size="sm" weight="semiBold" color="#9CA3AF">
+                          {day}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+
+                  {/* Calendar Grid */}
+                  <View style={styles.calendarGrid}>
+                    {calendarWeeks.map((week, weekIndex) => (
+                      <View key={weekIndex} style={styles.weekRow}>
+                        {week.map((day, dayIndex) => renderDayCell(day, weekIndex * 7 + dayIndex))}
+                      </View>
+                    ))}
+                  </View>
+                </View>
+
+                {/* Legend */}
+                <View style={styles.legend}>
+                  <View style={styles.legendItem}>
+                    <View style={[styles.legendDot, styles.legendAvailable]} />
+                    <Text size="sm" weight="medium" color="#6B7280">
+                      Available
+                    </Text>
+                  </View>
+                  <View style={styles.legendItem}>
+                    <View style={[styles.legendDot, styles.legendBooked]} />
+                    <Text size="sm" weight="medium" color="#6B7280">
+                      Booked
+                    </Text>
+                  </View>
+                  <View style={styles.legendItem}>
+                    <View style={[styles.legendDot, styles.legendSelected]} />
+                    <Text size="sm" weight="medium" color="#6B7280">
+                      Selected
+                    </Text>
+                  </View>
+                </View>
+              </Animated.View>
+            ) : (
+              <Animated.View
+                key="calendar-collapsed"
+                entering={FadeIn.duration(AnimationDuration.standard)}
+                exiting={FadeOut.duration(AnimationDuration.fast)}
+              >
+                <TouchableOpacity
+                  style={styles.selectedDateRow}
+                  onPress={handleExpandCalendar}
+                  activeOpacity={0.7}
+                >
+                  <View style={styles.selectedDateLeft}>
+                    <View style={styles.selectedDateIconWrap}>
+                      <CalendarIcon size={20} color={BrandColors.secondary} />
+                    </View>
+                    <Text size="md" weight="semiBold" color={BrandColors.primary}>
+                      {formatSelectedDate(selectedDate)}
+                    </Text>
+                  </View>
+                  <ChevronDown size={20} color="#9CA3AF" />
+                </TouchableOpacity>
+              </Animated.View>
+            )}
+          </Animated.View>
 
           {/* Time Selection */}
-          <View style={styles.timeSection}>
+          <Animated.View
+            layout={LinearTransition.duration(AnimationDuration.standard)}
+            style={styles.timeSection}
+          >
             <Text size="lg" weight="bold" color={BrandColors.primary}>
               Select Time
             </Text>
@@ -663,7 +753,7 @@ export function AvailabilityModal({ visible, mechanicId, shopId, onClose, onConf
                 );
               })}
             </ScrollView>
-          </View>
+          </Animated.View>
         </ScrollView>
 
         {/* Footer */}
@@ -761,6 +851,34 @@ const styles = StyleSheet.create({
   mechanicAvatarSelected: {
     borderColor: BrandColors.secondary,
     borderWidth: 2,
+  },
+
+  // Selected Date Row (compact view after a date is picked)
+  selectedDateRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.md,
+    marginTop: Spacing.lg,
+    marginBottom: Spacing.md,
+    backgroundColor: "#F9FAFB",
+    borderRadius: BorderRadius.xl,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+  },
+  selectedDateLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.md,
+  },
+  selectedDateIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: BorderRadius.lg,
+    backgroundColor: "#EFF6FF",
+    alignItems: "center",
+    justifyContent: "center",
   },
 
   // Month Navigation

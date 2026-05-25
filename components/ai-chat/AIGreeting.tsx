@@ -11,7 +11,7 @@
 // 1. React & React Native
 import React, { useState, useEffect, useRef } from 'react';
 import { View, StyleSheet, Pressable, Dimensions } from 'react-native';
-import * as Haptics from 'expo-haptics';
+import { haptics } from '@/lib/haptics';
 
 // 2. Expo & Third-party
 import Animated, {
@@ -223,7 +223,7 @@ export function AIGreeting({
     if (tappedVin) return;
 
     // 1. Haptic
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    haptics.selection();
 
     // 2. Car pulse
     pulseScale.value = withSequence(

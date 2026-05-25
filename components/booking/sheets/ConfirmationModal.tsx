@@ -317,11 +317,10 @@ export const ConfirmationModal = forwardRef<ConfirmationModalRef, ConfirmationMo
   const handleBackToHome = useCallback(() => {
     bottomSheetModalRef.current?.dismiss();
     onBackToHome();
-    // Pop the booking fullScreenModal off the root stack before landing
-    // on home — otherwise the map underneath leaks through behind the
-    // home tab.
-    router.dismissAll();
-    router.replace("/home");
+    // Single navigation: dismissTo pops the booking fullScreenModal AND
+    // lands on the home tab in one transition (avoids the double
+    // home-screen animation from a separate dismissAll + replace pair).
+    router.dismissTo("/(main-tabs)/home");
   }, [onBackToHome, router]);
 
   const handleAddToCalendar = useCallback(() => {

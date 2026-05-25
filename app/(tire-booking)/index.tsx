@@ -9,7 +9,7 @@
  */
 
 import { useFocusEffect, useRouter } from "expo-router";
-import * as Haptics from "expo-haptics";
+import { haptics } from "@/lib/haptics";
 import {
   Car,
   Check,
@@ -191,7 +191,7 @@ export default function TireBookingScreen({ onClose, onConfirmed }: TireBookingS
   // Haptic fires here in the parent so the diagram component stays untouched.
   const handleToggleTire = useCallback(
     (p: TirePosition) => {
-      Haptics.selectionAsync();
+      haptics.selection();
       toggleTirePosition(p);
     },
     [toggleTirePosition],
@@ -204,7 +204,7 @@ export default function TireBookingScreen({ onClose, onConfirmed }: TireBookingS
 
   const handleGetQuotes = useCallback(() => {
     setIsSubmitting(true);
-    Haptics.selectionAsync();
+    haptics.cta();
     requestAnimationFrame(() => {
       void fireRequest();
       if (onClose) {
@@ -486,7 +486,7 @@ function TierCard({
   }));
 
   const handlePress = useCallback(() => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    haptics.step();
     scale.value = withSequence(
       withTiming(0.98, { duration: 150, easing: Easing.out(Easing.cubic) }),
       withTiming(1, { duration: 150, easing: Easing.out(Easing.cubic) }),

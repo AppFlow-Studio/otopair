@@ -737,11 +737,19 @@ function computeBrakeStatusCore(
     return { status: "on_time", percentUsed: 0, description: "Confirmed in good shape", detail: "On time" };
   }
 
-  // F1 fix (2026-05-18): "no symptoms + no interval data" used to claim
-  // "Brakes feel fine — no concerns reported" — that's a fabricated
-  // confirmation. Absence of input isn't evidence of health. Surface as
-  // "unknown" so Oto prompts the user to add a record.
+  // F1 fix (2026-05-18): without interval data we can't claim health.
+  // But an explicit "Fine" self-report IS input — surface it as such
+  // instead of pretending nothing was reported. Status stays "unknown"
+  // so Oto still prompts the user to add a service date.
   if (!hasIntervalData) {
+    if (brakeFeel === "fine") {
+      return {
+        status: "unknown",
+        percentUsed: 0,
+        description: "Brakes feel fine — no issues reported",
+        detail: "Reported fine",
+      };
+    }
     return { status: "unknown", percentUsed: 0, description: "No brake service history on file", detail: "Not on file" };
   }
 
@@ -821,10 +829,14 @@ function computeBatteryStatus(
   // Under 3 years → on_time
   const percentUsed = Math.min(Math.round((monthsSince / BATTERY_FLAG_MONTHS) * 100), 100);
   const monthsLeft = Math.max(0, Math.round(BATTERY_FLAG_MONTHS - monthsSince));
-  const yearsLeft = (monthsLeft / 12).toFixed(1);
-  const description = monthsLeft <= 3
-    ? `Battery check recommended in ~${monthsLeft} months`
-    : `Battery healthy · ~${yearsLeft} years until check-up`;
+  let description: string;
+  if (monthsLeft <= 3) {
+    description = `Battery check recommended in ~${monthsLeft} months`;
+  } else if (monthsLeft > 12) {
+    description = "In good standing";
+  } else {
+    description = `~${monthsLeft} months until check-up`;
+  }
 
   const baseResult: StatusResult = {
     status: "on_time",
@@ -953,6 +965,8 @@ function buildHybridDescription(
       parts.push("Time interval reached");
     } else if (monthsRemaining <= 1) {
       parts.push("due this month");
+    } else if (monthsRemaining > 12) {
+      parts.push("In good standing");
     } else {
       parts.push(`${monthsRemaining} months remaining`);
     }

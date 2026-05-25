@@ -17,7 +17,7 @@ import Svg, { Path } from "react-native-svg";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import * as Haptics from "expo-haptics";
+import { haptics } from "@/lib/haptics";
 import { useMutation } from "convex/react";
 
 import { Text } from "@/components/shared-ui";
@@ -213,7 +213,7 @@ function ChatBubble({
   const handlePop = useCallback(() => {
     if (popped) return;
     setPopped(true);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    haptics.step();
     popScale.value = withSequence(
       withTiming(1.08, { duration: 100 }),
       withTiming(0, { duration: 220, easing: Easing.in(Easing.ease) })
@@ -336,8 +336,6 @@ export default function HealthEstimatingScreen() {
   const [loadingDone, setLoadingDone] = useState(false);
   const navigatedRef = useRef(false);
   const bubblesScrollRef = useRef<ScrollView>(null);
-  const bubblesViewportHeightRef = useRef(0);
-  const bubblesContentHeightRef = useRef(0);
   const [visibleBubbleCount, setVisibleBubbleCount] = useState(0);
   const bubbleBottomClearance = scale(132) + insets.bottom;
 
@@ -383,7 +381,7 @@ export default function HealthEstimatingScreen() {
   // Distribute bubbles in rows, alternating left/right
   const bubbleSlots = useMemo(() => {
     const shuffled = [...ALL_FACTS].sort(() => Math.random() - 0.5);
-    const count = height < 740 ? 5 : 6;
+    const count = height < 740 ? 4 : 5;
     return shuffled.slice(0, count).map((fact, i): BubbleSlot => ({
       fact,
       row: i,
@@ -394,7 +392,6 @@ export default function HealthEstimatingScreen() {
 
   useEffect(() => {
     setVisibleBubbleCount(0);
-    bubblesContentHeightRef.current = 0;
     bubblesScrollRef.current?.scrollTo({ y: 0, animated: false });
     const timers = bubbleSlots.map((slot, index) =>
       setTimeout(() => {
@@ -475,23 +472,11 @@ export default function HealthEstimatingScreen() {
     setPoppedSet((prev) => new Set(prev).add(index));
   }, []);
 
+  // One scroll surface now — just scroll to the bottom so the newest
+  // bubble stays visible. When content fits, scrollToEnd is a no-op.
   const scrollToLatestBubble = useCallback((animated = true) => {
-    if (bubblesViewportHeightRef.current <= 0) {
-      return;
-    }
-
-    const visibleContentHeight = Math.max(0, bubblesContentHeightRef.current - bubbleBottomClearance);
-    const visibleLimit = Math.max(0, bubblesViewportHeightRef.current - bubbleBottomClearance);
-
-    if (visibleContentHeight <= visibleLimit + scale(4)) {
-      return;
-    }
-
-    bubblesScrollRef.current?.scrollTo({
-      y: visibleContentHeight - visibleLimit,
-      animated,
-    });
-  }, [bubbleBottomClearance]);
+    bubblesScrollRef.current?.scrollToEnd({ animated });
+  }, []);
 
   useEffect(() => {
     if (visibleBubbleCount === 0) return;
@@ -514,7 +499,7 @@ export default function HealthEstimatingScreen() {
   const handleViewScore = useCallback(() => {
     if (navigatedRef.current) return;
     navigatedRef.current = true;
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    haptics.cta();
     router.replace("/(main-tabs)/cars");
   }, [params.flow, params.vehicleOwnerId]);
 
@@ -528,79 +513,83 @@ export default function HealthEstimatingScreen() {
         pointerEvents="none"
       />
 
-      {/* Header */}
-      <View style={[styles.header, { paddingTop: insets.top + verticalScale(52) }]}>
-        <View style={styles.titleWrap}>
-          <Animated.View style={[styles.titleAbsolute, loadingTitleStyle]}>
-            <Text weight="bold" style={styles.title}>
-              {"Estimating your\nhealth score"}
-            </Text>
-          </Animated.View>
-          <Animated.View style={[styles.titleAbsolute, doneTitleStyle]}>
-            <Text weight="bold" style={styles.title}>
-              Your Score is Ready
-            </Text>
-          </Animated.View>
-        </View>
-
-        <View style={styles.statusSlot}>
-          {loadingDone ? (
-            <ScoreReadyCheck />
-          ) : (
-            <Animated.View style={[styles.statusRow, subtitleStyle]}>
-              <Animated.View style={dotsAnimStyle}>
-                <PulsingDots />
-              </Animated.View>
-              <Text weight="medium" style={styles.statusText}>
-                {STATUS_TEXTS[statusIndex]}
-              </Text>
-            </Animated.View>
-          )}
-        </View>
-      </View>
-
-      {/* Vehicle hero — uses the resolved VDB render of the user's
-          actual car when available, with the covered-car placeholder
-          as a fallback while the image is still being fetched. */}
-      <Image
-        source={
-          resolvedImageUrl
-            ? { uri: resolvedImageUrl }
-            : require("@/assets/images/covered-car.png")
-        }
-        style={styles.coveredCar}
-        resizeMode="contain"
-      />
-
-      {/* Chat bubbles — laid out in a vertical list with alternating alignment */}
+      {/* One continuous scroll surface — title, car, and bubbles all
+          live in the same ScrollView so there's no fixed/scroll
+          boundary (which previously read as a "cutoff line" between
+          two sections). The page scrolls as one; content only ever
+          leaves at the top of the screen, never a mid-page seam. */}
       <ScrollView
         ref={bubblesScrollRef}
-        style={styles.bubblesScroll}
-        contentContainerStyle={[
-          styles.bubblesArea,
-          { paddingBottom: bubbleBottomClearance },
-        ]}
+        style={{ flex: 1 }}
+        contentContainerStyle={{
+          paddingTop: insets.top + verticalScale(20),
+          paddingBottom: bubbleBottomClearance,
+        }}
         showsVerticalScrollIndicator={false}
         scrollEventThrottle={16}
-        onLayout={(event) => {
-          bubblesViewportHeightRef.current = event.nativeEvent.layout.height;
-        }}
-        onContentSizeChange={(_, contentHeight) => {
-          bubblesContentHeightRef.current = contentHeight;
+        onContentSizeChange={() => {
           if (visibleBubbleCount > 0) {
             scrollToLatestBubble(true);
           }
         }}
       >
-        {bubbleSlots.slice(0, visibleBubbleCount).map((slot, idx) =>
-          poppedSet.has(idx) ? (
-            <View key={idx} style={styles.bubbleSpacer} />
-          ) : (
-            <View key={idx} style={styles.bubbleRow}>
-              <ChatBubble slot={{ ...slot, delay: 0 }} index={idx} onPop={handlePop} />
-            </View>
-          )
-        )}
+        {/* Header */}
+        <View style={styles.header}>
+          <View style={styles.titleWrap}>
+            <Animated.View style={[styles.titleAbsolute, loadingTitleStyle]}>
+              <Text weight="bold" style={styles.title}>
+                {"Estimating your\nhealth score"}
+              </Text>
+            </Animated.View>
+            <Animated.View style={[styles.titleAbsolute, doneTitleStyle]}>
+              <Text weight="bold" style={styles.title}>
+                Your Score is Ready
+              </Text>
+            </Animated.View>
+          </View>
+
+          <View style={styles.statusSlot}>
+            {loadingDone ? (
+              <ScoreReadyCheck />
+            ) : (
+              <Animated.View style={[styles.statusRow, subtitleStyle]}>
+                <Animated.View style={dotsAnimStyle}>
+                  <PulsingDots />
+                </Animated.View>
+                <Text weight="medium" style={styles.statusText}>
+                  {STATUS_TEXTS[statusIndex]}
+                </Text>
+              </Animated.View>
+            )}
+          </View>
+        </View>
+
+        {/* Vehicle hero — uses the resolved VDB render of the user's
+            actual car when available, with the covered-car placeholder
+            as a fallback while the image is still being fetched. */}
+        <Image
+          source={
+            resolvedImageUrl
+              ? { uri: resolvedImageUrl }
+              : require("@/assets/images/covered-car.png")
+          }
+          style={styles.coveredCar}
+          resizeMode="contain"
+        />
+
+        {/* Chat bubbles — vertical list with alternating alignment,
+            flowing directly under the car in the same scroll. */}
+        <View style={styles.bubblesArea}>
+          {bubbleSlots.slice(0, visibleBubbleCount).map((slot, idx) =>
+            poppedSet.has(idx) ? (
+              <View key={idx} style={styles.bubbleSpacer} />
+            ) : (
+              <View key={idx} style={styles.bubbleRow}>
+                <ChatBubble slot={{ ...slot, delay: 0 }} index={idx} onPop={handlePop} />
+              </View>
+            )
+          )}
+        </View>
       </ScrollView>
 
       {/* CTA Button */}
@@ -638,7 +627,6 @@ const styles = StyleSheet.create({
   },
   header: {
     alignItems: "center",
-    zIndex: 10,
   },
   titleWrap: {
     alignItems: "center",
@@ -671,11 +659,8 @@ const styles = StyleSheet.create({
   },
   bubblesArea: {
     paddingHorizontal: scale(20),
-    paddingTop: scale(24),
-    gap: scale(16),
-  },
-  bubblesScroll: {
-    flex: 1,
+    marginTop: scale(4),
+    gap: scale(12),
   },
   bubbleRow: {
     width: "100%",
@@ -685,8 +670,8 @@ const styles = StyleSheet.create({
   },
   coveredCar: {
     width: "100%",
-    height: scale(110),
-    marginTop: scale(4),
+    height: scale(120),
+    marginTop: 0,
   },
   ctaWrap: {
     position: "absolute",

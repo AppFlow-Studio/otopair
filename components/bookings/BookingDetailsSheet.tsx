@@ -49,10 +49,18 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Text } from "@/components/shared-ui";
 import { BorderRadius } from "@/constants/theme";
+import { useToast } from "@/hooks/useToast";
 import { useBookingStore } from "@/stores/useBookingStore";
 import type { Booking } from "./BookingCard";
 import { MechanicChatSheet, type MechanicChatSheetRef } from "./MechanicChatSheet";
 import { RescheduleSheet, type RescheduleSheetRef } from "./RescheduleSheet";
+import { ApprovalBanner } from "@/components/booking/ApprovalBanner";
+import { PaymentBreakdown } from "@/components/booking/PaymentBreakdown";
+import { ReceiptViewer } from "@/components/booking/ReceiptViewer";
+import {
+  FileDisputeSheet,
+  type FileDisputeSheetRef,
+} from "@/components/booking/FileDisputeSheet";
 
 // ============================================================================
 // CONSTANTS (sheet mechanics — frozen)
@@ -203,7 +211,7 @@ export const BookingDetailsSheet = forwardRef<BookingDetailsSheetRef, BookingDet
 
     const liveStatusHistory = useMemo(() => {
       if (!bookingDetail?.statusHistory) return undefined;
-      return bookingDetail.statusHistory.map((h) => ({
+      return bookingDetail.statusHistory.map((h: { status: string; changedAt: number }) => ({
         stage: h.status as BookingStatus,
         timestamp: h.changedAt,
       }));
@@ -450,6 +458,7 @@ export const BookingDetailsSheet = forwardRef<BookingDetailsSheetRef, BookingDet
               >
                 <FullContent
                   booking={booking}
+                  bookingDetail={bookingDetail}
                   serviceDescription={serviceDescription}
                   serviceDurationMinutes={serviceDurationMinutes}
                   vehicleMileage={vehicleMileage}
@@ -733,6 +742,7 @@ interface FullContentProps {
   shopRating?: { score: number; count: number };
   statusHistory?: Array<{ stage: BookingStatus; timestamp: number }>;
   liveMonitor?: LateMonitor | null;
+  bookingDetail?: any;
   onClose: () => void;
   onRequestReschedule: (bookingId: string, date: string, time: string) => void;
   bottomPadding: number;
@@ -740,6 +750,7 @@ interface FullContentProps {
 
 function FullContent({
   booking,
+  bookingDetail,
   serviceDescription,
   serviceDurationMinutes,
   vehicleMileage,
@@ -752,6 +763,8 @@ function FullContent({
   onRequestReschedule,
   bottomPadding,
 }: FullContentProps) {
+  const disputeSheetRef = useRef<FileDisputeSheetRef>(null);
+  const toast = useToast();
   const handleCancel = useCallback(() => {
     Alert.alert(
       "Cancel booking?",
@@ -764,12 +777,13 @@ function FullContent({
           onPress: () => {
             useBookingStore.getState().cancelBooking(booking.id);
             onClose();
+            toast.success("Booking cancelled.");
           },
         },
       ],
       { cancelable: true },
     );
-  }, [booking.id, onClose]);
+  }, [booking.id, onClose, toast]);
 
   const handleReschedule = useCallback(() => {
     // Pull the raw scheduledDate/scheduledTime from the local store so the
@@ -792,6 +806,13 @@ function FullContent({
         contentContainerStyle={[styles.fullScroll, { paddingBottom: bottomPadding }]}
         showsVerticalScrollIndicator={false}
       >
+        {/* APPROVAL BANNER — surfaces when an out-of-range estimate is
+            waiting on the customer's decision. */}
+        <ApprovalBanner
+          bookingId={booking.id as any}
+          paymentApprovalState={booking.paymentApprovalState}
+        />
+
         {/* STATUS TIMELINE */}
         <View style={styles.section}>
           <SectionHeader label="Status" />
@@ -896,21 +917,73 @@ function FullContent({
         {/* PAYMENT */}
         <View style={styles.section}>
           <SectionHeader label="Payment" />
-          <View style={styles.paymentRow}>
-            <Text size="md" weight="regular" color="#1A1A1A">
-              Estimated total
-            </Text>
-            {booking.totalCost != null && booking.totalCost > 0 ? (
-              <Text size="md" weight="bold" color="#1A1A1A">
-                ${booking.totalCost.toFixed(2)}
-              </Text>
-            ) : (
-              <Text size="md" weight="regular" color="#8E8E93" style={styles.paymentPending}>
-                Pending confirmation
-              </Text>
-            )}
-          </View>
+          {(() => {
+            // Pre-Job Approval flow: render based on lifecycle stage.
+            //   - captured → PaymentBreakdown (3-row lifecycle + itemized
+            //     parts + dispute CTA)
+            //   - disclosed range present → show range pair
+            //   - legacy → show singular total_cost
+            const isCaptured = booking.paymentApprovalState === "captured";
+            const hasRange =
+              booking.disclosedRangeLowCents != null &&
+              booking.disclosedRangeHighCents != null;
+            if (isCaptured) {
+              return (
+                <>
+                  <PaymentBreakdown
+                    bookingId={booking.id}
+                    paymentApprovalState={booking.paymentApprovalState}
+                    holdAmountCents={bookingDetail?.holdAmountCents ?? null}
+                    mechanicSetPriceCents={bookingDetail?.mechanicSetPriceCents ?? null}
+                    finalCaptureAmountCents={
+                      bookingDetail?.finalCaptureAmountCents ??
+                      booking.finalCaptureAmountCents ??
+                      null
+                    }
+                    finalPartsUsedAtCapture={bookingDetail?.finalPartsUsedAtCapture ?? null}
+                    capturedAtMs={bookingDetail?.capturedAtMs ?? null}
+                    onFileDispute={() => disputeSheetRef.current?.open(booking.id)}
+                  />
+                  <ReceiptViewer bookingId={booking.id} />
+                </>
+              );
+            }
+            if (hasRange) {
+              const low = (booking.disclosedRangeLowCents! / 100).toFixed(2);
+              const high = (booking.disclosedRangeHighCents! / 100).toFixed(2);
+              return (
+                <View style={styles.paymentRow}>
+                  <Text size="md" weight="regular" color="#1A1A1A">
+                    Estimated total
+                  </Text>
+                  <Text size="md" weight="bold" color="#1A1A1A">
+                    ${low} – ${high}
+                  </Text>
+                </View>
+              );
+            }
+            return (
+              <View style={styles.paymentRow}>
+                <Text size="md" weight="regular" color="#1A1A1A">
+                  Estimated total
+                </Text>
+                {booking.totalCost != null && booking.totalCost > 0 ? (
+                  <Text size="md" weight="bold" color="#1A1A1A">
+                    ${booking.totalCost.toFixed(2)}
+                  </Text>
+                ) : (
+                  <Text size="md" weight="regular" color="#8E8E93" style={styles.paymentPending}>
+                    Pending confirmation
+                  </Text>
+                )}
+              </View>
+            );
+          })()}
         </View>
+
+        {/* Dispute sheet — rendered inline so it overlays this view. Opens
+            from PaymentBreakdown's "Something wrong with this charge?" CTA. */}
+        <FileDisputeSheet ref={disputeSheetRef} />
 
         {/* SECONDARY ACTIONS */}
         <View style={styles.secondaryActions}>

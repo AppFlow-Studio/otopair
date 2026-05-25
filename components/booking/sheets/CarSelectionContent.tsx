@@ -86,12 +86,13 @@ export function CarSelectionContent({ onClose, onAddVehicle }: CarSelectionConte
         </Text>
       </View>
 
-      {/* List: maxed at 5 visible rows; more than 5 cars → scrollable */}
+      {/* List is always scrollable — the conditional gate was tied to a
+          row height that no longer matches reality, so 5 cars stopped
+          fitting inside the sheet but scrolling was still disabled. */}
       <ScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={vehiclesList.length > MAX_VISIBLE_ROWS}
-        scrollEnabled={vehiclesList.length > MAX_VISIBLE_ROWS}
         keyboardShouldPersistTaps="handled"
       >
         {vehiclesList.map((vehicle) => (

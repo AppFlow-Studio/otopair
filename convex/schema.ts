@@ -25,6 +25,7 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import {
+  postjobPartValidator,
   postjobPhotoValidator,
   postjobReportValidator,
   prejobReportValidator,
@@ -1136,7 +1137,9 @@ export default defineSchema({
     units: v.optional(v.string()),
     role: v.optional(v.string()),
     stripe_customer_id: v.optional(v.string()),
+    // Expo push token registered by mobile on app open / after onboarding.
     push_token: v.optional(v.string()),
+    push_token_updated_at_ms: v.optional(v.number()),
     isPendingDeletion: v.optional(v.boolean()),
     deletionRequestedAt: v.optional(v.number()),
     deletionSurveyResponse: v.optional(v.string()),
@@ -1586,6 +1589,34 @@ export default defineSchema({
     backfilled_at_ms: v.optional(v.number()),
     actual_duration_minutes: v.optional(v.number()),
     actual_price_charged: v.optional(v.number()),
+
+    // ---------------------------------------------------------------------
+    // Pre-Job Approval Booking Flow — disclosed range + approval state
+    // (see ~/.claude/plans/claude-plans-lets-plan-out-across-gener-binary-biscuit.md)
+    // ---------------------------------------------------------------------
+    disclosed_range_low_cents: v.optional(v.number()),
+    disclosed_range_high_cents: v.optional(v.number()),
+    disclosed_breakdown: v.optional(
+      v.object({
+        parts_low_cents: v.number(),
+        parts_high_cents: v.number(),
+        labor_cents: v.number(),
+        tax_low_cents: v.number(),
+        tax_high_cents: v.number(),
+        service_fee_low_cents: v.number(),
+        service_fee_high_cents: v.number(),
+      })
+    ),
+    disclosed_at_ms: v.optional(v.number()),
+    payment_approval_state: v.optional(v.string()),
+    running_approved_ceiling_cents: v.optional(v.number()),
+    mechanic_set_price_cents: v.optional(v.number()),
+    estimate_approved_at_ms: v.optional(v.number()),
+    estimate_decided_by_user_id: v.optional(v.id("users")),
+    final_total_cents: v.optional(v.number()),
+    final_capture_amount_cents: v.optional(v.number()),
+    final_parts_used_at_capture: v.optional(v.array(postjobPartValidator)),
+    sla_expires_at_ms: v.optional(v.number()),
   })
     .index("by_user_id", ["user_id"])
     .index("by_shop_id", ["shop_id"])
@@ -1595,7 +1626,9 @@ export default defineSchema({
     .index("by_shop_and_date", ["shop_id", "scheduled_date"])
     .index("by_shop_and_status", ["shop_id", "status"])
     .index("by_created_at", ["created_at"])
-    .index("by_source_recommendation", ["source_recommendation_id"]),
+    .index("by_source_recommendation", ["source_recommendation_id"])
+    .index("by_payment_approval_state", ["payment_approval_state"])
+    .index("by_sla_expires_at", ["sla_expires_at_ms"]),
 
   // Tire quote responses — one row per shop response to a quote-stage
   // booking (status === "pending_quote"). The user picks one to accept,
@@ -1657,13 +1690,37 @@ export default defineSchema({
     idempotency_key: v.optional(v.string()),
     created_at: v.optional(v.number()),
     updated_at: v.optional(v.number()),
+    // Pre-Job Approval flow — Stripe hold lifecycle.
+    hold_amount_cents: v.optional(v.number()),
+    incremented_total_cents: v.optional(v.number()),
+    captured_amount_cents: v.optional(v.number()),
+    reauth_payment_intent_id: v.optional(v.string()),
+
+    // Invoice PDF (generated server-side after capture). Identical layout to
+    // the email attachment, stored once in Convex file storage and reused for
+    // both the email send and the mobile "View Receipt PDF" link.
+    invoice_number: v.optional(v.string()),
+    invoice_storage_id: v.optional(v.id("_storage")),
+    invoice_generated_at_ms: v.optional(v.number()),
+    invoice_emailed_at_ms: v.optional(v.number()),
+    receipt_token: v.optional(v.string()),
+    backfilled_at_ms: v.optional(v.number()),
   })
     .index("by_booking_id", ["booking_id"])
     .index("by_user_id", ["user_id"])
     .index("by_status", ["status"])
     .index("by_idempotency_key", ["idempotency_key"])
     .index("by_stripe_payment_intent_id", ["stripe_payment_intent_id"])
-    .index("by_created_at", ["created_at"]),
+    .index("by_created_at", ["created_at"])
+    .index("by_receipt_token", ["receipt_token"]),
+
+  // Single-row-per-year counter for sequential invoice numbering
+  // (INV-<YYYY>-<6-digit zero-padded>). Allocated transactionally inside
+  // invoices.generateAndEmail; never decremented.
+  invoice_counters: defineTable({
+    year: v.number(),
+    next_value: v.number(),
+  }).index("by_year", ["year"]),
 
   // [I]
   payment_status_history: defineTable({
@@ -3437,4 +3494,103 @@ export default defineSchema({
     .index("by_event_id", ["event_id"])
     .index("by_telnyx_message_id", ["telnyx_message_id"])
     .index("by_event_type", ["event_type"]),
+
+  // Singleton table for app-level / admin-controlled config (platform fee,
+  // etc.). One row only — accessors enforce this by always using `.first()`
+  // and creating the row lazily with defaults from lib/platformFee.ts.
+  platform_settings: defineTable({
+    platform_fee_rate: v.number(),
+    platform_fee_floor_dollars: v.number(),
+    created_at: v.number(),
+    updated_at: v.number(),
+    updated_by_user_id: v.optional(v.id("users")),
+  }),
+
+  // ─────────────────────────────────────────────────────────────────────
+  // Pre-Job Approval audit log — one row per submission per cycle.
+  // Pre/mid/post-job mechanic submissions all land here. `decision == null`
+  // means the cycle is open (customer hasn't responded). Used to drive the
+  // mobile ApprovalBanner + reconcile Stripe `amount_capturable_updated`
+  // webhook deliveries via `stripe_event_id` for idempotency.
+  // ─────────────────────────────────────────────────────────────────────
+  booking_approvals: defineTable({
+    booking_id: v.id("bookings"),
+    // "pre_job" | "mid_job" | "post_job"
+    cycle: v.string(),
+
+    // What the mechanic submitted
+    mechanic_set_price_cents: v.number(),
+    parts_snapshot: v.array(postjobPartValidator),
+    labor_hours: v.optional(v.number()),
+    labor_rate_cents: v.optional(v.number()),
+    notes: v.optional(v.string()),
+
+    // Gating context: the ceiling the submission was evaluated against.
+    // For pre_job this is disclosed_range_high_cents; for mid/post it's
+    // running_approved_ceiling_cents. Frozen at submit-time so a decision
+    // arriving days later doesn't re-evaluate against a moved goalpost.
+    prior_ceiling_cents: v.number(),
+    // What the running ceiling becomes after this decision is applied.
+    // Set when decision flips off null.
+    ceiling_after_decision_cents: v.optional(v.number()),
+
+    // 24h SLA. Only meaningful while decision == null.
+    sla_expires_at_ms: v.optional(v.number()),
+
+    // Audit
+    submitted_at_ms: v.number(),
+    submitted_by_user_id: v.optional(v.id("users")),
+
+    // Decision lifecycle. Null = open cycle.
+    // "approved" | "declined" | "auto_approved_within_range" | "sla_expired"
+    decision: v.optional(v.string()),
+    decided_at_ms: v.optional(v.number()),
+    decided_by_user_id: v.optional(v.id("users")),
+
+    // Stripe linkage. stripe_event_id is the webhook event we last reconciled
+    // — used for idempotency in the amount_capturable_updated handler.
+    stripe_payment_intent_id: v.optional(v.string()),
+    stripe_event_id: v.optional(v.string()),
+    // Last Stripe action that landed on this cycle: "increment_authorization"
+    // | "reauth" | "capture_deposit_forfeit" | "capture_final"
+    // | "auto_approved_within_range" | "increment_failed"
+    stripe_action: v.optional(v.string()),
+  })
+    .index("by_booking_and_cycle", ["booking_id", "cycle"])
+    .index("by_decision_state", ["decision"])
+    .index("by_sla_expires_at", ["sla_expires_at_ms"]),
+
+  // ─────────────────────────────────────────────────────────────────────
+  // Pre-Job Approval — customer recourse channel. Filed within 14 days of
+  // capture; resolved by ops via `resolveDispute`. Status flips from "open"
+  // → "in_review" → one of the resolved_* terminal states. `resolution`
+  // names the outcome class, `resolution_refund_cents` records any refund.
+  // ─────────────────────────────────────────────────────────────────────
+  booking_disputes: defineTable({
+    booking_id: v.id("bookings"),
+    user_id: v.id("users"),
+
+    // Short reason code chosen on the dispute sheet:
+    //   "wrong_part" | "overcharged" | "work_not_done" | "post_job_declined"
+    //   | "quality_concern" | "other"
+    reason: v.string(),
+    // Optional OEM part numbers the customer is disputing.
+    disputed_part_keys: v.optional(v.array(v.string())),
+    notes: v.optional(v.string()),
+
+    // "open" | "in_review" | "resolved_refund" | "resolved_no_refund"
+    // | "withdrawn"
+    status: v.string(),
+
+    filed_at_ms: v.number(),
+    resolved_at_ms: v.optional(v.number()),
+    resolved_by_user_id: v.optional(v.id("users")),
+    resolution_notes: v.optional(v.string()),
+    // "no_refund" | "partial_refund" | "full_refund"
+    resolution: v.optional(v.string()),
+    resolution_refund_cents: v.optional(v.number()),
+  })
+    .index("by_booking_id", ["booking_id"])
+    .index("by_status", ["status"])
+    .index("by_user_id", ["user_id"]),
 });

@@ -155,6 +155,8 @@ const SERVICE_QUESTIONS: Record<ServiceCardId, QuestionDef[]> = {
         { id: "recently", label: "Recently" },
         { id: "few_months", label: "A few months ago" },
         { id: "over_6mo", label: "Over 6 months ago" },
+        { id: "exact_date", label: "Specific date" },
+        { id: "never", label: "Never" },
         { id: "not_sure", label: "I\u2019m not sure" },
       ],
       triggerFollowUp: "not_sure",
@@ -177,6 +179,8 @@ const SERVICE_QUESTIONS: Record<ServiceCardId, QuestionDef[]> = {
         { id: "recently", label: "Recently" },
         { id: "few_months", label: "A few months ago" },
         { id: "over_6mo", label: "Over 6 months ago" },
+        { id: "exact_date", label: "Specific date" },
+        { id: "never", label: "Never" },
         { id: "not_sure", label: "I\u2019m not sure" },
       ],
       triggerFollowUp: "not_sure",
@@ -199,6 +203,8 @@ const SERVICE_QUESTIONS: Record<ServiceCardId, QuestionDef[]> = {
         { id: "recently", label: "Recently" },
         { id: "few_months", label: "A few months ago" },
         { id: "over_6mo", label: "Over 6 months ago" },
+        { id: "exact_date", label: "Specific date" },
+        { id: "never", label: "Never" },
         { id: "not_sure", label: "Not sure" },
       ],
     },
@@ -211,6 +217,8 @@ const SERVICE_QUESTIONS: Record<ServiceCardId, QuestionDef[]> = {
         { id: "recently", label: "Recently" },
         { id: "few_months", label: "A few months ago" },
         { id: "over_6mo", label: "Over 6 months ago" },
+        { id: "exact_date", label: "Specific date" },
+        { id: "never", label: "Never" },
         { id: "not_sure", label: "I\u2019m not sure" },
       ],
       triggerFollowUp: "not_sure",
@@ -564,7 +572,7 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
   const [completedCards, setCompletedCards] = useState<Set<ServiceCardId>>(new Set());
   const [justCompletedId, setJustCompletedId] = useState<ServiceCardId | null>(null);
   const [serviceAnswers, setServiceAnswers] = useState<
-    Partial<Record<ServiceCardId, Record<string, string | string[]>>>
+    Partial<Record<ServiceCardId, Record<string, string | number | string[]>>>
   >({});
   const [serviceQuestionIndex, setServiceQuestionIndex] = useState<
     Partial<Record<ServiceCardId, number>>
@@ -661,7 +669,7 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
 
   // ── Overlay callbacks ──────────────────────────────────────
   const handleOverlayAnswer = useCallback((
-    answers: Record<string, string | string[]>,
+    answers: Record<string, string | number | string[]>,
     questionIndex: number,
     progress: number,
   ) => {

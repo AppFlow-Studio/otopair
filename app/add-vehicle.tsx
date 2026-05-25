@@ -96,6 +96,22 @@ export default function AddVehicleScreen() {
             vdbDecodedModel: result.vdbDecodedModel ?? "",
             vdbDecodedStyle: result.vdbDecodedStyle ?? "",
             vdbDecodedTrimAndStyle: result.vdbDecodedTrimAndStyle ?? "",
+            // Specs-card fields. Router params are strings, so we
+            // serialize numbers/nulls into empty string when absent
+            // and the review screen parses them back.
+            horsepower: result.horsepower != null ? String(result.horsepower) : "",
+            engineDisplacementLiters: result.engineDisplacementLiters != null ? String(result.engineDisplacementLiters) : "",
+            cylindersConfiguration: result.cylindersConfiguration ?? "",
+            mpgCity: result.mpgCity != null ? String(result.mpgCity) : "",
+            mpgHighway: result.mpgHighway != null ? String(result.mpgHighway) : "",
+            mpgCombined: result.mpgCombined != null ? String(result.mpgCombined) : "",
+            frontTireSize: result.frontTireSize ?? "",
+            rearTireSize: result.rearTireSize ?? "",
+            frontTirePressure: result.frontTirePressure != null ? String(result.frontTirePressure) : "",
+            rearTirePressure: result.rearTirePressure != null ? String(result.rearTirePressure) : "",
+            transType: result.transType ?? "",
+            transSpeeds: result.transSpeeds != null ? String(result.transSpeeds) : "",
+            drivetrain: result.drivetrain ?? "",
           },
         });
       } else {

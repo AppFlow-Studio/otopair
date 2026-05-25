@@ -222,6 +222,14 @@ const CardItem = ({ card, index, scrollX, total }: CardProps) => {
     return { transform: [{ translateX }] };
   });
 
+  // Real card details from Stripe (StripePaymentMethodsSync hydrates these).
+  const brandLabel: string = String(card.brand ?? "card").toUpperCase();
+  const last4: string = String(card.last4 ?? "••••");
+  const expDisplay =
+    card.expMonth != null && card.expYear != null
+      ? `${String(card.expMonth).padStart(2, "0")}/${String(card.expYear).slice(-2)}`
+      : "••/••";
+
   return (
     <Animated.View
       style={[
@@ -242,6 +250,39 @@ const CardItem = ({ card, index, scrollX, total }: CardProps) => {
           resizeMode="contain"
         />
       </Animated.View>
+
+      {/* Real card data overlaid on the placeholder image. Sits over the
+          card wrapper (not the scaled image) so it stays inside the rounded
+          corners regardless of parallax. */}
+      <View pointerEvents="none" style={styles.cardOverlay}>
+        <View style={styles.cardOverlayTop}>
+          <Text size="xs" weight="bold" color="#FFFFFF" style={styles.cardBrandText}>
+            {brandLabel}
+          </Text>
+        </View>
+        <View style={styles.cardOverlayBottom}>
+          <Text size="2xl" weight="bold" color="#FFFFFF" style={styles.cardNumberText}>
+            •••• {last4}
+          </Text>
+          <View style={styles.cardOverlayMeta}>
+            <View>
+              <Text size="xs" weight="medium" color="rgba(255,255,255,0.7)">
+                EXPIRES
+              </Text>
+              <Text size="sm" weight="semiBold" color="#FFFFFF">
+                {expDisplay}
+              </Text>
+            </View>
+            {card.isDefault ? (
+              <View style={styles.cardDefaultBadge}>
+                <Text size="xs" weight="bold" color="#FFFFFF">
+                  DEFAULT
+                </Text>
+              </View>
+            ) : null}
+          </View>
+        </View>
+      </View>
     </Animated.View>
   );
 };
@@ -853,6 +894,43 @@ const styles = StyleSheet.create({
     // while keeping the card fully visible (no cropping).
     transform: [{ scale: 1.35 }],
     borderRadius: 14,
+  },
+  cardOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    padding: 28,
+    justifyContent: "space-between",
+  },
+  cardOverlayTop: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+  },
+  cardOverlayBottom: {
+    gap: 16,
+  },
+  cardOverlayMeta: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    justifyContent: "space-between",
+  },
+  cardBrandText: {
+    letterSpacing: 2,
+    backgroundColor: "rgba(0,0,0,0.25)",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 6,
+    overflow: "hidden",
+  },
+  cardNumberText: {
+    letterSpacing: 3,
+    textShadowColor: "rgba(0,0,0,0.35)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
+  },
+  cardDefaultBadge: {
+    backgroundColor: "rgba(82,153,254,0.95)",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 6,
   },
   pagination: {
     position: "absolute",
