@@ -868,6 +868,56 @@ export default function HomeScreen() {
       )}
     </ScrollDrivenGradientBackground>
 
+    {/* No-vehicle gate — shown when user taps into booking without a vehicle */}
+    <BottomSheetModal
+      ref={noVehicleSheetRef}
+      enableDynamicSizing
+      maxDynamicContentSize={screenHeight * 0.46}
+      backdropComponent={BlurBackdrop}
+      enableContentPanningGesture={false}
+      handleIndicatorStyle={styles.sheetHandle}
+      backgroundStyle={styles.sheetBackground}
+    >
+      <BottomSheetScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={[styles.sheetContentContainer, { paddingBottom: insets.bottom + 24 }]}
+      >
+        <View style={styles.sheetTitleWrap}>
+          <View style={styles.noVehicleIconWrap}>
+            <Text style={{ fontSize: 26 }}>🚗</Text>
+          </View>
+          <Text style={styles.sheetTitle}>Add a vehicle first</Text>
+        </View>
+
+        <View style={styles.sheetBody}>
+          <Text style={styles.sheetBodyText}>
+            We need to know your vehicle to match you with the right mechanic and services.
+          </Text>
+        </View>
+
+        <View style={styles.sheetActions}>
+          <Pressable
+            style={({ pressed }) => [styles.sheetPrimaryButton, pressed && styles.sheetPressed]}
+            onPress={() => {
+              noVehicleSheetRef.current?.dismiss();
+              router.push('/add-vehicle');
+            }}
+          >
+            <Text weight="semiBold" color="#FFF" style={styles.sheetPrimaryButtonText}>
+              Add a vehicle
+            </Text>
+          </Pressable>
+
+          <Pressable
+            onPress={() => noVehicleSheetRef.current?.dismiss()}
+            style={styles.noVehicleSecondaryAction}
+          >
+            <Text style={styles.noVehicleSecondaryText}>Maybe later</Text>
+          </Pressable>
+        </View>
+      </BottomSheetScrollView>
+    </BottomSheetModal>
+
     {/* Booking details sheet — opened by the upcoming appointment card's
         View Details button. Mirrors the bookings tab's wiring. */}
     <BookingDetailsSheet ref={detailsSheetRef} />
