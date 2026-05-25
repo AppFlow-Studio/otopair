@@ -37,7 +37,8 @@ import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 
 // 4. Constants, hooks, types, stores
 import { BorderRadius, Shadows } from "@/constants/theme";
-import { formatDistanceMiles } from "@/utils/geo";
+import { useDistanceUnit } from "@/hooks/useDistanceUnit";
+import { formatProximityDistanceFromMiles } from "@/utils/geo";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
 
@@ -197,6 +198,7 @@ function SuccessCheckmark() {
 
 /** Compact mechanic info card */
 function CompactMechanicCard() {
+  const distanceUnit = useDistanceUnit();
   const selectedMechanicId = useBookingStore((state) => state.selectedMechanicId);
   const getMechanicById = useMechanicStore((state) => state.getMechanicById);
 
@@ -229,7 +231,7 @@ function CompactMechanicCard() {
           {mechanic.title ?? mechanic.shopName}
         </Text>
         <Text size="xs" weight="regular" color="#9CA3AF">
-          {formatDistanceMiles(mechanic.distanceMi)}
+          {formatProximityDistanceFromMiles(mechanic.distanceMi, distanceUnit)}
         </Text>
       </View>
 

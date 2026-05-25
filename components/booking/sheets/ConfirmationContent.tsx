@@ -14,7 +14,8 @@ import { StyleSheet, View } from "react-native";
 
 import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 import { BorderRadius } from "@/constants/theme";
-import { formatDistanceMiles } from "@/utils/geo";
+import { useDistanceUnit } from "@/hooks/useDistanceUnit";
+import { formatProximityDistanceFromMiles } from "@/utils/geo";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
 
@@ -30,6 +31,7 @@ import { useMechanicStore } from "@/stores/useMechanicStore";
 // ============================================================================
 
 export function ConfirmationContent() {
+  const distanceUnit = useDistanceUnit();
   // ═══════════════ STORE ═══════════════
   const selectedMechanicId = useBookingStore((state) => state.selectedMechanicId);
   const bookingType = useBookingStore((state) => state.bookingType);
@@ -94,7 +96,7 @@ export function ConfirmationContent() {
                 {mechanic.shopName}
               </Text>
               <Text size="xs" weight="regular" color="#6B7280">
-                {formatDistanceMiles(mechanic.distanceMi).replace(" mi", "")} miles away
+                {formatProximityDistanceFromMiles(mechanic.distanceMi, distanceUnit)} away
               </Text>
             </View>
           </View>

@@ -16,7 +16,9 @@ import { Bookmark, Calendar, Navigation, Phone, Star } from "lucide-react-native
 
 import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 import { BorderRadius, Shadows } from "@/constants/theme";
+import { useDistanceUnit } from "@/hooks/useDistanceUnit";
 import type { Shop } from "@/stores/types/store.types";
+import { formatProximityDistanceFromKm } from "@/utils/geo";
 
 interface ShopHeroCardProps {
   shop: Shop;
@@ -52,13 +54,11 @@ export function ShopHeroCard({
   onSavePress,
   isSaved = false,
 }: ShopHeroCardProps) {
+  const distanceUnit = useDistanceUnit();
   const [actionsWidth, setActionsWidth] = useState(0);
   const rating = typeof shop.rating === "number" ? shop.rating : null;
   const reviewCount = shop.reviewCount ?? 0;
-  const distanceMi =
-    typeof shop.distanceKm === "number"
-      ? (shop.distanceKm * 0.621371).toFixed(1)
-      : null;
+  const distanceLabel = formatProximityDistanceFromKm(shop.distanceKm, distanceUnit);
   const actionLabelSize = useMemo(
     () =>
       getActionLabelSize(
@@ -104,11 +104,11 @@ export function ShopHeroCard({
             </Text>
           </View>
         ) : null}
-        {distanceMi ? (
+        {distanceLabel ? (
           <>
             <View style={styles.dot} />
             <Text size="sm" weight="medium" color="#475569">
-              {distanceMi} mi
+              {distanceLabel}
             </Text>
           </>
         ) : null}

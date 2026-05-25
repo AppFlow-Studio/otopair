@@ -28,7 +28,8 @@ import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 
 // 4. Constants
 import { BorderRadius } from "@/constants/theme";
-import { formatDistanceMiles } from "@/utils/geo";
+import { useDistanceUnit } from "@/hooks/useDistanceUnit";
+import { formatProximityDistanceFromMiles } from "@/utils/geo";
 
 // 5. Types
 import type { Mechanic } from "@/stores/types/store.types";
@@ -49,6 +50,8 @@ export interface MechanicInfoCardProps {
 // ============================================================================
 
 export function MechanicInfoCard({ mechanic, ratingCount }: MechanicInfoCardProps) {
+  const distanceUnit = useDistanceUnit();
+
   return (
     <View style={styles.mechanicSection}>
       {/* Avatar and Basic Info */}
@@ -76,7 +79,7 @@ export function MechanicInfoCard({ mechanic, ratingCount }: MechanicInfoCardProp
 
           <View style={styles.distanceRow}>
             <Text size="xs" weight="regular" color="#9CA3AF">
-              {formatDistanceMiles(mechanic.distanceMi)}
+              {formatProximityDistanceFromMiles(mechanic.distanceMi, distanceUnit)}
             </Text>
             {mechanic.isVerified && (
               <View style={styles.verifiedBadge}>
