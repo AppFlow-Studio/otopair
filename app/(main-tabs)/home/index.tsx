@@ -872,7 +872,7 @@ export default function HomeScreen() {
     {/* No-vehicle gate — shown when user taps into booking without a vehicle */}
     <FloatingSheet
       ref={noVehicleSheetRef}
-      snapHeights={[screenHeight * 0.48]}
+      snapHeights={[screenHeight * 0.52]}
       showBackdrop
     >
       <View style={[styles.sheetContentContainer, styles.noVehicleContent]}>
