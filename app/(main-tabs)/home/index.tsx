@@ -1134,4 +1134,21 @@ const styles = StyleSheet.create({
     opacity: 0.9,
     transform: [{ scale: 0.99 }],
   },
+  noVehicleIconWrap: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: '#5299FE1A',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  noVehicleSecondaryAction: {
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  noVehicleSecondaryText: {
+    fontSize: 15,
+    color: '#8A97A8',
+  },
 });
