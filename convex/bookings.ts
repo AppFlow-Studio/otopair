@@ -11306,6 +11306,14 @@ export const getBookingByIdForCustomer = query({
       serviceNames,
       vehicleDisplay,
       totalCost: booking.total_cost,
+      // Raw inputs to deriveDisclosedRange — let the sheet recompute the
+      // customer-facing band from the same formula Review & Pay uses, so
+      // bookings created before booking_quotes.ts learned to fall back to
+      // ±25% don't display a collapsed "$X – $X".
+      laborCost: booking.labor_cost ?? null,
+      partsCost: booking.parts_cost ?? null,
+      shopState: (shop as any)?.state ?? null,
+      shopZip: (shop as any)?.zip ?? null,
       statusHistory,
       lateMonitor,
       // Pre-Job Approval payment lifecycle

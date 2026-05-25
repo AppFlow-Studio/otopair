@@ -61,6 +61,7 @@ import {
   FileDisputeSheet,
   type FileDisputeSheetRef,
 } from "@/components/booking/FileDisputeSheet";
+import { deriveDisclosedRange } from "@/lib/disclosedRange";
 
 // ============================================================================
 // CONSTANTS (sheet mechanics — frozen)
@@ -949,18 +950,32 @@ function FullContent({
               );
             }
             if (hasRange) {
-              const low = (booking.disclosedRangeLowCents! / 100).toFixed(2);
-              const high = (booking.disclosedRangeHighCents! / 100).toFixed(2);
-              return (
-                <View style={styles.paymentRow}>
-                  <Text size="md" weight="regular" color="#1A1A1A">
-                    Estimated total
-                  </Text>
-                  <Text size="md" weight="bold" color="#1A1A1A">
-                    ${low} – ${high}
-                  </Text>
-                </View>
-              );
+              // Single source of truth: recompute the customer-facing band
+              // from labor/parts cost using the same helper Review & Pay
+              // uses, so the "Estimated total" here matches the range the
+              // customer saw at checkout. Snapshotted cents on the booking
+              // row are ignored — old bookings stored a collapsed value
+              // before booking_quotes.ts learned to fall back to ±25%.
+              const laborCost = bookingDetail?.laborCost ?? null;
+              const partsCost = bookingDetail?.partsCost ?? null;
+              if (laborCost != null && partsCost != null) {
+                const range = deriveDisclosedRange({
+                  laborCost,
+                  partsCost,
+                  state: bookingDetail?.shopState ?? null,
+                  zip: bookingDetail?.shopZip ?? null,
+                });
+                return (
+                  <View style={styles.paymentRow}>
+                    <Text size="md" weight="regular" color="#1A1A1A">
+                      Estimated total
+                    </Text>
+                    <Text size="md" weight="bold" color="#1A1A1A">
+                      {range.formatted}
+                    </Text>
+                  </View>
+                );
+              }
             }
             return (
               <View style={styles.paymentRow}>

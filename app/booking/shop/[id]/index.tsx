@@ -257,7 +257,7 @@ export default function ShopDetailScreen() {
       </Animated.ScrollView>
 
       {/* Sticky bottom CTA */}
-      <View style={[styles.stickyCta, { paddingBottom: insets.bottom + Spacing.md }]}>
+      <View style={[styles.stickyCta, { paddingBottom: Math.max(insets.bottom - Spacing.md, Spacing.xs) }]}>
         <Pressable
           onPress={handleSchedulePress}
           style={({ pressed }) => [

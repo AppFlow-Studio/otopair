@@ -69,7 +69,18 @@ export function useTimeSlotsForShop(shopId: string | null, date: string | null, 
       }));
   }, [slots]);
 
-  const timeOptions = useMemo(() => [...new Set(availableSlots.map((s) => s.displayTime))].sort(), [availableSlots]);
+  // Sort by 24-hour `startTime` (HH:MM is lexically chronological) so the
+  // list reads store-open → close. A naive sort on `displayTime` puts
+  // "10:00 PM" before "10:15 AM" because it's a string compare.
+  const timeOptions = useMemo(() => {
+    const byDisplay = new Map<string, string>();
+    for (const s of availableSlots) {
+      if (!byDisplay.has(s.displayTime)) byDisplay.set(s.displayTime, s.startTime);
+    }
+    return Array.from(byDisplay.entries())
+      .sort(([, a], [, b]) => a.localeCompare(b))
+      .map(([displayTime]) => displayTime);
+  }, [availableSlots]);
 
   const getSlotIdByDisplayTime = useMemo(
     () => (displayTime: string) => {

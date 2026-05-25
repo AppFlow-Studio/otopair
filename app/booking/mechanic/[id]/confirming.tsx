@@ -26,6 +26,7 @@ import Animated, {
   withDelay,
   withTiming,
 } from "react-native-reanimated";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAction } from "convex/react";
 import { useStripe } from "@stripe/stripe-react-native";
@@ -63,6 +64,7 @@ export default function BookingConfirmingScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const sheetRef = useRef<FloatingSheetRef>(null);
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const { createBookingConvex } = useCreateBookingConvex();
   const selectedMechanicId = useBookingStore((s) => s.selectedMechanicId);
   const bookingType = useBookingStore((s) => s.bookingType);
@@ -77,8 +79,14 @@ export default function BookingConfirmingScreen() {
   const [submitting, setSubmitting] = useState(false);
   const isCompactLayout = windowHeight < 860;
   const isVeryCompactLayout = windowHeight < 760;
-  const sheetHeight = Math.round(
-    windowHeight * (isVeryCompactLayout ? 0.57 : isCompactLayout ? 0.53 : 0.5),
+  // Content-driven sheet height: title + 3 rows + $20 hold note +
+  // Confirm + Go back + paddings. Kept just tall enough for "Go back"
+  // to render fully while still letting the Lottie subcopy ("Locking
+  // in your time slot with the shop") sit above the sheet's top edge.
+  const baseContentHeight = isVeryCompactLayout ? 390 : isCompactLayout ? 410 : 430;
+  const sheetHeight = Math.min(
+    Math.round(windowHeight * 0.78),
+    baseContentHeight + Math.max(insets.bottom - 12, 0),
   );
 
   // Open the sheet on mount, same shape as the tire-quote requesting flow.
@@ -270,6 +278,8 @@ const styles = StyleSheet.create({
   },
   copyOverlay: {
     position: "absolute",
+    // Sits below the dropped pin (~30% from top) and above the sheet's
+    // top edge — keeps the subcopy clear of the icon and the chrome.
     top: "37%",
     left: 24,
     right: 24,
@@ -277,13 +287,13 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   copyOverlayCompact: {
-    top: "36.5%",
+    top: "36%",
     left: 20,
     right: 20,
     gap: 6,
   },
   copyOverlayVeryCompact: {
-    top: "34.5%",
+    top: "34%",
   },
   copySub: {
     marginTop: 2,

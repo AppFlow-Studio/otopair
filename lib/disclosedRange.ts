@@ -33,9 +33,15 @@ export type DerivedRange = {
   formatted: string;
 };
 
-/** Format two dollar amounts as `$108.42 – $138.67`. Em dash (U+2013). */
+/** Format two dollar amounts as `$108.42 – $138.67`. Em dash (U+2013).
+ *  When the endpoints round to the same cents value (parts-less services
+ *  like Fuel System Cleaning collapse the band to a single point), render
+ *  just `$108.42` so the customer doesn't see a redundant "$X – $X". */
 export function formatRange(lowDollars: number, highDollars: number): string {
-  return `$${lowDollars.toFixed(2)} – $${highDollars.toFixed(2)}`;
+  const low = lowDollars.toFixed(2);
+  const high = highDollars.toFixed(2);
+  if (low === high) return `$${low}`;
+  return `$${low} – $${high}`;
 }
 
 /**

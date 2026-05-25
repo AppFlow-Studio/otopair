@@ -123,9 +123,19 @@ async function resolvePartsBandForService(
     fallback_midpoint_dollars: number;
   },
 ): Promise<{ low: number; high: number }> {
+  // A spec/option row counts as a real band only when low and high actually
+  // differ. When they're equal we'd persist a collapsed "$X – $X" range that
+  // contradicts the ±25% band the customer just agreed to at checkout, so
+  // we fall through to the fallback in that case.
+  const isRealBand = (low: number, high: number) => high > low;
+
   if (args.option_id) {
     const opt = await ctx.db.get(args.option_id);
-    if (opt?.parts_cost_low != null && opt?.parts_cost_high != null) {
+    if (
+      opt?.parts_cost_low != null &&
+      opt?.parts_cost_high != null &&
+      isRealBand(opt.parts_cost_low, opt.parts_cost_high)
+    ) {
       return { low: opt.parts_cost_low, high: opt.parts_cost_high };
     }
   }
@@ -137,7 +147,11 @@ async function resolvePartsBandForService(
         q.eq("engine_id", args.engine_id!).eq("service_id", args.service_id),
       )
       .first();
-    if (spec?.parts_cost_low != null && spec?.parts_cost_high != null) {
+    if (
+      spec?.parts_cost_low != null &&
+      spec?.parts_cost_high != null &&
+      isRealBand(spec.parts_cost_low, spec.parts_cost_high)
+    ) {
       return { low: spec.parts_cost_low, high: spec.parts_cost_high };
     }
   }

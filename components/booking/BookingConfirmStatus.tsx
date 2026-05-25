@@ -54,9 +54,8 @@ export function BookingConfirmStatus({ onConfirm, onGoBack, mechanicId }: Props)
     ? `${selectedVehicle.year} ${selectedVehicle.make} ${selectedVehicle.model}`
     : "Selected vehicle";
 
-  const mechanicLabel = mechanic
-    ? `${mechanic.name}${shop?.name ? ` · ${shop.name}` : ""}`
-    : "Selected mechanic";
+  const mechanicLabel = mechanic ? mechanic.name : "Selected mechanic";
+  const mechanicSecondary = shop?.name ?? undefined;
   const isCompactLayout = windowHeight < 860;
   const isVeryCompactLayout = windowHeight < 760;
 
@@ -91,13 +90,14 @@ export function BookingConfirmStatus({ onConfirm, onGoBack, mechanicId }: Props)
         <InfoRow
           icon={<User size={20} color="#4B5563" strokeWidth={2} />}
           primary={mechanicLabel}
+          secondary={mechanicSecondary}
           compact={isCompactLayout}
           veryCompact={isVeryCompactLayout}
         />
       </View>
 
       <View style={[styles.actionColumn, isCompactLayout && styles.actionColumnCompact, isVeryCompactLayout && styles.actionColumnVeryCompact]}>
-        {disclosedRangeFormatted ? (
+        {/* {disclosedRangeFormatted ? (
           <Text
             size={isVeryCompactLayout ? "sm" : "md"}
             weight="semiBold"
@@ -106,15 +106,14 @@ export function BookingConfirmStatus({ onConfirm, onGoBack, mechanicId }: Props)
           >
             The estimated price for your car is {disclosedRangeFormatted}.
           </Text>
-        ) : null}
+        ) : null} */}
         <Text
           size={isVeryCompactLayout ? "xs" : "sm"}
           weight="regular"
           color="#6B7280"
           style={styles.holdNote}
         >
-          A $20 hold will be placed on your card. The final amount is only
-          charged once your mechanic has inspected your car.
+          A $20 hold will be placed on your card.
         </Text>
         <ConfirmCountdownButton onConfirm={onConfirm} />
         <Pressable
@@ -173,33 +172,35 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     paddingHorizontal: 20,
-    paddingBottom: 16,
+    paddingTop: 4,
+    paddingBottom: 14,
   },
   containerCompact: {
     paddingHorizontal: 16,
+    paddingTop: 2,
     paddingBottom: 10,
   },
   title: {
-    marginTop: 2,
-    marginBottom: 18,
+    marginTop: 0,
+    marginBottom: 14,
   },
   titleCompact: {
-    marginBottom: 12,
+    marginBottom: 10,
   },
   rows: {
-    marginBottom: 20,
+    marginBottom: 14,
   },
   rowsCompact: {
-    marginBottom: 12,
+    marginBottom: 10,
   },
   row: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 12,
+    paddingVertical: 10,
     gap: 14,
   },
   rowCompact: {
-    paddingVertical: 9,
+    paddingVertical: 8,
     gap: 10,
   },
   iconSlot: {
@@ -220,7 +221,9 @@ const styles = StyleSheet.create({
     backgroundColor: "#E5E7EB",
   },
   actionColumn: {
-    marginTop: "auto",
+    // Sits directly below the info rows — no auto-margin so the rows
+    // pack near the top of the sheet and the buttons follow tight.
+    marginTop: 8,
     gap: 10,
   },
   actionColumnCompact: {
@@ -250,14 +253,14 @@ const styles = StyleSheet.create({
   },
   holdNote: {
     textAlign: "center",
-    lineHeight: 18,
+    lineHeight: 17,
     paddingHorizontal: 4,
-    marginBottom: 4,
+    marginBottom: 2,
   },
   rangeLine: {
     textAlign: "center",
-    lineHeight: 22,
+    lineHeight: 20,
     paddingHorizontal: 4,
-    marginBottom: 6,
+    marginBottom: 2,
   },
 });

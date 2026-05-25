@@ -81,12 +81,15 @@ import { ShopPreviewContent } from "./sheets/ShopPreviewContent";
 
 // 5. Constants, hooks, types, stores
 import { BorderRadius, FontFamily, FontSize, Shadows } from "@/constants/theme";
+import { useBookingLaborHours } from "@/hooks/useBookingLaborHours";
+import { useBookingPartsBreakdown } from "@/hooks/useBookingPartsBreakdown";
 import { useBookingTransition } from "@/hooks/useBookingTransition";
 import { useRecentlyBookedMechanicIdsFromConvex } from "@/hooks/useRecentlyBookedMechanicIdsFromConvex";
 import { useRecentlyBookedShopIdsFromConvex } from "@/hooks/useRecentlyBookedShopIdsFromConvex";
 import { useServiceOptionsForSelected } from "@/hooks/useServiceOptionsForSelected";
 import { useServiceVehicleSpecsForEngine } from "@/hooks/useServiceVehicleSpecsForEngine";
 import { useQuickReadGate } from "@/hooks/useQuickReadGate";
+import { deriveDisclosedRange } from "@/lib/disclosedRange";
 import { formatDurationForCar } from "@/lib/formatDuration";
 import { QuickReadGateSheet } from "./QuickReadGateSheet";
 import type { ServiceCategory } from "@/stores/types/store.types";
@@ -389,6 +392,63 @@ export function ServiceBottomSheet({
     );
     return Math.round(total);
   }, [selectedMechanicSlot?.shopId, shops, availableServices, selectedServiceIds, selectedTotal, engineSpecs, selectedServiceOptions]);
+
+  // Pre-disclose the same price range the Review & Pay screen shows, so the
+  // customer never sees a stark jump from "Book $75" → "$192–$266.75". Uses
+  // the same hooks + math as app/booking/mechanic/[id]/payment.tsx:
+  //   real OEM parts (useBookingPartsBreakdown) + vehicle-specific labor
+  //   hours (useBookingLaborHours) + shop labor_rate, then deriveDisclosedRange
+  //   layers tax + 7% platform fee on top and bands parts ±25%.
+  const { breakdown: pricedPartsByService, isLoading: isPricedPartsLoading } =
+    useBookingPartsBreakdown(selectedVehicle?.ownershipId, selectedServiceIds);
+  const { laborHours: laborHoursByService, isLoading: isLaborHoursLoading } =
+    useBookingLaborHours(selectedVehicle?.ownershipId, selectedServiceIds);
+
+  const mechanicFooterRange = useMemo(() => {
+    const isLoading = isPricedPartsLoading || isLaborHoursLoading;
+    if (!selectedMechanicSlot?.shopId) return { formatted: "", isLoading };
+    const shop = shops[selectedMechanicSlot.shopId];
+    const laborRate = shop?.labor_rate;
+    if (laborRate == null) return { formatted: "", isLoading };
+
+    const selectedServices = availableServices.filter((s) => selectedServiceIds.includes(s.id));
+
+    const laborHoursMap = new Map<string, number>();
+    for (const row of laborHoursByService) laborHoursMap.set(String(row.serviceId), row.hours);
+    const pricedPartsMap = new Map<string, (typeof pricedPartsByService)[number]>();
+    for (const row of pricedPartsByService) {
+      if (row.parts.length > 0) pricedPartsMap.set(String(row.serviceId), row);
+    }
+
+    let laborHours = 0;
+    let partsCost = 0;
+    for (const s of selectedServices) {
+      const hours = laborHoursMap.get(String(s.id)) ?? s.default_labor_hours ?? 0;
+      laborHours += hours;
+      const priced = pricedPartsMap.get(String(s.id));
+      partsCost += priced && priced.partsTotal > 0
+        ? priced.partsTotal
+        : s.default_parts_estimate ?? 0;
+    }
+
+    const laborCost = laborHours * laborRate;
+    const range = deriveDisclosedRange({
+      laborCost,
+      partsCost,
+      state: shop?.state,
+      zip: shop?.zip,
+    });
+    return { formatted: range.formatted, isLoading };
+  }, [
+    selectedMechanicSlot?.shopId,
+    shops,
+    availableServices,
+    selectedServiceIds,
+    laborHoursByService,
+    pricedPartsByService,
+    isPricedPartsLoading,
+    isLaborHoursLoading,
+  ]);
 
   // ═══════════════ SEARCH COMPUTED VALUES ═══════════════
   const recentShopIds = useMemo(() => getRecentShopIds(), [getRecentShopIds]);
@@ -1286,8 +1346,27 @@ export function ServiceBottomSheet({
                       activeOpacity={0.8}
                     >
                       <Text size="md" weight="bold" color={BrandColors.white}>
-                        Book ${mechanicFooterTotal}
+                        Book
                       </Text>
+                      {mechanicFooterRange.isLoading ? (
+                        <View style={mechanicFooterStyles.priceSkeleton} />
+                      ) : mechanicFooterRange.formatted ? (
+                        <Text
+                          size="xs"
+                          weight="semiBold"
+                          color={BrandColors.white}
+                          style={mechanicFooterStyles.priceRange}
+                          numberOfLines={1}
+                          adjustsFontSizeToFit
+                          minimumFontScale={0.7}
+                        >
+                          ~ {mechanicFooterRange.formatted}
+                        </Text>
+                      ) : (
+                        <Text size="xs" weight="semiBold" color={BrandColors.white} style={mechanicFooterStyles.priceRange}>
+                          ~${mechanicFooterTotal}
+                        </Text>
+                      )}
                     </TouchableOpacity>
                   </View>
                 )}
@@ -2134,12 +2213,23 @@ const mechanicFooterStyles = StyleSheet.create({
     flex: 1,
   },
   bookButton: {
-    flexDirection: "row",
+    flexDirection: "column",
     alignItems: "center",
-    gap: Spacing.sm,
+    justifyContent: "center",
+    gap: 2,
     backgroundColor: BrandColors.primary,
-    paddingVertical: Spacing.md,
+    paddingVertical: Spacing.sm,
     paddingHorizontal: Spacing.lg,
     borderRadius: BorderRadius.full,
+    minWidth: 140,
+  },
+  priceRange: {
+    opacity: 0.9,
+  },
+  priceSkeleton: {
+    width: 96,
+    height: 10,
+    borderRadius: 4,
+    backgroundColor: "rgba(255, 255, 255, 0.25)",
   },
 });

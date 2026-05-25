@@ -30,6 +30,7 @@ import { useNextAvailabilityForShop } from "@/hooks/useNextAvailabilityForShop";
 import { useDistanceUnit } from "@/hooks/useDistanceUnit";
 import { formatProximityDistanceFromMiles } from "@/utils/geo";
 import { BorderRadius } from "@/constants/theme";
+import { deriveDisclosedRange } from "@/lib/disclosedRange";
 import type { Mechanic, MechanicAvailabilitySlot } from "@/stores/types/store.types";
 
 // ============================================================================
@@ -46,6 +47,10 @@ export interface ShopWithMechanics {
   mechanics: Mechanic[];
   /** Hourly labor rate in dollars (for price = labor_rate × time + parts) */
   laborRate?: number;
+  /** US state code — feeds the tax line in `deriveDisclosedRange`. */
+  state?: string;
+  /** ZIP code — drives the ZIP-3 metro tax overrides. */
+  zip?: string;
 }
 
 /** Slot with optional Convex booking fields */
@@ -89,6 +94,17 @@ interface ShopCardProps {
   selectedSlot: SelectedSlotInfo | null;
   /** Selected services for displaying cost */
   selectedServices: SelectedServiceInfo[];
+  /** True while real per-vehicle parts/labor data is in flight — show a
+   *  skeleton instead of a stale single-price band that will jump. */
+  isPriceLoading?: boolean;
+  /** Fired when the user picks a different mechanic chip on a card that
+   *  already has a selected slot — the parent updates the booking store so
+   *  the footer label (e.g. "with Abubeckr at …") matches the chip. */
+  onChangeMechanicForSelectedSlot?: (
+    shopId: string,
+    mechanicId: string | null,
+    mechanicName: string | null,
+  ) => void;
 }
 
 // ============================================================================
@@ -173,6 +189,8 @@ export const ShopCard = memo(function ShopCard({
   onMoreAvailability,
   selectedSlot,
   selectedServices,
+  isPriceLoading = false,
+  onChangeMechanicForSelectedSlot,
 }: ShopCardProps) {
   const distanceUnit = useDistanceUnit();
   // If only one mechanic, auto-select them (no "Any" option needed)
@@ -237,9 +255,20 @@ export const ShopCard = memo(function ShopCard({
   );
 
   // Handlers
-  const handleMechanicSelect = useCallback((mechanicId: string | null) => {
-    setSelectedMechanicId(mechanicId);
-  }, []);
+  const handleMechanicSelect = useCallback(
+    (mechanicId: string | null) => {
+      setSelectedMechanicId(mechanicId);
+      // If a slot is already selected on this shop, the footer's
+      // "with {mechanic} at {shop}" line is bound to whichever mechanic
+      // owned that slot at pick-time. Switching the avatar should refresh
+      // that label so the user sees who they're actually booking.
+      if (selectedSlot?.shopId === shop.shopId) {
+        const mechanic = mechanicId ? shop.mechanics.find((m) => m.id === mechanicId) : null;
+        onChangeMechanicForSelectedSlot?.(shop.shopId, mechanicId, mechanic?.name ?? null);
+      }
+    },
+    [selectedSlot, shop.shopId, shop.mechanics, onChangeMechanicForSelectedSlot],
+  );
 
   const handleSlotPress = useCallback(
     (slot: SlotWithBookingMeta) => {
@@ -260,8 +289,19 @@ export const ShopCard = memo(function ShopCard({
   // Get first mechanic for verified status (use shop-level if available)
   const firstMechanic = shop.mechanics[0];
 
-  // Calculate service cost: (labor_rate × service time) + parts per shop, or fallback to sum(price)
-  const serviceCostDisplay = useMemo(() => {
+  // Service cost: render the same range customers see on Review & Pay
+  // (deriveDisclosedRange = labor + parts ±25%, plus tax + 7% platform fee).
+  // When labor_rate is missing on the shop, fall back to a single price built
+  // from the catalog `price` so the card never goes blank.
+  const serviceDisplayName = useMemo(() => {
+    if (selectedServices.length === 0) return "";
+    const firstName = selectedServices[0].name;
+    const firstDisplay = firstName.charAt(0).toUpperCase() + firstName.slice(1).toLowerCase();
+    if (selectedServices.length === 1) return firstDisplay;
+    return `${firstDisplay} + ${selectedServices.length - 1} more...`;
+  }, [selectedServices]);
+
+  const servicePriceDisplay = useMemo(() => {
     if (selectedServices.length === 0) return null;
 
     const laborRate = shop.laborRate;
@@ -269,22 +309,34 @@ export const ShopCard = memo(function ShopCard({
       laborRate != null &&
       selectedServices.every((s) => s.default_labor_hours != null && s.default_parts_estimate != null);
 
-    const totalPrice = hasFormulaParams
-      ? selectedServices.reduce(
-          (sum, s) => sum + laborRate! * (s.default_labor_hours ?? 0) + (s.default_parts_estimate ?? 0) + (s.state_fee ?? 0),
-          0,
-        )
-      : selectedServices.reduce((sum, s) => sum + s.price + (s.state_fee ?? 0), 0);
-
-    const firstName = selectedServices[0].name;
-    const firstDisplay = firstName.charAt(0).toUpperCase() + firstName.slice(1).toLowerCase();
-
-    if (selectedServices.length === 1) {
-      return `${firstDisplay} $${Math.round(totalPrice)}`;
+    if (!hasFormulaParams) {
+      const totalPrice = selectedServices.reduce((sum, s) => sum + s.price + (s.state_fee ?? 0), 0);
+      return `~$${Math.round(totalPrice)}`;
     }
-    const moreCount = selectedServices.length - 1;
-    return `${firstDisplay} + ${moreCount} more... $${Math.round(totalPrice)}`;
-  }, [selectedServices, shop.laborRate]);
+
+    const laborCost = selectedServices.reduce(
+      (sum, s) => sum + laborRate! * (s.default_labor_hours ?? 0),
+      0,
+    );
+    const partsCost = selectedServices.reduce((sum, s) => sum + (s.default_parts_estimate ?? 0), 0);
+    const stateFeeTotal = selectedServices.reduce((sum, s) => sum + (s.state_fee ?? 0), 0);
+
+    const range = deriveDisclosedRange({
+      laborCost,
+      partsCost,
+      state: shop.state,
+      zip: shop.zip,
+    });
+    // State fees (e.g. inspection) are fixed and sit outside the parts band —
+    // add them to both endpoints so the card matches the post-checkout total.
+    const low = Math.round(range.lowDollars + stateFeeTotal);
+    const high = Math.round(range.highDollars + stateFeeTotal);
+    // Parts-less services (Fuel System Cleaning, Diagnostic Scan, etc.)
+    // collapse the band to a single point — render as `~$X` instead of
+    // the redundant `~$X – $X`.
+    if (low === high) return `~$${low}`;
+    return `~$${low} – $${high}`;
+  }, [selectedServices, shop.laborRate, shop.state, shop.zip]);
 
   return (
     <View style={styles.container}>
@@ -332,11 +384,25 @@ export const ShopCard = memo(function ShopCard({
       </TouchableOpacity>
 
       {/* Service Cost Display */}
-      {serviceCostDisplay && (
+      {selectedServices.length > 0 && (
         <View style={styles.serviceCostSection}>
-          <Text size="md" weight="bold" color={BrandColors.primary}>
-            {serviceCostDisplay}
+          <Text size="md" weight="bold" color={BrandColors.primary} style={styles.serviceCostName}>
+            {serviceDisplayName}
           </Text>
+          {isPriceLoading ? (
+            <View style={styles.servicePriceSkeleton} />
+          ) : (
+            <Text
+              size="md"
+              weight="bold"
+              color={BrandColors.primary}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.75}
+            >
+              {servicePriceDisplay}
+            </Text>
+          )}
         </View>
       )}
 
@@ -606,9 +672,22 @@ const styles = StyleSheet.create({
     marginLeft: "auto",
   },
   serviceCostSection: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: Spacing.sm,
     marginTop: Spacing.md,
     paddingTop: Spacing.md,
     borderTopWidth: 1,
     borderTopColor: "#E5E7EB",
+  },
+  serviceCostName: {
+    flexShrink: 1,
+  },
+  servicePriceSkeleton: {
+    width: 110,
+    height: 14,
+    borderRadius: 4,
+    backgroundColor: "#E5E7EB",
   },
 });

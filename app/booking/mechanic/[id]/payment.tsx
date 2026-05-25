@@ -34,7 +34,7 @@ import { BorderRadius, Shadows } from "@/constants/theme";
 import { useBookingLaborHours } from "@/hooks/useBookingLaborHours";
 import { useBookingPartsBreakdown } from "@/hooks/useBookingPartsBreakdown";
 import { useCreateBookingConvex } from "@/hooks/useCreateBookingConvex";
-import { deriveDisclosedRange } from "@/lib/disclosedRange";
+import { deriveDisclosedRange, formatRange } from "@/lib/disclosedRange";
 import { computeBookingTax } from "@/lib/tax";
 import { computePlatformFeeDollars } from "@/lib/platformFee";
 import { useBookingStore } from "@/stores/useBookingStore";
@@ -451,7 +451,7 @@ export default function PaymentScreen() {
                   {service.name}
                 </Text>
                 <Text size="sm" weight="semiBold" color={BrandColors.primary}>
-                  ${lineRange.low.toFixed(2)} – ${lineRange.high.toFixed(2)}
+                  {formatRange(lineRange.low, lineRange.high)}
                 </Text>
               </View>
             );
@@ -522,7 +522,7 @@ export default function PaymentScreen() {
                     {part.name} (Part)
                   </Text>
                   <Text size="sm" weight="medium" color="#6B7280">
-                    ${(part.cost * 0.75).toFixed(2)} – ${(part.cost * 1.25).toFixed(2)}
+                    {formatRange(part.cost * 0.75, part.cost * 1.25)}
                   </Text>
                 </View>
               ))}
@@ -533,7 +533,7 @@ export default function PaymentScreen() {
                 Taxes & Fees
               </Text>
               <Text size="sm" weight="medium" color="#6B7280">
-                ${breakdown.taxLow.toFixed(2)} – ${breakdown.taxHigh.toFixed(2)}
+                {formatRange(breakdown.taxLow, breakdown.taxHigh)}
               </Text>
             </View>
           </View>
@@ -549,7 +549,7 @@ export default function PaymentScreen() {
               </TouchableOpacity>
             </View>
             <Text size="sm" weight="medium" color="#6B7280">
-              ${breakdown.feeLow.toFixed(2)} – ${breakdown.feeHigh.toFixed(2)}
+              {formatRange(breakdown.feeLow, breakdown.feeHigh)}
             </Text>
           </View>
 
