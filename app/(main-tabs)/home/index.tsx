@@ -878,7 +878,7 @@ export default function HomeScreen() {
       <View style={[styles.sheetContentContainer, styles.noVehicleContent]}>
         <View style={styles.sheetTitleWrap}>
           <View style={styles.noVehicleIconWrap}>
-            <Text style={{ fontSize: 26 }}>🚗</Text>
+            <Text style={{ fontSize: 26, lineHeight: 34 }}>🚗</Text>
           </View>
           <Text style={styles.sheetTitle}>Add a vehicle first</Text>
         </View>
