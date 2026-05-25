@@ -122,6 +122,7 @@ export default function HomeScreen() {
     initialInsetTopRef.current = insets.top;
   }
   const stableInsetTop = initialInsetTopRef.current;
+  const { height: screenHeight } = useWindowDimensions();
   const router = useRouter();
   const { isNewUser, shouldShowReactivationSheet, setShouldShowReactivationSheet } = useAuthStore();
   const { vehicles: listVehicles, hasVehicles, isLoading: vehiclesLoading } = useVehicleOwnershipFromConvex();
@@ -142,6 +143,7 @@ export default function HomeScreen() {
   const sheetRef = useRef<BottomSheetModal>(null);
   const hasPresentedReactivationRef = useRef(false);
   const snapPoints = useMemo(() => ["42%"], []);
+  const noVehicleSheetRef = useRef<BottomSheetModal>(null);
 
   useEffect(() => {
     if (shouldShowReactivationSheet && showWelcome) {
@@ -415,6 +417,11 @@ export default function HomeScreen() {
   };
 
   const handleMapPress = () => {
+    if (vehiclesLoading) return;
+    if (!hasVehicles) {
+      noVehicleSheetRef.current?.present();
+      return;
+    }
     router.push("/booking/map");
   };
 
