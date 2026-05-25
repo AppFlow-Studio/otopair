@@ -14,6 +14,7 @@ import {
   BottomSheetScrollView,
 } from "@gorhom/bottom-sheet";
 import { BlurBackdrop } from "@/components/shared-ui/BlurBackdrop";
+import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
 import { Bell, MoveRight, Star, Trophy } from 'lucide-react-native';
 import { useMutation, useQuery } from 'convex/react';
 import { api } from '@/convex/_generated/api';
@@ -143,7 +144,7 @@ export default function HomeScreen() {
   const sheetRef = useRef<BottomSheetModal>(null);
   const hasPresentedReactivationRef = useRef(false);
   const snapPoints = useMemo(() => ["42%"], []);
-  const noVehicleSheetRef = useRef<BottomSheetModal>(null);
+  const noVehicleSheetRef = useRef<FloatingSheetRef>(null);
 
   useEffect(() => {
     if (shouldShowReactivationSheet && showWelcome) {
@@ -419,7 +420,7 @@ export default function HomeScreen() {
   const handleMapPress = () => {
     if (vehiclesLoading) return;
     if (!hasVehicles) {
-      noVehicleSheetRef.current?.present();
+      noVehicleSheetRef.current?.open();
       return;
     }
     router.push("/booking/map");
@@ -869,19 +870,12 @@ export default function HomeScreen() {
     </ScrollDrivenGradientBackground>
 
     {/* No-vehicle gate — shown when user taps into booking without a vehicle */}
-    <BottomSheetModal
+    <FloatingSheet
       ref={noVehicleSheetRef}
-      enableDynamicSizing
-      maxDynamicContentSize={screenHeight * 0.46}
-      backdropComponent={BlurBackdrop}
-      enableContentPanningGesture={false}
-      handleIndicatorStyle={styles.sheetHandle}
-      backgroundStyle={styles.sheetBackground}
+      snapHeights={[screenHeight * 0.48]}
+      showBackdrop
     >
-      <BottomSheetScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={[styles.sheetContentContainer, { paddingBottom: insets.bottom + 24 }]}
-      >
+      <View style={[styles.sheetContentContainer, styles.noVehicleContent]}>
         <View style={styles.sheetTitleWrap}>
           <View style={styles.noVehicleIconWrap}>
             <Text style={{ fontSize: 26 }}>🚗</Text>
@@ -899,7 +893,7 @@ export default function HomeScreen() {
           <Pressable
             style={({ pressed }) => [styles.sheetPrimaryButton, pressed && styles.sheetPressed]}
             onPress={() => {
-              noVehicleSheetRef.current?.dismiss();
+              noVehicleSheetRef.current?.close();
               router.push('/add-vehicle');
             }}
           >
@@ -909,14 +903,14 @@ export default function HomeScreen() {
           </Pressable>
 
           <Pressable
-            onPress={() => noVehicleSheetRef.current?.dismiss()}
+            onPress={() => noVehicleSheetRef.current?.close()}
             style={styles.noVehicleSecondaryAction}
           >
             <Text style={styles.noVehicleSecondaryText}>Maybe later</Text>
           </Pressable>
         </View>
-      </BottomSheetScrollView>
-    </BottomSheetModal>
+      </View>
+    </FloatingSheet>
 
     {/* Booking details sheet — opened by the upcoming appointment card's
         View Details button. Mirrors the bookings tab's wiring. */}
@@ -1133,6 +1127,9 @@ const styles = StyleSheet.create({
   sheetPressed: {
     opacity: 0.9,
     transform: [{ scale: 0.99 }],
+  },
+  noVehicleContent: {
+    paddingBottom: 24,
   },
   noVehicleIconWrap: {
     width: 52,
