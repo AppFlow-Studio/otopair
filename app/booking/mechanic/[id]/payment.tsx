@@ -38,6 +38,7 @@ import { useBookingLaborHours } from "@/hooks/useBookingLaborHours";
 import { useBookingPartsBreakdown } from "@/hooks/useBookingPartsBreakdown";
 import { useCreateBookingConvex } from "@/hooks/useCreateBookingConvex";
 import { deriveDisclosedRange, formatRange } from "@/lib/disclosedRange";
+import { formatDurationForCar } from "@/lib/formatDuration";
 import { computeBookingTax } from "@/lib/tax";
 import { computePlatformFeeDollars } from "@/lib/platformFee";
 import { useBookingStore } from "@/stores/useBookingStore";
@@ -483,7 +484,7 @@ export default function PaymentScreen() {
             ) : (
               <View style={styles.breakdownRow}>
                 <Text size="sm" weight="regular" color="#6B7280">
-                  Labor ({breakdown.laborHours} hrs)
+                  Labor ({formatDurationForCar(breakdown.laborHours) ?? "0 mins"})
                 </Text>
                 <Text size="sm" weight="medium" color="#6B7280">
                   ${breakdown.laborCost.toFixed(2)}

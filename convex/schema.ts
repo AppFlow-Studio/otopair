@@ -1663,6 +1663,42 @@ export default defineSchema({
       })
     ),
     disclosed_at_ms: v.optional(v.number()),
+    // Itemized parts snapshot taken at booking-create time. Same per-unit
+    // prices and quantities the customer saw on the Review & Pay screen.
+    // The mechanic's post-job dialog hydrates from this first so the
+    // mechanic and customer see consistent numbers regardless of later
+    // catalog/scraping drift. Each row corresponds to a single OEM fitment.
+    priced_parts_snapshot: v.optional(
+      v.array(
+        v.object({
+          service_id: v.id("services"),
+          part_id: v.optional(v.id("oem_parts")),
+          oem_number: v.string(),
+          part_name: v.string(),
+          brand: v.optional(v.string()),
+          part_tier: v.optional(v.string()),
+          quantity: v.number(),
+          unit_price_cents: v.number(),
+          line_total_cents: v.number(),
+        })
+      )
+    ),
+
+    // Single-point quoted price the mechanic confirms against. Derived at
+    // booking creation from priced_parts_snapshot (single avg unit prices)
+    // + disclosed_breakdown.labor_cents + midpoints of the tax / service-fee
+    // bands. By construction ≤ disclosed_range_high_cents, so an unmodified
+    // mechanic confirmation auto-captures via the existing in-range branch
+    // in booking_approvals.ts. Shown to the mechanic instead of the band.
+    quoted_set_price_cents: v.optional(v.number()),
+    quoted_breakdown: v.optional(
+      v.object({
+        parts_cents: v.number(),
+        labor_cents: v.number(),
+        tax_cents: v.number(),
+        service_fee_cents: v.number(),
+      })
+    ),
 
     // Orthogonal sub-state alongside `status`. Enum values (string-stored,
     // validated in mutation code): "none" | "in_range" | "pre_job_pending"
@@ -3651,6 +3687,14 @@ export default defineSchema({
 
     // What the mechanic submitted
     mechanic_set_price_cents: v.number(),
+    // Frozen breakdown of `mechanic_set_price_cents` at submit-time. Lets
+    // the activity log show "parts + labor + tax + fee = total" without
+    // re-running the server-side pricing pipeline. Optional for backwards
+    // compatibility with approval rows written before this was added.
+    parts_subtotal_cents: v.optional(v.number()),
+    labor_cents: v.optional(v.number()),
+    tax_cents: v.optional(v.number()),
+    service_fee_cents: v.optional(v.number()),
     parts_snapshot: v.array(postjobPartValidator),
     labor_hours: v.optional(v.number()),
     labor_rate_cents: v.optional(v.number()),
@@ -3674,9 +3718,15 @@ export default defineSchema({
 
     // Decision lifecycle. Null = open cycle.
     // "approved" | "declined" | "auto_approved_within_range" | "sla_expired"
+    // | "withdrawn"
     decision: v.optional(v.string()),
     decided_at_ms: v.optional(v.number()),
     decided_by_user_id: v.optional(v.id("users")),
+    // Free-form actor label for system-emitted decisions where there's no
+    // user id to stamp (e.g. "system" on `sla_expired`, "stripe_webhook" on
+    // future auto-captures). For user-initiated decisions, `decided_by_user_id`
+    // is the authoritative actor and this is left undefined.
+    decision_actor: v.optional(v.string()),
 
     // Stripe linkage. stripe_event_id is the webhook event we last reconciled
     // — used for idempotency in the amount_capturable_updated handler.
