@@ -21,6 +21,8 @@ export type ServiceCategory = "basic_maintenance" | "tires_wheels" | "brakes_sus
 export interface Service {
   /** Unique identifier */
   id: string;
+  /** Stable seed slug (e.g., "oil-change"). Optional — MOCK_SERVICES omits it. */
+  slug?: string;
   /** Service display name (e.g., "Oil Change") */
   name: string;
   /** Brief description of the service */

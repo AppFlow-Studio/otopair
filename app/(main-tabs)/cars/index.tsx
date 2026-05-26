@@ -31,7 +31,11 @@ import { useVehicleOwnershipFromConvex } from "@/hooks/useVehicleOwnershipFromCo
 import { useMergedMaintenance } from "@/hooks/useMaintenanceData";
 import { useDriverRecommendationsFromConvex } from "@/hooks/useDriverRecommendationsFromConvex";
 import { useBookingStore } from "@/stores/useBookingStore";
-import type { ServiceCategory } from "@/stores/types/store.types";
+import {
+  MAINTENANCE_TYPE_TO_CATEGORY,
+  extractMaintenanceType,
+  findServiceForMaintenanceType,
+} from "@/lib/maintenanceServiceMapping";
 import { useTireBookingStore } from "@/stores/useTireBookingStore";
 import type { Id } from "@/convex/_generated/dataModel";
 import { ALL_MAINTENANCE_TYPES, MAINTENANCE_LABELS, type MaintenanceType } from "@/utils/maintenanceStatus";
@@ -156,18 +160,6 @@ const COLOR_GRADIENTS: Record<string, string[]> = {
 
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
-
-// Maps a Maintenance Tracker item type to the booking-flow service category
-// tab. Mirrors the pattern from MoreServicesSection's CARD_TO_CATEGORY. Items
-// without a dedicated category tab (battery, inspection) land on the
-// Maintenance tab alongside oil.
-const MAINTENANCE_TYPE_TO_CATEGORY: Record<string, ServiceCategory> = {
-  oil: 'basic_maintenance',
-  brakes: 'brakes_suspension',
-  tires: 'tires_wheels',
-  battery: 'basic_maintenance',
-  inspection: 'basic_maintenance',
-};
 
 // ============================================================================
 // MAIN COMPONENT
@@ -1743,15 +1735,18 @@ export default function CarsHomeScreen() {
                 // stash the rec id so createBatch wires it into the booking
                 // (auto-closes the rec on completion).
                 const tapped = mergedMaintenanceItems.find((m) => m.id === id);
-                useBookingStore.getState().setSourceRecommendationId(
-                  tapped?.sourceRecommendationId ?? null,
+                const store = useBookingStore.getState();
+                store.setSourceRecommendationId(tapped?.sourceRecommendationId ?? null);
+                // Deep-link the service selector to the matching category tab,
+                // and pre-attach the natural primary service so the cart isn't
+                // empty when the sheet opens. User can swap in the selector.
+                const itemType = extractMaintenanceType(id);
+                store.setInitialServiceCategory(
+                  MAINTENANCE_TYPE_TO_CATEGORY[itemType] ?? 'basic_maintenance',
                 );
-                // Deep-link the service selector to the matching category
-                // tab so the user lands one step closer to the right service.
-                const itemType = id.replace(/^(unknown-|user-)/, '');
-                const category =
-                  MAINTENANCE_TYPE_TO_CATEGORY[itemType] ?? 'basic_maintenance';
-                useBookingStore.getState().setInitialServiceCategory(category);
+                const matched = findServiceForMaintenanceType(itemType, store.availableServices);
+                store.clearSelectedServices();
+                if (matched) store.toggleServiceSelection(matched.id);
                 router.push('/booking/map?openServices=true');
               }}
               onTakeAction={(item) => {

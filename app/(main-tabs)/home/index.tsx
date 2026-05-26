@@ -26,6 +26,11 @@ import { Button, BrandColors, ScrollDrivenGradientBackground, Text } from "@/com
 // 4. Stores & Hooks
 import { useAuthStore } from '@/stores/useAuthStore';
 import { useBookingStore } from '@/stores/useBookingStore';
+import {
+  MAINTENANCE_TYPE_TO_CATEGORY,
+  extractMaintenanceType,
+  findServiceForMaintenanceType,
+} from '@/lib/maintenanceServiceMapping';
 import { usePendingNavigationStore } from "@/stores/usePendingNavigationStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 import { useNotificationsSheetStore } from "@/stores/useNotificationsSheetStore";
@@ -817,6 +822,17 @@ export default function HomeScreen() {
                     vehicles={mappedVehicles.length > 0 ? mappedVehicles : undefined}
                     onBookNow={(vehicleId, serviceId) => {
                       useVehicleStore.getState().selectVehicle(vehicleId);
+                      // serviceId here is the row id, shaped like "<type>-<ownershipId>"
+                      // (see urgentItems builder above). Pre-attach the natural
+                      // service so the cart isn't empty when the sheet opens.
+                      const itemType = extractMaintenanceType(serviceId);
+                      const store = useBookingStore.getState();
+                      store.setInitialServiceCategory(
+                        MAINTENANCE_TYPE_TO_CATEGORY[itemType] ?? 'basic_maintenance',
+                      );
+                      const matched = findServiceForMaintenanceType(itemType, store.availableServices);
+                      store.clearSelectedServices();
+                      if (matched) store.toggleServiceSelection(matched.id);
                       router.push('/booking/map?openServices=true');
                     }}
                     onSwipeStart={() => setIsCardSwiping(true)}
