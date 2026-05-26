@@ -21,11 +21,11 @@ export const MAINTENANCE_TYPE_TO_CATEGORY: Record<string, ServiceCategory> = {
 };
 
 export const MAINTENANCE_TYPE_TO_SLUG: Record<string, string> = {
-  oil: "oil-change",
-  brakes: "brake-pad-replacement",
-  tires: "tire-rotation",
-  battery: "battery-replacement",
-  inspection: "ny-state-inspection",
+  oil: "oil_change",
+  brakes: "brake_pad_replacement",
+  tires: "tire_rotation",
+  battery: "battery_replacement",
+  inspection: "ny_state_inspection",
 };
 
 /**
@@ -39,12 +39,20 @@ export function extractMaintenanceType(id: string): string {
   return dash === -1 ? stripped : stripped.slice(0, dash);
 }
 
-/** Find the pre-attach service for a maintenance type, or undefined. */
+/**
+ * Find the pre-attach service for a maintenance type, or undefined.
+ * Matches slug hyphen/underscore-insensitively because the deployed Convex
+ * catalog uses underscores ("oil_change") while older seed scripts use
+ * hyphens ("oil-change") — we want to match either without forcing a sync.
+ */
+const normalizeSlug = (s: string | undefined) =>
+  s ? s.toLowerCase().replace(/-/g, "_") : "";
+
 export function findServiceForMaintenanceType(
   type: string,
   available: readonly Service[],
 ): Service | undefined {
-  const slug = MAINTENANCE_TYPE_TO_SLUG[type];
-  if (!slug) return undefined;
-  return available.find((s) => s.slug === slug);
+  const wanted = normalizeSlug(MAINTENANCE_TYPE_TO_SLUG[type]);
+  if (!wanted) return undefined;
+  return available.find((s) => normalizeSlug(s.slug) === wanted);
 }
