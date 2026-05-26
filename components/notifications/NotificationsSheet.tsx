@@ -31,6 +31,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { BlurView } from "expo-blur";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useRouter } from "expo-router";
 import { Bell, Calendar, X } from "lucide-react-native";
 
 import { Text } from "@/components/shared-ui";
@@ -41,6 +42,7 @@ import {
 } from "@/hooks/useNotificationsFromConvex";
 import { useNotificationsSheetStore } from "@/stores/useNotificationsSheetStore";
 import { useRescheduleDecisionOverlayStore } from "@/stores/useRescheduleDecisionOverlayStore";
+import { routeOtopairDeepLink } from "@/utils/linking";
 
 const { height: SCREEN_H } = Dimensions.get("window");
 const SHEET_HEIGHT = Math.round(SCREEN_H * 0.78);
@@ -75,6 +77,7 @@ function formatExpiry(expiresAt: number): string | null {
 
 export function NotificationsSheet() {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const isOpen = useNotificationsSheetStore((s) => s.isOpen);
   const closeStore = useNotificationsSheetStore((s) => s.close);
   const openDecision = useRescheduleDecisionOverlayStore((s) => s.open);
@@ -162,8 +165,37 @@ export function NotificationsSheet() {
           height: 56,
         });
       }
-    } else {
-      markRead(row._id).catch(() => {});
+      return;
+    }
+
+    // Generic deep-link path. Approval notifications (and any future
+    // category set by convex/booking_approvals.ts or similar) ship a
+    // `data.deepLink` string in their payload — route on it so taps
+    // actually open the target screen instead of silently dismissing.
+    const deepLink =
+      typeof row.payload?.data?.deepLink === "string"
+        ? row.payload.data.deepLink
+        : null;
+    markRead(row._id).catch(() => {});
+    if (deepLink) {
+      closeStore();
+      requestAnimationFrame(() => {
+        routeOtopairDeepLink(router, deepLink);
+      });
+      return;
+    }
+
+    // Fallback: booking-scoped notification with no deep link — open the
+    // booking detail in the bookings tab so the user lands somewhere
+    // actionable instead of nowhere.
+    if (row.booking_id) {
+      closeStore();
+      requestAnimationFrame(() => {
+        router.push({
+          pathname: "/(main-tabs)/bookings",
+          params: { bookingId: String(row.booking_id) },
+        });
+      });
     }
   };
 

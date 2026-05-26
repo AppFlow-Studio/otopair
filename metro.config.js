@@ -45,4 +45,15 @@ if (useExternalConvex) {
   };
 }
 
+// SVG-as-React-Component support (react-native-svg-transformer). Lets us
+// `import Visa from "@/assets/images/VISA.svg"` and render it as JSX.
+config.transformer = {
+  ...config.transformer,
+  babelTransformerPath: require.resolve("react-native-svg-transformer"),
+};
+config.resolver.assetExts = config.resolver.assetExts.filter(
+  (ext) => ext !== "svg",
+);
+config.resolver.sourceExts = [...config.resolver.sourceExts, "svg"];
+
 module.exports = config;
