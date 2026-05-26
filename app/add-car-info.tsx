@@ -327,7 +327,6 @@ export default function AddVehicleDetailsScreen() {
       const ownershipId = await addOwner({
         vin: normalizedVin,
         userId,
-        is_primary: true,
         nickname: brand && model && year ? `${year} ${brand} ${model}` : undefined,
         mileage: mileage ? Number(mileage) : undefined,
       });
@@ -599,7 +598,9 @@ export default function AddVehicleDetailsScreen() {
     >
       <StatusBar style="dark" />
       <LinearGradient
-        colors={["#86C2E8", "#B0D6F0", "#EAF2FA"]}
+        colors={["#FFFFFF", "#FFFFFF", "#D6EAF8"]}
+        start={{ x: 0.5, y: 0 }}
+        end={{ x: 0.5, y: 1 }}
         style={StyleSheet.absoluteFill}
       />
 

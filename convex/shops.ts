@@ -249,6 +249,33 @@ export const list = query({
   },
 });
 
+// ─── Shop geocoding (client-side, keyless) ──────────────────────────
+// The map needs shops.lat/lng to drop a pin at the shop office. Instead
+// of a server-side geocoder (which needs API creds/env), the client
+// geocodes a shop's address on-device via expo-location — the same OS
+// map stack the app already renders with — and persists the result
+// here. See hooks/useShopsFromConvex.ts. This mutation only BACKFILLS:
+// it never overwrites coords a shop already has.
+
+export const setShopCoords = mutation({
+  args: { shopId: v.id("shops"), lat: v.number(), lng: v.number() },
+  handler: async (ctx, args) => {
+    const { user } = await getCurrentUser(ctx);
+    if (!user) throw new Error("Not authenticated");
+
+    const shop = await ctx.db.get(args.shopId);
+    if (!shop) return;
+
+    const hasCoords =
+      shop.lat != null &&
+      shop.lng != null &&
+      !(shop.lat === 0 && shop.lng === 0);
+    if (hasCoords) return; // already located — don't let a client overwrite
+
+    await ctx.db.patch(args.shopId, { lat: args.lat, lng: args.lng });
+  },
+});
+
 export const create = mutation({
   args: {
     name: v.string(),

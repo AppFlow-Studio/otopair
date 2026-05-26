@@ -35,6 +35,7 @@ import {
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
+import { useVehicleStore } from '@/stores/useVehicleStore';
 import Animated, {
   Easing,
   runOnJS,
@@ -181,7 +182,7 @@ export function VehicleMaintenanceCard({
 
   const panGesture = Gesture.Pan()
     .activeOffsetX([-15, 15])
-    .failOffsetY([-20, 20])
+    .failOffsetY([-10, 10])
     .onStart(() => {
       if (onSwipeStart) runOnJS(onSwipeStart)();
     })
@@ -209,8 +210,15 @@ export function VehicleMaintenanceCard({
       } else {
         translateX.value = withSpring(0, { damping: 15, stiffness: 150 });
         rotation.value = withSpring(0, { damping: 15, stiffness: 150 });
-        if (onSwipeEnd) runOnJS(onSwipeEnd)();
       }
+    })
+    // Re-enable the parent ScrollView whenever the gesture ends —
+    // INCLUDING after a completed swipe. The threshold branch above used
+    // to skip onSwipeEnd, leaving `isCardSwiping` stuck true on Home →
+    // permanently dead vertical scroll. onFinalize fires for every end
+    // (swipe, snap-back, or cancel), so scroll always recovers.
+    .onFinalize(() => {
+      if (onSwipeEnd) runOnJS(onSwipeEnd)();
     });
 
   const frontCardStyle = useAnimatedStyle(() => ({
@@ -225,7 +233,7 @@ export function VehicleMaintenanceCard({
     const items = maxItems ? vehicle.maintenanceItems.slice(0, maxItems) : vehicle.maintenanceItems;
     return (
     <View style={styles.card}>
-      {/* Top Section - Vehicle Info */}
+      {/* Top Section - Vehicle Info (tap handled by the card's Tap gesture) */}
       <View style={styles.topSection}>
         <LinearGradient
           colors={['#FFFFFF', '#FFFFFF']}
@@ -320,6 +328,32 @@ export function VehicleMaintenanceCard({
 
   const frontVehicle = vehicles[currentIndex];
   const canSwipe = vehicles.length > 1;
+
+  // Tap the active card → open it on the Cars tab. Implemented as an RNGH
+  // Tap (not an RN Pressable) so it can be made EXCLUSIVE with the swipe
+  // pan — a horizontal swipe activates the pan, which suppresses the tap,
+  // so swiping no longer registers as a press.
+  const handleCardPress = () => {
+    const vin = vehicles[currentIndex]?.vin;
+    // Drive the shared vehicle store; the Cars carousel listens to this
+    // (Effect A) and rotates to the matching car, which in turn syncs the
+    // page background + maintenance tracker via its onActiveIndexChange.
+    if (vin) useVehicleStore.getState().selectVehicle(vin);
+    router.push('/(main-tabs)/cars');
+  };
+  const tapGesture = Gesture.Tap()
+    .maxDuration(250)
+    // Fail the tap as soon as the finger travels >8px so a vertical drag
+    // isn't held by the tap recognizer — that hand-off lets the parent
+    // ScrollView take the gesture and scroll (kills the dead zone).
+    .maxDistance(8)
+    .onEnd((_e, success) => {
+      if (success) runOnJS(handleCardPress)();
+    });
+  // Race (not Exclusive): whichever of pan/tap recognizes first wins, and
+  // a vertical drag recognizes NEITHER (pan needs horizontal, tap fails on
+  // move) so the touch falls through to the ScrollView.
+  const composedGesture = Gesture.Race(panGesture, tapGesture);
   const resolvedCardHeight = (() => {
     const heights = Object.values(measuredHeights);
     if (heights.length === 0) return undefined;
@@ -342,12 +376,13 @@ export function VehicleMaintenanceCard({
         Vehicle Maintenance
       </Text>
 
-      <View
-        style={styles.swiperWrapper}
-        onTouchStart={() => onSwipeStart?.()}
-        onTouchEnd={() => onSwipeEnd?.()}
-        onTouchCancel={() => onSwipeEnd?.()}
-      >
+      {/* No onTouchStart/onTouchEnd here: those fired on EVERY touch-down
+          (including a vertical scroll), flipping isCardSwiping → the home
+          ScrollView's scrollEnabled went false before the gesture system
+          could decide, killing vertical scroll on the card. isCardSwiping
+          is driven solely by the pan gesture now (onStart / onFinalize),
+          so it only disables scroll during a real horizontal swipe. */}
+      <View style={styles.swiperWrapper}>
         {/* Pre-measure every card so the section keeps a stable height. */}
         <View style={styles.measurementLayer} pointerEvents="none">
           {vehicles.map((vehicle) => (
@@ -388,13 +423,15 @@ export function VehicleMaintenanceCard({
 
           {/* Front card */}
           {canSwipe ? (
-            <GestureDetector gesture={panGesture}>
+            <GestureDetector gesture={composedGesture}>
               <Animated.View style={frontCardStyle}>
                 {renderCardContent(frontVehicle)}
               </Animated.View>
             </GestureDetector>
           ) : (
-            renderCardContent(frontVehicle)
+            <GestureDetector gesture={tapGesture}>
+              {renderCardContent(frontVehicle)}
+            </GestureDetector>
           )}
         </View>
       </View>

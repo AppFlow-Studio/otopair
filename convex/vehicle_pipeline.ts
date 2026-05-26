@@ -1105,7 +1105,6 @@ export const confirmVehicleForUser = action({
       vin,
       userId: user._id,
       nickname: `${args.year} ${args.make} ${args.model}`,
-      is_primary: true,
     });
 
     // Early dedup. If a vehicle_configs row already exists for this VIN's

@@ -37,8 +37,8 @@ import { Spacing } from '@/constants/theme';
 import { api } from '@/convex/_generated/api';
 import { Id } from '@/convex/_generated/dataModel';
 import { scale, verticalScale, moderateScale } from '@/utils/responsive';
-import { useVdbColorsForVin } from '@/utils/vehicleImage';
-import { ColorSwatchSkeletonRow } from '@/components/shared-ui/ColorSwatchSkeleton';
+import { fetchVehicleImageUrl, useVdbColorsForVin } from '@/utils/vehicleImage';
+import { ColorSwatchSkeletonRow, VehicleImageSkeleton } from '@/components/shared-ui/ColorSwatchSkeleton';
 
 // ============================================================================
 // COMPONENT
@@ -154,22 +154,11 @@ export default function AddVehicleReviewScreen() {
   const confirmVehicle = useAction(api.vehicle_pipeline.confirmVehicleForUser);
   const saveVehicleImageUrl = useMutation(api.vehicles.saveVehicleImageUrl);
 
-  // VDB's paint variants for this VIN. Falls back to a generic
-  // palette only if VDB has no record / no recognizable paint names —
-  // otherwise the user picks from colors VDB actually has for the car.
+  // We only ever show the colors VDB actually has for this vehicle.
+  // No generic fallback palette — if VDB has no color variants for this
+  // trim, the picker is hidden and we show the generic exterior render
+  // for the car preview instead (see exteriorFallbackUrl below).
   type ColorOption = { id: string; label: string; hex: string };
-  const FALLBACK_COLORS: ColorOption[] = [
-    { id: 'black', label: 'Black', hex: '#1a1a1a' },
-    { id: 'midnight-silver', label: 'Midnight Silver', hex: '#4A4A4A' },
-    { id: 'silver', label: 'Silver', hex: '#C0C0C0' },
-    { id: 'white', label: 'White', hex: '#FFFFFF' },
-    { id: 'gray', label: 'Gray', hex: '#808080' },
-    { id: 'red', label: 'Red', hex: '#DC2626' },
-    { id: 'blue', label: 'Blue', hex: '#2563EB' },
-    { id: 'green', label: 'Green', hex: '#16A34A' },
-    { id: 'beige', label: 'Beige', hex: '#D4B896' },
-    { id: 'brown', label: 'Brown', hex: '#8B4513' },
-  ];
   const yearNum = params.year ? parseInt(params.year, 10) : undefined;
   const { colors: vdbColors, isLoading: vdbLoading, hasVdbData } = useVdbColorsForVin({
     vin: params.vin,
@@ -192,25 +181,49 @@ export default function AddVehicleReviewScreen() {
     vdbDecodedStyle: params.vdbDecodedStyle,
     vdbDecodedTrimAndStyle: params.vdbDecodedTrimAndStyle,
   });
-  // FALLBACK_COLORS is reached ONLY after the network finishes with no
-  // usable VDB record. While `vdbLoading` is true, the JSX renders a
-  // skeleton instead — the generic palette never flashes in front of
-  // the user during the in-flight window.
-  const CAR_COLORS: ColorOption[] = hasVdbData
-    ? vdbColors.map((c) => ({ id: c.id, label: c.label, hex: c.hex }))
-    : FALLBACK_COLORS;
+  const CAR_COLORS: ColorOption[] = vdbColors.map((c) => ({ id: c.id, label: c.label, hex: c.hex }));
+
+  // When VDB has no per-color variants for this trim (e.g. some Honda
+  // CR-V trims expose only generic `exterior[]` shots, not labeled
+  // colors), still show the actual car by fetching the exterior render.
+  // fetchVehicleImageUrl already falls back to exterior[] when colors[]
+  // is empty.
+  const [exteriorFallbackUrl, setExteriorFallbackUrl] = useState<string | null>(null);
+  const [exteriorLoading, setExteriorLoading] = useState(false);
+  useEffect(() => {
+    if (vdbLoading || hasVdbData) {
+      setExteriorFallbackUrl(null);
+      setExteriorLoading(false);
+      return;
+    }
+    if (!params.make || !params.model) return;
+    let cancelled = false;
+    setExteriorLoading(true);
+    fetchVehicleImageUrl(params.make, params.model, yearNum, params.vin, undefined, params.trim)
+      .then((url) => { if (!cancelled) setExteriorFallbackUrl(url); })
+      .catch(() => { if (!cancelled) setExteriorFallbackUrl(null); })
+      .finally(() => { if (!cancelled) setExteriorLoading(false); });
+    return () => { cancelled = true; };
+  }, [vdbLoading, hasVdbData, params.make, params.model, params.vin, params.trim, yearNum]);
 
   // Drives the live car-image preview in the vehicle card. Priority:
   //  1. Picked color's image (instant swap on tap)
   //  2. Black variant if VDB has one (`#1A1A1A` = FAMILY_HEX.black)
-  //  3. First VDB variant
-  //  4. null → fall back to the lucide Car icon (loading / vdb-empty)
+  //  3. First VDB variant (if black isn't offered)
+  //  4. Generic exterior render (VDB has the car but no color variants)
+  //  5. null → fall back to the lucide Car icon
   const previewImageUrl: string | null =
     (selectedColor &&
       vdbColors.find((c) => c.id === selectedColor)?.imageUrl) ||
     vdbColors.find((c) => c.hex.toUpperCase() === '#1A1A1A')?.imageUrl ||
     vdbColors[0]?.imageUrl ||
+    exteriorFallbackUrl ||
     null;
+
+  // Show a pulsing skeleton (matching the color picker) while we're still
+  // resolving the image — the VDB colors/image-URL fetch or the no-colors
+  // exterior-render fetch.
+  const imageLoading = vdbLoading || exteriorLoading;
 
   const me = useQuery(api.users.getMe);
 
@@ -251,15 +264,20 @@ export default function AddVehicleReviewScreen() {
         // e.g. a gray VW Tiguan pick rendering as a neutral white EVOX).
         // Fire-and-forget — the cars page falls back to its own fetch
         // if this hasn't landed by the time the user gets there.
+        // Prefer the picked color's image; if VDB had no color variants,
+        // persist the generic exterior render so the cars page shows the
+        // actual car instead of the covered-car placeholder.
         const pickedVdbColor = vdbColors.find((c) => c.id === selectedColor);
-        if (pickedVdbColor && params.vin) {
+        const imageToSave = pickedVdbColor?.imageUrl ?? exteriorFallbackUrl;
+        if (imageToSave && params.vin) {
           saveVehicleImageUrl({
             vin: params.vin,
-            image_url: pickedVdbColor.imageUrl,
+            image_url: imageToSave,
           }).catch(() => {
             // Non-fatal: cars page useEffect will retry.
           });
         }
+
         router.replace({
           pathname: '/vehicle-added',
           params: {
@@ -372,6 +390,14 @@ export default function AddVehicleReviewScreen() {
     <View style={styles.container}>
       <StatusBar style="dark" translucent />
 
+      <LinearGradient
+        colors={['#FFFFFF', '#FFFFFF', '#D6EAF8']}
+        start={{ x: 0.5, y: 0 }}
+        end={{ x: 0.5, y: 1 }}
+        style={StyleSheet.absoluteFill}
+        pointerEvents="none"
+      />
+
       {/* Back Button — stays an overlay so the scroll view extends edge to edge */}
       <Pressable
         onPress={handleBack}
@@ -408,7 +434,13 @@ export default function AddVehicleReviewScreen() {
               taps a swatch below. Defaults to the black variant before
               any pick, falls back to the lucide Car icon while VDB is
               loading or returned nothing usable. */}
-          {previewImageUrl ? (
+          {imageLoading ? (
+            <VehicleImageSkeleton
+              width={scale(220)}
+              height={scale(130)}
+              style={{ marginBottom: scale(8) }}
+            />
+          ) : previewImageUrl ? (
             <ExpoImage
               source={{ uri: previewImageUrl }}
               style={styles.vehiclePreviewImage}
@@ -437,40 +469,42 @@ export default function AddVehicleReviewScreen() {
           </View>
         </View>
 
-        {/* Color Picker — wrapped in a white card matching `vehicleCard`'s
-            shadow so the section reads as a peer of the vehicle summary
-            above. Bigger swatches with marketing-name labels; selected
-            swatch springs and gets a blue ring. */}
-        <View style={styles.colorCard}>
-          <View style={styles.colorHeaderRow}>
-            <Text weight="semiBold" size="md" color="#1F2937">
-              Choose your {params.make}'s color
-            </Text>
-            <Text size="xs" color="#9CA3AF" numberOfLines={1} style={styles.colorHeaderRight}>
-              {selectedSwatch
-                ? selectedSwatch.label
-                : `${CAR_COLORS.length} colors`}
-            </Text>
+        {/* Color Picker — shown ONLY when VDB actually has color variants
+            for this trim. While loading we show a skeleton; if VDB
+            returns no colors (only generic exterior shots) the whole
+            card is hidden — we never show a fake generic palette. */}
+        {(vdbLoading || hasVdbData) && (
+          <View style={styles.colorCard}>
+            <View style={styles.colorHeaderRow}>
+              <Text weight="semiBold" size="md" color="#1F2937">
+                Choose your {params.make}'s color
+              </Text>
+              <Text size="xs" color="#9CA3AF" numberOfLines={1} style={styles.colorHeaderRight}>
+                {selectedSwatch
+                  ? selectedSwatch.label
+                  : `${CAR_COLORS.length} ${CAR_COLORS.length === 1 ? 'color' : 'colors'}`}
+              </Text>
+            </View>
+            {vdbLoading ? (
+              <ColorSwatchSkeletonRow count={6} />
+            ) : (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.colorRow}
+              >
+                {CAR_COLORS.map((c) => (
+                  <ColorSwatchItem
+                    key={c.id}
+                    color={c}
+                    isSelected={selectedColor === c.id}
+                    onPress={() => setSelectedColor(c.id)}
+                  />
+                ))}
+              </ScrollView>
+            )}
           </View>
-          {vdbLoading ? (
-            <ColorSwatchSkeletonRow count={6} />
-          ) : (
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.colorRow}
-            >
-              {CAR_COLORS.map((c) => (
-                <ColorSwatchItem
-                  key={c.id}
-                  color={c}
-                  isSelected={selectedColor === c.id}
-                  onPress={() => setSelectedColor(c.id)}
-                />
-              ))}
-            </ScrollView>
-          )}
-        </View>
+        )}
 
         {/* Specs card — 2×2 grid of stat tiles, sourced from VDB's
             advanced-vin-decode response. Missing fields render as

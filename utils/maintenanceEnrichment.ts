@@ -187,6 +187,7 @@ export function buildMaintenanceItems(
   drivingConditions?: string,
   avgMonthlyDriving?: string,
   knownIssues?: string[],
+  vehicleYear?: number,
 ): Map<MaintenanceType, MaintenanceItem> {
   const map = new Map<MaintenanceType, MaintenanceItem>();
 
@@ -206,6 +207,7 @@ export function buildMaintenanceItems(
       drivingConditions,
       avgMonthlyDriving,
       knownIssues,
+      vehicleYear,
     );
 
     map.set(type, {

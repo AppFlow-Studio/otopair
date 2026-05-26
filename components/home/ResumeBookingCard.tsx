@@ -218,7 +218,7 @@ const styles = StyleSheet.create({
     width: 52,
     height: 52,
     borderRadius: 12,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: 'transparent',
     overflow: 'hidden',
   },
   vehicleImage: {

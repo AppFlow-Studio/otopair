@@ -358,7 +358,9 @@ function CardGridItem({ cardId, isDone, isJustCompleted, progress, onPress, isWi
     >
       <ReAnimated.View style={pressStyle}>
         <Pressable
-          disabled={isCompleted}
+          // Completed cards stay tappable so the user can re-open the
+          // overlay and change a previous answer. The overlay prefills
+          // from serviceAnswers, so they pick up right where they left off.
           onPressIn={() => { pressScale.value = withSpring(0.96, { damping: 20, stiffness: 300 }); }}
           onPressOut={() => { pressScale.value = withSpring(1, { damping: 20, stiffness: 300 }); }}
           onPress={onPress}
@@ -831,13 +833,12 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
     const meta = STEP_META[stepId];
     return (
       <View style={{ flex: 1 }}>
-        <LinearGradient
-          colors={['#D0E7F4', '#DFEDF6', '#EBF2F8', '#F3F7FA', '#FAFCFD', '#FFFFFF']}
-          locations={[0, 0.18, 0.35, 0.5, 0.7, 1]}
-          start={{ x: 0.5, y: 0 }}
-          end={{ x: 0.5, y: 1 }}
-          style={{ position: 'absolute', top: verticalScale(-150), left: 0, right: 0, bottom: 0 }}
-        />
+        {/* Background is owned by the parent (e.g. cars/index.tsx renders an
+            AnimatedGradientBackground across the entire modal; ServiceBottomSheet
+            uses a solid white). The local white→blue gradient we used to layer
+            here only covered the body, so it created a visible seam where the
+            parent's gradient ended and this one began. Let the parent's
+            background bleed through unbroken. */}
         <View style={s.steppingPage}>
           {/* Header */}
           <Animated.View style={[s.steppingHeader, { opacity: mountHeaderFade }]}>
@@ -868,7 +869,7 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
           </Animated.View>
 
           {/* Footer */}
-          <Animated.View style={[s.steppingFooter, { paddingBottom: insets.bottom + scale(24), opacity: mountFooterFade }]}>
+          <Animated.View style={[s.steppingFooter, { paddingBottom: insets.bottom + scale(4), opacity: mountFooterFade }]}>
             {/* Progress dots */}
             <View style={s.dotsRow}>
               {ALL_CARD_IDS.map((id) => (
@@ -1058,7 +1059,8 @@ const s = StyleSheet.create({
   },
   steppingBody: {
     flex: 1,
-    marginTop: 0,
+    // Slight breathing room below the title/subtitle.
+    marginTop: scale(20),
   },
   steppingFooter: {
     paddingTop: scale(16),

@@ -18,10 +18,11 @@
  * OWNER: Ahmad Hamoudeh
  */
 
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { Alert, Image, Pressable, StyleSheet, View } from "react-native";
 
 import { ArrowRight, Car } from "lucide-react-native";
+import Animated, { FadeOut, LinearTransition, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 
 import { Text } from "@/components/shared-ui";
 import { type Booking } from "@/components/bookings/BookingCard";
@@ -84,10 +85,29 @@ export function PendingQuoteCard({
   const isReady = booking.status === "quotes_ready";
   const stageView = getBookingStageView(booking.status, booking.liveStage);
 
+  // Local "just cancelled" state. Mirrors BookingCard — see that file's
+  // pattern for the rationale.
+  const [isCancelling, setIsCancelling] = useState(false);
+  const dim = useSharedValue(1);
+  useEffect(() => {
+    if (isCancelling) {
+      dim.value = withTiming(0.45, { duration: 280 });
+    }
+  }, [isCancelling, dim]);
+  const dimStyle = useAnimatedStyle(() => ({ opacity: dim.value }));
+
   return (
+    <Animated.View
+      style={dimStyle}
+      exiting={FadeOut.duration(220)}
+      layout={LinearTransition.duration(260)}
+    >
     <Pressable
       style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
-      onPress={() => onPress?.(booking.id)}
+      onPress={() => {
+        if (isCancelling) return;
+        onPress?.(booking.id);
+      }}
     >
       {/* Quote-stage progress bar — see utils/bookingStages.ts. */}
       <BookingProgressBar
@@ -124,13 +144,22 @@ export function PendingQuoteCard({
             </Text>
           ) : null}
         </View>
-        <View style={[styles.tag, isReady ? styles.tagReady : styles.tagPending]}>
+        <View
+          style={[
+            styles.tag,
+            isCancelling
+              ? styles.tagCancelled
+              : isReady
+                ? styles.tagReady
+                : styles.tagPending,
+          ]}
+        >
           <Text
             size="xs"
             weight="bold"
-            color={isReady ? "#2F6DCC" : "#C8972E"}
+            color={isCancelling ? "#DC2626" : isReady ? "#2F6DCC" : "#C8972E"}
           >
-            {isReady ? "Quotes Ready" : "Pending Quote"}
+            {isCancelling ? "Cancelled" : isReady ? "Quotes Ready" : "Pending Quote"}
           </Text>
         </View>
       </View>
@@ -175,6 +204,7 @@ export function PendingQuoteCard({
                 e.stopPropagation?.();
                 handleCancel();
               }}
+              disabled={isCancelling}
               style={({ pressed }) => [styles.cancelOutlineButton, pressed && styles.viewButtonPressed]}
             >
               <Text size="sm" weight="semiBold" color="#DC2626">
@@ -188,8 +218,10 @@ export function PendingQuoteCard({
           <Pressable
             onPress={(e) => {
               e.stopPropagation?.();
+              if (isCancelling) return;
               onPress?.(booking.id);
             }}
+            disabled={isCancelling}
             style={({ pressed }) => [styles.viewButton, pressed && styles.viewButtonPressed]}
           >
             <Text size="sm" weight="semiBold" color="#FFFFFF">
@@ -202,6 +234,7 @@ export function PendingQuoteCard({
                 e.stopPropagation?.();
                 handleCancel();
               }}
+              disabled={isCancelling}
               style={({ pressed }) => [styles.cancelOutlineButton, pressed && styles.viewButtonPressed]}
             >
               <Text size="sm" weight="semiBold" color="#DC2626">
@@ -212,9 +245,11 @@ export function PendingQuoteCard({
         </View>
       )}
     </Pressable>
+    </Animated.View>
   );
 
   function handleCancel() {
+    if (isCancelling) return;
     Alert.alert(
       "Cancel Request",
       "Stop waiting for shop quotes? You can submit a new request later.",
@@ -223,7 +258,12 @@ export function PendingQuoteCard({
         {
           text: "Cancel Request",
           style: "destructive",
-          onPress: () => onCancel?.(booking.id),
+          onPress: () => {
+            // In-card visual first, then fire the mutation. The data-source
+            // removal triggers FadeOut + LinearTransition shift on siblings.
+            setIsCancelling(true);
+            setTimeout(() => onCancel?.(booking.id), 450);
+          },
         },
       ],
     );
@@ -304,6 +344,9 @@ const styles = StyleSheet.create({
   },
   tagReady: {
     backgroundColor: "#E3F0FF",
+  },
+  tagCancelled: {
+    backgroundColor: "#FEE2E2",
   },
 
   // Divider

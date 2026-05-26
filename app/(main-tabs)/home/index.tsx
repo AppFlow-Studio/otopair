@@ -383,7 +383,8 @@ export default function HomeScreen() {
             undefined,
             o?.drivingConditions as string | undefined,
             o?.avgMonthlyDriving as string | undefined,
-            knownIssues
+            knownIssues,
+            v?.year as number | undefined
           );
           if (result.status === "overdue" || result.status === "due_soon" || result.status === "needs_attention") {
             urgentItems.push({
@@ -414,7 +415,17 @@ export default function HomeScreen() {
     // TODO: Implement search functionality
   };
 
+  // Map button (right side of the search bar): opens just the map with the
+  // service sheet collapsed to its 23% peek — user came here to browse the
+  // map, not to start a booking flow.
   const handleMapPress = () => {
+    router.push("/booking/map?startCollapsed=true");
+  };
+
+  // Search field tap (left side of the search bar): opens the map AND
+  // auto-expands the booking sheet, since the search field is the
+  // intended entry point for finding/booking a service.
+  const handleSearchPress = () => {
     router.push("/booking/map");
   };
 
@@ -693,16 +704,16 @@ export default function HomeScreen() {
               </View>
             </View>
 
-            {/* Search Bar — tapping the search field opens the map flow
-                (same as the Map button) since free-text search isn't
-                wired yet and the map is the primary discovery surface. */}
+            {/* Search Bar — search field opens the map AND auto-expands
+                the booking sheet (entry point for booking a service). The
+                Map button opens only the map (sheet stays collapsed). */}
             <View style={styles.searchContainer}>
               <MechanicSearchBar
                 value={searchQuery}
                 onChangeText={setSearchQuery}
                 onSubmit={handleSearch}
                 onMapPress={handleMapPress}
-                onPress={handleMapPress}
+                onPress={handleSearchPress}
               />
             </View>
 

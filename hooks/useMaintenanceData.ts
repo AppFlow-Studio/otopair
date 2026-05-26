@@ -55,7 +55,8 @@ export function useMaintenanceRecords(
   make?: string,
   drivingConditions?: string,
   avgMonthlyDriving?: string,
-  knownIssues?: string[]
+  knownIssues?: string[],
+  vehicleYear?: number
 ) {
   const records = useQuery(
     api.maintenance.getRecordsByVehicle,
@@ -77,8 +78,9 @@ export function useMaintenanceRecords(
       drivingConditions,
       avgMonthlyDriving,
       knownIssues,
+      vehicleYear,
     );
-  }, [records, currentOdometer, make, drivingConditions, avgMonthlyDriving, knownIssues]);
+  }, [records, currentOdometer, make, drivingConditions, avgMonthlyDriving, knownIssues, vehicleYear]);
 
   return { records, items };
 }
@@ -139,7 +141,7 @@ export function useMergedMaintenance(
   vehicleYear?: number,
   driverRecommendations?: DriverRecommendationLike[],
 ) {
-  const { records, items: userItems } = useMaintenanceRecords(vehicleOwnerId, currentOdometer, make, drivingConditions, avgMonthlyDriving, knownIssues);
+  const { records, items: userItems } = useMaintenanceRecords(vehicleOwnerId, currentOdometer, make, drivingConditions, avgMonthlyDriving, knownIssues, vehicleYear);
 
   // Merge: user record > unknown.
   const mergedItems = useMemo(() => {
