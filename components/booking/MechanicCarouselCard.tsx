@@ -35,7 +35,9 @@ import { BrandColors, Text } from "@/components/shared-ui";
 
 // 4. Constants, hooks, types, stores
 import { BorderRadius, Shadows, Spacing } from "@/constants/theme";
+import { useDistanceUnit } from "@/hooks/useDistanceUnit";
 import type { Mechanic } from "@/stores/types/store.types";
+import { formatProximityDistanceFromMiles } from "@/utils/geo";
 
 // ============================================================================
 // TYPES
@@ -57,12 +59,6 @@ export interface MechanicCarouselCardProps {
 // ============================================================================
 // HELPERS
 // ============================================================================
-
-/** Format distance for display */
-function formatDistance(miles: number): string {
-  if (miles < 0.1) return "< 0.1 mi";
-  return `${miles.toFixed(1)} mi`;
-}
 
 /** Get time duration string (mocking Life360's "here for X hr, X min" */
 function getTimeAtLocation(): string {
@@ -86,6 +82,8 @@ function MechanicCarouselCardComponent({
   onText,
   onViewProfile,
 }: MechanicCarouselCardProps) {
+  const distanceUnit = useDistanceUnit();
+
   return (
     <View style={[styles.card, isActive && styles.cardActive]}>
       {/* Header: Name + Battery-like availability indicator */}
@@ -127,7 +125,7 @@ function MechanicCarouselCardComponent({
           • {mechanic.yearsExperience} years exp
         </Text>
         <Text size="sm" color="#6B7280">
-          • {formatDistance(mechanic.distanceMi)}
+          • {formatProximityDistanceFromMiles(mechanic.distanceMi, distanceUnit)}
         </Text>
       </View>
 

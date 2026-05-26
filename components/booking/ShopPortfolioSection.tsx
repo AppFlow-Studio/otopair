@@ -84,6 +84,7 @@ export function ShopPortfolioSection({ shopId }: ShopPortfolioSectionProps) {
 const styles = StyleSheet.create({
   container: {
     paddingVertical: Spacing.lg,
+    paddingHorizontal: Spacing.lg,
   },
   header: {
     marginBottom: Spacing.lg,

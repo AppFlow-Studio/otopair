@@ -1,4 +1,5 @@
 import { ClerkProvider, useAuth } from "@clerk/clerk-expo";
+import { StripeProvider } from "@stripe/stripe-react-native";
 // Persistent session: tokenCache uses expo-secure-store so auth survives app reload/restart
 import { tokenCache } from "@clerk/clerk-expo/token-cache";
 import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
@@ -19,6 +20,7 @@ import { LogBox } from "react-native";
 // existing error modal — the LogBox dump is just dev-time noise on top.
 // Errors still log to Metro for debugging; this only hides the overlay.
 import { ErrorBoundary as AppErrorBoundary, ErrorModalHost, errorBus } from "@/lib/error-ui";
+import { StripePaymentMethodsSync } from "@/components/payments/StripePaymentMethodsSync";
 import { ToastProvider } from "@/components/toast";
 import { api } from "@/convex/_generated/api";
 
@@ -26,6 +28,8 @@ import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useAppFonts } from "@/hooks/use-fonts";
 import { useConsoleToConvex } from "@/hooks/useConsoleToConvex";
 import { useEnsureConvexUser } from "@/hooks/useEnsureConvexUser";
+import { useRefreshPushToken } from "@/hooks/useRefreshPushToken";
+import { useOtopairDeepLinks } from "@/hooks/useOtopairDeepLinks";
 import { clearUserSessionState } from "@/lib/session-state";
 import { useAuthStore } from "@/stores/useAuthStore";
 
@@ -78,6 +82,8 @@ function EnsureConvexUserRecord() {
   const ensureUser = useEnsureConvexUser();
   const lastUserRef = useRef<string | null>(null);
   const [retryTrigger, setRetryTrigger] = useState(0);
+  useRefreshPushToken();
+  useOtopairDeepLinks();
 
   useEffect(() => {
     if (!isSignedIn) {
@@ -248,12 +254,18 @@ export default function RootLayout() {
           <AppErrorBoundary>
             <EnsureConvexUserRecord />
             <SyncAuthStoreWithClerk />
+            <StripePaymentMethodsSync />
             <PendingDeletionSessionGuard />
             <ErrorModalHost />
             <KeyboardProvider>
             <GestureHandlerRootView style={{ flex: 1 }}>
               <BottomSheetModalProvider>
                 <ToastProvider>
+                <StripeProvider
+                  publishableKey={process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? ""}
+                  merchantIdentifier={process.env.EXPO_PUBLIC_STRIPE_MERCHANT_ID}
+                  urlScheme="otopair"
+                >
                 <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
                   <Stack
                     screenOptions={{
@@ -297,7 +309,22 @@ export default function RootLayout() {
                     <Stack.Screen name="vin-scanner" options={{ headerShown: false }} />
                     <Stack.Screen name="add-vehicle-review" options={{ headerShown: false }} />
                     <Stack.Screen name="payments" options={{ headerShown: false }} />
-                    <Stack.Screen name="add-payment" options={{ headerShown: false }} />
+                    {/* Headless — opens Stripe PaymentSheet on top of whatever
+                        screen called it. `containedTransparentModal` keeps
+                        the caller in the parent navigator (so the underlying
+                        screen stays mounted + visible through the sheet),
+                        rather than `transparentModal` which paints a white
+                        system window in the safe-area on iOS. Mirrors the
+                        profile-overlay screen below. */}
+                    <Stack.Screen
+                      name="add-payment"
+                      options={{
+                        headerShown: false,
+                        presentation: "containedTransparentModal",
+                        animation: "none",
+                        contentStyle: { backgroundColor: "transparent" },
+                      }}
+                    />
                     {/* <Stack.Screen name="payment-methods" options={{ headerShown: false }} /> */}
                     <Stack.Screen
                       name="modal"
@@ -336,6 +363,7 @@ export default function RootLayout() {
                   </Stack>
                   <StatusBar style="auto" />
                 </ThemeProvider>
+                </StripeProvider>
                 </ToastProvider>
               </BottomSheetModalProvider>
             </GestureHandlerRootView>

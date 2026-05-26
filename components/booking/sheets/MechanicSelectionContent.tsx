@@ -38,6 +38,8 @@ import { MECHANIC_FILTER_OPTIONS, type MechanicFilterOption } from "@/constants/
 import { BorderRadius, FontFamily } from "@/constants/theme";
 import { calculateDistanceMiles } from "@/utils/geo";
 import { hhmmToDisplayTime } from "@/utils/timeSlotUtils";
+import { useBookingLaborHours } from "@/hooks/useBookingLaborHours";
+import { useBookingPartsBreakdown } from "@/hooks/useBookingPartsBreakdown";
 import { useServiceVehicleSpecsForEngine } from "@/hooks/useServiceVehicleSpecsForEngine";
 import { useBookingStore, type SelectedMechanicSlot } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
@@ -73,7 +75,10 @@ interface MechanicSelectionContentProps {
  * Groups mechanics by their shopId and returns shop-centric data.
  * Merges laborRate from shops map when available.
  */
-function groupMechanicsByShop(mechanics: Mechanic[], shopIdToLaborRate?: Map<string, number>): ShopWithMechanics[] {
+function groupMechanicsByShop(
+  mechanics: Mechanic[],
+  shopMeta?: Map<string, { laborRate?: number; state?: string; zip?: string }>,
+): ShopWithMechanics[] {
   const shopMap = new Map<string, ShopWithMechanics>();
 
   mechanics.forEach((mechanic) => {
@@ -90,6 +95,7 @@ function groupMechanicsByShop(mechanics: Mechanic[], shopIdToLaborRate?: Map<str
         existing.distanceMi = mechanic.distanceMi;
       }
     } else {
+      const meta = shopMeta?.get(mechanic.shopId);
       shopMap.set(mechanic.shopId, {
         shopId: mechanic.shopId,
         shopName: mechanic.shopName,
@@ -97,7 +103,9 @@ function groupMechanicsByShop(mechanics: Mechanic[], shopIdToLaborRate?: Map<str
         isVerified: mechanic.isVerified,
         distanceMi: mechanic.distanceMi,
         mechanics: [mechanic],
-        laborRate: shopIdToLaborRate?.get(mechanic.shopId),
+        laborRate: meta?.laborRate,
+        state: meta?.state,
+        zip: meta?.zip,
       });
     }
   });
@@ -162,17 +170,42 @@ export function MechanicSelectionContent({
   const engineId = selectedVehicle?.engineId;
   const engineSpecs = useServiceVehicleSpecsForEngine(engineId, selectedServiceIds);
 
-  // Shop labor rates and coordinates for price and distance (Convex data)
+  // Shop labor rates, state, zip for range computation and distance (Convex data)
   const shops = useShopStore((state) => state.shops);
   const getShopById = useShopStore((state) => state.getShopById);
-  const shopIdToLaborRate = useMemo(() => {
-    const m = new Map<string, number>();
+  const shopMetaMap = useMemo(() => {
+    const m = new Map<string, { laborRate?: number; state?: string; zip?: string }>();
     for (const id of Object.keys(shops)) {
-      const laborRate = shops[id]?.labor_rate;
-      if (laborRate != null) m.set(id, laborRate);
+      const shop = shops[id];
+      if (!shop) continue;
+      m.set(id, { laborRate: shop.labor_rate, state: shop.state, zip: shop.zip });
     }
     return m;
   }, [shops]);
+
+  // Real per-vehicle labor hours (labor_times.book_hours) and OEM parts prices
+  // — same data sources as Review & Pay (app/booking/mechanic/[id]/payment.tsx)
+  // so the range on each shop card matches what the customer sees after they
+  // tap through. Hooks gracefully skip on walk-in vehicles + mock service ids.
+  const { breakdown: pricedPartsByService, isLoading: isPricedPartsLoading } =
+    useBookingPartsBreakdown(selectedVehicle?.ownershipId, selectedServiceIds);
+  const { laborHours: laborHoursByService, isLoading: isLaborHoursLoading } =
+    useBookingLaborHours(selectedVehicle?.ownershipId, selectedServiceIds);
+  const isPriceLoading = isPricedPartsLoading || isLaborHoursLoading;
+
+  const realLaborHoursMap = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const row of laborHoursByService) m.set(String(row.serviceId), row.hours);
+    return m;
+  }, [laborHoursByService]);
+
+  const realPartsCostMap = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const row of pricedPartsByService) {
+      if (row.parts.length > 0 && row.partsTotal > 0) m.set(String(row.serviceId), row.partsTotal);
+    }
+    return m;
+  }, [pricedPartsByService]);
 
   // Memoize filtered mechanics with distance from user to shop (Convex shop lat/lng + booking userLocation)
   const filteredMechanics = useMemo(() => {
@@ -224,9 +257,9 @@ export function MechanicSelectionContent({
     return filtered;
   }, [mechanics, mechanicIds, searchQuery, filterType, userLocation, getShopById]);
 
-  // Group mechanics by shop (with labor rates for price calculation)
+  // Group mechanics by shop (with labor rates, state, zip for range computation)
   const shopList = useMemo(() => {
-    const list = groupMechanicsByShop(filteredMechanics, shopIdToLaborRate);
+    const list = groupMechanicsByShop(filteredMechanics, shopMetaMap);
 
     // Sort shops based on filter type
     switch (filterType) {
@@ -238,7 +271,7 @@ export function MechanicSelectionContent({
       default:
         return list;
     }
-  }, [filteredMechanics, filterType, shopIdToLaborRate]);
+  }, [filteredMechanics, filterType, shopMetaMap]);
 
   // Convert selectedMechanicSlot to SelectedSlotInfo for ShopCard
   const selectedSlotInfo: SelectedSlotInfo | null = useMemo(() => {
@@ -251,13 +284,21 @@ export function MechanicSelectionContent({
   }, [selectedMechanicSlot]);
 
   // Create SelectedServiceInfo array for ShopCard
-  // Priority: option-specific → engine-specific → service defaults
+  // Priority for labor: real labor_times.book_hours → option-specific →
+  //   engine-specific → service defaults
+  // Priority for parts: real OEM parts total → option-specific →
+  //   engine-specific → service defaults
+  // Matches the precedence in payment.tsx so the card range == Review & Pay range.
   const selectedServicesForCard: SelectedServiceInfo[] = useMemo(() => {
     return selectedServices.map((service) => {
       const optionSel = selectedServiceOptions[service.id];
       const spec = engineSpecs[service.id];
-      const laborHours = optionSel?.labor_hours ?? spec?.labor_hours ?? service.default_labor_hours;
-      const partsEstimate = optionSel?.parts_cost_avg ?? spec?.parts_cost_avg ?? service.default_parts_estimate;
+      const realHours = realLaborHoursMap.get(String(service.id));
+      const realParts = realPartsCostMap.get(String(service.id));
+      const laborHours =
+        realHours ?? optionSel?.labor_hours ?? spec?.labor_hours ?? service.default_labor_hours;
+      const partsEstimate =
+        realParts ?? optionSel?.parts_cost_avg ?? spec?.parts_cost_avg ?? service.default_parts_estimate;
       return {
         id: service.id,
         name: service.name,
@@ -267,7 +308,7 @@ export function MechanicSelectionContent({
         state_fee: optionSel?.state_fee,
       };
     });
-  }, [selectedServices, engineSpecs, selectedServiceOptions]);
+  }, [selectedServices, engineSpecs, selectedServiceOptions, realLaborHoursMap, realPartsCostMap]);
 
   // ═══════════════ EFFECTS ═══════════════
   // Go back — to service_options if any selected service has options, else service_selection
@@ -323,6 +364,31 @@ export function MechanicSelectionContent({
       router.push(`/booking/shop/${shopId}`);
     },
     [router],
+  );
+
+  // Mechanic chip changed on a card that already has a selected slot.
+  // Refresh the store's mechanicId + mechanicName so the footer label
+  // ("with {mechanic} at {shop}") matches the avatar the user just tapped.
+  // The slot's timeSlotId is mechanic-specific in Convex, but the card
+  // either keeps the slot highlighted (the new mechanic shares the same
+  // day/time) or the user re-taps a slot — either way the booking flow
+  // re-resolves through onSelectSlot before reaching /payment.
+  const handleChangeMechanicForSelectedSlot = useCallback(
+    (shopId: string, mechanicId: string | null, mechanicName: string | null) => {
+      if (!selectedMechanicSlot || selectedMechanicSlot.shopId !== shopId) return;
+      if (
+        selectedMechanicSlot.mechanicId === mechanicId &&
+        selectedMechanicSlot.mechanicName === mechanicName
+      ) {
+        return;
+      }
+      setSelectedMechanicSlot({
+        ...selectedMechanicSlot,
+        mechanicId,
+        mechanicName,
+      });
+    },
+    [selectedMechanicSlot, setSelectedMechanicSlot],
   );
 
   // Handle "More" availability button - opens the calendar modal
@@ -425,9 +491,19 @@ export function MechanicSelectionContent({
         onMoreAvailability={handleMoreAvailability}
         selectedSlot={selectedSlotInfo}
         selectedServices={selectedServicesForCard}
+        isPriceLoading={isPriceLoading}
+        onChangeMechanicForSelectedSlot={handleChangeMechanicForSelectedSlot}
       />
     ),
-    [handleSelectSlot, handleShopDetails, handleMoreAvailability, selectedSlotInfo, selectedServicesForCard],
+    [
+      handleSelectSlot,
+      handleShopDetails,
+      handleMoreAvailability,
+      selectedSlotInfo,
+      selectedServicesForCard,
+      isPriceLoading,
+      handleChangeMechanicForSelectedSlot,
+    ],
   );
 
   // ═══════════════ FILTER HANDLER ═══════════════

@@ -67,6 +67,13 @@ export interface ConvexBookingWithDetails {
     tier: string;
     quantity: number;
   };
+  /** Pre-Job Approval flow — disclosed range snapshotted at create. */
+  disclosed_range_low_cents?: number;
+  disclosed_range_high_cents?: number;
+  /** Approval lifecycle state — drives banner + range vs final display. */
+  payment_approval_state?: string;
+  /** Final captured amount in cents (set after Stripe capture). */
+  final_capture_amount_cents?: number;
 }
 
 interface BookingAdapterParams {
@@ -220,6 +227,10 @@ export function adaptConvexBookingWithDetailsToCard(row: ConvexBookingWithDetail
     liveStage: row.liveStage,
     shopId: row.shop_id,
     mechanicId: row.mechanic_id,
+    disclosedRangeLowCents: row.disclosed_range_low_cents,
+    disclosedRangeHighCents: row.disclosed_range_high_cents,
+    paymentApprovalState: row.payment_approval_state,
+    finalCaptureAmountCents: row.final_capture_amount_cents,
   };
 }
 

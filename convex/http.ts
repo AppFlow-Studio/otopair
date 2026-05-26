@@ -11,7 +11,7 @@ import type { ActionCtx } from "./_generated/server";
 import Stripe from "stripe";
 
 const http = httpRouter();
-const STRIPE_API_VERSION = "2026-03-25.dahlia" as const;
+const STRIPE_API_VERSION = Stripe.API_VERSION;
 
 let stripeClient: Stripe | null = null;
 
@@ -35,7 +35,6 @@ function getStripeWebhookSecrets() {
     process.env.STRIPE_CONNECT_WEBHOOK_SECRET,
     process.env.STRIPE_WEBHOOK_SECRET,
   ].filter((secret): secret is string => Boolean(secret));
-
   return Array.from(new Set(secrets));
 }
 
@@ -104,6 +103,130 @@ async function handleStripeWebhook(ctx: ActionCtx, request: Request) {
         event,
         event.data.object as Stripe.Account
       );
+      return new Response("ok", { status: 200 });
+    }
+
+    // ── Payment lifecycle events ────────────────────────────────────────
+    if (
+      event.type === "payment_intent.succeeded" ||
+      event.type === "payment_intent.payment_failed" ||
+      event.type === "payment_intent.canceled" ||
+      event.type === "payment_intent.amount_capturable_updated" ||
+      event.type === "payment_intent.requires_action"
+    ) {
+      const pi = event.data.object as Stripe.PaymentIntent;
+      const mapped =
+        event.type === "payment_intent.succeeded"
+          ? "completed"
+          : event.type === "payment_intent.payment_failed"
+            ? "failed"
+            : event.type === "payment_intent.canceled"
+              ? "cancelled"
+              : null;
+      if (mapped) {
+        await ctx.runMutation(
+          internal.payments_stripe.handlePaymentIntentEvent,
+          {
+            stripeEventId: event.id,
+            eventType: event.type,
+            paymentIntentId: pi.id,
+            bookingId:
+              (pi.metadata && (pi.metadata as any).bookingId) || undefined,
+            newStatus: mapped,
+            errorCode: pi.last_payment_error?.code ?? undefined,
+            errorMessage: pi.last_payment_error?.message?.slice(0, 500) ?? undefined,
+            livemode: event.livemode,
+            stripeAccountId:
+              typeof event.account === "string" ? event.account : undefined,
+          },
+        );
+      } else if (event.type === "payment_intent.amount_capturable_updated") {
+        // Pre-Job Approval flow: an incrementAuthorization or reauth just
+        // raised the capturable amount on this PI. Reconcile by stamping
+        // the event id on the latest booking_approvals row tied to this PI.
+        // Idempotent — replays no-op.
+        await ctx.runMutation(
+          internal.booking_approvals._reconcileAmountCapturableUpdated,
+          {
+            stripePaymentIntentId: pi.id,
+            stripeEventId: event.id,
+          },
+        );
+        await ctx.runMutation(internal.stripe_webhook_events.record, {
+          eventId: event.id,
+          eventType: event.type,
+          livemode: event.livemode,
+          stripeAccountId:
+            typeof event.account === "string" ? event.account : undefined,
+        });
+      } else if (event.type === "payment_intent.requires_action") {
+        // Card needs SCA / customer intervention. Flip the booking to
+        // reauth_required and push the customer to act.
+        const bookingId =
+          (pi.metadata && (pi.metadata as any).bookingId) || undefined;
+        if (bookingId) {
+          await ctx.runMutation(
+            internal.payments_stripe._revertBookingToPendingForReauth,
+            { bookingId: bookingId as any },
+          );
+        }
+        await ctx.runMutation(internal.stripe_webhook_events.record, {
+          eventId: event.id,
+          eventType: event.type,
+          livemode: event.livemode,
+          stripeAccountId:
+            typeof event.account === "string" ? event.account : undefined,
+        });
+      }
+      return new Response("ok", { status: 200 });
+    }
+
+    if (event.type === "charge.refunded") {
+      const charge = event.data.object as Stripe.Charge;
+      const piId =
+        typeof charge.payment_intent === "string"
+          ? charge.payment_intent
+          : charge.payment_intent?.id;
+      if (piId) {
+        const pi = await getStripeForWebhook().paymentIntents.retrieve(piId);
+        await ctx.runMutation(
+          internal.payments_stripe.handlePaymentIntentEvent,
+          {
+            stripeEventId: event.id,
+            eventType: event.type,
+            paymentIntentId: piId,
+            bookingId:
+              (pi.metadata && (pi.metadata as any).bookingId) || undefined,
+            newStatus: "refunded",
+            livemode: event.livemode,
+            stripeAccountId:
+              typeof event.account === "string" ? event.account : undefined,
+          },
+        );
+      } else {
+        await ctx.runMutation(internal.stripe_webhook_events.record, {
+          eventId: event.id,
+          eventType: event.type,
+          livemode: event.livemode,
+        });
+      }
+      return new Response("ok", { status: 200 });
+    }
+
+    // setup_intent.succeeded and charge.dispute.created are logged for now
+    // (PaymentSheet already attaches the PM on success; disputes need a
+    // dedicated handler we'll add later).
+    if (
+      event.type === "setup_intent.succeeded" ||
+      event.type === "charge.dispute.created"
+    ) {
+      await ctx.runMutation(internal.stripe_webhook_events.record, {
+        eventId: event.id,
+        eventType: event.type,
+        livemode: event.livemode,
+        stripeAccountId:
+          typeof event.account === "string" ? event.account : undefined,
+      });
       return new Response("ok", { status: 200 });
     }
 

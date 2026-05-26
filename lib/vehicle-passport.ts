@@ -27,10 +27,14 @@ export const PARTS_ACCURACY_STATUSES = [
 ] as const;
 export type PartsAccuracyStatus = (typeof PARTS_ACCURACY_STATUSES)[number];
 
+// Fields that must be populated for a passport to count as "complete" — drives
+// the "First time on Otopair" banner and the completion ring. `tires.model` is
+// excluded because it's only collected on post-job for tire/alignment/rotation
+// services; otherwise a vehicle could be worked five times and still show as
+// incomplete just because the model was never relevant to those jobs.
 const REQUIRED_PASSPORT_FIELDS = [
   "mileage",
   "tires.brand",
-  "tires.model",
   "tires.overall_condition",
 ] as const;
 
@@ -109,6 +113,10 @@ export type VehiclePassportData = {
   service_name: string;
   service_slug: string | null;
   requires_parts: boolean;
+  // Per-service variant: every booking service whose catalog row has
+  // requires_parts === true. Drives the per-service parts blocks in the
+  // post-job dialog so multi-service jobs can attribute parts correctly.
+  parts_required_services?: Array<{ _id: string; name: string }>;
   is_complete: boolean;
   completion_percent: number;
   missing_fields: string[];
@@ -129,6 +137,8 @@ export type VehiclePassportData = {
     date_label: string;
   }>;
   sources: Record<string, PassportSource>;
+  enrichment_status?: string | null;
+  enrichment_fill_rate?: number | null;
 };
 
 export type JobActualPartPayload = {
@@ -144,6 +154,9 @@ export type JobActualPartPayload = {
   // "oem" | "aftermarket" | "performance" | "economy" | "unknown".
   // Otopair currently supplies OEM only; defaults to "oem".
   part_tier?: string;
+  // Which booking service this part belongs to. Optional for backward compat
+  // with legacy rows; snapshot path falls back to booking.service_ids[0].
+  service_id?: string | null;
 };
 
 export type PreJobSurveyPayload = {
@@ -345,9 +358,6 @@ export function getMissingRequiredPassportFields(
     if (field === "tires.brand") {
       return !hasText(passport.tires.brand);
     }
-    if (field === "tires.model") {
-      return !hasText(passport.tires.model);
-    }
     return !isTireCondition(passport.tires.overall_condition);
   });
 }
@@ -375,7 +385,9 @@ export function serviceLikelyUsesParts(
     serviceSlug.includes("filter") ||
     serviceSlug.includes("spark") ||
     serviceSlug.includes("belt") ||
-    serviceSlug.includes("battery")
+    serviceSlug.includes("battery") ||
+    serviceSlug.includes("tire-replacement") ||
+    serviceSlug.includes("tire_replacement")
   );
 }
 

@@ -5,7 +5,8 @@
  * Caches the result by optimistically updating the booking store (Convex reactivity
  * will also refresh useBookingsFromConvex).
  *
- * Falls back to local-only create when Convex data (userId, vin, timeSlotId) is missing.
+ * Throws when Convex data is missing so appointment bookings never look
+ * successful while only living in local state.
  *
  * USED IN: Payment screen, confirmation flow
  */
@@ -17,6 +18,8 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { useUserFromConvex } from "./useUserFromConvex";
 import { useToast } from "./useToast";
 import { useVehicleOwnershipFromConvex } from "./useVehicleOwnershipFromConvex";
+import { computeBookingTax } from "@/lib/tax";
+import { computePlatformFeeDollars } from "@/lib/platformFee";
 import { useMechanicStore } from "@/stores/useMechanicStore";
 import { useShopStore } from "@/stores/useShopStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
@@ -36,11 +39,11 @@ export function useCreateBookingConvex() {
   const availableServices = useBookingStore((s) => s.availableServices);
   const selectedMechanicSlot = useBookingStore((s) => s.selectedMechanicSlot);
   const scheduledAppointment = useBookingStore((s) => s.scheduledAppointment);
-  const createBooking = useBookingStore((s) => s.createBooking);
   const sourceRecommendationId = useBookingStore((s) => s.sourceRecommendationId);
   const setSourceRecommendationId = useBookingStore((s) => s.setSourceRecommendationId);
   const selectedServiceOptions = useBookingStore((s) => s.selectedServiceOptions);
   const customerNotes = useBookingStore((s) => s.customerNotes);
+  const selectedDiagnosticSystem = useBookingStore((s) => s.selectedDiagnosticSystem);
 
   // Resolve shopId: from selectedMechanicSlot or from selected mechanic's shop
   const effectiveShopId =
@@ -94,9 +97,18 @@ export function useCreateBookingConvex() {
       // VIN whenever the VW is marked primary.
       const vin = getSelectedVehicle()?.vin ?? primaryVin;
 
-      if (!userId || !vin || !shopId || !timeSlotId || selectedServiceIds.length === 0) {
-        const localId = createBooking(mechanicId, bookingType);
-        return [localId];
+      const missingFields = [
+        !userId ? "user" : null,
+        !vin ? "vehicle VIN" : null,
+        !shopId ? "shop" : null,
+        !timeSlotId ? "time slot" : null,
+        selectedServiceIds.length === 0 ? "selected services" : null,
+      ].filter((field): field is string => field != null);
+
+      if (missingFields.length > 0) {
+        throw new Error(
+          `We couldn't create this booking because the ${missingFields.join(", ")} ${missingFields.length === 1 ? "is" : "are"} still loading. Please go back, reselect the appointment time, and try again.`,
+        );
       }
 
       const selectedServices = availableServices.filter((s) => selectedServiceIds.includes(s.id));
@@ -126,13 +138,25 @@ export function useCreateBookingConvex() {
       const scheduledDateVal = scheduledAppointment?.date ?? new Date().toISOString().split("T")[0];
       const scheduledTimeVal = scheduledAppointment?.time ? displayTimeToHHMM(scheduledAppointment.time) : "09:00";
 
-      const TAXES_AND_FEES = 5.0;
-      // Service fee: 7% of service subtotal, $4.99 minimum, no cap
+      // Platform fee: system-level config in lib/platformFee.ts. Both the
+      // client display path and the server-authoritative createBatch path
+      // call the same helper, so the customer always sees what we charge.
       // TODO: When subscriptions are wired, waive service fee for Preferred/Elite subscribers
-      const SERVICE_FEE_RATE = 0.07;
-      const SERVICE_FEE_MINIMUM = 4.99;
       const servicesSubtotal = services.reduce((sum, s) => sum + s.labor_cost + s.parts_cost, 0);
-      const PLATFORM_FEE = servicesSubtotal > 0 ? Math.max(servicesSubtotal * SERVICE_FEE_RATE, SERVICE_FEE_MINIMUM) : 0;
+      const PLATFORM_FEE = computePlatformFeeDollars(servicesSubtotal);
+      // Tax: client-side display value only. Convex `createBatch` will
+      // recompute server-side using the same `computeBookingTax` util —
+      // see convex/bookings.ts. If they disagree (e.g. client tampered
+      // with shop data) the server value wins. We send this for the
+      // optimistic UI and as a cross-check.
+      const totalLabor = services.reduce((sum, s) => sum + s.labor_cost, 0);
+      const totalParts = services.reduce((sum, s) => sum + s.parts_cost, 0);
+      const TAXES_AND_FEES = computeBookingTax({
+        laborDollars: totalLabor,
+        partsDollars: totalParts,
+        state: shop?.state,
+        zip: shop?.zip,
+      }).taxDollars;
 
       // Snapshot per-service option picks (e.g. Brake Pads → Front and rear)
       // so the booking row carries the labels forward to the mechanic's
@@ -149,11 +173,12 @@ export function useCreateBookingConvex() {
 
       const trimmedNotes = customerNotes.trim();
 
-      // Toast surface for the booking-create funnel. The booking is in
-      // `pending_shop_acceptance` after this call resolves, NOT `confirmed`,
-      // so we use Info (not Success). The Trust-Moment "Booking confirmed"
-      // toast fires later via `useBookingStatusToasts` when the shop accepts.
-      // Diagnostic: docs/notifications/DIAGNOSTIC-2026-05-21.md.
+      // Error toast surfaces here; the success "Booking submitted." toast
+      // fires later from confirmation.tsx's Back-to-Home handler so it
+      // lands on the home screen instead of expiring on /confirming.
+      // The booking is in `pending_shop_acceptance` after this resolves,
+      // NOT `confirmed` — the Trust-Moment "Booking confirmed" toast fires
+      // separately via `useBookingStatusToasts` when the shop accepts.
       let bookingIds: string[];
       try {
         bookingIds = await createBatch({
@@ -171,6 +196,7 @@ export function useCreateBookingConvex() {
             ? (sourceRecommendationId as Id<"job_recommendations">)
             : undefined,
           customer_notes: trimmedNotes.length > 0 ? trimmedNotes : undefined,
+          diagnostic_system: selectedDiagnosticSystem ?? undefined,
           selected_service_options:
             selectedOptionsPayload.length > 0 ? selectedOptionsPayload : undefined,
         });
@@ -181,11 +207,6 @@ export function useCreateBookingConvex() {
         );
         throw err;
       }
-
-      toast.info(
-        "Booking submitted.",
-        "We'll let you know as soon as your shop confirms.",
-      );
 
       // Clear the rec link so subsequent (unrelated) bookings don't reuse it.
       if (sourceRecommendationId) setSourceRecommendationId(null);
@@ -204,11 +225,11 @@ export function useCreateBookingConvex() {
       getShopById,
       resolveTimeSlotId,
       createBatch,
-      createBooking,
       sourceRecommendationId,
       setSourceRecommendationId,
       selectedServiceOptions,
       customerNotes,
+      selectedDiagnosticSystem,
       toast,
     ],
   );

@@ -144,7 +144,7 @@ export function ShopReviewsSection({ shopId }: ShopReviewsSectionProps) {
 }
 
 const styles = StyleSheet.create({
-  container: { paddingVertical: Spacing.lg },
+  container: { paddingVertical: Spacing.lg, paddingHorizontal: Spacing.lg },
   reviewsHeader: { marginTop: Spacing.xl, marginBottom: Spacing.lg },
   scroll: { flex: 1 },
   reviewsList: { gap: Spacing.md, paddingBottom: Spacing.xl },

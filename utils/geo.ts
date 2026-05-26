@@ -18,6 +18,11 @@ const EARTH_RADIUS_KM = 6371;
 /** Earth's radius in miles */
 const EARTH_RADIUS_MILES = 3959;
 
+export type DistanceUnit = "mi" | "km";
+
+export const KM_PER_MILE = 1.609344;
+export const MILES_PER_KM = 0.621371192237334;
+
 // ============================================================================
 // DISTANCE CALCULATIONS
 // ============================================================================
@@ -70,17 +75,50 @@ export function calculateDistanceMiles(lat1: number, lon1: number, lat2: number,
   return EARTH_RADIUS_MILES * c;
 }
 
+export function normalizeDistanceUnit(unit: unknown): DistanceUnit {
+  return unit === "km" ? "km" : "mi";
+}
+
+export function milesToKm(miles: number): number {
+  return miles * KM_PER_MILE;
+}
+
+export function kmToMiles(km: number): number {
+  return km * MILES_PER_KM;
+}
+
+function formatProximityDistanceValue(value: number, unit: DistanceUnit): string {
+  const safeValue = Math.max(0, value);
+  if (safeValue < 0.1) return `< 0.1 ${unit}`;
+  return `${safeValue.toFixed(1)} ${unit}`;
+}
+
+export function formatProximityDistanceFromMiles(
+  distanceMiles: number | null | undefined,
+  unit: DistanceUnit = "mi",
+): string {
+  if (typeof distanceMiles !== "number" || !Number.isFinite(distanceMiles)) return "";
+  const value = unit === "km" ? milesToKm(distanceMiles) : distanceMiles;
+  return formatProximityDistanceValue(value, unit);
+}
+
+export function formatProximityDistanceFromKm(
+  distanceKm: number | null | undefined,
+  unit: DistanceUnit = "km",
+): string {
+  if (typeof distanceKm !== "number" || !Number.isFinite(distanceKm)) return "";
+  const value = unit === "mi" ? kmToMiles(distanceKm) : distanceKm;
+  return formatProximityDistanceValue(value, unit);
+}
+
 /**
- * Format distance for display (auto-selects km/m based on magnitude)
+ * Format distance for display in kilometers
  *
  * @param distanceKm - Distance in kilometers
- * @returns Formatted string like "1.2 km" or "500 m"
+ * @returns Formatted string like "1.2 km" or "< 0.1 km"
  */
 export function formatDistanceKm(distanceKm: number): string {
-  if (distanceKm < 1) {
-    return `${Math.round(distanceKm * 1000)} m`;
-  }
-  return `${distanceKm.toFixed(1)} km`;
+  return formatProximityDistanceFromKm(distanceKm, "km");
 }
 
 /**
@@ -90,7 +128,7 @@ export function formatDistanceKm(distanceKm: number): string {
  * @returns Formatted string like "1.2 mi" or "0.5 mi"
  */
 export function formatDistanceMiles(distanceMiles: number): string {
-  return `${distanceMiles.toFixed(1)} mi`;
+  return formatProximityDistanceFromMiles(distanceMiles, "mi");
 }
 
 // ============================================================================

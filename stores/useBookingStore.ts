@@ -16,6 +16,7 @@
 
 import { create } from "zustand";
 import { SERVICE_CATEGORIES, type ServiceCategoryItem } from "@/constants/services";
+import type { DiagnosticSystem } from "@/lib/diagnostic-checklist-templates";
 import type {
   Booking,
   BookingStage,
@@ -46,8 +47,6 @@ export interface SelectedMechanicSlot {
   /** Scheduled time (e.g. "09:00") */
   scheduledTime?: string;
 }
-import { useMechanicStore } from "./useMechanicStore";
-import { useVehicleStore } from "./useVehicleStore";
 
 // ─────────────────────────────────────────────────────────────
 // STORE STATE INTERFACE
@@ -106,6 +105,10 @@ interface BookingState {
   bookingType: BookingType | null;
   /** Scheduled appointment date/time */
   scheduledAppointment: ScheduledAppointment | null;
+  /** Customer-facing range snapshot stashed by ReviewPayContent so the
+   *  Confirm screen can quote the same band the customer just agreed to.
+   *  Format: `$108.42 – $138.67`. Cleared on flow reset. */
+  disclosedRangeFormatted: string | null;
   /** Whether booking_details was skipped (direct to payment via "Book Now") */
   skippedBookingDetails: boolean;
   /** Selected slot in mechanic selection screen (before booking) */
@@ -121,8 +124,13 @@ interface BookingState {
    *  picker can pre-select it. Cleared by resetBookingFlow. */
   prefilledScheduledAt: number | null;
   /** Free-text notes from the customer that the mechanic should read before
-   *  starting the job (entered on the Review & Pay screen). */
+   *  starting the job (entered on the Review & Pay screen, or on the
+   *  diagnostic options screen when the Diagnostic Scan service is selected). */
   customerNotes: string;
+  /** Diagnostic area the customer picked when booking a Diagnostic Scan.
+   *  Null when no Diagnostic Scan service is in the cart or before the user
+   *  picks one of the five areas on the diagnostic options screen. */
+  selectedDiagnosticSystem: DiagnosticSystem | null;
 
   // ═══════════════ BOOKING STATE ═══════════════
   /** All bookings indexed by ID */
@@ -184,6 +192,8 @@ interface BookingState {
   setBookingTypeAndProceed: (type: BookingType, mechanicId: string) => void;
   /** Set the scheduled appointment date/time */
   setScheduledAppointment: (appointment: ScheduledAppointment | null) => void;
+  /** Stash the disclosed price range so the Confirm screen can re-display it. */
+  setDisclosedRangeFormatted: (formatted: string | null) => void;
   /** Set whether booking details was skipped */
   setSkippedBookingDetails: (skipped: boolean) => void;
   /** Set selected mechanic slot in mechanic selection screen */
@@ -200,6 +210,8 @@ interface BookingState {
   setPrefilledScheduledAt: (ms: number | null) => void;
   /** Set the customer notes (passed to the booking row as customer_notes). */
   setCustomerNotes: (notes: string) => void;
+  /** Set the diagnostic area selection (null clears it). */
+  setSelectedDiagnosticSystem: (system: DiagnosticSystem | null) => void;
   /** Reset booking flow to initial state */
   resetBookingFlow: () => void;
 
@@ -208,8 +220,6 @@ interface BookingState {
   setDraftBooking: (draft: Partial<Booking> | null) => void;
   /** Clear all booking state */
   clearBookingState: () => void;
-  /** Create a new booking from current state (local only; use api.bookings.create for Convex) */
-  createBooking: (mechanicId: string, bookingType: BookingType) => string;
   /** Hydrate available services from Convex (replaces/gates MOCK_SERVICES) */
   setAvailableServices: (services: Service[]) => void;
   /** Hydrate service categories from Convex (for Select Services tabs) */
@@ -261,8 +271,6 @@ const DEFAULT_LOCATION: UserLocation = {
   city: "San Francisco",
   state: "CA",
 };
-
-const DEFAULT_SERVICE: ServiceCategory = "basic_maintenance";
 
 // ─────────────────────────────────────────────────────────────
 // MOCK SERVICES DATA
@@ -389,12 +397,14 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
   selectedMechanicId: null,
   bookingType: null,
   scheduledAppointment: null,
+  disclosedRangeFormatted: null,
   skippedBookingDetails: false,
   selectedMechanicSlot: null,
   selectedServiceOptions: {},
   sourceRecommendationId: null,
   prefilledScheduledAt: null,
   customerNotes: "",
+  selectedDiagnosticSystem: null,
   bookings: {},
   bookingIds: [],
   draftBooking: null,
@@ -484,23 +494,10 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
     }),
 
   setBookingsFromConvex: (bookings) =>
-    set((state) => {
-      // Preserve local-only bookings (created outside Convex — e.g. the
-      // tire-flow synthetic booking) so Convex re-syncs don't wipe them.
-      const incomingIds = new Set(bookings.map((b) => b.id));
+    set(() => {
       const byId: Record<string, Booking> = {};
       const ids: string[] = [];
-      // Local-only entries first (stable order).
-      state.bookingIds.forEach((id) => {
-        if (!incomingIds.has(id)) {
-          const existing = state.bookings[id];
-          if (existing) {
-            byId[id] = existing;
-            ids.push(id);
-          }
-        }
-      });
-      // Then the Convex payload overwrites/adds.
+
       bookings.forEach((b) => {
         byId[b.id] = b;
         ids.push(b.id);
@@ -570,6 +567,11 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
       scheduledAppointment: appointment,
     }),
 
+  setDisclosedRangeFormatted: (formatted) =>
+    set({
+      disclosedRangeFormatted: formatted,
+    }),
+
   setSkippedBookingDetails: (skipped) =>
     set({
       skippedBookingDetails: skipped,
@@ -605,6 +607,9 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
   setCustomerNotes: (notes) =>
     set({ customerNotes: notes }),
 
+  setSelectedDiagnosticSystem: (system) =>
+    set({ selectedDiagnosticSystem: system }),
+
   resetBookingFlow: () =>
     set({
       bookingStage: "discovery",
@@ -617,12 +622,14 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
       preSelectedServiceIds: [],
       bookingType: null,
       scheduledAppointment: null,
+      disclosedRangeFormatted: null,
       skippedBookingDetails: false,
       selectedMechanicSlot: null,
       selectedServiceOptions: {},
       sourceRecommendationId: null,
       prefilledScheduledAt: null,
       customerNotes: "",
+      selectedDiagnosticSystem: null,
       draftBooking: null,
     }),
 
@@ -818,48 +825,5 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
         const dateB = new Date(b.scheduledDate);
         return dateA.getTime() - dateB.getTime();
       });
-  },
-
-  createBooking: (mechanicId, bookingType) => {
-    const state = get();
-    const mechanic = useMechanicStore.getState().getMechanicById(mechanicId);
-
-    if (!mechanic) {
-      throw new Error(`Mechanic with ID ${mechanicId} not found`);
-    }
-
-    // Generate unique booking ID
-    const bookingId = `booking_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
-    // Get scheduled date/time from appointment or use defaults
-    const scheduledDate = state.scheduledAppointment?.date || new Date().toISOString().split("T")[0];
-    const scheduledTime = state.scheduledAppointment?.time || "1:00 PM";
-
-    // Create booking object
-    const booking: Booking = {
-      id: bookingId,
-      userId: "current_user_id", // TODO: Get from auth store
-      shopId: String(mechanic.shopId),
-      vehicleId: useVehicleStore.getState().selectedVehicleId ?? "default_vehicle_id",
-      serviceIds: state.selectedServiceIds,
-      status: bookingType === "schedule_later" ? "pending" : "confirmed",
-      scheduledDate,
-      scheduledTime,
-      estimatedDuration: 60, // Default 1 hour
-      totalPrice: state.getSelectedServicesTotal(),
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-
-    // Add to store
-    set((prevState) => ({
-      bookings: {
-        ...prevState.bookings,
-        [bookingId]: booking,
-      },
-      bookingIds: [...prevState.bookingIds, bookingId],
-    }));
-
-    return bookingId;
   },
 }));

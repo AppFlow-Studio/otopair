@@ -37,7 +37,8 @@ import { BrandColors, PrimaryButton, Spacing, Text } from "@/components/shared-u
 
 // 4. Constants, hooks, types
 import { BorderRadius } from "@/constants/theme";
-import { formatDistanceMiles } from "@/utils/geo";
+import { useDistanceUnit } from "@/hooks/useDistanceUnit";
+import { formatProximityDistanceFromMiles } from "@/utils/geo";
 import type { Mechanic } from "@/stores/types/store.types";
 
 // ============================================================================
@@ -58,6 +59,8 @@ interface MechanicCardProps {
 // ============================================================================
 
 export const MechanicCard = memo(function MechanicCard({ mechanic, onBookNow, onScheduleLater }: MechanicCardProps) {
+  const distanceUnit = useDistanceUnit();
+
   // Track which availability slot is selected (null = none selected)
   const [selectedSlotIndex, setSelectedSlotIndex] = useState<number | null>(null);
 
@@ -111,7 +114,7 @@ export const MechanicCard = memo(function MechanicCard({ mechanic, onBookNow, on
 
           <View style={styles.detailsRow}>
             <Text size="xs" weight="regular" color="#9CA3AF">
-              {formatDistanceMiles(mechanic.distanceMi)}
+              {formatProximityDistanceFromMiles(mechanic.distanceMi, distanceUnit)}
             </Text>
             {mechanic.isVerified && (
               <View style={styles.verifiedBadge}>

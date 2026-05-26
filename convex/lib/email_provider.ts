@@ -7,28 +7,10 @@
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import { internalAction } from "../_generated/server";
-
-// Mobile repo stub. The real Resend-backed implementations live in
-// otopair-web/email/send.ts. The mobile repo does not deploy convex, so this
-// action is never invoked here — but the bundler still needs the import to
-// resolve for `npx convex dev`. Keep these signatures in sync with
-// otopair-web/email/send.ts.
-async function sendBookingUpdateEmail(
-  _args: { to: string; category: string; payload: Record<string, unknown> }
-): Promise<{ success: boolean; error?: string }> {
-  return {
-    success: false,
-    error: "email not configured: mobile repo does not deploy convex",
-  };
-}
-async function sendWalkinClaimEmail(
-  _args: { to: string; payload: Record<string, unknown>; claimUrl: string | null }
-): Promise<{ success: boolean; error?: string }> {
-  return {
-    success: false,
-    error: "email not configured: mobile repo does not deploy convex",
-  };
-}
+import {
+  sendBookingUpdateEmail,
+  sendWalkinClaimEmail,
+} from "../../email/send";
 
 export const sendWalkinUpdate = internalAction({
   args: {
@@ -74,7 +56,8 @@ export const sendWalkinUpdate = internalAction({
       if (
         args.category === "walkin_booking_confirmed" ||
         args.category === "walkin_vehicle_at_shop" ||
-        args.category === "walkin_prejob_complete"
+        args.category === "walkin_prejob_complete" ||
+        args.category === "appointment_reminder"
       ) {
         const result = await sendBookingUpdateEmail({
           to: args.to,

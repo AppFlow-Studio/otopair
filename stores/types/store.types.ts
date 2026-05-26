@@ -138,6 +138,14 @@ export interface MechanicAvailabilitySlot {
   day: string;
   /** Time string (e.g., "9:00 AM") */
   time: string;
+  /** Convex time_slots id, when this slot came from Convex availability */
+  timeSlotId?: string;
+  /** Slot date as YYYY-MM-DD, when this slot came from Convex availability */
+  scheduledDate?: string;
+  /** Slot start time as HH:MM, when this slot came from Convex availability */
+  scheduledTime?: string;
+  /** Convex mechanic id for this slot, when available */
+  mechanicId?: string;
 }
 
 /** Mechanic filter options */
@@ -163,6 +171,15 @@ export interface Booking {
   notes?: string;
   createdAt: string;
   updatedAt: string;
+  /** Pre-Job Approval flow: customer-facing range snapshotted at create. */
+  disclosedRangeLowCents?: number;
+  disclosedRangeHighCents?: number;
+  /** "none" | "in_range" | "pre_job_pending" | "pre_job_approved" |
+   *  "pre_job_declined" | "mid_job_pending" | ... | "captured" |
+   *  "sla_expired". Drives banner/receipt switching on the booking screen. */
+  paymentApprovalState?: string;
+  /** Final captured amount in cents (set after Stripe capture). */
+  finalCaptureAmountCents?: number;
 }
 
 /** A shop/mechanic business entity */
@@ -175,6 +192,10 @@ export interface Shop {
   // ─── Location ───
   /** Street address (or full address line) */
   address: string;
+  /** US state code (e.g. "NY"). Drives the booking sales-tax line. */
+  state?: string;
+  /** Shop's ZIP code. ZIP-3 prefix used for metro-level tax overrides. */
+  zip?: string;
   /** Shop phone for Contact / tel: link */
   phone?: string;
   /** Latitude coordinate */

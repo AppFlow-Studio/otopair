@@ -1,6 +1,6 @@
 // 1. React & React Native
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Image, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, Alert, Image, Pressable, StyleSheet, Text as RNText, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated from 'react-native-reanimated';
 
@@ -14,9 +14,11 @@ import {
   BottomSheetScrollView,
 } from "@gorhom/bottom-sheet";
 import { BlurBackdrop } from "@/components/shared-ui/BlurBackdrop";
+import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
 import { Bell, MoveRight, Star, Trophy } from 'lucide-react-native';
 import { useMutation, useQuery } from 'convex/react';
 import { api } from '@/convex/_generated/api';
+import { useMutationWithToast } from '@/hooks/useMutationWithToast';
 
 // 3. Shared UI
 import { Button, BrandColors, ScrollDrivenGradientBackground, Text } from "@/components/shared-ui";
@@ -122,6 +124,7 @@ export default function HomeScreen() {
     initialInsetTopRef.current = insets.top;
   }
   const stableInsetTop = initialInsetTopRef.current;
+  const { height: screenHeight } = useWindowDimensions();
   const router = useRouter();
   const { isNewUser, shouldShowReactivationSheet, setShouldShowReactivationSheet } = useAuthStore();
   const { vehicles: listVehicles, hasVehicles, isLoading: vehiclesLoading } = useVehicleOwnershipFromConvex();
@@ -142,6 +145,7 @@ export default function HomeScreen() {
   const sheetRef = useRef<BottomSheetModal>(null);
   const hasPresentedReactivationRef = useRef(false);
   const snapPoints = useMemo(() => ["42%"], []);
+  const noVehicleSheetRef = useRef<FloatingSheetRef>(null);
 
   useEffect(() => {
     if (shouldShowReactivationSheet && showWelcome) {
@@ -224,11 +228,7 @@ export default function HomeScreen() {
   const hasCreateAccount = !!(me?.first_name && me?.last_name) || me?.onboardingCompleted === true;
   const hasAboutYou = me?.tellUsAboutCompleted === true;
   const isAccountSetupComplete = hasCreateAccount && hasAboutYou && hasVehicles;
-  // TEMP: force the Finish-setup card visible so the redesigned tiles
-  // can be reviewed even after the user has completed setup. Revert
-  // this to `!isAccountSetupComplete && !accountSetupDismissed` once
-  // QA is done.
-  const showAccountSetup = !accountSetupDismissed;
+  const showAccountSetup = !isAccountSetupComplete && !accountSetupDismissed;
 
   // Car setup: prefer incomplete vehicles, then completed-but-not-acknowledged.
   // `incompleteVehicles` is the full list of not-yet-onboarded cars so we can
@@ -470,10 +470,36 @@ export default function HomeScreen() {
     [upcomingBooking],
   );
 
+  // Pull the shop record for the upcoming booking so we can fall back
+  // to a postal address when the shop hasn't been geocoded (shopLat /
+  // shopLng missing or 0). Without this, the Navigate button would
+  // happily route the user to 0,0 in the middle of the ocean.
+  const upcomingShop = useQuery(
+    api.shops.getById,
+    upcomingBooking?.shop_id
+      ? { id: upcomingBooking.shop_id as Id<"shops"> }
+      : "skip",
+  );
+  const upcomingShopAddress = useMemo(() => {
+    if (!upcomingShop) return undefined;
+    const parts = [
+      upcomingShop.address,
+      upcomingShop.city,
+      upcomingShop.state,
+      upcomingShop.zip,
+    ]
+      .map((p) => (typeof p === "string" ? p.trim() : ""))
+      .filter(Boolean);
+    return parts.length > 0 ? parts.join(", ") : undefined;
+  }, [upcomingShop]);
+
   // Cancel handler — mirror the bookings tab's behavior. Convex bookings
   // get the cancelBooking mutation; tire-quote-prefixed local IDs are
   // out of scope here (those don't surface as upcoming on home).
-  const cancelConvexBooking = useMutation(api.bookings.cancelBooking);
+  const cancelConvexBooking = useMutationWithToast(api.bookings.cancelBooking, {
+    success: "Booking cancelled.",
+    error: "Couldn't cancel this booking. Try again.",
+  });
   const handleAppointmentCancel = useCallback(
     (bookingId: string) => {
       const isLocalId = bookingId.startsWith("tire_quote_") || bookingId.startsWith("booking_");
@@ -734,10 +760,10 @@ export default function HomeScreen() {
                   // row + view-details/cancel handlers below.
                   showAppointment={!!upcomingBooking}
                   appointmentBooking={upcomingBookingCard}
-                  appointmentEtaMinutes={20}
                   appointmentDestinationLatitude={upcomingBooking?.shopLat ?? 0}
                   appointmentDestinationLongitude={upcomingBooking?.shopLng ?? 0}
                   appointmentDestinationName={upcomingBooking?.shopName}
+                  appointmentDestinationAddress={upcomingShopAddress}
                   onAppointmentViewDetails={handleAppointmentViewDetails}
                   onAppointmentCancel={handleAppointmentCancel}
                   // Resume Booking
@@ -871,6 +897,60 @@ export default function HomeScreen() {
         </View>
       )}
     </ScrollDrivenGradientBackground>
+
+    {/* No-vehicle gate — shown when user taps into booking without a vehicle */}
+    <FloatingSheet
+      ref={noVehicleSheetRef}
+      snapHeights={[screenHeight * 0.50]}
+      showBackdrop
+    >
+      <View style={[styles.sheetContentContainer, styles.noVehicleContent]}>
+        <View style={styles.sheetTitleWrap}>
+          <View style={styles.noVehicleIconWrap}>
+            <RNText
+              style={{
+                fontSize: 26,
+                lineHeight: 28,
+                textAlign: 'center',
+                textAlignVertical: 'center',
+                includeFontPadding: false,
+                transform: [{ translateY: -2 }],
+              }}
+            >
+              🚗
+            </RNText>
+          </View>
+          <Text style={styles.sheetTitle}>Add a vehicle first</Text>
+        </View>
+
+        <View style={styles.sheetBody}>
+          <Text style={styles.sheetBodyText}>
+            We need to know your vehicle to match you with the right mechanic and services.
+          </Text>
+        </View>
+
+        <View style={styles.sheetActions}>
+          <Pressable
+            style={({ pressed }) => [styles.sheetPrimaryButton, pressed && styles.sheetPressed]}
+            onPress={() => {
+              noVehicleSheetRef.current?.close();
+              router.push('/add-vehicle');
+            }}
+          >
+            <Text weight="semiBold" color="#FFF" style={styles.sheetPrimaryButtonText}>
+              Add a vehicle
+            </Text>
+          </Pressable>
+
+          <Pressable
+            onPress={() => noVehicleSheetRef.current?.close()}
+            style={styles.noVehicleSecondaryAction}
+          >
+            <Text style={styles.noVehicleSecondaryText}>Maybe later</Text>
+          </Pressable>
+        </View>
+      </View>
+    </FloatingSheet>
 
     {/* Booking details sheet — opened by the upcoming appointment card's
         View Details button. Mirrors the bookings tab's wiring. */}
@@ -1087,5 +1167,25 @@ const styles = StyleSheet.create({
   sheetPressed: {
     opacity: 0.9,
     transform: [{ scale: 0.99 }],
+  },
+  noVehicleContent: {
+    paddingBottom: 24,
+  },
+  noVehicleIconWrap: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#5299FE1A',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  noVehicleSecondaryAction: {
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  noVehicleSecondaryText: {
+    fontSize: 15,
+    color: '#8A97A8',
   },
 });

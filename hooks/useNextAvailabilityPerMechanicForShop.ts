@@ -8,8 +8,8 @@
  * USED IN: components/booking/ShopDetails.tsx
  */
 
-import { useQuery } from "convex/react";
-import { useMemo } from "react";
+import { useMutation, useQuery } from "convex/react";
+import { useEffect, useMemo } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { MechanicAvailabilitySlot } from "@/stores/types/store.types";
@@ -26,6 +26,18 @@ export function useNextAvailabilityPerMechanicForShop(
   // server can drop past slots before slicing to `limitPerMechanic`.
   const cutoffDate = todayLocalISO();
   const cutoffTime = minBookableHHMM();
+  const refreshShopAvailability = useMutation(api.time_slots.refreshShopAvailability);
+
+  useEffect(() => {
+    if (!isRealShopId) return;
+    void refreshShopAvailability({
+      shopId: shopId as Id<"shops">,
+      startDate: cutoffDate,
+    }).catch((error) => {
+      console.warn("[availability] failed to refresh shop slots", error);
+    });
+  }, [cutoffDate, isRealShopId, refreshShopAvailability, shopId]);
+
   const convexResult = useQuery(
     api.time_slots.getNextAvailableByShopPerMechanic,
     isRealShopId
@@ -55,6 +67,10 @@ export function useNextAvailabilityPerMechanicForShop(
             dayOfWeek,
             day,
             time: hhmmToDisplayTime(s.start_time),
+            timeSlotId: s._id as string,
+            scheduledDate: s.date,
+            scheduledTime: s.start_time,
+            mechanicId: key,
           };
         });
     }

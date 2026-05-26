@@ -42,6 +42,10 @@ export default function BookingLayout() {
           name="shop/[id]"
           options={{ animation: "slide_from_right" }}
         />
+        <Stack.Screen
+          name="approve-estimate/[id]"
+          options={{ animation: "slide_from_bottom" }}
+        />
       </Stack>
     </>
   );

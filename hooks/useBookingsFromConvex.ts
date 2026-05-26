@@ -30,6 +30,10 @@ function convexBookingToStore(doc: Doc<"bookings">): Booking {
     totalPrice: doc.total_cost ?? 0,
     createdAt: new Date(doc.created_at ?? Date.now()).toISOString(),
     updatedAt: new Date(doc.updated_at ?? doc.created_at ?? Date.now()).toISOString(),
+    disclosedRangeLowCents: doc.disclosed_range_low_cents ?? undefined,
+    disclosedRangeHighCents: doc.disclosed_range_high_cents ?? undefined,
+    paymentApprovalState: doc.payment_approval_state ?? undefined,
+    finalCaptureAmountCents: doc.final_capture_amount_cents ?? undefined,
   };
 }
 

@@ -26,12 +26,19 @@ import Animated, {
   withDelay,
   withTiming,
 } from "react-native-reanimated";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+
+import { useAction } from "convex/react";
+import { useStripe } from "@stripe/stripe-react-native";
 
 import { Text } from "@/components/shared-ui";
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
 import { BookingConfirmStatus } from "@/components/booking/BookingConfirmStatus";
 import { useCreateBookingConvex } from "@/hooks/useCreateBookingConvex";
 import { useBookingStore } from "@/stores/useBookingStore";
+import { usePaymentStore } from "@/stores/usePaymentStore";
+import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 
 // Copy fade-in is gated to the same landing moment as the tire flow so
 // the timing reads consistently across both surfaces.
@@ -57,15 +64,29 @@ export default function BookingConfirmingScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const sheetRef = useRef<FloatingSheetRef>(null);
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const { createBookingConvex } = useCreateBookingConvex();
   const selectedMechanicId = useBookingStore((s) => s.selectedMechanicId);
   const bookingType = useBookingStore((s) => s.bookingType);
+  const selectedPaymentMethodId = usePaymentStore((s) => s.selectedPaymentMethodId);
+  const createPaymentIntent = useAction(api.payments_stripe.createPaymentIntentForBooking);
+  // The PaymentIntent is created + confirmed server-side. If 3DS is needed,
+  // Stripe returns requires_action and the client *finishes* the challenge
+  // via `handleNextAction(clientSecret)` — NOT `confirmPayment`, which
+  // would error out on an already-confirmed PI.
+  const { handleNextAction } = useStripe();
   const navigatedRef = useRef(false);
   const [submitting, setSubmitting] = useState(false);
   const isCompactLayout = windowHeight < 860;
   const isVeryCompactLayout = windowHeight < 760;
-  const sheetHeight = Math.round(
-    windowHeight * (isVeryCompactLayout ? 0.57 : isCompactLayout ? 0.53 : 0.5),
+  // Content-driven sheet height: title + 3 rows + $20 hold note +
+  // Confirm + Go back + paddings. Kept just tall enough for "Go back"
+  // to render fully while still letting the Lottie subcopy ("Locking
+  // in your time slot with the shop") sit above the sheet's top edge.
+  const baseContentHeight = isVeryCompactLayout ? 390 : isCompactLayout ? 410 : 430;
+  const sheetHeight = Math.min(
+    Math.round(windowHeight * 0.78),
+    baseContentHeight + Math.max(insets.bottom - 12, 0),
   );
 
   // Open the sheet on mount, same shape as the tire-quote requesting flow.
@@ -123,14 +144,49 @@ export default function BookingConfirmingScreen() {
       });
       return;
     }
+    if (!selectedPaymentMethodId) {
+      navigatedRef.current = true;
+      router.replace({
+        pathname: `/booking/mechanic/${id}/payment`,
+        params: { confirmError: "Add a payment method to confirm." },
+      });
+      return;
+    }
     setSubmitting(true);
     try {
       const bookingIds = await createBookingConvex(selectedMechanicId, bookingType || "book_now");
+      const newBookingId = bookingIds[0];
+
+      // If the booking was created locally (no Convex id), skip the
+      // PaymentIntent step — there's nothing to authorize against yet.
+      // (`createBookingConvex` returns a local-only id when Convex args
+      // are missing; the booking will be re-submitted later.)
+      const isConvexBookingId = typeof newBookingId === "string" && newBookingId.length > 10;
+      if (isConvexBookingId) {
+        const pi = await createPaymentIntent({
+          bookingId: newBookingId as Id<"bookings">,
+          paymentMethodId: selectedPaymentMethodId,
+        });
+
+        if (pi.requiresAction) {
+          const { error } = await handleNextAction(pi.clientSecret);
+          if (error) {
+            throw new Error(error.message ?? "Card authorization failed.");
+          }
+        } else if (
+          pi.status !== "requires_capture" &&
+          pi.status !== "succeeded" &&
+          pi.status !== "processing"
+        ) {
+          throw new Error(`Card authorization failed (status: ${pi.status}).`);
+        }
+      }
+
       if (navigatedRef.current) return;
       navigatedRef.current = true;
       router.replace({
         pathname: `/booking/mechanic/${id}/confirmation`,
-        params: bookingIds[0] ? { bookingDbId: bookingIds[0] } : {},
+        params: newBookingId ? { bookingDbId: newBookingId } : {},
       });
     } catch (err) {
       if (navigatedRef.current) return;
@@ -140,7 +196,17 @@ export default function BookingConfirmingScreen() {
         params: { confirmError: extractErrorMessage(err) },
       });
     }
-  }, [submitting, selectedMechanicId, bookingType, createBookingConvex, router, id]);
+  }, [
+    submitting,
+    selectedMechanicId,
+    selectedPaymentMethodId,
+    bookingType,
+    createBookingConvex,
+    createPaymentIntent,
+    handleNextAction,
+    router,
+    id,
+  ]);
 
   return (
     <View style={styles.screen}>
@@ -212,6 +278,8 @@ const styles = StyleSheet.create({
   },
   copyOverlay: {
     position: "absolute",
+    // Sits below the dropped pin (~30% from top) and above the sheet's
+    // top edge — keeps the subcopy clear of the icon and the chrome.
     top: "37%",
     left: 24,
     right: 24,
@@ -219,13 +287,13 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   copyOverlayCompact: {
-    top: "36.5%",
+    top: "36%",
     left: 20,
     right: 20,
     gap: 6,
   },
   copyOverlayVeryCompact: {
-    top: "34.5%",
+    top: "34%",
   },
   copySub: {
     marginTop: 2,

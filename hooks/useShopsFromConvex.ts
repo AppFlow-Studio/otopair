@@ -8,12 +8,13 @@
  */
 
 import { useMutation, useQuery } from "convex/react";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import * as Location from "expo-location";
 import { api } from "@/convex/_generated/api";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
 import type { Shop } from "@/stores/types/store.types";
 import { useShopStore } from "@/stores/useShopStore";
+import { geocodeAddress, type Coords } from "@/utils/geocodeAddress";
 
 // Shops we've already tried to geocode this app session — module-level so
 // the attempt isn't repeated across the many screens that mount this hook.
@@ -33,6 +34,8 @@ function mapConvexShopToStore(shop: Doc<"shops">, serviceIds: string[]): Shop {
     id: shop._id,
     name: shop.name,
     address: address || "Address not available",
+    state: shop.state,
+    zip: shop.zip,
     phone: shop.phone,
     latitude: shop.lat ?? 0,
     longitude: shop.lng ?? 0,
@@ -54,6 +57,10 @@ export function useShopsFromConvex() {
   const setShops = useShopStore((s) => s.setShops);
   const setShopCoords = useMutation(api.shops.setShopCoords);
 
+  // Geocoded coords for shops whose Convex record is missing lat/lng.
+  // Keyed by shop id; resolved once per session via expo-location.
+  const [geocoded, setGeocoded] = useState<Record<string, Coords>>({});
+
   const shops: Shop[] = useMemo(() => {
     if (!convexShops || !shopServicesList) return [];
 
@@ -65,8 +72,15 @@ export function useShopsFromConvex() {
       serviceIdsByShop[shopKey].push(ss.service_id as string);
     }
 
-    return (convexShops as Doc<"shops">[]).map((shop) => mapConvexShopToStore(shop, serviceIdsByShop[shop._id as string] ?? []));
-  }, [convexShops, shopServicesList]);
+    return (convexShops as Doc<"shops">[]).map((shop) => {
+      const mapped = mapConvexShopToStore(shop, serviceIdsByShop[shop._id as string] ?? []);
+      const fallback = geocoded[mapped.id];
+      if (fallback && mapped.latitude === 0 && mapped.longitude === 0) {
+        return { ...mapped, latitude: fallback.latitude, longitude: fallback.longitude };
+      }
+      return mapped;
+    });
+  }, [convexShops, shopServicesList, geocoded]);
 
   useEffect(() => {
     if (shops.length > 0) {
@@ -74,52 +88,36 @@ export function useShopsFromConvex() {
     }
   }, [shops, setShops]);
 
-  // Keyless geocode backfill: any shop without coords gets its address
-  // resolved on-device (expo-location, no API key) and persisted to
-  // Convex. The first session to view shops fills coords for everyone;
-  // the mutation only backfills, so it never clobbers real coords.
+  // Fire forward-geocoding for any shop missing lat/lng. Resolves are
+  // batched into state so a single render hydrates them all.
   useEffect(() => {
-    const missing = shops.filter(
-      (s) =>
-        !attemptedShopGeocode.has(s.id) &&
-        !!s.address &&
-        s.address !== "Address not available" &&
-        shopNeedsCoords(s),
+    const needsGeocode = shops.filter(
+      (s) => s.latitude === 0 && s.longitude === 0 && s.address && !geocoded[s.id],
     );
-    if (missing.length === 0) return;
+    if (needsGeocode.length === 0) return;
 
     let cancelled = false;
     (async () => {
-      for (const shop of missing) {
-        if (cancelled) break;
-        attemptedShopGeocode.add(shop.id);
-        try {
-          const results = await Location.geocodeAsync(shop.address);
-          const hit = results?.[0];
-          if (
-            hit &&
-            typeof hit.latitude === "number" &&
-            typeof hit.longitude === "number"
-          ) {
-            await setShopCoords({
-              shopId: shop.id as Id<"shops">,
-              lat: hit.latitude,
-              lng: hit.longitude,
-            });
-          }
-        } catch {
-          // OS geocoder rate-limited or unavailable — leave for a later
-          // session rather than spamming retries.
-        }
-        // Gentle throttle to respect the OS geocoder's rate limits.
-        await new Promise((r) => setTimeout(r, 400));
+      const results = await Promise.all(
+        needsGeocode.map(async (s) => {
+          const coords = await geocodeAddress(s.address);
+          return coords ? ([s.id, coords] as const) : null;
+        }),
+      );
+      if (cancelled) return;
+      const patch: Record<string, Coords> = {};
+      for (const r of results) {
+        if (r) patch[r[0]] = r[1];
+      }
+      if (Object.keys(patch).length > 0) {
+        setGeocoded((prev) => ({ ...prev, ...patch }));
       }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [shops, setShopCoords]);
+  }, [shops, geocoded]);
 
   return {
     shops,

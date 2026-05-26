@@ -26,13 +26,13 @@ import React, { useEffect, useState } from 'react';
 import {
   Dimensions,
   Image,
+  ImageSourcePropType,
   Pressable,
   StyleSheet,
   View,
 } from 'react-native';
 
 // 2. Expo & Third-party
-import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { useVehicleStore } from '@/stores/useVehicleStore';
@@ -123,6 +123,8 @@ const SAMPLE_VEHICLES: Vehicle[] = [
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const SWIPE_THRESHOLD = SCREEN_WIDTH / 4;
+const THIRD_CARD_SLIVER_HEIGHT = 52;
+const FALLBACK_VEHICLE_IMAGE = require('@/assets/images/covered-car.png');
 
 // ============================================================================
 // COMPONENT
@@ -137,13 +139,19 @@ export function VehicleMaintenanceCard({
   const router = useRouter();
   const [currentIndex, setCurrentIndex] = useState(0);
   const [backIndex, setBackIndex] = useState(vehicles.length > 1 ? 1 : 0);
+  const [promotingIndex, setPromotingIndex] = useState<number | null>(null);
+  const [thirdToSecondIndex, setThirdToSecondIndex] = useState<number | null>(null);
+  const [incomingThirdIndex, setIncomingThirdIndex] = useState<number | null>(null);
   const [fetchedImageUrls, setFetchedImageUrls] = useState<Record<string, string>>({});
+  const [imageLoadErrors, setImageLoadErrors] = useState<Record<string, string | true>>({});
   const [measuredHeights, setMeasuredHeights] = useState<Record<string, number>>({});
 
   // Animated values for the front card
   const translateX = useSharedValue(0);
   const rotation = useSharedValue(0);
   const cardOpacity = useSharedValue(1);
+  const promotionProgress = useSharedValue(0);
+  const stackShiftProgress = useSharedValue(1);
 
   useEffect(() => {
     vehicles.forEach((v) => {
@@ -163,22 +171,46 @@ export function VehicleMaintenanceCard({
     }
   };
 
-  const advanceIndex = () => {
-    setCurrentIndex((prev) => (prev + 1) % vehicles.length);
-    onSwipeEnd?.();
+  const finishPromotion = (nextIndex: number) => {
+    setCurrentIndex(nextIndex);
+    setBackIndex((nextIndex + 1) % vehicles.length);
+    // Keep the promoted card mounted briefly while React commits the new
+    // first-card content underneath it. Otherwise the second card can flash
+    // through for a frame on slower native commits.
+    setTimeout(() => {
+      cardOpacity.value = 1;
+      setTimeout(() => {
+        setPromotingIndex(null);
+        setThirdToSecondIndex(null);
+        setIncomingThirdIndex(null);
+      }, 80);
+    }, 32);
   };
 
-  // After React commits the new front card content, make it visible
-  // then update the back card (safely hidden behind the front)
-  useEffect(() => {
-    if (cardOpacity.value === 0) {
-      cardOpacity.value = 1;
-      // Back card updates after front is visible and covering it
-      requestAnimationFrame(() => {
-        setBackIndex((currentIndex + 1) % vehicles.length);
-      });
+  const promoteNextCard = () => {
+    const nextIndex = (currentIndex + 1) % vehicles.length;
+    const nextSecondIndex = (currentIndex + 2) % vehicles.length;
+    const nextThirdIndex = (currentIndex + 3) % vehicles.length;
+    promotionProgress.value = 0;
+    stackShiftProgress.value = 0;
+    setPromotingIndex(nextIndex);
+    if (vehicles.length > 2) {
+      setThirdToSecondIndex(nextSecondIndex);
+      setIncomingThirdIndex(nextThirdIndex);
     }
-  }, [currentIndex]);
+    promotionProgress.value = withTiming(1, {
+      duration: 260,
+      easing: Easing.out(Easing.cubic),
+    }, (finished) => {
+      if (finished) {
+        runOnJS(finishPromotion)(nextIndex);
+      }
+    });
+    stackShiftProgress.value = withTiming(1, {
+      duration: 260,
+      easing: Easing.out(Easing.cubic),
+    });
+  };
 
   const panGesture = Gesture.Pan()
     .activeOffsetX([-15, 15])
@@ -199,11 +231,11 @@ export function VehicleMaintenanceCard({
           easing: Easing.out(Easing.cubic),
         }, (finished) => {
           if (finished) {
-            // Card is off-screen — hide it, reset position, then let JS advance index
+            // Card is off-screen, so promote the next card into the front slot.
             cardOpacity.value = 0;
             translateX.value = 0;
             rotation.value = 0;
-            runOnJS(advanceIndex)();
+            runOnJS(promoteNextCard)();
           }
         });
         rotation.value = withTiming(direction === 'right' ? 15 : -15, { duration: 300 });
@@ -229,7 +261,62 @@ export function VehicleMaintenanceCard({
     ],
   }));
 
-  const renderCardContent = (vehicle: Vehicle, maxItems?: number) => {
+  const promotingCardStyle = useAnimatedStyle(() => {
+    const progress = promotionProgress.value;
+    return {
+      top: -8 + 8 * progress,
+      left: 12 - 12 * progress,
+      right: 12 - 12 * progress,
+      transform: [{ scale: 0.98 + 0.02 * progress }],
+    };
+  });
+
+  const thirdToSecondCardStyle = useAnimatedStyle(() => {
+    const progress = stackShiftProgress.value;
+    const revealProgress = Math.max(0, Math.min(1, (progress - 0.18) / 0.82));
+    return {
+      top: -16 + 8 * progress,
+      left: 24 - 12 * progress,
+      right: 24 - 12 * progress,
+      opacity: revealProgress,
+      transform: [{ scale: 0.96 + 0.02 * progress }],
+    };
+  });
+
+  const incomingThirdCardStyle = useAnimatedStyle(() => {
+    const progress = stackShiftProgress.value;
+    return {
+      top: -20 + 4 * progress,
+      left: 30 - 6 * progress,
+      right: 30 - 6 * progress,
+      opacity: 0.65 * progress,
+      height: THIRD_CARD_SLIVER_HEIGHT,
+      transform: [{ scale: 0.94 + 0.02 * progress }],
+    };
+  });
+
+  const resolveVehicleImageSource = (vehicle: Vehicle): ImageSourcePropType => {
+    if (vehicle.localImage) return vehicle.localImage;
+
+    const resolvedImageUrl = fetchedImageUrls[vehicle.id] || vehicle.imageUrl;
+    if (!resolvedImageUrl || imageLoadErrors[vehicle.id] === resolvedImageUrl) {
+      return FALLBACK_VEHICLE_IMAGE;
+    }
+
+    return { uri: resolvedImageUrl };
+  };
+
+  const handleVehicleImageError = (vehicle: Vehicle) => {
+    const resolvedImageUrl = fetchedImageUrls[vehicle.id] || vehicle.imageUrl;
+    setImageLoadErrors((prev) => {
+      if (!resolvedImageUrl || prev[vehicle.id] === resolvedImageUrl) {
+        return prev;
+      }
+      return { ...prev, [vehicle.id]: resolvedImageUrl };
+    });
+  };
+
+  const renderCardContent = (vehicle: Vehicle, maxItems?: number, isPreview = false) => {
     const items = maxItems ? vehicle.maintenanceItems.slice(0, maxItems) : vehicle.maintenanceItems;
     return (
     <View style={styles.card}>
@@ -271,9 +358,10 @@ export function VehicleMaintenanceCard({
               </Text>
             </View>
             <Image
-              source={vehicle.localImage || { uri: fetchedImageUrls[vehicle.id] || vehicle.imageUrl }}
+              source={resolveVehicleImageSource(vehicle)}
               style={styles.vehicleImage}
               resizeMode="contain"
+              onError={() => handleVehicleImageError(vehicle)}
             />
           </View>
         </View>
@@ -396,29 +484,37 @@ export function VehicleMaintenanceCard({
           ))}
         </View>
 
-        {/* Stacked card behind */}
-        {canSwipe && (
-          <View style={styles.stackedCard}>
-            <BlurView
-              intensity={40}
-              tint="light"
-              style={StyleSheet.absoluteFill}
-            />
-            <LinearGradient
-              colors={['rgba(245, 247, 250, 0.92)', 'rgba(241, 244, 249, 0.88)']}
-              style={StyleSheet.absoluteFill}
-            />
-            <View style={styles.stackedCardHighlight} />
-          </View>
-        )}
-
         {/* Card area */}
         <View style={[styles.swiperContainer, resolvedCardHeight ? { height: resolvedCardHeight } : undefined]}>
-          {/* Back card preview */}
-          {canSwipe && (
-            <View style={styles.backCard}>
-              {renderCardContent(vehicles[backIndex], 1)}
+          {canSwipe && hasThirdCard && promotingIndex === null && (
+            <View style={[styles.thirdCard, styles.thirdCardSliver]}>
+              {renderCardContent(vehicles[thirdIndex], 1, true)}
             </View>
+          )}
+
+          {canSwipe && incomingThirdIndex !== null && (
+            <Animated.View style={[styles.thirdCard, styles.thirdCardSliver, incomingThirdCardStyle]}>
+              {renderCardContent(vehicles[incomingThirdIndex], 1, true)}
+            </Animated.View>
+          )}
+
+          {canSwipe && thirdToSecondIndex !== null && (
+            <Animated.View style={[styles.thirdCard, styles.secondCardLayer, thirdToSecondCardStyle]}>
+              {renderCardContent(vehicles[thirdToSecondIndex], 1, true)}
+            </Animated.View>
+          )}
+
+          {/* Second card preview */}
+          {canSwipe && promotingIndex === null && (
+            <View style={styles.backCard}>
+              {renderCardContent(vehicles[backIndex], 1, true)}
+            </View>
+          )}
+
+          {canSwipe && promotingIndex !== null && (
+            <Animated.View style={[styles.backCard, styles.promotingCard, promotingCardStyle]}>
+              {renderCardContent(vehicles[promotingIndex])}
+            </Animated.View>
           )}
 
           {/* Front card */}
@@ -468,44 +564,43 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
   },
-  stackedCard: {
-    position: 'absolute',
-    top: -4,
-    left: 17,
-    right: 17,
-    height: 50,
-    borderRadius: 12,
-    zIndex: 0,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: 'rgba(220, 225, 235, 0.6)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  stackedCardHighlight: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.7)',
-  },
   swiperContainer: {
     position: 'relative',
     zIndex: 1,
     overflow: 'visible',
+  },
+  thirdCard: {
+    position: 'absolute',
+    top: -16,
+    left: 24,
+    right: 24,
+    zIndex: 0,
+    opacity: 0.65,
+    transform: [{ scale: 0.96 }],
+  },
+  thirdCardSliver: {
+    height: THIRD_CARD_SLIVER_HEIGHT,
+    overflow: 'hidden',
+    borderRadius: 12,
   },
   backCard: {
     position: 'absolute',
     top: -8,
     left: 12,
     right: 12,
-    zIndex: 0,
-    opacity: 0.9,
+    zIndex: 1,
     transform: [{ scale: 0.98 }],
+  },
+  secondCardLayer: {
+    zIndex: 1,
+  },
+  promotingCard: {
+    zIndex: 2,
+  },
+  frontCard: {
+    position: 'relative',
+    zIndex: 3,
+    elevation: 8,
   },
   card: {
     borderRadius: 12,
@@ -515,6 +610,11 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 5,
     overflow: 'hidden',
+  },
+  cardPreview: {
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 3,
   },
   topSection: {
     borderTopLeftRadius: 12,
@@ -532,6 +632,12 @@ const styles = StyleSheet.create({
     shadowRadius: 10,
     elevation: 6,
     zIndex: 2,
+  },
+  topSectionPreview: {
+    borderWidth: 0,
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
   },
   topSectionInner: {
     padding: 20,

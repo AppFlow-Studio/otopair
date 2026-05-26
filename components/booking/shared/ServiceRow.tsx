@@ -36,27 +36,34 @@ export interface ServiceRowProps {
   onRemove: () => void;
   /** Override price for display (e.g. shop-specific labor + parts); formatted to 2 decimals */
   priceOverride?: number;
+  /** Optional extra content rendered below the name/price line, inside the
+   *  same row container. Used by Diagnostic Scan to surface the picked area
+   *  and customer notes inline with the service. */
+  extra?: React.ReactNode;
 }
 
 // ============================================================================
 // COMPONENT
 // ============================================================================
 
-export function ServiceRow({ service, onRemove, priceOverride }: ServiceRowProps) {
+export function ServiceRow({ service, onRemove, priceOverride, extra }: ServiceRowProps) {
   const price = priceOverride !== undefined ? priceOverride : service.price;
   return (
     <View style={styles.container}>
-      <View style={styles.left}>
-        <Text size="md" weight="bold" color={BrandColors.primary}>
-          {service.name}
-        </Text>
-        <Text size="sm" weight="regular" color="#9CA3AF">
-          ${Number(price).toFixed(2)}
-        </Text>
+      <View style={styles.headerRow}>
+        <View style={styles.left}>
+          <Text size="md" weight="bold" color={BrandColors.primary}>
+            {service.name}
+          </Text>
+          <Text size="sm" weight="regular" color="#9CA3AF">
+            ${Number(price).toFixed(2)}
+          </Text>
+        </View>
+        <TouchableOpacity style={styles.removeButton} onPress={onRemove} activeOpacity={0.7}>
+          <X size={18} color={BrandColors.white} />
+        </TouchableOpacity>
       </View>
-      <TouchableOpacity style={styles.removeButton} onPress={onRemove} activeOpacity={0.7}>
-        <X size={18} color={BrandColors.white} />
-      </TouchableOpacity>
+      {extra ? <View style={styles.extraSlot}>{extra}</View> : null}
     </View>
   );
 }
@@ -67,12 +74,14 @@ export function ServiceRow({ service, onRemove, priceOverride }: ServiceRowProps
 
 const styles = StyleSheet.create({
   container: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
     paddingVertical: Spacing.md,
     borderBottomWidth: 1,
     borderBottomColor: "#E5E7EB",
+  },
+  headerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
   },
   left: {
     flex: 1,
@@ -84,5 +93,8 @@ const styles = StyleSheet.create({
     backgroundColor: BrandColors.primary,
     alignItems: "center",
     justifyContent: "center",
+  },
+  extraSlot: {
+    marginTop: Spacing.sm,
   },
 });

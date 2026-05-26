@@ -7,8 +7,8 @@
  * USED IN: ShopBookingModal, AvailabilityModal
  */
 
-import { useQuery } from "convex/react";
-import { useMemo } from "react";
+import { useMutation, useQuery } from "convex/react";
+import { useEffect, useMemo } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { displayTimeToHHMM } from "@/utils/timeSlotUtils";
@@ -33,6 +33,19 @@ export function useTimeSlotsForShop(shopId: string | null, date: string | null, 
   // Skip query for mock IDs (e.g. "1", "2") — only call Convex with real IDs
   const isRealShopId = shopId != null && shopId.length > 10;
   const isRealMechanicId = mechanicId != null && mechanicId.length > 10;
+  const refreshShopAvailability = useMutation(api.time_slots.refreshShopAvailability);
+
+  useEffect(() => {
+    if (!isRealShopId || !date) return;
+    void refreshShopAvailability({
+      shopId: shopId as Id<"shops">,
+      date,
+      mechanicId: isRealMechanicId ? (mechanicId as Id<"mechanics">) : undefined,
+    }).catch((error) => {
+      console.warn("[availability] failed to refresh shop slots", error);
+    });
+  }, [date, isRealMechanicId, isRealShopId, mechanicId, refreshShopAvailability, shopId]);
+
   const slots = useQuery(
     api.time_slots.getByShopAndDate,
     isRealShopId && date
@@ -56,7 +69,18 @@ export function useTimeSlotsForShop(shopId: string | null, date: string | null, 
       }));
   }, [slots]);
 
-  const timeOptions = useMemo(() => [...new Set(availableSlots.map((s) => s.displayTime))].sort(), [availableSlots]);
+  // Sort by 24-hour `startTime` (HH:MM is lexically chronological) so the
+  // list reads store-open → close. A naive sort on `displayTime` puts
+  // "10:00 PM" before "10:15 AM" because it's a string compare.
+  const timeOptions = useMemo(() => {
+    const byDisplay = new Map<string, string>();
+    for (const s of availableSlots) {
+      if (!byDisplay.has(s.displayTime)) byDisplay.set(s.displayTime, s.startTime);
+    }
+    return Array.from(byDisplay.entries())
+      .sort(([, a], [, b]) => a.localeCompare(b))
+      .map(([displayTime]) => displayTime);
+  }, [availableSlots]);
 
   const getSlotIdByDisplayTime = useMemo(
     () => (displayTime: string) => {

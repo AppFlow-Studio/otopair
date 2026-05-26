@@ -36,7 +36,8 @@ import { BorderRadius, FontFamily, FontSize, Shadows } from "@/constants/theme";
 import type { ServiceCategory } from "@/stores/types/store.types";
 import { useRecentlyBookedMechanicIdsFromConvex } from "@/hooks/useRecentlyBookedMechanicIdsFromConvex";
 import { useRecentlyBookedShopIdsFromConvex } from "@/hooks/useRecentlyBookedShopIdsFromConvex";
-import { useSmartPricing } from "@/hooks/useSmartPricing";
+import { useServiceVehicleSpecsForEngine } from "@/hooks/useServiceVehicleSpecsForEngine";
+import { formatDurationForCar } from "@/lib/formatDuration";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
 import { useSearchStore, type SearchSuggestion } from "@/stores/useSearchStore";
@@ -108,9 +109,9 @@ export function FullSearchModal({
 
   // ═══════════════ STORES ═══════════════
   const availableServices = useBookingStore((state) => state.availableServices);
-  const selectedVehicle = useVehicleStore((state) => state.getSelectedVehicle());
+  const engineId = useVehicleStore((state) => state.getSelectedVehicle()?.engineId);
   const allServiceIds = useMemo(() => availableServices.map((s) => s.id), [availableServices]);
-  const smartPricing = useSmartPricing(selectedVehicle?.engineId, allServiceIds);
+  const engineSpecs = useServiceVehicleSpecsForEngine(engineId, allServiceIds);
   const getRecentShopIds = useSearchStore((state) => state.getRecentShopIds);
   const getSearchSuggestions = useSearchStore((state) => state.getSearchSuggestions);
   const removeRecentShop = useSearchStore((state) => state.removeRecentShop);
@@ -401,9 +402,29 @@ export function FullSearchModal({
                     <Wrench size={18} color={BrandColors.secondary} />
                   </View>
                   <View style={styles.resultContent}>
-                    <Text size="md" weight="semiBold" color={BrandColors.primary}>
-                      {suggestion.type === "service" ? suggestion.service.name : suggestion.label}
-                    </Text>
+                    <View style={styles.serviceTitleRow}>
+                      <Text
+                        size="md"
+                        weight="semiBold"
+                        color={BrandColors.primary}
+                        style={styles.serviceName}
+                        numberOfLines={1}
+                      >
+                        {suggestion.type === "service" ? suggestion.service.name : suggestion.label}
+                      </Text>
+                      {suggestion.type === "service" && (() => {
+                        const hours =
+                          engineSpecs[suggestion.service.id]?.labor_hours ??
+                          suggestion.service.default_labor_hours;
+                        const durationLabel = formatDurationForCar(hours);
+                        if (!durationLabel) return null;
+                        return (
+                          <Text size="xs" weight="medium" color="#6B7280">
+                            Est. Duration {durationLabel}
+                          </Text>
+                        );
+                      })()}
+                    </View>
                     {suggestion.type === "service" && (
                       <Text size="sm" color="#6B7280" numberOfLines={1}>
                         {suggestion.service.description}
@@ -415,33 +436,6 @@ export function FullSearchModal({
                       </Text>
                     )}
                   </View>
-                  {suggestion.type === "service" && (() => {
-                    const sp = smartPricing[suggestion.service.id];
-                    if (sp?.hasEngineData && sp.result.tier !== "contact") {
-                      return (
-                        <View style={{ alignItems: "flex-end" }}>
-                          <Text size="md" weight="bold" color={BrandColors.secondary}>
-                            {sp.formatted}
-                          </Text>
-                          <Text size="xs" weight="medium" color="#9CA3AF">
-                            {sp.result.label}
-                          </Text>
-                        </View>
-                      );
-                    }
-                    if (sp?.hasEngineData && sp.result.tier === "contact") {
-                      return (
-                        <Text size="xs" weight="medium" color="#9CA3AF">
-                          Contact for Quote
-                        </Text>
-                      );
-                    }
-                    return (
-                      <Text size="md" weight="bold" color={BrandColors.secondary}>
-                        ${suggestion.service.price}
-                      </Text>
-                    );
-                  })()}
                 </TouchableOpacity>
               ))}
             </View>
@@ -477,14 +471,14 @@ export function FullSearchModal({
                           >
                             {shop.name}
                           </Text>
-                          {shop.rating && (
+                          {shop.rating ? (
                             <View style={styles.ratingBadge}>
                               <Star size={12} color="#F5C254" fill="#F5C254" />
                               <Text size="xs" weight="semiBold" color={BrandColors.primary}>
                                 {shop.rating.toFixed(1)}
                               </Text>
                             </View>
-                          )}
+                          ) : null}
                         </View>
                         <Text size="sm" color="#6B7280" numberOfLines={1}>
                           {shop.address}
@@ -522,14 +516,14 @@ export function FullSearchModal({
                           >
                             {mechanic.name}
                           </Text>
-                          {mechanic.rating && (
+                          {mechanic.rating ? (
                             <View style={styles.ratingBadge}>
                               <Star size={12} color="#F5C254" fill="#F5C254" />
                               <Text size="xs" weight="semiBold" color={BrandColors.primary}>
                                 {mechanic.rating.toFixed(1)}
                               </Text>
                             </View>
-                          )}
+                          ) : null}
                         </View>
                         <Text size="sm" color="#6B7280" numberOfLines={1}>
                           {mechanic.title ?? mechanic.shopName} • {mechanic.yearsExperience} yrs
@@ -747,6 +741,15 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   resultContent: {
+    flex: 1,
+  },
+  serviceTitleRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    justifyContent: "space-between",
+    gap: Spacing.sm,
+  },
+  serviceName: {
     flex: 1,
   },
   resultHeader: {

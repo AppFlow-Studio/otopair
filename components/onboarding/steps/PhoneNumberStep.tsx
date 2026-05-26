@@ -26,6 +26,7 @@
 import { BrandColors, FontFamily, FontSize, Spacing, Text } from "@/components/shared-ui";
 import { ProgressBar } from "@/components/shared-ui/ProgressBar";
 import { FooterButton } from "@/components/shared-ui/FooterButton";
+import { BackButton } from "@/components/shared-ui/BackButton";
 import { useState, useEffect, useMemo, useRef } from "react";
 import {
   BackHandler,
@@ -49,6 +50,13 @@ import { useOnboardingStore } from "@/stores/useOnboardingStore";
 import { useUser, useSignUp } from "@clerk/clerk-expo";
 import { Search } from "lucide-react-native";
 import { OnboardingSurfaceColors } from "../onboardingColors";
+import {
+  cleanupStaleUnverifiedPhoneNumbers,
+  findPhoneNumberByNormalizedValue,
+  isIdentifierAlreadyTakenError,
+  isPhoneNumberVerified,
+  normalizePhoneForComparison,
+} from "@/lib/clerk-phone-numbers";
 // Try to import getAllCountries from the library
 let getAllCountries: ((locale?: string) => Promise<Country[]>) | undefined;
 try {
@@ -62,9 +70,10 @@ interface PhoneNumberStepProps {
   onNext: () => void;
   onBack: () => void;
   progress: { total: number; filled: number };
+  allowBack?: boolean;
 }
 
-export function PhoneNumberStep({ onNext, onBack, progress }: PhoneNumberStepProps) {
+export function PhoneNumberStep({ onNext, onBack, progress, allowBack = false }: PhoneNumberStepProps) {
   const insets = useSafeAreaInsets();
   const { height, width } = useWindowDimensions();
   const { updateData, data } = useOnboardingStore();
@@ -81,9 +90,14 @@ export function PhoneNumberStep({ onNext, onBack, progress }: PhoneNumberStepPro
 
   // Block Android hardware back — user cannot go back after email verification
   useEffect(() => {
-    const sub = BackHandler.addEventListener("hardwareBackPress", () => true);
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (allowBack) {
+        onBack();
+      }
+      return true;
+    });
     return () => sub.remove();
-  }, []);
+  }, [allowBack, onBack]);
 
   // Track the actual position of slideAnim
   useEffect(() => {
@@ -282,9 +296,11 @@ export function PhoneNumberStep({ onNext, onBack, progress }: PhoneNumberStepPro
 
   const handleConfirmPhoneNumber = async () => {
     const fullPhoneNumber = `+${getCallingCode()}${phoneNumber.replace(/\D/g, "")}`;
+    const normalizedFullPhoneNumber = normalizePhoneForComparison(fullPhoneNumber);
     updateData({
       phoneNumber: fullPhoneNumber,
       phoneCountryCode: countryCode,
+      phoneVerified: false,
     });
     setShowConfirmationModal(false);
     setPrepError(null);
@@ -296,16 +312,55 @@ export function PhoneNumberStep({ onNext, onBack, progress }: PhoneNumberStepPro
 
     if (user) {
       try {
-        const phoneNumberResource = await user.createPhoneNumber({
-          phoneNumber: fullPhoneNumber,
-        });
-        await phoneNumberResource.prepareVerification();
-        updateData({ phoneNumberId: phoneNumberResource.id });
-        console.log("Phone verification prepared via user for:", fullPhoneNumber);
-        prepared = true;
+        await cleanupStaleUnverifiedPhoneNumbers(user, normalizedFullPhoneNumber);
+        const existingPhoneNumber = findPhoneNumberByNormalizedValue(user, normalizedFullPhoneNumber);
+        if (existingPhoneNumber) {
+          const isVerified = isPhoneNumberVerified(existingPhoneNumber);
+          if (!isVerified) {
+            await existingPhoneNumber.prepareVerification?.();
+          }
+          updateData({
+            phoneNumberId: existingPhoneNumber.id,
+            phoneVerified: isVerified,
+          });
+          console.log("Phone verification resumed via existing user phone for:", fullPhoneNumber);
+          prepared = true;
+        } else {
+          const phoneNumberResource = await user.createPhoneNumber({
+            phoneNumber: fullPhoneNumber,
+          });
+          await phoneNumberResource.prepareVerification();
+          updateData({ phoneNumberId: phoneNumberResource.id });
+          console.log("Phone verification prepared via user for:", fullPhoneNumber);
+          prepared = true;
+        }
       } catch (err) {
-        console.error("Failed to prepare phone verification via user:", err);
-        setPrepError(err instanceof Error ? err.message : "Couldn't send verification code. Please try again.");
+        if (isIdentifierAlreadyTakenError(err)) {
+          try {
+            await user.reload();
+            const existingPhoneNumber = findPhoneNumberByNormalizedValue(user, normalizedFullPhoneNumber);
+            if (existingPhoneNumber) {
+              const isVerified = isPhoneNumberVerified(existingPhoneNumber);
+              if (!isVerified) {
+                await existingPhoneNumber.prepareVerification?.();
+              }
+              updateData({
+                phoneNumberId: existingPhoneNumber.id,
+                phoneVerified: isVerified,
+              });
+              console.log("Phone verification resumed after Clerk duplicate response for:", fullPhoneNumber);
+              prepared = true;
+            } else {
+              setPrepError("That phone number is already associated with another account.");
+            }
+          } catch (retryErr) {
+            console.error("Failed to resume existing phone verification:", retryErr);
+            setPrepError("Couldn't send verification code. Please try again.");
+          }
+        } else {
+          console.error("Failed to prepare phone verification via user:", err);
+          setPrepError(err instanceof Error ? err.message : "Couldn't send verification code. Please try again.");
+        }
       }
     } else if (signUp) {
       try {
@@ -408,7 +463,8 @@ export function PhoneNumberStep({ onNext, onBack, progress }: PhoneNumberStepPro
         <ProgressBar
           total={progress.total}
           filled={progress.filled}
-          reserveLeftSpace
+          leftElement={allowBack ? <BackButton onBack={onBack} alwaysShow /> : undefined}
+          reserveLeftSpace={!allowBack}
         />
 
         <ScrollView

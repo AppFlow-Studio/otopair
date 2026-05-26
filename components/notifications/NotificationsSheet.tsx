@@ -64,6 +64,15 @@ function relativeTime(createdAt: number): string {
   return new Date(createdAt).toLocaleDateString();
 }
 
+function formatExpiry(expiresAt: number): string | null {
+  const remainingMs = expiresAt - Date.now();
+  if (remainingMs <= 0) return "Expired — awaiting auto-revert";
+  const minutes = Math.floor(remainingMs / 60000);
+  if (minutes < 60) return `Expires in ${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  return `Expires in ${hours}h`;
+}
+
 export function NotificationsSheet() {
   const insets = useSafeAreaInsets();
   const isOpen = useNotificationsSheetStore((s) => s.isOpen);
@@ -229,6 +238,10 @@ export function NotificationsSheet() {
             const isForced = row.category === "booking_forced_delay_proposed";
             const title = row.payload?.title ?? "Update";
             const body = row.payload?.body ?? "";
+            const expiryLabel =
+              isReschedule && typeof row.rescheduleExpiresAt === "number"
+                ? formatExpiry(row.rescheduleExpiresAt)
+                : null;
             return (
               <Pressable
                 key={String(row._id)}
@@ -272,6 +285,16 @@ export function NotificationsSheet() {
                   {body ? (
                     <Text size="sm" color="#4B5563" style={styles.rowBody}>
                       {body}
+                    </Text>
+                  ) : null}
+                  {expiryLabel ? (
+                    <Text
+                      size="xs"
+                      weight="semiBold"
+                      color="#C8972E"
+                      style={styles.rowTime}
+                    >
+                      {expiryLabel}
                     </Text>
                   ) : null}
                   <Text size="xs" color="#9CA3AF" style={styles.rowTime}>

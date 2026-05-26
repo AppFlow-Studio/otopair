@@ -37,7 +37,8 @@ import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 
 // 4. Constants, hooks, types, stores
 import { BorderRadius, Shadows } from "@/constants/theme";
-import { formatDistanceMiles } from "@/utils/geo";
+import { useDistanceUnit } from "@/hooks/useDistanceUnit";
+import { formatProximityDistanceFromMiles } from "@/utils/geo";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
 
@@ -197,6 +198,7 @@ function SuccessCheckmark() {
 
 /** Compact mechanic info card */
 function CompactMechanicCard() {
+  const distanceUnit = useDistanceUnit();
   const selectedMechanicId = useBookingStore((state) => state.selectedMechanicId);
   const getMechanicById = useMechanicStore((state) => state.getMechanicById);
 
@@ -229,7 +231,7 @@ function CompactMechanicCard() {
           {mechanic.title ?? mechanic.shopName}
         </Text>
         <Text size="xs" weight="regular" color="#9CA3AF">
-          {formatDistanceMiles(mechanic.distanceMi)}
+          {formatProximityDistanceFromMiles(mechanic.distanceMi, distanceUnit)}
         </Text>
       </View>
 
@@ -315,11 +317,10 @@ export const ConfirmationModal = forwardRef<ConfirmationModalRef, ConfirmationMo
   const handleBackToHome = useCallback(() => {
     bottomSheetModalRef.current?.dismiss();
     onBackToHome();
-    // Pop the booking fullScreenModal off the root stack before landing
-    // on home — otherwise the map underneath leaks through behind the
-    // home tab.
-    router.dismissAll();
-    router.replace("/home");
+    // Single navigation: dismissTo pops the booking fullScreenModal AND
+    // lands on the home tab in one transition (avoids the double
+    // home-screen animation from a separate dismissAll + replace pair).
+    router.dismissTo("/(main-tabs)/home");
   }, [onBackToHome, router]);
 
   const handleAddToCalendar = useCallback(() => {

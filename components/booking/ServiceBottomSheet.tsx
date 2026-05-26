@@ -71,6 +71,8 @@ import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 import { ServiceSelectionFooter } from "./footers";
 import { ServiceOptionsFooter } from "./footers/ServiceOptionsFooter";
 import { CarSelectionContent } from "./sheets/CarSelectionContent";
+import { DiagnosticOptionsContent } from "./sheets/DiagnosticOptionsContent";
+import { DiagnosticOptionsSheet } from "./sheets/DiagnosticOptionsSheet";
 import { MechanicSelectionContent } from "./sheets/MechanicSelectionContent";
 import { ServiceOptionsContent } from "./sheets/ServiceOptionsContent";
 import { ServiceSelectionContent } from "./sheets/ServiceSelectionContent";
@@ -79,13 +81,16 @@ import { ShopPreviewContent } from "./sheets/ShopPreviewContent";
 
 // 5. Constants, hooks, types, stores
 import { BorderRadius, FontFamily, FontSize, Shadows } from "@/constants/theme";
+import { useBookingLaborHours } from "@/hooks/useBookingLaborHours";
+import { useBookingPartsBreakdown } from "@/hooks/useBookingPartsBreakdown";
 import { useBookingTransition } from "@/hooks/useBookingTransition";
 import { useRecentlyBookedMechanicIdsFromConvex } from "@/hooks/useRecentlyBookedMechanicIdsFromConvex";
 import { useRecentlyBookedShopIdsFromConvex } from "@/hooks/useRecentlyBookedShopIdsFromConvex";
 import { useServiceOptionsForSelected } from "@/hooks/useServiceOptionsForSelected";
 import { useServiceVehicleSpecsForEngine } from "@/hooks/useServiceVehicleSpecsForEngine";
-import { useSmartPricing } from "@/hooks/useSmartPricing";
 import { useQuickReadGate } from "@/hooks/useQuickReadGate";
+import { deriveDisclosedRange } from "@/lib/disclosedRange";
+import { formatDurationForCar } from "@/lib/formatDuration";
 import { QuickReadGateSheet } from "./QuickReadGateSheet";
 import type { ServiceCategory } from "@/stores/types/store.types";
 import { useBookingStore } from "@/stores/useBookingStore";
@@ -219,6 +224,10 @@ export function ServiceBottomSheet({
   // navigating from inside the bottom sheet.
   const [showTireBookingModal, setShowTireBookingModal] = useState(false);
   const [optionsServiceId, setOptionsServiceId] = useState<string | null>(null);
+  // Tap-to-open diagnostic picker (mirrors optionsServiceId pattern). Opens
+  // when the user taps Diagnostic Scan; resolves the area + notes before
+  // svc_diagnostics lands in the cart.
+  const [showDiagnosticSheet, setShowDiagnosticSheet] = useState(false);
   // Quick-read gate state — when a vehicle has never completed its
   // first quarterly check-in, we force the user through it before any
   // booking can proceed. `pendingStageRef` remembers what the user
@@ -302,6 +311,7 @@ export function ServiceBottomSheet({
   const selectedServiceIds = useBookingStore((state) => state.selectedServiceIds);
   const selectedMechanicSlot = useBookingStore((state) => state.selectedMechanicSlot);
   const selectedServiceOptions = useBookingStore((state) => state.selectedServiceOptions);
+  const selectedDiagnosticSystem = useBookingStore((state) => state.selectedDiagnosticSystem);
   const setBookingTypeAndProceed = useBookingStore((state) => state.setBookingTypeAndProceed);
   const setScheduledAppointment = useBookingStore((state) => state.setScheduledAppointment);
   const setSkippedBookingDetails = useBookingStore((state) => state.setSkippedBookingDetails);
@@ -334,6 +344,23 @@ export function ServiceBottomSheet({
     );
   }, [servicesWithOptions, selectedServiceOptions]);
 
+  // Diagnostic Scan adds a system-area picker (5 options) + customer notes to
+  // the legacy service_options stage. Matched by name because the catalog
+  // service id is the Convex _id (varies per env), not the constants slug.
+  const diagnosticServiceId = useMemo(
+    () => availableServices.find((s) => s.name === "Diagnostic Scan")?.id ?? null,
+    [availableServices],
+  );
+  const isDiagnosticServiceSelected =
+    diagnosticServiceId != null && selectedServiceIds.includes(diagnosticServiceId);
+  const isDiagnosticUnresolved =
+    isDiagnosticServiceSelected && selectedDiagnosticSystem == null;
+  const showDiagnosticInOptionsStage =
+    servicesWithOptions.length === 0 && isDiagnosticServiceSelected;
+  const optionsStageReady = showDiagnosticInOptionsStage
+    ? selectedDiagnosticSystem != null
+    : allOptionsSelected;
+
   // Car-specific (engine-specific) labor/parts for footer price
   const selectedVehicle = useVehicleStore((state) => state.getSelectedVehicle());
   const vehicleCount = useVehicleStore((state) => state.vehicleIds.length);
@@ -342,7 +369,7 @@ export function ServiceBottomSheet({
   );
   const engineSpecs = useServiceVehicleSpecsForEngine(selectedVehicle?.engineId, selectedServiceIds);
   const allServiceIds = useMemo(() => availableServices.map((s) => s.id), [availableServices]);
-  const smartPricing = useSmartPricing(selectedVehicle?.engineId, allServiceIds);
+  const allServicesEngineSpecs = useServiceVehicleSpecsForEngine(selectedVehicle?.engineId, allServiceIds);
 
   // Compute service name for mechanic selection footer
   const mechanicFooterServiceName = useMemo(() => {
@@ -374,6 +401,63 @@ export function ServiceBottomSheet({
     );
     return Math.round(total);
   }, [selectedMechanicSlot?.shopId, shops, availableServices, selectedServiceIds, selectedTotal, engineSpecs, selectedServiceOptions]);
+
+  // Pre-disclose the same price range the Review & Pay screen shows, so the
+  // customer never sees a stark jump from "Book $75" → "$192–$266.75". Uses
+  // the same hooks + math as app/booking/mechanic/[id]/payment.tsx:
+  //   real OEM parts (useBookingPartsBreakdown) + vehicle-specific labor
+  //   hours (useBookingLaborHours) + shop labor_rate, then deriveDisclosedRange
+  //   layers tax + 7% platform fee on top and bands parts ±25%.
+  const { breakdown: pricedPartsByService, isLoading: isPricedPartsLoading } =
+    useBookingPartsBreakdown(selectedVehicle?.ownershipId, selectedServiceIds);
+  const { laborHours: laborHoursByService, isLoading: isLaborHoursLoading } =
+    useBookingLaborHours(selectedVehicle?.ownershipId, selectedServiceIds);
+
+  const mechanicFooterRange = useMemo(() => {
+    const isLoading = isPricedPartsLoading || isLaborHoursLoading;
+    if (!selectedMechanicSlot?.shopId) return { formatted: "", isLoading };
+    const shop = shops[selectedMechanicSlot.shopId];
+    const laborRate = shop?.labor_rate;
+    if (laborRate == null) return { formatted: "", isLoading };
+
+    const selectedServices = availableServices.filter((s) => selectedServiceIds.includes(s.id));
+
+    const laborHoursMap = new Map<string, number>();
+    for (const row of laborHoursByService) laborHoursMap.set(String(row.serviceId), row.hours);
+    const pricedPartsMap = new Map<string, (typeof pricedPartsByService)[number]>();
+    for (const row of pricedPartsByService) {
+      if (row.parts.length > 0) pricedPartsMap.set(String(row.serviceId), row);
+    }
+
+    let laborHours = 0;
+    let partsCost = 0;
+    for (const s of selectedServices) {
+      const hours = laborHoursMap.get(String(s.id)) ?? s.default_labor_hours ?? 0;
+      laborHours += hours;
+      const priced = pricedPartsMap.get(String(s.id));
+      partsCost += priced && priced.partsTotal > 0
+        ? priced.partsTotal
+        : s.default_parts_estimate ?? 0;
+    }
+
+    const laborCost = laborHours * laborRate;
+    const range = deriveDisclosedRange({
+      laborCost,
+      partsCost,
+      state: shop?.state,
+      zip: shop?.zip,
+    });
+    return { formatted: range.formatted, isLoading };
+  }, [
+    selectedMechanicSlot?.shopId,
+    shops,
+    availableServices,
+    selectedServiceIds,
+    laborHoursByService,
+    pricedPartsByService,
+    isPricedPartsLoading,
+    isLaborHoursLoading,
+  ]);
 
   // ═══════════════ SEARCH COMPUTED VALUES ═══════════════
   const recentShopIds = useMemo(() => getRecentShopIds(), [getRecentShopIds]);
@@ -854,13 +938,20 @@ export function ServiceBottomSheet({
     const tireReplacementSelected = availableServices.some(
       (svc) => selectedServiceIds.includes(svc.id) && svc.name === "Tire Replacement",
     );
-    const anyHasOptions = availableServices.some(
+    const servicesNeedingOptions = availableServices.filter(
       (svc) => selectedServiceIds.includes(svc.id) && svc.has_options === true,
+    );
+    // The per-service picker (SingleServiceOptionsSheet) already resolved
+    // these on first tap. Only fall back to the legacy multi-service
+    // ServiceOptionsContent stage if something slipped through unresolved
+    // (e.g. a service was selected before the picker handoff existed).
+    const unresolvedOptions = servicesNeedingOptions.some(
+      (svc) => selectedServiceOptions[svc.id] == null,
     );
     const intent: "tire_modal" | "service_options" | "mechanic_selection" =
       tireReplacementSelected
         ? "tire_modal"
-        : anyHasOptions
+        : unresolvedOptions || isDiagnosticUnresolved
           ? "service_options"
           : "mechanic_selection";
 
@@ -889,6 +980,8 @@ export function ServiceBottomSheet({
     setBookingStage,
     availableServices,
     selectedServiceIds,
+    selectedServiceOptions,
+    isDiagnosticUnresolved,
     router,
     needsQuickRead,
     quickReadLoading,
@@ -964,11 +1057,26 @@ export function ServiceBottomSheet({
   }, [setBookingStage]);
 
   const handleMechanicSelectionGoBack = useCallback(() => {
-    const anyHasOptions = availableServices.some(
-      (svc) => selectedServiceIds.includes(svc.id) && svc.has_options === true,
-    );
-    setBookingStage(anyHasOptions ? "service_options" : "service_selection", "backward");
-  }, [availableServices, selectedServiceIds, setBookingStage]);
+    // Only land back on the legacy ServiceOptionsContent stage if some
+    // option is still unresolved. The per-service picker now resolves
+    // options on first tap, so the typical back path is straight to the
+    // service list. Diagnostic Scan also lives in this stage when its area
+    // pick is still pending.
+    const unresolved =
+      availableServices.some(
+        (svc) =>
+          selectedServiceIds.includes(svc.id) &&
+          svc.has_options === true &&
+          selectedServiceOptions[svc.id] == null,
+      ) || isDiagnosticUnresolved;
+    setBookingStage(unresolved ? "service_options" : "service_selection", "backward");
+  }, [
+    availableServices,
+    selectedServiceIds,
+    selectedServiceOptions,
+    isDiagnosticUnresolved,
+    setBookingStage,
+  ]);
 
   // Service options complete -> go to mechanic selection
   const handleServiceOptionsContinue = useCallback(() => {
@@ -1173,7 +1281,7 @@ export function ServiceBottomSheet({
             {...props}
             bottomInset={footerBottomInset}
             animatedStyle={footerAnimatedStyle}
-            allOptionsSelected={allOptionsSelected}
+            allOptionsSelected={optionsStageReady}
             onContinue={handleServiceOptionsContinue}
           />
         );
@@ -1247,8 +1355,27 @@ export function ServiceBottomSheet({
                       activeOpacity={0.8}
                     >
                       <Text size="md" weight="bold" color={BrandColors.white}>
-                        Book ${mechanicFooterTotal}
+                        Book
                       </Text>
+                      {mechanicFooterRange.isLoading ? (
+                        <View style={mechanicFooterStyles.priceSkeleton} />
+                      ) : mechanicFooterRange.formatted ? (
+                        <Text
+                          size="xs"
+                          weight="semiBold"
+                          color={BrandColors.white}
+                          style={mechanicFooterStyles.priceRange}
+                          numberOfLines={1}
+                          adjustsFontSizeToFit
+                          minimumFontScale={0.7}
+                        >
+                          ~ {mechanicFooterRange.formatted}
+                        </Text>
+                      ) : (
+                        <Text size="xs" weight="semiBold" color={BrandColors.white} style={mechanicFooterStyles.priceRange}>
+                          ~${mechanicFooterTotal}
+                        </Text>
+                      )}
                     </TouchableOpacity>
                   </View>
                 )}
@@ -1277,7 +1404,7 @@ export function ServiceBottomSheet({
       mechanicFooterTotal,
       handleServicesSelected,
       handleServiceOptionsContinue,
-      allOptionsSelected,
+      optionsStageReady,
       mechanicFooterServiceName,
       selectedMechanicSlot,
       handleMechanicBook,
@@ -1296,6 +1423,7 @@ export function ServiceBottomSheet({
               onCategorySelect={handleCategorySelect}
               onShopTiresRequested={() => setShowTireBookingModal(true)}
               onServiceWithOptionsRequested={(serviceId) => setOptionsServiceId(serviceId)}
+              onDiagnosticServiceRequested={() => setShowDiagnosticSheet(true)}
             />
           </Animated.View>
         );
@@ -1303,7 +1431,11 @@ export function ServiceBottomSheet({
       case "service_options":
         return (
           <Animated.View key="service-options" entering={sheetEntering} exiting={sheetExiting} style={styles.contentWrapper}>
-            <ServiceOptionsContent onGoBack={handleServiceOptionsGoBack} />
+            {showDiagnosticInOptionsStage ? (
+              <DiagnosticOptionsContent onGoBack={handleServiceOptionsGoBack} />
+            ) : (
+              <ServiceOptionsContent onGoBack={handleServiceOptionsGoBack} />
+            )}
           </Animated.View>
         );
 
@@ -1352,9 +1484,29 @@ export function ServiceBottomSheet({
                 <Wrench size={18} color={BrandColors.secondary} />
               </View>
               <View style={styles.resultContent}>
-                <Text size="md" weight="semiBold" color={BrandColors.primary}>
-                  {suggestion.type === "service" ? suggestion.service.name : suggestion.label}
-                </Text>
+                <View style={styles.suggestionTitleRow}>
+                  <Text
+                    size="md"
+                    weight="semiBold"
+                    color={BrandColors.primary}
+                    style={styles.suggestionName}
+                    numberOfLines={1}
+                  >
+                    {suggestion.type === "service" ? suggestion.service.name : suggestion.label}
+                  </Text>
+                  {suggestion.type === "service" && (() => {
+                    const hours =
+                      allServicesEngineSpecs[suggestion.service.id]?.labor_hours ??
+                      suggestion.service.default_labor_hours;
+                    const durationLabel = formatDurationForCar(hours);
+                    if (!durationLabel) return null;
+                    return (
+                      <Text size="xs" weight="medium" color="#6B7280">
+                        Est. Duration {durationLabel}
+                      </Text>
+                    );
+                  })()}
+                </View>
                 {suggestion.type === "service" && (
                   <Text size="sm" color="#6B7280" numberOfLines={1}>
                     {suggestion.service.description}
@@ -1366,33 +1518,6 @@ export function ServiceBottomSheet({
                   </Text>
                 )}
               </View>
-              {suggestion.type === "service" && (() => {
-                const sp = smartPricing[suggestion.service.id];
-                if (sp?.hasEngineData && sp.result.tier !== "contact") {
-                  return (
-                    <View style={{ alignItems: "flex-end" }}>
-                      <Text size="md" weight="bold" color={BrandColors.secondary}>
-                        {sp.formatted}
-                      </Text>
-                      <Text size="xs" weight="medium" color="#9CA3AF">
-                        {sp.result.label}
-                      </Text>
-                    </View>
-                  );
-                }
-                if (sp?.hasEngineData && sp.result.tier === "contact") {
-                  return (
-                    <Text size="xs" weight="medium" color="#9CA3AF">
-                      Contact for Quote
-                    </Text>
-                  );
-                }
-                return (
-                  <Text size="md" weight="bold" color={BrandColors.secondary}>
-                    ${suggestion.service.price}
-                  </Text>
-                );
-              })()}
             </TouchableOpacity>
           ))}
         </View>
@@ -1428,14 +1553,14 @@ export function ServiceBottomSheet({
                       >
                         {shop.name}
                       </Text>
-                      {shop.rating && (
+                      {shop.rating ? (
                         <View style={styles.ratingBadge}>
                           <Star size={12} color="#F5C254" fill="#F5C254" />
                           <Text size="xs" weight="semiBold" color={BrandColors.primary}>
                             {shop.rating.toFixed(1)}
                           </Text>
                         </View>
-                      )}
+                      ) : null}
                     </View>
                     <Text size="sm" color="#6B7280" numberOfLines={1}>
                       {shop.address}
@@ -1473,14 +1598,14 @@ export function ServiceBottomSheet({
                       >
                         {mechanic.name}
                       </Text>
-                      {mechanic.rating && (
+                      {mechanic.rating ? (
                         <View style={styles.ratingBadge}>
                           <Star size={12} color="#F5C254" fill="#F5C254" />
                           <Text size="xs" weight="semiBold" color={BrandColors.primary}>
                             {mechanic.rating.toFixed(1)}
                           </Text>
                         </View>
-                      )}
+                      ) : null}
                     </View>
                     <Text size="sm" color="#6B7280" numberOfLines={1}>
                       {mechanic.title ?? mechanic.shopName} • {mechanic.yearsExperience} yrs
@@ -1770,6 +1895,26 @@ export function ServiceBottomSheet({
       }}
     />
 
+    {/* Diagnostic Scan picker — opens the moment the user taps the service
+        in the catalog (mirrors the SingleServiceOptionsSheet pattern). On
+        confirm: stash the area + notes, then add svc_diagnostics to the
+        cart so totals and downstream stages have the data ready. */}
+    <DiagnosticOptionsSheet
+      visible={showDiagnosticSheet}
+      initialSystem={selectedDiagnosticSystem}
+      initialNotes={useBookingStore.getState().customerNotes}
+      onClose={() => setShowDiagnosticSheet(false)}
+      onConfirm={(system, notes) => {
+        const store = useBookingStore.getState();
+        store.setSelectedDiagnosticSystem(system);
+        store.setCustomerNotes(notes);
+        if (diagnosticServiceId && !store.selectedServiceIds.includes(diagnosticServiceId)) {
+          store.toggleServiceSelection(diagnosticServiceId);
+        }
+        setShowDiagnosticSheet(false);
+      }}
+    />
+
     {/* Mandatory first-time quick-read prompt. Mounted globally so it
         survives stage transitions while the user is taking the
         questionnaire; the resume useEffect closes it when the check-in
@@ -1980,6 +2125,15 @@ const styles = StyleSheet.create({
   resultContent: {
     flex: 1,
   },
+  suggestionTitleRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    justifyContent: "space-between",
+    gap: Spacing.sm,
+  },
+  suggestionName: {
+    flex: 1,
+  },
   resultHeader: {
     flexDirection: "row",
     alignItems: "center",
@@ -2068,12 +2222,23 @@ const mechanicFooterStyles = StyleSheet.create({
     flex: 1,
   },
   bookButton: {
-    flexDirection: "row",
+    flexDirection: "column",
     alignItems: "center",
-    gap: Spacing.sm,
+    justifyContent: "center",
+    gap: 2,
     backgroundColor: BrandColors.primary,
-    paddingVertical: Spacing.md,
+    paddingVertical: Spacing.sm,
     paddingHorizontal: Spacing.lg,
     borderRadius: BorderRadius.full,
+    minWidth: 140,
+  },
+  priceRange: {
+    opacity: 0.9,
+  },
+  priceSkeleton: {
+    width: 96,
+    height: 10,
+    borderRadius: 4,
+    backgroundColor: "rgba(255, 255, 255, 0.25)",
   },
 });

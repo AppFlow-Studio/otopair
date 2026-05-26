@@ -319,14 +319,21 @@ export default function ConfirmationScreen() {
   const handleBackToHome = useCallback(() => {
     if (isViewingPastBooking) {
       router.back();
-    } else {
-      // Pop the booking fullScreenModal off the root stack so the map
-      // doesn't leak through behind the home tab.
-      router.dismissAll();
-      router.replace("/home");
-      resetBookingFlow();
+      return;
     }
-  }, [isViewingPastBooking, resetBookingFlow, router]);
+    resetBookingFlow();
+    // Single navigation: dismissTo pops the booking fullScreenModal AND
+    // lands on the home tab in one transition. Previously we called
+    // dismissAll() + replace("/home") back-to-back, which produced a
+    // visible double home-screen animation.
+    router.dismissTo("/(main-tabs)/home");
+    // Fire the booking-submitted toast here so it drops down on the home
+    // screen after navigation, instead of expiring on /confirming.
+    toast.info(
+      "Booking submitted.",
+      "We'll let you know as soon as your shop confirms.",
+    );
+  }, [isViewingPastBooking, resetBookingFlow, router, toast]);
 
   const handleDirections = useCallback(() => {
     if (fullAddress) openMapsForAddress(fullAddress);

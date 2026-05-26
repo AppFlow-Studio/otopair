@@ -75,12 +75,14 @@ import { BorderRadius, BrandColors, FontFamily, Spacing } from "@/constants/them
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useMechanicsFromConvex } from "@/hooks/useMechanicsFromConvex";
+import { useDistanceUnit } from "@/hooks/useDistanceUnit";
 import { useServicesFromConvex } from "@/hooks/useServicesFromConvex";
 import { useShopsFromConvex } from "@/hooks/useShopsFromConvex";
 import type { BookServicePayload } from "@/services/ai/types";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
 import { useShopStore } from "@/stores/useShopStore";
+import { formatProximityDistanceFromMiles } from "@/utils/geo";
 import { displayTimeToHHMM } from "@/utils/timeSlotUtils";
 
 // Local service catalog (12 entries). Static client-side metadata; the
@@ -1040,11 +1042,12 @@ function Stage4Mechanic({
   getShopName: (id: string) => string | null;
   disabled: boolean;
 }) {
+  const distanceUnit = useDistanceUnit();
+
   return (
     <View style={styles.stageBody}>
       <Text style={styles.helperText} size="sm">
-        Sorted by your preference. Oto's pick is highlighted; you can pick
-        any mechanic.
+        {"Sorted by your preference. Oto's pick is highlighted; you can pick any mechanic."}
       </Text>
 
       <View style={styles.priorityRow}>
@@ -1090,7 +1093,7 @@ function Stage4Mechanic({
               .map((part) => part[0]?.toUpperCase() ?? "")
               .join("");
             const distanceLabel =
-              m.distanceMi > 0 ? `${m.distanceMi.toFixed(1)} mi` : null;
+              m.distanceMi > 0 ? formatProximityDistanceFromMiles(m.distanceMi, distanceUnit) : null;
             return (
               <Animated.View key={m.id} entering={FadeInUp.delay(i * 20).duration(160)}>
                 <Pressable
@@ -1112,7 +1115,7 @@ function Stage4Mechanic({
                         strokeWidth={0}
                       />
                       <Text style={styles.otoPickBadgeText} weight="semiBold">
-                        Oto's Pick
+                        {"Oto's Pick"}
                       </Text>
                     </View>
                   ) : null}
@@ -1377,8 +1380,7 @@ function Stage6Confirm({
       </View>
 
       <Text style={styles.disclaimer} size="xs">
-        Final total is calculated on the payment screen from the shop's posted
-        labor rate and parts estimate.
+        {"Final total is calculated on the payment screen from the shop's posted labor rate and parts estimate."}
       </Text>
     </View>
   );

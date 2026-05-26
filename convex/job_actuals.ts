@@ -21,11 +21,23 @@ type SuggestedPart = {
   part_name: string;
   oem_number: string;
   cost: number;
+  // Whole-unit count of this part needed for the service. Sourced from
+  // part_fitments.quantity_needed (catalog) or service-specific knowledge
+  // (spark_plug_quantity, tire qty). UI falls back to 1 when absent.
+  quantity?: number;
   // The booking service this suggestion belongs to. Lets the post-job and
   // backfill flows render per-service parts blocks and lets snapshot
   // attribution stay accurate on multi-service jobs.
   service_id?: Id<"services">;
+  // Which layer of the cascade returned this part. Lets the UI badge
+  // "Used last time on this car" (vin) vs "Shop default" (shop) vs catalog
+  // fallback. Absent for legacy paths that pre-date the layered cascade.
+  learned_from?: "vin" | "shop" | "config" | "catalog";
 };
+
+// Mirror of SHOP_DEMOTE_DELTA in shop_part_preferences.ts so the cascade
+// applies the same vote-against rule as the accrual writer.
+const CASCADE_SHOP_DEMOTE_DELTA = 2;
 
 function medianOf(values: number[]): number {
   if (values.length === 0) return 0;
@@ -56,12 +68,68 @@ async function resolveSuggestedPartsFromCascade(
     shopId,
     serviceId,
     vehicleConfigId,
+    vin,
   }: {
     shopId: Id<"shops">;
     serviceId: Id<"services">;
     vehicleConfigId: Id<"vehicle_configs">;
+    /** Canonical VIN. When set, Layer 0 (per-VIN sticky preference) is tried
+     *  first — that's how "we know this car had this part installed" wins
+     *  over the shop's per-model default. */
+    vin?: string;
   },
 ): Promise<SuggestedPart[]> {
+  // Layer 0 — per-VIN sticky. Single hit short-circuits the cascade so the
+  // mechanic sees what's actually installed in THIS car, not what the shop
+  // installs on this model in general.
+  if (vin) {
+    const vinRows = await ctx.db
+      .query("vehicle_part_preferences")
+      .withIndex("by_vin_service", (q: any) =>
+        q.eq("vin", vin).eq("service_id", serviceId),
+      )
+      .collect();
+
+    const eligibleVin = vinRows.filter((r: any) => {
+      const used = r.use_count ?? 0;
+      const against = (r.swap_away_count ?? 0) + (r.not_used_count ?? 0);
+      // Either explicitly the sticky default OR a single use that hasn't
+      // been voted against past the threshold.
+      return r.is_default === true || against <= used + CASCADE_SHOP_DEMOTE_DELTA;
+    });
+
+    if (eligibleVin.length > 0) {
+      // Hydrate each into a SuggestedPart. Use shop-level snapshots for the
+      // cost estimate when possible; fall back to the cross-shop median.
+      const vinSuggestions: SuggestedPart[] = [];
+      for (const row of eligibleVin) {
+        const part = await ctx.db.get(row.part_id);
+        if (!part) continue;
+        // Median of recent shop-supplied snapshots for this part across any
+        // vehicle_config, scoped to the shop when known. Cheap-and-good — a
+        // dedicated per-VIN cost would be too thin a sample.
+        const recent = await ctx.db
+          .query("part_snapshots")
+          .withIndex("by_part", (q: any) => q.eq("part_id", row.part_id))
+          .order("desc")
+          .take(50);
+        const usable = (recent as any[]).filter(
+          (s) =>
+            s.superseded_by_id === undefined &&
+            s.supplied_by === "shop" &&
+            s.not_used !== true,
+        );
+        vinSuggestions.push({
+          part_name: part.name,
+          oem_number: part.oem_part_number,
+          cost: medianOf(usable.map((s) => s.unit_cost)),
+          learned_from: "vin",
+        });
+      }
+      if (vinSuggestions.length > 0) return vinSuggestions;
+    }
+  }
+
   // Layer 1
   const prefs = await ctx.db
     .query("shop_part_preferences")
@@ -72,7 +140,14 @@ async function resolveSuggestedPartsFromCascade(
         .eq("vehicle_config_id", vehicleConfigId),
     )
     .collect();
-  const defaults = prefs.filter((p: any) => p.is_default);
+  // Honor is_default AND the same demote rule the accrual writer uses, so
+  // a recently-demoted preference doesn't sneak back in before the next
+  // accrual tick.
+  const defaults = prefs.filter((p: any) => {
+    if (!p.is_default) return false;
+    const against = (p.swap_away_count ?? 0) + (p.not_used_count ?? 0);
+    return against <= (p.use_count ?? 0) + CASCADE_SHOP_DEMOTE_DELTA;
+  });
 
   if (defaults.length > 0) {
     // Pull this shop's recent snapshots once and bucket by part_id so we can
@@ -108,6 +183,7 @@ async function resolveSuggestedPartsFromCascade(
         part_name: part.name,
         oem_number: part.oem_part_number,
         cost: medianOf(costs),
+        learned_from: "shop",
       });
     }
     if (suggestions.length > 0) return suggestions;
@@ -160,6 +236,7 @@ async function resolveSuggestedPartsFromCascade(
       part_name: part.name,
       oem_number: part.oem_part_number,
       cost: medianOf(entry.costs),
+      learned_from: "config",
     });
   }
   return suggestions;
@@ -279,9 +356,9 @@ export const getPrefillData = query({
     const engine = vehicle.engine_id ? await ctx.db.get(vehicle.engine_id) : null;
     if (!engine) return null;
 
-    const trim = await ctx.db.get(engine.trim_id);
-    const model = trim ? await ctx.db.get(trim.model_id) : null;
-    const make = model ? await ctx.db.get(model.make_id) : null;
+    const trim = engine.trim_id ? await ctx.db.get(engine.trim_id) : null;
+    const model = trim ? await ctx.db.get(trim.model_id as Id<"models">) : null;
+    const make = model ? await ctx.db.get(model.make_id as Id<"makes">) : null;
 
     const vehicleLabel = [make?.name, model?.name, trim?.name, vehicle.year]
       .filter(Boolean)
@@ -313,11 +390,15 @@ export const getPrefillData = query({
 
       const before = suggestedParts.length;
 
-      if (vehicle.vehicle_config_id) {
+      if (vehicle.vehicle_config_id && booking.shop_id) {
         const cascadeSuggestions = await resolveSuggestedPartsFromCascade(ctx, {
           shopId: booking.shop_id,
           serviceId: sid,
           vehicleConfigId: vehicle.vehicle_config_id,
+          // Canonical VIN unlocks Layer 0 (per-VIN sticky preference). When
+          // a previous mechanic recorded a part install on this exact car,
+          // it surfaces here ahead of the per-model default.
+          vin: typeof booking.vin === "string" ? booking.vin : undefined,
         });
         for (const s of cascadeSuggestions) {
           suggestedParts.push({ ...s, service_id: sid });
@@ -328,24 +409,31 @@ export const getPrefillData = query({
       // this service. Uses service_vehicle_specs OEM columns indexed by
       // engine to suggest canonical parts even with zero historical data.
       if (suggestedParts.length === before && specs) {
+        // TODO(ts-fix): service_vehicle_specs schema is missing OEM-part fields used below:
+        //   oil_filter_oem, oil_capacity_qts (lives on engines), oil_viscocity (note: actual field on engines is oil_viscosity),
+        //   oil_drain_plug_gasket_oem, front_brake_pad_oem, rear_brake_pad_oem, engine_air_filter_oem,
+        //   cabin_air_filter_oem, spark_plug_oem, spark_plug_quantity (lives on engines),
+        //   serpentine_belt_oem, front_brake_rotor_oem, rear_brake_rotor_oem.
+        //   Verify intent (rename/migrate/add to schema); using `any` cast meanwhile.
+        const s = specs as any;
         const slug = svc.slug;
         if (slug === "oil-change") {
           suggestedParts.push({
             part_name: "Oil Filter",
-            oem_number: specs.oil_filter_oem ?? "",
+            oem_number: s.oil_filter_oem ?? "",
             cost: 12,
             service_id: sid,
           });
           suggestedParts.push({
-            part_name: `Synthetic Oil ${specs.oil_capacity_qts ?? "-"}qt`,
-            oem_number: specs.oil_viscocity ?? "",
+            part_name: `Synthetic Oil ${s.oil_capacity_qts ?? "-"}qt`,
+            oem_number: s.oil_viscocity ?? "",
             cost: 35,
             service_id: sid,
           });
-          if (specs.oil_drain_plug_gasket_oem) {
+          if (s.oil_drain_plug_gasket_oem) {
             suggestedParts.push({
               part_name: "Drain Plug Gasket",
-              oem_number: specs.oil_drain_plug_gasket_oem,
+              oem_number: s.oil_drain_plug_gasket_oem,
               cost: 2,
               service_id: sid,
             });
@@ -353,56 +441,56 @@ export const getPrefillData = query({
         } else if (slug === "brake-pads") {
           suggestedParts.push({
             part_name: "Front Brake Pads",
-            oem_number: specs.front_brake_pad_oem ?? "",
+            oem_number: s.front_brake_pad_oem ?? "",
             cost: 45,
             service_id: sid,
           });
           suggestedParts.push({
             part_name: "Rear Brake Pads",
-            oem_number: specs.rear_brake_pad_oem ?? "",
+            oem_number: s.rear_brake_pad_oem ?? "",
             cost: 40,
             service_id: sid,
           });
-        } else if (slug === "engine-air-filter" && specs.engine_air_filter_oem) {
+        } else if (slug === "engine-air-filter" && s.engine_air_filter_oem) {
           suggestedParts.push({
             part_name: "Engine Air Filter",
-            oem_number: specs.engine_air_filter_oem,
+            oem_number: s.engine_air_filter_oem,
             cost: 25,
             service_id: sid,
           });
-        } else if (slug === "cabin-air-filter" && specs.cabin_air_filter_oem) {
+        } else if (slug === "cabin-air-filter" && s.cabin_air_filter_oem) {
           suggestedParts.push({
             part_name: "Cabin Air Filter",
-            oem_number: specs.cabin_air_filter_oem,
+            oem_number: s.cabin_air_filter_oem,
             cost: 22,
             service_id: sid,
           });
-        } else if (slug === "spark-plugs" && specs.spark_plug_oem) {
-          const qty = specs.spark_plug_quantity ?? 4;
+        } else if (slug === "spark-plugs" && s.spark_plug_oem) {
+          const qty = s.spark_plug_quantity ?? 4;
           suggestedParts.push({
             part_name: `Spark Plugs (x${qty})`,
-            oem_number: specs.spark_plug_oem,
+            oem_number: s.spark_plug_oem,
             cost: 12 * qty,
             service_id: sid,
           });
-        } else if (slug === "serpentine-belt" && specs.serpentine_belt_oem) {
+        } else if (slug === "serpentine-belt" && s.serpentine_belt_oem) {
           suggestedParts.push({
             part_name: "Serpentine Belt",
-            oem_number: specs.serpentine_belt_oem,
+            oem_number: s.serpentine_belt_oem,
             cost: 45,
             service_id: sid,
           });
-        } else if (slug === "brake-rotors" && specs.front_brake_rotor_oem) {
+        } else if (slug === "brake-rotors" && s.front_brake_rotor_oem) {
           suggestedParts.push({
             part_name: "Front Brake Rotors",
-            oem_number: specs.front_brake_rotor_oem ?? "",
+            oem_number: s.front_brake_rotor_oem ?? "",
             cost: 85,
             service_id: sid,
           });
-          if (specs.rear_brake_rotor_oem) {
+          if (s.rear_brake_rotor_oem) {
             suggestedParts.push({
               part_name: "Rear Brake Rotors",
-              oem_number: specs.rear_brake_rotor_oem,
+              oem_number: s.rear_brake_rotor_oem,
               cost: 75,
               service_id: sid,
             });
@@ -460,6 +548,7 @@ export const getPrefillData = query({
       quantity_needed: number | null;
       position: string | null;
       average_price: number;       // 0 when no price data
+      median_price: number;        // 0 when no price data
       price_sample_size: number;
       price_sources_used: number;
     };
@@ -498,6 +587,7 @@ export const getPrefillData = query({
             quantity_needed: f.quantity_needed ?? null,
             position: f.position ?? null,
             average_price: priceSummary.average,
+            median_price: priceSummary.median,
             price_sample_size: priceSummary.sample_size,
             price_sources_used: priceSummary.used_sample_size,
           });
@@ -517,23 +607,44 @@ export const getPrefillData = query({
     // suggestedParts (by normalized oem_number) so they appear as
     // pre-listed rows in the post-job parts step ready to confirm.
     const normalize = (n: string) => n.trim().toUpperCase().replace(/\s+/g, "");
-    const existingOemNumbers = new Set(
-      suggestedParts
-        .map((p) => p.oem_number)
-        .filter(Boolean)
-        .map(normalize),
-    );
+    const existingByOem = new Map<string, SuggestedPart>();
+    for (const p of suggestedParts) {
+      const key = p.oem_number ? normalize(p.oem_number) : "";
+      if (key) existingByOem.set(key, p);
+    }
     for (const rec of oemRecommendations) {
       for (const part of rec.parts) {
         const key = normalize(part.oem_part_number);
-        if (!key || existingOemNumbers.has(key)) continue;
+        if (!key) continue;
+        const catalogQty =
+          typeof part.quantity_needed === "number" && part.quantity_needed > 0
+            ? part.quantity_needed
+            : undefined;
+        const existing = existingByOem.get(key);
+        if (existing) {
+          // Cascade already surfaced this part — stamp the catalog qty so the
+          // mechanic sees the correct count (e.g., 4 spark plugs) instead of
+          // the UI's hard-coded fallback of 1.
+          if (existing.quantity === undefined && catalogQty !== undefined) {
+            existing.quantity = catalogQty;
+          }
+          continue;
+        }
         suggestedParts.push({
           part_name: part.part_name,
           oem_number: part.oem_part_number,
-          cost: part.average_price,
+          // Prefer median across observations — robust to outlier overpays /
+          // typos and matches the tooltip/placeholder the mechanic sees.
+          cost: part.median_price > 0 ? part.median_price : part.average_price,
+          quantity: catalogQty,
           service_id: rec.service_id,
+          // These rows didn't come from a learned preference — they're the
+          // canonical catalog fitment for the (vehicle_config, service)
+          // tuple. The UI badges them differently from "Used last time on
+          // this car" / "Shop default".
+          learned_from: "catalog",
         });
-        existingOemNumbers.add(key);
+        existingByOem.set(key, suggestedParts[suggestedParts.length - 1]);
       }
     }
 
@@ -660,6 +771,7 @@ export const completeJob = mutation({
       now,
       completedAtMs: now,
       preferAutoLaborMinutes: true,
+      actorUserId: user._id,
     });
 
     if (booking.status !== "completed") {
@@ -704,6 +816,7 @@ export const saveDraft = mutation({
       actuals: args.actuals,
       now: Date.now(),
       preferAutoLaborMinutes: booking.status === "completed",
+      actorUserId: user._id,
     });
   },
 });
@@ -784,6 +897,7 @@ export const submitJobActuals = mutation({
       now,
       completedAtMs: booking.status === "completed" ? undefined : now,
       preferAutoLaborMinutes: true,
+      actorUserId: user._id,
     });
 
     if (booking.status !== "completed") {

@@ -64,9 +64,9 @@ export function FullScreenBookingView({ onClose }: FullScreenBookingViewProps) {
   const prevBookingStage = useBookingStore((state) => state.prevBookingStage);
   const bookingType = useBookingStore((state) => state.bookingType);
   const scheduledAppointment = useBookingStore((state) => state.scheduledAppointment);
-  const selectedTotal = useBookingStore((state) => state.getSelectedServicesTotal());
   const skippedBookingDetails = useBookingStore((state) => state.skippedBookingDetails);
   const setSkippedBookingDetails = useBookingStore((state) => state.setSkippedBookingDetails);
+  const disclosedRangeFormatted = useBookingStore((state) => state.disclosedRangeFormatted);
 
   // ═══════════════ COMPUTED ═══════════════
   const isBookingDetailsStage = bookingStage === "booking_details";
@@ -123,7 +123,7 @@ export function FullScreenBookingView({ onClose }: FullScreenBookingViewProps) {
 
   // ═══════════════ FOOTER CONTENT ═══════════════
   // Footer needs to be above the tab bar
-  const footerBottomPadding = insets.bottom + Layout.tabBarHeight + Spacing.lg;
+  const footerBottomPadding = insets.bottom;
 
   const renderFooter = () => {
     if (isBookingDetailsStage) {
@@ -148,22 +148,28 @@ export function FullScreenBookingView({ onClose }: FullScreenBookingViewProps) {
     }
 
     if (isPaymentStage) {
-      // Service fee: 7% of service subtotal, $4.99 minimum
-      // TODO: When subscriptions are wired, waive service fee for Preferred/Elite subscribers
-      const serviceFee = selectedTotal > 0 ? Math.max(selectedTotal * 0.07, 4.99) : 0;
-      const totalWithFee = selectedTotal + serviceFee;
+      // Pre-Job Approval flow: at booking time we authorize a fixed $20
+      // deposit, but the customer is agreeing to the disclosed price range.
+      // The CTA shows the range so the band is in view at the action, with
+      // the $20 hold qualifier directly below — no surprise at submit.
       return (
         <View style={[styles.footer, { paddingBottom: footerBottomPadding }]}>
           <PrimaryButton style={styles.paymentButton} onPress={handlePaymentConfirmed} fullWidth>
             <Text size="md" weight="bold" color={BrandColors.white}>
               Confirm Appointment
             </Text>
-            <View style={styles.amountBadge}>
-              <Text size="sm" weight="bold" color={BrandColors.primary}>
-                ${totalWithFee.toFixed(2)}
-              </Text>
-            </View>
+            {disclosedRangeFormatted ? (
+              <View style={styles.amountBadge}>
+                <Text size="sm" weight="bold" color={BrandColors.primary} numberOfLines={1}>
+                  {disclosedRangeFormatted}
+                </Text>
+              </View>
+            ) : null}
           </PrimaryButton>
+          <Text size="xs" weight="regular" color="#6B7280" style={styles.holdQualifier}>
+            Only $20 is held now — the final amount within this range is
+            charged after your mechanic inspects your car.
+          </Text>
         </View>
       );
     }
@@ -277,5 +283,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.xs,
     borderRadius: BorderRadius.lg,
+  },
+  holdQualifier: {
+    marginTop: Spacing.sm,
+    textAlign: "center",
+    lineHeight: 16,
   },
 });

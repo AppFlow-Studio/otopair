@@ -30,20 +30,44 @@ import MapView, { Marker, PROVIDER_DEFAULT } from 'react-native-maps';
 // 2. Expo & Third-party
 import { BlurView } from 'expo-blur';
 import * as Location from 'expo-location';
-import { useRouter } from 'expo-router';
 
 // 3. Shared UI
 import { Text } from '@/components/shared-ui';
+
+// 4. Utils
+import { calculateDistanceKm } from '@/utils/geo';
+import { openMapsForAddress, openMapsForCoordinates } from '@/utils/linking';
 
 // ============================================================================
 // TYPES
 // ============================================================================
 
 interface NavigationETABarProps {
-  etaMinutes: number;
+  /**
+   * Pre-computed ETA in minutes. When omitted, the component computes
+   * a rough estimate from straight-line distance × a road factor at
+   * an average urban driving speed. The real navigation app shows the
+   * authoritative time once the user taps Navigate.
+   */
+  etaMinutes?: number;
   destinationLatitude?: number;
   destinationLongitude?: number;
   destinationName?: string;
+  /**
+   * Postal address fallback for the destination. Used when lat/lng
+   * are missing or invalid (e.g., the shop record hasn't been
+   * geocoded yet) — the maps app will geocode the string itself.
+   */
+  destinationAddress?: string;
+}
+
+function hasValidCoords(lat: number | undefined, lng: number | undefined): boolean {
+  if (typeof lat !== 'number' || typeof lng !== 'number') return false;
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+  // Treat 0,0 as missing — it's the default fallback callers use when
+  // the shop hasn't been geocoded, and it's in the middle of the ocean.
+  if (lat === 0 && lng === 0) return false;
+  return true;
 }
 
 // Default location (San Francisco) - used as fallback
@@ -52,21 +76,52 @@ const DEFAULT_LOCATION = {
   longitude: -122.4194,
 };
 
+// Rough drive-time estimate: scale straight-line distance to account
+// for roads (~1.3×) at a typical urban average speed (~40 km/h).
+// Good enough for a glanceable home-screen pill; the user's map app
+// shows the precise routed time on Navigate.
+const ROAD_DISTANCE_FACTOR = 1.3;
+const AVG_DRIVING_KMH = 40;
+
+function estimateDriveMinutes(distanceKm: number): number {
+  const hours = (distanceKm * ROAD_DISTANCE_FACTOR) / AVG_DRIVING_KMH;
+  return Math.max(1, Math.round(hours * 60));
+}
+
 // ============================================================================
 // COMPONENT
 // ============================================================================
 
 export function NavigationETABar({
   etaMinutes,
-  destinationLatitude = DEFAULT_LOCATION.latitude,
-  destinationLongitude = DEFAULT_LOCATION.longitude,
+  destinationLatitude,
+  destinationLongitude,
   destinationName = 'Premium Auto Care',
+  destinationAddress,
 }: NavigationETABarProps) {
-  const router = useRouter();
+  const coordsValid = hasValidCoords(destinationLatitude, destinationLongitude);
   const [userLocation, setUserLocation] = useState<{
     latitude: number;
     longitude: number;
   } | null>(null);
+  // When the shop record lacks coords but has a postal address, geocode
+  // the address once so the ETA can still compute. The maps app handles
+  // the address itself on Navigate; this lookup is purely for the ETA
+  // estimate.
+  const [geocodedDest, setGeocodedDest] = useState<{
+    latitude: number;
+    longitude: number;
+  } | null>(null);
+
+  // Map preview centers on the user's location; the destination only
+  // affects ETA + the Navigate target. Prefer explicit coords; otherwise
+  // use the geocoded address result if we have one.
+  const destLat = coordsValid
+    ? (destinationLatitude as number)
+    : geocodedDest?.latitude ?? null;
+  const destLng = coordsValid
+    ? (destinationLongitude as number)
+    : geocodedDest?.longitude ?? null;
 
   useEffect(() => {
     (async () => {
@@ -86,12 +141,75 @@ export function NavigationETABar({
     })();
   }, []);
 
+  useEffect(() => {
+    // Skip when we already have real coords, or when there's no
+    // address to resolve. Re-run if the address changes (e.g., the
+    // upcoming booking switches to a different shop).
+    if (coordsValid) {
+      setGeocodedDest(null);
+      return;
+    }
+    const address = destinationAddress?.trim();
+    if (!address) {
+      setGeocodedDest(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const results = await Location.geocodeAsync(address);
+        if (cancelled) return;
+        const first = results[0];
+        if (first) {
+          setGeocodedDest({ latitude: first.latitude, longitude: first.longitude });
+        }
+      } catch {
+        // Geocoding can fail offline / rate-limited — leave ETA as "—".
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [coordsValid, destinationAddress]);
+
   // Use user location if available, otherwise use default
   const currentLatitude = userLocation?.latitude ?? DEFAULT_LOCATION.latitude;
   const currentLongitude = userLocation?.longitude ?? DEFAULT_LOCATION.longitude;
-  
+
+  // Prefer a caller-supplied ETA; otherwise estimate from haversine
+  // distance once we have a real user fix AND a real destination.
+  // While either is missing we render a dash rather than a
+  // misleading number.
+  const computedEtaMinutes =
+    userLocation && destLat !== null && destLng !== null
+      ? estimateDriveMinutes(
+          calculateDistanceKm(
+            userLocation.latitude,
+            userLocation.longitude,
+            destLat,
+            destLng,
+          ),
+        )
+      : null;
+  const displayEta = etaMinutes ?? computedEtaMinutes;
+  const etaLabel = displayEta !== null ? `${displayEta} min` : '—';
+  const buttonLabel =
+    displayEta !== null ? `Navigate-${displayEta} Min` : 'Navigate';
+
+  const canNavigate = coordsValid || !!destinationAddress?.trim();
+
   const handleNavigate = () => {
-    router.push('/booking/map');
+    // Prefer coordinates when present (no geocoding needed); fall back
+    // to the address string so the maps app can resolve it itself.
+    // Without either, do nothing — opening 0,0 strands the user in
+    // the middle of the ocean.
+    if (destLat !== null && destLng !== null) {
+      void openMapsForCoordinates(destLat, destLng, destinationName);
+      return;
+    }
+    if (destinationAddress?.trim()) {
+      void openMapsForAddress(destinationAddress.trim());
+    }
   };
 
   return (
@@ -136,18 +254,20 @@ export function NavigationETABar({
         >
           <View style={styles.etaContainer}>
             <Text size="sm" color="#6B7280">ETA: </Text>
-            <Text weight="bold" size="md" color="#141C24">{etaMinutes} min</Text>
+            <Text weight="bold" size="md" color="#141C24">{etaLabel}</Text>
           </View>
 
           <Pressable
             onPress={handleNavigate}
+            disabled={!canNavigate}
             style={({ pressed }) => [
               styles.navigateButton,
               pressed && styles.navigateButtonPressed,
+              !canNavigate && styles.navigateButtonDisabled,
             ]}
           >
             <Text weight="semiBold" size="sm" color="#FFFFFF">
-              Navigate-{etaMinutes} Min
+              {buttonLabel}
             </Text>
           </Pressable>
         </BlurView>
@@ -230,6 +350,9 @@ const styles = StyleSheet.create({
   },
   navigateButtonPressed: {
     opacity: 0.8,
+  },
+  navigateButtonDisabled: {
+    opacity: 0.4,
   },
 });
 
