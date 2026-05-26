@@ -1206,6 +1206,20 @@ export const saveOnboardingField = mutation({
       }
     }
 
+    // ── Vehicle model year → Jan 1 timestamp (used by "Never" recency) ──
+    // CarInfoStepper offers a "Never" option for oil/tires/brakes/battery.
+    // When picked, infer the service "date" as the vehicle's model year so
+    // MaintenanceTracker has a real timestamp to compute status against.
+    async function modelYearInstallDate(): Promise<number | undefined> {
+      const owner = await ctx.db.get(vehicleOwnerId);
+      if (!owner) return undefined;
+      const vehicle = await ctx.db
+        .query("vehicles")
+        .withIndex("by_vin", (q) => q.eq("vin", owner.vin))
+        .unique();
+      return vehicle?.year ? new Date(vehicle.year, 0, 1).getTime() : undefined;
+    }
+
     // ── Dispatch by field ──────────────────────────────────────────────
     switch (field) {
       case "mileage": {
@@ -1225,11 +1239,13 @@ export const saveOnboardingField = mutation({
         let oilDate = v.date;
         if (!oilDate && v.recency) {
           // "exact_date" carries a user-picked timestamp in v.exactDate
-          // — use it directly. Other recency buckets fall back to the
-          // approximate-age presets so MaintenanceTracker has SOMETHING
-          // to compute status against.
+          // — use it directly. "never" infers from model year. Other
+          // recency buckets fall back to approximate-age presets so
+          // MaintenanceTracker has SOMETHING to compute status against.
           if (v.recency === "exact_date" && v.exactDate) {
             oilDate = v.exactDate;
+          } else if (v.recency === "never") {
+            oilDate = await modelYearInstallDate();
           } else {
             const MS = 24 * 60 * 60 * 1000;
             const recencyMap: Record<string, number> = {
@@ -1257,6 +1273,8 @@ export const saveOnboardingField = mutation({
         if (!tireDate && v.recency) {
           if (v.recency === "exact_date" && v.exactDate) {
             tireDate = v.exactDate;
+          } else if (v.recency === "never") {
+            tireDate = await modelYearInstallDate();
           } else {
             const MS = 24 * 60 * 60 * 1000;
             const recencyMap: Record<string, number> = {
@@ -1268,12 +1286,16 @@ export const saveOnboardingField = mutation({
           }
         }
         // Bridge CarInfoStepper's "original" answer to the "tireReplaced" field
-        // that computeTireStatusCore reads for status calculation
+        // that computeTireStatusCore reads for status calculation.
+        // "Never replaced" → also treat as original tires.
         let tireReplaced = v.replaced;
         if (!tireReplaced && v.original) {
           tireReplaced = v.original === "yes" ? "original"
             : v.original === "no" ? "replaced"
             : "dont_know";
+        }
+        if (!tireReplaced && v.recency === "never") {
+          tireReplaced = "original";
         }
         await upsertRecord("tires", tireDate, undefined, {
           tireServiceType: v.type,
@@ -1297,6 +1319,8 @@ export const saveOnboardingField = mutation({
         if (!brakeDate && v.recency) {
           if (v.recency === "exact_date" && v.exactDate) {
             brakeDate = v.exactDate;
+          } else if (v.recency === "never") {
+            brakeDate = await modelYearInstallDate();
           } else {
             const MS = 24 * 60 * 60 * 1000;
             const recencyMap: Record<string, number> = {
@@ -1322,21 +1346,14 @@ export const saveOnboardingField = mutation({
         if (v.isOriginal && !installDate && v.modelYear) {
           installDate = new Date(v.modelYear, 0, 1).getTime();
         }
-        // Original battery (not replaced) — infer install date from vehicle model year
-        if (v.replaced === "no" && !installDate) {
-          const owner = await ctx.db.get(vehicleOwnerId);
-          if (owner) {
-            const vehicle = await ctx.db
-              .query("vehicles")
-              .withIndex("by_vin", (q) => q.eq("vin", owner.vin))
-              .unique();
-            if (vehicle?.year) {
-              installDate = new Date(vehicle.year, 0, 1).getTime();
-            }
-          }
+        // Original battery (not replaced, or "Never" picked in onboarding) —
+        // infer install date from vehicle model year via the shared helper.
+        if (!installDate && (v.replaced === "no" || v.recency === "never")) {
+          installDate = await modelYearInstallDate();
         }
         // CarInfoStepper sends `recency` for "When was your battery last replaced?".
         // Honors exact_date when provided; otherwise falls back to a bucketed timestamp.
+        // ("never" is already handled above via the model-year path.)
         if (!installDate && v.recency) {
           if (v.recency === "exact_date" && v.exactDate) {
             installDate = v.exactDate;
