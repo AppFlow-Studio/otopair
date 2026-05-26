@@ -200,18 +200,6 @@ function ShopMarkerComponent({ shop, onPress, showLabel = true }: ShopMarkerProp
     }).start();
   }, [showLabel, modeAnim]);
 
-  // Safety check - if shop is invalid, don't render. (0,0) is the
-  // placeholder for a shop that hasn't been geocoded yet — skip it so
-  // the pin never lands in the Gulf of Guinea.
-  if (
-    !shop ||
-    shop.latitude == null ||
-    shop.longitude == null ||
-    (shop.latitude === 0 && shop.longitude === 0)
-  ) {
-    return null;
-  }
-
   const handlePress = useCallback(() => {
     // Quick scale animation for tap feedback
     Animated.sequence([
@@ -229,6 +217,19 @@ function ShopMarkerComponent({ shop, onPress, showLabel = true }: ShopMarkerProp
       onPress?.();
     });
   }, [onPress, scaleAnim]);
+
+  // Safety check - if shop is invalid, don't render. (0,0) is the
+  // placeholder for a shop that hasn't been geocoded yet — skip it so
+  // the pin never lands in the Gulf of Guinea.
+  // Must come AFTER all hooks to preserve hook order across renders.
+  if (
+    !shop ||
+    shop.latitude == null ||
+    shop.longitude == null ||
+    (shop.latitude === 0 && shop.longitude === 0)
+  ) {
+    return null;
+  }
 
   // Interpolate opacities for crossfade
   // Pin: visible when modeAnim = 0 (zoomed out), hidden when modeAnim = 1 (zoomed in)
