@@ -416,7 +416,8 @@ export function VehicleMaintenanceCard({
 
   const frontVehicle = vehicles[currentIndex];
   const canSwipe = vehicles.length > 1;
-
+  const hasThirdCard = vehicles.length > 2;
+  const thirdIndex = (currentIndex + 2) % vehicles.length;
   // Tap the active card → open it on the Cars tab. Implemented as an RNGH
   // Tap (not an RN Pressable) so it can be made EXCLUSIVE with the swipe
   // pan — a horizontal swipe activates the pan, which suppresses the tap,
