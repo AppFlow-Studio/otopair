@@ -293,7 +293,8 @@ export function computeMaintenanceStatus(
   now: number = Date.now(),
   drivingConditions?: string,
   avgMonthlyDriving?: string,
-  knownIssues?: string[]
+  knownIssues?: string[],
+  vehicleYear?: number
 ): StatusResult {
   const type = record.type as MaintenanceType;
 
@@ -304,7 +305,7 @@ export function computeMaintenanceStatus(
 
   // Special case: Tires — factor in tire pressure custom inputs
   if (type === "tires") {
-    return computeTireStatus(record, currentOdometer, make, now, drivingConditions, avgMonthlyDriving, knownIssues);
+    return computeTireStatus(record, currentOdometer, make, now, drivingConditions, avgMonthlyDriving, knownIssues, vehicleYear);
   }
 
   // Special case: Brakes — factor in symptoms + warning light
@@ -468,13 +469,14 @@ function computeTireStatus(
   now: number,
   drivingConditions?: string,
   avgMonthlyDriving?: string,
-  knownIssues?: string[]
+  knownIssues?: string[],
+  vehicleYear?: number
 ): StatusResult {
   if (isConfirmedHealthy(record, now)) {
     return { status: "on_time", percentUsed: 0, description: "Confirmed in good shape", detail: "On time" };
   }
 
-  const result = computeTireStatusCore(record, currentOdometer, make, now, drivingConditions, avgMonthlyDriving);
+  const result = computeTireStatusCore(record, currentOdometer, make, now, drivingConditions, avgMonthlyDriving, vehicleYear);
 
   if (knownIssues?.includes("tpms")) {
     return escalateForWarningLight(result, "Tire pressure (TPMS) warning light active — check tires soon");
@@ -490,6 +492,7 @@ function computeTireStatusCore(
   now: number,
   drivingConditions?: string,
   avgMonthlyDriving?: string,
+  vehicleYear?: number,
 ): StatusResult {
   const tp = record.customInputs?.tirePressure as Record<string, number | null> | undefined;
 
@@ -561,6 +564,23 @@ function computeTireStatusCore(
   // Quick Read fields
   const tireReplaced = record.customInputs?.tireReplaced as string | undefined;
   const tireRepaired = record.customInputs?.tireRepaired as string | undefined;
+
+  // Original tires are as old as the car. If the user said "original" but
+  // gave no service date, infer the install point from the model year
+  // (Jan 1, 0 mi) so the age + mileage checks below produce a real status
+  // (e.g. a 2024 reads healthy) instead of falling back to "age unknown".
+  if (
+    tireReplaced === "original" &&
+    !record.lastServiceDate &&
+    !record.lastServiceMileage &&
+    vehicleYear
+  ) {
+    record = {
+      ...record,
+      lastServiceDate: new Date(vehicleYear, 0, 1).getTime(),
+      lastServiceMileage: 0,
+    };
+  }
 
   // Quick Read: user doesn't know tire status — flag for attention
   if (tireReplaced === "dont_know" && !record.lastServiceDate && !record.lastServiceMileage && !tp) {

@@ -16,7 +16,7 @@ import { BackHandler, InteractionManager, Platform, StyleSheet, TouchableOpacity
 
 // 2. Third-party libraries
 import { BlurView } from "expo-blur";
-import { useFocusEffect, useRouter } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { ChevronLeft } from "lucide-react-native";
 import MapView from "react-native-maps";
 import Animated, { Extrapolation, interpolate, SharedValue, useAnimatedStyle } from "react-native-reanimated";
@@ -70,6 +70,12 @@ export default function BookingsScreen() {
   // ═══════════════ HOOKS ═══════════════
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  // When navigated here from Home's "Map" button, the param is set and we
+  // keep the ServiceBottomSheet at its collapsed (23%) snap so the map
+  // dominates. The search field tap + Cars deep-link omit the param,
+  // preserving the default auto-expanded sheet.
+  const params = useLocalSearchParams<{ startCollapsed?: string }>();
+  const startCollapsed = params.startCollapsed === "true";
 
   // ═══════════════ REFS ═══════════════
   const mapRef = useRef<MapView>(null);
@@ -372,6 +378,7 @@ export default function BookingsScreen() {
         onShopClose={handleShopClose}
         onAddVehicle={handleAddVehicle}
         onBackHandlerChange={handleBottomSheetBackHandlerChange}
+        startCollapsed={startCollapsed}
       />
     </View>
   );

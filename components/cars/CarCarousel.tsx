@@ -142,6 +142,11 @@ interface CarCarouselProps {
   /** Completed bookings for the active vehicle. Each becomes a
    *  per-booking entry in "What's helping" with its pts contribution. */
   completedBookings?: CompletedBooking[];
+  /** Externally-controlled active vehicle (by VIN / vehicle id). When
+   *  provided, the carousel snaps to this vehicle if it's in the list.
+   *  Used to deep-link the Cars tab to a specific car (e.g. right after
+   *  onboarding a new vehicle from the health-estimating screen). */
+  activeVehicleId?: string;
 }
 
 // ============================================================================
@@ -1630,6 +1635,7 @@ export function CarCarousel({
   knownIssues,
   hpBuffer,
   completedBookings,
+  activeVehicleId,
 }: CarCarouselProps) {
   "use no memo";
   // ↑ Opt this file out of React Compiler. The compiler was freezing
@@ -1723,6 +1729,24 @@ export function CarCarousel({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sortedVehicles, onActiveIndexChange]);
+
+  // Controlled-anchor: when the parent passes `activeVehicleId` (e.g. a
+  // deep-link from health-estimating), snap the carousel to that vehicle
+  // if it's in the list. Updates both `activeIndex` and the rotation so
+  // the hero swings to the right car.
+  useEffect(() => {
+    if (!activeVehicleId || sortedVehicles.length === 0) return;
+    const idx = sortedVehicles.findIndex((v) => v.id === activeVehicleId);
+    if (idx < 0 || idx === activeIndex) return;
+    setActiveIndex(idx);
+    activeVehicleIdRef.current = activeVehicleId;
+    if (!isUserAnimating.current) {
+      rotation.value = -idx * anglePerItem;
+      lastUpdatedIndex.value = idx;
+    }
+    onActiveIndexChange?.(idx);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeVehicleId, sortedVehicles]);
 
   // Bottom sheet state
   const [showBottomSheet, setShowBottomSheet] = useState(false);
@@ -2228,7 +2252,13 @@ export function CarCarousel({
                 onPress={() => setShowCarSheet(true)}
                 hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
               >
-                <Text weight="semiBold" size="sm" color={BrandColors.primary} numberOfLines={1}>
+                <Text
+                  weight="semiBold"
+                  size="sm"
+                  color={BrandColors.primary}
+                  numberOfLines={1}
+                  style={{ flexShrink: 1 }}
+                >
                   {activeVehicle?.model}
                 </Text>
                 <ChevronDown size={14} color={BrandColors.primary} />
@@ -2734,7 +2764,10 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.55)',
     borderWidth: 1,
     borderColor: 'rgba(0,0,0,0.08)',
-    maxWidth: scale(110),
+    // Tightened so a long model name (e.g. "Silverado 2500HD") truncates
+    // earlier and stops bunching the thumbnails / +-button / health-ring
+    // row on the same line.
+    maxWidth: scale(80),
   },
 
   // Separator

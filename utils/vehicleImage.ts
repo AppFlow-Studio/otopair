@@ -141,6 +141,40 @@ export function extractModelCandidates(args: {
   return candidates;
 }
 
+/**
+ * From VDB's canonical trim list, pick the entry that best matches the
+ * vehicle's actual trim. Scores each canonical trim by how many tokens
+ * of the target trim(s) it contains, e.g. decoded "3.0T Prestige" →
+ * VDB's "3.0T Prestige quattro 4dr All-Wheel Drive Sedan 8sp Automatic".
+ * Falls back to the first canonical trim when nothing overlaps, so the
+ * image still resolves (same body, possibly a different sub-trim).
+ */
+export function pickBestVdbTrim(
+  canonicalTrims: string[],
+  targets: Array<string | undefined>,
+): string | undefined {
+  if (canonicalTrims.length === 0) return undefined;
+  // Keep dotted tokens together ("3.0t") so engine sizes match.
+  const tokenize = (s: string) =>
+    s.toLowerCase().split(/[^a-z0-9.]+/).filter((t) => t.length > 0);
+  const targetTokens = new Set(
+    targets.filter((t): t is string => !!t).flatMap(tokenize),
+  );
+  if (targetTokens.size === 0) return canonicalTrims[0];
+
+  let best = canonicalTrims[0];
+  let bestScore = -1;
+  for (const trim of canonicalTrims) {
+    const score = tokenize(trim).filter((t) => targetTokens.has(t)).length;
+    // Higher overlap wins; tie → prefer the shorter (simpler) trim.
+    if (score > bestScore || (score === bestScore && trim.length < best.length)) {
+      best = trim;
+      bestScore = score;
+    }
+  }
+  return bestScore > 0 ? best : canonicalTrims[0];
+}
+
 // Module-level cache keyed by `${year}|${make-normalized}|${candidate}`.
 // Stores `null` when a probe definitively returned no trims so we
 // don't re-fetch known-empty combos within the session.
@@ -481,7 +515,12 @@ export const COLOR_SYNONYMS: Record<string, string[]> = {
   black:             ["black", "phantom", "obsidian", "shadow", "onyx", "ebony", "raven"],
   "midnight-silver": ["midnight", "silver", "graphite", "platinum"],
   silver:            ["silver", "platinum", "graphite", "titanium", "mineral", "steel"],
-  white:             ["white", "ivory", "pearl", "quartz", "atlas", "alpine", "snow", "cream", "frost"],
+  // NOTE: "pearl" is intentionally NOT here — it's a finish descriptor, not
+  // a color, and appears on paints of every hue ("Crimson Pearl", "Dyno Blue
+  // Pearl", "Crystal Black Pearl"). Listing it as white made those match
+  // white-first (before red/blue/black) and show a white swatch. Real white
+  // paints still match via "white"/"ivory"/"snow"/etc.
+  white:             ["white", "ivory", "quartz", "atlas", "alpine", "snow", "cream", "frost"],
   gray:              ["gray", "grey", "graphite", "titanium", "mineral", "ash", "smoke", "cement", "slate", "carbon"],
   red:               ["red", "crimson", "ruby", "scarlet", "garnet", "rosso", "carmine", "cherry"],
   blue:              ["blue", "navy", "ocean", "azure", "sapphire", "indigo", "marine", "atlas", "storm", "sea", "abyss", "denim", "cobalt"],
@@ -644,6 +683,103 @@ export function inferColorFamily(stored: string | null | undefined): string | nu
 }
 
 /**
+ * Parse #RRGGBB → HSL ({ h: 0–360, s: 0–1, l: 0–1 }). Null if unparseable.
+ */
+function hexToHsl(
+  hex: string | null | undefined,
+): { h: number; s: number; l: number } | null {
+  if (!hex) return null;
+  const clean = hex.replace("#", "").trim();
+  if (clean.length < 6) return null;
+  const r = parseInt(clean.slice(0, 2), 16) / 255;
+  const g = parseInt(clean.slice(2, 4), 16) / 255;
+  const b = parseInt(clean.slice(4, 6), 16) / 255;
+  if ([r, g, b].some((n) => Number.isNaN(n))) return null;
+
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  const d = max - min;
+  let h = 0;
+  let s = 0;
+  if (d !== 0) {
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    switch (max) {
+      case r:
+        h = (g - b) / d + (g < b ? 6 : 0);
+        break;
+      case g:
+        h = (b - r) / d + 2;
+        break;
+      default:
+        h = (r - g) / d + 4;
+        break;
+    }
+    h *= 60;
+  }
+  return { h, s, l };
+}
+
+/**
+ * Classify an arbitrary hex into a `FAMILY_HEX` / `COLOR_GRADIENTS`
+ * family id by hue + saturation/lightness — NOT raw RGB distance, which
+ * mis-buckets muted warm colors (a diluted red) as beige/brown.
+ * Achromatic inputs map to black/gray/silver/white by lightness.
+ */
+export function classifyColorFamily(hex: string | null | undefined): string | null {
+  const hsl = hexToHsl(hex);
+  if (!hsl) return null;
+  const { h, s, l } = hsl;
+
+  // Achromatic — no meaningful hue. Bucket by lightness.
+  if (s < 0.18) {
+    if (l < 0.18) return "black";
+    if (l < 0.42) return "gray";
+    if (l < 0.72) return "silver";
+    return "white";
+  }
+
+  // Chromatic — bucket by hue.
+  if (h <= 18 || h >= 342) return "red"; // red
+  if (h < 45) return l < 0.4 ? "brown" : "beige"; // orange/amber
+  if (h < 70) return "beige"; // yellow
+  if (h < 165) return "green"; // green
+  if (h < 300) return "blue"; // cyan / blue / indigo (no purple family)
+  return "red"; // magenta / pink
+}
+
+/**
+ * Choose a paint-color family from candidate swatches (e.g. the colors
+ * `react-native-image-colors` returns), passed PROMINENT-FIRST. Picks
+ * the most saturated swatch above a chroma floor — so a vivid car body
+ * wins over neutral wheels/glass/lighting — then classifies it by hue.
+ * If nothing clears the floor (a genuinely neutral car), classifies the
+ * most-prominent swatch (→ white/silver/gray/black).
+ */
+export function pickPaintFamilyFromSwatches(
+  swatches: (string | null | undefined)[],
+): string | null {
+  const parsed = swatches
+    .map((hex) => ({ hex, hsl: hexToHsl(hex) }))
+    .filter(
+      (x): x is { hex: string; hsl: { h: number; s: number; l: number } } =>
+        !!x.hsl && !!x.hex,
+    );
+  if (parsed.length === 0) return null;
+
+  const CHROMA_FLOOR = 0.25;
+  const chromatic = parsed.filter(
+    (x) => x.hsl.s >= CHROMA_FLOOR && x.hsl.l > 0.12 && x.hsl.l < 0.9,
+  );
+  if (chromatic.length > 0) {
+    const best = chromatic.reduce((a, b) => (b.hsl.s > a.hsl.s ? b : a));
+    return classifyColorFamily(best.hex);
+  }
+  // Neutral car — classify the most prominent (first) swatch.
+  return classifyColorFamily(parsed[0].hex);
+}
+
+/**
  * A picker option derived from one VDB `colors[]` image URL.
  *
  * - `id` is the URL's filename slug (lowercase, dash-separated). This
@@ -793,6 +929,10 @@ export async function fetchVdbColorsForVehicle(args: {
   vdbDecodedModel?: string;
   vdbDecodedStyle?: string;
   vdbDecodedTrimAndStyle?: string;
+  /** Internal: set on the discovery re-entry so we never re-run the
+   *  discovery fallbacks twice (guards against an infinite loop when a
+   *  ymm-specs trim has no vehicle-images record). */
+  __triedDiscovery?: boolean;
 }): Promise<VdbColorOption[]> {
   const {
     vin, year, make, model, trim,
@@ -870,7 +1010,7 @@ export async function fetchVdbColorsForVehicle(args: {
   //   catalog: model="530", trim="i-xDrive Sedan ..."
   // The combo matrix's "strip suffix + prefix to trim" entry
   // produces the working URL.
-  if (year && make && vdbDecodedModel) {
+  if (year && make && vdbDecodedModel && !args.__triedDiscovery) {
     const combos = buildVdbYmmtCombos({
       model: vdbDecodedModel,
       style: vdbDecodedStyle,
@@ -911,7 +1051,7 @@ export async function fetchVdbColorsForVehicle(args: {
   // Kept as a secondary fallback. Useful when the user has the
   // ymm-specs API package OR for vehicles where we have NHTSA fields
   // but no VDB decode (unlikely combo).
-  if (year && make) {
+  if (year && make && !args.__triedDiscovery) {
     const candidates = extractModelCandidates({
       nhtsaModel,
       model,
@@ -925,10 +1065,13 @@ export async function fetchVdbColorsForVehicle(args: {
       nhtsaTrim,
       trim,
     });
-    // Skip the original `model` since we already tried it.
-    const discoveryCandidates = candidates.filter(
-      (c) => c.toLowerCase() !== (model ?? "").toLowerCase(),
-    );
+    // Keep the current `model` in the candidate set. The initial YMMT
+    // attempt above used the VIN-DECODED trim, but ymm-specs is keyed by
+    // YMM (no trim) — so re-probing this model returns NEW info: its
+    // canonical trim list. This is what recovers cars whose model name
+    // is already correct but whose decoded trim VDB doesn't recognize
+    // (e.g. Audi A6 "3.0T Prestige").
+    const discoveryCandidates = candidates;
     console.log("[vdbColors] discovery candidates:", discoveryCandidates);
     if (discoveryCandidates.length > 0) {
       const discovered = await discoverVdbModel({
@@ -942,17 +1085,22 @@ export async function fetchVdbColorsForVehicle(args: {
         probeTrims: [trim ?? "", nhtsaTrim ?? ""].filter((t) => !!t),
       });
       if (discovered) {
+        // Pick the canonical trim that best matches the vehicle's real
+        // trim instead of blindly taking the first one — so an Audi A6
+        // "3.0T Prestige" maps to VDB's "3.0T Prestige quattro ..."
+        // rather than the base "2.0T Premium" variant.
+        const bestTrim = pickBestVdbTrim(discovered.trims, [trim, nhtsaTrim]);
         console.log(
-          `[vdbColors] discovered VDB model "${discovered.model}" for ${year} ${make} (caller model "${model}"). First trim: "${discovered.trims[0]}"`,
+          `[vdbColors] discovered VDB model "${discovered.model}" for ${year} ${make} (caller model "${model}"). Picked trim "${bestTrim}" from ${discovered.trims.length} canonical trims`,
         );
-        // Re-enter the same fetch path with the discovered model +
-        // its first trim. Recursion is shallow (won't re-discover —
-        // the discovered candidate becomes the new `model`, won't be
-        // re-filtered out next time).
+        // Re-enter the same fetch path with the discovered model + the
+        // matched canonical trim. __triedDiscovery guards re-entry from
+        // looping back into discovery.
         return fetchVdbColorsForVehicle({
           ...args,
           model: discovered.model,
-          trim: discovered.trims[0],
+          trim: bestTrim,
+          __triedDiscovery: true,
         });
       } else {
         console.log("[vdbColors] discovery exhausted — no candidate matched VDB catalog");

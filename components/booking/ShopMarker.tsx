@@ -200,8 +200,15 @@ function ShopMarkerComponent({ shop, onPress, showLabel = true }: ShopMarkerProp
     }).start();
   }, [showLabel, modeAnim]);
 
-  // Safety check - if shop is invalid, don't render
-  if (!shop || shop.latitude == null || shop.longitude == null) {
+  // Safety check - if shop is invalid, don't render. (0,0) is the
+  // placeholder for a shop that hasn't been geocoded yet — skip it so
+  // the pin never lands in the Gulf of Guinea.
+  if (
+    !shop ||
+    shop.latitude == null ||
+    shop.longitude == null ||
+    (shop.latitude === 0 && shop.longitude === 0)
+  ) {
     return null;
   }
 

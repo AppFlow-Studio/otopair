@@ -25,13 +25,14 @@
  */
 
 // 1. React & React Native
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Image, PixelRatio, Pressable, StyleSheet, View } from 'react-native';
 import type { View as RNView } from 'react-native';
 
 // 2. Expo & Third-party
 import { useRouter } from 'expo-router';
 import { Car, FileText, Star, User } from 'lucide-react-native';
+import Animated, { FadeOut, LinearTransition, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 
 // 3. Shared UI
 import { Text } from '@/components/shared-ui';
@@ -213,13 +214,26 @@ export function BookingCard({
   const openRescheduleDecision = useRescheduleDecisionOverlayStore((s) => s.open);
   const primaryBtnRef = useRef<RNView | null>(null);
   const [actionsRowWidth, setActionsRowWidth] = useState(0);
+  // Local "just cancelled" state. The card swaps the badge + dims for ~450ms
+  // before we actually call onCancelBooking; the parent's data-source change
+  // then triggers the FadeOut exit, and `layout` shifts siblings up.
+  const [isCancelling, setIsCancelling] = useState(false);
+  const effectiveStatus = isCancelling ? 'cancelled' : booking.status;
   // Fall back to a neutral pill when the backend returns a status we
   // don't have a config for, so an unknown value doesn't crash the card.
-  const statusConfig = STATUS_CONFIG[booking.status] ?? {
-    label: titleCase(String(booking.status ?? 'Unknown').replace(/_/g, ' ')),
+  const statusConfig = STATUS_CONFIG[effectiveStatus] ?? {
+    label: titleCase(String(effectiveStatus ?? 'Unknown').replace(/_/g, ' ')),
     bgColor: '#E5E7EB',
     textColor: '#6B7280',
   };
+
+  const dim = useSharedValue(1);
+  useEffect(() => {
+    if (isCancelling) {
+      dim.value = withTiming(0.45, { duration: 280 });
+    }
+  }, [isCancelling, dim]);
+  const dimStyle = useAnimatedStyle(() => ({ opacity: dim.value }));
   const [carImageError, setCarImageError] = useState(false);
   const showCarPlaceholder = !booking.makeLogoUrl?.trim() || carImageError;
   const fontScale = PixelRatio.getFontScale();
@@ -262,6 +276,7 @@ export function BookingCard({
   };
 
   const handleCancelBooking = () => {
+    if (isCancelling) return;
     Alert.alert(
       "Cancel Appointment",
       "Are you sure you want to cancel this appointment?",
@@ -270,7 +285,13 @@ export function BookingCard({
         {
           text: "Cancel Appointment",
           style: "destructive",
-          onPress: () => onCancelBooking?.(booking.id),
+          onPress: () => {
+            // Show the in-card "cancelled" visual first, THEN fire the
+            // mutation. The data-source removal triggers FadeOut, and
+            // sibling cards shift smoothly via layout transition.
+            setIsCancelling(true);
+            setTimeout(() => onCancelBooking?.(booking.id), 450);
+          },
         },
       ],
     );
@@ -292,7 +313,11 @@ export function BookingCard({
   const stageView = getBookingStageView(booking.status, booking.liveStage);
 
   return (
-    <View style={styles.card}>
+    <Animated.View
+      style={[styles.card, dimStyle]}
+      exiting={FadeOut.duration(220)}
+      layout={LinearTransition.duration(260)}
+    >
       {/* Lifecycle progress bar — see utils/bookingStages.ts. The status
           badge in the title row below carries the same info textually so
           the bar reads as visual reinforcement. */}
@@ -304,13 +329,23 @@ export function BookingCard({
       {/* Title Row */}
       <View style={styles.titleRow}>
         <View style={styles.servicesContainer}>
-          <Text weight="bold" size="xl" color="#1F2937">
+          <Text
+            weight="bold"
+            size="xl"
+            color="#1F2937"
+            style={isCancelling ? styles.strikethrough : undefined}
+          >
             {mainService}
           </Text>
           {additionalCount > 0 && (
             <>
               <Text weight="bold" size="xl" color="#1F2937">, </Text>
-              <Text weight="semiBold" size="xl" color="#5299FE">
+              <Text
+                weight="semiBold"
+                size="xl"
+                color="#5299FE"
+                style={isCancelling ? styles.strikethrough : undefined}
+              >
                 {additionalText}
               </Text>
             </>
@@ -458,10 +493,12 @@ export function BookingCard({
         <View
           style={styles.actionsRow}
           onLayout={(event) => setActionsRowWidth(event.nativeEvent.layout.width)}
+          pointerEvents={isCancelling ? 'none' : 'auto'}
         >
           <Pressable
             ref={primaryBtnRef}
             onPress={handleViewDetails}
+            disabled={isCancelling}
             style={({ pressed }) => [
               styles.primaryButton,
               pressed && styles.buttonPressed,
@@ -484,6 +521,7 @@ export function BookingCard({
           {booking.status !== 'in_progress' && (
             <Pressable
               onPress={handleCancelBooking}
+              disabled={isCancelling}
               style={({ pressed }) => [
                 styles.cancelButton,
                 pressed && styles.buttonPressed,
@@ -539,7 +577,7 @@ export function BookingCard({
           </Pressable>
         </View>
       )}
-    </View>
+    </Animated.View>
   );
 }
 
@@ -574,6 +612,9 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     paddingHorizontal: 14,
     borderRadius: 20,
+  },
+  strikethrough: {
+    textDecorationLine: 'line-through',
   },
   infoRow: {
     flexDirection: 'row',

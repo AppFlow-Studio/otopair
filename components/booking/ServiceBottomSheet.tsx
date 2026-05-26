@@ -132,6 +132,11 @@ interface ServiceBottomSheetProps {
    *  mount, then snaps up to its normal position. Lets the map breathe before
    *  the sheet slides in. Defaults to 0 (open immediately). */
   initialDelayMs?: number;
+  /** When true, the sheet initializes at the smallest snap (collapsed 23%
+   *  peek) instead of the default expanded (98%). Used when the user
+   *  reached the map for browsing (e.g. Home's Map button) and doesn't
+   *  want the booking flow auto-opened. */
+  startCollapsed?: boolean;
 }
 
 // ============================================================================
@@ -204,9 +209,13 @@ export function ServiceBottomSheet({
   onAddVehicle: onAddVehicleProp,
   onBackHandlerChange,
   initialDelayMs = 0,
+  startCollapsed = false,
 }: ServiceBottomSheetProps) {
   // ═══════════════ REFS ═══════════════
   const bottomSheetRef = useRef<BottomSheet>(null);
+  // Initial snap-index for shared values + refs below. 3 = `expanded` (98%);
+  // 0 = `collapsed` (23% peek) when the parent asked us to start collapsed.
+  const initialSnapIndex = startCollapsed ? 0 : SERVICE_SNAP_COUNT - 1;
   // Defer-open state lives further down (after `previousCarSnapIndexRef`
   // is declared) because the timer needs to reset that ref.
   const [isDelayElapsed, setIsDelayElapsed] = useState(initialDelayMs <= 0);
@@ -242,9 +251,9 @@ export function ServiceBottomSheet({
   // doesn't accidentally resume booking for the wrong car.
   const pendingOwnershipRef = useRef<string | null>(null);
   const searchInputRef = useRef<TextInput>(null);
-  const animatedIndex = useSharedValue(SERVICE_SNAP_COUNT - 1); // Start at expanded (index 3 when 4 points)
+  const animatedIndex = useSharedValue(initialSnapIndex); // Start at expanded (index 3 = 98%) by default; 0 (23% peek) when startCollapsed.
   /** For map controls: when opening car selection we animate so controls don't pop; when false, follows animatedIndex */
-  const mapRelevantIndex = useSharedValue(SERVICE_SNAP_COUNT - 1);
+  const mapRelevantIndex = useSharedValue(initialSnapIndex);
   const showCarPreviewSV = useSharedValue(0);
   /** Target index for map when closing car selection; used in worklet to animate mapRelevantIndex smoothly */
   const mapTargetOnCarCloseSV = useSharedValue(-1);
@@ -259,13 +268,13 @@ export function ServiceBottomSheet({
   const [searchQuery, setSearchQuery] = useState("");
   const [hasTyped, setHasTyped] = useState(false);
   // Track snap index before entering search mode
-  const previousSnapIndexRef = useRef(SERVICE_SNAP_COUNT - 1);
+  const previousSnapIndexRef = useRef(initialSnapIndex);
 
   // ═══════════════ SHOP PREVIEW STATE ═══════════════
   // Toggle between shop preview and services view (only when a shop is selected from map)
   const [showShopPreview, setShowShopPreview] = useState(false);
   // Track the previous snap index before showing shop preview
-  const previousShopSnapIndexRef = useRef(SERVICE_SNAP_COUNT - 1);
+  const previousShopSnapIndexRef = useRef(initialSnapIndex);
   const showShopPreviewRef = useRef(showShopPreview);
 
   // Track whether sheet is at expanded snap (to allow inner scroll)
@@ -276,7 +285,7 @@ export function ServiceBottomSheet({
   const [pendingCarCloseSnapIndex, setPendingCarCloseSnapIndex] = useState<number | null>(null);
   const [mechanicFooterHeight, setMechanicFooterHeight] = useState(0);
   const showCarPreviewRef = useRef(showCarPreview);
-  const previousCarSnapIndexRef = useRef(SERVICE_SNAP_COUNT - 1);
+  const previousCarSnapIndexRef = useRef(initialSnapIndex);
 
   // Run the deferred-open timer here so it can reset
   // `previousCarSnapIndexRef`. While the sheet is held at index -1, the

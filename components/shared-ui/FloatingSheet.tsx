@@ -38,6 +38,7 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useReanimatedKeyboardAnimation } from "react-native-keyboard-controller";
 
 // ============================================================================
 // CONSTANTS (mirrors BookingDetailsSheet so the whole app feels consistent)
@@ -73,6 +74,9 @@ interface FloatingSheetProps {
   /** Corner radius at small/mid snaps. Defaults to 46. Flattens to 0 near
    *  the full snap (unchanged behavior). */
   cornerRadius?: number;
+  /** When true, the sheet rises by the keyboard height so an input near the
+   *  bottom stays visible. Default false (no change for input-less sheets). */
+  liftWithKeyboard?: boolean;
   /** Sheet body content (rendered below the grabber). */
   children?: React.ReactNode;
 }
@@ -89,11 +93,13 @@ export const FloatingSheet = forwardRef<FloatingSheetRef, FloatingSheetProps>(
       showBackdrop = false,
       onClose,
       cornerRadius = CORNER_RADIUS,
+      liftWithKeyboard = false,
       children,
     },
     ref,
   ) => {
     const insets = useSafeAreaInsets();
+    const { height: keyboardHeight } = useReanimatedKeyboardAnimation();
     const [mounted, setMounted] = useState(false);
 
     // Fail-fast: snapHeights must be non-empty + ascending.
@@ -228,7 +234,7 @@ export const FloatingSheet = forwardRef<FloatingSheetRef, FloatingSheetProps>(
         return {
           left: SIDE_INSET_MAX,
           right: SIDE_INSET_MAX,
-          bottom: singleSnapBottomInset,
+          bottom: singleSnapBottomInset + (liftWithKeyboard ? Math.abs(keyboardHeight.value) : 0),
           height: sheetHeight.value,
           borderBottomLeftRadius: cornerRadius,
           borderBottomRightRadius: cornerRadius,
@@ -256,7 +262,7 @@ export const FloatingSheet = forwardRef<FloatingSheetRef, FloatingSheetProps>(
       return {
         left: sideInset,
         right: sideInset,
-        bottom: bottomInset,
+        bottom: bottomInset + (liftWithKeyboard ? Math.abs(keyboardHeight.value) : 0),
         height: sheetHeight.value,
         borderBottomLeftRadius: bottomRadius,
         borderBottomRightRadius: bottomRadius,

@@ -7,13 +7,26 @@
  * USED IN: Discovery, search, shop detail screens
  */
 
-import { useQuery } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { useEffect, useMemo, useState } from "react";
+import * as Location from "expo-location";
 import { api } from "@/convex/_generated/api";
-import type { Doc } from "@/convex/_generated/dataModel";
+import type { Doc, Id } from "@/convex/_generated/dataModel";
 import type { Shop } from "@/stores/types/store.types";
 import { useShopStore } from "@/stores/useShopStore";
 import { geocodeAddress, type Coords } from "@/utils/geocodeAddress";
+
+// Shops we've already tried to geocode this app session — module-level so
+// the attempt isn't repeated across the many screens that mount this hook.
+const attemptedShopGeocode = new Set<string>();
+
+function shopNeedsCoords(s: Shop): boolean {
+  return (
+    s.latitude == null ||
+    s.longitude == null ||
+    (s.latitude === 0 && s.longitude === 0)
+  );
+}
 
 function mapConvexShopToStore(shop: Doc<"shops">, serviceIds: string[]): Shop {
   const address = [shop.address, shop.city, shop.state, shop.zip].filter(Boolean).join(", ");
@@ -42,6 +55,7 @@ export function useShopsFromConvex() {
   const convexShops = useQuery(api.shops.list);
   const shopServicesList = useQuery(api.shop_services.list);
   const setShops = useShopStore((s) => s.setShops);
+  const setShopCoords = useMutation(api.shops.setShopCoords);
 
   // Geocoded coords for shops whose Convex record is missing lat/lng.
   // Keyed by shop id; resolved once per session via expo-location.
