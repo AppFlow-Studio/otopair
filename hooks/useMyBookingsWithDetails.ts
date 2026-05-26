@@ -18,8 +18,31 @@ import {
 } from "@/utils/bookingAdapter";
 import { useUserFromConvex } from "./useUserFromConvex";
 
+// Approval cycles that mean the customer still owes a decision (or the
+// mechanic is mid-cycle awaiting one). A booking in any of these states
+// must stay on the active list even if the server has already advanced
+// status to "completed" — the post-job capture isn't final until the
+// customer signs off on the breakdown.
+const PENDING_APPROVAL_STATES = new Set([
+  "pre_job_pending",
+  "mid_job_pending",
+  "post_job_pending",
+  "pre_job_declined",
+  "mid_job_declined",
+  "post_job_declined",
+  "sla_expired",
+]);
+
+function hasPendingApproval(row: ConvexBookingWithDetails): boolean {
+  return (
+    typeof row.payment_approval_state === "string" &&
+    PENDING_APPROVAL_STATES.has(row.payment_approval_state)
+  );
+}
+
 function isUpcoming(row: ConvexBookingWithDetails): boolean {
-  if (row.status === "completed" || row.status === "cancelled") return false;
+  if (row.status === "cancelled") return false;
+  if (row.status === "completed" && !hasPendingApproval(row)) return false;
   if (row.status === "in_progress") return false;
   if (row.status === "pending_quote") return true;
   if (row.status === "quotes_ready") return true;
@@ -28,11 +51,15 @@ function isUpcoming(row: ConvexBookingWithDetails): boolean {
 }
 
 function isLive(row: ConvexBookingWithDetails): boolean {
-  return row.status === "in_progress";
+  if (row.status === "in_progress") return true;
+  // Booking auto-flipped to "completed" but the customer hasn't approved
+  // the final breakdown — still a live, actionable booking.
+  return row.status === "completed" && hasPendingApproval(row);
 }
 
 function isHistory(row: ConvexBookingWithDetails): boolean {
-  if (row.status === "completed" || row.status === "cancelled") return true;
+  if (row.status === "cancelled") return true;
+  if (row.status === "completed") return !hasPendingApproval(row);
   if (row.status === "pending_quote" || row.status === "quotes_ready") return false;
   const today = new Date().toISOString().slice(0, 10);
   return row.scheduled_date < today;

@@ -18,8 +18,7 @@ import { ActivityIndicator, BackHandler, Image, Platform, ScrollView, StyleSheet
 
 // 2. Expo & Third-party
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
-import { FontAwesome } from "@expo/vector-icons";
-import { Calendar, Car, ChevronRight, FileText, Info, Lock, Star } from "lucide-react-native";
+import { Calendar, Car, ChevronRight, FileText, Info, Star } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // 3. Shared UI (design system)
@@ -27,6 +26,10 @@ import { BrandColors, ErrorOccurredModal, Spacing, Text } from "@/components/sha
 
 // 4. Flow-specific components
 import { BookingPageHeader } from "@/components/booking/pages";
+import { normalizeStripeBrand } from "@/components/payments/BrandedCardVisual";
+import { BRAND_SVG } from "@/components/payments/brandSvg";
+import ApplePay from "@/assets/images/APPLEPAY.svg";
+import GooglePay from "@/assets/images/GOOGLEPAY.svg";
 
 // 5. Constants, hooks, types, stores
 import { getPartsBreakdown } from "@/constants/services";
@@ -98,8 +101,11 @@ export default function PaymentScreen() {
   const getSelectedVehicle = useVehicleStore((state) => state.getSelectedVehicle);
 
   // ═══════════════ PAYMENT STORE ═══════════════
-  const getSelectedPaymentMethod = usePaymentStore((state) => state.getSelectedPaymentMethod);
-  const hasPaymentMethods = usePaymentStore((state) => state.hasPaymentMethods);
+  // Subscribe to the data directly (not the helper functions) so this screen
+  // re-renders whenever the saved-cards list or active selection changes —
+  // e.g., right after AddPaymentScreen attaches a new card and pre-selects it.
+  const paymentMethods = usePaymentStore((state) => state.paymentMethods);
+  const selectedPaymentMethodId = usePaymentStore((state) => state.selectedPaymentMethodId);
 
   // ═══════════════ COMPUTED ═══════════════
   const appointmentDate = getFormattedAppointmentDate();
@@ -286,9 +292,15 @@ export default function PaymentScreen() {
   const appointmentDisplay =
     appointmentDate && appointmentTime ? `${appointmentDate} · ${appointmentTime}` : "Not scheduled";
 
-  // Payment method
-  const selectedPaymentMethod = getSelectedPaymentMethod();
-  const hasPayment = hasPaymentMethods();
+  // Payment method — derived from the live store so add/delete propagate.
+  const selectedPaymentMethod = useMemo(() => {
+    if (selectedPaymentMethodId) {
+      const match = paymentMethods.find((pm) => pm.id === selectedPaymentMethodId);
+      if (match) return match;
+    }
+    return paymentMethods.find((pm) => pm.isDefault) ?? paymentMethods[0] ?? null;
+  }, [paymentMethods, selectedPaymentMethodId]);
+  const hasPayment = paymentMethods.length > 0;
 
   // ═══════════════ HANDLERS ═══════════════
   const handleBack = useCallback(() => {
@@ -629,118 +641,111 @@ export default function PaymentScreen() {
           </Text>
         </View>
 
-        {/* Payment Options Section */}
-        <View style={styles.paymentSection}>
-          {/* Apple Pay Button */}
-          <TouchableOpacity style={styles.applePayButton} onPress={handleApplePay} activeOpacity={0.8}>
-            <View style={styles.payButtonContent}>
-              <FontAwesome name="apple" size={20} color="#FFFFFF" />
-              <Text size="md" weight="semiBold" color={BrandColors.white}>
-                Pay
-              </Text>
-            </View>
-          </TouchableOpacity>
-
-          {/* Google Pay Button */}
-          <TouchableOpacity style={styles.googlePayButton} onPress={handleGooglePay} activeOpacity={0.8}>
-            <View style={styles.payButtonContent}>
-              <FontAwesome name="google" size={18} color={BrandColors.primary} />
-              <Text size="md" weight="semiBold" color={BrandColors.primary}>
-                Pay
-              </Text>
-            </View>
-          </TouchableOpacity>
-
-          {/* Divider */}
-          <View style={styles.paymentDivider}>
-            <View style={styles.paymentDividerLine} />
-            <Text size="xs" weight="medium" color="#9CA3AF" style={styles.paymentDividerText}>
-              OR PAY WITH
-            </Text>
-            <View style={styles.paymentDividerLine} />
-          </View>
-
-          {/* Saved Card */}
-          {hasPayment && selectedPaymentMethod ? (
-            <View style={styles.savedCardRow}>
-              <View style={styles.cardBrandIcon}>
-                <Text size="xs" weight="bold" color={BrandColors.secondary}>
-                  {selectedPaymentMethod.brand.toUpperCase().slice(0, 4)}
-                </Text>
-              </View>
-              <View style={styles.cardDetails}>
-                <Text size="md" weight="medium" color={BrandColors.primary}>
-                  {selectedPaymentMethod.brand.charAt(0).toUpperCase() + selectedPaymentMethod.brand.slice(1)} ••••{" "}
-                  {selectedPaymentMethod.last4}
-                </Text>
-                <Text size="sm" weight="regular" color="#6B7280">
-                  Expires {String(selectedPaymentMethod.expMonth).padStart(2, "0")}/
-                  {String(selectedPaymentMethod.expYear).slice(-2)}
-                </Text>
-              </View>
-              <ChevronRight size={20} color="#9CA3AF" />
-            </View>
-          ) : (
-            <TouchableOpacity
-              style={styles.savedCardRow}
-              onPress={() => router.push("/add-payment")}
-              activeOpacity={0.8}
-            >
-              <View style={styles.cardBrandIcon}>
-                <Text size="xs" weight="bold" color="#9CA3AF">
-                  CARD
-                </Text>
-              </View>
-              <View style={styles.cardDetails}>
-                <Text size="md" weight="semiBold" color={BrandColors.secondary}>
-                  Add payment method
-                </Text>
-              </View>
-              <ChevronRight size={20} color="#9CA3AF" />
-            </TouchableOpacity>
-          )}
-
-          {/* Security Note */}
-          <View style={styles.securityNote}>
-            <Lock size={14} color="#9CA3AF" />
-            <Text size="xs" weight="medium" color="#9CA3AF">
-              Secured & encrypted by Stripe
-            </Text>
-          </View>
-        </View>
       </ScrollView>
 
-      {/* Footer CTA */}
-      <View style={[styles.footer, { paddingBottom: insets.bottom + Spacing.md }]}>
+      {/* Footer CTA — wallet button on top (Apple Pay on iOS, Google Pay
+          on Android), saved card row below. The wallet button shows the
+          range as a price tag so the customer sees what they're agreeing
+          to without scrolling back up. */}
+      <View style={[styles.footer, { paddingBottom: insets.bottom + Spacing.xs }]}>
         <TouchableOpacity
           style={[
-            styles.confirmButton,
+            styles.walletButton,
             (isSubmitting || !hasPayment) && styles.confirmButtonDisabled,
           ]}
-          onPress={handleConfirmPayment}
-          activeOpacity={0.8}
+          onPress={Platform.OS === "android" ? handleGooglePay : handleApplePay}
+          activeOpacity={0.85}
           disabled={isSubmitting || !hasPayment}
         >
           {isSubmitting ? (
             <ActivityIndicator color={BrandColors.white} size="small" />
           ) : (
-            <Text size="md" weight="bold" color={BrandColors.white}>
-              Confirm Appointment
-            </Text>
+            <>
+              <Text size="md" weight="semiBold" color={BrandColors.white}>
+                Pay with
+              </Text>
+              {Platform.OS === "android" ? (
+                <GooglePay width={90} height={30} />
+              ) : (
+                <ApplePay width={90} height={30} />
+              )}
+              <View style={styles.priceTag}>
+                <Text
+                  size="sm"
+                  weight="bold"
+                  color={BrandColors.primary}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.7}
+                >
+                  {breakdown.rangeFormatted}
+                </Text>
+              </View>
+            </>
           )}
-          <View style={styles.priceTag}>
-            <Text
-              size="sm"
-              weight="bold"
-              color={BrandColors.primary}
-              numberOfLines={1}
-              adjustsFontSizeToFit
-              minimumFontScale={0.7}
-            >
-              {breakdown.rangeFormatted}
-            </Text>
-          </View>
         </TouchableOpacity>
+
+        {hasPayment && selectedPaymentMethod ? (
+          <TouchableOpacity
+            style={styles.footerCardRow}
+            onPress={handleConfirmPayment}
+            activeOpacity={0.85}
+            disabled={isSubmitting}
+          >
+            <View style={styles.cardBrandIcon}>
+              {(() => {
+                const BrandSvg =
+                  BRAND_SVG?.[normalizeStripeBrand(selectedPaymentMethod.brand)];
+                return BrandSvg ? (
+                  // The brand SVGs reserve viewBox space below the card
+                  // for a drop shadow, so the glyph optically floats high
+                  // in any fixed box. Nudge it down so it sits dead-center
+                  // in the tile.
+                  <BrandSvg
+                    width={56}
+                    height={36}
+                    style={{ transform: [{ translateY: 3 }] }}
+                  />
+                ) : (
+                  <Text size="xs" weight="bold" color={BrandColors.secondary}>
+                    {selectedPaymentMethod.brand.toUpperCase().slice(0, 4)}
+                  </Text>
+                );
+              })()}
+            </View>
+            <View style={styles.cardDetails}>
+              <Text size="md" weight="semiBold" color={BrandColors.primary}>
+                Pay with{" "}
+                {selectedPaymentMethod.brand.charAt(0).toUpperCase() +
+                  selectedPaymentMethod.brand.slice(1)}{" "}
+                •••• {selectedPaymentMethod.last4}
+              </Text>
+              <Text size="xs" weight="regular" color="#6B7280">
+                Expires {String(selectedPaymentMethod.expMonth).padStart(2, "0")}/
+                {String(selectedPaymentMethod.expYear).slice(-2)}
+              </Text>
+            </View>
+            <ChevronRight size={20} color="#9CA3AF" />
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity
+            style={styles.footerCardRow}
+            onPress={() => router.push("/add-payment")}
+            activeOpacity={0.85}
+          >
+            <View style={styles.cardBrandIcon}>
+              <Text size="xs" weight="bold" color="#9CA3AF">
+                CARD
+              </Text>
+            </View>
+            <View style={styles.cardDetails}>
+              <Text size="md" weight="semiBold" color={BrandColors.secondary}>
+                Pay with card
+              </Text>
+            </View>
+            <ChevronRight size={20} color="#9CA3AF" />
+          </TouchableOpacity>
+        )}
       </View>
 
       <ErrorOccurredModal
@@ -975,58 +980,9 @@ const styles = StyleSheet.create({
     textAlign: "right",
   },
 
-  // Payment Section
-  paymentSection: {
-    gap: Spacing.md,
-  },
-  applePayButton: {
-    backgroundColor: BrandColors.primary,
-    paddingVertical: Spacing.lg,
-    borderRadius: BorderRadius.xl,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  googlePayButton: {
-    backgroundColor: BrandColors.white,
-    paddingVertical: Spacing.lg,
-    borderRadius: BorderRadius.xl,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1.5,
-    borderColor: "#E5E7EB",
-  },
-  payButtonContent: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.sm,
-  },
-  paymentDivider: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.md,
-    marginVertical: Spacing.sm,
-  },
-  paymentDividerLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: "#E5E7EB",
-  },
-  paymentDividerText: {
-    letterSpacing: 0.5,
-  },
-  savedCardRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: BrandColors.white,
-    borderRadius: BorderRadius.xl,
-    padding: Spacing.lg,
-    gap: Spacing.md,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-  },
   cardBrandIcon: {
-    width: 48,
-    height: 32,
+    width: 60,
+    height: 40,
     borderRadius: BorderRadius.sm,
     borderWidth: 1,
     borderColor: "#E5E7EB",
@@ -1038,13 +994,6 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 2,
   },
-  securityNote: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: Spacing.xs,
-    paddingTop: Spacing.sm,
-  },
 
   // Footer
   footer: {
@@ -1055,15 +1004,16 @@ const styles = StyleSheet.create({
     backgroundColor: BrandColors.white,
     paddingTop: Spacing.md,
     paddingHorizontal: Spacing.lg,
+    gap: Spacing.sm,
     borderTopWidth: 1,
     borderTopColor: "#E5E7EB",
     ...Shadows.lg,
   },
-  confirmButton: {
+  walletButton: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: BrandColors.primary,
+    backgroundColor: "#000000",
     paddingVertical: Spacing.lg,
     borderRadius: BorderRadius.xl,
     gap: Spacing.md,
@@ -1076,5 +1026,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.xs,
     borderRadius: BorderRadius.lg,
+  },
+  footerCardRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: BrandColors.white,
+    borderRadius: BorderRadius.xl,
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.md,
+    gap: Spacing.md,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
   },
 });

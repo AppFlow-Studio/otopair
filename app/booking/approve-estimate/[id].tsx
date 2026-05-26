@@ -170,7 +170,14 @@ export default function ApproveEstimateScreen() {
 
         <View style={{ marginTop: Spacing.xl }}>
           <Text style={styles.muted}>Your mechanic's updated total</Text>
-          <Text style={styles.h3}>{formatUsd(approval.mechanic_set_price_cents)}</Text>
+          <Text
+            style={styles.h3}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.6}
+          >
+            {formatUsd(approval.mechanic_set_price_cents)}
+          </Text>
         </View>
 
         <View style={styles.divider} />
@@ -210,7 +217,7 @@ export default function ApproveEstimateScreen() {
           );
         })}
 
-        <View style={styles.divider} />
+        {/* <View style={styles.divider} /> */}
 
         <View style={styles.totalsBlock}>
           <View style={styles.totalRow}>
@@ -232,8 +239,20 @@ export default function ApproveEstimateScreen() {
             </View>
           )}
           <View style={[styles.totalRow, { marginTop: Spacing.sm }]}>
-            <Text weight="semiBold" style={styles.totalLabelBold}>Updated total</Text>
-            <Text weight="semiBold" style={styles.totalLabelBold}>
+            <Text
+              weight="semiBold"
+              style={styles.totalLabelBold}
+              numberOfLines={1}
+            >
+              Updated total
+            </Text>
+            <Text
+              weight="semiBold"
+              style={[styles.totalLabelBold, styles.totalValueRight]}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.75}
+            >
               {formatUsd(approval.mechanic_set_price_cents)}
             </Text>
           </View>
@@ -264,11 +283,26 @@ export default function ApproveEstimateScreen() {
           disabled={submitting !== null}
           style={[styles.btn, styles.btnApprove, submitting && { opacity: 0.7 }]}
         >
-          <Text weight="semiBold" style={styles.btnApproveText}>
-            {submitting === "approved"
-              ? "Approving…"
-              : `Approve ${formatUsd(approval.mechanic_set_price_cents)}`}
-          </Text>
+          {submitting === "approved" ? (
+            <Text weight="semiBold" style={styles.btnApproveText}>
+              Approving…
+            </Text>
+          ) : (
+            <View style={styles.btnApproveStack}>
+              <Text weight="semiBold" style={styles.btnApproveLabel}>
+                Approve
+              </Text>
+              <Text
+                weight="bold"
+                style={styles.btnApproveAmount}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.7}
+              >
+                {formatUsd(approval.mechanic_set_price_cents)}
+              </Text>
+            </View>
+          )}
         </Pressable>
       </View>
     </View>
@@ -294,9 +328,12 @@ const styles = StyleSheet.create({
   },
   h3: {
     fontSize: 32,
+    lineHeight: 42,
     color: BrandColors.primary,
     fontWeight: "700",
-    marginTop: 4,
+    marginTop: Spacing.xs,
+    paddingTop: 4,
+    includeFontPadding: true,
   },
   muted: { color: SemanticColors.textMuted, fontSize: 13 },
   bodyBold: {
@@ -336,6 +373,11 @@ const styles = StyleSheet.create({
   totalLabel: { color: SemanticColors.textSecondary },
   totalValue: { color: BrandColors.primary },
   totalLabelBold: { color: BrandColors.primary, fontSize: 16 },
+  totalValueRight: {
+    flexShrink: 1,
+    marginLeft: Spacing.md,
+    textAlign: "right",
+  },
   infoBanner: {
     flexDirection: "row",
     alignItems: "flex-start",
@@ -374,4 +416,12 @@ const styles = StyleSheet.create({
   btnDeclineText: { color: BrandColors.primary, fontSize: 16 },
   btnApprove: { backgroundColor: BrandColors.primary, flex: 1.4 },
   btnApproveText: { color: "#FFFFFF", fontSize: 16 },
+  btnApproveStack: {
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 2,
+    paddingHorizontal: Spacing.sm,
+  },
+  btnApproveLabel: { color: "#FFFFFF", fontSize: 12, opacity: 0.85 },
+  btnApproveAmount: { color: "#FFFFFF", fontSize: 18 },
 });
