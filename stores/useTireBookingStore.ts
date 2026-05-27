@@ -29,7 +29,16 @@ export type TirePosition = "FL" | "FR" | "RL" | "RR";
 
 interface TireBookingState {
   vehicleId: string | null;
+  /** Front tire size, e.g. "245/40R19". */
   tireSize: string | null;
+  /**
+   * Rear tire size for staggered fitments. null when the picked option is a
+   * square setup (all four wheels share `tireSize`). Surfaced so the picker
+   * can distinguish between an OEM-standard staggered package and an
+   * OEM-optional square package that share the same front size — both render
+   * front="245/40R19" but only the staggered one has a rear value.
+   */
+  tireSizeRear: string | null;
   tireType: TireTypeId | null;
   tier: TireTierId | null;
   /** Tire positions the user wants replaced. Quantity is derived from length. */
@@ -43,7 +52,8 @@ interface TireBookingState {
   // Mutators
   reset: () => void;
   setVehicleId: (id: string | null) => void;
-  setSize: (size: string) => void;
+  /** Set the picked tire fitment. `sizeRear` is null/omitted for square setups. */
+  setSize: (size: string, sizeRear?: string | null) => void;
   setType: (type: TireTypeId) => void;
   setTier: (tier: TireTierId) => void;
   toggleTirePosition: (p: TirePosition) => void;
@@ -60,6 +70,7 @@ interface TireBookingState {
 const DEFAULT_STATE = {
   vehicleId: null as string | null,
   tireSize: null as string | null,
+  tireSizeRear: null as string | null,
   tireType: null as TireTypeId | null,
   tier: null as TireTierId | null,
   selectedTirePositions: [] as TirePosition[],
@@ -86,7 +97,7 @@ export const useTireBookingStore = create<TireBookingState>((set, get) => ({
   reset: () => set({ ...DEFAULT_STATE }),
 
   setVehicleId: (id) => set({ vehicleId: id }),
-  setSize: (size) => set({ tireSize: size }),
+  setSize: (size, sizeRear = null) => set({ tireSize: size, tireSizeRear: sizeRear }),
   setType: (type) => set({ tireType: type }),
   setTier: (tier) => set({ tier }),
 
