@@ -37,6 +37,7 @@ import Animated, { FadeOut, LinearTransition, useAnimatedStyle, useSharedValue, 
 // 3. Shared UI
 import { Text } from '@/components/shared-ui';
 import { BookingProgressBar } from '@/components/bookings/BookingProgressBar';
+import { ApprovalBanner } from '@/components/booking/ApprovalBanner';
 import { getBookingStageView } from '@/utils/bookingStages';
 import { useRescheduleDecisionOverlayStore } from '@/stores/useRescheduleDecisionOverlayStore';
 import type { Id } from '@/convex/_generated/dataModel';
@@ -91,6 +92,9 @@ export interface Booking {
   paymentApprovalState?: string;
   /** Final captured amount in cents (set after Stripe capture). */
   finalCaptureAmountCents?: number;
+  /** Shop-assigned invoice / work-order number. When the mechanic sets one,
+   *  the card surfaces it instead of the last-6 booking id. */
+  invoiceNumber?: string;
 }
 
 interface BookingCardProps {
@@ -242,6 +246,16 @@ export function BookingCard({
     [actionsRowWidth, fontScale],
   );
   
+  // Invoice number wins when the mechanic has attached one; otherwise
+  // fall back to the last-6 of the convex booking id so the customer
+  // still has something to quote on a support ticket.
+  const idLine = useMemo(() => {
+    const invoice = booking.invoiceNumber?.trim();
+    if (invoice) return invoice;
+    if (!booking.id) return null;
+    return `#${booking.id.slice(-6).toUpperCase()}`;
+  }, [booking.invoiceNumber, booking.id]);
+
   // Format services display
   const mainService = booking.services[0] || 'Service';
   const additionalCount = booking.services.length - 1;
@@ -325,6 +339,27 @@ export function BookingCard({
         stages={stageView.stages}
         currentIndex={stageView.currentIndex}
       />
+
+      {/* Pending-approval or reauth-required CTA. Returns null when the
+          booking isn't in one of those states, so no extra guard needed. */}
+      <ApprovalBanner
+        bookingId={booking.id}
+        paymentApprovalState={booking.paymentApprovalState}
+      />
+
+      {/* Booking identifier — invoice number if the mechanic attached one,
+          else the last-6 of the convex booking id. Tiny gray line above the
+          service title so customers can quote it on a support ticket. */}
+      {idLine ? (
+        <Text
+          weight="semiBold"
+          size="xs"
+          color="#9CA3AF"
+          style={styles.idLine}
+        >
+          {idLine}
+        </Text>
+      ) : null}
 
       {/* Title Row */}
       <View style={styles.titleRow}>
@@ -596,6 +631,11 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.06,
     shadowRadius: 8,
     elevation: 3,
+  },
+  idLine: {
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    marginBottom: 4,
   },
   titleRow: {
     flexDirection: 'row',

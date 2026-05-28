@@ -478,6 +478,9 @@ export const getByUserIdWithDetails = query({
           disclosed_range_high_cents: booking.disclosed_range_high_cents,
           payment_approval_state: booking.payment_approval_state,
           final_capture_amount_cents: booking.final_capture_amount_cents,
+          // Shop-assigned invoice / work-order number — surfaced inline on
+          // the booking card so the customer can quote it on support.
+          invoice_number: booking.invoice_number,
         };
       })
     );
