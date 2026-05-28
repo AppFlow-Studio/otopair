@@ -509,6 +509,44 @@ export const updateMySchedulingSettings = mutation({
   },
 });
 
+/**
+ * Update the shop's hourly labor rate ($/hour). Owner-only — the rate
+ * flows into invoice computation (convex/invoices.ts) and the approval
+ * dialog's labor cents recompute, so we guard with the same role check as
+ * the other shop-settings mutations.
+ *
+ * Rate is stored in dollars on `shops.labor_rate` to stay consistent with
+ * the onboarding flow and director panel which also use dollars.
+ */
+export const updateMyLaborRate = mutation({
+  args: {
+    laborRate: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const { user } = await getCurrentUser(ctx);
+    if (!user) throw new Error("Not authenticated");
+
+    const primary = await getPrimaryShopForUser(ctx, user._id);
+    if (!primary?.shop) throw new Error("Shop not found.");
+    if (!OWNER_ROLES.has(primary.membershipRole)) {
+      throw new Error("Only shop owners can change the labor rate.");
+    }
+
+    if (!Number.isFinite(args.laborRate) || args.laborRate <= 0) {
+      throw new Error("Labor rate must be greater than $0/hour.");
+    }
+    if (args.laborRate > 1000) {
+      throw new Error("Labor rate cannot exceed $1,000/hour.");
+    }
+
+    await ctx.db.patch(primary.shop._id, {
+      labor_rate: Math.round(args.laborRate * 100) / 100,
+    });
+
+    return primary.shop._id;
+  },
+});
+
 export const getStripeOnboardingContext = internalQuery({
   args: {
     clerkUserId: v.string(),

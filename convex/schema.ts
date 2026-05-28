@@ -1865,6 +1865,31 @@ export default defineSchema({
     .index("by_event_type", ["event_type"])
     .index("by_received_at", ["received_at"]),
 
+  // One row per Stripe dispute (`charge.dispute.created` → `charge.dispute.closed`).
+  // payments.status flips to "disputed" on open and "won"/"lost" on close — this
+  // table is the audit trail (reason, amount, evidence deadline) the shop UI
+  // hydrates from. Status mirrors Stripe's dispute lifecycle string.
+  payment_disputes: defineTable({
+    payment_id: v.id("payments"),
+    booking_id: v.optional(v.id("bookings")),
+    shop_id: v.optional(v.id("shops")),
+    stripe_dispute_id: v.string(),
+    stripe_charge_id: v.optional(v.string()),
+    amount_cents: v.number(),
+    currency: v.optional(v.string()),
+    reason: v.optional(v.string()),
+    status: v.string(),
+    evidence_due_by_ms: v.optional(v.number()),
+    opened_at_ms: v.number(),
+    closed_at_ms: v.optional(v.number()),
+    created_at: v.number(),
+    updated_at: v.number(),
+  })
+    .index("by_payment_id", ["payment_id"])
+    .index("by_booking_id", ["booking_id"])
+    .index("by_shop_id", ["shop_id"])
+    .index("by_stripe_dispute_id", ["stripe_dispute_id"]),
+
   // [I]
   transactions: defineTable({
     user_id: v.id("users"),
