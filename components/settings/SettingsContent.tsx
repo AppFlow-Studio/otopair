@@ -102,6 +102,7 @@ import { useOnboardingStore } from "@/stores/useOnboardingStore";
 import { usePaymentStore } from "@/stores/usePaymentStore";
 import { clearUserSessionState } from "@/lib/session-state";
 import { useTransactionsFromConvex } from "@/hooks/useTransactionsFromConvex";
+import { useSettingsOverlayStore } from "@/stores/useSettingsOverlayStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 import { computeInitials } from "@/utils/userInitials";
 
@@ -153,10 +154,9 @@ export function SettingsContent({
   onScrollOffsetChange,
 }: SettingsContentProps) {
   const insets = useSafeAreaInsets();
-  // Settings rows now render inside the /profile-overlay ROUTE (was a
-  // Modal). Normal router.push stacks destinations on top of the
+  // Settings rows render inside the layout-mounted SettingsOverlay
+  // (not a route). Normal router.push stacks destinations on top of the
   // overlay; back gestures reveal the overlay still mounted underneath.
-  // No wrapping needed — let Expo Router handle the navigation.
   const router = useRouter();
 
   const { signOut, userId: clerkUserId } = useAuth();
@@ -173,6 +173,11 @@ export function SettingsContent({
   const bookingIds = useBookingStore((s) => s.bookingIds);
   const bookings = useBookingStore((s) => s.bookings);
   const vehicleIds = useVehicleStore((s) => s.vehicleIds);
+  // For rows whose destination is a layout sibling of the overlay (the
+  // Cars tab) — we morph closed first, then route in the spring's
+  // finished callback. Pushed-route destinations don't need this; they
+  // stack on top of the overlay normally.
+  const requestCloseOverlay = useSettingsOverlayStore((s) => s.requestClose);
   const paymentMethods = usePaymentStore((s) => s.paymentMethods);
   const { transactions: convexTransactions } = useTransactionsFromConvex(
     me?._id ?? undefined,
@@ -460,7 +465,12 @@ export function SettingsContent({
                 : "View & manage"
             }
             icon={<Car size={22} color="#FFFFFF" />}
-            onPress={() => router.push("/cars")}
+            // The Cars tab is a sibling of the overlay in (main-tabs)/_layout,
+            // so a plain tab switch wouldn't cover the overlay — request a
+            // close morph first, then route once the spring lands.
+            onPress={() =>
+              requestCloseOverlay(() => router.push("/cars"))
+            }
           />
           <SettingsHeaderCard
             variant="action"

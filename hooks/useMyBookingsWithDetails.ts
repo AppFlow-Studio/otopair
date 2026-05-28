@@ -58,11 +58,16 @@ function isLive(row: ConvexBookingWithDetails): boolean {
 }
 
 function isHistory(row: ConvexBookingWithDetails): boolean {
+  // History is strictly terminal states. Anything else (pending,
+  // confirmed, in_progress, quote stages) belongs to upcoming or live.
+  // The previous implementation had a past-date fallthrough that swept
+  // stale `"pending"` rows into history and rendered them as "Completed
+  // On <date>" — a stale past-date pending row is a backend concern
+  // (auto-cancel / expire), not a UI one.
   if (row.status === "cancelled") return true;
+  if (row.status === "no_show") return true;
   if (row.status === "completed") return !hasPendingApproval(row);
-  if (row.status === "pending_quote" || row.status === "quotes_ready") return false;
-  const today = new Date().toISOString().slice(0, 10);
-  return row.scheduled_date < today;
+  return false;
 }
 
 export function useMyBookingsWithDetails() {

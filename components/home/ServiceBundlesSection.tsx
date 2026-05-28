@@ -1,98 +1,91 @@
 /**
  * ServiceBundlesSection
  *
- * PURPOSE: Displays a horizontal scrollable section of seasonal service bundles with themed cards and gradient effects
+ * PURPOSE: Home-tab horizontal carousel of seasonal service bundles.
+ *          Each card is a trust-first value pitch: clear service list,
+ *          total time, and a "1 visit vs N separate trips" pill so the
+ *          user reads the bundle as a convenience win, not a discount play.
  *
  * USED IN: app/(main-tabs)/home/index.tsx
  *
  * PROPS:
- *   - bundles (ServiceBundle[]): Array of service bundles to display
- *   - onBundlePress ((bundleId: string) => void): Called when a bundle card is pressed [optional]
- *
- * EXAMPLE:
- *   <ServiceBundlesSection
- *     bundles={seasonalBundles}
- *     onBundlePress={(id) => router.push(`/bundles/${id}`)}
- *   />
+ *   - bundles (ServiceBundle[]): optional override of the seed bundles
+ *   - onViewPackage ((bundleId: string) => void): optional override of the CTA
  *
  * OWNER: Ahmad Hamoudeh
  */
 
 // 1. React & React Native
-import React from 'react';
-import {
-  Pressable,
-  StyleSheet,
-  Text as RNText,
-  ScrollView,
-  View,
-} from 'react-native';
+import React from "react";
+import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 
 // 2. Expo & Third-party
-import { BlurView } from 'expo-blur';
-import { LinearGradient } from 'expo-linear-gradient';
-import { useRouter } from 'expo-router';
-import MaskedView from '@react-native-masked-view/masked-view';
+import { useRouter } from "expo-router";
+import { Car, Check, Clock, Flower2, Leaf, Snowflake, Sun } from "lucide-react-native";
 
 // 3. Shared UI
-import { Text } from '@/components/shared-ui';
+import { Text } from "@/components/shared-ui";
 
-// 4. Constants, hooks, types
-import { FontFamily } from '@/constants/theme';
+// 4. Constants, hooks, stores
+import { BorderRadius, BrandColors, FontFamily, Shadows, Spacing } from "@/constants/theme";
+import { useBookingStore } from "@/stores/useBookingStore";
+import type { Service } from "@/stores/types/store.types";
+
+// Match either hyphenated ("brake-system-inspection") or underscored
+// ("brake_system_inspection") slug variants — the catalog has seen both.
+const normalizeSlug = (s: string | undefined) =>
+  s ? s.toLowerCase().replace(/-/g, "_") : "";
 
 // ============================================================================
 // TYPES
 // ============================================================================
 
-export type BundleTheme = 'winter' | 'summer' | 'spring' | 'fall';
+export type BundleTheme = "winter" | "summer" | "spring" | "fall";
 
-interface ServiceBundle {
+export interface BundleService {
+  /** What the home card displays — bundle author's friendly phrasing. */
+  displayName: string;
+  /** Catalog slug for the booking-cart preselection. Looked up against
+   *  `availableServices` so the right service auto-ticks even when the
+   *  display name differs from the catalog name (e.g. "Coolant top-up"
+   *  → coolant-flush). Hyphens / underscores are normalized at match time. */
+  serviceSlug: string;
+}
+
+export interface ServiceBundle {
   id: string;
   name: string;
   theme: BundleTheme;
-  services: string[];
+  services: BundleService[];
+  /** Approximate total time the bundle takes at the shop, in minutes. */
+  durationMinutes: number;
+  /** How many separate trips the user would otherwise make for these services. */
+  equivalentSeparateTrips: number;
+  /** Optional. If set, an additional green "Save up to $X" pill renders. */
+  savingsEstimate?: number;
 }
 
 interface ServiceBundlesSectionProps {
   bundles?: ServiceBundle[];
-  onLearnMore?: (bundleId: string) => void;
-  onBookNow?: (bundleId: string) => void;
+  onViewPackage?: (bundleId: string) => void;
 }
 
 // ============================================================================
-// THEME COLORS
+// THEME ICONS
 // ============================================================================
 
-const THEME_COLORS: Record<BundleTheme, { 
-  gradientStart: string; 
-  gradientEnd: string;
-  bookNowBorder: string;
-  bookNowText: string;
-}> = {
-  summer: {
-    gradientStart: '#f3b405',
-    gradientEnd: '#1f2322',
-    bookNowBorder: '#fcca40',
-    bookNowText: '#D4A017',
-  },
-  winter: {
-    gradientStart: '#04b9ec',
-    gradientEnd: '#132934',
-    bookNowBorder: '#04b9ec',
-    bookNowText: '#04b9ec',
-  },
-  spring: {
-    gradientStart: '#22C55E',
-    gradientEnd: '#0d4f2a',
-    bookNowBorder: '#22C55E',
-    bookNowText: '#22C55E',
-  },
-  fall: {
-    gradientStart: '#EA580C',
-    gradientEnd: '#7c2d12',
-    bookNowBorder: '#EA580C',
-    bookNowText: '#EA580C',
-  },
+const THEME_ICON: Record<BundleTheme, React.ComponentType<{ size?: number; color?: string; strokeWidth?: number }>> = {
+  summer: Sun,
+  winter: Snowflake,
+  spring: Flower2,
+  fall: Leaf,
+};
+
+const THEME_LABEL: Record<BundleTheme, string> = {
+  summer: "SUMMER",
+  winter: "WINTER",
+  spring: "SPRING",
+  fall: "FALL",
 };
 
 // ============================================================================
@@ -101,61 +94,32 @@ const THEME_COLORS: Record<BundleTheme, {
 
 const SAMPLE_BUNDLES: ServiceBundle[] = [
   {
-    id: 'summer-care',
-    name: 'Summer Care\nPackage',
-    theme: 'summer',
+    id: "summer-care",
+    name: "Summer Care Package",
+    theme: "summer",
     services: [
-      'Full AC system check',
-      'Coolant top-up',
-      'Tire pressure adjustment',
-      'Battery health inspection',
+      { displayName: "Full AC system check", serviceSlug: "ac-service" },
+      { displayName: "Coolant top-up", serviceSlug: "coolant-flush" },
+      { displayName: "Tire pressure adjustment", serviceSlug: "tpms-sensor-calibration" },
+      { displayName: "Battery health inspection", serviceSlug: "battery-test" },
     ],
+    durationMinutes: 90,
+    equivalentSeparateTrips: 4,
   },
   {
-    id: 'winter-safety',
-    name: 'Winter Safety\nPackage',
-    theme: 'winter',
+    id: "winter-safety",
+    name: "Winter Safety Package",
+    theme: "winter",
     services: [
-      'Battery health inspection',
-      'Antifreeze check',
-      'Tire thread inspection',
-      'Break system check',
+      { displayName: "Battery health inspection", serviceSlug: "battery-test" },
+      { displayName: "Antifreeze check", serviceSlug: "coolant-flush" },
+      { displayName: "Tire tread inspection", serviceSlug: "tire-rotation" },
+      { displayName: "Brake system check", serviceSlug: "brake-system-inspection" },
     ],
+    durationMinutes: 75,
+    equivalentSeparateTrips: 4,
   },
 ];
-
-// ============================================================================
-// GRADIENT TEXT COMPONENT
-// ============================================================================
-
-function GradientText({ 
-  text, 
-  gradientColors 
-}: { 
-  text: string; 
-  gradientColors: [string, string];
-}) {
-  return (
-    <MaskedView
-      maskElement={
-        <RNText style={styles.gradientTextMask}>
-          {text}
-        </RNText>
-      }
-    >
-      <LinearGradient
-        colors={gradientColors}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 0 }}
-        style={styles.gradientBackground}
-      >
-        <RNText style={[styles.gradientTextMask, { opacity: 0 }]}>
-          {text}
-        </RNText>
-      </LinearGradient>
-    </MaskedView>
-  );
-}
 
 // ============================================================================
 // COMPONENT
@@ -163,130 +127,142 @@ function GradientText({
 
 export function ServiceBundlesSection({
   bundles = SAMPLE_BUNDLES,
-  onLearnMore,
-  onBookNow,
+  onViewPackage,
 }: ServiceBundlesSectionProps) {
   const router = useRouter();
+  const availableServices = useBookingStore((s) => s.availableServices);
 
-  const handleLearnMore = (bundleId: string) => {
-    if (onLearnMore) {
-      // Let parent handle navigation
-      onLearnMore(bundleId);
-    } else {
-      // Default: navigate to coming soon
-      router.push({ pathname: '/coming-soon', params: { service: bundleId } });
+  const handleBookPackage = (bundle: ServiceBundle) => {
+    if (onViewPackage) {
+      onViewPackage(bundle.id);
+      return;
     }
-  };
-
-  const handleBookNow = (bundleId: string) => {
-    if (onBookNow) {
-      // Let parent handle navigation
-      onBookNow(bundleId);
-    } else {
-      // Default: navigate to map with services sheet open
-      router.push('/booking/map?openServices=true');
+    // Look up each bundle service by its explicit catalog slug. The
+    // bundle author specifies the slug at authoring time, so this is
+    // 100% reliable when the catalog has the service. Slugs that don't
+    // resolve are silently skipped (catalog data issue, not code).
+    const store = useBookingStore.getState();
+    const matched: Service[] = [];
+    const seen = new Set<string>();
+    for (const bs of bundle.services) {
+      const wanted = normalizeSlug(bs.serviceSlug);
+      const m = availableServices.find((s) => normalizeSlug(s.slug) === wanted);
+      if (m && !seen.has(m.id)) {
+        matched.push(m);
+        seen.add(m.id);
+      }
     }
+    store.clearSelectedServices();
+    for (const m of matched) store.toggleServiceSelection(m.id);
+    // Land on the first matched service's category; the auto-scroll
+    // effect in ServiceSelectionContent will snap to the first selected
+    // row so the user sees the populated cart immediately.
+    store.setInitialServiceCategory(matched[0]?.category ?? "basic_maintenance");
+    // `origin=home` keeps the back-arrow → Home behavior consistent.
+    router.push("/booking/map?openServices=true&origin=home");
   };
 
   return (
     <View style={styles.container}>
-      {/* Section Header */}
       <Text size="md" color="#000000" style={styles.sectionHeader}>
         Service Bundles
       </Text>
 
-      {/* Horizontal Scroll */}
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
         decelerationRate="fast"
-        snapToInterval={250 + 16} // card width + gap
+        snapToInterval={CARD_WIDTH + Spacing.md}
         snapToAlignment="start"
         style={styles.scrollView}
       >
-        {bundles.map((bundle) => {
-          const themeColor = THEME_COLORS[bundle.theme];
-          
-          return (
-            <View key={bundle.id} style={styles.card}>
-              {/* Glassy/Glossy Effect Layers */}
-              <BlurView intensity={100} tint="light" style={StyleSheet.absoluteFill} />
-              <LinearGradient
-                colors={['rgba(255, 255, 255, 0.6)', 'rgba(255, 255, 255, 0.55)']}
-                style={StyleSheet.absoluteFill}
-              />
-              {/* Glossy top highlight - stronger */}
-              <LinearGradient
-                colors={['rgba(255, 255, 255, 0.7)', 'rgba(255, 255, 255, 0.3)', 'rgba(255, 255, 255, 0)']}
-                locations={[0, 0.2, 0.5]}
-                style={styles.glossyHighlight}
-              />
-              {/* Additional shine layer */}
-              <LinearGradient
-                colors={['rgba(255, 255, 255, 0.5)', 'rgba(255, 255, 255, 0)', 'rgba(255, 255, 255, 0)']}
-                locations={[0, 0.15, 0.4]}
-                style={styles.glossyShine}
-              />
-              
-              {/* Card Content */}
-              <View style={styles.cardContent} pointerEvents="box-none">
-                {/* Package Name with Gradient */}
-                <View style={styles.packageName}>
-                <GradientText 
-                  text={bundle.name} 
-                  gradientColors={[themeColor.gradientStart, themeColor.gradientEnd]}
-                />
-              </View>
-
-              {/* Services List */}
-              <View style={styles.servicesList}>
-                {bundle.services.map((service, index) => (
-                  <View key={index} style={styles.serviceItem}>
-                    <Text size="xs" color="#6B7280" style={styles.serviceNumber}>
-                      {index + 1}.
-                    </Text>
-                    <Text size="xs" color="#4B5563" style={styles.serviceText}>
-                      {service}
-                    </Text>
-                  </View>
-                ))}
-              </View>
-
-              {/* Action Buttons */}
-              <View style={styles.buttonRow}>
-                {/* Learn More Button */}
-                <Pressable
-                  onPress={() => handleLearnMore(bundle.id)}
-                  style={({ pressed }) => [
-                    styles.learnMoreButton,
-                    pressed && styles.buttonPressed,
-                  ]}
-                >
-                  <Text weight="medium" size="xs" color="#000000">
-                    Learn More
-                  </Text>
-                </Pressable>
-
-                {/* Book Now Button */}
-                <Pressable
-                  onPress={() => handleBookNow(bundle.id)}
-                  style={({ pressed }) => [
-                    styles.bookNowButton,
-                    { borderColor: themeColor.bookNowBorder },
-                    pressed && styles.buttonPressed,
-                  ]}
-                >
-                  <Text weight="medium" size="xs" color={themeColor.bookNowText}>
-                    Book Now
-                  </Text>
-                </Pressable>
-              </View>
-              </View>
-            </View>
-          );
-        })}
+        {bundles.map((bundle) => (
+          <BundleCard
+            key={bundle.id}
+            bundle={bundle}
+            onBookPackage={handleBookPackage}
+          />
+        ))}
       </ScrollView>
+    </View>
+  );
+}
+
+// ============================================================================
+// BUNDLE CARD (per-item)
+// ============================================================================
+
+function BundleCard({
+  bundle,
+  onBookPackage,
+}: {
+  bundle: ServiceBundle;
+  onBookPackage: (bundle: ServiceBundle) => void;
+}) {
+  const Icon = THEME_ICON[bundle.theme];
+  const visitsCopy = `vs ${bundle.equivalentSeparateTrips} separate trips`;
+
+  return (
+    <View style={styles.card}>
+      {/* Header — category pill + theme icon */}
+      <View style={styles.header}>
+        <View style={styles.categoryPill}>
+          <Text style={styles.categoryPillText}>{THEME_LABEL[bundle.theme]}</Text>
+        </View>
+        <Icon size={20} color={BrandColors.secondary} strokeWidth={2} />
+      </View>
+
+      {/* Title + subtitle */}
+      <Text style={styles.title}>{bundle.name}</Text>
+      <Text style={styles.subtitle}>
+        {bundle.services.length} services bundled together
+      </Text>
+
+      {/* Service checklist */}
+      <View style={styles.servicesList}>
+        {bundle.services.map((service) => (
+          <View key={service.serviceSlug} style={styles.serviceRow}>
+            <Check size={16} color="#22C55E" strokeWidth={2.5} />
+            <Text style={styles.serviceText}>{service.displayName}</Text>
+          </View>
+        ))}
+      </View>
+
+      <View style={styles.divider} />
+
+      {/* Value strip — total time left, "1 visit" pill + trips caption right */}
+      <View style={styles.valueRow}>
+        <View style={styles.valueLeft}>
+          <View style={styles.totalTimeLabelRow}>
+            <Clock size={14} color="#6B7280" strokeWidth={2} />
+            <Text style={styles.totalTimeLabel}>Total time</Text>
+          </View>
+          <Text style={styles.totalTimeValue}>~{bundle.durationMinutes} min</Text>
+        </View>
+        <View style={styles.valueRight}>
+          <View style={styles.visitPill}>
+            <Car size={14} color="#16A34A" strokeWidth={2.5} />
+            <Text style={styles.visitPillText}>1 visit</Text>
+          </View>
+          <Text style={styles.visitCaption}>{visitsCopy}</Text>
+          {bundle.savingsEstimate != null && (
+            <View style={[styles.visitPill, styles.savingsPill]}>
+              <Text style={styles.visitPillText}>
+                Save up to ${bundle.savingsEstimate}
+              </Text>
+            </View>
+          )}
+        </View>
+      </View>
+
+      {/* CTA */}
+      <Pressable
+        onPress={() => onBookPackage(bundle)}
+        style={({ pressed }) => [styles.cta, pressed && styles.ctaPressed]}
+      >
+        <Text style={styles.ctaText}>Book Package</Text>
+      </Pressable>
     </View>
   );
 }
@@ -295,116 +271,160 @@ export function ServiceBundlesSection({
 // STYLES
 // ============================================================================
 
+const CARD_WIDTH = 320;
+
 const styles = StyleSheet.create({
   container: {
-    marginTop: 32,
+    marginTop: Spacing["2xl"],
   },
   sectionHeader: {
-    marginBottom: 16,
-    fontStyle: 'italic',
+    marginBottom: Spacing.lg,
+    fontStyle: "italic",
   },
   scrollView: {
-    marginHorizontal: -16, // Extend scroll view to edges to remove hard line
+    marginHorizontal: -Spacing.lg,
   },
   scrollContent: {
-    paddingLeft: 16,
-    paddingRight: 16,
-    gap: 16,
+    paddingLeft: Spacing.lg,
+    paddingRight: Spacing.lg,
+    gap: Spacing.md,
   },
+
+  // ── Card ─────────────────────────────────────────────────────────────
   card: {
-    width: 250,
-    backgroundColor: 'transparent',
-    borderRadius: 10,
-    overflow: 'hidden',
-    position: 'relative',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.12,
-    shadowRadius: 12,
-    elevation: 4,
+    width: CARD_WIDTH,
+    backgroundColor: "#FFFFFF",
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.xl,
+    ...Shadows.md,
   },
-  cardContent: {
-    padding: 10,
-    paddingBottom: 15,
-    paddingTop: 20,
-    position: 'relative',
-    zIndex: 1,
+
+  // ── Header (category pill + icon) ────────────────────────────────────
+  header: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: Spacing.md,
   },
-  glossyHighlight: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: '50%',
-    borderTopLeftRadius: 10,
-    borderTopRightRadius: 10,
+  categoryPill: {
+    paddingHorizontal: Spacing.sm + 2,
+    paddingVertical: 4,
+    borderRadius: BorderRadius.full,
+    backgroundColor: "rgba(82,153,254,0.10)",
   },
-  glossyShine: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: '35%',
-    borderTopLeftRadius: 10,
-    borderTopRightRadius: 10,
-  },
-  packageName: {
-    marginBottom: 8,
-    marginLeft: 10,
-  },
-  gradientTextMask: {
+  categoryPillText: {
     fontFamily: FontFamily.bold,
-    fontSize: 24,
-    lineHeight: 28,
+    fontSize: 11,
+    letterSpacing: 1,
+    color: BrandColors.secondary,
   },
-  gradientBackground: {
-    flex: 1,
+
+  // ── Title block ──────────────────────────────────────────────────────
+  title: {
+    fontFamily: FontFamily.bold,
+    fontSize: 22,
+    color: "#0F172A",
+    marginBottom: 4,
   },
+  subtitle: {
+    fontFamily: FontFamily.medium,
+    fontSize: 14,
+    color: "#6B7280",
+    marginBottom: Spacing.lg,
+  },
+
+  // ── Service checklist ────────────────────────────────────────────────
   servicesList: {
-    gap: 4,
-    marginBottom: 10,
-    marginLeft: 12,
+    gap: Spacing.sm + 2,
   },
-  serviceItem: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 1,
-  },
-  serviceNumber: {
-    width: 10,
+  serviceRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm + 2,
   },
   serviceText: {
     flex: 1,
+    fontFamily: FontFamily.medium,
+    fontSize: 14,
+    color: "#1F2937",
   },
-  buttonRow: {
-    flexDirection: 'row',
-    gap: 8,
+
+  // ── Divider ──────────────────────────────────────────────────────────
+  divider: {
+    height: 1,
+    backgroundColor: "#E5E7EB",
+    marginVertical: Spacing.lg,
   },
-  learnMoreButton: {
-    flex: 1,
-    paddingVertical: 2,
-    paddingHorizontal: 10,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#FFFFFF',
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    height: 35,
+
+  // ── Value strip ──────────────────────────────────────────────────────
+  valueRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    marginBottom: Spacing.lg,
   },
-  bookNowButton: {
-    flex: 1,
+  valueLeft: {
+    flexDirection: "column",
+    gap: 4,
+  },
+  totalTimeLabelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  totalTimeLabel: {
+    fontFamily: FontFamily.medium,
+    fontSize: 12,
+    color: "#6B7280",
+  },
+  totalTimeValue: {
+    fontFamily: FontFamily.bold,
+    fontSize: 19,
+    color: "#0F172A",
+  },
+  valueRight: {
+    alignItems: "flex-end",
+    gap: 4,
+  },
+  visitPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: Spacing.sm + 2,
     paddingVertical: 4,
-    paddingHorizontal: 10,
-    borderRadius: 8,
-    borderWidth: 2,
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
+    borderRadius: BorderRadius.full,
+    backgroundColor: "rgba(34,197,94,0.10)",
   },
-  buttonPressed: {
-    opacity: 0.7,
+  savingsPill: {
+    marginTop: 2,
+  },
+  visitPillText: {
+    fontFamily: FontFamily.bold,
+    fontSize: 13,
+    color: "#16A34A",
+  },
+  visitCaption: {
+    fontFamily: FontFamily.regular,
+    fontSize: 12,
+    color: "#6B7280",
+  },
+
+  // ── CTA ──────────────────────────────────────────────────────────────
+  cta: {
+    backgroundColor: BrandColors.secondary,
+    borderRadius: BorderRadius.full,
+    paddingVertical: Spacing.md + 2,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  ctaPressed: {
+    opacity: 0.9,
     transform: [{ scale: 0.98 }],
+  },
+  ctaText: {
+    fontFamily: FontFamily.semiBold,
+    fontSize: 16,
+    color: "#FFFFFF",
   },
 });
 

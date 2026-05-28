@@ -74,7 +74,7 @@ export default function BookingsScreen() {
   // keep the ServiceBottomSheet at its collapsed (23%) snap so the map
   // dominates. The search field tap + Cars deep-link omit the param,
   // preserving the default auto-expanded sheet.
-  const params = useLocalSearchParams<{ startCollapsed?: string }>();
+  const params = useLocalSearchParams<{ startCollapsed?: string; origin?: string }>();
   const startCollapsed = params.startCollapsed === "true";
 
   // ═══════════════ REFS ═══════════════
@@ -232,12 +232,22 @@ export default function BookingsScreen() {
 
   // Back button handler
   const handleBackPress = useCallback(() => {
+    // Honor explicit `origin` tag from the entry point. Home's Book Now
+    // flow calls selectVehicle() before pushing here, which causes the
+    // underlying tabs view to drift to Cars on dismissal. `dismissTo`
+    // pops the modal AND ensures the target route is shown in one
+    // atomic transition — eliminates the Cars→Home flash that
+    // `router.replace` would produce.
+    if (params.origin === "home") {
+      router.dismissTo("/(main-tabs)/home");
+      return;
+    }
     if (router.canGoBack()) {
       router.back();
     } else {
       router.replace("/(main-tabs)/home");
     }
-  }, [router]);
+  }, [router, params.origin]);
 
   const handleBottomSheetBackHandlerChange = useCallback((handler: (() => boolean) | null) => {
     bottomSheetBackHandlerRef.current = handler;

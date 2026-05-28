@@ -108,22 +108,21 @@ const DESTINATION_CONFIG: Record<LinkButtonDestination, DestinationConfig> = {
 
 export function LinkButton({ payload }: { payload: LinkButtonPayload }) {
   const router = useRouter();
-  const setFromRect = useSettingsOverlayStore((s) => s.setFromRect);
+  const openSettingsOverlay = useSettingsOverlayStore((s) => s.open);
   const cfg = DESTINATION_CONFIG[payload.destination];
   if (!cfg) return null;
   const label = payload.label ?? cfg.defaultLabel;
   const Icon = cfg.Icon;
 
-  // The `settings` destination opens the SettingsOverlay route. The
-  // shared-element morph from the Home profile button doesn't make sense
-  // here (the chat pill isn't a "preview" of the settings card), so we
-  // skip the morph by writing a fullscreen rect — the overlay's size
+  // The `settings` destination opens the layout-mounted SettingsOverlay.
+  // The shared-element morph from the Home profile button doesn't make
+  // sense here (the chat pill isn't a "preview" of the settings card),
+  // so we skip the morph by opening with a fullscreen rect — size
   // interpolation becomes a no-op and only the backdrop fade plays.
   const handlePress = () => {
     if (payload.destination === "settings") {
       const { width, height } = Dimensions.get("window");
-      setFromRect({ x: 0, y: 0, width, height });
-      router.push("/profile-overlay");
+      openSettingsOverlay({ x: 0, y: 0, width, height });
       return;
     }
     router.push(cfg.route as never);

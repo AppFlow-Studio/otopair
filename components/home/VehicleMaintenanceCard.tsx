@@ -26,13 +26,13 @@ import React, { useEffect, useState } from 'react';
 import {
   Dimensions,
   Image,
-  ImageSourcePropType,
   Pressable,
   StyleSheet,
   View,
 } from 'react-native';
 
 // 2. Expo & Third-party
+import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { useVehicleStore } from '@/stores/useVehicleStore';
@@ -49,6 +49,7 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 // 3. Shared UI
 import { Text } from '@/components/shared-ui';
 import { fetchVehicleImageUrl } from '@/utils/vehicleImage';
+import { BrandColors, FontFamily } from '@/constants/theme';
 
 // ============================================================================
 // TYPES
@@ -123,8 +124,27 @@ const SAMPLE_VEHICLES: Vehicle[] = [
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const SWIPE_THRESHOLD = SCREEN_WIDTH / 4;
-const THIRD_CARD_SLIVER_HEIGHT = 52;
-const FALLBACK_VEHICLE_IMAGE = require('@/assets/images/covered-car.png');
+
+// ============================================================================
+// PAGINATION DOT — mirrors components/ai-chat/AIGreeting.tsx so the Home
+// card stack reads as swipeable with the same visual language as Oto AI.
+// ============================================================================
+
+function PaginationDot({ index, activeIndex }: { index: number; activeIndex: number }) {
+  const isActive = index === activeIndex;
+  const dotWidth = useSharedValue(isActive ? 18 : 6);
+
+  useEffect(() => {
+    dotWidth.value = withSpring(isActive ? 18 : 6, { damping: 15, stiffness: 200 });
+  }, [isActive, dotWidth]);
+
+  const dotStyle = useAnimatedStyle(() => ({
+    width: dotWidth.value,
+    backgroundColor: isActive ? BrandColors.primary : 'rgba(0,0,0,0.12)',
+  }));
+
+  return <Animated.View style={[styles.dot, dotStyle]} />;
+}
 
 // ============================================================================
 // COMPONENT
@@ -139,19 +159,13 @@ export function VehicleMaintenanceCard({
   const router = useRouter();
   const [currentIndex, setCurrentIndex] = useState(0);
   const [backIndex, setBackIndex] = useState(vehicles.length > 1 ? 1 : 0);
-  const [promotingIndex, setPromotingIndex] = useState<number | null>(null);
-  const [thirdToSecondIndex, setThirdToSecondIndex] = useState<number | null>(null);
-  const [incomingThirdIndex, setIncomingThirdIndex] = useState<number | null>(null);
   const [fetchedImageUrls, setFetchedImageUrls] = useState<Record<string, string>>({});
-  const [imageLoadErrors, setImageLoadErrors] = useState<Record<string, string | true>>({});
   const [measuredHeights, setMeasuredHeights] = useState<Record<string, number>>({});
 
   // Animated values for the front card
   const translateX = useSharedValue(0);
   const rotation = useSharedValue(0);
   const cardOpacity = useSharedValue(1);
-  const promotionProgress = useSharedValue(0);
-  const stackShiftProgress = useSharedValue(1);
 
   useEffect(() => {
     vehicles.forEach((v) => {
@@ -171,46 +185,22 @@ export function VehicleMaintenanceCard({
     }
   };
 
-  const finishPromotion = (nextIndex: number) => {
-    setCurrentIndex(nextIndex);
-    setBackIndex((nextIndex + 1) % vehicles.length);
-    // Keep the promoted card mounted briefly while React commits the new
-    // first-card content underneath it. Otherwise the second card can flash
-    // through for a frame on slower native commits.
-    setTimeout(() => {
-      cardOpacity.value = 1;
-      setTimeout(() => {
-        setPromotingIndex(null);
-        setThirdToSecondIndex(null);
-        setIncomingThirdIndex(null);
-      }, 80);
-    }, 32);
+  const advanceIndex = () => {
+    setCurrentIndex((prev) => (prev + 1) % vehicles.length);
+    onSwipeEnd?.();
   };
 
-  const promoteNextCard = () => {
-    const nextIndex = (currentIndex + 1) % vehicles.length;
-    const nextSecondIndex = (currentIndex + 2) % vehicles.length;
-    const nextThirdIndex = (currentIndex + 3) % vehicles.length;
-    promotionProgress.value = 0;
-    stackShiftProgress.value = 0;
-    setPromotingIndex(nextIndex);
-    if (vehicles.length > 2) {
-      setThirdToSecondIndex(nextSecondIndex);
-      setIncomingThirdIndex(nextThirdIndex);
+  // After React commits the new front card content, make it visible
+  // then update the back card (safely hidden behind the front)
+  useEffect(() => {
+    if (cardOpacity.value === 0) {
+      cardOpacity.value = 1;
+      // Back card updates after front is visible and covering it
+      requestAnimationFrame(() => {
+        setBackIndex((currentIndex + 1) % vehicles.length);
+      });
     }
-    promotionProgress.value = withTiming(1, {
-      duration: 260,
-      easing: Easing.out(Easing.cubic),
-    }, (finished) => {
-      if (finished) {
-        runOnJS(finishPromotion)(nextIndex);
-      }
-    });
-    stackShiftProgress.value = withTiming(1, {
-      duration: 260,
-      easing: Easing.out(Easing.cubic),
-    });
-  };
+  }, [currentIndex]);
 
   const panGesture = Gesture.Pan()
     .activeOffsetX([-15, 15])
@@ -231,11 +221,11 @@ export function VehicleMaintenanceCard({
           easing: Easing.out(Easing.cubic),
         }, (finished) => {
           if (finished) {
-            // Card is off-screen, so promote the next card into the front slot.
+            // Card is off-screen — hide it, reset position, then let JS advance index
             cardOpacity.value = 0;
             translateX.value = 0;
             rotation.value = 0;
-            runOnJS(promoteNextCard)();
+            runOnJS(advanceIndex)();
           }
         });
         rotation.value = withTiming(direction === 'right' ? 15 : -15, { duration: 300 });
@@ -261,62 +251,7 @@ export function VehicleMaintenanceCard({
     ],
   }));
 
-  const promotingCardStyle = useAnimatedStyle(() => {
-    const progress = promotionProgress.value;
-    return {
-      top: -8 + 8 * progress,
-      left: 12 - 12 * progress,
-      right: 12 - 12 * progress,
-      transform: [{ scale: 0.98 + 0.02 * progress }],
-    };
-  });
-
-  const thirdToSecondCardStyle = useAnimatedStyle(() => {
-    const progress = stackShiftProgress.value;
-    const revealProgress = Math.max(0, Math.min(1, (progress - 0.18) / 0.82));
-    return {
-      top: -16 + 8 * progress,
-      left: 24 - 12 * progress,
-      right: 24 - 12 * progress,
-      opacity: revealProgress,
-      transform: [{ scale: 0.96 + 0.02 * progress }],
-    };
-  });
-
-  const incomingThirdCardStyle = useAnimatedStyle(() => {
-    const progress = stackShiftProgress.value;
-    return {
-      top: -20 + 4 * progress,
-      left: 30 - 6 * progress,
-      right: 30 - 6 * progress,
-      opacity: 0.65 * progress,
-      height: THIRD_CARD_SLIVER_HEIGHT,
-      transform: [{ scale: 0.94 + 0.02 * progress }],
-    };
-  });
-
-  const resolveVehicleImageSource = (vehicle: Vehicle): ImageSourcePropType => {
-    if (vehicle.localImage) return vehicle.localImage;
-
-    const resolvedImageUrl = fetchedImageUrls[vehicle.id] || vehicle.imageUrl;
-    if (!resolvedImageUrl || imageLoadErrors[vehicle.id] === resolvedImageUrl) {
-      return FALLBACK_VEHICLE_IMAGE;
-    }
-
-    return { uri: resolvedImageUrl };
-  };
-
-  const handleVehicleImageError = (vehicle: Vehicle) => {
-    const resolvedImageUrl = fetchedImageUrls[vehicle.id] || vehicle.imageUrl;
-    setImageLoadErrors((prev) => {
-      if (!resolvedImageUrl || prev[vehicle.id] === resolvedImageUrl) {
-        return prev;
-      }
-      return { ...prev, [vehicle.id]: resolvedImageUrl };
-    });
-  };
-
-  const renderCardContent = (vehicle: Vehicle, maxItems?: number, isPreview = false) => {
+  const renderCardContent = (vehicle: Vehicle, maxItems?: number) => {
     const items = maxItems ? vehicle.maintenanceItems.slice(0, maxItems) : vehicle.maintenanceItems;
     return (
     <View style={styles.card}>
@@ -358,10 +293,9 @@ export function VehicleMaintenanceCard({
               </Text>
             </View>
             <Image
-              source={resolveVehicleImageSource(vehicle)}
+              source={vehicle.localImage || { uri: fetchedImageUrls[vehicle.id] || vehicle.imageUrl }}
               style={styles.vehicleImage}
               resizeMode="contain"
-              onError={() => handleVehicleImageError(vehicle)}
             />
           </View>
         </View>
@@ -392,6 +326,7 @@ export function VehicleMaintenanceCard({
               <Pressable
                 onPress={() => {
                   if (item.id === 'healthy') {
+                    if (vehicle.vin) useVehicleStore.getState().selectVehicle(vehicle.vin);
                     router.push('/(main-tabs)/cars');
                   } else {
                     handleBookNow(vehicle.id, item.id);
@@ -416,8 +351,7 @@ export function VehicleMaintenanceCard({
 
   const frontVehicle = vehicles[currentIndex];
   const canSwipe = vehicles.length > 1;
-  const hasThirdCard = vehicles.length > 2;
-  const thirdIndex = (currentIndex + 2) % vehicles.length;
+
   // Tap the active card → open it on the Cars tab. Implemented as an RNGH
   // Tap (not an RN Pressable) so it can be made EXCLUSIVE with the swipe
   // pan — a horizontal swipe activates the pan, which suppresses the tap,
@@ -443,11 +377,32 @@ export function VehicleMaintenanceCard({
   // a vertical drag recognizes NEITHER (pan needs horizontal, tap fails on
   // move) so the touch falls through to the ScrollView.
   const composedGesture = Gesture.Race(panGesture, tapGesture);
+  // Size the swiper container to the ACTIVE vehicle's measured card height
+  // (not Math.max across all vehicles). Otherwise a short "All systems healthy"
+  // card sits inside a container sized for the tallest possible card and the
+  // More Services section below gets pushed down with dead air. The back-card
+  // preview is `position: absolute` so it doesn't affect this measurement.
+  // Falls back to max when the active vehicle's height hasn't been measured yet
+  // so we never collapse the slot.
   const resolvedCardHeight = (() => {
     const heights = Object.values(measuredHeights);
     if (heights.length === 0) return undefined;
-    return Math.max(...heights);
+    const activeHeight = frontVehicle ? measuredHeights[frontVehicle.id] : undefined;
+    return activeHeight ?? Math.max(...heights);
   })();
+
+  // Smooth post-swipe reflow: the swipe gesture itself only transforms the
+  // front card (no layout change). When the swipe settles and the active
+  // card changes, we animate the container height so the downstream
+  // sections slide smoothly instead of snapping.
+  const animatedCardHeight = useSharedValue<number>(resolvedCardHeight ?? 0);
+  useEffect(() => {
+    if (resolvedCardHeight == null) return;
+    animatedCardHeight.value = withTiming(resolvedCardHeight, { duration: 280 });
+  }, [resolvedCardHeight, animatedCardHeight]);
+  const containerHeightStyle = useAnimatedStyle(() => ({
+    height: animatedCardHeight.value,
+  }));
 
   const handleMeasureCard = (vehicleId: string, height: number) => {
     setMeasuredHeights((prev) => {
@@ -485,37 +440,29 @@ export function VehicleMaintenanceCard({
           ))}
         </View>
 
+        {/* Stacked card behind */}
+        {canSwipe && (
+          <View style={styles.stackedCard}>
+            <BlurView
+              intensity={40}
+              tint="light"
+              style={StyleSheet.absoluteFill}
+            />
+            <LinearGradient
+              colors={['rgba(245, 247, 250, 0.92)', 'rgba(241, 244, 249, 0.88)']}
+              style={StyleSheet.absoluteFill}
+            />
+            <View style={styles.stackedCardHighlight} />
+          </View>
+        )}
+
         {/* Card area */}
-        <View style={[styles.swiperContainer, resolvedCardHeight ? { height: resolvedCardHeight } : undefined]}>
-          {canSwipe && hasThirdCard && promotingIndex === null && (
-            <View style={[styles.thirdCard, styles.thirdCardSliver]}>
-              {renderCardContent(vehicles[thirdIndex], 1, true)}
-            </View>
-          )}
-
-          {canSwipe && incomingThirdIndex !== null && (
-            <Animated.View style={[styles.thirdCard, styles.thirdCardSliver, incomingThirdCardStyle]}>
-              {renderCardContent(vehicles[incomingThirdIndex], 1, true)}
-            </Animated.View>
-          )}
-
-          {canSwipe && thirdToSecondIndex !== null && (
-            <Animated.View style={[styles.thirdCard, styles.secondCardLayer, thirdToSecondCardStyle]}>
-              {renderCardContent(vehicles[thirdToSecondIndex], 1, true)}
-            </Animated.View>
-          )}
-
-          {/* Second card preview */}
-          {canSwipe && promotingIndex === null && (
+        <Animated.View style={[styles.swiperContainer, resolvedCardHeight != null && containerHeightStyle]}>
+          {/* Back card preview */}
+          {canSwipe && (
             <View style={styles.backCard}>
-              {renderCardContent(vehicles[backIndex], 1, true)}
+              {renderCardContent(vehicles[backIndex], 1)}
             </View>
-          )}
-
-          {canSwipe && promotingIndex !== null && (
-            <Animated.View style={[styles.backCard, styles.promotingCard, promotingCardStyle]}>
-              {renderCardContent(vehicles[promotingIndex])}
-            </Animated.View>
           )}
 
           {/* Front card */}
@@ -530,7 +477,19 @@ export function VehicleMaintenanceCard({
               {renderCardContent(frontVehicle)}
             </GestureDetector>
           )}
-        </View>
+        </Animated.View>
+
+        {/* Swipe indicator — only when there's more than one vehicle. */}
+        {vehicles.length > 1 && (
+          <>
+            <View style={styles.dotsRow}>
+              {vehicles.map((_, i) => (
+                <PaginationDot key={i} index={i} activeIndex={currentIndex} />
+              ))}
+            </View>
+            <Text style={styles.swipeHint}>Swipe to switch vehicles</Text>
+          </>
+        )}
       </View>
     </View>
   );
@@ -565,43 +524,44 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
   },
+  stackedCard: {
+    position: 'absolute',
+    top: -4,
+    left: 17,
+    right: 17,
+    height: 50,
+    borderRadius: 12,
+    zIndex: 0,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(220, 225, 235, 0.6)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  stackedCardHighlight: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.7)',
+  },
   swiperContainer: {
     position: 'relative',
     zIndex: 1,
     overflow: 'visible',
-  },
-  thirdCard: {
-    position: 'absolute',
-    top: -16,
-    left: 24,
-    right: 24,
-    zIndex: 0,
-    opacity: 0.65,
-    transform: [{ scale: 0.96 }],
-  },
-  thirdCardSliver: {
-    height: THIRD_CARD_SLIVER_HEIGHT,
-    overflow: 'hidden',
-    borderRadius: 12,
   },
   backCard: {
     position: 'absolute',
     top: -8,
     left: 12,
     right: 12,
-    zIndex: 1,
+    zIndex: 0,
+    opacity: 0.9,
     transform: [{ scale: 0.98 }],
-  },
-  secondCardLayer: {
-    zIndex: 1,
-  },
-  promotingCard: {
-    zIndex: 2,
-  },
-  frontCard: {
-    position: 'relative',
-    zIndex: 3,
-    elevation: 8,
   },
   card: {
     borderRadius: 12,
@@ -611,11 +571,6 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 5,
     overflow: 'hidden',
-  },
-  cardPreview: {
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    elevation: 3,
   },
   topSection: {
     borderTopLeftRadius: 12,
@@ -633,12 +588,6 @@ const styles = StyleSheet.create({
     shadowRadius: 10,
     elevation: 6,
     zIndex: 2,
-  },
-  topSectionPreview: {
-    borderWidth: 0,
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
   },
   topSectionInner: {
     padding: 20,
@@ -704,6 +653,26 @@ const styles = StyleSheet.create({
   },
   bookButtonPressed: {
     backgroundColor: '#EBF4FF',
+  },
+
+  // Swipe indicator (mirrors AIGreeting's dots strip).
+  dot: {
+    height: 6,
+    borderRadius: 3,
+  },
+  dotsRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 12,
+  },
+  swipeHint: {
+    marginTop: 8,
+    textAlign: 'center',
+    color: '#9CA3AF',
+    fontSize: 12,
+    fontFamily: FontFamily.medium,
   },
 });
 

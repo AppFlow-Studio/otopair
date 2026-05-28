@@ -20,11 +20,15 @@ export const MAINTENANCE_TYPE_TO_CATEGORY: Record<string, ServiceCategory> = {
   inspection: "basic_maintenance",
 };
 
+// Conservative defaults — used only when the description-based matcher
+// can't find anything more specific. Picking the inspection/test variants
+// for brakes/battery avoids preselecting an invasive replacement when the
+// status copy only suggested checking the system.
 export const MAINTENANCE_TYPE_TO_SLUG: Record<string, string> = {
   oil: "oil_change",
-  brakes: "brake_pad_replacement",
+  brakes: "brake_system_inspection",
   tires: "tire_rotation",
-  battery: "battery_replacement",
+  battery: "battery_test",
   inspection: "ny_state_inspection",
 };
 
@@ -55,4 +59,71 @@ export function findServiceForMaintenanceType(
   const wanted = normalizeSlug(MAINTENANCE_TYPE_TO_SLUG[type]);
   if (!wanted) return undefined;
   return available.find((s) => normalizeSlug(s.slug) === wanted);
+}
+
+/**
+ * When the maintenance status description suggests a specific catalog
+ * service (e.g. "have brakes inspected soon" → Brake System Inspection,
+ * "Tires over 6 years old — replacement recommended" → Tire Replacement),
+ * return that service so the Home card label + booking-flow preselection
+ * both surface the recommendation. Returns undefined when no candidate
+ * clears the threshold; callers fall back to the slug default.
+ *
+ * Scans ALL services regardless of category. The matcher's specificity
+ * rules (≥2 token hits for multi-word names, ratio ≥ 0.5) keep
+ * cross-category false positives rare. Callers should use the matched
+ * service's `category` to drive `setInitialServiceCategory` so the sheet
+ * opens on the correct tab — important when e.g. Brake System Inspection
+ * lives in `system_diagnostics` while the maintenance type is "brakes".
+ *
+ * Match rule:
+ *   - Tokenize both sides on whitespace + punctuation (lowercase).
+ *   - Two tokens are considered the same if they share a 4-char prefix
+ *     ("inspected" ↔ "inspection", "tested" ↔ "test", "tires" ↔ "tire").
+ *   - Count name-tokens that have an overlap with any description token.
+ *   - Skip services with <2 hits when the name has multiple tokens
+ *     (avoids "Brake [anything]" winning on the word "brake"), or with
+ *     a matched-ratio below 0.5.
+ *   - Among survivors, prefer the highest matched count, ties broken by
+ *     ratio.
+ */
+const tokenize = (s: string) =>
+  s.toLowerCase().replace(/[^a-z0-9 ]+/g, " ").split(/\s+/).filter(Boolean);
+
+// True when either token equals the other, or they share a 4-char prefix.
+// Length-3 tokens (e.g. "abs", "oil") must match exactly.
+const tokensOverlap = (a: string, b: string): boolean => {
+  if (a === b) return true;
+  if (a.length < 4 || b.length < 4) return false;
+  return a.slice(0, 4) === b.slice(0, 4);
+};
+
+export function findServiceFromDescription(
+  description: string | undefined,
+  available: readonly Service[],
+): Service | undefined {
+  if (!description) return undefined;
+  const descTokens = tokenize(description);
+  if (descTokens.length === 0) return undefined;
+  let best: { service: Service; matched: number; ratio: number } | null = null;
+  for (const svc of available) {
+    const nameTokens = tokenize(svc.name);
+    if (nameTokens.length === 0) continue;
+    const matched = nameTokens.filter((nt) =>
+      descTokens.some((dt) => tokensOverlap(nt, dt))
+    ).length;
+    if (matched === 0) continue;
+    // Multi-token names need at least 2 hits — single-word services can win on 1.
+    if (matched < 2 && nameTokens.length > 1) continue;
+    const ratio = matched / nameTokens.length;
+    if (ratio < 0.5) continue;
+    if (
+      !best ||
+      matched > best.matched ||
+      (matched === best.matched && ratio > best.ratio)
+    ) {
+      best = { service: svc, matched, ratio };
+    }
+  }
+  return best?.service;
 }

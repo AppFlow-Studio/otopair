@@ -144,6 +144,26 @@ export function ServiceSelectionContent({ onCategorySelect, onShopTiresRequested
     return availableServices.filter((service) => service.category === selectedCategory);
   }, [availableServices, selectedCategory]);
 
+  // Auto-scroll the list to a preselected service (e.g. when arriving via
+  // Book Now / Book Service deep-link). Each item records its y-offset on
+  // layout; an effect scrolls to the first selected service once layouts
+  // have settled. Re-fires on tab change so tab switches also re-anchor.
+  const scrollViewRef = useRef<ScrollView>(null);
+  const itemPositions = useRef<Map<string, number>>(new Map());
+  useEffect(() => {
+    if (selectedServiceIds.length === 0) return;
+    const targetId = selectedServiceIds.find((id) =>
+      filteredServices.some((s) => s.id === id),
+    );
+    if (!targetId) return;
+    const t = setTimeout(() => {
+      const y = itemPositions.current.get(targetId);
+      if (y == null) return;
+      scrollViewRef.current?.scrollTo({ y: Math.max(0, y - 16), animated: true });
+    }, 350);
+    return () => clearTimeout(t);
+  }, [selectedCategory, filteredServices, selectedServiceIds]);
+
   // ═══════════════ STATE-EFFECT: Handlers ═══════════════
   const handleServicePress = useCallback(
     (serviceId: string) => {
@@ -240,6 +260,10 @@ export function ServiceSelectionContent({ onCategorySelect, onShopTiresRequested
           key={service.id}
           style={[styles.serviceItem, isSelected && styles.serviceItemSelected]}
           onPress={() => handleServicePress(service.id)}
+          onLayout={(e) => {
+            // Captured per item so the scroll-to-selected effect can snap to it.
+            itemPositions.current.set(service.id, e.nativeEvent.layout.y);
+          }}
           activeOpacity={0.7}
         >
           <View style={styles.serviceInfo}>
@@ -318,6 +342,7 @@ export function ServiceSelectionContent({ onCategorySelect, onShopTiresRequested
 
       {/* Service List - Scrollable content with spacer for footer clearance */}
       <BottomSheetScrollView
+        ref={scrollViewRef as unknown as React.Ref<typeof BottomSheetScrollView>}
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}

@@ -92,6 +92,10 @@ interface CarInfoStepperProps {
   vehicleModel: string;
   vehicleYear: number;
   onComplete: () => void;
+  /** Called from the "Finish for now" link (partial exit). Falls back to
+   *  `onComplete` when omitted. Lets callers route the early-exit path
+   *  away from the full celebration flow — e.g. just close the sheet. */
+  onFinishForNow?: () => void;
   skipIntro?: boolean;
   onBack?: () => void;
 }
@@ -501,6 +505,7 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
   vehicleModel,
   vehicleYear,
   onComplete,
+  onFinishForNow,
   skipIntro = false,
   onBack,
 }: CarInfoStepperProps, ref) {
@@ -697,7 +702,7 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
     goBack: () => { if (activeCard) handleOverlayDismiss(); },
   }), [activeCard, handleOverlayDismiss]);
 
-  // ── Complete handler ────────────────────────────────────────
+  // ── Complete handler (all 5 answered → "Complete" button) ──────────
   const handleComplete = useCallback(async () => {
     setSaving(true);
     try {
@@ -707,7 +712,6 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
           await saveField({ vehicleOwnerId, field: cardId, value: answers });
         }
       }
-      // Ensure onboardingComplete is set even if not all questions were answered ("Finish for now")
       await markComplete({ vehicleOwnerId });
       onComplete();
     } catch (err) {
@@ -717,6 +721,32 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
       setSaving(false);
     }
   }, [vehicleOwnerId, serviceAnswers, saveField, markComplete, onComplete]);
+
+  // ── Finish-for-now handler (partial exit) ──────────────────────────
+  // Saves any answered fields (so progress isn't lost on re-open) but
+  // intentionally does NOT call `markComplete` — the user opted out, so
+  // `onboardingComplete` stays false. That keeps the Cars page in its
+  // pre-onboarding view (estimated score + "Get a quick read" CTA) and
+  // lets the user re-open the sheet via the CTA whenever they're ready.
+  // Routes to `onFinishForNow` (typically the parent's close-sheet
+  // handler), falling back to `onComplete` for legacy callers.
+  const handleFinishForNow = useCallback(async () => {
+    setSaving(true);
+    try {
+      for (const cardId of ALL_CARD_IDS) {
+        const answers = serviceAnswers[cardId];
+        if (answers && Object.keys(answers).length > 0) {
+          await saveField({ vehicleOwnerId, field: cardId, value: answers });
+        }
+      }
+      (onFinishForNow ?? onComplete)();
+    } catch (err) {
+      console.error("[CarInfoStepper] Finish-for-now save failed:", err);
+      (onFinishForNow ?? onComplete)();
+    } finally {
+      setSaving(false);
+    }
+  }, [vehicleOwnerId, serviceAnswers, saveField, onFinishForNow, onComplete]);
 
   // ── All-done state ──────────────────────────────────────────
   const allDone = completedCards.size === ALL_CARD_IDS.length;
@@ -906,7 +936,7 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
             {!canGoNext() && (
               <Pressable
                 style={({ pressed }) => [s.finishForNowButton, pressed && { opacity: 0.7 }]}
-                onPress={handleComplete}
+                onPress={handleFinishForNow}
                 disabled={saving}
               >
                 <Text weight="medium" size="sm" color="#829BAD" style={{ fontSize: moderateScale(14), textDecorationLine: "underline" }}>

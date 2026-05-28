@@ -16,6 +16,7 @@
 
 import { create } from "zustand";
 import { SERVICE_CATEGORIES, type ServiceCategoryItem } from "@/constants/services";
+import { useVehicleStore } from "./useVehicleStore";
 import type { DiagnosticSystem } from "@/lib/diagnostic-checklist-templates";
 import type {
   Booking,
@@ -91,6 +92,14 @@ interface BookingState {
   serviceCategories: ServiceCategoryItem[];
   /** Currently selected service IDs for booking */
   selectedServiceIds: string[];
+  /**
+   * VIN of the vehicle this in-flight booking belongs to. Captured the
+   * moment the cart goes from empty → first service (snapshotted from
+   * `useVehicleStore.selectedVehicleId`), cleared when the cart empties.
+   * Lets the home Resume Booking card stay locked to the right vehicle
+   * even if the user switches the globally-active car mid-booking.
+   */
+  selectedVehicleVin: string | null;
   /** Whether to skip the remove-service confirmation modal */
   skipServiceRemovalConfirm: boolean;
 
@@ -176,6 +185,9 @@ interface BookingState {
   toggleServiceSelection: (serviceId: string) => void;
   /** Clear all selected services */
   clearSelectedServices: () => void;
+  /** Explicitly set the in-flight booking's vehicle VIN (call sites that
+   *  start a booking without going through toggleServiceSelection). */
+  setSelectedVehicleVin: (vin: string | null) => void;
   /** Control whether the remove-service confirmation modal should be skipped */
   setSkipServiceRemovalConfirm: (skip: boolean) => void;
 
@@ -391,6 +403,7 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
   availableServices: MOCK_SERVICES,
   serviceCategories: [],
   selectedServiceIds: [],
+  selectedVehicleVin: null,
   skipServiceRemovalConfirm: false,
   bookingStage: "discovery",
   transitionDirection: "forward",
@@ -471,17 +484,31 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
   toggleServiceSelection: (serviceId) =>
     set((state) => {
       const isSelected = state.selectedServiceIds.includes(serviceId);
-      return {
-        selectedServiceIds: isSelected
-          ? state.selectedServiceIds.filter((id) => id !== serviceId)
-          : [...state.selectedServiceIds, serviceId],
-      };
+      const nextIds = isSelected
+        ? state.selectedServiceIds.filter((id) => id !== serviceId)
+        : [...state.selectedServiceIds, serviceId];
+
+      // Snapshot the active VIN the moment the cart goes empty → first
+      // service so the Resume Booking card on home stays locked to that
+      // vehicle. Cross-clear when the cart empties so a fresh booking
+      // re-snapshots the (possibly different) active vehicle next time.
+      let nextVin = state.selectedVehicleVin;
+      if (nextIds.length > 0 && !state.selectedVehicleVin) {
+        nextVin = useVehicleStore.getState().selectedVehicleId ?? null;
+      } else if (nextIds.length === 0) {
+        nextVin = null;
+      }
+
+      return { selectedServiceIds: nextIds, selectedVehicleVin: nextVin };
     }),
 
   clearSelectedServices: () =>
     set({
       selectedServiceIds: [],
+      selectedVehicleVin: null,
     }),
+
+  setSelectedVehicleVin: (vin) => set({ selectedVehicleVin: vin }),
 
   setAvailableServices: (services) =>
     set({
@@ -615,6 +642,7 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
       bookingStage: "discovery",
       transitionDirection: "backward",
       selectedServiceIds: [],
+      selectedVehicleVin: null,
       selectedMechanicId: null,
       selectedServiceCategory: null,
       initialServiceCategory: null,

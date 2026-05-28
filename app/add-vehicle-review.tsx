@@ -7,7 +7,7 @@
  */
 
 // 1. React & React Native
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Dimensions,
@@ -17,9 +17,12 @@ import {
   View,
 } from 'react-native';
 import Animated, {
+  Easing as ReEasing,
+  runOnJS,
   useAnimatedStyle,
   useSharedValue,
   withSpring,
+  withTiming,
 } from 'react-native-reanimated';
 import { Image as ExpoImage } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -28,7 +31,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 // 2. Expo & Third-party
 import { StatusBar } from 'expo-status-bar';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { ArrowLeft, Bell, Car, CircleDot, Cog, Fuel, Gauge, History, MapPin, Plus, Wrench } from 'lucide-react-native';
+import { ArrowLeft, Bell, Car, ChevronDown, CircleDot, Cog, Fuel, Gauge, History, MapPin, Plus, Wrench } from 'lucide-react-native';
 import { useAction, useMutation, useQuery } from 'convex/react';
 
 // 3. App imports
@@ -37,8 +40,10 @@ import { Spacing } from '@/constants/theme';
 import { api } from '@/convex/_generated/api';
 import { Id } from '@/convex/_generated/dataModel';
 import { scale, verticalScale, moderateScale } from '@/utils/responsive';
-import { fetchVehicleImageUrl, useVdbColorsForVin } from '@/utils/vehicleImage';
+import { classifyColorFamily, fetchVehicleImageUrl, pickBestVdbTrim, useVdbColorsForVin, useVdbVariants, type VdbVariant } from '@/utils/vehicleImage';
+import { COLOR_GRADIENTS } from '@/constants/colorGradients';
 import { ColorSwatchSkeletonRow, VehicleImageSkeleton } from '@/components/shared-ui/ColorSwatchSkeleton';
+import { FloatingSheet, type FloatingSheetRef } from '@/components/shared-ui/FloatingSheet';
 
 // ============================================================================
 // COMPONENT
@@ -160,12 +165,43 @@ export default function AddVehicleReviewScreen() {
   // for the car preview instead (see exteriorFallbackUrl below).
   type ColorOption = { id: string; label: string; hex: string };
   const yearNum = params.year ? parseInt(params.year, 10) : undefined;
+
+  // Canonical trim picker. VDB's `ymm-specs/options/v3/trim` returns the
+  // exact trim strings the vehicle-images endpoint accepts; the VIN decode
+  // only gives the base trim, so we let the user override here. Defaults to
+  // the canonical entry that best matches the decoded trim.
+  const { variants: vdbVariants } = useVdbVariants(yearNum, params.make ?? '', params.model ?? '', {
+    vdbDecodedModel: params.vdbDecodedModel,
+    nhtsaModel: params.nhtsaModel,
+    nhtsaSeries: params.nhtsaSeries,
+    nhtsaTrim: params.nhtsaTrim,
+    trim: params.trim,
+  });
+  const [selectedVariant, setSelectedVariant] = useState<VdbVariant | null>(null);
+  const [showTrimSheet, setShowTrimSheet] = useState(false);
+  const trimSheetRef = useRef<FloatingSheetRef>(null);
+  useEffect(() => {
+    if (selectedVariant || vdbVariants.length === 0) return;
+    const trimLabels = vdbVariants.map((v) => v.trim);
+    const bestTrim = pickBestVdbTrim(trimLabels, [params.trim, params.nhtsaTrim]);
+    const match = vdbVariants.find((v) => v.trim === bestTrim) ?? vdbVariants[0];
+    setSelectedVariant(match);
+  }, [vdbVariants, selectedVariant, params.trim, params.nhtsaTrim]);
+  // Each variant carries its catalog model — critical for makes that
+  // split engine variants into separate models (Mercedes GLE 350 vs GLE
+  // 580). Fall back to the merged params model when nothing's resolved.
+  const effectiveModel = selectedVariant?.model ?? params.model;
+  const effectiveTrim = selectedVariant?.trim ?? params.trim;
+  useEffect(() => {
+    if (showTrimSheet) trimSheetRef.current?.open();
+  }, [showTrimSheet]);
+
   const { colors: vdbColors, isLoading: vdbLoading, hasVdbData } = useVdbColorsForVin({
     vin: params.vin,
     year: yearNum,
     make: params.make,
-    model: params.model,
-    trim: params.trim,
+    model: effectiveModel,
+    trim: effectiveTrim,
     // NHTSA's raw model/series/trim from the decode — drives VDB
     // model discovery when the catalog uses a different model string
     // than our merged result (e.g. merged "5 Series" vs NHTSA's
@@ -181,7 +217,11 @@ export default function AddVehicleReviewScreen() {
     vdbDecodedStyle: params.vdbDecodedStyle,
     vdbDecodedTrimAndStyle: params.vdbDecodedTrimAndStyle,
   });
-  const CAR_COLORS: ColorOption[] = vdbColors.map((c) => ({ id: c.id, label: c.label, hex: c.hex }));
+  const CAR_COLORS: ColorOption[] = vdbColors.map((c) => ({
+    id: c.id,
+    label: c.label,
+    hex: c.hex,
+  }));
 
   // When VDB has no per-color variants for this trim (e.g. some Honda
   // CR-V trims expose only generic `exterior[]` shots, not labeled
@@ -199,12 +239,12 @@ export default function AddVehicleReviewScreen() {
     if (!params.make || !params.model) return;
     let cancelled = false;
     setExteriorLoading(true);
-    fetchVehicleImageUrl(params.make, params.model, yearNum, params.vin, undefined, params.trim)
+    fetchVehicleImageUrl(params.make, effectiveModel, yearNum, params.vin, undefined, effectiveTrim)
       .then((url) => { if (!cancelled) setExteriorFallbackUrl(url); })
       .catch(() => { if (!cancelled) setExteriorFallbackUrl(null); })
       .finally(() => { if (!cancelled) setExteriorLoading(false); });
     return () => { cancelled = true; };
-  }, [vdbLoading, hasVdbData, params.make, params.model, params.vin, params.trim, yearNum]);
+  }, [vdbLoading, hasVdbData, params.make, effectiveModel, params.vin, effectiveTrim, yearNum]);
 
   // Drives the live car-image preview in the vehicle card. Priority:
   //  1. Picked color's image (instant swap on tap)
@@ -224,6 +264,57 @@ export default function AddVehicleReviewScreen() {
   // resolving the image — the VDB colors/image-URL fetch or the no-colors
   // exterior-render fetch.
   const imageLoading = vdbLoading || exteriorLoading;
+
+  // ── Auto-tint background ──────────────────────────────────────────
+  // Initial bg is the neutral white→soft-blue gradient (same as the
+  // pre-tint static look). Stays white until the user picks a color
+  // swatch — then crossfades to that color's family gradient via the
+  // same machinery the Cars page uses (1100ms inOut cubic). We don't
+  // auto-sample the car image here: per-image sampling on neutral cars
+  // is unreliable (picks up warm reflections / brake calipers) and
+  // there's no implicit "current paint" to tint from before the user
+  // picks anything.
+  const INITIAL_GRADIENT: readonly string[] = ['#FFFFFF', '#FFFFFF', '#D6EAF8'];
+
+  const activeGradient = useMemo<readonly string[]>(() => {
+    // Match the same priority `previewImageUrl` uses (selected → black
+    // variant if available → first variant) so the bg always tracks the
+    // car the user is actually looking at, even before they tap a swatch.
+    const swatch =
+      (selectedColor && vdbColors.find((c) => c.id === selectedColor)) ||
+      vdbColors.find((c) => c.hex.toUpperCase() === '#1A1A1A') ||
+      vdbColors[0];
+    if (swatch) {
+      const family = classifyColorFamily(swatch.hex);
+      if (family && COLOR_GRADIENTS[family]) return COLOR_GRADIENTS[family];
+    }
+    return INITIAL_GRADIENT;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedColor, vdbColors]);
+
+  // Two-layer crossfade — bottom always opaque (last settled), top fades
+  // 0 → 1 with the incoming colors, then commits as settled.
+  const [settledGradient, setSettledGradient] = useState<readonly string[]>(activeGradient);
+  const [incomingGradient, setIncomingGradient] = useState<readonly string[]>(activeGradient);
+  const overlayOpacity = useSharedValue(0);
+  const overlayStyle = useAnimatedStyle(() => ({ opacity: overlayOpacity.value }));
+
+  useEffect(() => {
+    if (settledGradient === activeGradient) return;
+    setIncomingGradient(activeGradient);
+    overlayOpacity.value = withTiming(
+      1,
+      { duration: 1100, easing: ReEasing.inOut(ReEasing.cubic) },
+      (finished) => {
+        'worklet';
+        if (finished) runOnJS(setSettledGradient)(activeGradient);
+      },
+    );
+  }, [activeGradient, settledGradient, overlayOpacity]);
+
+  useEffect(() => {
+    overlayOpacity.value = 0;
+  }, [settledGradient, overlayOpacity]);
 
   const me = useQuery(api.users.getMe);
 
@@ -247,8 +338,8 @@ export default function AddVehicleReviewScreen() {
         engineId: params.engineId as Id<'engines'>,
         year: parseFloat(params.year || '0'),
         make: params.make || '',
-        model: params.model || '',
-        trim: params.trim || 'Base',
+        model: effectiveModel || params.model || '',
+        trim: effectiveTrim || 'Base',
         engineCode: params.engineCode || '',
         displacement: params.displacement || '',
         cylinders: parseFloat(params.cylinders || '0'),
@@ -390,13 +481,29 @@ export default function AddVehicleReviewScreen() {
     <View style={styles.container}>
       <StatusBar style="dark" translucent />
 
+      {/* Two-layer crossfade — settled (always opaque) under incoming
+          (animated 0→1) so the white screen never bleeds through during
+          the transition. Mirrors cars/index.tsx:1469-1487. */}
       <LinearGradient
-        colors={['#FFFFFF', '#FFFFFF', '#D6EAF8']}
+        colors={settledGradient as [string, string, ...string[]]}
+        locations={[0.20, 0.40, 0.60]}
         start={{ x: 0.5, y: 0 }}
         end={{ x: 0.5, y: 1 }}
         style={StyleSheet.absoluteFill}
         pointerEvents="none"
       />
+      <Animated.View
+        style={[StyleSheet.absoluteFill, overlayStyle]}
+        pointerEvents="none"
+      >
+        <LinearGradient
+          colors={incomingGradient as [string, string, ...string[]]}
+          locations={[0.20, 0.40, 0.60]}
+          start={{ x: 0.5, y: 0 }}
+          end={{ x: 0.5, y: 1 }}
+          style={StyleSheet.absoluteFill}
+        />
+      </Animated.View>
 
       {/* Back Button — stays an overlay so the scroll view extends edge to edge */}
       <Pressable
@@ -459,9 +566,30 @@ export default function AddVehicleReviewScreen() {
           <Text weight="semiBold" size="lg" color="#333333" style={styles.vehicleName}>
             {params.make} {params.model}
           </Text>
-          <Text size="sm" color="#888888" style={styles.vehicleTrim}>
-            {params.trim || 'Base'} {params.displacement ? `${params.displacement}L` : ''} {params.fuelType}
-          </Text>
+          <Pressable
+            onPress={() => { if (vdbVariants.length > 0) setShowTrimSheet(true); }}
+            hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+            style={styles.trimPill}
+            disabled={vdbVariants.length === 0}
+          >
+            <Text
+              weight="semiBold"
+              size="sm"
+              color="#5299FE"
+              numberOfLines={1}
+              style={styles.trimPillText}
+            >
+              {effectiveTrim || 'Base'}
+            </Text>
+            {vdbVariants.length > 0 && (
+              <ChevronDown size={scale(14)} color="#5299FE" />
+            )}
+          </Pressable>
+          {(params.displacement || params.fuelType) && (
+            <Text size="xs" color="#888888" style={styles.vehicleTrim}>
+              {params.displacement ? `${params.displacement}L ` : ''}{params.fuelType}
+            </Text>
+          )}
           <View style={styles.vinBadge}>
             <Text weight="medium" size="xs" color="#FFFFFF" style={styles.vinText}>
               {params.vin}
@@ -590,6 +718,52 @@ export default function AddVehicleReviewScreen() {
           </Pressable>
         </View>
       </ScrollView>
+
+      {/* Trim picker sheet — opens when the user taps the trim pill above.
+          Lists VDB's canonical trims for this YMM; selecting one updates
+          `selectedTrim` which re-keys the colors/image fetch. */}
+      <FloatingSheet
+        ref={trimSheetRef}
+        snapHeights={[Math.min(400, 80 + vdbVariants.length * 56)]}
+        onClose={() => setShowTrimSheet(false)}
+      >
+        <ScrollView
+          contentContainerStyle={styles.trimSheetBody}
+          showsVerticalScrollIndicator={false}
+        >
+          <Text weight="bold" size="xl" color="#111827">
+            Pick your trim
+          </Text>
+          <Text size="sm" color="#6B7280" style={{ marginTop: scale(4), marginBottom: scale(12) }}>
+            {params.year} {params.make} {params.model}
+          </Text>
+          {vdbVariants.map((variant) => {
+            const isSelected =
+              !!selectedVariant &&
+              selectedVariant.model === variant.model &&
+              selectedVariant.trim === variant.trim;
+            return (
+              <Pressable
+                key={`${variant.model}|${variant.trim}`}
+                onPress={() => {
+                  setSelectedVariant(variant);
+                  trimSheetRef.current?.close();
+                }}
+                style={[styles.trimRow, isSelected && styles.trimRowSelected]}
+              >
+                <Text
+                  weight={isSelected ? 'semiBold' : 'regular'}
+                  size="md"
+                  color={isSelected ? '#5299FE' : '#1F2937'}
+                  numberOfLines={2}
+                >
+                  {variant.trim}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      </FloatingSheet>
     </View>
   );
 }
@@ -668,6 +842,34 @@ const styles = StyleSheet.create({
   },
   vehicleTrim: {
     marginBottom: scale(16),
+  },
+  trimPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scale(4),
+    paddingHorizontal: scale(10),
+    paddingVertical: scale(4),
+    borderRadius: moderateScale(999),
+    backgroundColor: '#EEF4FF',
+    marginBottom: scale(6),
+    maxWidth: scale(260),
+  },
+  trimPillText: {
+    flexShrink: 1,
+  },
+  trimSheetBody: {
+    paddingHorizontal: scale(20),
+    paddingTop: scale(8),
+    paddingBottom: scale(24),
+  },
+  trimRow: {
+    paddingVertical: scale(14),
+    paddingHorizontal: scale(12),
+    borderRadius: moderateScale(8),
+    marginBottom: scale(4),
+  },
+  trimRowSelected: {
+    backgroundColor: '#EEF4FF',
   },
   vinBadge: {
     backgroundColor: '#1a1a1a',
