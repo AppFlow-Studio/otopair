@@ -11,8 +11,10 @@
 import React, { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Keyboard,
   Pressable,
   StyleSheet,
+  TouchableWithoutFeedback,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -123,61 +125,67 @@ export function AddPaymentScreen() {
         >
           <ArrowLeft size={20} color="#1F2937" strokeWidth={2.5} />
         </Pressable>
-        <Text size="lg" weight="bold" color="#1F2937">
-          Add card
-        </Text>
-        <View style={styles.backButton} />
-      </View>
-
-      <View style={styles.body}>
-        <View style={styles.cardPreview}>
-          <BrandedCardVisual
-            brand={brand}
-            last4={last4}
-            expMonth={expMonth}
-            expYear={expYear}
-          />
-        </View>
-
-        <Text
-          size="xs"
-          weight="medium"
-          color="#6B7280"
-          style={styles.fieldLabel}
-        >
-          CARD DETAILS
-        </Text>
-        <View style={styles.cardFieldWrap}>
-          <CardField
-            postalCodeEnabled={false}
-            placeholders={{ number: "1234 1234 1234 1234" }}
-            cardStyle={{
-              backgroundColor: "#FFFFFF",
-              textColor: "#1F2937",
-              placeholderColor: "#9CA3AF",
-              fontSize: 16,
-              borderWidth: 0,
-            }}
-            style={styles.cardField}
-            onCardChange={(details) => setCard(details)}
-          />
-        </View>
-
-        {errorMessage ? (
-          <Text size="sm" color="#EF4444" style={styles.errorText}>
-            {errorMessage}
+        <View style={styles.headerTitle} pointerEvents="none">
+          <Text size="lg" weight="bold" color="#1F2937">
+            Add Card
           </Text>
-        ) : null}
-
-        {intentLoading ? (
-          <View style={styles.intentLoading}>
-            <ActivityIndicator color="#5299FE" />
-            <Text size="sm" color="#6B7280" style={{ marginLeft: 8 }}>
-              Preparing secure form…
-            </Text>
-          </View>
-        ) : null}
+        </View>
       </View>
+
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+        <View style={styles.body}>
+          <View style={styles.cardPreview}>
+            <BrandedCardVisual
+              brand={brand}
+              last4={last4}
+              expMonth={expMonth}
+              expYear={expYear}
+            />
+          </View>
+
+          <Text
+            size="xs"
+            weight="medium"
+            color="#6B7280"
+            style={styles.fieldLabel}
+          >
+            CARD DETAILS
+          </Text>
+          <View style={styles.cardFieldWrap}>
+            <CardField
+              postalCodeEnabled={false}
+              placeholders={{ number: "1234 1234 1234 1234" }}
+              cardStyle={{
+                backgroundColor: "#FFFFFF",
+                textColor: "#1F2937",
+                placeholderColor: "#9CA3AF",
+                fontSize: 16,
+                borderWidth: 0,
+              }}
+              style={styles.cardField}
+              onCardChange={(details) => {
+                setCard(details);
+                if (details.complete) Keyboard.dismiss();
+              }}
+            />
+          </View>
+
+          {errorMessage ? (
+            <Text size="sm" color="#EF4444" style={styles.errorText}>
+              {errorMessage}
+            </Text>
+          ) : null}
+
+          {intentLoading ? (
+            <View style={styles.intentLoading}>
+              <ActivityIndicator color="#5299FE" />
+              <Text size="sm" color="#6B7280" style={{ marginLeft: 8 }}>
+                Preparing secure form…
+              </Text>
+            </View>
+          ) : null}
+        </View>
+      </TouchableWithoutFeedback>
 
       <View style={[styles.footer, { paddingBottom: insets.bottom + 16 }]}>
         <FooterButton
@@ -199,7 +207,6 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
     paddingHorizontal: 20,
     paddingBottom: 16,
   },
@@ -210,6 +217,12 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFFFFF",
     alignItems: "center",
     justifyContent: "center",
+  },
+  headerTitle: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    alignItems: "center",
   },
   body: {
     flex: 1,

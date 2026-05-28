@@ -183,7 +183,7 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
   const pricedPartsMap = useMemo(() => {
     const map = new Map<string, (typeof pricedPartsByService)[number]>();
     for (const row of pricedPartsByService) {
-      if (row.parts.length > 0) map.set(String(row.serviceId), row);
+      if (row.winner !== null) map.set(String(row.serviceId), row);
     }
     return map;
   }, [pricedPartsByService]);
@@ -530,39 +530,40 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
                 ))
               : selectedServices.flatMap((service) => {
                   const priced = pricedPartsMap.get(String(service.id));
-                  if (!priced) return [];
+                  if (!priced || !priced.winner) return [];
+                  const part = priced.winner;
                   if (__DEV__) {
                     // eslint-disable-next-line no-console
                     console.log("[ReviewPay parts:render]", {
                       serviceId: service.id,
-                      partCount: priced.parts.length,
-                      parts: priced.parts.map((p) => ({
-                        name: p.name,
-                        quantity: p.quantity,
-                        line_total: p.line_total,
-                        has_price_data: p.has_price_data,
-                      })),
+                      selectionSource: priced.selectionSource,
+                      lowConfidence: priced.lowConfidence,
+                      winner: {
+                        name: part.name,
+                        quantity: part.quantity,
+                        line_total: part.line_total,
+                        has_price_data: part.has_price_data,
+                      },
+                      loserCount: priced.losers.length,
                     });
                   }
-                  return priced.parts.map((part) => {
-                    const qtyLabel = part.quantity > 1 ? ` ×${part.quantity}` : "";
-                    const hasPrice = part.has_price_data && part.line_total > 0;
-                    const unitLabel =
-                      hasPrice && part.quantity > 1 && part.unit_price > 0
-                        ? ` @ ~$${part.unit_price.toFixed(2)}`
-                        : "";
-                    return (
-                      <View key={`${service.id}-${part.part_id}`} style={styles.breakdownRow}>
-                        <Text size="sm" weight="regular" color="#6B7280" style={styles.breakdownLabel}>
-                          {part.name} (Part){qtyLabel}
-                          {unitLabel}
-                        </Text>
-                        <Text size="sm" weight="medium" color="#6B7280">
-                          {hasPrice ? `$${part.line_total.toFixed(2)}` : "Price TBD"}
-                        </Text>
-                      </View>
-                    );
-                  });
+                  const qtyLabel = part.quantity > 1 ? ` ×${part.quantity}` : "";
+                  const hasPrice = part.has_price_data && part.line_total > 0;
+                  const unitLabel =
+                    hasPrice && part.quantity > 1 && part.unit_price > 0
+                      ? ` @ ~$${part.unit_price.toFixed(2)}`
+                      : "";
+                  return [
+                    <View key={`${service.id}-${part.part_id}`} style={styles.breakdownRow}>
+                      <Text size="sm" weight="regular" color="#6B7280" style={styles.breakdownLabel}>
+                        {part.name} (Part){qtyLabel}
+                        {unitLabel}
+                      </Text>
+                      <Text size="sm" weight="medium" color="#6B7280">
+                        {hasPrice ? `$${part.line_total.toFixed(2)}` : "Price TBD"}
+                      </Text>
+                    </View>,
+                  ];
                 })}
 
             {!isPricedPartsLoading &&

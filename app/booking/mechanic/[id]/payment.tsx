@@ -141,7 +141,7 @@ export default function PaymentScreen() {
   const pricedPartsMap = useMemo(() => {
     const map = new Map<string, (typeof pricedPartsByService)[number]>();
     for (const row of pricedPartsByService) {
-      if (row.parts.length > 0) map.set(String(row.serviceId), row);
+      if (row.winner !== null) map.set(String(row.serviceId), row);
     }
     return map;
   }, [pricedPartsByService]);
@@ -506,26 +506,25 @@ export default function PaymentScreen() {
                 ))
               : selectedServices.flatMap((service) => {
                   const priced = pricedPartsMap.get(String(service.id));
-                  if (!priced) return [];
-                  return priced.parts.map((part) => {
-                    const qtyLabel = part.quantity > 1 ? ` ×${part.quantity}` : "";
-                    const hasPrice = part.has_price_data && part.line_total > 0;
-                    const unitLabel =
-                      hasPrice && part.quantity > 1 && part.unit_price > 0
-                        ? ` @ ~$${part.unit_price.toFixed(2)}`
-                        : "";
-                    return (
-                      <View key={`${service.id}-${part.part_id}`} style={styles.breakdownRow}>
-                        <Text size="sm" weight="regular" color="#6B7280" style={styles.breakdownLabel}>
-                          {part.name} (Part){qtyLabel}
-                          {unitLabel}
-                        </Text>
-                        <Text size="sm" weight="medium" color="#6B7280">
-                          {hasPrice ? `$${part.line_total.toFixed(2)}` : "Price TBD"}
-                        </Text>
-                      </View>
-                    );
-                  });
+                  if (!priced || !priced.winner) return [];
+                  const part = priced.winner;
+                  const qtyLabel = part.quantity > 1 ? ` ×${part.quantity}` : "";
+                  const hasPrice = part.has_price_data && part.line_total > 0;
+                  const unitLabel =
+                    hasPrice && part.quantity > 1 && part.unit_price > 0
+                      ? ` @ ~$${part.unit_price.toFixed(2)}`
+                      : "";
+                  return [
+                    <View key={`${service.id}-${part.part_id}`} style={styles.breakdownRow}>
+                      <Text size="sm" weight="regular" color="#6B7280" style={styles.breakdownLabel}>
+                        {part.name} (Part){qtyLabel}
+                        {unitLabel}
+                      </Text>
+                      <Text size="sm" weight="medium" color="#6B7280">
+                        {hasPrice ? `$${part.line_total.toFixed(2)}` : "Price TBD"}
+                      </Text>
+                    </View>,
+                  ];
                 })}
 
             {!isPricedPartsLoading &&
