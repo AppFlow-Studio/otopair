@@ -259,7 +259,7 @@ export const repairVin = action({
 
     // 2. Strip redundant_when_halo packages when this vehicle matches a halo rule.
     const { findHaloVariant } = await import("./lib/haloVariantRules");
-    const { PACKAGE_RULES, TRIM_INFERENCE_RULES } = await import("./lib/packageRules");
+    const { PACKAGE_RULES } = await import("./lib/packageRules");
     const halo = findHaloVariant(labels.make, labels.model, labels.trim ?? "");
 
     const config = await ctx.runQuery(internal.vehicleEnrichment.v3queries.getVehicleConfig, {
@@ -272,7 +272,7 @@ export const repairVin = action({
     let remaining = packagesNow;
     if (halo?.hardwareStandard && packagesNow.length > 0) {
       const redundantCodes = new Set(
-        [...PACKAGE_RULES, ...TRIM_INFERENCE_RULES]
+        PACKAGE_RULES
           .filter(r => r.redundant_when_halo)
           .map(r => r.code),
       );

@@ -95,7 +95,7 @@ const OTO_LOGO_3D = require("@/assets/images/pin-logo-3d.png");
 import { SettingsHeaderCard } from "@/components/settings/SettingsHeaderCard";
 import { SettingsRow } from "@/components/settings/SettingsRow";
 import { useAuth, useUser } from "@clerk/clerk-expo";
-import { useQuery } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useOnboardingStore } from "@/stores/useOnboardingStore";
@@ -280,6 +280,7 @@ export function SettingsContent({
   // Handlers
   const [isLogoutVisible, setIsLogoutVisible] = useState(false);
   const [isFeedbackVisible, setIsFeedbackVisible] = useState(false);
+  const submitAppFeedback = useMutation(api.app_feedback.submit);
 
   const handleConfirmLogout = useCallback(async () => {
     setIsLogoutVisible(false);
@@ -771,12 +772,22 @@ export function SettingsContent({
         visible={isFeedbackVisible}
         onClose={() => setIsFeedbackVisible(false)}
         onSubmit={async (text) => {
+          // Persist to Convex `app_feedback` so the director-side queue
+          // sees it under status="new". Also stash a local copy in the
+          // onboarding store for the existing UI surfaces that read from
+          // there (keeps any history-display behavior working offline).
           addFeedbackSubmission(text);
-          const latest = useOnboardingStore
-            .getState()
-            .data.feedbackSubmissions.slice(-1)[0];
-          console.log("Feedback submitted:", latest);
-          await new Promise((r) => setTimeout(r, 450));
+          try {
+            await submitAppFeedback({
+              text,
+              source: Platform.OS === "ios" ? "consumer_ios" : "consumer_android",
+            });
+          } catch (err) {
+            console.warn("[settings] app_feedback.submit failed:", err);
+            // Re-throw so the modal stays open and surfaces the failure to
+            // the user (its own catch keeps `isSubmitting` cleared).
+            throw err;
+          }
         }}
       />
     </View>
