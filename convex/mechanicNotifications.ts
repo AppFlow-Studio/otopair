@@ -1,5 +1,6 @@
 import { query, mutation } from "./_generated/server";
 import { Id } from "./_generated/dataModel";
+import { bookingVisibleUnderScope, getCurrentNotificationScope } from "./lib/notificationScope";
 
 // ---------------------------------------------------------------------------
 // Local auth + formatting helpers
@@ -162,6 +163,7 @@ export const getFeed = query({
 
     const shopId = primary.shopId;
     const lastSeenAt = primary.shopUser?.notifications_last_seen_at ?? 0;
+    const scope = await getCurrentNotificationScope(ctx);
 
     // 1. Bookings needing shop confirmation.
     //    The UI labels both "pending" and "pending_shop_acceptance" as
@@ -183,7 +185,12 @@ export const getFeed = query({
         .order("desc")
         .collect(),
     ]);
-    const pendingConfirm = [...pendingPlain, ...pendingExplicit];
+    const pendingConfirmAll = [...pendingPlain, ...pendingExplicit];
+    const pendingConfirm = scope
+      ? pendingConfirmAll.filter((b: any) =>
+          bookingVisibleUnderScope(scope, b.mechanic_id ?? null),
+        )
+      : pendingConfirmAll;
 
     // 2. Open tire-quote-request bookings (shop_id may be null until acceptance,
     //    so we scan globally by status and filter to bookings this shop hasn't
@@ -247,7 +254,13 @@ export const getFeed = query({
             booking.scheduled_date,
             booking.scheduled_time
           ),
-          price: booking.total_cost ?? null,
+          // Quoted set price the customer agreed to (single value). Falls
+          // back to the legacy total_cost for pre-feature bookings without
+          // a quote snapshot.
+          price:
+            booking.quoted_set_price_cents != null
+              ? booking.quoted_set_price_cents / 100
+              : (booking.total_cost ?? null),
           note: booking.customer_notes ?? null,
           urgency: deriveUrgency(
             booking.scheduled_date,

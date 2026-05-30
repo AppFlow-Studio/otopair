@@ -2,8 +2,6 @@
  * payment_constants.ts — Constants for the Pre-Job Approval Booking Flow
  * payment lifecycle. Single source of truth so the deposit amount stays
  * consistent across PI creation, capture-on-forfeit, and reauth paths.
- *
- * (Mirror of otopair-web/convex/lib/payment_constants.ts.)
  */
 
 /**
@@ -16,5 +14,9 @@
  * - Incentive to engage: customer is motivated to show up to avoid the $20
  *   capture; mechanic is motivated to actually do the inspection knowing
  *   the deposit is theirs if the customer flakes.
+ *
+ * Hold is incremented to the mechanic's confirmed set price after
+ * inspection — silent within the disclosed range, customer-approved
+ * outside it.
  */
 export const BOOKING_DEPOSIT_CENTS = 2000;

@@ -108,6 +108,12 @@ crons.interval(
 );
 
 crons.interval(
+  "auto-drop-unconfirmed-bookings",
+  { minutes: 10 },
+  internal.bookings.autoDropUnconfirmedBookings,
+);
+
+crons.interval(
   "process-customer-late-monitors",
   { minutes: 1 },
   internal.bookings.processCustomerLateMonitors,
