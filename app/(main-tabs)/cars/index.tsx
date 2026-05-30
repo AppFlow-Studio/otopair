@@ -13,7 +13,7 @@ import ReAnimated, {
 } from "react-native-reanimated";
 import { useIsFocused } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
-import { ArrowLeft, Check as CheckIcon, ChevronDown, Copy, Info, X } from "lucide-react-native";
+import { ArrowLeft, Briefcase, Car, Check as CheckIcon, ChevronDown, Copy, Info, Plus, Route, Sparkles, Star, Sun, Users, X } from "lucide-react-native";
 import * as Clipboard from "expo-clipboard";
 import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -35,6 +35,7 @@ import {
   MAINTENANCE_TYPE_TO_CATEGORY,
   extractMaintenanceType,
   findServiceForMaintenanceType,
+  findServiceFromDescription,
 } from "@/lib/maintenanceServiceMapping";
 import { useTireBookingStore } from "@/stores/useTireBookingStore";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -45,6 +46,7 @@ import { computeVehicleHealthScore, type HealthScoreInput } from "@/utils/health
 import { Text } from "@/components/shared-ui";
 import { OilIcon, BrakesIcon, TireIcon, BatteryIcon, WarningIcon } from "@/components/cars/ServiceIcons";
 import { fetchVehicleImageUrl, inferColorFamily, pickPaintFamilyFromSwatches } from "@/utils/vehicleImage";
+import { COLOR_GRADIENTS, DEFAULT_GRADIENTS } from "@/constants/colorGradients";
 import { isDarkColor } from "@/utils/contrast";
 import { scale, verticalScale, moderateScale } from '@/utils/responsive';
 
@@ -94,17 +96,8 @@ function titleCase(str: string): string {
 // strong contrast between the top pair and the bottom + a tight
 // transition window (see `locations` below) is what produces the
 // visible "floor line" at the tire zone.
-// Three-stop palettes that mirror the home screen's brightness curve
-// (`STATIC_GRADIENT` in ScrollDrivenGradientBackground:
-// ['#86C2E8','#B0D6F0','#EAF2FA']) — saturated mid-tone at the top,
-// a softer tint in the middle, near-white at the bottom — tinted per
-// car color so the cars page reads as part of the same light-mode app.
-// Stops are evenly distributed (no `locations` prop) for the same
-// smooth top→bottom fade home uses.
-const DEFAULT_GRADIENTS = [
-  ["#A6B5D0", "#C5CFDE", "#EDF0F5"],
-  ["#86C2E8", "#B0D6F0", "#EAF2FA"],
-];
+// COLOR_GRADIENTS + DEFAULT_GRADIENTS are shared with add-vehicle-review.tsx;
+// see constants/colorGradients.ts for the source.
 
 // react-native-image-colors is a native (autolinked) module. Guard the
 // require so a build that hasn't linked it yet (i.e. before the next
@@ -148,18 +141,6 @@ function shadowTintFromHex(hex: string, alpha: number): string {
   return `rgba(${darkRgbFromHex(hex)}, ${alpha})`;
 }
 
-const COLOR_GRADIENTS: Record<string, string[]> = {
-  black:            ["#8E96A7", "#B8BFCD", "#ECEFF4"],
-  "midnight-silver":["#8190A5", "#AEB9C9", "#EAEEF3"],
-  silver:           ["#8290A0", "#AEB7C6", "#EAEDF2"],
-  white:            ["#B8C2D0", "#D0D7E1", "#F2F5F9"],
-  gray:             ["#525C70", "#8B96A8", "#EBEEF3"],
-  red:              ["#E8909C", "#F0B5BE", "#FBE2E5"],
-  blue:             ["#86C2E8", "#B0D6F0", "#EAF2FA"],
-  green:            ["#7BCBA7", "#A8DDC1", "#E4F3EB"],
-  beige:            ["#D4B189", "#E4CCAE", "#F6EAD6"],
-  brown:            ["#B98D6A", "#D0AC8D", "#EFE0CD"],
-};
 
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
@@ -872,10 +853,19 @@ export default function CarsHomeScreen() {
   }, [vehicles, activeVehicleVin]);
 
   // Seed / heal the VIN anchor when vehicles load or the active vehicle disappears.
+  // Prefer the store's selectedVehicleId so an upstream `selectVehicle(vin)`
+  // call (e.g. home's View button or whole-card tap) is honored on first mount.
+  // Falls back to the first vehicle (primary) only when the store is empty or
+  // out of sync.
   useEffect(() => {
     if (vehicles.length === 0) return;
     if (!activeVehicleVin || !vehicles.some((v) => v.vin === activeVehicleVin)) {
-      setActiveVehicleVin(vehicles[0].vin);
+      const storeVin = useVehicleStore.getState().selectedVehicleId;
+      const target =
+        storeVin && vehicles.some((v) => v.vin === storeVin)
+          ? storeVin
+          : vehicles[0].vin;
+      setActiveVehicleVin(target);
     }
   }, [vehicles, activeVehicleVin]);
 
@@ -1013,8 +1003,19 @@ export default function CarsHomeScreen() {
       !showHealthRingSheet &&
       !showRoleSheet
     ) {
-      setPendingRoleAsk(false);
-      setShowRoleSheet(true);
+      // Defer so the prior sheet's RN Modal has time to dismiss + unmount
+      // before we mount the role-sheet Modal. Two simultaneous Modals
+      // freeze the JS thread on iOS — happens when tapping "Book Later"
+      // on PostOptimizeBookingSheet: state flips synchronously but the
+      // Modal stays mounted through its ~300ms close animation. 500ms
+      // covers that plus a safety buffer. Cleanup clears the timer if
+      // any guard dep changes during the delay (e.g. user re-opens the
+      // optimize sheet), so no stale opens slip through.
+      const t = setTimeout(() => {
+        setPendingRoleAsk(false);
+        setShowRoleSheet(true);
+      }, 500);
+      return () => clearTimeout(t);
     }
   }, [
     pendingRoleAsk,
@@ -1491,31 +1492,62 @@ export default function CarsHomeScreen() {
         <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: scale(16), marginBottom: scale(4), zIndex: 10, position: "relative" }}>
           <ProfileInitialsButton />
           <View style={{ flex: 1, flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: scale(6), marginLeft: scale(12) }}>
-            {!!activeVehicle?.vin && (
-              <Pressable
-                onPress={() => setShowRoleSheet(true)}
-                hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: scale(4),
-                  backgroundColor: "#FFFFFF",
-                  paddingHorizontal: scale(10),
-                  paddingVertical: scale(4),
-                  borderRadius: moderateScale(12),
-                  shadowColor: "#0F172A",
-                  shadowOpacity: 0.12,
-                  shadowRadius: scale(4),
-                  shadowOffset: { width: 0, height: scale(1) },
-                  elevation: 2,
-                }}
-              >
-                <Text weight="bold" size="xs" color="#5299FE">
-                  {activeOwnership?.garageRole ? titleCase(activeOwnership.garageRole) : "Add role"}
-                </Text>
-                <ChevronDown size={scale(12)} color="#5299FE" />
-              </Pressable>
-            )}
+            {!!activeVehicle?.vin && (() => {
+              const role = activeOwnership?.garageRole?.trim() ?? "";
+              const hasRole = role.length > 0;
+              // Match the role-sheet's icon language so the pill, the
+              // sheet rows, and the sheet's hero card all read as one
+              // visual system. Custom strings fall to Sparkles; empty
+              // state uses Plus to read as an invitation.
+              const RoleIcon = !hasRole
+                ? Plus
+                : (() => {
+                    switch (role.toLowerCase()) {
+                      case "primary": return Star;
+                      case "secondary": return Car;
+                      case "commuter": return Route;
+                      case "family": return Users;
+                      case "weekend": return Sun;
+                      case "work": return Briefcase;
+                      default: return Sparkles;
+                    }
+                  })();
+              const isPrimary = role.toLowerCase() === "primary";
+              return (
+                <Pressable
+                  onPress={() => setShowRoleSheet(true)}
+                  hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                  style={({ pressed }) => [
+                    {
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: scale(5),
+                      backgroundColor: hasRole ? "#FFFFFF" : "#EEF4FF",
+                      paddingHorizontal: scale(10),
+                      paddingVertical: scale(5),
+                      borderRadius: moderateScale(14),
+                      shadowColor: "#0F172A",
+                      shadowOpacity: 0.08,
+                      shadowRadius: scale(5),
+                      shadowOffset: { width: 0, height: scale(1) },
+                      elevation: 2,
+                    },
+                    pressed && { opacity: 0.7 },
+                  ]}
+                >
+                  <RoleIcon
+                    size={scale(12)}
+                    color="#5299FE"
+                    strokeWidth={2.2}
+                    {...(isPrimary ? { fill: "#5299FE" } : {})}
+                  />
+                  <Text weight="bold" size="xs" color="#5299FE">
+                    {hasRole ? titleCase(role) : "Add role"}
+                  </Text>
+                  <ChevronDown size={scale(12)} color="#5299FE" />
+                </Pressable>
+              );
+            })()}
             {/* Redo Info — commented out (dev-only). Uncomment to restore.
             {isPreOnboardingComplete && showPostOnboardingContent && activeOwnershipId && (
               <Pressable
@@ -1610,7 +1642,10 @@ export default function CarsHomeScreen() {
           const strokeDashoffset = circumference * (1 - estScore / 100);
           const center = ringSize / 2;
           return (
-          <View style={styles.quickReadCard}>
+          // key on vin so swiping between two no-tracker cars
+          // remounts the card — pulse rings + content arrive fresh
+          // every time, same feel as today's tracker↔placeholder switch.
+          <View key={activeVehicle?.vin ?? "no-vehicle"} style={styles.quickReadCard}>
             <View style={{ alignItems: "center", justifyContent: "center", width: scale(140), height: scale(140), marginBottom: scale(12) }}>
               <Animated.View style={{ position: "absolute", width: scale(160), height: scale(160), borderRadius: scale(80), backgroundColor: "#94A3B8", opacity: 0.12, transform: [{ scale: quickReadPulse }] }} />
               <Animated.View style={{ position: "absolute", width: scale(130), height: scale(130), borderRadius: scale(65), backgroundColor: "#94A3B8", opacity: 0.06, transform: [{ scale: quickReadPulse }] }} />
@@ -1781,6 +1816,7 @@ export default function CarsHomeScreen() {
           {/* Maintenance tracker (shown after onboarding + sheet dismissed) */}
           {showPostOnboardingContent && (
             <MaintenanceTracker
+              key={activeVehicle?.vin ?? "no-vehicle"}
               items={mergedMaintenanceItems}
               vehicleCondition={computedHealthScore}
               healthScoreInput={healthScoreInput}
@@ -1794,14 +1830,24 @@ export default function CarsHomeScreen() {
                 const tapped = mergedMaintenanceItems.find((m) => m.id === id);
                 const store = useBookingStore.getState();
                 store.setSourceRecommendationId(tapped?.sourceRecommendationId ?? null);
-                // Deep-link the service selector to the matching category tab,
-                // and pre-attach the natural primary service so the cart isn't
-                // empty when the sheet opens. User can swap in the selector.
+                // Deep-link the service selector and pre-attach the natural
+                // primary service so the cart isn't empty when the sheet
+                // opens. User can swap in the selector.
                 const itemType = extractMaintenanceType(id);
+                // Prefer a description-matched service (e.g. "Brake System
+                // Inspection" from "have brakes inspected soon"). Falls back
+                // to the slug default for the type when the description
+                // doesn't literally name a catalog service.
+                const explicit = tapped?.description
+                  ? findServiceFromDescription(tapped.description, store.availableServices)
+                  : undefined;
+                const matched = explicit ?? findServiceForMaintenanceType(itemType, store.availableServices);
+                // Use the matched service's own category for the tab —
+                // important when the matcher picks across categories (e.g.
+                // Brake System Inspection lives in system_diagnostics).
                 store.setInitialServiceCategory(
-                  MAINTENANCE_TYPE_TO_CATEGORY[itemType] ?? 'basic_maintenance',
+                  matched?.category ?? MAINTENANCE_TYPE_TO_CATEGORY[itemType] ?? 'basic_maintenance',
                 );
-                const matched = findServiceForMaintenanceType(itemType, store.availableServices);
                 store.clearSelectedServices();
                 if (matched) store.toggleServiceSelection(matched.id);
                 router.push('/booking/map?openServices=true');
@@ -2120,6 +2166,7 @@ export default function CarsHomeScreen() {
                   vehicleYear={activeVehicle?.year ?? 0}
                   skipIntro
                   onBack={closeHealthSheet}
+                  onFinishForNow={closeHealthSheet}
                   onComplete={() => {
                     console.log('[CarInfoStepper] onComplete fired — SHEET instance');
                     setOnboardingDoneForId(activeOwnershipId);

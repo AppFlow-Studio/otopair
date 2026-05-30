@@ -53,7 +53,7 @@ import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/Flo
 import {
   fetchVehicleImageUrl,
   useVdbColorsForVin,
-  useVdbTrims,
+  useVdbVariants,
   useVehicleImage,
 } from "@/utils/vehicleImage";
 import { ColorSwatchSkeletonList } from "@/components/shared-ui/ColorSwatchSkeleton";
@@ -157,16 +157,25 @@ export default function AddVehicleDetailsScreen() {
   const makes = useMakes();
   const { models: ymmtModels, loading: modelsLoading } = useModels(brand, year);
   const yearNum = year ? parseInt(year, 10) : undefined;
-  const { trims: vdbTrims, isLoading: trimsLoading } = useVdbTrims(yearNum, brand, model);
+  const { variants: vdbVariants, isLoading: trimsLoading } = useVdbVariants(yearNum, brand, model);
+  // Backward-compat: existing picker UI and sheet logic expects an array
+  // of trim strings. Variants carry the model too — we look that up below.
+  const vdbTrims = useMemo(() => vdbVariants.map((v) => v.trim), [vdbVariants]);
 
   // Use the user's explicit picker selection when they've made one,
   // otherwise fall back to the first VDB trim so the image still
   // resolves on year+brand+model alone.
   const effectiveTrim = trim || vdbTrims[0] || undefined;
+  // Critical for makes that split engine variants into separate top-level
+  // models (Mercedes GLE → GLE 350 / 450 / 580). The variant tells us the
+  // CATALOG model to use for image/colors lookup, even when the user
+  // picked a family-level model name like "GLE-Class".
+  const effectiveModel =
+    vdbVariants.find((v) => v.trim === effectiveTrim)?.model ?? model;
 
   const { url: carImageUrl } = useVehicleImage(
     brand,
-    model,
+    effectiveModel,
     yearNum,
     undefined,
     selectedColor,
@@ -186,7 +195,7 @@ export default function AddVehicleDetailsScreen() {
     vin,
     year: yearNum,
     make: brand,
-    model,
+    model: effectiveModel,
     trim: effectiveTrim,
   });
   const activeColors: ColorOption[] = useMemo(

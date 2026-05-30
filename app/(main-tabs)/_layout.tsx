@@ -8,6 +8,7 @@ import { useUnseenBookingsCount } from "@/hooks/useUnseenBookingsCount";
 import { useVehicleOwnershipFromConvex } from "@/hooks/useVehicleOwnershipFromConvex";
 import { NotificationsSheet } from "@/components/notifications/NotificationsSheet";
 import { RescheduleDecisionOverlay } from "@/components/notifications/RescheduleDecisionOverlay";
+import { SettingsOverlay } from "@/components/settings/SettingsOverlay";
 // OTA update banner only matters in EAS builds. In a local dev build
 // expo-updates' native module isn't linked, and the static import chain
 // (UpdateAvailableBanner → useEasUpdate → expo-updates) throws "Cannot
@@ -18,9 +19,14 @@ import { RescheduleDecisionOverlay } from "@/components/notifications/Reschedule
 const UpdateAvailableBanner: React.ComponentType = __DEV__
   ? () => null
   : require("@/components/system/UpdateAvailableBanner").UpdateAvailableBanner;
-// SettingsOverlay is no longer mounted at the layout — it lives at
-// the /profile-overlay route now (see app/profile-overlay.tsx) so
-// destinations pushed from inside it stack on top.
+// SettingsOverlay is mounted here at the layout level (back from being
+// a /profile-overlay route). Sticking it in the route system put iOS
+// into modal-stack mode and forced all child screens pushed from inside
+// the overlay to slide-from-bottom. As a layout-mounted component it
+// renders absolutely over the tabs; child routes (Saved Addresses,
+// Payment Methods, etc.) push onto the root Stack normally and use the
+// default ios_from_right animation. Open/close is driven by
+// useSettingsOverlayStore (open(rect) / close()).
 
 /** Hydrates vehicle and booking stores with Convex data when main tabs are active. */
 function HydrateBookingData() {
@@ -84,6 +90,7 @@ export default function TabLayout() {
         </Tabs>
         <NotificationsSheet />
         <RescheduleDecisionOverlay />
+        <SettingsOverlay />
         <UpdateAvailableBanner />
       </>
     );
@@ -114,6 +121,7 @@ export default function TabLayout() {
       </NativeTabs>
       <NotificationsSheet />
       <RescheduleDecisionOverlay />
+      <SettingsOverlay />
       <UpdateAvailableBanner />
     </>
   );

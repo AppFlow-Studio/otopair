@@ -30,6 +30,7 @@ import {
   MAINTENANCE_TYPE_TO_CATEGORY,
   extractMaintenanceType,
   findServiceForMaintenanceType,
+  findServiceFromDescription,
 } from '@/lib/maintenanceServiceMapping';
 import { usePendingNavigationStore } from "@/stores/usePendingNavigationStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
@@ -215,10 +216,14 @@ export default function HomeScreen() {
     return joined.length > 25 ? joined.slice(0, 22) + '...' : joined;
   }, [selectedServiceIds, availableServices]);
 
-  // Resume booking vehicle context — subscribed reads so the card refreshes
-  // when the user switches vehicle or Convex re-syncs mid-booking.
+  // Resume booking vehicle context — LOCKED to the vehicle the booking was
+  // started for (snapshotted into useBookingStore.selectedVehicleVin when the
+  // cart went from empty → first service). Reading the global active vehicle
+  // here would let a later selectVehicle() call (e.g. tapping a different
+  // car's maintenance card) mis-swap the resume card to the wrong vehicle.
+  const resumeVehicleVin = useBookingStore((s) => s.selectedVehicleVin);
   const resumeVehicle = useVehicleStore((s) =>
-    s.selectedVehicleId ? s.vehicles[s.selectedVehicleId] : undefined,
+    resumeVehicleVin ? s.vehicles[resumeVehicleVin] : undefined,
   );
   const resumeVehicleName = resumeVehicle ? `${resumeVehicle.make} ${resumeVehicle.model}` : undefined;
   const resumeVehicleImage = resumeVehicle?.imageSource;
@@ -373,7 +378,14 @@ export default function HomeScreen() {
         const odometer: number | null = isOnboardingComplete ? (o?.mileage ?? null) : null;
         const knownIssues = o?.knownIssues as string[] | undefined;
 
-        const urgentItems: { id: string; serviceName: string; dueText: string; isOverdue: boolean }[] = [];
+        const urgentItems: {
+          id: string;
+          serviceName: string;
+          dueText: string;
+          isOverdue: boolean;
+          description?: string;
+          suggestedServiceId?: string;
+        }[] = [];
         for (const rec of records) {
           const result = computeMaintenanceStatus(
             {
@@ -392,11 +404,20 @@ export default function HomeScreen() {
             v?.year as number | undefined
           );
           if (result.status === "overdue" || result.status === "due_soon" || result.status === "needs_attention") {
+            // If the status description literally names a service in the
+            // booking catalog (e.g. "replacement recommended" → Tire
+            // Replacement), prefer that as the label + preselect id.
+            // Matcher is cross-category; the booking flow uses the matched
+            // service's own category to pick the right tab.
+            const matched = findServiceFromDescription(result.description, availableServices);
+            const genericLabel = MAINTENANCE_LABELS[rec.type as keyof typeof MAINTENANCE_LABELS] || rec.type;
             urgentItems.push({
               id: `${rec.type}-${ownershipId}`,
-              serviceName: MAINTENANCE_LABELS[rec.type as keyof typeof MAINTENANCE_LABELS] || rec.type,
+              serviceName: matched?.name ?? genericLabel,
               dueText: result.status === "overdue" ? "Overdue" : result.status === "due_soon" ? "Due soon" : "Needs attention",
               isOverdue: result.status === "overdue",
+              description: result.description,
+              suggestedServiceId: matched?.id,
             });
           }
           if (urgentItems.length >= 3) break;
@@ -407,7 +428,7 @@ export default function HomeScreen() {
           : [{ id: "healthy", serviceName: "All systems healthy", dueText: "No action needed", isOverdue: false }];
         return { id: r.vin, name: displayName, vin: r.vin, maintenanceItems: items };
       });
-  }, [listVehicles, allMaintenanceRecords]);
+  }, [listVehicles, allMaintenanceRecords, availableServices]);
 
   // Merge image URLs separately — cheap, only re-maps when images arrive
   const mappedVehicles = useMemo(
@@ -827,13 +848,31 @@ export default function HomeScreen() {
                       // service so the cart isn't empty when the sheet opens.
                       const itemType = extractMaintenanceType(serviceId);
                       const store = useBookingStore.getState();
+                      // Prefer the description-matched service we captured at
+                      // build time (e.g. Tire Replacement when the status copy
+                      // names it). Falls back to the slug default for the type.
+                      const tappedItem = vehicleBaseData
+                        .flatMap((v) => v.maintenanceItems ?? [])
+                        .find((m) => m.id === serviceId);
+                      const explicit = tappedItem?.suggestedServiceId
+                        ? store.availableServices.find((s) => s.id === tappedItem.suggestedServiceId)
+                        : undefined;
+                      const matched = explicit ?? findServiceForMaintenanceType(itemType, store.availableServices);
+                      // Use the matched service's own category for the tab.
+                      // Important when the matcher picks a service from a
+                      // different category than the maintenance type's default
+                      // (e.g. Brake System Inspection lives in system_diagnostics
+                      // even though the maintenance type is "brakes").
                       store.setInitialServiceCategory(
-                        MAINTENANCE_TYPE_TO_CATEGORY[itemType] ?? 'basic_maintenance',
+                        matched?.category ?? MAINTENANCE_TYPE_TO_CATEGORY[itemType] ?? 'basic_maintenance',
                       );
-                      const matched = findServiceForMaintenanceType(itemType, store.availableServices);
                       store.clearSelectedServices();
                       if (matched) store.toggleServiceSelection(matched.id);
-                      router.push('/booking/map?openServices=true');
+                      // `origin=home` tells map.tsx's back handler to return
+                      // to the Home tab — bypasses an Expo Router quirk
+                      // where selectVehicle() above causes the back action
+                      // to drift to the Cars tab.
+                      router.push('/booking/map?openServices=true&origin=home');
                     }}
                     onSwipeStart={() => setIsCardSwiping(true)}
                     onSwipeEnd={() => setIsCardSwiping(false)}
@@ -972,8 +1011,8 @@ export default function HomeScreen() {
         View Details button. Mirrors the bookings tab's wiring. */}
     <BookingDetailsSheet ref={detailsSheetRef} />
 
-    {/* Settings overlay now lives at the `/profile-overlay` route
-        (app/profile-overlay.tsx) so it can open from any tab via router.push. */}
+    {/* Settings overlay is layout-mounted in (main-tabs)/_layout.tsx and
+        opened via useSettingsOverlayStore.open(rect). */}
 
     {/* Auto-prompt: if the user has a completed-but-unreviewed booking,
         this sheet pops on focus / cold start until they submit a review. */}

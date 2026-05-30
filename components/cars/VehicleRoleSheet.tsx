@@ -1,29 +1,43 @@
 /**
  * VehicleRoleSheet
  *
- * Bottom sheet for picking a vehicle's role (garageRole). Preset chips +
- * a custom entry + Skip/Clear. Fully optional. "Primary" is special — it
- * designates the default car shown on app reopen (handled by the caller's
- * setVehicleRole mutation).
+ * Bottom sheet for picking a vehicle's role (garageRole). Primary is the
+ * only role with a functional effect (default car on app reopen) — it gets
+ * its own hero card. Everything else lives in a 3-col card grid, with a
+ * custom-role input at the bottom.
  *
  * Built on the project-standard FloatingSheet (blur backdrop, grabber,
- * drag-to-dismiss) so it matches the app's other bottom sheets.
+ * drag-to-dismiss, lift-with-keyboard) so it matches the app's other
+ * bottom sheets.
  */
 
 import React, { useEffect, useRef, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
+import { Briefcase, Car, Route, Star, Sun, Users } from "lucide-react-native";
 
 import { Text } from "@/components/shared-ui";
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
 import { Spacing } from "@/constants/theme";
-import { scale, moderateScale } from "@/utils/responsive";
+import { moderateScale, scale } from "@/utils/responsive";
 
-const PRESET_ROLES = ["Primary", "Secondary", "Commuter", "Family", "Weekend", "Work"];
+const SECONDARY_ROLES: Array<{ id: string; Icon: typeof Car }> = [
+  { id: "Secondary", Icon: Car },
+  { id: "Commuter", Icon: Route },
+  { id: "Family", Icon: Users },
+  { id: "Weekend", Icon: Sun },
+  { id: "Work", Icon: Briefcase },
+];
 
-// Snap height sized to the content (title + 2 chip rows + custom row +
-// footer) so there's no blank space. The sheet lifts with the keyboard, so
-// it doesn't need to be tall to keep the custom input visible.
-const SHEET_HEIGHT = 360;
+// Sized for the new layout: title block + primary hero + 2-row grid +
+// custom input + footer. liftWithKeyboard handles the keyboard offset.
+const SHEET_HEIGHT = 520;
+
+const BLUE = "#5299FE";
+const BLUE_BG = "#EEF4FF";
+const BORDER = "#E5E7EB";
+const TEXT_PRIMARY = "#111827";
+const TEXT_SECONDARY = "#6B7280";
+const TEXT_MUTED = "#9CA3AF";
 
 interface VehicleRoleSheetProps {
   visible: boolean;
@@ -44,8 +58,6 @@ export function VehicleRoleSheet({
   const sheetRef = useRef<FloatingSheetRef>(null);
   const [custom, setCustom] = useState("");
 
-  // Open the FloatingSheet when the parent flips `visible`. The sheet
-  // closes itself (backdrop tap / drag / a pick) and reports via onClose.
   useEffect(() => {
     if (visible) {
       setCustom("");
@@ -54,6 +66,8 @@ export function VehicleRoleSheet({
   }, [visible]);
 
   const normalizedCurrent = (currentRole ?? "").trim().toLowerCase();
+  const isSelected = (id: string) => normalizedCurrent === id.toLowerCase();
+  const primarySelected = isSelected("Primary");
 
   const pick = (role: string | null) => {
     onSelect(role);
@@ -73,41 +87,102 @@ export function VehicleRoleSheet({
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        <Text weight="bold" size="xl" color="#111827">
-          What&apos;s this car&apos;s role?
+        {/* Header */}
+        <Text weight="bold" size="xl" color={TEXT_PRIMARY}>
+          Pick a role for your car
         </Text>
         {vehicleName ? (
-          <Text size="sm" color="#6B7280" style={styles.subtitle}>
+          <Text size="sm" color={TEXT_SECONDARY} style={styles.subtitle}>
             {vehicleName}
           </Text>
         ) : null}
-        <Text size="xs" color="#9CA3AF" style={styles.hint}>
-          Optional. &quot;Primary&quot; is the car the app opens to.
+        <Text size="xs" color={TEXT_MUTED} style={styles.hint}>
+          Only &quot;Primary&quot; has an effect — it&apos;s the car the app opens to.
         </Text>
 
-        <View style={styles.chips}>
-          {PRESET_ROLES.map((r) => {
-            const selected = normalizedCurrent === r.toLowerCase();
+        {/* Primary hero */}
+        <Pressable
+          onPress={() => pick("Primary")}
+          style={({ pressed }) => [
+            styles.primaryCard,
+            primarySelected && styles.primaryCardSelected,
+            pressed && styles.pressed,
+          ]}
+        >
+          <View
+            style={[
+              styles.primaryIconCircle,
+              primarySelected && styles.primaryIconCircleSelected,
+            ]}
+          >
+            <Star
+              size={scale(22)}
+              color={primarySelected ? "#FFFFFF" : BLUE}
+              fill={primarySelected ? "#FFFFFF" : "transparent"}
+              strokeWidth={2}
+            />
+          </View>
+          <View style={styles.primaryText}>
+            <Text
+              weight="bold"
+              size="md"
+              color={primarySelected ? BLUE : TEXT_PRIMARY}
+            >
+              Primary
+            </Text>
+            <Text size="xs" color={TEXT_SECONDARY} style={styles.primarySub}>
+              Default car when you open the app
+            </Text>
+          </View>
+        </Pressable>
+
+        {/* Secondary grid */}
+        <View style={styles.grid}>
+          {SECONDARY_ROLES.map(({ id, Icon }) => {
+            const sel = isSelected(id);
             return (
               <Pressable
-                key={r}
-                onPress={() => pick(r)}
-                style={[styles.chip, selected && styles.chipSelected]}
+                key={id}
+                onPress={() => pick(id)}
+                style={({ pressed }) => [
+                  styles.gridCard,
+                  sel && styles.gridCardSelected,
+                  pressed && styles.pressed,
+                ]}
               >
-                <Text weight="semiBold" size="sm" color={selected ? "#FFFFFF" : "#1F2937"}>
-                  {r}
+                <Icon
+                  size={scale(22)}
+                  color={sel ? BLUE : "#374151"}
+                  strokeWidth={2}
+                />
+                <Text
+                  weight={sel ? "bold" : "semiBold"}
+                  size="sm"
+                  color={sel ? BLUE : TEXT_PRIMARY}
+                  style={styles.gridLabel}
+                >
+                  {id}
                 </Text>
               </Pressable>
             );
           })}
         </View>
 
+        {/* Custom row */}
+        <Text
+          size="xs"
+          weight="semiBold"
+          color={TEXT_SECONDARY}
+          style={styles.customLabel}
+        >
+          CUSTOM ROLE
+        </Text>
         <View style={styles.customRow}>
           <TextInput
             value={custom}
             onChangeText={setCustom}
-            placeholder="Custom role…"
-            placeholderTextColor="#9CA3AF"
+            placeholder="e.g. Project car"
+            placeholderTextColor={TEXT_MUTED}
             style={styles.input}
             returnKeyType="done"
             maxLength={24}
@@ -116,7 +191,11 @@ export function VehicleRoleSheet({
           <Pressable
             disabled={!custom.trim()}
             onPress={() => pick(custom.trim())}
-            style={[styles.addBtn, !custom.trim() && styles.addBtnDisabled]}
+            style={({ pressed }) => [
+              styles.addBtn,
+              !custom.trim() && styles.addBtnDisabled,
+              pressed && custom.trim() && styles.pressed,
+            ]}
           >
             <Text weight="bold" size="sm" color="#FFFFFF">
               Add
@@ -124,6 +203,7 @@ export function VehicleRoleSheet({
           </Pressable>
         </View>
 
+        {/* Footer */}
         <View style={styles.footer}>
           {currentRole ? (
             <Pressable onPress={() => pick(null)} hitSlop={8}>
@@ -135,7 +215,7 @@ export function VehicleRoleSheet({
             <View />
           )}
           <Pressable onPress={() => sheetRef.current?.close()} hitSlop={8}>
-            <Text weight="semiBold" size="sm" color="#6B7280">
+            <Text weight="semiBold" size="sm" color={TEXT_SECONDARY}>
               Skip
             </Text>
           </Pressable>
@@ -158,51 +238,111 @@ const styles = StyleSheet.create({
     marginTop: scale(6),
     marginBottom: scale(16),
   },
-  chips: {
+  pressed: {
+    opacity: 0.7,
+  },
+
+  // ── Primary hero ──────────────────────────────────────────────────
+  primaryCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: scale(14),
+    borderRadius: moderateScale(14),
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: BORDER,
+    gap: scale(12),
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 3,
+    elevation: 1,
+  },
+  primaryCardSelected: {
+    backgroundColor: BLUE_BG,
+    borderColor: BLUE,
+  },
+  primaryIconCircle: {
+    width: scale(44),
+    height: scale(44),
+    borderRadius: scale(22),
+    backgroundColor: "#F3F4F6",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  primaryIconCircleSelected: {
+    backgroundColor: BLUE,
+  },
+  primaryText: {
+    flex: 1,
+  },
+  primarySub: {
+    marginTop: scale(2),
+  },
+
+  // ── Secondary grid ────────────────────────────────────────────────
+  grid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: scale(8),
+    gap: scale(10),
+    marginTop: scale(14),
   },
-  chip: {
-    paddingHorizontal: scale(14),
-    paddingVertical: scale(9),
-    borderRadius: moderateScale(20),
-    backgroundColor: "#F3F4F6",
+  gridCard: {
+    // 3 columns with a ~10pt gap. Percentage tuned so 3 cards + 2 gaps
+    // fit on a row across the common iPhone widths.
+    width: "31%",
+    aspectRatio: 1.15,
+    borderRadius: moderateScale(14),
+    backgroundColor: "#FFFFFF",
     borderWidth: 1,
-    borderColor: "#E5E7EB",
+    borderColor: BORDER,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: scale(6),
   },
-  chipSelected: {
-    backgroundColor: "#5299FE",
-    borderColor: "#5299FE",
+  gridCardSelected: {
+    backgroundColor: BLUE_BG,
+    borderColor: BLUE,
+  },
+  gridLabel: {
+    textAlign: "center",
+  },
+
+  // ── Custom ────────────────────────────────────────────────────────
+  customLabel: {
+    marginTop: scale(20),
+    marginBottom: scale(8),
+    letterSpacing: 0.5,
   },
   customRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: scale(8),
-    marginTop: scale(16),
   },
   input: {
     flex: 1,
     height: scale(44),
-    borderRadius: moderateScale(12),
+    borderRadius: moderateScale(999),
     borderWidth: 1,
-    borderColor: "#E5E7EB",
-    paddingHorizontal: scale(14),
+    borderColor: BORDER,
+    paddingHorizontal: scale(16),
     fontSize: moderateScale(14),
-    color: "#111827",
+    color: TEXT_PRIMARY,
     backgroundColor: "#F9FAFB",
   },
   addBtn: {
-    paddingHorizontal: scale(18),
+    paddingHorizontal: scale(20),
     height: scale(44),
-    borderRadius: moderateScale(12),
-    backgroundColor: "#5299FE",
+    borderRadius: moderateScale(999),
+    backgroundColor: BLUE,
     alignItems: "center",
     justifyContent: "center",
   },
   addBtnDisabled: {
     opacity: 0.4,
   },
+
+  // ── Footer ────────────────────────────────────────────────────────
   footer: {
     flexDirection: "row",
     alignItems: "center",

@@ -440,6 +440,97 @@ function UrgentCard({ item, entryDelay, vehicleCondition, healthScoreInput, onBo
 // HEALTHY ITEMS SECTION (expandable)
 // ============================================================================
 
+// Cascade rhythm shared between the section header and the per-row
+// slide-up. 80ms matches MaintenanceTracker's STEP_MS so the lift flows
+// continuously from the last urgent card into the first healthy row.
+const HEALTHY_ITEM_STEP_MS = 80;
+const HEALTHY_ROW_ENTRY_DURATION = 550;
+
+// Each healthy row slides up with the SAME kinematics as UrgentCard
+// (opacity 0→1 + translateY 18→0, 550ms ease-out). UrgentCard works
+// because the eye tracks its baked-in content rising — we replicate that
+// here by animating the row content, not an empty container.
+function HealthyItemRow({
+  item,
+  showSeparator,
+  entryDelay,
+}: {
+  item: MaintenanceItem;
+  showSeparator: boolean;
+  entryDelay: number;
+}) {
+  const opacity = useSharedValue(0);
+  const translateY = useSharedValue(18);
+  useEffect(() => {
+    opacity.value = withDelay(
+      entryDelay,
+      withTiming(1, { duration: HEALTHY_ROW_ENTRY_DURATION, easing: REasing.bezier(0.16, 1, 0.3, 1) }),
+    );
+    translateY.value = withDelay(
+      entryDelay,
+      withTiming(0, { duration: HEALTHY_ROW_ENTRY_DURATION, easing: REasing.bezier(0.16, 1, 0.3, 1) }),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const rowStyle = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+    transform: [{ translateY: translateY.value }],
+  }));
+
+  return (
+    <Animated.View style={rowStyle}>
+      <View style={summaryStyles.itemRow}>
+        <View style={summaryStyles.itemIcon}>
+          {getServiceIcon(item.id, 20, '#5299FE')}
+        </View>
+        <View style={summaryStyles.itemContent}>
+          <Text weight="semiBold" style={summaryStyles.itemName}>{item.serviceName}</Text>
+          <Text style={summaryStyles.itemDesc}>{item.description}</Text>
+        </View>
+        <Ionicons name="checkmark-circle" size={18} color="#5299FE" />
+      </View>
+      {showSeparator && <View style={summaryStyles.separator} />}
+    </Animated.View>
+  );
+}
+
+// Container card itself doesn't translate — only fades in softly so the
+// white shell materializes around the rising rows. The visible motion
+// the user wants comes from the rows, exactly like UrgentCard's content
+// rising inside its shell.
+function HealthyItemsCard({
+  items,
+  cascadeStartDelay,
+}: {
+  items: MaintenanceItem[];
+  cascadeStartDelay: number;
+}) {
+  const shellOpacity = useSharedValue(0);
+  useEffect(() => {
+    shellOpacity.value = withDelay(
+      cascadeStartDelay,
+      withTiming(1, { duration: HEALTHY_ROW_ENTRY_DURATION, easing: REasing.bezier(0.16, 1, 0.3, 1) }),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const shellStyle = useAnimatedStyle(() => ({
+    opacity: shellOpacity.value,
+  }));
+
+  return (
+    <Animated.View style={[summaryStyles.card, shellStyle]}>
+      {items.map((item, index) => (
+        <HealthyItemRow
+          key={item.id}
+          item={item}
+          showSeparator={index < items.length - 1}
+          entryDelay={cascadeStartDelay + (index + 1) * HEALTHY_ITEM_STEP_MS}
+        />
+      ))}
+    </Animated.View>
+  );
+}
+
 function HealthySection({
   items,
   isDarkBg = false,
@@ -465,14 +556,9 @@ function HealthySection({
     transform: [{ rotate: `${chevronRotation.value * 90}deg` }],
   }));
 
-  // Cascade rhythm — matches MaintenanceTracker's STEP_MS/ENTRY_DURATION so
-  // the per-item reveal flows continuously from the section header above.
-  const ITEM_STEP_MS = 80;
-  const ITEM_ENTRY_DURATION = 450;
-
   return (
     <View>
-      <Animated.View entering={FadeInUp.duration(ITEM_ENTRY_DURATION).delay(cascadeStartDelay)}>
+      <Animated.View entering={FadeInUp.duration(450).delay(cascadeStartDelay)}>
         <Pressable onPress={toggle} style={({ pressed }) => pressed && { opacity: 0.7 }}>
           <View style={summaryStyles.headerRow}>
             <View style={summaryStyles.dot} />
@@ -493,28 +579,7 @@ function HealthySection({
       </Animated.View>
 
       {expanded && (
-        <View style={summaryStyles.card}>
-          {items.map((item, index) => (
-            <Animated.View
-              key={item.id}
-              entering={FadeInUp.duration(ITEM_ENTRY_DURATION).delay(
-                cascadeStartDelay + (index + 1) * ITEM_STEP_MS,
-              )}
-            >
-              <View style={summaryStyles.itemRow}>
-                <View style={summaryStyles.itemIcon}>
-                  {getServiceIcon(item.id, 20, '#5299FE')}
-                </View>
-                <View style={summaryStyles.itemContent}>
-                  <Text weight="semiBold" style={summaryStyles.itemName}>{item.serviceName}</Text>
-                  <Text style={summaryStyles.itemDesc}>{item.description}</Text>
-                </View>
-                <Ionicons name="checkmark-circle" size={18} color="#5299FE" />
-              </View>
-              {index < items.length - 1 && <View style={summaryStyles.separator} />}
-            </Animated.View>
-          ))}
-        </View>
+        <HealthyItemsCard items={items} cascadeStartDelay={cascadeStartDelay} />
       )}
     </View>
   );
@@ -947,13 +1012,18 @@ const summaryStyles = StyleSheet.create({
   headerTextOnDark: {
     color: '#FFFFFF',
   },
+  // Visual values mirror cardStyles.container (UrgentCard) so the
+  // healthy items card reads as the SAME card shape as the
+  // needs-attention/overdue cards above it — same corner radius, same
+  // horizontal padding, same breathing room. Inner item rows keep
+  // their own paddingVertical so we don't double-pad here.
   card: {
     marginHorizontal: scale(20),
-    marginTop: scale(4),
+    marginTop: scale(12),
     backgroundColor: '#FFFFFF',
-    borderRadius: moderateScale(20),
+    borderRadius: moderateScale(24),
     paddingVertical: scale(6),
-    paddingHorizontal: scale(16),
+    paddingHorizontal: scale(20),
     shadowColor: '#000',
     shadowOpacity: 0.04,
     shadowRadius: 8,
