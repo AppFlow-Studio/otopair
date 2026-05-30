@@ -66,6 +66,9 @@ import { AnimatedGradientBackground } from "@/components/shared-ui/AnimatedGradi
 import ServiceHistory, { ServiceRecord, type PickedDocument } from "@/components/cars/ServiceHistory";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 import { PostOptimizeBookingSheet } from "@/components/cars/PostOptimizeBookingSheet";
+import { PackageQuestionsSheet } from "@/components/cars/PackageQuestionsSheet";
+import { useVehicleReadiness } from "@/hooks/useVehicleReadiness";
+import { ChevronRight, Wrench } from "lucide-react-native";
 
 // ============================================================================
 // HELPERS
@@ -898,6 +901,13 @@ export default function CarsHomeScreen() {
   }, [activeVehicle]);
   const activeOwnershipId = useMemo(() => ownershipIds[activeVehicleIndex], [ownershipIds, activeVehicleIndex]);
   const activeOwnership = useMemo(() => ownerships[activeVehicleIndex], [ownerships, activeVehicleIndex]);
+
+  // ── Vehicle readiness (status pill + package-question CTA) ──
+  // See docs/TICKET_PACKAGE_QUESTIONS.md. While the pipeline runs, shows
+  // "Setting up your car…". Once data exists, surfaces a CTA for any
+  // unanswered package questions; answers persist to vehicle_owner_specs.
+  const vehicleReadiness = useVehicleReadiness(activeOwnershipId);
+  const [showPackageQuestionsSheet, setShowPackageQuestionsSheet] = useState(false);
 
   const handleSelectRole = useCallback(
     (role: string | null) => {
@@ -1756,12 +1766,54 @@ export default function CarsHomeScreen() {
             />
           )}
 
-          {/* Maintenance tracker (shown after onboarding + sheet dismissed).
-              Keyed on vin so swiping to a different tracker-car remounts
-              the tree — replays the cascade entry (urgent cards' slide-up,
-              healthy rows' per-row slide-up). Without this, React keeps
-              the same instance and only props update, so the cascade
-              fires once-ever and subsequent switches feel stale. */}
+          {/* Vehicle readiness — "Setting up your car…" while enriching,
+              "Confirm your car's specs" CTA when package questions are pending.
+              See docs/TICKET_PACKAGE_QUESTIONS.md. */}
+          {activeOwnershipId && vehicleReadiness.status === "enriching" && (
+            <View style={readinessStyles.pill}>
+              <View style={readinessStyles.pillIcon}>
+                <Wrench size={14} color="#6B7280" strokeWidth={2} />
+              </View>
+              <View style={readinessStyles.pillBody}>
+                <Text size="sm" weight="semiBold" color="#374151">
+                  Setting up your car…
+                </Text>
+                <Text size="xs" weight="regular" color="#6B7280">
+                  Building your vehicle profile. Services will appear when ready.
+                </Text>
+              </View>
+            </View>
+          )}
+          {activeOwnershipId &&
+            vehicleReadiness.status === "ready" &&
+            vehicleReadiness.pendingPackages.length > 0 && (
+              <Pressable
+                onPress={() => setShowPackageQuestionsSheet(true)}
+                style={({ pressed }) => [
+                  readinessStyles.cta,
+                  pressed && readinessStyles.ctaPressed,
+                ]}
+              >
+                <View style={readinessStyles.ctaIcon}>
+                  <Wrench size={14} color="#5299FE" strokeWidth={2} />
+                </View>
+                <View style={readinessStyles.pillBody}>
+                  <Text size="sm" weight="semiBold" color="#141C24">
+                    Confirm your car&apos;s specs
+                  </Text>
+                  <Text size="xs" weight="regular" color="#5299FE">
+                    {vehicleReadiness.pendingPackages.length}{" "}
+                    {vehicleReadiness.pendingPackages.length === 1
+                      ? "question"
+                      : "questions"}{" "}
+                    to make booking accurate
+                  </Text>
+                </View>
+                <ChevronRight size={18} color="#5299FE" strokeWidth={2} />
+              </Pressable>
+            )}
+
+          {/* Maintenance tracker (shown after onboarding + sheet dismissed) */}
           {showPostOnboardingContent && (
             <MaintenanceTracker
               key={activeVehicle?.vin ?? "no-vehicle"}
@@ -2527,9 +2579,76 @@ export default function CarsHomeScreen() {
         onSelect={handleSelectRole}
       />
 
+      {/* Package questions — opens from the "Confirm your car's specs" CTA. */}
+      {activeOwnershipId && (
+        <PackageQuestionsSheet
+          visible={showPackageQuestionsSheet}
+          vehicleOwnerId={activeOwnershipId}
+          questions={vehicleReadiness.pendingPackages}
+          vehicleLabel={activeVehicleLabel ?? ""}
+          onClose={() => setShowPackageQuestionsSheet(false)}
+        />
+      )}
+
     </View>
   );
 }
+
+// ============================================================================
+// READINESS PILL / CTA STYLES (Setting up… / Confirm your car's specs)
+// ============================================================================
+
+const readinessStyles = StyleSheet.create({
+  pill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginHorizontal: scale(16),
+    marginTop: scale(8),
+    paddingVertical: scale(10),
+    paddingHorizontal: scale(12),
+    backgroundColor: "#F3F4F6",
+    borderRadius: moderateScale(12),
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+  },
+  cta: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginHorizontal: scale(16),
+    marginTop: scale(8),
+    paddingVertical: scale(10),
+    paddingHorizontal: scale(12),
+    backgroundColor: "rgba(82, 153, 254, 0.08)",
+    borderRadius: moderateScale(12),
+    borderWidth: 1,
+    borderColor: "rgba(82, 153, 254, 0.25)",
+  },
+  ctaPressed: {
+    opacity: 0.7,
+  },
+  pillIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: "#E5E7EB",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  ctaIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: "rgba(82, 153, 254, 0.15)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  pillBody: {
+    flex: 1,
+    gap: 2,
+  },
+});
 
 // ============================================================================
 // EDIT PICKER BOTTOM SHEET STYLES

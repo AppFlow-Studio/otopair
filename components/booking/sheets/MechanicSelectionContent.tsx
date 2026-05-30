@@ -202,7 +202,7 @@ export function MechanicSelectionContent({
   const realPartsCostMap = useMemo(() => {
     const m = new Map<string, number>();
     for (const row of pricedPartsByService) {
-      if (row.parts.length > 0 && row.partsTotal > 0) m.set(String(row.serviceId), row.partsTotal);
+      if (row.winner !== null && row.partsTotal > 0) m.set(String(row.serviceId), row.partsTotal);
     }
     return m;
   }, [pricedPartsByService]);

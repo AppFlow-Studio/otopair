@@ -24,8 +24,11 @@ import { useRouter } from "expo-router";
 import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 
 // 4. Constants, hooks, types, stores
+import { PackageQuestionsSheet } from "@/components/cars/PackageQuestionsSheet";
 import { BorderRadius } from "@/constants/theme";
+import { useBookableServices } from "@/hooks/useBookableServices";
 import { useServiceVehicleSpecsForEngine } from "@/hooks/useServiceVehicleSpecsForEngine";
+import { useVehicleReadiness } from "@/hooks/useVehicleReadiness";
 import { formatDurationForCar } from "@/lib/formatDuration";
 import type { Service, ServiceCategory } from "@/stores/types/store.types";
 import { useBookingStore } from "@/stores/useBookingStore";
@@ -89,10 +92,58 @@ export function ServiceSelectionContent({ onCategorySelect, onShopTiresRequested
   const selectedDiagnosticSystem = useBookingStore((state) => state.selectedDiagnosticSystem);
   const customerNotes = useBookingStore((state) => state.customerNotes);
   const engineId = useVehicleStore((state) => state.getSelectedVehicle()?.engineId);
+  const ownershipId = useVehicleStore((state) => state.getSelectedVehicle()?.ownershipId);
 
   // ═══════════════ STATE-EFFECT: Per-car duration specs ═══════════════
   const allServiceIds = useMemo(() => availableServices.map((s) => s.id), [availableServices]);
   const engineSpecs = useServiceVehicleSpecsForEngine(engineId, allServiceIds);
+
+  // ═══════════════ STATE-EFFECT: Coverage filter (the dynamic filter engine) ═══════════════
+  // Three per-service render states (driven by useBookableServices):
+  //   - "bookable"           → enabled
+  //   - "blocked_by_enrichment" → greyed, no action (wait for pipeline)
+  //   - "blocked_by_specs"   → greyed + tappable; tap redirects to My Cars so
+  //                            the user answers the pending package question
+  //   - "missing_data"       → hidden entirely (not in applicableIds)
+  //
+  // Behavior:
+  //   - status === "enriching" → render applicableIds; bookable rows enabled
+  //     (labor-only — inspections, diagnostics, etc), the rest greyed
+  //   - status === "ready"    → render applicableIds; bookable rows enabled,
+  //     needs-specs rows greyed+tappable, blocked_by_enrichment rows greyed
+  //
+  // Non-applicable services (is_applicable=false for this vehicle's engine or
+  // owner override — e.g. timing belt on a chain engine) never render.
+  // See docs/TICKET_PACKAGE_QUESTIONS.md.
+  const readiness = useVehicleReadiness(ownershipId);
+  const isEnriching = readiness.status === "enriching";
+  const { applicableIds, bookableIds, needsSpecsIds, isLoading: isBookableLoading } =
+    useBookableServices(ownershipId);
+
+  // ═══════════════ STATE-EFFECT: Spec-check sheet for blocked services ═══════════════
+  // When a user taps a service that's blocked_by_specs (e.g. brake pads when
+  // there's an unanswered "Performance Brake Package" question), we open the
+  // PackageQuestionsSheet INLINE rather than punting them to My Cars. After
+  // they answer, the service auto-selects so they keep their place in the
+  // booking flow without re-tapping. See docs/TICKET_PACKAGE_QUESTIONS.md.
+  const [specsCheckServiceId, setSpecsCheckServiceId] = useState<string | null>(null);
+  const activeVehicle = useVehicleStore((state) => state.getSelectedVehicle());
+  const activeVehicleLabel = useMemo(() => {
+    if (!activeVehicle) return "";
+    const parts = [activeVehicle.year, activeVehicle.make, activeVehicle.model].filter(Boolean);
+    return parts.join(" ").trim();
+  }, [activeVehicle]);
+  // Subset of pending package questions relevant to the service the user
+  // tapped — keep the sheet narrow so only the blocking ones surface.
+  const specsCheckQuestions = useMemo(() => {
+    if (!specsCheckServiceId) return [];
+    const service = availableServices.find((s) => s.id === specsCheckServiceId);
+    const slug = service?.slug;
+    if (!slug) return [];
+    return readiness.pendingPackages.filter((pkg) =>
+      pkg.services_affected.includes(slug),
+    );
+  }, [specsCheckServiceId, availableServices, readiness.pendingPackages]);
 
   // ═══════════════ STATE-EFFECT: Local State ═══════════════
   // Read the category signal from the store on first render so entries
@@ -141,8 +192,18 @@ export function ServiceSelectionContent({ onCategorySelect, onShopTiresRequested
 
   // ═══════════════ STATE-EFFECT: Memoized Values ═══════════════
   const filteredServices = useMemo(() => {
-    return availableServices.filter((service) => service.category === selectedCategory);
-  }, [availableServices, selectedCategory]);
+    const byCategory = availableServices.filter((service) => service.category === selectedCategory);
+    // No active vehicle context — fall back to unfiltered (rare path; the
+    // booking flow normally has a vehicle selected by this stage).
+    if (!ownershipId) return byCategory;
+    // Bookable set still resolving — render nothing rather than flashing
+    // services that will then disappear.
+    if (isBookableLoading) return [];
+    // Always filter by applicableIds (which already excludes "missing_data").
+    // Per-row render state (enabled / greyed / tappable-redirect) is decided
+    // at render time below using bookableIds + needsSpecsIds.
+    return byCategory.filter((service) => applicableIds.has(service.id));
+  }, [availableServices, selectedCategory, ownershipId, isBookableLoading, applicableIds]);
 
   // Auto-scroll the list to a preselected service (e.g. when arriving via
   // Book Now / Book Service deep-link). Each item records its y-offset on
@@ -255,16 +316,38 @@ export function ServiceSelectionContent({ onCategorySelect, onShopTiresRequested
       const diagnosticNotes =
         isDiagnostic && isSelected ? customerNotes.trim() : "";
 
+      // Per-service render state — only meaningful when we have a vehicle.
+      // Without one, all rows render enabled (rare/fallback path).
+      const hasVehicle = ownershipId != null;
+      const isBookable = !hasVehicle || bookableIds.has(service.id);
+      const needsSpecs = hasVehicle && needsSpecsIds.has(service.id);
+      // "Locked" = greyed + non-tappable as a booking action.
+      // Needs-specs rows are STILL greyed but tap-redirects to My Cars.
+      const isRowLocked = hasVehicle && !isBookable;
+
+      const onPress = () => {
+        if (needsSpecs) {
+          // Open the spec-check sheet inline — when the user answers, the
+          // service auto-selects (see onSubmitted on PackageQuestionsSheet
+          // below). They keep their place in the booking flow.
+          setSpecsCheckServiceId(service.id);
+          return;
+        }
+        if (isRowLocked) return;
+        handleServicePress(service.id);
+      };
+
       return (
         <TouchableOpacity
           key={service.id}
-          style={[styles.serviceItem, isSelected && styles.serviceItemSelected]}
-          onPress={() => handleServicePress(service.id)}
-          onLayout={(e) => {
-            // Captured per item so the scroll-to-selected effect can snap to it.
-            itemPositions.current.set(service.id, e.nativeEvent.layout.y);
-          }}
-          activeOpacity={0.7}
+          style={[
+            styles.serviceItem,
+            isSelected && styles.serviceItemSelected,
+            isRowLocked && styles.serviceItemDisabled,
+          ]}
+          onPress={onPress}
+          activeOpacity={isRowLocked && !needsSpecs ? 1 : 0.7}
+          disabled={isRowLocked && !needsSpecs}
         >
           <View style={styles.serviceInfo}>
             <View style={styles.serviceTitleRow}>
@@ -286,6 +369,16 @@ export function ServiceSelectionContent({ onCategorySelect, onShopTiresRequested
             <Text size="sm" weight="regular" color="#6B7280">
               {service.description}
             </Text>
+            {needsSpecs && (
+              <Text
+                size="xs"
+                weight="semiBold"
+                color={BrandColors.secondary}
+                style={styles.specsHint}
+              >
+                Tap to answer a quick spec question
+              </Text>
+            )}
             {optionLabel && (
               <Text size="xs" weight="semiBold" color={BrandColors.secondary} style={styles.optionSelected}>
                 Option Selected: {optionLabel}
@@ -323,7 +416,7 @@ export function ServiceSelectionContent({ onCategorySelect, onShopTiresRequested
         </TouchableOpacity>
       );
     },
-    [selectedServiceIds, selectedServiceOptions, selectedDiagnosticSystem, customerNotes, handleServicePress, engineSpecs],
+    [selectedServiceIds, selectedServiceOptions, selectedDiagnosticSystem, customerNotes, handleServicePress, engineSpecs, ownershipId, bookableIds, needsSpecsIds, router],
   );
 
   // ═══════════════ RENDER ═══════════════
@@ -347,17 +440,47 @@ export function ServiceSelectionContent({ onCategorySelect, onShopTiresRequested
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {filteredServices.map(renderServiceItem)}
-
-        {filteredServices.length === 0 && (
-          <View style={styles.emptyState}>
-            <Text size="md" weight="medium" color="#9CA3AF" center>
-              No services found
+        {/* Enrichment-in-flight banner. Services below render disabled until
+            the pipeline completes. See docs/TICKET_PACKAGE_QUESTIONS.md. */}
+        {isEnriching && (
+          <View style={styles.enrichingBanner}>
+            <Text size="sm" weight="semiBold" color="#374151">
+              Setting up your car…
+            </Text>
+            <Text size="xs" weight="regular" color="#6B7280" style={styles.enrichingBannerSub}>
+              We&apos;re building this vehicle&apos;s profile. Services will be bookable once we have your parts data.
             </Text>
           </View>
         )}
+        {filteredServices.map(renderServiceItem)}
+        {/* Intentionally no empty-state copy when filteredServices is []. When
+            the bookable set is empty for this vehicle (all services blocked
+            by pending package questions, no fitments), the picker renders
+            nothing. Discovery happens on My Cars ("Confirm your car's specs"
+            CTA). See docs/TICKET_PACKAGE_QUESTIONS.md. */}
 
       </BottomSheetScrollView>
+
+      {/* Inline spec-question sheet — opens when the user taps a service
+          that's blocked by an unanswered package question. On submit, the
+          service auto-selects so they continue in the booking flow.
+          See docs/TICKET_PACKAGE_QUESTIONS.md. */}
+      {ownershipId && specsCheckServiceId && (
+        <PackageQuestionsSheet
+          visible={true}
+          vehicleOwnerId={ownershipId}
+          questions={specsCheckQuestions}
+          vehicleLabel={activeVehicleLabel}
+          onClose={() => setSpecsCheckServiceId(null)}
+          onSubmitted={() => {
+            // User answered; route through the normal press handler so
+            // has_options / diagnostic / tire-replacement special cases
+            // still apply, then close the sheet.
+            const id = specsCheckServiceId;
+            if (id) handleServicePress(id);
+          }}
+        />
+      )}
     </View>
   );
 }
@@ -411,6 +534,29 @@ const styles = StyleSheet.create({
   serviceItemSelected: {
     borderColor: BrandColors.secondary,
     backgroundColor: "#F0F7FF",
+  },
+  serviceItemDisabled: {
+    opacity: 0.45,
+  },
+  // Hint that overrides the row's reduced opacity so the call-to-action stays
+  // legible even on greyed needs-specs rows. Lives outside the .serviceItem
+  // opacity scope by rendering at full color (the Text doesn't inherit opacity
+  // when given an explicit color prop, so this stays readable).
+  specsHint: {
+    marginTop: 4,
+  },
+  enrichingBanner: {
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.lg,
+    backgroundColor: "#F3F4F6",
+    borderRadius: BorderRadius.lg,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    marginBottom: Spacing.md,
+  },
+  enrichingBannerSub: {
+    marginTop: 2,
+    lineHeight: 16,
   },
   serviceInfo: {
     flex: 1,

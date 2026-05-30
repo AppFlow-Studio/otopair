@@ -117,6 +117,7 @@ export async function openPhone(phone: string): Promise<void> {
 // Push payloads use these forms:
 //   otopair://booking/<bookingId>                  → booking detail
 //   otopair://booking/<bookingId>/approve-estimate → approval prompt
+//   otopair://booking/<bookingId>/reauth           → reauth confirm flow
 //
 // Expo Router auto-handles deep links when the URL path matches the file-
 // based route. Our approve-estimate route lives at
@@ -126,6 +127,7 @@ export async function openPhone(phone: string): Promise<void> {
 
 export type OtopairDeepLink =
   | { kind: "approve_estimate"; bookingId: string }
+  | { kind: "reauth"; bookingId: string }
   | { kind: "booking_detail"; bookingId: string };
 
 /** Parse an `otopair://` URL into a known target. Returns null when the URL
@@ -149,6 +151,9 @@ export function parseOtopairDeepLink(url: string): OtopairDeepLink | null {
   if (segments[2] === "approve-estimate") {
     return { kind: "approve_estimate", bookingId };
   }
+  if (segments[2] === "reauth") {
+    return { kind: "reauth", bookingId };
+  }
   if (segments.length === 2) {
     return { kind: "booking_detail", bookingId };
   }
@@ -168,6 +173,17 @@ export function routeOtopairDeepLink(
     router.push({
       pathname: "/booking/approve-estimate/[id]",
       params: { id: parsed.bookingId },
+    });
+    return;
+  }
+  if (parsed.kind === "reauth") {
+    // Reauth re-uses the approve-estimate screen with a `mode=reauth` param.
+    // The screen branches on the param + a live `payment_approval_state`
+    // check so the deep link can't render the wrong view if the state has
+    // already cleared by the time the user taps the notification.
+    router.push({
+      pathname: "/booking/approve-estimate/[id]",
+      params: { id: parsed.bookingId, mode: "reauth" },
     });
     return;
   }

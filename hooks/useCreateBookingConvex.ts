@@ -12,9 +12,11 @@
  */
 
 import { useMutation, useQuery } from "convex/react";
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { useBookingLaborHours } from "./useBookingLaborHours";
+import { useBookingPartsBreakdown } from "./useBookingPartsBreakdown";
 import { useUserFromConvex } from "./useUserFromConvex";
 import { useToast } from "./useToast";
 import { useVehicleOwnershipFromConvex } from "./useVehicleOwnershipFromConvex";
@@ -85,6 +87,43 @@ export function useCreateBookingConvex() {
   );
 
   const getSelectedVehicle = useVehicleStore((s) => s.getSelectedVehicle);
+  // Subscribe to selectedVehicleId so vehicleOwnershipId stays reactive when the
+  // user switches cars mid-flow — `getSelectedVehicle` alone is a stable ref.
+  const selectedVehicleId = useVehicleStore((s) => s.selectedVehicleId);
+  const vehicleOwnershipId = useMemo(
+    () => getSelectedVehicle()?.ownershipId,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [selectedVehicleId, getSelectedVehicle],
+  );
+
+  // Mirror ReviewPayContent: prefer vehicle-specific `labor_times.book_hours`
+  // over `services.default_labor_hours` so the booking row records the same
+  // hours (and therefore the same labor $) the customer just agreed to.
+  const { laborHours: laborHoursByService } = useBookingLaborHours(
+    vehicleOwnershipId,
+    selectedServiceIds,
+  );
+  const laborHoursMap = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const row of laborHoursByService) {
+      map.set(String(row.serviceId), row.hours);
+    }
+    return map;
+  }, [laborHoursByService]);
+
+  // Same priced-parts source ReviewPayContent uses; falls back to defaults
+  // for walk-in vehicles or mock svc_* ids via the hook's internal skip.
+  const { breakdown: pricedPartsByService } = useBookingPartsBreakdown(
+    vehicleOwnershipId,
+    selectedServiceIds,
+  );
+  const pricedPartsTotalMap = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const row of pricedPartsByService) {
+      if (row.partsTotal > 0) map.set(String(row.serviceId), row.partsTotal);
+    }
+    return map;
+  }, [pricedPartsByService]);
 
   const createBookingConvex = useCallback(
     async (mechanicId: string, bookingType: "book_now" | "schedule_later"): Promise<string[]> => {
@@ -122,11 +161,16 @@ export function useCreateBookingConvex() {
       if (!shop || laborRate == null || laborRate === undefined) {
         throw new Error("Shop labor rate is required to create a booking.");
       }
-      // DB values only: labor = rate × default_labor_hours, parts = default_parts_estimate (no fallbacks)
+      // DB values mirror ReviewPayContent so the booking row stores exactly
+      // what the customer was shown:
+      //   labor = rate × (vehicle-specific hours ?? default_labor_hours)
+      //   parts = priced_parts total (part_fitments × part_prices) ?? default_parts_estimate
       const services = selectedServices.map((s) => {
-        const hours = s.default_labor_hours ?? 0;
+        const variantHours = laborHoursMap.get(String(s.id));
+        const hours = typeof variantHours === "number" ? variantHours : (s.default_labor_hours ?? 0);
         const laborCost = laborRate * hours;
-        const partsCost = s.default_parts_estimate ?? 0;
+        const pricedParts = pricedPartsTotalMap.get(String(s.id));
+        const partsCost = typeof pricedParts === "number" ? pricedParts : (s.default_parts_estimate ?? 0);
         return {
           service_id: s.id as Id<"services">,
           labor_cost: laborCost,
@@ -221,6 +265,8 @@ export function useCreateBookingConvex() {
       effectiveShopId,
       selectedServiceIds,
       availableServices,
+      laborHoursMap,
+      pricedPartsTotalMap,
       scheduledAppointment,
       getShopById,
       resolveTimeSlotId,

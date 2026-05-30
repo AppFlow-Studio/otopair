@@ -15,9 +15,11 @@
  */
 
 import type { Id } from "./_generated/dataModel";
-import type { MutationCtx } from "./_generated/server";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { computeBookingTax } from "../lib/tax";
 import { computePlatformFeeDollars } from "../lib/platformFee";
+import { resolveWinningPartForService } from "./serviceParts";
+import type { TraceEntry } from "./partSelector";
 
 /** Fallback band width when service_vehicle_specs has no engine-specific
  *  row for a service. ±25% around the client-supplied per-service parts
@@ -186,4 +188,180 @@ async function resolvePartsBandForService(
     low: mid * (1 - FALLBACK_BAND_RATIO),
     high: mid * (1 + FALLBACK_BAND_RATIO),
   };
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Priced-parts snapshot
+//
+// Captures the same per-unit prices and quantities the customer saw on the
+// Review & Pay screen (which renders from `getPricedPartsForServices`).
+// Stored on the booking row so the mechanic's post-job dialog hydrates
+// from frozen data, not from a re-query of `part_prices` that may have
+// drifted since the booking was placed.
+// ─────────────────────────────────────────────────────────────────────────
+
+export type PricedPartSnapshotRow = {
+  service_id: Id<"services">;
+  part_id?: Id<"oem_parts">;
+  oem_number: string;
+  part_name: string;
+  brand?: string;
+  part_tier?: string;
+  quantity: number;
+  unit_price_cents: number;
+  line_total_cents: number;
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+// Quoted set price (singular, mechanic-facing)
+// ─────────────────────────────────────────────────────────────────────────
+
+export type QuotedBreakdown = {
+  parts_cents: number;
+  labor_cents: number;
+  tax_cents: number;
+  service_fee_cents: number;
+};
+
+export type ComputeQuotedSetPriceResult = {
+  total_cents: number;
+  breakdown: QuotedBreakdown;
+};
+
+/**
+ * Collapse the disclosed range + itemized parts snapshot into the single
+ * "quoted set price" the mechanic confirms against. Parts use the same
+ * outlier-rejected mean per OEM the customer saw line-itemized on Review &
+ * Pay; tax and service fee use the midpoint of their disclosed bands; labor
+ * is already a single value in the disclosed breakdown.
+ *
+ * By construction `total_cents ≤ disclosed_range_high_cents`, so confirming
+ * without edits takes the existing in-range / auto-capture branch in
+ * booking_approvals.ts.
+ */
+export function computeQuotedSetPrice(args: {
+  disclosedBreakdown: DisclosedRangeBreakdown;
+  pricedPartsSnapshot: PricedPartSnapshotRow[];
+}): ComputeQuotedSetPriceResult {
+  const { disclosedBreakdown: d, pricedPartsSnapshot } = args;
+
+  const parts_cents = pricedPartsSnapshot.reduce(
+    (sum, row) => sum + row.line_total_cents,
+    0,
+  );
+  const labor_cents = d.labor_cents;
+  const tax_cents = Math.round((d.tax_low_cents + d.tax_high_cents) / 2);
+  const service_fee_cents = Math.round(
+    (d.service_fee_low_cents + d.service_fee_high_cents) / 2,
+  );
+
+  const breakdown: QuotedBreakdown = {
+    parts_cents,
+    labor_cents,
+    tax_cents,
+    service_fee_cents,
+  };
+  return {
+    total_cents: parts_cents + labor_cents + tax_cents + service_fee_cents,
+    breakdown,
+  };
+}
+
+export type PartSelectionTraceRow = {
+  service_id: Id<"services">;
+  winner_part_id?: Id<"oem_parts">;
+  source: "vin_sticky" | "scored" | "no_candidates";
+  trace?: Array<{
+    layer: number | "gate";
+    name: string;
+    decisive: boolean;
+    reason: string;
+    survivor_part_ids: Id<"oem_parts">[];
+    eliminated_part_ids?: Id<"oem_parts">[];
+  }>;
+  eliminated_by_gate_part_ids?: Id<"oem_parts">[];
+};
+
+export type PricedPartsSnapshotResult = {
+  rows: PricedPartSnapshotRow[];
+  trace: PartSelectionTraceRow[];
+  low_confidence: boolean;
+};
+
+function traceEntryToRow(entry: TraceEntry) {
+  return {
+    layer: entry.layer,
+    name: entry.name,
+    decisive: entry.decisive,
+    reason: entry.reason,
+    survivor_part_ids: entry.survivor_part_ids,
+    eliminated_part_ids: entry.eliminated_part_ids,
+  };
+}
+
+export async function computePricedPartsSnapshot(
+  ctx: MutationCtx | QueryCtx,
+  args: {
+    serviceIds: Id<"services">[];
+    vehicleConfigId: Id<"vehicle_configs"> | null | undefined;
+    /** Canonical VIN — needed for the VIN-sticky preference lookup that decides
+     *  whether to skip the 7-layer scorer for a previously installed part. */
+    vin: string;
+    /** From vehicle_owner_specs.confirmed_packages — gate package-conditional
+     *  fitments to those the customer has actually confirmed. */
+    confirmedPackages: Set<string>;
+  },
+): Promise<PricedPartsSnapshotResult> {
+  if (!args.vehicleConfigId) {
+    return { rows: [], trace: [], low_confidence: false };
+  }
+  const rows: PricedPartSnapshotRow[] = [];
+  const trace: PartSelectionTraceRow[] = [];
+  let low_confidence = false;
+
+  for (const serviceId of args.serviceIds) {
+    const svc = await ctx.db.get(serviceId);
+    if (!svc?.slug) continue;
+
+    const resolution = await resolveWinningPartForService(ctx, {
+      vin: args.vin,
+      serviceId,
+      serviceSlug: svc.slug,
+      vehicleConfigId: args.vehicleConfigId,
+      confirmedPackages: args.confirmedPackages,
+    });
+
+    trace.push({
+      service_id: serviceId,
+      winner_part_id: resolution.winner?.part._id,
+      source: resolution.source,
+      trace: resolution.trace?.map(traceEntryToRow),
+      eliminated_by_gate_part_ids: resolution.eliminatedByGatePartIds,
+    });
+
+    if (resolution.lowConfidence) low_confidence = true;
+    if (!resolution.winner) continue;
+
+    const { fitment: f, part, priceSummary } = resolution.winner;
+    // Use the outlier-rejected mean (`average`) — same field the customer-
+    // facing breakdown reads. Median is naïve to per-pack listings mixing
+    // with per-unit listings for the same OEM (spark plugs, brake pads).
+    const unit_price_dollars = priceSummary.average;
+    const quantity = Math.max(1, f.quantity_needed ?? 1);
+    const line_total_dollars =
+      Math.round(quantity * unit_price_dollars * 100) / 100;
+    rows.push({
+      service_id: serviceId,
+      part_id: part._id,
+      oem_number: part.oem_part_number,
+      part_name: part.name,
+      brand: part.brand ?? undefined,
+      part_tier: part.part_tier ?? undefined,
+      quantity,
+      unit_price_cents: Math.round(unit_price_dollars * 100),
+      line_total_cents: Math.round(line_total_dollars * 100),
+    });
+  }
+
+  return { rows, trace, low_confidence };
 }

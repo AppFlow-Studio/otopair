@@ -74,6 +74,8 @@ export interface ConvexBookingWithDetails {
   payment_approval_state?: string;
   /** Final captured amount in cents (set after Stripe capture). */
   final_capture_amount_cents?: number;
+  /** Shop-assigned invoice / work-order number, if the mechanic set one. */
+  invoice_number?: string;
 }
 
 interface BookingAdapterParams {
@@ -231,6 +233,7 @@ export function adaptConvexBookingWithDetailsToCard(row: ConvexBookingWithDetail
     disclosedRangeHighCents: row.disclosed_range_high_cents,
     paymentApprovalState: row.payment_approval_state,
     finalCaptureAmountCents: row.final_capture_amount_cents,
+    invoiceNumber: row.invoice_number,
   };
 }
 
