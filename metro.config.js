@@ -1,14 +1,16 @@
 // Metro config — `@/convex/*` resolution has two modes:
 //
 // LOCAL DEV (otopair-web sibling repo present): redirect `@/convex/*` to
-//   `../otopair-web/convex` so edits there hot-reload in the app. The
-//   `convex/` entry in this repo is a symlink to that same path, but
-//   Metro's resolver doesn't follow it reliably — hence the explicit
-//   redirect.
+//   `../otopair-web/convex` so edits there hot-reload in the app without
+//   requiring an rsync round-trip. The `convex/` entry in this repo is a
+//   vendored mirror of that same path, kept in sync by
+//   `npm run sync:convex` and guarded by the pre-push hook in
+//   `scripts/git-hooks/pre-push` (see `scripts/check-convex-drift.sh`).
 //
 // EAS BUILD (no sibling repo): fall through to the default `@/*` alias,
-//   which resolves `@/convex/*` against `./convex/*` — a real directory
-//   that must be vendored on the build branch before pushing.
+//   which resolves `@/convex/*` against `./convex/*` — the vendored
+//   directory, kept current by `npm run sync:convex` and committed to
+//   the build branch.
 
 const path = require("path");
 const fs = require("fs");

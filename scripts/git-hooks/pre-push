@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+#
+# pre-push — block pushes when convex/ has drifted from otopair-web/convex/.
+# Set core.hooksPath to scripts/git-hooks (the postinstall step in package.json
+# does this) to activate. Bypass with OTOPAIR_ALLOW_CONVEX_DRIFT=1.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec bash "$SCRIPT_DIR/../check-convex-drift.sh"
