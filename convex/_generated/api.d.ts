@@ -197,6 +197,7 @@ import type * as transactions from "../transactions.js";
 import type * as transmissions from "../transmissions.js";
 import type * as trims from "../trims.js";
 import type * as undoMechanicVerification from "../undoMechanicVerification.js";
+import type * as urgency from "../urgency.js";
 import type * as userAddresses from "../userAddresses.js";
 import type * as users from "../users.js";
 import type * as vehicleEnrichment_adversarialVerification from "../vehicleEnrichment/adversarialVerification.js";
@@ -451,6 +452,7 @@ declare const fullApi: ApiFromModules<{
   transmissions: typeof transmissions;
   trims: typeof trims;
   undoMechanicVerification: typeof undoMechanicVerification;
+  urgency: typeof urgency;
   userAddresses: typeof userAddresses;
   users: typeof users;
   "vehicleEnrichment/adversarialVerification": typeof vehicleEnrichment_adversarialVerification;

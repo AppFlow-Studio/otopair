@@ -23,7 +23,7 @@
  */
 
 // 1. React & React Native
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Platform, Pressable, StyleSheet, View } from 'react-native';
 
 // 2. Expo & Third-party
@@ -66,6 +66,9 @@ import MaintenanceDetailView from '@/components/cars/MaintenanceDetailView';
 // 5. Constants, hooks, types
 import { computeProjectedHealthScore, type HealthScoreInput } from '@/utils/healthScore';
 import { scale, moderateScale } from '@/utils/responsive';
+import type { RankedMaintenanceItem } from '@/hooks/useUrgencyRankedItems';
+import type { UrgencyTier } from '@/utils/urgency';
+import { extractMaintenanceType } from '@/lib/maintenanceServiceMapping';
 
 // ============================================================================
 // TYPES
@@ -80,6 +83,11 @@ export interface MaintenanceItem {
   // e.g. "Mar 2025", "Aug 2025", "Unknown"
   detail: string;
   status: MaintenanceStatus;
+  /** 0–100 percent of interval used (mileage- or time-based), preserved
+   *  from computeMaintenanceStatus so Action Engine proximity uses the
+   *  real v0 ramp instead of inferring from status. Optional because
+   *  inferred fallback items (no record) don't have an actual ramp. */
+  percentUsed?: number;
   lastService?: string;
   urgency?: string;
   impacts?: Array<{ label: string; severity: 'high' | 'medium' | 'low' }>;
@@ -119,6 +127,17 @@ interface MaintenanceTrackerProps {
   /** Parent has determined the page bg is dark enough that the
    *  "Maintenance Tracker" header must flip to light to stay readable. */
   isDarkBg?: boolean;
+  /** Action Engine tier groupings (Yassin v1.1 §3.2). When provided,
+   *  the tracker renders Now / Soon / Soon-ish / Resting sections in
+   *  place of the legacy Overdue / Needs Attention / Healthy buckets.
+   *  Falls back to status-bucketed rendering when undefined so other
+   *  callers (e.g. legacy preview paths) keep working. */
+  tieredItems?: Record<UrgencyTier, RankedMaintenanceItem[]>;
+  /** Deep-link: when this matches an item's id on mount, the detail
+   *  modal opens automatically for that item exactly once. Lets
+   *  Home's NowTierCallout route a tap straight into the detail view
+   *  for the urgent item, instead of just landing on the cars page. */
+  openItemId?: string;
 }
 
 // ============================================================================
@@ -297,6 +316,79 @@ function OverdueLabel() {
     <View style={groupLabelStyles.row}>
       <Animated.View style={[groupLabelStyles.overdueDot, pulseStyle]} />
       <Text weight="bold" style={groupLabelStyles.overdueText}>OVERDUE</Text>
+    </View>
+  );
+}
+
+/** Action Engine "Now" tier label — same pulsing-red treatment as
+ *  OverdueLabel. v0 path keeps "OVERDUE"; v1 tier path uses "NOW". */
+function NowLabel() {
+  const pulseStyle = useAnimatedStyle(() => ({
+    opacity: withRepeat(
+      withSequence(
+        withTiming(0.5, { duration: 1000 }),
+        withTiming(1, { duration: 1000 }),
+      ),
+      -1,
+    ),
+    transform: [
+      {
+        scale: withRepeat(
+          withSequence(
+            withTiming(1.4, { duration: 1000 }),
+            withTiming(1, { duration: 1000 }),
+          ),
+          -1,
+        ),
+      },
+    ],
+  }));
+  return (
+    <View style={groupLabelStyles.row}>
+      <Animated.View style={[groupLabelStyles.overdueDot, pulseStyle]} />
+      <Text weight="bold" style={groupLabelStyles.overdueText}>NOW</Text>
+    </View>
+  );
+}
+
+/** Action Engine "Soon" tier label — same pulsing-amber treatment as
+ *  NeedsAttentionLabel, relabeled per the v1 spec tier naming. */
+function SoonLabel() {
+  const pulseStyle = useAnimatedStyle(() => ({
+    opacity: withRepeat(
+      withSequence(
+        withTiming(0.5, { duration: 1000 }),
+        withTiming(1, { duration: 1000 }),
+      ),
+      -1,
+    ),
+    transform: [
+      {
+        scale: withRepeat(
+          withSequence(
+            withTiming(1.4, { duration: 1000 }),
+            withTiming(1, { duration: 1000 }),
+          ),
+          -1,
+        ),
+      },
+    ],
+  }));
+  return (
+    <View style={groupLabelStyles.row}>
+      <Animated.View style={[groupLabelStyles.needsAttentionDot, pulseStyle]} />
+      <Text weight="bold" style={groupLabelStyles.needsAttentionText}>SOON</Text>
+    </View>
+  );
+}
+
+/** Action Engine "Soon-ish" tier label — static blue dot, no pulse.
+ *  Spec §3.2: "Visible on Home, never pings" — calmer visual cue. */
+function OnTheHorizonLabel() {
+  return (
+    <View style={groupLabelStyles.row}>
+      <View style={groupLabelStyles.onTheHorizonDot} />
+      <Text weight="bold" style={groupLabelStyles.onTheHorizonText}>ON THE HORIZON</Text>
     </View>
   );
 }
@@ -535,12 +627,17 @@ function HealthySection({
   items,
   isDarkBg = false,
   cascadeStartDelay = 0,
+  variant = 'resting',
 }: {
   items: MaintenanceItem[];
   isDarkBg?: boolean;
   cascadeStartDelay?: number;
+  /** Drives header text + dot color. 'resting' keeps the existing green
+   *  "N items healthy" treatment; 'soonish' shows blue + "N items on the
+   *  horizon" for Action Engine Soon-ish tier items. */
+  variant?: 'resting' | 'soonish';
 }) {
-  // Always default to expanded — healthy items are shown by default and the
+  // Always default to expanded — items are shown by default and the
   // user can collapse with the chevron if they want.
   const [expanded, setExpanded] = useState(true);
   const chevronRotation = useSharedValue(1);
@@ -556,12 +653,17 @@ function HealthySection({
     transform: [{ rotate: `${chevronRotation.value * 90}deg` }],
   }));
 
+  const isSoonish = variant === 'soonish';
+  const headerLabel = isSoonish
+    ? `${items.length} ${items.length === 1 ? 'item' : 'items'} on the horizon`
+    : `${items.length} ${items.length === 1 ? 'item' : 'items'} healthy`;
+
   return (
     <View>
       <Animated.View entering={FadeInUp.duration(450).delay(cascadeStartDelay)}>
         <Pressable onPress={toggle} style={({ pressed }) => pressed && { opacity: 0.7 }}>
           <View style={summaryStyles.headerRow}>
-            <View style={summaryStyles.dot} />
+            <View style={[summaryStyles.dot, isSoonish && summaryStyles.dotSoonish]} />
             <Text
               weight="semiBold"
               style={[
@@ -569,7 +671,7 @@ function HealthySection({
                 isDarkBg && summaryStyles.headerTextOnDark,
               ]}
             >
-              {items.length} {items.length === 1 ? 'item' : 'items'} healthy
+              {headerLabel}
             </Text>
             <Animated.View style={chevronStyle}>
               <Ionicons name="chevron-forward" size={16} color="#C7C7CC" />
@@ -589,7 +691,7 @@ function HealthySection({
 // COMPONENT
 // ============================================================================
 
-export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, onBookNow, onTakeAction, onAddInfo, onEditPressed, isDarkBg = false }: MaintenanceTrackerProps) {
+export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, onBookNow, onTakeAction, onAddInfo, onEditPressed, isDarkBg = false, tieredItems, openItemId }: MaintenanceTrackerProps) {
   const [selectedItem, setSelectedItem] = useState<MaintenanceItem | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
 
@@ -597,6 +699,27 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
     setSelectedItem(item);
     setModalVisible(true);
   };
+
+  // Deep-link from Home's NowTierCallout. Fires once per mount when
+  // `openItemId` resolves to a known item — opens the detail modal
+  // immediately so the user lands on the urgent item's full view
+  // instead of just the cars page.
+  //
+  // Home's nowItems use ids like `<type>-<ownershipId>` (e.g.
+  // `oil-abc123`), while this tracker's items use `user-<type>` /
+  // `unknown-<type>`. Both forms reduce to the same bare type via
+  // extractMaintenanceType, so we match on the normalized type.
+  const openItemFiredRef = useRef(false);
+  useEffect(() => {
+    if (!openItemId || openItemFiredRef.current) return;
+    const wanted = extractMaintenanceType(openItemId);
+    const match = items.find((i) => extractMaintenanceType(i.id) === wanted);
+    if (match) {
+      openItemFiredRef.current = true;
+      setSelectedItem(match);
+      setModalVisible(true);
+    }
+  }, [openItemId, items]);
 
   const handleModalClosed = () => {
     setModalVisible(false);
@@ -631,6 +754,22 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
   const urgentBaseDelay = hasUrgent ? cascadeStep * STEP_MS : 0;
   if (hasUrgent) cascadeStep += urgentItems.length;
   const healthyDelay = healthyItems.length > 0 ? cascadeStep * STEP_MS : 0;
+
+  // Tier-path cascade (Yassin v1.1 §3.2). Mirrors the legacy cascade above
+  // but slotted for Now / Soon / Soon-ish / Resting in render order. Only
+  // consumed when `tieredItems` is provided.
+  const nowCount = tieredItems?.now.length ?? 0;
+  const soonCount = tieredItems?.soon.length ?? 0;
+  const soonishCount = tieredItems?.soonish.length ?? 0;
+  let tierStep = 1; // title consumed slot 0
+  const nowLabelDelay = nowCount > 0 ? tierStep++ * STEP_MS : 0;
+  const nowBaseDelay = nowCount > 0 ? tierStep * STEP_MS : 0;
+  tierStep += nowCount;
+  const soonLabelDelay = soonCount > 0 ? tierStep++ * STEP_MS : 0;
+  const soonBaseDelay = soonCount > 0 ? tierStep * STEP_MS : 0;
+  tierStep += soonCount;
+  const soonishDelay = soonishCount > 0 ? tierStep++ * STEP_MS : 0;
+  const restingDelay = tierStep * STEP_MS;
 
 
   return (
@@ -690,6 +829,84 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
             We&apos;ll show your services here once you add them.
           </Text>
         </View>
+      ) : tieredItems ? (
+        // Action Engine tier path (Yassin v1.1 §3.2). Sections render in
+        // urgency order: Now → Soon → Soon-ish → Resting. Each section's
+        // cascade delay is precomputed above so missing tiers collapse
+        // out of the rhythm — no dead beats.
+        <>
+          {/* Now — assertive */}
+          {nowCount > 0 && (
+            <>
+              <Animated.View entering={FadeInUp.duration(ENTRY_DURATION).delay(nowLabelDelay)}>
+                <NowLabel />
+              </Animated.View>
+              <View style={styles.urgentGroup}>
+                {tieredItems.now.map((r, index) => (
+                  <UrgentCard
+                    key={r.item.id}
+                    item={r.item}
+                    entryDelay={nowBaseDelay + index * STEP_MS}
+                    vehicleCondition={vehicleCondition ?? 0}
+                    healthScoreInput={healthScoreInput}
+                    onBookNow={onBookNow}
+                    onTakeAction={onTakeAction}
+                    onAddInfo={onAddInfo}
+                    onCardPress={handleCardPress}
+                  />
+                ))}
+              </View>
+            </>
+          )}
+
+          {/* Soon — calmer nudge, same assertive card structure */}
+          {soonCount > 0 && (
+            <>
+              <Animated.View entering={FadeInUp.duration(ENTRY_DURATION).delay(soonLabelDelay)}>
+                <SoonLabel />
+              </Animated.View>
+              <View style={styles.urgentGroup}>
+                {tieredItems.soon.map((r, index) => (
+                  <UrgentCard
+                    key={r.item.id}
+                    item={r.item}
+                    entryDelay={soonBaseDelay + index * STEP_MS}
+                    vehicleCondition={vehicleCondition ?? 0}
+                    healthScoreInput={healthScoreInput}
+                    onBookNow={onBookNow}
+                    onTakeAction={onTakeAction}
+                    onAddInfo={onAddInfo}
+                    onCardPress={handleCardPress}
+                  />
+                ))}
+              </View>
+            </>
+          )}
+
+          {/* Soon-ish — visible, no ping. Reuses HealthySection with the
+              blue 'soonish' variant and a custom collapsible header. */}
+          {soonishCount > 0 && (
+            <>
+              <Animated.View entering={FadeInUp.duration(ENTRY_DURATION).delay(soonishDelay)}>
+                <OnTheHorizonLabel />
+              </Animated.View>
+              <HealthySection
+                items={tieredItems.soonish.map((r) => r.item)}
+                isDarkBg={isDarkBg}
+                cascadeStartDelay={soonishDelay}
+                variant="soonish"
+              />
+            </>
+          )}
+
+          {/* Resting — silent green. Always renders (returns null if empty). */}
+          <HealthySection
+            items={tieredItems.resting.map((r) => r.item)}
+            isDarkBg={isDarkBg}
+            cascadeStartDelay={restingDelay}
+            variant="resting"
+          />
+        </>
       ) : (
         <>
           {/* Overdue items */}
@@ -981,6 +1198,18 @@ const groupLabelStyles = StyleSheet.create({
     letterSpacing: 0.8,
     textTransform: 'uppercase',
   },
+  onTheHorizonDot: {
+    width: scale(8),
+    height: scale(8),
+    borderRadius: moderateScale(4),
+    backgroundColor: '#5299FE',
+  },
+  onTheHorizonText: {
+    fontSize: moderateScale(11),
+    color: '#5299FE',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+  },
 });
 
 // ============================================================================
@@ -1001,6 +1230,10 @@ const summaryStyles = StyleSheet.create({
     height: scale(8),
     borderRadius: moderateScale(4),
     backgroundColor: '#34C759',
+  },
+  /** Override applied when HealthySection is rendering the Soon-ish tier. */
+  dotSoonish: {
+    backgroundColor: '#5299FE',
   },
   headerText: {
     flex: 1,

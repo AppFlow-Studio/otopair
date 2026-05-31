@@ -225,6 +225,12 @@ export default defineSchema({
     verification_count: v.optional(v.number()),
     chassis_code: v.optional(v.string()),
     cloned_from_config_id: v.optional(v.id("vehicle_configs")),
+    // YMMT-level cache of the VDB exterior image. Populated by
+    // saveVehicleImageUrl on first successful resolve for any VIN that
+    // links to this config; read by resolveVehicleImage so a different
+    // VIN with the same year/make/model/trim skips the VDB call.
+    // First-fetched-wins (we don't overwrite once set).
+    image_url: v.optional(v.string()),
     // Packages this trim *can* ship with that affect 1+ of the 23 services.
     // Detection-only — does NOT mean a specific VIN has the package.
     // Used at booking time to compute which questions to ask the user.
@@ -3724,4 +3730,24 @@ export default defineSchema({
     .index("by_booking_id", ["booking_id"])
     .index("by_status", ["status"])
     .index("by_user_id", ["user_id"]),
+
+  // ─────────────────────────────────────────────────────────────────────
+  // urgency_tier_events — Action Engine calibration log (v1.1 spec §6
+  // Change 4). Records every observed Now/Soon/Soonish/Resting tier-entry
+  // per maintenance item per vehicle. Drives post-launch retuning of
+  // URGENCY_TIER_CUTOFFS — without this stream the 75/55/25 thresholds
+  // are blind. `from_tier` is undefined on the first observation per
+  // session; otherwise it's the prior tier the client saw.
+  // ─────────────────────────────────────────────────────────────────────
+  urgency_tier_events: defineTable({
+    vin: v.string(),
+    item_id: v.string(),
+    from_tier: v.optional(v.string()),
+    to_tier: v.string(),
+    urgency_score: v.number(),
+    occurred_at: v.number(),
+  })
+    .index("by_vin", ["vin"])
+    .index("by_vin_item", ["vin", "item_id"])
+    .index("by_to_tier", ["to_tier"]),
 });

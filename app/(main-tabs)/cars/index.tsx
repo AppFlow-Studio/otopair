@@ -29,6 +29,7 @@ import { api } from "@/convex/_generated/api";
 import { useUserFromConvex } from "@/hooks/useUserFromConvex";
 import { useVehicleOwnershipFromConvex } from "@/hooks/useVehicleOwnershipFromConvex";
 import { useMergedMaintenance } from "@/hooks/useMaintenanceData";
+import { useUrgencyRankedItems } from "@/hooks/useUrgencyRankedItems";
 import { useDriverRecommendationsFromConvex } from "@/hooks/useDriverRecommendationsFromConvex";
 import { useBookingStore } from "@/stores/useBookingStore";
 import {
@@ -152,7 +153,7 @@ export default function CarsHomeScreen() {
   const aiStepBottomClearance = scale(118) + insets.bottom;
   const isFocused = useIsFocused();
   const router = useRouter();
-  const params = useLocalSearchParams<{ openStepper?: string; focusVin?: string }>();
+  const params = useLocalSearchParams<{ openStepper?: string; focusVin?: string; openItemDetail?: string }>();
   const [refreshing, setRefreshing] = useState(false);
   // Active vehicle is tracked by VIN so adding/removing a car (which can
   // re-sort the list via `isDefault` then VIN) doesn't scramble which car is
@@ -1064,6 +1065,18 @@ export default function CarsHomeScreen() {
     driverRecommendations,
   );
 
+  // Action Engine ranking (Yassin v1.1 §3): computes urgency + tier per
+  // item and bucket-groups them for MaintenanceTracker's tier-aware
+  // render. Side effect: emits tier-change events to Convex
+  // (`urgency_tier_events`) for post-launch calibration of the 75/55/25
+  // cutoffs. The MaintenanceTracker on this page is the authoritative
+  // emitter — other surfaces (Home callout) compute tiers without
+  // logging to avoid double-counting.
+  const { byTier: urgencyTierBuckets } = useUrgencyRankedItems(
+    mergedMaintenanceItems,
+    activeVehicle?.vin,
+  );
+
   // HP buffer for the active vehicle — every 15 HP yields +1 on the
   // displayed score, capped at +3 (Rewards Framework v3 §11).
   const hpForUser = useQuery(
@@ -1766,6 +1779,8 @@ export default function CarsHomeScreen() {
             <MaintenanceTracker
               key={activeVehicle?.vin ?? "no-vehicle"}
               items={mergedMaintenanceItems}
+              tieredItems={urgencyTierBuckets}
+              openItemId={params.openItemDetail}
               vehicleCondition={computedHealthScore}
               healthScoreInput={healthScoreInput}
               isDarkBg={isDarkBg}

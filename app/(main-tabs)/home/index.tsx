@@ -72,6 +72,7 @@ async function addPromptedBookingId(id: string, current: Set<string>): Promise<S
   return next;
 }
 import { computeMaintenanceStatus, MAINTENANCE_LABELS } from '@/utils/maintenanceStatus';
+import { computeUrgency } from '@/utils/urgency';
 import type { Id } from '@/convex/_generated/dataModel';
 
 // Native iOS 26 liquid glass (optional)
@@ -99,6 +100,7 @@ import { ServiceBundlesSection } from "@/components/home/ServiceBundlesSection";
 import { MoreServicesSection } from "@/components/home/MoreServicesSection";
 import { ProviderTypesSection } from "@/components/home/ProviderTypesSection";
 import { VehicleMaintenanceCard } from "@/components/home/VehicleMaintenanceCard";
+import { NowTierCallout } from "@/components/home/NowTierCallout";
 import { ProfileInitialsButton } from "@/components/home/ProfileInitialsButton";
 import { OtoPairIcon } from "@/components/icons/oto-pair";
 
@@ -386,6 +388,17 @@ export default function HomeScreen() {
           description?: string;
           suggestedServiceId?: string;
         }[] = [];
+        // Now-tier items per Yassin v1.1 §3.2 — aggregated into
+        // allNowItems below to drive the Home callout. Always populated
+        // (no cap), unlike urgentItems which is capped at 3 for the
+        // existing VehicleMaintenanceCard.
+        const nowItems: {
+          itemId: string;
+          serviceName: string;
+          description?: string;
+          suggestedServiceId?: string;
+          urgencyScore: number;
+        }[] = [];
         for (const rec of records) {
           const result = computeMaintenanceStatus(
             {
@@ -403,7 +416,31 @@ export default function HomeScreen() {
             knownIssues,
             v?.year as number | undefined
           );
-          if (result.status === "overdue" || result.status === "due_soon" || result.status === "needs_attention") {
+          const itemId = `${rec.type}-${ownershipId}`;
+
+          // Action Engine tier compute (always runs, never capped).
+          const urgency = computeUrgency({
+            id: itemId,
+            status: result.status,
+            percentUsed: result.percentUsed,
+          });
+          if (urgency.tier === "now") {
+            const matched = findServiceFromDescription(result.description, availableServices);
+            const genericLabel = MAINTENANCE_LABELS[rec.type as keyof typeof MAINTENANCE_LABELS] || rec.type;
+            nowItems.push({
+              itemId,
+              serviceName: matched?.name ?? genericLabel,
+              description: result.description,
+              suggestedServiceId: matched?.id,
+              urgencyScore: urgency.score,
+            });
+          }
+
+          // Legacy urgentItems collection (capped at 3 for VehicleMaintenanceCard).
+          if (
+            urgentItems.length < 3 &&
+            (result.status === "overdue" || result.status === "due_soon" || result.status === "needs_attention")
+          ) {
             // If the status description literally names a service in the
             // booking catalog (e.g. "replacement recommended" → Tire
             // Replacement), prefer that as the label + preselect id.
@@ -412,7 +449,7 @@ export default function HomeScreen() {
             const matched = findServiceFromDescription(result.description, availableServices);
             const genericLabel = MAINTENANCE_LABELS[rec.type as keyof typeof MAINTENANCE_LABELS] || rec.type;
             urgentItems.push({
-              id: `${rec.type}-${ownershipId}`,
+              id: itemId,
               serviceName: matched?.name ?? genericLabel,
               dueText: result.status === "overdue" ? "Overdue" : result.status === "due_soon" ? "Due soon" : "Needs attention",
               isOverdue: result.status === "overdue",
@@ -420,13 +457,12 @@ export default function HomeScreen() {
               suggestedServiceId: matched?.id,
             });
           }
-          if (urgentItems.length >= 3) break;
         }
 
         const items = urgentItems.length > 0
           ? urgentItems
           : [{ id: "healthy", serviceName: "All systems healthy", dueText: "No action needed", isOverdue: false }];
-        return { id: r.vin, name: displayName, vin: r.vin, maintenanceItems: items };
+        return { id: r.vin, name: displayName, vin: r.vin, maintenanceItems: items, nowItems };
       });
   }, [listVehicles, allMaintenanceRecords, availableServices]);
 
@@ -435,6 +471,30 @@ export default function HomeScreen() {
     () => vehicleBaseData.map((v) => ({ ...v, imageUrl: vehicleImageUrls[v.vin] ?? "" })),
     [vehicleBaseData, vehicleImageUrls]
   );
+
+  // Aggregate Now-tier items across all vehicles for the Home callout
+  // (Yassin v1.1 §3.2 "Assertive card at top of Home"). Flattens
+  // per-vehicle nowItems with vehicle context, sorted urgency-desc so
+  // the most urgent item leads. The Cars-page hook is the authoritative
+  // emitter for `urgency_tier_events`; this aggregation does not log to
+  // avoid double-counting.
+  const allNowItems = useMemo(() => {
+    return vehicleBaseData
+      .flatMap((v: (typeof vehicleBaseData)[number]) =>
+        v.nowItems.map((n: (typeof v.nowItems)[number]) => ({
+          ...n,
+          vehicleVin: v.vin,
+          vehicleName: v.name.replace(/\n/g, " "),
+          vehicleImageUrl: vehicleImageUrls[v.vin] || undefined,
+        })),
+      )
+      .sort(
+        (
+          a: { urgencyScore: number },
+          b: { urgencyScore: number },
+        ) => b.urgencyScore - a.urgencyScore,
+      );
+  }, [vehicleBaseData, vehicleImageUrls]);
 
   const handleSearch = (query: string) => {
     console.log("Search submitted:", query);
@@ -835,6 +895,42 @@ export default function HomeScreen() {
                   isNewUser={isNewUser}
                 />
               </View>}
+
+              {/* Action Engine "Now" callout (Yassin v1.1 §3.2). Visible
+                  only when allNowItems is non-empty. Sits above the
+                  vehicle carousel so the most urgent action is the
+                  first thing a returning user sees. */}
+              <NowTierCallout
+                items={allNowItems}
+                onCardPress={(item) => {
+                  // Route to the cars tab for this vehicle and have
+                  // MaintenanceTracker open its detail modal for this
+                  // exact item on mount (see openItemDetail param).
+                  useVehicleStore.getState().selectVehicle(item.vehicleVin);
+                  router.push({
+                    pathname: '/(main-tabs)/cars',
+                    params: { openItemDetail: item.itemId },
+                  });
+                }}
+                onBookNow={(item) => {
+                  // Each card in the pager carries its OWN vehicle +
+                  // service ids, so we always book the visible item —
+                  // no more "+N more" → wrong-vehicle drift.
+                  useVehicleStore.getState().selectVehicle(item.vehicleVin);
+                  const itemType = extractMaintenanceType(item.itemId);
+                  const store = useBookingStore.getState();
+                  const explicit = item.suggestedServiceId
+                    ? store.availableServices.find((s) => s.id === item.suggestedServiceId)
+                    : undefined;
+                  const matched = explicit ?? findServiceForMaintenanceType(itemType, store.availableServices);
+                  store.setInitialServiceCategory(
+                    matched?.category ?? MAINTENANCE_TYPE_TO_CATEGORY[itemType] ?? 'basic_maintenance',
+                  );
+                  store.clearSelectedServices();
+                  if (matched) store.toggleServiceSelection(matched.id);
+                  router.push('/booking/map?openServices=true&origin=home');
+                }}
+              />
 
               {/* Vehicle Maintenance - with dynamic margin based on active card */}
               <View style={{ marginTop: (visibleCardIds.length > 0 ? getCardMargin(activeCardIndex) : 0) + 24 }}>

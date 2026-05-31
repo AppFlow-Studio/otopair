@@ -21,7 +21,7 @@ import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 
 // 2. Expo & Third-party
 import { useRouter } from "expo-router";
-import { Car, Check, Clock, Flower2, Leaf, Snowflake, Sun } from "lucide-react-native";
+import { Car, Check, Clock, Flower2, Leaf, Snowflake, Sun, TrendingDown } from "lucide-react-native";
 
 // 3. Shared UI
 import { Text } from "@/components/shared-ui";
@@ -82,10 +82,10 @@ const THEME_ICON: Record<BundleTheme, React.ComponentType<{ size?: number; color
 };
 
 const THEME_LABEL: Record<BundleTheme, string> = {
-  summer: "SUMMER",
-  winter: "WINTER",
-  spring: "SPRING",
-  fall: "FALL",
+  summer: "Summer",
+  winter: "Winter",
+  spring: "Spring",
+  fall: "Fall",
 };
 
 // ============================================================================
@@ -201,16 +201,20 @@ function BundleCard({
   onBookPackage: (bundle: ServiceBundle) => void;
 }) {
   const Icon = THEME_ICON[bundle.theme];
-  const visitsCopy = `vs ${bundle.equivalentSeparateTrips} separate trips`;
 
   return (
     <View style={styles.card}>
-      {/* Header — category pill + theme icon */}
-      <View style={styles.header}>
-        <View style={styles.categoryPill}>
-          <Text style={styles.categoryPillText}>{THEME_LABEL[bundle.theme]}</Text>
-        </View>
-        <Icon size={20} color={BrandColors.secondary} strokeWidth={2} />
+      {/* Seasonal mark — outlined chip with mixed-weight typography.
+          "Summer" in italic-bold brand blue + a thin middot + "Bundle"
+          in tracked uppercase gray. Reads as an editorial edition mark
+          rather than a SaaS category tag. */}
+      <View style={styles.seasonChip}>
+        <Icon size={12} color={BrandColors.secondary} strokeWidth={2} />
+        <Text style={styles.seasonChipLabel}>
+          {THEME_LABEL[bundle.theme]}
+          <Text style={styles.seasonChipDivider}> · </Text>
+          <Text style={styles.seasonChipMeta}>BUNDLE</Text>
+        </Text>
       </View>
 
       {/* Title + subtitle */}
@@ -241,17 +245,18 @@ function BundleCard({
           <Text style={styles.totalTimeValue}>~{bundle.durationMinutes} min</Text>
         </View>
         <View style={styles.valueRight}>
-          <View style={styles.visitPill}>
-            <Car size={14} color="#16A34A" strokeWidth={2.5} />
-            <Text style={styles.visitPillText}>1 visit</Text>
+          <View style={styles.visitDisplayRow}>
+            <Text style={styles.visitNumber}>One</Text>
+            <Text style={styles.visitNumberUnit}>visit</Text>
           </View>
-          <Text style={styles.visitCaption}>{visitsCopy}</Text>
+          <View style={styles.visitTrendRow}>
+            <TrendingDown size={11} color={BrandColors.secondary} strokeWidth={2.2} />
+            <Text style={styles.visitTrendText}>from {bundle.equivalentSeparateTrips} trips</Text>
+          </View>
           {bundle.savingsEstimate != null && (
-            <View style={[styles.visitPill, styles.savingsPill]}>
-              <Text style={styles.visitPillText}>
-                Save up to ${bundle.savingsEstimate}
-              </Text>
-            </View>
+            <Text style={styles.savingsInline}>
+              save up to ${bundle.savingsEstimate}
+            </Text>
           )}
         </View>
       </View>
@@ -299,24 +304,37 @@ const styles = StyleSheet.create({
     ...Shadows.md,
   },
 
-  // ── Header (category pill + icon) ────────────────────────────────────
-  header: {
+  // ── Seasonal chip (outlined, mixed-weight typography) ────────────────
+  seasonChip: {
+    alignSelf: "flex-start",
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: BorderRadius.full,
+    borderWidth: 1,
+    borderColor: "rgba(82,153,254,0.30)",
     marginBottom: Spacing.md,
   },
-  categoryPill: {
-    paddingHorizontal: Spacing.sm + 2,
-    paddingVertical: 4,
-    borderRadius: BorderRadius.full,
-    backgroundColor: "rgba(82,153,254,0.10)",
-  },
-  categoryPillText: {
+  seasonChipLabel: {
     fontFamily: FontFamily.bold,
-    fontSize: 11,
-    letterSpacing: 1,
+    fontStyle: "italic",
+    fontSize: 12,
     color: BrandColors.secondary,
+    lineHeight: 14,
+  },
+  seasonChipDivider: {
+    fontFamily: FontFamily.regular,
+    fontStyle: "normal",
+    color: "#9CA3AF",
+  },
+  seasonChipMeta: {
+    fontFamily: FontFamily.semiBold,
+    fontStyle: "normal",
+    fontSize: 10,
+    letterSpacing: 1.2,
+    color: "#6B7280",
   },
 
   // ── Title block ──────────────────────────────────────────────────────
@@ -386,27 +404,43 @@ const styles = StyleSheet.create({
     alignItems: "flex-end",
     gap: 4,
   },
-  visitPill: {
+  // ── Visit display (display-size number + trend line) ─────────────────
+  visitDisplayRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: 6,
+  },
+  visitNumber: {
+    fontFamily: FontFamily.bold,
+    fontSize: 20,
+    lineHeight: 22,
+    color: "#0F172A",
+    letterSpacing: -0.3,
+  },
+  visitNumberUnit: {
+    fontFamily: FontFamily.medium,
+    fontStyle: "italic",
+    fontSize: 13,
+    color: "#6B7280",
+  },
+  visitTrendRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
-    paddingHorizontal: Spacing.sm + 2,
-    paddingVertical: 4,
-    borderRadius: BorderRadius.full,
-    backgroundColor: "rgba(34,197,94,0.10)",
-  },
-  savingsPill: {
     marginTop: 2,
   },
-  visitPillText: {
-    fontFamily: FontFamily.bold,
-    fontSize: 13,
-    color: "#16A34A",
+  visitTrendText: {
+    fontFamily: FontFamily.medium,
+    fontStyle: "italic",
+    fontSize: 11,
+    color: BrandColors.secondary,
   },
-  visitCaption: {
-    fontFamily: FontFamily.regular,
-    fontSize: 12,
-    color: "#6B7280",
+  savingsInline: {
+    fontFamily: FontFamily.semiBold,
+    fontStyle: "italic",
+    fontSize: 11,
+    color: BrandColors.secondary,
+    marginTop: 2,
   },
 
   // ── CTA ──────────────────────────────────────────────────────────────
