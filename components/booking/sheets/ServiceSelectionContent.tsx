@@ -40,6 +40,7 @@ import { useVehicleStore } from "@/stores/useVehicleStore";
  *  Convex-hydrated catalog uses opaque doc ids — name is the stable
  *  identifier across both. */
 const SHOP_TIRES_SERVICE_NAME = "Tire Replacement";
+const ROTOR_REPLACEMENT_SERVICE_NAME = "Rotor Replacement";
 const DIAGNOSTIC_SCAN_SERVICE_NAME = "Diagnostic Scan";
 
 const DIAGNOSTIC_SYSTEM_LABELS: Record<string, string> = {
@@ -63,6 +64,10 @@ interface ServiceSelectionContentProps {
    *  back to a direct router.push, which works but leaves the sheet
    *  visible over the new screen. */
   onShopTiresRequested?: () => void;
+  /** Called when the user picks Rotor Replacement — mirror of
+   *  `onShopTiresRequested`. Parent should close the sheet and hand off
+   *  to the Shop Rotors flow at `/(rotor-booking)`. */
+  onShopRotorsRequested?: () => void;
   /** Called when the user taps a service whose has_options=true and isn't
    *  already selected. The parent should open a per-service options
    *  picker (SingleServiceOptionsSheet), which on confirm will toggle the
@@ -78,7 +83,7 @@ interface ServiceSelectionContentProps {
 // COMPONENT
 // ============================================================================
 
-export function ServiceSelectionContent({ onCategorySelect, onShopTiresRequested, onServiceWithOptionsRequested, onDiagnosticServiceRequested }: ServiceSelectionContentProps) {
+export function ServiceSelectionContent({ onCategorySelect, onShopTiresRequested, onShopRotorsRequested, onServiceWithOptionsRequested, onDiagnosticServiceRequested }: ServiceSelectionContentProps) {
   // ═══════════════ HOOKS ═══════════════
   const router = useRouter();
 
@@ -241,6 +246,18 @@ export function ServiceSelectionContent({ onCategorySelect, onShopTiresRequested
         }
         return;
       }
+      // Rotor Replacement hands off to the dedicated Shop Rotors flow
+      // (axle pair + tier picker) — mirror of the tire branch above.
+      // Brake jobs are always done in pairs per axle, so the rotor flow
+      // can't be a plain cart toggle.
+      if (service?.name === ROTOR_REPLACEMENT_SERVICE_NAME) {
+        if (onShopRotorsRequested) {
+          onShopRotorsRequested();
+        } else {
+          router.push("/(rotor-booking)");
+        }
+        return;
+      }
       // has_options services route to a per-service picker on the first
       // tap so the user resolves Front/Rear/Both (or equivalent) before
       // the service lands in the cart. Subsequent taps just toggle off.
@@ -264,7 +281,7 @@ export function ServiceSelectionContent({ onCategorySelect, onShopTiresRequested
       }
       toggleServiceSelection(serviceId);
     },
-    [toggleServiceSelection, router, availableServices, onShopTiresRequested, onServiceWithOptionsRequested, onDiagnosticServiceRequested, selectedServiceIds],
+    [toggleServiceSelection, router, availableServices, onShopTiresRequested, onShopRotorsRequested, onServiceWithOptionsRequested, onDiagnosticServiceRequested, selectedServiceIds],
   );
 
   const handleCategorySelect = useCallback(

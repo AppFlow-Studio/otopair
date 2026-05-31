@@ -203,7 +203,7 @@ export default function PaymentScreen() {
       zip: shop?.zip,
     }).taxDollars;
 
-    const PARTS_BAND = 0.25;
+    const PARTS_BAND = 0.08;
     const partsLow = Math.max(0, partsCost * (1 - PARTS_BAND));
     const partsHigh = partsCost * (1 + PARTS_BAND);
     const taxLow = computeBookingTax({
@@ -255,15 +255,17 @@ export default function PaymentScreen() {
     setDisclosedRangeFormatted(breakdown.rangeFormatted);
   }, [breakdown.rangeFormatted, setDisclosedRangeFormatted]);
 
-  // Per-service line range (labor + parts ±25%) so summary rows show the
-  // same band as the aggregate.
+  // Per-service line range (labor + parts ±8%) so summary rows show the
+  // same band as the aggregate. The 8% cap matches the disclosed-range
+  // FALLBACK_BAND_RATIO — real source variance after MAD rejection sits
+  // in this band, so a wider spread would overstate uncertainty.
   const getServiceLineRange = useCallback(
     (service: (typeof selectedServices)[0]) => {
       const labor = (laborRate ?? 0) * getServiceLaborHours(service);
       const parts = getServicePartsCost(service);
       return {
-        low: labor + parts * 0.75,
-        high: labor + parts * 1.25,
+        low: labor + parts * 0.92,
+        high: labor + parts * 1.08,
       };
     },
     [laborRate, getServicePartsCost, getServiceLaborHours]
@@ -509,19 +511,28 @@ export default function PaymentScreen() {
                   if (!priced || !priced.winner) return [];
                   const part = priced.winner;
                   const qtyLabel = part.quantity > 1 ? ` ×${part.quantity}` : "";
-                  const hasPrice = part.has_price_data && part.line_total > 0;
-                  const unitLabel =
-                    hasPrice && part.quantity > 1 && part.unit_price > 0
-                      ? ` @ ~$${part.unit_price.toFixed(2)}`
-                      : "";
+                  // Render the variance the algorithm actually observed —
+                  // qty × kept-set min/max — instead of the single mean
+                  // that gets quoted to the mechanic. When only one source
+                  // priced the part (low === high), apply a synthetic ±8%
+                  // band so the row still reads as a range, matching the
+                  // disclosed-range FALLBACK_BAND_RATIO.
+                  const hasPrice = part.has_price_data && part.line_total_high > 0;
+                  const SINGLE_SOURCE_BAND = 0.08;
+                  const singleSource = part.line_total_low === part.line_total_high;
+                  const lineLow = singleSource
+                    ? part.line_total_low * (1 - SINGLE_SOURCE_BAND)
+                    : part.line_total_low;
+                  const lineHigh = singleSource
+                    ? part.line_total_high * (1 + SINGLE_SOURCE_BAND)
+                    : part.line_total_high;
                   return [
                     <View key={`${service.id}-${part.part_id}`} style={styles.breakdownRow}>
                       <Text size="sm" weight="regular" color="#6B7280" style={styles.breakdownLabel}>
                         {part.name} (Part){qtyLabel}
-                        {unitLabel}
                       </Text>
                       <Text size="sm" weight="medium" color="#6B7280">
-                        {hasPrice ? `$${part.line_total.toFixed(2)}` : "Price TBD"}
+                        {hasPrice ? formatRange(lineLow, lineHigh) : "Price TBD"}
                       </Text>
                     </View>,
                   ];
@@ -534,15 +545,16 @@ export default function PaymentScreen() {
                     {part.name} (Part)
                   </Text>
                   <Text size="sm" weight="medium" color="#6B7280">
-                    {formatRange(part.cost * 0.75, part.cost * 1.25)}
+                    {formatRange(part.cost * 0.92, part.cost * 1.08)}
                   </Text>
                 </View>
               ))}
 
-            {/* Taxes & Fees — recomputed at the parts endpoints. */}
+            {/* Taxes — recomputed at the parts endpoints. Service Fee
+                renders on its own row below; this row is tax only. */}
             <View style={styles.breakdownRow}>
               <Text size="sm" weight="regular" color="#6B7280">
-                Taxes & Fees
+                Taxes
               </Text>
               <Text size="sm" weight="medium" color="#6B7280">
                 {formatRange(breakdown.taxLow, breakdown.taxHigh)}

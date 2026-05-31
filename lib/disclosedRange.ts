@@ -22,10 +22,11 @@
 import { computeBookingTax } from "./tax";
 import { computePlatformFeeDollars } from "./platformFee";
 
-/** Fallback band ratio (±25%) around the parts estimate when no
+/** Fallback band ratio (±8%) around the parts estimate when no
  *  engine-specific service_vehicle_specs row is available. Mirror of the
- *  server constant in booking_quotes.ts. */
-const FALLBACK_BAND_RATIO = 0.25;
+ *  server constant in booking_quotes.ts — kept honest at 5–8% because
+ *  that's where real source variance lands after MAD outlier rejection. */
+const FALLBACK_BAND_RATIO = 0.08;
 
 export type DerivedRange = {
   lowDollars: number;

@@ -95,6 +95,10 @@ export interface Booking {
   /** Shop-assigned invoice / work-order number. When the mechanic sets one,
    *  the card surfaces it instead of the last-6 booking id. */
   invoiceNumber?: string;
+  /** Set on quote-stage bookings ("pending_quote" / "quotes_ready") so the
+   *  Bookings tab knows which QuoteListSheet variant to open. Derived from
+   *  bookings.tire_specs / bookings.rotor_specs in the Convex adapter. */
+  quoteType?: "tire" | "rotor";
 }
 
 interface BookingCardProps {

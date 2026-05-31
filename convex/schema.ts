@@ -1585,6 +1585,16 @@ export default defineSchema({
         quantity: v.number(),
       })
     ),
+    // Structured rotor request specs — populated for rotor-quote bookings.
+    // Mirrors tire_specs shape; axle drives the qty (front=2, rear=2,
+    // both=4). No "type" because rotor style is sourced by the shop.
+    rotor_specs: v.optional(
+      v.object({
+        axle: v.string(), // "front" | "rear" | "both"
+        tier: v.string(),
+        quantity: v.number(),
+      })
+    ),
     // Picked variants for services with has_options = true (e.g. brake pads
     // front-vs-rear). Tires keep using tire_specs above. One entry per
     // has_options service. option_label and option_type are snapshotted so
@@ -1799,6 +1809,34 @@ export default defineSchema({
     /** Optional expiration so stale quotes can be filtered out. */
     expires_at: v.optional(v.number()),
     /** Set when user accepts this quote (or another one). */
+    superseded_at: v.optional(v.number()),
+  })
+    .index("by_booking_id", ["booking_id"])
+    .index("by_shop_id", ["shop_id"])
+    .index("by_booking_and_shop", ["booking_id", "shop_id"]),
+
+  // Rotor quote responses — one row per shop response to a rotor-quote
+  // booking (bookings.rotor_specs set, status "pending_quote"). Mirrors
+  // tire_quote_responses; `acceptRotorQuote` fills shop/cost/scheduling
+  // onto the booking and flips it to "confirmed".
+  rotor_quote_responses: defineTable({
+    booking_id: v.id("bookings"),
+    shop_id: v.id("shops"),
+    /** Mechanic the shop assigned. Propagated onto booking on accept. */
+    mechanic_id: v.optional(v.id("mechanics")),
+    rotor_brand: v.string(),
+    rotor_model: v.optional(v.string()),
+    per_rotor_price: v.number(),
+    quantity: v.number(),
+    labor_cost: v.number(),
+    total: v.number(),
+    availability: v.object({
+      date: v.string(),
+      time: v.string(),
+    }),
+    estimated_duration_minutes: v.optional(v.number()),
+    created_at: v.number(),
+    expires_at: v.optional(v.number()),
     superseded_at: v.optional(v.number()),
   })
     .index("by_booking_id", ["booking_id"])

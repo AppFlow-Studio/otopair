@@ -67,6 +67,12 @@ export interface ConvexBookingWithDetails {
     tier: string;
     quantity: number;
   };
+  /** Populated for rotor-quote bookings only (status pending_quote / quotes_ready). */
+  rotor_specs?: {
+    axle: string; // "front" | "rear" | "both"
+    tier: string;
+    quantity: number;
+  };
   /** Pre-Job Approval flow — disclosed range snapshotted at create. */
   disclosed_range_low_cents?: number;
   disclosed_range_high_cents?: number;
@@ -199,12 +205,24 @@ export function adaptConvexBookingWithDetailsToCard(row: ConvexBookingWithDetail
 
   // For tire-quote bookings, synthesize the same notes string the local
   // PendingQuoteCard parser expects ("4 Premium All-Season · 225/45R18").
+  // Rotors mirror the same pattern ("Front pair · Premium · 2 rotors").
   let notes: string | undefined;
   if (row.tire_specs) {
     const { quantity, tier, type, size } = row.tire_specs;
     const head = [String(quantity), tier, type].filter(Boolean).join(" ");
     notes = [head || "Tires", size].filter(Boolean).join(" · ");
+  } else if (row.rotor_specs) {
+    const { quantity, tier, axle } = row.rotor_specs;
+    const axleLabel =
+      axle === "front" ? "Front pair" : axle === "rear" ? "Rear pair" : "All four";
+    notes = [axleLabel, tier, `${quantity} rotors`].filter(Boolean).join(" · ");
   }
+
+  const quoteType: BookingCardBooking["quoteType"] = row.rotor_specs
+    ? "rotor"
+    : row.tire_specs
+      ? "tire"
+      : undefined;
 
   return {
     id: row._id,
@@ -234,6 +252,7 @@ export function adaptConvexBookingWithDetailsToCard(row: ConvexBookingWithDetail
     paymentApprovalState: row.payment_approval_state,
     finalCaptureAmountCents: row.final_capture_amount_cents,
     invoiceNumber: row.invoice_number,
+    quoteType,
   };
 }
 

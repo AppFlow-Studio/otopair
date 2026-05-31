@@ -20,6 +20,10 @@ import { ProfileInitialsButton } from "@/components/home/ProfileInitialsButton";
 import { BookingCard, type Booking } from "@/components/bookings/BookingCard";
 import { PendingQuoteCard } from "@/components/bookings/PendingQuoteCard";
 import { QuoteListSheet, type QuoteListSheetRef } from "@/components/bookings/QuoteListSheet";
+import {
+  RotorQuoteListSheet,
+  type RotorQuoteListSheetRef,
+} from "@/components/bookings/RotorQuoteListSheet";
 import { BookingDetailsSheet, type BookingDetailsSheetRef } from "@/components/bookings/BookingDetailsSheet";
 import { ScrollDrivenGradientBackground, Text } from "@/components/shared-ui";
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
@@ -217,8 +221,14 @@ export default function BookingsScreen() {
   }, [bookingIdParam, isLoading, allBookings]);
 
   const quoteListSheetRef = useRef<QuoteListSheetRef>(null);
+  const rotorQuoteListSheetRef = useRef<RotorQuoteListSheetRef>(null);
   const handleViewQuotes = (bookingId: string) => {
-    quoteListSheetRef.current?.open(bookingId);
+    const booking = allBookings.find((b) => b.id === bookingId);
+    if (booking?.quoteType === "rotor") {
+      rotorQuoteListSheetRef.current?.open(bookingId);
+    } else {
+      quoteListSheetRef.current?.open(bookingId);
+    }
   };
 
   // Count of completed bookings still awaiting a review (scoped to the
@@ -458,6 +468,8 @@ export default function BookingsScreen() {
     <BookingDetailsSheet ref={detailsSheetRef} />
 
     <QuoteListSheet ref={quoteListSheetRef} />
+
+    <RotorQuoteListSheet ref={rotorQuoteListSheetRef} />
 
     {/* Vehicle picker sheet — drives the filter button above.
         showBackdrop dims + blurs the page behind it. */}
