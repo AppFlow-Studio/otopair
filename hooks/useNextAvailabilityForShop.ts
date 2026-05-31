@@ -39,6 +39,7 @@ export function useNextAvailabilityForShop(
   shopId: string | null,
   mechanicId: string | null | undefined,
   limit: number = DEFAULT_LIMIT,
+  durationMinutes?: number,
 ) {
   // Skip query for mock shop IDs (e.g. "1", "2") — only call Convex with real IDs
   const isConvexId = shopId != null && shopId.length > 10;
@@ -56,6 +57,7 @@ export function useNextAvailabilityForShop(
           shopId: shopId as Id<"shops">,
           limit,
           mechanicId: mechanicId === undefined || mechanicId === null ? undefined : (mechanicId as Id<"mechanics">),
+          durationMinutes,
           cutoffDate,
           cutoffTime,
         }

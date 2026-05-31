@@ -268,6 +268,12 @@ export function MechanicSelectionContent({
       };
     });
   }, [selectedServices, engineSpecs, selectedServiceOptions]);
+  const selectedDurationMinutes = useMemo(() => {
+    const minutes = selectedServicesForCard.reduce((total, service) => {
+      return total + (service.default_labor_hours ?? 0) * 60;
+    }, 0);
+    return minutes > 0 ? Math.ceil(minutes) : undefined;
+  }, [selectedServicesForCard]);
 
   // ═══════════════ EFFECTS ═══════════════
   // Go back — to service_options if any selected service has options, else service_selection
@@ -521,6 +527,7 @@ export function MechanicSelectionContent({
         visible={showAvailabilityModal}
         mechanicId={availabilityMechanicId}
         shopId={availabilityShopId}
+        durationMinutes={selectedDurationMinutes}
         onClose={handleCloseAvailabilityModal}
         onConfirm={handleAvailabilityConfirm}
       />

@@ -31,6 +31,7 @@ type MechanicAvailabilityGroup = {
 export function useNextAvailabilityPerMechanicForShop(
   shopId: string | null,
   limitPerMechanic: number = DEFAULT_LIMIT_PER_MECHANIC,
+  durationMinutes?: number,
 ) {
   const isRealShopId = shopId != null && shopId.length > 10;
   // See useNextAvailabilityForShop: pass the user's local cutoff so the
@@ -45,6 +46,7 @@ export function useNextAvailabilityPerMechanicForShop(
           limitPerMechanic,
           cutoffDate,
           cutoffTime,
+          durationMinutes,
         }
       : "skip",
   );

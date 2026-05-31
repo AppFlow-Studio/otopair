@@ -125,7 +125,7 @@ export function overlapsMechanicBooking(
   bufferMinutes: number = 0
 ): boolean {
   const windowStart = toMinutes(startTime);
-  const windowEnd = toMinutes(endTime);
+  const windowEnd = toMinutes(endTime) + (bufferMinutes ?? 0);
   return bookings.some((booking) => {
     if (excludeBookingId && booking._id === excludeBookingId) return false;
     if (booking.scheduledDate !== date) return false;

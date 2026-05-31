@@ -36,7 +36,12 @@ type TimeSlotRow = {
   end_time: string;
 };
 
-export function useTimeSlotsForShop(shopId: string | null, date: string | null, mechanicId?: string | null) {
+export function useTimeSlotsForShop(
+  shopId: string | null,
+  date: string | null,
+  mechanicId?: string | null,
+  durationMinutes?: number,
+) {
   // Skip query for mock IDs (e.g. "1", "2") — only call Convex with real IDs
   const isRealShopId = shopId != null && shopId.length > 10;
   const isRealMechanicId = mechanicId != null && mechanicId.length > 10;
@@ -48,6 +53,7 @@ export function useTimeSlotsForShop(shopId: string | null, date: string | null, 
           shopId: shopId as Id<"shops">,
           date,
           mechanicId: isRealMechanicId ? (mechanicId as Id<"mechanics">) : undefined,
+          durationMinutes,
         }
       : "skip",
   );

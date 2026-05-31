@@ -46,6 +46,8 @@ interface AvailabilityModalProps {
   mechanicId: string | null;
   /** Shop ID to get all mechanics for mechanic selector (optional) */
   shopId?: string | null;
+  /** Selected job duration in minutes; availability must fit the full window. */
+  durationMinutes?: number;
   /** Called when modal should close */
   onClose: () => void;
   /** Called when user confirms selection */
@@ -116,7 +118,7 @@ const CIRCLE_SIZE = CELL_SIZE - 8;
 // COMPONENT
 // ============================================================================
 
-export function AvailabilityModal({ visible, mechanicId, shopId, onClose, onConfirm }: AvailabilityModalProps) {
+export function AvailabilityModal({ visible, mechanicId, shopId, durationMinutes, onClose, onConfirm }: AvailabilityModalProps) {
   // ═══════════════ HOOKS ═══════════════
   const insets = useSafeAreaInsets();
 
@@ -187,6 +189,7 @@ export function AvailabilityModal({ visible, mechanicId, shopId, onClose, onConf
     currentMonth.getFullYear(),
     currentMonth.getMonth(),
     effectiveMechanicId ?? undefined,
+    durationMinutes,
   );
 
   const selectedDateISO = selectedDate ? selectedDate.toISOString().split("T")[0] : null;
@@ -194,6 +197,7 @@ export function AvailabilityModal({ visible, mechanicId, shopId, onClose, onConf
     effectiveShopId,
     selectedDateISO,
     effectiveMechanicId ?? undefined,
+    durationMinutes,
   );
 
   // ═══════════════ BOOKING STORE ═══════════════
@@ -285,7 +289,7 @@ export function AvailabilityModal({ visible, mechanicId, shopId, onClose, onConf
 
   const timeSlots = useMemo((): string[] => {
     let slots: string[];
-    if (effectiveShopId && selectedDateISO && convexTimeOptions.length > 0) {
+    if (effectiveShopId && selectedDateISO) {
       slots = convexTimeOptions;
     } else {
       const s = getTimeSlotsForSelectedDate() as string[];

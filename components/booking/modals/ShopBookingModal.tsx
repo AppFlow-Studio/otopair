@@ -147,6 +147,19 @@ export function ShopBookingModal({ visible, shopId, mechanicId, onClose, onConti
   const getBookedDayNumbers = useScheduleStore((state) => state.getBookedDayNumbers);
   const getTimeSlotsForSelectedDate = useScheduleStore((state) => state.getTimeSlotsForSelectedDate);
 
+  const availabilitySelectedServiceIds = useBookingStore((state) => state.selectedServiceIds);
+  const availabilityAvailableServices = useBookingStore((state) => state.availableServices);
+
+  const availabilitySelectedServices = useMemo(() => {
+    return availabilityAvailableServices.filter((service) => availabilitySelectedServiceIds.includes(service.id));
+  }, [availabilityAvailableServices, availabilitySelectedServiceIds]);
+  const availabilityDurationMinutes = useMemo(() => {
+    const minutes = availabilitySelectedServices.reduce((total, service) => {
+      return total + (service.default_labor_hours ?? 0) * 60;
+    }, 0);
+    return minutes > 0 ? Math.ceil(minutes) : undefined;
+  }, [availabilitySelectedServices]);
+
   const selectedDateStr = selectedDate ? selectedDate.toISOString().split("T")[0] : null;
   const effectiveMechanicId = selectedMechanicId ?? undefined;
 
@@ -156,17 +169,16 @@ export function ShopBookingModal({ visible, shopId, mechanicId, onClose, onConti
     currentMonth.getFullYear(),
     currentMonth.getMonth(),
     effectiveMechanicId ?? undefined,
+    availabilityDurationMinutes,
   );
 
   const {
     timeOptions: convexTimeOptions,
-    hasSlots: hasConvexSlots,
     getSlotIdByDisplayTime,
-  } = useTimeSlotsForShop(effectiveShopId, selectedDateStr, effectiveMechanicId ?? undefined);
+  } = useTimeSlotsForShop(effectiveShopId, selectedDateStr, effectiveMechanicId ?? undefined, availabilityDurationMinutes);
 
   // ═══════════════ BOOKING STORE ═══════════════
   const setScheduledAppointment = useBookingStore((state) => state.setScheduledAppointment);
-  const selectMechanic = useBookingStore((state) => state.selectMechanic);
   const selectedServiceIds = useBookingStore((state) => state.selectedServiceIds);
   const availableServices = useBookingStore((state) => state.availableServices);
   const setBookingTypeAndProceed = useBookingStore((state) => state.setBookingTypeAndProceed);
@@ -196,9 +208,8 @@ export function ShopBookingModal({ visible, shopId, mechanicId, onClose, onConti
   );
 
   const totalDuration = useMemo(() => {
-    // Estimate 30 min per service for now
-    return selectedServices.length * 30;
-  }, [selectedServices]);
+    return availabilityDurationMinutes ?? selectedServices.length * 30;
+  }, [availabilityDurationMinutes, selectedServices]);
 
   // Check if we can proceed (has date, time, and at least one service)
   const canContinue = selectedDate !== null && selectedTime !== null && selectedServices.length > 0;
@@ -239,10 +250,10 @@ export function ShopBookingModal({ visible, shopId, mechanicId, onClose, onConti
   const bookedDays = useConvexCalendar ? convexCalendar.bookedDayNumbers : getBookedDayNumbers();
 
   const timeSlots = useMemo((): string[] => {
-    if (hasConvexSlots && convexTimeOptions.length > 0) return convexTimeOptions;
+    if (effectiveShopId && selectedDateStr) return convexTimeOptions;
     const slots = getTimeSlotsForSelectedDate() as string[];
     return slots.length > 0 ? slots : DEFAULT_TIME_SLOTS;
-  }, [hasConvexSlots, convexTimeOptions, selectedDate, getTimeSlotsForSelectedDate]);
+  }, [effectiveShopId, selectedDateStr, convexTimeOptions, getTimeSlotsForSelectedDate]);
 
   const selectedDayNumber = selectedDate?.getDate() ?? null;
 

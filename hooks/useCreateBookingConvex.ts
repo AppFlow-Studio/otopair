@@ -127,9 +127,10 @@ export function useCreateBookingConvex() {
       }
       // DB values only: labor = rate × default_labor_hours, parts = default_parts_estimate (no fallbacks)
       const services = selectedServices.map((s) => {
-        const hours = s.default_labor_hours ?? 0;
+        const option = selectedServiceOptions[s.id];
+        const hours = option?.labor_hours ?? s.default_labor_hours ?? 0;
         const laborCost = laborRate * hours;
-        const partsCost = s.default_parts_estimate ?? 0;
+        const partsCost = option?.parts_cost_avg ?? s.default_parts_estimate ?? 0;
         return {
           service_id: s.id as Id<"services">,
           labor_cost: laborCost,
