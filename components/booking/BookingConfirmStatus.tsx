@@ -22,7 +22,7 @@ import { useShopStore } from "@/stores/useShopStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 
 interface Props {
-  /** Fires once — either via user tap or the 8s countdown auto-fire.
+  /** Fires once - either via user tap or the 8s countdown auto-fire.
    *  Triggers the createBooking mutation in the parent route. */
   onConfirm: () => void;
   /** Dismiss the sheet and bounce back to the payment screen. */
@@ -49,7 +49,7 @@ export function BookingConfirmStatus({ onConfirm, onGoBack, mechanicId }: Props)
   const shop = shopId ? getShopById(shopId) : null;
 
   const appointmentLabel = scheduledAppointment
-    ? `${scheduledAppointment.displayDate || scheduledAppointment.date} · ${scheduledAppointment.time}`
+    ? `${scheduledAppointment.displayDate || scheduledAppointment.date} - ${scheduledAppointment.time}`
     : "Time TBD";
 
   const vehicleLabel = selectedVehicle
@@ -57,8 +57,8 @@ export function BookingConfirmStatus({ onConfirm, onGoBack, mechanicId }: Props)
     : "Selected vehicle";
 
   const mechanicLabel = mechanic
-    ? `${mechanic.name}${shop?.name ? ` · ${shop.name}` : ""}`
-    : `Any available mechanic${shop?.name ? ` Â· ${shop.name}` : ""}`;
+    ? [mechanic.name, shop?.name].filter(Boolean).join(" - ")
+    : ["Any available mechanic", shop?.name].filter(Boolean).join(" - ");
   const isCompactLayout = windowHeight < 860;
   const isVeryCompactLayout = windowHeight < 760;
 
@@ -70,7 +70,7 @@ export function BookingConfirmStatus({ onConfirm, onGoBack, mechanicId }: Props)
         color="#1A1A1A"
         style={[styles.title, isCompactLayout && styles.titleCompact]}
       >
-        Confirming your appointment…
+        Confirming your appointment...
       </Text>
 
       <View style={[styles.rows, isCompactLayout && styles.rowsCompact]}>
@@ -85,7 +85,7 @@ export function BookingConfirmStatus({ onConfirm, onGoBack, mechanicId }: Props)
         <InfoRow
           icon={<Car size={20} color="#4B5563" strokeWidth={2} />}
           primary={vehicleLabel}
-          secondary={selectedVehicle?.vin ? `VIN · ${selectedVehicle.vin}` : undefined}
+          secondary={selectedVehicle?.vin ? `VIN - ${selectedVehicle.vin}` : undefined}
           compact={isCompactLayout}
           veryCompact={isVeryCompactLayout}
         />

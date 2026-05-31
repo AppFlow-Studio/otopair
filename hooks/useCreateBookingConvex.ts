@@ -184,7 +184,7 @@ export function useCreateBookingConvex() {
       // separately via `useBookingStatusToasts` when the shop accepts.
       let bookingIds: string[];
       try {
-        bookingIds = await createBatch({
+        const createBatchPayload = {
           user_id: userId,
           vin,
           shop_id: shopId as Id<"shops">,
@@ -202,7 +202,18 @@ export function useCreateBookingConvex() {
           diagnostic_system: selectedDiagnosticSystem ?? undefined,
           selected_service_options:
             selectedOptionsPayload.length > 0 ? selectedOptionsPayload : undefined,
+        };
+
+        console.log("[createBatch payload]", {
+          mechanicMode: mechanicId ? "specific" : "any",
+          mechanicIdSent: mechanicId ?? null,
+          legacyTimeSlotIdSent: legacyTimeSlotId ?? null,
+          scheduledDate: scheduledDateVal,
+          scheduledTime: scheduledTimeVal,
+          payload: createBatchPayload,
         });
+
+        bookingIds = await createBatch(createBatchPayload);
       } catch (err) {
         toast.error(
           "Couldn't submit booking.",
