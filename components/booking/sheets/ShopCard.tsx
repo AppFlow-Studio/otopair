@@ -243,7 +243,7 @@ export const ShopCard = memo(function ShopCard({
 
   const handleSlotPress = useCallback(
     (slot: SlotWithBookingMeta) => {
-      const mechanicId = selectedMechanicId === null ? (slot.mechanicId ?? null) : selectedMechanicId;
+      const mechanicId = selectedMechanicId === null ? null : selectedMechanicId;
       onSelectSlot(shop.shopId, mechanicId, slot);
     },
     [onSelectSlot, shop.shopId, selectedMechanicId],

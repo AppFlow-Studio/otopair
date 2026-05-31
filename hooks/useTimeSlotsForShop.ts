@@ -7,8 +7,8 @@
  * USED IN: ShopBookingModal, AvailabilityModal
  */
 
-import { useMutation, useQuery } from "convex/react";
-import { useEffect, useMemo } from "react";
+import { useQuery } from "convex/react";
+import { useMemo } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { displayTimeToHHMM } from "@/utils/timeSlotUtils";
@@ -23,28 +23,23 @@ function hhmmToDisplayTime(hhmm: string): string {
 }
 
 export interface TimeSlotOption {
-  id: Id<"time_slots">;
+  id: string;
   startTime: string;
   endTime: string;
   displayTime: string;
 }
 
+type TimeSlotRow = {
+  _id: string;
+  is_available: boolean;
+  start_time: string;
+  end_time: string;
+};
+
 export function useTimeSlotsForShop(shopId: string | null, date: string | null, mechanicId?: string | null) {
   // Skip query for mock IDs (e.g. "1", "2") — only call Convex with real IDs
   const isRealShopId = shopId != null && shopId.length > 10;
   const isRealMechanicId = mechanicId != null && mechanicId.length > 10;
-  const refreshShopAvailability = useMutation(api.time_slots.refreshShopAvailability);
-
-  useEffect(() => {
-    if (!isRealShopId || !date) return;
-    void refreshShopAvailability({
-      shopId: shopId as Id<"shops">,
-      date,
-      mechanicId: isRealMechanicId ? (mechanicId as Id<"mechanics">) : undefined,
-    }).catch((error) => {
-      console.warn("[availability] failed to refresh shop slots", error);
-    });
-  }, [date, isRealMechanicId, isRealShopId, mechanicId, refreshShopAvailability, shopId]);
 
   const slots = useQuery(
     api.time_slots.getByShopAndDate,
@@ -57,9 +52,9 @@ export function useTimeSlotsForShop(shopId: string | null, date: string | null, 
       : "skip",
   );
 
-  const availableSlots = useMemo(() => {
+  const availableSlots = useMemo((): TimeSlotOption[] => {
     if (!slots) return [];
-    return slots
+    return (slots as TimeSlotRow[])
       .filter((s) => s.is_available)
       .map((s) => ({
         id: s._id,

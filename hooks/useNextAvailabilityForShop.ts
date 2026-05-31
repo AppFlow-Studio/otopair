@@ -8,8 +8,8 @@
  * USED IN: components/booking/sheets/ShopCard.tsx
  */
 
-import { useMutation, useQuery } from "convex/react";
-import { useEffect, useMemo } from "react";
+import { useQuery } from "convex/react";
+import { useMemo } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { MechanicAvailabilitySlot } from "@/stores/types/store.types";
@@ -49,18 +49,6 @@ export function useNextAvailabilityForShop(
   // UTC and would otherwise mis-classify "today" near midnight.
   const cutoffDate = todayLocalISO();
   const cutoffTime = minBookableHHMM();
-  const refreshShopAvailability = useMutation(api.time_slots.refreshShopAvailability);
-
-  useEffect(() => {
-    if (!isConvexId) return;
-    void refreshShopAvailability({
-      shopId: shopId as Id<"shops">,
-      startDate: cutoffDate,
-    }).catch((error) => {
-      console.warn("[availability] failed to refresh shop slots", error);
-    });
-  }, [cutoffDate, isConvexId, refreshShopAvailability, shopId]);
-
   const convexSlots = useQuery(
     api.time_slots.getNextAvailableByShop,
     isConvexId

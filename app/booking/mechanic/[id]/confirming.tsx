@@ -65,6 +65,7 @@ export default function BookingConfirmingScreen() {
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const { createBookingConvex } = useCreateBookingConvex();
   const selectedMechanicId = useBookingStore((s) => s.selectedMechanicId);
+  const selectedMechanicSlot = useBookingStore((s) => s.selectedMechanicSlot);
   const bookingType = useBookingStore((s) => s.bookingType);
   const selectedPaymentMethodId = usePaymentStore((s) => s.selectedPaymentMethodId);
   const createPaymentIntent = useAction(api.payments_stripe.createPaymentIntentForBooking);
@@ -128,19 +129,19 @@ export default function BookingConfirmingScreen() {
 
   const handleConfirm = useCallback(async () => {
     if (submitting || navigatedRef.current) return;
-    if (!selectedMechanicId) {
+    if (!selectedMechanicId && !selectedMechanicSlot?.shopId) {
       navigatedRef.current = true;
       router.replace({
-        pathname: `/booking/mechanic/${id}/payment`,
-        params: { confirmError: "No mechanic selected." },
+        pathname: "/booking/mechanic/[id]/payment",
+        params: { id, confirmError: "No shop selected." },
       });
       return;
     }
     if (!selectedPaymentMethodId) {
       navigatedRef.current = true;
       router.replace({
-        pathname: `/booking/mechanic/${id}/payment`,
-        params: { confirmError: "Add a payment method to confirm." },
+        pathname: "/booking/mechanic/[id]/payment",
+        params: { id, confirmError: "Add a payment method to confirm." },
       });
       return;
     }
@@ -177,20 +178,21 @@ export default function BookingConfirmingScreen() {
       if (navigatedRef.current) return;
       navigatedRef.current = true;
       router.replace({
-        pathname: `/booking/mechanic/${id}/confirmation`,
-        params: newBookingId ? { bookingDbId: newBookingId } : {},
+        pathname: "/booking/mechanic/[id]/confirmation",
+        params: newBookingId ? { id, bookingDbId: newBookingId } : { id },
       });
     } catch (err) {
       if (navigatedRef.current) return;
       navigatedRef.current = true;
       router.replace({
-        pathname: `/booking/mechanic/${id}/payment`,
-        params: { confirmError: extractErrorMessage(err) },
+        pathname: "/booking/mechanic/[id]/payment",
+        params: { id, confirmError: extractErrorMessage(err) },
       });
     }
   }, [
     submitting,
     selectedMechanicId,
+    selectedMechanicSlot?.shopId,
     selectedPaymentMethodId,
     bookingType,
     createBookingConvex,

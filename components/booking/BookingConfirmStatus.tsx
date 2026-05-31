@@ -36,6 +36,7 @@ export function BookingConfirmStatus({ onConfirm, onGoBack, mechanicId }: Props)
   const { height: windowHeight } = useWindowDimensions();
   const scheduledAppointment = useBookingStore((s) => s.scheduledAppointment);
   const selectedMechanicId = useBookingStore((s) => s.selectedMechanicId);
+  const selectedMechanicSlot = useBookingStore((s) => s.selectedMechanicSlot);
   const disclosedRangeFormatted = useBookingStore((s) => s.disclosedRangeFormatted);
   const getMechanicById = useMechanicStore((s) => s.getMechanicById);
   const getShopById = useShopStore((s) => s.getShopById);
@@ -44,7 +45,8 @@ export function BookingConfirmStatus({ onConfirm, onGoBack, mechanicId }: Props)
   );
 
   const mechanic = getMechanicById(selectedMechanicId ?? mechanicId ?? "");
-  const shop = mechanic?.shopId ? getShopById(mechanic.shopId) : null;
+  const shopId = mechanic?.shopId ?? selectedMechanicSlot?.shopId;
+  const shop = shopId ? getShopById(shopId) : null;
 
   const appointmentLabel = scheduledAppointment
     ? `${scheduledAppointment.displayDate || scheduledAppointment.date} · ${scheduledAppointment.time}`
@@ -56,7 +58,7 @@ export function BookingConfirmStatus({ onConfirm, onGoBack, mechanicId }: Props)
 
   const mechanicLabel = mechanic
     ? `${mechanic.name}${shop?.name ? ` · ${shop.name}` : ""}`
-    : "Selected mechanic";
+    : `Any available mechanic${shop?.name ? ` Â· ${shop.name}` : ""}`;
   const isCompactLayout = windowHeight < 860;
   const isVeryCompactLayout = windowHeight < 760;
 

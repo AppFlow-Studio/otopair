@@ -342,7 +342,7 @@ export function MechanicSelectionContent({
   }, []);
 
   // Handle availability modal confirmation - updates the selected slot
-  const handleAvailabilityConfirm = useCallback((date: Date, time: string, confirmedMechanicId: number) => {
+  const handleAvailabilityConfirm = useCallback((date: Date, time: string, confirmedMechanicId: string | null) => {
     // The AvailabilityModal already updates the selectedMechanicSlot in the store
     // This callback can be used for any additional actions if needed
   }, []);
@@ -381,11 +381,10 @@ export function MechanicSelectionContent({
 
     const timeDisplay = scheduledTime ? hhmmToDisplayTime(scheduledTime) : slot.time;
 
-    // Use the first mechanic from the shop if "Any" was selected
-    const effectiveMechanicId =
-      mechanicId || shopList.find((s) => s.shopId === selectedMechanicSlot.shopId)?.mechanics[0]?.id;
+    const effectiveMechanicId = mechanicId ?? null;
+    const routeId = effectiveMechanicId ?? selectedMechanicSlot.shopId;
 
-    if (!effectiveMechanicId) return;
+    if (!routeId) return;
 
     setBookingTypeAndProceed("schedule_later", effectiveMechanicId);
     setScheduledAppointment({
@@ -401,10 +400,9 @@ export function MechanicSelectionContent({
     onSelectMechanic?.();
 
     // Navigate to payment page
-    router.push(`/booking/mechanic/${effectiveMechanicId}/payment`);
+    router.push(`/booking/mechanic/${routeId}/payment`);
   }, [
     selectedMechanicSlot,
-    shopList,
     setBookingTypeAndProceed,
     setScheduledAppointment,
     setSkippedBookingDetails,

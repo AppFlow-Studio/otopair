@@ -40,7 +40,7 @@ export interface SelectedMechanicSlot {
   mechanicId: string | null; // null means "Any"
   mechanicName: string | null;
   slot: MechanicAvailabilitySlot;
-  /** Convex time_slot_id for booking.create */
+  /** Legacy time_slots id or computed availability window id; booking uses date/time as source of truth. */
   timeSlotId?: string;
   /** Scheduled date YYYY-MM-DD */
   scheduledDate?: string;
@@ -189,7 +189,7 @@ interface BookingState {
   /** Select a mechanic (null for "Any Available") */
   selectMechanic: (mechanicId: string | null) => void;
   /** Set booking type and proceed to booking details */
-  setBookingTypeAndProceed: (type: BookingType, mechanicId: string) => void;
+  setBookingTypeAndProceed: (type: BookingType, mechanicId: string | null) => void;
   /** Set the scheduled appointment date/time */
   setScheduledAppointment: (appointment: ScheduledAppointment | null) => void;
   /** Stash the disclosed price range so the Confirm screen can re-display it. */

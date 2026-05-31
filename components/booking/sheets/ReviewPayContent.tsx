@@ -105,6 +105,7 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
   const selectedServiceIds = useBookingStore((state) => state.selectedServiceIds);
   const availableServices = useBookingStore((state) => state.availableServices);
   const selectedMechanicId = useBookingStore((state) => state.selectedMechanicId);
+  const selectedMechanicSlot = useBookingStore((state) => state.selectedMechanicSlot);
   const getFormattedAppointmentDate = useBookingStore((state) => state.getFormattedAppointmentDate);
   const getFormattedAppointmentTime = useBookingStore((state) => state.getFormattedAppointmentTime);
   const customerNotes = useBookingStore((state) => state.customerNotes);
@@ -146,8 +147,14 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
   }, [selectedMechanicId, getMechanicById]);
 
   // Shop for pricing (shop labor rate only)
-  const shop = useMemo(() => (mechanic?.shopId ? getShopById(mechanic.shopId) : null), [mechanic?.shopId, getShopById]);
+  const shop = useMemo(() => {
+    const shopId = mechanic?.shopId ?? selectedMechanicSlot?.shopId;
+    return shopId ? getShopById(shopId) : null;
+  }, [mechanic?.shopId, selectedMechanicSlot?.shopId, getShopById]);
   const laborRate = shop?.labor_rate;
+  const mechanicDisplayName = mechanic?.name ?? "Any available mechanic";
+  const mechanicSubtitle =
+    mechanic?.title ?? mechanic?.shopName ?? selectedMechanicSlot?.shopName ?? shop?.name ?? "Shop will assign a mechanic";
 
   // Get selected services
   const selectedServices = useMemo(
@@ -356,16 +363,6 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
   }, []);
 
   // ═══════════════ RENDER ═══════════════
-  if (!mechanic) {
-    return (
-      <View style={styles.container}>
-        <Text size="md" weight="medium" color="#6B7280" center>
-          No mechanic selected
-        </Text>
-      </View>
-    );
-  }
-
   // Choose the appropriate ScrollView component based on mode
   const ScrollComponent = isFullScreen ? ScrollView : BottomSheetScrollView;
 
@@ -390,30 +387,32 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
           {/* Mechanic Info Row */}
           <View style={styles.mechanicRow}>
             <View style={styles.avatarWrapper}>
-              {mechanic.photoUrl ? (
+              {mechanic?.photoUrl ? (
                 <Image source={{ uri: mechanic.photoUrl }} style={styles.avatar} />
               ) : (
                 <View style={styles.avatarPlaceholder}>
                   <Text size="xl" weight="bold" color="#9CA3AF">
-                    {mechanic.name.charAt(0)}
+                    {mechanicDisplayName.charAt(0)}
                   </Text>
                 </View>
               )}
               {/* Rating Badge */}
-              <View style={styles.ratingBadge}>
-                <Star size={10} color="#FCD34D" fill="#FCD34D" />
-                <Text size="xs" weight="bold" color={BrandColors.white}>
-                  {mechanic.rating.toFixed(1)}
-                </Text>
-              </View>
+              {mechanic && (
+                <View style={styles.ratingBadge}>
+                  <Star size={10} color="#FCD34D" fill="#FCD34D" />
+                  <Text size="xs" weight="bold" color={BrandColors.white}>
+                    {mechanic.rating.toFixed(1)}
+                  </Text>
+                </View>
+              )}
             </View>
 
             <View style={styles.mechanicInfo}>
               <Text size="lg" weight="bold" color={BrandColors.primary}>
-                {mechanic.name}
+                {mechanicDisplayName}
               </Text>
               <Text size="sm" weight="medium" color="#6B7280">
-                {mechanic.title ?? mechanic.shopName}
+                {mechanicSubtitle}
               </Text>
             </View>
           </View>

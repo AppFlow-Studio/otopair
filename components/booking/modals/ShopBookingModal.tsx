@@ -52,7 +52,7 @@ interface ShopBookingModalProps {
   /** Called when modal should close */
   onClose: () => void;
   /** Called when user presses Continue to go to payment */
-  onContinue?: (date: Date, time: string, mechanicId: string) => void;
+  onContinue?: (date: Date, time: string, mechanicId: string | null) => void;
 }
 
 type DayStatus = "available" | "booked" | "selected" | "disabled" | "normal";
@@ -148,7 +148,7 @@ export function ShopBookingModal({ visible, shopId, mechanicId, onClose, onConti
   const getTimeSlotsForSelectedDate = useScheduleStore((state) => state.getTimeSlotsForSelectedDate);
 
   const selectedDateStr = selectedDate ? selectedDate.toISOString().split("T")[0] : null;
-  const effectiveMechanicId = selectedMechanicId ?? shopMechanics[0]?.id ?? mechanicId;
+  const effectiveMechanicId = selectedMechanicId ?? undefined;
 
   // Convex calendar: which days have available slots vs booked (for Available/Booked highlighting)
   const convexCalendar = useCalendarAvailabilityForShop(
@@ -221,16 +221,14 @@ export function ShopBookingModal({ visible, shopId, mechanicId, onClose, onConti
   // Load schedule when mechanic selection changes
   useEffect(() => {
     if (visible) {
-      // Use selected mechanic, or first mechanic if "Any" is selected
-      const effectiveMechanicId = selectedMechanicId ?? shopMechanics[0]?.id ?? mechanicId;
-      if (effectiveMechanicId !== null && effectiveMechanicId !== undefined) {
-        loadMechanicSchedule(effectiveMechanicId);
+      if (selectedMechanicId) {
+        loadMechanicSchedule(selectedMechanicId);
       }
     }
   }, [visible, selectedMechanicId, shopMechanics, mechanicId, loadMechanicSchedule]);
 
   // ═══════════════ MECHANIC SELECTOR HANDLER ═══════════════
-  const handleMechanicSelect = useCallback((id: number | null) => {
+  const handleMechanicSelect = useCallback((id: string | null) => {
     setSelectedMechanicId(id);
   }, []);
 
@@ -240,9 +238,9 @@ export function ShopBookingModal({ visible, shopId, mechanicId, onClose, onConti
   const availableDays = useConvexCalendar ? convexCalendar.availableDayNumbers : getAvailableDayNumbers();
   const bookedDays = useConvexCalendar ? convexCalendar.bookedDayNumbers : getBookedDayNumbers();
 
-  const timeSlots = useMemo(() => {
+  const timeSlots = useMemo((): string[] => {
     if (hasConvexSlots && convexTimeOptions.length > 0) return convexTimeOptions;
-    const slots = getTimeSlotsForSelectedDate();
+    const slots = getTimeSlotsForSelectedDate() as string[];
     return slots.length > 0 ? slots : DEFAULT_TIME_SLOTS;
   }, [hasConvexSlots, convexTimeOptions, selectedDate, getTimeSlotsForSelectedDate]);
 
@@ -351,17 +349,16 @@ export function ShopBookingModal({ visible, shopId, mechanicId, onClose, onConti
   }, []);
 
   const handleContinue = useCallback(() => {
-    // Use selected mechanic, or first mechanic if "Any" is selected
-    const effectiveMechanicId = selectedMechanicId ?? shopMechanics[0]?.id ?? mechanicId;
+    const effectiveMechanicId = selectedMechanicId ?? null;
     const effectiveShopId = shopId ?? shopMechanics[0]?.shopId;
     const effectiveMechanic = effectiveMechanicId ? getMechanicById(effectiveMechanicId) : null;
     const effectiveShopName = effectiveMechanic?.shopName ?? shopMechanics[0]?.shopName ?? "";
+    const routeId = effectiveMechanicId ?? effectiveShopId;
 
     if (
       selectedDate &&
       selectedTime &&
-      effectiveMechanicId !== null &&
-      effectiveMechanicId !== undefined &&
+      routeId &&
       selectedServices.length > 0
     ) {
       confirmSelection();
@@ -411,14 +408,13 @@ export function ShopBookingModal({ visible, shopId, mechanicId, onClose, onConti
       onClose();
 
       // Navigate to payment screen
-      router.push(`/booking/mechanic/${effectiveMechanicId}/payment`);
+      router.push(`/booking/mechanic/${routeId}/payment`);
     }
   }, [
     selectedDate,
     selectedTime,
     selectedMechanicId,
     shopMechanics,
-    mechanicId,
     shopId,
     selectedServices.length,
     confirmSelection,
@@ -460,7 +456,7 @@ export function ShopBookingModal({ visible, shopId, mechanicId, onClose, onConti
         circleStyle = styles.circleBooked;
       }
 
-      let textColor = BrandColors.primary;
+      let textColor: string = BrandColors.primary;
       if (isDisabled) {
         textColor = "#D1D5DB";
       } else if (isSelected) {
@@ -641,7 +637,7 @@ export function ShopBookingModal({ visible, shopId, mechanicId, onClose, onConti
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.timeSlotsContent}
             >
-              {timeSlots.map((time, index) => {
+              {timeSlots.map((time: string, index) => {
                 const isSelected = selectedTime === time;
                 return (
                   <TouchableOpacity

@@ -26,6 +26,9 @@ import { useVehicleStore } from "@/stores/useVehicleStore";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { displayTimeToHHMM } from "@/utils/timeSlotUtils";
 
+const isLegacyTimeSlotId = (value: string | null | undefined): value is Id<"time_slots"> =>
+  Boolean(value && !value.startsWith("computed:"));
+
 export function useCreateBookingConvex() {
   const createBatch = useMutation(api.bookings.createBatch);
   const toast = useToast();
@@ -69,22 +72,17 @@ export function useCreateBookingConvex() {
 
   const resolveLegacyTimeSlotId = useCallback(
     (mechanicId: string | null | undefined): Id<"time_slots"> | null => {
-      if (
-        selectedMechanicSlot?.timeSlotId &&
-        !selectedMechanicSlot.timeSlotId.startsWith("computed:")
-      ) {
-        return selectedMechanicSlot.timeSlotId as Id<"time_slots">;
-      }
+      const mechanicIdOpt = mechanicId ?? selectedMechanicId;
+      if (!mechanicIdOpt) return null;
+
+      if (isLegacyTimeSlotId(selectedMechanicSlot?.timeSlotId)) return selectedMechanicSlot.timeSlotId;
+
       const slots = slotsForShopAndTime;
       if (!slots || slots.length === 0) return null;
-      const mechanicIdOpt = mechanicId ?? selectedMechanicId;
-      if (mechanicIdOpt) {
-        const forMechanic = slots.find(
-          (s: { mechanic_id?: string | null }) => s.mechanic_id === mechanicIdOpt,
-        );
-        if (forMechanic) return forMechanic._id;
-      }
-      return slots[0]._id;
+      const forMechanic = slots.find(
+        (s: { _id: string; mechanic_id?: string | null }) => s.mechanic_id === mechanicIdOpt,
+      );
+      return isLegacyTimeSlotId(forMechanic?._id) ? forMechanic._id : null;
     },
     [selectedMechanicSlot?.timeSlotId, slotsForShopAndTime, selectedMechanicId],
   );
@@ -92,7 +90,7 @@ export function useCreateBookingConvex() {
   const getSelectedVehicle = useVehicleStore((s) => s.getSelectedVehicle);
 
   const createBookingConvex = useCallback(
-    async (mechanicId: string, bookingType: "book_now" | "schedule_later"): Promise<string[]> => {
+    async (mechanicId: string | null | undefined, bookingType: "book_now" | "schedule_later"): Promise<string[]> => {
       const shopId = effectiveShopId;
       const legacyTimeSlotId = resolveLegacyTimeSlotId(mechanicId);
       // Prefer the user's currently selected vehicle in the booking flow.
