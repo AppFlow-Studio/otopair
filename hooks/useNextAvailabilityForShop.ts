@@ -16,8 +16,8 @@ import type { MechanicAvailabilitySlot } from "@/stores/types/store.types";
 import { dateToDayDisplay, hhmmToDisplayTime, minBookableHHMM, todayLocalISO } from "@/utils/timeSlotUtils";
 
 export interface NextAvailabilitySlot extends MechanicAvailabilitySlot {
-  /** Convex time_slot id for booking */
-  timeSlotId: Id<"time_slots">;
+  /** Real time_slots id for legacy slots, or a computed availability window id. */
+  timeSlotId: string;
   /** Date YYYY-MM-DD for booking */
   scheduledDate: string;
   /** Time HH:MM for Convex */
@@ -27,6 +27,13 @@ export interface NextAvailabilitySlot extends MechanicAvailabilitySlot {
 }
 
 const DEFAULT_LIMIT = 12;
+
+type AvailabilityRow = {
+  _id: string;
+  date: string;
+  start_time: string;
+  mechanic_id?: string | null;
+};
 
 export function useNextAvailabilityForShop(
   shopId: string | null,
@@ -75,8 +82,8 @@ export function useNextAvailabilityForShop(
     const today = todayLocalISO();
     const minTime = minBookableHHMM();
     return convexSlots
-      .filter((s) => s.date !== today || s.start_time >= minTime)
-      .map((s) => {
+      .filter((s: AvailabilityRow) => s.date !== today || s.start_time >= minTime)
+      .map((s: AvailabilityRow) => {
         const { dayOfWeek, day } = dateToDayDisplay(s.date);
         return {
           dayOfWeek,
