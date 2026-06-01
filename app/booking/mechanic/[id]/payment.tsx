@@ -720,7 +720,15 @@ export default function PaymentScreen() {
           {isSubmitting ? (
             <ActivityIndicator color={BrandColors.white} size="small" />
           ) : (
-            <Text size="md" weight="bold" color={BrandColors.white}>
+            <Text
+              size="md"
+              weight="bold"
+              color={BrandColors.white}
+              style={styles.confirmButtonLabel}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.85}
+            >
               Confirm Appointment
             </Text>
           )}
@@ -1061,8 +1069,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: BrandColors.primary,
     paddingVertical: Spacing.lg,
+    paddingHorizontal: Spacing.md,
     borderRadius: BorderRadius.xl,
-    gap: Spacing.md,
+    gap: Spacing.xs,
+  },
+  confirmButtonLabel: {
+    flexShrink: 1,
   },
   confirmButtonDisabled: {
     opacity: 0.7,
@@ -1072,5 +1084,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.xs,
     borderRadius: BorderRadius.lg,
+    flexShrink: 0,
   },
 });

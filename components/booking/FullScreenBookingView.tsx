@@ -155,12 +155,27 @@ export function FullScreenBookingView({ onClose }: FullScreenBookingViewProps) {
       return (
         <View style={[styles.footer, { paddingBottom: footerBottomPadding }]}>
           <PrimaryButton style={styles.paymentButton} onPress={handlePaymentConfirmed} fullWidth>
-            <Text size="md" weight="bold" color={BrandColors.white}>
+            <Text
+              size="md"
+              weight="bold"
+              color={BrandColors.white}
+              style={styles.paymentButtonLabel}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.85}
+            >
               Confirm Appointment
             </Text>
             {disclosedRangeFormatted ? (
               <View style={styles.amountBadge}>
-                <Text size="sm" weight="bold" color={BrandColors.primary} numberOfLines={1}>
+                <Text
+                  size="sm"
+                  weight="bold"
+                  color={BrandColors.primary}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.7}
+                >
                   {disclosedRangeFormatted}
                 </Text>
               </View>
@@ -270,10 +285,13 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: Spacing.md,
+    gap: Spacing.xs,
     borderRadius: BorderRadius.xl,
     paddingVertical: Spacing.lg,
     backgroundColor: BrandColors.primary,
+  },
+  paymentButtonLabel: {
+    flexShrink: 1,
   },
   buttonDisabled: {
     opacity: 0.5,
@@ -283,6 +301,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.xs,
     borderRadius: BorderRadius.lg,
+    flexShrink: 0,
   },
   holdQualifier: {
     marginTop: Spacing.sm,

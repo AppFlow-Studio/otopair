@@ -54,11 +54,26 @@ export function PaymentFooter({
       <Animated.View style={animatedStyle}>
         <View style={styles.container}>
           <PrimaryButton style={styles.button} onPress={onConfirm}>
-            <Text size="md" weight="bold" color={BrandColors.white}>
+            <Text
+              size="md"
+              weight="bold"
+              color={BrandColors.white}
+              style={styles.buttonLabel}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.85}
+            >
               Confirm Appointment
             </Text>
             <View style={styles.amountBadge}>
-              <Text size="sm" weight="bold" color={BrandColors.primary}>
+              <Text
+                size="sm"
+                weight="bold"
+                color={BrandColors.primary}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.7}
+              >
                 ${totalAmount.toFixed(2)}
               </Text>
             </View>
@@ -85,15 +100,19 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: Spacing.sm,
+    gap: Spacing.xs,
     borderRadius: BorderRadius.lg,
     paddingVertical: Spacing.md,
+  },
+  buttonLabel: {
+    flexShrink: 1,
   },
   amountBadge: {
     backgroundColor: BrandColors.white,
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.xs,
     borderRadius: BorderRadius.md,
+    flexShrink: 0,
   },
 });
 

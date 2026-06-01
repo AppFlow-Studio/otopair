@@ -34,6 +34,7 @@ import { Text } from "@/components/shared-ui";
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
 import { BookingConfirmStatus } from "@/components/booking/BookingConfirmStatus";
 import { useCreateBookingConvex } from "@/hooks/useCreateBookingConvex";
+import { calculateBookingConfirmSheetHeight } from "@/lib/bookingConfirmSheet";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { usePaymentStore } from "@/stores/usePaymentStore";
 import { api } from "@/convex/_generated/api";
@@ -78,9 +79,7 @@ export default function BookingConfirmingScreen() {
   const [submitting, setSubmitting] = useState(false);
   const isCompactLayout = windowHeight < 860;
   const isVeryCompactLayout = windowHeight < 760;
-  const sheetHeight = Math.round(
-    windowHeight * (isVeryCompactLayout ? 0.57 : isCompactLayout ? 0.53 : 0.5),
-  );
+  const sheetHeight = calculateBookingConfirmSheetHeight(windowHeight);
 
   // Open the sheet on mount, same shape as the tire-quote requesting flow.
   useEffect(() => {
@@ -265,10 +264,10 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
   },
   lottieCompact: {
-    transform: [{ translateY: -18 }],
+    transform: [{ translateY: -66 }],
   },
   lottieVeryCompact: {
-    transform: [{ translateY: -30 }],
+    transform: [{ translateY: -94 }],
   },
   copyOverlay: {
     position: "absolute",
@@ -279,13 +278,13 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   copyOverlayCompact: {
-    top: "36.5%",
+    top: "29%",
     left: 20,
     right: 20,
     gap: 6,
   },
   copyOverlayVeryCompact: {
-    top: "34.5%",
+    top: "19%",
   },
   copySub: {
     marginTop: 2,

@@ -60,7 +60,7 @@ export function BookingConfirmStatus({ onConfirm, onGoBack, mechanicId }: Props)
     ? [mechanic.name, shop?.name].filter(Boolean).join(" - ")
     : ["Any available mechanic", shop?.name].filter(Boolean).join(" - ");
   const isCompactLayout = windowHeight < 860;
-  const isVeryCompactLayout = windowHeight < 760;
+  const isVeryCompactLayout = windowHeight < 860;
 
   return (
     <View style={[styles.container, isCompactLayout && styles.containerCompact]}>
@@ -104,7 +104,7 @@ export function BookingConfirmStatus({ onConfirm, onGoBack, mechanicId }: Props)
             size={isVeryCompactLayout ? "sm" : "md"}
             weight="semiBold"
             color="#141C24"
-            style={styles.rangeLine}
+            style={[styles.rangeLine, isVeryCompactLayout && styles.rangeLineVeryCompact]}
           >
             The estimated price for your car is {disclosedRangeFormatted}.
           </Text>
@@ -113,12 +113,12 @@ export function BookingConfirmStatus({ onConfirm, onGoBack, mechanicId }: Props)
           size={isVeryCompactLayout ? "xs" : "sm"}
           weight="regular"
           color="#6B7280"
-          style={styles.holdNote}
+          style={[styles.holdNote, isVeryCompactLayout && styles.holdNoteVeryCompact]}
         >
           A $20 hold will be placed on your card. The final amount is only
           charged once your mechanic has inspected your car.
         </Text>
-        <ConfirmCountdownButton onConfirm={onConfirm} />
+        <ConfirmCountdownButton onConfirm={onConfirm} compact={isCompactLayout} />
         <Pressable
           onPress={onGoBack}
           style={({ pressed }) => [
@@ -179,20 +179,20 @@ const styles = StyleSheet.create({
   },
   containerCompact: {
     paddingHorizontal: 16,
-    paddingBottom: 10,
+    paddingBottom: 8,
   },
   title: {
     marginTop: 2,
     marginBottom: 18,
   },
   titleCompact: {
-    marginBottom: 12,
+    marginBottom: 8,
   },
   rows: {
     marginBottom: 20,
   },
   rowsCompact: {
-    marginBottom: 12,
+    marginBottom: 8,
   },
   row: {
     flexDirection: "row",
@@ -201,8 +201,8 @@ const styles = StyleSheet.create({
     gap: 14,
   },
   rowCompact: {
-    paddingVertical: 9,
-    gap: 10,
+    paddingVertical: 7,
+    gap: 8,
   },
   iconSlot: {
     width: 28,
@@ -256,10 +256,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
     marginBottom: 4,
   },
+  holdNoteVeryCompact: {
+    lineHeight: 16,
+    marginBottom: 2,
+  },
   rangeLine: {
     textAlign: "center",
     lineHeight: 22,
     paddingHorizontal: 4,
     marginBottom: 6,
+  },
+  rangeLineVeryCompact: {
+    lineHeight: 18,
+    marginBottom: 2,
   },
 });
