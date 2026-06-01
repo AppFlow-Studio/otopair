@@ -70,7 +70,16 @@ export function useTimeSlotsForShop(
       }));
   }, [slots]);
 
-  const timeOptions = useMemo(() => [...new Set(availableSlots.map((s) => s.displayTime))].sort(), [availableSlots]);
+  const timeOptions = useMemo(() => {
+    const seen = new Set<string>();
+    return [...availableSlots]
+      .sort((a, b) => a.startTime.localeCompare(b.startTime))
+      .flatMap((slot) => {
+        if (seen.has(slot.startTime)) return [];
+        seen.add(slot.startTime);
+        return [slot.displayTime];
+      });
+  }, [availableSlots]);
 
   const getSlotIdByDisplayTime = useMemo(
     () => (displayTime: string) => {

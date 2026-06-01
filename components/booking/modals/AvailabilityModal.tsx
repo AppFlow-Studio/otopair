@@ -747,6 +747,10 @@ export function AvailabilityModal({ visible, mechanicId, shopId, durationMinutes
                       size="md"
                       weight={isSelected ? "bold" : "medium"}
                       color={isSelected ? BrandColors.secondary : "#6B7280"}
+                      numberOfLines={1}
+                      adjustsFontSizeToFit
+                      minimumFontScale={0.9}
+                      style={styles.timeSlotLabel}
                     >
                       {time}
                     </Text>
@@ -994,8 +998,12 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.xl,
     borderWidth: 2,
     borderColor: "transparent",
-    minWidth: 90,
+    minWidth: 116,
     alignItems: "center",
+  },
+  timeSlotLabel: {
+    textAlign: "center",
+    width: "100%",
   },
   timeSlotSelected: {
     borderColor: BrandColors.secondary,
