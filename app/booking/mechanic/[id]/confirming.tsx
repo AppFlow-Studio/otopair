@@ -34,7 +34,7 @@ import { Text } from "@/components/shared-ui";
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
 import { BookingConfirmStatus } from "@/components/booking/BookingConfirmStatus";
 import { useCreateBookingConvex } from "@/hooks/useCreateBookingConvex";
-import { calculateBookingConfirmSheetHeight } from "@/lib/bookingConfirmSheet";
+import { calculateBookingConfirmLayout } from "@/lib/bookingConfirmSheet";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { usePaymentStore } from "@/stores/usePaymentStore";
 import { api } from "@/convex/_generated/api";
@@ -79,7 +79,10 @@ export default function BookingConfirmingScreen() {
   const [submitting, setSubmitting] = useState(false);
   const isCompactLayout = windowHeight < 860;
   const isVeryCompactLayout = windowHeight < 760;
-  const sheetHeight = calculateBookingConfirmSheetHeight(windowHeight);
+  const confirmLayout = calculateBookingConfirmLayout({
+    width: windowWidth,
+    height: windowHeight,
+  });
 
   // Open the sheet on mount, same shape as the tire-quote requesting flow.
   useEffect(() => {
@@ -210,9 +213,11 @@ export default function BookingConfirmingScreen() {
         resizeMode="cover"
         style={[
           styles.lottie,
-          isCompactLayout && styles.lottieCompact,
-          isVeryCompactLayout && styles.lottieVeryCompact,
-          { width: windowWidth, height: windowHeight },
+          {
+            width: windowWidth,
+            height: windowHeight,
+            transform: [{ translateY: confirmLayout.lottieTranslateY }],
+          },
         ]}
       />
 
@@ -220,7 +225,7 @@ export default function BookingConfirmingScreen() {
         style={[
           styles.copyOverlay,
           isCompactLayout && styles.copyOverlayCompact,
-          isVeryCompactLayout && styles.copyOverlayVeryCompact,
+          { top: confirmLayout.copyTopPercent },
           copyAnimStyle,
         ]}
         pointerEvents="none"
@@ -241,7 +246,7 @@ export default function BookingConfirmingScreen() {
 
       <FloatingSheet
         ref={sheetRef}
-        snapHeights={[sheetHeight]}
+        snapHeights={[confirmLayout.sheetHeight]}
         onClose={handleSheetClose}
         cornerRadius={24}
       >
@@ -263,12 +268,6 @@ const styles = StyleSheet.create({
   lottie: {
     ...StyleSheet.absoluteFillObject,
   },
-  lottieCompact: {
-    transform: [{ translateY: -66 }],
-  },
-  lottieVeryCompact: {
-    transform: [{ translateY: -94 }],
-  },
   copyOverlay: {
     position: "absolute",
     top: "37%",
@@ -278,13 +277,9 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   copyOverlayCompact: {
-    top: "29%",
     left: 20,
     right: 20,
     gap: 6,
-  },
-  copyOverlayVeryCompact: {
-    top: "19%",
   },
   copySub: {
     marginTop: 2,
