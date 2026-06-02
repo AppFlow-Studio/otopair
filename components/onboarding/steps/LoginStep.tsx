@@ -30,6 +30,8 @@ import { Mail } from "lucide-react-native";
 import { useAuthStore } from "@/stores/useAuthStore";
 import { useEnsureConvexUser } from "@/hooks/useEnsureConvexUser";
 import { api } from "@/convex/_generated/api";
+import { ForgotPasswordFlow } from "./ForgotPasswordFlow";
+import { OnboardingSurfaceColors } from "../onboardingColors";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -55,6 +57,7 @@ export function LoginStep({ onBack }: LoginStepProps) {
   const [loading, setLoading] = useState<"google" | "apple" | "email" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showEmailForm, setShowEmailForm] = useState(false);
+  const [showForgotPasswordFlow, setShowForgotPasswordFlow] = useState(false);
 
   // Already signed in → go straight to home
   const dynamicStyles = {
@@ -101,7 +104,7 @@ export function LoginStep({ onBack }: LoginStepProps) {
   useEffect(() => {
     // Don't auto-redirect while an explicit login flow is in progress,
     // because post-login navigation may need to pass route params.
-    if (loading !== null) return;
+    if (loading !== null || showForgotPasswordFlow) return;
 
     if (isLoaded && isSignedIn) {
       setIsNewUser(false);
@@ -117,6 +120,7 @@ export function LoginStep({ onBack }: LoginStepProps) {
     navigateAfterLogin,
     setIsAuthenticated,
     setIsNewUser,
+    showForgotPasswordFlow,
   ]);
 
   // Retry helper to wait for Clerk JWT to propagate to Convex
@@ -204,7 +208,32 @@ export function LoginStep({ onBack }: LoginStepProps) {
     }
   };
 
+  const handlePasswordResetAuthenticated = async () => {
+    try {
+      await ensureConvexUserWithRetry();
+    } catch (e) {
+      console.error("Failed to ensure Convex user after password reset", e);
+    }
+    setIsNewUser(false);
+    setIsAuthenticated(true);
+    await navigateAfterLogin();
+  };
+
   const canSubmitEmail = email.trim().length > 0 && password.length > 0;
+
+  if (showForgotPasswordFlow) {
+    return (
+      <ForgotPasswordFlow
+        initialEmail={email}
+        onBackToLogin={() => {
+          setShowForgotPasswordFlow(false);
+          setShowEmailForm(true);
+          setError(null);
+        }}
+        onAuthenticated={handlePasswordResetAuthenticated}
+      />
+    );
+  }
 
   return (
     <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.keyboardView}>
@@ -294,6 +323,17 @@ export function LoginStep({ onBack }: LoginStepProps) {
                   textContentType="password"
                 />
               </View>
+
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => {
+                  setError(null);
+                  setShowForgotPasswordFlow(true);
+                }}
+                style={styles.forgotPasswordButton}
+              >
+                <Text style={styles.forgotPasswordText}>Forgot your password?</Text>
+              </Pressable>
 
               <View style={styles.emailSubmitContainer}>
                 <FooterButton
@@ -410,6 +450,17 @@ const styles = StyleSheet.create({
     color: '#0F172A',
     borderWidth: 1,
     borderColor: "#E2E8F0",
+  },
+  forgotPasswordButton: {
+    alignSelf: "flex-start",
+    minHeight: 44,
+    justifyContent: "center",
+    marginTop: -Spacing.sm,
+  },
+  forgotPasswordText: {
+    fontSize: FontSize.md,
+    fontFamily: FontFamily.semiBold,
+    color: OnboardingSurfaceColors.linkText,
   },
   emailSubmitContainer: { marginTop: 0 },
   errorText: {
