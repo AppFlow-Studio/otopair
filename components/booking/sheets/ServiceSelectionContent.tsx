@@ -26,7 +26,6 @@ import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 // 4. Constants, hooks, types, stores
 import { PackageQuestionsSheet } from "@/components/cars/PackageQuestionsSheet";
 import { BorderRadius } from "@/constants/theme";
-import { getVariantSpec } from "@/constants/serviceVariants";
 import { useBookableServices } from "@/hooks/useBookableServices";
 import { useServiceVehicleSpecsForEngine } from "@/hooks/useServiceVehicleSpecsForEngine";
 import { useVehicleReadiness } from "@/hooks/useVehicleReadiness";
@@ -105,8 +104,6 @@ export function ServiceSelectionContent({ onCategorySelect, onShopTiresRequested
   const getServiceCategories = useBookingStore((state) => state.getServiceCategories);
   const initialServiceCategory = useBookingStore((state) => state.initialServiceCategory);
   const selectedServiceOptions = useBookingStore((state) => state.selectedServiceOptions);
-  const serviceVariants = useBookingStore((state) => state.serviceVariants);
-  const setServiceVariant = useBookingStore((state) => state.setServiceVariant);
   const selectedDiagnosticSystem = useBookingStore((state) => state.selectedDiagnosticSystem);
   const customerNotes = useBookingStore((state) => state.customerNotes);
   const engineId = useVehicleStore((state) => state.getSelectedVehicle()?.engineId);
@@ -353,8 +350,6 @@ export function ServiceSelectionContent({ onCategorySelect, onShopTiresRequested
       const hours = engineSpecs[service.id]?.labor_hours ?? service.default_labor_hours;
       const durationLabel = formatDurationForCar(hours);
       const optionLabel = isSelected ? selectedServiceOptions[service.id]?.option_label : undefined;
-      const variantSpec = getVariantSpec(service.slug);
-      const variantChoice = serviceVariants[service.id];
       const isDiagnostic = service.name === DIAGNOSTIC_SCAN_SERVICE_NAME;
       const diagnosticAreaLabel =
         isDiagnostic && isSelected && selectedDiagnosticSystem
@@ -434,39 +429,6 @@ export function ServiceSelectionContent({ onCategorySelect, onShopTiresRequested
                 Option Selected: {optionLabel}
               </Text>
             )}
-            {/* Position chips for services with axle/side variants (brake
-                pads, rotors). Render only when the service is in the cart —
-                tap-to-select then a chip row appears beneath the row. The
-                Add-to-Cart CTA gates on a choice being made (see
-                ServiceBottomSheet:handleServicesSelected). */}
-            {isSelected && variantSpec && (
-              <View style={styles.variantChipsRow}>
-                {variantSpec.options.map((opt) => {
-                  const isActive = variantChoice === opt.id;
-                  return (
-                    <TouchableOpacity
-                      key={opt.id}
-                      style={[styles.variantChip, isActive && styles.variantChipActive]}
-                      onPress={(e) => {
-                        // Prevent the parent service row's onPress (which
-                        // would toggle the service off) from firing.
-                        e.stopPropagation();
-                        setServiceVariant(service.id, opt.id);
-                      }}
-                      activeOpacity={0.7}
-                    >
-                      <Text
-                        size="xs"
-                        weight={isActive ? "semiBold" : "medium"}
-                        color={isActive ? BrandColors.white : BrandColors.primary}
-                      >
-                        {opt.label}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            )}
             {diagnosticAreaLabel && (
               <View style={styles.diagnosticInline}>
                 <View style={styles.diagnosticInlineRow}>
@@ -499,7 +461,7 @@ export function ServiceSelectionContent({ onCategorySelect, onShopTiresRequested
         </TouchableOpacity>
       );
     },
-    [selectedServiceIds, selectedServiceOptions, selectedDiagnosticSystem, customerNotes, handleServicePress, engineSpecs, ownershipId, bookableIds, needsSpecsIds, router, serviceVariants, setServiceVariant],
+    [selectedServiceIds, selectedServiceOptions, selectedDiagnosticSystem, customerNotes, handleServicePress, engineSpecs, ownershipId, bookableIds, needsSpecsIds, router],
   );
 
   // ═══════════════ RENDER ═══════════════
@@ -658,24 +620,6 @@ const styles = StyleSheet.create({
   },
   optionSelected: {
     marginTop: Spacing.xs,
-  },
-  variantChipsRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: Spacing.xs,
-    marginTop: Spacing.sm,
-  },
-  variantChip: {
-    paddingVertical: 6,
-    paddingHorizontal: Spacing.md,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: "#D1D5DB",
-    backgroundColor: "#FFFFFF",
-  },
-  variantChipActive: {
-    backgroundColor: BrandColors.primary,
-    borderColor: BrandColors.primary,
   },
   diagnosticInline: {
     marginTop: Spacing.sm,

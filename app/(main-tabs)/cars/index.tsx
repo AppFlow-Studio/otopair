@@ -1603,7 +1603,7 @@ export default function CarsHomeScreen() {
         {/* ═══════════════════════════════════════════════════════════════════
             TOP SECTION: Vehicle Carousel
         ═══════════════════════════════════════════════════════════════════ */}
-        <View style={styles.topSection}>
+        <View style={styles.topSection} className="">
           <CarCarousel
             vehicles={vehicles}
             activeVehicleId={activeVehicleVin ?? undefined}

@@ -17,7 +17,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useBookingLaborHours } from "./useBookingLaborHours";
 import { useBookingPartsBreakdown } from "./useBookingPartsBreakdown";
-import { positionForChoice } from "@/constants/serviceVariants";
+import { positionFromOption } from "@/constants/serviceVariants";
 import { useUserFromConvex } from "./useUserFromConvex";
 import { useToast } from "./useToast";
 import { useVehicleOwnershipFromConvex } from "./useVehicleOwnershipFromConvex";
@@ -45,7 +45,6 @@ export function useCreateBookingConvex() {
   const sourceRecommendationId = useBookingStore((s) => s.sourceRecommendationId);
   const setSourceRecommendationId = useBookingStore((s) => s.setSourceRecommendationId);
   const selectedServiceOptions = useBookingStore((s) => s.selectedServiceOptions);
-  const serviceVariants = useBookingStore((s) => s.serviceVariants);
   const customerNotes = useBookingStore((s) => s.customerNotes);
   const selectedDiagnosticSystem = useBookingStore((s) => s.selectedDiagnosticSystem);
 
@@ -115,15 +114,10 @@ export function useCreateBookingConvex() {
 
   // Same priced-parts source ReviewPayContent uses; falls back to defaults
   // for walk-in vehicles or mock svc_* ids via the hook's internal skip.
-  const servicesMetaForVariants = useMemo(
-    () => availableServices.map((s) => ({ id: s.id, slug: s.slug })),
-    [availableServices],
-  );
   const { breakdown: pricedPartsByService } = useBookingPartsBreakdown(
     vehicleOwnershipId,
     selectedServiceIds,
-    serviceVariants,
-    servicesMetaForVariants,
+    selectedServiceOptions,
   );
   const pricedPartsTotalMap = useMemo(() => {
     const map = new Map<string, number>();
@@ -223,14 +217,13 @@ export function useCreateBookingConvex() {
         }))
         .filter((o) => o.option_label.length > 0);
 
-      // Axle/position picks per service (e.g. Brake Pads → "front"). Maps the
-      // user choice through SERVICE_VARIANTS so the server snapshot freezes
-      // the same fitment the customer saw on Review & Pay.
+      // Axle/position picks per service (e.g. Brake Pads → "front"). Derived
+      // from the same `selectedServiceOptions` row that drives labor_hours and
+      // parts_cost_avg, so the booking snapshot freezes the same fitment the
+      // customer saw on Review & Pay.
       const serviceVariantsPayload: Array<{ service_id: Id<"services">; position: string }> = [];
-      for (const [sid, choice] of Object.entries(serviceVariants)) {
-        if (!selectedServiceIds.includes(sid)) continue;
-        const svc = availableServices.find((s) => s.id === sid);
-        const position = positionForChoice(svc?.slug, choice);
+      for (const sid of selectedServiceIds) {
+        const position = positionFromOption(selectedServiceOptions[sid]);
         if (!position) continue;
         serviceVariantsPayload.push({ service_id: sid as Id<"services">, position });
       }
@@ -295,7 +288,6 @@ export function useCreateBookingConvex() {
       sourceRecommendationId,
       setSourceRecommendationId,
       selectedServiceOptions,
-      serviceVariants,
       customerNotes,
       selectedDiagnosticSystem,
       toast,

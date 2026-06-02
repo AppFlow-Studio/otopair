@@ -105,6 +105,7 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
   // ═══════════════ BOOKING STORE ═══════════════
   const selectedServiceIds = useBookingStore((state) => state.selectedServiceIds);
   const availableServices = useBookingStore((state) => state.availableServices);
+  const selectedServiceOptions = useBookingStore((state) => state.selectedServiceOptions);
   const selectedMechanicId = useBookingStore((state) => state.selectedMechanicId);
   const getFormattedAppointmentDate = useBookingStore((state) => state.getFormattedAppointmentDate);
   const getFormattedAppointmentTime = useBookingStore((state) => state.getFormattedAppointmentTime);
@@ -160,17 +161,11 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
   // When this returns data we use the per-part totals as the parts subtotal; when
   // it doesn't (walk-in vehicle, unconfigured vehicle, missing price data) we fall
   // back to the service's flat `default_parts_estimate`.
-  const serviceVariants = useBookingStore((state) => state.serviceVariants);
-  const servicesMetaForVariants = useMemo(
-    () => availableServices.map((s) => ({ id: s.id, slug: s.slug })),
-    [availableServices],
-  );
   const { breakdown: pricedPartsByService, isLoading: isPricedPartsLoading } =
     useBookingPartsBreakdown(
       selectedVehicle?.ownershipId,
       selectedServiceIds,
-      serviceVariants,
-      servicesMetaForVariants,
+      selectedServiceOptions,
     );
 
   // TEMP: diagnose why priced parts aren't surfacing for the CR-V test booking.

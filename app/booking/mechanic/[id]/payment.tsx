@@ -69,6 +69,7 @@ export default function PaymentScreen() {
   // ═══════════════ BOOKING STORE ═══════════════
   const selectedServiceIds = useBookingStore((state) => state.selectedServiceIds);
   const availableServices = useBookingStore((state) => state.availableServices);
+  const selectedServiceOptions = useBookingStore((state) => state.selectedServiceOptions);
   const selectedMechanicId = useBookingStore((state) => state.selectedMechanicId);
   const getFormattedAppointmentDate = useBookingStore((state) => state.getFormattedAppointmentDate);
   const getFormattedAppointmentTime = useBookingStore((state) => state.getFormattedAppointmentTime);
@@ -132,17 +133,11 @@ export default function PaymentScreen() {
   // fall back to `service.default_parts_estimate`. While `isPricedPartsLoading`
   // is true the breakdown shows a skeleton row instead of a stale labor-only
   // band — the band updates once the query lands.
-  const serviceVariants = useBookingStore((state) => state.serviceVariants);
-  const servicesMetaForVariants = useMemo(
-    () => availableServices.map((s) => ({ id: s.id, slug: s.slug })),
-    [availableServices],
-  );
   const { breakdown: pricedPartsByService, isLoading: isPricedPartsLoading } =
     useBookingPartsBreakdown(
       selectedVehicle?.ownershipId,
       selectedServiceIds,
-      serviceVariants,
-      servicesMetaForVariants,
+      selectedServiceOptions,
     );
 
   // Map serviceId → priced row so per-line lookups are O(1) below. Any service

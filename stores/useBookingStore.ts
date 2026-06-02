@@ -124,12 +124,6 @@ interface BookingState {
   selectedMechanicSlot: SelectedMechanicSlot | null;
   /** Selected service option per service (maps service_id → option selection with pricing) */
   selectedServiceOptions: Record<string, ServiceOptionSelection>;
-  /** Position variant per service (maps service_id → axle choice like
-   *  "front"/"rear"/"both"). Driven by SERVICE_VARIANTS in
-   *  constants/serviceVariants.ts. Translated to a position filter on
-   *  Convex `getPricedPartsForServices` so the resolver picks the
-   *  customer-requested axle rather than the highest-scoring fitment. */
-  serviceVariants: Record<string, string>;
   /** When the driver starts this booking from a mechanic recommendation card,
    *  the rec's _id is stashed here and forwarded to bookings.createBatch as
    *  source_recommendation_id so the rec auto-closes on completion. */
@@ -222,10 +216,6 @@ interface BookingState {
   setSelectedServiceOption: (serviceId: string, option: ServiceOptionSelection) => void;
   /** Clear all selected service options */
   clearSelectedServiceOptions: () => void;
-  /** Set the axle/position variant choice for a service (e.g. "front", "rear", "both"). */
-  setServiceVariant: (serviceId: string, choice: string) => void;
-  /** Clear the variant choice for a service (called when the service is removed from the cart). */
-  clearServiceVariant: (serviceId: string) => void;
   /** Set the rec id sourced into the booking flow (null clears it) */
   setSourceRecommendationId: (id: string | null) => void;
   /** Set the pre-confirmed scheduled date sourced from a mechanic rec. */
@@ -424,7 +414,6 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
   skippedBookingDetails: false,
   selectedMechanicSlot: null,
   selectedServiceOptions: {},
-  serviceVariants: {},
   sourceRecommendationId: null,
   prefilledScheduledAt: null,
   customerNotes: "",
@@ -510,17 +499,9 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
         nextVin = null;
       }
 
-      // Drop any stashed variant choice when a service leaves the cart.
-      let nextVariants = state.serviceVariants;
-      if (isSelected && state.serviceVariants[serviceId] != null) {
-        const { [serviceId]: _removed, ...rest } = state.serviceVariants;
-        nextVariants = rest;
-      }
-
       return {
         selectedServiceIds: nextIds,
         selectedVehicleVin: nextVin,
-        serviceVariants: nextVariants,
       };
     }),
 
@@ -528,7 +509,6 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
     set({
       selectedServiceIds: [],
       selectedVehicleVin: null,
-      serviceVariants: {},
     }),
 
   setSelectedVehicleVin: (vin) => set({ selectedVehicleVin: vin }),
@@ -648,18 +628,6 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
   clearSelectedServiceOptions: () =>
     set({ selectedServiceOptions: {} }),
 
-  setServiceVariant: (serviceId, choice) =>
-    set((state) => ({
-      serviceVariants: { ...state.serviceVariants, [serviceId]: choice },
-    })),
-
-  clearServiceVariant: (serviceId) =>
-    set((state) => {
-      if (state.serviceVariants[serviceId] == null) return state;
-      const { [serviceId]: _removed, ...rest } = state.serviceVariants;
-      return { serviceVariants: rest };
-    }),
-
   setSourceRecommendationId: (id) =>
     set({ sourceRecommendationId: id }),
 
@@ -689,7 +657,6 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
       skippedBookingDetails: false,
       selectedMechanicSlot: null,
       selectedServiceOptions: {},
-      serviceVariants: {},
       sourceRecommendationId: null,
       prefilledScheduledAt: null,
       customerNotes: "",
