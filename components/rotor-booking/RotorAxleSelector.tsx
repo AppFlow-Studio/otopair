@@ -80,15 +80,27 @@ const ROTOR_OFFSETS = { leftPct: -30, rightPct: 130 };
 interface Props {
   /** Currently selected axle pair, or null. Single-select. */
   selected: RotorAxle | null;
-  onSelect: (axle: RotorAxle) => void;
+  onSelect: (axle: RotorAxle | null) => void;
 }
 
 export function RotorAxleSelector({ selected, onSelect }: Props) {
   const frontActive = selected === "front" || selected === "both";
   const rearActive = selected === "rear" || selected === "both";
 
-  const handleFront = () => onSelect(selected === "front" ? "both" : "front");
-  const handleRear = () => onSelect(selected === "rear" ? "both" : "rear");
+  // Tap toggles the axle pair: an already-selected pair deselects (removing
+  // just that pair when "both" is selected), an unselected pair is added.
+  const handleFront = () => {
+    if (selected === "front") return onSelect(null);
+    if (selected === "both") return onSelect("rear");
+    if (selected === "rear") return onSelect("both");
+    return onSelect("front");
+  };
+  const handleRear = () => {
+    if (selected === "rear") return onSelect(null);
+    if (selected === "both") return onSelect("front");
+    if (selected === "front") return onSelect("both");
+    return onSelect("rear");
+  };
 
   return (
     <View style={styles.container}>

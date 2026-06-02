@@ -132,8 +132,18 @@ export default function PaymentScreen() {
   // fall back to `service.default_parts_estimate`. While `isPricedPartsLoading`
   // is true the breakdown shows a skeleton row instead of a stale labor-only
   // band — the band updates once the query lands.
+  const serviceVariants = useBookingStore((state) => state.serviceVariants);
+  const servicesMetaForVariants = useMemo(
+    () => availableServices.map((s) => ({ id: s.id, slug: s.slug })),
+    [availableServices],
+  );
   const { breakdown: pricedPartsByService, isLoading: isPricedPartsLoading } =
-    useBookingPartsBreakdown(selectedVehicle?.ownershipId, selectedServiceIds);
+    useBookingPartsBreakdown(
+      selectedVehicle?.ownershipId,
+      selectedServiceIds,
+      serviceVariants,
+      servicesMetaForVariants,
+    );
 
   // Map serviceId → priced row so per-line lookups are O(1) below. Any service
   // with at least one fitment qualifies (parts without prices still render as
@@ -509,33 +519,40 @@ export default function PaymentScreen() {
               : selectedServices.flatMap((service) => {
                   const priced = pricedPartsMap.get(String(service.id));
                   if (!priced || !priced.winner) return [];
-                  const part = priced.winner;
-                  const qtyLabel = part.quantity > 1 ? ` ×${part.quantity}` : "";
-                  // Render the variance the algorithm actually observed —
-                  // qty × kept-set min/max — instead of the single mean
-                  // that gets quoted to the mechanic. When only one source
-                  // priced the part (low === high), apply a synthetic ±8%
-                  // band so the row still reads as a range, matching the
-                  // disclosed-range FALLBACK_BAND_RATIO.
-                  const hasPrice = part.has_price_data && part.line_total_high > 0;
-                  const SINGLE_SOURCE_BAND = 0.08;
-                  const singleSource = part.line_total_low === part.line_total_high;
-                  const lineLow = singleSource
-                    ? part.line_total_low * (1 - SINGLE_SOURCE_BAND)
-                    : part.line_total_low;
-                  const lineHigh = singleSource
-                    ? part.line_total_high * (1 + SINGLE_SOURCE_BAND)
-                    : part.line_total_high;
-                  return [
-                    <View key={`${service.id}-${part.part_id}`} style={styles.breakdownRow}>
-                      <Text size="sm" weight="regular" color="#6B7280" style={styles.breakdownLabel}>
-                        {part.name} (Part){qtyLabel}
-                      </Text>
-                      <Text size="sm" weight="medium" color="#6B7280">
-                        {hasPrice ? formatRange(lineLow, lineHigh) : "Price TBD"}
-                      </Text>
-                    </View>,
-                  ];
+                  // Single-axle services have just `winner`. Position="both"
+                  // services (e.g. Brake Pads All-four) carry `secondaryWinner`
+                  // for the rear axle — render both as separate part lines.
+                  const parts = [priced.winner, priced.secondaryWinner].filter(
+                    (p): p is NonNullable<typeof p> => p != null,
+                  );
+                  return parts.map((part) => {
+                    const qtyLabel = part.quantity > 1 ? ` ×${part.quantity}` : "";
+                    // Render the variance the algorithm actually observed —
+                    // qty × kept-set min/max — instead of the single mean
+                    // that gets quoted to the mechanic. When only one source
+                    // priced the part (low === high), apply a synthetic ±8%
+                    // band so the row still reads as a range, matching the
+                    // disclosed-range FALLBACK_BAND_RATIO.
+                    const hasPrice = part.has_price_data && part.line_total_high > 0;
+                    const SINGLE_SOURCE_BAND = 0.08;
+                    const singleSource = part.line_total_low === part.line_total_high;
+                    const lineLow = singleSource
+                      ? part.line_total_low * (1 - SINGLE_SOURCE_BAND)
+                      : part.line_total_low;
+                    const lineHigh = singleSource
+                      ? part.line_total_high * (1 + SINGLE_SOURCE_BAND)
+                      : part.line_total_high;
+                    return (
+                      <View key={`${service.id}-${part.part_id}`} style={styles.breakdownRow}>
+                        <Text size="sm" weight="regular" color="#6B7280" style={styles.breakdownLabel}>
+                          {part.name} (Part){qtyLabel}
+                        </Text>
+                        <Text size="sm" weight="medium" color="#6B7280">
+                          {hasPrice ? formatRange(lineLow, lineHigh) : "Price TBD"}
+                        </Text>
+                      </View>
+                    );
+                  });
                 })}
 
             {!isPricedPartsLoading &&

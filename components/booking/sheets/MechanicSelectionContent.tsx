@@ -187,8 +187,18 @@ export function MechanicSelectionContent({
   // — same data sources as Review & Pay (app/booking/mechanic/[id]/payment.tsx)
   // so the range on each shop card matches what the customer sees after they
   // tap through. Hooks gracefully skip on walk-in vehicles + mock service ids.
+  const serviceVariants = useBookingStore((state) => state.serviceVariants);
+  const servicesMetaForVariants = useMemo(
+    () => availableServices.map((s) => ({ id: s.id, slug: s.slug })),
+    [availableServices],
+  );
   const { breakdown: pricedPartsByService, isLoading: isPricedPartsLoading } =
-    useBookingPartsBreakdown(selectedVehicle?.ownershipId, selectedServiceIds);
+    useBookingPartsBreakdown(
+      selectedVehicle?.ownershipId,
+      selectedServiceIds,
+      serviceVariants,
+      servicesMetaForVariants,
+    );
   const { laborHours: laborHoursByService, isLoading: isLaborHoursLoading } =
     useBookingLaborHours(selectedVehicle?.ownershipId, selectedServiceIds);
   const isPriceLoading = isPricedPartsLoading || isLaborHoursLoading;

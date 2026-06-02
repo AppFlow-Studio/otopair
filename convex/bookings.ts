@@ -1145,6 +1145,19 @@ export const createBatch = mutation({
         })
       )
     ),
+    /** Per-service axle/position choice (e.g. brake-pads → "front"). Wired
+     *  from `useBookingStore.serviceVariants` via the SERVICE_VARIANTS
+     *  registry. Forwarded to `computePricedPartsSnapshot` so the booking
+     *  freezes the exact part the customer saw on Review & Pay (front pads,
+     *  not rear). Optional — services not present here snapshot as before. */
+    service_variants: v.optional(
+      v.array(
+        v.object({
+          service_id: v.id("services"),
+          position: v.string(), // "front" | "rear" | "both"
+        })
+      )
+    ),
   },
   handler: async (ctx, args) => {
     if (args.services.length === 0) {
@@ -1298,6 +1311,10 @@ export const createBatch = mutation({
       vehicleConfigId: vehicle.vehicle_config_id ?? null,
       vin: normalizedVin,
       confirmedPackages: new Set(ownerSpecs?.confirmed_packages ?? []),
+      serviceVariants: args.service_variants?.map((v) => ({
+        serviceId: v.service_id,
+        position: v.position,
+      })),
     });
     const pricedPartsSnapshot = pricedPartsResult.rows;
 

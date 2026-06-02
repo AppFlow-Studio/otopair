@@ -39,6 +39,10 @@ import {
 // (Tire Replacement is rendered inline as a Modal because routing to
 //  /(tire-booking) from inside the sheet wasn't navigating reliably.)
 import TireBookingScreen from "@/app/(tire-booking)";
+// Rotor Replacement mirrors the tire-booking inline Modal pattern for the
+// same reason — router.push from inside the BottomSheet doesn't navigate
+// reliably on this stack.
+import RotorBookingScreen from "@/app/(rotor-booking)";
 // Quick-read gate flow uses the same 5-tile Service History stepper
 // the cars tab uses post-onboarding. Embedded inline because router
 // navigation from inside the BottomSheet is unreliable.
@@ -81,6 +85,7 @@ import { ShopPreviewContent } from "./sheets/ShopPreviewContent";
 
 // 5. Constants, hooks, types, stores
 import { BorderRadius, FontFamily, FontSize, Shadows } from "@/constants/theme";
+import { getVariantSpec } from "@/constants/serviceVariants";
 import { useBookingLaborHours } from "@/hooks/useBookingLaborHours";
 import { useBookingPartsBreakdown } from "@/hooks/useBookingPartsBreakdown";
 import { useBookingTransition } from "@/hooks/useBookingTransition";
@@ -223,6 +228,8 @@ export function ServiceBottomSheet({
   // instead of router.push to /(tire-booking) because that wasn't
   // navigating from inside the bottom sheet.
   const [showTireBookingModal, setShowTireBookingModal] = useState(false);
+  // Rotor Replacement → same inline-Modal pattern as tire above.
+  const [showRotorBookingModal, setShowRotorBookingModal] = useState(false);
   const [optionsServiceId, setOptionsServiceId] = useState<string | null>(null);
   // Tap-to-open diagnostic picker (mirrors optionsServiceId pattern). Opens
   // when the user taps Diagnostic Scan; resolves the area + notes before
@@ -331,6 +338,21 @@ export function ServiceBottomSheet({
 
   // ═══════════════ COMPUTED ═══════════════
   const hasSelection = selectedCount > 0;
+  // Position-aware services (brake pads, brake rotors) must have a Front /
+  // Rear / All-four choice before the cart can advance. Without this gate
+  // the parts resolver picks whichever fitment scores highest on evidence
+  // regardless of axle — see constants/serviceVariants.ts.
+  const serviceVariantsForGate = useBookingStore((state) => state.serviceVariants);
+  const allVariantsResolved = useMemo(() => {
+    for (const id of selectedServiceIds) {
+      const svc = availableServices.find((s) => s.id === id);
+      const spec = getVariantSpec(svc?.slug);
+      if (!spec?.required) continue;
+      if (!serviceVariantsForGate[id]) return false;
+    }
+    return true;
+  }, [selectedServiceIds, availableServices, serviceVariantsForGate]);
+  const canAdvanceServiceStage = hasSelection && allVariantsResolved;
   const isServiceStage = currentStage === "discovery" || currentStage === "service_selection" || currentStage === "service_options";
   const isServiceOptionsStage = currentStage === "service_options";
   const isMechanicStage = currentStage === "mechanic_selection";
@@ -408,8 +430,17 @@ export function ServiceBottomSheet({
   //   real OEM parts (useBookingPartsBreakdown) + vehicle-specific labor
   //   hours (useBookingLaborHours) + shop labor_rate, then deriveDisclosedRange
   //   layers tax + 7% platform fee on top and bands parts ±25%.
+  const servicesMetaForVariants = useMemo(
+    () => availableServices.map((s) => ({ id: s.id, slug: s.slug })),
+    [availableServices],
+  );
   const { breakdown: pricedPartsByService, isLoading: isPricedPartsLoading } =
-    useBookingPartsBreakdown(selectedVehicle?.ownershipId, selectedServiceIds);
+    useBookingPartsBreakdown(
+      selectedVehicle?.ownershipId,
+      selectedServiceIds,
+      serviceVariantsForGate,
+      servicesMetaForVariants,
+    );
   const { laborHours: laborHoursByService, isLoading: isLaborHoursLoading } =
     useBookingLaborHours(selectedVehicle?.ownershipId, selectedServiceIds);
 
@@ -931,6 +962,11 @@ export function ServiceBottomSheet({
   // ═══════════════ HANDLERS ═══════════════
   // Service selection complete -> go to service options if any, else mechanic selection
   const handleServicesSelected = useCallback(() => {
+    // Belt-and-braces: the footer button is already disabled when any
+    // selected service has an unresolved axle/position choice, but if the
+    // tap reaches here for any reason (debounce race, prop drift), abort
+    // rather than ship a booking with the wrong fitment.
+    if (!allVariantsResolved) return;
     // Tire Replacement bypasses the generic Option Selection stage and
     // hands off to the dedicated Shop Tires flow (per-wheel picker +
     // size + type + quality tier). Matched by name because the mock
@@ -986,6 +1022,7 @@ export function ServiceBottomSheet({
     needsQuickRead,
     quickReadLoading,
     selectedVehicle?.ownershipId,
+    allVariantsResolved,
   ]);
 
   // Resume the booking automatically when Convex reports the quick-read
@@ -1294,7 +1331,7 @@ export function ServiceBottomSheet({
             {...props}
             bottomInset={footerBottomInset}
             animatedStyle={footerAnimatedStyle}
-            hasSelection={hasSelection}
+            hasSelection={canAdvanceServiceStage}
             selectedCount={selectedCount}
             selectedTotal={selectedTotal}
             onConfirm={handleServicesSelected}
@@ -1422,6 +1459,7 @@ export function ServiceBottomSheet({
             <ServiceSelectionContent
               onCategorySelect={handleCategorySelect}
               onShopTiresRequested={() => setShowTireBookingModal(true)}
+              onShopRotorsRequested={() => setShowRotorBookingModal(true)}
               onServiceWithOptionsRequested={(serviceId) => setOptionsServiceId(serviceId)}
               onDiagnosticServiceRequested={() => setShowDiagnosticSheet(true)}
             />
@@ -1858,6 +1896,27 @@ export function ServiceBottomSheet({
             // Pop the booking fullScreenModal off the root stack before
             // landing on Bookings → otherwise the map underneath leaks
             // through as a background on the tabs.
+            router.dismissAll();
+            router.navigate("/(main-tabs)/bookings?tab=quotes&requestSubmitted=1");
+          }, 350);
+        }}
+      />
+    </Modal>
+
+    {/* Rotor Replacement inline flow — same fullScreen Modal pattern as
+        Tire Replacement above. */}
+    <Modal
+      visible={showRotorBookingModal}
+      animationType="slide"
+      presentationStyle="fullScreen"
+      onRequestClose={() => setShowRotorBookingModal(false)}
+    >
+      <RotorBookingScreen
+        onClose={() => setShowRotorBookingModal(false)}
+        onConfirmed={() => {
+          setShowRotorBookingModal(false);
+          bottomSheetRef.current?.close();
+          setTimeout(() => {
             router.dismissAll();
             router.navigate("/(main-tabs)/bookings?tab=quotes&requestSubmitted=1");
           }, 350);

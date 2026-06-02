@@ -339,14 +339,6 @@ export default function TireBookingScreen({ onClose, onConfirmed }: TireBookingS
                 // Index in the key disambiguates two options that share the
                 // same front size (e.g. standard-staggered vs optional-square).
                 const reactKey = `${option.size}|${option.sizeRear ?? ""}|${idx}`;
-                const sourceLabel =
-                  option.source === "verified"
-                    ? "Mechanic Verified"
-                    : option.source === "oem_standard"
-                      ? "Standard"
-                      : option.source === "oem_optional"
-                        ? "Optional"
-                        : null;
                 const sourceColor =
                   option.source === "verified" ? "#0A8754" : "#6B7280";
                 return (
@@ -356,20 +348,6 @@ export default function TireBookingScreen({ onClose, onConfirmed }: TireBookingS
                       selected={isSelected}
                       onPress={() => setTireSize(option.size, option.sizeRear)}
                     />
-                    {sourceLabel ? (
-                      <View
-                        style={[
-                          styles.sourcePill,
-                          option.source === "verified"
-                            ? styles.sourcePillVerified
-                            : styles.sourcePillOem,
-                        ]}
-                      >
-                        <Text size="xs" weight="semiBold" color={sourceColor}>
-                          {sourceLabel}
-                        </Text>
-                      </View>
-                    ) : null}
                   </View>
                 );
               })}

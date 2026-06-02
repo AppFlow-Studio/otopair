@@ -195,7 +195,10 @@ export function MOCK_SHOP_RESPONSES(
 // LABEL HELPERS — used by the requesting screen + analytics
 // ============================================================================
 
-/** Human label for the rotors request: "Front pair · Premium" / "All four · Plus". */
+/** Human label for the rotors request: "2 Plus rotors · Front pair" /
+ *  "4 Premium rotors · All four". Mirrors the tire flow's
+ *  "{count} {tier+type} · {size}" pattern so the requesting sheet reads
+ *  the same way across services. */
 export function formatRotorsLabel(axle: RotorAxle, tier: RotorTierId): string {
   const axleLabel =
     axle === "front"
@@ -204,7 +207,9 @@ export function formatRotorsLabel(axle: RotorAxle, tier: RotorTierId): string {
         ? "Rear pair"
         : "All four";
   const tierOpt = ROTOR_TIERS.find((t) => t.id === tier);
-  return `${axleLabel} · ${tierOpt?.label ?? tier}`;
+  const tierLabel = tierOpt?.label ?? tier;
+  const quantity = quantityForAxle(axle);
+  return `${quantity} ${tierLabel} rotors · ${axleLabel}`;
 }
 
 /** Resolve axle → quantity (front=2, rear=2, both=4). */

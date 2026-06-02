@@ -29,6 +29,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import RotorRequestingScreen from "@/app/(rotor-booking)/requesting";
 import { Text } from "@/components/shared-ui";
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
 import { RotorAxleSelector } from "@/components/rotor-booking/RotorAxleSelector";
@@ -54,7 +55,7 @@ interface RotorBookingScreenProps {
   onConfirmed?: () => void;
 }
 
-export default function RotorBookingScreen({ onClose }: RotorBookingScreenProps = {}) {
+export default function RotorBookingScreen({ onClose, onConfirmed }: RotorBookingScreenProps = {}) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
@@ -118,21 +119,32 @@ export default function RotorBookingScreen({ onClose }: RotorBookingScreenProps 
   );
 
   const handleSelectAxle = useCallback(
-    (next: RotorAxle) => {
+    (next: RotorAxle | null) => {
       haptics.selection();
       setAxle(next);
     },
     [setAxle],
   );
 
+  // Modal mode: swap to the requesting view inline instead of pushing a new
+  // route (router.push from inside the parent Modal doesn't navigate
+  // reliably). Route mode keeps the original push-based flow. Mirrors the
+  // tire flow's inline requesting handoff.
+  const [showRequestingInline, setShowRequestingInline] = useState(false);
+
   const handleGetQuotes = useCallback(() => {
     setIsSubmitting(true);
     haptics.cta();
     requestAnimationFrame(() => {
       void fireRequest();
-      router.push("/(rotor-booking)/requesting");
+      if (onClose) {
+        setIsSubmitting(false);
+        setShowRequestingInline(true);
+      } else {
+        router.push("/(rotor-booking)/requesting");
+      }
     });
-  }, [fireRequest, router]);
+  }, [fireRequest, router, onClose]);
 
   // ── Derived ────────────────────────────────────────────────────────────────
   const ctaDisabled = !axle || !tier;
@@ -147,6 +159,11 @@ export default function RotorBookingScreen({ onClose }: RotorBookingScreenProps 
     const opt = ROTOR_AXLE_OPTIONS.find((o) => o.id === axle);
     return `${opt?.label ?? ""} · ${opt?.quantity ?? quantityForAxle(axle)} rotors`;
   })();
+
+  // Modal mode after Get Quotes: render the requesting screen inline.
+  if (showRequestingInline && onClose) {
+    return <RotorRequestingScreen onClose={onClose} onConfirmed={onConfirmed} />;
+  }
 
   return (
     <View style={styles.screen}>

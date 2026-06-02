@@ -160,8 +160,18 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
   // When this returns data we use the per-part totals as the parts subtotal; when
   // it doesn't (walk-in vehicle, unconfigured vehicle, missing price data) we fall
   // back to the service's flat `default_parts_estimate`.
+  const serviceVariants = useBookingStore((state) => state.serviceVariants);
+  const servicesMetaForVariants = useMemo(
+    () => availableServices.map((s) => ({ id: s.id, slug: s.slug })),
+    [availableServices],
+  );
   const { breakdown: pricedPartsByService, isLoading: isPricedPartsLoading } =
-    useBookingPartsBreakdown(selectedVehicle?.ownershipId, selectedServiceIds);
+    useBookingPartsBreakdown(
+      selectedVehicle?.ownershipId,
+      selectedServiceIds,
+      serviceVariants,
+      servicesMetaForVariants,
+    );
 
   // TEMP: diagnose why priced parts aren't surfacing for the CR-V test booking.
   // Remove once the short-circuit (ownershipId / svc_* slugs) is fixed.
@@ -531,39 +541,31 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
               : selectedServices.flatMap((service) => {
                   const priced = pricedPartsMap.get(String(service.id));
                   if (!priced || !priced.winner) return [];
-                  const part = priced.winner;
-                  if (__DEV__) {
-                    // eslint-disable-next-line no-console
-                    console.log("[ReviewPay parts:render]", {
-                      serviceId: service.id,
-                      selectionSource: priced.selectionSource,
-                      lowConfidence: priced.lowConfidence,
-                      winner: {
-                        name: part.name,
-                        quantity: part.quantity,
-                        line_total: part.line_total,
-                        has_price_data: part.has_price_data,
-                      },
-                      loserCount: priced.losers.length,
-                    });
-                  }
-                  const qtyLabel = part.quantity > 1 ? ` ×${part.quantity}` : "";
-                  const hasPrice = part.has_price_data && part.line_total > 0;
-                  const unitLabel =
-                    hasPrice && part.quantity > 1 && part.unit_price > 0
-                      ? ` @ ~$${part.unit_price.toFixed(2)}`
-                      : "";
-                  return [
-                    <View key={`${service.id}-${part.part_id}`} style={styles.breakdownRow}>
-                      <Text size="sm" weight="regular" color="#6B7280" style={styles.breakdownLabel}>
-                        {part.name} (Part){qtyLabel}
-                        {unitLabel}
-                      </Text>
-                      <Text size="sm" weight="medium" color="#6B7280">
-                        {hasPrice ? `$${part.line_total.toFixed(2)}` : "Price TBD"}
-                      </Text>
-                    </View>,
-                  ];
+                  // Single-axle services have just `winner`. Position="both"
+                  // services (Brake Pads All-four) have `secondaryWinner` too —
+                  // render both axles as separate part lines.
+                  const parts = [priced.winner, priced.secondaryWinner].filter(
+                    (p): p is NonNullable<typeof p> => p != null,
+                  );
+                  return parts.map((part) => {
+                    const qtyLabel = part.quantity > 1 ? ` ×${part.quantity}` : "";
+                    const hasPrice = part.has_price_data && part.line_total > 0;
+                    const unitLabel =
+                      hasPrice && part.quantity > 1 && part.unit_price > 0
+                        ? ` @ ~$${part.unit_price.toFixed(2)}`
+                        : "";
+                    return (
+                      <View key={`${service.id}-${part.part_id}`} style={styles.breakdownRow}>
+                        <Text size="sm" weight="regular" color="#6B7280" style={styles.breakdownLabel}>
+                          {part.name} (Part){qtyLabel}
+                          {unitLabel}
+                        </Text>
+                        <Text size="sm" weight="medium" color="#6B7280">
+                          {hasPrice ? `$${part.line_total.toFixed(2)}` : "Price TBD"}
+                        </Text>
+                      </View>
+                    );
+                  });
                 })}
 
             {!isPricedPartsLoading &&

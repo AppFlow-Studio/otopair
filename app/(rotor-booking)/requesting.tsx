@@ -35,7 +35,7 @@ import { useCreateRotorQuoteRequest } from "@/hooks/useCreateRotorQuoteRequest";
 import { useRotorBookingStore } from "@/stores/useRotorBookingStore";
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
-const SHEET_HEIGHT = Math.round(SCREEN_HEIGHT * 0.5);
+const SHEET_HEIGHT = Math.round(SCREEN_HEIGHT * 0.52);
 
 interface RotorRequestingScreenProps {
   onClose?: () => void;

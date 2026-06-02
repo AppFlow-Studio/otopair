@@ -31,7 +31,7 @@ interface RotorBookingState {
   // Mutators
   reset: () => void;
   setVehicleId: (id: string | null) => void;
-  setAxle: (axle: RotorAxle) => void;
+  setAxle: (axle: RotorAxle | null) => void;
   setTier: (tier: RotorTierId) => void;
   fireRequest: () => Promise<void>;
   cancelRequest: () => void;

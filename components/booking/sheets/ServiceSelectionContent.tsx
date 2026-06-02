@@ -26,6 +26,7 @@ import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 // 4. Constants, hooks, types, stores
 import { PackageQuestionsSheet } from "@/components/cars/PackageQuestionsSheet";
 import { BorderRadius } from "@/constants/theme";
+import { getVariantSpec } from "@/constants/serviceVariants";
 import { useBookableServices } from "@/hooks/useBookableServices";
 import { useServiceVehicleSpecsForEngine } from "@/hooks/useServiceVehicleSpecsForEngine";
 import { useVehicleReadiness } from "@/hooks/useVehicleReadiness";
@@ -42,6 +43,16 @@ import { useVehicleStore } from "@/stores/useVehicleStore";
 const SHOP_TIRES_SERVICE_NAME = "Tire Replacement";
 const ROTOR_REPLACEMENT_SERVICE_NAME = "Rotor Replacement";
 const DIAGNOSTIC_SCAN_SERVICE_NAME = "Diagnostic Scan";
+
+/** Services that hand off to a dedicated picker flow on tap instead of
+ *  toggling as a cart line-item. These must always render and be tappable
+ *  in the picker, even when the backend reports `missing_data` for this
+ *  vehicle — the dedicated flows have their own fallbacks (e.g. the tire
+ *  picker uses MOCK_OEM_SIZES_BY_MAKE when trim_specs lacks tire data). */
+const HANDOFF_SERVICE_NAMES: ReadonlySet<string> = new Set([
+  SHOP_TIRES_SERVICE_NAME,
+  ROTOR_REPLACEMENT_SERVICE_NAME,
+]);
 
 const DIAGNOSTIC_SYSTEM_LABELS: Record<string, string> = {
   brakes: "Brakes",
@@ -94,6 +105,8 @@ export function ServiceSelectionContent({ onCategorySelect, onShopTiresRequested
   const getServiceCategories = useBookingStore((state) => state.getServiceCategories);
   const initialServiceCategory = useBookingStore((state) => state.initialServiceCategory);
   const selectedServiceOptions = useBookingStore((state) => state.selectedServiceOptions);
+  const serviceVariants = useBookingStore((state) => state.serviceVariants);
+  const setServiceVariant = useBookingStore((state) => state.setServiceVariant);
   const selectedDiagnosticSystem = useBookingStore((state) => state.selectedDiagnosticSystem);
   const customerNotes = useBookingStore((state) => state.customerNotes);
   const engineId = useVehicleStore((state) => state.getSelectedVehicle()?.engineId);
@@ -207,7 +220,12 @@ export function ServiceSelectionContent({ onCategorySelect, onShopTiresRequested
     // Always filter by applicableIds (which already excludes "missing_data").
     // Per-row render state (enabled / greyed / tappable-redirect) is decided
     // at render time below using bookableIds + needsSpecsIds.
-    return byCategory.filter((service) => applicableIds.has(service.id));
+    // Handoff services (Tire/Rotor Replacement) bypass the gate because they
+    // route to dedicated pickers with their own data fallbacks.
+    return byCategory.filter(
+      (service) =>
+        HANDOFF_SERVICE_NAMES.has(service.name) || applicableIds.has(service.id),
+    );
   }, [availableServices, selectedCategory, ownershipId, isBookableLoading, applicableIds]);
 
   // Auto-scroll the list to a preselected service (e.g. when arriving via
@@ -233,12 +251,19 @@ export function ServiceSelectionContent({ onCategorySelect, onShopTiresRequested
   // ═══════════════ STATE-EFFECT: Handlers ═══════════════
   const handleServicePress = useCallback(
     (serviceId: string) => {
+      const service = availableServices.find((s) => s.id === serviceId);
+      const isAlreadySelected = selectedServiceIds.includes(serviceId);
       // Tire Replacement hands off to the dedicated Shop Tires flow
       // (per-wheel picker + size + type + quality tier) instead of
       // being toggled as a line-item. The flow reads the active vehicle
       // from useVehicleStore on mount, so nothing to pass.
-      const service = availableServices.find((s) => s.id === serviceId);
+      // If it's already in the cart, a re-tap removes it instead of
+      // re-routing back into the picker.
       if (service?.name === SHOP_TIRES_SERVICE_NAME) {
+        if (isAlreadySelected) {
+          toggleServiceSelection(serviceId);
+          return;
+        }
         if (onShopTiresRequested) {
           onShopTiresRequested();
         } else {
@@ -249,8 +274,12 @@ export function ServiceSelectionContent({ onCategorySelect, onShopTiresRequested
       // Rotor Replacement hands off to the dedicated Shop Rotors flow
       // (axle pair + tier picker) — mirror of the tire branch above.
       // Brake jobs are always done in pairs per axle, so the rotor flow
-      // can't be a plain cart toggle.
+      // can't be a plain cart toggle. Same re-tap-to-deselect behavior.
       if (service?.name === ROTOR_REPLACEMENT_SERVICE_NAME) {
+        if (isAlreadySelected) {
+          toggleServiceSelection(serviceId);
+          return;
+        }
         if (onShopRotorsRequested) {
           onShopRotorsRequested();
         } else {
@@ -261,7 +290,6 @@ export function ServiceSelectionContent({ onCategorySelect, onShopTiresRequested
       // has_options services route to a per-service picker on the first
       // tap so the user resolves Front/Rear/Both (or equivalent) before
       // the service lands in the cart. Subsequent taps just toggle off.
-      const isAlreadySelected = selectedServiceIds.includes(serviceId);
       if (service?.has_options === true && !isAlreadySelected) {
         if (onServiceWithOptionsRequested) {
           onServiceWithOptionsRequested(serviceId);
@@ -325,6 +353,8 @@ export function ServiceSelectionContent({ onCategorySelect, onShopTiresRequested
       const hours = engineSpecs[service.id]?.labor_hours ?? service.default_labor_hours;
       const durationLabel = formatDurationForCar(hours);
       const optionLabel = isSelected ? selectedServiceOptions[service.id]?.option_label : undefined;
+      const variantSpec = getVariantSpec(service.slug);
+      const variantChoice = serviceVariants[service.id];
       const isDiagnostic = service.name === DIAGNOSTIC_SCAN_SERVICE_NAME;
       const diagnosticAreaLabel =
         isDiagnostic && isSelected && selectedDiagnosticSystem
@@ -336,8 +366,11 @@ export function ServiceSelectionContent({ onCategorySelect, onShopTiresRequested
       // Per-service render state — only meaningful when we have a vehicle.
       // Without one, all rows render enabled (rare/fallback path).
       const hasVehicle = ownershipId != null;
-      const isBookable = !hasVehicle || bookableIds.has(service.id);
-      const needsSpecs = hasVehicle && needsSpecsIds.has(service.id);
+      const isHandoff = HANDOFF_SERVICE_NAMES.has(service.name);
+      // Handoff services (Tire/Rotor) always render enabled — they route to
+      // their own pickers with fallback data, so the bookable gate doesn't apply.
+      const isBookable = !hasVehicle || isHandoff || bookableIds.has(service.id);
+      const needsSpecs = hasVehicle && !isHandoff && needsSpecsIds.has(service.id);
       // "Locked" = greyed + non-tappable as a booking action.
       // Needs-specs rows are STILL greyed but tap-redirects to My Cars.
       const isRowLocked = hasVehicle && !isBookable;
@@ -401,6 +434,39 @@ export function ServiceSelectionContent({ onCategorySelect, onShopTiresRequested
                 Option Selected: {optionLabel}
               </Text>
             )}
+            {/* Position chips for services with axle/side variants (brake
+                pads, rotors). Render only when the service is in the cart —
+                tap-to-select then a chip row appears beneath the row. The
+                Add-to-Cart CTA gates on a choice being made (see
+                ServiceBottomSheet:handleServicesSelected). */}
+            {isSelected && variantSpec && (
+              <View style={styles.variantChipsRow}>
+                {variantSpec.options.map((opt) => {
+                  const isActive = variantChoice === opt.id;
+                  return (
+                    <TouchableOpacity
+                      key={opt.id}
+                      style={[styles.variantChip, isActive && styles.variantChipActive]}
+                      onPress={(e) => {
+                        // Prevent the parent service row's onPress (which
+                        // would toggle the service off) from firing.
+                        e.stopPropagation();
+                        setServiceVariant(service.id, opt.id);
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <Text
+                        size="xs"
+                        weight={isActive ? "semiBold" : "medium"}
+                        color={isActive ? BrandColors.white : BrandColors.primary}
+                      >
+                        {opt.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            )}
             {diagnosticAreaLabel && (
               <View style={styles.diagnosticInline}>
                 <View style={styles.diagnosticInlineRow}>
@@ -433,7 +499,7 @@ export function ServiceSelectionContent({ onCategorySelect, onShopTiresRequested
         </TouchableOpacity>
       );
     },
-    [selectedServiceIds, selectedServiceOptions, selectedDiagnosticSystem, customerNotes, handleServicePress, engineSpecs, ownershipId, bookableIds, needsSpecsIds, router],
+    [selectedServiceIds, selectedServiceOptions, selectedDiagnosticSystem, customerNotes, handleServicePress, engineSpecs, ownershipId, bookableIds, needsSpecsIds, router, serviceVariants, setServiceVariant],
   );
 
   // ═══════════════ RENDER ═══════════════
@@ -592,6 +658,24 @@ const styles = StyleSheet.create({
   },
   optionSelected: {
     marginTop: Spacing.xs,
+  },
+  variantChipsRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: Spacing.xs,
+    marginTop: Spacing.sm,
+  },
+  variantChip: {
+    paddingVertical: 6,
+    paddingHorizontal: Spacing.md,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+    backgroundColor: "#FFFFFF",
+  },
+  variantChipActive: {
+    backgroundColor: BrandColors.primary,
+    borderColor: BrandColors.primary,
   },
   diagnosticInline: {
     marginTop: Spacing.sm,
