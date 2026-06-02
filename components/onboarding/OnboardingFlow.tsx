@@ -40,6 +40,7 @@ import {
   RESUMABLE_STEPS,
   saveOnboardingCurrentStep,
 } from '@/lib/onboarding-resume';
+import { shouldUseInitialHomeBack } from '@/lib/auth-routing';
 import { SignupStep } from './steps/SignupStep';
 import { EmailSignupStep } from './steps/EmailSignupStep';
 import { EmailVerificationStep } from './steps/EmailVerificationStep';
@@ -188,7 +189,10 @@ export function OnboardingFlow({
   const animationProgress = useSharedValue(1);
 
   const backDisabledForCurrentStep = currentStep === backDisabledStep;
-  const backToHomeForCurrentStep = currentStep === initialHomeBackStep;
+  const backToHomeForCurrentStep = shouldUseInitialHomeBack(
+    currentStep,
+    currentStep === initialHomeBackStep,
+  );
 
   useEffect(() => {
     if (!backDisabledForCurrentStep) return;

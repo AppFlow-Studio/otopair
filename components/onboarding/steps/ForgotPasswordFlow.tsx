@@ -1,4 +1,4 @@
-import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSignIn } from "@clerk/clerk-expo";
 import { zxcvbn, zxcvbnOptions } from "@zxcvbn-ts/core";
 import * as zxcvbnCommonPackage from "@zxcvbn-ts/language-common";
@@ -39,9 +39,11 @@ import {
 } from "@/constants/theme";
 import { OnboardingSurfaceColors } from "../onboardingColors";
 import {
+  PasswordResetFlowStep,
   PasswordResetMethod,
   getClerkErrorMessage,
   getPasswordResetAttempt,
+  getPasswordResetBackTarget,
   getPasswordResetIdentifierLabel,
   getPasswordResetStrategy,
   validateResetPassword,
@@ -54,7 +56,6 @@ zxcvbnOptions.setOptions({
   graphs: zxcvbnCommonPackage.adjacencyGraphs,
 });
 
-type ForgotPasswordStep = "method" | "email" | "phone" | "code" | "password";
 type LoadingState = "send" | "verify" | "reset" | null;
 
 interface ForgotPasswordFlowProps {
@@ -72,7 +73,7 @@ export function ForgotPasswordFlow({
   const { height, width } = useWindowDimensions();
   const { signIn, setActive, isLoaded } = useSignIn();
 
-  const [step, setStep] = useState<ForgotPasswordStep>("method");
+  const [step, setStep] = useState<PasswordResetFlowStep>("method");
   const [method, setMethod] = useState<PasswordResetMethod>("email");
   const [email, setEmail] = useState(initialEmail?.trim() ?? "");
   const [phoneNumber, setPhoneNumber] = useState("");
@@ -154,6 +155,25 @@ export function ForgotPasswordFlow({
   const canSubmitPassword =
     passwordValidation.canSubmit && loading === null && isLoaded && newPassword.length > 0;
 
+  const handleBack = useCallback(() => {
+    setError(null);
+
+    switch (getPasswordResetBackTarget(step, method)) {
+      case "login":
+        onBackToLogin();
+        break;
+      case "method":
+        setStep("method");
+        break;
+      case "email":
+        setStep("email");
+        break;
+      case "phone":
+        setStep("phone");
+        break;
+    }
+  }, [method, onBackToLogin, step]);
+
   useEffect(() => {
     const sub = BackHandler.addEventListener("hardwareBackPress", () => {
       handleBack();
@@ -161,7 +181,7 @@ export function ForgotPasswordFlow({
     });
 
     return () => sub.remove();
-  });
+  }, [handleBack]);
 
   useEffect(() => {
     getAllCountries(FlagType.EMOJI, "common")
@@ -232,28 +252,6 @@ export function ForgotPasswordFlow({
       );
     });
   }, [countries, countrySearch]);
-
-  function handleBack() {
-    setError(null);
-
-    switch (step) {
-      case "method":
-        onBackToLogin();
-        break;
-      case "email":
-      case "phone":
-        setStep("method");
-        break;
-      case "code":
-        setStep(method);
-        break;
-      case "password":
-        setStep("code");
-        break;
-      default:
-        onBackToLogin();
-    }
-  }
 
   function selectMethod(nextMethod: PasswordResetMethod) {
     setMethod(nextMethod);
@@ -516,25 +514,28 @@ export function ForgotPasswordFlow({
       "Reset password",
       "Enter the phone number connected to your account.",
       <View style={styles.formStack}>
-        <View style={styles.phoneInputContainer}>
+        <View style={styles.inputContainer}>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Choose country code"
             onPress={() => setShowCountryPicker(true)}
-            style={styles.countryCodeButton}
+            style={styles.countryCodeContainer}
           >
-            <Text style={styles.countryCodeText}>{countryCode}</Text>
-            <Text style={styles.countryCallingCode}>+{getCallingCode()}</Text>
+            <View style={styles.flagContainer}>
+              <Text style={styles.countryCodeText}>{getFlagEmoji(countryCode)}</Text>
+            </View>
+            <Text style={styles.countryCodeNumber}>+{getCallingCode()}</Text>
           </Pressable>
           <TextInput
             style={styles.phoneInput}
             placeholder="Enter your phone"
-            placeholderTextColor={OnboardingSurfaceColors.placeholder}
+            placeholderTextColor="#9CA3AF"
             value={phoneNumber}
             onChangeText={setPhoneNumber}
             keyboardType="phone-pad"
-            autoComplete="tel"
-            textContentType="telephoneNumber"
+            autoComplete="off"
+            importantForAutofill="no"
+            textContentType="none"
             autoFocus
           />
         </View>
@@ -739,11 +740,11 @@ export function ForgotPasswordFlow({
                       setShowCountryPicker(false);
                     }}
                   >
-                    <Text style={styles.countryCodeText}>{item.cca2}</Text>
-                    <Text style={styles.countryListCallingCode}>
-                      +{item.callingCode[0]}
-                    </Text>
-                    <Text style={styles.countryName} numberOfLines={1}>
+                    <View style={styles.countryItemFlag}>
+                      <Text style={styles.countryItemFlagText}>{getFlagEmoji(item.cca2)}</Text>
+                    </View>
+                    <Text style={styles.countryItemCode}>+{item.callingCode[0]}</Text>
+                    <Text style={styles.countryItemName} numberOfLines={1}>
                       {getCountryName(item)}
                     </Text>
                   </Pressable>
@@ -816,6 +817,19 @@ function getCountryName(country: Country) {
   }
 
   return country.name.common ?? country.cca2;
+}
+
+function getFlagEmoji(code: string) {
+  if (code.length !== 2) {
+    return "";
+  }
+
+  const codePoints = code
+    .toUpperCase()
+    .split("")
+    .map((char) => 0x1f1e6 + (char.charCodeAt(0) - 65));
+
+  return String.fromCodePoint(...codePoints);
 }
 
 function formatTimer(seconds: number) {
@@ -904,41 +918,51 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: OnboardingSurfaceColors.border,
   },
-  phoneInputContainer: {
+  inputContainer: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: OnboardingSurfaceColors.card,
-    borderRadius: BorderRadius.lg,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 12,
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.md,
     borderWidth: 1,
-    borderColor: OnboardingSurfaceColors.border,
+    borderColor: "#E2E8F0",
+    overflow: "hidden",
   },
-  countryCodeButton: {
+  countryCodeContainer: {
     flexDirection: "row",
     alignItems: "center",
     marginRight: Spacing.md,
     paddingRight: Spacing.md,
+    paddingLeft: Spacing.xs,
     borderRightWidth: 1,
-    borderRightColor: OnboardingSurfaceColors.border,
-    gap: Spacing.xs,
-    minHeight: 36,
+    borderRightColor: "#E2E8F0",
+    overflow: "hidden",
+  },
+  flagContainer: {
+    width: 28,
+    height: 20,
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: Spacing.xs,
+    overflow: "hidden",
   },
   countryCodeText: {
-    fontSize: FontSize.md,
-    fontFamily: FontFamily.bold,
-    color: OnboardingSurfaceColors.text,
+    fontSize: FontSize.lg,
+    includeFontPadding: false,
+    textAlignVertical: "center",
+    lineHeight: FontSize.lg,
   },
-  countryCallingCode: {
+  countryCodeNumber: {
     fontSize: FontSize.lg,
     fontFamily: FontFamily.medium,
-    color: OnboardingSurfaceColors.text,
+    color: "#0F172A",
   },
   phoneInput: {
     flex: 1,
     fontSize: FontSize.lg,
     fontFamily: FontFamily.regular,
-    color: OnboardingSurfaceColors.text,
+    color: "#0F172A",
     paddingVertical: 0,
   },
   codeContainer: {
@@ -1129,13 +1153,22 @@ const styles = StyleSheet.create({
   countryItemSelected: {
     backgroundColor: OnboardingSurfaceColors.selected,
   },
-  countryListCallingCode: {
-    minWidth: 56,
+  countryItemFlag: {
+    width: 32,
+    height: 24,
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: Spacing.md,
+  },
+  countryItemFlagText: { fontSize: 24 },
+  countryItemCode: {
     fontSize: FontSize.md,
     fontFamily: FontFamily.medium,
     color: OnboardingSurfaceColors.text,
+    marginRight: Spacing.md,
+    minWidth: 50,
   },
-  countryName: {
+  countryItemName: {
     flex: 1,
     fontSize: FontSize.md,
     fontFamily: FontFamily.regular,

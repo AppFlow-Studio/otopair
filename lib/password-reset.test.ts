@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   getPasswordResetAttempt,
+  getPasswordResetBackTarget,
   getPasswordResetIdentifierLabel,
   getPasswordResetStrategy,
   validateResetPassword,
@@ -48,4 +49,13 @@ test("validateResetPassword accepts matching passwords with at least 8 character
     passwordsMatch: true,
     canSubmit: true,
   });
+});
+
+test("getPasswordResetBackTarget sends the new password step back to login", () => {
+  assert.equal(getPasswordResetBackTarget("password", "email"), "login");
+});
+
+test("getPasswordResetBackTarget sends code entry back to the selected method", () => {
+  assert.equal(getPasswordResetBackTarget("code", "email"), "email");
+  assert.equal(getPasswordResetBackTarget("code", "phone"), "phone");
 });

@@ -1,5 +1,9 @@
 export type PasswordResetMethod = "email" | "phone";
 
+export type PasswordResetFlowStep = "method" | "email" | "phone" | "code" | "password";
+
+export type PasswordResetBackTarget = "login" | "method" | PasswordResetMethod;
+
 export type PasswordResetStrategy =
   | "reset_password_email_code"
   | "reset_password_phone_code";
@@ -55,6 +59,22 @@ export function getPasswordResetIdentifierLabel(
   identifier: string
 ) {
   return identifier.trim();
+}
+
+export function getPasswordResetBackTarget(
+  step: PasswordResetFlowStep,
+  method: PasswordResetMethod
+): PasswordResetBackTarget {
+  switch (step) {
+    case "method":
+    case "password":
+      return "login";
+    case "email":
+    case "phone":
+      return "method";
+    case "code":
+      return method;
+  }
 }
 
 export function validateResetPassword(

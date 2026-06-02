@@ -16,6 +16,7 @@ import { BackButton } from "@/components/shared-ui/BackButton";
 import {
   KeyboardAvoidingView,
   Platform,
+  BackHandler,
   StyleSheet,
   TextInput,
   View,
@@ -68,6 +69,15 @@ export function LoginStep({ onBack }: LoginStepProps) {
   const isCompact = height < 720;
   const buttonSize: "md" | "lg" = isCompact ? "md" : "lg";
   const buttonPaddingVertical = isCompact ? Spacing.sm : Spacing.lg;
+
+  useEffect(() => {
+    if (showForgotPasswordFlow) return;
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      onBack();
+      return true;
+    });
+    return () => sub.remove();
+  }, [onBack, showForgotPasswordFlow]);
 
   const navigateAfterLogin = useCallback(async () => {
     let shouldShowReactivationSheet = false;
