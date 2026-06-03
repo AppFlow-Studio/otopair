@@ -39,13 +39,15 @@ import {
 } from "@/constants/theme";
 import { OnboardingSurfaceColors } from "../onboardingColors";
 import {
+  distributePasswordResetCodeInput,
   PasswordResetFlowStep,
   PasswordResetMethod,
-  getClerkErrorMessage,
+  getPasswordResetErrorMessage,
   getPasswordResetAttempt,
   getPasswordResetBackTarget,
   getPasswordResetIdentifierLabel,
   getPasswordResetStrategy,
+  isValidResetEmail,
   validateResetPassword,
 } from "@/lib/password-reset";
 
@@ -150,7 +152,7 @@ export function ForgotPasswordFlow({
     }
   }, [strength]);
 
-  const canSubmitEmail = email.trim().length > 0;
+  const canSubmitEmail = isValidResetEmail(email);
   const canSubmitPhone = phoneNumber.replace(/\D/g, "").length > 0;
   const canSubmitPassword =
     passwordValidation.canSubmit && loading === null && isLoaded && newPassword.length > 0;
@@ -293,10 +295,26 @@ export function ForgotPasswordFlow({
       setTimeRemaining(60);
       setStep("code");
     } catch (err: unknown) {
-      setError(getClerkErrorMessage(err, "Unable to send a reset code. Please try again."));
+      setError(
+        getPasswordResetErrorMessage(
+          err,
+          "Unable to send a reset code. Please try again.",
+          { method: nextMethod, phase: "send" }
+        )
+      );
     } finally {
       setLoading(null);
     }
+  }
+
+  async function submitEmailReset() {
+    const trimmedEmail = email.trim();
+    if (!isValidResetEmail(trimmedEmail)) {
+      setError("Enter a valid email address.");
+      return;
+    }
+
+    await sendResetCode("email", trimmedEmail);
   }
 
   async function verifyCode(fullCode: string) {
@@ -324,7 +342,15 @@ export function ForgotPasswordFlow({
       setError("Verification incomplete. Please try again.");
       resetCodeInputs();
     } catch (err: unknown) {
-      setError(getClerkErrorMessage(err, "Invalid verification code. Please try again."));
+      const message = getPasswordResetErrorMessage(
+        err,
+        "Invalid verification code. Please try again.",
+        { method, phase: "verify" }
+      );
+      if (message === "This code expired. Send a new one.") {
+        setTimeRemaining(0);
+      }
+      setError(message);
       resetCodeInputs();
     } finally {
       setLoading(null);
@@ -361,28 +387,31 @@ export function ForgotPasswordFlow({
 
       setError("Password reset is not complete. Please try again.");
     } catch (err: unknown) {
-      setError(getClerkErrorMessage(err, "Unable to update your password. Please try again."));
+      setError(
+        getPasswordResetErrorMessage(
+          err,
+          "Unable to update your password. Please try again.",
+          { method, phase: "reset" }
+        )
+      );
     } finally {
       setLoading(null);
     }
   }
 
   function handleCodeChange(value: string, index: number) {
-    const digit = value.replace(/\D/g, "");
-    if (digit.length > 1) return;
+    const distributed = distributePasswordResetCodeInput(code, value, index);
+    const digits = value.replace(/\D/g, "");
 
-    const nextCode = [...code];
-    nextCode[index] = digit;
-    setCode(nextCode);
-    const fullCode = nextCode.join("");
+    setCode(distributed.code);
+    setFocusedCodeIndex(distributed.nextFocusIndex);
 
-    if (digit && index < 5) {
-      setFocusedCodeIndex(index + 1);
-      codeInputRefs.current[index + 1]?.focus();
+    if (digits) {
+      codeInputRefs.current[distributed.nextFocusIndex]?.focus();
     }
 
-    if (step === "code" && fullCode.length === 6 && loading === null) {
-      verifyCode(fullCode);
+    if (step === "code" && distributed.fullCode.length === 6 && loading === null) {
+      verifyCode(distributed.fullCode);
     }
   }
 
@@ -487,7 +516,12 @@ export function ForgotPasswordFlow({
           placeholder="Email address"
           placeholderTextColor={OnboardingSurfaceColors.placeholder}
           value={email}
-          onChangeText={setEmail}
+          onChangeText={(value) => {
+            setEmail(value);
+            if (error === "Enter a valid email address.") {
+              setError(null);
+            }
+          }}
           autoCapitalize="none"
           autoComplete="email"
           textContentType="emailAddress"
@@ -496,7 +530,7 @@ export function ForgotPasswordFlow({
         />
         <FooterButton
           label={loading === "send" ? "Sending..." : "Continue"}
-          onPress={() => sendResetCode("email", email.trim())}
+          onPress={submitEmailReset}
           disabled={!canSubmitEmail || loading !== null}
           loading={loading === "send"}
           size={buttonSize}
@@ -580,7 +614,10 @@ export function ForgotPasswordFlow({
                 onKeyPress={(event) => handleCodeKeyPress(event.nativeEvent.key, index)}
                 onFocus={() => setFocusedCodeIndex(index)}
                 keyboardType="number-pad"
-                maxLength={1}
+                maxLength={6}
+                textContentType="oneTimeCode"
+                autoComplete="sms-otp"
+                importantForAutofill="yes"
                 selectTextOnFocus
                 autoFocus={index === 0}
               />

@@ -15,3 +15,19 @@ test("ForgotPasswordFlow phone input uses the PhoneNumberStep input structure", 
   assert.match(forgotPasswordSource, /importantForAutofill="no"/);
   assert.match(forgotPasswordSource, /textContentType="none"/);
 });
+
+test("ForgotPasswordFlow keeps phone reset visible", () => {
+  assert.match(forgotPasswordSource, />Phone number</);
+  assert.match(forgotPasswordSource, /sendResetCode\("phone", getFormattedPhoneIdentifier\(\)\)/);
+});
+
+test("ForgotPasswordFlow code inputs expose iOS and Android OTP autofill hints", () => {
+  assert.match(forgotPasswordSource, /textContentType="oneTimeCode"/);
+  assert.match(forgotPasswordSource, /autoComplete="sms-otp"/);
+  assert.match(forgotPasswordSource, /importantForAutofill="yes"/);
+});
+
+test("ForgotPasswordFlow success still delegates to LoginStep navigation", () => {
+  assert.match(forgotPasswordSource, /await onAuthenticated\(\)/);
+  assert.doesNotMatch(forgotPasswordSource, /router\.replace\("\/\(main-tabs\)\/home"\)/);
+});
