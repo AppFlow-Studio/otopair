@@ -214,6 +214,17 @@ export default defineSchema({
     has_brake_pad_sensor: v.optional(v.boolean()),
     brake_fluid_type: v.optional(v.string()),
     brake_fluid_capacity_oz: v.optional(v.number()),
+    // OEM brake system tier — drives the "According to our records, your
+    // YYYY Make Model has: Standard brakes" radio pre-selection on the
+    // Shop Rotors screen. Sourced from VDB `brakingSpec.type` via
+    // `normalizeBrakeSystemType` in convex/lib/vehicleDatabases.ts.
+    brake_system_type: v.optional(
+      v.union(
+        v.literal("standard"),
+        v.literal("sport"),
+        v.literal("carbon_ceramic"),
+      ),
+    ),
     ps_fluid_type: v.optional(v.string()),
     ps_fluid_capacity_oz: v.optional(v.number()),
     enrichment_status: v.optional(v.string()),
@@ -1586,13 +1597,31 @@ export default defineSchema({
       })
     ),
     // Structured rotor request specs — populated for rotor-quote bookings.
-    // Mirrors tire_specs shape; axle drives the qty (front=2, rear=2,
-    // both=4). No "type" because rotor style is sourced by the shop.
+    // Spec: docs/rotor-booking/SPEC_v1.pdf (June 2026). Brake system type
+    // comes from OEM data (vehicle_configs.brake_system_type), confirmed by
+    // user. Axle drives qty (front=2, rear=2, both=4) at render time — not
+    // stored. Pads are an optional combo (default Yes); pad_type is sent
+    // only when include_pads is true.
     rotor_specs: v.optional(
       v.object({
-        axle: v.string(), // "front" | "rear" | "both"
-        tier: v.string(),
-        quantity: v.number(),
+        brake_system_type: v.union(
+          v.literal("standard"),
+          v.literal("sport"),
+          v.literal("carbon_ceramic"),
+        ),
+        axle: v.union(
+          v.literal("front"),
+          v.literal("rear"),
+          v.literal("both"),
+        ),
+        include_pads: v.boolean(),
+        pad_type: v.optional(
+          v.union(
+            v.literal("ceramic"),
+            v.literal("semi_metallic"),
+            v.literal("oem_recommended"),
+          ),
+        ),
       })
     ),
     // Picked variants for services with has_options = true (e.g. brake pads
@@ -1835,6 +1864,13 @@ export default defineSchema({
       time: v.string(),
     }),
     estimated_duration_minutes: v.optional(v.number()),
+    // Pad line items — populated when bookings.rotor_specs.include_pads is
+    // true. Surfaced as a separate "Pads (Brand) — $price" row on the
+    // RotorQuoteCard. acceptRotorQuote sums pad cost into parts_cost.
+    pad_brand: v.optional(v.string()),
+    pad_type: v.optional(v.string()),
+    pad_price: v.optional(v.number()),
+    pad_quantity: v.optional(v.number()),
     created_at: v.number(),
     expires_at: v.optional(v.number()),
     superseded_at: v.optional(v.number()),

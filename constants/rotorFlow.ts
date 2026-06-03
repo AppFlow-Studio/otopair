@@ -1,37 +1,43 @@
 /**
  * rotorFlow
  *
- * PURPOSE: Mock data + copy for the Rotor Booking Flow. Mirrors
- *          `constants/tireFlow.ts` (tiers, brand pool, shop pool, mock
- *          response generator) but with rotor-specific axles instead of
- *          tire sizes/types. The shop is responsible for sourcing the
- *          lowest OEM price, so this file carries the tier copy that
- *          frames the customer's choice + a canned response generator
- *          used while the backend is being wired.
+ * PURPOSE: Types + dev fixtures for the Rotor Booking Flow. Spec:
+ *          docs/rotor-booking/SPEC_v1.pdf (June 2026).
+ *          User picks brake system type (OEM pre-selected), axle, whether
+ *          to include pads, and pad type (when pads = yes). Quantity is
+ *          derived from axle. Mocks here exist for dev runs until the
+ *          shop-facing partner UI is wired end-to-end.
  */
 
 // ============================================================================
 // TYPES
 // ============================================================================
 
+/** OEM brake system tier — sourced from VDB `brakingSpec.type`. */
+export type BrakeSystemType = "standard" | "sport" | "carbon_ceramic";
+
 /** Front pair, rear pair, or both axles (quantity 2 or 4). */
 export type RotorAxle = "front" | "rear" | "both";
-export type RotorTierId = "premium" | "plus" | "standard";
 
-export interface RotorTierOption {
-  id: RotorTierId;
-  label: string;
-  tagline: string;
-  warrantyRange: string;
-  brandSample: string[];
-  recommended?: boolean;
-}
+/** Pad material the customer picked when include_pads is true. */
+export type PadType = "ceramic" | "semi_metallic" | "oem_recommended";
 
 export interface RotorAxleOption {
   id: RotorAxle;
   label: string;
   description: string;
   quantity: number;
+}
+
+export interface BrakeSystemOption {
+  id: BrakeSystemType;
+  label: string;
+  caption: string;
+}
+
+export interface PadTypeOption {
+  id: PadType;
+  label: string;
 }
 
 export interface RotorQuote {
@@ -48,11 +54,22 @@ export interface RotorQuote {
   total: number;
   availability: string;
   isBestMatch: boolean;
+  /** Set when include_pads was true on the request. */
+  padBrand?: string;
+  padType?: PadType;
+  padPrice?: number;
+  padQuantity?: number;
 }
 
 // ============================================================================
-// AXLE OPTIONS
+// OPTIONS — copy per spec section 6
 // ============================================================================
+
+export const BRAKE_SYSTEM_OPTIONS: BrakeSystemOption[] = [
+  { id: "standard", label: "Standard brakes", caption: "OEM cast-iron rotors. Most vehicles ship with these." },
+  { id: "sport", label: "Sport brakes", caption: "Larger, vented rotors paired with performance pads." },
+  { id: "carbon_ceramic", label: "Carbon ceramic", caption: "Track-grade carbon-ceramic discs — lightest, most expensive." },
+];
 
 export const ROTOR_AXLE_OPTIONS: RotorAxleOption[] = [
   {
@@ -75,69 +92,62 @@ export const ROTOR_AXLE_OPTIONS: RotorAxleOption[] = [
   },
 ];
 
-// ============================================================================
-// TIERS
-// ============================================================================
-
-export const ROTOR_TIERS: RotorTierOption[] = [
-  {
-    id: "premium",
-    label: "Premium",
-    tagline:
-      "OEM-grade rotors trusted by automakers. Longest life, quietest braking, lowest dust. Best for daily drivers who want it done once.",
-    warrantyRange: "50K – 70K mi",
-    brandSample: ["Brembo", "Akebono", "Bosch"],
-  },
-  {
-    id: "plus",
-    label: "Plus",
-    tagline:
-      "Strong all-around brake rotors with solid stopping power and a long service life. Great everyday value from well-known names.",
-    warrantyRange: "35K – 55K mi",
-    brandSample: ["EBC", "PowerStop", "Centric Premium"],
-  },
-  {
-    id: "standard",
-    label: "Standard",
-    tagline:
-      "Reliable rotors at the most affordable price. Safe for normal driving — replaced sooner than premium options.",
-    warrantyRange: "20K – 40K mi",
-    brandSample: ["Centric", "AC Delco Advantage", "Wagner"],
-  },
+export const PAD_TYPE_OPTIONS: PadTypeOption[] = [
+  { id: "oem_recommended", label: "OEM recommended" },
+  { id: "ceramic", label: "Ceramic" },
+  { id: "semi_metallic", label: "Semi-metallic" },
 ];
 
 // ============================================================================
-// MOCK SHOP RESPONSE GENERATOR — parallels MOCK_SHOP_RESPONSES in tireFlow
+// MOCK SHOP RESPONSE GENERATOR — dev fixture
 // ============================================================================
 
-const BRAND_POOL: Record<RotorTierId, Array<{ brand: string; model: string }>> = {
-  premium: [
-    { brand: "Brembo", model: "OE Replacement Disc" },
-    { brand: "Akebono", model: "Pro-ACT Disc" },
+const BRAND_POOL: Record<BrakeSystemType, Array<{ brand: string; model: string }>> = {
+  standard: [
     { brand: "Bosch", model: "QuietCast Premium" },
-    { brand: "ATE", model: "Original" },
-    { brand: "Zimmermann", model: "Coat Z" },
-  ],
-  plus: [
-    { brand: "EBC", model: "Ultimax Disc" },
-    { brand: "PowerStop", model: "Evolution Geomet" },
+    { brand: "Akebono", model: "Pro-ACT Disc" },
     { brand: "Centric", model: "Premium Disc" },
     { brand: "Raybestos", model: "Element3" },
-    { brand: "DuraGo", model: "Premium Electrophoretic" },
   ],
-  standard: [
-    { brand: "AC Delco", model: "Advantage Disc" },
-    { brand: "Wagner", model: "BD126111E" },
-    { brand: "Centric", model: "C-TEK Standard" },
-    { brand: "Detroit Axle", model: "OE Replacement" },
-    { brand: "Bosch", model: "Blue Disc" },
+  sport: [
+    { brand: "Brembo", model: "Sport Slotted" },
+    { brand: "EBC", model: "USR Sport" },
+    { brand: "PowerStop", model: "Z23 Evolution Sport" },
+    { brand: "DBA", model: "4000 Series T3" },
+  ],
+  carbon_ceramic: [
+    { brand: "Brembo", model: "CCM-R Carbon Ceramic" },
+    { brand: "Surface Transforms", model: "CSiC Disc" },
+    { brand: "Akebono", model: "Ceramic Composite" },
+    { brand: "Brembo", model: "Carbon Ceramic OE" },
   ],
 };
 
-export const PRICE_RANGES: Record<RotorTierId, [number, number]> = {
-  premium: [125, 215],
-  plus: [75, 135],
-  standard: [42, 85],
+const PAD_BRAND_POOL: Record<PadType, Array<{ brand: string; label: string }>> = {
+  oem_recommended: [
+    { brand: "Akebono", label: "OEM-equivalent" },
+    { brand: "Bosch", label: "OEM Spec" },
+  ],
+  ceramic: [
+    { brand: "Akebono", label: "Ceramic Pro-ACT" },
+    { brand: "EBC", label: "Redstuff Ceramic" },
+  ],
+  semi_metallic: [
+    { brand: "Wagner", label: "ThermoQuiet Semi-Metallic" },
+    { brand: "PowerStop", label: "Evolution Semi-Metallic" },
+  ],
+};
+
+export const PRICE_RANGES: Record<BrakeSystemType, [number, number]> = {
+  standard: [80, 120],
+  sport: [180, 260],
+  carbon_ceramic: [900, 1400],
+};
+
+const PAD_PRICE_RANGES: Record<PadType, [number, number]> = {
+  oem_recommended: [70, 110],
+  ceramic: [85, 130],
+  semi_metallic: [50, 90],
 };
 
 export const SHOP_POOL = [
@@ -154,25 +164,52 @@ const AVAILABILITY_SLOTS = [
   "Thu, 11:30 AM",
 ];
 
+interface MockResponseArgs {
+  brakeSystemType: BrakeSystemType;
+  axle: RotorAxle;
+  includePads: boolean;
+  padType: PadType | null;
+}
+
 /**
- * Deterministic mock rotor quotes. Mirrors MOCK_SHOP_RESPONSES from the
- * tire flow so the UX can be demoed before the Convex backend lands.
+ * Deterministic mock rotor quotes. Pricing tiers off brake system type;
+ * pad line items only land when includePads is true.
  */
-export function MOCK_SHOP_RESPONSES(
-  tier: RotorTierId,
-  quantity: number,
-): RotorQuote[] {
-  const brands = BRAND_POOL[tier];
-  const [priceMin, priceMax] = PRICE_RANGES[tier];
+export function MOCK_SHOP_RESPONSES({
+  brakeSystemType,
+  axle,
+  includePads,
+  padType,
+}: MockResponseArgs): RotorQuote[] {
+  const brands = BRAND_POOL[brakeSystemType];
+  const [priceMin, priceMax] = PRICE_RANGES[brakeSystemType];
+  const quantity = quantityForAxle(axle);
   const shops = SHOP_POOL;
+
+  const padBrandPool = includePads && padType ? PAD_BRAND_POOL[padType] : null;
+  const padPriceRange = includePads && padType ? PAD_PRICE_RANGES[padType] : null;
 
   return shops.map((shop, i) => {
     const brandInfo = brands[i % brands.length];
     const spread = (priceMax - priceMin) / (shops.length - 1);
     const perRotorPrice = Math.round(priceMin + spread * i);
-    // Rotor labor is more involved than tire swap — front+rear adds ~30 min.
     const laborCost = quantity === 4 ? 220 + i * 15 : 140 + i * 10;
-    const total = perRotorPrice * quantity + laborCost;
+
+    let padBrand: string | undefined;
+    let padPrice: number | undefined;
+    let padQuantity: number | undefined;
+    if (padBrandPool && padPriceRange && padType) {
+      const padInfo = padBrandPool[i % padBrandPool.length];
+      const [padMin, padMax] = padPriceRange;
+      const padSpread = (padMax - padMin) / (shops.length - 1);
+      padBrand = `${padInfo.brand} ${padInfo.label}`;
+      padPrice = Math.round(padMin + padSpread * i);
+      padQuantity = quantity;
+    }
+
+    const padsSubtotal = padPrice != null && padQuantity != null ? padPrice * padQuantity : 0;
+    const total = perRotorPrice * quantity + padsSubtotal + laborCost;
+
     return {
       id: `rotor_quote_${shop.id}`,
       shopId: shop.id,
@@ -187,6 +224,10 @@ export function MOCK_SHOP_RESPONSES(
       total,
       availability: AVAILABILITY_SLOTS[i % AVAILABILITY_SLOTS.length],
       isBestMatch: i === 0,
+      padBrand,
+      padType: padType ?? undefined,
+      padPrice,
+      padQuantity,
     };
   });
 }
@@ -195,21 +236,25 @@ export function MOCK_SHOP_RESPONSES(
 // LABEL HELPERS — used by the requesting screen + analytics
 // ============================================================================
 
-/** Human label for the rotors request: "2 Plus rotors · Front pair" /
- *  "4 Premium rotors · All four". Mirrors the tire flow's
- *  "{count} {tier+type} · {size}" pattern so the requesting sheet reads
- *  the same way across services. */
-export function formatRotorsLabel(axle: RotorAxle, tier: RotorTierId): string {
+/** Human label for the rotors request: "2 Standard-brake rotors · Front pair". */
+export function formatRotorsLabel(
+  axle: RotorAxle,
+  brakeSystemType: BrakeSystemType,
+): string {
   const axleLabel =
     axle === "front"
       ? "Front pair"
       : axle === "rear"
         ? "Rear pair"
         : "All four";
-  const tierOpt = ROTOR_TIERS.find((t) => t.id === tier);
-  const tierLabel = tierOpt?.label ?? tier;
+  const systemLabel =
+    brakeSystemType === "carbon_ceramic"
+      ? "Carbon-ceramic"
+      : brakeSystemType === "sport"
+        ? "Sport"
+        : "Standard-brake";
   const quantity = quantityForAxle(axle);
-  return `${quantity} ${tierLabel} rotors · ${axleLabel}`;
+  return `${quantity} ${systemLabel} rotors · ${axleLabel}`;
 }
 
 /** Resolve axle → quantity (front=2, rear=2, both=4). */

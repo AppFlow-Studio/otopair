@@ -26,11 +26,7 @@ import {
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
 import { RotorQuoteRequestStatus } from "@/components/rotor-booking/RotorQuoteRequestStatus";
 import { Text } from "@/components/shared-ui";
-import {
-  formatRotorsLabel,
-  quantityForAxle,
-  ROTOR_TIERS,
-} from "@/constants/rotorFlow";
+import { formatRotorsLabel } from "@/constants/rotorFlow";
 import { useCreateRotorQuoteRequest } from "@/hooks/useCreateRotorQuoteRequest";
 import { useRotorBookingStore } from "@/stores/useRotorBookingStore";
 
@@ -52,8 +48,10 @@ export default function RotorRequestingScreen({
   const confirmedRef = useRef(false);
 
   const createRotorQuoteRequest = useCreateRotorQuoteRequest();
+  const brakeSystemType = useRotorBookingStore((s) => s.brakeSystemType);
   const axle = useRotorBookingStore((s) => s.axle);
-  const tier = useRotorBookingStore((s) => s.tier);
+  const includePads = useRotorBookingStore((s) => s.includePads);
+  const padType = useRotorBookingStore((s) => s.padType);
 
   const copyOpacity = useSharedValue(0);
   const copyAnimStyle = useAnimatedStyle(() => ({ opacity: copyOpacity.value }));
@@ -81,19 +79,19 @@ export default function RotorRequestingScreen({
 
   const handleViewUpcoming = useCallback(() => {
     if (confirmedRef.current) return;
-    if (!axle || !tier) return;
+    if (!brakeSystemType || !axle) return;
+    if (includePads && !padType) return;
     confirmedRef.current = true;
 
-    const tierLabel = ROTOR_TIERS.find((t) => t.id === tier)?.label ?? "";
-    const quantity = quantityForAxle(axle);
-    const rotorsLabel = formatRotorsLabel(axle, tier);
+    const rotorsLabel = formatRotorsLabel(axle, brakeSystemType);
 
     void createRotorQuoteRequest({
       rotorsLabel,
       rotorSpecs: {
+        brake_system_type: brakeSystemType,
         axle,
-        tier: tierLabel,
-        quantity,
+        include_pads: includePads,
+        ...(includePads && padType ? { pad_type: padType } : {}),
       },
     });
 
@@ -101,7 +99,7 @@ export default function RotorRequestingScreen({
     setTimeout(() => {
       confirmSheetRef.current?.open();
     }, 250);
-  }, [axle, tier, createRotorQuoteRequest]);
+  }, [brakeSystemType, axle, includePads, padType, createRotorQuoteRequest]);
 
   const handleBackToBooking = useCallback(() => {
     confirmSheetRef.current?.close();

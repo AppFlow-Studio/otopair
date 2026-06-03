@@ -15,14 +15,20 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useUserFromConvex } from "@/hooks/useUserFromConvex";
 import { useVehicleStore } from "@/stores/useVehicleStore";
+import type {
+  BrakeSystemType,
+  PadType,
+  RotorAxle,
+} from "@/constants/rotorFlow";
 
 interface CreateArgs {
-  /** "Front pair · Premium" / "All four · Plus" */
+  /** "2 Standard-brake rotors · Front pair" */
   rotorsLabel: string;
   rotorSpecs: {
-    axle: string; // "front" | "rear" | "both"
-    tier: string;
-    quantity: number;
+    brake_system_type: BrakeSystemType;
+    axle: RotorAxle;
+    include_pads: boolean;
+    pad_type?: PadType;
   };
 }
 

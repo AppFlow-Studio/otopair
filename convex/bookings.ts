@@ -12193,9 +12193,24 @@ export const createRotorQuoteRequest = mutation({
     user_id: v.id("users"),
     vin: v.string(),
     rotor_specs: v.object({
-      axle: v.string(), // "front" | "rear" | "both"
-      tier: v.string(),
-      quantity: v.number(),
+      brake_system_type: v.union(
+        v.literal("standard"),
+        v.literal("sport"),
+        v.literal("carbon_ceramic"),
+      ),
+      axle: v.union(
+        v.literal("front"),
+        v.literal("rear"),
+        v.literal("both"),
+      ),
+      include_pads: v.boolean(),
+      pad_type: v.optional(
+        v.union(
+          v.literal("ceramic"),
+          v.literal("semi_metallic"),
+          v.literal("oem_recommended"),
+        ),
+      ),
     }),
     service_ids: v.optional(v.array(v.id("services"))),
   },
@@ -12306,11 +12321,15 @@ export const acceptRotorQuote = mutation({
       );
     }
 
+    const rotorsSubtotal = response.per_rotor_price * response.quantity;
+    const padsSubtotal =
+      (response.pad_price ?? 0) * (response.pad_quantity ?? response.quantity);
+
     await ctx.db.patch(args.booking_id, {
       shop_id: response.shop_id,
       ...(response.mechanic_id ? { mechanic_id: response.mechanic_id } : {}),
       labor_cost: response.labor_cost,
-      parts_cost: response.per_rotor_price * response.quantity,
+      parts_cost: rotorsSubtotal + padsSubtotal,
       total_cost: response.total,
       scheduled_date: response.availability.date,
       scheduled_time: response.availability.time,

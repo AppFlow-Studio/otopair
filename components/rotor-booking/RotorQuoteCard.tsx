@@ -36,6 +36,9 @@ export function RotorQuoteCard({ quote, variant, onBook }: Props) {
   const isPrimary = variant === "primary";
   const perRotorLabel = `${formatMoney(quote.perRotorPrice)} × ${quote.quantity}`;
   const rotorsSubtotal = quote.perRotorPrice * quote.quantity;
+  const padQuantity = quote.padQuantity ?? quote.quantity;
+  const padSubtotal =
+    quote.padPrice != null ? quote.padPrice * padQuantity : null;
 
   return (
     <View style={[styles.card, isPrimary ? styles.cardPrimary : styles.cardSecondary]}>
@@ -72,6 +75,12 @@ export function RotorQuoteCard({ quote, variant, onBook }: Props) {
 
       <View style={styles.itemBlock}>
         <ItemRow label={`Rotors (${perRotorLabel})`} value={formatMoney(rotorsSubtotal)} />
+        {quote.padBrand && padSubtotal != null ? (
+          <ItemRow
+            label={`Pads (${quote.padBrand})`}
+            value={formatMoney(padSubtotal)}
+          />
+        ) : null}
         <ItemRow label="Installation & labor" value={formatMoney(quote.laborCost)} />
         <View style={styles.itemDivider} />
         <View style={styles.totalRow}>

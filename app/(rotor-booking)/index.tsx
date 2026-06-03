@@ -1,16 +1,21 @@
 /**
- * Rotor Booking · Single-page flow
+ * Rotor Booking · Shop Rotors screen
  *
- * Mirror of `app/(tire-booking)/index.tsx`, but rotor-specific: the hero
- * is an axle-pair selector (front / rear / both — single select, qty
- * derived) and the config row collapses to just a Tier picker. Get Quotes
- * fires `createRotorQuoteRequest` and pushes the requesting screen.
+ * Spec: docs/rotor-booking/SPEC_v1.pdf (June 2026). Four selection fields:
+ *   1. Brake system type (Standard / Sport / Carbon ceramic) — pre-selected
+ *      from OEM data via useBrakeSystemTypeFromConvex
+ *   2. Axle (Front pair / Rear pair / All four) — diagram + pills
+ *   3. Include brake pads? Yes/No (default Yes)
+ *   4. Pad type (Ceramic / Semi-metallic / OEM recommended) — conditional
+ *
+ * "Find Available Rotors" fires the existing request → broadcast → response
+ * pipeline; this screen is purely about the selection inputs.
  */
 
 import { useFocusEffect, useRouter } from "expo-router";
 import { haptics } from "@/lib/haptics";
-import { Car, Check, ChevronLeft, Info, ListFilter } from "lucide-react-native";
-import React, { useCallback, useMemo, useRef, useState } from "react";
+import { Car, Check, ChevronLeft, ListFilter } from "lucide-react-native";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Dimensions,
@@ -20,31 +25,21 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import Animated, {
-  Easing,
-  useAnimatedStyle,
-  useSharedValue,
-  withSequence,
-  withTiming,
-} from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import RotorRequestingScreen from "@/app/(rotor-booking)/requesting";
 import { Text } from "@/components/shared-ui";
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
+import { BrakeSystemCard } from "@/components/rotor-booking/BrakeSystemCard";
+import { IncludePadsRow } from "@/components/rotor-booking/IncludePadsRow";
+import { PadTypeChips } from "@/components/rotor-booking/PadTypeChips";
 import { RotorAxleSelector } from "@/components/rotor-booking/RotorAxleSelector";
 import {
-  RotorTierInfoSheet,
-  type RotorTierInfoSheetRef,
-} from "@/components/rotor-booking/RotorTierInfoSheet";
-import {
   ROTOR_AXLE_OPTIONS,
-  ROTOR_TIERS,
   quantityForAxle,
   type RotorAxle,
-  type RotorTierId,
-  type RotorTierOption,
 } from "@/constants/rotorFlow";
+import { useBrakeSystemTypeFromConvex } from "@/hooks/useBrakeSystemTypeFromConvex";
 import { useRotorBookingStore } from "@/stores/useRotorBookingStore";
 import { useVehicleStore, type Vehicle } from "@/stores/useVehicleStore";
 
@@ -73,25 +68,42 @@ export default function RotorBookingScreen({ onClose, onConfirmed }: RotorBookin
     [vehicles, selectedVehicleId],
   );
   const canSwitch = vehicles.length > 1;
+  const vehicleLabel = selectedVehicle
+    ? `${selectedVehicle.year} ${selectedVehicle.make} ${selectedVehicle.model}`
+    : "your vehicle";
 
   // ── Rotor store ────────────────────────────────────────────────────────────
+  const brakeSystemType = useRotorBookingStore((s) => s.brakeSystemType);
   const axle = useRotorBookingStore((s) => s.axle);
-  const tier = useRotorBookingStore((s) => s.tier);
+  const includePads = useRotorBookingStore((s) => s.includePads);
+  const padType = useRotorBookingStore((s) => s.padType);
+  const setBrakeSystemType = useRotorBookingStore((s) => s.setBrakeSystemType);
   const setAxle = useRotorBookingStore((s) => s.setAxle);
-  const setTier = useRotorBookingStore((s) => s.setTier);
+  const setIncludePads = useRotorBookingStore((s) => s.setIncludePads);
+  const setPadType = useRotorBookingStore((s) => s.setPadType);
   const setVehicleIdOnStore = useRotorBookingStore((s) => s.setVehicleId);
   const fireRequest = useRotorBookingStore((s) => s.fireRequest);
   const resetRotorStore = useRotorBookingStore((s) => s.reset);
 
-  React.useEffect(() => {
+  useEffect(() => {
     setVehicleIdOnStore(selectedVehicleId);
   }, [selectedVehicleId, setVehicleIdOnStore]);
 
+  // ── OEM brake-system pre-selection ────────────────────────────────────────
+  // First render with a known OEM value seeds the store. User overrides win
+  // afterward — switching vehicles re-seeds because the effect deps change.
+  const { brakeSystemType: oemBrakeSystemType } = useBrakeSystemTypeFromConvex();
+  useEffect(() => {
+    if (oemBrakeSystemType && !brakeSystemType) {
+      setBrakeSystemType(oemBrakeSystemType);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [oemBrakeSystemType, selectedVehicleId]);
+
   // ── Refs ───────────────────────────────────────────────────────────────────
   const vehiclePickerRef = useRef<FloatingSheetRef>(null);
-  const tierInfoRef = useRef<RotorTierInfoSheetRef>(null);
 
-  // ── Submit spinner — same pattern as the tire flow ─────────────────────────
+  // ── Submit spinner ─────────────────────────────────────────────────────────
   const [isSubmitting, setIsSubmitting] = useState(false);
   useFocusEffect(
     useCallback(() => {
@@ -128,8 +140,7 @@ export default function RotorBookingScreen({ onClose, onConfirmed }: RotorBookin
 
   // Modal mode: swap to the requesting view inline instead of pushing a new
   // route (router.push from inside the parent Modal doesn't navigate
-  // reliably). Route mode keeps the original push-based flow. Mirrors the
-  // tire flow's inline requesting handoff.
+  // reliably). Route mode keeps the original push-based flow.
   const [showRequestingInline, setShowRequestingInline] = useState(false);
 
   const handleGetQuotes = useCallback(() => {
@@ -147,11 +158,13 @@ export default function RotorBookingScreen({ onClose, onConfirmed }: RotorBookin
   }, [fireRequest, router, onClose]);
 
   // ── Derived ────────────────────────────────────────────────────────────────
-  const ctaDisabled = !axle || !tier;
+  const padsResolved = !includePads || padType != null;
+  const ctaDisabled = !brakeSystemType || !axle || !padsResolved;
   const ctaLabel = (() => {
+    if (!brakeSystemType) return "Confirm brake system to continue";
     if (!axle) return "Tap an axle to continue";
-    if (!tier) return "Select a tier";
-    return "Get Quotes";
+    if (!padsResolved) return "Pick a pad type";
+    return "Find Available Rotors";
   })();
 
   const counterLabel = (() => {
@@ -160,7 +173,6 @@ export default function RotorBookingScreen({ onClose, onConfirmed }: RotorBookin
     return `${opt?.label ?? ""} · ${opt?.quantity ?? quantityForAxle(axle)} rotors`;
   })();
 
-  // Modal mode after Get Quotes: render the requesting screen inline.
   if (showRequestingInline && onClose) {
     return <RotorRequestingScreen onClose={onClose} onConfirmed={onConfirmed} />;
   }
@@ -215,7 +227,19 @@ export default function RotorBookingScreen({ onClose, onConfirmed }: RotorBookin
           </View>
         </TouchableOpacity>
 
-        {/* Axle hero */}
+        {/* 3 — Brake system type */}
+        <View style={styles.sectionFirst}>
+          <BrakeSystemCard
+            vehicleLabel={vehicleLabel}
+            selected={brakeSystemType}
+            onSelect={(next) => {
+              haptics.selection();
+              setBrakeSystemType(next);
+            }}
+          />
+        </View>
+
+        {/* 4 — Axle diagram */}
         <View style={styles.hero}>
           <RotorAxleSelector selected={axle} onSelect={handleSelectAxle} />
         </View>
@@ -224,7 +248,7 @@ export default function RotorBookingScreen({ onClose, onConfirmed }: RotorBookin
           {counterLabel}
         </Text>
 
-        {/* Axle chip row — explicit text labels for the three options */}
+        {/* 5 — Axle pills */}
         <View style={styles.section}>
           <Text size="sm" weight="semiBold" color="#8E8E93" style={styles.sectionLabel}>
             AXLE
@@ -252,26 +276,23 @@ export default function RotorBookingScreen({ onClose, onConfirmed }: RotorBookin
           </View>
         </View>
 
-        {/* Tier section */}
+        {/* 6 — Include pads */}
         <View style={styles.section}>
-          <Text size="sm" weight="semiBold" color="#8E8E93" style={styles.sectionLabel}>
-            QUALITY TIER
-          </Text>
-          <Text size="xs" weight="regular" style={styles.sectionCaption}>
-            How long the rotors last before needing replacement
-          </Text>
-          <View style={styles.tierList}>
-            {ROTOR_TIERS.map((t) => (
-              <TierCard
-                key={t.id}
-                tier={t}
-                selected={t.id === tier}
-                onSelect={() => setTier(t.id as RotorTierId)}
-                onInfo={() => tierInfoRef.current?.open(t.id as RotorTierId)}
-              />
-            ))}
-          </View>
+          <IncludePadsRow value={includePads} onChange={setIncludePads} />
         </View>
+
+        {/* 7 — Pad type (conditional) */}
+        {includePads ? (
+          <View style={styles.section}>
+            <PadTypeChips
+              selected={padType}
+              onSelect={(next) => {
+                haptics.selection();
+                setPadType(next);
+              }}
+            />
+          </View>
+        ) : null}
       </ScrollView>
 
       {/* Sticky CTA */}
@@ -345,65 +366,7 @@ export default function RotorBookingScreen({ onClose, onConfirmed }: RotorBookin
           </ScrollView>
         </View>
       </FloatingSheet>
-
-      <RotorTierInfoSheet ref={tierInfoRef} />
     </View>
-  );
-}
-
-function TierCard({
-  tier,
-  selected,
-  onSelect,
-  onInfo,
-}: {
-  tier: RotorTierOption;
-  selected: boolean;
-  onSelect: () => void;
-  onInfo: () => void;
-}) {
-  const scale = useSharedValue(1);
-  const animStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value }],
-  }));
-
-  const handlePress = useCallback(() => {
-    haptics.step();
-    scale.value = withSequence(
-      withTiming(0.98, { duration: 150, easing: Easing.out(Easing.cubic) }),
-      withTiming(1, { duration: 150, easing: Easing.out(Easing.cubic) }),
-    );
-    onSelect();
-  }, [onSelect, scale]);
-
-  return (
-    <Animated.View style={animStyle}>
-      <TouchableOpacity
-        style={[styles.tierCard, selected && styles.tierCardSelected]}
-        onPress={handlePress}
-        activeOpacity={0.85}
-      >
-        <View style={styles.tierHeader}>
-          <View style={styles.tierLabelRow}>
-            <Text size="sm" weight="semiBold" color="#1A1A1A">
-              {tier.label}
-            </Text>
-            <TouchableOpacity
-              onPress={onInfo}
-              hitSlop={10}
-              style={styles.tierInfoButton}
-              accessibilityRole="button"
-              accessibilityLabel={`Learn more about ${tier.label}`}
-            >
-              <Info size={16} color="#8E8E93" />
-            </TouchableOpacity>
-          </View>
-          <View style={[styles.radio, selected && styles.radioActive]}>
-            {selected ? <Check size={12} color="#FFFFFF" /> : null}
-          </View>
-        </View>
-      </TouchableOpacity>
-    </Animated.View>
   );
 }
 
@@ -454,6 +417,9 @@ const styles = StyleSheet.create({
     flex: 1,
     textAlign: "center",
   },
+  sectionFirst: {
+    marginBottom: 8,
+  },
   hero: {
     height: 240,
     borderRadius: 20,
@@ -461,6 +427,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFFFFF",
     borderWidth: 1,
     borderColor: "#E5E7EB",
+    marginTop: 18,
     marginBottom: 12,
   },
   counter: {
@@ -473,10 +440,6 @@ const styles = StyleSheet.create({
   sectionLabel: {
     letterSpacing: 1,
     marginBottom: 10,
-  },
-  sectionCaption: {
-    marginBottom: 12,
-    color: "#8E8E93",
   },
   chipRow: {
     flexDirection: "row",
@@ -492,46 +455,6 @@ const styles = StyleSheet.create({
     borderColor: "#E5E7EB",
   },
   axleChipSelected: {
-    backgroundColor: "#1A1A1A",
-    borderColor: "#1A1A1A",
-  },
-  tierList: {
-    gap: 10,
-  },
-  tierCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    paddingVertical: 14,
-    paddingHorizontal: 14,
-  },
-  tierCardSelected: {
-    borderColor: "#1A1A1A",
-  },
-  tierHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  tierLabelRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  tierInfoButton: {
-    padding: 2,
-  },
-  radio: {
-    width: 22,
-    height: 22,
-    borderRadius: 999,
-    borderWidth: 1.5,
-    borderColor: "#9CA3AF",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  radioActive: {
     backgroundColor: "#1A1A1A",
     borderColor: "#1A1A1A",
   },

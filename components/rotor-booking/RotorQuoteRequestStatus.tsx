@@ -41,7 +41,7 @@ interface Props {
 
 export function RotorQuoteRequestStatus({ onViewUpcoming, onGoBack }: Props) {
   const axle = useRotorBookingStore((s) => s.axle);
-  const tier = useRotorBookingStore((s) => s.tier);
+  const brakeSystemType = useRotorBookingStore((s) => s.brakeSystemType);
   const selectedVehicle = useVehicleStore((s) =>
     s.selectedVehicleId ? s.vehicles[s.selectedVehicleId] : undefined,
   );
@@ -57,7 +57,8 @@ export function RotorQuoteRequestStatus({ onViewUpcoming, onGoBack }: Props) {
     ? `${selectedVehicle.year} ${selectedVehicle.make} ${selectedVehicle.model}`
     : "Selected vehicle";
 
-  const rotorsLabel = axle && tier ? formatRotorsLabel(axle, tier) : "Rotors";
+  const rotorsLabel =
+    axle && brakeSystemType ? formatRotorsLabel(axle, brakeSystemType) : "Rotors";
 
   return (
     <View style={styles.container}>
