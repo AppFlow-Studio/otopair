@@ -828,7 +828,6 @@ export const create = mutation({
     // matches what the customer saw on Review & Pay), then server-derived
     // fallback for older mobile builds that don't pass the field yet.
     const serverDerivedMinutes = await resolveBookingLaborMinutes(ctx, {
-      engineId: vehicle.engine_id ?? null,
       vehicleConfigId: vehicle.vehicle_config_id ?? null,
       services: [
         {
@@ -964,7 +963,6 @@ export const create = mutation({
 async function resolveBookingLaborMinutes(
   ctx: any,
   args: {
-    engineId: Id<"engines"> | null;
     vehicleConfigId: Id<"vehicle_configs"> | null;
     services: Array<{
       service_id: Id<"services">;
@@ -972,53 +970,45 @@ async function resolveBookingLaborMinutes(
     }>;
   },
 ): Promise<number> {
-  const MIN_EMPIRICAL_SAMPLES = 3;
-  let totalHours = 0;
-
-  for (const svc of args.services) {
-    let hours: number | null = null;
-
-    if (args.engineId) {
-      const spec = await ctx.db
-        .query("service_vehicle_specs")
-        .withIndex("by_engine_and_service", (q: any) =>
-          q.eq("engine_id", args.engineId).eq("service_id", svc.service_id),
-        )
-        .unique();
-      if (spec?.labor_hours != null && spec.labor_hours > 0) {
-        hours = spec.labor_hours;
-      }
-    }
-
-    if (hours == null && args.vehicleConfigId) {
-      const labor = await ctx.db
-        .query("labor_times")
-        .withIndex("by_vehicle_config_and_service", (q: any) =>
-          q
-            .eq("vehicle_config_id", args.vehicleConfigId)
-            .eq("service_id", svc.service_id),
-        )
-        .first();
-      if (labor) {
-        const useEmpirical =
-          labor.empirical_hours != null &&
-          (labor.empirical_sample_size ?? 0) >= MIN_EMPIRICAL_SAMPLES;
-        const resolved = useEmpirical
-          ? labor.empirical_hours
-          : labor.book_hours;
-        if (typeof resolved === "number" && resolved > 0) {
-          hours = resolved;
-        }
-      }
-    }
-
-    if (hours == null && svc.fallback_hours != null && svc.fallback_hours > 0) {
-      hours = svc.fallback_hours;
-    }
-
-    if (hours != null) totalHours += hours;
+  // No vehicle_config: only the client's per-service fallback_hours can speak.
+  if (!args.vehicleConfigId) {
+    const total = args.services.reduce(
+      (sum, s) => sum + (s.fallback_hours ?? 0),
+      0,
+    );
+    return Math.round(total * 60);
   }
 
+  const cfg = await ctx.db.get(args.vehicleConfigId);
+  if (!cfg) return 0;
+
+  // Tier is required for the Yassin engine. Lazy-detect (read-only) so
+  // unenriched vehicles still quote — the persisting write happens in
+  // quotes:previewForBooking on the mobile preview pass.
+  const tier =
+    (cfg.pricing_tier as VehicleTier | undefined) ??
+    (await detectTier(ctx, cfg));
+  if (!tier) {
+    const total = args.services.reduce(
+      (sum, s) => sum + (s.fallback_hours ?? 0),
+      0,
+    );
+    return Math.round(total * 60);
+  }
+
+  let totalHours = 0;
+  for (const svc of args.services) {
+    const res = await resolveLaborHours(ctx, {
+      vehicle_config_id: args.vehicleConfigId,
+      service_id: svc.service_id,
+      vehicle_tier: tier,
+    });
+    if (res.ok) {
+      totalHours += res.hours;
+    } else if (svc.fallback_hours != null && svc.fallback_hours > 0) {
+      totalHours += svc.fallback_hours;
+    }
+  }
   return Math.round(totalHours * 60);
 }
 
@@ -1290,7 +1280,6 @@ export const createBatch = mutation({
     // vehicle with the same engine, not the customer's own — see
     // `service_vehicle_specs.getByEngineAndService` step 2).
     const enrichmentLaborMinutes = await resolveBookingLaborMinutes(ctx, {
-      engineId: vehicle.engine_id ?? null,
       vehicleConfigId: vehicle.vehicle_config_id ?? null,
       services: args.services.map((s) => ({
         service_id: s.service_id,
@@ -1375,9 +1364,6 @@ export const createBatch = mutation({
       fixedPriceLines: disclosedRange.fixed_price_lines,
     });
 
-    // Itemized parts snapshot — same per-unit prices the customer saw on
-    // Review & Pay. Frozen on the booking so the mechanic's post-job dialog
-    // can hydrate from this directly instead of re-querying part_prices.
     const durationMinutes =
       estimated_labor_minutes > 0
         ? estimated_labor_minutes
