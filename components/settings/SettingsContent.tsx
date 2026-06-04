@@ -26,6 +26,7 @@ import {
   Modal,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   TouchableWithoutFeedback,
   View,
@@ -316,7 +317,7 @@ export function SettingsContent({
   }, [router]);
 
   // Scroll-driven blur header
-  const scrollRef = useRef<React.ElementRef<typeof Animated.ScrollView>>(null);
+  const scrollRef = useRef<ScrollView>(null);
   const scrollY = useSharedValue(0);
   const onScroll = useAnimatedScrollHandler((event) => {
     scrollY.value = event.contentOffset.y;
@@ -490,9 +491,9 @@ export function SettingsContent({
           />
           <SettingsRow
             icon={<Clock size={18} color="#FFFFFF" />}
-            label="Booking History"
+            label="Past Services"
             value={completedBookingsCount > 0 ? completedBookingsCount : undefined}
-            onPress={() => router.push("/settings/booking-history")}
+            onPress={() => router.push("/settings/transactions")}
           />
           <SettingsRow
             icon={<Bell size={18} color="#FFFFFF" />}

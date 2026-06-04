@@ -52,6 +52,11 @@ interface ServiceCard {
   subText?: string;
   icon: React.ReactNode; // Fallback lucide icon
   image?: ImageSourcePropType; // 3D icon image (optional until added)
+  /** Multiplier applied to IMAGE_ICON_SIZE when this card uses the 3D
+   *  image. Lets a single asset render visually larger/smaller without
+   *  changing the source PNG (e.g. brakes art has more whitespace
+   *  around it than the others, so we scale it up to compensate). */
+  imageScale?: number;
 }
 
 // ============================================================================
@@ -91,6 +96,7 @@ const SERVICE_CARDS: ServiceCard[] = [
     label: 'Brakes',
     icon: <Gauge size={ICON_SIZE} color="#EF4444" strokeWidth={1.5} />,
     image: require('@/assets/images/services/newIcons/brakesicon.png'),
+    imageScale: 1.15,
   },
   {
     id: 'battery',
@@ -159,7 +165,13 @@ export function MoreServicesSection() {
                   {USE_3D_ICONS && card.image ? (
                     <Image
                       source={card.image}
-                      style={styles.imageIcon}
+                      style={[
+                        styles.imageIcon,
+                        card.imageScale != null && {
+                          width: IMAGE_ICON_SIZE * card.imageScale,
+                          height: IMAGE_ICON_SIZE * card.imageScale,
+                        },
+                      ]}
                       resizeMode="contain"
                     />
                   ) : (

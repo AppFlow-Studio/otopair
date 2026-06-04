@@ -213,8 +213,8 @@ export default function RecommendedHistoryScreen() {
                   item.completed_via_booking_id
                     ? () =>
                         router.push({
-                          pathname: "/settings/booking-history",
-                          params: { openBookingId: item.completed_via_booking_id as string },
+                          pathname: "/settings/past-service/[bookingId]",
+                          params: { bookingId: item.completed_via_booking_id as string },
                         })
                     : undefined
                 }

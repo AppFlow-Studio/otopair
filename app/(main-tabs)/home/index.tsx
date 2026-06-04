@@ -43,6 +43,7 @@ import { adaptConvexBookingWithDetailsToCard } from '@/utils/bookingAdapter';
 import { BookingDetailsSheet, type BookingDetailsSheetRef } from '@/components/bookings/BookingDetailsSheet';
 import { CustomerLateBanner } from '@/components/bookings/CustomerLateBanner';
 import { LeaveReviewSheet, type LeaveReviewSheetRef } from '@/components/bookings/LeaveReviewSheet';
+import { ReceiptSheet } from '@/components/receipts/ReceiptSheet';
 import { useMyBookingsWithDetails } from '@/hooks/useMyBookingsWithDetails';
 import { useUserFromConvex } from '@/hooks/useUserFromConvex';
 import * as SecureStore from 'expo-secure-store';
@@ -642,6 +643,12 @@ export default function HomeScreen() {
   const { pendingReviewBookings } = useMyBookingsWithDetails();
   const reviewSheetRef = useRef<LeaveReviewSheetRef>(null);
   const promptedIdsRef = useRef<Set<string> | null>(null);
+  // The auto-prompt now opens the ReceiptSheet for the eligible booking.
+  // The LeaveReviewSheet only opens when the user taps "Leave a review"
+  // inside the receipt — we keep the booking here so we can hand it off.
+  const [pendingReviewBooking, setPendingReviewBooking] = useState<
+    typeof pendingReviewBookings[number] | null
+  >(null);
   useEffect(() => {
     void loadPromptedBookingIds().then((set) => {
       promptedIdsRef.current = set;
@@ -655,7 +662,7 @@ export default function HomeScreen() {
       if (!seen || !userId) return;
       const target = pendingReviewBookings.find((b) => !seen.has(b.id));
       if (!target) return;
-      reviewSheetRef.current?.open(target, String(userId));
+      setPendingReviewBooking(target);
       void addPromptedBookingId(target.id, seen).then((next) => {
         promptedIdsRef.current = next;
       });
@@ -932,8 +939,11 @@ export default function HomeScreen() {
                 }}
               />
 
-              {/* Vehicle Maintenance - with dynamic margin based on active card */}
-              <View style={{ marginTop: (visibleCardIds.length > 0 ? getCardMargin(activeCardIndex) : 0) + 24 }}>
+              {/* Vehicle Maintenance - with dynamic margin based on active card.
+                  Constant offset trimmed all the way (24 → -4) to absorb the
+                  28 px carouselContainer.marginTop added above (NOW card
+                  slides down without nudging this section). */}
+              <View style={{ marginTop: (visibleCardIds.length > 0 ? getCardMargin(activeCardIndex) : 0) - 4 }}>
                 {hasVehicles ? (
                   <VehicleMaintenanceCard
                     vehicles={mappedVehicles.length > 0 ? mappedVehicles : undefined}
@@ -1110,8 +1120,26 @@ export default function HomeScreen() {
     {/* Settings overlay is layout-mounted in (main-tabs)/_layout.tsx and
         opened via useSettingsOverlayStore.open(rect). */}
 
-    {/* Auto-prompt: if the user has a completed-but-unreviewed booking,
-        this sheet pops on focus / cold start until they submit a review. */}
+    {/* Auto-prompt: when the user lands on home with a completed-but-
+        unreviewed booking, the receipt rises first (Shopify-style
+        post-purchase moment). The LeaveReviewSheet is now only triggered
+        by the "Leave a review" CTA inside the receipt; it no longer
+        auto-opens on focus. */}
+    <ReceiptSheet
+      bookingId={(pendingReviewBooking?.id as Id<'bookings'> | undefined) ?? null}
+      onClose={() => setPendingReviewBooking(null)}
+      onLeaveReview={() => {
+        const target = pendingReviewBooking;
+        if (!target || !userId) return;
+        // Close the receipt first, then hand off after FloatingSheet's
+        // close animation completes (~260ms) so the two sheets don't
+        // stack-fight.
+        setPendingReviewBooking(null);
+        setTimeout(() => {
+          reviewSheetRef.current?.open(target, String(userId));
+        }, 320);
+      }}
+    />
     <LeaveReviewSheet ref={reviewSheetRef} />
 
     <FinishCarSetupPickerSheet
@@ -1261,6 +1289,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   carouselContainer: {
+    marginTop: 28,
     marginBottom: 0,
   },
   sheetBackground: {

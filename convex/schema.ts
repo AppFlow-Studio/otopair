@@ -1974,6 +1974,15 @@ export default defineSchema({
     difficulty_rating: v.optional(v.number()),
     parts_used: v.optional(v.any()),
     technician_notes: v.optional(v.string()),
+    // Customer-facing summary of what the mechanic did. Distinct from
+    // `technician_notes` (which stays internal). Required by the shop
+    // portal at job completion per Receipt Spec v4, but optional at
+    // the DB layer so legacy job_actuals rows don't break.
+    mechanic_findings: v.optional(v.string()),
+    // Vehicle mileage at drop-off. Paired with the existing
+    // `completion_mileage` (= odometer_out) to form the
+    // "Mileage 47,832 → 47,835" line on the receipt sheet.
+    odometer_in: v.optional(v.float64()),
     finalized_at_ms: v.optional(v.number()),
     finalized_by_user_id: v.optional(v.id("users")),
     prejob_report: v.optional(prejobReportValidator),

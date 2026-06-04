@@ -52,10 +52,19 @@ export interface AppBottomSheetModalProps {
   onClose?: () => void;
   footer?: React.ReactNode;
   contentContainerStyle?: StyleProp<ViewStyle>;
+  /** Disables the rubber-band overshoot when the user drags past the
+   *  top snap point. With a single snap point + this set to false, the
+   *  sheet refuses any upward gesture — pan-down-to-close still works. */
+  enableOverDrag?: boolean;
+  /** When false, both the handle and content panning gestures are
+   *  disabled — the sheet becomes a static popover dismissed only by
+   *  the X close button and backdrop tap. Useful for fixed-height
+   *  detail sheets that shouldn't be resizable. */
+  enablePanning?: boolean;
 }
 
 export const AppBottomSheetModal = forwardRef<BottomSheetModal, AppBottomSheetModalProps>(
-  ({ title, children, snapPoints, initialIndex = 0, onClose, footer, contentContainerStyle }, ref) => {
+  ({ title, children, snapPoints, initialIndex = 0, onClose, footer, contentContainerStyle, enableOverDrag, enablePanning = true }, ref) => {
     const insets = useSafeAreaInsets();
     const internalRef = useRef<BottomSheetModal>(null);
     const { width } = Dimensions.get('window');
@@ -84,7 +93,10 @@ export const AppBottomSheetModal = forwardRef<BottomSheetModal, AppBottomSheetMo
         ref={internalRef}
         index={initialIndex}
         snapPoints={resolvedSnapPoints}
-        enablePanDownToClose={true}
+        enablePanDownToClose={enablePanning}
+        enableContentPanningGesture={enablePanning}
+        enableHandlePanningGesture={enablePanning}
+        enableOverDrag={enableOverDrag}
         backdropComponent={renderBackdrop}
         handleIndicatorStyle={styles.handleIndicator}
         backgroundStyle={styles.sheet}

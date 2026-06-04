@@ -112,6 +112,7 @@ export default function AddVehicleScreen() {
             transType: result.transType ?? "",
             transSpeeds: result.transSpeeds != null ? String(result.transSpeeds) : "",
             drivetrain: result.drivetrain ?? "",
+            bodyClass: result.bodyClass ?? "",
           },
         });
       } else {

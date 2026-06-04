@@ -1,4 +1,8 @@
-import { Badge, Icon, Label, NativeTabs } from "expo-router/unstable-native-tabs";
+import { NativeTabs } from "expo-router/unstable-native-tabs";
+
+// In expo-router 55+, Badge / Icon / Label are nested under
+// NativeTabs.Trigger instead of being top-level exports.
+const { Badge, Icon, Label } = NativeTabs.Trigger;
 import { Tabs } from "expo-router";
 import React from "react";
 import { Platform } from "react-native";

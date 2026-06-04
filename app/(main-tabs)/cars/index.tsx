@@ -65,6 +65,7 @@ import UpcomingFollowUpsCard from "@/components/cars/UpcomingFollowUpsCard";
 import CarInfoStepper, { type CarInfoStepperHandle } from "@/components/cars/CarInfoStepper";
 import { AnimatedGradientBackground } from "@/components/shared-ui/AnimatedGradientBackground";
 import ServiceHistory, { ServiceRecord, type PickedDocument } from "@/components/cars/ServiceHistory";
+import { VehicleServiceHistory } from "@/components/cars/VehicleServiceHistory";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 import { PostOptimizeBookingSheet } from "@/components/cars/PostOptimizeBookingSheet";
 
@@ -1855,6 +1856,18 @@ export default function CarsHomeScreen() {
               }}
             />
           ) : null}
+
+          {/* Vehicle Service History — Otopair completed bookings filtered
+              by active vehicle vin. Row tap opens the shared ReceiptSheet.
+              Per Receipt Spec v4 §"Where invoices live" this is the new
+              second entry point. Sits ABOVE the existing ServiceHistory
+              (imports flow) until the merge happens in a follow-up. */}
+          {isOnboardingComplete && (
+            <VehicleServiceHistory
+              vin={activeVehicle?.vin}
+              isDarkBg={isDarkBg}
+            />
+          )}
 
           {/* Service History Section (hidden until onboarding complete) */}
           {isOnboardingComplete && <ServiceHistory

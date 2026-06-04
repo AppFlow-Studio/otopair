@@ -48,6 +48,10 @@ type ProcessVinResult = {
   displacement: string;
   fuelType: string;
   drivetrain: string;
+  /** Merged body class (NHTSA "BodyClass" preferred, VDB bodyType fallback).
+   *  Surfaced to the review screen so the loading-state silhouette can
+   *  pick SUV vs sedan. */
+  bodyClass: string;
   nhtsaVinKey: string;
   // Raw NHTSA decode passthrough — downstream VDB image/color lookups
   // use these to discover the catalog's canonical model designation.
@@ -499,6 +503,7 @@ export const processVin = internalAction({
         cylinders: merged.cylinders, displacement: merged.displacement,
         fuelType: merged.fuelType,
         drivetrain: canonicalDrivetrain ?? "unknown",
+        bodyClass: merged.bodyClass || "",
         // Specs-card fields (flat, for router param forwarding).
         ...specsForCard,
         // NHTSA-only base key (deterministic per VIN, computed before
@@ -1143,6 +1148,10 @@ type DecodeVinResult =
       transType: string | null;
       transSpeeds: number | null;
       drivetrain: string;
+      /** Merged body class string (e.g. "Sport Utility Vehicle (SUV)/Multi-Purpose Vehicle (MPV)",
+       *  "Sedan/Saloon"). Used by the review screen's loading-state
+       *  silhouette to pick SUV vs sedan. */
+      bodyClass: string;
     };
 
 export const decodeVin = action({
@@ -1206,6 +1215,7 @@ export const decodeVin = action({
       transType: result.transType,
       transSpeeds: result.transSpeeds,
       drivetrain: result.drivetrain,
+      bodyClass: result.bodyClass,
     };
   },
 });

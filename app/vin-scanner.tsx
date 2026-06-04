@@ -102,6 +102,7 @@ export default function VinScannerScreen() {
               transType: decoded.transType ?? "",
               transSpeeds: decoded.transSpeeds != null ? String(decoded.transSpeeds) : "",
               drivetrain: decoded.drivetrain ?? "",
+              bodyClass: decoded.bodyClass ?? "",
             },
           });
         } else {

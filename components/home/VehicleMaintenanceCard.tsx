@@ -140,7 +140,7 @@ function PaginationDot({ index, activeIndex }: { index: number; activeIndex: num
 
   const dotStyle = useAnimatedStyle(() => ({
     width: dotWidth.value,
-    backgroundColor: isActive ? BrandColors.primary : 'rgba(0,0,0,0.12)',
+    backgroundColor: isActive ? BrandColors.secondary : 'rgba(0,0,0,0.12)',
   }));
 
   return <Animated.View style={[styles.dot, dotStyle]} />;
@@ -481,14 +481,11 @@ export function VehicleMaintenanceCard({
 
         {/* Swipe indicator — only when there's more than one vehicle. */}
         {vehicles.length > 1 && (
-          <>
-            <View style={styles.dotsRow}>
-              {vehicles.map((_, i) => (
-                <PaginationDot key={i} index={i} activeIndex={currentIndex} />
-              ))}
-            </View>
-            <Text style={styles.swipeHint}>Swipe to switch vehicles</Text>
-          </>
+          <View style={styles.dotsRow}>
+            {vehicles.map((_, i) => (
+              <PaginationDot key={i} index={i} activeIndex={currentIndex} />
+            ))}
+          </View>
         )}
       </View>
     </View>
@@ -666,13 +663,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
     marginTop: 12,
-  },
-  swipeHint: {
-    marginTop: 8,
-    textAlign: 'center',
-    color: '#9CA3AF',
-    fontSize: 12,
-    fontFamily: FontFamily.medium,
   },
 });
 

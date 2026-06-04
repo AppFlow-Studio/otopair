@@ -7,7 +7,6 @@
     "icon": "./assets/images/repairconnectglasslogo.png",
     "scheme": "otopair",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.otopair.app",
@@ -25,7 +24,6 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "softwareKeyboardLayoutMode": "pan",
-      "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
       "package": "com.otopair.app",
       "permissions": [

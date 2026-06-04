@@ -21,13 +21,21 @@ import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 
 // 2. Expo & Third-party
 import { useRouter } from "expo-router";
-import { Car, Check, Clock, Flower2, Leaf, Snowflake, Sun, TrendingDown } from "lucide-react-native";
+import Animated, { FadeInUp } from "react-native-reanimated";
 
 // 3. Shared UI
 import { Text } from "@/components/shared-ui";
 
 // 4. Constants, hooks, stores
-import { BorderRadius, BrandColors, FontFamily, Shadows, Spacing } from "@/constants/theme";
+import {
+  BorderRadius,
+  BrandColors,
+  FontFamily,
+  Fonts,
+  SemanticColors,
+  Shadows,
+  Spacing,
+} from "@/constants/theme";
 import { useBookingStore } from "@/stores/useBookingStore";
 import type { Service } from "@/stores/types/store.types";
 
@@ -70,23 +78,6 @@ interface ServiceBundlesSectionProps {
   onViewPackage?: (bundleId: string) => void;
 }
 
-// ============================================================================
-// THEME ICONS
-// ============================================================================
-
-const THEME_ICON: Record<BundleTheme, React.ComponentType<{ size?: number; color?: string; strokeWidth?: number }>> = {
-  summer: Sun,
-  winter: Snowflake,
-  spring: Flower2,
-  fall: Leaf,
-};
-
-const THEME_LABEL: Record<BundleTheme, string> = {
-  summer: "Summer",
-  winter: "Winter",
-  spring: "Spring",
-  fall: "Fall",
-};
 
 // ============================================================================
 // SAMPLE DATA
@@ -105,6 +96,7 @@ const SAMPLE_BUNDLES: ServiceBundle[] = [
     ],
     durationMinutes: 90,
     equivalentSeparateTrips: 4,
+    savingsEstimate: 50,
   },
   {
     id: "winter-safety",
@@ -118,6 +110,7 @@ const SAMPLE_BUNDLES: ServiceBundle[] = [
     ],
     durationMinutes: 75,
     equivalentSeparateTrips: 4,
+    savingsEstimate: 50,
   },
 ];
 
@@ -200,74 +193,50 @@ function BundleCard({
   bundle: ServiceBundle;
   onBookPackage: (bundle: ServiceBundle) => void;
 }) {
-  const Icon = THEME_ICON[bundle.theme];
-
   return (
     <View style={styles.card}>
-      {/* Seasonal mark — outlined chip with mixed-weight typography.
-          "Summer" in italic-bold brand blue + a thin middot + "Bundle"
-          in tracked uppercase gray. Reads as an editorial edition mark
-          rather than a SaaS category tag. */}
-      <View style={styles.seasonChip}>
-        <Icon size={12} color={BrandColors.secondary} strokeWidth={2} />
-        <Text style={styles.seasonChipLabel}>
-          {THEME_LABEL[bundle.theme]}
-          <Text style={styles.seasonChipDivider}> · </Text>
-          <Text style={styles.seasonChipMeta}>BUNDLE</Text>
-        </Text>
-      </View>
-
-      {/* Title + subtitle */}
+      {/* Editorial serif headline — package name. */}
       <Text style={styles.title}>{bundle.name}</Text>
-      <Text style={styles.subtitle}>
-        {bundle.services.length} services bundled together
-      </Text>
 
-      {/* Service checklist */}
-      <View style={styles.servicesList}>
-        {bundle.services.map((service) => (
-          <View key={service.serviceSlug} style={styles.serviceRow}>
-            <Check size={16} color="#22C55E" strokeWidth={2.5} />
-            <Text style={styles.serviceText}>{service.displayName}</Text>
-          </View>
+      {/* Spec sheet — enumerated services with hairline separators. */}
+      <View style={styles.specSheet}>
+        {bundle.services.map((service, index) => (
+          <Animated.View
+            key={service.serviceSlug}
+            entering={FadeInUp.duration(220).delay(80 + index * 60)}
+            style={styles.specRow}
+          >
+            <Text style={styles.specNumber}>
+              {String(index + 1).padStart(2, "0")}
+            </Text>
+            <Text style={styles.specName}>{service.displayName}</Text>
+          </Animated.View>
         ))}
       </View>
 
-      <View style={styles.divider} />
-
-      {/* Value strip — total time left, "1 visit" pill + trips caption right */}
-      <View style={styles.valueRow}>
-        <View style={styles.valueLeft}>
-          <View style={styles.totalTimeLabelRow}>
-            <Clock size={14} color="#6B7280" strokeWidth={2} />
-            <Text style={styles.totalTimeLabel}>Total time</Text>
-          </View>
-          <Text style={styles.totalTimeValue}>~{bundle.durationMinutes} min</Text>
+      {/* Two-column stat row — Estimated Time / Estimated Savings. */}
+      <View style={styles.statRow}>
+        <View style={styles.statLeft}>
+          <Text style={styles.statLabel}>Estimated time</Text>
+          <Text style={styles.statValueTime}>~{bundle.durationMinutes} min</Text>
         </View>
-        <View style={styles.valueRight}>
-          <View style={styles.visitDisplayRow}>
-            <Text style={styles.visitNumber}>One</Text>
-            <Text style={styles.visitNumberUnit}>visit</Text>
-          </View>
-          <View style={styles.visitTrendRow}>
-            <TrendingDown size={11} color={BrandColors.secondary} strokeWidth={2.2} />
-            <Text style={styles.visitTrendText}>from {bundle.equivalentSeparateTrips} trips</Text>
-          </View>
-          {bundle.savingsEstimate != null && (
-            <Text style={styles.savingsInline}>
-              save up to ${bundle.savingsEstimate}
-            </Text>
-          )}
+        <View style={styles.statRight}>
+          <Text style={styles.statLabel}>Estimated savings</Text>
+          <Text style={styles.statValueSavings}>
+            ~${bundle.savingsEstimate ?? 0}
+          </Text>
         </View>
       </View>
 
-      {/* CTA */}
-      <Pressable
-        onPress={() => onBookPackage(bundle)}
-        style={({ pressed }) => [styles.cta, pressed && styles.ctaPressed]}
-      >
-        <Text style={styles.ctaText}>Book Package</Text>
-      </Pressable>
+      {/* CTA — full pill, brand blue, sentence case. */}
+      <View style={styles.ctaWrap}>
+        <Pressable
+          onPress={() => onBookPackage(bundle)}
+          style={({ pressed }) => [styles.cta, pressed && styles.ctaPressed]}
+        >
+          <Text style={styles.ctaText}>Book package</Text>
+        </Pressable>
+      </View>
     </View>
   );
 }
@@ -278,6 +247,12 @@ function BundleCard({
 
 const CARD_WIDTH = 320;
 
+// Spacing scale used throughout this card:
+//   xs (4)  — number-to-label gap in the hero stat
+//   sm (8)  — (reserved; previously kicker → title)
+//   md (12) — number ↔ name in the spec sheet
+//   lg (16) — title → hero stat
+//   xl (20) — card padding, hero stat → spec sheet, spec sheet → CTA
 const styles = StyleSheet.create({
   container: {
     marginTop: Spacing["2xl"],
@@ -295,170 +270,120 @@ const styles = StyleSheet.create({
     gap: Spacing.md,
   },
 
-  // ── Card ─────────────────────────────────────────────────────────────
+  // ── Card surface — warm off-white, hairline edge, medium lift ────────
   card: {
     width: CARD_WIDTH,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: BrandColors.background,
     borderRadius: BorderRadius.xl,
     padding: Spacing.xl,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(0,0,0,0.08)",
     ...Shadows.md,
   },
 
-  // ── Seasonal chip (outlined, mixed-weight typography) ────────────────
-  seasonChip: {
-    alignSelf: "flex-start",
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: BorderRadius.full,
-    borderWidth: 1,
-    borderColor: "rgba(82,153,254,0.30)",
-    marginBottom: Spacing.md,
-  },
-  seasonChipLabel: {
-    fontFamily: FontFamily.bold,
-    fontStyle: "italic",
-    fontSize: 12,
-    color: BrandColors.secondary,
-    lineHeight: 14,
-  },
-  seasonChipDivider: {
-    fontFamily: FontFamily.regular,
-    fontStyle: "normal",
-    color: "#9CA3AF",
-  },
-  seasonChipMeta: {
-    fontFamily: FontFamily.semiBold,
-    fontStyle: "normal",
-    fontSize: 10,
-    letterSpacing: 1.2,
-    color: "#6B7280",
-  },
-
-  // ── Title block ──────────────────────────────────────────────────────
+  // ── Editorial serif headline ─────────────────────────────────────────
   title: {
-    fontFamily: FontFamily.bold,
-    fontSize: 22,
+    fontFamily: FontFamily.serifBold,
+    fontSize: 26,
+    lineHeight: 30,
     color: "#0F172A",
-    marginBottom: 4,
-  },
-  subtitle: {
-    fontFamily: FontFamily.medium,
-    fontSize: 14,
-    color: "#6B7280",
     marginBottom: Spacing.lg,
   },
 
-  // ── Service checklist ────────────────────────────────────────────────
-  servicesList: {
-    gap: Spacing.sm + 2,
-  },
-  serviceRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.sm + 2,
-  },
-  serviceText: {
-    flex: 1,
-    fontFamily: FontFamily.medium,
-    fontSize: 14,
-    color: "#1F2937",
-  },
-
-  // ── Divider ──────────────────────────────────────────────────────────
-  divider: {
-    height: 1,
-    backgroundColor: "#E5E7EB",
-    marginVertical: Spacing.lg,
-  },
-
-  // ── Value strip ──────────────────────────────────────────────────────
-  valueRow: {
+  // ── Two-column stat row (Estimated Time / Estimated Savings) ────────
+  statRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "flex-start",
-    marginBottom: Spacing.lg,
+    marginBottom: Spacing.xl,
   },
-  valueLeft: {
-    flexDirection: "column",
-    gap: 4,
+  statLeft: {
+    alignItems: "flex-start",
+    gap: Spacing.xs,
   },
-  totalTimeLabelRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  totalTimeLabel: {
-    fontFamily: FontFamily.medium,
-    fontSize: 12,
-    color: "#6B7280",
-  },
-  totalTimeValue: {
-    fontFamily: FontFamily.bold,
-    fontSize: 19,
-    color: "#0F172A",
-  },
-  valueRight: {
+  statRight: {
     alignItems: "flex-end",
-    gap: 4,
+    gap: Spacing.xs,
   },
-  // ── Visit display (display-size number + trend line) ─────────────────
-  visitDisplayRow: {
-    flexDirection: "row",
-    alignItems: "baseline",
-    gap: 6,
-  },
-  visitNumber: {
-    fontFamily: FontFamily.bold,
-    fontSize: 20,
-    lineHeight: 22,
-    color: "#0F172A",
-    letterSpacing: -0.3,
-  },
-  visitNumberUnit: {
-    fontFamily: FontFamily.medium,
-    fontStyle: "italic",
-    fontSize: 13,
-    color: "#6B7280",
-  },
-  visitTrendRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    marginTop: 2,
-  },
-  visitTrendText: {
-    fontFamily: FontFamily.medium,
-    fontStyle: "italic",
-    fontSize: 11,
-    color: BrandColors.secondary,
-  },
-  savingsInline: {
+  statLabel: {
     fontFamily: FontFamily.semiBold,
-    fontStyle: "italic",
     fontSize: 11,
+    letterSpacing: 1.2,
+    textTransform: "uppercase",
+    color: SemanticColors.textMuted,
+  },
+  statValueTime: {
+    fontFamily: FontFamily.serifBold,
+    fontSize: 22,
+    lineHeight: 26,
+    color: "#0F172A",
+    fontVariant: ["tabular-nums"],
+  },
+  statValueSavings: {
+    fontFamily: FontFamily.serifBold,
+    fontSize: 22,
+    lineHeight: 26,
     color: BrandColors.secondary,
-    marginTop: 2,
+    fontVariant: ["tabular-nums"],
   },
 
-  // ── CTA ──────────────────────────────────────────────────────────────
+  // ── Spec sheet ───────────────────────────────────────────────────────
+  specSheet: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "rgba(0,0,0,0.12)",
+    marginBottom: Spacing.lg,
+  },
+  specRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: Spacing.md,
+    paddingVertical: Spacing.sm + 2,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "rgba(0,0,0,0.12)",
+  },
+  specNumber: {
+    fontFamily: Fonts.mono,
+    fontVariant: ["tabular-nums"],
+    fontSize: 11,
+    letterSpacing: 0.6,
+    width: 22,
+    color: BrandColors.secondary,
+  },
+  specName: {
+    flex: 1,
+    fontFamily: FontFamily.medium,
+    fontSize: 14,
+    lineHeight: 18,
+    color: "#0F172A",
+  },
+
+  // ── CTA — full pill, brand blue, soft brand-blue lift ────────────────
+  // Wrap owns the shadow so Pressable's clip doesn't swallow it.
+  ctaWrap: {
+    borderRadius: BorderRadius.full,
+    shadowColor: BrandColors.secondary,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.22,
+    shadowRadius: 14,
+    elevation: 6,
+  },
   cta: {
     backgroundColor: BrandColors.secondary,
     borderRadius: BorderRadius.full,
-    paddingVertical: Spacing.md + 2,
+    paddingVertical: Spacing.lg,
+    paddingHorizontal: Spacing.lg,
     alignItems: "center",
     justifyContent: "center",
   },
   ctaPressed: {
-    opacity: 0.9,
+    opacity: 0.94,
     transform: [{ scale: 0.98 }],
   },
   ctaText: {
     fontFamily: FontFamily.semiBold,
     fontSize: 16,
-    color: "#FFFFFF",
+    color: BrandColors.white,
+    letterSpacing: 0.2,
   },
 });
 

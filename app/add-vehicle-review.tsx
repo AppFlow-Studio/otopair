@@ -40,7 +40,7 @@ import { Spacing } from '@/constants/theme';
 import { api } from '@/convex/_generated/api';
 import { Id } from '@/convex/_generated/dataModel';
 import { scale, verticalScale, moderateScale } from '@/utils/responsive';
-import { classifyColorFamily, fetchVehicleImageUrl, pickBestVdbTrim, useVdbColorsForVin, useVdbVariants, type VdbVariant } from '@/utils/vehicleImage';
+import { classifyColorFamily, fetchVehicleImageUrl, pickBestVdbTrim, pickSilhouetteVariant, useVdbColorsForVin, useVdbVariants, type VdbVariant } from '@/utils/vehicleImage';
 import { COLOR_GRADIENTS } from '@/constants/colorGradients';
 import { ColorSwatchSkeletonRow, VehicleImageSkeleton } from '@/components/shared-ui/ColorSwatchSkeleton';
 import { FloatingSheet, type FloatingSheetRef } from '@/components/shared-ui/FloatingSheet';
@@ -150,6 +150,9 @@ export default function AddVehicleReviewScreen() {
     transType?: string;
     transSpeeds?: string;
     drivetrain?: string;
+    /** NHTSA / VDB-merged body class — used to pick the SUV vs sedan
+     *  loading silhouette while the VDB image resolves. */
+    bodyClass?: string;
   }>();
 
   const [isConfirming, setIsConfirming] = useState(false);
@@ -546,6 +549,7 @@ export default function AddVehicleReviewScreen() {
               width={scale(220)}
               height={scale(130)}
               style={{ marginBottom: scale(8) }}
+              variant={pickSilhouetteVariant(params.bodyClass)}
             />
           ) : previewImageUrl ? (
             <ExpoImage
@@ -569,20 +573,23 @@ export default function AddVehicleReviewScreen() {
           <Pressable
             onPress={() => { if (vdbVariants.length > 0) setShowTrimSheet(true); }}
             hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-            style={styles.trimPill}
+            style={({ pressed }) => [styles.trimPill, pressed && { opacity: 0.85 }]}
             disabled={vdbVariants.length === 0}
           >
+            <View style={styles.trimPillIcon}>
+              <Cog size={scale(13)} color="#5299FE" strokeWidth={2.2} />
+            </View>
             <Text
               weight="semiBold"
               size="sm"
-              color="#5299FE"
+              color="#0F172A"
               numberOfLines={1}
               style={styles.trimPillText}
             >
               {effectiveTrim || 'Base'}
             </Text>
             {vdbVariants.length > 0 && (
-              <ChevronDown size={scale(14)} color="#5299FE" />
+              <ChevronDown size={scale(14)} color="#5299FE" strokeWidth={2.2} />
             )}
           </Pressable>
           {(params.displacement || params.fuelType) && (
@@ -843,19 +850,40 @@ const styles = StyleSheet.create({
   vehicleTrim: {
     marginBottom: scale(16),
   },
+  // Trim pill — refined Otopair card treatment. White surface with a
+  // soft blue-tinted shadow + hairline border for definition. Compact
+  // gear icon in its own tinted square reads as "vehicle spec /
+  // configuration." Dark text (#0F172A) for hierarchy over the flat
+  // blue chip we had before.
   trimPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: scale(4),
-    paddingHorizontal: scale(10),
-    paddingVertical: scale(4),
-    borderRadius: moderateScale(999),
-    backgroundColor: '#EEF4FF',
+    gap: scale(8),
+    paddingHorizontal: scale(12),
+    paddingVertical: scale(7),
+    borderRadius: moderateScale(16),
+    backgroundColor: '#FFFFFF',
+    borderWidth: 0.5,
+    borderColor: 'rgba(82, 153, 254, 0.20)',
+    shadowColor: '#5299FE',
+    shadowOpacity: 0.12,
+    shadowRadius: scale(8),
+    shadowOffset: { width: 0, height: scale(2) },
+    elevation: 2,
     marginBottom: scale(6),
-    maxWidth: scale(260),
+    maxWidth: scale(280),
+  },
+  trimPillIcon: {
+    width: scale(22),
+    height: scale(22),
+    borderRadius: moderateScale(8),
+    backgroundColor: '#EEF4FF',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   trimPillText: {
     flexShrink: 1,
+    letterSpacing: 0.1,
   },
   trimSheetBody: {
     paddingHorizontal: scale(20),

@@ -175,10 +175,10 @@ const styles = StyleSheet.create({
     marginTop: scale(20),
     marginBottom: scale(4),
     marginHorizontal: -16,
-    // Drop the visible card down a bit without nudging the
+    // Drop the visible card down without nudging the
     // VehicleMaintenanceCard and everything below it — translate
     // doesn't affect layout flow, only paint position.
-    transform: [{ translateY: scale(16) }],
+    transform: [{ translateY: scale(24) }],
   },
   page: {
     // Full-screen-wide slot that pagingEnabled snaps to. The card
