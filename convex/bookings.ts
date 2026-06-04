@@ -853,6 +853,8 @@ export const create = mutation({
 
     await assertLaborCostMatchesDuration(ctx, {
       shopId: args.shop_id,
+      vin: normalizedVin,
+      serviceIds: [args.service_id],
       laborCostDollars: args.labor_cost,
       expectMinutes: args.displayed_labor_minutes,
     });
@@ -1376,24 +1378,6 @@ export const createBatch = mutation({
     // Itemized parts snapshot — same per-unit prices the customer saw on
     // Review & Pay. Frozen on the booking so the mechanic's post-job dialog
     // can hydrate from this directly instead of re-querying part_prices.
-    const ownerSpecs = await ctx.db
-      .query("vehicle_owner_specs")
-      .withIndex("by_vehicle_owner", (q) =>
-        q.eq("vehicle_owner_id", ownership._id),
-      )
-      .first();
-    const pricedPartsSnapshot = await computePricedPartsSnapshot(ctx, {
-      serviceIds: args.services.map((s) => s.service_id),
-      vehicleConfigId: vehicle.vehicle_config_id ?? null,
-      confirmedPackages: new Set(ownerSpecs?.confirmed_packages ?? []),
-    });
-
-    // Single-point quote the mechanic confirms against (no min/max).
-    const quoted = computeQuotedSetPrice({
-      disclosedBreakdown: disclosedRange.breakdown,
-      pricedPartsSnapshot,
-    });
-
     const durationMinutes =
       estimated_labor_minutes > 0
         ? estimated_labor_minutes
