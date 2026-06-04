@@ -13,16 +13,19 @@
 
 import { useEffect, useRef } from "react";
 import { View, ActivityIndicator, StyleSheet } from "react-native";
-import { router } from "expo-router";
+import { router, useRootNavigationState } from "expo-router";
 import { useAuth } from "@clerk/clerk-expo";
 import { useQuery } from "convex/react";
 import * as SecureStore from "expo-secure-store";
 import { api } from "@/convex/_generated/api";
 import { BrandColors } from "@/constants/theme";
+import { shouldRunStartupRedirect } from "@/lib/auth-routing";
 import { getOnboardingFinishedLaterKey } from "@/lib/onboarding-resume";
 
 export default function Index() {
   const { isSignedIn, isLoaded, userId: clerkUserId } = useAuth();
+  const rootNavigationState = useRootNavigationState();
+  const rootNavigationReady = Boolean(rootNavigationState?.key);
   // Only run the Convex query once Clerk confirms the user is signed in.
   // Using isSignedIn === true (not !== false) prevents the query from running
   // while Clerk is still loading (isSignedIn = undefined), which would fire without
@@ -49,14 +52,23 @@ export default function Index() {
       onboardingCompleted: me?.onboardingCompleted,
       essentialOnboardingCompleted: me?.essentialOnboardingCompleted,
       hasNavigated: hasNavigated.current,
+      rootNavigationReady,
     });
 
-    if (!isLoaded || hasNavigated.current) return;
+    if (
+      !shouldRunStartupRedirect({
+        authLoaded: isLoaded,
+        hasNavigated: hasNavigated.current,
+        rootNavigationReady,
+      })
+    ) {
+      return;
+    }
 
     if (!isSignedIn) {
       console.log("[onboarding-resume:index] navigating to onboarding: signed out");
-      hasNavigated.current = true;
       router.replace("/(onboarding)");
+      hasNavigated.current = true;
       return;
     }
 
@@ -75,8 +87,8 @@ export default function Index() {
           convexUserId: me._id,
           clerkUserId,
         });
-        hasNavigated.current = true;
         router.replace("/(main-tabs)/home");
+        hasNavigated.current = true;
         return;
       }
 
@@ -86,15 +98,14 @@ export default function Index() {
           convexUserId: me._id,
           clerkUserId,
         });
-        hasNavigated.current = true;
         router.replace("/(main-tabs)/home");
+        hasNavigated.current = true;
         return;
       }
 
       const finishedLaterKey = getOnboardingFinishedLaterKey(clerkUserId);
       const finishedLater = await SecureStore.getItemAsync(finishedLaterKey);
       if (hasNavigated.current) return;
-      hasNavigated.current = true;
 
       if (finishedLater === "true") {
         console.log("[onboarding-resume:index] navigating home: finish-later flag set", {
@@ -102,6 +113,7 @@ export default function Index() {
           clerkUserId,
         });
         router.replace("/(main-tabs)/home");
+        hasNavigated.current = true;
       } else {
         // Signed in but onboarding incomplete — resume from last completed step
         console.log("[onboarding-resume:index] navigating to onboarding auto-resume", {
@@ -114,9 +126,10 @@ export default function Index() {
           pathname: "/(onboarding)",
           params: { isResumeMode: "true" },
         });
+        hasNavigated.current = true;
       }
     })();
-  }, [clerkUserId, isLoaded, isSignedIn, me, rawMe]);
+  }, [clerkUserId, isLoaded, isSignedIn, me, rawMe, rootNavigationReady]);
 
   return (
     <View style={styles.loading}>
