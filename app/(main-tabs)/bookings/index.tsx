@@ -25,6 +25,7 @@ import {
   type RotorQuoteListSheetRef,
 } from "@/components/bookings/RotorQuoteListSheet";
 import { BookingDetailsSheet, type BookingDetailsSheetRef } from "@/components/bookings/BookingDetailsSheet";
+import { AvailabilityModal } from "@/components/booking/modals/AvailabilityModal";
 import { ScrollDrivenGradientBackground, Text } from "@/components/shared-ui";
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
 import { useMyBookingsWithDetails } from "@/hooks/useMyBookingsWithDetails";
@@ -40,7 +41,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { Calendar, Car, Check, ChevronRight, ListFilter, Star } from "lucide-react-native";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Image, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
+import { Image, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
 import Animated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import SegmentedControl from "@react-native-segmented-control/segmented-control";
@@ -74,9 +75,10 @@ export default function BookingsScreen() {
   } = useMyBookingsWithDetails();
   const router = useRouter();
 
-  const { tab: tabParam, bookingId: bookingIdParam } = useLocalSearchParams<{
+  const { tab: tabParam, bookingId: bookingIdParam, rescheduleError } = useLocalSearchParams<{
     tab?: string;
     bookingId?: string;
+    rescheduleError?: string;
   }>();
   const initialTab: TabType = TAB_ORDER.includes(tabParam as TabType)
     ? (tabParam as TabType)
@@ -103,6 +105,8 @@ export default function BookingsScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const detailsSheetRef = useRef<BookingDetailsSheetRef>(null);
   const vehiclePickerRef = useRef<FloatingSheetRef>(null);
+  const [rescheduleBooking, setRescheduleBooking] = useState<Booking | null>(null);
+  const selectVehicle = useVehicleStore((s) => s.selectVehicle);
 
 
   // ── Vehicle filter ───────────────────────────────────────────────────────
@@ -172,6 +176,11 @@ export default function BookingsScreen() {
     success: "Booking cancelled.",
     error: "Couldn't cancel this booking. Try again.",
   });
+  useEffect(() => {
+    if (typeof rescheduleError === "string" && rescheduleError.length > 0) {
+      toast.error("Couldn't request reschedule.", rescheduleError);
+    }
+  }, [rescheduleError, toast]);
   const handleCancelBooking = useCallback(
     (bookingId: string) => {
       const isLocalId = bookingId.startsWith("tire_quote_") || bookingId.startsWith("booking_");
@@ -194,11 +203,14 @@ export default function BookingsScreen() {
     setTimeout(() => setRefreshing(false), 1500);
   }, []);
 
-  const allBookings = [
-    ...upcomingBookings,
-    ...quoteBookings,
-    ...historyBookings,
-  ];
+  const allBookings = useMemo(
+    () => [
+      ...upcomingBookings,
+      ...quoteBookings,
+      ...historyBookings,
+    ],
+    [historyBookings, quoteBookings, upcomingBookings],
+  );
   const handleViewDetails = (bookingId: string) => {
     const booking = allBookings.find((b) => b.id === bookingId);
     if (booking) {
@@ -240,34 +252,45 @@ export default function BookingsScreen() {
     [pendingReviewBookings, matchesListFilter],
   );
 
-  // Reschedule = cancel the current booking after confirmation, so the
-  // driver can book a new slot fresh. We don't have in-place reschedule
-  // yet, and surfacing "cancel" via the late-banner CTA matches the
-  // current product spec.
   const handleReschedule = useCallback(
     (bookingId?: string) => {
       if (!bookingId) return;
-      Alert.alert(
-        "Reschedule appointment?",
-        "This will cancel your current booking. You'll need to book a new time slot.",
-        [
-          { text: "Keep booking", style: "cancel" },
-          {
-            text: "Cancel & reschedule",
-            style: "destructive",
-            onPress: () => {
-              const isLocalId = bookingId.startsWith("tire_quote_") || bookingId.startsWith("booking_");
-              if (!isLocalId) {
-                void cancelConvexBooking({ bookingId: bookingId as Id<"bookings"> });
-              } else {
-                cancelLocalBooking(bookingId);
-              }
-            },
-          },
-        ],
-      );
+      const booking = allBookings.find((b) => b.id === bookingId);
+      const isLocalId = bookingId.startsWith("tire_quote_") || bookingId.startsWith("booking_");
+      if (!booking || isLocalId || !booking.shopId) {
+        toast.warning("This booking can't be rescheduled from here.");
+        return;
+      }
+      if (booking.vin) {
+        selectVehicle(booking.vin.toUpperCase());
+      }
+      setRescheduleBooking(booking);
     },
-    [cancelConvexBooking],
+    [allBookings, selectVehicle, toast],
+  );
+
+  const handleCloseRescheduleModal = useCallback(() => {
+    setRescheduleBooking(null);
+  }, []);
+
+  const handleConfirmRescheduleSlot = useCallback(
+    (_date: Date, _time: string, mechanicId: string | null) => {
+      if (!rescheduleBooking) return;
+      const routeId = mechanicId ?? rescheduleBooking.mechanicId ?? rescheduleBooking.shopId;
+      if (!routeId) {
+        toast.warning("Choose a mechanic before rescheduling.");
+        return;
+      }
+      router.push({
+        pathname: "/booking/mechanic/[id]/confirming",
+        params: {
+          id: routeId,
+          mode: "reschedule",
+          bookingDbId: rescheduleBooking.id,
+        },
+      });
+    },
+    [rescheduleBooking, router, toast],
   );
 
   const handleDownloadPdf = (bookingId: string) => {
@@ -464,6 +487,15 @@ export default function BookingsScreen() {
         </View>
       )}
     </ScrollDrivenGradientBackground>
+
+    <AvailabilityModal
+      visible={rescheduleBooking !== null}
+      mode="reschedule"
+      mechanicId={rescheduleBooking?.mechanicId ?? null}
+      shopId={rescheduleBooking?.shopId ?? null}
+      onClose={handleCloseRescheduleModal}
+      onConfirm={handleConfirmRescheduleSlot}
+    />
 
     <BookingDetailsSheet ref={detailsSheetRef} />
 

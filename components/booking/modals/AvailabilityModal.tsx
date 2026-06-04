@@ -42,6 +42,8 @@ import { useMechanicStore } from "@/stores/useMechanicStore";
 interface AvailabilityModalProps {
   /** Whether the modal is visible */
   visible: boolean;
+  /** Copy variant for normal booking vs customer-initiated reschedule. */
+  mode?: "booking" | "reschedule";
   /** Mechanic ID to load schedule for (initial selection) */
   mechanicId: string | null;
   /** Shop ID to get all mechanics for mechanic selector (optional) */
@@ -118,7 +120,15 @@ const CIRCLE_SIZE = CELL_SIZE - 8;
 // COMPONENT
 // ============================================================================
 
-export function AvailabilityModal({ visible, mechanicId, shopId, durationMinutes, onClose, onConfirm }: AvailabilityModalProps) {
+export function AvailabilityModal({
+  visible,
+  mode = "booking",
+  mechanicId,
+  shopId,
+  durationMinutes,
+  onClose,
+  onConfirm,
+}: AvailabilityModalProps) {
   // ═══════════════ HOOKS ═══════════════
   const insets = useSafeAreaInsets();
 
@@ -230,6 +240,9 @@ export function AvailabilityModal({ visible, mechanicId, shopId, durationMinutes
   }, [selectedMechanicId, getMechanicById]);
 
   const canConfirmSelection = Boolean(selectedDate && selectedTime);
+  const isRescheduleMode = mode === "reschedule";
+  const headerTitle = isRescheduleMode ? "Reschedule Booking" : "All Availability";
+  const confirmLabel = isRescheduleMode ? "Reschedule Booking" : "Select Date & Time";
 
   // ═══════════════ EFFECTS ═══════════════
   // Reset selected mechanic when modal opens
@@ -552,7 +565,7 @@ export function AvailabilityModal({ visible, mechanicId, shopId, durationMinutes
             <X size={24} color={BrandColors.primary} />
           </TouchableOpacity>
           <Text size="lg" weight="bold" color={BrandColors.primary}>
-            All Availability
+            {headerTitle}
           </Text>
           <View style={styles.headerSpacer} />
         </View>
@@ -780,7 +793,7 @@ export function AvailabilityModal({ visible, mechanicId, shopId, durationMinutes
               onPress={handleConfirm}
             >
               <Text size="md" weight="bold" color={BrandColors.white}>
-                Select Date & Time
+                {confirmLabel}
               </Text>
             </PrimaryButton>
           </View>

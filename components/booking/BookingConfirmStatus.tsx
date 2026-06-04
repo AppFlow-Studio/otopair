@@ -30,9 +30,19 @@ interface Props {
   /** Mechanic id passed in from the route params; used to pull the
    *  mechanic record in case selectedMechanicId hasn't been hydrated. */
   mechanicId?: string;
+  title?: string;
+  primaryCta?: string;
+  showPaymentSummary?: boolean;
 }
 
-export function BookingConfirmStatus({ onConfirm, onGoBack, mechanicId }: Props) {
+export function BookingConfirmStatus({
+  onConfirm,
+  onGoBack,
+  mechanicId,
+  title = "Confirming your appointment...",
+  primaryCta,
+  showPaymentSummary = true,
+}: Props) {
   const { height: windowHeight } = useWindowDimensions();
   const scheduledAppointment = useBookingStore((s) => s.scheduledAppointment);
   const selectedMechanicId = useBookingStore((s) => s.selectedMechanicId);
@@ -71,7 +81,7 @@ export function BookingConfirmStatus({ onConfirm, onGoBack, mechanicId }: Props)
         color="#1A1A1A"
         style={[styles.title, isCompactLayout && styles.titleCompact]}
       >
-        Confirming your appointment...
+        {title}
       </Text>
 
       <View style={[styles.rows, isCompactLayout && styles.rowsCompact]}>
@@ -100,7 +110,7 @@ export function BookingConfirmStatus({ onConfirm, onGoBack, mechanicId }: Props)
       </View>
 
       <View style={[styles.actionColumn, isCompactLayout && styles.actionColumnCompact, isVeryCompactLayout && styles.actionColumnVeryCompact]}>
-        {disclosedRangeFormatted ? (
+        {showPaymentSummary && disclosedRangeFormatted ? (
           <Text
             size={isVeryCompactLayout ? "sm" : "md"}
             weight="semiBold"
@@ -110,15 +120,21 @@ export function BookingConfirmStatus({ onConfirm, onGoBack, mechanicId }: Props)
             The estimated price for your car is {disclosedRangeFormatted}.
           </Text>
         ) : null}
-        <Text
-          size={isVeryCompactLayout ? "xs" : "sm"}
-          weight="regular"
-          color="#6B7280"
-          style={[styles.holdNote, isVeryCompactLayout && styles.holdNoteVeryCompact]}
-        >
-          A $20 hold will be placed on your card.
-        </Text>
-        <ConfirmCountdownButton onConfirm={onConfirm} compact={isCompactLayout} />
+        {showPaymentSummary ? (
+          <Text
+            size={isVeryCompactLayout ? "xs" : "sm"}
+            weight="regular"
+            color="#6B7280"
+            style={[styles.holdNote, isVeryCompactLayout && styles.holdNoteVeryCompact]}
+          >
+            A $20 hold will be placed on your card.
+          </Text>
+        ) : null}
+        <ConfirmCountdownButton
+          onConfirm={onConfirm}
+          compact={isCompactLayout}
+          label={primaryCta}
+        />
         <Pressable
           onPress={onGoBack}
           style={({ pressed }) => [

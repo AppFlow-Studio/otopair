@@ -43,6 +43,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { BorderRadius, Shadows } from "@/constants/theme";
 import { useBookingStatusToasts } from "@/hooks/useBookingStatusToasts";
 import { useToast } from "@/hooks/useToast";
+import { getBookingCompletionCopy, isBookingRescheduleMode } from "@/lib/reschedule-flow";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
 import { useShopStore } from "@/stores/useShopStore";
@@ -212,7 +213,12 @@ export default function ConfirmationScreen() {
   const insets = useSafeAreaInsets();
   const toast = useToast();
   const { height: windowHeight } = useWindowDimensions();
-  const { id: bookingId, bookingDbId } = useLocalSearchParams<{ id: string; bookingDbId?: string }>();
+  const { id: bookingId, bookingDbId, mode } = useLocalSearchParams<{
+    id: string;
+    bookingDbId?: string;
+    mode?: string;
+  }>();
+  const isReschedule = isBookingRescheduleMode(mode);
   const isCompactLayout = windowHeight < 860;
   const isVeryCompactLayout = windowHeight < 760;
 
@@ -358,6 +364,10 @@ export default function ConfirmationScreen() {
     mechanicFirstName === "your mechanic"
       ? shopDisplayName
       : `${mechanicFirstName} at ${shopDisplayName}`;
+  const completionCopy = useMemo(
+    () => getBookingCompletionCopy(isReschedule, appointmentWithLabel),
+    [appointmentWithLabel, isReschedule],
+  );
 
   // ═══════════════ HANDLERS ═══════════════
   // If we're viewing a past booking (local booking exists, flow already reset), just go back
@@ -376,11 +386,8 @@ export default function ConfirmationScreen() {
     router.dismissTo("/(main-tabs)/home");
     // Fire the booking-submitted toast here so it drops down on the home
     // screen after navigation, instead of expiring on /confirming.
-    toast.info(
-      "Booking submitted.",
-      "We'll let you know as soon as your shop confirms.",
-    );
-  }, [isViewingPastBooking, resetBookingFlow, router, toast]);
+    toast.info(completionCopy.toastTitle, completionCopy.toastBody);
+  }, [completionCopy.toastBody, completionCopy.toastTitle, isViewingPastBooking, resetBookingFlow, router, toast]);
 
   const handleDirections = useCallback(() => {
     if (fullAddress) openMapsForAddress(fullAddress);
@@ -518,7 +525,7 @@ export default function ConfirmationScreen() {
             center
             style={[styles.subtitle, isCompactLayout && styles.subtitleCompact, isVeryCompactLayout && styles.subtitleVeryCompact]}
           >
-            Your appointment with {appointmentWithLabel} is confirmed.
+            {completionCopy.subtitle}
           </Text>
 
           {/* Mechanic Card - Matching Payment Screen Style */}
@@ -654,6 +661,7 @@ export default function ConfirmationScreen() {
           )}
 
           {/* Ownership Credit Section */}
+          {!isReschedule ? (
           <View style={[styles.ownershipCreditCard, isCompactLayout && styles.ownershipCreditCardCompact]}>
             <View style={[styles.ownershipLeft, isCompactLayout && styles.ownershipLeftCompact]}>
               <View style={[styles.giftIconContainer, isCompactLayout && styles.giftIconContainerCompact]}>
@@ -677,6 +685,7 @@ export default function ConfirmationScreen() {
               </Text>
             </View>
           </View>
+          ) : null}
 
           {/* Add to Calendar Button */}
           <TouchableOpacity

@@ -79,6 +79,7 @@ const DISMISS_OVERSHOOT = 80;
 type BookingStatus = Booking["status"];
 
 const STATUS_CONFIG: Record<BookingStatus, { label: string; bgColor: string; textColor: string }> = {
+  pending_shop_acceptance: { label: "Awaiting shop", bgColor: "#fff6ee", textColor: "#f89829" },
   pending: { label: "Pending", bgColor: "#fff6ee", textColor: "#f89829" },
   pending_quote: { label: "Pending Quote", bgColor: "#FFF8ED", textColor: "#C8972E" },
   quotes_ready: { label: "Quotes Ready", bgColor: "#E3F0FF", textColor: "#2F6DCC" },
@@ -88,6 +89,7 @@ const STATUS_CONFIG: Record<BookingStatus, { label: string; bgColor: string; tex
   completed: { label: "Completed", bgColor: "#f0fcf5", textColor: "#60d17e" },
   cancelled: { label: "Cancelled", bgColor: "#FEE2E2", textColor: "#DC2626" },
   delayed: { label: "Delayed", bgColor: "#FEF3C7", textColor: "#D97706" },
+  no_show: { label: "No-show", bgColor: "#FEE2E2", textColor: "#DC2626" },
 };
 
 // ============================================================================
@@ -1579,6 +1581,7 @@ function StatusTimeline({
 
   const stages: BookingStatus[] = ["pending", "confirmed", "in_progress", "completed"];
   const stageLabels: Partial<Record<BookingStatus, string>> = {
+    pending_shop_acceptance: "Awaiting shop",
     pending: "Requested",
     pending_quote: "Awaiting Quote",
     pending_customer_acceptance: "Awaiting your approval",

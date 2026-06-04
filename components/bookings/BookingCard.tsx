@@ -46,7 +46,7 @@ import type { Id } from '@/convex/_generated/dataModel';
 // TYPES
 // ============================================================================
 
-export type BookingStatus = 'pending' | 'pending_quote' | 'quotes_ready' | 'pending_customer_acceptance' | 'confirmed' | 'in_progress' | 'completed' | 'cancelled' | 'delayed' | 'no_show';
+export type BookingStatus = 'pending_shop_acceptance' | 'pending' | 'pending_quote' | 'quotes_ready' | 'pending_customer_acceptance' | 'confirmed' | 'in_progress' | 'completed' | 'cancelled' | 'delayed' | 'no_show';
 
 export interface Booking {
   id: string;
@@ -123,7 +123,7 @@ const ACTION_BUTTON_GAP = 10;
 const ACTION_BUTTON_HORIZONTAL_PADDING = 32;
 const ACTION_BUTTON_LABEL_MAX_SIZE = 14;
 const ACTION_BUTTON_LABEL_MIN_SIZE = 12;
-const ACTION_BUTTON_LONGEST_LABEL = 'Cancel Booking';
+const ACTION_BUTTON_LONGEST_LABEL = 'Reschedule Booking';
 const ACTION_BUTTON_LABEL_WIDTH_RATIO = 0.66;
 
 function clamp(value: number, min: number, max: number): number {
@@ -153,6 +153,11 @@ function getActionButtonLabelSize(rowWidth: number, fontScale: number): number {
 // ============================================================================
 
 export const STATUS_CONFIG: Record<BookingStatus, { label: string; bgColor: string; textColor: string }> = {
+  pending_shop_acceptance: {
+    label: 'Pending Shop',
+    bgColor: '#fff6ee',
+    textColor: '#f89829',
+  },
   pending: {
     label: 'Pending',
     bgColor: '#fff6ee',
@@ -533,11 +538,10 @@ export function BookingCard({
       )}
 
       {/* Actions Row. Once a booking is in service the user can no
-          longer cancel — service is in flight at the shop. Reschedule is
-          parked for now (handler kept) until the reschedule sheet ships. */}
+          longer cancel or reschedule because service is in flight at the shop. */}
       {variant === 'upcoming' ? (
         <View
-          style={styles.actionsRow}
+          style={styles.actionsStack}
           onLayout={(event) => setActionsRowWidth(event.nativeEvent.layout.width)}
           pointerEvents={isCancelling ? 'none' : 'auto'}
         >
@@ -547,6 +551,7 @@ export function BookingCard({
             disabled={isCancelling}
             style={({ pressed }) => [
               styles.primaryButton,
+              styles.primaryButtonFull,
               pressed && styles.buttonPressed,
             ]}
           >
@@ -565,25 +570,47 @@ export function BookingCard({
           </Pressable>
 
           {booking.status !== 'in_progress' && (
-            <Pressable
-              onPress={handleCancelBooking}
-              disabled={isCancelling}
-              style={({ pressed }) => [
-                styles.cancelButton,
-                pressed && styles.buttonPressed,
-              ]}
-            >
-              <Text
-                weight="semiBold"
-                size={actionButtonLabelSize}
-                color="#DC2626"
-                numberOfLines={1}
-                lineHeight={1.2}
-                style={styles.actionButtonLabel}
+            <View style={styles.actionsRow}>
+              <Pressable
+                onPress={handleCancelBooking}
+                disabled={isCancelling}
+                style={({ pressed }) => [
+                  styles.cancelButton,
+                  pressed && styles.buttonPressed,
+                ]}
               >
-                Cancel Booking
-              </Text>
-            </Pressable>
+                <Text
+                  weight="semiBold"
+                  size={actionButtonLabelSize}
+                  color="#DC2626"
+                  numberOfLines={1}
+                  lineHeight={1.2}
+                  style={styles.actionButtonLabel}
+                >
+                  Cancel Booking
+                </Text>
+              </Pressable>
+
+              <Pressable
+                onPress={handleReschedule}
+                disabled={isCancelling}
+                style={({ pressed }) => [
+                  styles.secondaryButton,
+                  pressed && styles.buttonPressed,
+                ]}
+              >
+                <Text
+                  weight="semiBold"
+                  size={actionButtonLabelSize}
+                  color="#1F2937"
+                  numberOfLines={1}
+                  lineHeight={1.2}
+                  style={styles.actionButtonLabel}
+                >
+                  Reschedule Booking
+                </Text>
+              </Pressable>
+            </View>
           )}
         </View>
       ) : (
@@ -760,6 +787,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: ACTION_BUTTON_GAP,
   },
+  actionsStack: {
+    gap: ACTION_BUTTON_GAP,
+  },
   actionButtonLabel: {
     textAlign: 'center',
   },
@@ -778,6 +808,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#5299FE',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  primaryButtonFull: {
+    flexBasis: 'auto',
+    flexGrow: 0,
+    width: '100%',
   },
   secondaryButton: {
     flexBasis: 0,
