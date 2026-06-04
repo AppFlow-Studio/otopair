@@ -21,15 +21,17 @@ export type ServiceCategory = "basic_maintenance" | "tires_wheels" | "brakes_sus
 export interface Service {
   /** Unique identifier */
   id: string;
-  /** Stable seed slug (e.g., "oil-change"). Optional — MOCK_SERVICES omits it. */
+  /** Stable seed slug (e.g., "oil_change"). Optional — MOCK_SERVICES omits it. */
   slug?: string;
-  /** Service display name (e.g., "Oil Change") */
+  /** Service display name. From DB or MOCK_SERVICES. For the v5 grid, prefer
+   *  `displayLabel` (taxonomy-driven); `name` is kept for legacy consumers. */
   name: string;
   /** Brief description of the service */
   description: string;
   /** Price in dollars (fallback when labor_rate not available) */
   price: number;
-  /** Category this service belongs to */
+  /** @deprecated Legacy 4-key category used by Discovery / AddMore / TopBar.
+   *  v5 grid groups by `tab` instead. Kept so existing consumers compile. */
   category: ServiceCategory;
   /** Default labor hours (for price = labor_rate × time + parts) */
   default_labor_hours?: number;
@@ -37,6 +39,32 @@ export interface Service {
   default_parts_estimate?: number;
   /** Whether this service has user-selectable options (e.g. axle position, quantity) */
   has_options?: boolean;
+
+  // ── v5 taxonomy fields (denormalized at hook boundary from constants/serviceTaxonomy.ts) ──
+  /** Which of the 4 v5 tabs this service lives on. */
+  tab?: "routine_upkeep" | "inspections" | "tires_brakes" | "major_service";
+  /** Per-tab order from the v5 spec. */
+  order?: number;
+  /** Visible card title (v5 label). */
+  displayLabel?: string;
+  /** Guided-mode subtitle line. */
+  subtitle?: string;
+  /** Meta-row text fallback when MOTOR book time isn't available. */
+  estTimeLabel?: string;
+  /** Non-instant variants. `"quote"` = tire-replacement quote flow. */
+  variant?: "quote";
+  /** Applicability hints — see lib/serviceApplicability.ts */
+  applicability?: {
+    requires_ice_engine?: boolean;
+    requires_timing_belt?: boolean;
+    requires_hydraulic_ps?: boolean;
+    requires_differential?: boolean;
+    requires_rotatable_tires?: boolean;
+    requires_state_inspection?: boolean;
+    min_model_year?: number;
+  };
+  /** Search aliases — shop-slang terms that route to this card. */
+  searchAliases?: string[];
 }
 
 /** A selected service option with pricing details */

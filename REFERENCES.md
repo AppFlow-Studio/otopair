@@ -78,8 +78,14 @@
 | v8 | 3-tier enrichment architecture | Cost efficiency: batch API calls, cache aggressively, let mechanics verify |
 | v8 | Evidence tracking on all enrichment data | Trust + audit trail. Every value traced to source URL + confidence |
 | v9 | Convex as sole backend | Real-time reactivity, TypeScript end-to-end, no REST API layer needed |
+| v9 | Booking Taxonomy v5 in `constants/serviceTaxonomy.ts` | Slug is the binding key; labels, subtitles, est-time, applicability hints, search aliases are display-only and live in this file. DB `name` is no longer matched on. Spec doc: `~/Downloads/Otopair Booking Taxonomy v5.docx`. |
 | — | Zustand over Redux | Lightweight, less boilerplate, better for RN performance |
 | — | Clerk for auth | Managed auth with OAuth support, easy Convex integration |
+
+### Known Gaps
+
+- **AI chat seed message.** `convex/oto/chat.ts` `sendMessage` action accepts `message + vehicleVin` only; no topic / seed-context parameter. The "Ask Oto" pin in the booking grid currently opens a blank chat. Add a seed param + thread the booking-context (selected tab? failed-applicability service?) when product wants it.
+- **Legacy `ServiceCategory` 4-key enum** (`basic_maintenance | tires_wheels | brakes_suspension | system_diagnostics`) still drives Discovery / AddMoreServices / TopBar / Modals. v5 grid groups by `tab` instead. Sweep these surfaces onto taxonomy tabs in a follow-up; until then, `useServicesFromConvex` derives `category` from `tab` so they keep compiling.
 
 ---
 
