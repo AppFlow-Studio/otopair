@@ -205,17 +205,28 @@ export const ShopCard = memo(function ShopCard({
 
   // Track which mechanic is selected (null = "Any")
   const [selectedMechanicId, setSelectedMechanicId] = useState<string | null>(defaultMechanicId);
+  const selectedDurationMinutes = useMemo(() => {
+    const minutes = selectedServices.reduce((total, service) => {
+      return total + (service.default_labor_hours ?? 0) * 60;
+    }, 0);
+    return minutes > 0 ? Math.ceil(minutes) : undefined;
+  }, [selectedServices]);
 
   // Convex: next availability for this shop (and selected mechanic when one is chosen)
   const {
     slots: convexSlots,
-    hasSlots: hasConvexSlots,
     isLoading: convexSlotsLoading,
-  } = useNextAvailabilityForShop(shop.shopId, selectedMechanicId, MAX_VISIBLE_SLOTS + 4);
+  } = useNextAvailabilityForShop(
+    shop.shopId,
+    selectedMechanicId,
+    MAX_VISIBLE_SLOTS + 4,
+    selectedDurationMinutes,
+  );
+  const usesConvexAvailability = shop.shopId.length > 10;
 
   // Get availability slots: prefer Convex when available, else fall back to mechanic.nextAvailability (mock)
   const displayedSlots = useMemo((): Array<SlotWithBookingMeta> => {
-    if (hasConvexSlots && convexSlots.length > 0) {
+    if (usesConvexAvailability && !convexSlotsLoading) {
       return convexSlots.map((s) => ({
         dayOfWeek: s.dayOfWeek,
         day: s.day,
@@ -236,7 +247,7 @@ export const ShopCard = memo(function ShopCard({
         mechanicId: selectedMechanicId,
       })) || []
     );
-  }, [shop.mechanics, selectedMechanicId, hasConvexSlots, convexSlots]);
+  }, [shop.mechanics, selectedMechanicId, usesConvexAvailability, convexSlotsLoading, convexSlots]);
 
   // Slots to show (first 3)
   const visibleSlots = displayedSlots.slice(0, MAX_VISIBLE_SLOTS);
@@ -278,7 +289,7 @@ export const ShopCard = memo(function ShopCard({
 
   const handleSlotPress = useCallback(
     (slot: SlotWithBookingMeta) => {
-      const mechanicId = selectedMechanicId === null ? (slot.mechanicId ?? null) : selectedMechanicId;
+      const mechanicId = selectedMechanicId === null ? null : selectedMechanicId;
       onSelectSlot(shop.shopId, mechanicId, slot);
     },
     [onSelectSlot, shop.shopId, selectedMechanicId],

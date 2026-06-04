@@ -1,13 +1,15 @@
 import { Badge, Icon, Label, NativeTabs } from "expo-router/unstable-native-tabs";
-import { Tabs } from "expo-router";
-import React from "react";
+import { router, Tabs } from "expo-router";
+import React, { useEffect } from "react";
 import { Platform } from "react-native";
+import { useAuth } from "@clerk/clerk-expo";
 import { TabBar } from "@/components/navigation/TabBar";
 import { useBookingsFromConvex } from "@/hooks/useBookingsFromConvex";
 import { useUnseenBookingsCount } from "@/hooks/useUnseenBookingsCount";
 import { useVehicleOwnershipFromConvex } from "@/hooks/useVehicleOwnershipFromConvex";
 import { NotificationsSheet } from "@/components/notifications/NotificationsSheet";
 import { RescheduleDecisionOverlay } from "@/components/notifications/RescheduleDecisionOverlay";
+import { shouldRedirectSignedOutFromMainTabs } from "@/lib/auth-routing";
 import { SettingsOverlay } from "@/components/settings/SettingsOverlay";
 // OTA update banner only matters in EAS builds. In a local dev build
 // expo-updates' native module isn't linked, and the static import chain
@@ -36,6 +38,33 @@ function HydrateBookingData() {
 }
 
 export default function TabLayout() {
+  return (
+    <SignedOutMainTabsGuard>
+      <ProtectedTabLayout />
+    </SignedOutMainTabsGuard>
+  );
+}
+
+function SignedOutMainTabsGuard({ children }: { children: React.ReactNode }) {
+  const { isLoaded, isSignedIn } = useAuth();
+  const shouldRedirect = shouldRedirectSignedOutFromMainTabs(isLoaded, isSignedIn);
+
+  useEffect(() => {
+    if (!shouldRedirect) return;
+    router.replace({
+      pathname: "/(onboarding)",
+      params: { initialStep: "signup" },
+    });
+  }, [shouldRedirect]);
+
+  if (!isLoaded || shouldRedirect) {
+    return null;
+  }
+
+  return <>{children}</>;
+}
+
+function ProtectedTabLayout() {
   const isIOS26OrNewer =
     Platform.OS === "ios" && parseInt(String(Platform.Version), 10) >= 26;
 

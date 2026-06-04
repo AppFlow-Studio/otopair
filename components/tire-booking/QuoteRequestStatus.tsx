@@ -172,7 +172,13 @@ const COUNTDOWN_SECONDS = 7;
  * user can tap at any time to confirm instantly. The timer is cancelled if
  * the button unmounts (e.g. via the Go back secondary).
  */
-export function ConfirmCountdownButton({ onConfirm }: { onConfirm: () => void }) {
+export function ConfirmCountdownButton({
+  onConfirm,
+  compact = false,
+}: {
+  onConfirm: () => void;
+  compact?: boolean;
+}) {
   const [remaining, setRemaining] = useState(COUNTDOWN_SECONDS);
   const progress = useSharedValue(0);
   const firedRef = useRef(false);
@@ -219,12 +225,13 @@ export function ConfirmCountdownButton({ onConfirm }: { onConfirm: () => void })
       onPress={fire}
       style={({ pressed }) => [
         styles.actionButton,
+        compact && styles.actionButtonCompact,
         styles.primaryButton,
         pressed && styles.buttonPressed,
       ]}
     >
       <Animated.View style={[styles.primaryFill, fillStyle]} pointerEvents="none" />
-      <Text size="md" weight="semiBold" color="#FFFFFF">
+      <Text size={compact ? "sm" : "md"} weight="semiBold" color="#FFFFFF">
         Confirm ({timerText})
       </Text>
     </Pressable>
@@ -277,6 +284,10 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
+  },
+  actionButtonCompact: {
+    height: 46,
+    borderRadius: 12,
   },
   primaryButton: {
     backgroundColor: "#5299FE",

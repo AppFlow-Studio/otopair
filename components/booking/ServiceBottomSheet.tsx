@@ -1147,16 +1147,9 @@ export function ServiceBottomSheet({
     const displayDate = `${targetDate.getDate()} ${months[targetDate.getMonth()]} ${targetDate.getFullYear()}`;
     const isoDate = targetDate.toISOString().split("T")[0];
 
-    // Use mechanicId or find first mechanic for the shop
-    const effectiveMechanicId =
-      mechanicId ||
-      (() => {
-        // Find a mechanic from this shop
-        const shopMechanic = mechanicIds.map((id) => mechanics[id]).find((m) => m?.shopId === shopId);
-        return shopMechanic?.id;
-      })();
-
-    if (!effectiveMechanicId) return;
+    const effectiveMechanicId = mechanicId ?? null;
+    const routeId = effectiveMechanicId ?? shopId;
+    if (!routeId) return;
 
     // Set appointment in store
     setBookingTypeAndProceed("schedule_later", effectiveMechanicId);
@@ -1171,11 +1164,9 @@ export function ServiceBottomSheet({
     setBookingStage("payment", "forward");
 
     // Navigate to payment page
-    router.push(`/booking/mechanic/${effectiveMechanicId}/payment`);
+    router.push(`/booking/mechanic/${routeId}/payment`);
   }, [
     selectedMechanicSlot,
-    mechanicIds,
-    mechanics,
     setBookingTypeAndProceed,
     setScheduledAppointment,
     setSkippedBookingDetails,

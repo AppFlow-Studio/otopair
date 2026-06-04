@@ -29,6 +29,9 @@ import { useVehicleStore } from "@/stores/useVehicleStore";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { displayTimeToHHMM } from "@/utils/timeSlotUtils";
 
+const isLegacyTimeSlotId = (value: string | null | undefined): value is Id<"time_slots"> =>
+  Boolean(value && !value.startsWith("computed:"));
+
 export function useCreateBookingConvex() {
   const createBatch = useMutation(api.bookings.createBatch);
   const toast = useToast();
@@ -70,19 +73,19 @@ export function useCreateBookingConvex() {
       : "skip",
   );
 
-  const resolveTimeSlotId = useCallback(
+  const resolveLegacyTimeSlotId = useCallback(
     (mechanicId: string | null | undefined): Id<"time_slots"> | null => {
-      if (selectedMechanicSlot?.timeSlotId) {
-        return selectedMechanicSlot.timeSlotId as Id<"time_slots">;
-      }
+      const mechanicIdOpt = mechanicId ?? selectedMechanicId;
+      if (!mechanicIdOpt) return null;
+
+      if (isLegacyTimeSlotId(selectedMechanicSlot?.timeSlotId)) return selectedMechanicSlot.timeSlotId;
+
       const slots = slotsForShopAndTime;
       if (!slots || slots.length === 0) return null;
-      const mechanicIdOpt = mechanicId ?? selectedMechanicId;
-      if (mechanicIdOpt) {
-        const forMechanic = slots.find((s) => s.mechanic_id === mechanicIdOpt);
-        if (forMechanic) return forMechanic._id;
-      }
-      return slots[0]._id;
+      const forMechanic = slots.find(
+        (s: { _id: string; mechanic_id?: string | null }) => s.mechanic_id === mechanicIdOpt,
+      );
+      return isLegacyTimeSlotId(forMechanic?._id) ? forMechanic._id : null;
     },
     [selectedMechanicSlot?.timeSlotId, slotsForShopAndTime, selectedMechanicId],
   );
@@ -128,9 +131,9 @@ export function useCreateBookingConvex() {
   }, [pricedPartsByService]);
 
   const createBookingConvex = useCallback(
-    async (mechanicId: string, bookingType: "book_now" | "schedule_later"): Promise<string[]> => {
+    async (mechanicId: string | null | undefined, bookingType: "book_now" | "schedule_later"): Promise<string[]> => {
       const shopId = effectiveShopId;
-      const timeSlotId = resolveTimeSlotId(mechanicId);
+      const legacyTimeSlotId = resolveLegacyTimeSlotId(mechanicId);
       // Prefer the user's currently selected vehicle in the booking flow.
       // `primaryVin` is the user's default car and is only useful as a
       // fallback for entry points that don't explicitly switch cars
@@ -142,7 +145,7 @@ export function useCreateBookingConvex() {
         !userId ? "user" : null,
         !vin ? "vehicle VIN" : null,
         !shopId ? "shop" : null,
-        !timeSlotId ? "time slot" : null,
+        !scheduledAppointment?.date || !scheduledAppointment?.time ? "time slot" : null,
         selectedServiceIds.length === 0 ? "selected services" : null,
       ].filter((field): field is string => field != null);
 
@@ -250,12 +253,12 @@ export function useCreateBookingConvex() {
       // separately via `useBookingStatusToasts` when the shop accepts.
       let bookingIds: string[];
       try {
-        bookingIds = await createBatch({
+        const createBatchPayload = {
           user_id: userId,
           vin,
           shop_id: shopId as Id<"shops">,
           mechanic_id: mechanicId ? (mechanicId as Id<"mechanics">) : undefined,
-          time_slot_id: timeSlotId,
+          ...(legacyTimeSlotId ? { time_slot_id: legacyTimeSlotId } : {}),
           scheduled_date: scheduledDateVal,
           scheduled_time: scheduledTimeVal,
           services,
@@ -272,6 +275,8 @@ export function useCreateBookingConvex() {
             selectedOptionsPayload.length > 0 ? selectedOptionsPayload : undefined,
           service_variants: serviceVariantsPayload.length > 0 ? serviceVariantsPayload : undefined,
         });
+
+        bookingIds = await createBatch(createBatchPayload);
       } catch (err) {
         toast.error(
           "Couldn't submit booking.",
@@ -297,7 +302,6 @@ export function useCreateBookingConvex() {
       pricedPartsTotalMap,
       scheduledAppointment,
       getShopById,
-      resolveTimeSlotId,
       createBatch,
       sourceRecommendationId,
       setSourceRecommendationId,
@@ -305,6 +309,7 @@ export function useCreateBookingConvex() {
       customerNotes,
       selectedDiagnosticSystem,
       toast,
+      resolveLegacyTimeSlotId,
     ],
   );
 

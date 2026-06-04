@@ -8,16 +8,16 @@
  * USED IN: components/booking/sheets/ShopCard.tsx
  */
 
-import { useMutation, useQuery } from "convex/react";
-import { useEffect, useMemo } from "react";
+import { useQuery } from "convex/react";
+import { useMemo } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { MechanicAvailabilitySlot } from "@/stores/types/store.types";
 import { dateToDayDisplay, hhmmToDisplayTime, minBookableHHMM, todayLocalISO } from "@/utils/timeSlotUtils";
 
 export interface NextAvailabilitySlot extends MechanicAvailabilitySlot {
-  /** Convex time_slot id for booking */
-  timeSlotId: Id<"time_slots">;
+  /** Real time_slots id for legacy slots, or a computed availability window id. */
+  timeSlotId: string;
   /** Date YYYY-MM-DD for booking */
   scheduledDate: string;
   /** Time HH:MM for Convex */
@@ -28,10 +28,18 @@ export interface NextAvailabilitySlot extends MechanicAvailabilitySlot {
 
 const DEFAULT_LIMIT = 12;
 
+type AvailabilityRow = {
+  _id: string;
+  date: string;
+  start_time: string;
+  mechanic_id?: string | null;
+};
+
 export function useNextAvailabilityForShop(
   shopId: string | null,
   mechanicId: string | null | undefined,
   limit: number = DEFAULT_LIMIT,
+  durationMinutes?: number,
 ) {
   // Skip query for mock shop IDs (e.g. "1", "2") — only call Convex with real IDs
   const isConvexId = shopId != null && shopId.length > 10;
@@ -42,18 +50,6 @@ export function useNextAvailabilityForShop(
   // UTC and would otherwise mis-classify "today" near midnight.
   const cutoffDate = todayLocalISO();
   const cutoffTime = minBookableHHMM();
-  const refreshShopAvailability = useMutation(api.time_slots.refreshShopAvailability);
-
-  useEffect(() => {
-    if (!isConvexId) return;
-    void refreshShopAvailability({
-      shopId: shopId as Id<"shops">,
-      startDate: cutoffDate,
-    }).catch((error) => {
-      console.warn("[availability] failed to refresh shop slots", error);
-    });
-  }, [cutoffDate, isConvexId, refreshShopAvailability, shopId]);
-
   const convexSlots = useQuery(
     api.time_slots.getNextAvailableByShop,
     isConvexId
@@ -61,6 +57,7 @@ export function useNextAvailabilityForShop(
           shopId: shopId as Id<"shops">,
           limit,
           mechanicId: mechanicId === undefined || mechanicId === null ? undefined : (mechanicId as Id<"mechanics">),
+          durationMinutes,
           cutoffDate,
           cutoffTime,
         }
@@ -75,8 +72,8 @@ export function useNextAvailabilityForShop(
     const today = todayLocalISO();
     const minTime = minBookableHHMM();
     return convexSlots
-      .filter((s) => s.date !== today || s.start_time >= minTime)
-      .map((s) => {
+      .filter((s: AvailabilityRow) => s.date !== today || s.start_time >= minTime)
+      .map((s: AvailabilityRow) => {
         const { dayOfWeek, day } = dateToDayDisplay(s.date);
         return {
           dayOfWeek,

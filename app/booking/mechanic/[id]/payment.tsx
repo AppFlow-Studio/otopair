@@ -72,6 +72,7 @@ export default function PaymentScreen() {
   const availableServices = useBookingStore((state) => state.availableServices);
   const selectedServiceOptions = useBookingStore((state) => state.selectedServiceOptions);
   const selectedMechanicId = useBookingStore((state) => state.selectedMechanicId);
+  const selectedMechanicSlot = useBookingStore((state) => state.selectedMechanicSlot);
   const getFormattedAppointmentDate = useBookingStore((state) => state.getFormattedAppointmentDate);
   const getFormattedAppointmentTime = useBookingStore((state) => state.getFormattedAppointmentTime);
   const customerNotes = useBookingStore((state) => state.customerNotes);
@@ -126,8 +127,14 @@ export default function PaymentScreen() {
   );
 
   // Shop-specific only: labor_rate × default_labor_hours + default_parts_estimate (no default rate)
-  const shop = useMemo(() => (mechanic?.shopId ? getShopById(mechanic.shopId) : null), [mechanic?.shopId, getShopById]);
+  const shop = useMemo(() => {
+    const shopId = mechanic?.shopId ?? selectedMechanicSlot?.shopId;
+    return shopId ? getShopById(shopId) : null;
+  }, [mechanic?.shopId, selectedMechanicSlot?.shopId, getShopById]);
   const laborRate = shop?.labor_rate;
+  const mechanicDisplayName = mechanic?.name ?? "Any available mechanic";
+  const mechanicSubtitle =
+    mechanic?.title ?? mechanic?.shopName ?? selectedMechanicSlot?.shopName ?? shop?.name ?? "Shop will assign a mechanic";
 
   // Real OEM parts (with per-unit prices) for the booking's vehicle. When this
   // hook returns data, partsCost uses the real per-service totals; otherwise we
@@ -390,7 +397,7 @@ export default function PaymentScreen() {
   }, [router, skippedBookingDetails, setBookingStage]);
 
   const handleConfirmPayment = useCallback(() => {
-    if (!selectedMechanicId) return;
+    if (!selectedMechanicId && !selectedMechanicSlot?.shopId) return;
     if (!hasPayment || !selectedPaymentMethod) {
       setErrorMessage("Add a payment method to confirm this booking.");
       setErrorModalVisible(true);
@@ -400,7 +407,7 @@ export default function PaymentScreen() {
     // a minimum-display timer for the Lottie loading animation, then
     // routes forward to /confirmation (or back here with an error param).
     router.push(`/booking/mechanic/${id}/confirming`);
-  }, [router, id, selectedMechanicId, hasPayment, selectedPaymentMethod]);
+  }, [router, id, selectedMechanicId, selectedMechanicSlot?.shopId, hasPayment, selectedPaymentMethod]);
 
   const handleApplePay = useCallback(() => {
     // Apple Pay integration would go here
@@ -433,19 +440,6 @@ export default function PaymentScreen() {
   );
 
   // ═══════════════ RENDER ═══════════════
-  if (!mechanic) {
-    return (
-      <View style={styles.container}>
-        <BookingPageHeader title="Review & Pay" onBack={handleBack} />
-        <View style={styles.errorContainer}>
-          <Text size="md" weight="medium" color="#6B7280" center>
-            No mechanic selected
-          </Text>
-        </View>
-      </View>
-    );
-  }
-
   return (
     <View style={styles.container}>
       {/* Header */}
@@ -462,30 +456,32 @@ export default function PaymentScreen() {
           {/* Mechanic Info Row */}
           <View style={styles.mechanicRow}>
             <View style={styles.avatarWrapper}>
-              {mechanic.photoUrl ? (
+              {mechanic?.photoUrl ? (
                 <Image source={{ uri: mechanic.photoUrl }} style={styles.avatar} />
               ) : (
                 <View style={styles.avatarPlaceholder}>
                   <Text size="xl" weight="bold" color="#9CA3AF">
-                    {mechanic.name.charAt(0)}
+                    {mechanicDisplayName.charAt(0)}
                   </Text>
                 </View>
               )}
               {/* Rating Badge */}
-              <View style={styles.ratingBadge}>
-                <Star size={10} color="#FCD34D" fill="#FCD34D" />
-                <Text size="xs" weight="bold" color={BrandColors.white}>
-                  {mechanic.rating.toFixed(1)}
-                </Text>
-              </View>
+              {mechanic && (
+                <View style={styles.ratingBadge}>
+                  <Star size={10} color="#FCD34D" fill="#FCD34D" />
+                  <Text size="xs" weight="bold" color={BrandColors.white}>
+                    {mechanic.rating.toFixed(1)}
+                  </Text>
+                </View>
+              )}
             </View>
 
             <View style={styles.mechanicInfo}>
               <Text size="lg" weight="bold" color={BrandColors.primary}>
-                {mechanic.name}
+                {mechanicDisplayName}
               </Text>
               <Text size="sm" weight="medium" color="#6B7280">
-                {mechanic.title ?? mechanic.shopName}
+                {mechanicSubtitle}
               </Text>
             </View>
           </View>
@@ -769,28 +765,17 @@ export default function PaymentScreen() {
           {isSubmitting ? (
             <ActivityIndicator color={BrandColors.white} size="small" />
           ) : (
-            <>
-              <Text size="md" weight="semiBold" color={BrandColors.white}>
-                Pay with
-              </Text>
-              {Platform.OS === "android" ? (
-                <GooglePay width={90} height={30} />
-              ) : (
-                <ApplePay width={90} height={30} />
-              )}
-              <View style={styles.priceTag}>
-                <Text
-                  size="sm"
-                  weight="bold"
-                  color={BrandColors.primary}
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.7}
-                >
-                  {breakdown.rangeFormatted}
-                </Text>
-              </View>
-            </>
+            <Text
+              size="md"
+              weight="bold"
+              color={BrandColors.white}
+              style={styles.confirmButtonLabel}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.85}
+            >
+              Confirm Appointment
+            </Text>
           )}
         </TouchableOpacity>
 
@@ -1136,8 +1121,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: "#000000",
     paddingVertical: Spacing.lg,
+    paddingHorizontal: Spacing.md,
     borderRadius: BorderRadius.xl,
-    gap: Spacing.md,
+    gap: Spacing.xs,
+  },
+  confirmButtonLabel: {
+    flexShrink: 1,
   },
   confirmButtonDisabled: {
     opacity: 0.7,
@@ -1147,6 +1136,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.xs,
     borderRadius: BorderRadius.lg,
+    flexShrink: 0,
   },
   footerCardRow: {
     flexDirection: "row",

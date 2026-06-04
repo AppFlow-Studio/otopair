@@ -18,6 +18,7 @@ export function useCalendarAvailabilityForShop(
   year: number,
   month: number,
   mechanicId: string | null | undefined,
+  durationMinutes?: number,
 ) {
   // Skip query for mock IDs (e.g. "1", "2") — only call Convex with real IDs
   const isRealShopId = shopId != null && shopId.length > 10;
@@ -30,6 +31,7 @@ export function useCalendarAvailabilityForShop(
           year,
           month,
           mechanicId: isRealMechanicId ? (mechanicId as Id<"mechanics">) : undefined,
+          durationMinutes,
         }
       : "skip",
   );

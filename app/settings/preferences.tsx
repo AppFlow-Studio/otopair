@@ -49,6 +49,7 @@ const UNITS = [
   { label: 'Miles (mi)', value: 'mi' },
   { label: 'Kilometers (km)', value: 'km' }
 ];
+const SHOW_LANGUAGE_OPTION = false;
 
 export default function PreferencesScreen() {
   const insets = useSafeAreaInsets();
@@ -277,25 +278,29 @@ export default function PreferencesScreen() {
         {/* Preferences Card */}
         <View style={styles.glassCard}>
           {/* Language Selection */}
-          <Pressable 
-            style={({ pressed }) => [styles.formRow, pressed && styles.rowPressed]}
-            onPress={() => {
-              setTempValue(language);
-              setVisibleSheet('language');
-            }}
-          >
-            <View style={styles.rowContent}>
-              <Text weight="medium" size="xs" color="#86868b" style={styles.rowLabel}>
-                LANGUAGE
-              </Text>
-              <View style={styles.rowValueContainer}>
-                <Text size="md" color="#1d1d1f">{LANGUAGES.find(l => l.value === language)?.label || language}</Text>
-                <ChevronRight size={20} color="#86868b" />
-              </View>
-            </View>
-          </Pressable>
+          {SHOW_LANGUAGE_OPTION ? (
+            <>
+              <Pressable
+                style={({ pressed }) => [styles.formRow, pressed && styles.rowPressed]}
+                onPress={() => {
+                  setTempValue(language);
+                  setVisibleSheet('language');
+                }}
+              >
+                <View style={styles.rowContent}>
+                  <Text weight="medium" size="xs" color="#86868b" style={styles.rowLabel}>
+                    LANGUAGE
+                  </Text>
+                  <View style={styles.rowValueContainer}>
+                    <Text size="md" color="#1d1d1f">{LANGUAGES.find(l => l.value === language)?.label || language}</Text>
+                    <ChevronRight size={20} color="#86868b" />
+                  </View>
+                </View>
+              </Pressable>
 
-          <View style={styles.separator} />
+              <View style={styles.separator} />
+            </>
+          ) : null}
 
           {/* Units Selection */}
           <Pressable 
