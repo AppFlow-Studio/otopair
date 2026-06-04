@@ -919,25 +919,5 @@ export async function sendWaitlistNotificationEmail(data: WaitlistSignupData) {
 // failure instead of crashing the action. Replace with the real implementation
 // when the website sync completes.
 //
-// Signature is matched to the call sites in convex/invoices_node.ts so that
-// callers compile correctly today.
-export async function sendInvoiceEmail(_args: {
-  to: string;
-  invoiceNumber: string;
-  customerFirstName: string | null;
-  shopName: string;
-  totalCents: number;
-  status: string;
-  pdfBase64: string;
-  pdfFilename: string;
-  receiptUrl: string;
-}): Promise<{ success: boolean; error?: unknown }> {
-  console.warn(
-    "[email/send] sendInvoiceEmail called but is unimplemented on this branch — see TODO in email/send.ts",
-  );
-  return {
-    success: false,
-    error: new Error("sendInvoiceEmail not implemented on this branch"),
-  };
-}
+
 
