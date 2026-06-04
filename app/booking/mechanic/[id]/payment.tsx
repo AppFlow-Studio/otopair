@@ -127,10 +127,14 @@ export default function PaymentScreen() {
   );
 
   // Shop-specific only: labor_rate × default_labor_hours + default_parts_estimate (no default rate)
+  // Shop resolution falls back to the time-slot's shopId so "Any available
+  // mechanic" bookings still resolve a shop — without this fallback the
+  // fixed-price hook below receives undefined and every flat-rate service
+  // re-renders as a range.
+  const resolvedShopId = mechanic?.shopId ?? selectedMechanicSlot?.shopId;
   const shop = useMemo(() => {
-    const shopId = mechanic?.shopId ?? selectedMechanicSlot?.shopId;
-    return shopId ? getShopById(shopId) : null;
-  }, [mechanic?.shopId, selectedMechanicSlot?.shopId, getShopById]);
+    return resolvedShopId ? getShopById(resolvedShopId) : null;
+  }, [resolvedShopId, getShopById]);
   const laborRate = shop?.labor_rate;
   const mechanicDisplayName = mechanic?.name ?? "Any available mechanic";
   const mechanicSubtitle =
@@ -203,7 +207,7 @@ export default function PaymentScreen() {
   // snapshot onto the booking row.
   const { map: fixedPriceMap, hasAnyFixed: hasAnyFixedPrice } =
     useShopFixedPricesForServices(
-      mechanic?.shopId,
+      resolvedShopId,
       selectedVehicle?.ownershipId,
       selectedServiceIds,
     );
@@ -528,9 +532,15 @@ export default function PaymentScreen() {
 
           {/* Service names with line range (labor + parts ±25%) so the
               summary row shows the same band as the aggregate total.
-              Flat-price lines collapse to a single $X and carry a badge. */}
+              Flat-price lines surface the labor duration inline with the
+              service name and replace the dollar amount with "Fixed" —
+              the customer's price contract is the flat rate, not the
+              underlying parts+labor math. */}
           {selectedServices.map((service) => {
             const lineRange = getServiceLineRange(service);
+            const lineDurationLabel = lineRange.isFixed
+              ? formatDurationForCar(getServiceLaborHours(service))
+              : null;
             return (
               <View key={service.id} style={styles.serviceRow}>
                 <View style={styles.serviceNameWrap}>
@@ -538,6 +548,11 @@ export default function PaymentScreen() {
                     {service.name}
                   </Text>
                   {lineRange.isFixed && <FixedPriceBadge size="sm" />}
+                  {lineDurationLabel ? (
+                    <Text size="sm" weight="regular" color="#6B7280">
+                      · {lineDurationLabel}
+                    </Text>
+                  ) : null}
                 </View>
                 <Text size="sm" weight="semiBold" color={BrandColors.primary}>
                   {lineRange.isFixed
@@ -562,7 +577,13 @@ export default function PaymentScreen() {
             ) : breakdown.variableLaborHours > 0 ? (
               <View style={styles.breakdownRow}>
                 <Text size="sm" weight="regular" color="#6B7280">
-                  Labor ({formatDurationForCar(breakdown.variableLaborHours) ?? "0 mins"})
+                  {/* Time is the TOTAL mechanic-occupancy duration (variable +
+                      fixed); cost is the variable portion only, since the
+                      fixed lines' labor is already bundled into their flat
+                      amount above. The visibility predicate stays on
+                      `variableLaborHours` so all-fixed carts still hide this
+                      row (cost would be $0). */}
+                  Labor ({formatDurationForCar(breakdown.laborHours) ?? "0 mins"})
                 </Text>
                 <Text size="sm" weight="medium" color="#6B7280">
                   ${breakdown.laborCost.toFixed(2)}
@@ -764,18 +785,15 @@ export default function PaymentScreen() {
         >
           {isSubmitting ? (
             <ActivityIndicator color={BrandColors.white} size="small" />
+          ) : Platform.OS === "android" ? (
+            // SVG holds just the wallet mark in a tight viewBox; render
+            // at fixed dimensions (matching the viewBox aspect) sized
+            // for prominence inside the 64-tall wrapper. Flex centering
+            // on the wrapper puts it dead-center in the full-width black
+            // surface.
+            <GooglePay width={76} height={30} />
           ) : (
-            <Text
-              size="md"
-              weight="bold"
-              color={BrandColors.white}
-              style={styles.confirmButtonLabel}
-              numberOfLines={1}
-              adjustsFontSizeToFit
-              minimumFontScale={0.85}
-            >
-              Confirm Appointment
-            </Text>
+            <ApplePay width={72} height={30} />
           )}
         </TouchableOpacity>
 
@@ -1116,14 +1134,17 @@ const styles = StyleSheet.create({
     ...Shadows.lg,
   },
   walletButton: {
-    flexDirection: "row",
+    // Full-width CTA. The SVG holds ONLY the wallet mark (Apple/Google
+    // logo + "Pay" paths); the wrapper provides the rounded black
+    // surface, and the SVG's tight viewBox guarantees the mark renders
+    // dead-center horizontally and vertically.
+    width: "100%",
+    height: 64,
+    backgroundColor: "#000008",
+    borderRadius: BorderRadius.xl,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#000000",
-    paddingVertical: Spacing.lg,
-    paddingHorizontal: Spacing.md,
-    borderRadius: BorderRadius.xl,
-    gap: Spacing.xs,
+    overflow: "hidden",
   },
   confirmButtonLabel: {
     flexShrink: 1,

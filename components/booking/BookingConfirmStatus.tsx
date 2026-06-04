@@ -94,7 +94,6 @@ export function BookingConfirmStatus({ onConfirm, onGoBack, mechanicId }: Props)
         <InfoRow
           icon={<User size={20} color="#4B5563" strokeWidth={2} />}
           primary={mechanicLabel}
-          secondary={mechanicSecondary}
           compact={isCompactLayout}
           veryCompact={isVeryCompactLayout}
         />

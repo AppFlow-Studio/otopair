@@ -149,11 +149,14 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
     return getMechanicById(selectedMechanicId);
   }, [selectedMechanicId, getMechanicById]);
 
-  // Shop for pricing (shop labor rate only)
+  // Shop for pricing (shop labor rate only). The fallback to the time-slot's
+  // shopId matters for "Any available mechanic" bookings: without it, the
+  // fixed-price hook below receives undefined and every flat-rate service
+  // re-renders as a range.
+  const resolvedShopId = mechanic?.shopId ?? selectedMechanicSlot?.shopId;
   const shop = useMemo(() => {
-    const shopId = mechanic?.shopId ?? selectedMechanicSlot?.shopId;
-    return shopId ? getShopById(shopId) : null;
-  }, [mechanic?.shopId, selectedMechanicSlot?.shopId, getShopById]);
+    return resolvedShopId ? getShopById(resolvedShopId) : null;
+  }, [resolvedShopId, getShopById]);
   const laborRate = shop?.labor_rate;
   const mechanicDisplayName = mechanic?.name ?? "Any available mechanic";
   const mechanicSubtitle =
@@ -231,7 +234,7 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
   // ids. Hits replace the line's parts band and zero its labor contribution.
   const { map: fixedPriceMap, hasAnyFixed: hasAnyFixedPrice } =
     useShopFixedPricesForServices(
-      mechanic?.shopId,
+      resolvedShopId,
       selectedVehicle?.ownershipId,
       selectedServiceIds,
     );
@@ -552,9 +555,15 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
 
           {/* Service names with line range (labor + parts ±25%) so the
               summary row shows the same band as the aggregate total.
-              Flat-price lines collapse to a single $X and carry a badge. */}
+              Flat-price lines surface the labor duration inline with the
+              service name and replace the dollar amount with "Fixed" —
+              the customer's price contract is the flat rate, not the
+              underlying parts+labor math. */}
           {selectedServices.map((service) => {
             const lineRange = getServiceLineRange(service);
+            const lineDurationLabel = lineRange.isFixed
+              ? formatDurationForCar(getServiceLaborHours(service))
+              : null;
             return (
               <View key={service.id} style={styles.serviceRow}>
                 <View style={styles.serviceNameWrap}>
@@ -562,6 +571,11 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
                     {service.name}
                   </Text>
                   {lineRange.isFixed && <FixedPriceBadge size="sm" />}
+                  {lineDurationLabel ? (
+                    <Text size="sm" weight="regular" color="#6B7280">
+                      · {lineDurationLabel}
+                    </Text>
+                  ) : null}
                 </View>
                 <Text size="sm" weight="semiBold" color={BrandColors.primary}>
                   {lineRange.isFixed
@@ -585,7 +599,13 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
             ) : breakdown.variableLaborHours > 0 ? (
               <View style={styles.breakdownRow}>
                 <Text size="sm" weight="regular" color="#6B7280">
-                  Labor ({formatDurationForCar(breakdown.variableLaborHours) ?? "0 mins"})
+                  {/* Time is the TOTAL mechanic-occupancy duration (variable +
+                      fixed); cost is the variable portion only, since the
+                      fixed lines' labor is already bundled into their flat
+                      amount above. The visibility predicate stays on
+                      `variableLaborHours` so all-fixed carts still hide this
+                      row (cost would be $0). */}
+                  Labor ({formatDurationForCar(breakdown.laborHours) ?? "0 mins"})
                 </Text>
                 <Text size="sm" weight="medium" color="#6B7280">
                   ${breakdown.laborCost.toFixed(2)}
