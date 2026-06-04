@@ -274,7 +274,7 @@ export function useCreateBookingConvex() {
           selected_service_options:
             selectedOptionsPayload.length > 0 ? selectedOptionsPayload : undefined,
           service_variants: serviceVariantsPayload.length > 0 ? serviceVariantsPayload : undefined,
-        });
+        };
 
         bookingIds = await createBatch(createBatchPayload);
       } catch (err) {
