@@ -15,6 +15,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAuth, useSSO } from "@clerk/clerk-expo";
 import * as WebBrowser from "expo-web-browser";
+import * as Clipboard from "expo-clipboard";
 import { useConvex } from "convex/react";
 import { BrandColors, FontFamily, FontSize, Spacing, Text } from "@/components/shared-ui";
 import { Image } from "expo-image";
@@ -34,6 +35,7 @@ import { Mail } from "lucide-react-native";
 import { useAuthStore } from "@/stores/useAuthStore";
 import { router } from "expo-router";
 import { api } from "@/convex/_generated/api";
+import { getAndroidSmsRetrieverHash } from "@/lib/android-app-signature";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -54,6 +56,8 @@ export function SignupStep({ onBack, onEmailSignup, onLogin }: SignupStepProps) 
   const { isNewUser, setIsNewUser, setIsAuthenticated } = useAuthStore();
   const [loading, setLoading] = useState<"google" | "apple" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [smsHash, setSmsHash] = useState<string | null>(null);
+  const [smsHashLoading, setSmsHashLoading] = useState(false);
   const [ssoNavigationPending, setSsoNavigationPending] = useState(false);
 
   const { startSSOFlow: startGoogleSSO } = useSSO();
@@ -179,6 +183,29 @@ export function SignupStep({ onBack, onEmailSignup, onLogin }: SignupStepProps) 
     onEmailSignup();
   };
 
+  const handleGetAndroidSmsHash = async () => {
+    if (smsHashLoading) return;
+
+    setSmsHashLoading(true);
+    setError(null);
+
+    try {
+      const hash = await getAndroidSmsRetrieverHash();
+      if (!hash) {
+        setError("Android SMS hash is only available on Android.");
+        return;
+      }
+
+      setSmsHash(hash);
+      await Clipboard.setStringAsync(hash);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to get Android SMS hash.";
+      setError(message);
+    } finally {
+      setSmsHashLoading(false);
+    }
+  };
+
   return (
     <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.keyboardView}>
       <View style={[styles.container, dynamicStyles.container]}>
@@ -243,6 +270,28 @@ export function SignupStep({ onBack, onEmailSignup, onLogin }: SignupStepProps) 
           </Pressable>
 
           {error ? <Text style={styles.errorText}>{error}</Text> : null}
+
+          {__DEV__ && Platform.OS === "android" ? (
+            <View style={styles.smsHashPanel}>
+              <Pressable
+                accessibilityRole="button"
+                style={styles.smsHashButton}
+                onPress={handleGetAndroidSmsHash}
+                disabled={smsHashLoading}
+              >
+                {smsHashLoading ? (
+                  <ActivityIndicator size="small" color={BrandColors.secondary} />
+                ) : (
+                  <Text style={styles.smsHashButtonText}>Get Android SMS hash</Text>
+                )}
+              </Pressable>
+              {smsHash ? (
+                <Text selectable style={styles.smsHashText}>
+                  {smsHash} copied
+                </Text>
+              ) : null}
+            </View>
+          ) : null}
 
           {/* Login link */}
           <Pressable onPress={onLogin} style={styles.loginLink}>
@@ -369,6 +418,30 @@ const styles = StyleSheet.create({
     color: "#DC2626",
     fontSize: FontSize.sm,
     fontFamily: FontFamily.medium,
+  },
+  smsHashPanel: {
+    alignItems: "center",
+    gap: Spacing.xs,
+  },
+  smsHashButton: {
+    minHeight: 40,
+    paddingHorizontal: Spacing.md,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "rgba(82, 153, 254, 0.4)",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255, 255, 255, 0.72)",
+  },
+  smsHashButtonText: {
+    fontSize: FontSize.sm,
+    fontFamily: FontFamily.semiBold,
+    color: BrandColors.secondary,
+  },
+  smsHashText: {
+    fontSize: FontSize.sm,
+    fontFamily: FontFamily.medium,
+    color: "#0F172A",
   },
   loginLink: {
     alignItems: "center",

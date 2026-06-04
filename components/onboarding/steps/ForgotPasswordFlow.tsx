@@ -12,6 +12,7 @@ import { Eye, EyeOff, Mail, Phone, Search } from "lucide-react-native";
 import {
   ActivityIndicator,
   Animated,
+  AppState,
   BackHandler,
   FlatList,
   KeyboardAvoidingView,
@@ -40,6 +41,7 @@ import {
 import { OnboardingSurfaceColors } from "../onboardingColors";
 import {
   distributePasswordResetCodeInput,
+  PASSWORD_RESET_RESEND_SECONDS,
   PasswordResetFlowStep,
   PasswordResetMethod,
   getPasswordResetErrorMessage,
@@ -47,6 +49,7 @@ import {
   getPasswordResetBackTarget,
   getPasswordResetIdentifierLabel,
   getPasswordResetStrategy,
+  getPasswordResetTimeRemaining,
   isValidResetEmail,
   validateResetPassword,
 } from "@/lib/password-reset";
@@ -59,6 +62,16 @@ zxcvbnOptions.setOptions({
 });
 
 type LoadingState = "send" | "verify" | "reset" | null;
+
+type ResetPasswordFactorConfig =
+  | {
+      strategy: "reset_password_email_code";
+      emailAddressId: string;
+    }
+  | {
+      strategy: "reset_password_phone_code";
+      phoneNumberId: string;
+    };
 
 interface ForgotPasswordFlowProps {
   initialEmail?: string;
@@ -94,9 +107,11 @@ export function ForgotPasswordFlow({
   const [loading, setLoading] = useState<LoadingState>(null);
   const [error, setError] = useState<string | null>(null);
   const [timeRemaining, setTimeRemaining] = useState(0);
+  const [resendAvailableAt, setResendAvailableAt] = useState<number | null>(null);
 
   const codeInputRefs = useRef<(TextInput | null)[]>([]);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const codeRequestIdRef = useRef(0);
   const slideAnim = useRef(new Animated.Value(height)).current;
 
   const isCompact = height < 720;
@@ -144,7 +159,7 @@ export function ForgotPasswordFlow({
       case 2:
         return SemanticColors.warningAmber;
       case 3:
-        return SemanticColors.warningAmberLight;
+        return SemanticColors.warningAmberLightOnDark;
       case 4:
         return SemanticColors.successGreenLightOnDark;
       default:
@@ -199,19 +214,38 @@ export function ForgotPasswordFlow({
       });
   }, []);
 
-  useEffect(() => {
-    if (timeRemaining <= 0) return;
+  const updateResendTimer = useCallback(() => {
+    const remaining = getPasswordResetTimeRemaining(resendAvailableAt);
+    setTimeRemaining(remaining);
+    if (resendAvailableAt && remaining === 0) {
+      setResendAvailableAt(null);
+    }
+  }, [resendAvailableAt]);
 
-    timerRef.current = setTimeout(() => {
-      setTimeRemaining((current) => Math.max(0, current - 1));
+  useEffect(() => {
+    updateResendTimer();
+    if (!resendAvailableAt) return;
+
+    timerRef.current = setInterval(() => {
+      updateResendTimer();
     }, 1000);
 
     return () => {
       if (timerRef.current) {
-        clearTimeout(timerRef.current);
+        clearInterval(timerRef.current);
       }
     };
-  }, [timeRemaining]);
+  }, [resendAvailableAt, updateResendTimer]);
+
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active") {
+        updateResendTimer();
+      }
+    });
+
+    return () => sub.remove();
+  }, [updateResendTimer]);
 
   useEffect(() => {
     if (showCountryPicker) {
@@ -277,6 +311,14 @@ export function ForgotPasswordFlow({
     });
   }
 
+  function beginNewCodeRequest() {
+    const nextAvailableAt = Date.now() + PASSWORD_RESET_RESEND_SECONDS * 1000;
+    codeRequestIdRef.current += 1;
+    resetCodeInputs();
+    setResendAvailableAt(nextAvailableAt);
+    setTimeRemaining(getPasswordResetTimeRemaining(nextAvailableAt));
+  }
+
   async function sendResetCode(nextMethod: PasswordResetMethod, nextIdentifier: string) {
     if (!isLoaded || !signIn || loading !== null) return;
 
@@ -291,8 +333,7 @@ export function ForgotPasswordFlow({
 
       setMethod(nextMethod);
       setIdentifier(nextIdentifier);
-      resetCodeInputs();
-      setTimeRemaining(60);
+      beginNewCodeRequest();
       setStep("code");
     } catch (err: unknown) {
       setError(
@@ -317,7 +358,7 @@ export function ForgotPasswordFlow({
     await sendResetCode("email", trimmedEmail);
   }
 
-  async function verifyCode(fullCode: string) {
+  async function verifyCode(fullCode: string, requestId = codeRequestIdRef.current) {
     if (!isLoaded || !signIn || loading !== null) return;
 
     setLoading("verify");
@@ -327,6 +368,10 @@ export function ForgotPasswordFlow({
       const result = await signIn.attemptFirstFactor(
         getPasswordResetAttempt(method, fullCode)
       );
+
+      if (requestId !== codeRequestIdRef.current) {
+        return;
+      }
 
       if (result.status === "needs_new_password") {
         setStep("password");
@@ -342,24 +387,61 @@ export function ForgotPasswordFlow({
       setError("Verification incomplete. Please try again.");
       resetCodeInputs();
     } catch (err: unknown) {
+      if (requestId !== codeRequestIdRef.current) {
+        return;
+      }
+
       const message = getPasswordResetErrorMessage(
         err,
         "Invalid verification code. Please try again.",
         { method, phase: "verify" }
       );
       if (message === "This code expired. Send a new one.") {
+        setResendAvailableAt(null);
         setTimeRemaining(0);
       }
       setError(message);
       resetCodeInputs();
     } finally {
-      setLoading(null);
+      if (requestId === codeRequestIdRef.current) {
+        setLoading(null);
+      }
     }
   }
 
   async function resendCode() {
-    if (!identifier) return;
-    await sendResetCode(method, identifier);
+    if (!identifier || !isLoaded || !signIn || loading !== null) return;
+
+    const resetFactor = getResetPasswordFactorForMethod(
+      method,
+      signIn.supportedFirstFactors
+    );
+
+    setLoading("send");
+    setError(null);
+
+    try {
+      if (resetFactor) {
+        await signIn.prepareFirstFactor(resetFactor);
+      } else {
+        await signIn.create({
+          strategy: getPasswordResetStrategy(method),
+          identifier,
+        });
+      }
+
+      beginNewCodeRequest();
+    } catch (err: unknown) {
+      setError(
+        getPasswordResetErrorMessage(
+          err,
+          "Unable to send a reset code. Please try again.",
+          { method, phase: "send" }
+        )
+      );
+    } finally {
+      setLoading(null);
+    }
   }
 
   async function submitNewPassword() {
@@ -411,7 +493,7 @@ export function ForgotPasswordFlow({
     }
 
     if (step === "code" && distributed.fullCode.length === 6 && loading === null) {
-      verifyCode(distributed.fullCode);
+      verifyCode(distributed.fullCode, codeRequestIdRef.current);
     }
   }
 
@@ -606,6 +688,7 @@ export function ForgotPasswordFlow({
                 }}
                 style={[
                   styles.codeInput,
+                  styles.hiddenCodeInputText,
                   dynamicStyles.codeInput,
                   focusedCodeIndex === index && styles.codeInputFocused,
                 ]}
@@ -615,12 +698,23 @@ export function ForgotPasswordFlow({
                 onFocus={() => setFocusedCodeIndex(index)}
                 keyboardType="number-pad"
                 maxLength={6}
-                textContentType="oneTimeCode"
-                autoComplete="sms-otp"
+                textContentType={Platform.OS === "ios" ? "oneTimeCode" : "none"}
+                autoComplete={Platform.OS === "android" ? "sms-otp" : "one-time-code"}
                 importantForAutofill="yes"
                 selectTextOnFocus
                 autoFocus={index === 0}
               />
+              {digit ? (
+                <Text
+                  pointerEvents="none"
+                  style={[
+                    styles.codeDigitText,
+                    focusedCodeIndex === index && styles.codeDigitTextFocused,
+                  ]}
+                >
+                  {digit}
+                </Text>
+              ) : null}
             </View>
           ))}
         </View>
@@ -848,6 +942,46 @@ function PasswordField({
   );
 }
 
+function getResetPasswordFactorForMethod(
+  method: PasswordResetMethod,
+  factors: readonly unknown[] | null | undefined
+): ResetPasswordFactorConfig | null {
+  if (!factors) {
+    return null;
+  }
+
+  for (const factor of factors) {
+    if (typeof factor !== "object" || factor === null) {
+      continue;
+    }
+
+    const candidate = factor as Record<string, unknown>;
+    if (
+      method === "email" &&
+      candidate.strategy === "reset_password_email_code" &&
+      typeof candidate.emailAddressId === "string"
+    ) {
+      return {
+        strategy: "reset_password_email_code",
+        emailAddressId: candidate.emailAddressId,
+      };
+    }
+
+    if (
+      method === "phone" &&
+      candidate.strategy === "reset_password_phone_code" &&
+      typeof candidate.phoneNumberId === "string"
+    ) {
+      return {
+        strategy: "reset_password_phone_code",
+        phoneNumberId: candidate.phoneNumberId,
+      };
+    }
+  }
+
+  return null;
+}
+
 function getCountryName(country: Country) {
   if (typeof country.name === "string") {
     return country.name;
@@ -1031,10 +1165,29 @@ const styles = StyleSheet.create({
     textAlign: "center",
     padding: 0,
   },
+  hiddenCodeInputText: {
+    color: "transparent",
+  },
   codeInputFocused: {
     borderColor: BrandColors.white,
     borderWidth: 2,
     backgroundColor: BrandColors.secondary,
+  },
+  codeDigitText: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    textAlign: "center",
+    textAlignVertical: "center",
+    fontSize: FontSize["2xl"],
+    fontFamily: FontFamily.bold,
+    color: OnboardingSurfaceColors.text,
+    lineHeight: 60,
+  },
+  codeDigitTextFocused: {
+    color: BrandColors.white,
   },
   resendContainer: {
     alignItems: "center",

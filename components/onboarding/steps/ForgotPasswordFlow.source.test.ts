@@ -22,9 +22,39 @@ test("ForgotPasswordFlow keeps phone reset visible", () => {
 });
 
 test("ForgotPasswordFlow code inputs expose iOS and Android OTP autofill hints", () => {
-  assert.match(forgotPasswordSource, /textContentType="oneTimeCode"/);
-  assert.match(forgotPasswordSource, /autoComplete="sms-otp"/);
+  assert.match(
+    forgotPasswordSource,
+    /textContentType=\{Platform\.OS === "ios" \? "oneTimeCode" : "none"\}/
+  );
+  assert.match(
+    forgotPasswordSource,
+    /autoComplete=\{Platform\.OS === "android" \? "sms-otp" : "one-time-code"\}/
+  );
   assert.match(forgotPasswordSource, /importantForAutofill="yes"/);
+});
+
+test("ForgotPasswordFlow hides native pasted OTP text and renders one digit per box", () => {
+  assert.match(forgotPasswordSource, /styles\.hiddenCodeInputText/);
+  assert.match(forgotPasswordSource, /styles\.codeDigitText/);
+  assert.match(forgotPasswordSource, /\{digit ?\? \(/);
+});
+
+test("ForgotPasswordFlow derives resend timer from an absolute deadline", () => {
+  assert.match(forgotPasswordSource, /AppState\.addEventListener\("change"/);
+  assert.match(forgotPasswordSource, /resendAvailableAt/);
+  assert.match(forgotPasswordSource, /getPasswordResetTimeRemaining/);
+});
+
+test("ForgotPasswordFlow resends through the active Clerk reset factor", () => {
+  assert.match(forgotPasswordSource, /signIn\.prepareFirstFactor\(resetFactor\)/);
+  assert.match(forgotPasswordSource, /getResetPasswordFactorForMethod/);
+});
+
+test("ForgotPasswordFlow matches change password color for Good strength", () => {
+  assert.match(
+    forgotPasswordSource,
+    /case 3:\s*return SemanticColors\.warningAmberLightOnDark;/s
+  );
 });
 
 test("ForgotPasswordFlow success still delegates to LoginStep navigation", () => {
