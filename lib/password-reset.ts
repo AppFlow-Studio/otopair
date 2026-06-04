@@ -6,6 +6,8 @@ export type PasswordResetBackTarget = "login" | "method" | PasswordResetMethod;
 
 export type PasswordResetErrorPhase = "send" | "verify" | "reset";
 
+export const PASSWORD_RESET_RESEND_SECONDS = 60;
+
 export type PasswordResetStrategy =
   | "reset_password_email_code"
   | "reset_password_phone_code";
@@ -112,6 +114,17 @@ export function validateResetPassword(
 
 export function isValidResetEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+}
+
+export function getPasswordResetTimeRemaining(
+  availableAtMs: number | null,
+  nowMs = Date.now()
+): number {
+  if (!availableAtMs) {
+    return 0;
+  }
+
+  return Math.max(0, Math.ceil((availableAtMs - nowMs) / 1000));
 }
 
 export function distributePasswordResetCodeInput(
