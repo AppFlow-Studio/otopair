@@ -23,6 +23,7 @@ import { useMutation } from "convex/react";
 import { Text } from "@/components/shared-ui";
 import { scale, verticalScale, moderateScale } from "@/utils/responsive";
 import { useVehicleOwnershipFromConvex } from "@/hooks/useVehicleOwnershipFromConvex";
+import { useVehicleStore } from "@/stores/useVehicleStore";
 import { fetchVehicleImageUrl } from "@/utils/vehicleImage";
 import { api } from "@/convex/_generated/api";
 
@@ -117,7 +118,7 @@ function ScoreReadyCheck() {
   return (
     <View style={checkStyles.slot}>
       <Animated.View style={[checkStyles.checkmarkCircle, animatedIconStyle]}>
-        <Svg width={scale(38)} height={scale(38)} viewBox="0 0 24 24">
+        <Svg width={scale(28)} height={scale(28)} viewBox="0 0 24 24">
           <AnimatedPath
             d="M6 12L10 16L18 8"
             fill="none"
@@ -138,13 +139,13 @@ const checkStyles = StyleSheet.create({
   slot: {
     alignItems: "center",
     justifyContent: "center",
-    height: scale(76),
+    height: scale(52),
     width: "100%",
   },
   checkmarkCircle: {
-    width: scale(64),
-    height: scale(64),
-    borderRadius: scale(32),
+    width: scale(48),
+    height: scale(48),
+    borderRadius: scale(24),
     backgroundColor: "#5299FE",
     justifyContent: "center",
     alignItems: "center",
@@ -500,13 +501,24 @@ export default function HealthEstimatingScreen() {
     if (navigatedRef.current) return;
     navigatedRef.current = true;
     haptics.cta();
-    router.replace("/(main-tabs)/cars");
-  }, [params.flow, params.vehicleOwnerId]);
+    // Open the Cars tab anchored to the just-onboarded vehicle. The Cars
+    // screen has its own local VIN anchor (independent of the global
+    // vehicle store), so we pass `focusVin` as a route param for it to
+    // pick up on mount. We also seed the global store so other consumers
+    // (booking flow, etc.) see the same selection.
+    const vin = (activeRow?.vin as string | undefined)?.toUpperCase().trim();
+    if (vin) {
+      useVehicleStore.getState().selectVehicle(vin);
+      router.replace({ pathname: "/(main-tabs)/cars", params: { focusVin: vin } });
+    } else {
+      router.replace("/(main-tabs)/cars");
+    }
+  }, [activeRow, params.flow, params.vehicleOwnerId, router]);
 
   return (
     <View style={styles.container}>
       <LinearGradient
-        colors={["#F8FBFF", "#EBF4FF", "#D6EAF8"]}
+        colors={["#FFFFFF", "#FFFFFF", "#D6EAF8"]}
         start={{ x: 0.5, y: 0 }}
         end={{ x: 0.5, y: 1 }}
         style={StyleSheet.absoluteFill}
@@ -670,7 +682,7 @@ const styles = StyleSheet.create({
   },
   coveredCar: {
     width: "100%",
-    height: scale(120),
+    height: scale(105),
     marginTop: 0,
   },
   ctaWrap: {

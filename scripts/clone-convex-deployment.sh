@@ -104,15 +104,12 @@ if [[ $AUTO_YES -ne 1 ]]; then
 fi
 
 # --- Step 1: sync otopair-web/convex -> otopair/convex ---------------------
+# Delegated to scripts/sync-convex-from-web.sh so this script and
+# `npm run sync:convex` share one rsync implementation.
 if [[ $SKIP_SYNC -ne 1 ]]; then
-  if [[ ! -f "$WEB_REPO/convex/schema.ts" ]]; then
-    echo "ERROR: $WEB_REPO/convex/schema.ts not found. Pass --web-repo or --skip-sync." >&2
-    exit 1
-  fi
   echo ""
-  echo "[1/5] Syncing $WEB_REPO/convex/ -> $MOBILE_REPO/convex/ (excluding _generated/)..."
-  rsync -a --delete --exclude '_generated/' \
-    "$WEB_REPO/convex/" "$MOBILE_REPO/convex/"
+  echo "[1/5] Syncing $WEB_REPO/convex/ -> $MOBILE_REPO/convex/ via sync-convex-from-web.sh..."
+  OTOPAIR_WEB_REPO="$WEB_REPO" bash "$SCRIPT_DIR/sync-convex-from-web.sh"
   echo "      Sync complete. Review with: git -C \"$MOBILE_REPO\" status convex/"
 else
   echo ""

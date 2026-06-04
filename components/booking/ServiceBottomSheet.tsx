@@ -39,6 +39,10 @@ import {
 // (Tire Replacement is rendered inline as a Modal because routing to
 //  /(tire-booking) from inside the sheet wasn't navigating reliably.)
 import TireBookingScreen from "@/app/(tire-booking)";
+// Rotor Replacement mirrors the tire-booking inline Modal pattern for the
+// same reason — router.push from inside the BottomSheet doesn't navigate
+// reliably on this stack.
+import RotorBookingScreen from "@/app/(rotor-booking)";
 // Quick-read gate flow uses the same 5-tile Service History stepper
 // the cars tab uses post-onboarding. Embedded inline because router
 // navigation from inside the BottomSheet is unreliable.
@@ -81,12 +85,16 @@ import { ShopPreviewContent } from "./sheets/ShopPreviewContent";
 
 // 5. Constants, hooks, types, stores
 import { BorderRadius, FontFamily, FontSize, Shadows } from "@/constants/theme";
+import { useBookingLaborHours } from "@/hooks/useBookingLaborHours";
+import { useBookingPartsBreakdown } from "@/hooks/useBookingPartsBreakdown";
+import { useShopFixedPricesForServices } from "@/hooks/useShopFixedPricesForServices";
 import { useBookingTransition } from "@/hooks/useBookingTransition";
 import { useRecentlyBookedMechanicIdsFromConvex } from "@/hooks/useRecentlyBookedMechanicIdsFromConvex";
 import { useRecentlyBookedShopIdsFromConvex } from "@/hooks/useRecentlyBookedShopIdsFromConvex";
 import { useServiceOptionsForSelected } from "@/hooks/useServiceOptionsForSelected";
 import { useServiceVehicleSpecsForEngine } from "@/hooks/useServiceVehicleSpecsForEngine";
 import { useQuickReadGate } from "@/hooks/useQuickReadGate";
+import { deriveDisclosedRange } from "@/lib/disclosedRange";
 import { formatDurationForCar } from "@/lib/formatDuration";
 import { QuickReadGateSheet } from "./QuickReadGateSheet";
 import type { ServiceCategory } from "@/stores/types/store.types";
@@ -129,6 +137,11 @@ interface ServiceBottomSheetProps {
    *  mount, then snaps up to its normal position. Lets the map breathe before
    *  the sheet slides in. Defaults to 0 (open immediately). */
   initialDelayMs?: number;
+  /** When true, the sheet initializes at the smallest snap (collapsed 23%
+   *  peek) instead of the default expanded (98%). Used when the user
+   *  reached the map for browsing (e.g. Home's Map button) and doesn't
+   *  want the booking flow auto-opened. */
+  startCollapsed?: boolean;
 }
 
 // ============================================================================
@@ -201,9 +214,13 @@ export function ServiceBottomSheet({
   onAddVehicle: onAddVehicleProp,
   onBackHandlerChange,
   initialDelayMs = 0,
+  startCollapsed = false,
 }: ServiceBottomSheetProps) {
   // ═══════════════ REFS ═══════════════
   const bottomSheetRef = useRef<BottomSheet>(null);
+  // Initial snap-index for shared values + refs below. 3 = `expanded` (98%);
+  // 0 = `collapsed` (23% peek) when the parent asked us to start collapsed.
+  const initialSnapIndex = startCollapsed ? 0 : SERVICE_SNAP_COUNT - 1;
   // Defer-open state lives further down (after `previousCarSnapIndexRef`
   // is declared) because the timer needs to reset that ref.
   const [isDelayElapsed, setIsDelayElapsed] = useState(initialDelayMs <= 0);
@@ -211,6 +228,8 @@ export function ServiceBottomSheet({
   // instead of router.push to /(tire-booking) because that wasn't
   // navigating from inside the bottom sheet.
   const [showTireBookingModal, setShowTireBookingModal] = useState(false);
+  // Rotor Replacement → same inline-Modal pattern as tire above.
+  const [showRotorBookingModal, setShowRotorBookingModal] = useState(false);
   const [optionsServiceId, setOptionsServiceId] = useState<string | null>(null);
   // Tap-to-open diagnostic picker (mirrors optionsServiceId pattern). Opens
   // when the user taps Diagnostic Scan; resolves the area + notes before
@@ -239,9 +258,9 @@ export function ServiceBottomSheet({
   // doesn't accidentally resume booking for the wrong car.
   const pendingOwnershipRef = useRef<string | null>(null);
   const searchInputRef = useRef<TextInput>(null);
-  const animatedIndex = useSharedValue(SERVICE_SNAP_COUNT - 1); // Start at expanded (index 3 when 4 points)
+  const animatedIndex = useSharedValue(initialSnapIndex); // Start at expanded (index 3 = 98%) by default; 0 (23% peek) when startCollapsed.
   /** For map controls: when opening car selection we animate so controls don't pop; when false, follows animatedIndex */
-  const mapRelevantIndex = useSharedValue(SERVICE_SNAP_COUNT - 1);
+  const mapRelevantIndex = useSharedValue(initialSnapIndex);
   const showCarPreviewSV = useSharedValue(0);
   /** Target index for map when closing car selection; used in worklet to animate mapRelevantIndex smoothly */
   const mapTargetOnCarCloseSV = useSharedValue(-1);
@@ -256,13 +275,13 @@ export function ServiceBottomSheet({
   const [searchQuery, setSearchQuery] = useState("");
   const [hasTyped, setHasTyped] = useState(false);
   // Track snap index before entering search mode
-  const previousSnapIndexRef = useRef(SERVICE_SNAP_COUNT - 1);
+  const previousSnapIndexRef = useRef(initialSnapIndex);
 
   // ═══════════════ SHOP PREVIEW STATE ═══════════════
   // Toggle between shop preview and services view (only when a shop is selected from map)
   const [showShopPreview, setShowShopPreview] = useState(false);
   // Track the previous snap index before showing shop preview
-  const previousShopSnapIndexRef = useRef(SERVICE_SNAP_COUNT - 1);
+  const previousShopSnapIndexRef = useRef(initialSnapIndex);
   const showShopPreviewRef = useRef(showShopPreview);
 
   // Track whether sheet is at expanded snap (to allow inner scroll)
@@ -273,7 +292,7 @@ export function ServiceBottomSheet({
   const [pendingCarCloseSnapIndex, setPendingCarCloseSnapIndex] = useState<number | null>(null);
   const [mechanicFooterHeight, setMechanicFooterHeight] = useState(0);
   const showCarPreviewRef = useRef(showCarPreview);
-  const previousCarSnapIndexRef = useRef(SERVICE_SNAP_COUNT - 1);
+  const previousCarSnapIndexRef = useRef(initialSnapIndex);
 
   // Run the deferred-open timer here so it can reset
   // `previousCarSnapIndexRef`. While the sheet is held at index -1, the
@@ -319,6 +338,7 @@ export function ServiceBottomSheet({
 
   // ═══════════════ COMPUTED ═══════════════
   const hasSelection = selectedCount > 0;
+  const canAdvanceServiceStage = hasSelection;
   const isServiceStage = currentStage === "discovery" || currentStage === "service_selection" || currentStage === "service_options";
   const isServiceOptionsStage = currentStage === "service_options";
   const isMechanicStage = currentStage === "mechanic_selection";
@@ -389,6 +409,89 @@ export function ServiceBottomSheet({
     );
     return Math.round(total);
   }, [selectedMechanicSlot?.shopId, shops, availableServices, selectedServiceIds, selectedTotal, engineSpecs, selectedServiceOptions]);
+
+  // Pre-disclose the same price range the Review & Pay screen shows, so the
+  // customer never sees a stark jump from "Book $75" → "$192–$266.75". Uses
+  // the same hooks + math as app/booking/mechanic/[id]/payment.tsx:
+  //   real OEM parts (useBookingPartsBreakdown) + vehicle-specific labor
+  //   hours (useBookingLaborHours) + shop labor_rate, then deriveDisclosedRange
+  //   layers tax + 7% platform fee on top and bands parts ±25%.
+  const { breakdown: pricedPartsByService, isLoading: isPricedPartsLoading } =
+    useBookingPartsBreakdown(
+      selectedVehicle?.ownershipId,
+      selectedServiceIds,
+      selectedServiceOptions,
+    );
+  const { laborHours: laborHoursByService, isLoading: isLaborHoursLoading } =
+    useBookingLaborHours(selectedVehicle?.ownershipId, selectedServiceIds);
+
+  // Per-(shop, service, tier) flat-price overrides for the focused mechanic.
+  // Folded into deriveDisclosedRange below so the footer band already reflects
+  // any flat-price short-circuits the booking-create call will honor.
+  const { map: footerFixedPriceMap, hasAnyFixed: footerHasAnyFixed } =
+    useShopFixedPricesForServices(
+      selectedMechanicSlot?.shopId,
+      selectedVehicle?.ownershipId,
+      selectedServiceIds,
+    );
+
+  const mechanicFooterRange = useMemo(() => {
+    const isLoading = isPricedPartsLoading || isLaborHoursLoading;
+    if (!selectedMechanicSlot?.shopId) return { formatted: "", isLoading, hasAnyFixed: false };
+    const shop = shops[selectedMechanicSlot.shopId];
+    const laborRate = shop?.labor_rate;
+    if (laborRate == null) return { formatted: "", isLoading, hasAnyFixed: false };
+
+    const selectedServices = availableServices.filter((s) => selectedServiceIds.includes(s.id));
+
+    const laborHoursMap = new Map<string, number>();
+    for (const row of laborHoursByService) laborHoursMap.set(String(row.serviceId), row.hours);
+    const pricedPartsMap = new Map<string, (typeof pricedPartsByService)[number]>();
+    for (const row of pricedPartsByService) {
+      if (row.winner !== null) pricedPartsMap.set(String(row.serviceId), row);
+    }
+
+    let laborHours = 0;
+    let variablePartsCost = 0;
+    const fixedPriceLines: { serviceId: string; laborCost: number; partsFixed: number }[] = [];
+    for (const s of selectedServices) {
+      const hours = laborHoursMap.get(String(s.id)) ?? s.default_labor_hours ?? 0;
+      laborHours += hours;
+      const flat = footerFixedPriceMap.get(String(s.id));
+      if (flat != null) {
+        fixedPriceLines.push({
+          serviceId: String(s.id),
+          laborCost: hours * laborRate,
+          partsFixed: flat,
+        });
+        continue;
+      }
+      const priced = pricedPartsMap.get(String(s.id));
+      variablePartsCost += priced && priced.partsTotal > 0
+        ? priced.partsTotal
+        : s.default_parts_estimate ?? 0;
+    }
+
+    const laborCost = laborHours * laborRate;
+    const range = deriveDisclosedRange({
+      laborCost,
+      partsCost: variablePartsCost,
+      state: shop?.state,
+      zip: shop?.zip,
+      fixedPriceLines,
+    });
+    return { formatted: range.formatted, isLoading, hasAnyFixed: fixedPriceLines.length > 0 };
+  }, [
+    selectedMechanicSlot?.shopId,
+    shops,
+    availableServices,
+    selectedServiceIds,
+    laborHoursByService,
+    pricedPartsByService,
+    isPricedPartsLoading,
+    isLaborHoursLoading,
+    footerFixedPriceMap,
+  ]);
 
   // ═══════════════ SEARCH COMPUTED VALUES ═══════════════
   const recentShopIds = useMemo(() => getRecentShopIds(), [getRecentShopIds]);
@@ -1216,7 +1319,7 @@ export function ServiceBottomSheet({
             {...props}
             bottomInset={footerBottomInset}
             animatedStyle={footerAnimatedStyle}
-            hasSelection={hasSelection}
+            hasSelection={canAdvanceServiceStage}
             selectedCount={selectedCount}
             selectedTotal={selectedTotal}
             onConfirm={handleServicesSelected}
@@ -1277,8 +1380,28 @@ export function ServiceBottomSheet({
                       activeOpacity={0.8}
                     >
                       <Text size="md" weight="bold" color={BrandColors.white}>
-                        Book ${mechanicFooterTotal}
+                        Book
                       </Text>
+                      {mechanicFooterRange.isLoading ? (
+                        <View style={mechanicFooterStyles.priceSkeleton} />
+                      ) : mechanicFooterRange.formatted ? (
+                        <Text
+                          size="xs"
+                          weight="semiBold"
+                          color={BrandColors.white}
+                          style={mechanicFooterStyles.priceRange}
+                          numberOfLines={1}
+                          adjustsFontSizeToFit
+                          minimumFontScale={0.7}
+                        >
+                          {mechanicFooterRange.hasAnyFixed ? "" : "~ "}
+                          {mechanicFooterRange.formatted}
+                        </Text>
+                      ) : (
+                        <Text size="xs" weight="semiBold" color={BrandColors.white} style={mechanicFooterStyles.priceRange}>
+                          ~${mechanicFooterTotal}
+                        </Text>
+                      )}
                     </TouchableOpacity>
                   </View>
                 )}
@@ -1325,6 +1448,7 @@ export function ServiceBottomSheet({
             <ServiceSelectionContent
               onCategorySelect={handleCategorySelect}
               onShopTiresRequested={() => setShowTireBookingModal(true)}
+              onShopRotorsRequested={() => setShowRotorBookingModal(true)}
               onServiceWithOptionsRequested={(serviceId) => setOptionsServiceId(serviceId)}
               onDiagnosticServiceRequested={() => setShowDiagnosticSheet(true)}
             />
@@ -1768,6 +1892,27 @@ export function ServiceBottomSheet({
       />
     </Modal>
 
+    {/* Rotor Replacement inline flow — same fullScreen Modal pattern as
+        Tire Replacement above. */}
+    <Modal
+      visible={showRotorBookingModal}
+      animationType="slide"
+      presentationStyle="fullScreen"
+      onRequestClose={() => setShowRotorBookingModal(false)}
+    >
+      <RotorBookingScreen
+        onClose={() => setShowRotorBookingModal(false)}
+        onConfirmed={() => {
+          setShowRotorBookingModal(false);
+          bottomSheetRef.current?.close();
+          setTimeout(() => {
+            router.dismissAll();
+            router.navigate("/(main-tabs)/bookings?tab=quotes&requestSubmitted=1");
+          }, 350);
+        }}
+      />
+    </Modal>
+
     {/* Per-service options picker for has_options=true services tapped
         from the service list (e.g. Brake Pad Replacement, Tire Rotation,
         Battery Replacement). Mirrors the Tire Replacement modal pattern:
@@ -2125,12 +2270,29 @@ const mechanicFooterStyles = StyleSheet.create({
     flex: 1,
   },
   bookButton: {
-    flexDirection: "row",
+    flexDirection: "column",
     alignItems: "center",
-    gap: Spacing.sm,
+    justifyContent: "center",
+    gap: 2,
     backgroundColor: BrandColors.primary,
-    paddingVertical: Spacing.md,
+    paddingVertical: Spacing.sm,
     paddingHorizontal: Spacing.lg,
     borderRadius: BorderRadius.full,
+    minWidth: 140,
+  },
+  priceRange: {
+    opacity: 0.9,
+  },
+  priceWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.xs,
+    flexShrink: 1,
+  },
+  priceSkeleton: {
+    width: 96,
+    height: 10,
+    borderRadius: 4,
+    backgroundColor: "rgba(255, 255, 255, 0.25)",
   },
 });

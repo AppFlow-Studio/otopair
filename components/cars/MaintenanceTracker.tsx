@@ -46,6 +46,7 @@ try {
 }
 import Animated, {
   Easing as REasing,
+  FadeInUp,
   useAnimatedStyle,
   useSharedValue,
   withDelay,
@@ -439,9 +440,110 @@ function UrgentCard({ item, entryDelay, vehicleCondition, healthScoreInput, onBo
 // HEALTHY ITEMS SECTION (expandable)
 // ============================================================================
 
-function HealthySection({ items, isDarkBg = false }: { items: MaintenanceItem[]; isDarkBg?: boolean }) {
-  const [expanded, setExpanded] = useState(false);
-  const chevronRotation = useSharedValue(0);
+// Cascade rhythm shared between the section header and the per-row
+// slide-up. 80ms matches MaintenanceTracker's STEP_MS so the lift flows
+// continuously from the last urgent card into the first healthy row.
+const HEALTHY_ITEM_STEP_MS = 80;
+const HEALTHY_ROW_ENTRY_DURATION = 550;
+
+// Each healthy row slides up with the SAME kinematics as UrgentCard
+// (opacity 0→1 + translateY 18→0, 550ms ease-out). UrgentCard works
+// because the eye tracks its baked-in content rising — we replicate that
+// here by animating the row content, not an empty container.
+function HealthyItemRow({
+  item,
+  showSeparator,
+  entryDelay,
+}: {
+  item: MaintenanceItem;
+  showSeparator: boolean;
+  entryDelay: number;
+}) {
+  const opacity = useSharedValue(0);
+  const translateY = useSharedValue(18);
+  useEffect(() => {
+    opacity.value = withDelay(
+      entryDelay,
+      withTiming(1, { duration: HEALTHY_ROW_ENTRY_DURATION, easing: REasing.bezier(0.16, 1, 0.3, 1) }),
+    );
+    translateY.value = withDelay(
+      entryDelay,
+      withTiming(0, { duration: HEALTHY_ROW_ENTRY_DURATION, easing: REasing.bezier(0.16, 1, 0.3, 1) }),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const rowStyle = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+    transform: [{ translateY: translateY.value }],
+  }));
+
+  return (
+    <Animated.View style={rowStyle}>
+      <View style={summaryStyles.itemRow}>
+        <View style={summaryStyles.itemIcon}>
+          {getServiceIcon(item.id, 20, '#5299FE')}
+        </View>
+        <View style={summaryStyles.itemContent}>
+          <Text weight="semiBold" style={summaryStyles.itemName}>{item.serviceName}</Text>
+          <Text style={summaryStyles.itemDesc}>{item.description}</Text>
+        </View>
+        <Ionicons name="checkmark-circle" size={18} color="#5299FE" />
+      </View>
+      {showSeparator && <View style={summaryStyles.separator} />}
+    </Animated.View>
+  );
+}
+
+// Container card itself doesn't translate — only fades in softly so the
+// white shell materializes around the rising rows. The visible motion
+// the user wants comes from the rows, exactly like UrgentCard's content
+// rising inside its shell.
+function HealthyItemsCard({
+  items,
+  cascadeStartDelay,
+}: {
+  items: MaintenanceItem[];
+  cascadeStartDelay: number;
+}) {
+  const shellOpacity = useSharedValue(0);
+  useEffect(() => {
+    shellOpacity.value = withDelay(
+      cascadeStartDelay,
+      withTiming(1, { duration: HEALTHY_ROW_ENTRY_DURATION, easing: REasing.bezier(0.16, 1, 0.3, 1) }),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const shellStyle = useAnimatedStyle(() => ({
+    opacity: shellOpacity.value,
+  }));
+
+  return (
+    <Animated.View style={[summaryStyles.card, shellStyle]}>
+      {items.map((item, index) => (
+        <HealthyItemRow
+          key={item.id}
+          item={item}
+          showSeparator={index < items.length - 1}
+          entryDelay={cascadeStartDelay + (index + 1) * HEALTHY_ITEM_STEP_MS}
+        />
+      ))}
+    </Animated.View>
+  );
+}
+
+function HealthySection({
+  items,
+  isDarkBg = false,
+  cascadeStartDelay = 0,
+}: {
+  items: MaintenanceItem[];
+  isDarkBg?: boolean;
+  cascadeStartDelay?: number;
+}) {
+  // Always default to expanded — healthy items are shown by default and the
+  // user can collapse with the chevron if they want.
+  const [expanded, setExpanded] = useState(true);
+  const chevronRotation = useSharedValue(1);
 
   if (items.length === 0) return null;
 
@@ -456,42 +558,28 @@ function HealthySection({ items, isDarkBg = false }: { items: MaintenanceItem[];
 
   return (
     <View>
-      <Pressable onPress={toggle} style={({ pressed }) => pressed && { opacity: 0.7 }}>
-        <View style={summaryStyles.headerRow}>
-          <View style={summaryStyles.dot} />
-          <Text
-            weight="semiBold"
-            style={[
-              summaryStyles.headerText,
-              isDarkBg && summaryStyles.headerTextOnDark,
-            ]}
-          >
-            {items.length} {items.length === 1 ? 'item' : 'items'} healthy
-          </Text>
-          <Animated.View style={chevronStyle}>
-            <Ionicons name="chevron-forward" size={16} color="#C7C7CC" />
-          </Animated.View>
-        </View>
-      </Pressable>
+      <Animated.View entering={FadeInUp.duration(450).delay(cascadeStartDelay)}>
+        <Pressable onPress={toggle} style={({ pressed }) => pressed && { opacity: 0.7 }}>
+          <View style={summaryStyles.headerRow}>
+            <View style={summaryStyles.dot} />
+            <Text
+              weight="semiBold"
+              style={[
+                summaryStyles.headerText,
+                isDarkBg && summaryStyles.headerTextOnDark,
+              ]}
+            >
+              {items.length} {items.length === 1 ? 'item' : 'items'} healthy
+            </Text>
+            <Animated.View style={chevronStyle}>
+              <Ionicons name="chevron-forward" size={16} color="#C7C7CC" />
+            </Animated.View>
+          </View>
+        </Pressable>
+      </Animated.View>
 
       {expanded && (
-        <View style={summaryStyles.card}>
-          {items.map((item, index) => (
-            <View key={item.id}>
-              <View style={summaryStyles.itemRow}>
-                <View style={summaryStyles.itemIcon}>
-                  {getServiceIcon(item.id, 20, '#5299FE')}
-                </View>
-                <View style={summaryStyles.itemContent}>
-                  <Text weight="semiBold" style={summaryStyles.itemName}>{item.serviceName}</Text>
-                  <Text style={summaryStyles.itemDesc}>{item.description}</Text>
-                </View>
-                <Ionicons name="checkmark-circle" size={18} color="#5299FE" />
-              </View>
-              {index < items.length - 1 && <View style={summaryStyles.separator} />}
-            </View>
-          ))}
-        </View>
+        <HealthyItemsCard items={items} cascadeStartDelay={cascadeStartDelay} />
       )}
     </View>
   );
@@ -527,14 +615,31 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
     .filter(i => i.status === 'on_time' || i.status === 'unknown')
     .sort((a, b) => STATUS_PRIORITY[a.status] - STATUS_PRIORITY[b.status]);
 
-  const overdueBaseDelay = 0;
-  const urgentBaseDelay = overdueItems.length * 80 + 150;
+  // Cascade-in: each visible section gets its own delay slot so the tracker
+  // animates in top-to-bottom on mount. Missing sections (no overdue / no
+  // urgent) collapse out of the cascade so there's no dead beat.
+  const STEP_MS = 80;
+  const ENTRY_DURATION = 450;
+  let cascadeStep = 0;
+  const titleDelay = cascadeStep++ * STEP_MS;
+  const hasOverdue = overdueItems.length > 0;
+  const overdueLabelDelay = hasOverdue ? cascadeStep++ * STEP_MS : 0;
+  const overdueBaseDelay = hasOverdue ? cascadeStep * STEP_MS : 0;
+  if (hasOverdue) cascadeStep += overdueItems.length;
+  const hasUrgent = urgentItems.length > 0;
+  const urgentLabelDelay = hasUrgent ? cascadeStep++ * STEP_MS : 0;
+  const urgentBaseDelay = hasUrgent ? cascadeStep * STEP_MS : 0;
+  if (hasUrgent) cascadeStep += urgentItems.length;
+  const healthyDelay = healthyItems.length > 0 ? cascadeStep * STEP_MS : 0;
 
 
   return (
     <View style={styles.container}>
       {/* Section Header */}
-      <View style={styles.headerRow}>
+      <Animated.View
+        style={styles.headerRow}
+        entering={FadeInUp.duration(ENTRY_DURATION).delay(titleDelay)}
+      >
         <Text weight="bold" color={isDarkBg ? "#FFFFFF" : "#0F172A"} style={{ fontSize: moderateScale(22) }}>
           Maintenance Tracker
         </Text>
@@ -573,7 +678,7 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
             </Pressable>
           )
         )}
-      </View>
+      </Animated.View>
 
       {/* Empty state */}
       {items.length === 0 ? (
@@ -590,13 +695,15 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
           {/* Overdue items */}
           {overdueItems.length > 0 && (
             <>
-              <OverdueLabel />
+              <Animated.View entering={FadeInUp.duration(ENTRY_DURATION).delay(overdueLabelDelay)}>
+                <OverdueLabel />
+              </Animated.View>
               <View style={styles.urgentGroup}>
                 {overdueItems.map((item, index) => (
                   <UrgentCard
                     key={item.id}
                     item={item}
-                    entryDelay={overdueBaseDelay + index * 80}
+                    entryDelay={overdueBaseDelay + index * STEP_MS}
                     vehicleCondition={vehicleCondition ?? 0}
                     healthScoreInput={healthScoreInput}
                     onBookNow={onBookNow}
@@ -612,13 +719,15 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
           {/* Needs attention / due soon items */}
           {urgentItems.length > 0 && (
             <>
-              <NeedsAttentionLabel />
+              <Animated.View entering={FadeInUp.duration(ENTRY_DURATION).delay(urgentLabelDelay)}>
+                <NeedsAttentionLabel />
+              </Animated.View>
               <View style={styles.urgentGroup}>
                 {urgentItems.map((item, index) => (
                   <UrgentCard
                     key={item.id}
                     item={item}
-                    entryDelay={urgentBaseDelay + index * 80}
+                    entryDelay={urgentBaseDelay + index * STEP_MS}
                     vehicleCondition={vehicleCondition ?? 0}
                     healthScoreInput={healthScoreInput}
                     onBookNow={onBookNow}
@@ -631,8 +740,14 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
             </>
           )}
 
-          {/* Healthy items (expandable) */}
-          <HealthySection items={healthyItems} isDarkBg={isDarkBg} />
+          {/* Healthy items (expandable). Always expanded by default; user
+              can collapse with the chevron. The section handles its own
+              per-item cascade animation internally. */}
+          <HealthySection
+            items={healthyItems}
+            isDarkBg={isDarkBg}
+            cascadeStartDelay={healthyDelay}
+          />
         </>
       )}
 
@@ -897,13 +1012,18 @@ const summaryStyles = StyleSheet.create({
   headerTextOnDark: {
     color: '#FFFFFF',
   },
+  // Visual values mirror cardStyles.container (UrgentCard) so the
+  // healthy items card reads as the SAME card shape as the
+  // needs-attention/overdue cards above it — same corner radius, same
+  // horizontal padding, same breathing room. Inner item rows keep
+  // their own paddingVertical so we don't double-pad here.
   card: {
     marginHorizontal: scale(20),
-    marginTop: scale(4),
+    marginTop: scale(12),
     backgroundColor: '#FFFFFF',
-    borderRadius: moderateScale(20),
+    borderRadius: moderateScale(24),
     paddingVertical: scale(6),
-    paddingHorizontal: scale(16),
+    paddingHorizontal: scale(20),
     shadowColor: '#000',
     shadowOpacity: 0.04,
     shadowRadius: 8,

@@ -34,6 +34,7 @@ function mapCategoryNameToKey(name: string | undefined): ServiceCategory {
 function mapConvexServiceToStore(doc: {
   _id: Id<"services">;
   name: string;
+  slug?: string;
   description: string;
   default_labor_hours: number;
   default_parts_estimate?: number;
@@ -44,6 +45,7 @@ function mapConvexServiceToStore(doc: {
   const default_parts_estimate = doc.default_parts_estimate;
   return {
     id: doc._id,
+    slug: doc.slug,
     name: doc.name,
     description: doc.description,
     price: default_parts_estimate ?? 0,
@@ -69,6 +71,7 @@ export function useServicesFromConvex() {
         doc as {
           _id: Id<"services">;
           name: string;
+          slug?: string;
           description: string;
           default_labor_hours: number;
           default_parts_estimate?: number;

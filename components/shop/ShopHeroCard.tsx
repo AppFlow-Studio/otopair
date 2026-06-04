@@ -77,13 +77,19 @@ export function ShopHeroCard({
   };
 
   const handleDirections = () => {
-    if (
+    const hasCoords =
       typeof shop.latitude === "number" &&
-      typeof shop.longitude === "number"
-    ) {
-      const url = `http://maps.apple.com/?daddr=${shop.latitude},${shop.longitude}&dirflg=d`;
-      Linking.openURL(url).catch(() => {});
-    }
+      typeof shop.longitude === "number" &&
+      !(shop.latitude === 0 && shop.longitude === 0);
+    // Prefer coordinates; fall back to the postal address so Directions
+    // still works while the geocoding fallback is in flight.
+    const daddr = hasCoords
+      ? `${shop.latitude},${shop.longitude}`
+      : shop.address
+      ? encodeURIComponent(shop.address)
+      : null;
+    if (!daddr) return;
+    Linking.openURL(`http://maps.apple.com/?daddr=${daddr}&dirflg=d`).catch(() => {});
   };
 
   return (

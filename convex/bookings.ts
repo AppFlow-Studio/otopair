@@ -46,6 +46,13 @@ import {
   computeQuotedSetPrice,
 } from "./booking_quotes";
 import {
+  detectTier,
+  resolveLaborHours,
+  resolveQuoteSeries,
+  resolveVehicleConfigFromVin,
+} from "./lib/quoteEngine";
+import { resolveLaborRate, type VehicleTier } from "./lib/vehicleTiers";
+import {
   EARLY_PUSH_THRESHOLD_MS,
   addMinutesToHHMM,
   getBookingEndTime,
@@ -472,6 +479,7 @@ export const getByUserIdWithDetails = query({
           shopLat: shop?.lat,
           shopLng: shop?.lng,
           tire_specs: booking.tire_specs,
+          rotor_specs: booking.rotor_specs,
           // Pre-Job Approval flow — disclosed range + approval state +
           // final captured amount. Optional: omitted on legacy rows.
           disclosed_range_low_cents: booking.disclosed_range_low_cents,
@@ -1036,21 +1044,62 @@ async function assertLaborCostMatchesDuration(
   ctx: any,
   args: {
     shopId: Id<"shops">;
+    vin: string;
+    serviceIds: Array<Id<"services">>;
     laborCostDollars: number;
     expectMinutes: number | undefined;
   },
 ) {
   if (args.expectMinutes == null || args.expectMinutes <= 0) return;
-  const shop = await ctx.db.get(args.shopId);
-  const laborRate =
-    typeof shop?.labor_rate === "number" && shop.labor_rate > 0
-      ? shop.labor_rate
-      : FALLBACK_LABOR_RATE_DOLLARS;
-  const expected = (args.expectMinutes / 60) * laborRate;
-  if (Math.abs(args.laborCostDollars - expected) > 0.05) {
+
+  // Server-side Yassin recomputation: tier-aware labor rate + Camry-anchored
+  // labor hours (with the new quality gate disqualifying low-trust vdb rows).
+  const cfg = await resolveVehicleConfigFromVin(ctx, args.vin);
+  if (!cfg) {
+    // Unenrolled vehicle — preserve prior silent-skip semantics. Logged so we
+    // can audit how often we land here in prod.
+    console.warn(
+      `[assertLaborCostMatchesDuration] no vehicle_config for vin=${args.vin}; skipping validation`,
+    );
+    return;
+  }
+
+  const series = await resolveQuoteSeries(ctx, {
+    vehicle_config_id: cfg._id,
+    service_ids: args.serviceIds,
+    shop_id: args.shopId,
+  });
+
+  // If ANY service was refused (e.g. CCB without absolute pricing, missing
+  // pricing_tier rules match), skip the cost check — the booking is going
+  // through booking_approvals anyway and the engine can't speak to labor cost.
+  if (series.quotes.some((q) => !q.ok)) {
+    console.warn(
+      `[assertLaborCostMatchesDuration] one or more services refused by quote engine; ` +
+        `skipping cost check for vin=${args.vin} services=${args.serviceIds.join(",")}`,
+    );
+    return;
+  }
+
+  const expectedLaborCost = series.labor_cost_total;
+  if (expectedLaborCost <= 0) return;
+  const tolerance = expectedLaborCost * 0.08; // ±8% band per Pricing v2 spec
+  const delta = Math.abs(args.laborCostDollars - expectedLaborCost);
+
+  // Telemetry: warn between 5% and 8% so we can audit drift before tightening.
+  if (delta > expectedLaborCost * 0.05 && delta <= tolerance) {
+    console.warn(
+      `[assertLaborCostMatchesDuration] tier-rate drift: client=$${args.laborCostDollars.toFixed(2)} ` +
+        `server=$${expectedLaborCost.toFixed(2)} delta=$${delta.toFixed(2)} ` +
+        `(within 5–8% band) vin=${args.vin}`,
+    );
+  }
+
+  if (delta > tolerance) {
     throw new Error(
-      `LABOR_COST_DURATION_MISMATCH: client sent labor_cost=$${args.laborCostDollars.toFixed(2)} ` +
-        `for ${args.expectMinutes} min at $${laborRate}/hr (expected $${expected.toFixed(2)}). ` +
+      `LABOR_COST_TIER_MISMATCH: client labor_cost=$${args.laborCostDollars.toFixed(2)} ` +
+        `vs Yassin server cost=$${expectedLaborCost.toFixed(2)} ` +
+        `(±8% = $${tolerance.toFixed(2)}, delta=$${delta.toFixed(2)}). ` +
         `Booking rejected to prevent schedule/price desync.`,
     );
   }
@@ -1138,6 +1187,19 @@ export const createBatch = mutation({
           option_id: v.id("service_options"),
           option_label: v.string(),
           option_type: v.optional(v.string()),
+        })
+      )
+    ),
+    /** Per-service axle/position choice (e.g. brake-pads → "front"). Wired
+     *  from `useBookingStore.serviceVariants` via the SERVICE_VARIANTS
+     *  registry. Forwarded to `computePricedPartsSnapshot` so the booking
+     *  freezes the exact part the customer saw on Review & Pay (front pads,
+     *  not rear). Optional — services not present here snapshot as before. */
+    service_variants: v.optional(
+      v.array(
+        v.object({
+          service_id: v.id("services"),
+          position: v.string(), // "front" | "rear" | "both"
         })
       )
     ),
@@ -1249,6 +1311,8 @@ export const createBatch = mutation({
 
     await assertLaborCostMatchesDuration(ctx, {
       shopId: args.shop_id,
+      vin: normalizedVin,
+      serviceIds: args.services.map((s) => s.service_id),
       laborCostDollars: labor_cost,
       expectMinutes: args.displayed_labor_minutes,
     });
@@ -1266,12 +1330,47 @@ export const createBatch = mutation({
       services: args.services.map((s) => ({
         service_id: s.service_id,
         parts_cost: s.parts_cost,
+        labor_cost: s.labor_cost,
         option_id: optionsByServiceId.get(s.service_id),
       })),
       labor_cost_dollars: labor_cost,
       engine_id: vehicle.engine_id ?? null,
       shop_state: shop?.state ?? null,
       shop_zip: shop?.zip ?? null,
+      shop_id: args.shop_id,
+      vehicle_config_id: vehicle.vehicle_config_id ?? null,
+    });
+
+    // Itemized parts snapshot — same per-unit prices the customer saw on
+    // Review & Pay. Frozen on the booking so the mechanic's post-job dialog
+    // can hydrate from this directly instead of re-querying part_prices.
+    const ownerSpecs = await ctx.db
+      .query("vehicle_owner_specs")
+      .withIndex("by_vehicle_owner", (q) =>
+        q.eq("vehicle_owner_id", ownership._id),
+      )
+      .first();
+    const pricedPartsResult = await computePricedPartsSnapshot(ctx, {
+      serviceIds: args.services.map((s) => s.service_id),
+      vehicleConfigId: vehicle.vehicle_config_id ?? null,
+      vin: normalizedVin,
+      confirmedPackages: new Set(ownerSpecs?.confirmed_packages ?? []),
+      serviceVariants: args.service_variants?.map((v) => ({
+        serviceId: v.service_id,
+        position: v.position,
+      })),
+    });
+    const pricedPartsSnapshot = pricedPartsResult.rows;
+
+    // Single-point quote the mechanic confirms against (no min/max). For
+    // flat-priced services, the locked-in `price_cents` replaces the raw
+    // OEM unit prices captured in `pricedPartsSnapshot`, so the mechanic
+    // sees the same amount the customer agreed to ($60 fixed) instead of
+    // the bare part cost ($8.10 oil filter).
+    const quoted = computeQuotedSetPrice({
+      disclosedBreakdown: disclosedRange.breakdown,
+      pricedPartsSnapshot,
+      fixedPriceLines: disclosedRange.fixed_price_lines,
     });
 
     // Itemized parts snapshot — same per-unit prices the customer saw on
@@ -1340,8 +1439,15 @@ export const createBatch = mutation({
       disclosed_range_high_cents: disclosedRange.high_cents,
       disclosed_breakdown: disclosedRange.breakdown,
       disclosed_at_ms: now,
+      // Persist the flat-rate flag so the mechanic-facing UI knows to
+      // render a "Fixed price" badge. Safe to surface — carries no
+      // anchoring info (no dollar amount).
+      is_fixed_price: disclosedRange.is_fixed_price ? true : undefined,
       priced_parts_snapshot:
         pricedPartsSnapshot.length > 0 ? pricedPartsSnapshot : undefined,
+      part_selection_trace:
+        pricedPartsResult.trace.length > 0 ? pricedPartsResult.trace : undefined,
+      low_confidence_parts: pricedPartsResult.low_confidence ? true : undefined,
       quoted_set_price_cents: quoted.total_cents,
       quoted_breakdown: quoted.breakdown,
       payment_approval_state: "none",
@@ -6130,6 +6236,184 @@ export const backfillPricedPartsSnapshot = internalMutation({
             .first()
         : null;
 
+      const result = await computePricedPartsSnapshot(ctx, {
+        serviceIds: ((booking as any).service_ids ?? []) as Id<"services">[],
+        vehicleConfigId: vehicle.vehicle_config_id,
+        vin: (booking as any).vin,
+        confirmedPackages: new Set(ownerSpecs?.confirmed_packages ?? []),
+      });
+
+      if (result.rows.length === 0) {
+        skippedEmptySnapshot += 1;
+        continue;
+      }
+
+      await ctx.db.patch(booking._id, {
+        priced_parts_snapshot: result.rows,
+        part_selection_trace:
+          result.trace.length > 0 ? result.trace : undefined,
+        low_confidence_parts: result.low_confidence ? true : undefined,
+        updated_at: Date.now(),
+      });
+      patched += 1;
+    }
+
+    return {
+      scanned,
+      patched,
+      skippedAlreadySet,
+      skippedLegacy,
+      skippedNoVehicle,
+      skippedEmptySnapshot,
+    };
+  },
+});
+
+/**
+ * Backfills `quoted_set_price_cents` + `quoted_breakdown` on bookings that
+ * already have a disclosed range and a priced parts snapshot but predate the
+ * single-point quote field. Idempotent.
+ *
+ * Invocation:
+ *   npx convex run bookings:backfillQuotedSetPrice '{}'
+ *   npx convex run bookings:backfillQuotedSetPrice '{"shopId": "..."}'
+ *   npx convex run bookings:backfillQuotedSetPrice '{"limit": 200}'
+ */
+export const backfillQuotedSetPrice = internalMutation({
+  args: {
+    shopId: v.optional(v.id("shops")),
+    limit: v.optional(v.number()),
+  },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{
+    scanned: number;
+    patched: number;
+    skippedAlreadySet: number;
+    skippedLegacy: number;
+    skippedNoSnapshot: number;
+    skippedFixedPrice: number;
+  }> => {
+    const limit = args.limit ?? 200;
+    const candidates = args.shopId
+      ? await ctx.db
+          .query("bookings")
+          .withIndex("by_shop_and_status", (q: any) =>
+            q.eq("shop_id", args.shopId),
+          )
+          .take(limit)
+      : await ctx.db.query("bookings").take(limit);
+
+    let scanned = 0;
+    let patched = 0;
+    let skippedAlreadySet = 0;
+    let skippedLegacy = 0;
+    let skippedNoSnapshot = 0;
+    let skippedFixedPrice = 0;
+
+    for (const booking of candidates) {
+      scanned += 1;
+      if ((booking as any).quoted_set_price_cents != null) {
+        skippedAlreadySet += 1;
+        continue;
+      }
+      const breakdown = (booking as any).disclosed_breakdown;
+      if (
+        (booking as any).disclosed_range_high_cents == null ||
+        breakdown == null
+      ) {
+        skippedLegacy += 1;
+        continue;
+      }
+      const snapshot = (booking as any).priced_parts_snapshot ?? [];
+      if (!Array.isArray(snapshot) || snapshot.length === 0) {
+        // No snapshot to anchor on — leave it; the snapshot backfill should
+        // run first for these rows.
+        skippedNoSnapshot += 1;
+        continue;
+      }
+      // Legacy fixed-price bookings don't store `fixed_price_lines`, so we
+      // can't reconstruct the per-line flat amounts from the booking row
+      // alone. Skip rather than fall back to summing OEM unit prices —
+      // that would overwrite a previously-correct quoted_set_price with the
+      // $8.10-instead-of-$60 bug this field was added to fix.
+      if ((booking as any).is_fixed_price === true) {
+        skippedFixedPrice += 1;
+        continue;
+      }
+
+      const quoted = computeQuotedSetPrice({
+        disclosedBreakdown: breakdown,
+        pricedPartsSnapshot: snapshot,
+      });
+
+      await ctx.db.patch(booking._id, {
+        quoted_set_price_cents: quoted.total_cents,
+        quoted_breakdown: quoted.breakdown,
+        updated_at: Date.now(),
+      });
+      patched += 1;
+    }
+
+    return {
+      scanned,
+      patched,
+      skippedAlreadySet,
+      skippedLegacy,
+      skippedNoSnapshot,
+      skippedFixedPrice,
+    };
+  },
+});
+
+async function runCompletionSideEffects(ctx: any, booking: any) {
+  await maybePersistEarlyCompletionDuration(ctx, booking);
+
+    let scanned = 0;
+    let patched = 0;
+    let skippedAlreadySet = 0;
+    let skippedLegacy = 0;
+    let skippedNoVehicle = 0;
+    let skippedEmptySnapshot = 0;
+
+    for (const booking of candidates) {
+      scanned += 1;
+      if ((booking as any).priced_parts_snapshot != null) {
+        skippedAlreadySet += 1;
+        continue;
+      }
+      if ((booking as any).disclosed_range_high_cents == null) {
+        skippedLegacy += 1;
+        continue;
+      }
+
+      const vehicle = await ctx.db
+        .query("vehicles")
+        .withIndex("by_vin", (q: any) => q.eq("vin", (booking as any).vin))
+        .first();
+      if (!vehicle?.vehicle_config_id) {
+        skippedNoVehicle += 1;
+        continue;
+      }
+
+      const owner = await ctx.db
+        .query("vehicle_owners")
+        .withIndex("by_vin_user", (q: any) =>
+          q
+            .eq("vin", (booking as any).vin)
+            .eq("user_id", (booking as any).user_id),
+        )
+        .first();
+      const ownerSpecs = owner
+        ? await ctx.db
+            .query("vehicle_owner_specs")
+            .withIndex("by_vehicle_owner", (q: any) =>
+              q.eq("vehicle_owner_id", owner._id),
+            )
+            .first()
+        : null;
+
       const snapshot = await computePricedPartsSnapshot(ctx, {
         serviceIds: ((booking as any).service_ids ?? []) as Id<"services">[],
         vehicleConfigId: vehicle.vehicle_config_id,
@@ -7403,6 +7687,30 @@ export const getJobDetail = query({
     const shopForRate = booking.shop_id
       ? await ctx.db.get(booking.shop_id)
       : null;
+
+    // Tier-aware labor rate (Pricing v2). Falls back to flat shop.labor_rate
+    // when the vehicle has no resolvable tier, so the mechanic UI never goes
+    // blank on an unenriched vehicle.
+    let mechanicLaborRateDollars: number | null = null;
+    if (shopForRate && booking.vin) {
+      const cfg = await resolveVehicleConfigFromVin(ctx, booking.vin);
+      const tier =
+        (cfg?.pricing_tier as VehicleTier | undefined) ??
+        (cfg ? await detectTier(ctx, cfg) : null);
+      if (tier) {
+        const rateRes = resolveLaborRate(shopForRate as any, tier);
+        if (rateRes.rate != null) {
+          mechanicLaborRateDollars = rateRes.rate;
+        }
+      }
+    }
+    if (
+      mechanicLaborRateDollars == null &&
+      typeof shopForRate?.labor_rate === "number"
+    ) {
+      mechanicLaborRateDollars = shopForRate.labor_rate;
+    }
+
     const shopTimezone = await getShopTimezone(ctx, booking.shop_id);
     const scheduledStartMs = toBookingDateTimeMs(
       booking.scheduled_date ?? "",
@@ -7524,6 +7832,12 @@ export const getJobDetail = query({
       // Pre-Job Approval flags — mechanic surface MUST NOT see the actual
       // range, only whether one exists and the approval state.
       hasDisclosedRange: (booking as any).disclosed_range_high_cents != null,
+      // True when the customer agreed to a per-(shop, service, tier) flat
+      // price at create time. Mechanic UI uses this to render a "Fixed
+      // price" pill — does NOT reveal the dollar amount (that lives in
+      // quotedSetPriceDollars / totalCost, both of which the mechanic
+      // already sees).
+      isFixedPrice: (booking as any).is_fixed_price === true,
       paymentApprovalState:
         ((booking as any).payment_approval_state as string | undefined) ?? null,
       mechanicSetPriceCents:
@@ -7544,8 +7858,8 @@ export const getJobDetail = query({
       shopState: shopForRate?.state ?? null,
       shopZip: shopForRate?.zip ?? null,
       shopLaborRateCents:
-        typeof shopForRate?.labor_rate === "number"
-          ? Math.round(shopForRate.labor_rate * 100)
+        mechanicLaborRateDollars != null
+          ? Math.round(mechanicLaborRateDollars * 100)
           : null,
     };
   },
@@ -11928,7 +12242,7 @@ export const listOpenTireQuoteRequestsForShop = query({
       (b) => b.tire_specs != null,
     );
 
-    // Filter out bookings this shop has already quoted on.
+    // Filter out bookings this shop has already quoted on or dismissed.
     const filtered = await Promise.all(
       candidates.map(async (booking) => {
         const existing = await ctx.db
@@ -11938,7 +12252,14 @@ export const listOpenTireQuoteRequestsForShop = query({
           )
           .filter((q) => q.eq(q.field("superseded_at"), undefined))
           .first();
-        return existing ? null : booking;
+        if (existing) return null;
+        const dismissed = await ctx.db
+          .query("quote_request_dismissals")
+          .withIndex("by_booking_and_shop", (q) =>
+            q.eq("booking_id", booking._id).eq("shop_id", args.shopId),
+          )
+          .first();
+        return dismissed ? null : booking;
       }),
     );
 
@@ -11958,6 +12279,268 @@ export const listOpenTireQuoteRequestsForShop = query({
           _creationTime: booking._creationTime,
           status: booking.status,
           tire_specs: booking.tire_specs,
+          vin: booking.vin,
+          submitted_at: booking.created_at ?? booking._creationTime,
+          vehicle: vehicle
+            ? {
+                year: vehicle.year ?? null,
+                make: meta?.make ?? null,
+                model: meta?.model ?? null,
+              }
+            : null,
+        };
+      }),
+    );
+  },
+});
+
+// ============================================================================
+// ROTOR QUOTE REQUESTS — mirror of the tire bid flow for brake rotors
+// ============================================================================
+
+/**
+ * MUTATION: createRotorQuoteRequest
+ * Creates a quote-stage booking with status "pending_quote" carrying
+ * `rotor_specs`. Shops respond via `rotor_quote_responses.create`, and the
+ * user picks one with `acceptRotorQuote`.
+ */
+export const createRotorQuoteRequest = mutation({
+  args: {
+    user_id: v.id("users"),
+    vin: v.string(),
+    rotor_specs: v.object({
+      brake_system_type: v.union(
+        v.literal("standard"),
+        v.literal("sport"),
+        v.literal("carbon_ceramic"),
+      ),
+      axle: v.union(
+        v.literal("front"),
+        v.literal("rear"),
+        v.literal("both"),
+      ),
+      include_pads: v.boolean(),
+      pad_type: v.optional(
+        v.union(
+          v.literal("ceramic"),
+          v.literal("semi_metallic"),
+          v.literal("oem_recommended"),
+        ),
+      ),
+    }),
+    service_ids: v.optional(v.array(v.id("services"))),
+  },
+  handler: async (ctx, args) => {
+    const normalizedVin = args.vin.toUpperCase().trim();
+    const now = Date.now();
+
+    const bookingId = await ctx.db.insert("bookings", {
+      user_id: args.user_id,
+      vin: normalizedVin,
+      service_ids: args.service_ids ?? [],
+      status: "pending_quote",
+      rotor_specs: args.rotor_specs,
+      created_at: now,
+      updated_at: now,
+    });
+
+    await logBookingStatusChange(
+      ctx,
+      bookingId,
+      undefined,
+      "pending_quote",
+      args.user_id,
+      "rotor_quote_requested",
+    );
+
+    await ctx.db.insert("analytics_events", {
+      user_id: args.user_id,
+      event_type: "rotor_quote_request_created",
+      event_category: "booking",
+      event_data: {
+        booking_id: bookingId,
+        rotor_specs: args.rotor_specs,
+      },
+      timestamp: now,
+    });
+
+    return bookingId;
+  },
+});
+
+/**
+ * MUTATION: acceptRotorQuote
+ * Customer picks one of the shop responses for their pending rotor
+ * booking. Fills in shop_id/costs/scheduling, flips status to
+ * "confirmed", and supersedes the remaining responses.
+ */
+export const acceptRotorQuote = mutation({
+  args: {
+    booking_id: v.id("bookings"),
+    response_id: v.id("rotor_quote_responses"),
+  },
+  handler: async (ctx, args) => {
+    const booking = await ctx.db.get(args.booking_id);
+    if (!booking) throw new Error("We couldn't find that booking. It may have been cancelled or removed.");
+    if (booking.status !== "quotes_ready" && booking.status !== "pending_quote") {
+      const label =
+        BOOKING_STATUS_VISUALS[booking.status as BookingStatus]?.label?.toLowerCase() ??
+        String(booking.status).replace(/_/g, " ");
+      throw new Error(`Quotes can only be accepted while a request is awaiting a quote. This one is ${label}.`);
+    }
+
+    const response = await ctx.db.get(args.response_id);
+    if (!response) throw new Error("We couldn't find that quote. It may have been withdrawn.");
+    if (String(response.booking_id) !== String(args.booking_id)) {
+      throw new Error("This quote doesn't belong to the selected request.");
+    }
+    if (response.superseded_at != null) {
+      throw new Error("This quote has already been superseded.");
+    }
+
+    const now = Date.now();
+
+    // Resolve "Rotor Replacement" service so the accepted booking carries
+    // a real service_ids entry. Tolerate the legacy underscore slug too.
+    let rotorService = await ctx.db
+      .query("services")
+      .withIndex("by_slug", (q) => q.eq("slug", "rotor-replacement"))
+      .first();
+    if (!rotorService) {
+      rotorService = await ctx.db
+        .query("services")
+        .withIndex("by_slug", (q) => q.eq("slug", "rotor_replacement"))
+        .first();
+    }
+
+    let attachServiceId: Id<"services"> | null = null;
+    if (rotorService) {
+      // The shop committed to do this rotor job by submitting a quote, so
+      // auto-register the shop_services row if missing.
+      const offered = await ctx.db
+        .query("shop_services")
+        .withIndex("by_shop_and_service", (q) =>
+          q.eq("shop_id", response.shop_id).eq("service_id", rotorService!._id),
+        )
+        .first();
+      if (!offered) {
+        await ctx.db.insert("shop_services", {
+          shop_id: response.shop_id,
+          service_id: rotorService._id,
+          is_offered: true,
+        });
+      } else if (!offered.is_offered) {
+        await ctx.db.patch(offered._id, { is_offered: true });
+      }
+      attachServiceId = rotorService._id;
+    } else {
+      console.warn(
+        "[acceptRotorQuote] no Rotor Replacement service found in catalog — service_ids will be empty",
+      );
+    }
+
+    const rotorsSubtotal = response.per_rotor_price * response.quantity;
+    const padsSubtotal =
+      (response.pad_price ?? 0) * (response.pad_quantity ?? response.quantity);
+
+    await ctx.db.patch(args.booking_id, {
+      shop_id: response.shop_id,
+      ...(response.mechanic_id ? { mechanic_id: response.mechanic_id } : {}),
+      labor_cost: response.labor_cost,
+      parts_cost: rotorsSubtotal + padsSubtotal,
+      total_cost: response.total,
+      scheduled_date: response.availability.date,
+      scheduled_time: response.availability.time,
+      ...(response.estimated_duration_minutes
+        ? { estimated_labor_minutes: response.estimated_duration_minutes }
+        : {}),
+      status: "confirmed",
+      updated_at: now,
+      ...(attachServiceId ? { service_ids: [attachServiceId] } : {}),
+    });
+
+    const siblings = await ctx.db
+      .query("rotor_quote_responses")
+      .withIndex("by_booking_id", (q) => q.eq("booking_id", args.booking_id))
+      .collect();
+    for (const sibling of siblings) {
+      if (String(sibling._id) === String(args.response_id)) continue;
+      if (sibling.superseded_at != null) continue;
+      await ctx.db.patch(sibling._id, { superseded_at: now });
+    }
+
+    await logBookingStatusChange(
+      ctx,
+      args.booking_id,
+      booking.status,
+      "confirmed",
+      booking.user_id,
+      "rotor_quote_accepted",
+    );
+
+    return args.booking_id;
+  },
+});
+
+/**
+ * QUERY: listOpenRotorQuoteRequestsForShop
+ * Rotor-quote-stage bookings the given shop has NOT yet responded to.
+ * Used by the website's "Rotor Quote Requests" view in the shop portal.
+ */
+export const listOpenRotorQuoteRequestsForShop = query({
+  args: {
+    shopId: v.id("shops"),
+  },
+  handler: async (ctx, args) => {
+    const openBookings = await ctx.db
+      .query("bookings")
+      .withIndex("by_status", (q) => q.eq("status", "pending_quote"))
+      .collect();
+
+    const alsoQuotesReady = await ctx.db
+      .query("bookings")
+      .withIndex("by_status", (q) => q.eq("status", "quotes_ready"))
+      .collect();
+
+    const candidates = [...openBookings, ...alsoQuotesReady].filter(
+      (b) => b.rotor_specs != null,
+    );
+
+    const filtered = await Promise.all(
+      candidates.map(async (booking) => {
+        const existing = await ctx.db
+          .query("rotor_quote_responses")
+          .withIndex("by_booking_and_shop", (q) =>
+            q.eq("booking_id", booking._id).eq("shop_id", args.shopId),
+          )
+          .filter((q) => q.eq(q.field("superseded_at"), undefined))
+          .first();
+        if (existing) return null;
+        const dismissed = await ctx.db
+          .query("quote_request_dismissals")
+          .withIndex("by_booking_and_shop", (q) =>
+            q.eq("booking_id", booking._id).eq("shop_id", args.shopId),
+          )
+          .first();
+        return dismissed ? null : booking;
+      }),
+    );
+
+    const open = filtered.filter((b): b is NonNullable<typeof b> => b != null);
+
+    return Promise.all(
+      open.map(async (booking) => {
+        const vehicle = await ctx.db
+          .query("vehicles")
+          .withIndex("by_vin", (q) => q.eq("vin", booking.vin))
+          .first();
+        const meta =
+          (vehicle?.metadata as { make?: string; model?: string } | undefined) ?? undefined;
+        return {
+          _id: booking._id,
+          _creationTime: booking._creationTime,
+          status: booking.status,
+          rotor_specs: booking.rotor_specs,
           vin: booking.vin,
           submitted_at: booking.created_at ?? booking._creationTime,
           vehicle: vehicle

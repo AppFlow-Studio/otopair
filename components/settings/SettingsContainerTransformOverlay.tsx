@@ -41,7 +41,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQuery } from "convex/react";
 import { useShallow } from "zustand/react/shallow";
 import { X } from "lucide-react-native";
-import { useFocusEffect, useRouter } from "expo-router";
+import { useRouter } from "expo-router";
 
 import { SettingsContent } from "@/components/settings/SettingsContent";
 import { api } from "@/convex/_generated/api";
@@ -67,10 +67,20 @@ type RootMetrics = {
   height: number;
 };
 
-export function SettingsContainerTransformOverlay() {
+export function SettingsContainerTransformOverlay({
+  onUnmount,
+}: {
+  onUnmount: () => void;
+}) {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const window = useWindowDimensions();
+  const close = useSettingsOverlayStore((s) => s.close);
+  const isOpen = useSettingsOverlayStore((s) => s.isOpen);
+  const closeRequestId = useSettingsOverlayStore((s) => s.closeRequestId);
+  const consumePendingAfterClose = useSettingsOverlayStore(
+    (s) => s.consumePendingAfterClose,
+  );
   const rootRef = useRef<View>(null);
   const rootMetricsRef = useRef<RootMetrics>({
     x: 0,
@@ -206,6 +216,14 @@ export function SettingsContainerTransformOverlay() {
     return () => cancelAnimationFrame(frame);
   }, [floatingAvatarVisibility, settled]);
 
+  // Drain any `requestClose(after)` follow-up — used by rows whose
+  // destination is a tab sibling (My Vehicles → /cars) so we morph back
+  // to the avatar BEFORE switching tabs.
+  const runPendingAfterClose = useCallback(() => {
+    const after = consumePendingAfterClose();
+    after?.();
+  }, [consumePendingAfterClose]);
+
   const startCloseAnimation = useCallback(() => {
     setSettled(false);
     progress.value = withTiming(
@@ -216,13 +234,15 @@ export function SettingsContainerTransformOverlay() {
       },
       (finished) => {
         if (finished) {
-          runOnJS(router.back)();
+          runOnJS(close)();
+          runOnJS(onUnmount)();
+          runOnJS(runPendingAfterClose)();
         } else {
           runOnJS(resetClosing)();
         }
       },
     );
-  }, [progress, resetClosing, router]);
+  }, [progress, resetClosing, close, onUnmount, runPendingAfterClose]);
 
   const handleClose = useCallback(() => {
     if (isClosingRef.current) return;
@@ -254,19 +274,33 @@ export function SettingsContainerTransformOverlay() {
     startCloseAnimation,
   ]);
 
-  useFocusEffect(
-    useCallback(() => {
-      if (Platform.OS !== "android") return undefined;
-      const subscription = BackHandler.addEventListener(
-        "hardwareBackPress",
-        () => {
-          handleClose();
-          return true;
-        },
-      );
-      return () => subscription.remove();
-    }, [handleClose]),
-  );
+  // Only listen to hardware back while the overlay is open (it's mounted
+  // at the layout level always; the gate prevents stealing the back
+  // gesture when the overlay isn't on screen).
+  useEffect(() => {
+    if (!isOpen) return;
+    if (Platform.OS !== "android") return undefined;
+    const subscription = BackHandler.addEventListener(
+      "hardwareBackPress",
+      () => {
+        handleClose();
+        return true;
+      },
+    );
+    return () => subscription.remove();
+  }, [isOpen, handleClose]);
+
+  // External close requests (e.g. SettingsContent's My Vehicles row needs
+  // to play the close morph before switching to the Cars tab — pushing
+  // /cars wouldn't cover the overlay since both are layout siblings).
+  // Baseline the counter on mount so the effect only fires on subsequent
+  // bumps, not on re-mount of a stale counter value.
+  const closeRequestBaselineRef = useRef(closeRequestId);
+  useEffect(() => {
+    if (closeRequestId > closeRequestBaselineRef.current && isOpen) {
+      handleClose();
+    }
+  }, [closeRequestId, isOpen, handleClose]);
 
   const rect = activeRectRef.current;
   const localRect = {

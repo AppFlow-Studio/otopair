@@ -18,10 +18,11 @@
  * OWNER: Ahmad Hamoudeh
  */
 
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { Alert, Image, Pressable, StyleSheet, View } from "react-native";
 
 import { ArrowRight, Car } from "lucide-react-native";
+import Animated, { FadeOut, LinearTransition, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 
 import { Text } from "@/components/shared-ui";
 import { type Booking } from "@/components/bookings/BookingCard";
@@ -54,6 +55,34 @@ function parseTireSpecs(notes: string | undefined): {
   };
 }
 
+/** Parse "Front pair · Standard brakes · 2 rotors · + Ceramic" — the rotor
+ *  notes string assembled in `utils/bookingAdapter.ts`. Returns structured
+ *  rows so the card surfaces the customer's selections instead of the raw
+ *  string. */
+function parseRotorSpecs(notes: string | undefined): {
+  axle: string;
+  brakeSystem: string;
+  quantity: string;
+  pads: string;
+} | null {
+  if (!notes) return null;
+  const parts = notes.split(" · ").map((p) => p.trim()).filter(Boolean);
+  if (parts.length < 3) return null;
+  // First three segments are positional: axle · brake system · quantity.
+  // Pads is appended as "+ <pad label>" when include_pads was true.
+  const [axle, brakeSystem, quantity, ...rest] = parts;
+  // Heuristic: only treat as a rotor notes string when the third segment
+  // mentions "rotor" — keeps tire-notes from falsely matching.
+  if (!/rotor/i.test(quantity)) return null;
+  const padsRaw = rest.find((p) => p.startsWith("+ "));
+  return {
+    axle,
+    brakeSystem,
+    quantity,
+    pads: padsRaw ? padsRaw.replace(/^\+\s*/, "") : "Not included",
+  };
+}
+
 function titleCase(str: string): string {
   return str.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
 }
@@ -80,14 +109,35 @@ export function PendingQuoteCard({
 }: Props) {
   const vehicleLabel =
     booking.carModel && booking.carModel !== "Vehicle" ? booking.carModel : "Vehicle";
-  const specs = parseTireSpecs(booking.notes);
+  const isRotor = booking.quoteType === "rotor";
+  const tireSpecs = !isRotor ? parseTireSpecs(booking.notes) : null;
+  const rotorSpecs = isRotor ? parseRotorSpecs(booking.notes) : null;
   const isReady = booking.status === "quotes_ready";
   const stageView = getBookingStageView(booking.status, booking.liveStage);
 
+  // Local "just cancelled" state. Mirrors BookingCard — see that file's
+  // pattern for the rationale.
+  const [isCancelling, setIsCancelling] = useState(false);
+  const dim = useSharedValue(1);
+  useEffect(() => {
+    if (isCancelling) {
+      dim.value = withTiming(0.45, { duration: 280 });
+    }
+  }, [isCancelling, dim]);
+  const dimStyle = useAnimatedStyle(() => ({ opacity: dim.value }));
+
   return (
+    <Animated.View
+      style={dimStyle}
+      exiting={FadeOut.duration(220)}
+      layout={LinearTransition.duration(260)}
+    >
     <Pressable
       style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
-      onPress={() => onPress?.(booking.id)}
+      onPress={() => {
+        if (isCancelling) return;
+        onPress?.(booking.id);
+      }}
     >
       {/* Quote-stage progress bar — see utils/bookingStages.ts. */}
       <BookingProgressBar
@@ -124,13 +174,22 @@ export function PendingQuoteCard({
             </Text>
           ) : null}
         </View>
-        <View style={[styles.tag, isReady ? styles.tagReady : styles.tagPending]}>
+        <View
+          style={[
+            styles.tag,
+            isCancelling
+              ? styles.tagCancelled
+              : isReady
+                ? styles.tagReady
+                : styles.tagPending,
+          ]}
+        >
           <Text
             size="xs"
             weight="bold"
-            color={isReady ? "#2F6DCC" : "#C8972E"}
+            color={isCancelling ? "#DC2626" : isReady ? "#2F6DCC" : "#C8972E"}
           >
-            {isReady ? "Quotes Ready" : "Pending Quote"}
+            {isCancelling ? "Cancelled" : isReady ? "Quotes Ready" : "Pending Quote"}
           </Text>
         </View>
       </View>
@@ -140,16 +199,23 @@ export function PendingQuoteCard({
 
       {/* Specs breakdown */}
       <View style={styles.specs}>
-        {specs ? (
+        {rotorSpecs ? (
           <>
-            <SpecRow label="Tire Size" value={specs.size} />
-            <SpecRow label="Quality Tier" value={specs.tier} />
-            <SpecRow label="Tire Type" value={specs.type} />
-            <SpecRow label="Quantity" value={specs.quantity} />
+            <SpecRow label="Axle" value={rotorSpecs.axle} />
+            <SpecRow label="Brake System" value={rotorSpecs.brakeSystem} />
+            <SpecRow label="Pads" value={rotorSpecs.pads} />
+            <SpecRow label="Quantity" value={rotorSpecs.quantity} />
+          </>
+        ) : tireSpecs ? (
+          <>
+            <SpecRow label="Tire Size" value={tireSpecs.size} />
+            <SpecRow label="Quality Tier" value={tireSpecs.tier} />
+            <SpecRow label="Tire Type" value={tireSpecs.type} />
+            <SpecRow label="Quantity" value={tireSpecs.quantity} />
           </>
         ) : (
           <Text size="md" weight="semiBold" color="#1A1A1A">
-            {booking.notes || "Tire quote"}
+            {booking.notes || (isRotor ? "Rotor quote" : "Tire quote")}
           </Text>
         )}
       </View>
@@ -175,6 +241,7 @@ export function PendingQuoteCard({
                 e.stopPropagation?.();
                 handleCancel();
               }}
+              disabled={isCancelling}
               style={({ pressed }) => [styles.cancelOutlineButton, pressed && styles.viewButtonPressed]}
             >
               <Text size="sm" weight="semiBold" color="#DC2626">
@@ -188,8 +255,10 @@ export function PendingQuoteCard({
           <Pressable
             onPress={(e) => {
               e.stopPropagation?.();
+              if (isCancelling) return;
               onPress?.(booking.id);
             }}
+            disabled={isCancelling}
             style={({ pressed }) => [styles.viewButton, pressed && styles.viewButtonPressed]}
           >
             <Text size="sm" weight="semiBold" color="#FFFFFF">
@@ -202,6 +271,7 @@ export function PendingQuoteCard({
                 e.stopPropagation?.();
                 handleCancel();
               }}
+              disabled={isCancelling}
               style={({ pressed }) => [styles.cancelOutlineButton, pressed && styles.viewButtonPressed]}
             >
               <Text size="sm" weight="semiBold" color="#DC2626">
@@ -212,9 +282,11 @@ export function PendingQuoteCard({
         </View>
       )}
     </Pressable>
+    </Animated.View>
   );
 
   function handleCancel() {
+    if (isCancelling) return;
     Alert.alert(
       "Cancel Request",
       "Stop waiting for shop quotes? You can submit a new request later.",
@@ -223,7 +295,12 @@ export function PendingQuoteCard({
         {
           text: "Cancel Request",
           style: "destructive",
-          onPress: () => onCancel?.(booking.id),
+          onPress: () => {
+            // In-card visual first, then fire the mutation. The data-source
+            // removal triggers FadeOut + LinearTransition shift on siblings.
+            setIsCancelling(true);
+            setTimeout(() => onCancel?.(booking.id), 450);
+          },
         },
       ],
     );
@@ -304,6 +381,9 @@ const styles = StyleSheet.create({
   },
   tagReady: {
     backgroundColor: "#E3F0FF",
+  },
+  tagCancelled: {
+    backgroundColor: "#FEE2E2",
   },
 
   // Divider

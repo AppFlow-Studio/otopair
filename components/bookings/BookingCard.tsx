@@ -25,17 +25,19 @@
  */
 
 // 1. React & React Native
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Image, PixelRatio, Pressable, StyleSheet, View } from 'react-native';
 import type { View as RNView } from 'react-native';
 
 // 2. Expo & Third-party
 import { useRouter } from 'expo-router';
 import { Car, FileText, Star, User } from 'lucide-react-native';
+import Animated, { FadeOut, LinearTransition, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 
 // 3. Shared UI
-import { Text } from '@/components/shared-ui';
+import { FixedPriceBadge, Text } from '@/components/shared-ui';
 import { BookingProgressBar } from '@/components/bookings/BookingProgressBar';
+import { ApprovalBanner } from '@/components/booking/ApprovalBanner';
 import { getBookingStageView } from '@/utils/bookingStages';
 import { useRescheduleDecisionOverlayStore } from '@/stores/useRescheduleDecisionOverlayStore';
 import type { Id } from '@/convex/_generated/dataModel';
@@ -90,6 +92,13 @@ export interface Booking {
   paymentApprovalState?: string;
   /** Final captured amount in cents (set after Stripe capture). */
   finalCaptureAmountCents?: number;
+  /** Shop-assigned invoice / work-order number. When the mechanic sets one,
+   *  the card surfaces it instead of the last-6 booking id. */
+  invoiceNumber?: string;
+  /** Set on quote-stage bookings ("pending_quote" / "quotes_ready") so the
+   *  Bookings tab knows which QuoteListSheet variant to open. Derived from
+   *  bookings.tire_specs / bookings.rotor_specs in the Convex adapter. */
+  quoteType?: "tire" | "rotor";
 }
 
 interface BookingCardProps {
@@ -213,13 +222,26 @@ export function BookingCard({
   const openRescheduleDecision = useRescheduleDecisionOverlayStore((s) => s.open);
   const primaryBtnRef = useRef<RNView | null>(null);
   const [actionsRowWidth, setActionsRowWidth] = useState(0);
+  // Local "just cancelled" state. The card swaps the badge + dims for ~450ms
+  // before we actually call onCancelBooking; the parent's data-source change
+  // then triggers the FadeOut exit, and `layout` shifts siblings up.
+  const [isCancelling, setIsCancelling] = useState(false);
+  const effectiveStatus = isCancelling ? 'cancelled' : booking.status;
   // Fall back to a neutral pill when the backend returns a status we
   // don't have a config for, so an unknown value doesn't crash the card.
-  const statusConfig = STATUS_CONFIG[booking.status] ?? {
-    label: titleCase(String(booking.status ?? 'Unknown').replace(/_/g, ' ')),
+  const statusConfig = STATUS_CONFIG[effectiveStatus] ?? {
+    label: titleCase(String(effectiveStatus ?? 'Unknown').replace(/_/g, ' ')),
     bgColor: '#E5E7EB',
     textColor: '#6B7280',
   };
+
+  const dim = useSharedValue(1);
+  useEffect(() => {
+    if (isCancelling) {
+      dim.value = withTiming(0.45, { duration: 280 });
+    }
+  }, [isCancelling, dim]);
+  const dimStyle = useAnimatedStyle(() => ({ opacity: dim.value }));
   const [carImageError, setCarImageError] = useState(false);
   const showCarPlaceholder = !booking.makeLogoUrl?.trim() || carImageError;
   const fontScale = PixelRatio.getFontScale();
@@ -228,6 +250,16 @@ export function BookingCard({
     [actionsRowWidth, fontScale],
   );
   
+  // Invoice number wins when the mechanic has attached one; otherwise
+  // fall back to the last-6 of the convex booking id so the customer
+  // still has something to quote on a support ticket.
+  const idLine = useMemo(() => {
+    const invoice = booking.invoiceNumber?.trim();
+    if (invoice) return invoice;
+    if (!booking.id) return null;
+    return `#${booking.id.slice(-6).toUpperCase()}`;
+  }, [booking.invoiceNumber, booking.id]);
+
   // Format services display
   const mainService = booking.services[0] || 'Service';
   const additionalCount = booking.services.length - 1;
@@ -262,6 +294,7 @@ export function BookingCard({
   };
 
   const handleCancelBooking = () => {
+    if (isCancelling) return;
     Alert.alert(
       "Cancel Appointment",
       "Are you sure you want to cancel this appointment?",
@@ -270,7 +303,13 @@ export function BookingCard({
         {
           text: "Cancel Appointment",
           style: "destructive",
-          onPress: () => onCancelBooking?.(booking.id),
+          onPress: () => {
+            // Show the in-card "cancelled" visual first, THEN fire the
+            // mutation. The data-source removal triggers FadeOut, and
+            // sibling cards shift smoothly via layout transition.
+            setIsCancelling(true);
+            setTimeout(() => onCancelBooking?.(booking.id), 450);
+          },
         },
       ],
     );
@@ -292,7 +331,11 @@ export function BookingCard({
   const stageView = getBookingStageView(booking.status, booking.liveStage);
 
   return (
-    <View style={styles.card}>
+    <Animated.View
+      style={[styles.card, dimStyle]}
+      exiting={FadeOut.duration(220)}
+      layout={LinearTransition.duration(260)}
+    >
       {/* Lifecycle progress bar — see utils/bookingStages.ts. The status
           badge in the title row below carries the same info textually so
           the bar reads as visual reinforcement. */}
@@ -301,16 +344,47 @@ export function BookingCard({
         currentIndex={stageView.currentIndex}
       />
 
+      {/* Pending-approval or reauth-required CTA. Returns null when the
+          booking isn't in one of those states, so no extra guard needed. */}
+      <ApprovalBanner
+        bookingId={booking.id}
+        paymentApprovalState={booking.paymentApprovalState}
+      />
+
+      {/* Booking identifier — invoice number if the mechanic attached one,
+          else the last-6 of the convex booking id. Tiny gray line above the
+          service title so customers can quote it on a support ticket. */}
+      {idLine ? (
+        <Text
+          weight="semiBold"
+          size="xs"
+          color="#9CA3AF"
+          style={styles.idLine}
+        >
+          {idLine}
+        </Text>
+      ) : null}
+
       {/* Title Row */}
       <View style={styles.titleRow}>
         <View style={styles.servicesContainer}>
-          <Text weight="bold" size="xl" color="#1F2937">
+          <Text
+            weight="bold"
+            size="xl"
+            color="#1F2937"
+            style={isCancelling ? styles.strikethrough : undefined}
+          >
             {mainService}
           </Text>
           {additionalCount > 0 && (
             <>
               <Text weight="bold" size="xl" color="#1F2937">, </Text>
-              <Text weight="semiBold" size="xl" color="#5299FE">
+              <Text
+                weight="semiBold"
+                size="xl"
+                color="#5299FE"
+                style={isCancelling ? styles.strikethrough : undefined}
+              >
                 {additionalText}
               </Text>
             </>
@@ -442,9 +516,16 @@ export function BookingCard({
                 <Text weight="regular" size="sm" color="#6B7280">
                   Total Cost
                 </Text>
-                <Text weight="semiBold" size="sm" color="#5299FE">
-                  ${booking.totalCost?.toFixed(2) || '0.00'}
-                </Text>
+                <View style={styles.historyTotalCostWrap}>
+                  {booking.disclosedRangeLowCents != null &&
+                    booking.disclosedRangeHighCents != null &&
+                    booking.disclosedRangeLowCents === booking.disclosedRangeHighCents && (
+                      <FixedPriceBadge size="sm" />
+                    )}
+                  <Text weight="semiBold" size="sm" color="#5299FE">
+                    ${booking.totalCost?.toFixed(2) || '0.00'}
+                  </Text>
+                </View>
               </View>
             </>
           )}
@@ -458,10 +539,12 @@ export function BookingCard({
         <View
           style={styles.actionsRow}
           onLayout={(event) => setActionsRowWidth(event.nativeEvent.layout.width)}
+          pointerEvents={isCancelling ? 'none' : 'auto'}
         >
           <Pressable
             ref={primaryBtnRef}
             onPress={handleViewDetails}
+            disabled={isCancelling}
             style={({ pressed }) => [
               styles.primaryButton,
               pressed && styles.buttonPressed,
@@ -484,6 +567,7 @@ export function BookingCard({
           {booking.status !== 'in_progress' && (
             <Pressable
               onPress={handleCancelBooking}
+              disabled={isCancelling}
               style={({ pressed }) => [
                 styles.cancelButton,
                 pressed && styles.buttonPressed,
@@ -539,7 +623,7 @@ export function BookingCard({
           </Pressable>
         </View>
       )}
-    </View>
+    </Animated.View>
   );
 }
 
@@ -559,6 +643,11 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 3,
   },
+  idLine: {
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    marginBottom: 4,
+  },
   titleRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -574,6 +663,9 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     paddingHorizontal: 14,
     borderRadius: 20,
+  },
+  strikethrough: {
+    textDecorationLine: 'line-through',
   },
   infoRow: {
     flexDirection: 'row',
@@ -657,6 +749,11 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     borderWidth: 1,
     borderColor: '#E5E7EB',
+  },
+  historyTotalCostWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
   actionsRow: {
     flexDirection: 'row',

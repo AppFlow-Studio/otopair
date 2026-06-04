@@ -21,6 +21,8 @@ export type ServiceCategory = "basic_maintenance" | "tires_wheels" | "brakes_sus
 export interface Service {
   /** Unique identifier */
   id: string;
+  /** Stable seed slug (e.g., "oil-change"). Optional — MOCK_SERVICES omits it. */
+  slug?: string;
   /** Service display name (e.g., "Oil Change") */
   name: string;
   /** Brief description of the service */
@@ -180,6 +182,10 @@ export interface Booking {
   paymentApprovalState?: string;
   /** Final captured amount in cents (set after Stripe capture). */
   finalCaptureAmountCents?: number;
+  /** Set on quote-stage bookings ("pending_quote" / "quotes_ready") so the
+   *  Bookings tab knows which QuoteListSheet variant to open. Derived from
+   *  the presence of bookings.tire_specs / bookings.rotor_specs. */
+  quoteType?: "tire" | "rotor";
 }
 
 /** A shop/mechanic business entity */
@@ -292,7 +298,13 @@ export interface MechanicSchedule {
 // ─────────────────────────────────────────────────────────────
 
 /** Supported payment card brands */
-export type PaymentCardBrand = "mastercard" | "visa" | "amex" | "discover" | "generic";
+export type PaymentCardBrand =
+  | "mastercard"
+  | "visa"
+  | "amex"
+  | "discover"
+  | "unionpay"
+  | "generic";
 
 /** Supported digital wallet types */
 export type DigitalWalletType = "apple_pay" | "google_pay";

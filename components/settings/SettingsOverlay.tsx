@@ -9,17 +9,25 @@
  *          avatar from the button position to the natural Settings
  *          avatar slot.
  *
- *          As of the Revolut-style refactor, this lives at the
- *          `/profile-overlay` route (presented as `transparentModal`,
- *          `animation: 'none'`) so that destination screens pushed
- *          from inside settings rows stack ON TOP of the overlay
- *          rather than under it. Back gestures return the user here
- *          with the overlay still mounted in its same state.
+ *          Mounted at the (main-tabs) layout level, NOT as a route —
+ *          putting it in the route system flipped iOS into modal-stack
+ *          mode and forced child screens pushed from inside settings
+ *          rows (Saved Addresses, Payment Methods, etc.) to slide from
+ *          the bottom. As a plain absolutely-positioned component it
+ *          sits over the tabs; child routes push onto the root Stack
+ *          normally and use the default ios_from_right animation. Back
+ *          gestures from a child return here with the overlay still
+ *          mounted in its prior state.
+ *
+ *          Open/close is store-driven: callers invoke
+ *          `useSettingsOverlayStore.open(rect)` / `close()` instead of
+ *          navigating. The component mount-gates on `isOpen` so it
+ *          renders nothing when dismissed.
  *
  *          Visually identical to the Settings tab once open — the
  *          settings render tree is reused via <SettingsContent />.
  *
- * USED IN: app/profile-overlay.tsx (single mount, route-driven)
+ * USED IN: app/(main-tabs)/_layout.tsx (single mount, store-driven)
  *
  * OWNER: Ahmad Hamoudeh
  */
@@ -55,7 +63,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQuery } from "convex/react";
 import { useShallow } from "zustand/react/shallow";
 import { X } from "lucide-react-native";
-import { useFocusEffect, useRouter } from "expo-router";
+// `useFocusEffect` + `useRouter` no longer needed — the overlay is
+// layout-mounted (not a route) and close is store-driven, not router.back().
 
 import { SettingsContent } from "@/components/settings/SettingsContent";
 import { SettingsContainerTransformOverlay } from "@/components/settings/SettingsContainerTransformOverlay";
@@ -81,10 +90,9 @@ const AVATAR_TARGET_SIZE = 72;
 // element.
 const SPRING_CONFIG = { damping: 20, stiffness: 130, mass: 1.0 } as const;
 
-// Fallback morph anchor if the screen is reached without the avatar
-// having written its rect (e.g. deep link to /profile-overlay). A
-// centered 56×56 spot keeps the morph looking intentional rather than
-// flying in from {0,0}.
+// Fallback morph anchor if `open()` is called without a measured rect.
+// A centered 56×56 spot keeps the morph looking intentional rather
+// than flying in from {0,0}.
 const FALLBACK_RECT: SettingsOverlayRect = {
   x: SCREEN_W / 2 - 28,
   y: SCREEN_H / 2 - 28,
@@ -96,21 +104,41 @@ const isIOS26OrNewer =
   Platform.OS === "ios" && parseInt(String(Platform.Version), 10) >= 26;
 
 export function SettingsOverlay() {
+  // Layout-mounted: this component lives in app/(main-tabs)/_layout.tsx as
+  // a sibling of NotificationsSheet / RescheduleDecisionOverlay. It renders
+  // nothing unless the store's isOpen is true (so it doesn't intercept
+  // taps or measure during normal Home tab use).
+  const isOpen = useSettingsOverlayStore((s) => s.isOpen);
+  // Keep mounted briefly after close so the reverse-morph spring can play.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    if (isOpen) setMounted(true);
+  }, [isOpen]);
+
+  if (!mounted) return null;
+
   if (!isIOS26OrNewer) {
-    return <SettingsContainerTransformOverlay />;
+    return (
+      <SettingsContainerTransformOverlay onUnmount={() => setMounted(false)} />
+    );
   }
 
-  return <IOSSettingsOverlay />;
+  return <IOSSettingsOverlay onUnmount={() => setMounted(false)} />;
 }
 
-function IOSSettingsOverlay() {
+function IOSSettingsOverlay({ onUnmount }: { onUnmount: () => void }) {
   const insets = useSafeAreaInsets();
-  const router = useRouter();
   const setRevealHomeAvatar = useSettingsOverlayStore(
     (s) => s.setRevealHomeAvatar,
   );
+  const close = useSettingsOverlayStore((s) => s.close);
+  const isOpen = useSettingsOverlayStore((s) => s.isOpen);
+  const closeRequestId = useSettingsOverlayStore((s) => s.closeRequestId);
+  const consumePendingAfterClose = useSettingsOverlayStore(
+    (s) => s.consumePendingAfterClose,
+  );
 
-  // Capture the rect ONCE at mount. After this, the floating-avatar
+  // Capture the rect ONCE on first paint. After this, the floating-avatar
   // morph anchor is fixed — even if the user scrolls or rotates,
   // close-morph still lands at the original spot.
   const initialRect = useSettingsOverlayStore.getState().fromRect;
@@ -176,33 +204,53 @@ function IOSSettingsOverlay() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // CLOSE: reverse the spring then pop the route. Triggered by X
-  // button or hardware back. Swipe-back gestures bypass this and use
-  // the default pop (no morph) — acceptable per the plan.
+  // Wrapping the unmount-flip in a stable callback so the worklet can
+  // safely runOnJS it without re-creating the spring closure each render.
+  // Also drains any `requestClose(after)` follow-up — used by rows whose
+  // destination is a tab sibling (My Vehicles → /cars) so we morph back
+  // to the avatar BEFORE switching tabs.
+  const finishClose = useCallback(() => {
+    close();
+    onUnmount();
+    const after = consumePendingAfterClose();
+    after?.();
+  }, [close, onUnmount, consumePendingAfterClose]);
+
+  // CLOSE: reverse the spring, flip the store's isOpen, then let the
+  // parent unmount us. Triggered by X button or hardware back.
   const handleClose = useCallback(() => {
     setRevealHomeAvatar(true);
     setSettled(false);
     progress.value = withSpring(0, SPRING_CONFIG, (finished) => {
       if (finished) {
-        runOnJS(router.back)();
+        runOnJS(finishClose)();
       }
     });
-  }, [progress, router, setRevealHomeAvatar]);
+  }, [progress, finishClose, setRevealHomeAvatar]);
 
   // Intercept Android hardware back so the close morph plays before
-  // pop. Without this, hardware back would instantly unmount the
-  // screen with no morph. Only active while this route is focused
-  // (i.e. user is on /profile-overlay itself, not on a destination
-  // pushed on top of it).
-  useFocusEffect(
-    useCallback(() => {
-      const sub = BackHandler.addEventListener("hardwareBackPress", () => {
-        handleClose();
-        return true;
-      });
-      return () => sub.remove();
-    }, [handleClose]),
-  );
+  // unmount. Active only while the overlay is open — children pushed
+  // on top of it (Saved Addresses etc.) have their own back handling.
+  useEffect(() => {
+    if (!isOpen) return;
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      handleClose();
+      return true;
+    });
+    return () => sub.remove();
+  }, [isOpen, handleClose]);
+
+  // External close requests (e.g. SettingsContent's My Vehicles row needs
+  // to play the close morph before switching to the Cars tab — pushing
+  // /cars wouldn't cover the overlay since both are layout siblings).
+  // Baseline the counter on mount so the effect only fires on subsequent
+  // bumps, not on re-mount of a stale counter value.
+  const closeRequestBaselineRef = useRef(closeRequestId);
+  useEffect(() => {
+    if (closeRequestId > closeRequestBaselineRef.current && isOpen) {
+      handleClose();
+    }
+  }, [closeRequestId, isOpen, handleClose]);
 
   // ── Animated styles ────────────────────────────────────────────────
 

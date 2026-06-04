@@ -3,10 +3,10 @@
  *
  * PURPOSE: Circular orange initials button that sits in the Home
  *          header where the OtoPair logo used to be. Tapping it
- *          captures its on-screen rect, writes it to the overlay
- *          store as the morph anchor, and pushes the
- *          `/profile-overlay` route which renders SettingsOverlay's
- *          shared-element open animation.
+ *          captures its on-screen rect and calls
+ *          `useSettingsOverlayStore.open(rect)`, which triggers the
+ *          layout-mounted SettingsOverlay's shared-element open
+ *          animation from the button to fullscreen.
  *
  * USED IN: app/(main-tabs)/home/index.tsx
  *
@@ -25,7 +25,7 @@ import Animated, {
 import { LinearGradient } from "expo-linear-gradient";
 import { useQuery } from "convex/react";
 import { useShallow } from "zustand/react/shallow";
-import { usePathname, useRouter } from "expo-router";
+import { usePathname } from "expo-router";
 
 import { Text } from "@/components/shared-ui";
 import { AvatarSlider } from "@/components/settings/AvatarSlider";
@@ -40,7 +40,6 @@ const OTO_LOGO_3D = require("@/assets/images/pin-logo-3d.png");
 
 export function ProfileInitialsButton() {
   const viewRef = useRef<View>(null);
-  const router = useRouter();
   const pathname = usePathname();
   const me = useQuery(api.users.getMe);
   const { firstName, lastName, profilePhotoUri: storedPhoto } =
@@ -51,21 +50,21 @@ export function ProfileInitialsButton() {
         profilePhotoUri: s.data.profilePhotoUri,
       })),
     );
-  const setFromRect = useSettingsOverlayStore((s) => s.setFromRect);
+  const openSettingsOverlay = useSettingsOverlayStore((s) => s.open);
+  const settingsOverlayOpen = useSettingsOverlayStore((s) => s.isOpen);
   const revealHomeAvatar = useSettingsOverlayStore((s) => s.revealHomeAvatar);
 
-  // The avatar must stay hidden whenever the overlay is somewhere on
-  // the stack — either focused (/profile-overlay) OR underneath a
-  // destination pushed from it (/settings/*, /payments, etc.). The
-  // home screen is mounted the whole time below the overlay route, so
-  // without this the original avatar would peek through the overlay's
-  // floating animated avatar and visually double.
+  // The avatar must stay hidden whenever the overlay is open OR while
+  // the user is on a destination pushed from inside it (/settings/*,
+  // /payments, /membership). The home screen is mounted the whole time
+  // below; without this the original avatar would peek through the
+  // overlay's floating animated avatar and visually double.
   //
-  // Heuristic: hide on the overlay route itself AND any route that's
-  // commonly pushed from inside it. Simpler than tracking history
-  // ourselves — pathname is always current to the focused route.
+  // `settingsOverlayOpen` covers the in-overlay state (now layout-mounted
+  // and store-driven, not a route). Pathname checks cover the case where
+  // a destination has been pushed on top.
   const overlayLifecycleActive =
-    pathname === "/profile-overlay" ||
+    settingsOverlayOpen ||
     pathname.startsWith("/settings") ||
     pathname.startsWith("/payments") ||
     pathname.startsWith("/membership");
@@ -94,11 +93,10 @@ export function ProfileInitialsButton() {
 
   const handlePress = () => {
     // Ignore taps while the overlay (or one of its destinations) is
-    // already up — re-pushing the route would stack a duplicate.
+    // already up — re-opening would stack a duplicate morph.
     if (overlayLifecycleActive) return;
     viewRef.current?.measureInWindow((x, y, width, height) => {
-      setFromRect({ x, y, width, height });
-      router.push("/profile-overlay");
+      openSettingsOverlay({ x, y, width, height });
     });
   };
 

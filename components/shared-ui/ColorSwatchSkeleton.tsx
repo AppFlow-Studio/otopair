@@ -92,7 +92,40 @@ export function ColorSwatchSkeletonList({ rows = 5 }: { rows?: number }) {
   );
 }
 
+/**
+ * Pulsing rounded rectangle sized to the car-image preview area — shown
+ * while the VDB image URL (or exterior render) is still resolving, so the
+ * image section has a loading state that matches the color skeleton.
+ */
+export function VehicleImageSkeleton({
+  width,
+  height,
+  style,
+}: {
+  width: number;
+  height: number;
+  style?: object;
+}) {
+  const pulse = usePulseStyle();
+  return (
+    <Animated.View
+      style={[
+        styles.imageBlock,
+        { width, height },
+        style,
+        pulse,
+      ]}
+    />
+  );
+}
+
 const styles = StyleSheet.create({
+  // ── Car-image variant ─────────────────────────────────────────────
+  imageBlock: {
+    borderRadius: 16,
+    backgroundColor: PULSE_COLOR,
+  },
+
   // ── Horizontal row variant ────────────────────────────────────────
   row: {
     flexDirection: "row",

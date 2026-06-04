@@ -49,7 +49,9 @@ export function MechanicDetailHeader({ shop, onBack }: MechanicDetailHeaderProps
     typeof shop.latitude === "number" &&
     typeof shop.longitude === "number" &&
     !Number.isNaN(shop.latitude) &&
-    !Number.isNaN(shop.longitude);
+    !Number.isNaN(shop.longitude) &&
+    // Reject (0, 0) — null island in the Atlantic, almost always a missing-data sentinel.
+    !(shop.latitude === 0 && shop.longitude === 0);
 
   if (!hasCoords) {
     console.warn(

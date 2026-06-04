@@ -28,6 +28,22 @@ export const SERVICE_CATEGORIES: ServiceCategoryItem[] = [
   { key: "system_diagnostics", label: "System\nDiagnostics" },
 ];
 
+// ============================================================================
+// BID-PATH SERVICE NAMES — services that hand off to a shop-bidding flow
+// (broadcast quote request → shops respond → user accepts) instead of
+// landing as a normal line-item in the booking cart.
+//
+// The customer-facing name is matched against `service.name` on the
+// Convex catalog row. The catalog must seed:
+//   - "Tire Replacement"  with slug `tire-replacement`
+//   - "Rotor Replacement" with slug `rotor-replacement`
+// (acceptTireQuote / acceptRotorQuote read those slugs to link the
+//  service onto the accepted booking.)
+// ============================================================================
+
+export const SHOP_TIRES_SERVICE_NAME = "Tire Replacement";
+export const ROTOR_REPLACEMENT_SERVICE_NAME = "Rotor Replacement";
+
 /** Single-line labels for compact display */
 export const SERVICE_CATEGORIES_COMPACT: ServiceCategoryItem[] = [
   { key: "basic_maintenance", label: "Basic Maintenance" },

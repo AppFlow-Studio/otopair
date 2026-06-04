@@ -45,7 +45,6 @@ import {
   Bell,
   Receipt,
   Ellipsis,
-  Pencil,
   Star,
   Trash2,
   Clock,
@@ -64,6 +63,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { useShallow } from "zustand/react/shallow";
+import { useAction } from "convex/react";
 import {
   Text,
   BrandColors,
@@ -74,6 +74,8 @@ import {
   BlurHeaderOverlay,
 } from "@/components/shared-ui";
 import { usePaymentStore } from "@/stores/usePaymentStore";
+import { api } from "@/convex/_generated/api";
+import { BrandedCardVisual } from "@/components/payments/BrandedCardVisual";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 // Parallax carousel layout (mirrors @g:\GitHub\animation\src\animation-parallax-carousel)
@@ -81,8 +83,10 @@ const OFFSET = 40; // side spacing so adjacent card peeks in
 const ITEM_WIDTH = SCREEN_WIDTH - OFFSET * 2;
 const PEEK_OVERLAP = 40; // how much the next card tucks behind the current card (keeps rounded corners visible)
 const SNAP_INTERVAL = ITEM_WIDTH - PEEK_OVERLAP;
-const CARD_HEIGHT = 420;
-const CARD_CONTAINER_HEIGHT = 440;
+// BrandedCardVisual uses aspectRatio 1.586 (standard card). Container adds
+// breathing room above and a strip below for the pagination dots.
+const CARD_HEIGHT = ITEM_WIDTH / 1.586;
+const CARD_CONTAINER_HEIGHT = CARD_HEIGHT + 40;
 
 const SPRING_CONFIG = {
   damping: 20,
@@ -211,78 +215,25 @@ const CardItem = ({ card, index, scrollX, total }: CardProps) => {
     };
   });
 
-  // Subtle parallax movement inside the card (demo-style)
-  const imageParallaxStyle = useAnimatedStyle(() => {
-    const translateX = interpolate(
-      scrollX.value,
-      inputRange,
-      [-ITEM_WIDTH * 0.18, 0, ITEM_WIDTH * 0.28],
-      Extrapolation.CLAMP
-    );
-    return { transform: [{ translateX }] };
-  });
-
-  // Real card details from Stripe (StripePaymentMethodsSync hydrates these).
-  const brandLabel: string = String(card.brand ?? "card").toUpperCase();
-  const last4: string = String(card.last4 ?? "••••");
-  const expDisplay =
-    card.expMonth != null && card.expYear != null
-      ? `${String(card.expMonth).padStart(2, "0")}/${String(card.expYear).slice(-2)}`
-      : "••/••";
-
   return (
     <Animated.View
       style={[
         styles.cardWrapper,
         animatedStyle,
         {
-          // First card gets left margin, last card gets right margin
           marginLeft: index === 0 ? OFFSET : 0,
-          // Overlap cards so the "peek" stays within the screen (keeps rounded corners)
           marginRight: index === total - 1 ? OFFSET : -PEEK_OVERLAP,
         },
       ]}
     >
-      <Animated.View style={imageParallaxStyle}>
-        <Image
-          source={card.image}
-          style={styles.cardImage}
-          resizeMode="contain"
-        />
-      </Animated.View>
-
-      {/* Real card data overlaid on the placeholder image. Sits over the
-          card wrapper (not the scaled image) so it stays inside the rounded
-          corners regardless of parallax. */}
-      <View pointerEvents="none" style={styles.cardOverlay}>
-        <View style={styles.cardOverlayTop}>
-          <Text size="xs" weight="bold" color="#FFFFFF" style={styles.cardBrandText}>
-            {brandLabel}
-          </Text>
-        </View>
-        <View style={styles.cardOverlayBottom}>
-          <Text size="2xl" weight="bold" color="#FFFFFF" style={styles.cardNumberText}>
-            •••• {last4}
-          </Text>
-          <View style={styles.cardOverlayMeta}>
-            <View>
-              <Text size="xs" weight="medium" color="rgba(255,255,255,0.7)">
-                EXPIRES
-              </Text>
-              <Text size="sm" weight="semiBold" color="#FFFFFF">
-                {expDisplay}
-              </Text>
-            </View>
-            {card.isDefault ? (
-              <View style={styles.cardDefaultBadge}>
-                <Text size="xs" weight="bold" color="#FFFFFF">
-                  DEFAULT
-                </Text>
-              </View>
-            ) : null}
-          </View>
-        </View>
-      </View>
+      <BrandedCardVisual
+        brand={card.brand ?? "generic"}
+        last4={card.last4}
+        expMonth={card.expMonth}
+        expYear={card.expYear}
+        cardholderName={card.cardholderName}
+        isDefault={!!card.isDefault}
+      />
     </Animated.View>
   );
 };
@@ -360,30 +311,25 @@ export function ActivityRewardsScreen() {
     removePaymentMethod,
     setDefaultPaymentMethod,
     transactions,
+    bumpPaymentMethodsRefresh,
   } = usePaymentStore(
     useShallow((state) => ({
       paymentMethods: state.paymentMethods,
       removePaymentMethod: state.removePaymentMethod,
       setDefaultPaymentMethod: state.setDefaultPaymentMethod,
       transactions: state.transactions,
+      bumpPaymentMethodsRefresh: state.bumpPaymentMethodsRefresh,
     }))
   );
 
-  const storeCards = useMemo(
-    () =>
-      paymentMethods.map((pm) => {
-        // Image is assigned at card creation time (pm.imageKey). Fallback to mono_1.
-        const image =
-          pm.imageKey === "mono_2"
-            ? require("@/assets/images/payments/realistic-monochromatic-credit-card_2.png")
-            : require("@/assets/images/payments/realistic-monochromatic-credit-card.png");
-
-        return { ...pm, image };
-      }),
-    [paymentMethods]
+  const detachPaymentMethodAction = useAction(
+    api.payments_stripe.detachPaymentMethod
+  );
+  const setDefaultPaymentMethodAction = useAction(
+    api.payments_stripe.setDefaultPaymentMethod
   );
 
-  const activeCards = storeCards;
+  const activeCards = paymentMethods;
   const hasCards = activeCards.length > 0;
 
   const [currentDotIndex, setCurrentDotIndex] = useState(0);
@@ -506,36 +452,27 @@ export function ActivityRewardsScreen() {
                     style={[styles.menuContainer, { top: insets.top + 20 }]}
                   >
                     <View style={styles.menuContent}>
-                      <TouchableOpacity
-                        style={styles.menuItem}
-                        onPress={() => {
-                          setIsMenuVisible(false);
-                          // Navigate to AddPaymentScreen in edit mode
-                          const activeCard = activeCards[currentDotIndex];
-                          router.push({
-                            pathname: "/add-payment",
-                            params: { mode: "edit", id: activeCard.id },
-                          });
-                        }}
-                      >
-                        <View style={styles.menuIconBox}>
-                          <Pencil size={18} color="#1F2937" />
-                        </View>
-                        <Text weight="medium" size="md" color="#1F2937">
-                          Edit card
-                        </Text>
-                      </TouchableOpacity>
-
                       {activeCards[currentDotIndex] &&
                       !activeCards[currentDotIndex].isDefault ? (
                         <>
-                          <View style={styles.menuSeparator} />
                           <TouchableOpacity
                             style={styles.menuItem}
-                            onPress={() => {
+                            onPress={async () => {
                               setIsMenuVisible(false);
                               const activeCard = activeCards[currentDotIndex];
-                              setDefaultPaymentMethod(activeCard.id);
+                              if (!activeCard) return;
+                              try {
+                                await setDefaultPaymentMethodAction({
+                                  paymentMethodId: activeCard.id,
+                                });
+                                setDefaultPaymentMethod(activeCard.id);
+                                bumpPaymentMethodsRefresh();
+                              } catch (err) {
+                                console.warn(
+                                  "[Payments] setDefaultPaymentMethod failed",
+                                  err
+                                );
+                              }
                             }}
                           >
                             <View style={styles.menuIconBox}>
@@ -545,18 +482,28 @@ export function ActivityRewardsScreen() {
                               Set as default
                             </Text>
                           </TouchableOpacity>
+                          <View style={styles.menuSeparator} />
                         </>
                       ) : null}
 
-                      <View style={styles.menuSeparator} />
-
                       <TouchableOpacity
                         style={styles.menuItem}
-                        onPress={() => {
+                        onPress={async () => {
                           setIsMenuVisible(false);
                           const activeCard = activeCards[currentDotIndex];
-                          removePaymentMethod(activeCard.id);
-                          console.log("Delete card");
+                          if (!activeCard) return;
+                          try {
+                            await detachPaymentMethodAction({
+                              paymentMethodId: activeCard.id,
+                            });
+                            removePaymentMethod(activeCard.id);
+                            bumpPaymentMethodsRefresh();
+                          } catch (err) {
+                            console.warn(
+                              "[Payments] detachPaymentMethod failed",
+                              err
+                            );
+                          }
                         }}
                       >
                         <View
@@ -883,54 +830,7 @@ const styles = StyleSheet.create({
   cardWrapper: {
     width: ITEM_WIDTH,
     height: CARD_HEIGHT,
-    overflow: "hidden",
-    borderRadius: 14,
     position: "relative",
-  },
-  cardImage: {
-    width: "100%",
-    height: "100%",
-    // The source asset has large transparent padding; scale up to remove padding
-    // while keeping the card fully visible (no cropping).
-    transform: [{ scale: 1.35 }],
-    borderRadius: 14,
-  },
-  cardOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    padding: 28,
-    justifyContent: "space-between",
-  },
-  cardOverlayTop: {
-    flexDirection: "row",
-    justifyContent: "flex-end",
-  },
-  cardOverlayBottom: {
-    gap: 16,
-  },
-  cardOverlayMeta: {
-    flexDirection: "row",
-    alignItems: "flex-end",
-    justifyContent: "space-between",
-  },
-  cardBrandText: {
-    letterSpacing: 2,
-    backgroundColor: "rgba(0,0,0,0.25)",
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 6,
-    overflow: "hidden",
-  },
-  cardNumberText: {
-    letterSpacing: 3,
-    textShadowColor: "rgba(0,0,0,0.35)",
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 3,
-  },
-  cardDefaultBadge: {
-    backgroundColor: "rgba(82,153,254,0.95)",
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 6,
   },
   pagination: {
     position: "absolute",

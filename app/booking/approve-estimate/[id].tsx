@@ -14,7 +14,7 @@
  * (Alert) — full FeedbackModal pattern is overkill for binary intent.
  */
 
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import {
   Alert,
   Pressable,
@@ -23,14 +23,17 @@ import {
   View,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useMutation, useQuery } from "convex/react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { ChevronLeft, AlertCircle } from "lucide-react-native";
+import { ChevronLeft, AlertCircle, AlertTriangle } from "lucide-react-native";
+import { useStripe } from "@stripe/stripe-react-native";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { Text } from "@/components/shared-ui";
 import { BrandColors, SemanticColors, Spacing } from "@/constants/theme";
 import { useOpenApprovalForBooking } from "@/hooks/useOpenApprovalForBooking";
+import { usePaymentStore } from "@/stores/usePaymentStore";
+import { useBookingStore } from "@/stores/useBookingStore";
 
 function formatUsd(cents: number | undefined | null): string {
   const v = ((cents ?? 0) / 100).toFixed(2);
@@ -43,9 +46,33 @@ const HEADER_BY_CYCLE: Record<string, string> = {
   post_job: "FINAL BREAKDOWN — PLEASE CONFIRM",
 };
 
+/**
+ * Top-level dispatcher. Decides whether the customer landed here to act on
+ * an open over-range estimate (the original purpose) or to confirm a new
+ * card hold after Stripe rejected the increment (`payment_approval_state ===
+ * "reauth_required"`). The reauth path enters via:
+ *   - Tap on the red `ApprovalBanner` rendered on the booking card.
+ *   - Tap on a `booking_reauth_required` notification (deep link includes
+ *     `mode=reauth`).
+ * We trust the param when present, but also re-check live state so a stale
+ * deep link can't render the wrong view.
+ */
 export default function ApproveEstimateScreen() {
-  const params = useLocalSearchParams<{ id: string }>();
+  const params = useLocalSearchParams<{ id: string; mode?: string }>();
   const bookingId = params.id as Id<"bookings">;
+  const booking = useQuery(api.bookings.getById, { id: bookingId });
+  const liveState = (
+    booking as { payment_approval_state?: string } | null | undefined
+  )?.payment_approval_state;
+  const isReauth = params.mode === "reauth" || liveState === "reauth_required";
+  return isReauth ? (
+    <ReauthView bookingId={bookingId} booking={booking} />
+  ) : (
+    <ApprovalDecisionView bookingId={bookingId} />
+  );
+}
+
+function ApprovalDecisionView({ bookingId }: { bookingId: Id<"bookings"> }) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { approval, isLoading } = useOpenApprovalForBooking(bookingId);
@@ -170,7 +197,14 @@ export default function ApproveEstimateScreen() {
 
         <View style={{ marginTop: Spacing.xl }}>
           <Text style={styles.muted}>Your mechanic's updated total</Text>
-          <Text style={styles.h3}>{formatUsd(approval.mechanic_set_price_cents)}</Text>
+          <Text
+            style={styles.h3}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.6}
+          >
+            {formatUsd(approval.mechanic_set_price_cents)}
+          </Text>
         </View>
 
         <View style={styles.divider} />
@@ -210,7 +244,7 @@ export default function ApproveEstimateScreen() {
           );
         })}
 
-        <View style={styles.divider} />
+        {/* <View style={styles.divider} /> */}
 
         <View style={styles.totalsBlock}>
           <View style={styles.totalRow}>
@@ -232,8 +266,20 @@ export default function ApproveEstimateScreen() {
             </View>
           )}
           <View style={[styles.totalRow, { marginTop: Spacing.sm }]}>
-            <Text weight="semiBold" style={styles.totalLabelBold}>Updated total</Text>
-            <Text weight="semiBold" style={styles.totalLabelBold}>
+            <Text
+              weight="semiBold"
+              style={styles.totalLabelBold}
+              numberOfLines={1}
+            >
+              Updated total
+            </Text>
+            <Text
+              weight="semiBold"
+              style={[styles.totalLabelBold, styles.totalValueRight]}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.75}
+            >
               {formatUsd(approval.mechanic_set_price_cents)}
             </Text>
           </View>
@@ -264,10 +310,303 @@ export default function ApproveEstimateScreen() {
           disabled={submitting !== null}
           style={[styles.btn, styles.btnApprove, submitting && { opacity: 0.7 }]}
         >
-          <Text weight="semiBold" style={styles.btnApproveText}>
-            {submitting === "approved"
-              ? "Approving…"
-              : `Approve ${formatUsd(approval.mechanic_set_price_cents)}`}
+          {submitting === "approved" ? (
+            <Text weight="semiBold" style={styles.btnApproveText}>
+              Approving…
+            </Text>
+          ) : (
+            <View style={styles.btnApproveStack}>
+              <Text weight="semiBold" style={styles.btnApproveLabel}>
+                Approve
+              </Text>
+              <Text
+                weight="bold"
+                style={styles.btnApproveAmount}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.7}
+              >
+                {formatUsd(approval.mechanic_set_price_cents)}
+              </Text>
+            </View>
+          )}
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+/**
+ * ReauthView — customer-side confirm-hold flow.
+ *
+ * Backend wrote `payment_approval_state = "reauth_required"` after Stripe's
+ * `incrementAuthorization` was rejected (SCA challenge required, processor
+ * refusal, or PM doesn't support incremental auth). The booking is parked
+ * until the customer confirms a new hold at the running approved ceiling
+ * (or attaches a new card).
+ *
+ * Flow:
+ *   1. Confirm-hold → call `createPaymentIntentForBooking` with the saved
+ *      PM. If `requiresAction`, drive `handleNextAction(clientSecret)` to
+ *      run the 3DS sheet. Backend webhook clears `payment_approval_state`
+ *      when the new PI lands in `requires_capture`.
+ *   2. Use a different card → navigate to the existing `/add-payment`
+ *      route. After the user saves, `usePaymentStore.selectPaymentMethod`
+ *      pre-selects it; they tap Confirm-hold to retry with the new PM.
+ *   3. Cancel booking → mirrors `BookingDetailsSheet` cancel (local store
+ *      patch + back). Convex-side cancel is server-driven elsewhere; we
+ *      intentionally don't duplicate that surface here.
+ */
+function ReauthView({
+  bookingId,
+  booking,
+}: {
+  bookingId: Id<"bookings">;
+  booking: any;
+}) {
+  const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const { handleNextAction } = useStripe();
+  // Reauth uses a dedicated action (NOT createPaymentIntentForBooking):
+  // the public booking action short-circuits when a PI already exists for
+  // the booking and just returns it — useless here because the existing
+  // PI is the stale $20 deposit. `resumeReauthFromMobile` cancels the old
+  // PI and creates a fresh one at the new approved ceiling, on-session,
+  // so Stripe can surface 3DS via `requires_action` for `handleNextAction`.
+  const resumeReauth = useAction(api.payments_stripe.resumeReauthFromMobile);
+  const selectedPaymentMethodId = usePaymentStore(
+    (s) => s.selectedPaymentMethodId,
+  );
+  const paymentMethods = usePaymentStore((s) => s.paymentMethods);
+  const [submitting, setSubmitting] = useState(false);
+
+  const isBookingLoading = booking === undefined;
+  // Prefer the approved ceiling (what backend will re-auth to). Fall back
+  // to mechanic_set_price_cents for older bookings that haven't been
+  // through the new approval cycle yet.
+  const newHoldCents: number =
+    booking?.running_approved_ceiling_cents ??
+    booking?.mechanic_set_price_cents ??
+    0;
+  const stillReauth = booking?.payment_approval_state === "reauth_required";
+
+  // Resolve which PM to charge. Prefer the user's current selection
+  // (which `AddPaymentScreen` updates after a save), then default,
+  // then the first saved card.
+  const pmId = useMemo<string | null>(() => {
+    if (selectedPaymentMethodId) return selectedPaymentMethodId;
+    const def = paymentMethods.find((pm) => pm.isDefault);
+    if (def) return def.id;
+    return paymentMethods[0]?.id ?? null;
+  }, [paymentMethods, selectedPaymentMethodId]);
+
+  const handleConfirmHold = useCallback(async () => {
+    if (submitting) return;
+    if (!pmId) {
+      Alert.alert(
+        "Add a card first",
+        "You don't have a saved card. Tap 'Use a different card' to add one.",
+      );
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const pi = await resumeReauth({
+        bookingId,
+        paymentMethodId: pmId,
+      });
+      if (pi.requiresAction) {
+        const { error } = await handleNextAction(pi.clientSecret);
+        if (error) {
+          throw new Error(
+            error.message ?? "Card authorization failed.",
+          );
+        }
+        // 3DS succeeded. The `amount_capturable_updated` webhook in
+        // otopair-web/convex/http.ts clears `payment_approval_state` from
+        // `reauth_required` once Stripe posts the event, so no explicit
+        // server call is needed here.
+      } else if (
+        pi.status !== "requires_capture" &&
+        pi.status !== "succeeded" &&
+        pi.status !== "processing"
+      ) {
+        throw new Error(`Card authorization failed (status: ${pi.status}).`);
+      }
+      router.back();
+    } catch (err: any) {
+      Alert.alert(
+        "Couldn't confirm hold",
+        err?.message ?? "Try again in a moment.",
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  }, [submitting, pmId, resumeReauth, bookingId, handleNextAction, router]);
+
+  const handleUseDifferentCard = useCallback(() => {
+    if (submitting) return;
+    router.push({ pathname: "/add-payment" } as any);
+  }, [submitting, router]);
+
+  const handleCancelBooking = useCallback(() => {
+    if (submitting) return;
+    Alert.alert(
+      "Cancel booking?",
+      "Your mechanic will be notified and the booking will be cancelled.",
+      [
+        { text: "Keep booking", style: "cancel" },
+        {
+          text: "Cancel booking",
+          style: "destructive",
+          onPress: () => {
+            useBookingStore.getState().cancelBooking(String(bookingId));
+            router.back();
+          },
+        },
+      ],
+    );
+  }, [submitting, bookingId, router]);
+
+  if (isBookingLoading) {
+    return (
+      <View style={[styles.root, { paddingTop: insets.top + Spacing.lg }]}>
+        <Pressable onPress={() => router.back()} style={styles.backBtn}>
+          <ChevronLeft size={24} color={BrandColors.primary} />
+          <Text style={styles.backLabel}>Back</Text>
+        </Pressable>
+        <View style={styles.center}>
+          <Text style={{ color: SemanticColors.textMuted }}>Loading…</Text>
+        </View>
+      </View>
+    );
+  }
+
+  // State may have cleared in flight (background webhook resolved). Show a
+  // calm confirmation rather than the scary "couldn't confirm" alert.
+  if (!stillReauth) {
+    return (
+      <View style={[styles.root, { paddingTop: insets.top + Spacing.lg }]}>
+        <Pressable onPress={() => router.back()} style={styles.backBtn}>
+          <ChevronLeft size={24} color={BrandColors.primary} />
+          <Text style={styles.backLabel}>Back</Text>
+        </Pressable>
+        <View style={styles.center}>
+          <Text style={{ color: SemanticColors.textMuted, textAlign: "center", paddingHorizontal: Spacing.xl }}>
+            Your card hold is already confirmed. No action needed.
+          </Text>
+        </View>
+      </View>
+    );
+  }
+
+  return (
+    <View style={[styles.root, { paddingTop: insets.top + Spacing.lg }]}>
+      <Pressable onPress={() => router.back()} style={styles.backBtn}>
+        <ChevronLeft size={24} color={BrandColors.primary} />
+        <Text style={styles.backLabel}>Back</Text>
+      </Pressable>
+
+      <ScrollView
+        contentContainerStyle={{
+          paddingHorizontal: Spacing.xl,
+          paddingBottom: 220 + insets.bottom,
+        }}
+        showsVerticalScrollIndicator={false}
+      >
+        <Text style={styles.h1}>CONFIRM NEW HOLD ON YOUR CARD</Text>
+
+        <View style={{ marginTop: Spacing.xl }}>
+          <Text style={styles.muted}>Your mechanic&apos;s updated total</Text>
+          <Text
+            style={styles.h3}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.6}
+          >
+            {formatUsd(newHoldCents)}
+          </Text>
+        </View>
+
+        <View style={styles.divider} />
+
+        <View style={styles.reauthBanner}>
+          <AlertTriangle size={18} color="#b91c1c" />
+          <Text style={styles.reauthBannerText}>
+            Your card couldn&apos;t confirm the higher hold automatically.
+            This is usually because your bank needs to verify the charge
+            with you. Confirm below — you may be prompted to authenticate
+            with your bank — or use a different card.
+          </Text>
+        </View>
+
+        <View style={{ marginTop: Spacing.xl }}>
+          <Text style={styles.muted}>What happens next</Text>
+          <Text style={styles.bodyText}>
+            We&apos;ll re-authorize {formatUsd(newHoldCents)} on your card
+            as a hold. You&apos;re only charged when work is complete.
+          </Text>
+        </View>
+      </ScrollView>
+
+      <View
+        style={[
+          styles.footer,
+          styles.footerStack,
+          { paddingBottom: insets.bottom + Spacing.md },
+        ]}
+      >
+        <Pressable
+          onPress={handleConfirmHold}
+          disabled={submitting}
+          style={[
+            styles.btn,
+            styles.btnApprove,
+            styles.btnFull,
+            submitting && { opacity: 0.7 },
+          ]}
+        >
+          <View style={styles.btnApproveStack}>
+            <Text weight="semiBold" style={styles.btnApproveLabel}>
+              {submitting ? "Confirming…" : "Confirm hold of"}
+            </Text>
+            {!submitting && (
+              <Text
+                weight="bold"
+                style={styles.btnApproveAmount}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.7}
+              >
+                {formatUsd(newHoldCents)}
+              </Text>
+            )}
+          </View>
+        </Pressable>
+
+        <Pressable
+          onPress={handleUseDifferentCard}
+          disabled={submitting}
+          style={[
+            styles.btn,
+            styles.btnSecondary,
+            styles.btnFull,
+            submitting && { opacity: 0.5 },
+          ]}
+        >
+          <Text weight="semiBold" style={styles.btnSecondaryText}>
+            Use a different card
+          </Text>
+        </Pressable>
+
+        <Pressable
+          onPress={handleCancelBooking}
+          disabled={submitting}
+          hitSlop={8}
+          style={styles.tertiaryLinkWrap}
+        >
+          <Text weight="semiBold" style={styles.tertiaryLinkText}>
+            Cancel booking
           </Text>
         </Pressable>
       </View>
@@ -294,9 +633,12 @@ const styles = StyleSheet.create({
   },
   h3: {
     fontSize: 32,
+    lineHeight: 42,
     color: BrandColors.primary,
     fontWeight: "700",
-    marginTop: 4,
+    marginTop: Spacing.xs,
+    paddingTop: 4,
+    includeFontPadding: true,
   },
   muted: { color: SemanticColors.textMuted, fontSize: 13 },
   bodyBold: {
@@ -336,6 +678,11 @@ const styles = StyleSheet.create({
   totalLabel: { color: SemanticColors.textSecondary },
   totalValue: { color: BrandColors.primary },
   totalLabelBold: { color: BrandColors.primary, fontSize: 16 },
+  totalValueRight: {
+    flexShrink: 1,
+    marginLeft: Spacing.md,
+    textAlign: "right",
+  },
   infoBanner: {
     flexDirection: "row",
     alignItems: "flex-start",
@@ -374,4 +721,45 @@ const styles = StyleSheet.create({
   btnDeclineText: { color: BrandColors.primary, fontSize: 16 },
   btnApprove: { backgroundColor: BrandColors.primary, flex: 1.4 },
   btnApproveText: { color: "#FFFFFF", fontSize: 16 },
+  btnApproveStack: {
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 2,
+    paddingHorizontal: Spacing.sm,
+  },
+  btnApproveLabel: { color: "#FFFFFF", fontSize: 12, opacity: 0.85 },
+  btnApproveAmount: { color: "#FFFFFF", fontSize: 18 },
+  // ── Reauth-only additions ────────────────────────────────────────────
+  bodyText: {
+    fontSize: 14,
+    color: SemanticColors.textSecondary,
+    lineHeight: 20,
+    marginTop: 4,
+  },
+  reauthBanner: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    backgroundColor: "#fef2f2",
+    borderColor: "#fca5a5",
+    borderWidth: 1,
+    padding: Spacing.md,
+    borderRadius: 10,
+    marginTop: Spacing.lg,
+  },
+  reauthBannerText: { flex: 1, color: "#7f1d1d", fontSize: 13, lineHeight: 18 },
+  footerStack: { flexDirection: "column", gap: Spacing.sm },
+  btnFull: { width: "100%", flex: 0 },
+  btnSecondary: {
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: SemanticColors.border,
+  },
+  btnSecondaryText: { color: BrandColors.primary, fontSize: 15 },
+  tertiaryLinkWrap: {
+    paddingVertical: Spacing.sm,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  tertiaryLinkText: { color: "#b91c1c", fontSize: 14 },
 });

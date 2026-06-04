@@ -95,13 +95,14 @@ const OTO_LOGO_3D = require("@/assets/images/pin-logo-3d.png");
 import { SettingsHeaderCard } from "@/components/settings/SettingsHeaderCard";
 import { SettingsRow } from "@/components/settings/SettingsRow";
 import { useAuth, useUser } from "@clerk/clerk-expo";
-import { useQuery } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useOnboardingStore } from "@/stores/useOnboardingStore";
 import { usePaymentStore } from "@/stores/usePaymentStore";
 import { clearUserSessionState } from "@/lib/session-state";
 import { useTransactionsFromConvex } from "@/hooks/useTransactionsFromConvex";
+import { useSettingsOverlayStore } from "@/stores/useSettingsOverlayStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 import { computeInitials } from "@/utils/userInitials";
 
@@ -153,10 +154,9 @@ export function SettingsContent({
   onScrollOffsetChange,
 }: SettingsContentProps) {
   const insets = useSafeAreaInsets();
-  // Settings rows now render inside the /profile-overlay ROUTE (was a
-  // Modal). Normal router.push stacks destinations on top of the
+  // Settings rows render inside the layout-mounted SettingsOverlay
+  // (not a route). Normal router.push stacks destinations on top of the
   // overlay; back gestures reveal the overlay still mounted underneath.
-  // No wrapping needed — let Expo Router handle the navigation.
   const router = useRouter();
 
   const { signOut, userId: clerkUserId } = useAuth();
@@ -173,6 +173,11 @@ export function SettingsContent({
   const bookingIds = useBookingStore((s) => s.bookingIds);
   const bookings = useBookingStore((s) => s.bookings);
   const vehicleIds = useVehicleStore((s) => s.vehicleIds);
+  // For rows whose destination is a layout sibling of the overlay (the
+  // Cars tab) — we morph closed first, then route in the spring's
+  // finished callback. Pushed-route destinations don't need this; they
+  // stack on top of the overlay normally.
+  const requestCloseOverlay = useSettingsOverlayStore((s) => s.requestClose);
   const paymentMethods = usePaymentStore((s) => s.paymentMethods);
   const { transactions: convexTransactions } = useTransactionsFromConvex(
     me?._id ?? undefined,
@@ -280,6 +285,7 @@ export function SettingsContent({
   // Handlers
   const [isLogoutVisible, setIsLogoutVisible] = useState(false);
   const [isFeedbackVisible, setIsFeedbackVisible] = useState(false);
+  const submitAppFeedback = useMutation(api.app_feedback.submit);
 
   const handleConfirmLogout = useCallback(async () => {
     setIsLogoutVisible(false);
@@ -460,7 +466,12 @@ export function SettingsContent({
                 : "View & manage"
             }
             icon={<Car size={22} color="#FFFFFF" />}
-            onPress={() => router.push("/cars")}
+            // The Cars tab is a sibling of the overlay in (main-tabs)/_layout,
+            // so a plain tab switch wouldn't cover the overlay — request a
+            // close morph first, then route once the spring lands.
+            onPress={() =>
+              requestCloseOverlay(() => router.push("/cars"))
+            }
           />
           <SettingsHeaderCard
             variant="action"
@@ -771,12 +782,22 @@ export function SettingsContent({
         visible={isFeedbackVisible}
         onClose={() => setIsFeedbackVisible(false)}
         onSubmit={async (text) => {
+          // Persist to Convex `app_feedback` so the director-side queue
+          // sees it under status="new". Also stash a local copy in the
+          // onboarding store for the existing UI surfaces that read from
+          // there (keeps any history-display behavior working offline).
           addFeedbackSubmission(text);
-          const latest = useOnboardingStore
-            .getState()
-            .data.feedbackSubmissions.slice(-1)[0];
-          console.log("Feedback submitted:", latest);
-          await new Promise((r) => setTimeout(r, 450));
+          try {
+            await submitAppFeedback({
+              text,
+              source: Platform.OS === "ios" ? "consumer_ios" : "consumer_android",
+            });
+          } catch (err) {
+            console.warn("[settings] app_feedback.submit failed:", err);
+            // Re-throw so the modal stays open and surfaces the failure to
+            // the user (its own catch keeps `isSubmitting` cleared).
+            throw err;
+          }
         }}
       />
     </View>

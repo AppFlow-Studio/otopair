@@ -13,7 +13,7 @@ import ReAnimated, {
 } from "react-native-reanimated";
 import { useIsFocused } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
-import { ArrowLeft, Check as CheckIcon, Copy, Info, X } from "lucide-react-native";
+import { ArrowLeft, Briefcase, Car, Check as CheckIcon, ChevronDown, Copy, Info, Plus, Route, Sparkles, Star, Sun, Users, X } from "lucide-react-native";
 import * as Clipboard from "expo-clipboard";
 import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -31,6 +31,12 @@ import { useVehicleOwnershipFromConvex } from "@/hooks/useVehicleOwnershipFromCo
 import { useMergedMaintenance } from "@/hooks/useMaintenanceData";
 import { useDriverRecommendationsFromConvex } from "@/hooks/useDriverRecommendationsFromConvex";
 import { useBookingStore } from "@/stores/useBookingStore";
+import {
+  MAINTENANCE_TYPE_TO_CATEGORY,
+  extractMaintenanceType,
+  findServiceForMaintenanceType,
+  findServiceFromDescription,
+} from "@/lib/maintenanceServiceMapping";
 import { useTireBookingStore } from "@/stores/useTireBookingStore";
 import type { Id } from "@/convex/_generated/dataModel";
 import { ALL_MAINTENANCE_TYPES, MAINTENANCE_LABELS, type MaintenanceType } from "@/utils/maintenanceStatus";
@@ -39,7 +45,8 @@ import { computeVehicleHealthScore, type HealthScoreInput } from "@/utils/health
 // 4. Shared UI
 import { Text } from "@/components/shared-ui";
 import { OilIcon, BrakesIcon, TireIcon, BatteryIcon, WarningIcon } from "@/components/cars/ServiceIcons";
-import { fetchVehicleImageUrl, inferColorFamily } from "@/utils/vehicleImage";
+import { fetchVehicleImageUrl, inferColorFamily, pickPaintFamilyFromSwatches } from "@/utils/vehicleImage";
+import { COLOR_GRADIENTS, DEFAULT_GRADIENTS } from "@/constants/colorGradients";
 import { isDarkColor } from "@/utils/contrast";
 import { scale, verticalScale, moderateScale } from '@/utils/responsive';
 
@@ -47,6 +54,7 @@ const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 
 // 5. Flow-specific components
 import CarCarousel, { Vehicle } from "@/components/cars/CarCarousel";
+import { VehicleRoleSheet } from "@/components/cars/VehicleRoleSheet";
 import { ProfileInitialsButton } from "@/components/home/ProfileInitialsButton";
 import LoyaltyPoints from "@/components/cars/LoyaltyPoints";
 import MaintenanceTracker from "@/components/cars/MaintenanceTracker";
@@ -58,6 +66,9 @@ import { AnimatedGradientBackground } from "@/components/shared-ui/AnimatedGradi
 import ServiceHistory, { ServiceRecord, type PickedDocument } from "@/components/cars/ServiceHistory";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 import { PostOptimizeBookingSheet } from "@/components/cars/PostOptimizeBookingSheet";
+import { PackageQuestionsSheet } from "@/components/cars/PackageQuestionsSheet";
+import { useVehicleReadiness } from "@/hooks/useVehicleReadiness";
+import { ChevronRight, Wrench } from "lucide-react-native";
 
 // ============================================================================
 // HELPERS
@@ -85,17 +96,22 @@ function titleCase(str: string): string {
 // strong contrast between the top pair and the bottom + a tight
 // transition window (see `locations` below) is what produces the
 // visible "floor line" at the tire zone.
-// Three-stop palettes that mirror the home screen's brightness curve
-// (`STATIC_GRADIENT` in ScrollDrivenGradientBackground:
-// ['#86C2E8','#B0D6F0','#EAF2FA']) — saturated mid-tone at the top,
-// a softer tint in the middle, near-white at the bottom — tinted per
-// car color so the cars page reads as part of the same light-mode app.
-// Stops are evenly distributed (no `locations` prop) for the same
-// smooth top→bottom fade home uses.
-const DEFAULT_GRADIENTS = [
-  ["#A6B5D0", "#C5CFDE", "#EDF0F5"],
-  ["#86C2E8", "#B0D6F0", "#EAF2FA"],
-];
+// COLOR_GRADIENTS + DEFAULT_GRADIENTS are shared with add-vehicle-review.tsx;
+// see constants/colorGradients.ts for the source.
+
+// react-native-image-colors is a native (autolinked) module. Guard the
+// require so a build that hasn't linked it yet (i.e. before the next
+// dev/EAS build) silently falls back to the default gradient instead of
+// crashing at import. Used to tint the background from the car image
+// when a vehicle has no stored paint color (e.g. a VDB exterior-only car).
+let getImageColors:
+  | ((uri: string, config?: Record<string, unknown>) => Promise<any>)
+  | null = null;
+try {
+  getImageColors = require("react-native-image-colors").getColors;
+} catch {
+  getImageColors = null;
+}
 
 /**
  * Derives the desaturated-dark RGB triple ("r, g, b", no alpha) from a
@@ -125,18 +141,6 @@ function shadowTintFromHex(hex: string, alpha: number): string {
   return `rgba(${darkRgbFromHex(hex)}, ${alpha})`;
 }
 
-const COLOR_GRADIENTS: Record<string, string[]> = {
-  black:            ["#8E96A7", "#B8BFCD", "#ECEFF4"],
-  "midnight-silver":["#8190A5", "#AEB9C9", "#EAEEF3"],
-  silver:           ["#8290A0", "#AEB7C6", "#EAEDF2"],
-  white:            ["#B8C2D0", "#D0D7E1", "#F2F5F9"],
-  gray:             ["#525C70", "#8B96A8", "#EBEEF3"],
-  red:              ["#E8909C", "#F0B5BE", "#FBE2E5"],
-  blue:             ["#86C2E8", "#B0D6F0", "#EAF2FA"],
-  green:            ["#7BCBA7", "#A8DDC1", "#E4F3EB"],
-  beige:            ["#D4B189", "#E4CCAE", "#F6EAD6"],
-  brown:            ["#B98D6A", "#D0AC8D", "#EFE0CD"],
-};
 
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
@@ -151,7 +155,7 @@ export default function CarsHomeScreen() {
   const aiStepBottomClearance = scale(118) + insets.bottom;
   const isFocused = useIsFocused();
   const router = useRouter();
-  const params = useLocalSearchParams<{ openStepper?: string }>();
+  const params = useLocalSearchParams<{ openStepper?: string; focusVin?: string }>();
   const [refreshing, setRefreshing] = useState(false);
   // Active vehicle is tracked by VIN so adding/removing a car (which can
   // re-sort the list via `isDefault` then VIN) doesn't scramble which car is
@@ -675,6 +679,11 @@ export default function CarsHomeScreen() {
   const { userId } = useUserFromConvex();
   const { vehicles: listVehicles, isLoading } = useVehicleOwnershipFromConvex();
   const updateOwnershipPrimary = useMutation(api.vehicles.updateOwnershipPrimary);
+  const setVehicleRole = useMutation(api.vehicles.setVehicleRole);
+  // Role picker (garageRole). Opened by the role tag, and auto-shown once
+  // after onboarding completes (deferred until the celebration settles).
+  const [showRoleSheet, setShowRoleSheet] = useState(false);
+  const [pendingRoleAsk, setPendingRoleAsk] = useState(false);
   const resetOnboarding = useMutation(api.vehicles.resetVehicleOnboarding);
   const removeOwner = useMutation(api.vehicles.removeOwner);
   const autoCompleteNewVehicle = useMutation(api.vehicles.autoCompleteNewVehicleOnboarding);
@@ -769,15 +778,16 @@ export default function CarsHomeScreen() {
   }, [listVehicles]);
 
   // Map Convex list to Vehicle[] for CarCarousel (also track ownership IDs + raw ownership)
-  const { vehicles, ownershipIds, ownerships } = useMemo(() => {
+  const { vehicles, ownershipIds, ownerships, colorFamilies } = useMemo(() => {
     if (!listVehicles?.length) return {
       vehicles: [] as Vehicle[],
       ownershipIds: [] as (Id<"vehicle_owners"> | undefined)[],
       ownerships: [] as (Record<string, any> | undefined)[],
+      colorFamilies: [] as (string | null)[],
     };
 
     // Build paired list of vehicles + ownership IDs + raw ownership records
-    const paired: { vehicle: Vehicle; ownershipId: Id<"vehicle_owners"> | undefined; ownership: Record<string, any> | undefined }[] = [];
+    const paired: { vehicle: Vehicle; ownershipId: Id<"vehicle_owners"> | undefined; ownership: Record<string, any> | undefined; colorFamily: string | null }[] = [];
     listVehicles.forEach((r: any, i: number) => {
       const v = r.vehicle;
       const o = r.ownership;
@@ -815,6 +825,7 @@ export default function CarsHomeScreen() {
         },
         ownershipId: o?._id,
         ownership: o,
+        colorFamily: familyId,
       });
     });
 
@@ -829,6 +840,7 @@ export default function CarsHomeScreen() {
       vehicles: paired.map((p) => p.vehicle),
       ownershipIds: paired.map((p) => p.ownershipId),
       ownerships: paired.map((p) => p.ownership),
+      colorFamilies: paired.map((p) => p.colorFamily),
     };
   }, [listVehicles, vehicleImageUrls]);
 
@@ -841,12 +853,36 @@ export default function CarsHomeScreen() {
   }, [vehicles, activeVehicleVin]);
 
   // Seed / heal the VIN anchor when vehicles load or the active vehicle disappears.
+  // Prefer the store's selectedVehicleId so an upstream `selectVehicle(vin)`
+  // call (e.g. home's View button or whole-card tap) is honored on first mount.
+  // Falls back to the first vehicle (primary) only when the store is empty or
+  // out of sync.
   useEffect(() => {
     if (vehicles.length === 0) return;
     if (!activeVehicleVin || !vehicles.some((v) => v.vin === activeVehicleVin)) {
-      setActiveVehicleVin(vehicles[0].vin);
+      const storeVin = useVehicleStore.getState().selectedVehicleId;
+      const target =
+        storeVin && vehicles.some((v) => v.vin === storeVin)
+          ? storeVin
+          : vehicles[0].vin;
+      setActiveVehicleVin(target);
     }
   }, [vehicles, activeVehicleVin]);
+
+  // One-shot: when navigated here with `?focusVin=...` (e.g. from
+  // health-estimating after onboarding a new car), anchor the carousel
+  // to that vehicle once it appears in the list. Fires only once so the
+  // user can swipe to a different car afterwards without snapping back.
+  const focusVinApplied = useRef(false);
+  useEffect(() => {
+    if (focusVinApplied.current) return;
+    const target = params.focusVin?.toUpperCase().trim();
+    if (!target) return;
+    if (vehicles.some((v) => v.vin === target)) {
+      setActiveVehicleVin(target);
+      focusVinApplied.current = true;
+    }
+  }, [params.focusVin, vehicles]);
 
   // Callback for CarCarousel — it speaks in indices, we translate back to VIN.
   const handleActiveIndexChange = useCallback(
@@ -865,6 +901,73 @@ export default function CarsHomeScreen() {
   }, [activeVehicle]);
   const activeOwnershipId = useMemo(() => ownershipIds[activeVehicleIndex], [ownershipIds, activeVehicleIndex]);
   const activeOwnership = useMemo(() => ownerships[activeVehicleIndex], [ownerships, activeVehicleIndex]);
+
+  // ── Vehicle readiness (status pill + package-question CTA) ──
+  // See docs/TICKET_PACKAGE_QUESTIONS.md. While the pipeline runs, shows
+  // "Setting up your car…". Once data exists, surfaces a CTA for any
+  // unanswered package questions; answers persist to vehicle_owner_specs.
+  const vehicleReadiness = useVehicleReadiness(activeOwnershipId);
+  const [showPackageQuestionsSheet, setShowPackageQuestionsSheet] = useState(false);
+
+  const handleSelectRole = useCallback(
+    (role: string | null) => {
+      const vin = activeVehicle?.vin;
+      if (!vin || !userId) return;
+      // garageRole is the single source of truth; "Primary" also flips the
+      // default car (handled server-side in setVehicleRole).
+      setVehicleRole({ vin, userId, role }).catch(() => {});
+    },
+    [activeVehicle?.vin, userId, setVehicleRole],
+  );
+
+  // The active vehicle's stored paint-color family (null when none was
+  // saved — e.g. a VDB exterior-only car like a single-color CR-V).
+  const activeColorFamily = useMemo(() => colorFamilies[activeVehicleIndex], [colorFamilies, activeVehicleIndex]);
+
+  // Background gradient sampled from the car image, keyed by VIN. Only
+  // filled for vehicles with no stored paint color, and only when the
+  // native image-colors module is linked (after the next dev/EAS build);
+  // until then it stays empty and the default gradient shows.
+  const [imageGradientByVin, setImageGradientByVin] = useState<Record<string, string[]>>({});
+
+  useEffect(() => {
+    if (!getImageColors) return; // native module not linked yet
+    if (activeColorFamily) return; // already has a stored color
+    const vin = activeVehicle?.vin;
+    const uri = (activeVehicle?.imageSource as { uri?: string } | undefined)?.uri;
+    if (!vin || !uri) return;
+    if (imageGradientByVin[vin]) return; // already sampled this car
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const FALLBACK = "#9aa4b2";
+        const res = await getImageColors!(uri, { fallback: FALLBACK, cache: true, key: vin });
+        // Candidate swatches, PROMINENT-FIRST per platform. pickPaint…
+        // chooses the most saturated (the car body) over neutral
+        // wheels/glass/lighting, then classifies by hue.
+        const candidates: (string | undefined)[] =
+          res?.platform === "ios"
+            ? [res.background, res.primary, res.secondary, res.detail]
+            : res?.platform === "android"
+              ? [res.dominant, res.vibrant, res.darkVibrant, res.lightVibrant, res.muted, res.darkMuted, res.lightMuted, res.average]
+              : [res?.dominant, res?.vibrant, res?.darkVibrant, res?.lightVibrant, res?.muted];
+        const family = pickPaintFamilyFromSwatches(
+          candidates.filter((c) => c && c.toLowerCase() !== FALLBACK),
+        );
+        const gradient = family ? COLOR_GRADIENTS[family] : null;
+        if (gradient && !cancelled) {
+          setImageGradientByVin((prev) => ({ ...prev, [vin]: gradient }));
+        }
+      } catch {
+        // Native module missing or sampling failed — keep the default bg.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeColorFamily, activeVehicle?.vin, activeVehicle?.imageSource, imageGradientByVin]);
+
   const isPreOnboardingComplete = activeOwnership?.preOnboardingComplete === true;
 
   // Onboarding state.
@@ -884,6 +987,43 @@ export default function CarsHomeScreen() {
   // full-screen overlay so content behind it is not visible — no need to gate on sheet flags.
   const showPostOnboardingContent =
     isPreOnboardingComplete && isOnboardingComplete && !gearsOverlayVisible;
+
+  // After onboarding finishes (onComplete sets pendingRoleAsk), wait for the
+  // celebration/gears overlay to settle, then auto-open the role picker once.
+  // Must not open while the post-optimize booking sheet (or health sheet) is
+  // up — two sheets presenting at the same instant freezes the app. The gears
+  // dismiss flips gearsOverlayVisible→false AND showOptimizeBookingSheet→true
+  // in one batch, so we gate on those and let this re-fire once they close
+  // (pendingRoleAsk stays set until the role sheet actually opens).
+  useEffect(() => {
+    if (
+      pendingRoleAsk &&
+      showPostOnboardingContent &&
+      !showOptimizeBookingSheet &&
+      !showHealthRingSheet &&
+      !showRoleSheet
+    ) {
+      // Defer so the prior sheet's RN Modal has time to dismiss + unmount
+      // before we mount the role-sheet Modal. Two simultaneous Modals
+      // freeze the JS thread on iOS — happens when tapping "Book Later"
+      // on PostOptimizeBookingSheet: state flips synchronously but the
+      // Modal stays mounted through its ~300ms close animation. 500ms
+      // covers that plus a safety buffer. Cleanup clears the timer if
+      // any guard dep changes during the delay (e.g. user re-opens the
+      // optimize sheet), so no stale opens slip through.
+      const t = setTimeout(() => {
+        setPendingRoleAsk(false);
+        setShowRoleSheet(true);
+      }, 500);
+      return () => clearTimeout(t);
+    }
+  }, [
+    pendingRoleAsk,
+    showPostOnboardingContent,
+    showOptimizeBookingSheet,
+    showHealthRingSheet,
+    showRoleSheet,
+  ]);
   const activeOwnershipMileage = activeOwnership?.mileage as number | undefined;
   const isNewVehicle = isPreOnboardingComplete && !isOnboardingComplete
     && activeOwnershipMileage != null && activeOwnershipMileage <= 1000;
@@ -1129,11 +1269,17 @@ export default function CarsHomeScreen() {
   // Active vehicle's gradient colors for the background. Covered cars
   // get the canonical blue palette regardless of their stored color.
   const activeGradient = useMemo(
-    () =>
-      isCoveredCar
-        ? COLOR_GRADIENTS.blue
-        : (activeVehicle?.gradientColors ?? DEFAULT_GRADIENTS[0]),
-    [isCoveredCar, activeVehicle?.gradientColors]
+    () => {
+      if (isCoveredCar) return COLOR_GRADIENTS.blue;
+      // No stored paint color → prefer a gradient sampled from the car
+      // image (populated once the native image-colors module is linked).
+      if (!activeColorFamily && activeVehicle?.vin) {
+        const sampled = imageGradientByVin[activeVehicle.vin];
+        if (sampled) return sampled;
+      }
+      return activeVehicle?.gradientColors ?? DEFAULT_GRADIENTS[0];
+    },
+    [isCoveredCar, activeColorFamily, activeVehicle?.vin, activeVehicle?.gradientColors, imageGradientByVin]
   );
   // Static text on this page (vehicle name, mileage, "Maintenance
   // Tracker" header) sits over the top stop of the gradient. When
@@ -1345,7 +1491,63 @@ export default function CarsHomeScreen() {
         {/* Profile button (far left) + dev pills + VIN info button (right) */}
         <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: scale(16), marginBottom: scale(4), zIndex: 10, position: "relative" }}>
           <ProfileInitialsButton />
-          <View style={{ flex: 1, flexDirection: "row", flexWrap: "wrap", gap: scale(6), marginLeft: scale(12) }}>
+          <View style={{ flex: 1, flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: scale(6), marginLeft: scale(12) }}>
+            {!!activeVehicle?.vin && (() => {
+              const role = activeOwnership?.garageRole?.trim() ?? "";
+              const hasRole = role.length > 0;
+              // Match the role-sheet's icon language so the pill, the
+              // sheet rows, and the sheet's hero card all read as one
+              // visual system. Custom strings fall to Sparkles; empty
+              // state uses Plus to read as an invitation.
+              const RoleIcon = !hasRole
+                ? Plus
+                : (() => {
+                    switch (role.toLowerCase()) {
+                      case "primary": return Star;
+                      case "secondary": return Car;
+                      case "commuter": return Route;
+                      case "family": return Users;
+                      case "weekend": return Sun;
+                      case "work": return Briefcase;
+                      default: return Sparkles;
+                    }
+                  })();
+              const isPrimary = role.toLowerCase() === "primary";
+              return (
+                <Pressable
+                  onPress={() => setShowRoleSheet(true)}
+                  hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                  style={({ pressed }) => [
+                    {
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: scale(5),
+                      backgroundColor: hasRole ? "#FFFFFF" : "#EEF4FF",
+                      paddingHorizontal: scale(10),
+                      paddingVertical: scale(5),
+                      borderRadius: moderateScale(14),
+                      shadowColor: "#0F172A",
+                      shadowOpacity: 0.08,
+                      shadowRadius: scale(5),
+                      shadowOffset: { width: 0, height: scale(1) },
+                      elevation: 2,
+                    },
+                    pressed && { opacity: 0.7 },
+                  ]}
+                >
+                  <RoleIcon
+                    size={scale(12)}
+                    color="#5299FE"
+                    strokeWidth={2.2}
+                    {...(isPrimary ? { fill: "#5299FE" } : {})}
+                  />
+                  <Text weight="bold" size="xs" color="#5299FE">
+                    {hasRole ? titleCase(role) : "Add role"}
+                  </Text>
+                  <ChevronDown size={scale(12)} color="#5299FE" />
+                </Pressable>
+              );
+            })()}
             {/* Redo Info — commented out (dev-only). Uncomment to restore.
             {isPreOnboardingComplete && showPostOnboardingContent && activeOwnershipId && (
               <Pressable
@@ -1363,14 +1565,8 @@ export default function CarsHomeScreen() {
               </Pressable>
             )}
             */}
-            {!!activeVehicle?.vin && !!userId && (
-              <Pressable
-                style={({ pressed }) => [{ paddingVertical: scale(4), paddingHorizontal: scale(10), borderRadius: moderateScale(12), backgroundColor: "rgba(239,68,68,0.12)" }, pressed && { opacity: 0.7 }]}
-                onPress={handleRemoveActiveVehicle}
-              >
-                <Text weight="semiBold" size="xs" color="#DC2626">Remove</Text>
-              </Pressable>
-            )}
+            {/* Remove Vehicle moved to the bottom of the page as a primary
+                red CTA. See the section below LoyaltyPoints. */}
             {/* Demo Check-In — commented out (dev-only). Uncomment to restore.
             {activeOwnershipId && isPreOnboardingComplete && (
               <Pressable
@@ -1407,9 +1603,10 @@ export default function CarsHomeScreen() {
         {/* ═══════════════════════════════════════════════════════════════════
             TOP SECTION: Vehicle Carousel
         ═══════════════════════════════════════════════════════════════════ */}
-        <View style={styles.topSection}>
+        <View style={styles.topSection} className="">
           <CarCarousel
             vehicles={vehicles}
+            activeVehicleId={activeVehicleVin ?? undefined}
             onActiveIndexChange={handleActiveIndexChange}
             onEditMileage={(id) => {
               // TODO: Implement mileage edit flow - open modal or inline edit
@@ -1445,7 +1642,10 @@ export default function CarsHomeScreen() {
           const strokeDashoffset = circumference * (1 - estScore / 100);
           const center = ringSize / 2;
           return (
-          <View style={styles.quickReadCard}>
+          // key on vin so swiping between two no-tracker cars
+          // remounts the card — pulse rings + content arrive fresh
+          // every time, same feel as today's tracker↔placeholder switch.
+          <View key={activeVehicle?.vin ?? "no-vehicle"} style={styles.quickReadCard}>
             <View style={{ alignItems: "center", justifyContent: "center", width: scale(140), height: scale(140), marginBottom: scale(12) }}>
               <Animated.View style={{ position: "absolute", width: scale(160), height: scale(160), borderRadius: scale(80), backgroundColor: "#94A3B8", opacity: 0.12, transform: [{ scale: quickReadPulse }] }} />
               <Animated.View style={{ position: "absolute", width: scale(130), height: scale(130), borderRadius: scale(65), backgroundColor: "#94A3B8", opacity: 0.06, transform: [{ scale: quickReadPulse }] }} />
@@ -1566,9 +1766,57 @@ export default function CarsHomeScreen() {
             />
           )}
 
+          {/* Vehicle readiness — "Setting up your car…" while enriching,
+              "Confirm your car's specs" CTA when package questions are pending.
+              See docs/TICKET_PACKAGE_QUESTIONS.md. */}
+          {activeOwnershipId && vehicleReadiness.status === "enriching" && (
+            <View style={readinessStyles.pill}>
+              <View style={readinessStyles.pillIcon}>
+                <Wrench size={14} color="#6B7280" strokeWidth={2} />
+              </View>
+              <View style={readinessStyles.pillBody}>
+                <Text size="sm" weight="semiBold" color="#374151">
+                  Setting up your car…
+                </Text>
+                <Text size="xs" weight="regular" color="#6B7280">
+                  Building your vehicle profile. Services will appear when ready.
+                </Text>
+              </View>
+            </View>
+          )}
+          {activeOwnershipId &&
+            vehicleReadiness.status === "ready" &&
+            vehicleReadiness.pendingPackages.length > 0 && (
+              <Pressable
+                onPress={() => setShowPackageQuestionsSheet(true)}
+                style={({ pressed }) => [
+                  readinessStyles.cta,
+                  pressed && readinessStyles.ctaPressed,
+                ]}
+              >
+                <View style={readinessStyles.ctaIcon}>
+                  <Wrench size={14} color="#5299FE" strokeWidth={2} />
+                </View>
+                <View style={readinessStyles.pillBody}>
+                  <Text size="sm" weight="semiBold" color="#141C24">
+                    Confirm your car&apos;s specs
+                  </Text>
+                  <Text size="xs" weight="regular" color="#5299FE">
+                    {vehicleReadiness.pendingPackages.length}{" "}
+                    {vehicleReadiness.pendingPackages.length === 1
+                      ? "question"
+                      : "questions"}{" "}
+                    to make booking accurate
+                  </Text>
+                </View>
+                <ChevronRight size={18} color="#5299FE" strokeWidth={2} />
+              </Pressable>
+            )}
+
           {/* Maintenance tracker (shown after onboarding + sheet dismissed) */}
           {showPostOnboardingContent && (
             <MaintenanceTracker
+              key={activeVehicle?.vin ?? "no-vehicle"}
               items={mergedMaintenanceItems}
               vehicleCondition={computedHealthScore}
               healthScoreInput={healthScoreInput}
@@ -1580,10 +1828,29 @@ export default function CarsHomeScreen() {
                 // stash the rec id so createBatch wires it into the booking
                 // (auto-closes the rec on completion).
                 const tapped = mergedMaintenanceItems.find((m) => m.id === id);
-                useBookingStore.getState().setSourceRecommendationId(
-                  tapped?.sourceRecommendationId ?? null,
+                const store = useBookingStore.getState();
+                store.setSourceRecommendationId(tapped?.sourceRecommendationId ?? null);
+                // Deep-link the service selector and pre-attach the natural
+                // primary service so the cart isn't empty when the sheet
+                // opens. User can swap in the selector.
+                const itemType = extractMaintenanceType(id);
+                // Prefer a description-matched service (e.g. "Brake System
+                // Inspection" from "have brakes inspected soon"). Falls back
+                // to the slug default for the type when the description
+                // doesn't literally name a catalog service.
+                const explicit = tapped?.description
+                  ? findServiceFromDescription(tapped.description, store.availableServices)
+                  : undefined;
+                const matched = explicit ?? findServiceForMaintenanceType(itemType, store.availableServices);
+                // Use the matched service's own category for the tab —
+                // important when the matcher picks across categories (e.g.
+                // Brake System Inspection lives in system_diagnostics).
+                store.setInitialServiceCategory(
+                  matched?.category ?? MAINTENANCE_TYPE_TO_CATEGORY[itemType] ?? 'basic_maintenance',
                 );
-                router.push('/booking/map');
+                store.clearSelectedServices();
+                if (matched) store.toggleServiceSelection(matched.id);
+                router.push('/booking/map?openServices=true');
               }}
               onTakeAction={(item) => {
                 const vin = activeVehicle?.vin;
@@ -1684,6 +1951,23 @@ export default function CarsHomeScreen() {
               router.push('/membership');
             }}
           />}
+
+          {/* Remove Vehicle — destructive primary CTA at the bottom of the
+              page. Shape/size mirrors the AIWelcomeScreen Continue button
+              exactly (BorderRadius.xl = 16, Spacing.lg = 16 padding, Shadows.md). */}
+          {!!activeVehicle?.vin && !!userId && (
+            <Pressable
+              onPress={handleRemoveActiveVehicle}
+              style={({ pressed }) => [
+                styles.removeVehicleButton,
+                pressed && styles.removeVehicleButtonPressed,
+              ]}
+            >
+              <Text style={styles.removeVehicleButtonText} weight="semiBold">
+                Remove Vehicle
+              </Text>
+            </Pressable>
+          )}
         </View>
       </ScrollView>
       </Animated.View>
@@ -1882,12 +2166,15 @@ export default function CarsHomeScreen() {
                   vehicleYear={activeVehicle?.year ?? 0}
                   skipIntro
                   onBack={closeHealthSheet}
+                  onFinishForNow={closeHealthSheet}
                   onComplete={() => {
                     console.log('[CarInfoStepper] onComplete fired — SHEET instance');
                     setOnboardingDoneForId(activeOwnershipId);
                     celebrationFlowActive.current = true;
                     setCelebrationActive(true);
                     animateToConfirmedScore();
+                    // Ask for the car's role once the celebration settles.
+                    setPendingRoleAsk(true);
                   }}
                 />
               )}
@@ -2080,7 +2367,13 @@ export default function CarsHomeScreen() {
       {/* Fullscreen gears overlay */}
       {gearsOverlayVisible && (
         <Animated.View style={[StyleSheet.absoluteFillObject, { opacity: gearsOverlayOpacity, zIndex: 35 }]}>
-          <View style={[StyleSheet.absoluteFill, { backgroundColor: '#FFFFFF' }]} pointerEvents="none" />
+          <LinearGradient
+            colors={['#FFFFFF', '#FFFFFF', '#D6EAF8']}
+            start={{ x: 0.5, y: 0 }}
+            end={{ x: 0.5, y: 1 }}
+            style={StyleSheet.absoluteFill}
+            pointerEvents="none"
+          />
           {/* Building phase: car image + sequential AI task list, all in
               ONE ScrollView so title + car + steps scroll as a single
               surface (no fixed/scroll boundary = no seam). */}
@@ -2278,9 +2571,84 @@ export default function CarsHomeScreen() {
         </View>
       </Modal>
 
+      <VehicleRoleSheet
+        visible={showRoleSheet}
+        currentRole={activeOwnership?.garageRole as string | undefined}
+        vehicleName={activeVehicleLabel}
+        onClose={() => setShowRoleSheet(false)}
+        onSelect={handleSelectRole}
+      />
+
+      {/* Package questions — opens from the "Confirm your car's specs" CTA. */}
+      {activeOwnershipId && (
+        <PackageQuestionsSheet
+          visible={showPackageQuestionsSheet}
+          vehicleOwnerId={activeOwnershipId}
+          questions={vehicleReadiness.pendingPackages}
+          vehicleLabel={activeVehicleLabel ?? ""}
+          onClose={() => setShowPackageQuestionsSheet(false)}
+        />
+      )}
+
     </View>
   );
 }
+
+// ============================================================================
+// READINESS PILL / CTA STYLES (Setting up… / Confirm your car's specs)
+// ============================================================================
+
+const readinessStyles = StyleSheet.create({
+  pill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginHorizontal: scale(16),
+    marginTop: scale(8),
+    paddingVertical: scale(10),
+    paddingHorizontal: scale(12),
+    backgroundColor: "#F3F4F6",
+    borderRadius: moderateScale(12),
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+  },
+  cta: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginHorizontal: scale(16),
+    marginTop: scale(8),
+    paddingVertical: scale(10),
+    paddingHorizontal: scale(12),
+    backgroundColor: "rgba(82, 153, 254, 0.08)",
+    borderRadius: moderateScale(12),
+    borderWidth: 1,
+    borderColor: "rgba(82, 153, 254, 0.25)",
+  },
+  ctaPressed: {
+    opacity: 0.7,
+  },
+  pillIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: "#E5E7EB",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  ctaIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: "rgba(82, 153, 254, 0.15)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  pillBody: {
+    flex: 1,
+    gap: 2,
+  },
+});
 
 // ============================================================================
 // EDIT PICKER BOTTOM SHEET STYLES
@@ -2595,6 +2963,28 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#FFFFFF",
+  },
+  removeVehicleButton: {
+    backgroundColor: "#B91C1C",
+    borderRadius: 16,
+    paddingVertical: 16,
+    alignItems: "center",
+    marginTop: scale(56),
+    marginBottom: scale(40),
+    marginHorizontal: scale(16),
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  removeVehicleButtonPressed: {
+    opacity: 0.9,
+    transform: [{ scale: 0.98 }],
+  },
+  removeVehicleButtonText: {
+    color: "#FFFFFF",
+    fontSize: 16,
   },
   emptyContainer: {
     justifyContent: "center",

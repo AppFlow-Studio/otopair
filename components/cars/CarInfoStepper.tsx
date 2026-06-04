@@ -92,6 +92,10 @@ interface CarInfoStepperProps {
   vehicleModel: string;
   vehicleYear: number;
   onComplete: () => void;
+  /** Called from the "Finish for now" link (partial exit). Falls back to
+   *  `onComplete` when omitted. Lets callers route the early-exit path
+   *  away from the full celebration flow — e.g. just close the sheet. */
+  onFinishForNow?: () => void;
   skipIntro?: boolean;
   onBack?: () => void;
 }
@@ -358,7 +362,9 @@ function CardGridItem({ cardId, isDone, isJustCompleted, progress, onPress, isWi
     >
       <ReAnimated.View style={pressStyle}>
         <Pressable
-          disabled={isCompleted}
+          // Completed cards stay tappable so the user can re-open the
+          // overlay and change a previous answer. The overlay prefills
+          // from serviceAnswers, so they pick up right where they left off.
           onPressIn={() => { pressScale.value = withSpring(0.96, { damping: 20, stiffness: 300 }); }}
           onPressOut={() => { pressScale.value = withSpring(1, { damping: 20, stiffness: 300 }); }}
           onPress={onPress}
@@ -499,6 +505,7 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
   vehicleModel,
   vehicleYear,
   onComplete,
+  onFinishForNow,
   skipIntro = false,
   onBack,
 }: CarInfoStepperProps, ref) {
@@ -695,7 +702,7 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
     goBack: () => { if (activeCard) handleOverlayDismiss(); },
   }), [activeCard, handleOverlayDismiss]);
 
-  // ── Complete handler ────────────────────────────────────────
+  // ── Complete handler (all 5 answered → "Complete" button) ──────────
   const handleComplete = useCallback(async () => {
     setSaving(true);
     try {
@@ -705,7 +712,6 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
           await saveField({ vehicleOwnerId, field: cardId, value: answers });
         }
       }
-      // Ensure onboardingComplete is set even if not all questions were answered ("Finish for now")
       await markComplete({ vehicleOwnerId });
       onComplete();
     } catch (err) {
@@ -715,6 +721,32 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
       setSaving(false);
     }
   }, [vehicleOwnerId, serviceAnswers, saveField, markComplete, onComplete]);
+
+  // ── Finish-for-now handler (partial exit) ──────────────────────────
+  // Saves any answered fields (so progress isn't lost on re-open) but
+  // intentionally does NOT call `markComplete` — the user opted out, so
+  // `onboardingComplete` stays false. That keeps the Cars page in its
+  // pre-onboarding view (estimated score + "Get a quick read" CTA) and
+  // lets the user re-open the sheet via the CTA whenever they're ready.
+  // Routes to `onFinishForNow` (typically the parent's close-sheet
+  // handler), falling back to `onComplete` for legacy callers.
+  const handleFinishForNow = useCallback(async () => {
+    setSaving(true);
+    try {
+      for (const cardId of ALL_CARD_IDS) {
+        const answers = serviceAnswers[cardId];
+        if (answers && Object.keys(answers).length > 0) {
+          await saveField({ vehicleOwnerId, field: cardId, value: answers });
+        }
+      }
+      (onFinishForNow ?? onComplete)();
+    } catch (err) {
+      console.error("[CarInfoStepper] Finish-for-now save failed:", err);
+      (onFinishForNow ?? onComplete)();
+    } finally {
+      setSaving(false);
+    }
+  }, [vehicleOwnerId, serviceAnswers, saveField, onFinishForNow, onComplete]);
 
   // ── All-done state ──────────────────────────────────────────
   const allDone = completedCards.size === ALL_CARD_IDS.length;
@@ -831,13 +863,12 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
     const meta = STEP_META[stepId];
     return (
       <View style={{ flex: 1 }}>
-        <LinearGradient
-          colors={['#D0E7F4', '#DFEDF6', '#EBF2F8', '#F3F7FA', '#FAFCFD', '#FFFFFF']}
-          locations={[0, 0.18, 0.35, 0.5, 0.7, 1]}
-          start={{ x: 0.5, y: 0 }}
-          end={{ x: 0.5, y: 1 }}
-          style={{ position: 'absolute', top: verticalScale(-150), left: 0, right: 0, bottom: 0 }}
-        />
+        {/* Background is owned by the parent (e.g. cars/index.tsx renders an
+            AnimatedGradientBackground across the entire modal; ServiceBottomSheet
+            uses a solid white). The local white→blue gradient we used to layer
+            here only covered the body, so it created a visible seam where the
+            parent's gradient ended and this one began. Let the parent's
+            background bleed through unbroken. */}
         <View style={s.steppingPage}>
           {/* Header */}
           <Animated.View style={[s.steppingHeader, { opacity: mountHeaderFade }]}>
@@ -868,7 +899,7 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
           </Animated.View>
 
           {/* Footer */}
-          <Animated.View style={[s.steppingFooter, { paddingBottom: insets.bottom + scale(24), opacity: mountFooterFade }]}>
+          <Animated.View style={[s.steppingFooter, { paddingBottom: insets.bottom + scale(4), opacity: mountFooterFade }]}>
             {/* Progress dots */}
             <View style={s.dotsRow}>
               {ALL_CARD_IDS.map((id) => (
@@ -905,7 +936,7 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
             {!canGoNext() && (
               <Pressable
                 style={({ pressed }) => [s.finishForNowButton, pressed && { opacity: 0.7 }]}
-                onPress={handleComplete}
+                onPress={handleFinishForNow}
                 disabled={saving}
               >
                 <Text weight="medium" size="sm" color="#829BAD" style={{ fontSize: moderateScale(14), textDecorationLine: "underline" }}>
@@ -1058,7 +1089,8 @@ const s = StyleSheet.create({
   },
   steppingBody: {
     flex: 1,
-    marginTop: 0,
+    // Slight breathing room below the title/subtitle.
+    marginTop: scale(20),
   },
   steppingFooter: {
     paddingTop: scale(16),

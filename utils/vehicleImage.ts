@@ -28,6 +28,66 @@ const BASE_URL = "https://api.vehicledatabases.com/vehicle-images";
 const TRIM_OPTIONS_URL = "https://api.vehicledatabases.com/ymm-specs/options/v3/trim";
 const API_KEY = process.env.EXPO_PUBLIC_VEHICLE_DB_API_KEY ?? "";
 
+// ──────────────────────────────────────────────────────────────
+// VDB request throttle — cold loads fire ~15+ requests (colors +
+// variants + image fetches, each with multi-URL fallbacks). VDB throttles
+// bursts with 429s, which previously broke the image and aggregation on
+// BMW. A simple concurrency cap (3 in-flight) + per-endpoint cooldown
+// (~10s on 429) keeps us under the rate limit and short-circuits the
+// cascade when we hit it.
+// ──────────────────────────────────────────────────────────────
+const VDB_MAX_CONCURRENT = 3;
+const VDB_COOLDOWN_MS = 10_000;
+
+let vdbInFlight = 0;
+const vdbWaitQueue: Array<() => void> = [];
+const vdbCooldownUntil = new Map<string, number>();
+
+function vdbCooldownKey(url: string): string {
+  // Group ALL calls to the same endpoint type under one cooldown.
+  // VDB's rate limit is global per-account, not per-model, so cooling
+  // `/vehicle-images/2026/BMW/530i` separately from `/vehicle-images/
+  // 2026/BMW/530` doesn't help — they share the same limit. Coalesce
+  // to just the top-level endpoint: `/vehicle-images`, `/ymm-specs`, etc.
+  return url.replace(/^https?:\/\/[^/]+/, "").split("/").slice(0, 2).join("/");
+}
+
+function markVdbCooldown(url: string): void {
+  const key = vdbCooldownKey(url);
+  vdbCooldownUntil.set(key, Date.now() + VDB_COOLDOWN_MS);
+  console.warn(`[vdbThrottle] 429 — cooling down ${key} for ${VDB_COOLDOWN_MS / 1000}s`);
+}
+
+function isVdbCoolingDown(url: string): boolean {
+  const until = vdbCooldownUntil.get(vdbCooldownKey(url));
+  return !!until && Date.now() < until;
+}
+
+/**
+ * Throttled wrapper around `fetch` for VDB requests. Caps concurrent
+ * in-flight calls at VDB_MAX_CONCURRENT (queues the rest) and short-
+ * circuits with a synthetic 429 when the endpoint is in a cooldown
+ * window (just hit 429 in the last 10s).
+ */
+async function vdbFetch(url: string, init?: RequestInit): Promise<Response> {
+  if (isVdbCoolingDown(url)) {
+    return new Response(null, { status: 429, statusText: "vdb-cooldown" });
+  }
+  if (vdbInFlight >= VDB_MAX_CONCURRENT) {
+    await new Promise<void>((resolve) => vdbWaitQueue.push(resolve));
+  }
+  vdbInFlight++;
+  try {
+    const response = await fetch(url, init);
+    if (response.status === 429) markVdbCooldown(url);
+    return response;
+  } finally {
+    vdbInFlight--;
+    const next = vdbWaitQueue.shift();
+    if (next) next();
+  }
+}
+
 /**
  * Fetch VDB's canonical trim strings for a year/make/model.
  *
@@ -40,31 +100,86 @@ const API_KEY = process.env.EXPO_PUBLIC_VEHICLE_DB_API_KEY ?? "";
  *
  * Empty array means VDB has no record for that YMM combination.
  */
-export async function fetchVdbTrimsForYmm(
+/**
+ * Build model-name variants to try against VDB's catalog. VDB indexes by
+ * the manufacturer's preferred model name, which doesn't always match the
+ * family-style name we get from decode — e.g. "GLE-Class" → catalog uses
+ * "GLE". Variants are deduplicated and probed in order until one returns
+ * trims.
+ */
+function normalizeModels(model: string): string[] {
+  const m = model.trim();
+  if (!m) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const add = (s: string) => {
+    const t = s.trim();
+    if (!t) return;
+    const k = t.toLowerCase();
+    if (seen.has(k)) return;
+    seen.add(k);
+    out.push(t);
+  };
+  add(m);
+  // Strip common family-suffix words: Mercedes "GLE-Class" → "GLE",
+  // BMW "5 Series" → "5", plus body-type tails some makes append.
+  add(m.replace(/[-\s]?(Class|Series|Wagon|Hatchback|Sedan|Coupe|Convertible)$/i, ""));
+  // Hyphen ↔ space — different makes use different separators.
+  add(m.replace(/-/g, " "));
+  add(m.replace(/\s+/g, "-"));
+  return out;
+}
+
+const MODEL_OPTIONS_URL = "https://api.vehicledatabases.com/ymm-specs/options/v3/model";
+
+// Session cache for canonical model lists keyed by `${year}|${make}`.
+// One fetch per (year, make) is plenty since the same combination is
+// re-queried during retries.
+const VDB_MODELS_CACHE = new Map<string, string[]>();
+
+/**
+ * Fetch VDB's canonical model names for a year/make from
+ * `ymm-specs/options/v3/model`. Used as a universal backstop when our
+ * candidate model strings (decode/NHTSA/heuristic-stripped) don't match
+ * the catalog — we fuzzy-match the caller's model against this list to
+ * find the right canonical name.
+ *
+ * Returns `[]` on any failure (incl. 401 — endpoint may need to be
+ * enabled by VDB on the account, same as trim-options was).
+ */
+export async function fetchVdbModelsForYmm(
   year: number,
   make: string,
-  model: string,
 ): Promise<string[]> {
+  const cacheKey = `${year}|${make.toLowerCase().trim()}`;
+  const cached = VDB_MODELS_CACHE.get(cacheKey);
+  if (cached !== undefined) return cached;
   try {
     const makes = normalizeMakes(make);
-    for (const m of makes) {
-      const url = `${TRIM_OPTIONS_URL}/${year}/${encodeURIComponent(m)}/${encodeURIComponent(model)}`;
-      console.log("[vdbTrims] GET", url);
-      const response = await fetch(url, { headers: { "x-AuthKey": API_KEY } });
-      console.log("[vdbTrims] status", response.status);
-      if (!response.ok) {
-        try {
-          const errBody = await response.text();
-          console.log("[vdbTrims] err body:", errBody.slice(0, 500));
-        } catch {}
-        continue;
+    for (const mk of makes) {
+      const url = `${MODEL_OPTIONS_URL}/${year}/${encodeURIComponent(mk)}`;
+      console.log("[vdbModels] GET", url);
+      const response = await vdbFetch(url, { headers: { "x-AuthKey": API_KEY } });
+      console.log("[vdbModels] status", response.status);
+      if (response.status === 401) {
+        console.warn(
+          "[vdbModels] 401 — VDB account doesn't have access to " +
+            "ymm-specs/options/v3/model. Ask VDB to enable it for the " +
+            "universal trim-resolver backstop.",
+        );
+        VDB_MODELS_CACHE.set(cacheKey, []);
+        return [];
       }
+      if (!response.ok) continue;
       const json = await response.json();
-      console.log("[vdbTrims] raw:", JSON.stringify(json).slice(0, 500));
       if (json.status !== "success" || !Array.isArray(json.data)) continue;
-      const trims = json.data.filter((t: unknown): t is string => typeof t === "string");
-      if (trims.length > 0) return trims;
+      const models = json.data.filter((m: unknown): m is string => typeof m === "string");
+      if (models.length > 0) {
+        VDB_MODELS_CACHE.set(cacheKey, models);
+        return models;
+      }
     }
+    VDB_MODELS_CACHE.set(cacheKey, []);
     return [];
   } catch {
     return [];
@@ -141,6 +256,40 @@ export function extractModelCandidates(args: {
   return candidates;
 }
 
+/**
+ * From VDB's canonical trim list, pick the entry that best matches the
+ * vehicle's actual trim. Scores each canonical trim by how many tokens
+ * of the target trim(s) it contains, e.g. decoded "3.0T Prestige" →
+ * VDB's "3.0T Prestige quattro 4dr All-Wheel Drive Sedan 8sp Automatic".
+ * Falls back to the first canonical trim when nothing overlaps, so the
+ * image still resolves (same body, possibly a different sub-trim).
+ */
+export function pickBestVdbTrim(
+  canonicalTrims: string[],
+  targets: Array<string | undefined>,
+): string | undefined {
+  if (canonicalTrims.length === 0) return undefined;
+  // Keep dotted tokens together ("3.0t") so engine sizes match.
+  const tokenize = (s: string) =>
+    s.toLowerCase().split(/[^a-z0-9.]+/).filter((t) => t.length > 0);
+  const targetTokens = new Set(
+    targets.filter((t): t is string => !!t).flatMap(tokenize),
+  );
+  if (targetTokens.size === 0) return canonicalTrims[0];
+
+  let best = canonicalTrims[0];
+  let bestScore = -1;
+  for (const trim of canonicalTrims) {
+    const score = tokenize(trim).filter((t) => targetTokens.has(t)).length;
+    // Higher overlap wins; tie → prefer the shorter (simpler) trim.
+    if (score > bestScore || (score === bestScore && trim.length < best.length)) {
+      best = trim;
+      bestScore = score;
+    }
+  }
+  return bestScore > 0 ? best : canonicalTrims[0];
+}
+
 // Module-level cache keyed by `${year}|${make-normalized}|${candidate}`.
 // Stores `null` when a probe definitively returned no trims so we
 // don't re-fetch known-empty combos within the session.
@@ -150,118 +299,42 @@ function discoveryCacheKey(year: number, make: string, candidate: string): strin
   return `${year}|${make.toLowerCase().trim()}|${candidate.toLowerCase().trim()}`;
 }
 
-// Tracks once-per-session whether the VDB account has access to the
-// `ymm-specs` API. After the first 401, subsequent discovery calls
-// skip the ymm-specs probe and go straight to direct vehicle-images
-// probes, saving the failed round-trip and the noise in the logs.
-let YMM_SPECS_UNAVAILABLE = false;
-
 /**
- * Probe `fetchVdbTrimsForYmm` once and remember whether the API is
- * reachable. Returns `{ trims, accessible }` so the caller can
- * distinguish "no records" from "no access".
+ * Probe VDB's `ymm-specs/options/v3/trim` endpoint for the canonical
+ * trim list for a year/make/model. Returns `[]` on any failure (non-200,
+ * malformed body, network error) — callers treat "no trims" the same
+ * regardless of cause.
  */
 async function probeYmmSpecsTrims(
   year: number,
   make: string,
   model: string,
-): Promise<{ trims: string[]; accessible: boolean }> {
-  if (YMM_SPECS_UNAVAILABLE) {
-    return { trims: [], accessible: false };
-  }
+): Promise<string[]> {
   try {
     const url = `${TRIM_OPTIONS_URL}/${year}/${encodeURIComponent(make)}/${encodeURIComponent(model)}`;
-    const response = await fetch(url, { headers: { "x-AuthKey": API_KEY } });
-    if (response.status === 401) {
-      if (!YMM_SPECS_UNAVAILABLE) {
-        console.warn(
-          "[vdbDiscovery] ymm-specs API returned 401 — account doesn't have access. " +
-            "Falling back to direct vehicle-images probes (less reliable). " +
-            "Ask VDB to add the ymm-specs/options/v3 package for robust model discovery.",
-        );
-        YMM_SPECS_UNAVAILABLE = true;
-      }
-      return { trims: [], accessible: false };
-    }
-    if (!response.ok) return { trims: [], accessible: true };
+    const response = await vdbFetch(url, { headers: { "x-AuthKey": API_KEY } });
+    if (!response.ok) return [];
     const json = await response.json();
-    if (json.status !== "success" || !Array.isArray(json.data)) {
-      return { trims: [], accessible: true };
-    }
-    const trims = json.data.filter((t: unknown): t is string => typeof t === "string");
-    return { trims, accessible: true };
+    if (json.status !== "success" || !Array.isArray(json.data)) return [];
+    return json.data.filter((t: unknown): t is string => typeof t === "string");
   } catch {
-    return { trims: [], accessible: true };
+    return [];
   }
 }
 
 /**
- * Direct `vehicle-images` YMMT probe — falls back here when
- * `ymm-specs` is unavailable. Hits the full YMMT URL with a guess
- * trim and considers the probe a hit when VDB returns
- * `data.images.colors[]` non-empty.
+ * Try each candidate model string against VDB's `ymm-specs/options/v3/trim`
+ * endpoint and return the first one that yields a canonical trim list.
+ * Caches both hits and misses for the session.
  *
- * Returns the same shape as the ymm-specs path: a `trims: string[]`
- * with the trim that worked, so the caller can re-fetch colors
- * the same way.
- */
-async function probeVehicleImagesYmmt(
-  year: number,
-  make: string,
-  model: string,
-  trims: string[],
-): Promise<{ trims: string[] } | null> {
-  for (const trim of trims) {
-    if (!trim.trim()) continue;
-    const url = `${BASE_URL}/${year}/${encodeURIComponent(make)}/${encodeURIComponent(model)}/${encodeURIComponent(trim)}`;
-    console.log("[vdbDiscovery] direct probe", url);
-    try {
-      const response = await fetch(url, { headers: { "x-AuthKey": API_KEY } });
-      if (!response.ok) continue;
-      const json = await response.json();
-      if (json.status !== "success") continue;
-      const colorUrls: string[] = json.data?.images?.colors ?? [];
-      const exteriorUrls: string[] = json.data?.images?.exterior ?? [];
-      if (colorUrls.length > 0 || exteriorUrls.length > 0) {
-        return { trims: [trim] };
-      }
-    } catch {
-      // try next trim
-    }
-  }
-  return null;
-}
-
-/**
- * Try each candidate model string against VDB's catalog. First tries
- * the `ymm-specs` trim-options endpoint (cleanest); when that's
- * unavailable (401) or returns empty, falls back to direct
- * `vehicle-images` YMMT probes with the caller's trim candidates.
- *
- * Returns the first candidate that yields data. `null` when nothing
- * matches.
+ * Returns `null` when no candidate matches.
  */
 export async function discoverVdbModel(args: {
   year: number;
   make: string;
   candidates: string[];
-  /** Trim strings to use for direct vehicle-images probes when
-   *  ymm-specs is unavailable. Caller passes everything it has —
-   *  NHTSA raw trim, merged trim, etc. */
-  probeTrims?: string[];
 }): Promise<{ model: string; trims: string[] } | null> {
-  const { year, make, candidates, probeTrims = [] } = args;
-  // Dedup + drop blanks for direct probes.
-  const seenTrims = new Set<string>();
-  const cleanProbeTrims = probeTrims
-    .map((t) => t.trim())
-    .filter((t) => {
-      if (!t) return false;
-      const k = t.toLowerCase();
-      if (seenTrims.has(k)) return false;
-      seenTrims.add(k);
-      return true;
-    });
+  const { year, make, candidates } = args;
 
   for (const candidate of candidates) {
     const key = discoveryCacheKey(year, make, candidate);
@@ -271,32 +344,9 @@ export async function discoverVdbModel(args: {
       continue; // cached miss
     }
 
-    // ── Path A: ymm-specs (preferred when accessible) ───────────────
-    const { trims, accessible } = await probeYmmSpecsTrims(year, make, candidate);
+    const trims = await probeYmmSpecsTrims(year, make, candidate);
     if (trims.length > 0) {
       const result = { model: candidate, trims };
-      VDB_MODEL_DISCOVERY_CACHE.set(key, result);
-      return result;
-    }
-    // ymm-specs returned non-empty access but no trims → genuine miss.
-    if (accessible) {
-      VDB_MODEL_DISCOVERY_CACHE.set(key, null);
-      continue;
-    }
-
-    // ── Path B: direct vehicle-images probe (ymm-specs 401) ────────
-    if (cleanProbeTrims.length === 0) {
-      VDB_MODEL_DISCOVERY_CACHE.set(key, null);
-      continue;
-    }
-    const direct = await probeVehicleImagesYmmt(
-      year,
-      make,
-      candidate,
-      cleanProbeTrims,
-    );
-    if (direct) {
-      const result = { model: candidate, trims: direct.trims };
       VDB_MODEL_DISCOVERY_CACHE.set(key, result);
       return result;
     }
@@ -309,33 +359,232 @@ export async function discoverVdbModel(args: {
  * React hook variant of `fetchVdbTrimsForYmm`. Returns the trim list
  * and a loading flag. Re-fetches when year/make/model change.
  */
-export function useVdbTrims(
+/**
+ * A user-selectable variant: a (model, trim) pair. Each picker row in
+ * the trim sheet is one of these — picking one drives BOTH the trim
+ * label AND the catalog model used for image/colors lookups. Critical
+ * because some makes split engine variants into separate top-level
+ * models (Mercedes: `GLE 350`, `GLE 450`, `GLE 580` each have one trim).
+ */
+export type VdbVariant = { model: string; trim: string };
+
+/**
+ * Aggregate trims across every catalog model whose name shares a token
+ * with the family hint. Handles VDB's per-make data split — Mercedes
+ * GLE-Class has no family-level model, just `GLE 350` / `GLE 450` /
+ * `GLE 580` etc. Each VdbVariant carries its source model so downstream
+ * image/colors lookups use the right URL.
+ *
+ * Returns `[]` when the model-list endpoint is unavailable (logged 401)
+ * or no model in the catalog matches the hint.
+ */
+async function aggregateVdbVariantsForFamily(
+  year: number,
+  make: string,
+  familyHint: string,
+): Promise<VdbVariant[]> {
+  const allModels = await fetchVdbModelsForYmm(year, make);
+  if (allModels.length === 0) return [];
+
+  // Strip common family-suffix tokens that would match too broadly
+  // (every Mercedes model contains "Class", which would lump GLE + GLS +
+  // S + C together).
+  const SUFFIX_TOKENS = new Set([
+    "class", "series", "wagon", "sedan", "coupe", "hatchback", "convertible",
+  ]);
+  const tokenize = (s: string) =>
+    s.toLowerCase().split(/[^a-z0-9.]+/).filter((t) => t.length > 0);
+  const hintTokens = new Set(
+    tokenize(familyHint).filter((t) => !SUFFIX_TOKENS.has(t)),
+  );
+  if (hintTokens.size === 0) return [];
+
+  const matching = allModels.filter((m) => {
+    const tokens = tokenize(m);
+    return tokens.some((t) => hintTokens.has(t));
+  });
+  if (matching.length === 0) return [];
+
+  // Fetch trims for each matching model in parallel; flatten into
+  // (model, trim) pairs.
+  const results = await Promise.all(
+    matching.map(async (model) => {
+      const trims = await probeYmmSpecsTrims(year, make, model);
+      return trims.map((trim) => ({ model, trim }));
+    }),
+  );
+  return results.flat();
+}
+
+/**
+ * Resolve VDB's full variant list ({model, trim}[]) for a vehicle without
+ * per-car heuristics. First probes every model candidate (VDB decode →
+ * NHTSA → token/suffix-stripped) and picks the one returning the most
+ * trims; in parallel runs the model-list aggregation for the family hint
+ * (handles Mercedes-style splits). Returns whichever path produced more
+ * variants.
+ *
+ * Each variant carries its source model so the caller can pass it to
+ * `vehicle-images/{year}/{make}/{model}/{trim}` correctly.
+ */
+export async function resolveVdbVariantsForVehicle(args: {
+  year: number;
+  make: string;
+  model: string;
+  /** VDB advanced-vin-decode's own model (most likely catalog-shaped). */
+  vdbDecodedModel?: string;
+  /** NHTSA raw Model — often the catalog-specific name. */
+  nhtsaModel?: string;
+  /** NHTSA raw Series. */
+  nhtsaSeries?: string;
+  /** NHTSA raw Trim. */
+  nhtsaTrim?: string;
+  /** Merged trim (decode/normalized). */
+  trim?: string;
+}): Promise<VdbVariant[]> {
+  const { year, make, model } = args;
+  if (!year || !make || !model) return [];
+
+  // Build candidate list, deduped, in priority order.
+  const seen = new Set<string>();
+  const candidates: string[] = [];
+  const push = (s?: string | null) => {
+    const t = (s ?? "").trim();
+    if (!t) return;
+    const k = t.toLowerCase();
+    if (seen.has(k)) return;
+    seen.add(k);
+    candidates.push(t);
+  };
+  // 1. VDB's own decode model first — most likely to match the catalog.
+  push(args.vdbDecodedModel);
+  // 2. extractModelCandidates handles family → designation token strip
+  //    (e.g. BMW "5 Series" + trim "530i" → "530").
+  for (const c of extractModelCandidates({
+    nhtsaModel: args.nhtsaModel,
+    model,
+    series: args.nhtsaSeries,
+    nhtsaTrim: args.nhtsaTrim,
+    trim: args.trim,
+  })) {
+    push(c);
+  }
+  // 3. Suffix-stripped variants (Mercedes "GLE-Class" → "GLE", separator
+  //    swaps, BMW "5 Series" → "5", etc.).
+  for (const v of normalizeModels(model)) push(v);
+
+  // Path A: candidate iteration — pick the candidate returning the most
+  // trims. Works for makes where one catalog model carries many trims
+  // (Audi A6, Honda Civic, often BMW).
+  let bestCandidate: { model: string; trims: string[] } | null = null;
+  for (const candidate of candidates) {
+    const discovered = await discoverVdbModel({ year, make, candidates: [candidate] });
+    if (!discovered) continue;
+    if (!bestCandidate || discovered.trims.length > bestCandidate.trims.length) {
+      bestCandidate = discovered;
+    }
+    // Early-out at 4+ trims — clearly the family list, no need to keep
+    // probing (saves the model-list fetch in the common case).
+    if (bestCandidate.trims.length >= 4) {
+      return bestCandidate.trims.map((trim) => ({ model: bestCandidate!.model, trim }));
+    }
+  }
+
+  // Path B: aggregate across all catalog models matching the family
+  // hint. Required for makes that split engine variants into separate
+  // top-level models (Mercedes GLE → GLE 350 / GLE 450 / GLE 580 each
+  // their own model).
+  const aggregated = await aggregateVdbVariantsForFamily(year, make, model);
+
+  // Pick whichever path produced more variants. Convert candidate trims
+  // to variants under the winning model.
+  const candidateVariants: VdbVariant[] = bestCandidate
+    ? bestCandidate.trims.map((trim) => ({ model: bestCandidate!.model, trim }))
+    : [];
+  if (aggregated.length > candidateVariants.length) {
+    console.log(
+      `[vdbVariants] aggregation won (${aggregated.length} variants vs candidate ${candidateVariants.length}) for ${year} ${make} ${model}`,
+    );
+    return aggregated;
+  }
+  if (candidateVariants.length > 0) return candidateVariants;
+
+  // Last-resort backstop: fuzzy-match the family hint against the full
+  // catalog (e.g. exotic family names) and use just that one model.
+  const canonicalModels = await fetchVdbModelsForYmm(year, make);
+  if (canonicalModels.length === 0) return [];
+  const matched = pickBestVdbTrim(canonicalModels, [
+    args.vdbDecodedModel,
+    args.nhtsaModel,
+    model,
+    args.trim,
+  ]);
+  if (!matched) return [];
+  console.log(
+    `[vdbVariants] both paths empty; matched "${model}" → "${matched}" via fuzzy fallback`,
+  );
+  const retry = await discoverVdbModel({ year, make, candidates: [matched] });
+  if (!retry) return [];
+  return retry.trims.map((trim) => ({ model: retry.model, trim }));
+}
+
+/**
+ * React hook wrapper around `resolveVdbVariantsForVehicle`. Returns the
+ * variant list ({model, trim}[]) and a loading flag; re-fetches when any
+ * input signal changes.
+ *
+ * `extras` is optional so manual-entry callers (no VIN decode) can call
+ * with just year/make/model.
+ */
+export function useVdbVariants(
   year: number | undefined,
   make: string,
   model: string,
-): { trims: string[]; isLoading: boolean } {
-  const [trims, setTrims] = useState<string[]>([]);
+  extras?: {
+    vdbDecodedModel?: string;
+    nhtsaModel?: string;
+    nhtsaSeries?: string;
+    nhtsaTrim?: string;
+    trim?: string;
+  },
+): { variants: VdbVariant[]; isLoading: boolean } {
+  const [variants, setVariants] = useState<VdbVariant[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+
+  const vdbDecodedModel = extras?.vdbDecodedModel;
+  const nhtsaModel = extras?.nhtsaModel;
+  const nhtsaSeries = extras?.nhtsaSeries;
+  const nhtsaTrim = extras?.nhtsaTrim;
+  const trim = extras?.trim;
 
   useEffect(() => {
     if (!year || !make || !model) {
-      setTrims([]);
+      setVariants([]);
       setIsLoading(false);
       return;
     }
     let cancelled = false;
     setIsLoading(true);
-    fetchVdbTrimsForYmm(year, make, model).then((result) => {
+    resolveVdbVariantsForVehicle({
+      year,
+      make,
+      model,
+      vdbDecodedModel,
+      nhtsaModel,
+      nhtsaSeries,
+      nhtsaTrim,
+      trim,
+    }).then((result) => {
       if (cancelled) return;
-      setTrims(result);
+      setVariants(result);
       setIsLoading(false);
     });
     return () => {
       cancelled = true;
     };
-  }, [year, make, model]);
+  }, [year, make, model, vdbDecodedModel, nhtsaModel, nhtsaSeries, nhtsaTrim, trim]);
 
-  return { trims, isLoading };
+  return { variants, isLoading };
 }
 
 /**
@@ -375,9 +624,13 @@ export async function fetchVehicleImageUrl(
               `${BASE_URL}/${year}/${encodeURIComponent(m)}/${encodeURIComponent(model)}/${encodeURIComponent(trim)}`,
           )
         : [];
+    // YMMT first when an explicit trim is provided, so the image reflects
+    // the user's trim selection. VIN URL stays as fallback.
     const urls: string[] =
       normalizedVin.length === 17
-        ? [`${BASE_URL}/${normalizedVin}`, ...ymmtUrls]
+        ? ymmtUrls.length > 0
+          ? [...ymmtUrls, `${BASE_URL}/${normalizedVin}`]
+          : [`${BASE_URL}/${normalizedVin}`]
         : ymmtUrls;
 
     for (const url of urls) {
@@ -386,8 +639,13 @@ export async function fetchVehicleImageUrl(
       // `convex/lib/vehicleDatabases.ts`. The API gateway has been
       // observed to 403 on lowercased "x-authkey" despite RFC saying
       // header names are case-insensitive — keep this capitalized.
-      const response = await fetch(url, { headers: { "x-AuthKey": API_KEY } });
+      const response = await vdbFetch(url, { headers: { "x-AuthKey": API_KEY } });
       console.log("[vehicleImage] status", response.status, "ok?", response.ok);
+      if (response.status === 429) {
+        // Cooldown handles repeats — bail the URL loop so we don't try
+        // the next URL (same global limit, same 429).
+        break;
+      }
       if (!response.ok) {
         try {
           const errBody = await response.text();
@@ -479,9 +737,18 @@ export async function fetchVehicleImageUrl(
  */
 export const COLOR_SYNONYMS: Record<string, string[]> = {
   black:             ["black", "phantom", "obsidian", "shadow", "onyx", "ebony", "raven"],
-  "midnight-silver": ["midnight", "silver", "graphite", "platinum"],
-  silver:            ["silver", "platinum", "graphite", "titanium", "mineral", "steel"],
-  white:             ["white", "ivory", "pearl", "quartz", "atlas", "alpine", "snow", "cream", "frost"],
+  // NOTE: "platinum" intentionally NOT in the silver buckets — modern
+  // Acura/Honda use it as a WHITE-family prefix ("Platinum White Pearl").
+  // Real platinum-silver paints still match via "silver", "titanium",
+  // "mineral", "steel", etc.
+  "midnight-silver": ["midnight", "silver", "graphite"],
+  silver:            ["silver", "graphite", "titanium", "mineral", "steel"],
+  // NOTE: "pearl" is intentionally NOT here — it's a finish descriptor, not
+  // a color, and appears on paints of every hue ("Crimson Pearl", "Dyno Blue
+  // Pearl", "Crystal Black Pearl"). Listing it as white made those match
+  // white-first (before red/blue/black) and show a white swatch. Real white
+  // paints still match via "white"/"ivory"/"snow"/etc.
+  white:             ["white", "ivory", "quartz", "atlas", "alpine", "snow", "cream", "frost"],
   gray:              ["gray", "grey", "graphite", "titanium", "mineral", "ash", "smoke", "cement", "slate", "carbon"],
   red:               ["red", "crimson", "ruby", "scarlet", "garnet", "rosso", "carmine", "cherry"],
   blue:              ["blue", "navy", "ocean", "azure", "sapphire", "indigo", "marine", "atlas", "storm", "sea", "abyss", "denim", "cobalt"],
@@ -644,6 +911,103 @@ export function inferColorFamily(stored: string | null | undefined): string | nu
 }
 
 /**
+ * Parse #RRGGBB → HSL ({ h: 0–360, s: 0–1, l: 0–1 }). Null if unparseable.
+ */
+function hexToHsl(
+  hex: string | null | undefined,
+): { h: number; s: number; l: number } | null {
+  if (!hex) return null;
+  const clean = hex.replace("#", "").trim();
+  if (clean.length < 6) return null;
+  const r = parseInt(clean.slice(0, 2), 16) / 255;
+  const g = parseInt(clean.slice(2, 4), 16) / 255;
+  const b = parseInt(clean.slice(4, 6), 16) / 255;
+  if ([r, g, b].some((n) => Number.isNaN(n))) return null;
+
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  const d = max - min;
+  let h = 0;
+  let s = 0;
+  if (d !== 0) {
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    switch (max) {
+      case r:
+        h = (g - b) / d + (g < b ? 6 : 0);
+        break;
+      case g:
+        h = (b - r) / d + 2;
+        break;
+      default:
+        h = (r - g) / d + 4;
+        break;
+    }
+    h *= 60;
+  }
+  return { h, s, l };
+}
+
+/**
+ * Classify an arbitrary hex into a `FAMILY_HEX` / `COLOR_GRADIENTS`
+ * family id by hue + saturation/lightness — NOT raw RGB distance, which
+ * mis-buckets muted warm colors (a diluted red) as beige/brown.
+ * Achromatic inputs map to black/gray/silver/white by lightness.
+ */
+export function classifyColorFamily(hex: string | null | undefined): string | null {
+  const hsl = hexToHsl(hex);
+  if (!hsl) return null;
+  const { h, s, l } = hsl;
+
+  // Achromatic — no meaningful hue. Bucket by lightness.
+  if (s < 0.18) {
+    if (l < 0.18) return "black";
+    if (l < 0.42) return "gray";
+    if (l < 0.72) return "silver";
+    return "white";
+  }
+
+  // Chromatic — bucket by hue.
+  if (h <= 18 || h >= 342) return "red"; // red
+  if (h < 45) return l < 0.4 ? "brown" : "beige"; // orange/amber
+  if (h < 70) return "beige"; // yellow
+  if (h < 165) return "green"; // green
+  if (h < 300) return "blue"; // cyan / blue / indigo (no purple family)
+  return "red"; // magenta / pink
+}
+
+/**
+ * Choose a paint-color family from candidate swatches (e.g. the colors
+ * `react-native-image-colors` returns), passed PROMINENT-FIRST. Picks
+ * the most saturated swatch above a chroma floor — so a vivid car body
+ * wins over neutral wheels/glass/lighting — then classifies it by hue.
+ * If nothing clears the floor (a genuinely neutral car), classifies the
+ * most-prominent swatch (→ white/silver/gray/black).
+ */
+export function pickPaintFamilyFromSwatches(
+  swatches: (string | null | undefined)[],
+): string | null {
+  const parsed = swatches
+    .map((hex) => ({ hex, hsl: hexToHsl(hex) }))
+    .filter(
+      (x): x is { hex: string; hsl: { h: number; s: number; l: number } } =>
+        !!x.hsl && !!x.hex,
+    );
+  if (parsed.length === 0) return null;
+
+  const CHROMA_FLOOR = 0.25;
+  const chromatic = parsed.filter(
+    (x) => x.hsl.s >= CHROMA_FLOOR && x.hsl.l > 0.12 && x.hsl.l < 0.9,
+  );
+  if (chromatic.length > 0) {
+    const best = chromatic.reduce((a, b) => (b.hsl.s > a.hsl.s ? b : a));
+    return classifyColorFamily(best.hex);
+  }
+  // Neutral car — classify the most prominent (first) swatch.
+  return classifyColorFamily(parsed[0].hex);
+}
+
+/**
  * A picker option derived from one VDB `colors[]` image URL.
  *
  * - `id` is the URL's filename slug (lowercase, dash-separated). This
@@ -793,6 +1157,10 @@ export async function fetchVdbColorsForVehicle(args: {
   vdbDecodedModel?: string;
   vdbDecodedStyle?: string;
   vdbDecodedTrimAndStyle?: string;
+  /** Internal: set on the discovery re-entry so we never re-run the
+   *  discovery fallbacks twice (guards against an infinite loop when a
+   *  ymm-specs trim has no vehicle-images record). */
+  __triedDiscovery?: boolean;
 }): Promise<VdbColorOption[]> {
   const {
     vin, year, make, model, trim,
@@ -810,9 +1178,15 @@ export async function fetchVdbColorsForVehicle(args: {
             `${BASE_URL}/${year}/${encodeURIComponent(m)}/${encodeURIComponent(model)}/${encodeURIComponent(trim)}`,
         )
       : [];
+  // When an explicit trim is provided, try the YMMT URLs FIRST so the
+  // image/colors reflect the user's actual trim selection (the VIN URL
+  // always returns the base trim regardless of `trim`). VIN URL stays as
+  // a fallback for the rare car VDB indexes only by VIN.
   const urls: string[] =
     normalizedVin.length === 17
-      ? [`${BASE_URL}/${normalizedVin}`, ...ymmtUrls]
+      ? ymmtUrls.length > 0
+        ? [...ymmtUrls, `${BASE_URL}/${normalizedVin}`]
+        : [`${BASE_URL}/${normalizedVin}`]
       : ymmtUrls;
 
   // No initial URLs AND no discovery inputs → nothing to try.
@@ -820,7 +1194,11 @@ export async function fetchVdbColorsForVehicle(args: {
 
   for (const url of urls) {
     try {
-      const response = await fetch(url, { headers: { "x-AuthKey": API_KEY } });
+      const response = await vdbFetch(url, { headers: { "x-AuthKey": API_KEY } });
+      // 429 means VDB rate-limited us — every other URL in this loop
+      // hits the same global limit and will also 429. Bail and let the
+      // caller render the placeholder until the cooldown expires.
+      if (response.status === 429) break;
       if (!response.ok) continue;
       const json = await response.json();
       if (json.status !== "success") continue;
@@ -870,7 +1248,7 @@ export async function fetchVdbColorsForVehicle(args: {
   //   catalog: model="530", trim="i-xDrive Sedan ..."
   // The combo matrix's "strip suffix + prefix to trim" entry
   // produces the working URL.
-  if (year && make && vdbDecodedModel) {
+  if (year && make && vdbDecodedModel && !args.__triedDiscovery) {
     const combos = buildVdbYmmtCombos({
       model: vdbDecodedModel,
       style: vdbDecodedStyle,
@@ -881,7 +1259,11 @@ export async function fetchVdbColorsForVehicle(args: {
       const url = `${BASE_URL}/${year}/${encodeURIComponent(make)}/${encodeURIComponent(combo.model)}/${encodeURIComponent(combo.trim)}`;
       console.log("[vdbColors] combo probe", url);
       try {
-        const response = await fetch(url, { headers: { "x-AuthKey": API_KEY } });
+        const response = await vdbFetch(url, { headers: { "x-AuthKey": API_KEY } });
+        // Bail the entire combo matrix on 429 — same global limit applies
+        // to every model/trim permutation. Caller falls through to model
+        // discovery which is also gated by the cooldown.
+        if (response.status === 429) break;
         if (!response.ok) continue;
         const json = await response.json();
         if (json.status !== "success") continue;
@@ -911,7 +1293,7 @@ export async function fetchVdbColorsForVehicle(args: {
   // Kept as a secondary fallback. Useful when the user has the
   // ymm-specs API package OR for vehicles where we have NHTSA fields
   // but no VDB decode (unlikely combo).
-  if (year && make) {
+  if (year && make && !args.__triedDiscovery) {
     const candidates = extractModelCandidates({
       nhtsaModel,
       model,
@@ -925,34 +1307,37 @@ export async function fetchVdbColorsForVehicle(args: {
       nhtsaTrim,
       trim,
     });
-    // Skip the original `model` since we already tried it.
-    const discoveryCandidates = candidates.filter(
-      (c) => c.toLowerCase() !== (model ?? "").toLowerCase(),
-    );
+    // Keep the current `model` in the candidate set. The initial YMMT
+    // attempt above used the VIN-DECODED trim, but ymm-specs is keyed by
+    // YMM (no trim) — so re-probing this model returns NEW info: its
+    // canonical trim list. This is what recovers cars whose model name
+    // is already correct but whose decoded trim VDB doesn't recognize
+    // (e.g. Audi A6 "3.0T Prestige").
+    const discoveryCandidates = candidates;
     console.log("[vdbColors] discovery candidates:", discoveryCandidates);
     if (discoveryCandidates.length > 0) {
       const discovered = await discoverVdbModel({
         year,
         make,
         candidates: discoveryCandidates,
-        // For accounts without ymm-specs access, discoverVdbModel
-        // falls back to direct vehicle-images probes. Give it
-        // every trim string we have so it has a chance to match
-        // VDB's expected format.
-        probeTrims: [trim ?? "", nhtsaTrim ?? ""].filter((t) => !!t),
       });
       if (discovered) {
+        // Pick the canonical trim that best matches the vehicle's real
+        // trim instead of blindly taking the first one — so an Audi A6
+        // "3.0T Prestige" maps to VDB's "3.0T Prestige quattro ..."
+        // rather than the base "2.0T Premium" variant.
+        const bestTrim = pickBestVdbTrim(discovered.trims, [trim, nhtsaTrim]);
         console.log(
-          `[vdbColors] discovered VDB model "${discovered.model}" for ${year} ${make} (caller model "${model}"). First trim: "${discovered.trims[0]}"`,
+          `[vdbColors] discovered VDB model "${discovered.model}" for ${year} ${make} (caller model "${model}"). Picked trim "${bestTrim}" from ${discovered.trims.length} canonical trims`,
         );
-        // Re-enter the same fetch path with the discovered model +
-        // its first trim. Recursion is shallow (won't re-discover —
-        // the discovered candidate becomes the new `model`, won't be
-        // re-filtered out next time).
+        // Re-enter the same fetch path with the discovered model + the
+        // matched canonical trim. __triedDiscovery guards re-entry from
+        // looping back into discovery.
         return fetchVdbColorsForVehicle({
           ...args,
           model: discovered.model,
-          trim: discovered.trims[0],
+          trim: bestTrim,
+          __triedDiscovery: true,
         });
       } else {
         console.log("[vdbColors] discovery exhausted — no candidate matched VDB catalog");
@@ -976,8 +1361,14 @@ function cacheKey(args: {
   trim?: string;
 }): string {
   const vin = (args.vin ?? "").toUpperCase().trim();
-  if (vin.length === 17) return `vin:${vin}`;
-  return `ymmt:${args.year ?? ""}|${(args.make ?? "").toLowerCase()}|${(args.model ?? "").toLowerCase()}|${(args.trim ?? "").toLowerCase()}`;
+  const trim = (args.trim ?? "").toLowerCase().trim();
+  // Include trim alongside VIN so switching trims forces a fresh fetch
+  // — different trims return different color/image variants from VDB
+  // even for the same VIN.
+  if (vin.length === 17) {
+    return trim ? `vin:${vin}|trim:${trim}` : `vin:${vin}`;
+  }
+  return `ymmt:${args.year ?? ""}|${(args.make ?? "").toLowerCase()}|${(args.model ?? "").toLowerCase()}|${trim}`;
 }
 
 /**

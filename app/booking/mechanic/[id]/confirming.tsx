@@ -26,6 +26,7 @@ import Animated, {
   withDelay,
   withTiming,
 } from "react-native-reanimated";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAction } from "convex/react";
 import { useStripe } from "@stripe/stripe-react-native";
@@ -64,6 +65,7 @@ export default function BookingConfirmingScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const sheetRef = useRef<FloatingSheetRef>(null);
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const { createBookingConvex } = useCreateBookingConvex();
   const selectedMechanicId = useBookingStore((s) => s.selectedMechanicId);
   const selectedMechanicSlot = useBookingStore((s) => s.selectedMechanicSlot);
@@ -270,6 +272,8 @@ const styles = StyleSheet.create({
   },
   copyOverlay: {
     position: "absolute",
+    // Sits below the dropped pin (~30% from top) and above the sheet's
+    // top edge — keeps the subcopy clear of the icon and the chrome.
     top: "37%",
     left: 24,
     right: 24,

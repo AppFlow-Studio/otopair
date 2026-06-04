@@ -29,6 +29,8 @@ function mapBrand(stripeBrand: string): PaymentCardBrand {
       return "amex";
     case "discover":
       return "discover";
+    case "unionpay":
+      return "unionpay";
     default:
       return "generic";
   }

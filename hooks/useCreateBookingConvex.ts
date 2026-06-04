@@ -12,9 +12,12 @@
  */
 
 import { useMutation, useQuery } from "convex/react";
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { useBookingLaborHours } from "./useBookingLaborHours";
+import { useBookingPartsBreakdown } from "./useBookingPartsBreakdown";
+import { positionFromOption } from "@/constants/serviceVariants";
 import { useUserFromConvex } from "./useUserFromConvex";
 import { useToast } from "./useToast";
 import { useVehicleOwnershipFromConvex } from "./useVehicleOwnershipFromConvex";
@@ -88,6 +91,44 @@ export function useCreateBookingConvex() {
   );
 
   const getSelectedVehicle = useVehicleStore((s) => s.getSelectedVehicle);
+  // Subscribe to selectedVehicleId so vehicleOwnershipId stays reactive when the
+  // user switches cars mid-flow — `getSelectedVehicle` alone is a stable ref.
+  const selectedVehicleId = useVehicleStore((s) => s.selectedVehicleId);
+  const vehicleOwnershipId = useMemo(
+    () => getSelectedVehicle()?.ownershipId,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [selectedVehicleId, getSelectedVehicle],
+  );
+
+  // Mirror ReviewPayContent: prefer vehicle-specific `labor_times.book_hours`
+  // over `services.default_labor_hours` so the booking row records the same
+  // hours (and therefore the same labor $) the customer just agreed to.
+  const { laborHours: laborHoursByService } = useBookingLaborHours(
+    vehicleOwnershipId,
+    selectedServiceIds,
+  );
+  const laborHoursMap = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const row of laborHoursByService) {
+      map.set(String(row.serviceId), row.hours);
+    }
+    return map;
+  }, [laborHoursByService]);
+
+  // Same priced-parts source ReviewPayContent uses; falls back to defaults
+  // for walk-in vehicles or mock svc_* ids via the hook's internal skip.
+  const { breakdown: pricedPartsByService } = useBookingPartsBreakdown(
+    vehicleOwnershipId,
+    selectedServiceIds,
+    selectedServiceOptions,
+  );
+  const pricedPartsTotalMap = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const row of pricedPartsByService) {
+      if (row.partsTotal > 0) map.set(String(row.serviceId), row.partsTotal);
+    }
+    return map;
+  }, [pricedPartsByService]);
 
   const createBookingConvex = useCallback(
     async (mechanicId: string | null | undefined, bookingType: "book_now" | "schedule_later"): Promise<string[]> => {
@@ -125,12 +166,16 @@ export function useCreateBookingConvex() {
       if (!shop || laborRate == null || laborRate === undefined) {
         throw new Error("Shop labor rate is required to create a booking.");
       }
-      // DB values only: labor = rate × default_labor_hours, parts = default_parts_estimate (no fallbacks)
+      // DB values mirror ReviewPayContent so the booking row stores exactly
+      // what the customer was shown:
+      //   labor = rate × (vehicle-specific hours ?? default_labor_hours)
+      //   parts = priced_parts total (part_fitments × part_prices) ?? default_parts_estimate
       const services = selectedServices.map((s) => {
-        const option = selectedServiceOptions[s.id];
-        const hours = option?.labor_hours ?? s.default_labor_hours ?? 0;
+        const variantHours = laborHoursMap.get(String(s.id));
+        const hours = typeof variantHours === "number" ? variantHours : (s.default_labor_hours ?? 0);
         const laborCost = laborRate * hours;
-        const partsCost = option?.parts_cost_avg ?? s.default_parts_estimate ?? 0;
+        const pricedParts = pricedPartsTotalMap.get(String(s.id));
+        const partsCost = typeof pricedParts === "number" ? pricedParts : (s.default_parts_estimate ?? 0);
         return {
           service_id: s.id as Id<"services">,
           labor_cost: laborCost,
@@ -138,6 +183,18 @@ export function useCreateBookingConvex() {
           labor_hours: hours,
         };
       });
+
+      // Sum of per-service labor minutes from the same `useBookingLaborHours`
+      // source the Review & Pay screen renders. Sent to `createBatch` as
+      // `displayed_labor_minutes` so the booking's `estimated_labor_minutes`
+      // matches the duration the customer just agreed to — without this the
+      // server falls back to `resolveBookingLaborMinutes`, which walks a
+      // different path through `service_vehicle_specs` / `labor_times` and
+      // can return e.g. 17 min for an oil change the customer saw as 42 min.
+      const totalLaborMinutes = services.reduce(
+        (sum, s) => sum + (s.labor_hours ?? 0),
+        0,
+      ) * 60;
 
       const scheduledDateVal = scheduledAppointment?.date ?? new Date().toISOString().split("T")[0];
       const scheduledTimeVal = scheduledAppointment?.time ? displayTimeToHHMM(scheduledAppointment.time) : "09:00";
@@ -175,6 +232,17 @@ export function useCreateBookingConvex() {
         }))
         .filter((o) => o.option_label.length > 0);
 
+      // Axle/position picks per service (e.g. Brake Pads → "front"). Derived
+      // from the same `selectedServiceOptions` row that drives labor_hours and
+      // parts_cost_avg, so the booking snapshot freezes the same fitment the
+      // customer saw on Review & Pay.
+      const serviceVariantsPayload: Array<{ service_id: Id<"services">; position: string }> = [];
+      for (const sid of selectedServiceIds) {
+        const position = positionFromOption(selectedServiceOptions[sid]);
+        if (!position) continue;
+        serviceVariantsPayload.push({ service_id: sid as Id<"services">, position });
+      }
+
       const trimmedNotes = customerNotes.trim();
 
       // Error toast surfaces here; the success "Booking submitted." toast
@@ -196,6 +264,8 @@ export function useCreateBookingConvex() {
           services,
           taxes_and_fees: TAXES_AND_FEES,
           platform_fee: PLATFORM_FEE,
+          displayed_labor_minutes:
+            totalLaborMinutes > 0 ? totalLaborMinutes : undefined,
           source_recommendation_id: sourceRecommendationId
             ? (sourceRecommendationId as Id<"job_recommendations">)
             : undefined,
@@ -203,15 +273,7 @@ export function useCreateBookingConvex() {
           diagnostic_system: selectedDiagnosticSystem ?? undefined,
           selected_service_options:
             selectedOptionsPayload.length > 0 ? selectedOptionsPayload : undefined,
-        };
-
-        console.log("[createBatch payload]", {
-          mechanicMode: mechanicId ? "specific" : "any",
-          mechanicIdSent: mechanicId ?? null,
-          legacyTimeSlotIdSent: legacyTimeSlotId ?? null,
-          scheduledDate: scheduledDateVal,
-          scheduledTime: scheduledTimeVal,
-          payload: createBatchPayload,
+          service_variants: serviceVariantsPayload.length > 0 ? serviceVariantsPayload : undefined,
         });
 
         bookingIds = await createBatch(createBatchPayload);
@@ -236,6 +298,8 @@ export function useCreateBookingConvex() {
       effectiveShopId,
       selectedServiceIds,
       availableServices,
+      laborHoursMap,
+      pricedPartsTotalMap,
       scheduledAppointment,
       getShopById,
       createBatch,

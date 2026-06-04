@@ -14,7 +14,7 @@ import { Pressable, StyleSheet, View, useWindowDimensions } from "react-native";
 
 import { Calendar, Car, User } from "lucide-react-native";
 
-import { Text } from "@/components/shared-ui";
+import { FixedPriceBadge, Text } from "@/components/shared-ui";
 import { ConfirmCountdownButton } from "@/components/tire-booking/QuoteRequestStatus";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
@@ -38,6 +38,7 @@ export function BookingConfirmStatus({ onConfirm, onGoBack, mechanicId }: Props)
   const selectedMechanicId = useBookingStore((s) => s.selectedMechanicId);
   const selectedMechanicSlot = useBookingStore((s) => s.selectedMechanicSlot);
   const disclosedRangeFormatted = useBookingStore((s) => s.disclosedRangeFormatted);
+  const disclosedRangeIsFixedPrice = useBookingStore((s) => s.disclosedRangeIsFixedPrice);
   const getMechanicById = useMechanicStore((s) => s.getMechanicById);
   const getShopById = useShopStore((s) => s.getShopById);
   const selectedVehicle = useVehicleStore((s) =>
@@ -93,6 +94,7 @@ export function BookingConfirmStatus({ onConfirm, onGoBack, mechanicId }: Props)
         <InfoRow
           icon={<User size={20} color="#4B5563" strokeWidth={2} />}
           primary={mechanicLabel}
+          secondary={mechanicSecondary}
           compact={isCompactLayout}
           veryCompact={isVeryCompactLayout}
         />
@@ -115,8 +117,7 @@ export function BookingConfirmStatus({ onConfirm, onGoBack, mechanicId }: Props)
           color="#6B7280"
           style={[styles.holdNote, isVeryCompactLayout && styles.holdNoteVeryCompact]}
         >
-          A $20 hold will be placed on your card. The final amount is only
-          charged once your mechanic has inspected your car.
+          A $20 hold will be placed on your card.
         </Text>
         <ConfirmCountdownButton onConfirm={onConfirm} compact={isCompactLayout} />
         <Pressable
@@ -175,21 +176,22 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     paddingHorizontal: 20,
-    paddingBottom: 16,
+    paddingTop: 4,
+    paddingBottom: 14,
   },
   containerCompact: {
     paddingHorizontal: 16,
     paddingBottom: 8,
   },
   title: {
-    marginTop: 2,
-    marginBottom: 18,
+    marginTop: 0,
+    marginBottom: 14,
   },
   titleCompact: {
     marginBottom: 8,
   },
   rows: {
-    marginBottom: 20,
+    marginBottom: 14,
   },
   rowsCompact: {
     marginBottom: 8,
@@ -197,7 +199,7 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 12,
+    paddingVertical: 10,
     gap: 14,
   },
   rowCompact: {
@@ -222,7 +224,9 @@ const styles = StyleSheet.create({
     backgroundColor: "#E5E7EB",
   },
   actionColumn: {
-    marginTop: "auto",
+    // Sits directly below the info rows — no auto-margin so the rows
+    // pack near the top of the sheet and the buttons follow tight.
+    marginTop: 8,
     gap: 10,
   },
   actionColumnCompact: {
@@ -252,9 +256,9 @@ const styles = StyleSheet.create({
   },
   holdNote: {
     textAlign: "center",
-    lineHeight: 18,
+    lineHeight: 17,
     paddingHorizontal: 4,
-    marginBottom: 4,
+    marginBottom: 2,
   },
   holdNoteVeryCompact: {
     lineHeight: 16,
@@ -262,9 +266,14 @@ const styles = StyleSheet.create({
   },
   rangeLine: {
     textAlign: "center",
-    lineHeight: 22,
+    lineHeight: 20,
     paddingHorizontal: 4,
-    marginBottom: 6,
+    marginBottom: 2,
+  },
+  rangeLineWrap: {
+    alignItems: "center",
+    gap: 4,
+    marginBottom: 2,
   },
   rangeLineVeryCompact: {
     lineHeight: 18,

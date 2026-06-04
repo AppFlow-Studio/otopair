@@ -56,8 +56,11 @@ import { useTireBookingStore, type TirePosition } from "@/stores/useTireBookingS
 import { useVehicleStore, type Vehicle } from "@/stores/useVehicleStore";
 
 type TireSizeOption = {
+  /** Front tire size, e.g. "245/40R19". */
   size: string;
-  source: "verified" | "oem_default" | null;
+  /** Rear tire size for staggered setups; null = square (rear === front). */
+  sizeRear: string | null;
+  source: "verified" | "oem_standard" | "oem_optional" | null;
 };
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
@@ -99,6 +102,7 @@ export default function TireBookingScreen({ onClose, onConfirmed }: TireBookingS
 
   // ── Tire store ─────────────────────────────────────────────────────────────
   const tireSize = useTireBookingStore((s) => s.tireSize);
+  const tireSizeRear = useTireBookingStore((s) => s.tireSizeRear);
   const tireType = useTireBookingStore((s) => s.tireType);
   const tier = useTireBookingStore((s) => s.tier);
   const selectedTirePositions = useTireBookingStore((s) => s.selectedTirePositions);
@@ -127,27 +131,31 @@ export default function TireBookingScreen({ onClose, onConfirmed }: TireBookingS
       make && MOCK_OEM_SIZES_BY_MAKE[make]
         ? MOCK_OEM_SIZES_BY_MAKE[make]
         : DEFAULT_OEM_SIZES;
-    return fallback.map((size) => ({ size, source: null }));
+    return fallback.map((size) => ({ size, sizeRear: null, source: null }));
   }, [tireOptions, selectedVehicle?.make]);
-  const sizes = useMemo<string[]>(
-    () => sizeOptions.map((option) => option.size),
-    [sizeOptions],
-  );
+  // Each picker option = one OEM wheel package. Identity is the
+  // (front, rear) pair — two options can share the same front size if one
+  // is staggered (rear differs) and the other is square.
+  const optionsMatch = (a: TireSizeOption, b: { size: string; sizeRear: string | null }) =>
+    a.size === b.size && (a.sizeRear ?? null) === (b.sizeRear ?? null);
 
-  // If the current tireSize doesn't belong to the newly selected vehicle's
-  // OEM list (e.g. user switched cars mid-flow), clear it so the chips show
-  // as nothing-selected instead of lying. When there's exactly one known
-  // size (e.g. passport says 225/65R17 front+rear and trim_specs agrees)
-  // pre-select it so the user sees a chosen chip and the CTA unlocks.
+  // If the previously-picked fitment isn't in the new vehicle's option list
+  // (e.g. user switched cars mid-flow), clear it. When there's exactly one
+  // OEM option (passport + trim agree, only one package), pre-select it so
+  // the CTA unlocks immediately.
   React.useEffect(() => {
-    if (tireSize && !sizes.includes(tireSize)) {
-      setTireSize("");
+    const stillValid =
+      tireSize != null &&
+      sizeOptions.some((opt) => optionsMatch(opt, { size: tireSize, sizeRear: tireSizeRear }));
+    if (tireSize && !stillValid) {
+      setTireSize("", null);
       return;
     }
-    if (!tireSize && sizes.length === 1) {
-      setTireSize(sizes[0]);
+    if (!tireSize && sizeOptions.length === 1) {
+      const only = sizeOptions[0];
+      setTireSize(only.size, only.sizeRear);
     }
-  }, [sizes, tireSize, setTireSize]);
+  }, [sizeOptions, tireSize, tireSizeRear, setTireSize]);
 
   // Sync tire store's vehicleId with the user-selected vehicle.
   React.useEffect(() => {
@@ -223,8 +231,10 @@ export default function TireBookingScreen({ onClose, onConfirmed }: TireBookingS
   // Render the SIZE section whenever there's at least one known size so the
   // user can see the Verified/OEM-default provenance pill — not just when
   // we're asking them to disambiguate between multiple OEM options.
-  const showSizeSection = sizes.length >= 1;
-  const sizeChosen = !!tireSize && sizes.includes(tireSize);
+  const showSizeSection = sizeOptions.length >= 1;
+  const sizeChosen =
+    !!tireSize &&
+    sizeOptions.some((opt) => optionsMatch(opt, { size: tireSize, sizeRear: tireSizeRear }));
 
   const ctaDisabled =
     selectedCount === 0 ||
@@ -316,33 +326,31 @@ export default function TireBookingScreen({ onClose, onConfirmed }: TireBookingS
               SIZE
             </Text>
             <View style={styles.chipRow}>
-              {sizeOptions.map((option) => (
-                <View key={option.size} style={styles.chipWithCaption}>
-                  <Chip
-                    label={option.size}
-                    selected={option.size === tireSize}
-                    onPress={() => setTireSize(option.size)}
-                  />
-                  {option.source ? (
-                    <View
-                      style={[
-                        styles.sourcePill,
-                        option.source === "verified"
-                          ? styles.sourcePillVerified
-                          : styles.sourcePillOem,
-                      ]}
-                    >
-                      <Text
-                        size="xs"
-                        weight="semiBold"
-                        color={option.source === "verified" ? "#0A8754" : "#6B7280"}
-                      >
-                        {option.source === "verified" ? "Mechanic Verified" : "OEM default"}
-                      </Text>
-                    </View>
-                  ) : null}
-                </View>
-              ))}
+              {sizeOptions.map((option, idx) => {
+                // Each chip = one OEM wheel package. Staggered setups show
+                // both sizes (front / rear); square setups show just front.
+                const chipLabel = option.sizeRear
+                  ? `${option.size} / ${option.sizeRear}`
+                  : option.size;
+                const isSelected = optionsMatch(option, {
+                  size: tireSize ?? "",
+                  sizeRear: tireSizeRear,
+                });
+                // Index in the key disambiguates two options that share the
+                // same front size (e.g. standard-staggered vs optional-square).
+                const reactKey = `${option.size}|${option.sizeRear ?? ""}|${idx}`;
+                const sourceColor =
+                  option.source === "verified" ? "#0A8754" : "#6B7280";
+                return (
+                  <View key={reactKey} style={styles.chipWithCaption}>
+                    <Chip
+                      label={chipLabel}
+                      selected={isSelected}
+                      onPress={() => setTireSize(option.size, option.sizeRear)}
+                    />
+                  </View>
+                );
+              })}
             </View>
           </View>
         ) : null}
