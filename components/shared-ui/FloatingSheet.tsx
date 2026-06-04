@@ -69,14 +69,33 @@ interface FloatingSheetProps {
   initialSnapIndex?: number;
   /** If true, render a blurred + dimmed backdrop that dismisses on tap. */
   showBackdrop?: boolean;
+  /** Backdrop style when `showBackdrop` is true. `"blur"` (default)
+   *  combines a BlurView with a dark tint. `"dim"` skips the blur and
+   *  uses just the dark tint — better when the content behind should
+   *  remain readable. */
+  backdropMode?: "blur" | "dim";
   /** Called after the sheet finishes closing. */
   onClose?: () => void;
   /** Corner radius at small/mid snaps. Defaults to 46. Flattens to 0 near
    *  the full snap (unchanged behavior). */
   cornerRadius?: number;
+  /** Override the BOTTOM corner radius at small/mid snaps. Defaults to
+   *  `cornerRadius`. Pass a larger value (e.g. 32) when only the top
+   *  should stay tight and the bottom should curve more visibly.
+   *  Still flattens to 0 near the full snap, same as cornerRadius. */
+  bottomCornerRadius?: number;
   /** When true, the sheet rises by the keyboard height so an input near the
    *  bottom stays visible. Default false (no change for input-less sheets). */
   liftWithKeyboard?: boolean;
+  /** Override the bottom inset at the smallest detent (multi-snap mode).
+   *  Defaults to 12pt. Pass `insets.bottom + N` if the sheet should clearly
+   *  float above the home indicator. Ignored in single-snap mode. */
+  floatBottomInset?: number;
+  /** Override the side inset (left/right) at all detents. Defaults to
+   *  interpolating SIDE_INSET_MAX (10pt) → 0 across snap progress.
+   *  Pass `0` to keep the sheet pinned edge-to-edge at every detent
+   *  (Vehicle-Health-overlay look). */
+  sideInset?: number;
   /** Sheet body content (rendered below the grabber). */
   children?: React.ReactNode;
 }
@@ -91,9 +110,13 @@ export const FloatingSheet = forwardRef<FloatingSheetRef, FloatingSheetProps>(
       snapHeights,
       initialSnapIndex = 0,
       showBackdrop = false,
+      backdropMode = "blur",
       onClose,
       cornerRadius = CORNER_RADIUS,
+      bottomCornerRadius,
       liftWithKeyboard = false,
+      floatBottomInset,
+      sideInset: sideInsetOverride,
       children,
     },
     ref,
@@ -219,6 +242,10 @@ export const FloatingSheet = forwardRef<FloatingSheetRef, FloatingSheetProps>(
     // H_MAX) and pin the sheet to the screen edges with sharp corners. Lock
     // it to the floating chrome instead.
     const isSingleSnap = snaps.length === 1;
+    // Resolved bottom radius — falls back to cornerRadius when the
+    // caller doesn't override. Lets consumers (e.g. ReceiptSheet)
+    // keep the top tight while making the bottom curve more visible.
+    const resolvedBottomRadius = bottomCornerRadius ?? cornerRadius;
 
     // Animated sheet chrome — insets + radius respond to how close we are
     // to the max snap. At max, bottom corners flatten and the sheet pins to
@@ -231,13 +258,14 @@ export const FloatingSheet = forwardRef<FloatingSheetRef, FloatingSheetProps>(
 
     const sheetAnimStyle = useAnimatedStyle(() => {
       if (isSingleSnap) {
+        const singleSide = sideInsetOverride ?? SIDE_INSET_MAX;
         return {
-          left: SIDE_INSET_MAX,
-          right: SIDE_INSET_MAX,
+          left: singleSide,
+          right: singleSide,
           bottom: singleSnapBottomInset + (liftWithKeyboard ? Math.abs(keyboardHeight.value) : 0),
           height: sheetHeight.value,
-          borderBottomLeftRadius: cornerRadius,
-          borderBottomRightRadius: cornerRadius,
+          borderBottomLeftRadius: resolvedBottomRadius,
+          borderBottomRightRadius: resolvedBottomRadius,
         };
       }
       const progress = interpolate(
@@ -246,17 +274,18 @@ export const FloatingSheet = forwardRef<FloatingSheetRef, FloatingSheetProps>(
         [0, 1],
         Extrapolation.CLAMP,
       );
-      const sideInset = interpolate(progress, [0, 1], [SIDE_INSET_MAX, 0], Extrapolation.CLAMP);
+      const sideInset = sideInsetOverride ?? interpolate(progress, [0, 1], [SIDE_INSET_MAX, 0], Extrapolation.CLAMP);
+      const restingBottom = floatBottomInset ?? FLOAT_BOTTOM;
       const bottomInset = interpolate(
         progress,
         [0, 0.85, 1],
-        [FLOAT_BOTTOM, FLOAT_BOTTOM, 0],
+        [restingBottom, restingBottom, 0],
         Extrapolation.CLAMP,
       );
       const bottomRadius = interpolate(
         progress,
         [0.85, 1],
-        [cornerRadius, 0],
+        [resolvedBottomRadius, 0],
         Extrapolation.CLAMP,
       );
       return {
@@ -272,8 +301,8 @@ export const FloatingSheet = forwardRef<FloatingSheetRef, FloatingSheetProps>(
     const innerAnimStyle = useAnimatedStyle(() => {
       if (isSingleSnap) {
         return {
-          borderBottomLeftRadius: cornerRadius,
-          borderBottomRightRadius: cornerRadius,
+          borderBottomLeftRadius: resolvedBottomRadius,
+          borderBottomRightRadius: resolvedBottomRadius,
         };
       }
       const progress = interpolate(
@@ -285,7 +314,7 @@ export const FloatingSheet = forwardRef<FloatingSheetRef, FloatingSheetProps>(
       const bottomRadius = interpolate(
         progress,
         [0.85, 1],
-        [cornerRadius, 0],
+        [resolvedBottomRadius, 0],
         Extrapolation.CLAMP,
       );
       return {
@@ -323,7 +352,9 @@ export const FloatingSheet = forwardRef<FloatingSheetRef, FloatingSheetProps>(
         {showBackdrop ? (
           <Animated.View style={[StyleSheet.absoluteFill, backdropAnimStyle]} pointerEvents="auto">
             <Pressable style={StyleSheet.absoluteFill} onPress={close}>
-              <BlurView intensity={28} tint="dark" style={StyleSheet.absoluteFill} />
+              {backdropMode === "blur" && (
+                <BlurView intensity={28} tint="dark" style={StyleSheet.absoluteFill} />
+              )}
               <View style={styles.backdropTint} />
             </Pressable>
           </Animated.View>
@@ -343,8 +374,8 @@ export const FloatingSheet = forwardRef<FloatingSheetRef, FloatingSheetProps>(
             {
               borderTopLeftRadius: cornerRadius,
               borderTopRightRadius: cornerRadius,
-              borderBottomLeftRadius: cornerRadius,
-              borderBottomRightRadius: cornerRadius,
+              borderBottomLeftRadius: resolvedBottomRadius,
+              borderBottomRightRadius: resolvedBottomRadius,
             },
             sheetAnimStyle,
           ]}
@@ -375,7 +406,7 @@ FloatingSheet.displayName = "FloatingSheet";
 const styles = StyleSheet.create({
   backdropTint: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0,0,0,0.18)",
+    backgroundColor: "rgba(0,0,0,0.4)",
   },
   sheetShadow: {
     position: "absolute",

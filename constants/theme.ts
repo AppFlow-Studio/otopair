@@ -75,6 +75,29 @@ export const SemanticColors = {
   errorRedLightOnDark: "#F87171",
 } as const;
 
+// Figure/ground tokens for carded-on-canvas layouts (e.g. order/receipt
+// detail). The page is a warm light-gray canvas, cards are flat white;
+// contrast comes from color alone — no borders, no shadows.
+export const SurfaceColors = {
+  canvas: "#F2F2F2",
+  cardSurface: "#FFFFFF",
+} as const;
+
+// Layered drop shadow for elevated cards on a soft canvas (e.g.
+// order/receipt detail). Tight contact + larger soft ambient. One
+// shared value so the elevation is tunable in a single place. Uses
+// RN 0.79+ `boxShadow` (Fabric / New Architecture).
+export const CardShadow = {
+  default: "0px 2px 4px rgba(0,0,0,0.05), 0px 10px 28px rgba(0,0,0,0.07)",
+} as const;
+
+// Vertical rhythm for list-style screens (e.g. Past Services).
+// `rowVertical` is the paddingVertical applied to each row — tune
+// in one place to change the whole list's density.
+export const ListSpacing = {
+  rowVertical: 12,
+} as const;
+
 // ============================================================================
 // TYPOGRAPHY
 // ============================================================================
