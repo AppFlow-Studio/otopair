@@ -125,7 +125,6 @@ export const getVehicleOwner = query({
  * ownership before calling (e.g. via getMyVehicles). Year/make/model/trim
  * is non-sensitive catalog metadata.
  */
-
 /**
  * QUERY: getBrakeSystemTypeForVin
  *

@@ -46,6 +46,13 @@ import {
   computeQuotedSetPrice,
 } from "./booking_quotes";
 import {
+  detectTier,
+  resolveLaborHours,
+  resolveQuoteSeries,
+  resolveVehicleConfigFromVin,
+} from "./lib/quoteEngine";
+import { resolveLaborRate, type VehicleTier } from "./lib/vehicleTiers";
+import {
   EARLY_PUSH_THRESHOLD_MS,
   addMinutesToHHMM,
   getBookingEndTime,
@@ -827,7 +834,6 @@ export const create = mutation({
     // matches what the customer saw on Review & Pay), then server-derived
     // fallback for older mobile builds that don't pass the field yet.
     const serverDerivedMinutes = await resolveBookingLaborMinutes(ctx, {
-      engineId: vehicle.engine_id ?? null,
       vehicleConfigId: vehicle.vehicle_config_id ?? null,
       services: [
         {
@@ -852,6 +858,8 @@ export const create = mutation({
 
     await assertLaborCostMatchesDuration(ctx, {
       shopId: args.shop_id,
+      vin: normalizedVin,
+      serviceIds: [args.service_id],
       laborCostDollars: args.labor_cost,
       expectMinutes: args.displayed_labor_minutes,
     });
@@ -958,7 +966,6 @@ export const create = mutation({
 async function resolveBookingLaborMinutes(
   ctx: any,
   args: {
-    engineId: Id<"engines"> | null;
     vehicleConfigId: Id<"vehicle_configs"> | null;
     services: Array<{
       service_id: Id<"services">;
@@ -966,53 +973,45 @@ async function resolveBookingLaborMinutes(
     }>;
   },
 ): Promise<number> {
-  const MIN_EMPIRICAL_SAMPLES = 3;
-  let totalHours = 0;
-
-  for (const svc of args.services) {
-    let hours: number | null = null;
-
-    if (args.engineId) {
-      const spec = await ctx.db
-        .query("service_vehicle_specs")
-        .withIndex("by_engine_and_service", (q: any) =>
-          q.eq("engine_id", args.engineId).eq("service_id", svc.service_id),
-        )
-        .unique();
-      if (spec?.labor_hours != null && spec.labor_hours > 0) {
-        hours = spec.labor_hours;
-      }
-    }
-
-    if (hours == null && args.vehicleConfigId) {
-      const labor = await ctx.db
-        .query("labor_times")
-        .withIndex("by_vehicle_config_and_service", (q: any) =>
-          q
-            .eq("vehicle_config_id", args.vehicleConfigId)
-            .eq("service_id", svc.service_id),
-        )
-        .first();
-      if (labor) {
-        const useEmpirical =
-          labor.empirical_hours != null &&
-          (labor.empirical_sample_size ?? 0) >= MIN_EMPIRICAL_SAMPLES;
-        const resolved = useEmpirical
-          ? labor.empirical_hours
-          : labor.book_hours;
-        if (typeof resolved === "number" && resolved > 0) {
-          hours = resolved;
-        }
-      }
-    }
-
-    if (hours == null && svc.fallback_hours != null && svc.fallback_hours > 0) {
-      hours = svc.fallback_hours;
-    }
-
-    if (hours != null) totalHours += hours;
+  // No vehicle_config: only the client's per-service fallback_hours can speak.
+  if (!args.vehicleConfigId) {
+    const total = args.services.reduce(
+      (sum, s) => sum + (s.fallback_hours ?? 0),
+      0,
+    );
+    return Math.round(total * 60);
   }
 
+  const cfg = await ctx.db.get(args.vehicleConfigId);
+  if (!cfg) return 0;
+
+  // Tier is required for the Yassin engine. Lazy-detect (read-only) so
+  // unenriched vehicles still quote — the persisting write happens in
+  // quotes:previewForBooking on the mobile preview pass.
+  const tier =
+    (cfg.pricing_tier as VehicleTier | undefined) ??
+    (await detectTier(ctx, cfg));
+  if (!tier) {
+    const total = args.services.reduce(
+      (sum, s) => sum + (s.fallback_hours ?? 0),
+      0,
+    );
+    return Math.round(total * 60);
+  }
+
+  let totalHours = 0;
+  for (const svc of args.services) {
+    const res = await resolveLaborHours(ctx, {
+      vehicle_config_id: args.vehicleConfigId,
+      service_id: svc.service_id,
+      vehicle_tier: tier,
+    });
+    if (res.ok) {
+      totalHours += res.hours;
+    } else if (svc.fallback_hours != null && svc.fallback_hours > 0) {
+      totalHours += svc.fallback_hours;
+    }
+  }
   return Math.round(totalHours * 60);
 }
 
@@ -1040,21 +1039,62 @@ async function assertLaborCostMatchesDuration(
   ctx: any,
   args: {
     shopId: Id<"shops">;
+    vin: string;
+    serviceIds: Array<Id<"services">>;
     laborCostDollars: number;
     expectMinutes: number | undefined;
   },
 ) {
   if (args.expectMinutes == null || args.expectMinutes <= 0) return;
-  const shop = await ctx.db.get(args.shopId);
-  const laborRate =
-    typeof shop?.labor_rate === "number" && shop.labor_rate > 0
-      ? shop.labor_rate
-      : FALLBACK_LABOR_RATE_DOLLARS;
-  const expected = (args.expectMinutes / 60) * laborRate;
-  if (Math.abs(args.laborCostDollars - expected) > 0.05) {
+
+  // Server-side Yassin recomputation: tier-aware labor rate + Camry-anchored
+  // labor hours (with the new quality gate disqualifying low-trust vdb rows).
+  const cfg = await resolveVehicleConfigFromVin(ctx, args.vin);
+  if (!cfg) {
+    // Unenrolled vehicle — preserve prior silent-skip semantics. Logged so we
+    // can audit how often we land here in prod.
+    console.warn(
+      `[assertLaborCostMatchesDuration] no vehicle_config for vin=${args.vin}; skipping validation`,
+    );
+    return;
+  }
+
+  const series = await resolveQuoteSeries(ctx, {
+    vehicle_config_id: cfg._id,
+    service_ids: args.serviceIds,
+    shop_id: args.shopId,
+  });
+
+  // If ANY service was refused (e.g. CCB without absolute pricing, missing
+  // pricing_tier rules match), skip the cost check — the booking is going
+  // through booking_approvals anyway and the engine can't speak to labor cost.
+  if (series.quotes.some((q) => !q.ok)) {
+    console.warn(
+      `[assertLaborCostMatchesDuration] one or more services refused by quote engine; ` +
+        `skipping cost check for vin=${args.vin} services=${args.serviceIds.join(",")}`,
+    );
+    return;
+  }
+
+  const expectedLaborCost = series.labor_cost_total;
+  if (expectedLaborCost <= 0) return;
+  const tolerance = expectedLaborCost * 0.08; // ±8% band per Pricing v2 spec
+  const delta = Math.abs(args.laborCostDollars - expectedLaborCost);
+
+  // Telemetry: warn between 5% and 8% so we can audit drift before tightening.
+  if (delta > expectedLaborCost * 0.05 && delta <= tolerance) {
+    console.warn(
+      `[assertLaborCostMatchesDuration] tier-rate drift: client=$${args.laborCostDollars.toFixed(2)} ` +
+        `server=$${expectedLaborCost.toFixed(2)} delta=$${delta.toFixed(2)} ` +
+        `(within 5–8% band) vin=${args.vin}`,
+    );
+  }
+
+  if (delta > tolerance) {
     throw new Error(
-      `LABOR_COST_DURATION_MISMATCH: client sent labor_cost=$${args.laborCostDollars.toFixed(2)} ` +
-        `for ${args.expectMinutes} min at $${laborRate}/hr (expected $${expected.toFixed(2)}). ` +
+      `LABOR_COST_TIER_MISMATCH: client labor_cost=$${args.laborCostDollars.toFixed(2)} ` +
+        `vs Yassin server cost=$${expectedLaborCost.toFixed(2)} ` +
+        `(±8% = $${tolerance.toFixed(2)}, delta=$${delta.toFixed(2)}). ` +
         `Booking rejected to prevent schedule/price desync.`,
     );
   }
@@ -1249,7 +1289,6 @@ export const createBatch = mutation({
     // vehicle with the same engine, not the customer's own — see
     // `service_vehicle_specs.getByEngineAndService` step 2).
     const enrichmentLaborMinutes = await resolveBookingLaborMinutes(ctx, {
-      engineId: vehicle.engine_id ?? null,
       vehicleConfigId: vehicle.vehicle_config_id ?? null,
       services: args.services.map((s) => ({
         service_id: s.service_id,
@@ -1272,6 +1311,8 @@ export const createBatch = mutation({
 
     await assertLaborCostMatchesDuration(ctx, {
       shopId: args.shop_id,
+      vin: normalizedVin,
+      serviceIds: args.services.map((s) => s.service_id),
       laborCostDollars: labor_cost,
       expectMinutes: args.displayed_labor_minutes,
     });
@@ -1289,12 +1330,15 @@ export const createBatch = mutation({
       services: args.services.map((s) => ({
         service_id: s.service_id,
         parts_cost: s.parts_cost,
+        labor_cost: s.labor_cost,
         option_id: optionsByServiceId.get(s.service_id),
       })),
       labor_cost_dollars: labor_cost,
       engine_id: vehicle.engine_id ?? null,
       shop_state: shop?.state ?? null,
       shop_zip: shop?.zip ?? null,
+      shop_id: args.shop_id,
+      vehicle_config_id: vehicle.vehicle_config_id ?? null,
     });
 
     // Itemized parts snapshot — same per-unit prices the customer saw on
@@ -1318,10 +1362,15 @@ export const createBatch = mutation({
     });
     const pricedPartsSnapshot = pricedPartsResult.rows;
 
-    // Single-point quote the mechanic confirms against (no min/max).
+    // Single-point quote the mechanic confirms against (no min/max). For
+    // flat-priced services, the locked-in `price_cents` replaces the raw
+    // OEM unit prices captured in `pricedPartsSnapshot`, so the mechanic
+    // sees the same amount the customer agreed to ($60 fixed) instead of
+    // the bare part cost ($8.10 oil filter).
     const quoted = computeQuotedSetPrice({
       disclosedBreakdown: disclosedRange.breakdown,
       pricedPartsSnapshot,
+      fixedPriceLines: disclosedRange.fixed_price_lines,
     });
 
     await assertBookingWithinShopHours(ctx, {
@@ -1366,6 +1415,10 @@ export const createBatch = mutation({
       disclosed_range_high_cents: disclosedRange.high_cents,
       disclosed_breakdown: disclosedRange.breakdown,
       disclosed_at_ms: now,
+      // Persist the flat-rate flag so the mechanic-facing UI knows to
+      // render a "Fixed price" badge. Safe to surface — carries no
+      // anchoring info (no dollar amount).
+      is_fixed_price: disclosedRange.is_fixed_price ? true : undefined,
       priced_parts_snapshot:
         pricedPartsSnapshot.length > 0 ? pricedPartsSnapshot : undefined,
       part_selection_trace:
@@ -6372,6 +6425,7 @@ export const backfillQuotedSetPrice = internalMutation({
     skippedAlreadySet: number;
     skippedLegacy: number;
     skippedNoSnapshot: number;
+    skippedFixedPrice: number;
   }> => {
     const limit = args.limit ?? 200;
     const candidates = args.shopId
@@ -6388,6 +6442,7 @@ export const backfillQuotedSetPrice = internalMutation({
     let skippedAlreadySet = 0;
     let skippedLegacy = 0;
     let skippedNoSnapshot = 0;
+    let skippedFixedPrice = 0;
 
     for (const booking of candidates) {
       scanned += 1;
@@ -6410,6 +6465,15 @@ export const backfillQuotedSetPrice = internalMutation({
         skippedNoSnapshot += 1;
         continue;
       }
+      // Legacy fixed-price bookings don't store `fixed_price_lines`, so we
+      // can't reconstruct the per-line flat amounts from the booking row
+      // alone. Skip rather than fall back to summing OEM unit prices —
+      // that would overwrite a previously-correct quoted_set_price with the
+      // $8.10-instead-of-$60 bug this field was added to fix.
+      if ((booking as any).is_fixed_price === true) {
+        skippedFixedPrice += 1;
+        continue;
+      }
 
       const quoted = computeQuotedSetPrice({
         disclosedBreakdown: breakdown,
@@ -6430,6 +6494,7 @@ export const backfillQuotedSetPrice = internalMutation({
       skippedAlreadySet,
       skippedLegacy,
       skippedNoSnapshot,
+      skippedFixedPrice,
     };
   },
 });
@@ -7592,6 +7657,30 @@ export const getJobDetail = query({
     const shopForRate = booking.shop_id
       ? await ctx.db.get(booking.shop_id)
       : null;
+
+    // Tier-aware labor rate (Pricing v2). Falls back to flat shop.labor_rate
+    // when the vehicle has no resolvable tier, so the mechanic UI never goes
+    // blank on an unenriched vehicle.
+    let mechanicLaborRateDollars: number | null = null;
+    if (shopForRate && booking.vin) {
+      const cfg = await resolveVehicleConfigFromVin(ctx, booking.vin);
+      const tier =
+        (cfg?.pricing_tier as VehicleTier | undefined) ??
+        (cfg ? await detectTier(ctx, cfg) : null);
+      if (tier) {
+        const rateRes = resolveLaborRate(shopForRate as any, tier);
+        if (rateRes.rate != null) {
+          mechanicLaborRateDollars = rateRes.rate;
+        }
+      }
+    }
+    if (
+      mechanicLaborRateDollars == null &&
+      typeof shopForRate?.labor_rate === "number"
+    ) {
+      mechanicLaborRateDollars = shopForRate.labor_rate;
+    }
+
     const shopTimezone = await getShopTimezone(ctx, booking.shop_id);
     const scheduledStartMs = toBookingDateTimeMs(
       booking.scheduled_date ?? "",
@@ -7713,6 +7802,12 @@ export const getJobDetail = query({
       // Pre-Job Approval flags — mechanic surface MUST NOT see the actual
       // range, only whether one exists and the approval state.
       hasDisclosedRange: (booking as any).disclosed_range_high_cents != null,
+      // True when the customer agreed to a per-(shop, service, tier) flat
+      // price at create time. Mechanic UI uses this to render a "Fixed
+      // price" pill — does NOT reveal the dollar amount (that lives in
+      // quotedSetPriceDollars / totalCost, both of which the mechanic
+      // already sees).
+      isFixedPrice: (booking as any).is_fixed_price === true,
       paymentApprovalState:
         ((booking as any).payment_approval_state as string | undefined) ?? null,
       mechanicSetPriceCents:
@@ -7733,8 +7828,8 @@ export const getJobDetail = query({
       shopState: shopForRate?.state ?? null,
       shopZip: shopForRate?.zip ?? null,
       shopLaborRateCents:
-        typeof shopForRate?.labor_rate === "number"
-          ? Math.round(shopForRate.labor_rate * 100)
+        mechanicLaborRateDollars != null
+          ? Math.round(mechanicLaborRateDollars * 100)
           : null,
     };
   },
@@ -12133,7 +12228,7 @@ export const listOpenTireQuoteRequestsForShop = query({
       (b) => b.tire_specs != null,
     );
 
-    // Filter out bookings this shop has already quoted on.
+    // Filter out bookings this shop has already quoted on or dismissed.
     const filtered = await Promise.all(
       candidates.map(async (booking) => {
         const existing = await ctx.db
@@ -12143,7 +12238,14 @@ export const listOpenTireQuoteRequestsForShop = query({
           )
           .filter((q) => q.eq(q.field("superseded_at"), undefined))
           .first();
-        return existing ? null : booking;
+        if (existing) return null;
+        const dismissed = await ctx.db
+          .query("quote_request_dismissals")
+          .withIndex("by_booking_and_shop", (q) =>
+            q.eq("booking_id", booking._id).eq("shop_id", args.shopId),
+          )
+          .first();
+        return dismissed ? null : booking;
       }),
     );
 
@@ -12299,6 +12401,8 @@ export const acceptRotorQuote = mutation({
 
     let attachServiceId: Id<"services"> | null = null;
     if (rotorService) {
+      // The shop committed to do this rotor job by submitting a quote, so
+      // auto-register the shop_services row if missing.
       const offered = await ctx.db
         .query("shop_services")
         .withIndex("by_shop_and_service", (q) =>
@@ -12367,6 +12471,7 @@ export const acceptRotorQuote = mutation({
 /**
  * QUERY: listOpenRotorQuoteRequestsForShop
  * Rotor-quote-stage bookings the given shop has NOT yet responded to.
+ * Used by the website's "Rotor Quote Requests" view in the shop portal.
  */
 export const listOpenRotorQuoteRequestsForShop = query({
   args: {
@@ -12396,7 +12501,14 @@ export const listOpenRotorQuoteRequestsForShop = query({
           )
           .filter((q) => q.eq(q.field("superseded_at"), undefined))
           .first();
-        return existing ? null : booking;
+        if (existing) return null;
+        const dismissed = await ctx.db
+          .query("quote_request_dismissals")
+          .withIndex("by_booking_and_shop", (q) =>
+            q.eq("booking_id", booking._id).eq("shop_id", args.shopId),
+          )
+          .first();
+        return dismissed ? null : booking;
       }),
     );
 

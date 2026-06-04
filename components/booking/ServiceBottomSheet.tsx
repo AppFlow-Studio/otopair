@@ -87,6 +87,7 @@ import { ShopPreviewContent } from "./sheets/ShopPreviewContent";
 import { BorderRadius, FontFamily, FontSize, Shadows } from "@/constants/theme";
 import { useBookingLaborHours } from "@/hooks/useBookingLaborHours";
 import { useBookingPartsBreakdown } from "@/hooks/useBookingPartsBreakdown";
+import { useShopFixedPricesForServices } from "@/hooks/useShopFixedPricesForServices";
 import { useBookingTransition } from "@/hooks/useBookingTransition";
 import { useRecentlyBookedMechanicIdsFromConvex } from "@/hooks/useRecentlyBookedMechanicIdsFromConvex";
 import { useRecentlyBookedShopIdsFromConvex } from "@/hooks/useRecentlyBookedShopIdsFromConvex";
@@ -424,12 +425,22 @@ export function ServiceBottomSheet({
   const { laborHours: laborHoursByService, isLoading: isLaborHoursLoading } =
     useBookingLaborHours(selectedVehicle?.ownershipId, selectedServiceIds);
 
+  // Per-(shop, service, tier) flat-price overrides for the focused mechanic.
+  // Folded into deriveDisclosedRange below so the footer band already reflects
+  // any flat-price short-circuits the booking-create call will honor.
+  const { map: footerFixedPriceMap, hasAnyFixed: footerHasAnyFixed } =
+    useShopFixedPricesForServices(
+      selectedMechanicSlot?.shopId,
+      selectedVehicle?.ownershipId,
+      selectedServiceIds,
+    );
+
   const mechanicFooterRange = useMemo(() => {
     const isLoading = isPricedPartsLoading || isLaborHoursLoading;
-    if (!selectedMechanicSlot?.shopId) return { formatted: "", isLoading };
+    if (!selectedMechanicSlot?.shopId) return { formatted: "", isLoading, hasAnyFixed: false };
     const shop = shops[selectedMechanicSlot.shopId];
     const laborRate = shop?.labor_rate;
-    if (laborRate == null) return { formatted: "", isLoading };
+    if (laborRate == null) return { formatted: "", isLoading, hasAnyFixed: false };
 
     const selectedServices = availableServices.filter((s) => selectedServiceIds.includes(s.id));
 
@@ -441,12 +452,22 @@ export function ServiceBottomSheet({
     }
 
     let laborHours = 0;
-    let partsCost = 0;
+    let variablePartsCost = 0;
+    const fixedPriceLines: { serviceId: string; laborCost: number; partsFixed: number }[] = [];
     for (const s of selectedServices) {
       const hours = laborHoursMap.get(String(s.id)) ?? s.default_labor_hours ?? 0;
       laborHours += hours;
+      const flat = footerFixedPriceMap.get(String(s.id));
+      if (flat != null) {
+        fixedPriceLines.push({
+          serviceId: String(s.id),
+          laborCost: hours * laborRate,
+          partsFixed: flat,
+        });
+        continue;
+      }
       const priced = pricedPartsMap.get(String(s.id));
-      partsCost += priced && priced.partsTotal > 0
+      variablePartsCost += priced && priced.partsTotal > 0
         ? priced.partsTotal
         : s.default_parts_estimate ?? 0;
     }
@@ -454,11 +475,12 @@ export function ServiceBottomSheet({
     const laborCost = laborHours * laborRate;
     const range = deriveDisclosedRange({
       laborCost,
-      partsCost,
+      partsCost: variablePartsCost,
       state: shop?.state,
       zip: shop?.zip,
+      fixedPriceLines,
     });
-    return { formatted: range.formatted, isLoading };
+    return { formatted: range.formatted, isLoading, hasAnyFixed: fixedPriceLines.length > 0 };
   }, [
     selectedMechanicSlot?.shopId,
     shops,
@@ -468,6 +490,7 @@ export function ServiceBottomSheet({
     pricedPartsByService,
     isPricedPartsLoading,
     isLaborHoursLoading,
+    footerFixedPriceMap,
   ]);
 
   // ═══════════════ SEARCH COMPUTED VALUES ═══════════════
@@ -1380,7 +1403,8 @@ export function ServiceBottomSheet({
                           adjustsFontSizeToFit
                           minimumFontScale={0.7}
                         >
-                          ~ {mechanicFooterRange.formatted}
+                          {mechanicFooterRange.hasAnyFixed ? "" : "~ "}
+                          {mechanicFooterRange.formatted}
                         </Text>
                       ) : (
                         <Text size="xs" weight="semiBold" color={BrandColors.white} style={mechanicFooterStyles.priceRange}>
@@ -2267,6 +2291,12 @@ const mechanicFooterStyles = StyleSheet.create({
   },
   priceRange: {
     opacity: 0.9,
+  },
+  priceWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.xs,
+    flexShrink: 1,
   },
   priceSkeleton: {
     width: 96,

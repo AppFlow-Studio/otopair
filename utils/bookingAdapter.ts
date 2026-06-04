@@ -14,6 +14,14 @@ import type { Booking as StoreBooking, Service } from "@/stores/types/store.type
 import type { Booking as BookingCardBooking } from "@/components/bookings/BookingCard";
 import type { Mechanic } from "@/stores/types/store.types";
 import type { Shop } from "@/stores/types/store.types";
+import {
+  BRAKE_SYSTEM_OPTIONS,
+  PAD_TYPE_OPTIONS,
+  quantityForAxle,
+  type BrakeSystemType,
+  type PadType,
+  type RotorAxle,
+} from "@/constants/rotorFlow";
 import { hhmmToDisplayTime } from "@/utils/timeSlotUtils";
 
 /** Convert "14:00" → "2:00 PM"; pass through anything that already
@@ -67,11 +75,15 @@ export interface ConvexBookingWithDetails {
     tier: string;
     quantity: number;
   };
-  /** Populated for rotor-quote bookings only (status pending_quote / quotes_ready). */
+  /** Populated for rotor-quote bookings only (status pending_quote /
+   *  quotes_ready). Mirrors the Convex schema written by
+   *  `bookings.createRotorQuoteRequest` — quantity is derived from `axle`,
+   *  not stored. */
   rotor_specs?: {
-    axle: string; // "front" | "rear" | "both"
-    tier: string;
-    quantity: number;
+    brake_system_type: BrakeSystemType;
+    axle: RotorAxle;
+    include_pads: boolean;
+    pad_type?: PadType;
   };
   /** Pre-Job Approval flow — disclosed range snapshotted at create. */
   disclosed_range_low_cents?: number;
@@ -212,10 +224,22 @@ export function adaptConvexBookingWithDetailsToCard(row: ConvexBookingWithDetail
     const head = [String(quantity), tier, type].filter(Boolean).join(" ");
     notes = [head || "Tires", size].filter(Boolean).join(" · ");
   } else if (row.rotor_specs) {
-    const { quantity, tier, axle } = row.rotor_specs;
+    // rotor_specs carries the four request fields written by
+    // createRotorQuoteRequest (no `tier` / `quantity` on the row — those
+    // are display-derived here so the card and the parse step agree).
+    const { brake_system_type, axle, include_pads, pad_type } = row.rotor_specs;
     const axleLabel =
       axle === "front" ? "Front pair" : axle === "rear" ? "Rear pair" : "All four";
-    notes = [axleLabel, tier, `${quantity} rotors`].filter(Boolean).join(" · ");
+    const brakeLabel =
+      BRAKE_SYSTEM_OPTIONS.find((o) => o.id === brake_system_type)?.label ??
+      brake_system_type;
+    const quantity = quantityForAxle(axle);
+    const padsLabel = include_pads
+      ? `+ ${PAD_TYPE_OPTIONS.find((o) => o.id === pad_type)?.label ?? "Pads"}`
+      : null;
+    notes = [axleLabel, brakeLabel, `${quantity} rotors`, padsLabel]
+      .filter(Boolean)
+      .join(" · ");
   }
 
   const quoteType: BookingCardBooking["quoteType"] = row.rotor_specs

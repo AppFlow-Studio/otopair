@@ -181,6 +181,18 @@ export function useCreateBookingConvex() {
         };
       });
 
+      // Sum of per-service labor minutes from the same `useBookingLaborHours`
+      // source the Review & Pay screen renders. Sent to `createBatch` as
+      // `displayed_labor_minutes` so the booking's `estimated_labor_minutes`
+      // matches the duration the customer just agreed to — without this the
+      // server falls back to `resolveBookingLaborMinutes`, which walks a
+      // different path through `service_vehicle_specs` / `labor_times` and
+      // can return e.g. 17 min for an oil change the customer saw as 42 min.
+      const totalLaborMinutes = services.reduce(
+        (sum, s) => sum + (s.labor_hours ?? 0),
+        0,
+      ) * 60;
+
       const scheduledDateVal = scheduledAppointment?.date ?? new Date().toISOString().split("T")[0];
       const scheduledTimeVal = scheduledAppointment?.time ? displayTimeToHHMM(scheduledAppointment.time) : "09:00";
 
@@ -249,6 +261,8 @@ export function useCreateBookingConvex() {
           services,
           taxes_and_fees: TAXES_AND_FEES,
           platform_fee: PLATFORM_FEE,
+          displayed_labor_minutes:
+            totalLaborMinutes > 0 ? totalLaborMinutes : undefined,
           source_recommendation_id: sourceRecommendationId
             ? (sourceRecommendationId as Id<"job_recommendations">)
             : undefined,

@@ -85,6 +85,9 @@ export {
 // Feedback Modal
 export { FeedbackModal, type FeedbackModalProps } from "./FeedbackModal";
 
+// Fixed Price Badge
+export { FixedPriceBadge, type FixedPriceBadgeProps } from "./FixedPriceBadge";
+
 // Finish Later Component
 export {
     FinishLater

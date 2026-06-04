@@ -14,7 +14,7 @@ import { Pressable, StyleSheet, View, useWindowDimensions } from "react-native";
 
 import { Calendar, Car, User } from "lucide-react-native";
 
-import { Text } from "@/components/shared-ui";
+import { FixedPriceBadge, Text } from "@/components/shared-ui";
 import { ConfirmCountdownButton } from "@/components/tire-booking/QuoteRequestStatus";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
@@ -37,6 +37,7 @@ export function BookingConfirmStatus({ onConfirm, onGoBack, mechanicId }: Props)
   const scheduledAppointment = useBookingStore((s) => s.scheduledAppointment);
   const selectedMechanicId = useBookingStore((s) => s.selectedMechanicId);
   const disclosedRangeFormatted = useBookingStore((s) => s.disclosedRangeFormatted);
+  const disclosedRangeIsFixedPrice = useBookingStore((s) => s.disclosedRangeIsFixedPrice);
   const getMechanicById = useMechanicStore((s) => s.getMechanicById);
   const getShopById = useShopStore((s) => s.getShopById);
   const selectedVehicle = useVehicleStore((s) =>
@@ -97,16 +98,21 @@ export function BookingConfirmStatus({ onConfirm, onGoBack, mechanicId }: Props)
       </View>
 
       <View style={[styles.actionColumn, isCompactLayout && styles.actionColumnCompact, isVeryCompactLayout && styles.actionColumnVeryCompact]}>
-        {/* {disclosedRangeFormatted ? (
-          <Text
-            size={isVeryCompactLayout ? "sm" : "md"}
-            weight="semiBold"
-            color="#141C24"
-            style={styles.rangeLine}
-          >
-            The estimated price for your car is {disclosedRangeFormatted}.
-          </Text>
-        ) : null} */}
+        {disclosedRangeFormatted ? (
+          <View style={styles.rangeLineWrap}>
+            <Text
+              size={isVeryCompactLayout ? "sm" : "md"}
+              weight="semiBold"
+              color="#141C24"
+              style={styles.rangeLine}
+            >
+              {disclosedRangeIsFixedPrice
+                ? `Your price for this booking is ${disclosedRangeFormatted}.`
+                : `The estimated price for your car is ${disclosedRangeFormatted}.`}
+            </Text>
+            {disclosedRangeIsFixedPrice && <FixedPriceBadge size="sm" />}
+          </View>
+        ) : null}
         <Text
           size={isVeryCompactLayout ? "xs" : "sm"}
           weight="regular"
@@ -261,6 +267,11 @@ const styles = StyleSheet.create({
     textAlign: "center",
     lineHeight: 20,
     paddingHorizontal: 4,
+    marginBottom: 2,
+  },
+  rangeLineWrap: {
+    alignItems: "center",
+    gap: 4,
     marginBottom: 2,
   },
 });

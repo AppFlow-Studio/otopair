@@ -496,6 +496,7 @@ export function MechanicSelectionContent({
         selectedSlot={selectedSlotInfo}
         selectedServices={selectedServicesForCard}
         isPriceLoading={isPriceLoading}
+        vehicleOwnerId={selectedVehicle?.ownershipId ?? null}
         onChangeMechanicForSelectedSlot={handleChangeMechanicForSelectedSlot}
       />
     ),
@@ -506,6 +507,7 @@ export function MechanicSelectionContent({
       selectedSlotInfo,
       selectedServicesForCard,
       isPriceLoading,
+      selectedVehicle?.ownershipId,
       handleChangeMechanicForSelectedSlot,
     ],
   );

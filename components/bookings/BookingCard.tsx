@@ -35,7 +35,7 @@ import { Car, FileText, Star, User } from 'lucide-react-native';
 import Animated, { FadeOut, LinearTransition, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 
 // 3. Shared UI
-import { Text } from '@/components/shared-ui';
+import { FixedPriceBadge, Text } from '@/components/shared-ui';
 import { BookingProgressBar } from '@/components/bookings/BookingProgressBar';
 import { ApprovalBanner } from '@/components/booking/ApprovalBanner';
 import { getBookingStageView } from '@/utils/bookingStages';
@@ -516,9 +516,16 @@ export function BookingCard({
                 <Text weight="regular" size="sm" color="#6B7280">
                   Total Cost
                 </Text>
-                <Text weight="semiBold" size="sm" color="#5299FE">
-                  ${booking.totalCost?.toFixed(2) || '0.00'}
-                </Text>
+                <View style={styles.historyTotalCostWrap}>
+                  {booking.disclosedRangeLowCents != null &&
+                    booking.disclosedRangeHighCents != null &&
+                    booking.disclosedRangeLowCents === booking.disclosedRangeHighCents && (
+                      <FixedPriceBadge size="sm" />
+                    )}
+                  <Text weight="semiBold" size="sm" color="#5299FE">
+                    ${booking.totalCost?.toFixed(2) || '0.00'}
+                  </Text>
+                </View>
               </View>
             </>
           )}
@@ -742,6 +749,11 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     borderWidth: 1,
     borderColor: '#E5E7EB',
+  },
+  historyTotalCostWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
   actionsRow: {
     flexDirection: 'row',

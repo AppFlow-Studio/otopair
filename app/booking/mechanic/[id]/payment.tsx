@@ -22,7 +22,7 @@ import { Calendar, Car, ChevronRight, FileText, Info, Star } from "lucide-react-
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // 3. Shared UI (design system)
-import { BrandColors, ErrorOccurredModal, Spacing, Text } from "@/components/shared-ui";
+import { BrandColors, ErrorOccurredModal, FixedPriceBadge, Spacing, Text } from "@/components/shared-ui";
 
 // 4. Flow-specific components
 import { BookingPageHeader } from "@/components/booking/pages";
@@ -37,6 +37,7 @@ import { BorderRadius, Shadows } from "@/constants/theme";
 import { useBookingLaborHours } from "@/hooks/useBookingLaborHours";
 import { useBookingPartsBreakdown } from "@/hooks/useBookingPartsBreakdown";
 import { useCreateBookingConvex } from "@/hooks/useCreateBookingConvex";
+import { useShopFixedPricesForServices } from "@/hooks/useShopFixedPricesForServices";
 import { deriveDisclosedRange, formatRange } from "@/lib/disclosedRange";
 import { formatDurationForCar } from "@/lib/formatDuration";
 import { computeBookingTax } from "@/lib/tax";
@@ -188,6 +189,18 @@ export default function PaymentScreen() {
     [laborHoursMap]
   );
 
+  // Per-(shop, service, tier) flat-price overrides — same hook the mechanic
+  // selection footer + ShopCard call. Hits collapse the parts band and zero
+  // labor for that line; mirrors `computeDisclosedRange` on the server so
+  // the price the customer agrees to here is what `createBatch` will
+  // snapshot onto the booking row.
+  const { map: fixedPriceMap, hasAnyFixed: hasAnyFixedPrice } =
+    useShopFixedPricesForServices(
+      mechanic?.shopId,
+      selectedVehicle?.ownershipId,
+      selectedServiceIds,
+    );
+
   // Calculate detailed breakdown — Pre-Job Approval flow: every variable
   // line renders as a band, not a single price. Parts vary ±25% (real
   // variance lives in part fitments + engine variant); labor is fixed.
@@ -198,44 +211,87 @@ export default function PaymentScreen() {
     const rate = laborRate ?? 0;
     const laborHours = selectedServices.reduce((sum, s) => sum + getServiceLaborHours(s), 0);
     const laborCost = laborHours * rate;
-    const partsCost = selectedServices.reduce((sum, s) => sum + getServicePartsCost(s), 0);
-    const servicesTotal = laborCost + partsCost;
+    // Hours attributable to variable services only — drives the "Labor (X mins)"
+    // label so the duration matches the displayed billableLaborCost below.
+    const variableLaborHours = selectedServices.reduce(
+      (sum, s) =>
+        fixedPriceMap.has(String(s.id)) ? sum : sum + getServiceLaborHours(s),
+      0,
+    );
+
+    // Split variable parts (banded) from fixed parts (pinned on both ends).
+    // Mirrors computeDisclosedRange in convex/booking_quotes.ts so the
+    // create call honors the same price the customer agrees to here.
+    const variablePartsCost = selectedServices.reduce(
+      (sum, s) =>
+        fixedPriceMap.has(String(s.id))
+          ? sum
+          : sum + getServicePartsCost(s),
+      0,
+    );
+    const fixedPartsTotal = selectedServices.reduce(
+      (sum, s) => sum + (fixedPriceMap.get(String(s.id)) ?? 0),
+      0,
+    );
+    const partsCost = variablePartsCost + fixedPartsTotal;
+
+    // Labor on flat-price lines is bundled into the flat — subtract it from
+    // the billable labor used for tax/fee/total math.
+    const fixedLaborCost = selectedServices.reduce(
+      (sum, s) =>
+        fixedPriceMap.has(String(s.id))
+          ? sum + rate * getServiceLaborHours(s)
+          : sum,
+      0,
+    );
+    const billableLaborCost = Math.max(0, laborCost - fixedLaborCost);
+
+    const servicesTotal = billableLaborCost + partsCost;
     const serviceFee = computePlatformFeeDollars(servicesTotal);
     const taxesAndFees = computeBookingTax({
-      laborDollars: laborCost,
+      laborDollars: billableLaborCost,
       partsDollars: partsCost,
       state: shop?.state,
       zip: shop?.zip,
     }).taxDollars;
 
     const PARTS_BAND = 0.08;
-    const partsLow = Math.max(0, partsCost * (1 - PARTS_BAND));
-    const partsHigh = partsCost * (1 + PARTS_BAND);
+    const partsLow = Math.max(0, variablePartsCost * (1 - PARTS_BAND)) + fixedPartsTotal;
+    const partsHigh = variablePartsCost * (1 + PARTS_BAND) + fixedPartsTotal;
     const taxLow = computeBookingTax({
-      laborDollars: laborCost,
+      laborDollars: billableLaborCost,
       partsDollars: partsLow,
       state: shop?.state,
       zip: shop?.zip,
     }).taxDollars;
     const taxHigh = computeBookingTax({
-      laborDollars: laborCost,
+      laborDollars: billableLaborCost,
       partsDollars: partsHigh,
       state: shop?.state,
       zip: shop?.zip,
     }).taxDollars;
-    const feeLow = computePlatformFeeDollars(laborCost + partsLow);
-    const feeHigh = computePlatformFeeDollars(laborCost + partsHigh);
+    const feeLow = computePlatformFeeDollars(billableLaborCost + partsLow);
+    const feeHigh = computePlatformFeeDollars(billableLaborCost + partsHigh);
 
+    const fixedPriceLines = selectedServices
+      .filter((s) => fixedPriceMap.has(String(s.id)))
+      .map((s) => ({
+        serviceId: String(s.id),
+        laborCost: rate * getServiceLaborHours(s),
+        partsFixed: fixedPriceMap.get(String(s.id)) ?? 0,
+      }));
     const range = deriveDisclosedRange({
       laborCost,
-      partsCost,
+      partsCost: variablePartsCost,
       state: shop?.state,
       zip: shop?.zip,
+      fixedPriceLines,
     });
 
     return {
       laborHours,
-      laborCost: Math.max(0, laborCost),
+      variableLaborHours,
+      laborCost: billableLaborCost,
       partsCost: Math.max(0, partsCost),
       taxesAndFees,
       platformFee: serviceFee,
@@ -251,14 +307,19 @@ export default function PaymentScreen() {
       rangeHigh: range.highDollars,
       rangeFormatted: range.formatted,
     };
-  }, [selectedServices, laborRate, shop?.state, shop?.zip, getServicePartsCost, getServiceLaborHours]);
+  }, [selectedServices, laborRate, shop?.state, shop?.zip, getServicePartsCost, getServiceLaborHours, fixedPriceMap]);
 
-  // Stash the customer-facing range so BookingConfirmStatus can re-quote
-  // the same band the customer just agreed to.
+  // Stash the customer-facing range + fixed-price flag so BookingConfirmStatus
+  // can re-quote the same band the customer just agreed to and decide
+  // whether to render the "Fixed price" pill alongside it.
   const setDisclosedRangeFormatted = useBookingStore((s) => s.setDisclosedRangeFormatted);
+  const setDisclosedRangeIsFixedPrice = useBookingStore((s) => s.setDisclosedRangeIsFixedPrice);
   useEffect(() => {
     setDisclosedRangeFormatted(breakdown.rangeFormatted);
   }, [breakdown.rangeFormatted, setDisclosedRangeFormatted]);
+  useEffect(() => {
+    setDisclosedRangeIsFixedPrice(hasAnyFixedPrice);
+  }, [hasAnyFixedPrice, setDisclosedRangeIsFixedPrice]);
 
   // Per-service line range (labor + parts ±8%) so summary rows show the
   // same band as the aggregate. The 8% cap matches the disclosed-range
@@ -266,14 +327,19 @@ export default function PaymentScreen() {
   // in this band, so a wider spread would overstate uncertainty.
   const getServiceLineRange = useCallback(
     (service: (typeof selectedServices)[0]) => {
+      const flat = fixedPriceMap.get(String(service.id));
+      if (flat != null) {
+        return { low: flat, high: flat, isFixed: true as const };
+      }
       const labor = (laborRate ?? 0) * getServiceLaborHours(service);
       const parts = getServicePartsCost(service);
       return {
         low: labor + parts * 0.92,
         high: labor + parts * 1.08,
+        isFixed: false as const,
       };
     },
-    [laborRate, getServicePartsCost, getServiceLaborHours]
+    [laborRate, getServicePartsCost, getServiceLaborHours, fixedPriceMap]
   );
 
   // Fallback parts breakdown for services without real OEM-priced data.
@@ -284,12 +350,15 @@ export default function PaymentScreen() {
     const unpricedNames: string[] = [];
     let unpricedTotal = 0;
     for (const service of selectedServices) {
+      // Fixed-price services bundle parts into the flat amount — they
+      // render their own "Parts — Fixed" row, so skip them here.
+      if (fixedPriceMap.has(String(service.id))) continue;
       if (pricedPartsMap.has(String(service.id))) continue;
       unpricedNames.push(service.name);
       unpricedTotal += service.default_parts_estimate ?? 0;
     }
     return getPartsBreakdown(unpricedNames, unpricedTotal);
-  }, [selectedServices, pricedPartsMap]);
+  }, [selectedServices, pricedPartsMap, fixedPriceMap]);
 
   // Format vehicle display
   const vehicleDisplay = selectedVehicle
@@ -462,16 +531,22 @@ export default function PaymentScreen() {
           </View>
 
           {/* Service names with line range (labor + parts ±25%) so the
-              summary row shows the same band as the aggregate total. */}
+              summary row shows the same band as the aggregate total.
+              Flat-price lines collapse to a single $X and carry a badge. */}
           {selectedServices.map((service) => {
             const lineRange = getServiceLineRange(service);
             return (
               <View key={service.id} style={styles.serviceRow}>
-                <Text size="sm" weight="medium" color={BrandColors.primary}>
-                  {service.name}
-                </Text>
+                <View style={styles.serviceNameWrap}>
+                  <Text size="sm" weight="medium" color={BrandColors.primary}>
+                    {service.name}
+                  </Text>
+                  {lineRange.isFixed && <FixedPriceBadge size="sm" />}
+                </View>
                 <Text size="sm" weight="semiBold" color={BrandColors.primary}>
-                  {formatRange(lineRange.low, lineRange.high)}
+                  {lineRange.isFixed
+                    ? `$${lineRange.low.toFixed(2)}`
+                    : formatRange(lineRange.low, lineRange.high)}
                 </Text>
               </View>
             );
@@ -488,16 +563,16 @@ export default function PaymentScreen() {
                 <View style={styles.skeletonLabel} />
                 <View style={styles.skeletonValue} />
               </View>
-            ) : (
+            ) : breakdown.variableLaborHours > 0 ? (
               <View style={styles.breakdownRow}>
                 <Text size="sm" weight="regular" color="#6B7280">
-                  Labor ({formatDurationForCar(breakdown.laborHours) ?? "0 mins"})
+                  Labor ({formatDurationForCar(breakdown.variableLaborHours) ?? "0 mins"})
                 </Text>
                 <Text size="sm" weight="medium" color="#6B7280">
                   ${breakdown.laborCost.toFixed(2)}
                 </Text>
               </View>
-            )}
+            ) : null}
 
             {/* Parts: while the priced-parts query is in flight, render a
                 skeleton row per service. When data lands, real OEM parts
@@ -512,6 +587,11 @@ export default function PaymentScreen() {
                   </View>
                 ))
               : selectedServices.flatMap((service) => {
+                  // Flat-price services are represented by their summary row +
+                  // FixedPriceBadge above; suppress them in the detailed
+                  // breakdown so we don't double-show or invent dollar amounts
+                  // that don't sum to the flat.
+                  if (fixedPriceMap.has(String(service.id))) return [];
                   const priced = pricedPartsMap.get(String(service.id));
                   if (!priced || !priced.winner) return [];
                   // Single-axle services have just `winner`. Position="both"
@@ -598,12 +678,17 @@ export default function PaymentScreen() {
           <View style={styles.totalSection}>
             <View style={styles.totalHeader}>
               <Text size="md" weight="bold" color={BrandColors.primary}>
-                Estimated price range
+                {hasAnyFixedPrice && breakdown.rangeLow === breakdown.rangeHigh
+                  ? "Estimated price"
+                  : "Estimated price range"}
               </Text>
-              <View style={styles.savingsBadge}>
-                <Text size="xs" weight="semiBold" color={BrandColors.secondary}>
-                  → Saved $25 vs Dealership
-                </Text>
+              <View style={styles.totalHeaderBadges}>
+                {hasAnyFixedPrice && <FixedPriceBadge size="sm" />}
+                <View style={styles.savingsBadge}>
+                  <Text size="xs" weight="semiBold" color={BrandColors.secondary}>
+                    → Saved $25 vs Dealership
+                  </Text>
+                </View>
               </View>
             </View>
             <Text
@@ -894,6 +979,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: Spacing.sm,
   },
+  serviceNameWrap: {
+    flexShrink: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.xs,
+  },
   breakdownSection: {
     marginTop: Spacing.sm,
     paddingTop: Spacing.sm,
@@ -944,6 +1035,12 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: Spacing.sm,
+    flexWrap: "wrap",
+  },
+  totalHeaderBadges: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.xs,
     flexWrap: "wrap",
   },
   // Retained for back-compat; new stacked layout uses `totalHeader`.
