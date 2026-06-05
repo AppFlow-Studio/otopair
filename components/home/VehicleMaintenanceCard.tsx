@@ -254,9 +254,9 @@ export function VehicleMaintenanceCard({
   const renderCardContent = (vehicle: Vehicle, maxItems?: number) => {
     const items = maxItems ? vehicle.maintenanceItems.slice(0, maxItems) : vehicle.maintenanceItems;
     return (
-    <View style={styles.card}>
+    <View style={[styles.card, isPreview && styles.cardPreview]}>
       {/* Top Section - Vehicle Info (tap handled by the card's Tap gesture) */}
-      <View style={styles.topSection}>
+      <View style={[styles.topSection, isPreview && styles.topSectionPreview]}>
         <LinearGradient
           colors={['#FFFFFF', '#FFFFFF']}
           start={{ x: 0, y: 0 }}
@@ -468,13 +468,15 @@ export function VehicleMaintenanceCard({
           {/* Front card */}
           {canSwipe ? (
             <GestureDetector gesture={composedGesture}>
-              <Animated.View style={frontCardStyle}>
+              <Animated.View style={[styles.frontCard, frontCardStyle]}>
                 {renderCardContent(frontVehicle)}
               </Animated.View>
             </GestureDetector>
           ) : (
             <GestureDetector gesture={tapGesture}>
-              {renderCardContent(frontVehicle)}
+              <View style={styles.frontCard}>
+                {renderCardContent(frontVehicle)}
+              </View>
             </GestureDetector>
           )}
         </Animated.View>
@@ -617,8 +619,12 @@ const styles = StyleSheet.create({
     flexShrink: 1,
   },
   vehicleImage: {
-    width: 140,
-    height: 80,
+    width: 160,
+    height: 90,
+    // Pull the hero image flush to the card's right edge by canceling
+    // `topSectionInner`'s 20px right padding. The text column keeps its
+    // padding via `topSectionInner` itself, so only the image bleeds out.
+    marginRight: -20,
   },
   maintenanceList: {
     gap: 0,

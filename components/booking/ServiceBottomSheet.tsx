@@ -427,7 +427,7 @@ export function ServiceBottomSheet({
     for (const row of laborHoursByService) laborHoursMap.set(String(row.serviceId), row.hours);
     const pricedPartsMap = new Map<string, (typeof pricedPartsByService)[number]>();
     for (const row of pricedPartsByService) {
-      if (row.parts.length > 0) pricedPartsMap.set(String(row.serviceId), row);
+      if (row.winner !== null) pricedPartsMap.set(String(row.serviceId), row);
     }
 
     let laborHours = 0;

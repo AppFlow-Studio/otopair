@@ -39,7 +39,7 @@ import Animated, {
 import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
 
-import { Bell, Car, MessageCircle, Navigation, Phone, User, Wrench, X } from "lucide-react-native";
+import { Bell, Car, ChevronDown, ChevronRight, DollarSign, FileText, MessageCircle, Navigation, Phone, ThumbsDown, ThumbsUp, User, Wrench, X } from "lucide-react-native";
 
 import { openMapsForAddress, openPhone } from "@/utils/linking";
 import { useQuery } from "convex/react";
@@ -89,6 +89,103 @@ const STATUS_CONFIG: Record<BookingStatus, { label: string; bgColor: string; tex
   cancelled: { label: "Cancelled", bgColor: "#FEE2E2", textColor: "#DC2626" },
   delayed: { label: "Delayed", bgColor: "#FEF3C7", textColor: "#D97706" },
 };
+
+// ============================================================================
+// ACTIVITY-LOG TYPES (mirrors convex/booking_activity.ts ActivityEvent union)
+// ============================================================================
+
+type ActivityActor = {
+  userId: Id<"users"> | null;
+  label: string;
+};
+
+type ActivityEvent =
+  | {
+      type: "booking_created";
+      at: number;
+      actor: ActivityActor;
+      data: {
+        quotedSetPriceCents: number | null;
+        quotedBreakdown: {
+          parts_cents: number;
+          labor_cents: number;
+          tax_cents: number;
+          service_fee_cents: number;
+        } | null;
+        disclosedRangeLowCents: number | null;
+        disclosedRangeHighCents: number | null;
+        pricedPartsSnapshot: Array<{
+          part_name: string;
+          oem_number: string;
+          quantity: number;
+          unit_price_cents: number;
+          line_total_cents: number;
+        }> | null;
+        services: string[];
+      };
+    }
+  | {
+      type: "status_change";
+      at: number;
+      actor: ActivityActor;
+      data: { from: string | null; to: string; reason: string | null };
+    }
+  | {
+      type: "estimate_submitted";
+      at: number;
+      actor: ActivityActor;
+      data: {
+        cycle: string;
+        approvalId: string;
+        totalCents: number;
+        partsSubtotalCents: number | null;
+        laborCents: number | null;
+        taxCents: number | null;
+        serviceFeeCents: number | null;
+        priorCeilingCents: number;
+        partsSnapshot: Array<{
+          part_name?: string;
+          oem_number?: string;
+          quantity?: number;
+          cost?: number;
+        }>;
+        notes: string | null;
+        slaExpiresAtMs: number | null;
+        autoApprovedInRange: boolean;
+      };
+    }
+  | {
+      type: "estimate_decision";
+      at: number;
+      actor: ActivityActor;
+      data: {
+        cycle: string;
+        approvalId: string;
+        decision: string;
+        totalCents: number;
+        ceilingAfterDecisionCents: number | null;
+      };
+    }
+  | {
+      type: "part_edit";
+      at: number;
+      actor: ActivityActor;
+      data: {
+        editType:
+          | "added"
+          | "removed"
+          | "price"
+          | "quantity"
+          | "supplied_by"
+          | "swap"
+          | "not_used";
+        partKey: string;
+        partName: string | null;
+        oemNumber: string | null;
+        oldValue: string | null;
+        newValue: string | null;
+      };
+    };
 
 // ============================================================================
 // TYPES
@@ -209,6 +306,14 @@ export const BookingDetailsSheet = forwardRef<BookingDetailsSheetRef, BookingDet
       api.bookings.getBookingByIdForCustomer,
       booking?.id ? { bookingId: booking.id as Id<"bookings"> } : "skip",
     );
+
+    // Granular event log (booking_created / status_change / estimate_submitted
+    // / estimate_decision / part_edit) — surfaced below the StatusTimeline so
+    // the customer can audit what they agreed to and why a charge changed.
+    const activityLog = useQuery(
+      (api as any).booking_activity.getBookingActivityLog,
+      booking?.id ? { bookingId: booking.id as Id<"bookings"> } : "skip",
+    ) as ActivityEvent[] | undefined;
 
     const liveStatusHistory = useMemo(() => {
       if (!bookingDetail?.statusHistory) return undefined;
@@ -468,6 +573,7 @@ export const BookingDetailsSheet = forwardRef<BookingDetailsSheetRef, BookingDet
                   shopRating={shopRating}
                   statusHistory={liveStatusHistory ?? statusHistory}
                   liveMonitor={liveMonitor}
+                  activityLog={activityLog}
                   onClose={close}
                   onRequestReschedule={handleRequestReschedule}
                   bottomPadding={insets.bottom + 60}
@@ -743,6 +849,7 @@ interface FullContentProps {
   shopRating?: { score: number; count: number };
   statusHistory?: Array<{ stage: BookingStatus; timestamp: number }>;
   liveMonitor?: LateMonitor | null;
+  activityLog?: ActivityEvent[];
   bookingDetail?: any;
   onClose: () => void;
   onRequestReschedule: (bookingId: string, date: string, time: string) => void;
@@ -760,6 +867,7 @@ function FullContent({
   shopRating,
   statusHistory,
   liveMonitor,
+  activityLog,
   onClose,
   onRequestReschedule,
   bottomPadding,
@@ -819,6 +927,16 @@ function FullContent({
           <SectionHeader label="Status" />
           <StatusTimeline currentStatus={booking.status} history={statusHistory} />
         </View>
+
+        {/* ACTIVITY TIMELINE — granular event log: quote, estimates, your
+            decisions, and any part changes the mechanic made. Each row is
+            tap-to-expand for full breakdown. */}
+        {activityLog && activityLog.length > 0 ? (
+          <View style={styles.section}>
+            <SectionHeader label="Activity" />
+            <ActivityTimeline events={activityLog} customerUserId={bookingDetail?.userId ?? null} />
+          </View>
+        ) : null}
 
         {/* ARRIVAL TRACKING */}
         {liveMonitor && (
@@ -922,12 +1040,21 @@ function FullContent({
             // Pre-Job Approval flow: render based on lifecycle stage.
             //   - captured → PaymentBreakdown (3-row lifecycle + itemized
             //     parts + dispute CTA)
+            //   - mechanic submitted an in-range set price → collapse the
+            //     band to that single number (the customer's contract is
+            //     locked once it lands inside the disclosed range)
             //   - disclosed range present → show range pair
             //   - legacy → show singular total_cost
             const isCaptured = booking.paymentApprovalState === "captured";
             const hasRange =
               booking.disclosedRangeLowCents != null &&
               booking.disclosedRangeHighCents != null;
+            const mechanicSetPriceCents = bookingDetail?.mechanicSetPriceCents ?? null;
+            const isMechanicPriceInRange =
+              mechanicSetPriceCents != null &&
+              hasRange &&
+              mechanicSetPriceCents >= (booking.disclosedRangeLowCents ?? 0) &&
+              mechanicSetPriceCents <= (booking.disclosedRangeHighCents ?? Number.POSITIVE_INFINITY);
             if (isCaptured) {
               return (
                 <>
@@ -947,6 +1074,23 @@ function FullContent({
                   />
                   <ReceiptViewer bookingId={booking.id} />
                 </>
+              );
+            }
+            if (isMechanicPriceInRange && mechanicSetPriceCents != null) {
+              // Mechanic completed pre-job and submitted a price that
+              // landed inside the disclosed range — that becomes the
+              // single contract value the customer pays. If the set price
+              // ever falls outside the range we keep the range here (it
+              // needs the customer's explicit approval before collapsing).
+              return (
+                <View style={styles.paymentRow}>
+                  <Text size="md" weight="regular" color="#1A1A1A">
+                    Estimated total
+                  </Text>
+                  <Text size="md" weight="bold" color="#1A1A1A">
+                    {formatCents(mechanicSetPriceCents)}
+                  </Text>
+                </View>
               );
             }
             if (hasRange) {
@@ -977,20 +1121,38 @@ function FullContent({
                 );
               }
             }
+            // Legacy fallback (no disclosed_range stored on the row yet).
+            // Recompute the ±25% band from labor+parts so the customer
+            // still sees a range until the mechanic submits a set price —
+            // never collapse to a single `totalCost` here.
+            const legacyLabor = bookingDetail?.laborCost ?? null;
+            const legacyParts = bookingDetail?.partsCost ?? null;
+            if (legacyLabor != null && legacyParts != null && (legacyLabor + legacyParts) > 0) {
+              const range = deriveDisclosedRange({
+                laborCost: legacyLabor,
+                partsCost: legacyParts,
+                state: bookingDetail?.shopState ?? null,
+                zip: bookingDetail?.shopZip ?? null,
+              });
+              return (
+                <View style={styles.paymentRow}>
+                  <Text size="md" weight="regular" color="#1A1A1A">
+                    Estimated total
+                  </Text>
+                  <Text size="md" weight="bold" color="#1A1A1A">
+                    {range.formatted}
+                  </Text>
+                </View>
+              );
+            }
             return (
               <View style={styles.paymentRow}>
                 <Text size="md" weight="regular" color="#1A1A1A">
                   Estimated total
                 </Text>
-                {booking.totalCost != null && booking.totalCost > 0 ? (
-                  <Text size="md" weight="bold" color="#1A1A1A">
-                    ${booking.totalCost.toFixed(2)}
-                  </Text>
-                ) : (
-                  <Text size="md" weight="regular" color="#8E8E93" style={styles.paymentPending}>
-                    Pending confirmation
-                  </Text>
-                )}
+                <Text size="md" weight="regular" color="#8E8E93" style={styles.paymentPending}>
+                  Pending confirmation
+                </Text>
               </View>
             );
           })()}
@@ -1090,6 +1252,312 @@ function ArrivalTrackingTimeline({ monitor }: { monitor: LateMonitor }) {
               </Text>
             </View>
           </View>
+        );
+      })}
+    </View>
+  );
+}
+
+// ============================================================================
+// ACTIVITY TIMELINE — friendly, expandable event log for the customer
+// ============================================================================
+
+function formatCents(cents: number | null | undefined): string {
+  if (cents == null) return "—";
+  return `$${(cents / 100).toFixed(2)}`;
+}
+
+function cycleAdjective(cycle: string): string {
+  if (cycle === "pre_job") return "Initial";
+  if (cycle === "mid_job") return "Mid-job";
+  if (cycle === "post_job") return "Final";
+  return cycle;
+}
+
+function statusFriendlyLabel(status: string | null | undefined): string {
+  switch (status) {
+    case "pending": return "Requested";
+    case "pending_shop_acceptance": return "Awaiting shop";
+    case "pending_customer_acceptance": return "Awaiting your approval";
+    case "pending_quote": return "Awaiting quote";
+    case "quotes_ready": return "Quotes ready";
+    case "confirmed": return "Confirmed";
+    case "vehicle_at_shop": return "Vehicle at shop";
+    case "in_progress": return "In progress";
+    case "completed": return "Completed";
+    case "cancelled": return "Cancelled";
+    case "no_show": return "No-show";
+    case "delayed": return "Delayed";
+    default: return status ?? "—";
+  }
+}
+
+function activitySummary(ev: ActivityEvent, isCustomer: boolean): string {
+  switch (ev.type) {
+    case "booking_created": {
+      // This sheet is rendered only in the customer app. Stay on the
+      // agreed range until the mechanic confirms a set price — never
+      // surface the system's quoted point to the customer (it's the
+      // mechanic-facing target). `isCustomer` here means "did the customer
+      // perform this event" and is unreliable for system-emitted
+      // booking_created rows, so we don't gate on it.
+      if (
+        ev.data.disclosedRangeLowCents != null &&
+        ev.data.disclosedRangeHighCents != null
+      ) {
+        return `Booking created — ${formatCents(ev.data.disclosedRangeLowCents)}–${formatCents(ev.data.disclosedRangeHighCents)}`;
+      }
+      return "Booking created";
+    }
+    case "status_change":
+      return `${statusFriendlyLabel(ev.data.from)} → ${statusFriendlyLabel(ev.data.to)}`;
+    case "estimate_submitted": {
+      const adj = cycleAdjective(ev.data.cycle);
+      const total = formatCents(ev.data.totalCents);
+      if (ev.data.autoApprovedInRange) {
+        return `${adj} estimate auto-approved within your agreed range — ${total}`;
+      }
+      return `Mechanic submitted ${adj.toLowerCase()} estimate — ${total}`;
+    }
+    case "estimate_decision": {
+      const adj = cycleAdjective(ev.data.cycle).toLowerCase();
+      switch (ev.data.decision) {
+        case "approved":
+          return isCustomer
+            ? `You approved the ${adj} estimate`
+            : `${ev.actor.label || "Customer"} approved the ${adj} estimate`;
+        case "declined":
+          return isCustomer
+            ? `You declined the ${adj} estimate`
+            : `${ev.actor.label || "Customer"} declined the ${adj} estimate`;
+        case "withdrawn":
+          return `Mechanic withdrew the ${adj} estimate`;
+        case "sla_expired":
+          return `${adj.charAt(0).toUpperCase() + adj.slice(1)} approval window expired`;
+        case "auto_approved_within_range":
+          return `${adj.charAt(0).toUpperCase() + adj.slice(1)} estimate auto-approved within range`;
+        default:
+          return `${adj} estimate · ${ev.data.decision}`;
+      }
+    }
+    case "part_edit": {
+      const noun = ev.data.partName || ev.data.oemNumber || "a part";
+      switch (ev.data.editType) {
+        case "added": return `Mechanic added ${noun}`;
+        case "removed": return `Mechanic removed ${noun}`;
+        case "price": return `Mechanic changed price of ${noun}`;
+        case "quantity": return `Mechanic changed quantity of ${noun}`;
+        case "supplied_by": return `Mechanic changed supplier of ${noun}`;
+        case "swap": return `Mechanic swapped ${noun}`;
+        case "not_used": return `Mechanic marked ${noun} as not used`;
+        default: return `Mechanic adjusted ${noun}`;
+      }
+    }
+  }
+}
+
+function activityIcon(ev: ActivityEvent): { Icon: any; bg: string; fg: string } {
+  switch (ev.type) {
+    case "booking_created":
+      return { Icon: FileText, bg: "#E0E7FF", fg: "#4F46E5" };
+    case "status_change":
+      return { Icon: ChevronRight, bg: "#F2F2F7", fg: "#6B7280" };
+    case "estimate_submitted":
+      return { Icon: DollarSign, bg: "#FEF3C7", fg: "#D97706" };
+    case "estimate_decision": {
+      const d = ev.data.decision;
+      if (d === "approved" || d === "auto_approved_within_range") {
+        return { Icon: ThumbsUp, bg: "#D1FAE5", fg: "#059669" };
+      }
+      return { Icon: ThumbsDown, bg: "#FEE2E2", fg: "#DC2626" };
+    }
+    case "part_edit":
+      return { Icon: Wrench, bg: "#F3F4F6", fg: "#6B7280" };
+  }
+}
+
+function ActivityRow({
+  event,
+  isCustomer,
+  isLast,
+}: {
+  event: ActivityEvent;
+  isCustomer: boolean;
+  isLast: boolean;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const { Icon, bg, fg } = activityIcon(event);
+  const summary = activitySummary(event, isCustomer);
+  const hasDetail =
+    event.type === "booking_created" ||
+    event.type === "estimate_submitted" ||
+    event.type === "estimate_decision" ||
+    event.type === "part_edit";
+
+  return (
+    <View style={styles.timelineRow}>
+      <View style={styles.timelineDotColumn}>
+        <View style={[styles.arrivalDot, { backgroundColor: bg }]}>
+          <Icon size={12} color={fg} />
+        </View>
+        {!isLast ? <View style={styles.timelineLine} /> : null}
+      </View>
+      <View style={styles.timelineBody}>
+        <TouchableOpacity
+          onPress={hasDetail ? () => setExpanded((v) => !v) : undefined}
+          disabled={!hasDetail}
+          activeOpacity={hasDetail ? 0.6 : 1}
+        >
+          <View style={styles.activityHeaderRow}>
+            <View style={styles.activityHeaderText}>
+              <Text size="sm" weight="semiBold" color="#1A1A1A">
+                {summary}
+              </Text>
+              <Text size="xs" weight="regular" color="#8E8E93">
+                {formatShortTime(event.at)}
+              </Text>
+            </View>
+            {hasDetail ? (
+              <View style={styles.activityChevron}>
+                {expanded ? (
+                  <ChevronDown size={14} color="#8E8E93" />
+                ) : (
+                  <ChevronRight size={14} color="#8E8E93" />
+                )}
+              </View>
+            ) : null}
+          </View>
+        </TouchableOpacity>
+
+        {expanded && event.type === "booking_created" ? (
+          <View style={styles.activityDetail}>
+            {event.data.services.length > 0 ? (
+              <Text size="xs" weight="regular" color="#3C3C43">
+                {event.data.services.join(" · ")}
+              </Text>
+            ) : null}
+            {/* Quoted Parts/Labor/Tax+Fee breakdown is the mechanic-facing
+                target; never render it in the customer app. The "Agreed
+                range" line below is what the customer is contracted to. */}
+            {event.data.disclosedRangeLowCents != null &&
+            event.data.disclosedRangeHighCents != null ? (
+              <Text size="xs" weight="regular" color="#8E8E93" style={styles.activityDetailLine}>
+                Agreed range {formatCents(event.data.disclosedRangeLowCents)}–
+                {formatCents(event.data.disclosedRangeHighCents)}
+              </Text>
+            ) : null}
+            {event.data.pricedPartsSnapshot && event.data.pricedPartsSnapshot.length > 0 ? (
+              <View style={styles.activityPartsList}>
+                {event.data.pricedPartsSnapshot.map((p, i) => (
+                  <Text key={`${p.oem_number}-${i}`} size="xs" weight="regular" color="#3C3C43">
+                    • {p.quantity}× {p.part_name} @ {formatCents(p.unit_price_cents)} ={" "}
+                    {formatCents(p.line_total_cents)}
+                  </Text>
+                ))}
+              </View>
+            ) : null}
+          </View>
+        ) : null}
+
+        {expanded && event.type === "estimate_submitted" ? (
+          <View style={styles.activityDetail}>
+            <Text size="xs" weight="regular" color="#3C3C43">
+              Total {formatCents(event.data.totalCents)}
+            </Text>
+            {(event.data.partsSubtotalCents != null ||
+              event.data.laborCents != null ||
+              event.data.taxCents != null ||
+              event.data.serviceFeeCents != null) ? (
+              <Text size="xs" weight="regular" color="#3C3C43" style={styles.activityDetailLine}>
+                Parts {formatCents(event.data.partsSubtotalCents)} · Labor{" "}
+                {formatCents(event.data.laborCents)} · Tax {formatCents(event.data.taxCents)} · Fee{" "}
+                {formatCents(event.data.serviceFeeCents)}
+              </Text>
+            ) : null}
+            <Text size="xs" weight="regular" color="#8E8E93" style={styles.activityDetailLine}>
+              Within agreed ceiling of {formatCents(event.data.priorCeilingCents)}
+            </Text>
+            {event.data.slaExpiresAtMs && !event.data.autoApprovedInRange ? (
+              <Text size="xs" weight="regular" color="#D97706" style={styles.activityDetailLine}>
+                Please respond by {formatShortTime(event.data.slaExpiresAtMs)}
+              </Text>
+            ) : null}
+            {event.actor.label ? (
+              <Text size="xs" weight="regular" color="#8E8E93" style={styles.activityDetailLine}>
+                Submitted by {event.actor.label}
+              </Text>
+            ) : null}
+            {event.data.notes ? (
+              <Text size="xs" weight="regular" color="#3C3C43" style={styles.activityDetailLine}>
+                “{event.data.notes}”
+              </Text>
+            ) : null}
+          </View>
+        ) : null}
+
+        {expanded && event.type === "estimate_decision" ? (
+          <View style={styles.activityDetail}>
+            <Text size="xs" weight="regular" color="#3C3C43">
+              At {formatCents(event.data.totalCents)}
+            </Text>
+            {event.data.ceilingAfterDecisionCents != null ? (
+              <Text size="xs" weight="regular" color="#8E8E93" style={styles.activityDetailLine}>
+                New ceiling {formatCents(event.data.ceilingAfterDecisionCents)}
+              </Text>
+            ) : null}
+            {event.actor.label && event.actor.label !== "system" ? (
+              <Text size="xs" weight="regular" color="#8E8E93" style={styles.activityDetailLine}>
+                by {isCustomer && event.actor.userId ? "you" : event.actor.label}
+              </Text>
+            ) : null}
+          </View>
+        ) : null}
+
+        {expanded && event.type === "part_edit" ? (
+          <View style={styles.activityDetail}>
+            {event.data.oldValue || event.data.newValue ? (
+              <Text size="xs" weight="regular" color="#3C3C43">
+                {event.data.oldValue ?? "—"} → {event.data.newValue ?? "—"}
+              </Text>
+            ) : null}
+            {event.data.oemNumber ? (
+              <Text size="xs" weight="regular" color="#8E8E93" style={styles.activityDetailLine}>
+                OEM {event.data.oemNumber}
+              </Text>
+            ) : null}
+            {event.actor.label ? (
+              <Text size="xs" weight="regular" color="#8E8E93" style={styles.activityDetailLine}>
+                by {event.actor.label}
+              </Text>
+            ) : null}
+          </View>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
+function ActivityTimeline({
+  events,
+  customerUserId,
+}: {
+  events: ActivityEvent[];
+  customerUserId: string | null;
+}) {
+  return (
+    <View style={styles.timeline}>
+      {events.map((event, idx) => {
+        const isCustomer =
+          !!customerUserId &&
+          event.actor.userId != null &&
+          String(event.actor.userId) === String(customerUserId);
+        return (
+          <ActivityRow
+            key={`${event.type}-${event.at}-${idx}`}
+            event={event}
+            isCustomer={isCustomer}
+            isLast={idx === events.length - 1}
+          />
         );
       })}
     </View>
@@ -1478,6 +1946,34 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingLeft: 12,
     paddingBottom: 14,
+    gap: 2,
+  },
+
+  // Activity timeline (expandable rows)
+  activityHeaderRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+  },
+  activityHeaderText: {
+    flex: 1,
+    gap: 2,
+  },
+  activityChevron: {
+    paddingTop: 2,
+  },
+  activityDetail: {
+    marginTop: 6,
+    paddingTop: 6,
+    paddingLeft: 8,
+    borderLeftWidth: 2,
+    borderLeftColor: "#E5E5EA",
+  },
+  activityDetailLine: {
+    marginTop: 2,
+  },
+  activityPartsList: {
+    marginTop: 4,
     gap: 2,
   },
 

@@ -18,9 +18,14 @@ export type PriceSummary = {
   used_sample_size: number;
   average: number;       // mean of non-outlier prices (0 if no data)
   median: number;        // median of all prices
+  trimmed_median: number; // median after dropping one from each end (n≥3); else = median
+  cv: number | null;      // std-dev / mean over kept prices; null when no data or mean=0
   min: number;
   max: number;
   outliers_removed: number;
+  // Max(refreshed_at) across kept sources — null when none have a timestamp.
+  // Used by the 7-layer selector to compute price freshness in days.
+  most_recent_refreshed_at: number | null;
   // The actual price points used to compute the average — handy for the UI
   // to show "averaged across N sources".
   sources_used: Array<{
@@ -78,9 +83,12 @@ export async function summarizePartPrices(
     used_sample_size: 0,
     average: 0,
     median: 0,
+    trimmed_median: 0,
+    cv: null,
     min: 0,
     max: 0,
     outliers_removed: 0,
+    most_recent_refreshed_at: null,
     sources_used: [],
   };
   if (rows.length === 0) return empty;
@@ -99,6 +107,20 @@ export async function summarizePartPrices(
   const sum = kept.reduce((acc, v) => acc + v, 0);
   const average = round2(sum / kept.length);
 
+  // Coefficient of variation across the kept (post-outlier) set — the selector
+  // uses this as its price-stability signal. Population SD over the kept mean.
+  const meanKept = sum / kept.length;
+  const variance = kept.reduce((acc, v) => acc + (v - meanKept) ** 2, 0) / kept.length;
+  const cv = meanKept > 0 ? Math.sqrt(variance) / meanKept : null;
+
+  // Trimmed median: drop one from each end when we have ≥3 kept points;
+  // smooths a single high or low outlier that survived MAD filtering.
+  const trimmed =
+    kept.length >= 3
+      ? [...kept].sort((a, b) => a - b).slice(1, -1)
+      : kept;
+  const trimmed_median = round2(median(trimmed));
+
   // Map kept indices back to original rows so we can report sources used.
   // The two arrays are aligned because we built `prices` in row order and
   // skipped only invalid prices — but the index space is the filtered one.
@@ -114,15 +136,24 @@ export async function summarizePartPrices(
     refreshed_at: (validRows[i].refreshed_at as number | undefined) ?? null,
   }));
 
+  const refreshedTimestamps = sources_used
+    .map((s) => s.refreshed_at)
+    .filter((t): t is number => typeof t === "number");
+  const most_recent_refreshed_at =
+    refreshedTimestamps.length > 0 ? Math.max(...refreshedTimestamps) : null;
+
   return {
     part_id: partId,
     sample_size: prices.length,
     used_sample_size: kept.length,
     average,
     median: round2(median(prices)),
+    trimmed_median,
+    cv,
     min: round2(Math.min(...prices)),
     max: round2(Math.max(...prices)),
     outliers_removed: prices.length - kept.length,
+    most_recent_refreshed_at,
     sources_used: sources_used.map((s) => ({ ...s, price: round2(s.price) })),
   };
 }
@@ -140,6 +171,47 @@ export const getAveragePrices = query({
     const out: PriceSummary[] = [];
     for (const id of args.part_ids) {
       out.push(await summarizePartPrices(ctx, id));
+    }
+    return out;
+  },
+});
+
+export type OemNumberSummary = {
+  oem_number: string;
+  median_cents: number | null;
+  sample_size: number;
+};
+
+// Joins oem_parts by oem_part_number, summarizes prices for each match.
+// Returns median_cents = null when the OEM number isn't in the catalog or has
+// no priced rows — caller skips the band hint for those.
+export const summarizeForOemNumbers = query({
+  args: { oemNumbers: v.array(v.string()) },
+  handler: async (ctx, args): Promise<OemNumberSummary[]> => {
+    const out: OemNumberSummary[] = [];
+    for (const raw of args.oemNumbers) {
+      const oem = raw.trim();
+      if (!oem) {
+        out.push({ oem_number: raw, median_cents: null, sample_size: 0 });
+        continue;
+      }
+      const part = await ctx.db
+        .query("oem_parts")
+        .withIndex("by_part_number", (q: any) =>
+          q.eq("oem_part_number", oem),
+        )
+        .first();
+      if (!part) {
+        out.push({ oem_number: raw, median_cents: null, sample_size: 0 });
+        continue;
+      }
+      const summary = await summarizePartPrices(ctx, part._id);
+      out.push({
+        oem_number: raw,
+        median_cents:
+          summary.sample_size > 0 ? Math.round(summary.median * 100) : null,
+        sample_size: summary.sample_size,
+      });
     }
     return out;
   },

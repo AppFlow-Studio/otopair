@@ -43,7 +43,7 @@ export function useBookingPartsBreakdown(
     () => ({
       breakdown: data ?? EMPTY,
       isLoading: shouldQuery && data === undefined,
-      hasRealData: !!data && data.some((s: PricedPartsForService) => s.parts.length > 0),
+      hasRealData: !!data && data.some((s: PricedPartsForService) => s.winner !== null),
     }),
     [data, shouldQuery],
   );
