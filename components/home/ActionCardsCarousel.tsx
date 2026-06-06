@@ -64,6 +64,7 @@ interface ActionCardsCarouselProps {
   appointmentDestinationAddress?: string;
   onAppointmentViewDetails?: (bookingId: string) => void;
   onAppointmentCancel?: (bookingId: string) => void;
+  onAppointmentReschedule?: (bookingId: string) => void;
 
   // Resume Booking
   showResumeBooking?: boolean;
@@ -112,6 +113,7 @@ export function ActionCardsCarousel({
   appointmentDestinationAddress,
   onAppointmentViewDetails,
   onAppointmentCancel,
+  onAppointmentReschedule,
 
   // Resume Booking
   showResumeBooking = false,
@@ -212,6 +214,7 @@ export function ActionCardsCarousel({
                   variant="upcoming"
                   onViewDetails={onAppointmentViewDetails}
                   onCancelBooking={onAppointmentCancel}
+                  onReschedule={onAppointmentReschedule}
                 />
                 <NavigationETABar
                   etaMinutes={appointmentEtaMinutes}

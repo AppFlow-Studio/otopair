@@ -123,7 +123,7 @@ const ACTION_BUTTON_GAP = 10;
 const ACTION_BUTTON_HORIZONTAL_PADDING = 32;
 const ACTION_BUTTON_LABEL_MAX_SIZE = 14;
 const ACTION_BUTTON_LABEL_MIN_SIZE = 12;
-const ACTION_BUTTON_LONGEST_LABEL = 'Reschedule Booking';
+const ACTION_BUTTON_LONGEST_LABEL = 'Cancel Booking';
 const ACTION_BUTTON_LABEL_WIDTH_RATIO = 0.66;
 
 function clamp(value: number, min: number, max: number): number {
@@ -607,7 +607,7 @@ export function BookingCard({
                   lineHeight={1.2}
                   style={styles.actionButtonLabel}
                 >
-                  Reschedule Booking
+                  Reschedule
                 </Text>
               </Pressable>
             </View>

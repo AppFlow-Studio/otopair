@@ -364,15 +364,15 @@ export function AvailabilityModal({
       if (dayDate < today) {
         // Past days are not selectable
         status = "disabled";
-      } else if (i === selectedDayNumber) {
+      } else if (i === selectedDayNumber && (!useConvexCalendar || availableDays.includes(i))) {
         status = "selected";
       } else if (availableDays.includes(i)) {
         status = "available";
       } else if (bookedDays.includes(i)) {
-        status = "booked";
+        status = "disabled";
       } else if (!useConvexCalendar) {
         const dayOfWeek = new Date(year, month, i).getDay();
-        if (dayOfWeek === 0) status = "booked"; // mock: Sunday = booked
+        if (dayOfWeek === 0) status = "disabled"; // mock: Sunday unavailable
       }
 
       days.push({

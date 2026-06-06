@@ -39,7 +39,7 @@ import { useMutationWithToast } from "@/hooks/useMutationWithToast";
 import { useToast } from "@/hooks/useToast";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
-import { Calendar, Car, Check, ChevronRight, ListFilter, Star } from "lucide-react-native";
+import { Calendar, Check, ChevronRight, ListFilter, Star } from "lucide-react-native";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Image, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
 import Animated from "react-native-reanimated";
@@ -52,6 +52,7 @@ import SegmentedControl from "@react-native-segmented-control/segmented-control"
 
 type TabType = "bookings" | "quotes";
 const TAB_ORDER: TabType[] = ["bookings", "quotes"];
+const BOTTOM_NAV_SCROLL_CLEARANCE = 96;
 
 // ============================================================================
 // COMPONENT
@@ -309,7 +310,10 @@ export default function BookingsScreen() {
           {/* Full Page Scroll - same as home page */}
           <Animated.ScrollView
             style={styles.scrollView}
-            contentContainerStyle={[styles.scrollContent, { paddingTop: insets.top + 12 }]}
+            contentContainerStyle={{
+              paddingTop: insets.top + 12,
+              paddingBottom: insets.bottom + BOTTOM_NAV_SCROLL_CLEARANCE,
+            }}
             showsVerticalScrollIndicator={false}
             onScroll={scrollHandler}
             scrollEventThrottle={16}
@@ -711,9 +715,6 @@ const styles = StyleSheet.create({
   },
   scrollView: {
     flex: 1,
-  },
-  scrollContent: {
-    paddingBottom: 75,
   },
   content: {
     paddingHorizontal: 20,
