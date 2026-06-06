@@ -383,22 +383,13 @@ export function MechanicSelectionContent({
   // either keeps the slot highlighted (the new mechanic shares the same
   // day/time) or the user re-taps a slot — either way the booking flow
   // re-resolves through onSelectSlot before reaching /payment.
-  const handleChangeMechanicForSelectedSlot = useCallback(
-    (shopId: string, mechanicId: string | null, mechanicName: string | null) => {
+  const handleClearSelectedSlotForShop = useCallback(
+    (shopId: string) => {
       if (!selectedMechanicSlot || selectedMechanicSlot.shopId !== shopId) return;
-      if (
-        selectedMechanicSlot.mechanicId === mechanicId &&
-        selectedMechanicSlot.mechanicName === mechanicName
-      ) {
-        return;
-      }
-      setSelectedMechanicSlot({
-        ...selectedMechanicSlot,
-        mechanicId,
-        mechanicName,
-      });
+      setSelectedMechanicSlot(null);
+      setScheduledAppointment(null);
     },
-    [selectedMechanicSlot, setSelectedMechanicSlot],
+    [selectedMechanicSlot, setSelectedMechanicSlot, setScheduledAppointment],
   );
 
   // Handle "More" availability button - opens the calendar modal
@@ -501,7 +492,7 @@ export function MechanicSelectionContent({
         selectedServices={selectedServicesForCard}
         isPriceLoading={isPriceLoading}
         vehicleOwnerId={selectedVehicle?.ownershipId ?? null}
-        onChangeMechanicForSelectedSlot={handleChangeMechanicForSelectedSlot}
+        onClearSelectedSlotForShop={handleClearSelectedSlotForShop}
       />
     ),
     [
@@ -512,7 +503,7 @@ export function MechanicSelectionContent({
       selectedServicesForCard,
       isPriceLoading,
       selectedVehicle?.ownershipId,
-      handleChangeMechanicForSelectedSlot,
+      handleClearSelectedSlotForShop,
     ],
   );
 

@@ -17,6 +17,7 @@ import {
   Dimensions,
   Image,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -24,6 +25,7 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
+import * as Calendar from "expo-calendar";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
   Extrapolation,
@@ -50,6 +52,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Text } from "@/components/shared-ui";
 import { BorderRadius } from "@/constants/theme";
 import { useToast } from "@/hooks/useToast";
+import { buildBookingCalendarEvent, formatBookingReference } from "@/lib/booking-calendar";
 import { useBookingStore } from "@/stores/useBookingStore";
 import type { Booking } from "./BookingCard";
 import { MechanicChatSheet, type MechanicChatSheetRef } from "./MechanicChatSheet";
@@ -570,7 +573,7 @@ export const BookingDetailsSheet = forwardRef<BookingDetailsSheetRef, BookingDet
                   serviceDescription={serviceDescription}
                   serviceDurationMinutes={serviceDurationMinutes}
                   vehicleMileage={vehicleMileage}
-                  shopAddress={shopAddress}
+                  shopAddress={resolvedShopAddress}
                   shopHoursLabel={shopHoursLabel}
                   shopRating={shopRating}
                   statusHistory={liveStatusHistory ?? statusHistory}
@@ -903,10 +906,54 @@ function FullContent({
     onRequestReschedule(booking.id, local?.scheduledDate ?? "", local?.scheduledTime ?? "");
   }, [booking.id, onRequestReschedule]);
 
-  const handleAddToCalendar = useCallback(() => {
-    // TODO: integrate expo-calendar
-    console.log("TODO: add to calendar", booking.id); // eslint-disable-line no-console
-  }, [booking.id]);
+  const handleAddToCalendar = useCallback(async () => {
+    const date = bookingDetail?.scheduledDate;
+    const time = bookingDetail?.scheduledTime ?? booking.time;
+    if (!date || !time) {
+      toast.warning("Booking details are still loading.");
+      return;
+    }
+
+    const eventDetails = buildBookingCalendarEvent({
+      shopName: booking.shopName,
+      serviceNames: bookingDetail?.serviceNames ?? booking.services,
+      date,
+      time,
+      location: shopAddress,
+      mechanicName: booking.mechanicName,
+      bookingReference: formatBookingReference(booking.id),
+      vehicleDisplay: [booking.carYear, booking.carModel].filter(Boolean).join(" "),
+      durationMinutes: serviceDurationMinutes,
+    });
+    if (!eventDetails) {
+      toast.warning("Couldn't read the appointment time.");
+      return;
+    }
+
+    try {
+      await Calendar.createEventInCalendarAsync(
+        eventDetails,
+        Platform.OS === "android" ? { startNewActivityTask: false } : undefined,
+      );
+    } catch (error) {
+      console.error("[booking-details] add-to-calendar failed", error);
+      toast.error("Couldn't add to your calendar.");
+    }
+  }, [
+    booking.carModel,
+    booking.carYear,
+    booking.id,
+    booking.mechanicName,
+    booking.services,
+    booking.shopName,
+    booking.time,
+    bookingDetail?.scheduledDate,
+    bookingDetail?.scheduledTime,
+    bookingDetail?.serviceNames,
+    serviceDurationMinutes,
+    shopAddress,
+    toast,
+  ]);
 
   const primaryService = booking.services[0] ?? "Service";
 

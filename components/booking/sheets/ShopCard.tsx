@@ -105,11 +105,7 @@ interface ShopCardProps {
   /** Fired when the user picks a different mechanic chip on a card that
    *  already has a selected slot — the parent updates the booking store so
    *  the footer label (e.g. "with Abubeckr at …") matches the chip. */
-  onChangeMechanicForSelectedSlot?: (
-    shopId: string,
-    mechanicId: string | null,
-    mechanicName: string | null,
-  ) => void;
+  onClearSelectedSlotForShop?: (shopId: string) => void;
 }
 
 // ============================================================================
@@ -196,7 +192,7 @@ export const ShopCard = memo(function ShopCard({
   selectedServices,
   isPriceLoading = false,
   vehicleOwnerId,
-  onChangeMechanicForSelectedSlot,
+  onClearSelectedSlotForShop,
 }: ShopCardProps) {
   const distanceUnit = useDistanceUnit();
   // If only one mechanic, auto-select them (no "Any" option needed)
@@ -275,16 +271,11 @@ export const ShopCard = memo(function ShopCard({
   const handleMechanicSelect = useCallback(
     (mechanicId: string | null) => {
       setSelectedMechanicId(mechanicId);
-      // If a slot is already selected on this shop, the footer's
-      // "with {mechanic} at {shop}" line is bound to whichever mechanic
-      // owned that slot at pick-time. Switching the avatar should refresh
-      // that label so the user sees who they're actually booking.
-      if (selectedSlot?.shopId === shop.shopId) {
-        const mechanic = mechanicId ? shop.mechanics.find((m) => m.id === mechanicId) : null;
-        onChangeMechanicForSelectedSlot?.(shop.shopId, mechanicId, mechanic?.name ?? null);
+      if (selectedSlot?.shopId === shop.shopId && selectedSlot.mechanicId !== mechanicId) {
+        onClearSelectedSlotForShop?.(shop.shopId);
       }
     },
-    [selectedSlot, shop.shopId, shop.mechanics, onChangeMechanicForSelectedSlot],
+    [selectedSlot, shop.shopId, onClearSelectedSlotForShop],
   );
 
   const handleSlotPress = useCallback(
