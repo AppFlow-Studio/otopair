@@ -253,6 +253,7 @@ export function VehicleMaintenanceCard({
 
   const renderCardContent = (vehicle: Vehicle, maxItems?: number) => {
     const items = maxItems ? vehicle.maintenanceItems.slice(0, maxItems) : vehicle.maintenanceItems;
+    const isPreview = maxItems != null;
     return (
     <View style={[styles.card, isPreview && styles.cardPreview]}>
       {/* Top Section - Vehicle Info (tap handled by the card's Tap gesture) */}
