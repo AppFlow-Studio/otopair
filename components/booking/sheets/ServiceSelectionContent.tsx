@@ -35,7 +35,9 @@ import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 // 4. Constants, hooks, types, stores
 import { PackageQuestionsSheet } from "@/components/cars/PackageQuestionsSheet";
 import {
+  HANDOFF_SLUGS,
   SLUG_DIAGNOSTIC_SCAN,
+  SLUG_ROTOR_REPLACEMENT,
   SLUG_TIRE_REPLACEMENT,
   TABS,
   TAXONOMY,
@@ -84,6 +86,10 @@ function legacyCategoryToTab(category: ServiceCategory | null | undefined): Taxo
 interface ServiceSelectionContentProps {
   onCategorySelect?: () => void;
   onShopTiresRequested?: () => void;
+  /** Called when the user picks Rotor Replacement — mirror of
+   *  `onShopTiresRequested`. Parent should close the sheet and hand off
+   *  to the Shop Rotors flow at `/(rotor-booking)`. */
+  onShopRotorsRequested?: () => void;
   onServiceWithOptionsRequested?: (serviceId: string) => void;
   onDiagnosticServiceRequested?: () => void;
 }
@@ -95,6 +101,7 @@ interface ServiceSelectionContentProps {
 export function ServiceSelectionContent({
   onCategorySelect,
   onShopTiresRequested,
+  onShopRotorsRequested,
   onServiceWithOptionsRequested,
   onDiagnosticServiceRequested,
 }: ServiceSelectionContentProps) {
@@ -212,7 +219,11 @@ export function ServiceSelectionContent({
     // Bookable set still resolving — render nothing rather than flashing
     // services that will then disappear.
     if (isBookableLoading) return [];
-    return list.filter((s) => applicableIds.has(s.id));
+    // Handoff services (Tire/Rotor Replacement) bypass the gate because they
+    // route to dedicated pickers with their own data fallbacks.
+    return list.filter(
+      (s) => (s.slug && HANDOFF_SLUGS.has(s.slug)) || applicableIds.has(s.id),
+    );
   }, [
     availableServices,
     selectedTab,
@@ -246,14 +257,32 @@ export function ServiceSelectionContent({
       const service = availableServices.find((s) => s.id === serviceId);
       if (!service) return;
 
+      const isAlreadySelected = selectedServiceIds.includes(serviceId);
+
       // Tire-replacement: hand off to the dedicated quote flow.
+      // Re-tap on an already-selected handoff service removes it.
       if (service.slug === SLUG_TIRE_REPLACEMENT) {
+        if (isAlreadySelected) {
+          toggleServiceSelection(serviceId);
+          return;
+        }
         if (onShopTiresRequested) onShopTiresRequested();
         else router.push("/(tire-booking)");
         return;
       }
 
-      const isAlreadySelected = selectedServiceIds.includes(serviceId);
+      // Rotor-replacement: hand off to the dedicated Shop Rotors flow
+      // (axle pair + tier picker). Brake jobs are always done in pairs
+      // per axle, so this can't be a plain cart toggle.
+      if (service.slug === SLUG_ROTOR_REPLACEMENT) {
+        if (isAlreadySelected) {
+          toggleServiceSelection(serviceId);
+          return;
+        }
+        if (onShopRotorsRequested) onShopRotorsRequested();
+        else router.push("/(rotor-booking)");
+        return;
+      }
 
       // has_options services route to the per-service picker first.
       if (service.has_options === true && !isAlreadySelected) {
@@ -278,6 +307,7 @@ export function ServiceSelectionContent({
       router,
       availableServices,
       onShopTiresRequested,
+      onShopRotorsRequested,
       onServiceWithOptionsRequested,
       onDiagnosticServiceRequested,
       selectedServiceIds,
@@ -346,8 +376,11 @@ export function ServiceSelectionContent({
       // Per-service render state — only meaningful when we have a vehicle.
       // Without one, all rows render enabled (fallback / no-garage path).
       const hasVehicle = ownershipId != null;
-      const isBookable = !hasVehicle || bookableIds.has(service.id);
-      const needsSpecs = hasVehicle && needsSpecsIds.has(service.id);
+      const isHandoff = !!service.slug && HANDOFF_SLUGS.has(service.slug);
+      // Handoff services (Tire/Rotor) always render enabled — they route to
+      // their own pickers with fallback data, so the bookable gate doesn't apply.
+      const isBookable = !hasVehicle || isHandoff || bookableIds.has(service.id);
+      const needsSpecs = hasVehicle && !isHandoff && needsSpecsIds.has(service.id);
       // "Locked" = greyed + non-tappable as a booking action. Needs-specs
       // rows are STILL greyed but tap-redirects to the inline sheet.
       const isRowLocked = hasVehicle && !isBookable;

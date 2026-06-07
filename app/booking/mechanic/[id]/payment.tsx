@@ -22,7 +22,7 @@ import { Calendar, Car, ChevronRight, FileText, Info, Star } from "lucide-react-
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // 3. Shared UI (design system)
-import { BrandColors, ErrorOccurredModal, Spacing, Text } from "@/components/shared-ui";
+import { BrandColors, ErrorOccurredModal, FixedPriceBadge, Spacing, Text } from "@/components/shared-ui";
 
 // 4. Flow-specific components
 import { BookingPageHeader } from "@/components/booking/pages";
@@ -37,6 +37,7 @@ import { BorderRadius, Shadows } from "@/constants/theme";
 import { useBookingLaborHours } from "@/hooks/useBookingLaborHours";
 import { useBookingPartsBreakdown } from "@/hooks/useBookingPartsBreakdown";
 import { useCreateBookingConvex } from "@/hooks/useCreateBookingConvex";
+import { useShopFixedPricesForServices } from "@/hooks/useShopFixedPricesForServices";
 import { deriveDisclosedRange, formatRange } from "@/lib/disclosedRange";
 import { formatDurationForCar } from "@/lib/formatDuration";
 import { computeBookingTax } from "@/lib/tax";
@@ -69,7 +70,9 @@ export default function PaymentScreen() {
   // ═══════════════ BOOKING STORE ═══════════════
   const selectedServiceIds = useBookingStore((state) => state.selectedServiceIds);
   const availableServices = useBookingStore((state) => state.availableServices);
+  const selectedServiceOptions = useBookingStore((state) => state.selectedServiceOptions);
   const selectedMechanicId = useBookingStore((state) => state.selectedMechanicId);
+  const selectedMechanicSlot = useBookingStore((state) => state.selectedMechanicSlot);
   const getFormattedAppointmentDate = useBookingStore((state) => state.getFormattedAppointmentDate);
   const getFormattedAppointmentTime = useBookingStore((state) => state.getFormattedAppointmentTime);
   const customerNotes = useBookingStore((state) => state.customerNotes);
@@ -124,8 +127,18 @@ export default function PaymentScreen() {
   );
 
   // Shop-specific only: labor_rate × default_labor_hours + default_parts_estimate (no default rate)
-  const shop = useMemo(() => (mechanic?.shopId ? getShopById(mechanic.shopId) : null), [mechanic?.shopId, getShopById]);
+  // Shop resolution falls back to the time-slot's shopId so "Any available
+  // mechanic" bookings still resolve a shop — without this fallback the
+  // fixed-price hook below receives undefined and every flat-rate service
+  // re-renders as a range.
+  const resolvedShopId = mechanic?.shopId ?? selectedMechanicSlot?.shopId;
+  const shop = useMemo(() => {
+    return resolvedShopId ? getShopById(resolvedShopId) : null;
+  }, [resolvedShopId, getShopById]);
   const laborRate = shop?.labor_rate;
+  const mechanicDisplayName = mechanic?.name ?? "Any available mechanic";
+  const mechanicSubtitle =
+    mechanic?.title ?? mechanic?.shopName ?? selectedMechanicSlot?.shopName ?? shop?.name ?? "Shop will assign a mechanic";
 
   // Real OEM parts (with per-unit prices) for the booking's vehicle. When this
   // hook returns data, partsCost uses the real per-service totals; otherwise we
@@ -133,7 +146,11 @@ export default function PaymentScreen() {
   // is true the breakdown shows a skeleton row instead of a stale labor-only
   // band — the band updates once the query lands.
   const { breakdown: pricedPartsByService, isLoading: isPricedPartsLoading } =
-    useBookingPartsBreakdown(selectedVehicle?.ownershipId, selectedServiceIds);
+    useBookingPartsBreakdown(
+      selectedVehicle?.ownershipId,
+      selectedServiceIds,
+      selectedServiceOptions,
+    );
 
   // Map serviceId → priced row so per-line lookups are O(1) below. Any service
   // with at least one fitment qualifies (parts without prices still render as
@@ -183,6 +200,18 @@ export default function PaymentScreen() {
     [laborHoursMap]
   );
 
+  // Per-(shop, service, tier) flat-price overrides — same hook the mechanic
+  // selection footer + ShopCard call. Hits collapse the parts band and zero
+  // labor for that line; mirrors `computeDisclosedRange` on the server so
+  // the price the customer agrees to here is what `createBatch` will
+  // snapshot onto the booking row.
+  const { map: fixedPriceMap, hasAnyFixed: hasAnyFixedPrice } =
+    useShopFixedPricesForServices(
+      resolvedShopId,
+      selectedVehicle?.ownershipId,
+      selectedServiceIds,
+    );
+
   // Calculate detailed breakdown — Pre-Job Approval flow: every variable
   // line renders as a band, not a single price. Parts vary ±25% (real
   // variance lives in part fitments + engine variant); labor is fixed.
@@ -193,44 +222,87 @@ export default function PaymentScreen() {
     const rate = laborRate ?? 0;
     const laborHours = selectedServices.reduce((sum, s) => sum + getServiceLaborHours(s), 0);
     const laborCost = laborHours * rate;
-    const partsCost = selectedServices.reduce((sum, s) => sum + getServicePartsCost(s), 0);
-    const servicesTotal = laborCost + partsCost;
+    // Hours attributable to variable services only — drives the "Labor (X mins)"
+    // label so the duration matches the displayed billableLaborCost below.
+    const variableLaborHours = selectedServices.reduce(
+      (sum, s) =>
+        fixedPriceMap.has(String(s.id)) ? sum : sum + getServiceLaborHours(s),
+      0,
+    );
+
+    // Split variable parts (banded) from fixed parts (pinned on both ends).
+    // Mirrors computeDisclosedRange in convex/booking_quotes.ts so the
+    // create call honors the same price the customer agrees to here.
+    const variablePartsCost = selectedServices.reduce(
+      (sum, s) =>
+        fixedPriceMap.has(String(s.id))
+          ? sum
+          : sum + getServicePartsCost(s),
+      0,
+    );
+    const fixedPartsTotal = selectedServices.reduce(
+      (sum, s) => sum + (fixedPriceMap.get(String(s.id)) ?? 0),
+      0,
+    );
+    const partsCost = variablePartsCost + fixedPartsTotal;
+
+    // Labor on flat-price lines is bundled into the flat — subtract it from
+    // the billable labor used for tax/fee/total math.
+    const fixedLaborCost = selectedServices.reduce(
+      (sum, s) =>
+        fixedPriceMap.has(String(s.id))
+          ? sum + rate * getServiceLaborHours(s)
+          : sum,
+      0,
+    );
+    const billableLaborCost = Math.max(0, laborCost - fixedLaborCost);
+
+    const servicesTotal = billableLaborCost + partsCost;
     const serviceFee = computePlatformFeeDollars(servicesTotal);
     const taxesAndFees = computeBookingTax({
-      laborDollars: laborCost,
+      laborDollars: billableLaborCost,
       partsDollars: partsCost,
       state: shop?.state,
       zip: shop?.zip,
     }).taxDollars;
 
-    const PARTS_BAND = 0.25;
-    const partsLow = Math.max(0, partsCost * (1 - PARTS_BAND));
-    const partsHigh = partsCost * (1 + PARTS_BAND);
+    const PARTS_BAND = 0.08;
+    const partsLow = Math.max(0, variablePartsCost * (1 - PARTS_BAND)) + fixedPartsTotal;
+    const partsHigh = variablePartsCost * (1 + PARTS_BAND) + fixedPartsTotal;
     const taxLow = computeBookingTax({
-      laborDollars: laborCost,
+      laborDollars: billableLaborCost,
       partsDollars: partsLow,
       state: shop?.state,
       zip: shop?.zip,
     }).taxDollars;
     const taxHigh = computeBookingTax({
-      laborDollars: laborCost,
+      laborDollars: billableLaborCost,
       partsDollars: partsHigh,
       state: shop?.state,
       zip: shop?.zip,
     }).taxDollars;
-    const feeLow = computePlatformFeeDollars(laborCost + partsLow);
-    const feeHigh = computePlatformFeeDollars(laborCost + partsHigh);
+    const feeLow = computePlatformFeeDollars(billableLaborCost + partsLow);
+    const feeHigh = computePlatformFeeDollars(billableLaborCost + partsHigh);
 
+    const fixedPriceLines = selectedServices
+      .filter((s) => fixedPriceMap.has(String(s.id)))
+      .map((s) => ({
+        serviceId: String(s.id),
+        laborCost: rate * getServiceLaborHours(s),
+        partsFixed: fixedPriceMap.get(String(s.id)) ?? 0,
+      }));
     const range = deriveDisclosedRange({
       laborCost,
-      partsCost,
+      partsCost: variablePartsCost,
       state: shop?.state,
       zip: shop?.zip,
+      fixedPriceLines,
     });
 
     return {
       laborHours,
-      laborCost: Math.max(0, laborCost),
+      variableLaborHours,
+      laborCost: billableLaborCost,
       partsCost: Math.max(0, partsCost),
       taxesAndFees,
       platformFee: serviceFee,
@@ -246,27 +318,39 @@ export default function PaymentScreen() {
       rangeHigh: range.highDollars,
       rangeFormatted: range.formatted,
     };
-  }, [selectedServices, laborRate, shop?.state, shop?.zip, getServicePartsCost, getServiceLaborHours]);
+  }, [selectedServices, laborRate, shop?.state, shop?.zip, getServicePartsCost, getServiceLaborHours, fixedPriceMap]);
 
-  // Stash the customer-facing range so BookingConfirmStatus can re-quote
-  // the same band the customer just agreed to.
+  // Stash the customer-facing range + fixed-price flag so BookingConfirmStatus
+  // can re-quote the same band the customer just agreed to and decide
+  // whether to render the "Fixed price" pill alongside it.
   const setDisclosedRangeFormatted = useBookingStore((s) => s.setDisclosedRangeFormatted);
+  const setDisclosedRangeIsFixedPrice = useBookingStore((s) => s.setDisclosedRangeIsFixedPrice);
   useEffect(() => {
     setDisclosedRangeFormatted(breakdown.rangeFormatted);
   }, [breakdown.rangeFormatted, setDisclosedRangeFormatted]);
+  useEffect(() => {
+    setDisclosedRangeIsFixedPrice(hasAnyFixedPrice);
+  }, [hasAnyFixedPrice, setDisclosedRangeIsFixedPrice]);
 
-  // Per-service line range (labor + parts ±25%) so summary rows show the
-  // same band as the aggregate.
+  // Per-service line range (labor + parts ±8%) so summary rows show the
+  // same band as the aggregate. The 8% cap matches the disclosed-range
+  // FALLBACK_BAND_RATIO — real source variance after MAD rejection sits
+  // in this band, so a wider spread would overstate uncertainty.
   const getServiceLineRange = useCallback(
     (service: (typeof selectedServices)[0]) => {
+      const flat = fixedPriceMap.get(String(service.id));
+      if (flat != null) {
+        return { low: flat, high: flat, isFixed: true as const };
+      }
       const labor = (laborRate ?? 0) * getServiceLaborHours(service);
       const parts = getServicePartsCost(service);
       return {
-        low: labor + parts * 0.75,
-        high: labor + parts * 1.25,
+        low: labor + parts * 0.92,
+        high: labor + parts * 1.08,
+        isFixed: false as const,
       };
     },
-    [laborRate, getServicePartsCost, getServiceLaborHours]
+    [laborRate, getServicePartsCost, getServiceLaborHours, fixedPriceMap]
   );
 
   // Fallback parts breakdown for services without real OEM-priced data.
@@ -277,12 +361,15 @@ export default function PaymentScreen() {
     const unpricedNames: string[] = [];
     let unpricedTotal = 0;
     for (const service of selectedServices) {
+      // Fixed-price services bundle parts into the flat amount — they
+      // render their own "Parts — Fixed" row, so skip them here.
+      if (fixedPriceMap.has(String(service.id))) continue;
       if (pricedPartsMap.has(String(service.id))) continue;
       unpricedNames.push(service.name);
       unpricedTotal += service.default_parts_estimate ?? 0;
     }
     return getPartsBreakdown(unpricedNames, unpricedTotal);
-  }, [selectedServices, pricedPartsMap]);
+  }, [selectedServices, pricedPartsMap, fixedPriceMap]);
 
   // Format vehicle display
   const vehicleDisplay = selectedVehicle
@@ -314,7 +401,7 @@ export default function PaymentScreen() {
   }, [router, skippedBookingDetails, setBookingStage]);
 
   const handleConfirmPayment = useCallback(() => {
-    if (!selectedMechanicId) return;
+    if (!selectedMechanicId && !selectedMechanicSlot?.shopId) return;
     if (!hasPayment || !selectedPaymentMethod) {
       setErrorMessage("Add a payment method to confirm this booking.");
       setErrorModalVisible(true);
@@ -324,7 +411,7 @@ export default function PaymentScreen() {
     // a minimum-display timer for the Lottie loading animation, then
     // routes forward to /confirmation (or back here with an error param).
     router.push(`/booking/mechanic/${id}/confirming`);
-  }, [router, id, selectedMechanicId, hasPayment, selectedPaymentMethod]);
+  }, [router, id, selectedMechanicId, selectedMechanicSlot?.shopId, hasPayment, selectedPaymentMethod]);
 
   const handleApplePay = useCallback(() => {
     // Apple Pay integration would go here
@@ -357,19 +444,6 @@ export default function PaymentScreen() {
   );
 
   // ═══════════════ RENDER ═══════════════
-  if (!mechanic) {
-    return (
-      <View style={styles.container}>
-        <BookingPageHeader title="Review & Pay" onBack={handleBack} />
-        <View style={styles.errorContainer}>
-          <Text size="md" weight="medium" color="#6B7280" center>
-            No mechanic selected
-          </Text>
-        </View>
-      </View>
-    );
-  }
-
   return (
     <View style={styles.container}>
       {/* Header */}
@@ -386,30 +460,32 @@ export default function PaymentScreen() {
           {/* Mechanic Info Row */}
           <View style={styles.mechanicRow}>
             <View style={styles.avatarWrapper}>
-              {mechanic.photoUrl ? (
+              {mechanic?.photoUrl ? (
                 <Image source={{ uri: mechanic.photoUrl }} style={styles.avatar} />
               ) : (
                 <View style={styles.avatarPlaceholder}>
                   <Text size="xl" weight="bold" color="#9CA3AF">
-                    {mechanic.name.charAt(0)}
+                    {mechanicDisplayName.charAt(0)}
                   </Text>
                 </View>
               )}
               {/* Rating Badge */}
-              <View style={styles.ratingBadge}>
-                <Star size={10} color="#FCD34D" fill="#FCD34D" />
-                <Text size="xs" weight="bold" color={BrandColors.white}>
-                  {mechanic.rating.toFixed(1)}
-                </Text>
-              </View>
+              {mechanic && (
+                <View style={styles.ratingBadge}>
+                  <Star size={10} color="#FCD34D" fill="#FCD34D" />
+                  <Text size="xs" weight="bold" color={BrandColors.white}>
+                    {mechanic.rating.toFixed(1)}
+                  </Text>
+                </View>
+              )}
             </View>
 
             <View style={styles.mechanicInfo}>
               <Text size="lg" weight="bold" color={BrandColors.primary}>
-                {mechanic.name}
+                {mechanicDisplayName}
               </Text>
               <Text size="sm" weight="medium" color="#6B7280">
-                {mechanic.title ?? mechanic.shopName}
+                {mechanicSubtitle}
               </Text>
             </View>
           </View>
@@ -455,16 +531,33 @@ export default function PaymentScreen() {
           </View>
 
           {/* Service names with line range (labor + parts ±25%) so the
-              summary row shows the same band as the aggregate total. */}
+              summary row shows the same band as the aggregate total.
+              Flat-price lines surface the labor duration inline with the
+              service name and replace the dollar amount with "Fixed" —
+              the customer's price contract is the flat rate, not the
+              underlying parts+labor math. */}
           {selectedServices.map((service) => {
             const lineRange = getServiceLineRange(service);
+            const lineDurationLabel = lineRange.isFixed
+              ? formatDurationForCar(getServiceLaborHours(service))
+              : null;
             return (
               <View key={service.id} style={styles.serviceRow}>
-                <Text size="sm" weight="medium" color={BrandColors.primary}>
-                  {service.name}
-                </Text>
+                <View style={styles.serviceNameWrap}>
+                  <Text size="sm" weight="medium" color={BrandColors.primary}>
+                    {service.name}
+                  </Text>
+                  {lineRange.isFixed && <FixedPriceBadge size="sm" />}
+                  {lineDurationLabel ? (
+                    <Text size="sm" weight="regular" color="#6B7280">
+                      · {lineDurationLabel}
+                    </Text>
+                  ) : null}
+                </View>
                 <Text size="sm" weight="semiBold" color={BrandColors.primary}>
-                  {formatRange(lineRange.low, lineRange.high)}
+                  {lineRange.isFixed
+                    ? `$${lineRange.low.toFixed(2)}`
+                    : formatRange(lineRange.low, lineRange.high)}
                 </Text>
               </View>
             );
@@ -481,16 +574,22 @@ export default function PaymentScreen() {
                 <View style={styles.skeletonLabel} />
                 <View style={styles.skeletonValue} />
               </View>
-            ) : (
+            ) : breakdown.variableLaborHours > 0 ? (
               <View style={styles.breakdownRow}>
                 <Text size="sm" weight="regular" color="#6B7280">
+                  {/* Time is the TOTAL mechanic-occupancy duration (variable +
+                      fixed); cost is the variable portion only, since the
+                      fixed lines' labor is already bundled into their flat
+                      amount above. The visibility predicate stays on
+                      `variableLaborHours` so all-fixed carts still hide this
+                      row (cost would be $0). */}
                   Labor ({formatDurationForCar(breakdown.laborHours) ?? "0 mins"})
                 </Text>
                 <Text size="sm" weight="medium" color="#6B7280">
                   ${breakdown.laborCost.toFixed(2)}
                 </Text>
               </View>
-            )}
+            ) : null}
 
             {/* Parts: while the priced-parts query is in flight, render a
                 skeleton row per service. When data lands, real OEM parts
@@ -505,26 +604,47 @@ export default function PaymentScreen() {
                   </View>
                 ))
               : selectedServices.flatMap((service) => {
+                  // Flat-price services are represented by their summary row +
+                  // FixedPriceBadge above; suppress them in the detailed
+                  // breakdown so we don't double-show or invent dollar amounts
+                  // that don't sum to the flat.
+                  if (fixedPriceMap.has(String(service.id))) return [];
                   const priced = pricedPartsMap.get(String(service.id));
                   if (!priced || !priced.winner) return [];
-                  const part = priced.winner;
-                  const qtyLabel = part.quantity > 1 ? ` ×${part.quantity}` : "";
-                  const hasPrice = part.has_price_data && part.line_total > 0;
-                  const unitLabel =
-                    hasPrice && part.quantity > 1 && part.unit_price > 0
-                      ? ` @ ~$${part.unit_price.toFixed(2)}`
-                      : "";
-                  return [
-                    <View key={`${service.id}-${part.part_id}`} style={styles.breakdownRow}>
-                      <Text size="sm" weight="regular" color="#6B7280" style={styles.breakdownLabel}>
-                        {part.name} (Part){qtyLabel}
-                        {unitLabel}
-                      </Text>
-                      <Text size="sm" weight="medium" color="#6B7280">
-                        {hasPrice ? `$${part.line_total.toFixed(2)}` : "Price TBD"}
-                      </Text>
-                    </View>,
-                  ];
+                  // Single-axle services have just `winner`. Position="both"
+                  // services (e.g. Brake Pads All-four) carry `secondaryWinner`
+                  // for the rear axle — render both as separate part lines.
+                  const parts = [priced.winner, priced.secondaryWinner].filter(
+                    (p): p is NonNullable<typeof p> => p != null,
+                  );
+                  return parts.map((part) => {
+                    const qtyLabel = part.quantity > 1 ? ` ×${part.quantity}` : "";
+                    // Render the variance the algorithm actually observed —
+                    // qty × kept-set min/max — instead of the single mean
+                    // that gets quoted to the mechanic. When only one source
+                    // priced the part (low === high), apply a synthetic ±8%
+                    // band so the row still reads as a range, matching the
+                    // disclosed-range FALLBACK_BAND_RATIO.
+                    const hasPrice = part.has_price_data && part.line_total_high > 0;
+                    const SINGLE_SOURCE_BAND = 0.08;
+                    const singleSource = part.line_total_low === part.line_total_high;
+                    const lineLow = singleSource
+                      ? part.line_total_low * (1 - SINGLE_SOURCE_BAND)
+                      : part.line_total_low;
+                    const lineHigh = singleSource
+                      ? part.line_total_high * (1 + SINGLE_SOURCE_BAND)
+                      : part.line_total_high;
+                    return (
+                      <View key={`${service.id}-${part.part_id}`} style={styles.breakdownRow}>
+                        <Text size="sm" weight="regular" color="#6B7280" style={styles.breakdownLabel}>
+                          {part.name} (Part){qtyLabel}
+                        </Text>
+                        <Text size="sm" weight="medium" color="#6B7280">
+                          {hasPrice ? formatRange(lineLow, lineHigh) : "Price TBD"}
+                        </Text>
+                      </View>
+                    );
+                  });
                 })}
 
             {!isPricedPartsLoading &&
@@ -534,15 +654,16 @@ export default function PaymentScreen() {
                     {part.name} (Part)
                   </Text>
                   <Text size="sm" weight="medium" color="#6B7280">
-                    {formatRange(part.cost * 0.75, part.cost * 1.25)}
+                    {formatRange(part.cost * 0.92, part.cost * 1.08)}
                   </Text>
                 </View>
               ))}
 
-            {/* Taxes & Fees — recomputed at the parts endpoints. */}
+            {/* Taxes — recomputed at the parts endpoints. Service Fee
+                renders on its own row below; this row is tax only. */}
             <View style={styles.breakdownRow}>
               <Text size="sm" weight="regular" color="#6B7280">
-                Taxes & Fees
+                Taxes
               </Text>
               <Text size="sm" weight="medium" color="#6B7280">
                 {formatRange(breakdown.taxLow, breakdown.taxHigh)}
@@ -574,12 +695,17 @@ export default function PaymentScreen() {
           <View style={styles.totalSection}>
             <View style={styles.totalHeader}>
               <Text size="md" weight="bold" color={BrandColors.primary}>
-                Estimated price range
+                {hasAnyFixedPrice && breakdown.rangeLow === breakdown.rangeHigh
+                  ? "Estimated price"
+                  : "Estimated price range"}
               </Text>
-              <View style={styles.savingsBadge}>
-                <Text size="xs" weight="semiBold" color={BrandColors.secondary}>
-                  → Saved $25 vs Dealership
-                </Text>
+              <View style={styles.totalHeaderBadges}>
+                {hasAnyFixedPrice && <FixedPriceBadge size="sm" />}
+                <View style={styles.savingsBadge}>
+                  <Text size="xs" weight="semiBold" color={BrandColors.secondary}>
+                    → Saved $25 vs Dealership
+                  </Text>
+                </View>
               </View>
             </View>
             <Text
@@ -659,29 +785,15 @@ export default function PaymentScreen() {
         >
           {isSubmitting ? (
             <ActivityIndicator color={BrandColors.white} size="small" />
+          ) : Platform.OS === "android" ? (
+            // SVG holds just the wallet mark in a tight viewBox; render
+            // at fixed dimensions (matching the viewBox aspect) sized
+            // for prominence inside the 64-tall wrapper. Flex centering
+            // on the wrapper puts it dead-center in the full-width black
+            // surface.
+            <GooglePay width={76} height={30} />
           ) : (
-            <>
-              <Text size="md" weight="semiBold" color={BrandColors.white}>
-                Pay with
-              </Text>
-              {Platform.OS === "android" ? (
-                <GooglePay width={90} height={30} />
-              ) : (
-                <ApplePay width={90} height={30} />
-              )}
-              <View style={styles.priceTag}>
-                <Text
-                  size="sm"
-                  weight="bold"
-                  color={BrandColors.primary}
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.7}
-                >
-                  {breakdown.rangeFormatted}
-                </Text>
-              </View>
-            </>
+            <ApplePay width={72} height={30} />
           )}
         </TouchableOpacity>
 
@@ -870,6 +982,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: Spacing.sm,
   },
+  serviceNameWrap: {
+    flexShrink: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.xs,
+  },
   breakdownSection: {
     marginTop: Spacing.sm,
     paddingTop: Spacing.sm,
@@ -920,6 +1038,12 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: Spacing.sm,
+    flexWrap: "wrap",
+  },
+  totalHeaderBadges: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.xs,
     flexWrap: "wrap",
   },
   // Retained for back-compat; new stacked layout uses `totalHeader`.
@@ -1010,13 +1134,20 @@ const styles = StyleSheet.create({
     ...Shadows.lg,
   },
   walletButton: {
-    flexDirection: "row",
+    // Full-width CTA. The SVG holds ONLY the wallet mark (Apple/Google
+    // logo + "Pay" paths); the wrapper provides the rounded black
+    // surface, and the SVG's tight viewBox guarantees the mark renders
+    // dead-center horizontally and vertically.
+    width: "100%",
+    height: 64,
+    backgroundColor: "#000008",
+    borderRadius: BorderRadius.xl,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#000000",
-    paddingVertical: Spacing.lg,
-    borderRadius: BorderRadius.xl,
-    gap: Spacing.md,
+    overflow: "hidden",
+  },
+  confirmButtonLabel: {
+    flexShrink: 1,
   },
   confirmButtonDisabled: {
     opacity: 0.7,
@@ -1026,6 +1157,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.xs,
     borderRadius: BorderRadius.lg,
+    flexShrink: 0,
   },
   footerCardRow: {
     flexDirection: "row",

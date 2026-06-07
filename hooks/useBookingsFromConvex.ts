@@ -17,6 +17,11 @@ import { useBookingStore } from "@/stores/useBookingStore";
 
 function convexBookingToStore(doc: Doc<"bookings">): Booking {
   const serviceIds = doc.service_ids ?? [];
+  const quoteType: Booking["quoteType"] = doc.rotor_specs
+    ? "rotor"
+    : doc.tire_specs
+      ? "tire"
+      : undefined;
   return {
     id: doc._id,
     userId: doc.user_id,
@@ -34,6 +39,7 @@ function convexBookingToStore(doc: Doc<"bookings">): Booking {
     disclosedRangeHighCents: doc.disclosed_range_high_cents ?? undefined,
     paymentApprovalState: doc.payment_approval_state ?? undefined,
     finalCaptureAmountCents: doc.final_capture_amount_cents ?? undefined,
+    quoteType,
   };
 }
 

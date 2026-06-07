@@ -55,6 +55,34 @@ function parseTireSpecs(notes: string | undefined): {
   };
 }
 
+/** Parse "Front pair · Standard brakes · 2 rotors · + Ceramic" — the rotor
+ *  notes string assembled in `utils/bookingAdapter.ts`. Returns structured
+ *  rows so the card surfaces the customer's selections instead of the raw
+ *  string. */
+function parseRotorSpecs(notes: string | undefined): {
+  axle: string;
+  brakeSystem: string;
+  quantity: string;
+  pads: string;
+} | null {
+  if (!notes) return null;
+  const parts = notes.split(" · ").map((p) => p.trim()).filter(Boolean);
+  if (parts.length < 3) return null;
+  // First three segments are positional: axle · brake system · quantity.
+  // Pads is appended as "+ <pad label>" when include_pads was true.
+  const [axle, brakeSystem, quantity, ...rest] = parts;
+  // Heuristic: only treat as a rotor notes string when the third segment
+  // mentions "rotor" — keeps tire-notes from falsely matching.
+  if (!/rotor/i.test(quantity)) return null;
+  const padsRaw = rest.find((p) => p.startsWith("+ "));
+  return {
+    axle,
+    brakeSystem,
+    quantity,
+    pads: padsRaw ? padsRaw.replace(/^\+\s*/, "") : "Not included",
+  };
+}
+
 function titleCase(str: string): string {
   return str.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
 }
@@ -81,7 +109,9 @@ export function PendingQuoteCard({
 }: Props) {
   const vehicleLabel =
     booking.carModel && booking.carModel !== "Vehicle" ? booking.carModel : "Vehicle";
-  const specs = parseTireSpecs(booking.notes);
+  const isRotor = booking.quoteType === "rotor";
+  const tireSpecs = !isRotor ? parseTireSpecs(booking.notes) : null;
+  const rotorSpecs = isRotor ? parseRotorSpecs(booking.notes) : null;
   const isReady = booking.status === "quotes_ready";
   const stageView = getBookingStageView(booking.status, booking.liveStage);
 
@@ -169,16 +199,23 @@ export function PendingQuoteCard({
 
       {/* Specs breakdown */}
       <View style={styles.specs}>
-        {specs ? (
+        {rotorSpecs ? (
           <>
-            <SpecRow label="Tire Size" value={specs.size} />
-            <SpecRow label="Quality Tier" value={specs.tier} />
-            <SpecRow label="Tire Type" value={specs.type} />
-            <SpecRow label="Quantity" value={specs.quantity} />
+            <SpecRow label="Axle" value={rotorSpecs.axle} />
+            <SpecRow label="Brake System" value={rotorSpecs.brakeSystem} />
+            <SpecRow label="Pads" value={rotorSpecs.pads} />
+            <SpecRow label="Quantity" value={rotorSpecs.quantity} />
+          </>
+        ) : tireSpecs ? (
+          <>
+            <SpecRow label="Tire Size" value={tireSpecs.size} />
+            <SpecRow label="Quality Tier" value={tireSpecs.tier} />
+            <SpecRow label="Tire Type" value={tireSpecs.type} />
+            <SpecRow label="Quantity" value={tireSpecs.quantity} />
           </>
         ) : (
           <Text size="md" weight="semiBold" color="#1A1A1A">
-            {booking.notes || "Tire quote"}
+            {booking.notes || (isRotor ? "Rotor quote" : "Tire quote")}
           </Text>
         )}
       </View>

@@ -188,7 +188,11 @@ export function MechanicSelectionContent({
   // so the range on each shop card matches what the customer sees after they
   // tap through. Hooks gracefully skip on walk-in vehicles + mock service ids.
   const { breakdown: pricedPartsByService, isLoading: isPricedPartsLoading } =
-    useBookingPartsBreakdown(selectedVehicle?.ownershipId, selectedServiceIds);
+    useBookingPartsBreakdown(
+      selectedVehicle?.ownershipId,
+      selectedServiceIds,
+      selectedServiceOptions,
+    );
   const { laborHours: laborHoursByService, isLoading: isLaborHoursLoading } =
     useBookingLaborHours(selectedVehicle?.ownershipId, selectedServiceIds);
   const isPriceLoading = isPricedPartsLoading || isLaborHoursLoading;
@@ -308,7 +312,13 @@ export function MechanicSelectionContent({
         state_fee: optionSel?.state_fee,
       };
     });
-  }, [selectedServices, engineSpecs, selectedServiceOptions, realLaborHoursMap, realPartsCostMap]);
+  }, [selectedServices, engineSpecs, selectedServiceOptions]);
+  const selectedDurationMinutes = useMemo(() => {
+    const minutes = selectedServicesForCard.reduce((total, service) => {
+      return total + (service.default_labor_hours ?? 0) * 60;
+    }, 0);
+    return minutes > 0 ? Math.ceil(minutes) : undefined;
+  }, [selectedServicesForCard]);
 
   // ═══════════════ EFFECTS ═══════════════
   // Go back — to service_options if any selected service has options, else service_selection
@@ -408,7 +418,7 @@ export function MechanicSelectionContent({
   }, []);
 
   // Handle availability modal confirmation - updates the selected slot
-  const handleAvailabilityConfirm = useCallback((date: Date, time: string, confirmedMechanicId: number) => {
+  const handleAvailabilityConfirm = useCallback((date: Date, time: string, confirmedMechanicId: string | null) => {
     // The AvailabilityModal already updates the selectedMechanicSlot in the store
     // This callback can be used for any additional actions if needed
   }, []);
@@ -447,11 +457,10 @@ export function MechanicSelectionContent({
 
     const timeDisplay = scheduledTime ? hhmmToDisplayTime(scheduledTime) : slot.time;
 
-    // Use the first mechanic from the shop if "Any" was selected
-    const effectiveMechanicId =
-      mechanicId || shopList.find((s) => s.shopId === selectedMechanicSlot.shopId)?.mechanics[0]?.id;
+    const effectiveMechanicId = mechanicId ?? null;
+    const routeId = effectiveMechanicId ?? selectedMechanicSlot.shopId;
 
-    if (!effectiveMechanicId) return;
+    if (!routeId) return;
 
     setBookingTypeAndProceed("schedule_later", effectiveMechanicId);
     setScheduledAppointment({
@@ -467,10 +476,9 @@ export function MechanicSelectionContent({
     onSelectMechanic?.();
 
     // Navigate to payment page
-    router.push(`/booking/mechanic/${effectiveMechanicId}/payment`);
+    router.push(`/booking/mechanic/${routeId}/payment`);
   }, [
     selectedMechanicSlot,
-    shopList,
     setBookingTypeAndProceed,
     setScheduledAppointment,
     setSkippedBookingDetails,
@@ -492,6 +500,7 @@ export function MechanicSelectionContent({
         selectedSlot={selectedSlotInfo}
         selectedServices={selectedServicesForCard}
         isPriceLoading={isPriceLoading}
+        vehicleOwnerId={selectedVehicle?.ownershipId ?? null}
         onChangeMechanicForSelectedSlot={handleChangeMechanicForSelectedSlot}
       />
     ),
@@ -502,6 +511,7 @@ export function MechanicSelectionContent({
       selectedSlotInfo,
       selectedServicesForCard,
       isPriceLoading,
+      selectedVehicle?.ownershipId,
       handleChangeMechanicForSelectedSlot,
     ],
   );
@@ -599,6 +609,7 @@ export function MechanicSelectionContent({
         visible={showAvailabilityModal}
         mechanicId={availabilityMechanicId}
         shopId={availabilityShopId}
+        durationMinutes={selectedDurationMinutes}
         onClose={handleCloseAvailabilityModal}
         onConfirm={handleAvailabilityConfirm}
       />

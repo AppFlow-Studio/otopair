@@ -59,6 +59,16 @@ const CONFETTI_COLORS = ["#FF6B6B", "#4ECDC4", "#FFE66D", "#95E1D3", "#F38181", 
 const OWNERSHIP_CREDIT_EARNED = 1.51;
 const OWNERSHIP_BALANCE = 27.51;
 
+type ConfirmationMechanic = {
+  id?: string | null;
+  shopId?: string | null;
+  name: string;
+  title?: string | null;
+  shopName?: string | null;
+  photoUrl?: string | null;
+  rating?: number | null;
+};
+
 // ============================================================================
 // SUB-COMPONENTS
 // ============================================================================
@@ -212,6 +222,10 @@ export default function ConfirmationScreen() {
   // If they navigate away, booking-details.tsx picks up the subscription
   // on their next return. Diagnostic 2026-05-21 Part B.
   useBookingStatusToasts(bookingDbId as Id<"bookings"> | undefined);
+  const confirmedBooking = useQuery(
+    api.bookings.getBookingByIdForCustomer,
+    bookingDbId ? { bookingId: bookingDbId as Id<"bookings"> } : "skip"
+  );
 
   // ═══════════════ STORES ═══════════════
   const selectedMechanicId = useBookingStore((state) => state.selectedMechanicId);
@@ -241,20 +255,46 @@ export default function ConfirmationScreen() {
   }, [bookingDbId, localBooking?.id]);
 
   // ═══════════════ COMPUTED ═══════════════
-  const mechanic = useMemo(() => {
-    // Try active flow state first
-    if (selectedMechanicId) return getMechanicById(selectedMechanicId) ?? null;
-    // Fallback: look up mechanic from local booking's shop
+  const mechanic = useMemo<ConfirmationMechanic | null>(() => {
+    const assignedMechanicId = selectedMechanicId ?? confirmedBooking?.mechanicId ?? null;
+    if (assignedMechanicId) {
+      const storeMechanic = getMechanicById(assignedMechanicId);
+      if (storeMechanic) return storeMechanic;
+    }
+    if (confirmedBooking?.mechanicName) {
+      return {
+        id: confirmedBooking.mechanicId,
+        shopId: confirmedBooking.shopId,
+        name: confirmedBooking.mechanicName,
+        title: confirmedBooking.shopName,
+        shopName: confirmedBooking.shopName,
+        photoUrl: null,
+        rating: 0,
+      };
+    }
     if (localBooking?.shopId) {
       const mechanics = getMechanicsByShopId(localBooking.shopId);
       if (mechanics.length > 0) return mechanics[0];
     }
     return null;
-  }, [selectedMechanicId, getMechanicById, localBooking, getMechanicsByShopId]);
+  }, [
+    selectedMechanicId,
+    confirmedBooking?.mechanicId,
+    confirmedBooking?.mechanicName,
+    confirmedBooking?.shopId,
+    confirmedBooking?.shopName,
+    getMechanicById,
+    localBooking?.shopId,
+    getMechanicsByShopId,
+  ]);
 
   // Shop from DB (for address, phone, name)
   // Only query Convex if shopId looks like a real Convex ID (not a mock like "1", "2")
-  const rawShopId = selectedMechanicSlot?.shopId ?? localBooking?.shopId ?? (mechanic?.shopId as string | undefined);
+  const rawShopId =
+    selectedMechanicSlot?.shopId ??
+    confirmedBooking?.shopId ??
+    localBooking?.shopId ??
+    (mechanic?.shopId as string | undefined);
   const isConvexId = rawShopId && rawShopId.length > 10;
   const shop = useQuery(api.shops.getById, isConvexId ? { id: rawShopId as Id<"shops"> } : "skip");
 
@@ -283,7 +323,7 @@ export default function ConfirmationScreen() {
 
   // Format date with day name (e.g., "Fri, Oct 24")
   const formattedDate = useMemo(() => {
-    const dateStr = scheduledAppointment?.date ?? localBooking?.scheduledDate;
+    const dateStr = scheduledAppointment?.date ?? confirmedBooking?.scheduledDate ?? localBooking?.scheduledDate;
     if (dateStr) {
       const [year, month, day] = dateStr.split("-").map(Number);
       const date = new Date(year, month - 1, day);
@@ -296,21 +336,28 @@ export default function ConfirmationScreen() {
     const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
     const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
     return `${dayNames[futureDate.getDay()]}, ${monthNames[futureDate.getMonth()]} ${futureDate.getDate()}`;
-  }, [scheduledAppointment, localBooking]);
+  }, [scheduledAppointment, confirmedBooking?.scheduledDate, localBooking]);
 
   // Format time (e.g., "10:00 AM")
   const formattedTime = useMemo(() => {
     if (scheduledAppointment?.time) return scheduledAppointment.time;
+    if (confirmedBooking?.scheduledTime) return confirmedBooking.scheduledTime;
     if (localBooking?.scheduledTime) return localBooking.scheduledTime;
     return "1:00 PM";
-  }, [scheduledAppointment, localBooking]);
+  }, [scheduledAppointment, confirmedBooking?.scheduledTime, localBooking]);
 
   // Format vehicle display
   const vehicleDisplay = selectedVehicle
     ? `${selectedVehicle.year} ${selectedVehicle.make} ${selectedVehicle.model}`
-    : "No vehicle selected";
+    : confirmedBooking?.vehicleDisplay ?? "No vehicle selected";
 
   const shopLocation = fullAddress || shop?.name || localShop?.name || mechanic?.shopName || "Shop Location";
+  const shopDisplayName = shop?.name ?? localShop?.name ?? confirmedBooking?.shopName ?? mechanic?.shopName ?? "your shop";
+  const mechanicFirstName = mechanic?.name?.trim().split(/\s+/)[0] ?? "your mechanic";
+  const appointmentWithLabel =
+    mechanicFirstName === "your mechanic"
+      ? shopDisplayName
+      : `${mechanicFirstName} at ${shopDisplayName}`;
 
   // ═══════════════ HANDLERS ═══════════════
   // If we're viewing a past booking (local booking exists, flow already reset), just go back
@@ -345,8 +392,8 @@ export default function ConfirmationScreen() {
 
   const handleAddToCalendar = useCallback(async () => {
     const shopName = shop?.name ?? localShop?.name ?? mechanic?.shopName ?? "Shop";
-    const dateStr = scheduledAppointment?.date ?? localBooking?.scheduledDate;
-    const timeStr = scheduledAppointment?.time ?? localBooking?.scheduledTime ?? "2:00 PM";
+    const dateStr = scheduledAppointment?.date ?? confirmedBooking?.scheduledDate ?? localBooking?.scheduledDate;
+    const timeStr = scheduledAppointment?.time ?? confirmedBooking?.scheduledTime ?? localBooking?.scheduledTime ?? "2:00 PM";
     if (!dateStr) {
       toast.warning("Pick a date first.");
       return;
@@ -401,7 +448,19 @@ export default function ConfirmationScreen() {
       console.error("[confirmation] add-to-calendar failed", e);
       toast.error("Couldn't add to your calendar.");
     }
-  }, [shop?.name, localShop?.name, mechanic?.name, mechanic?.shopName, scheduledAppointment?.date, scheduledAppointment?.time, localBooking, fullAddress]);
+  }, [
+    shop?.name,
+    localShop?.name,
+    mechanic?.name,
+    mechanic?.shopName,
+    scheduledAppointment?.date,
+    scheduledAppointment?.time,
+    confirmedBooking?.scheduledDate,
+    confirmedBooking?.scheduledTime,
+    localBooking,
+    fullAddress,
+    toast,
+  ]);
 
   useFocusEffect(
     useCallback(() => {
@@ -429,7 +488,7 @@ export default function ConfirmationScreen() {
           isVeryCompactLayout && styles.scrollContentVeryCompact,
           {
             minHeight: windowHeight,
-            paddingTop: insets.top + (isVeryCompactLayout ? Spacing.sm : isCompactLayout ? Spacing.md : Spacing.lg),
+            paddingTop: insets.top + (isVeryCompactLayout ? 2 : isCompactLayout ? 6 : 8),
             paddingBottom: insets.bottom + (isVeryCompactLayout ? Spacing.xl : Spacing["3xl"]),
           },
         ]}
@@ -459,7 +518,7 @@ export default function ConfirmationScreen() {
             center
             style={[styles.subtitle, isCompactLayout && styles.subtitleCompact, isVeryCompactLayout && styles.subtitleVeryCompact]}
           >
-            Your appointment with {mechanic?.name || "your mechanic"} is{"\n"}confirmed.
+            Your appointment with {appointmentWithLabel} is confirmed.
           </Text>
 
           {/* Mechanic Card - Matching Payment Screen Style */}
@@ -481,17 +540,17 @@ export default function ConfirmationScreen() {
                   <View style={styles.ratingBadge}>
                     <Star size={10} color="#FCD34D" fill="#FCD34D" />
                     <Text size="xs" weight="bold" color={BrandColors.white}>
-                      {mechanic.rating.toFixed(1)}
+                      {(mechanic.rating ?? 0).toFixed(1)}
                     </Text>
                   </View>
                 </View>
 
                 <View style={styles.mechanicInfo}>
                   <Text size="lg" weight="bold" color={BrandColors.primary}>
-                    {mechanic.name}
+                    {shopDisplayName}
                   </Text>
                   <Text size="sm" weight="medium" color="#6B7280">
-                    {mechanic.title ?? mechanic.shopName}
+                    with {mechanicFirstName}
                   </Text>
                 </View>
               </View>
@@ -678,21 +737,21 @@ const styles = StyleSheet.create({
 
   // Success Animation
   successContainer: {
-    width: 80,
-    height: 80,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: Spacing.md,
-  },
-  successContainerCompact: {
-    width: 72,
-    height: 72,
-    marginBottom: Spacing.sm,
-  },
-  successContainerVeryCompact: {
     width: 64,
     height: 64,
-    marginBottom: Spacing.xs,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 0,
+  },
+  successContainerCompact: {
+    width: 58,
+    height: 58,
+    marginBottom: 0,
+  },
+  successContainerVeryCompact: {
+    width: 52,
+    height: 52,
+    marginBottom: 0,
   },
   confettiContainer: {
     position: "absolute",
@@ -729,6 +788,7 @@ const styles = StyleSheet.create({
   subtitle: {
     marginBottom: Spacing.xl,
     lineHeight: 22,
+    width: "100%",
   },
   subtitleCompact: {
     marginBottom: Spacing.lg,
@@ -785,7 +845,7 @@ const styles = StyleSheet.create({
   },
   ratingBadge: {
     position: "absolute",
-    bottom: -4,
+    bottom: -10,
     left: -4,
     flexDirection: "row",
     alignItems: "center",

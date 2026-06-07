@@ -17,6 +17,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useBookingLaborHours } from "./useBookingLaborHours";
 import { useBookingPartsBreakdown } from "./useBookingPartsBreakdown";
+import { positionFromOption } from "@/constants/serviceVariants";
 import { useUserFromConvex } from "./useUserFromConvex";
 import { useToast } from "./useToast";
 import { useVehicleOwnershipFromConvex } from "./useVehicleOwnershipFromConvex";
@@ -27,6 +28,9 @@ import { useShopStore } from "@/stores/useShopStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { displayTimeToHHMM } from "@/utils/timeSlotUtils";
+
+const isLegacyTimeSlotId = (value: string | null | undefined): value is Id<"time_slots"> =>
+  Boolean(value && !value.startsWith("computed:"));
 
 export function useCreateBookingConvex() {
   const createBatch = useMutation(api.bookings.createBatch);
@@ -69,19 +73,19 @@ export function useCreateBookingConvex() {
       : "skip",
   );
 
-  const resolveTimeSlotId = useCallback(
+  const resolveLegacyTimeSlotId = useCallback(
     (mechanicId: string | null | undefined): Id<"time_slots"> | null => {
-      if (selectedMechanicSlot?.timeSlotId) {
-        return selectedMechanicSlot.timeSlotId as Id<"time_slots">;
-      }
+      const mechanicIdOpt = mechanicId ?? selectedMechanicId;
+      if (!mechanicIdOpt) return null;
+
+      if (isLegacyTimeSlotId(selectedMechanicSlot?.timeSlotId)) return selectedMechanicSlot.timeSlotId;
+
       const slots = slotsForShopAndTime;
       if (!slots || slots.length === 0) return null;
-      const mechanicIdOpt = mechanicId ?? selectedMechanicId;
-      if (mechanicIdOpt) {
-        const forMechanic = slots.find((s) => s.mechanic_id === mechanicIdOpt);
-        if (forMechanic) return forMechanic._id;
-      }
-      return slots[0]._id;
+      const forMechanic = slots.find(
+        (s: { _id: string; mechanic_id?: string | null }) => s.mechanic_id === mechanicIdOpt,
+      );
+      return isLegacyTimeSlotId(forMechanic?._id) ? forMechanic._id : null;
     },
     [selectedMechanicSlot?.timeSlotId, slotsForShopAndTime, selectedMechanicId],
   );
@@ -116,6 +120,7 @@ export function useCreateBookingConvex() {
   const { breakdown: pricedPartsByService } = useBookingPartsBreakdown(
     vehicleOwnershipId,
     selectedServiceIds,
+    selectedServiceOptions,
   );
   const pricedPartsTotalMap = useMemo(() => {
     const map = new Map<string, number>();
@@ -126,9 +131,9 @@ export function useCreateBookingConvex() {
   }, [pricedPartsByService]);
 
   const createBookingConvex = useCallback(
-    async (mechanicId: string, bookingType: "book_now" | "schedule_later"): Promise<string[]> => {
+    async (mechanicId: string | null | undefined, bookingType: "book_now" | "schedule_later"): Promise<string[]> => {
       const shopId = effectiveShopId;
-      const timeSlotId = resolveTimeSlotId(mechanicId);
+      const legacyTimeSlotId = resolveLegacyTimeSlotId(mechanicId);
       // Prefer the user's currently selected vehicle in the booking flow.
       // `primaryVin` is the user's default car and is only useful as a
       // fallback for entry points that don't explicitly switch cars
@@ -140,7 +145,7 @@ export function useCreateBookingConvex() {
         !userId ? "user" : null,
         !vin ? "vehicle VIN" : null,
         !shopId ? "shop" : null,
-        !timeSlotId ? "time slot" : null,
+        !scheduledAppointment?.date || !scheduledAppointment?.time ? "time slot" : null,
         selectedServiceIds.length === 0 ? "selected services" : null,
       ].filter((field): field is string => field != null);
 
@@ -179,6 +184,18 @@ export function useCreateBookingConvex() {
         };
       });
 
+      // Sum of per-service labor minutes from the same `useBookingLaborHours`
+      // source the Review & Pay screen renders. Sent to `createBatch` as
+      // `displayed_labor_minutes` so the booking's `estimated_labor_minutes`
+      // matches the duration the customer just agreed to — without this the
+      // server falls back to `resolveBookingLaborMinutes`, which walks a
+      // different path through `service_vehicle_specs` / `labor_times` and
+      // can return e.g. 17 min for an oil change the customer saw as 42 min.
+      const totalLaborMinutes = services.reduce(
+        (sum, s) => sum + (s.labor_hours ?? 0),
+        0,
+      ) * 60;
+
       const scheduledDateVal = scheduledAppointment?.date ?? new Date().toISOString().split("T")[0];
       const scheduledTimeVal = scheduledAppointment?.time ? displayTimeToHHMM(scheduledAppointment.time) : "09:00";
 
@@ -215,6 +232,17 @@ export function useCreateBookingConvex() {
         }))
         .filter((o) => o.option_label.length > 0);
 
+      // Axle/position picks per service (e.g. Brake Pads → "front"). Derived
+      // from the same `selectedServiceOptions` row that drives labor_hours and
+      // parts_cost_avg, so the booking snapshot freezes the same fitment the
+      // customer saw on Review & Pay.
+      const serviceVariantsPayload: Array<{ service_id: Id<"services">; position: string }> = [];
+      for (const sid of selectedServiceIds) {
+        const position = positionFromOption(selectedServiceOptions[sid]);
+        if (!position) continue;
+        serviceVariantsPayload.push({ service_id: sid as Id<"services">, position });
+      }
+
       const trimmedNotes = customerNotes.trim();
 
       // Error toast surfaces here; the success "Booking submitted." toast
@@ -225,17 +253,19 @@ export function useCreateBookingConvex() {
       // separately via `useBookingStatusToasts` when the shop accepts.
       let bookingIds: string[];
       try {
-        bookingIds = await createBatch({
+        const createBatchPayload = {
           user_id: userId,
           vin,
           shop_id: shopId as Id<"shops">,
           mechanic_id: mechanicId ? (mechanicId as Id<"mechanics">) : undefined,
-          time_slot_id: timeSlotId,
+          ...(legacyTimeSlotId ? { time_slot_id: legacyTimeSlotId } : {}),
           scheduled_date: scheduledDateVal,
           scheduled_time: scheduledTimeVal,
           services,
           taxes_and_fees: TAXES_AND_FEES,
           platform_fee: PLATFORM_FEE,
+          displayed_labor_minutes:
+            totalLaborMinutes > 0 ? totalLaborMinutes : undefined,
           source_recommendation_id: sourceRecommendationId
             ? (sourceRecommendationId as Id<"job_recommendations">)
             : undefined,
@@ -243,7 +273,10 @@ export function useCreateBookingConvex() {
           diagnostic_system: selectedDiagnosticSystem ?? undefined,
           selected_service_options:
             selectedOptionsPayload.length > 0 ? selectedOptionsPayload : undefined,
-        });
+          service_variants: serviceVariantsPayload.length > 0 ? serviceVariantsPayload : undefined,
+        };
+
+        bookingIds = await createBatch(createBatchPayload);
       } catch (err) {
         toast.error(
           "Couldn't submit booking.",
@@ -269,7 +302,6 @@ export function useCreateBookingConvex() {
       pricedPartsTotalMap,
       scheduledAppointment,
       getShopById,
-      resolveTimeSlotId,
       createBatch,
       sourceRecommendationId,
       setSourceRecommendationId,
@@ -277,6 +309,7 @@ export function useCreateBookingConvex() {
       customerNotes,
       selectedDiagnosticSystem,
       toast,
+      resolveLegacyTimeSlotId,
     ],
   );
 

@@ -35,6 +35,7 @@ import { Text } from "@/components/shared-ui";
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
 import { BookingConfirmStatus } from "@/components/booking/BookingConfirmStatus";
 import { useCreateBookingConvex } from "@/hooks/useCreateBookingConvex";
+import { calculateBookingConfirmLayout } from "@/lib/bookingConfirmSheet";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { usePaymentStore } from "@/stores/usePaymentStore";
 import { api } from "@/convex/_generated/api";
@@ -67,6 +68,7 @@ export default function BookingConfirmingScreen() {
   const insets = useSafeAreaInsets();
   const { createBookingConvex } = useCreateBookingConvex();
   const selectedMechanicId = useBookingStore((s) => s.selectedMechanicId);
+  const selectedMechanicSlot = useBookingStore((s) => s.selectedMechanicSlot);
   const bookingType = useBookingStore((s) => s.bookingType);
   const selectedPaymentMethodId = usePaymentStore((s) => s.selectedPaymentMethodId);
   const createPaymentIntent = useAction(api.payments_stripe.createPaymentIntentForBooking);
@@ -79,15 +81,10 @@ export default function BookingConfirmingScreen() {
   const [submitting, setSubmitting] = useState(false);
   const isCompactLayout = windowHeight < 860;
   const isVeryCompactLayout = windowHeight < 760;
-  // Content-driven sheet height: title + 3 rows + $20 hold note +
-  // Confirm + Go back + paddings. Kept just tall enough for "Go back"
-  // to render fully while still letting the Lottie subcopy ("Locking
-  // in your time slot with the shop") sit above the sheet's top edge.
-  const baseContentHeight = isVeryCompactLayout ? 390 : isCompactLayout ? 410 : 430;
-  const sheetHeight = Math.min(
-    Math.round(windowHeight * 0.78),
-    baseContentHeight + Math.max(insets.bottom - 12, 0),
-  );
+  const confirmLayout = calculateBookingConfirmLayout({
+    width: windowWidth,
+    height: windowHeight,
+  });
 
   // Open the sheet on mount, same shape as the tire-quote requesting flow.
   useEffect(() => {
@@ -136,19 +133,19 @@ export default function BookingConfirmingScreen() {
 
   const handleConfirm = useCallback(async () => {
     if (submitting || navigatedRef.current) return;
-    if (!selectedMechanicId) {
+    if (!selectedMechanicId && !selectedMechanicSlot?.shopId) {
       navigatedRef.current = true;
       router.replace({
-        pathname: `/booking/mechanic/${id}/payment`,
-        params: { confirmError: "No mechanic selected." },
+        pathname: "/booking/mechanic/[id]/payment",
+        params: { id, confirmError: "No shop selected." },
       });
       return;
     }
     if (!selectedPaymentMethodId) {
       navigatedRef.current = true;
       router.replace({
-        pathname: `/booking/mechanic/${id}/payment`,
-        params: { confirmError: "Add a payment method to confirm." },
+        pathname: "/booking/mechanic/[id]/payment",
+        params: { id, confirmError: "Add a payment method to confirm." },
       });
       return;
     }
@@ -185,20 +182,21 @@ export default function BookingConfirmingScreen() {
       if (navigatedRef.current) return;
       navigatedRef.current = true;
       router.replace({
-        pathname: `/booking/mechanic/${id}/confirmation`,
-        params: newBookingId ? { bookingDbId: newBookingId } : {},
+        pathname: "/booking/mechanic/[id]/confirmation",
+        params: newBookingId ? { id, bookingDbId: newBookingId } : { id },
       });
     } catch (err) {
       if (navigatedRef.current) return;
       navigatedRef.current = true;
       router.replace({
-        pathname: `/booking/mechanic/${id}/payment`,
-        params: { confirmError: extractErrorMessage(err) },
+        pathname: "/booking/mechanic/[id]/payment",
+        params: { id, confirmError: extractErrorMessage(err) },
       });
     }
   }, [
     submitting,
     selectedMechanicId,
+    selectedMechanicSlot?.shopId,
     selectedPaymentMethodId,
     bookingType,
     createBookingConvex,
@@ -217,9 +215,11 @@ export default function BookingConfirmingScreen() {
         resizeMode="cover"
         style={[
           styles.lottie,
-          isCompactLayout && styles.lottieCompact,
-          isVeryCompactLayout && styles.lottieVeryCompact,
-          { width: windowWidth, height: windowHeight },
+          {
+            width: windowWidth,
+            height: windowHeight,
+            transform: [{ translateY: confirmLayout.lottieTranslateY }],
+          },
         ]}
       />
 
@@ -227,7 +227,7 @@ export default function BookingConfirmingScreen() {
         style={[
           styles.copyOverlay,
           isCompactLayout && styles.copyOverlayCompact,
-          isVeryCompactLayout && styles.copyOverlayVeryCompact,
+          { top: confirmLayout.copyTopPercent },
           copyAnimStyle,
         ]}
         pointerEvents="none"
@@ -248,7 +248,7 @@ export default function BookingConfirmingScreen() {
 
       <FloatingSheet
         ref={sheetRef}
-        snapHeights={[sheetHeight]}
+        snapHeights={[confirmLayout.sheetHeight]}
         onClose={handleSheetClose}
         cornerRadius={24}
       >
@@ -270,12 +270,6 @@ const styles = StyleSheet.create({
   lottie: {
     ...StyleSheet.absoluteFillObject,
   },
-  lottieCompact: {
-    transform: [{ translateY: -18 }],
-  },
-  lottieVeryCompact: {
-    transform: [{ translateY: -30 }],
-  },
   copyOverlay: {
     position: "absolute",
     // Sits below the dropped pin (~30% from top) and above the sheet's
@@ -287,13 +281,9 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   copyOverlayCompact: {
-    top: "36%",
     left: 20,
     right: 20,
     gap: 6,
-  },
-  copyOverlayVeryCompact: {
-    top: "34%",
   },
   copySub: {
     marginTop: 2,

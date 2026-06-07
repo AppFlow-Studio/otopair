@@ -11,6 +11,7 @@
 
 import {
   PACKAGE_RULES,
+  TRIM_INFERENCE_RULES,
   KNOWN_SERVICE_SLUGS,
   type PackageRule,
 } from "./packageRules";
@@ -77,6 +78,36 @@ function mapSteeringType(raw: string | null | undefined): "electric" | "hydrauli
   if (lower.includes("elec")) return "electric";
   if (lower.includes("pwr") || lower.includes("power") || lower.includes("hyd")) return "hydraulic";
   return null;
+}
+
+/**
+ * Maps VDB raw `brakingSpec.type` to the rotor-booking radio enum. Drives the
+ * "According to our records, your YYYY Make Model has: Standard brakes"
+ * pre-selection on the Shop Rotors screen (spec section 2, field 1).
+ * Conservative — unknown vocabulary returns undefined so the UI falls back
+ * to user-pick instead of mis-stating OEM data.
+ */
+export function normalizeBrakeSystemType(
+  raw: string | null | undefined,
+): "standard" | "sport" | "carbon_ceramic" | undefined {
+  if (!raw) return undefined;
+  const lower = raw.toLowerCase();
+  if (lower.includes("carbon") || lower.includes("ceramic composite") || lower.includes("ccm")) {
+    return "carbon_ceramic";
+  }
+  if (
+    lower.includes("sport") ||
+    lower.includes("performance") ||
+    lower.includes("brembo") ||
+    lower.includes("m performance") ||
+    lower.includes("akebono performance")
+  ) {
+    return "sport";
+  }
+  if (lower.includes("standard") || lower.includes("base") || lower.includes("oem") || lower.includes("regular")) {
+    return "standard";
+  }
+  return undefined;
 }
 
 // ─── VDB Repair Estimates API ────────────────────────────────────────────────
@@ -705,10 +736,9 @@ export function assessAvailablePackages(args: {
   };
 
   const explicitRules = PACKAGE_RULES.filter(ruleAffectsKnownService);
+  const inferenceRules = TRIM_INFERENCE_RULES.filter(ruleAffectsKnownService);
 
-  // Explicit matches against VDB option/equipment strings only. Trim-name
-  // inference was removed — too many false positives. If VDB doesn't surface
-  // a package explicitly, we don't guess.
+  // 1. Explicit matches against VDB option/equipment strings (highest signal).
   const strings = collectPackageStrings(vdbRaw);
   for (const { source, text } of strings) {
     for (const rule of explicitRules) {
@@ -723,6 +753,24 @@ export function assessAvailablePackages(args: {
         confidence: rule.base_confidence,
       });
     }
+  }
+
+  // 2. Trim-name inference (lower confidence). Only if we don't already have
+  // an explicit hit — trim-name inference was previously removed due to false
+  // positives; the curated TRIM_INFERENCE_RULES table re-introduces it with
+  // tightly-scoped patterns to avoid that pitfall.
+  for (const rule of inferenceRules) {
+    if (rule.make !== "*" && rule.make.toLowerCase() !== make.toLowerCase()) continue;
+    if (haloHardwareStandard && rule.redundant_when_halo) continue;
+    if (!rule.pattern.test(trim ?? "")) continue;
+    if (detected.has(rule.code)) continue; // explicit hit wins
+    upsert({
+      code: rule.code,
+      label: rule.label,
+      services_affected: rule.services_affected,
+      detected_from: "rules_table",
+      confidence: rule.base_confidence,
+    });
   }
 
   return [...detected.values()];
@@ -897,6 +945,7 @@ export function extractVDBFields(data: any) {
       ? parseFloat(getBrakeVal("rear_brake_rotor_dia"))
       : null,
     brakeType: brakingSpec.type || null,
+    brakeSystemType: normalizeBrakeSystemType(brakingSpec.type),
 
     // Steering (normalized: "electric" | "hydraulic" | "electro-hydraulic" | null)
     steeringType: mapSteeringType(steeringSpec?.type),

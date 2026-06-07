@@ -281,6 +281,7 @@ export default function RootLayout() {
                     <Stack.Screen name="(main-tabs)" options={{ headerShown: false }} />
                     <Stack.Screen name="(tell-us-about)" options={{ headerShown: false }} />
                     <Stack.Screen name="(tire-booking)" options={{ headerShown: false }} />
+                    <Stack.Screen name="(rotor-booking)" options={{ headerShown: false }} />
                     <Stack.Screen
                       name="booking"
                       options={{

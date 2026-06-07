@@ -8,8 +8,8 @@
  * USED IN: components/booking/ShopDetails.tsx
  */
 
-import { useMutation, useQuery } from "convex/react";
-import { useEffect, useMemo } from "react";
+import { useQuery } from "convex/react";
+import { useMemo } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { MechanicAvailabilitySlot } from "@/stores/types/store.types";
@@ -17,27 +17,27 @@ import { dateToDayDisplay, hhmmToDisplayTime, minBookableHHMM, todayLocalISO } f
 
 const DEFAULT_LIMIT_PER_MECHANIC = 12;
 
+type AvailabilityRow = {
+  _id: string;
+  date: string;
+  start_time: string;
+};
+
+type MechanicAvailabilityGroup = {
+  mechanicId: string;
+  slots: AvailabilityRow[];
+};
+
 export function useNextAvailabilityPerMechanicForShop(
   shopId: string | null,
   limitPerMechanic: number = DEFAULT_LIMIT_PER_MECHANIC,
+  durationMinutes?: number,
 ) {
   const isRealShopId = shopId != null && shopId.length > 10;
   // See useNextAvailabilityForShop: pass the user's local cutoff so the
   // server can drop past slots before slicing to `limitPerMechanic`.
   const cutoffDate = todayLocalISO();
   const cutoffTime = minBookableHHMM();
-  const refreshShopAvailability = useMutation(api.time_slots.refreshShopAvailability);
-
-  useEffect(() => {
-    if (!isRealShopId) return;
-    void refreshShopAvailability({
-      shopId: shopId as Id<"shops">,
-      startDate: cutoffDate,
-    }).catch((error) => {
-      console.warn("[availability] failed to refresh shop slots", error);
-    });
-  }, [cutoffDate, isRealShopId, refreshShopAvailability, shopId]);
-
   const convexResult = useQuery(
     api.time_slots.getNextAvailableByShopPerMechanic,
     isRealShopId
@@ -46,6 +46,7 @@ export function useNextAvailabilityPerMechanicForShop(
           limitPerMechanic,
           cutoffDate,
           cutoffTime,
+          durationMinutes,
         }
       : "skip",
   );
@@ -57,7 +58,7 @@ export function useNextAvailabilityPerMechanicForShop(
     const today = todayLocalISO();
     const minTime = minBookableHHMM();
     const map: Record<string, MechanicAvailabilitySlot[]> = {};
-    for (const { mechanicId, slots } of convexResult) {
+    for (const { mechanicId, slots } of convexResult as MechanicAvailabilityGroup[]) {
       const key = mechanicId as string;
       map[key] = slots
         .filter((s) => s.date !== today || s.start_time >= minTime)

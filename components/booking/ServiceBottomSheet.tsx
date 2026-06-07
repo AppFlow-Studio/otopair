@@ -39,6 +39,10 @@ import {
 // (Tire Replacement is rendered inline as a Modal because routing to
 //  /(tire-booking) from inside the sheet wasn't navigating reliably.)
 import TireBookingScreen from "@/app/(tire-booking)";
+// Rotor Replacement mirrors the tire-booking inline Modal pattern for the
+// same reason — router.push from inside the BottomSheet doesn't navigate
+// reliably on this stack.
+import RotorBookingScreen from "@/app/(rotor-booking)";
 // Quick-read gate flow uses the same 5-tile Service History stepper
 // the cars tab uses post-onboarding. Embedded inline because router
 // navigation from inside the BottomSheet is unreliable.
@@ -84,6 +88,7 @@ import { SLUG_DIAGNOSTIC_SCAN, SLUG_TIRE_REPLACEMENT } from "@/constants/service
 import { BorderRadius, FontFamily, FontSize, Shadows } from "@/constants/theme";
 import { useBookingLaborHours } from "@/hooks/useBookingLaborHours";
 import { useBookingPartsBreakdown } from "@/hooks/useBookingPartsBreakdown";
+import { useShopFixedPricesForServices } from "@/hooks/useShopFixedPricesForServices";
 import { useBookingTransition } from "@/hooks/useBookingTransition";
 import { useRecentlyBookedMechanicIdsFromConvex } from "@/hooks/useRecentlyBookedMechanicIdsFromConvex";
 import { useRecentlyBookedShopIdsFromConvex } from "@/hooks/useRecentlyBookedShopIdsFromConvex";
@@ -224,6 +229,8 @@ export function ServiceBottomSheet({
   // instead of router.push to /(tire-booking) because that wasn't
   // navigating from inside the bottom sheet.
   const [showTireBookingModal, setShowTireBookingModal] = useState(false);
+  // Rotor Replacement → same inline-Modal pattern as tire above.
+  const [showRotorBookingModal, setShowRotorBookingModal] = useState(false);
   const [optionsServiceId, setOptionsServiceId] = useState<string | null>(null);
   // Tap-to-open diagnostic picker (mirrors optionsServiceId pattern). Opens
   // when the user taps Diagnostic Scan; resolves the area + notes before
@@ -332,6 +339,7 @@ export function ServiceBottomSheet({
 
   // ═══════════════ COMPUTED ═══════════════
   const hasSelection = selectedCount > 0;
+  const canAdvanceServiceStage = hasSelection;
   const isServiceStage = currentStage === "discovery" || currentStage === "service_selection" || currentStage === "service_options";
   const isServiceOptionsStage = currentStage === "service_options";
   const isMechanicStage = currentStage === "mechanic_selection";
@@ -410,16 +418,30 @@ export function ServiceBottomSheet({
   //   hours (useBookingLaborHours) + shop labor_rate, then deriveDisclosedRange
   //   layers tax + 7% platform fee on top and bands parts ±25%.
   const { breakdown: pricedPartsByService, isLoading: isPricedPartsLoading } =
-    useBookingPartsBreakdown(selectedVehicle?.ownershipId, selectedServiceIds);
+    useBookingPartsBreakdown(
+      selectedVehicle?.ownershipId,
+      selectedServiceIds,
+      selectedServiceOptions,
+    );
   const { laborHours: laborHoursByService, isLoading: isLaborHoursLoading } =
     useBookingLaborHours(selectedVehicle?.ownershipId, selectedServiceIds);
 
+  // Per-(shop, service, tier) flat-price overrides for the focused mechanic.
+  // Folded into deriveDisclosedRange below so the footer band already reflects
+  // any flat-price short-circuits the booking-create call will honor.
+  const { map: footerFixedPriceMap, hasAnyFixed: footerHasAnyFixed } =
+    useShopFixedPricesForServices(
+      selectedMechanicSlot?.shopId,
+      selectedVehicle?.ownershipId,
+      selectedServiceIds,
+    );
+
   const mechanicFooterRange = useMemo(() => {
     const isLoading = isPricedPartsLoading || isLaborHoursLoading;
-    if (!selectedMechanicSlot?.shopId) return { formatted: "", isLoading };
+    if (!selectedMechanicSlot?.shopId) return { formatted: "", isLoading, hasAnyFixed: false };
     const shop = shops[selectedMechanicSlot.shopId];
     const laborRate = shop?.labor_rate;
-    if (laborRate == null) return { formatted: "", isLoading };
+    if (laborRate == null) return { formatted: "", isLoading, hasAnyFixed: false };
 
     const selectedServices = availableServices.filter((s) => selectedServiceIds.includes(s.id));
 
@@ -431,12 +453,22 @@ export function ServiceBottomSheet({
     }
 
     let laborHours = 0;
-    let partsCost = 0;
+    let variablePartsCost = 0;
+    const fixedPriceLines: { serviceId: string; laborCost: number; partsFixed: number }[] = [];
     for (const s of selectedServices) {
       const hours = laborHoursMap.get(String(s.id)) ?? s.default_labor_hours ?? 0;
       laborHours += hours;
+      const flat = footerFixedPriceMap.get(String(s.id));
+      if (flat != null) {
+        fixedPriceLines.push({
+          serviceId: String(s.id),
+          laborCost: hours * laborRate,
+          partsFixed: flat,
+        });
+        continue;
+      }
       const priced = pricedPartsMap.get(String(s.id));
-      partsCost += priced && priced.partsTotal > 0
+      variablePartsCost += priced && priced.partsTotal > 0
         ? priced.partsTotal
         : s.default_parts_estimate ?? 0;
     }
@@ -444,11 +476,12 @@ export function ServiceBottomSheet({
     const laborCost = laborHours * laborRate;
     const range = deriveDisclosedRange({
       laborCost,
-      partsCost,
+      partsCost: variablePartsCost,
       state: shop?.state,
       zip: shop?.zip,
+      fixedPriceLines,
     });
-    return { formatted: range.formatted, isLoading };
+    return { formatted: range.formatted, isLoading, hasAnyFixed: fixedPriceLines.length > 0 };
   }, [
     selectedMechanicSlot?.shopId,
     shops,
@@ -458,6 +491,7 @@ export function ServiceBottomSheet({
     pricedPartsByService,
     isPricedPartsLoading,
     isLaborHoursLoading,
+    footerFixedPriceMap,
   ]);
 
   // ═══════════════ SEARCH COMPUTED VALUES ═══════════════
@@ -1113,16 +1147,9 @@ export function ServiceBottomSheet({
     const displayDate = `${targetDate.getDate()} ${months[targetDate.getMonth()]} ${targetDate.getFullYear()}`;
     const isoDate = targetDate.toISOString().split("T")[0];
 
-    // Use mechanicId or find first mechanic for the shop
-    const effectiveMechanicId =
-      mechanicId ||
-      (() => {
-        // Find a mechanic from this shop
-        const shopMechanic = mechanicIds.map((id) => mechanics[id]).find((m) => m?.shopId === shopId);
-        return shopMechanic?.id;
-      })();
-
-    if (!effectiveMechanicId) return;
+    const effectiveMechanicId = mechanicId ?? null;
+    const routeId = effectiveMechanicId ?? shopId;
+    if (!routeId) return;
 
     // Set appointment in store
     setBookingTypeAndProceed("schedule_later", effectiveMechanicId);
@@ -1137,11 +1164,9 @@ export function ServiceBottomSheet({
     setBookingStage("payment", "forward");
 
     // Navigate to payment page
-    router.push(`/booking/mechanic/${effectiveMechanicId}/payment`);
+    router.push(`/booking/mechanic/${routeId}/payment`);
   }, [
     selectedMechanicSlot,
-    mechanicIds,
-    mechanics,
     setBookingTypeAndProceed,
     setScheduledAppointment,
     setSkippedBookingDetails,
@@ -1294,7 +1319,7 @@ export function ServiceBottomSheet({
             {...props}
             bottomInset={footerBottomInset}
             animatedStyle={footerAnimatedStyle}
-            hasSelection={hasSelection}
+            hasSelection={canAdvanceServiceStage}
             selectedCount={selectedCount}
             selectedTotal={selectedTotal}
             onConfirm={handleServicesSelected}
@@ -1369,7 +1394,8 @@ export function ServiceBottomSheet({
                           adjustsFontSizeToFit
                           minimumFontScale={0.7}
                         >
-                          ~ {mechanicFooterRange.formatted}
+                          {mechanicFooterRange.hasAnyFixed ? "" : "~ "}
+                          {mechanicFooterRange.formatted}
                         </Text>
                       ) : (
                         <Text size="xs" weight="semiBold" color={BrandColors.white} style={mechanicFooterStyles.priceRange}>
@@ -1422,6 +1448,7 @@ export function ServiceBottomSheet({
             <ServiceSelectionContent
               onCategorySelect={handleCategorySelect}
               onShopTiresRequested={() => setShowTireBookingModal(true)}
+              onShopRotorsRequested={() => setShowRotorBookingModal(true)}
               onServiceWithOptionsRequested={(serviceId) => setOptionsServiceId(serviceId)}
               onDiagnosticServiceRequested={() => setShowDiagnosticSheet(true)}
             />
@@ -1865,6 +1892,27 @@ export function ServiceBottomSheet({
       />
     </Modal>
 
+    {/* Rotor Replacement inline flow — same fullScreen Modal pattern as
+        Tire Replacement above. */}
+    <Modal
+      visible={showRotorBookingModal}
+      animationType="slide"
+      presentationStyle="fullScreen"
+      onRequestClose={() => setShowRotorBookingModal(false)}
+    >
+      <RotorBookingScreen
+        onClose={() => setShowRotorBookingModal(false)}
+        onConfirmed={() => {
+          setShowRotorBookingModal(false);
+          bottomSheetRef.current?.close();
+          setTimeout(() => {
+            router.dismissAll();
+            router.navigate("/(main-tabs)/bookings?tab=quotes&requestSubmitted=1");
+          }, 350);
+        }}
+      />
+    </Modal>
+
     {/* Per-service options picker for has_options=true services tapped
         from the service list (e.g. Brake Pad Replacement, Tire Rotation,
         Battery Replacement). Mirrors the Tire Replacement modal pattern:
@@ -2234,6 +2282,12 @@ const mechanicFooterStyles = StyleSheet.create({
   },
   priceRange: {
     opacity: 0.9,
+  },
+  priceWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.xs,
+    flexShrink: 1,
   },
   priceSkeleton: {
     width: 96,

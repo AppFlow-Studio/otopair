@@ -28,6 +28,7 @@ import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 // 4. Constants, hooks, types
 import { useNextAvailabilityForShop } from "@/hooks/useNextAvailabilityForShop";
 import { useDistanceUnit } from "@/hooks/useDistanceUnit";
+import { useShopFixedPricesForServices } from "@/hooks/useShopFixedPricesForServices";
 import { formatProximityDistanceFromMiles } from "@/utils/geo";
 import { BorderRadius } from "@/constants/theme";
 import { deriveDisclosedRange } from "@/lib/disclosedRange";
@@ -97,6 +98,10 @@ interface ShopCardProps {
   /** True while real per-vehicle parts/labor data is in flight — show a
    *  skeleton instead of a stale single-price band that will jump. */
   isPriceLoading?: boolean;
+  /** Customer's vehicle ownership id (vehicle_owners._id). When provided
+   *  alongside selectedServices, the card looks up flat-price overrides
+   *  for this shop+vehicle tier and renders them with a "Fixed price" badge. */
+  vehicleOwnerId?: string | null;
   /** Fired when the user picks a different mechanic chip on a card that
    *  already has a selected slot — the parent updates the booking store so
    *  the footer label (e.g. "with Abubeckr at …") matches the chip. */
@@ -190,6 +195,7 @@ export const ShopCard = memo(function ShopCard({
   selectedSlot,
   selectedServices,
   isPriceLoading = false,
+  vehicleOwnerId,
   onChangeMechanicForSelectedSlot,
 }: ShopCardProps) {
   const distanceUnit = useDistanceUnit();
@@ -199,17 +205,28 @@ export const ShopCard = memo(function ShopCard({
 
   // Track which mechanic is selected (null = "Any")
   const [selectedMechanicId, setSelectedMechanicId] = useState<string | null>(defaultMechanicId);
+  const selectedDurationMinutes = useMemo(() => {
+    const minutes = selectedServices.reduce((total, service) => {
+      return total + (service.default_labor_hours ?? 0) * 60;
+    }, 0);
+    return minutes > 0 ? Math.ceil(minutes) : undefined;
+  }, [selectedServices]);
 
   // Convex: next availability for this shop (and selected mechanic when one is chosen)
   const {
     slots: convexSlots,
-    hasSlots: hasConvexSlots,
     isLoading: convexSlotsLoading,
-  } = useNextAvailabilityForShop(shop.shopId, selectedMechanicId, MAX_VISIBLE_SLOTS + 4);
+  } = useNextAvailabilityForShop(
+    shop.shopId,
+    selectedMechanicId,
+    MAX_VISIBLE_SLOTS + 4,
+    selectedDurationMinutes,
+  );
+  const usesConvexAvailability = shop.shopId.length > 10;
 
   // Get availability slots: prefer Convex when available, else fall back to mechanic.nextAvailability (mock)
   const displayedSlots = useMemo((): Array<SlotWithBookingMeta> => {
-    if (hasConvexSlots && convexSlots.length > 0) {
+    if (usesConvexAvailability && !convexSlotsLoading) {
       return convexSlots.map((s) => ({
         dayOfWeek: s.dayOfWeek,
         day: s.day,
@@ -230,7 +247,7 @@ export const ShopCard = memo(function ShopCard({
         mechanicId: selectedMechanicId,
       })) || []
     );
-  }, [shop.mechanics, selectedMechanicId, hasConvexSlots, convexSlots]);
+  }, [shop.mechanics, selectedMechanicId, usesConvexAvailability, convexSlotsLoading, convexSlots]);
 
   // Slots to show (first 3)
   const visibleSlots = displayedSlots.slice(0, MAX_VISIBLE_SLOTS);
@@ -272,7 +289,7 @@ export const ShopCard = memo(function ShopCard({
 
   const handleSlotPress = useCallback(
     (slot: SlotWithBookingMeta) => {
-      const mechanicId = selectedMechanicId === null ? (slot.mechanicId ?? null) : selectedMechanicId;
+      const mechanicId = selectedMechanicId === null ? null : selectedMechanicId;
       onSelectSlot(shop.shopId, mechanicId, slot);
     },
     [onSelectSlot, shop.shopId, selectedMechanicId],
@@ -301,6 +318,19 @@ export const ShopCard = memo(function ShopCard({
     return `${firstDisplay} + ${selectedServices.length - 1} more...`;
   }, [selectedServices]);
 
+  // Per-(shop, service, tier) flat-price overrides for this card's shop +
+  // the customer's vehicle. Hits collapse the band on those lines and zero
+  // their labor contribution — mirrors the server's computeDisclosedRange.
+  const serviceIdsForFixed = useMemo(
+    () => selectedServices.map((s) => s.id),
+    [selectedServices],
+  );
+  const { map: fixedPriceMap, hasAnyFixed } = useShopFixedPricesForServices(
+    shop.shopId,
+    vehicleOwnerId ?? null,
+    serviceIdsForFixed,
+  );
+
   const servicePriceDisplay = useMemo(() => {
     if (selectedServices.length === 0) return null;
 
@@ -311,32 +341,43 @@ export const ShopCard = memo(function ShopCard({
 
     if (!hasFormulaParams) {
       const totalPrice = selectedServices.reduce((sum, s) => sum + s.price + (s.state_fee ?? 0), 0);
-      return `~$${Math.round(totalPrice)}`;
+      return hasAnyFixed ? `$${Math.round(totalPrice)}` : `~$${Math.round(totalPrice)}`;
     }
 
+    const variablePartsCost = selectedServices.reduce(
+      (sum, s) =>
+        fixedPriceMap.has(s.id) ? sum : sum + (s.default_parts_estimate ?? 0),
+      0,
+    );
+    const fixedPriceLines = selectedServices
+      .filter((s) => fixedPriceMap.has(s.id))
+      .map((s) => ({
+        serviceId: s.id,
+        laborCost: laborRate! * (s.default_labor_hours ?? 0),
+        partsFixed: fixedPriceMap.get(s.id) ?? 0,
+      }));
     const laborCost = selectedServices.reduce(
       (sum, s) => sum + laborRate! * (s.default_labor_hours ?? 0),
       0,
     );
-    const partsCost = selectedServices.reduce((sum, s) => sum + (s.default_parts_estimate ?? 0), 0);
     const stateFeeTotal = selectedServices.reduce((sum, s) => sum + (s.state_fee ?? 0), 0);
 
     const range = deriveDisclosedRange({
       laborCost,
-      partsCost,
+      partsCost: variablePartsCost,
       state: shop.state,
       zip: shop.zip,
+      fixedPriceLines,
     });
     // State fees (e.g. inspection) are fixed and sit outside the parts band —
     // add them to both endpoints so the card matches the post-checkout total.
     const low = Math.round(range.lowDollars + stateFeeTotal);
     const high = Math.round(range.highDollars + stateFeeTotal);
-    // Parts-less services (Fuel System Cleaning, Diagnostic Scan, etc.)
-    // collapse the band to a single point — render as `~$X` instead of
-    // the redundant `~$X – $X`.
-    if (low === high) return `~$${low}`;
+    // Flat lines collapse the band to a single point — render as `$X` (no
+    // tilde) so the customer doesn't read "~" on a price that's guaranteed.
+    if (low === high) return hasAnyFixed ? `$${low}` : `~$${low}`;
     return `~$${low} – $${high}`;
-  }, [selectedServices, shop.laborRate, shop.state, shop.zip]);
+  }, [selectedServices, shop.laborRate, shop.state, shop.zip, fixedPriceMap, hasAnyFixed]);
 
   return (
     <View style={styles.container}>
@@ -689,5 +730,11 @@ const styles = StyleSheet.create({
     height: 14,
     borderRadius: 4,
     backgroundColor: "#E5E7EB",
+  },
+  servicePriceWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.xs,
+    flexShrink: 1,
   },
 });

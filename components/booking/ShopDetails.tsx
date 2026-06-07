@@ -74,7 +74,6 @@ export function ShopDetails({ shopId, onBookNow, onAddMoreServices, onViewAllAva
   const scheduledAppointment = useBookingStore((state) => state.scheduledAppointment);
 
   // Convex time slots per mechanic for this shop (each mechanic gets their own slots)
-  const { slotsByMechanicId: slotsByMechanicIdFromHook } = useNextAvailabilityPerMechanicForShop(shopId, 48);
 
   // ═══════════════ STATE ═══════════════
   // Track selected slot index for each mechanic
@@ -118,6 +117,18 @@ export function ShopDetails({ shopId, onBookNow, onAddMoreServices, onViewAllAva
   );
 
   // Shop-specific pricing: labor_rate × default_labor_hours + default_parts_estimate (shop rate only)
+  const selectedDurationMinutes = useMemo(() => {
+    const minutes = selectedServices.reduce((total, service) => {
+      return total + (service.default_labor_hours ?? 0) * 60;
+    }, 0);
+    return minutes > 0 ? Math.ceil(minutes) : undefined;
+  }, [selectedServices]);
+  const { slotsByMechanicId: slotsByMechanicIdFromHook } = useNextAvailabilityPerMechanicForShop(
+    shopId,
+    48,
+    selectedDurationMinutes,
+  );
+
   const laborRate = shop?.labor_rate;
   const totalPrice = useMemo(
     () =>

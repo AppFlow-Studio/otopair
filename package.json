@@ -10,7 +10,10 @@
     "web": "expo start --web",
     "lint": "expo lint",
     "migrate": "node scripts/migrate-to-temurbek.js",
-    "clone:dev": "bash scripts/clone-convex-deployment.sh"
+    "clone:dev": "bash scripts/clone-convex-deployment.sh",
+    "sync:convex": "bash scripts/sync-convex-from-web.sh",
+    "check:convex-drift": "bash scripts/check-convex-drift.sh",
+    "prepare": "git config core.hooksPath scripts/git-hooks || true"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",

@@ -350,4 +350,14 @@ export const TAXONOMY_LIST: ReadonlyArray<TaxonomyEntry> = ENTRIES;
 
 /** Slug match used by special-case routing (tire-quote, diagnostic picker). */
 export const SLUG_TIRE_REPLACEMENT = "tire_replacement";
+export const SLUG_ROTOR_REPLACEMENT = "rotor_replacement";
 export const SLUG_DIAGNOSTIC_SCAN = "diagnostic_scan";
+
+/** Services that hand off to a dedicated full-screen picker instead
+ *  of toggling as a cart line-item. Both have their own data
+ *  fallbacks (tire picker uses MOCK_OEM_SIZES_BY_MAKE; rotor picker
+ *  has its own constants), so they bypass the bookable gate. */
+export const HANDOFF_SLUGS: ReadonlySet<string> = new Set([
+  SLUG_TIRE_REPLACEMENT,
+  SLUG_ROTOR_REPLACEMENT,
+]);

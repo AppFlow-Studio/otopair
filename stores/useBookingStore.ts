@@ -41,7 +41,7 @@ export interface SelectedMechanicSlot {
   mechanicId: string | null; // null means "Any"
   mechanicName: string | null;
   slot: MechanicAvailabilitySlot;
-  /** Convex time_slot_id for booking.create */
+  /** Legacy time_slots id or computed availability window id; booking uses date/time as source of truth. */
   timeSlotId?: string;
   /** Scheduled date YYYY-MM-DD */
   scheduledDate?: string;
@@ -118,6 +118,11 @@ interface BookingState {
    *  Confirm screen can quote the same band the customer just agreed to.
    *  Format: `$108.42 – $138.67`. Cleared on flow reset. */
   disclosedRangeFormatted: string | null;
+  /** True when any service in the agreed-to range resolved to a flat fixed
+   *  price for the shop's tier. Drives the "Fixed price" badge on the
+   *  Confirm screen so the user sees the same guarantee they did on
+   *  Review & Pay. Cleared on flow reset. */
+  disclosedRangeIsFixedPrice: boolean;
   /** Whether booking_details was skipped (direct to payment via "Book Now") */
   skippedBookingDetails: boolean;
   /** Selected slot in mechanic selection screen (before booking) */
@@ -201,11 +206,13 @@ interface BookingState {
   /** Select a mechanic (null for "Any Available") */
   selectMechanic: (mechanicId: string | null) => void;
   /** Set booking type and proceed to booking details */
-  setBookingTypeAndProceed: (type: BookingType, mechanicId: string) => void;
+  setBookingTypeAndProceed: (type: BookingType, mechanicId: string | null) => void;
   /** Set the scheduled appointment date/time */
   setScheduledAppointment: (appointment: ScheduledAppointment | null) => void;
   /** Stash the disclosed price range so the Confirm screen can re-display it. */
   setDisclosedRangeFormatted: (formatted: string | null) => void;
+  /** Stash whether any line in the agreed range was a flat fixed price. */
+  setDisclosedRangeIsFixedPrice: (isFixed: boolean) => void;
   /** Set whether booking details was skipped */
   setSkippedBookingDetails: (skipped: boolean) => void;
   /** Set selected mechanic slot in mechanic selection screen */
@@ -411,6 +418,7 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
   bookingType: null,
   scheduledAppointment: null,
   disclosedRangeFormatted: null,
+  disclosedRangeIsFixedPrice: false,
   skippedBookingDetails: false,
   selectedMechanicSlot: null,
   selectedServiceOptions: {},
@@ -499,7 +507,10 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
         nextVin = null;
       }
 
-      return { selectedServiceIds: nextIds, selectedVehicleVin: nextVin };
+      return {
+        selectedServiceIds: nextIds,
+        selectedVehicleVin: nextVin,
+      };
     }),
 
   clearSelectedServices: () =>
@@ -599,6 +610,11 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
       disclosedRangeFormatted: formatted,
     }),
 
+  setDisclosedRangeIsFixedPrice: (isFixed) =>
+    set({
+      disclosedRangeIsFixedPrice: isFixed,
+    }),
+
   setSkippedBookingDetails: (skipped) =>
     set({
       skippedBookingDetails: skipped,
@@ -651,6 +667,7 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
       bookingType: null,
       scheduledAppointment: null,
       disclosedRangeFormatted: null,
+      disclosedRangeIsFixedPrice: false,
       skippedBookingDetails: false,
       selectedMechanicSlot: null,
       selectedServiceOptions: {},

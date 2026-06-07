@@ -46,10 +46,12 @@ interface AvailabilityModalProps {
   mechanicId: string | null;
   /** Shop ID to get all mechanics for mechanic selector (optional) */
   shopId?: string | null;
+  /** Selected job duration in minutes; availability must fit the full window. */
+  durationMinutes?: number;
   /** Called when modal should close */
   onClose: () => void;
   /** Called when user confirms selection */
-  onConfirm?: (date: Date, time: string, mechanicId: string) => void;
+  onConfirm?: (date: Date, time: string, mechanicId: string | null) => void;
 }
 
 type DayStatus = "available" | "booked" | "selected" | "disabled" | "normal";
@@ -116,7 +118,7 @@ const CIRCLE_SIZE = CELL_SIZE - 8;
 // COMPONENT
 // ============================================================================
 
-export function AvailabilityModal({ visible, mechanicId, shopId, onClose, onConfirm }: AvailabilityModalProps) {
+export function AvailabilityModal({ visible, mechanicId, shopId, durationMinutes, onClose, onConfirm }: AvailabilityModalProps) {
   // ═══════════════ HOOKS ═══════════════
   const insets = useSafeAreaInsets();
 
@@ -179,7 +181,7 @@ export function AvailabilityModal({ visible, mechanicId, shopId, onClose, onConf
   // return the shop-wide UNION of every mechanic's open slots. A prior
   // `?? shopMechanics[0]?.id` fallback collapsed "Any" → the first mechanic,
   // making "Any" and a specific pick return identical slot lists.
-  const effectiveMechanicId = selectedMechanicId ?? mechanicId ?? undefined;
+  const effectiveMechanicId = selectedMechanicId ?? undefined;
 
   // ═══════════════ CONVEX: calendar availability (Available / Booked highlighting) ═══════════════
   const convexCalendar = useCalendarAvailabilityForShop(
@@ -187,6 +189,7 @@ export function AvailabilityModal({ visible, mechanicId, shopId, onClose, onConf
     currentMonth.getFullYear(),
     currentMonth.getMonth(),
     effectiveMechanicId ?? undefined,
+    durationMinutes,
   );
 
   const selectedDateISO = selectedDate ? selectedDate.toISOString().split("T")[0] : null;
@@ -194,6 +197,7 @@ export function AvailabilityModal({ visible, mechanicId, shopId, onClose, onConf
     effectiveShopId,
     selectedDateISO,
     effectiveMechanicId ?? undefined,
+    durationMinutes,
   );
 
   // ═══════════════ BOOKING STORE ═══════════════
@@ -266,10 +270,8 @@ export function AvailabilityModal({ visible, mechanicId, shopId, onClose, onConf
   // Load schedule when mechanic selection changes
   useEffect(() => {
     if (visible) {
-      // Use selected mechanic, or first mechanic if "Any" is selected
-      const effectiveMechanicId = selectedMechanicId ?? shopMechanics[0]?.id ?? mechanicId;
-      if (effectiveMechanicId !== null) {
-        loadMechanicSchedule(effectiveMechanicId);
+      if (selectedMechanicId) {
+        loadMechanicSchedule(selectedMechanicId);
       }
     }
   }, [visible, selectedMechanicId, shopMechanics, mechanicId, loadMechanicSchedule]);
@@ -285,12 +287,12 @@ export function AvailabilityModal({ visible, mechanicId, shopId, onClose, onConf
   const availableDays = useConvexCalendar ? convexCalendar.availableDayNumbers : getAvailableDayNumbers();
   const bookedDays = useConvexCalendar ? convexCalendar.bookedDayNumbers : getBookedDayNumbers();
 
-  const timeSlots = useMemo(() => {
+  const timeSlots = useMemo((): string[] => {
     let slots: string[];
-    if (effectiveShopId && selectedDateISO && convexTimeOptions.length > 0) {
+    if (effectiveShopId && selectedDateISO) {
       slots = convexTimeOptions;
     } else {
-      const s = getTimeSlotsForSelectedDate();
+      const s = getTimeSlotsForSelectedDate() as string[];
       slots = s.length > 0 ? s : DEFAULT_TIME_SLOTS;
     }
 
@@ -431,12 +433,11 @@ export function AvailabilityModal({ visible, mechanicId, shopId, onClose, onConf
   }, [onClose]);
 
   const handleConfirm = useCallback(() => {
-    // Use selected mechanic, or first mechanic if "Any" is selected
-    const effectiveMechanicId = selectedMechanicId ?? shopMechanics[0]?.id ?? mechanicId;
+    const effectiveMechanicId = selectedMechanicId ?? null;
     const effectiveShopId =
       shopId ?? shopMechanics[0]?.shopId ?? (mechanicId ? getMechanicById(mechanicId)?.shopId : null);
 
-    if (selectedDate && selectedTime && effectiveMechanicId !== null) {
+    if (selectedDate && selectedTime && effectiveShopId) {
       confirmSelection();
 
       // Format date as "DD Mon. YYYY"
@@ -513,7 +514,7 @@ export function AvailabilityModal({ visible, mechanicId, shopId, onClose, onConf
         circleStyle = styles.circleBooked;
       }
 
-      let textColor = BrandColors.primary;
+      let textColor: string = BrandColors.primary;
       if (isDisabled) {
         textColor = "#D1D5DB";
       } else if (isSelected) {
@@ -746,6 +747,10 @@ export function AvailabilityModal({ visible, mechanicId, shopId, onClose, onConf
                       size="md"
                       weight={isSelected ? "bold" : "medium"}
                       color={isSelected ? BrandColors.secondary : "#6B7280"}
+                      numberOfLines={1}
+                      adjustsFontSizeToFit
+                      minimumFontScale={0.9}
+                      style={styles.timeSlotLabel}
                     >
                       {time}
                     </Text>
@@ -993,8 +998,12 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.xl,
     borderWidth: 2,
     borderColor: "transparent",
-    minWidth: 90,
+    minWidth: 116,
     alignItems: "center",
+  },
+  timeSlotLabel: {
+    textAlign: "center",
+    width: "100%",
   },
   timeSlotSelected: {
     borderColor: BrandColors.secondary,

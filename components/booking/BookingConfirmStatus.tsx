@@ -14,7 +14,7 @@ import { Pressable, StyleSheet, View, useWindowDimensions } from "react-native";
 
 import { Calendar, Car, User } from "lucide-react-native";
 
-import { Text } from "@/components/shared-ui";
+import { FixedPriceBadge, Text } from "@/components/shared-ui";
 import { ConfirmCountdownButton } from "@/components/tire-booking/QuoteRequestStatus";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
@@ -22,7 +22,7 @@ import { useShopStore } from "@/stores/useShopStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 
 interface Props {
-  /** Fires once — either via user tap or the 8s countdown auto-fire.
+  /** Fires once - either via user tap or the 8s countdown auto-fire.
    *  Triggers the createBooking mutation in the parent route. */
   onConfirm: () => void;
   /** Dismiss the sheet and bounce back to the payment screen. */
@@ -36,7 +36,9 @@ export function BookingConfirmStatus({ onConfirm, onGoBack, mechanicId }: Props)
   const { height: windowHeight } = useWindowDimensions();
   const scheduledAppointment = useBookingStore((s) => s.scheduledAppointment);
   const selectedMechanicId = useBookingStore((s) => s.selectedMechanicId);
+  const selectedMechanicSlot = useBookingStore((s) => s.selectedMechanicSlot);
   const disclosedRangeFormatted = useBookingStore((s) => s.disclosedRangeFormatted);
+  const disclosedRangeIsFixedPrice = useBookingStore((s) => s.disclosedRangeIsFixedPrice);
   const getMechanicById = useMechanicStore((s) => s.getMechanicById);
   const getShopById = useShopStore((s) => s.getShopById);
   const selectedVehicle = useVehicleStore((s) =>
@@ -44,20 +46,22 @@ export function BookingConfirmStatus({ onConfirm, onGoBack, mechanicId }: Props)
   );
 
   const mechanic = getMechanicById(selectedMechanicId ?? mechanicId ?? "");
-  const shop = mechanic?.shopId ? getShopById(mechanic.shopId) : null;
+  const shopId = mechanic?.shopId ?? selectedMechanicSlot?.shopId;
+  const shop = shopId ? getShopById(shopId) : null;
 
   const appointmentLabel = scheduledAppointment
-    ? `${scheduledAppointment.displayDate || scheduledAppointment.date} · ${scheduledAppointment.time}`
+    ? `${scheduledAppointment.displayDate || scheduledAppointment.date} - ${scheduledAppointment.time}`
     : "Time TBD";
 
   const vehicleLabel = selectedVehicle
     ? `${selectedVehicle.year} ${selectedVehicle.make} ${selectedVehicle.model}`
     : "Selected vehicle";
 
-  const mechanicLabel = mechanic ? mechanic.name : "Selected mechanic";
-  const mechanicSecondary = shop?.name ?? undefined;
+  const mechanicLabel = mechanic
+    ? [mechanic.name, shop?.name].filter(Boolean).join(" - ")
+    : ["Any available mechanic", shop?.name].filter(Boolean).join(" - ");
   const isCompactLayout = windowHeight < 860;
-  const isVeryCompactLayout = windowHeight < 760;
+  const isVeryCompactLayout = windowHeight < 860;
 
   return (
     <View style={[styles.container, isCompactLayout && styles.containerCompact]}>
@@ -67,7 +71,7 @@ export function BookingConfirmStatus({ onConfirm, onGoBack, mechanicId }: Props)
         color="#1A1A1A"
         style={[styles.title, isCompactLayout && styles.titleCompact]}
       >
-        Confirming your appointment…
+        Confirming your appointment...
       </Text>
 
       <View style={[styles.rows, isCompactLayout && styles.rowsCompact]}>
@@ -82,7 +86,7 @@ export function BookingConfirmStatus({ onConfirm, onGoBack, mechanicId }: Props)
         <InfoRow
           icon={<Car size={20} color="#4B5563" strokeWidth={2} />}
           primary={vehicleLabel}
-          secondary={selectedVehicle?.vin ? `VIN · ${selectedVehicle.vin}` : undefined}
+          secondary={selectedVehicle?.vin ? `VIN - ${selectedVehicle.vin}` : undefined}
           compact={isCompactLayout}
           veryCompact={isVeryCompactLayout}
         />
@@ -90,32 +94,31 @@ export function BookingConfirmStatus({ onConfirm, onGoBack, mechanicId }: Props)
         <InfoRow
           icon={<User size={20} color="#4B5563" strokeWidth={2} />}
           primary={mechanicLabel}
-          secondary={mechanicSecondary}
           compact={isCompactLayout}
           veryCompact={isVeryCompactLayout}
         />
       </View>
 
       <View style={[styles.actionColumn, isCompactLayout && styles.actionColumnCompact, isVeryCompactLayout && styles.actionColumnVeryCompact]}>
-        {/* {disclosedRangeFormatted ? (
+        {disclosedRangeFormatted ? (
           <Text
             size={isVeryCompactLayout ? "sm" : "md"}
             weight="semiBold"
             color="#141C24"
-            style={styles.rangeLine}
+            style={[styles.rangeLine, isVeryCompactLayout && styles.rangeLineVeryCompact]}
           >
             The estimated price for your car is {disclosedRangeFormatted}.
           </Text>
-        ) : null} */}
+        ) : null}
         <Text
           size={isVeryCompactLayout ? "xs" : "sm"}
           weight="regular"
           color="#6B7280"
-          style={styles.holdNote}
+          style={[styles.holdNote, isVeryCompactLayout && styles.holdNoteVeryCompact]}
         >
           A $20 hold will be placed on your card.
         </Text>
-        <ConfirmCountdownButton onConfirm={onConfirm} />
+        <ConfirmCountdownButton onConfirm={onConfirm} compact={isCompactLayout} />
         <Pressable
           onPress={onGoBack}
           style={({ pressed }) => [
@@ -177,21 +180,20 @@ const styles = StyleSheet.create({
   },
   containerCompact: {
     paddingHorizontal: 16,
-    paddingTop: 2,
-    paddingBottom: 10,
+    paddingBottom: 8,
   },
   title: {
     marginTop: 0,
     marginBottom: 14,
   },
   titleCompact: {
-    marginBottom: 10,
+    marginBottom: 8,
   },
   rows: {
     marginBottom: 14,
   },
   rowsCompact: {
-    marginBottom: 10,
+    marginBottom: 8,
   },
   row: {
     flexDirection: "row",
@@ -200,8 +202,8 @@ const styles = StyleSheet.create({
     gap: 14,
   },
   rowCompact: {
-    paddingVertical: 8,
-    gap: 10,
+    paddingVertical: 7,
+    gap: 8,
   },
   iconSlot: {
     width: 28,
@@ -257,10 +259,23 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
     marginBottom: 2,
   },
+  holdNoteVeryCompact: {
+    lineHeight: 16,
+    marginBottom: 2,
+  },
   rangeLine: {
     textAlign: "center",
     lineHeight: 20,
     paddingHorizontal: 4,
+    marginBottom: 2,
+  },
+  rangeLineWrap: {
+    alignItems: "center",
+    gap: 4,
+    marginBottom: 2,
+  },
+  rangeLineVeryCompact: {
+    lineHeight: 18,
     marginBottom: 2,
   },
 });

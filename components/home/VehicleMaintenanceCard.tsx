@@ -255,9 +255,9 @@ export function VehicleMaintenanceCard({
     const items = maxItems ? vehicle.maintenanceItems.slice(0, maxItems) : vehicle.maintenanceItems;
     const isPreview = maxItems != null;
     return (
-    <View style={[styles.card, isPreview && styles.cardPreview]}>
+    <View style={styles.card}>
       {/* Top Section - Vehicle Info (tap handled by the card's Tap gesture) */}
-      <View style={[styles.topSection, isPreview && styles.topSectionPreview]}>
+      <View style={styles.topSection}>
         <LinearGradient
           colors={['#FFFFFF', '#FFFFFF']}
           start={{ x: 0, y: 0 }}

@@ -210,6 +210,10 @@ export interface Booking {
   paymentApprovalState?: string;
   /** Final captured amount in cents (set after Stripe capture). */
   finalCaptureAmountCents?: number;
+  /** Set on quote-stage bookings ("pending_quote" / "quotes_ready") so the
+   *  Bookings tab knows which QuoteListSheet variant to open. Derived from
+   *  the presence of bookings.tire_specs / bookings.rotor_specs. */
+  quoteType?: "tire" | "rotor";
 }
 
 /** A shop/mechanic business entity */
