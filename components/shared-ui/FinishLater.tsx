@@ -7,7 +7,10 @@ import * as SecureStore from 'expo-secure-store';
 import { Text } from './Text';
 import { api } from '@/convex/_generated/api';
 import { BrandColors, FontFamily, FontSize, Spacing } from '@/constants/theme';
-import { getOnboardingFinishedLaterKey } from '@/lib/onboarding-resume';
+import {
+  clearOnboardingCurrentStepState,
+  getOnboardingFinishedLaterKey,
+} from '@/lib/onboarding-resume';
 
 /**
  * FinishLater
@@ -28,6 +31,9 @@ export function FinishLater() {
         console.error('Failed to mark essential onboarding complete:', error);
       }),
       SecureStore.setItemAsync(getOnboardingFinishedLaterKey(clerkUserId), 'true').catch(() => {
+        // Do not block navigation on local storage failure.
+      }),
+      clearOnboardingCurrentStepState(clerkUserId).catch(() => {
         // Do not block navigation on local storage failure.
       }),
     ]);

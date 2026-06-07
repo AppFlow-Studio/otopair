@@ -175,9 +175,11 @@ const COUNTDOWN_SECONDS = 7;
 export function ConfirmCountdownButton({
   onConfirm,
   compact = false,
+  label = "Confirm",
 }: {
   onConfirm: () => void;
   compact?: boolean;
+  label?: string;
 }) {
   const [remaining, setRemaining] = useState(COUNTDOWN_SECONDS);
   const progress = useSharedValue(0);
@@ -232,7 +234,7 @@ export function ConfirmCountdownButton({
     >
       <Animated.View style={[styles.primaryFill, fillStyle]} pointerEvents="none" />
       <Text size={compact ? "sm" : "md"} weight="semiBold" color="#FFFFFF">
-        Confirm ({timerText})
+        {label} ({timerText})
       </Text>
     </Pressable>
   );

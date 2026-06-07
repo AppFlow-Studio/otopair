@@ -1,6 +1,6 @@
 // 1. React & React Native
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Image, Pressable, StyleSheet, Text as RNText, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, Image, Pressable, StyleSheet, Text as RNText, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated from 'react-native-reanimated';
 
@@ -19,6 +19,7 @@ import { Bell, MoveRight, Star, Trophy } from 'lucide-react-native';
 import { useMutation, useQuery } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { useMutationWithToast } from '@/hooks/useMutationWithToast';
+import { useToast } from '@/hooks/useToast';
 
 // 3. Shared UI
 import { Button, BrandColors, ScrollDrivenGradientBackground, Text } from "@/components/shared-ui";
@@ -41,6 +42,8 @@ import { useVehicleOwnershipFromConvex } from '@/hooks/useVehicleOwnershipFromCo
 import { fetchVehicleImageUrl } from '@/utils/vehicleImage';
 import { adaptConvexBookingWithDetailsToCard } from '@/utils/bookingAdapter';
 import { BookingDetailsSheet, type BookingDetailsSheetRef } from '@/components/bookings/BookingDetailsSheet';
+import type { Booking as BookingCardBooking } from '@/components/bookings/BookingCard';
+import { AvailabilityModal } from '@/components/booking/modals/AvailabilityModal';
 import { CustomerLateBanner } from '@/components/bookings/CustomerLateBanner';
 import { LeaveReviewSheet, type LeaveReviewSheetRef } from '@/components/bookings/LeaveReviewSheet';
 import { ReceiptSheet } from '@/components/receipts/ReceiptSheet';
@@ -149,6 +152,9 @@ export default function HomeScreen() {
   const [activeCardIndex, setActiveCardIndex] = useState(0);
   const [accountSetupDismissed, setAccountSetupDismissed] = useState(false);
   const [carSetupDismissed, setCarSetupDismissed] = useState(false);
+  const [rescheduleBooking, setRescheduleBooking] = useState<BookingCardBooking | null>(null);
+  const toast = useToast();
+  const selectVehicle = useVehicleStore((s) => s.selectVehicle);
 
   // Reactivation bottom sheet (from temur-dev)
   const sheetRef = useRef<BottomSheetModal>(null);
@@ -203,7 +209,11 @@ export default function HomeScreen() {
     if (!allBookings) return null;
     const today = new Date().toISOString().split('T')[0];
     return allBookings
-      .filter((b: any) => (b.status === 'pending' || b.status === 'confirmed') && b.scheduled_date >= today)
+      .filter(
+        (b: any) =>
+          (b.status === 'pending' || b.status === 'confirmed' || b.status === 'pending_shop_acceptance') &&
+          b.scheduled_date >= today,
+      )
       .sort((a: any, b: any) => a.scheduled_date.localeCompare(b.scheduled_date) || a.scheduled_time.localeCompare(b.scheduled_time))
       [0] ?? null;
   }, [allBookings]);
@@ -597,30 +607,43 @@ export default function HomeScreen() {
     [cancelConvexBooking],
   );
 
-  // Reschedule from the late banner = confirm-then-cancel. We don't have
-  // in-place reschedule yet; the spec is to drop the slot so the driver
-  // can book fresh.
-  const handleRescheduleConfirm = useCallback(
+  const handleReschedule = useCallback(
     (bookingId: string) => {
-      Alert.alert(
-        "Reschedule appointment?",
-        "This will cancel your current booking. You'll need to book a new time slot.",
-        [
-          { text: "Keep booking", style: "cancel" },
-          {
-            text: "Cancel & reschedule",
-            style: "destructive",
-            onPress: () => {
-              const isLocalId = bookingId.startsWith("tire_quote_") || bookingId.startsWith("booking_");
-              if (!isLocalId) {
-                void cancelConvexBooking({ bookingId: bookingId as Id<"bookings"> });
-              }
-            },
-          },
-        ],
-      );
+      const isLocalId = bookingId.startsWith("tire_quote_") || bookingId.startsWith("booking_");
+      if (!upcomingBookingCard || upcomingBookingCard.id !== bookingId || isLocalId || !upcomingBookingCard.shopId) {
+        toast.warning("This booking can't be rescheduled from here.");
+        return;
+      }
+      if (upcomingBookingCard.vin) {
+        selectVehicle(upcomingBookingCard.vin.toUpperCase());
+      }
+      setRescheduleBooking(upcomingBookingCard);
     },
-    [cancelConvexBooking],
+    [selectVehicle, toast, upcomingBookingCard],
+  );
+
+  const handleCloseRescheduleModal = useCallback(() => {
+    setRescheduleBooking(null);
+  }, []);
+
+  const handleConfirmRescheduleSlot = useCallback(
+    (_date: Date, _time: string, mechanicId: string | null) => {
+      if (!rescheduleBooking) return;
+      const routeId = mechanicId ?? rescheduleBooking.mechanicId ?? rescheduleBooking.shopId;
+      if (!routeId) {
+        toast.warning("Choose a mechanic before rescheduling.");
+        return;
+      }
+      router.push({
+        pathname: "/booking/mechanic/[id]/confirming",
+        params: {
+          id: routeId,
+          mode: "reschedule",
+          bookingDbId: rescheduleBooking.id,
+        },
+      });
+    },
+    [rescheduleBooking, router, toast],
   );
 
   // View Details — open the same BookingDetailsSheet the bookings tab uses.
@@ -838,12 +861,10 @@ export default function HomeScreen() {
 
             {/* Content Area */}
             <View style={styles.content}>
-              {/* Running-late / overrun banner — self-renders when the
-                  shop has fired a customer_late_push_reminder or
-                  overrun_customer_resolution notification. Reschedule
-                  triggers a confirm-then-cancel flow. */}
+              {/* Running-late / overrun banner self-renders when the shop has
+                  fired a customer_late_push_reminder or overrun notification. */}
               <CustomerLateBanner
-                onReschedule={(bookingId) => handleRescheduleConfirm(String(bookingId))}
+                onReschedule={(bookingId) => handleReschedule(String(bookingId))}
               />
               {/* Action Cards Carousel */}
               {visibleCardIds.length > 0 && <View style={styles.carouselContainer}>
@@ -859,6 +880,7 @@ export default function HomeScreen() {
                   appointmentDestinationAddress={upcomingShopAddress}
                   onAppointmentViewDetails={handleAppointmentViewDetails}
                   onAppointmentCancel={handleAppointmentCancel}
+                  onAppointmentReschedule={handleReschedule}
                   // Resume Booking
                   showResumeBooking={hasResumeBooking}
                   resumeServicesPreview={resumeServicesPreview}
@@ -1113,8 +1135,17 @@ export default function HomeScreen() {
       </View>
     </FloatingSheet>
 
-    {/* Booking details sheet — opened by the upcoming appointment card's
-        View Details button. Mirrors the bookings tab's wiring. */}
+    {/* Reschedule availability picker. Mirrors the bookings tab's wiring. */}
+    <AvailabilityModal
+      visible={rescheduleBooking !== null}
+      mode="reschedule"
+      mechanicId={rescheduleBooking?.mechanicId ?? null}
+      shopId={rescheduleBooking?.shopId ?? null}
+      onClose={handleCloseRescheduleModal}
+      onConfirm={handleConfirmRescheduleSlot}
+    />
+
+    {/* Booking details sheet opened by the upcoming appointment card's View Details button. */}
     <BookingDetailsSheet ref={detailsSheetRef} />
 
     {/* Settings overlay is layout-mounted in (main-tabs)/_layout.tsx and

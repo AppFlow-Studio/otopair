@@ -9,6 +9,7 @@ import { Text } from "@/components/shared-ui";
 import { useAuthStore } from "@/stores/useAuthStore";
 import { useOnboardingStore } from "@/stores/useOnboardingStore";
 import { api } from "@/convex/_generated/api";
+import { shouldRedirectCompletedOnboardingToHome } from "@/lib/auth-routing";
 
 const OAUTH_SIGNUP_STEPS = [
   "phone",
@@ -30,10 +31,15 @@ export default function OAuthCallbackScreen() {
   const isNewUser = useAuthStore((state) => state.isNewUser);
   const updateOnboardingData = useOnboardingStore((state) => state.updateData);
   const me = useQuery(api.users.getMe, isLoaded && isSignedIn ? undefined : "skip");
+  const shouldRedirectHome = shouldRedirectCompletedOnboardingToHome({
+    isSignedIn: isSignedIn === true,
+    onboardingCompleted: me?.onboardingCompleted,
+    essentialOnboardingCompleted: me?.essentialOnboardingCompleted,
+  });
 
   useEffect(() => {
     if (!isLoaded) return;
-    if (isSignedIn && !isNewUser && me === undefined) return;
+    if (isSignedIn && me === undefined) return;
 
     const draftEmail =
       signUp?.emailAddress ||
@@ -52,6 +58,11 @@ export default function OAuthCallbackScreen() {
     }
 
     const timeout = setTimeout(() => {
+      if (shouldRedirectHome) {
+        router.replace("/(main-tabs)/home");
+        return;
+      }
+
       if (isNewUser) {
         router.replace({
           pathname: "/(onboarding)",
@@ -64,11 +75,6 @@ export default function OAuthCallbackScreen() {
       }
 
       if (isSignedIn) {
-        if (me?.onboardingCompleted === true || me?.essentialOnboardingCompleted === true) {
-          router.replace("/(main-tabs)/home");
-          return;
-        }
-
         router.replace({
           pathname: "/(onboarding)",
           params: { isResumeMode: "true" },
@@ -83,7 +89,7 @@ export default function OAuthCallbackScreen() {
     }, 750);
 
     return () => clearTimeout(timeout);
-  }, [isLoaded, isNewUser, isSignedIn, me, signUp, updateOnboardingData, user]);
+  }, [isLoaded, isNewUser, isSignedIn, me, shouldRedirectHome, signUp, updateOnboardingData, user]);
 
   return (
     <View style={styles.container}>

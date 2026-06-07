@@ -52,7 +52,9 @@ export function useMechanicsFromConvex() {
 
   const mechanics: Mechanic[] = useMemo(() => {
     if (!convexMechanics) return [];
-    return (convexMechanics as ConvexMechanicListRow[]).map((m) => mapConvexMechanicToStore(m));
+    return (convexMechanics as ConvexMechanicListRow[])
+      .filter((m) => m.is_active !== false)
+      .map((m) => mapConvexMechanicToStore(m));
   }, [convexMechanics]);
 
   useEffect(() => {

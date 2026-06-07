@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   distributePasswordResetCodeInput,
+  getPasswordResetTimeRemaining,
   getPasswordResetErrorMessage,
   getPasswordResetAttempt,
   getPasswordResetBackTarget,
@@ -150,4 +151,11 @@ test("distributePasswordResetCodeInput handles single digits and pasted codes", 
       fullCode: "123456",
     }
   );
+});
+
+test("getPasswordResetTimeRemaining derives seconds from an absolute deadline", () => {
+  assert.equal(getPasswordResetTimeRemaining(null, 1000), 0);
+  assert.equal(getPasswordResetTimeRemaining(900, 1000), 0);
+  assert.equal(getPasswordResetTimeRemaining(2000, 1000), 1);
+  assert.equal(getPasswordResetTimeRemaining(2500, 1000), 2);
 });

@@ -39,7 +39,7 @@ import { Map, Search, X } from 'lucide-react-native';
 import { Text } from '../shared-ui';
 
 // 4. Constants, hooks, types
-import { BrandColors, FontFamily, FontSize, Spacing } from '@/constants/theme';
+import { BrandColors, FontFamily, FontSize, SemanticColors, Spacing } from '@/constants/theme';
 
 // ============================================================================
 // TYPES
@@ -122,11 +122,14 @@ export function MechanicSearchBar({
                         pressed && styles.searchSectionPressed,
                     ]}
                 >
-                    <Search size={20} color="#000000" strokeWidth={2} />
+                    <Search size={20} color={BrandColors.black} strokeWidth={2} />
                     <Text
                         size="md"
                         weight="regular"
-                        color="#9CA3AF"
+                        color={SemanticColors.textDisabled}
+                        numberOfLines={1}
+                        adjustsFontSizeToFit
+                        minimumFontScale={0.72}
                         style={styles.placeholderText}
                     >
                         {placeholder}
@@ -134,11 +137,11 @@ export function MechanicSearchBar({
                 </Pressable>
             ) : (
                 <View style={styles.searchSection}>
-                    <Search size={20} color="#000000" strokeWidth={2} />
+                    <Search size={20} color={BrandColors.black} strokeWidth={2} />
                     <TextInput
                         style={styles.input}
                         placeholder={placeholder}
-                        placeholderTextColor="#9CA3AF"
+                        placeholderTextColor={SemanticColors.textDisabled}
                         value={searchValue}
                         onChangeText={handleChangeText}
                         onFocus={() => {
@@ -157,7 +160,7 @@ export function MechanicSearchBar({
                             hitSlop={8}
                             style={styles.clearButton}
                         >
-                            <X size={18} color="#9CA3AF" strokeWidth={2} />
+                            <X size={18} color={SemanticColors.textDisabled} strokeWidth={2} />
                         </Pressable>
                     )}
                 </View>
@@ -183,6 +186,10 @@ export function MechanicSearchBar({
                     weight="semiBold"
                     size="sm"
                     color={BrandColors.secondary}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.8}
+                    style={styles.mapLabel}
                 >
                     Map
                 </Text>
@@ -199,11 +206,11 @@ const styles = StyleSheet.create({
     container: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: '#FFFFFF',
+        backgroundColor: BrandColors.white,
         borderRadius: 10,
         paddingVertical: 8,
         paddingHorizontal: 16,
-        shadowColor: '#000',
+        shadowColor: BrandColors.black,
         shadowOffset: { width: 0, height: 2 },
         shadowOpacity: 0.06,
         shadowRadius: 8,
@@ -215,6 +222,7 @@ const styles = StyleSheet.create({
     },
     searchSection: {
         flex: 1,
+        minWidth: 0,
         flexDirection: 'row',
         alignItems: 'center',
         gap: Spacing.sm,
@@ -224,12 +232,15 @@ const styles = StyleSheet.create({
     },
     placeholderText: {
         flex: 1,
+        flexShrink: 1,
+        minWidth: 0,
     },
     input: {
         flex: 1,
+        minWidth: 0,
         fontSize: FontSize.md,
         fontFamily: FontFamily.regular,
-        color: '#141C24',
+        color: BrandColors.primary,
         padding: 0,
         margin: 0,
     },
@@ -239,16 +250,20 @@ const styles = StyleSheet.create({
     divider: {
         width: 1,
         height: 24,
-        backgroundColor: '#E5E7EB',
+        backgroundColor: SemanticColors.border,
         marginHorizontal: Spacing.md,
     },
     mapButton: {
         flexDirection: 'row',
         alignItems: 'center',
+        flexShrink: 0,
         gap: 6,
         paddingVertical: 4,
         paddingHorizontal: 8,
         borderRadius: 8,
+    },
+    mapLabel: {
+        flexShrink: 1,
     },
     mapButtonPressed: {
         opacity: 0.7,

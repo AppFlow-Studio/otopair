@@ -52,7 +52,7 @@ export function getBookingStageView(
   }
 
   // Service flow — five segments.
-  if (status === "pending") {
+  if (status === "pending" || status === "pending_shop_acceptance") {
     return { stages: SERVICE_STAGES, currentIndex: 0 };
   }
   if (status === "confirmed") {

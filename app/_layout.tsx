@@ -141,25 +141,19 @@ function EnsureConvexUserRecord() {
 }
 
 /**
- * Gates app navigation until Clerk has hydrated from token cache.
- * Keeps splash visible until auth state is known so signed-in users
- * go straight to home without flashing welcome/signup/login.
+ * Keeps the splash visible while startup dependencies hydrate, without
+ * blocking the root navigator from mounting on the first render.
  */
-function AuthGate({ children }: { children: ReactNode }) {
+function StartupSplashGate({ children, fontsReady }: { children: ReactNode; fontsReady: boolean }) {
   const { isLoaded } = useAuth();
 
   useEffect(() => {
-    if (isLoaded) {
+    if (fontsReady && isLoaded) {
       SplashScreen.hideAsync().catch((err) => {
         console.error("SplashScreen.hideAsync failed", err);
       });
     }
-  }, [isLoaded]);
-
-  // Don't render navigation until Clerk has checked stored token
-  if (!isLoaded) {
-    return null;
-  }
+  }, [fontsReady, isLoaded]);
 
   return <>{children}</>;
 }
@@ -241,15 +235,11 @@ export { RootErrorBoundary as ErrorBoundary };
 export default function RootLayout() {
   const colorScheme = useColorScheme();
   const [fontsLoaded, fontError] = useAppFonts();
-
-  // Don't render anything until fonts are loaded (splash stays visible)
-  if (!fontsLoaded && !fontError) {
-    return null;
-  }
+  const fontsReady = fontsLoaded || Boolean(fontError);
 
   return (
     <ClerkProvider publishableKey={process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY!} tokenCache={tokenCache}>
-      <AuthGate>
+      <StartupSplashGate fontsReady={fontsReady}>
         <ConvexClerkProvider>
           <AppErrorBoundary>
             <EnsureConvexUserRecord />
@@ -425,7 +415,7 @@ export default function RootLayout() {
           </BottomSheetModalProvider>
         </GestureHandlerRootView> */}
         </ConvexClerkProvider>
-      </AuthGate>
+      </StartupSplashGate>
     </ClerkProvider>
   );
 }
