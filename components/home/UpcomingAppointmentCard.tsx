@@ -33,8 +33,6 @@ import React from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
 // 2. Expo & Third-party
-import { BlurView } from 'expo-blur';
-import { LinearGradient } from 'expo-linear-gradient';
 import { BriefcaseBusiness, CheckCircle, Star } from 'lucide-react-native';
 
 // 3. Shared UI
@@ -84,25 +82,6 @@ export function UpcomingAppointmentCard({
           pressed && styles.cardPressed,
         ]}
       >
-        {/* Glassy/Glossy Effect Layers */}
-        <BlurView intensity={100} tint="light" style={StyleSheet.absoluteFill} />
-        <LinearGradient
-          colors={['rgba(255, 255, 255, 0.6)', 'rgba(255, 255, 255, 0.55)']}
-          style={StyleSheet.absoluteFill}
-        />
-        {/* Glossy top highlight - stronger */}
-        <LinearGradient
-          colors={['rgba(255, 255, 255, 0.7)', 'rgba(255, 255, 255, 0.3)', 'rgba(255, 255, 255, 0)']}
-          locations={[0, 0.2, 0.5]}
-          style={styles.glossyHighlight}
-        />
-        {/* Additional shine layer */}
-        <LinearGradient
-          colors={['rgba(255, 255, 255, 0.5)', 'rgba(255, 255, 255, 0)', 'rgba(255, 255, 255, 0)']}
-          locations={[0, 0.15, 0.4]}
-          style={styles.glossyShine}
-        />
-        
         {/* Card Content */}
         <View style={styles.cardContent} pointerEvents="box-none">
           {/* Top Section */}
@@ -181,7 +160,7 @@ const styles = StyleSheet.create({
     marginLeft: 4,
   },
   card: {
-    backgroundColor: 'transparent',
+    backgroundColor: '#FFFFFF',
     borderRadius: 10,
     overflow: 'hidden',
     position: 'relative',
@@ -197,24 +176,6 @@ const styles = StyleSheet.create({
     paddingBottom: 20,
     position: 'relative',
     zIndex: 1,
-  },
-  glossyHighlight: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: '50%',
-    borderTopLeftRadius: 10,
-    borderTopRightRadius: 10,
-  },
-  glossyShine: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: '35%',
-    borderTopLeftRadius: 10,
-    borderTopRightRadius: 10,
   },
   cardPressed: {
     opacity: 0.95,

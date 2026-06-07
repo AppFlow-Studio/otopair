@@ -66,7 +66,12 @@ const QUICK_TAGS = [
 ];
 
 export interface LeaveReviewSheetRef {
-  open: (booking: Booking, userId: string) => void;
+  /** Open the sheet for a booking. `initialRating` (1–5) pre-selects
+   *  that many stars instead of the default 5. Used by surfaces that
+   *  let the user tap a star outside the sheet (e.g. the Review card
+   *  on the past-service detail) and want the sheet to open already
+   *  reflecting that tap. */
+  open: (booking: Booking, userId: string, initialRating?: number) => void;
   close: () => void;
 }
 
@@ -144,10 +149,13 @@ export const LeaveReviewSheet = forwardRef<LeaveReviewSheetRef, Props>(
     );
 
     useImperativeHandle(ref, () => ({
-      open: (b, uid) => {
+      open: (b, uid, initialRating) => {
+        const startRating = initialRating != null
+          ? Math.max(1, Math.min(5, Math.round(initialRating)))
+          : 5;
         setBooking(b);
         setUserId(uid);
-        setRating(5);
+        setRating(startRating);
         setSelectedTags([]);
         // Opt-out: auto-expand the mechanic section whenever the booking
         // has a mechanic. The mechanicAvailable effect below double-checks
@@ -158,8 +166,9 @@ export const LeaveReviewSheet = forwardRef<LeaveReviewSheetRef, Props>(
         setMechanicComment("");
         setError(null);
         sheetRef.current?.open();
-        // Stagger the default 5-star fill on open for a small "ta-da".
-        popStarsUpTo(5);
+        // Stagger the star fill on open for a small "ta-da". Animates
+        // from 0 up to whatever the initial rating is.
+        popStarsUpTo(startRating);
       },
       close: () => sheetRef.current?.close(),
     }));

@@ -35,7 +35,11 @@ import {
 } from 'react-native';
 
 // 2. Expo & Third-party
-// (none)
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
 
 // 3. Shared UI
 // (none)
@@ -174,6 +178,19 @@ export function ActionCardsCarousel({
   const activeCard = cards[activeIndex] ?? cards[0];
   const containerHeight = activeCard ? cardHeights[activeCard.id] : undefined;
 
+  // Smooth post-swipe reflow: instead of snapping the container to the new
+  // active card's height, drive the height through a Reanimated shared value
+  // with a 280 ms `withTiming` so the sections below (Vehicle Maintenance,
+  // etc.) glide in lockstep. Mirrors VehicleMaintenanceCard.tsx:375-414.
+  const animatedCardHeight = useSharedValue<number>(containerHeight ?? 0);
+  useEffect(() => {
+    if (containerHeight == null) return;
+    animatedCardHeight.value = withTiming(containerHeight, { duration: 280 });
+  }, [containerHeight, animatedCardHeight]);
+  const containerHeightStyle = useAnimatedStyle(() => ({
+    height: animatedCardHeight.value,
+  }));
+
   const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const contentOffsetX = event.nativeEvent.contentOffset.x;
     const newIndex = Math.round(contentOffsetX / screenWidth);
@@ -279,7 +296,12 @@ export function ActionCardsCarousel({
   };
 
   return (
-    <View style={[styles.container, containerHeight ? { height: containerHeight } : undefined]}>
+    <Animated.View
+      style={[
+        styles.container,
+        containerHeight != null && containerHeightStyle,
+      ]}
+    >
       <ScrollView
         ref={scrollViewRef}
         horizontal
@@ -293,7 +315,7 @@ export function ActionCardsCarousel({
       >
         {cards.map((card, index) => renderCard(card.id, index))}
       </ScrollView>
-    </View>
+    </Animated.View>
   );
 }
 

@@ -21,7 +21,6 @@ import React from 'react';
 import { Image, Pressable, StyleSheet, View } from 'react-native';
 
 // 2. Expo & Third-party
-import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { Plus } from 'lucide-react-native';
@@ -66,23 +65,6 @@ export function AddFirstVehicleCard({
 
       {/* Card */}
       <View style={styles.card}>
-        <BlurView intensity={100} tint="light" style={StyleSheet.absoluteFill} />
-        <LinearGradient
-          colors={['rgba(255, 255, 255, 0.6)', 'rgba(255, 255, 255, 0.55)']}
-          style={StyleSheet.absoluteFill}
-        />
-        {/* Glossy top highlight - stronger */}
-        <LinearGradient
-          colors={['rgba(255, 255, 255, 0.7)', 'rgba(255, 255, 255, 0.3)', 'rgba(255, 255, 255, 0)']}
-          locations={[0, 0.2, 0.5]}
-          style={styles.glossyHighlight}
-        />
-        {/* Additional shine layer */}
-        <LinearGradient
-          colors={['rgba(255, 255, 255, 0.5)', 'rgba(255, 255, 255, 0)', 'rgba(255, 255, 255, 0)']}
-          locations={[0, 0.15, 0.4]}
-          style={styles.glossyShine}
-        />
         <View style={styles.cardContent}>
           {/* Covered Car Image */}
           <View style={styles.imageContainer}>
@@ -146,6 +128,7 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
   },
   card: {
+    backgroundColor: '#FFFFFF',
     borderRadius: 16,
     overflow: 'hidden',
     shadowColor: '#000',
@@ -157,24 +140,6 @@ const styles = StyleSheet.create({
   cardContent: {
     padding: 20,
     position: 'relative',
-  },
-  glossyHighlight: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: '50%',
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-  },
-  glossyShine: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: '35%',
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
   },
   imageContainer: {
     alignItems: 'center',

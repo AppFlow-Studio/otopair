@@ -13,6 +13,56 @@
  */
 
 import type { MaintenanceItem, MaintenanceStatus } from "@/components/cars/MaintenanceTracker";
+import { extractMaintenanceType } from "@/lib/maintenanceServiceMapping";
+
+// ============================================================================
+// v1 SPEC CONSTANTS (Yassin Otopair_Core_Systems_Spec_v1_1)
+// ----------------------------------------------------------------------------
+// Declared here so the team can review the numeric values before any logic
+// consumes them. Change 1 of the build sequence: nothing reads these yet —
+// Change 2 swaps the flat category mean for the weighted version against
+// CATEGORY_WEIGHTS, lowers usage 25 → 20, and caps recPenalty at
+// OPEN_ISSUE_PENALTY_MAX (drops mileageRecPenalty entirely). All thresholds
+// stay tunable post-launch without code review per spec §7.
+// ============================================================================
+
+/** Per-category weights for the maintenance term (sum = 100). Safety items
+ *  dominate; paperwork/compliance is lowest. */
+export const CATEGORY_WEIGHTS = {
+  brakes: 25,
+  tires: 20,
+  oil: 20,
+  battery: 13,
+  inspection: 12,
+  other: 10,
+} as const;
+
+/** Outer formula weights: score = maintenance×0.65 + usage×0.20 + safetyReserve×0.15 − penalty. */
+export const COMPONENT_WEIGHTS = {
+  maintenance: 0.65,
+  usage: 0.20,
+  safetyReserve: 0.15,
+} as const;
+
+/** Open-issue penalty cap. Was 25 (recPenalty) + 20 (mileageRecPenalty);
+ *  v1 collapses to a single 0–15 deduction, "upcoming" moves to urgency. */
+export const OPEN_ISSUE_PENALTY_MAX = 15;
+
+// Urgency-engine constants — read by Change 3 (utils/urgency.ts).
+export const URGENCY_WEIGHTS = { severity: 0.50, proximity: 0.35 } as const;
+export const URGENCY_TIEBREAKER_WINDOW = 5;
+export const URGENCY_TIER_CUTOFFS = { now: 75, soon: 55, soonish: 25 } as const;
+
+/** Resolve a maintenance item's id to the CATEGORY_WEIGHTS bucket. Items
+ *  whose type isn't a recognized safety/reliability category fall into
+ *  "other" (10% weight). */
+function categoryWeightForItem(item: MaintenanceItem): number {
+  const type = extractMaintenanceType(item.id);
+  if (type in CATEGORY_WEIGHTS) {
+    return CATEGORY_WEIGHTS[type as keyof typeof CATEGORY_WEIGHTS];
+  }
+  return CATEGORY_WEIGHTS.other;
+}
 
 // ============================================================================
 // STATUS → SCORE (graduated, not binary)
@@ -118,48 +168,31 @@ export interface HealthScoreInput {
   /** Additive penalty (0–25) from open mechanic recommendations.
    *  Read from vehicle_owners.health_score_rec_penalty; subtracted before clamp. */
   recPenalty?: number;
-  /** Open mileage-based recommendations from job_recommendations. Each
-   *  rec contributes a penalty that ramps in as the odometer approaches
-   *  target_mileage and pegs at full once the threshold is reached. */
+  /** Open mileage-based recommendations from job_recommendations.
+   *  Read by the Action Engine's urgency proximity term (Change 3); no
+   *  longer affects the Health Score directly per v1 spec §2.6
+   *  (mileageRecPenalty was dropped). Kept on this input shape so
+   *  existing callers compile unchanged. */
   mileageRecs?: Array<{ target_mileage: number }>;
 }
 
-const MILEAGE_REC_PENALTY_PER_REC = 8;
-const MILEAGE_REC_RAMP_WINDOW = 5_000;
-const MILEAGE_REC_PENALTY_CAP = 20;
-
 /**
- * Penalty for open recommendations with a target_mileage threshold.
- * Zero until the vehicle is within MILEAGE_REC_RAMP_WINDOW miles of the
- * target, then linearly ramps to MILEAGE_REC_PENALTY_PER_REC, pinned at
- * that value once the odometer crosses the threshold. Summed across recs,
- * capped at MILEAGE_REC_PENALTY_CAP so a single vehicle can't be zeroed
- * out by recs alone.
- */
-function mileageRecPenalty(
-  odometerMiles: number,
-  recs?: Array<{ target_mileage: number }>,
-): number {
-  if (!recs || recs.length === 0) return 0;
-  let total = 0;
-  for (const rec of recs) {
-    const target = rec.target_mileage;
-    if (!Number.isFinite(target) || target <= 0) continue;
-    const distance = target - odometerMiles;
-    if (distance <= 0) {
-      total += MILEAGE_REC_PENALTY_PER_REC;
-    } else if (distance < MILEAGE_REC_RAMP_WINDOW) {
-      const proximity = 1 - distance / MILEAGE_REC_RAMP_WINDOW;
-      total += MILEAGE_REC_PENALTY_PER_REC * proximity;
-    }
-  }
-  return Math.min(MILEAGE_REC_PENALTY_CAP, total);
-}
-
-/**
- * Compute the overall 0–100 vehicle health score.
+ * Compute the overall 0–100 vehicle health score (v1 — Yassin spec v1.1).
  *
- *   score = maintenance(60%) + mileage(25%) + warningLightReserve(15%) − penalties
+ *   score = maintenance(65%) + usage(20%) + safetyReserve(15%) − openIssuePenalty
+ *
+ * Three changes from v0:
+ *   1. Maintenance term is a CATEGORY-WEIGHTED average (brakes 25, tires 20,
+ *      oil 20, battery 13, inspection 12, other 10) instead of a flat
+ *      mean. Categories with no item present effectively redistribute
+ *      their weight because they drop out of the denominator. Items with
+ *      `status: "unknown"` keep their weight but score with the v0
+ *      mileage-aware inference curve.
+ *   2. Component split shifts 60/25/15 → 65/20/15 to cut the
+ *      mileage-double-count between usage and interval-based items.
+ *   3. Penalties collapse 0–45 (recPenalty + mileageRecPenalty) → 0–15
+ *      (open mechanic recs only). "Upcoming services" no longer drag the
+ *      truth number — that signal moves to the Action Engine's urgency.
  */
 export function computeVehicleHealthScore(input: HealthScoreInput): number {
   const { maintenanceItems, odometerMiles, knownIssues, hpBuffer } = input;
@@ -168,37 +201,50 @@ export function computeVehicleHealthScore(input: HealthScoreInput): number {
   // but the client always computes its own score so the health ring reacts
   // immediately to stepper answers without waiting for the async pipeline.
 
-  // ── Maintenance component (graduated) ─────────────────────────
-  // Unknown items get a mileage-aware inferred score instead of being
-  // dropped. A brand-new car with no service history is healthy — the
-  // absence of records only becomes concerning at higher mileage.
+  // ── Maintenance component (category-weighted) ─────────────────
+  // For each present item, score it and weight it by its category's
+  // share. Unknown items use the mileage-aware inference curve from v0
+  // (so a brand-new car stays healthy, an old car gets appropriate
+  // suspicion). Categories with no item drop out of the denominator —
+  // their weight redistributes naturally across the remaining ones.
   const unknownInferredScore = unknownScoreForMileage(odometerMiles);
 
-  const scoredItems = maintenanceItems.map((item) =>
-    item.status === "unknown" ? unknownInferredScore : STATUS_SCORE[item.status]
-  );
-
-  const maintenanceAvg = scoredItems.length > 0
-    ? scoredItems.reduce((a, b) => a + b, 0) / scoredItems.length
+  let weightedSum = 0;
+  let weightTotal = 0;
+  for (const item of maintenanceItems) {
+    const w = categoryWeightForItem(item);
+    const score = item.status === "unknown"
+      ? unknownInferredScore
+      : STATUS_SCORE[item.status];
+    weightedSum += w * score;
+    weightTotal += w;
+  }
+  const maintenanceAvg = weightTotal > 0
+    ? weightedSum / weightTotal
     : unknownInferredScore;
-
   const maintenancePct = maintenanceAvg * 100;
 
   // ── Usage component ───────────────────────────────────────────
   const usagePct = mileageScore(odometerMiles);
 
-  // ── Warning-light penalty ─────────────────────────────────────
-  const penalty = warningLightPenalty(knownIssues);
+  // ── Warning-light penalty + reserve (15 pts) ──────────────────
+  const lightPenalty = warningLightPenalty(knownIssues);
+  const warningReserve = Math.max(0, 15 - lightPenalty);
 
-  // ── Warning-light reserve (15 pts) ────────────────────────────
-  const warningReserve = Math.max(0, 15 - penalty);
+  // ── Blend (65/20/15) ──────────────────────────────────────────
+  let raw =
+    maintenancePct * COMPONENT_WEIGHTS.maintenance +
+    usagePct * COMPONENT_WEIGHTS.usage +
+    warningReserve;
 
-  // ── Blend ─────────────────────────────────────────────────────
-  let raw = (maintenancePct * 0.60) + (usagePct * 0.25) + warningReserve;
-
-  // Subtract open-recommendation penalty before clamp so 0/100 bounds still hold.
-  raw -= input.recPenalty ?? 0;
-  raw -= mileageRecPenalty(odometerMiles, input.mileageRecs);
+  // ── Open-issue penalty (single, capped at OPEN_ISSUE_PENALTY_MAX) ──
+  // v0 stacked recPenalty (0–25) + mileageRecPenalty (0–20). v1 collapses
+  // to one capped deduction from mechanic-flagged open issues only.
+  const openIssuePenalty = Math.min(
+    OPEN_ISSUE_PENALTY_MAX,
+    Math.max(0, input.recPenalty ?? 0),
+  );
+  raw -= openIssuePenalty;
 
   const rounded = Math.max(0, Math.min(100, Math.round(raw)));
   // HP buffer adds on top of the clamped score (Rewards Framework v3 §11),
@@ -261,10 +307,15 @@ export function computeHealthScoreFactors(input: HealthScoreInput): {
   const positives: HealthFactor[] = [];
   const negatives: HealthFactor[] = [];
 
-  // ── Maintenance (60% weight, split across items) ───────────────
+  // ── Maintenance (65% weight, weighted by category) ─────────────
+  // Each item's share of the 65-pt maintenance budget = its category
+  // weight as a fraction of the *present* category weights. Mirrors the
+  // computeVehicleHealthScore math so the breakdown always reconciles.
   const knownCount = maintenanceItems.filter((i) => i.status !== "unknown").length;
-  const totalForWeighting = Math.max(maintenanceItems.length, 1);
-  const perItemWeight = 60 / totalForWeighting;
+  let weightTotal = 0;
+  for (const item of maintenanceItems) weightTotal += categoryWeightForItem(item);
+  const maintenanceBudget = 100 * COMPONENT_WEIGHTS.maintenance;
+  const perWeightUnit = weightTotal > 0 ? maintenanceBudget / weightTotal : 0;
 
   let unknownCount = 0;
   for (const item of maintenanceItems) {
@@ -272,16 +323,18 @@ export function computeHealthScoreFactors(input: HealthScoreInput): {
       unknownCount += 1;
       continue;
     }
+    const itemWeight = categoryWeightForItem(item);
+    const itemShare = itemWeight * perWeightUnit;
     const score = STATUS_SCORE[item.status];
     if (item.status === "on_time") {
       // Headroom above baseline 0.5 — what the on-time status "earns" you.
-      const pts = Math.round((score - 0.5) * perItemWeight);
+      const pts = Math.round((score - 0.5) * itemShare);
       if (pts > 0) {
         positives.push({ label: `On-time: ${item.serviceName}`, pts });
       }
     } else {
-      // Anything short of on_time loses (1 - score) × per-item weight.
-      const pts = Math.round((1 - score) * perItemWeight);
+      // Anything short of on_time loses (1 - score) × per-item share.
+      const pts = Math.round((1 - score) * itemShare);
       if (pts <= 0) continue;
       const prefix =
         item.status === "overdue" ? "Overdue" :
@@ -297,7 +350,14 @@ export function computeHealthScoreFactors(input: HealthScoreInput): {
 
   if (unknownCount > 0) {
     const inferred = unknownScoreForMileage(odometerMiles);
-    const totalPts = Math.round((1 - inferred) * perItemWeight * unknownCount);
+    // Aggregate the unknowns' weighted share.
+    let unknownShare = 0;
+    for (const item of maintenanceItems) {
+      if (item.status === "unknown") {
+        unknownShare += categoryWeightForItem(item) * perWeightUnit;
+      }
+    }
+    const totalPts = Math.round((1 - inferred) * unknownShare);
     if (totalPts > 0) {
       negatives.push({
         label: unknownCount === 1
@@ -311,16 +371,16 @@ export function computeHealthScoreFactors(input: HealthScoreInput): {
     }
   }
 
-  // ── Usage / mileage (25% weight) ───────────────────────────────
+  // ── Usage / mileage (20% weight per v1) ────────────────────────
   const usagePct = mileageScore(odometerMiles);
-  const usagePts = Math.round(usagePct * 0.25);
+  const usagePts = Math.round(usagePct * COMPONENT_WEIGHTS.usage);
   const usageDetail = `${odometerMiles.toLocaleString()} mi`;
   if (odometerMiles <= 30_000) {
     positives.push({ label: "Low mileage", detail: usageDetail, pts: usagePts });
   } else if (usagePct >= 75) {
     positives.push({ label: "Healthy mileage", detail: usageDetail, pts: usagePts });
   } else {
-    const lost = Math.round((100 - usagePct) * 0.25);
+    const lost = Math.round((100 - usagePct) * COMPONENT_WEIGHTS.usage);
     if (lost > 0) {
       negatives.push({ label: "High mileage", detail: usageDetail, pts: lost });
     }

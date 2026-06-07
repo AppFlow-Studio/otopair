@@ -136,20 +136,22 @@ export const useSearchStore = create<SearchState>()((set, get) => ({
 
     const lowerQuery = query.toLowerCase().trim();
 
-    // Score each service based on match quality
+    // Score each service. v5 taxonomy aliases (denormalized onto
+    // `Service.searchAliases`) win over name/description so shop
+    // slang like "rotors", "smog", "ppi" lands on the right card.
     const scored = availableServices
       .map((service) => {
-        const nameLower = service.name.toLowerCase();
+        const labelLower = (service.displayLabel ?? service.name).toLowerCase();
         const descLower = service.description.toLowerCase();
+        const aliases = service.searchAliases ?? [];
 
         let score = 0;
-        // Exact name match = highest score
-        if (nameLower === lowerQuery) score = 100;
-        // Name starts with query = high score
-        else if (nameLower.startsWith(lowerQuery)) score = 80;
-        // Name contains query = medium score
-        else if (nameLower.includes(lowerQuery)) score = 60;
-        // Description contains query = lower score
+        if (labelLower === lowerQuery) score = 100;
+        else if (aliases.some((a) => a.toLowerCase() === lowerQuery)) score = 95;
+        else if (labelLower.startsWith(lowerQuery)) score = 80;
+        else if (aliases.some((a) => a.toLowerCase().startsWith(lowerQuery))) score = 75;
+        else if (labelLower.includes(lowerQuery)) score = 60;
+        else if (aliases.some((a) => a.toLowerCase().includes(lowerQuery))) score = 55;
         else if (descLower.includes(lowerQuery)) score = 40;
 
         return { service, score };

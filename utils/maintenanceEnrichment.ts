@@ -216,6 +216,7 @@ export function buildMaintenanceItems(
       description: result.description,
       detail: result.detail,
       status: result.status,
+      percentUsed: result.percentUsed,
     });
   }
 

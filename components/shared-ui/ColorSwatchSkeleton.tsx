@@ -30,6 +30,8 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 
+import { CarSilhouette, type CarSilhouetteVariant } from "./CarSilhouette";
+
 const PULSE_COLOR = "#E5E7EB";
 
 /**
@@ -93,37 +95,53 @@ export function ColorSwatchSkeletonList({ rows = 5 }: { rows?: number }) {
 }
 
 /**
- * Pulsing rounded rectangle sized to the car-image preview area — shown
- * while the VDB image URL (or exterior render) is still resolving, so the
- * image section has a loading state that matches the color skeleton.
+ * Loading placeholder for the car-image preview area — shown while the
+ * VDB image URL (or exterior render) is still resolving. A soft
+ * light-blue rounded rectangle pulses gently behind the custom
+ * `CarSilhouette` SVG. Silhouette stays at constant opacity so it
+ * remains legible while the surface breathes.
  */
 export function VehicleImageSkeleton({
   width,
   height,
   style,
+  variant,
 }: {
   width: number;
   height: number;
   style?: object;
+  /** Passed through to `<CarSilhouette />` — sedan default, suv for
+   *  Sport Utility / Crossover / MPV body classes. */
+  variant?: CarSilhouetteVariant;
 }) {
   const pulse = usePulseStyle();
+  // Silhouette aspect ratio is ~1.5:1 (612×408 source). Filled past
+  // 100% of the container's width — silhouette has no background, so
+  // it can overflow the reservation box visually without affecting
+  // surrounding layout.
+  const byWidth = width * 1.1;
+  const byHeight = height * 1.85;
+  const carWidth = Math.round(Math.min(byWidth, byHeight));
   return (
-    <Animated.View
-      style={[
-        styles.imageBlock,
-        { width, height },
-        style,
-        pulse,
-      ]}
-    />
+    <View style={[styles.imageBlock, { width, height }, style]}>
+      {/* No background — just the silhouette pulsing on whatever
+          surface the parent card provides. The wrapper still reserves
+          the layout space so the swap to the real VDB render doesn't
+          jump anything. */}
+      <Animated.View style={pulse}>
+        <CarSilhouette width={carWidth} variant={variant} />
+      </Animated.View>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   // ── Car-image variant ─────────────────────────────────────────────
+  // Layout reservation only — no background. The silhouette is the
+  // only visible element; it pulses on the surrounding card surface.
   imageBlock: {
-    borderRadius: 16,
-    backgroundColor: PULSE_COLOR,
+    alignItems: "center",
+    justifyContent: "center",
   },
 
   // ── Horizontal row variant ────────────────────────────────────────

@@ -645,7 +645,7 @@ export function BookingCard({
             ]}
           >
             <Text weight="semiBold" size="sm" color="#FFFFFF">
-              View Details
+              View Receipt
             </Text>
           </Pressable>
         </View>

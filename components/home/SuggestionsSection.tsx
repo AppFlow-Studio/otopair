@@ -30,8 +30,6 @@ import {
 } from 'react-native';
 
 // 2. Expo & Third-party
-import { BlurView } from 'expo-blur';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { BriefcaseBusiness, Car, Sparkles, Truck, Wrench } from 'lucide-react-native';
 
@@ -180,25 +178,6 @@ export function SuggestionsSection({ onCardPress }: SuggestionsSectionProps) {
             ]}
           >
             <View style={styles.cardWrapper}>
-              {/* Glassy/Glossy Effect Layers */}
-              <BlurView intensity={100} tint="light" style={StyleSheet.absoluteFill} />
-              <LinearGradient
-                colors={['rgba(255, 255, 255, 0.6)', 'rgba(255, 255, 255, 0.55)']}
-                style={StyleSheet.absoluteFill}
-              />
-              {/* Glossy top highlight - stronger */}
-              <LinearGradient
-                colors={['rgba(255, 255, 255, 0.7)', 'rgba(255, 255, 255, 0.3)', 'rgba(255, 255, 255, 0)']}
-                locations={[0, 0.2, 0.5]}
-                style={styles.glossyHighlight}
-              />
-              {/* Additional shine layer */}
-              <LinearGradient
-                colors={['rgba(255, 255, 255, 0.5)', 'rgba(255, 255, 255, 0)', 'rgba(255, 255, 255, 0)']}
-                locations={[0, 0.15, 0.4]}
-                style={styles.glossyShine}
-              />
-              
               {/* Card Content */}
               <View style={styles.cardContent} pointerEvents="box-none">
                 {/* Icon Container */}
@@ -263,7 +242,7 @@ const styles = StyleSheet.create({
     height: 70,
     borderRadius: 13,
     overflow: 'hidden',
-    backgroundColor: 'transparent',
+    backgroundColor: '#FFFFFF',
     position: 'relative',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
@@ -278,24 +257,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     position: 'relative',
     zIndex: 1,
-  },
-  glossyHighlight: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: '50%',
-    borderTopLeftRadius: 13,
-    borderTopRightRadius: 13,
-  },
-  glossyShine: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: '35%',
-    borderTopLeftRadius: 13,
-    borderTopRightRadius: 13,
   },
   iconContainer: {
     width: '100%',
