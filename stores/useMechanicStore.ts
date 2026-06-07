@@ -14,7 +14,6 @@
  */
 
 import { create } from "zustand";
-import { MOCK_MECHANICS } from "./data/mockMechanics";
 import type { Mechanic, MechanicFilters } from "./types/store.types";
 
 // ─────────────────────────────────────────────────────────────
@@ -106,7 +105,16 @@ export const useMechanicStore = create<MechanicState>()((set, get) => {
 
     getMechanicsByShopId: (shopId) => {
       const { mechanics, mechanicIds } = get();
-      return mechanicIds.map((id) => mechanics[id]).filter((m) => m && String(m.shopId) === shopId);
+      const seen = new Set<string>();
+      return mechanicIds.flatMap((id) => {
+        const mechanic = mechanics[id];
+        if (!mechanic) return [];
+        if (String(mechanic.shopId) !== String(shopId)) return [];
+        if (!mechanic.isAvailable) return [];
+        if (seen.has(mechanic.id)) return [];
+        seen.add(mechanic.id);
+        return [mechanic];
+      });
     },
 
     getFilteredMechanics: () => {
@@ -151,7 +159,9 @@ export const useMechanicStore = create<MechanicState>()((set, get) => {
         const mechanicsRecord: Record<string, Mechanic> = {};
         const mechanicIds: string[] = [];
         mechanics.forEach((mechanic) => {
+          if (!mechanic.isAvailable) return;
           const id = typeof mechanic.id === "string" ? mechanic.id : String(mechanic.id);
+          if (mechanicsRecord[id]) return;
           const shopId = typeof mechanic.shopId === "string" ? mechanic.shopId : String(mechanic.shopId);
           mechanicsRecord[id] = { ...mechanic, id, shopId };
           mechanicIds.push(id);

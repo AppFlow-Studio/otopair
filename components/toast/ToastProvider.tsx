@@ -8,7 +8,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { AppState, Modal, StyleSheet, View } from "react-native";
+import { AppState, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { haptics } from "@/lib/haptics";
@@ -134,31 +134,24 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <ToastContext.Provider value={ctx}>
       {children}
-      <Modal
-        transparent
-        visible={current !== null}
-        statusBarTranslucent
-        hardwareAccelerated
-        animationType="none"
-        onRequestClose={dismissAll}
-      >
-        <View style={styles.host} pointerEvents="box-none">
-          {current ? (
-            <Toast
-              item={current}
-              topOffset={insets.top + 8}
-              onRequestDismiss={handleDismissed}
-            />
-          ) : null}
-        </View>
-      </Modal>
+      <View style={styles.host} pointerEvents="box-none">
+        {current ? (
+          <Toast
+            item={current}
+            topOffset={insets.top + 8}
+            onRequestDismiss={handleDismissed}
+          />
+        ) : null}
+      </View>
     </ToastContext.Provider>
   );
 }
 
 const styles = StyleSheet.create({
   host: {
-    flex: 1,
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 9999,
+    elevation: 9999,
   },
 });
 

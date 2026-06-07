@@ -43,6 +43,8 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { BorderRadius, Shadows } from "@/constants/theme";
 import { useBookingStatusToasts } from "@/hooks/useBookingStatusToasts";
 import { useToast } from "@/hooks/useToast";
+import { buildBookingCalendarEvent, formatBookingReference } from "@/lib/booking-calendar";
+import { getBookingCompletionCopy, isBookingRescheduleMode } from "@/lib/reschedule-flow";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
 import { useShopStore } from "@/stores/useShopStore";
@@ -212,7 +214,12 @@ export default function ConfirmationScreen() {
   const insets = useSafeAreaInsets();
   const toast = useToast();
   const { height: windowHeight } = useWindowDimensions();
-  const { id: bookingId, bookingDbId } = useLocalSearchParams<{ id: string; bookingDbId?: string }>();
+  const { id: bookingId, bookingDbId, mode } = useLocalSearchParams<{
+    id: string;
+    bookingDbId?: string;
+    mode?: string;
+  }>();
+  const isReschedule = isBookingRescheduleMode(mode);
   const isCompactLayout = windowHeight < 860;
   const isVeryCompactLayout = windowHeight < 760;
 
@@ -230,6 +237,7 @@ export default function ConfirmationScreen() {
   // ═══════════════ STORES ═══════════════
   const selectedMechanicId = useBookingStore((state) => state.selectedMechanicId);
   const selectedMechanicSlot = useBookingStore((state) => state.selectedMechanicSlot);
+  const selectedServiceIds = useBookingStore((state) => state.selectedServiceIds);
   const scheduledAppointment = useBookingStore((state) => state.scheduledAppointment);
   const resetBookingFlow = useBookingStore((state) => state.resetBookingFlow);
   const getBookingById = useBookingStore((state) => state.getBookingById);
@@ -249,9 +257,7 @@ export default function ConfirmationScreen() {
   // Prefer the real Convex booking ID handed off by /confirming;
   // fall back to the local-store id when viewing a past booking.
   const bookingIdDisplay = useMemo(() => {
-    const src = bookingDbId ?? localBooking?.id;
-    if (!src) return null;
-    return src.slice(-6).toUpperCase();
+    return formatBookingReference(bookingDbId ?? localBooking?.id);
   }, [bookingDbId, localBooking?.id]);
 
   // ═══════════════ COMPUTED ═══════════════
@@ -353,11 +359,31 @@ export default function ConfirmationScreen() {
 
   const shopLocation = fullAddress || shop?.name || localShop?.name || mechanic?.shopName || "Shop Location";
   const shopDisplayName = shop?.name ?? localShop?.name ?? confirmedBooking?.shopName ?? mechanic?.shopName ?? "your shop";
+  const calendarServiceNames = useMemo(() => {
+    if (confirmedBooking?.serviceNames?.length) return confirmedBooking.serviceNames;
+    if (localBooking?.serviceIds?.length) {
+      return localBooking.serviceIds
+        .map((serviceId) => availableServices.find((service) => service.id === serviceId)?.name ?? serviceId)
+        .filter((name) => name.trim().length > 0);
+    }
+    return selectedServiceIds
+      .map((serviceId) => availableServices.find((service) => service.id === serviceId)?.name ?? serviceId)
+      .filter((name) => name.trim().length > 0);
+  }, [
+    availableServices,
+    confirmedBooking?.serviceNames,
+    localBooking?.serviceIds,
+    selectedServiceIds,
+  ]);
   const mechanicFirstName = mechanic?.name?.trim().split(/\s+/)[0] ?? "your mechanic";
   const appointmentWithLabel =
     mechanicFirstName === "your mechanic"
       ? shopDisplayName
       : `${mechanicFirstName} at ${shopDisplayName}`;
+  const completionCopy = useMemo(
+    () => getBookingCompletionCopy(isReschedule, appointmentWithLabel),
+    [appointmentWithLabel, isReschedule],
+  );
 
   // ═══════════════ HANDLERS ═══════════════
   // If we're viewing a past booking (local booking exists, flow already reset), just go back
@@ -374,13 +400,12 @@ export default function ConfirmationScreen() {
     // dismissAll() + replace("/home") back-to-back, which produced a
     // visible double home-screen animation.
     router.dismissTo("/(main-tabs)/home");
-    // Fire the booking-submitted toast here so it drops down on the home
-    // screen after navigation, instead of expiring on /confirming.
-    toast.info(
-      "Booking submitted.",
-      "We'll let you know as soon as your shop confirms.",
-    );
-  }, [isViewingPastBooking, resetBookingFlow, router, toast]);
+    // Fire after the modal dismissal animation so Android does not drop the
+    // toast during the route transition.
+    setTimeout(() => {
+      toast.info(completionCopy.toastTitle, completionCopy.toastBody);
+    }, 350);
+  }, [completionCopy.toastBody, completionCopy.toastTitle, isViewingPastBooking, resetBookingFlow, router, toast]);
 
   const handleDirections = useCallback(() => {
     if (fullAddress) openMapsForAddress(fullAddress);
@@ -399,50 +424,26 @@ export default function ConfirmationScreen() {
       return;
     }
     try {
-      const [year, month, day] = dateStr.split("-").map(Number);
-      const timeMatch = timeStr.match(/(\d{1,2}):(\d{2})\s*(AM|PM)?/i);
-      let hour = 14;
-      let minute = 0;
-      if (timeMatch) {
-        hour = parseInt(timeMatch[1], 10);
-        minute = parseInt(timeMatch[2], 10);
-        if ((timeMatch[3] ?? "").toUpperCase() === "PM" && hour < 12) hour += 12;
-        if ((timeMatch[3] ?? "").toUpperCase() === "AM" && hour === 12) hour = 0;
-      }
-      const startDate = new Date(year, month - 1, day, hour, minute, 0, 0);
-      const endDate = new Date(startDate.getTime() + 60 * 60 * 1000);
-      const eventDetails = {
-        title: `Service at ${shopName}`,
-        startDate,
-        endDate,
+      const eventDetails = buildBookingCalendarEvent({
+        shopName,
+        serviceNames: calendarServiceNames,
+        date: dateStr,
+        time: timeStr,
         location: fullAddress || undefined,
-        notes: mechanic?.name ? `Appointment with ${mechanic.name}` : undefined,
-      };
-
-      if (Platform.OS === "android") {
-        await Calendar.createEventInCalendarAsync(eventDetails, {
-          startNewActivityTask: false,
-        });
+        mechanicName: mechanic?.name,
+        bookingReference: bookingIdDisplay,
+        vehicleDisplay,
+        durationMinutes: localBooking?.estimatedDuration,
+      });
+      if (!eventDetails) {
+        toast.warning("Couldn't read the appointment time.");
         return;
       }
 
-      const { status } = await Calendar.requestCalendarPermissionsAsync();
-      if (status !== "granted") {
-        toast.error(
-          "Couldn't add to your calendar.",
-          "Open Settings to grant access.",
-        );
-        return;
-      }
-      const calendars = await Calendar.getCalendarsAsync(Calendar.EntityTypes.EVENT);
-      const writable = calendars.filter((c) => c.allowsModifications !== false);
-      const calendarId = writable[0]?.id ?? calendars[0]?.id;
-      if (!calendarId) {
-        toast.error("Couldn't add to your calendar.");
-        return;
-      }
-      await Calendar.createEventAsync(calendarId, eventDetails);
-      toast.success("Added to your calendar.");
+      await Calendar.createEventInCalendarAsync(
+        eventDetails,
+        Platform.OS === "android" ? { startNewActivityTask: false } : undefined,
+      );
     } catch (e) {
       // PLAN §B.7: never interpolate raw OS error strings into user-facing toasts.
       console.error("[confirmation] add-to-calendar failed", e);
@@ -459,6 +460,9 @@ export default function ConfirmationScreen() {
     confirmedBooking?.scheduledTime,
     localBooking,
     fullAddress,
+    calendarServiceNames,
+    bookingIdDisplay,
+    vehicleDisplay,
     toast,
   ]);
 
@@ -518,7 +522,7 @@ export default function ConfirmationScreen() {
             center
             style={[styles.subtitle, isCompactLayout && styles.subtitleCompact, isVeryCompactLayout && styles.subtitleVeryCompact]}
           >
-            Your appointment with {appointmentWithLabel} is confirmed.
+            {completionCopy.subtitle}
           </Text>
 
           {/* Mechanic Card - Matching Payment Screen Style */}
@@ -654,6 +658,7 @@ export default function ConfirmationScreen() {
           )}
 
           {/* Ownership Credit Section */}
+          {!isReschedule ? (
           <View style={[styles.ownershipCreditCard, isCompactLayout && styles.ownershipCreditCardCompact]}>
             <View style={[styles.ownershipLeft, isCompactLayout && styles.ownershipLeftCompact]}>
               <View style={[styles.giftIconContainer, isCompactLayout && styles.giftIconContainerCompact]}>
@@ -677,6 +682,7 @@ export default function ConfirmationScreen() {
               </Text>
             </View>
           </View>
+          ) : null}
 
           {/* Add to Calendar Button */}
           <TouchableOpacity

@@ -905,19 +905,3 @@ export async function sendWaitlistNotificationEmail(data: WaitlistSignupData) {
     }
 }
 
-// ============================================================================
-// TODO: stub — implementation pending website→app convex sync
-// ============================================================================
-// `convex/invoices_node.ts` imports `sendInvoiceEmail` from this module, but
-// the function lives in otopair-web and wasn't carried over in commit 3f7b2a5
-// ("Merged (with errors)"). Without this stub, `npx convex codegen` and
-// `npx convex dev` fail to bundle.
-//
-// Runtime impact: this function is only called from the post-payment receipt
-// flow (`invoices_node.generateAndEmail`, scheduled from `invoices.ts:562`).
-// While stubbed, paid bookings won't email a receipt — they'll log a graceful
-// failure instead of crashing the action. Replace with the real implementation
-// when the website sync completes.
-//
-
-

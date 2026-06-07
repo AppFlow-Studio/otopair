@@ -267,6 +267,9 @@ export function ShopBookingModal({ visible, shopId, mechanicId, onClose, onConti
     const daysInMonth = new Date(year, month + 1, 0).getDate();
     const daysInPrevMonth = new Date(year, month, 0).getDate();
 
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
     const days: CalendarDay[] = [];
 
     // Previous month days
@@ -282,15 +285,18 @@ export function ShopBookingModal({ visible, shopId, mechanicId, onClose, onConti
     for (let i = 1; i <= daysInMonth; i++) {
       let status: DayStatus = "normal";
 
-      if (i === selectedDayNumber) {
+      const dayDate = new Date(year, month, i);
+      if (dayDate < today) {
+        status = "disabled";
+      } else if (i === selectedDayNumber && (!useConvexCalendar || availableDays.includes(i))) {
         status = "selected";
       } else if (availableDays.includes(i)) {
         status = "available";
       } else if (bookedDays.includes(i)) {
-        status = "booked";
+        status = "disabled";
       } else if (!useConvexCalendar) {
         const dayOfWeek = new Date(year, month, i).getDay();
-        if (dayOfWeek === 0) status = "booked";
+        if (dayOfWeek === 0) status = "disabled";
       }
 
       days.push({

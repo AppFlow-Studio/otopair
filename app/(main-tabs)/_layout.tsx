@@ -1,5 +1,5 @@
 import { Badge, Icon, Label, NativeTabs } from "expo-router/unstable-native-tabs";
-import { router, Tabs } from "expo-router";
+import { router, Tabs, useRootNavigationState } from "expo-router";
 import React, { useEffect } from "react";
 import { Platform } from "react-native";
 import { useAuth } from "@clerk/clerk-expo";
@@ -47,15 +47,17 @@ export default function TabLayout() {
 
 function SignedOutMainTabsGuard({ children }: { children: React.ReactNode }) {
   const { isLoaded, isSignedIn } = useAuth();
+  const rootNavigationState = useRootNavigationState();
   const shouldRedirect = shouldRedirectSignedOutFromMainTabs(isLoaded, isSignedIn);
+  const rootNavigationReady = Boolean(rootNavigationState?.key);
 
   useEffect(() => {
-    if (!shouldRedirect) return;
+    if (!shouldRedirect || !rootNavigationReady) return;
     router.replace({
       pathname: "/(onboarding)",
       params: { initialStep: "signup" },
     });
-  }, [shouldRedirect]);
+  }, [rootNavigationReady, shouldRedirect]);
 
   if (!isLoaded || shouldRedirect) {
     return null;

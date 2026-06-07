@@ -16,7 +16,7 @@
  */
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { BackHandler, Platform, StyleSheet, View, useWindowDimensions } from "react-native";
+import { BackHandler, Platform, StyleSheet, View, useWindowDimensions, type DimensionValue } from "react-native";
 
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import LottieView from "lottie-react-native";
@@ -28,7 +28,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { useAction } from "convex/react";
+import { useAction, useMutation } from "convex/react";
 import { useStripe } from "@stripe/stripe-react-native";
 
 import { Text } from "@/components/shared-ui";
@@ -36,8 +36,10 @@ import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/Flo
 import { BookingConfirmStatus } from "@/components/booking/BookingConfirmStatus";
 import { useCreateBookingConvex } from "@/hooks/useCreateBookingConvex";
 import { calculateBookingConfirmLayout } from "@/lib/bookingConfirmSheet";
+import { getBookingConfirmingCopy, isBookingRescheduleMode } from "@/lib/reschedule-flow";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { usePaymentStore } from "@/stores/usePaymentStore";
+import { displayTimeToHHMM } from "@/utils/timeSlotUtils";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 
@@ -62,16 +64,22 @@ function extractErrorMessage(err: unknown): string {
 
 export default function BookingConfirmingScreen() {
   const router = useRouter();
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, mode, bookingDbId } = useLocalSearchParams<{
+    id: string;
+    mode?: string;
+    bookingDbId?: string;
+  }>();
   const sheetRef = useRef<FloatingSheetRef>(null);
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const { createBookingConvex } = useCreateBookingConvex();
   const selectedMechanicId = useBookingStore((s) => s.selectedMechanicId);
   const selectedMechanicSlot = useBookingStore((s) => s.selectedMechanicSlot);
+  const scheduledAppointment = useBookingStore((s) => s.scheduledAppointment);
   const bookingType = useBookingStore((s) => s.bookingType);
   const selectedPaymentMethodId = usePaymentStore((s) => s.selectedPaymentMethodId);
   const createPaymentIntent = useAction(api.payments_stripe.createPaymentIntentForBooking);
+  const customerRequestReschedule = useMutation(api.bookings.customerRequestReschedule);
   // The PaymentIntent is created + confirmed server-side. If 3DS is needed,
   // Stripe returns requires_action and the client *finishes* the challenge
   // via `handleNextAction(clientSecret)` — NOT `confirmPayment`, which
@@ -81,6 +89,8 @@ export default function BookingConfirmingScreen() {
   const [submitting, setSubmitting] = useState(false);
   const isCompactLayout = windowHeight < 860;
   const isVeryCompactLayout = windowHeight < 760;
+  const isReschedule = isBookingRescheduleMode(mode);
+  const confirmingCopy = getBookingConfirmingCopy(isReschedule);
   const confirmLayout = calculateBookingConfirmLayout({
     width: windowWidth,
     height: windowHeight,
@@ -133,6 +143,50 @@ export default function BookingConfirmingScreen() {
 
   const handleConfirm = useCallback(async () => {
     if (submitting || navigatedRef.current) return;
+    if (isReschedule) {
+      if (!bookingDbId) {
+        navigatedRef.current = true;
+        router.replace("/(main-tabs)/bookings");
+        return;
+      }
+      if (!scheduledAppointment || !selectedMechanicSlot?.shopId) {
+        navigatedRef.current = true;
+        router.replace("/(main-tabs)/bookings");
+        return;
+      }
+      setSubmitting(true);
+      try {
+        const scheduledTime =
+          selectedMechanicSlot.scheduledTime ??
+          displayTimeToHHMM(scheduledAppointment.time);
+        await customerRequestReschedule({
+          bookingId: bookingDbId as Id<"bookings">,
+          newScheduledDate: scheduledAppointment.date,
+          newScheduledTime: scheduledTime,
+          ...(selectedMechanicSlot.mechanicId
+            ? { newMechanicId: selectedMechanicSlot.mechanicId as Id<"mechanics"> }
+            : {}),
+        });
+        if (navigatedRef.current) return;
+        navigatedRef.current = true;
+        router.replace({
+          pathname: "/booking/mechanic/[id]/confirmation",
+          params: {
+            id,
+            bookingDbId,
+            mode: "reschedule",
+          },
+        });
+      } catch (err) {
+        if (navigatedRef.current) return;
+        navigatedRef.current = true;
+        router.replace({
+          pathname: "/(main-tabs)/bookings",
+          params: { rescheduleError: extractErrorMessage(err) },
+        });
+      }
+      return;
+    }
     if (!selectedMechanicId && !selectedMechanicSlot?.shopId) {
       navigatedRef.current = true;
       router.replace({
@@ -196,11 +250,15 @@ export default function BookingConfirmingScreen() {
   }, [
     submitting,
     selectedMechanicId,
-    selectedMechanicSlot?.shopId,
+    selectedMechanicSlot,
     selectedPaymentMethodId,
+    scheduledAppointment,
+    isReschedule,
+    bookingDbId,
     bookingType,
     createBookingConvex,
     createPaymentIntent,
+    customerRequestReschedule,
     handleNextAction,
     router,
     id,
@@ -227,13 +285,13 @@ export default function BookingConfirmingScreen() {
         style={[
           styles.copyOverlay,
           isCompactLayout && styles.copyOverlayCompact,
-          { top: confirmLayout.copyTopPercent },
+          { top: confirmLayout.copyTopPercent as DimensionValue },
           copyAnimStyle,
         ]}
         pointerEvents="none"
       >
         <Text size={isVeryCompactLayout ? "sm" : "md"} weight="bold" color="#000000" center>
-          Confirming your appointment
+          {confirmingCopy.title}
         </Text>
         <Text
           size="xs"
@@ -242,7 +300,7 @@ export default function BookingConfirmingScreen() {
           center
           style={[styles.copySub, isCompactLayout && styles.copySubCompact]}
         >
-          Locking in your time slot with the shop
+          {confirmingCopy.subtitle}
         </Text>
       </Animated.View>
 
@@ -256,6 +314,9 @@ export default function BookingConfirmingScreen() {
           onConfirm={handleConfirm}
           onGoBack={handleGoBack}
           mechanicId={id}
+          title={confirmingCopy.sheetTitle}
+          primaryCta={confirmingCopy.primaryCta}
+          showPaymentSummary={confirmingCopy.showPaymentSummary}
         />
       </FloatingSheet>
     </View>
