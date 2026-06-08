@@ -18,6 +18,17 @@ import type { PaymentMethod, Transaction } from "./types/store.types";
 // STORE STATE INTERFACE
 // ─────────────────────────────────────────────────────────────
 
+/** Transient handle to a one-time wallet PM (Apple Pay / Google Pay) that
+ *  the user just authorized for the current booking. Lives only between
+ *  the wallet sheet acknowledgment on `/payment` and the
+ *  `createPaymentIntentForBooking` call on `/confirming`; cleared after
+ *  consumption so the next booking starts clean. NOT persisted, NOT part
+ *  of the saved-cards list. */
+export type SelectedWalletPm = {
+  id: string;
+  type: "apple_pay" | "google_pay";
+};
+
 interface PaymentState {
   // ═══════════════ STATE ═══════════════
   /** All saved payment methods */
@@ -26,6 +37,9 @@ interface PaymentState {
   transactions: Transaction[];
   /** Currently selected payment method ID for checkout */
   selectedPaymentMethodId: string | null;
+  /** Wallet PM minted by Apple Pay / Google Pay for the in-flight booking.
+   *  See SelectedWalletPm — single-use, cleared by `/confirming`. */
+  selectedWalletPm: SelectedWalletPm | null;
   /** Loading state for payment operations */
   isLoading: boolean;
   /** Error message if any */
@@ -42,6 +56,10 @@ interface PaymentState {
   setDefaultPaymentMethod: (paymentMethodId: string) => void;
   /** Select a payment method for current checkout */
   selectPaymentMethod: (paymentMethodId: string | null) => void;
+  /** Stash a freshly-minted wallet PM (Apple Pay / Google Pay) for the
+   *  active booking. Pass `null` to clear after `/confirming` consumes it
+   *  or when the user cancels the wallet sheet. */
+  setSelectedWalletPm: (wallet: SelectedWalletPm | null) => void;
   /** Replace the saved-methods list with the canonical Stripe list */
   hydratePaymentMethods: (paymentMethods: PaymentMethod[]) => void;
   /** Bumps a counter that `StripePaymentMethodsSync` watches; use after
@@ -75,6 +93,7 @@ export const usePaymentStore = create<PaymentState>()((set, get) => ({
   paymentMethods: [],
   transactions: [],
   selectedPaymentMethodId: null,
+  selectedWalletPm: null,
   paymentMethodsRefreshKey: 0,
   isLoading: false,
   error: null,
@@ -141,6 +160,11 @@ export const usePaymentStore = create<PaymentState>()((set, get) => ({
       selectedPaymentMethodId: paymentMethodId,
     }),
 
+  setSelectedWalletPm: (wallet) =>
+    set({
+      selectedWalletPm: wallet,
+    }),
+
   bumpPaymentMethodsRefresh: () =>
     set((state) => ({ paymentMethodsRefreshKey: state.paymentMethodsRefreshKey + 1 })),
 
@@ -173,6 +197,7 @@ export const usePaymentStore = create<PaymentState>()((set, get) => ({
     set({
       paymentMethods: [],
       selectedPaymentMethodId: null,
+      selectedWalletPm: null,
       error: null,
     }),
 

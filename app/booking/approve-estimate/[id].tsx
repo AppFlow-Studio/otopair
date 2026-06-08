@@ -26,7 +26,12 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ChevronLeft, AlertCircle, AlertTriangle } from "lucide-react-native";
-import { useStripe } from "@stripe/stripe-react-native";
+import {
+  PlatformPay,
+  PlatformPayError,
+  useStripe,
+  usePlatformPay,
+} from "@stripe/stripe-react-native";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { Text } from "@/components/shared-ui";
@@ -367,6 +372,7 @@ function ReauthView({
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { handleNextAction } = useStripe();
+  const { createPlatformPayPaymentMethod } = usePlatformPay();
   // Reauth uses a dedicated action (NOT createPaymentIntentForBooking):
   // the public booking action short-circuits when a PI already exists for
   // the booking and just returns it — useless here because the existing
@@ -378,6 +384,15 @@ function ReauthView({
     (s) => s.selectedPaymentMethodId,
   );
   const paymentMethods = usePaymentStore((s) => s.paymentMethods);
+  // Originating payment method (card vs. wallet) for this booking. Wallets
+  // can't silently reauth — we must re-prompt the customer for a fresh
+  // PlatformPay token because the original one-time PM is no longer valid.
+  const paymentOrigin = useQuery(
+    api.payments_stripe.getPaymentOriginForBooking,
+    { bookingId },
+  );
+  const isWalletOrigin =
+    paymentOrigin === "apple_pay" || paymentOrigin === "google_pay";
   const [submitting, setSubmitting] = useState(false);
 
   const isBookingLoading = booking === undefined;
@@ -402,18 +417,86 @@ function ReauthView({
 
   const handleConfirmHold = useCallback(async () => {
     if (submitting) return;
-    if (!pmId) {
-      Alert.alert(
-        "Add a card first",
-        "You don't have a saved card. Tap 'Use a different card' to add one.",
-      );
-      return;
+    let pmIdToCharge: string | null = null;
+    let originForRow: "card" | "apple_pay" | "google_pay" | undefined;
+
+    if (isWalletOrigin) {
+      // Wallet origin → re-present the same wallet sheet to mint a fresh
+      // one-time PM. The original wallet token is invalid for re-use; only
+      // the user's biometric / device auth on a new sheet can produce a
+      // valid PM. iOS shows Apple Pay; Android shows Google Pay.
+      setSubmitting(true);
+      try {
+        const { paymentMethod, error } =
+          paymentOrigin === "apple_pay"
+            ? await createPlatformPayPaymentMethod({
+                applePay: {
+                  cartItems: [
+                    {
+                      paymentType: PlatformPay.PaymentType.Immediate,
+                      label: "OtoPair booking",
+                      amount: ((newHoldCents ?? 0) / 100).toFixed(2),
+                    },
+                  ],
+                  merchantCountryCode: "US",
+                  currencyCode: "USD",
+                },
+              })
+            : await createPlatformPayPaymentMethod({
+                googlePay: {
+                  testEnv: __DEV__,
+                  merchantCountryCode: "US",
+                  currencyCode: "USD",
+                  merchantName: "OtoPair",
+                },
+              });
+        if (error) {
+          if (error.code !== PlatformPayError.Canceled) {
+            Alert.alert(
+              "Couldn't confirm hold",
+              error.message ?? "Wallet authorization failed.",
+            );
+          }
+          setSubmitting(false);
+          return;
+        }
+        if (!paymentMethod) {
+          Alert.alert(
+            "Couldn't confirm hold",
+            "Wallet didn't return a payment method.",
+          );
+          setSubmitting(false);
+          return;
+        }
+        pmIdToCharge = paymentMethod.id;
+        originForRow = paymentOrigin;
+      } catch (err: any) {
+        Alert.alert(
+          "Couldn't confirm hold",
+          err?.message ?? "Wallet authorization failed.",
+        );
+        setSubmitting(false);
+        return;
+      }
+    } else {
+      // Card origin (or origin not yet recorded — legacy bookings).
+      if (!pmId) {
+        Alert.alert(
+          "Add a card first",
+          "You don't have a saved card. Tap 'Use a different card' to add one.",
+        );
+        return;
+      }
+      pmIdToCharge = pmId;
+      originForRow = "card";
+      setSubmitting(true);
     }
-    setSubmitting(true);
+
     try {
       const pi = await resumeReauth({
         bookingId,
-        paymentMethodId: pmId,
+        paymentMethodId: pmIdToCharge!,
+        ...(originForRow ? { paymentOrigin: originForRow } : {}),
       });
       if (pi.requiresAction) {
         const { error } = await handleNextAction(pi.clientSecret);
@@ -442,7 +525,18 @@ function ReauthView({
     } finally {
       setSubmitting(false);
     }
-  }, [submitting, pmId, resumeReauth, bookingId, handleNextAction, router]);
+  }, [
+    submitting,
+    pmId,
+    isWalletOrigin,
+    paymentOrigin,
+    newHoldCents,
+    createPlatformPayPaymentMethod,
+    resumeReauth,
+    bookingId,
+    handleNextAction,
+    router,
+  ]);
 
   const handleUseDifferentCard = useCallback(() => {
     if (submitting) return;
@@ -533,18 +627,19 @@ function ReauthView({
         <View style={styles.reauthBanner}>
           <AlertTriangle size={18} color="#b91c1c" />
           <Text style={styles.reauthBannerText}>
-            Your card couldn&apos;t confirm the higher hold automatically.
-            This is usually because your bank needs to verify the charge
-            with you. Confirm below — you may be prompted to authenticate
-            with your bank — or use a different card.
+            {isWalletOrigin
+              ? paymentOrigin === "apple_pay"
+                ? "We couldn't extend the hold on your Apple Pay automatically. Confirm below to re-authorize with Apple Pay."
+                : "We couldn't extend the hold on your Google Pay automatically. Confirm below to re-authorize with Google Pay."
+              : "Your card couldn't confirm the higher hold automatically. This is usually because your bank needs to verify the charge with you. Confirm below — you may be prompted to authenticate with your bank — or use a different card."}
           </Text>
         </View>
 
         <View style={{ marginTop: Spacing.xl }}>
           <Text style={styles.muted}>What happens next</Text>
           <Text style={styles.bodyText}>
-            We&apos;ll re-authorize {formatUsd(newHoldCents)} on your card
-            as a hold. You&apos;re only charged when work is complete.
+            We&apos;ll re-authorize {formatUsd(newHoldCents)} as a hold.
+            You&apos;re only charged when work is complete.
           </Text>
         </View>
       </ScrollView>
@@ -558,17 +653,26 @@ function ReauthView({
       >
         <Pressable
           onPress={handleConfirmHold}
-          disabled={submitting}
+          // paymentOrigin === undefined means the query is in flight —
+          // disable so the user doesn't tap and fall through to the card
+          // branch before the origin lands.
+          disabled={submitting || paymentOrigin === undefined}
           style={[
             styles.btn,
             styles.btnApprove,
             styles.btnFull,
-            submitting && { opacity: 0.7 },
+            (submitting || paymentOrigin === undefined) && { opacity: 0.7 },
           ]}
         >
           <View style={styles.btnApproveStack}>
             <Text weight="semiBold" style={styles.btnApproveLabel}>
-              {submitting ? "Confirming…" : "Confirm hold of"}
+              {submitting
+                ? "Confirming…"
+                : isWalletOrigin
+                  ? paymentOrigin === "apple_pay"
+                    ? "Confirm with Apple Pay"
+                    : "Confirm with Google Pay"
+                  : "Confirm hold of"}
             </Text>
             {!submitting && (
               <Text

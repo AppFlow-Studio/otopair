@@ -115,6 +115,10 @@ export default defineSchema({
     oil_capacity_qts: v.optional(v.number()),
     coolant_type: v.optional(v.string()),
     coolant_capacity_qts: v.optional(v.number()),
+    // Pricing v2 per_unit_spec fluid capacities — feed serviceUnits.resolveServiceUnitCount
+    // for transmission_service / differential_service quantity scaling.
+    transmission_fluid_capacity_qts: v.optional(v.number()),
+    differential_fluid_capacity_qts: v.optional(v.number()),
     spark_plug_quantity: v.optional(v.number()),
     spark_plug_gap_mm: v.optional(v.number()),
     timing_idler_count: v.optional(v.number()),
@@ -785,6 +789,31 @@ export default defineSchema({
     requires_emissions_test: v.optional(v.boolean()),
     min_model_year: v.optional(v.number()),
     created_at: v.optional(v.number()),
+
+    // Pricing v2 — parts-quantity scaling kind. Tells the engine + mobile UI
+    // how the Camry-anchored band scales to other vehicles:
+    //   - 'labor_only'     : no parts; band is N/A
+    //   - 'per_axle'       : brake_pads, rotor — booking position drives count
+    //   - 'per_cylinder'   : spark_plugs — engines.spark_plug_quantity / cylinders
+    //   - 'per_unit_spec'  : oil/coolant/trans — engine capacity field
+    //   - 'per_wheel'      : tire_balance, tire_replacement — fixed 4
+    //   - 'fixed_kit'      : filter/battery/timing_belt/fuel_system — 1 service = 1 kit
+    parts_kind: v.optional(
+      v.union(
+        v.literal("labor_only"),
+        v.literal("per_axle"),
+        v.literal("per_cylinder"),
+        v.literal("per_unit_spec"),
+        v.literal("per_wheel"),
+        v.literal("fixed_kit"),
+      ),
+    ),
+    // Display label for the per-unit band: "axle" | "cyl" | "qt" | "wheel" | "kit"
+    parts_unit_label: v.optional(v.string()),
+    // For parts_kind='per_unit_spec', the engines table field to read for the
+    // per-vehicle quantity: "oil_capacity_qts" | "coolant_capacity_qts" |
+    // "transmission_fluid_capacity_qts" | "differential_fluid_capacity_qts".
+    parts_unit_spec_source: v.optional(v.string()),
   })
     .index("by_slug", ["slug"])
     .index("by_category", ["service_category_id"])
@@ -834,6 +863,11 @@ export default defineSchema({
     // parts_cost_low/high (above) hold the dealer parts-counter ±6% band.
     oem_part_number: v.optional(v.string()),
     parts_cost_basis: v.optional(v.string()),
+    // Pricing v2 parts-quantity scaling: how many units the Camry-anchored
+    // band represents on THIS spec row. Brake pads = 1 axle. Spark plugs
+    // on Camry A25A-FKS = 4 cylinders. Oil change on the Camry = ~5 qts.
+    // Other vehicles scale by (vehicle_unit_count / parts_baseline_unit_count).
+    parts_baseline_unit_count: v.optional(v.number()),
   })
     .index("by_engine_id", ["engine_id"])
     .index("by_service_id", ["service_id"])
@@ -1865,6 +1899,34 @@ export default defineSchema({
     final_capture_amount_cents: v.optional(v.number()),
     final_parts_used_at_capture: v.optional(v.array(postjobPartValidator)),
     sla_expires_at_ms: v.optional(v.number()),
+
+    // Pricing v2 sanity-check flags raised when the shop-supplied total
+    // diverges from the quoteEngine fallback band. Soft-only; UI surfaces
+    // an "Estimate" pill but writes still succeed. Snapshotted once at
+    // createBatch and never mutated afterwards.
+    quote_flags: v.optional(v.array(v.string())),
+    quote_fallback_low: v.optional(v.float64()),
+    quote_fallback_high: v.optional(v.float64()),
+    // Per-service sibling to `quote_flags`. One row per service id with the
+    // engine's per-quote flags + a `fallback_catch` marker when the booking
+    // line for that service falls outside the engine's per-service band
+    // (the case where AI-enriched parts prices were materially wrong and
+    // the multiplier engine corrected them). Drives the director-side
+    // "Fallback catch" pill so admins can audit which line was caught.
+    service_quote_flags: v.optional(
+      v.array(
+        v.object({
+          service_id: v.id("services"),
+          flags: v.array(v.string()),
+          engine_parts_low: v.optional(v.float64()),
+          engine_parts_high: v.optional(v.float64()),
+          engine_labor_hours: v.optional(v.float64()),
+          engine_labor_source: v.optional(v.string()),
+          parts_source: v.optional(v.string()),
+          booking_line_parts_cost: v.optional(v.float64()),
+        }),
+      ),
+    ),
   })
     .index("by_user_id", ["user_id"])
     .index("by_shop_id", ["shop_id"])
@@ -2004,6 +2066,18 @@ export default defineSchema({
     captured_amount_cents: v.optional(v.number()),
     reauth_payment_intent_id: v.optional(v.string()),
 
+    // How the customer originated this payment. Drives the reauth UX:
+    // 'card' = saved Stripe PaymentMethod on the customer (silent server-
+    // side reauth possible). 'apple_pay'/'google_pay' = one-time wallet
+    // token (reauth requires re-prompting the user via PlatformPay).
+    payment_origin: v.optional(
+      v.union(
+        v.literal("card"),
+        v.literal("apple_pay"),
+        v.literal("google_pay"),
+      ),
+    ),
+
     // Invoice PDF (generated server-side after capture). Identical layout to
     // the email attachment, stored once in Convex file storage and reused for
     // both the email send and the mobile "View Receipt PDF" link.
@@ -2011,6 +2085,11 @@ export default defineSchema({
     invoice_storage_id: v.optional(v.id("_storage")),
     invoice_generated_at_ms: v.optional(v.number()),
     invoice_emailed_at_ms: v.optional(v.number()),
+    // Pricing v2 sanity-check flags raised inside assembleInvoiceData when
+    // the captured total diverges from the quoteEngine fallback band, or
+    // when shop.labor_rate is missing and the tier-aware rate is also null.
+    // Soft-only; surfaced to operators in the receipt PDF + admin UI.
+    invoice_quote_flags: v.optional(v.array(v.string())),
     // URL-safe random token embedded in the receipt deep-link sent over
     // email. Lets walk-in customers who don't have a Clerk account open
     // /receipts/[bookingId]?t=<token> without signing in. Treated as

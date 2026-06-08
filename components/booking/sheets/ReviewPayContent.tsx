@@ -14,7 +14,7 @@
 
 // 1. React & React Native
 import React, { useCallback, useMemo } from "react";
-import { Image, ScrollView, StyleSheet, TextInput, TouchableOpacity, View } from "react-native";
+import { Image, Platform, ScrollView, StyleSheet, TextInput, TouchableOpacity, View } from "react-native";
 
 // 2. Third-party libraries
 import { BottomSheetScrollView } from "@gorhom/bottom-sheet";
@@ -41,6 +41,7 @@ import { BorderRadius, Shadows, getSheetContentPadding } from "@/constants/theme
 import { useBookingLaborHours } from "@/hooks/useBookingLaborHours";
 import { useBookingPartsBreakdown } from "@/hooks/useBookingPartsBreakdown";
 import { useShopFixedPricesForServices } from "@/hooks/useShopFixedPricesForServices";
+import { useWalletCheckout } from "@/hooks/useWalletCheckout";
 import { deriveDisclosedRange } from "@/lib/disclosedRange";
 import { formatDurationForCar } from "@/lib/formatDuration";
 import { computeBookingTax } from "@/lib/tax";
@@ -430,15 +431,21 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
   const hasPayment = hasPaymentMethods();
 
   // ═══════════════ HANDLERS ═══════════════
-  const handleApplePay = useCallback(() => {
-    // Apple Pay integration would go here
-    console.log("Apple Pay selected");
-  }, []);
-
-  const handleGooglePay = useCallback(() => {
-    // Google Pay integration would go here
-    console.log("Google Pay selected");
-  }, []);
+  // Wallet checkout. Hidden when no mechanic is picked or when the device
+  // doesn't support Apple Pay / Google Pay; otherwise mints a one-time PM
+  // and routes to /confirming?paymentMode=wallet, where the existing
+  // booking-creation pipeline takes over.
+  const {
+    handleApplePay,
+    handleGooglePay,
+    applePaySupported,
+    googlePaySupported,
+    walletPending,
+  } = useWalletCheckout({
+    bookingMechanicId: selectedMechanicId ?? "",
+    totalCents: 2000,
+    enabled: Boolean(selectedMechanicId),
+  });
 
   // ═══════════════ RENDER ═══════════════
   // Choose the appropriate ScrollView component based on mode
@@ -782,27 +789,41 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
           </View>
         )}
 
-        {/* Payment Options Section */}
+        {/* Payment Options Section. Wallet buttons are gated on platform
+            + device support so the sheet doesn't dangle an option that
+            errors when tapped. */}
         <View style={styles.paymentSection}>
-          {/* Apple Pay Button */}
-          <TouchableOpacity style={styles.applePayButton} onPress={handleApplePay} activeOpacity={0.8}>
-            <View style={styles.payButtonContent}>
-              <FontAwesome name="apple" size={20} color="#FFFFFF" />
-              <Text size="md" weight="semiBold" color={BrandColors.white}>
-                Pay
-              </Text>
-            </View>
-          </TouchableOpacity>
+          {Platform.OS === "ios" && applePaySupported ? (
+            <TouchableOpacity
+              style={styles.applePayButton}
+              onPress={handleApplePay}
+              activeOpacity={0.8}
+              disabled={walletPending}
+            >
+              <View style={styles.payButtonContent}>
+                <FontAwesome name="apple" size={20} color="#FFFFFF" />
+                <Text size="md" weight="semiBold" color={BrandColors.white}>
+                  Pay
+                </Text>
+              </View>
+            </TouchableOpacity>
+          ) : null}
 
-          {/* Google Pay Button */}
-          <TouchableOpacity style={styles.googlePayButton} onPress={handleGooglePay} activeOpacity={0.8}>
-            <View style={styles.payButtonContent}>
-              <FontAwesome name="google" size={18} color={BrandColors.primary} />
-              <Text size="md" weight="semiBold" color={BrandColors.primary}>
-                Pay
-              </Text>
-            </View>
-          </TouchableOpacity>
+          {Platform.OS === "android" && googlePaySupported ? (
+            <TouchableOpacity
+              style={styles.googlePayButton}
+              onPress={handleGooglePay}
+              activeOpacity={0.8}
+              disabled={walletPending}
+            >
+              <View style={styles.payButtonContent}>
+                <FontAwesome name="google" size={18} color={BrandColors.primary} />
+                <Text size="md" weight="semiBold" color={BrandColors.primary}>
+                  Pay
+                </Text>
+              </View>
+            </TouchableOpacity>
+          ) : null}
 
           {/* Divider */}
           <View style={styles.paymentDivider}>
