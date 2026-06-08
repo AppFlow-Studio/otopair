@@ -25,11 +25,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ArrowLeft, ChevronRight, Store, Wrench } from "lucide-react-native";
 
 import { Text } from "@/components/shared-ui";
-import {
-  SLUG_DIAGNOSTIC_SCAN,
-  SLUG_ROTOR_REPLACEMENT,
-  SLUG_TIRE_REPLACEMENT,
-} from "@/constants/serviceTaxonomy";
+import { HANDOFF_SLUGS } from "@/constants/serviceTaxonomy";
 import { useBookingStore } from "@/stores/useBookingStore";
 import type { Service } from "@/stores/types/store.types";
 
@@ -94,28 +90,26 @@ export default function BookingFlowSearchScreen() {
   const handlePick = (service: Service) => {
     inputRef.current?.blur();
 
-    // Handoff slugs — same routing as Quick Book chips on Screen 1.
-    if (service.slug === SLUG_TIRE_REPLACEMENT) {
-      router.push("/(tire-booking)");
-      return;
-    }
-    if (service.slug === SLUG_ROTOR_REPLACEMENT) {
-      router.push("/(rotor-booking)");
-      return;
-    }
-    if (!selectedServiceIds.includes(service.id)) {
+    // Route to the category screen for this service's tab.
+    // For non-handoff services we pre-select the row (checkmark on)
+    // so the user lands ready to tap Continue. Handoff services
+    // (tire/rotor) intentionally don't get pre-selected — their
+    // row tap opens a dedicated flow, not a toggle, and showing a
+    // pre-checked card would mislead the state.
+    const isHandoff = !!service.slug && HANDOFF_SLUGS.has(service.slug);
+    if (!isHandoff && !selectedServiceIds.includes(service.id)) {
       toggleServiceSelection(service.id);
     }
-    // Diagnostic scan needs the area picker, which lives on the
-    // category screen; route there so the picker fires.
-    if (service.slug === SLUG_DIAGNOSTIC_SCAN && service.tab) {
+    if (service.tab) {
       router.push({
         pathname: "/(booking-flow)/category/[tab]",
         params: { tab: service.tab },
       });
-      return;
+    } else {
+      // Service has no v5 tab (shouldn't happen post-merge, but
+      // safe fallback): just go back to Screen 1.
+      router.push("/(booking-flow)/select-services");
     }
-    router.push("/(booking-flow)/choose-mechanic");
   };
 
   const onBack = () => {
