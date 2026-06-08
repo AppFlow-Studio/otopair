@@ -1,18 +1,57 @@
 /**
  * Booking-flow search screen — opens from the 🔍 button on Screen 1.
  *
- * Uber-Eats-style empty state: a slim top row with ← back, a focused
- * search input, and a small storefront icon on the right; a centered
- * Otopair logo fills the canvas below the input while the system
- * keyboard sits at the bottom. Search behavior itself is TBD by
- * Ahmad — this commit ships the shell only.
+ * Uber-Eats-style entry: focused TextInput slides in with the
+ * keyboard up. Typing filters the v5 services catalog live —
+ * matches taxonomy `displayLabel` + `searchAliases` (e.g. typing
+ * "rotors" surfaces "Brake rotor replacement"). Empty query shows
+ * the centered Otopair logo placeholder. Tap a result and the
+ * service either pre-selects + routes to Choose Mechanic, or
+ * hands off to the dedicated tire/rotor/diagnostic flow when the
+ * slug calls for it (same rules as the Quick Book row on Screen 1).
  */
 
-import React, { useCallback, useRef, useState } from "react";
-import { Image, Pressable, StyleSheet, TextInput, View } from "react-native";
+import React, { useCallback, useMemo, useRef, useState } from "react";
+import {
+  Image,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  TextInput,
+  View,
+} from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { ArrowLeft, Store } from "lucide-react-native";
+import { ArrowLeft, ChevronRight, Store, Wrench } from "lucide-react-native";
+
+import { Text } from "@/components/shared-ui";
+import {
+  SLUG_DIAGNOSTIC_SCAN,
+  SLUG_ROTOR_REPLACEMENT,
+  SLUG_TIRE_REPLACEMENT,
+} from "@/constants/serviceTaxonomy";
+import { useBookingStore } from "@/stores/useBookingStore";
+import type { Service } from "@/stores/types/store.types";
+
+const MAX_RESULTS = 12;
+
+/** Score a service against a lowercased query. Mirrors the scoring
+ *  in useSearchStore.getMatchingServices, but uncapped so a
+ *  dedicated search screen can render the full match list. */
+function scoreService(query: string, service: Service): number {
+  const labelLower = (service.displayLabel ?? service.name).toLowerCase();
+  const descLower = service.description.toLowerCase();
+  const aliases = service.searchAliases ?? [];
+
+  if (labelLower === query) return 100;
+  if (aliases.some((a) => a.toLowerCase() === query)) return 95;
+  if (labelLower.startsWith(query)) return 80;
+  if (aliases.some((a) => a.toLowerCase().startsWith(query))) return 75;
+  if (labelLower.includes(query)) return 60;
+  if (aliases.some((a) => a.toLowerCase().includes(query))) return 55;
+  if (descLower.includes(query)) return 40;
+  return 0;
+}
 
 const OTOPAIR_LOGO = require("@/assets/images/pin-logo-3d.png");
 
@@ -22,12 +61,15 @@ export default function BookingFlowSearchScreen() {
   const inputRef = useRef<TextInput>(null);
   const [query, setQuery] = useState("");
 
+  const availableServices = useBookingStore((s) => s.availableServices);
+  const toggleServiceSelection = useBookingStore((s) => s.toggleServiceSelection);
+  const selectedServiceIds = useBookingStore((s) => s.selectedServiceIds);
+
   // Auto-focus the input every time the screen comes into focus so
-  // the keyboard slides up immediately — same Uber-Eats / DoorDash
-  // entry feel. `useFocusEffect` waits until after the stack
-  // transition is done, so the focus actually sticks on iOS (a
-  // mount-time setTimeout can race the slide-from-right animation
-  // and lose).
+  // the keyboard slides up immediately — `useFocusEffect` waits
+  // until after the stack transition is done, so the focus
+  // actually sticks on iOS (a mount-time setTimeout can race the
+  // slide-from-right animation and lose).
   useFocusEffect(
     useCallback(() => {
       const t = setTimeout(() => inputRef.current?.focus(), 50);
@@ -35,10 +77,54 @@ export default function BookingFlowSearchScreen() {
     }, []),
   );
 
+  // Live-filter the catalog. Same alias-aware scoring as the
+  // useSearchStore helper, but uncapped so a dedicated search
+  // screen surfaces every match (capped at MAX_RESULTS for sanity).
+  const results: Service[] = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return [];
+    const scored = availableServices
+      .map((service) => ({ service, score: scoreService(q, service) }))
+      .filter((item) => item.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, MAX_RESULTS);
+    return scored.map((item) => item.service);
+  }, [query, availableServices]);
+
+  const handlePick = (service: Service) => {
+    inputRef.current?.blur();
+
+    // Handoff slugs — same routing as Quick Book chips on Screen 1.
+    if (service.slug === SLUG_TIRE_REPLACEMENT) {
+      router.push("/(tire-booking)");
+      return;
+    }
+    if (service.slug === SLUG_ROTOR_REPLACEMENT) {
+      router.push("/(rotor-booking)");
+      return;
+    }
+    if (!selectedServiceIds.includes(service.id)) {
+      toggleServiceSelection(service.id);
+    }
+    // Diagnostic scan needs the area picker, which lives on the
+    // category screen; route there so the picker fires.
+    if (service.slug === SLUG_DIAGNOSTIC_SCAN && service.tab) {
+      router.push({
+        pathname: "/(booking-flow)/category/[tab]",
+        params: { tab: service.tab },
+      });
+      return;
+    }
+    router.push("/(booking-flow)/choose-mechanic");
+  };
+
   const onBack = () => {
     if (router.canGoBack()) router.back();
     else router.replace("/(booking-flow)/select-services");
   };
+
+  const showResults = query.trim().length > 0;
+  const showEmpty = showResults && results.length === 0;
 
   return (
     <View style={styles.root}>
@@ -57,20 +143,19 @@ export default function BookingFlowSearchScreen() {
             ref={inputRef}
             value={query}
             onChangeText={setQuery}
-            placeholder="Search services or shops"
+            placeholder="Search services"
             placeholderTextColor="#9CA3AF"
             returnKeyType="search"
             autoCorrect={false}
             autoCapitalize="none"
             autoFocus
             style={styles.input}
-            // Submit behavior TBD — Ahmad to spec.
           />
         </View>
         <Pressable
           style={styles.shopBtn}
           onPress={() => {
-            /* TODO scope toggle (search shops vs services) — Ahmad to spec */
+            /* TODO scope toggle — Ahmad to spec */
           }}
           hitSlop={8}
           accessibilityLabel="Switch search scope"
@@ -79,10 +164,52 @@ export default function BookingFlowSearchScreen() {
         </Pressable>
       </View>
 
-      {/* Centered Otopair logo */}
-      <View style={styles.body}>
-        <Image source={OTOPAIR_LOGO} style={styles.logo} resizeMode="contain" />
-      </View>
+      {/* Body — logo placeholder, live results, or empty state */}
+      {!showResults ? (
+        <View style={styles.logoBody}>
+          <Image source={OTOPAIR_LOGO} style={styles.logo} resizeMode="contain" />
+        </View>
+      ) : showEmpty ? (
+        <View style={styles.emptyBody}>
+          <Text size="md" weight="medium" color="#6B7280" center>
+            No services match “{query.trim()}”
+          </Text>
+          <Text size="sm" weight="regular" color="#9CA3AF" center style={styles.emptyHint}>
+            Try “rotors”, “smog”, or “oil”.
+          </Text>
+        </View>
+      ) : (
+        <ScrollView
+          contentContainerStyle={styles.resultsContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          {results.map((svc) => (
+            <Pressable
+              key={svc.id}
+              style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
+              onPress={() => handlePick(svc)}
+              accessibilityRole="button"
+              accessibilityLabel={`Book ${svc.displayLabel ?? svc.name}`}
+            >
+              <View style={styles.iconTile}>
+                <Wrench size={18} color="#4B5563" strokeWidth={2} />
+              </View>
+              <View style={styles.rowText}>
+                <Text size="md" weight="bold" color="#0F172A" numberOfLines={1}>
+                  {svc.displayLabel ?? svc.name}
+                </Text>
+                {svc.subtitle ? (
+                  <Text size="sm" weight="regular" color="#6B7280" numberOfLines={1}>
+                    {svc.subtitle}
+                  </Text>
+                ) : null}
+              </View>
+              <ChevronRight size={18} color="#9CA3AF" strokeWidth={2} />
+            </Pressable>
+          ))}
+        </ScrollView>
+      )}
     </View>
   );
 }
@@ -127,7 +254,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  body: {
+  logoBody: {
     flex: 1,
     alignItems: "center",
     paddingTop: 56,
@@ -135,5 +262,45 @@ const styles = StyleSheet.create({
   logo: {
     width: 180,
     height: 180,
+  },
+  emptyBody: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "flex-start",
+    paddingTop: 80,
+    paddingHorizontal: 32,
+  },
+  emptyHint: {
+    marginTop: 6,
+  },
+  resultsContent: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 24,
+  },
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: 14,
+    backgroundColor: "rgba(15, 23, 42, 0.04)",
+    marginBottom: 8,
+  },
+  rowPressed: {
+    backgroundColor: "rgba(15, 23, 42, 0.08)",
+  },
+  iconTile: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  rowText: {
+    flex: 1,
+    minWidth: 0,
   },
 });
