@@ -63,7 +63,21 @@ export function useNearbyBookingShops(limit = 5): {
       return a.km - b.km;
     });
 
-    const top = candidates.slice(0, limit).map((c) => ({
+    // Dedupe by shop name (case-insensitive) — Ahmad's dev Convex
+    // has a few rows that share a name (e.g. "Sunset Auto Repair"
+    // appears 3 times). Keep the closest one. Each Convex row has
+    // its own `_id`, so id-based dedup would be a no-op; name dedup
+    // is the right axis for the user-visible list.
+    const seenNames = new Set<string>();
+    const deduped: typeof candidates = [];
+    for (const c of candidates) {
+      const key = c.shop.name.trim().toLowerCase();
+      if (seenNames.has(key)) continue;
+      seenNames.add(key);
+      deduped.push(c);
+    }
+
+    const top = deduped.slice(0, limit).map((c) => ({
       shop: c.shop,
       distanceMi: c.km / KM_PER_MI,
       coversAll: c.coversAll,
