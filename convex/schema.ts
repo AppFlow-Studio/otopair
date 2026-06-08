@@ -2066,6 +2066,18 @@ export default defineSchema({
     captured_amount_cents: v.optional(v.number()),
     reauth_payment_intent_id: v.optional(v.string()),
 
+    // How the customer originated this payment. Drives the reauth UX:
+    // 'card' = saved Stripe PaymentMethod on the customer (silent server-
+    // side reauth possible). 'apple_pay'/'google_pay' = one-time wallet
+    // token (reauth requires re-prompting the user via PlatformPay).
+    payment_origin: v.optional(
+      v.union(
+        v.literal("card"),
+        v.literal("apple_pay"),
+        v.literal("google_pay"),
+      ),
+    ),
+
     // Invoice PDF (generated server-side after capture). Identical layout to
     // the email attachment, stored once in Convex file storage and reused for
     // both the email send and the mobile "View Receipt PDF" link.

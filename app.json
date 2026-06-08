@@ -108,7 +108,7 @@
         "@stripe/stripe-react-native",
         {
           "merchantIdentifier": "merchant.com.otopair.app",
-          "enableGooglePay": false
+          "enableGooglePay": true
         }
       ]
     ],

@@ -64,10 +64,14 @@ function extractErrorMessage(err: unknown): string {
 
 export default function BookingConfirmingScreen() {
   const router = useRouter();
-  const { id, mode, bookingDbId } = useLocalSearchParams<{
+  const { id, mode, bookingDbId, paymentMode } = useLocalSearchParams<{
     id: string;
     mode?: string;
     bookingDbId?: string;
+    /** "wallet" when entering from an Apple Pay / Google Pay tap on the
+     *  payment screen — sources the PM from `selectedWalletPm` instead of
+     *  the saved-cards list and tags the payments row with the origin. */
+    paymentMode?: string;
   }>();
   const sheetRef = useRef<FloatingSheetRef>(null);
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
@@ -78,6 +82,9 @@ export default function BookingConfirmingScreen() {
   const scheduledAppointment = useBookingStore((s) => s.scheduledAppointment);
   const bookingType = useBookingStore((s) => s.bookingType);
   const selectedPaymentMethodId = usePaymentStore((s) => s.selectedPaymentMethodId);
+  const selectedWalletPm = usePaymentStore((s) => s.selectedWalletPm);
+  const setSelectedWalletPm = usePaymentStore((s) => s.setSelectedWalletPm);
+  const isWalletFlow = paymentMode === "wallet";
   const createPaymentIntent = useAction(api.payments_stripe.createPaymentIntentForBooking);
   const customerRequestReschedule = useMutation(api.bookings.customerRequestReschedule);
   // The PaymentIntent is created + confirmed server-side. If 3DS is needed,
@@ -195,14 +202,25 @@ export default function BookingConfirmingScreen() {
       });
       return;
     }
-    if (!selectedPaymentMethodId) {
+    // Pick the PM source. Wallet flow consumes the one-time PlatformPay
+    // token stashed on the store; card flow uses the saved-card selection.
+    const paymentMethodId = isWalletFlow
+      ? selectedWalletPm?.id
+      : selectedPaymentMethodId;
+    if (!paymentMethodId) {
       navigatedRef.current = true;
       router.replace({
         pathname: "/booking/mechanic/[id]/payment",
-        params: { id, confirmError: "Add a payment method to confirm." },
+        params: {
+          id,
+          confirmError: isWalletFlow
+            ? "Wallet session expired. Please tap Apple Pay or Google Pay again."
+            : "Add a payment method to confirm.",
+        },
       });
       return;
     }
+    const paymentOrigin = isWalletFlow ? selectedWalletPm?.type : "card";
     setSubmitting(true);
     try {
       const bookingIds = await createBookingConvex(selectedMechanicId, bookingType || "book_now");
@@ -216,7 +234,8 @@ export default function BookingConfirmingScreen() {
       if (isConvexBookingId) {
         const pi = await createPaymentIntent({
           bookingId: newBookingId as Id<"bookings">,
-          paymentMethodId: selectedPaymentMethodId,
+          paymentMethodId,
+          ...(paymentOrigin ? { paymentOrigin } : {}),
         });
 
         if (pi.requiresAction) {
@@ -246,12 +265,20 @@ export default function BookingConfirmingScreen() {
         pathname: "/booking/mechanic/[id]/payment",
         params: { id, confirmError: extractErrorMessage(err) },
       });
+    } finally {
+      // Wallet PMs are one-time tokens — release the slot whether the
+      // booking succeeded or fell back to /payment, so a follow-up retry
+      // must re-prompt the wallet sheet (Stripe will reject re-use).
+      if (isWalletFlow) setSelectedWalletPm(null);
     }
   }, [
     submitting,
     selectedMechanicId,
     selectedMechanicSlot,
     selectedPaymentMethodId,
+    selectedWalletPm,
+    setSelectedWalletPm,
+    isWalletFlow,
     scheduledAppointment,
     isReschedule,
     bookingDbId,

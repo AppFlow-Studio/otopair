@@ -10,7 +10,7 @@
  * card or detached an existing one.
  */
 
-import { useAction } from "convex/react";
+import { useAction, useConvexAuth } from "convex/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/convex/_generated/api";
 
@@ -24,6 +24,11 @@ export type SavedPaymentMethod = {
 };
 
 export function usePaymentMethodsFromConvex() {
+  // `useConvexAuth().isAuthenticated` flips true only after the Clerk JWT
+  // has actually propagated to Convex — using Clerk's `isSignedIn` alone
+  // races the action ahead of the identity and produces a "Not
+  // authenticated" rejection from `requireAuthedUser`.
+  const { isAuthenticated } = useConvexAuth();
   const listAction = useAction(api.payments_stripe.listPaymentMethods);
   const [paymentMethods, setPaymentMethods] = useState<SavedPaymentMethod[]>(
     [],
@@ -35,6 +40,16 @@ export function usePaymentMethodsFromConvex() {
 
   useEffect(() => {
     cancelledRef.current = false;
+    if (!isAuthenticated) {
+      // Reset to an empty list on sign-out / pre-auth. Don't kick the
+      // action — it would just bounce with "Not authenticated".
+      setPaymentMethods([]);
+      setIsLoading(false);
+      setError(null);
+      return () => {
+        cancelledRef.current = true;
+      };
+    }
     setIsLoading(true);
     setError(null);
     listAction({})
@@ -52,7 +67,7 @@ export function usePaymentMethodsFromConvex() {
     return () => {
       cancelledRef.current = true;
     };
-  }, [listAction, refreshKey]);
+  }, [isAuthenticated, listAction, refreshKey]);
 
   const refresh = useCallback(() => setRefreshKey((k) => k + 1), []);
 

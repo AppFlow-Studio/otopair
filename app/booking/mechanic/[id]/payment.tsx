@@ -40,6 +40,7 @@ import { useBookingQuoteFallback } from "@/hooks/useBookingQuoteFallback";
 import { useCreateBookingConvex } from "@/hooks/useCreateBookingConvex";
 import { useShopFixedPricesForServices } from "@/hooks/useShopFixedPricesForServices";
 import { positionFromOption } from "@/constants/serviceVariants";
+import { useWalletCheckout } from "@/hooks/useWalletCheckout";
 import { deriveDisclosedRange, formatRange } from "@/lib/disclosedRange";
 import { formatDurationForCar } from "@/lib/formatDuration";
 import { computeBookingTax } from "@/lib/tax";
@@ -561,15 +562,34 @@ export default function PaymentScreen() {
     router.push(`/booking/mechanic/${id}/confirming`);
   }, [router, id, selectedMechanicId, selectedMechanicSlot?.shopId, hasPayment, selectedPaymentMethod]);
 
-  const handleApplePay = useCallback(() => {
-    // Apple Pay integration would go here
-    handleConfirmPayment();
-  }, [handleConfirmPayment]);
+  // Apple Pay / Google Pay handlers. The wallet sheet shows the $20 hold
+  // (matches the "$20 hold placed today" disclosure on the screen). The
+  // hook mints a one-time PM via PlatformPay, stashes it in
+  // usePaymentStore.selectedWalletPm, and routes to /confirming with
+  // paymentMode=wallet — the confirming screen then runs the same booking
+  // creation + createPaymentIntentForBooking flow as a saved card.
+  const {
+    handleApplePay,
+    handleGooglePay,
+    applePaySupported,
+    googlePaySupported,
+    walletPending,
+    walletError,
+  } = useWalletCheckout({
+    bookingMechanicId: id,
+    totalCents: 2000,
+    enabled:
+      Boolean(selectedMechanicId || selectedMechanicSlot?.shopId) && !isSubmitting,
+  });
 
-  const handleGooglePay = useCallback(() => {
-    // Google Pay integration would go here
-    handleConfirmPayment();
-  }, [handleConfirmPayment]);
+  // Bubble wallet errors into the existing error modal so the customer
+  // sees the same surface as other booking failures.
+  useEffect(() => {
+    if (walletError) {
+      setErrorMessage(walletError);
+      setErrorModalVisible(true);
+    }
+  }, [walletError]);
 
   useFocusEffect(
     useCallback(() => {
@@ -940,32 +960,30 @@ export default function PaymentScreen() {
       </ScrollView>
 
       {/* Footer CTA — wallet button on top (Apple Pay on iOS, Google Pay
-          on Android), saved card row below. The wallet button shows the
-          range as a price tag so the customer sees what they're agreeing
-          to without scrolling back up. */}
+          on Android), saved card row below. The wallet button is hidden
+          on devices without wallet support (e.g., iOS simulator, Android
+          without Google Play Services) instead of just disabled, so the
+          surface doesn't suggest a path the user can't take. */}
       <View style={[styles.footer, { paddingBottom: insets.bottom + Spacing.xs }]}>
-        <TouchableOpacity
-          style={[
-            styles.walletButton,
-            (isSubmitting || !hasPayment) && styles.confirmButtonDisabled,
-          ]}
-          onPress={Platform.OS === "android" ? handleGooglePay : handleApplePay}
-          activeOpacity={0.85}
-          disabled={isSubmitting || !hasPayment}
-        >
-          {isSubmitting ? (
-            <ActivityIndicator color={BrandColors.white} size="small" />
-          ) : Platform.OS === "android" ? (
-            // SVG holds just the wallet mark in a tight viewBox; render
-            // at fixed dimensions (matching the viewBox aspect) sized
-            // for prominence inside the 64-tall wrapper. Flex centering
-            // on the wrapper puts it dead-center in the full-width black
-            // surface.
-            <GooglePay width={76} height={30} />
-          ) : (
-            <ApplePay width={72} height={30} />
-          )}
-        </TouchableOpacity>
+        {(Platform.OS === "ios" ? applePaySupported : googlePaySupported) ? (
+          <TouchableOpacity
+            style={[
+              styles.walletButton,
+              (isSubmitting || walletPending) && styles.confirmButtonDisabled,
+            ]}
+            onPress={Platform.OS === "android" ? handleGooglePay : handleApplePay}
+            activeOpacity={0.85}
+            disabled={isSubmitting || walletPending}
+          >
+            {isSubmitting || walletPending ? (
+              <ActivityIndicator color={BrandColors.white} size="small" />
+            ) : Platform.OS === "android" ? (
+              <GooglePay width={76} height={30} />
+            ) : (
+              <ApplePay width={72} height={30} />
+            )}
+          </TouchableOpacity>
+        ) : null}
 
         {hasPayment && selectedPaymentMethod ? (
           <TouchableOpacity
