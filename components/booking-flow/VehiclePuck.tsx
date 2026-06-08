@@ -3,27 +3,30 @@
  * top-right of every booking-flow screen.
  *
  * Circular chrome-look button showing the vehicle's image (or a
- * silhouette fallback). Tap behavior is TBD per Ahmad — for now it
- * fires `onPress` which a parent can wire to a vehicle-switcher
- * sheet, or omit to render a non-interactive puck.
+ * silhouette fallback). Tap opens the VehicleSwitcherSheet so the
+ * user can switch the active car for this booking. Parent screens
+ * can override tap behavior via `onPress`.
  *
  * Spec: ~/Downloads/<figma frames> (all 4 mockup screens carry this
  * puck in the top-right).
  */
 
-import React from "react";
+import React, { useState } from "react";
 import { Image, Pressable, StyleSheet, View } from "react-native";
 
 import { CarSilhouette } from "@/components/shared-ui/CarSilhouette";
+import { VehicleSwitcherSheet } from "@/components/booking-flow/VehicleSwitcherSheet";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 
 interface VehiclePuckProps {
   size?: number;
+  /** Overrides the default tap behavior (open the switcher sheet). */
   onPress?: () => void;
 }
 
 export function VehiclePuck({ size = 44, onPress }: VehiclePuckProps) {
   const vehicle = useVehicleStore((s) => s.getSelectedVehicle());
+  const [switcherOpen, setSwitcherOpen] = useState(false);
 
   const radius = size / 2;
   const body = (
@@ -35,7 +38,7 @@ export function VehiclePuck({ size = 44, onPress }: VehiclePuckProps) {
         ]}
       >
         {vehicle?.imageSource ? (
-          <Image source={vehicle.imageSource} style={styles.image} resizeMode="cover" />
+          <Image source={vehicle.imageSource} style={styles.image} resizeMode="contain" />
         ) : (
           <CarSilhouette variant="suv" width={size - 12} height={size - 18} />
         )}
@@ -43,11 +46,17 @@ export function VehiclePuck({ size = 44, onPress }: VehiclePuckProps) {
     </View>
   );
 
-  if (!onPress) return body;
+  const handlePress = onPress ?? (() => setSwitcherOpen(true));
+
   return (
-    <Pressable onPress={onPress} hitSlop={8} accessibilityLabel="Switch vehicle">
-      {body}
-    </Pressable>
+    <>
+      <Pressable onPress={handlePress} hitSlop={8} accessibilityLabel="Switch vehicle">
+        {body}
+      </Pressable>
+      {switcherOpen ? (
+        <VehicleSwitcherSheet onClose={() => setSwitcherOpen(false)} />
+      ) : null}
+    </>
   );
 }
 
@@ -65,7 +74,7 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   image: {
-    width: "100%",
-    height: "100%",
+    width: "82%",
+    height: "82%",
   },
 });
