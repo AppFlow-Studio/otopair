@@ -112,7 +112,7 @@ export function ServiceMultiSelectRow({
 
       <View style={styles.text}>
         <View style={styles.titleRow}>
-          <Text size="md" weight="bold" color="#0F172A" numberOfLines={1} style={styles.title}>
+          <Text size="md" weight="bold" color="#0F172A" numberOfLines={2} style={styles.title}>
             {entry.label}
           </Text>
           <Pressable
@@ -123,7 +123,7 @@ export function ServiceMultiSelectRow({
             <Info size={15} color="#9CA3AF" strokeWidth={2} />
           </Pressable>
         </View>
-        <Text size="sm" weight="regular" color="#6B7280" numberOfLines={1} style={styles.subtitle}>
+        <Text size="sm" weight="regular" color="#6B7280" numberOfLines={2} style={styles.subtitle}>
           {entry.subtitle}
         </Text>
         {isNeedsSpecs ? (
