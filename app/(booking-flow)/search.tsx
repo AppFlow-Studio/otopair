@@ -20,6 +20,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ArrowLeft, ChevronRight, Store, Wrench } from "lucide-react-native";
@@ -50,6 +51,8 @@ function scoreService(query: string, service: Service): number {
 }
 
 const OTOPAIR_LOGO = require("@/assets/images/pin-logo-3d.png");
+
+const FRAME_GRADIENT = ["#CFE0EB", "#DCE7EF", "#E8EEF3"] as const;
 
 export default function BookingFlowSearchScreen() {
   const router = useRouter();
@@ -122,6 +125,12 @@ export default function BookingFlowSearchScreen() {
 
   return (
     <View style={styles.root}>
+      <LinearGradient
+        colors={FRAME_GRADIENT}
+        start={{ x: 0.5, y: 0 }}
+        end={{ x: 0.5, y: 1 }}
+        style={StyleSheet.absoluteFill}
+      />
       {/* Top control row */}
       <View style={[styles.topRow, { paddingTop: insets.top + 6 }]}>
         <Pressable
@@ -211,7 +220,7 @@ export default function BookingFlowSearchScreen() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: "#E8EEF3",
   },
   topRow: {
     flexDirection: "row",
@@ -229,10 +238,12 @@ const styles = StyleSheet.create({
   },
   inputWrap: {
     flex: 1,
-    backgroundColor: "#F2F2F7",
+    backgroundColor: "rgba(255, 255, 255, 0.75)",
     borderRadius: 20,
     paddingHorizontal: 14,
     paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.85)",
   },
   input: {
     fontFamily: "Urbanist-Regular",
@@ -244,9 +255,11 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: "#F2F2F7",
+    backgroundColor: "rgba(255, 255, 255, 0.75)",
     alignItems: "center",
     justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.85)",
   },
   logoBody: {
     flex: 1,
@@ -279,17 +292,19 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 12,
     borderRadius: 14,
-    backgroundColor: "rgba(15, 23, 42, 0.04)",
+    backgroundColor: "rgba(255, 255, 255, 0.65)",
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.85)",
     marginBottom: 8,
   },
   rowPressed: {
-    backgroundColor: "rgba(15, 23, 42, 0.08)",
+    backgroundColor: "rgba(255, 255, 255, 0.85)",
   },
   iconTile: {
     width: 40,
     height: 40,
     borderRadius: 12,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: "rgba(255, 255, 255, 0.85)",
     alignItems: "center",
     justifyContent: "center",
   },
