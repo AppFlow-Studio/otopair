@@ -88,6 +88,9 @@ export { FeedbackModal, type FeedbackModalProps } from "./FeedbackModal";
 // Fixed Price Badge
 export { FixedPriceBadge, type FixedPriceBadgeProps } from "./FixedPriceBadge";
 
+// Estimate Pill (Pricing v2 fallback signal)
+export { EstimatePill, type EstimatePillProps } from "./EstimatePill";
+
 // Finish Later Component
 export {
     FinishLater

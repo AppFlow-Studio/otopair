@@ -123,6 +123,12 @@ interface BookingState {
    *  Confirm screen so the user sees the same guarantee they did on
    *  Review & Pay. Cleared on flow reset. */
   disclosedRangeIsFixedPrice: boolean;
+  /** True when the Pricing v2 quote engine flagged the disclosed range as
+   *  estimate-grade — engine refused at least one service, rolled-up
+   *  per-quote flags non-empty, labor-hours fell back to default, or no
+   *  real per-vehicle parts data. Drives the "Estimate" pill on Review &
+   *  Pay and Confirm. Cleared on flow reset. */
+  disclosedRangeIsEstimate: boolean;
   /** Whether booking_details was skipped (direct to payment via "Book Now") */
   skippedBookingDetails: boolean;
   /** Selected slot in mechanic selection screen (before booking) */
@@ -213,6 +219,10 @@ interface BookingState {
   setDisclosedRangeFormatted: (formatted: string | null) => void;
   /** Stash whether any line in the agreed range was a flat fixed price. */
   setDisclosedRangeIsFixedPrice: (isFixed: boolean) => void;
+  /** Stash whether the Pricing v2 engine flagged the disclosed range as
+   *  estimate-grade so the Confirm screen can mirror the badge from
+   *  Review & Pay without re-running the quote engine hook. */
+  setDisclosedRangeIsEstimate: (isEstimate: boolean) => void;
   /** Set whether booking details was skipped */
   setSkippedBookingDetails: (skipped: boolean) => void;
   /** Set selected mechanic slot in mechanic selection screen */
@@ -419,6 +429,7 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
   scheduledAppointment: null,
   disclosedRangeFormatted: null,
   disclosedRangeIsFixedPrice: false,
+  disclosedRangeIsEstimate: false,
   skippedBookingDetails: false,
   selectedMechanicSlot: null,
   selectedServiceOptions: {},
@@ -615,6 +626,11 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
       disclosedRangeIsFixedPrice: isFixed,
     }),
 
+  setDisclosedRangeIsEstimate: (isEstimate) =>
+    set({
+      disclosedRangeIsEstimate: isEstimate,
+    }),
+
   setSkippedBookingDetails: (skipped) =>
     set({
       skippedBookingDetails: skipped,
@@ -668,6 +684,7 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
       scheduledAppointment: null,
       disclosedRangeFormatted: null,
       disclosedRangeIsFixedPrice: false,
+      disclosedRangeIsEstimate: false,
       skippedBookingDetails: false,
       selectedMechanicSlot: null,
       selectedServiceOptions: {},

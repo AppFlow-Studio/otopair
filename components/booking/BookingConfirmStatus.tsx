@@ -14,7 +14,7 @@ import { Pressable, StyleSheet, View, useWindowDimensions } from "react-native";
 
 import { Calendar, Car, User } from "lucide-react-native";
 
-import { FixedPriceBadge, Text } from "@/components/shared-ui";
+import { EstimatePill, FixedPriceBadge, Text } from "@/components/shared-ui";
 import { ConfirmCountdownButton } from "@/components/tire-booking/QuoteRequestStatus";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
@@ -49,6 +49,7 @@ export function BookingConfirmStatus({
   const selectedMechanicSlot = useBookingStore((s) => s.selectedMechanicSlot);
   const disclosedRangeFormatted = useBookingStore((s) => s.disclosedRangeFormatted);
   const disclosedRangeIsFixedPrice = useBookingStore((s) => s.disclosedRangeIsFixedPrice);
+  const disclosedRangeIsEstimate = useBookingStore((s) => s.disclosedRangeIsEstimate);
   const getMechanicById = useMechanicStore((s) => s.getMechanicById);
   const getShopById = useShopStore((s) => s.getShopById);
   const selectedVehicle = useVehicleStore((s) =>
@@ -111,14 +112,20 @@ export function BookingConfirmStatus({
 
       <View style={[styles.actionColumn, isCompactLayout && styles.actionColumnCompact, isVeryCompactLayout && styles.actionColumnVeryCompact]}>
         {showPaymentSummary && disclosedRangeFormatted ? (
-          <Text
-            size={isVeryCompactLayout ? "sm" : "md"}
-            weight="semiBold"
-            color="#141C24"
-            style={[styles.rangeLine, isVeryCompactLayout && styles.rangeLineVeryCompact]}
-          >
-            The estimated price for your car is {disclosedRangeFormatted}.
-          </Text>
+          <View style={styles.rangeBlock}>
+            <Text
+              size={isVeryCompactLayout ? "sm" : "md"}
+              weight="semiBold"
+              color="#141C24"
+              style={[styles.rangeLine, isVeryCompactLayout && styles.rangeLineVeryCompact]}
+            >
+              The estimated price for your car is {disclosedRangeFormatted}.
+            </Text>
+            <View style={styles.rangeBadges}>
+              {disclosedRangeIsFixedPrice ? <FixedPriceBadge size="sm" /> : null}
+              {disclosedRangeIsEstimate ? <EstimatePill size="sm" /> : null}
+            </View>
+          </View>
         ) : null}
         {showPaymentSummary ? (
           <Text
@@ -293,5 +300,14 @@ const styles = StyleSheet.create({
   rangeLineVeryCompact: {
     lineHeight: 18,
     marginBottom: 2,
+  },
+  rangeBlock: {
+    alignItems: "center",
+    gap: 4,
+    marginBottom: 4,
+  },
+  rangeBadges: {
+    flexDirection: "row",
+    gap: 6,
   },
 });

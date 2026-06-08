@@ -33,13 +33,14 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 
 // 3. Shared UI (design system)
-import { BrandColors, FixedPriceBadge, Spacing, Text } from "@/components/shared-ui";
+import { BrandColors, EstimatePill, FixedPriceBadge, Spacing, Text } from "@/components/shared-ui";
 
 // 4. Constants, hooks, types
 import { getPartsBreakdown } from "@/constants/services";
 import { BorderRadius, Shadows, getSheetContentPadding } from "@/constants/theme";
 import { useBookingLaborHours } from "@/hooks/useBookingLaborHours";
 import { useBookingPartsBreakdown } from "@/hooks/useBookingPartsBreakdown";
+import { useBookingQuoteFallback } from "@/hooks/useBookingQuoteFallback";
 import { useShopFixedPricesForServices } from "@/hooks/useShopFixedPricesForServices";
 import { deriveDisclosedRange } from "@/lib/disclosedRange";
 import { formatDurationForCar } from "@/lib/formatDuration";
@@ -173,12 +174,15 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
   // When this returns data we use the per-part totals as the parts subtotal; when
   // it doesn't (walk-in vehicle, unconfigured vehicle, missing price data) we fall
   // back to the service's flat `default_parts_estimate`.
-  const { breakdown: pricedPartsByService, isLoading: isPricedPartsLoading } =
-    useBookingPartsBreakdown(
-      selectedVehicle?.ownershipId,
-      selectedServiceIds,
-      selectedServiceOptions,
-    );
+  const {
+    breakdown: pricedPartsByService,
+    isLoading: isPricedPartsLoading,
+    hasRealData: hasRealPartsData,
+  } = useBookingPartsBreakdown(
+    selectedVehicle?.ownershipId,
+    selectedServiceIds,
+    selectedServiceOptions,
+  );
 
   // TEMP: diagnose why priced parts aren't surfacing for the CR-V test booking.
   // Remove once the short-circuit (ownershipId / svc_* slugs) is fixed.
@@ -219,8 +223,20 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
 
   // Vehicle-specific labor hours from `labor_times.book_hours`; falls back to
   // `services.default_labor_hours` when there's no per-vehicle row.
-  const { laborHours: laborHoursByService, isLoading: isLaborHoursLoading } =
-    useBookingLaborHours(selectedVehicle?.ownershipId, selectedServiceIds);
+  const {
+    laborHours: laborHoursByService,
+    isLoading: isLaborHoursLoading,
+    hasFallback: hasLaborFallback,
+  } = useBookingLaborHours(selectedVehicle?.ownershipId, selectedServiceIds);
+
+  // Pricing v2 engine band + per-quote flags for the booking. Drives the
+  // "Estimate" pill below when the engine refused a service or flagged any
+  // line as tier_estimate / outside-band / etc.
+  const quoteFallback = useBookingQuoteFallback(
+    resolvedShopId,
+    selectedVehicle?.ownershipId,
+    selectedServiceIds,
+  );
 
   const laborHoursMap = useMemo(() => {
     const map = new Map<string, number>();
@@ -365,12 +381,21 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
   // just agreed to without re-running the breakdown.
   const setDisclosedRangeFormatted = useBookingStore((s) => s.setDisclosedRangeFormatted);
   const setDisclosedRangeIsFixedPrice = useBookingStore((s) => s.setDisclosedRangeIsFixedPrice);
+  const setDisclosedRangeIsEstimate = useBookingStore((s) => s.setDisclosedRangeIsEstimate);
+  const isEstimateBadgeActive =
+    quoteFallback.refused ||
+    quoteFallback.flags.length > 0 ||
+    hasLaborFallback ||
+    (!isPricedPartsLoading && !hasRealPartsData);
   React.useEffect(() => {
     setDisclosedRangeFormatted(breakdown.rangeFormatted);
   }, [breakdown.rangeFormatted, setDisclosedRangeFormatted]);
   React.useEffect(() => {
     setDisclosedRangeIsFixedPrice(hasAnyFixedPrice);
   }, [hasAnyFixedPrice, setDisclosedRangeIsFixedPrice]);
+  React.useEffect(() => {
+    setDisclosedRangeIsEstimate(isEstimateBadgeActive);
+  }, [isEstimateBadgeActive, setDisclosedRangeIsEstimate]);
 
   // Per-service line total — returns the labor+parts band so summary rows
   // can render the same ±25% parts variance that flows into the aggregate
@@ -721,6 +746,7 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
               </Text>
               <View style={styles.totalHeaderBadges}>
                 {hasAnyFixedPrice && <FixedPriceBadge size="sm" />}
+                {isEstimateBadgeActive && <EstimatePill size="sm" />}
                 <View style={styles.savingsBadge}>
                   <Text size="xs" weight="semiBold" color={BrandColors.secondary}>
                     → Saved $25 vs Dealership
@@ -743,9 +769,9 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
           <View style={styles.rangeExplainer}>
             <Info size={12} color="#9CA3AF" />
             <Text size="xs" weight="regular" color="#6B7280" style={styles.rangeExplainerText}>
-              A $20 hold will be placed on your card today. The final amount
-              within this range is only charged once your mechanic has
-              inspected your car.
+              {isEstimateBadgeActive
+                ? "Estimate — final price confirmed at booking. A $20 hold will be placed on your card today and only charged once your mechanic has inspected your car."
+                : "A $20 hold will be placed on your card today. The final amount within this range is only charged once your mechanic has inspected your car."}
             </Text>
           </View>
         </View>

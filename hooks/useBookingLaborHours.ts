@@ -45,6 +45,12 @@ export function useBookingLaborHours(
     () => ({
       laborHours: data ?? EMPTY,
       isLoading: shouldQuery && data === undefined,
+      // True when at least one selected service fell through to
+      // services.default_labor_hours (no vehicle-specific row in
+      // labor_times). The Estimate pill on Review & Pay reads this so
+      // customers know their quote includes an interpolated value.
+      hasFallback:
+        !!data && data.some((s: LaborHoursForService) => s.source === "default"),
     }),
     [data, shouldQuery],
   );
