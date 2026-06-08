@@ -21,10 +21,10 @@ export type TaxonomyTab =
   | "major_service";
 
 export const TABS: { key: TaxonomyTab; label: string; order: number }[] = [
-  { key: "routine_upkeep", label: "Routine upkeep", order: 1 },
-  { key: "inspections", label: "Inspections & checkups", order: 2 },
-  { key: "tires_brakes", label: "Tires & brakes", order: 3 },
-  { key: "major_service", label: "Major service", order: 4 },
+  { key: "routine_upkeep", label: "Routine", order: 1 },
+  { key: "tires_brakes", label: "Tires & Brakes", order: 2 },
+  { key: "major_service", label: "Scheduled service", order: 3 },
+  { key: "inspections", label: "Inspections", order: 4 },
 ];
 
 export interface TaxonomyEntry {
