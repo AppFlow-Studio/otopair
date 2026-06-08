@@ -8,9 +8,9 @@
  * Ahmad — this commit ships the shell only.
  */
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useRef, useState } from "react";
 import { Image, Pressable, StyleSheet, TextInput, View } from "react-native";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ArrowLeft, Store } from "lucide-react-native";
 
@@ -22,12 +22,18 @@ export default function BookingFlowSearchScreen() {
   const inputRef = useRef<TextInput>(null);
   const [query, setQuery] = useState("");
 
-  // Auto-focus the input on mount so the keyboard slides up
-  // immediately — same Uber-Eats / DoorDash entry feel.
-  useEffect(() => {
-    const t = setTimeout(() => inputRef.current?.focus(), 80);
-    return () => clearTimeout(t);
-  }, []);
+  // Auto-focus the input every time the screen comes into focus so
+  // the keyboard slides up immediately — same Uber-Eats / DoorDash
+  // entry feel. `useFocusEffect` waits until after the stack
+  // transition is done, so the focus actually sticks on iOS (a
+  // mount-time setTimeout can race the slide-from-right animation
+  // and lose).
+  useFocusEffect(
+    useCallback(() => {
+      const t = setTimeout(() => inputRef.current?.focus(), 50);
+      return () => clearTimeout(t);
+    }, []),
+  );
 
   const onBack = () => {
     if (router.canGoBack()) router.back();
@@ -56,6 +62,7 @@ export default function BookingFlowSearchScreen() {
             returnKeyType="search"
             autoCorrect={false}
             autoCapitalize="none"
+            autoFocus
             style={styles.input}
             // Submit behavior TBD — Ahmad to spec.
           />
