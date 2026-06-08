@@ -36,11 +36,13 @@ import BottomSheet, { BottomSheetView } from "@gorhom/bottom-sheet";
 import { ArrowLeft, Crosshair, Minus, Plus } from "lucide-react-native";
 
 import { Text } from "@/components/shared-ui";
+import { MapShopCard } from "@/components/booking-flow/MapShopCard";
 import { ShopPage } from "@/components/booking-flow/ShopPage";
 import { StickyContinueBar } from "@/components/booking-flow/StickyContinueBar";
 import { VehiclePuck } from "@/components/booking-flow/VehiclePuck";
 import { useMechanicStore } from "@/stores/useMechanicStore";
 import { useNearbyBookingShops } from "@/hooks/useNearbyBookingShops";
+import { useNextAvailabilityForShop } from "@/hooks/useNextAvailabilityForShop";
 import { useBookingStore } from "@/stores/useBookingStore";
 
 const FALLBACK_REGION: Region = {
@@ -163,6 +165,36 @@ export default function ChooseMechanicScreen() {
     setActiveIndex(idx);
   }, []);
 
+  // Active-shop derivations for the floating MapShopCard. Mirrors
+  // the math inside ShopPage so the card stays in sync as the user
+  // swipes between shops.
+  const activeFlatEstimate = useMemo(() => {
+    if (!activeShop) return null;
+    const rate = activeShop.labor_rate ?? 0;
+    return Math.round(rate * laborHoursTotal + partsEstimate);
+  }, [activeShop, laborHoursTotal, partsEstimate]);
+
+  const activePriceRange = useMemo(() => {
+    if (activeFlatEstimate == null || activeFlatEstimate <= 0) return null;
+    const low = Math.round(activeFlatEstimate * 0.9);
+    const high = Math.round(activeFlatEstimate * 1.1);
+    if (low === high) return `~$${low}`;
+    return `~$${low} – $${high}`;
+  }, [activeFlatEstimate]);
+
+  const { slots: activeShopSlots } = useNextAvailabilityForShop(
+    activeShop?.id ?? null,
+    null,
+    1,
+  );
+  const activeNextSlotLabel = useMemo(() => {
+    if (activeShopSlots.length === 0) return null;
+    const s = activeShopSlots[0];
+    return `Next: ${s.dayOfWeek} ${s.time}`;
+  }, [activeShopSlots]);
+
+  const activeDistanceMi = nearbyShops[activeIndex]?.distanceMi ?? 0;
+
   const onBack = () => {
     if (router.canGoBack()) router.back();
     else router.replace("/(booking-flow)/select-services");
@@ -226,6 +258,20 @@ export default function ChooseMechanicScreen() {
           <VehiclePuck />
         </View>
       </View>
+
+      {/* Floating glassy shop card — syncs to the active shop. */}
+      {activeShop ? (
+        <View style={styles.shopCardWrap} pointerEvents="box-none">
+          <MapShopCard
+            shopId={activeShop.id}
+            shopName={activeShop.name}
+            rating={activeShop.rating}
+            distanceMi={activeDistanceMi}
+            priceRange={activePriceRange}
+            nextSlotLabel={activeNextSlotLabel}
+          />
+        </View>
+      ) : null}
 
       {/* Floating right rail — visual only for Phase 3 */}
       <View style={[styles.rightRail, { top: insets.top + 200 }]} pointerEvents="box-none">
@@ -358,6 +404,13 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(15, 23, 42, 0.08)",
     alignItems: "center",
     justifyContent: "center",
+  },
+  shopCardWrap: {
+    position: "absolute",
+    top: "30%",
+    left: 16,
+    right: 16,
+    alignItems: "center",
   },
   rightRail: {
     position: "absolute",
