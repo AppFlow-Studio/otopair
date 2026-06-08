@@ -57,7 +57,7 @@ export function DateChipRow({ items, selectedIsoDate, onSelect }: DateChipRowPro
             <Text
               size="xs"
               weight="semiBold"
-              color={isSelected ? "#FFFFFF" : "#6B7280"}
+              color="#6B7280"
               style={styles.day}
             >
               {item.dayOfWeek}
@@ -65,7 +65,7 @@ export function DateChipRow({ items, selectedIsoDate, onSelect }: DateChipRowPro
             <Text
               size="2xl"
               weight="bold"
-              color={isSelected ? "#FFFFFF" : "#0F172A"}
+              color="#0F172A"
               style={styles.num}
             >
               {item.dayNumber}
@@ -73,11 +73,7 @@ export function DateChipRow({ items, selectedIsoDate, onSelect }: DateChipRowPro
             <View
               style={[
                 styles.dot,
-                isSelected
-                  ? styles.dotSelected
-                  : item.hasAvailability
-                    ? styles.dotAvailable
-                    : styles.dotUnavailable,
+                item.hasAvailability ? styles.dotAvailable : styles.dotUnavailable,
               ]}
             />
           </Pressable>
@@ -104,9 +100,14 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   chipSelected: {
-    backgroundColor: "#5299FE",
-    borderColor: "#5299FE",
-    transform: [{ scale: 1.04 }],
+    backgroundColor: "rgba(82, 153, 254, 0.18)",
+    borderColor: "rgba(82, 153, 254, 0.45)",
+    transform: [{ scale: 1.06 }],
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    elevation: 4,
   },
   chipDisabled: {
     opacity: 0.45,
@@ -129,8 +130,5 @@ const styles = StyleSheet.create({
   },
   dotUnavailable: {
     backgroundColor: "transparent",
-  },
-  dotSelected: {
-    backgroundColor: "#FFFFFF",
   },
 });
