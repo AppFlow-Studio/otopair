@@ -1,7 +1,13 @@
 /**
  * Screen 1 · Select Services — booking-flow entry.
  *
- * Map peek at top, glassy frosted sheet over it with:
+ * Full-bleed map underneath, draggable `@gorhom/bottom-sheet` over
+ * it with the same 4 snap points the legacy ServiceBottomSheet used
+ * (23 / 38 / 55 / 98%). Glass styling supplied through gorhom's
+ * backgroundComponent + handleComponent slots so the frosted blue
+ * animates in sync with snap transitions.
+ *
+ * Sheet content (BottomSheetScrollView):
  *  - close + search + vehicle puck top row
  *  - "Select Services" + subtitle
  *  - 2 hero cards (Closest Shop + Most Booked)
@@ -11,17 +17,21 @@
  * Spec: ~/Downloads/<figma frames> Screen 1.
  */
 
-import React, { useEffect, useMemo, useState } from "react";
-import { Dimensions, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Pressable, StyleSheet, View } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Location from "expo-location";
 import MapView, { PROVIDER_DEFAULT, type Region } from "react-native-maps";
+import BottomSheet, { BottomSheetScrollView } from "@gorhom/bottom-sheet";
 import { Search, X } from "lucide-react-native";
 
 import { Text } from "@/components/shared-ui";
 import { CategoryListRow } from "@/components/booking-flow/CategoryListRow";
-import { GlassSheet } from "@/components/booking-flow/GlassSheet";
+import {
+  GlassSheetBackground,
+  GlassSheetHandle,
+} from "@/components/booking-flow/GlassSheet";
 import { HeroCardClosestShop } from "@/components/booking-flow/HeroCardClosestShop";
 import { HeroCardMostBooked } from "@/components/booking-flow/HeroCardMostBooked";
 import { QuickBookRow } from "@/components/booking-flow/QuickBookRow";
@@ -36,16 +46,22 @@ const FALLBACK_REGION: Region = {
   longitudeDelta: 0.08,
 };
 
-const SCREEN_HEIGHT = Dimensions.get("window").height;
-const MAP_HEIGHT = Math.round(SCREEN_HEIGHT * 0.22);
+// Same snap points the legacy ServiceBottomSheet used (see
+// components/booking/ServiceBottomSheet.tsx:171 `SNAP_POINTS_CONFIG.discovery`).
+// `enableDynamicSizing` is intentionally off so the heights here are
+// authoritative; otherwise gorhom can try to fit content height and
+// fight the user-driven drag.
+const SNAP_POINTS = ["23%", "38%", "55%", "98%"] as const;
+const INITIAL_SNAP_INDEX = 3; // enter at "expanded"
 
 export default function SelectServicesScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const availableServices = useBookingStore((s) => s.availableServices);
+  const sheetRef = useRef<BottomSheet>(null);
 
-  // Map backdrop region — reuses the same pattern as tire-booking's
-  // RequestingMapBackground but locked (no interaction).
+  // Map region — locked (no interaction). Uses cached location
+  // permission when granted; falls back to a NY metro region.
   const [region, setRegion] = useState<Region | null>(null);
   useEffect(() => {
     let cancelled = false;
@@ -97,8 +113,8 @@ export default function SelectServicesScreen() {
 
   return (
     <View style={styles.root}>
-      {/* Map backdrop */}
-      <View style={[styles.mapLayer, { height: MAP_HEIGHT }]} pointerEvents="none">
+      {/* Full-bleed map underneath the sheet */}
+      <View style={StyleSheet.absoluteFill} pointerEvents="none">
         {region ? (
           <MapView
             style={StyleSheet.absoluteFill}
@@ -116,78 +132,84 @@ export default function SelectServicesScreen() {
         )}
       </View>
 
-      {/* Glassy sheet covering the rest */}
-      <View style={[styles.sheet, { top: MAP_HEIGHT - 12 }]}>
-        <GlassSheet>
-          <ScrollView
-            contentContainerStyle={[
-              styles.scrollContent,
-              { paddingBottom: insets.bottom + 24 },
-            ]}
-            showsVerticalScrollIndicator={false}
-          >
-            {/* Top control row */}
-            <View style={styles.topRow}>
-              <Pressable
-                style={styles.iconBtn}
-                onPress={onClose}
-                hitSlop={8}
-                accessibilityLabel="Close"
-              >
-                <X size={20} color="#1F2937" strokeWidth={2} />
-              </Pressable>
-              <View style={{ flex: 1 }} />
-              <Pressable
-                style={styles.iconBtn}
-                onPress={() => {
-                  /* TODO Screen-1 search overlay — Phase 2 */
-                }}
-                hitSlop={8}
-                accessibilityLabel="Search services"
-              >
-                <Search size={20} color="#1F2937" strokeWidth={2} />
-              </Pressable>
-              <View style={{ width: 8 }} />
-              <VehiclePuck />
-            </View>
+      {/* Draggable glassy sheet — same snap config as the legacy flow */}
+      <BottomSheet
+        ref={sheetRef}
+        snapPoints={SNAP_POINTS as unknown as string[]}
+        index={INITIAL_SNAP_INDEX}
+        enablePanDownToClose={false}
+        enableDynamicSizing={false}
+        backgroundComponent={GlassSheetBackground}
+        handleComponent={GlassSheetHandle}
+      >
+        <BottomSheetScrollView
+          contentContainerStyle={[
+            styles.scrollContent,
+            { paddingBottom: insets.bottom + 32 },
+          ]}
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Top control row */}
+          <View style={styles.topRow}>
+            <Pressable
+              style={styles.iconBtn}
+              onPress={onClose}
+              hitSlop={8}
+              accessibilityLabel="Close"
+            >
+              <X size={20} color="#1F2937" strokeWidth={2} />
+            </Pressable>
+            <View style={{ flex: 1 }} />
+            <Pressable
+              style={styles.iconBtn}
+              onPress={() => {
+                /* TODO Screen-1 search overlay — Phase 2 */
+              }}
+              hitSlop={8}
+              accessibilityLabel="Search services"
+            >
+              <Search size={20} color="#1F2937" strokeWidth={2} />
+            </Pressable>
+            <View style={{ width: 8 }} />
+            <VehiclePuck />
+          </View>
 
-            {/* Header */}
-            <View style={styles.header}>
-              <Text size="3xl" weight="bold" color="#0F172A" style={styles.title}>
-                Select Services
-              </Text>
-              <Text size="md" weight="regular" color="#6B7280">
-                What does your car need?
-              </Text>
-            </View>
+          {/* Header */}
+          <View style={styles.header}>
+            <Text size="3xl" weight="bold" color="#0F172A" style={styles.title}>
+              Select Services
+            </Text>
+            <Text size="md" weight="regular" color="#6B7280">
+              What does your car need?
+            </Text>
+          </View>
 
-            {/* Hero pair */}
-            <View style={styles.heroRow}>
-              <HeroCardClosestShop />
-              <HeroCardMostBooked />
-            </View>
+          {/* Hero pair */}
+          <View style={styles.heroRow}>
+            <HeroCardClosestShop />
+            <HeroCardMostBooked />
+          </View>
 
-            {/* Category list */}
-            <View style={styles.list}>
-              {TABS.map((tab, idx) => (
-                <View key={tab.key}>
-                  {idx > 0 ? <View style={styles.divider} /> : null}
-                  <CategoryListRow
-                    tabKey={tab.key}
-                    label={tab.label}
-                    serviceCount={countByTab[tab.key] ?? 0}
-                  />
-                </View>
-              ))}
-            </View>
+          {/* Category list */}
+          <View style={styles.list}>
+            {TABS.map((tab, idx) => (
+              <View key={tab.key}>
+                {idx > 0 ? <View style={styles.divider} /> : null}
+                <CategoryListRow
+                  tabKey={tab.key}
+                  label={tab.label}
+                  serviceCount={countByTab[tab.key] ?? 0}
+                />
+              </View>
+            ))}
+          </View>
 
-            {/* Quick Book */}
-            <View style={styles.quickBookWrap}>
-              <QuickBookRow />
-            </View>
-          </ScrollView>
-        </GlassSheet>
-      </View>
+          {/* Quick Book */}
+          <View style={styles.quickBookWrap}>
+            <QuickBookRow />
+          </View>
+        </BottomSheetScrollView>
+      </BottomSheet>
     </View>
   );
 }
@@ -197,30 +219,18 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#0F172A",
   },
-  mapLayer: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-  },
   mapFallback: {
     backgroundColor: "#C8D7DE",
   },
-  sheet: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 0,
-  },
   scrollContent: {
-    paddingTop: 8,
+    paddingTop: 4,
     paddingBottom: 32,
   },
   topRow: {
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 16,
-    paddingTop: 12,
+    paddingTop: 6,
     paddingBottom: 16,
   },
   iconBtn: {

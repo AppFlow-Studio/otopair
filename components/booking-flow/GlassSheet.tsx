@@ -1,33 +1,38 @@
 /**
  * GlassSheet — shared glassmorphism container for the booking flow.
  *
- * Frosted blue background with a soft top-curved sheet shape and a
- * pull handle. Used as the visual container for Screens 1 and 2 of
- * the new booking flow (sheet-over-map). The map shows through with
- * a faint tint via the gradient + optional BlurView.
+ * The visual primitive is split into two pieces so it can plug into
+ * `@gorhom/bottom-sheet`'s slot APIs:
+ *  - `GlassSheetBackground` → supplied as `backgroundComponent`
+ *  - `GlassSheetHandle`     → supplied as `handleComponent`
  *
- * Spec: ~/Downloads/<figma frames> (mockups from Yassin).
+ * `GlassSheet` (default export) is a thin standalone wrapper that
+ * stacks both with the same content, useful for any non-sheet
+ * surface that still wants the frosted-blue look (e.g. tooltips,
+ * Phase-3 floating chrome).
+ *
+ * Spec: ~/Downloads/<figma frames> Screens 1–2 (sheet-over-map).
  */
 
 import React from "react";
-import { Platform, StyleSheet, View } from "react-native";
+import { Platform, StyleSheet, View, type ViewProps } from "react-native";
 import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
 
 import { BorderRadius } from "@/constants/theme";
 
-interface GlassSheetProps {
-  /** Visible content stacked on top of the glass surface. */
-  children: React.ReactNode;
-  /** When true (default), renders the small pull handle at the top. */
-  showHandle?: boolean;
-}
-
 const GLASS_GRADIENT = ["#CFE0EB", "#DCE7EF", "#E8EEF3"] as const;
 
-export function GlassSheet({ children, showHandle = true }: GlassSheetProps) {
+/**
+ * Frosted-blue background. Plug into `BottomSheet` as
+ * `backgroundComponent={GlassSheetBackground}`. The library passes
+ * the animated `style` prop (and `pointerEvents`) — those forward
+ * onto the container so the gradient + BlurView animate in sync
+ * with snap transitions.
+ */
+export function GlassSheetBackground({ style, pointerEvents }: ViewProps) {
   return (
-    <View style={styles.root}>
+    <View style={[styles.background, style]} pointerEvents={pointerEvents}>
       {Platform.OS === "ios" ? (
         <BlurView
           intensity={32}
@@ -43,11 +48,36 @@ export function GlassSheet({ children, showHandle = true }: GlassSheetProps) {
         style={[StyleSheet.absoluteFill, styles.gradient]}
         pointerEvents="none"
       />
-      {showHandle ? (
-        <View style={styles.handleRow} pointerEvents="none">
-          <View style={styles.handle} />
-        </View>
-      ) : null}
+    </View>
+  );
+}
+
+/**
+ * Pull handle styled to match the glass tint. Plug into BottomSheet
+ * as `handleComponent={GlassSheetHandle}`.
+ */
+export function GlassSheetHandle() {
+  return (
+    <View style={styles.handleRow} pointerEvents="none">
+      <View style={styles.handle} />
+    </View>
+  );
+}
+
+interface GlassSheetProps {
+  children: React.ReactNode;
+  showHandle?: boolean;
+}
+
+/**
+ * Standalone glass surface (non-bottom-sheet contexts). Stacks the
+ * background + optional handle + children.
+ */
+export function GlassSheet({ children, showHandle = true }: GlassSheetProps) {
+  return (
+    <View style={styles.root}>
+      <GlassSheetBackground style={StyleSheet.absoluteFill} />
+      {showHandle ? <GlassSheetHandle /> : null}
       <View style={styles.content}>{children}</View>
     </View>
   );
@@ -61,6 +91,12 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     backgroundColor: "rgba(207, 224, 235, 0.85)",
   },
+  background: {
+    borderTopLeftRadius: BorderRadius["2xl"],
+    borderTopRightRadius: BorderRadius["2xl"],
+    overflow: "hidden",
+    backgroundColor: "rgba(207, 224, 235, 0.85)",
+  },
   gradient: {
     borderTopLeftRadius: BorderRadius["2xl"],
     borderTopRightRadius: BorderRadius["2xl"],
@@ -68,8 +104,8 @@ const styles = StyleSheet.create({
   },
   handleRow: {
     alignItems: "center",
-    paddingTop: 8,
-    paddingBottom: 4,
+    paddingTop: 10,
+    paddingBottom: 6,
   },
   handle: {
     width: 44,
