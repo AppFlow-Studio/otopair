@@ -342,7 +342,12 @@ export default function PickDateTimeScreen() {
               </Text>
             ) : null}
           </View>
+          {/* Key on the selected day so swapping dates remounts the
+              grid — that re-triggers the FadeInUp cascade so the new
+              day's slots animate in like MaintenanceTracker does
+              when the user switches cars. */}
           <TimeSlotGrid
+            key={selectedDateISO ?? "no-date"}
             slots={slots}
             selectedTime={selectedTime}
             onSelect={setSelectedTime}

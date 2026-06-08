@@ -4,10 +4,15 @@
  * Buckets the available slot times into MORNING / AFTERNOON /
  * EVENING by 24-hour start hour. Empty sections are skipped. Each
  * time is a chip; the selected one is filled darker blue.
+ *
+ * When the parent rekeys the grid (e.g. on date change) the
+ * sections + chips fade up in a small stagger — same family of
+ * motion as MaintenanceTracker uses when switching cars.
  */
 
 import React, { useMemo } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
+import Animated, { FadeInUp } from "react-native-reanimated";
 
 import { Text } from "@/components/shared-ui";
 
@@ -28,6 +33,12 @@ interface Bucket {
   label: string;
   slots: TimeSlot[];
 }
+
+// Cascade timing — quick + tight so 20-ish chips don't crawl.
+const SECTION_GAP_MS = 60;
+const CHIP_STEP_MS = 24;
+const ENTRY_DURATION_MS = 320;
+const LABEL_DURATION_MS = 380;
 
 function bucketSlots(slots: TimeSlot[]): Bucket[] {
   const morning: TimeSlot[] = [];
@@ -51,46 +62,61 @@ export function TimeSlotGrid({ slots, selectedTime, onSelect }: TimeSlotGridProp
 
   if (slots.length === 0) {
     return (
-      <View style={styles.empty}>
+      <Animated.View
+        style={styles.empty}
+        entering={FadeInUp.duration(LABEL_DURATION_MS)}
+      >
         <Text size="sm" weight="regular" color="#6B7280" center>
           No available times — try a different day.
         </Text>
-      </View>
+      </Animated.View>
     );
   }
 
   return (
     <View style={styles.root}>
-      {buckets.map((bucket) => (
-        <View key={bucket.label} style={styles.section}>
-          <Text size="xs" weight="semiBold" color="#6B7280" style={styles.eyebrow}>
-            {bucket.label}
-          </Text>
-          <View style={styles.grid}>
-            {bucket.slots.map((slot) => {
-              const isSelected = slot.displayTime === selectedTime;
-              return (
-                <Pressable
-                  key={slot.displayTime}
-                  style={[styles.chip, isSelected && styles.chipSelected]}
-                  onPress={() => onSelect(slot.displayTime)}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: isSelected }}
-                  accessibilityLabel={slot.displayTime}
-                >
-                  <Text
-                    size="sm"
-                    weight={isSelected ? "bold" : "semiBold"}
-                    color={isSelected ? "#FFFFFF" : "#0F172A"}
+      {buckets.map((bucket, sectionIdx) => {
+        const sectionDelay = sectionIdx * SECTION_GAP_MS;
+        return (
+          <View key={bucket.label} style={styles.section}>
+            <Animated.View
+              entering={FadeInUp.duration(LABEL_DURATION_MS).delay(sectionDelay)}
+            >
+              <Text size="xs" weight="semiBold" color="#6B7280" style={styles.eyebrow}>
+                {bucket.label}
+              </Text>
+            </Animated.View>
+            <View style={styles.grid}>
+              {bucket.slots.map((slot, chipIdx) => {
+                const isSelected = slot.displayTime === selectedTime;
+                const delay = sectionDelay + 80 + chipIdx * CHIP_STEP_MS;
+                return (
+                  <Animated.View
+                    key={slot.displayTime}
+                    entering={FadeInUp.duration(ENTRY_DURATION_MS).delay(delay)}
                   >
-                    {slot.displayTime}
-                  </Text>
-                </Pressable>
-              );
-            })}
+                    <Pressable
+                      style={[styles.chip, isSelected && styles.chipSelected]}
+                      onPress={() => onSelect(slot.displayTime)}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: isSelected }}
+                      accessibilityLabel={slot.displayTime}
+                    >
+                      <Text
+                        size="sm"
+                        weight={isSelected ? "bold" : "semiBold"}
+                        color={isSelected ? "#FFFFFF" : "#0F172A"}
+                      >
+                        {slot.displayTime}
+                      </Text>
+                    </Pressable>
+                  </Animated.View>
+                );
+              })}
+            </View>
           </View>
-        </View>
-      ))}
+        );
+      })}
     </View>
   );
 }
