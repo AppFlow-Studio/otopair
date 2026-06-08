@@ -9,7 +9,8 @@
  */
 
 import React from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { Platform, Pressable, StyleSheet, View } from "react-native";
+import { BlurView } from "expo-blur";
 import { useRouter } from "expo-router";
 import { ChevronRight, Star } from "lucide-react-native";
 
@@ -43,6 +44,14 @@ export function MapShopCard({
       accessibilityRole="button"
       accessibilityLabel={`${shopName} details`}
     >
+      {Platform.OS === "ios" ? (
+        <BlurView
+          intensity={28}
+          tint="light"
+          style={StyleSheet.absoluteFill}
+          pointerEvents="none"
+        />
+      ) : null}
       <View style={styles.topRow}>
         <Text size="md" weight="bold" color="#0F172A" numberOfLines={1} style={styles.name}>
           {shopName}
@@ -92,17 +101,20 @@ function formatMiles(miles: number): string {
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 16,
+    backgroundColor: "rgba(255, 255, 255, 0.65)",
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.85)",
     paddingVertical: 12,
     paddingHorizontal: 14,
     shadowColor: "#0F172A",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.12,
-    shadowRadius: 14,
-    elevation: 6,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.16,
+    shadowRadius: 18,
+    elevation: 7,
     minWidth: 240,
     maxWidth: 320,
+    overflow: "hidden",
   },
   topRow: {
     flexDirection: "row",
