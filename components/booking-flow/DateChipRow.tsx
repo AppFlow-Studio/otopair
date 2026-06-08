@@ -86,6 +86,7 @@ export function DateChipRow({ items, selectedIsoDate, onSelect }: DateChipRowPro
 const styles = StyleSheet.create({
   row: {
     paddingHorizontal: 20,
+    paddingVertical: 14,
     gap: 10,
   },
   chip: {
@@ -100,14 +101,14 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   chipSelected: {
-    backgroundColor: "rgba(82, 153, 254, 0.18)",
-    borderColor: "rgba(82, 153, 254, 0.45)",
-    transform: [{ scale: 1.06 }],
+    backgroundColor: "rgba(82, 153, 254, 0.22)",
+    borderColor: "rgba(82, 153, 254, 0.55)",
+    transform: [{ translateY: -10 }, { scale: 1.14 }],
     shadowColor: "#0F172A",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.1,
-    shadowRadius: 10,
-    elevation: 4,
+    shadowOffset: { width: 0, height: 14 },
+    shadowOpacity: 0.22,
+    shadowRadius: 18,
+    elevation: 12,
   },
   chipDisabled: {
     opacity: 0.45,
