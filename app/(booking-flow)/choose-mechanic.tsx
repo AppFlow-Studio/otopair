@@ -114,30 +114,23 @@ export default function ChooseMechanicScreen() {
   }, []);
 
   // Animate the map camera to the active shop whenever it changes.
-  // The map frames the user + shop with a little padding so both fit.
+  // Center on the shop with a fixed neighborhood-scale zoom (~1mi
+  // visible) rather than trying to frame user + shop together —
+  // shops can be far from the user in dev data, and an auto-fit
+  // would zoom out continent-scale.
   useEffect(() => {
-    if (!activeShop || !userLocation || !mapRef.current) return;
+    if (!activeShop || !mapRef.current) return;
     if (activeShop.latitude === 0 && activeShop.longitude === 0) return;
-    const midLat = (activeShop.latitude + userLocation.latitude) / 2;
-    const midLng = (activeShop.longitude + userLocation.longitude) / 2;
-    const latDelta = Math.max(
-      0.02,
-      Math.abs(activeShop.latitude - userLocation.latitude) * 2.4,
-    );
-    const lngDelta = Math.max(
-      0.02,
-      Math.abs(activeShop.longitude - userLocation.longitude) * 2.4,
-    );
     mapRef.current.animateToRegion(
       {
-        latitude: midLat,
-        longitude: midLng,
-        latitudeDelta: latDelta,
-        longitudeDelta: lngDelta,
+        latitude: activeShop.latitude,
+        longitude: activeShop.longitude,
+        latitudeDelta: 0.035,
+        longitudeDelta: 0.035,
       },
       450,
     );
-  }, [activeShop, userLocation]);
+  }, [activeShop]);
 
   // Selection summary — shared across all pages (it's about the
   // user's cart, not the per-shop view).
