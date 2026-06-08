@@ -27,6 +27,11 @@ interface TimeSlotGridProps {
   slots: TimeSlot[];
   selectedTime: string | null;
   onSelect: (displayTime: string) => void;
+  /** True while the upstream query is in flight. While true we
+   *  render nothing so the "No available times" empty-state
+   *  doesn't flash in the brief window between a date change and
+   *  the new day's slots arriving from Convex. */
+  isLoading?: boolean;
 }
 
 interface Bucket {
@@ -57,8 +62,20 @@ function bucketSlots(slots: TimeSlot[]): Bucket[] {
   return out;
 }
 
-export function TimeSlotGrid({ slots, selectedTime, onSelect }: TimeSlotGridProps) {
+export function TimeSlotGrid({
+  slots,
+  selectedTime,
+  onSelect,
+  isLoading = false,
+}: TimeSlotGridProps) {
   const buckets = useMemo(() => bucketSlots(slots), [slots]);
+
+  if (isLoading) {
+    // Render an empty placeholder of stable height so the date
+    // change doesn't trigger a layout jump while Convex returns
+    // the new day's slots.
+    return <View style={styles.loadingPlaceholder} />;
+  }
 
   if (slots.length === 0) {
     return (
@@ -152,5 +169,8 @@ const styles = StyleSheet.create({
   empty: {
     paddingHorizontal: 20,
     paddingVertical: 24,
+  },
+  loadingPlaceholder: {
+    minHeight: 220,
   },
 });

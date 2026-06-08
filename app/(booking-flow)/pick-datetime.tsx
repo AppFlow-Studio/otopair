@@ -138,7 +138,11 @@ export default function PickDateTimeScreen() {
   // entries. Dedupe by startTime here — the grid only needs one
   // chip per time, and getSlotIdByDisplayTime resolves the right
   // mechanic-specific slot at confirm time.
-  const { slots: rawSlots, getSlotIdByDisplayTime } = useTimeSlotsForShop(
+  const {
+    slots: rawSlots,
+    getSlotIdByDisplayTime,
+    isLoading: slotsLoading,
+  } = useTimeSlotsForShop(
     shopId,
     selectedDateISO,
     mechanicId,
@@ -351,6 +355,7 @@ export default function PickDateTimeScreen() {
             slots={slots}
             selectedTime={selectedTime}
             onSelect={setSelectedTime}
+            isLoading={slotsLoading}
           />
         </View>
       </ScrollView>
