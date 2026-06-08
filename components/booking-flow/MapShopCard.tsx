@@ -1,0 +1,140 @@
+/**
+ * MapShopCard — floating white card anchored over the map on Screen 3.
+ *
+ * Shows the default shop the booking will route through: name +
+ * chevron, ⭐ rating + distance, estimated price range, and the
+ * next available slot for that shop. Tap → shop detail page.
+ *
+ * Spec: ~/Downloads/<figma frames> Screen 3.
+ */
+
+import React from "react";
+import { Pressable, StyleSheet, View } from "react-native";
+import { useRouter } from "expo-router";
+import { ChevronRight, Star } from "lucide-react-native";
+
+import { Text } from "@/components/shared-ui";
+
+interface MapShopCardProps {
+  shopId: string;
+  shopName: string;
+  rating: number | null;
+  distanceMi: number;
+  priceRange: string | null; // e.g. "~$92 – $108"; null while loading
+  nextSlotLabel: string | null; // e.g. "Next: Mon 9:00 AM"; null while loading
+}
+
+export function MapShopCard({
+  shopId,
+  shopName,
+  rating,
+  distanceMi,
+  priceRange,
+  nextSlotLabel,
+}: MapShopCardProps) {
+  const router = useRouter();
+
+  return (
+    <Pressable
+      style={styles.card}
+      onPress={() =>
+        router.push({ pathname: "/booking/shop/[id]", params: { id: shopId } })
+      }
+      accessibilityRole="button"
+      accessibilityLabel={`${shopName} details`}
+    >
+      <View style={styles.topRow}>
+        <Text size="md" weight="bold" color="#0F172A" numberOfLines={1} style={styles.name}>
+          {shopName}
+        </Text>
+        <ChevronRight size={18} color="#9CA3AF" strokeWidth={2} />
+      </View>
+
+      <View style={styles.metaRow}>
+        {rating != null ? (
+          <>
+            <Star size={13} color="#F59E0B" fill="#F59E0B" strokeWidth={2} />
+            <Text size="xs" weight="medium" color="#4B5563">
+              {rating.toFixed(1)}
+            </Text>
+            <Text size="xs" weight="regular" color="#6B7280">
+              ·
+            </Text>
+          </>
+        ) : null}
+        <Text size="xs" weight="medium" color="#4B5563">
+          {formatMiles(distanceMi)} mi away
+        </Text>
+      </View>
+
+      <Text size="xs" weight="semiBold" color="#6B7280" style={styles.eyebrow}>
+        ESTIMATED PRICE
+      </Text>
+      <View style={styles.priceRow}>
+        <Text size="xl" weight="bold" color="#0F172A" style={styles.price}>
+          {priceRange ?? "—"}
+        </Text>
+        {nextSlotLabel ? (
+          <Text size="xs" weight="medium" color="#6B7280" style={styles.nextSlot}>
+            {nextSlotLabel}
+          </Text>
+        ) : null}
+      </View>
+    </Pressable>
+  );
+}
+
+function formatMiles(miles: number): string {
+  if (miles < 0.1) return "<0.1";
+  if (miles < 10) return miles.toFixed(1);
+  return Math.round(miles).toString();
+}
+
+const styles = StyleSheet.create({
+  card: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.12,
+    shadowRadius: 14,
+    elevation: 6,
+    minWidth: 240,
+    maxWidth: 320,
+  },
+  topRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+    marginBottom: 4,
+  },
+  name: {
+    flexShrink: 1,
+  },
+  metaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginBottom: 8,
+  },
+  eyebrow: {
+    letterSpacing: 0.7,
+    marginBottom: 2,
+  },
+  priceRow: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  price: {
+    fontSize: 20,
+    lineHeight: 24,
+  },
+  nextSlot: {
+    marginBottom: 2,
+  },
+});
