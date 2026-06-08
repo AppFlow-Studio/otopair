@@ -20,7 +20,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Location from "expo-location";
 import MapView, { PROVIDER_DEFAULT, type Region } from "react-native-maps";
 import BottomSheet, { BottomSheetScrollView } from "@gorhom/bottom-sheet";
-import { ArrowLeft, Search } from "lucide-react-native";
+import { ArrowLeft } from "lucide-react-native";
 
 import { Text } from "@/components/shared-ui";
 import {
@@ -283,17 +283,6 @@ export default function CategoryDetailScreen() {
               <ArrowLeft size={20} color="#1F2937" strokeWidth={2} />
             </Pressable>
             <View style={{ flex: 1 }} />
-            <Pressable
-              style={styles.iconBtn}
-              onPress={() => {
-                /* TODO Phase-3+ search overlay */
-              }}
-              hitSlop={8}
-              accessibilityLabel="Search services"
-            >
-              <Search size={20} color="#1F2937" strokeWidth={2} />
-            </Pressable>
-            <View style={{ width: 8 }} />
             <VehiclePuck />
           </View>
 
