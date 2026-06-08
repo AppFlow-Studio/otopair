@@ -1423,7 +1423,16 @@ export const createBatch = mutation({
         const svc = args.services[idx];
         const partsCost = svc?.parts_cost ?? 0;
         const flagsSet = new Set(row.flags);
+        // Fixed-price modes (per-(shop,service,tier) override or CCB absolute)
+        // are a set price, not an estimate — they cannot be "outside band" or
+        // "engine-corrected". Skip the fallback-spec band check entirely so
+        // they never get tagged as fallback. Parts-band logic for these is
+        // deferred to a follow-up.
+        const isFixedPrice =
+          flagsSet.has("fixed_price_override") ||
+          flagsSet.has("ccb_absolute_pricing");
         if (
+          !isFixedPrice &&
           row.engine_parts_low != null &&
           row.engine_parts_high != null &&
           row.engine_parts_low > 0
