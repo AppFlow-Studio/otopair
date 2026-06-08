@@ -29,7 +29,6 @@ import {
   MechanicCarousel,
   type MechanicCarouselItem,
 } from "@/components/booking-flow/MechanicCarousel";
-import { ServiceSummaryChip } from "@/components/booking-flow/ServiceSummaryChip";
 import { StickyContinueBar } from "@/components/booking-flow/StickyContinueBar";
 import { VehiclePuck } from "@/components/booking-flow/VehiclePuck";
 import { useDefaultBookingShop } from "@/hooks/useDefaultBookingShop";
@@ -267,11 +266,6 @@ export default function ChooseMechanicScreen() {
           <VehiclePuck />
         </View>
 
-        {selectedCount > 0 ? (
-          <View style={styles.summaryChipWrap}>
-            <ServiceSummaryChip count={selectedCount} totalMinutes={totalMinutes} />
-          </View>
-        ) : null}
       </View>
 
       {/* Map shop card */}
@@ -456,9 +450,6 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(15, 23, 42, 0.08)",
     alignItems: "center",
     justifyContent: "center",
-  },
-  summaryChipWrap: {
-    alignItems: "center",
   },
   shopCardWrap: {
     position: "absolute",
