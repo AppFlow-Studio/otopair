@@ -29,6 +29,7 @@ export default function BookingFlowLayout() {
       <Stack.Screen name="category/[tab]" />
       <Stack.Screen name="choose-mechanic" />
       <Stack.Screen name="pick-datetime" />
+      <Stack.Screen name="search" />
     </Stack>
   );
 }

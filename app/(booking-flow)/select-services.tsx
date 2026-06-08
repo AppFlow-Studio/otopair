@@ -51,7 +51,7 @@ const FALLBACK_REGION: Region = {
 // `enableDynamicSizing` is intentionally off so the heights here are
 // authoritative; otherwise gorhom can try to fit content height and
 // fight the user-driven drag.
-const SNAP_POINTS = ["23%", "38%", "55%", "98%"] as const;
+const SNAP_POINTS = ["23%", "38%", "55%", "92%"] as const;
 const INITIAL_SNAP_INDEX = 3; // enter at "expanded"
 
 export default function SelectServicesScreen() {
@@ -162,9 +162,7 @@ export default function SelectServicesScreen() {
             <View style={{ flex: 1 }} />
             <Pressable
               style={styles.iconBtn}
-              onPress={() => {
-                /* TODO Screen-1 search overlay — Phase 2 */
-              }}
+              onPress={() => router.push("/(booking-flow)/search")}
               hitSlop={8}
               accessibilityLabel="Search services"
             >
