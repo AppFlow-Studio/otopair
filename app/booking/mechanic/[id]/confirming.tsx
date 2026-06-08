@@ -104,9 +104,13 @@ export default function BookingConfirmingScreen() {
   });
 
   // Open the sheet on mount, same shape as the tire-quote requesting flow.
+  // Wallet flow skips the sheet entirely — the user already authorized in
+  // the Apple Pay / Google Pay sheet, so a second confirm gate is bad UX
+  // and risks burning the one-time wallet PM if they back out.
   useEffect(() => {
+    if (isWalletFlow) return;
     sheetRef.current?.open();
-  }, []);
+  }, [isWalletFlow]);
 
   // Copy fade-in (after pin lands).
   const copyOpacity = useSharedValue(0);
@@ -290,6 +294,18 @@ export default function BookingConfirmingScreen() {
     router,
     id,
   ]);
+
+  // Wallet flow auto-fire: the user already authorized in the wallet sheet,
+  // so don't gate booking creation on a second tap. Kick off handleConfirm
+  // on mount while the Lottie plays as visual continuity. handleConfirm's
+  // internal `submitting` + navigatedRef guards keep this safe against
+  // re-renders; we still depend only on isWalletFlow to honor the mount-
+  // once contract.
+  useEffect(() => {
+    if (!isWalletFlow) return;
+    handleConfirm();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isWalletFlow]);
 
   return (
     <View style={styles.screen}>
