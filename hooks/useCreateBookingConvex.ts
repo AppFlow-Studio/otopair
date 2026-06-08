@@ -17,6 +17,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useBookingLaborHours } from "./useBookingLaborHours";
 import { useBookingPartsBreakdown } from "./useBookingPartsBreakdown";
+import { useBookingQuoteFallback } from "./useBookingQuoteFallback";
 import { positionFromOption } from "@/constants/serviceVariants";
 import { useUserFromConvex } from "./useUserFromConvex";
 import { useToast } from "./useToast";
@@ -122,6 +123,30 @@ export function useCreateBookingConvex() {
     selectedServiceIds,
     selectedServiceOptions,
   );
+
+  // Per-service positions for per_axle services — feed engine so the
+  // service total reflects 2 axles when "both" was picked.
+  const servicePositionsForQuote = useMemo(() => {
+    const out: Record<string, "front" | "rear" | "both"> = {};
+    for (const sid of selectedServiceIds) {
+      const pos = positionFromOption(selectedServiceOptions[sid]);
+      if (pos) out[sid] = pos;
+    }
+    return out;
+  }, [selectedServiceIds, selectedServiceOptions]);
+
+  // Pricing v2 engine band — same hook the Review & Pay screens use to
+  // decide whether the AI-enriched parts price falls outside the
+  // multiplier band. When it does, we submit the engine midpoint to
+  // createBatch so the booking row reflects what the customer agreed to,
+  // not the bad AI number.
+  const quoteFallback = useBookingQuoteFallback(
+    effectiveShopId,
+    vehicleOwnershipId,
+    selectedServiceIds,
+    servicePositionsForQuote,
+  );
+
   const pricedPartsTotalMap = useMemo(() => {
     const map = new Map<string, number>();
     for (const row of pricedPartsByService) {
@@ -170,12 +195,30 @@ export function useCreateBookingConvex() {
       // what the customer was shown:
       //   labor = rate × (vehicle-specific hours ?? default_labor_hours)
       //   parts = priced_parts total (part_fitments × part_prices) ?? default_parts_estimate
+      // When the Pricing v2 engine has a per-service band and the AI price
+      // falls outside −5% / +8%, swap parts to the engine midpoint so the
+      // booking row reflects the engine band the customer just agreed to.
       const services = selectedServices.map((s) => {
         const variantHours = laborHoursMap.get(String(s.id));
         const hours = typeof variantHours === "number" ? variantHours : (s.default_labor_hours ?? 0);
         const laborCost = laborRate * hours;
         const pricedParts = pricedPartsTotalMap.get(String(s.id));
-        const partsCost = typeof pricedParts === "number" ? pricedParts : (s.default_parts_estimate ?? 0);
+        const aiPartsCost = typeof pricedParts === "number" ? pricedParts : (s.default_parts_estimate ?? 0);
+        const engine = quoteFallback.byService.get(String(s.id));
+        let partsCost = aiPartsCost;
+        if (
+          engine &&
+          !engine.refused &&
+          engine.partsLow != null &&
+          engine.partsHigh != null
+        ) {
+          const inBand =
+            aiPartsCost >= engine.partsLow * 0.95 &&
+            aiPartsCost <= engine.partsHigh * 1.08;
+          if (!inBand) {
+            partsCost = (engine.partsLow + engine.partsHigh) / 2;
+          }
+        }
         return {
           service_id: s.id as Id<"services">,
           labor_cost: laborCost,

@@ -39,6 +39,7 @@ import { useBookingPartsBreakdown } from "@/hooks/useBookingPartsBreakdown";
 import { useBookingQuoteFallback } from "@/hooks/useBookingQuoteFallback";
 import { useCreateBookingConvex } from "@/hooks/useCreateBookingConvex";
 import { useShopFixedPricesForServices } from "@/hooks/useShopFixedPricesForServices";
+import { positionFromOption } from "@/constants/serviceVariants";
 import { deriveDisclosedRange, formatRange } from "@/lib/disclosedRange";
 import { formatDurationForCar } from "@/lib/formatDuration";
 import { computeBookingTax } from "@/lib/tax";
@@ -190,6 +191,19 @@ export default function PaymentScreen() {
     hasFallback: hasLaborFallback,
   } = useBookingLaborHours(selectedVehicle?.ownershipId, selectedServiceIds);
 
+  // Per-service booking positions for per_axle services (front/rear/both).
+  // Threaded into the engine query so the server-side scaling produces the
+  // correct SERVICE TOTAL for "both axles" — without this, the engine
+  // defaults to 1 axle and the totals come out half-sized.
+  const servicePositions = useMemo(() => {
+    const out: Record<string, "front" | "rear" | "both"> = {};
+    for (const sid of selectedServiceIds) {
+      const pos = positionFromOption(selectedServiceOptions[sid]);
+      if (pos) out[sid] = pos;
+    }
+    return out;
+  }, [selectedServiceIds, selectedServiceOptions]);
+
   // Pricing v2 engine band + per-quote flags. Drives the "Estimate" pill
   // below when the engine refused a service or flagged any line as
   // tier_estimate / fallback_catch / outside-band / etc. Same wiring as
@@ -198,6 +212,7 @@ export default function PaymentScreen() {
     resolvedShopId,
     selectedVehicle?.ownershipId,
     selectedServiceIds,
+    servicePositions,
   );
 
   const laborHoursMap = useMemo(() => {
@@ -229,6 +244,67 @@ export default function PaymentScreen() {
       selectedServiceIds,
     );
 
+  // Truth-in-pricing: when the Pricing v2 engine has a per-service band and
+  // the AI-enriched parts price falls outside −5% / +8% of it, the engine
+  // band wins (display + Stripe hold + persisted booking). Customer sees a
+  // realistic number, mechanic gets authority for the band ceiling, and the
+  // per-OEM-part row still renders so the breakdown stays transparent.
+  // Returns the cost to use for tax/fee math (midpoint when corrected), the
+  // low/high band for the disclosed range, and the source for telemetry.
+  // Engine returns service totals (partsLow/High already scaled by unit_count
+  // server-side via serviceUnits.resolveServiceUnitCount). Per-OEM rows render
+  // the per-unit band. No more hardcoded axleCount — works for every
+  // parts_kind (per_axle, per_cylinder, per_unit_spec, per_wheel, fixed_kit).
+  const getEffectiveParts = useCallback(
+    (service: (typeof selectedServices)[0]) => {
+      const aiCost = getServicePartsCost(service);
+      const engine = quoteFallback.byService.get(String(service.id));
+      const fallbackAi = {
+        cost: aiCost,
+        low: aiCost * 0.92,
+        high: aiCost * 1.08,
+        perUnitLow: aiCost * 0.92,
+        perUnitHigh: aiCost * 1.08,
+        unitCount: 1,
+        unitLabel: null as string | null,
+      };
+      if (engine && engine.refused) {
+        return { ...fallbackAi, source: "ai_estimate" as const };
+      }
+      if (
+        !engine ||
+        engine.partsLow == null ||
+        engine.partsHigh == null ||
+        engine.perUnitLow == null ||
+        engine.perUnitHigh == null
+      ) {
+        return { ...fallbackAi, source: "ai" as const };
+      }
+      const inBand =
+        aiCost >= engine.partsLow * 0.95 && aiCost <= engine.partsHigh * 1.08;
+      if (inBand) {
+        return {
+          ...fallbackAi,
+          unitCount: engine.unitCount,
+          unitLabel: engine.unitLabel,
+          source: "ai" as const,
+        };
+      }
+      return {
+        cost: (engine.partsLow + engine.partsHigh) / 2,
+        low: engine.partsLow,
+        high: engine.partsHigh,
+        perUnitLow: engine.perUnitLow,
+        perUnitHigh: engine.perUnitHigh,
+        unitCount: engine.unitCount,
+        unitLabel: engine.unitLabel,
+        source: "engine" as const,
+        partsSource: engine.partsSource ?? null,
+      };
+    },
+    [getServicePartsCost, quoteFallback.byService],
+  );
+
   // Calculate detailed breakdown — Pre-Job Approval flow: every variable
   // line renders as a band, not a single price. Parts vary ±25% (real
   // variance lives in part fitments + engine variant); labor is fixed.
@@ -250,11 +326,30 @@ export default function PaymentScreen() {
     // Split variable parts (banded) from fixed parts (pinned on both ends).
     // Mirrors computeDisclosedRange in convex/booking_quotes.ts so the
     // create call honors the same price the customer agrees to here.
+    // Per-service `getEffectiveParts` returns the engine-corrected band
+    // (Camry × multiplier × tier) when AI enrichment is off, otherwise
+    // returns AI ±8%. We sum cost (midpoint), low, and high separately so
+    // engine-corrected lines contribute their real spec band to the
+    // disclosed range and not a synthetic ±8% on the corrected midpoint.
     const variablePartsCost = selectedServices.reduce(
       (sum, s) =>
         fixedPriceMap.has(String(s.id))
           ? sum
-          : sum + getServicePartsCost(s),
+          : sum + getEffectiveParts(s).cost,
+      0,
+    );
+    const variablePartsLowSum = selectedServices.reduce(
+      (sum, s) =>
+        fixedPriceMap.has(String(s.id))
+          ? sum
+          : sum + getEffectiveParts(s).low,
+      0,
+    );
+    const variablePartsHighSum = selectedServices.reduce(
+      (sum, s) =>
+        fixedPriceMap.has(String(s.id))
+          ? sum
+          : sum + getEffectiveParts(s).high,
       0,
     );
     const fixedPartsTotal = selectedServices.reduce(
@@ -283,9 +378,8 @@ export default function PaymentScreen() {
       zip: shop?.zip,
     }).taxDollars;
 
-    const PARTS_BAND = 0.08;
-    const partsLow = Math.max(0, variablePartsCost * (1 - PARTS_BAND)) + fixedPartsTotal;
-    const partsHigh = variablePartsCost * (1 + PARTS_BAND) + fixedPartsTotal;
+    const partsLow = Math.max(0, variablePartsLowSum) + fixedPartsTotal;
+    const partsHigh = Math.max(partsLow, variablePartsHighSum) + fixedPartsTotal;
     const taxLow = computeBookingTax({
       laborDollars: billableLaborCost,
       partsDollars: partsLow,
@@ -308,9 +402,15 @@ export default function PaymentScreen() {
         laborCost: rate * getServiceLaborHours(s),
         partsFixed: fixedPriceMap.get(String(s.id)) ?? 0,
       }));
+    // Pass the engine-aware low/high explicitly so deriveDisclosedRange
+    // doesn't apply a synthetic ±8% on top of an already-banded engine
+    // correction. Variable portion only — fixed lines pin both endpoints
+    // internally via fixedPriceLines.
     const range = deriveDisclosedRange({
       laborCost,
       partsCost: variablePartsCost,
+      partsLowDollars: variablePartsLowSum,
+      partsHighDollars: variablePartsHighSum,
       state: shop?.state,
       zip: shop?.zip,
       fixedPriceLines,
@@ -335,7 +435,7 @@ export default function PaymentScreen() {
       rangeHigh: range.highDollars,
       rangeFormatted: range.formatted,
     };
-  }, [selectedServices, laborRate, shop?.state, shop?.zip, getServicePartsCost, getServiceLaborHours, fixedPriceMap]);
+  }, [selectedServices, laborRate, shop?.state, shop?.zip, getEffectiveParts, getServiceLaborHours, fixedPriceMap]);
 
   // Stash the customer-facing range + fixed-price flag so BookingConfirmStatus
   // can re-quote the same band the customer just agreed to and decide
@@ -343,9 +443,26 @@ export default function PaymentScreen() {
   const setDisclosedRangeFormatted = useBookingStore((s) => s.setDisclosedRangeFormatted);
   const setDisclosedRangeIsFixedPrice = useBookingStore((s) => s.setDisclosedRangeIsFixedPrice);
   const setDisclosedRangeIsEstimate = useBookingStore((s) => s.setDisclosedRangeIsEstimate);
+  // Only flags that *actually* mean the displayed band is uncertain. We
+  // intentionally exclude:
+  //   - 'awd_surcharge_applied'  — engine applied a known +10% multiplier;
+  //                                the price is correct, not an estimate
+  //   - 'fixed_price_override'   — guaranteed flat price; FixedPriceBadge
+  //                                already conveys this
+  //   - 'ccb_absolute_pricing'   — fixed CCB price from absolute table
+  //   - 'spread_exceeded'        — engine's own audit signal, not customer-
+  //                                facing context
+  // Without this allowlist the pill fires on basically every booking.
+  const ESTIMATE_TRIGGERING_FLAGS = new Set([
+    "tier_estimate",
+    "fallback_only",
+    "fallback_catch",
+    "engine_corrected_parts",
+    "price_outside_fallback_band",
+  ]);
   const isEstimateBadgeActive =
     quoteFallback.refused ||
-    quoteFallback.flags.length > 0 ||
+    quoteFallback.flags.some((f) => ESTIMATE_TRIGGERING_FLAGS.has(f)) ||
     hasLaborFallback ||
     (!isPricedPartsLoading && !hasRealPartsData);
   useEffect(() => {
@@ -366,17 +483,22 @@ export default function PaymentScreen() {
     (service: (typeof selectedServices)[0]) => {
       const flat = fixedPriceMap.get(String(service.id));
       if (flat != null) {
-        return { low: flat, high: flat, isFixed: true as const };
+        return { low: flat, high: flat, isFixed: true as const, isEngineEstimate: false };
       }
       const labor = (laborRate ?? 0) * getServiceLaborHours(service);
-      const parts = getServicePartsCost(service);
+      const eff = getEffectiveParts(service);
       return {
-        low: labor + parts * 0.92,
-        high: labor + parts * 1.08,
+        low: labor + eff.low,
+        high: labor + eff.high,
         isFixed: false as const,
+        // True whenever the engine couldn't confidently price this line —
+        // either it corrected from AI (source === "engine") or it refused
+        // and we're showing AI with an explicit estimate marker
+        // (source === "ai_estimate").
+        isEngineEstimate: eff.source === "engine" || eff.source === "ai_estimate",
       };
     },
-    [laborRate, getServicePartsCost, getServiceLaborHours, fixedPriceMap]
+    [laborRate, getEffectiveParts, getServiceLaborHours, fixedPriceMap]
   );
 
   // Fallback parts breakdown for services without real OEM-priced data.
@@ -574,6 +696,7 @@ export default function PaymentScreen() {
                     {service.name}
                   </Text>
                   {lineRange.isFixed && <FixedPriceBadge size="sm" />}
+                  {lineRange.isEngineEstimate && <EstimatePill size="sm" />}
                   {lineDurationLabel ? (
                     <Text size="sm" weight="regular" color="#6B7280">
                       · {lineDurationLabel}
@@ -606,10 +729,11 @@ export default function PaymentScreen() {
                   {/* Time is the TOTAL mechanic-occupancy duration (variable +
                       fixed); cost is the variable portion only, since the
                       fixed lines' labor is already bundled into their flat
-                      amount above. The visibility predicate stays on
-                      `variableLaborHours` so all-fixed carts still hide this
-                      row (cost would be $0). */}
-                  Labor ({formatDurationForCar(breakdown.laborHours) ?? "0 mins"})
+                      amount above. Rate suffix surfaces the per-tier labor
+                      rate so customers see what's being applied — different
+                      vehicle tiers get different shop rates. */}
+                  Labor ({formatDurationForCar(breakdown.laborHours) ?? "0 mins"}
+                  {laborRate ? ` @ $${laborRate}/hr` : ""})
                 </Text>
                 <Text size="sm" weight="medium" color="#6B7280">
                   ${breakdown.laborCost.toFixed(2)}
@@ -637,6 +761,15 @@ export default function PaymentScreen() {
                   if (fixedPriceMap.has(String(service.id))) return [];
                   const priced = pricedPartsMap.get(String(service.id));
                   if (!priced || !priced.winner) return [];
+                  // When the engine has corrected this service (AI-enriched
+                  // price was outside the multiplier band), the AI per-OEM
+                  // dollar amount is misleading. Keep the OEM name / brand /
+                  // qty so the mechanic still knows what's being installed,
+                  // but show "Estimate" in place of the bad number — the
+                  // service-level line above carries the engine band.
+                  const eff = getEffectiveParts(service);
+                  const engineCorrected = eff.source === "engine";
+                  const refusedEstimate = eff.source === "ai_estimate";
                   // Single-axle services have just `winner`. Position="both"
                   // services (e.g. Brake Pads All-four) carry `secondaryWinner`
                   // for the rear axle — render both as separate part lines.
@@ -666,7 +799,13 @@ export default function PaymentScreen() {
                           {part.name} (Part){qtyLabel}
                         </Text>
                         <Text size="sm" weight="medium" color="#6B7280">
-                          {hasPrice ? formatRange(lineLow, lineHigh) : "Price TBD"}
+                          {engineCorrected
+                            ? `${formatRange(eff.perUnitLow, eff.perUnitHigh)}${eff.unitLabel ? ` / ${eff.unitLabel}` : ""}`
+                            : refusedEstimate
+                              ? "Price TBD"
+                              : hasPrice
+                                ? formatRange(lineLow, lineHigh)
+                                : "Price TBD"}
                         </Text>
                       </View>
                     );

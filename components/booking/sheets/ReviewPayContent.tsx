@@ -42,6 +42,7 @@ import { useBookingLaborHours } from "@/hooks/useBookingLaborHours";
 import { useBookingPartsBreakdown } from "@/hooks/useBookingPartsBreakdown";
 import { useBookingQuoteFallback } from "@/hooks/useBookingQuoteFallback";
 import { useShopFixedPricesForServices } from "@/hooks/useShopFixedPricesForServices";
+import { positionFromOption } from "@/constants/serviceVariants";
 import { deriveDisclosedRange } from "@/lib/disclosedRange";
 import { formatDurationForCar } from "@/lib/formatDuration";
 import { computeBookingTax } from "@/lib/tax";
@@ -229,6 +230,18 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
     hasFallback: hasLaborFallback,
   } = useBookingLaborHours(selectedVehicle?.ownershipId, selectedServiceIds);
 
+  // Per-service booking positions for per_axle services (front/rear/both).
+  // Threaded into the engine query so the server-side scaling produces the
+  // correct SERVICE TOTAL for "both axles".
+  const servicePositions = useMemo(() => {
+    const out: Record<string, "front" | "rear" | "both"> = {};
+    for (const sid of selectedServiceIds) {
+      const pos = positionFromOption(selectedServiceOptions[sid]);
+      if (pos) out[sid] = pos;
+    }
+    return out;
+  }, [selectedServiceIds, selectedServiceOptions]);
+
   // Pricing v2 engine band + per-quote flags for the booking. Drives the
   // "Estimate" pill below when the engine refused a service or flagged any
   // line as tier_estimate / outside-band / etc.
@@ -236,6 +249,7 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
     resolvedShopId,
     selectedVehicle?.ownershipId,
     selectedServiceIds,
+    servicePositions,
   );
 
   const laborHoursMap = useMemo(() => {
@@ -265,6 +279,65 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
     [laborHoursMap],
   );
 
+  // Truth-in-pricing: when the Pricing v2 engine has a per-service band and
+  // the AI-enriched parts price falls outside −5% / +8% of it, the engine
+  // band wins (display + Stripe hold + persisted booking). Mirrors the
+  // identical helper in app/booking/mechanic/[id]/payment.tsx — co-edit
+  // both per the booking-flow-pages memory.
+  // Engine returns service totals (partsLow/High already scaled by unit_count
+  // server-side). Works generically for every parts_kind — per_axle (via
+  // booking position), per_cylinder (via engines.spark_plug_quantity),
+  // per_unit_spec (engine capacity field), per_wheel, fixed_kit.
+  const getEffectiveParts = useCallback(
+    (service: (typeof selectedServices)[0]) => {
+      const aiCost = getServicePartsCost(service);
+      const engine = quoteFallback.byService.get(String(service.id));
+      const fallbackAi = {
+        cost: aiCost,
+        low: aiCost * 0.92,
+        high: aiCost * 1.08,
+        perUnitLow: aiCost * 0.92,
+        perUnitHigh: aiCost * 1.08,
+        unitCount: 1,
+        unitLabel: null as string | null,
+      };
+      if (engine && engine.refused) {
+        return { ...fallbackAi, source: "ai_estimate" as const };
+      }
+      if (
+        !engine ||
+        engine.partsLow == null ||
+        engine.partsHigh == null ||
+        engine.perUnitLow == null ||
+        engine.perUnitHigh == null
+      ) {
+        return { ...fallbackAi, source: "ai" as const };
+      }
+      const inBand =
+        aiCost >= engine.partsLow * 0.95 && aiCost <= engine.partsHigh * 1.08;
+      if (inBand) {
+        return {
+          ...fallbackAi,
+          unitCount: engine.unitCount,
+          unitLabel: engine.unitLabel,
+          source: "ai" as const,
+        };
+      }
+      return {
+        cost: (engine.partsLow + engine.partsHigh) / 2,
+        low: engine.partsLow,
+        high: engine.partsHigh,
+        perUnitLow: engine.perUnitLow,
+        perUnitHigh: engine.perUnitHigh,
+        unitCount: engine.unitCount,
+        unitLabel: engine.unitLabel,
+        source: "engine" as const,
+        partsSource: engine.partsSource ?? null,
+      };
+    },
+    [getServicePartsCost, quoteFallback.byService],
+  );
+
   // Calculate detailed breakdown (shop labor rate + per-service parts costs).
   const breakdown = useMemo(() => {
     const rate = laborRate ?? 0;
@@ -279,13 +352,29 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
     );
 
     // Variable (banded) parts only — services that hit a flat price are
-    // excluded from the ±25% band and contribute their flat amount on both
-    // endpoints instead. Mirrors `computeDisclosedRange` (server).
+    // excluded and contribute their flat amount on both endpoints instead.
+    // Mirrors `computeDisclosedRange` (server). Each variable line goes
+    // through getEffectiveParts so engine-corrected services contribute
+    // their real spec band, not a synthetic ±8% on a bad AI midpoint.
     const variablePartsCost = selectedServices.reduce(
       (sum, s) =>
         fixedPriceMap.has(String(s.id))
           ? sum
-          : sum + getServicePartsCost(s),
+          : sum + getEffectiveParts(s).cost,
+      0,
+    );
+    const variablePartsLowSum = selectedServices.reduce(
+      (sum, s) =>
+        fixedPriceMap.has(String(s.id))
+          ? sum
+          : sum + getEffectiveParts(s).low,
+      0,
+    );
+    const variablePartsHighSum = selectedServices.reduce(
+      (sum, s) =>
+        fixedPriceMap.has(String(s.id))
+          ? sum
+          : sum + getEffectiveParts(s).high,
       0,
     );
     const fixedPartsTotal = selectedServices.reduce(
@@ -326,20 +415,26 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
         laborCost: rate * getServiceLaborHours(s),
         partsFixed: fixedPriceMap.get(String(s.id)) ?? 0,
       }));
+    // Pass the engine-aware low/high explicitly so deriveDisclosedRange
+    // doesn't apply a synthetic band on top of an already-banded engine
+    // correction. Variable portion only — fixed lines pin both endpoints
+    // internally via fixedPriceLines.
     const range = deriveDisclosedRange({
       laborCost,
       partsCost: variablePartsCost,
+      partsLowDollars: variablePartsLowSum,
+      partsHighDollars: variablePartsHighSum,
       state: shop?.state,
       zip: shop?.zip,
       fixedPriceLines,
     });
 
     // Per-row range components so each line ($parts, $tax, $fee) can show
-    // the band the customer is actually agreeing to. Parts: ±25% on the
-    // variable portion only; flat parts add a fixed amount on both ends.
-    const PARTS_BAND = 0.25;
-    const partsLow = Math.max(0, variablePartsCost * (1 - PARTS_BAND)) + fixedPartsTotal;
-    const partsHigh = variablePartsCost * (1 + PARTS_BAND) + fixedPartsTotal;
+    // the band the customer is actually agreeing to. Engine-corrected
+    // lines contribute their real spec band; AI-priced lines get ±8% per
+    // line; flat lines pin both endpoints.
+    const partsLow = Math.max(0, variablePartsLowSum) + fixedPartsTotal;
+    const partsHigh = Math.max(partsLow, variablePartsHighSum) + fixedPartsTotal;
     const taxLow = computeBookingTax({
       laborDollars: billableLaborCost,
       partsDollars: partsLow,
@@ -374,7 +469,7 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
       feeLow,
       feeHigh,
     };
-  }, [selectedServices, laborRate, shop?.state, shop?.zip, getServicePartsCost, getServiceLaborHours, fixedPriceMap]);
+  }, [selectedServices, laborRate, shop?.state, shop?.zip, getEffectiveParts, getServiceLaborHours, fixedPriceMap]);
 
   // Stash the customer-facing range in the booking store so the next screen
   // in the flow (BookingConfirmStatus) can quote the same band the customer
@@ -382,9 +477,20 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
   const setDisclosedRangeFormatted = useBookingStore((s) => s.setDisclosedRangeFormatted);
   const setDisclosedRangeIsFixedPrice = useBookingStore((s) => s.setDisclosedRangeIsFixedPrice);
   const setDisclosedRangeIsEstimate = useBookingStore((s) => s.setDisclosedRangeIsEstimate);
+  // Only flags that *actually* mean the displayed band is uncertain. We
+  // intentionally exclude awd_surcharge_applied (real +10%), fixed_price_override
+  // (FixedPriceBadge covers it), ccb_absolute_pricing (fixed CCB), spread_exceeded
+  // (engine self-audit). Without this allowlist the pill fires on every booking.
+  const ESTIMATE_TRIGGERING_FLAGS = new Set([
+    "tier_estimate",
+    "fallback_only",
+    "fallback_catch",
+    "engine_corrected_parts",
+    "price_outside_fallback_band",
+  ]);
   const isEstimateBadgeActive =
     quoteFallback.refused ||
-    quoteFallback.flags.length > 0 ||
+    quoteFallback.flags.some((f) => ESTIMATE_TRIGGERING_FLAGS.has(f)) ||
     hasLaborFallback ||
     (!isPricedPartsLoading && !hasRealPartsData);
   React.useEffect(() => {
@@ -405,17 +511,18 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
     (service: (typeof selectedServices)[0]) => {
       const flat = fixedPriceMap.get(String(service.id));
       if (flat != null) {
-        return { low: flat, high: flat, isFixed: true as const };
+        return { low: flat, high: flat, isFixed: true as const, isEngineEstimate: false };
       }
       const labor = (laborRate ?? 0) * getServiceLaborHours(service);
-      const parts = getServicePartsCost(service);
+      const eff = getEffectiveParts(service);
       return {
-        low: labor + parts * 0.75,
-        high: labor + parts * 1.25,
+        low: labor + eff.low,
+        high: labor + eff.high,
         isFixed: false as const,
+        isEngineEstimate: eff.source === "engine" || eff.source === "ai_estimate",
       };
     },
-    [laborRate, getServicePartsCost, getServiceLaborHours, fixedPriceMap],
+    [laborRate, getEffectiveParts, getServiceLaborHours, fixedPriceMap],
   );
 
   // Fallback parts breakdown for services without real OEM-priced data.
@@ -597,6 +704,7 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
                     {service.name}
                   </Text>
                   {lineRange.isFixed && <FixedPriceBadge size="sm" />}
+                  {lineRange.isEngineEstimate && <EstimatePill size="sm" />}
                   {lineDurationLabel ? (
                     <Text size="sm" weight="regular" color="#6B7280">
                       · {lineDurationLabel}
@@ -628,10 +736,11 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
                   {/* Time is the TOTAL mechanic-occupancy duration (variable +
                       fixed); cost is the variable portion only, since the
                       fixed lines' labor is already bundled into their flat
-                      amount above. The visibility predicate stays on
-                      `variableLaborHours` so all-fixed carts still hide this
-                      row (cost would be $0). */}
-                  Labor ({formatDurationForCar(breakdown.laborHours) ?? "0 mins"})
+                      amount above. Rate suffix surfaces the per-tier labor
+                      rate so customers see what's being applied — different
+                      vehicle tiers get different shop rates. */}
+                  Labor ({formatDurationForCar(breakdown.laborHours) ?? "0 mins"}
+                  {laborRate ? ` @ $${laborRate}/hr` : ""})
                 </Text>
                 <Text size="sm" weight="medium" color="#6B7280">
                   ${breakdown.laborCost.toFixed(2)}
@@ -660,6 +769,15 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
                   if (fixedPriceMap.has(String(service.id))) return [];
                   const priced = pricedPartsMap.get(String(service.id));
                   if (!priced || !priced.winner) return [];
+                  // When the engine has corrected this service's parts band
+                  // (AI-enriched price was outside the multiplier band), the
+                  // AI per-OEM dollar amount is misleading. Keep the OEM name
+                  // + qty so the mechanic still knows what's being installed,
+                  // but render "Estimate" in place of the bad number — the
+                  // service-level line above carries the engine band.
+                  const eff = getEffectiveParts(service);
+                  const engineCorrected = eff.source === "engine";
+                  const refusedEstimate = eff.source === "ai_estimate";
                   // Single-axle services have just `winner`. Position="both"
                   // services (Brake Pads All-four) have `secondaryWinner` too —
                   // render both axles as separate part lines.
@@ -670,7 +788,7 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
                     const qtyLabel = part.quantity > 1 ? ` ×${part.quantity}` : "";
                     const hasPrice = part.has_price_data && part.line_total > 0;
                     const unitLabel =
-                      hasPrice && part.quantity > 1 && part.unit_price > 0
+                      hasPrice && part.quantity > 1 && part.unit_price > 0 && !engineCorrected
                         ? ` @ ~$${part.unit_price.toFixed(2)}`
                         : "";
                     return (
@@ -680,7 +798,13 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
                           {unitLabel}
                         </Text>
                         <Text size="sm" weight="medium" color="#6B7280">
-                          {hasPrice ? `$${part.line_total.toFixed(2)}` : "Price TBD"}
+                          {engineCorrected
+                            ? `$${eff.perUnitLow.toFixed(2)} – $${eff.perUnitHigh.toFixed(2)}${eff.unitLabel ? ` / ${eff.unitLabel}` : ""}`
+                            : refusedEstimate
+                              ? "Price TBD"
+                              : hasPrice
+                                ? `$${part.line_total.toFixed(2)}`
+                                : "Price TBD"}
                         </Text>
                       </View>
                     );
