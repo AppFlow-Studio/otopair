@@ -133,13 +133,27 @@ export default function PickDateTimeScreen() {
     if (firstAvail) setSelectedDateISO(firstAvail.isoDate);
   }, [chipItemsWithAvailability, selectedDateISO]);
 
-  // Slots for the selected day.
-  const { slots, getSlotIdByDisplayTime } = useTimeSlotsForShop(
+  // Slots for the selected day. The Convex query returns ONE row
+  // per (mechanic, time), so a shop with 3 mechanics has 3 "9:00 AM"
+  // entries. Dedupe by startTime here — the grid only needs one
+  // chip per time, and getSlotIdByDisplayTime resolves the right
+  // mechanic-specific slot at confirm time.
+  const { slots: rawSlots, getSlotIdByDisplayTime } = useTimeSlotsForShop(
     shopId,
     selectedDateISO,
     mechanicId,
     totalMinutes > 0 ? totalMinutes : undefined,
   );
+  const slots = useMemo(() => {
+    const seen = new Set<string>();
+    const out: typeof rawSlots = [];
+    for (const s of rawSlots) {
+      if (seen.has(s.startTime)) continue;
+      seen.add(s.startTime);
+      out.push(s);
+    }
+    return out;
+  }, [rawSlots]);
 
   const [selectedTime, setSelectedTime] = useState<string | null>(null);
 
