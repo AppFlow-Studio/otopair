@@ -103,15 +103,17 @@ export default function BookingFlowSearchScreen() {
     if (!isHandoff && !selectedServiceIds.includes(service.id)) {
       toggleServiceSelection(service.id);
     }
+    // `router.replace` swaps the search screen OUT of the stack
+    // so ← back from the category screen returns to Screen 1
+    // (where the user opened search from), not back into the
+    // search input. Same intent as Uber Eats / DoorDash search.
     if (service.tab) {
-      router.push({
+      router.replace({
         pathname: "/(booking-flow)/category/[tab]",
         params: { tab: service.tab },
       });
     } else {
-      // Service has no v5 tab (shouldn't happen post-merge, but
-      // safe fallback): just go back to Screen 1.
-      router.push("/(booking-flow)/select-services");
+      router.replace("/(booking-flow)/select-services");
     }
   };
 
