@@ -22,7 +22,7 @@ import { Calendar, Car, ChevronRight, FileText, Info, Star } from "lucide-react-
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // 3. Shared UI (design system)
-import { BrandColors, ErrorOccurredModal, FixedPriceBadge, Spacing, Text } from "@/components/shared-ui";
+import { BrandColors, ErrorOccurredModal, EstimatePill, FixedPriceBadge, Spacing, Text } from "@/components/shared-ui";
 
 // 4. Flow-specific components
 import { BookingPageHeader } from "@/components/booking/pages";
@@ -36,6 +36,7 @@ import { getPartsBreakdown } from "@/constants/services";
 import { BorderRadius, Shadows } from "@/constants/theme";
 import { useBookingLaborHours } from "@/hooks/useBookingLaborHours";
 import { useBookingPartsBreakdown } from "@/hooks/useBookingPartsBreakdown";
+import { useBookingQuoteFallback } from "@/hooks/useBookingQuoteFallback";
 import { useCreateBookingConvex } from "@/hooks/useCreateBookingConvex";
 import { useShopFixedPricesForServices } from "@/hooks/useShopFixedPricesForServices";
 import { deriveDisclosedRange, formatRange } from "@/lib/disclosedRange";
@@ -145,12 +146,15 @@ export default function PaymentScreen() {
   // fall back to `service.default_parts_estimate`. While `isPricedPartsLoading`
   // is true the breakdown shows a skeleton row instead of a stale labor-only
   // band — the band updates once the query lands.
-  const { breakdown: pricedPartsByService, isLoading: isPricedPartsLoading } =
-    useBookingPartsBreakdown(
-      selectedVehicle?.ownershipId,
-      selectedServiceIds,
-      selectedServiceOptions,
-    );
+  const {
+    breakdown: pricedPartsByService,
+    isLoading: isPricedPartsLoading,
+    hasRealData: hasRealPartsData,
+  } = useBookingPartsBreakdown(
+    selectedVehicle?.ownershipId,
+    selectedServiceIds,
+    selectedServiceOptions,
+  );
 
   // Map serviceId → priced row so per-line lookups are O(1) below. Any service
   // with at least one fitment qualifies (parts without prices still render as
@@ -180,8 +184,21 @@ export default function PaymentScreen() {
   // for services with no per-vehicle row. Spark plugs on the CR-V drops from
   // 1.5hr (catalog default) to 0.5hr (book_hours) because the K24W9 is a
   // 4-cyl inline — much faster than a V6/V8 plug change.
-  const { laborHours: laborHoursByService, isLoading: isLaborHoursLoading } =
-    useBookingLaborHours(selectedVehicle?.ownershipId, selectedServiceIds);
+  const {
+    laborHours: laborHoursByService,
+    isLoading: isLaborHoursLoading,
+    hasFallback: hasLaborFallback,
+  } = useBookingLaborHours(selectedVehicle?.ownershipId, selectedServiceIds);
+
+  // Pricing v2 engine band + per-quote flags. Drives the "Estimate" pill
+  // below when the engine refused a service or flagged any line as
+  // tier_estimate / fallback_catch / outside-band / etc. Same wiring as
+  // the ReviewPayContent bottom-sheet variant.
+  const quoteFallback = useBookingQuoteFallback(
+    resolvedShopId,
+    selectedVehicle?.ownershipId,
+    selectedServiceIds,
+  );
 
   const laborHoursMap = useMemo(() => {
     const map = new Map<string, number>();
@@ -322,15 +339,24 @@ export default function PaymentScreen() {
 
   // Stash the customer-facing range + fixed-price flag so BookingConfirmStatus
   // can re-quote the same band the customer just agreed to and decide
-  // whether to render the "Fixed price" pill alongside it.
+  // whether to render the "Fixed price" / "Estimate" pills alongside it.
   const setDisclosedRangeFormatted = useBookingStore((s) => s.setDisclosedRangeFormatted);
   const setDisclosedRangeIsFixedPrice = useBookingStore((s) => s.setDisclosedRangeIsFixedPrice);
+  const setDisclosedRangeIsEstimate = useBookingStore((s) => s.setDisclosedRangeIsEstimate);
+  const isEstimateBadgeActive =
+    quoteFallback.refused ||
+    quoteFallback.flags.length > 0 ||
+    hasLaborFallback ||
+    (!isPricedPartsLoading && !hasRealPartsData);
   useEffect(() => {
     setDisclosedRangeFormatted(breakdown.rangeFormatted);
   }, [breakdown.rangeFormatted, setDisclosedRangeFormatted]);
   useEffect(() => {
     setDisclosedRangeIsFixedPrice(hasAnyFixedPrice);
   }, [hasAnyFixedPrice, setDisclosedRangeIsFixedPrice]);
+  useEffect(() => {
+    setDisclosedRangeIsEstimate(isEstimateBadgeActive);
+  }, [isEstimateBadgeActive, setDisclosedRangeIsEstimate]);
 
   // Per-service line range (labor + parts ±8%) so summary rows show the
   // same band as the aggregate. The 8% cap matches the disclosed-range
@@ -701,6 +727,7 @@ export default function PaymentScreen() {
               </Text>
               <View style={styles.totalHeaderBadges}>
                 {hasAnyFixedPrice && <FixedPriceBadge size="sm" />}
+                {isEstimateBadgeActive && <EstimatePill size="sm" />}
                 <View style={styles.savingsBadge}>
                   <Text size="xs" weight="semiBold" color={BrandColors.secondary}>
                     → Saved $25 vs Dealership
@@ -722,18 +749,22 @@ export default function PaymentScreen() {
 
           {/* $20 hold info block — surfaces the deposit mechanic and the
               "only charged after inspection" promise alongside the range,
-              so the customer never wonders what hits their card today. */}
+              so the customer never wonders what hits their card today.
+              When Pricing v2 flagged the band as estimate-grade (engine
+              refusal, tier_estimate, fallback_catch, missing labor / parts
+              data) we swap the heading copy to call that out explicitly. */}
           <View style={styles.holdInfoBlock}>
             <Info size={14} color={BrandColors.secondary} style={{ marginTop: 2 }} />
             <View style={{ flex: 1, marginLeft: 8 }}>
               <Text size="sm" weight="semiBold" color={BrandColors.primary}>
-                A $20 hold will be placed on your card today.
+                {isEstimateBadgeActive
+                  ? "Estimate — final price confirmed at booking."
+                  : "A $20 hold will be placed on your card today."}
               </Text>
               <Text size="xs" weight="regular" color="#6B7280" style={styles.holdInfoBody}>
-                The final amount within this range is only charged once your
-                mechanic has inspected your car. If the work needed turns out
-                to exceed this range, you&apos;ll be asked to approve the new
-                total before any extra work begins.
+                {isEstimateBadgeActive
+                  ? "A $20 hold will be placed on your card today and only charged once your mechanic has inspected your car. If the final total exceeds this range, you'll be asked to approve the new amount before any extra work begins."
+                  : "The final amount within this range is only charged once your mechanic has inspected your car. If the work needed turns out to exceed this range, you'll be asked to approve the new total before any extra work begins."}
               </Text>
             </View>
           </View>

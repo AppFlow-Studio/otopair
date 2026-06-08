@@ -197,8 +197,8 @@ export function FullScreenBookingView({ onClose }: FullScreenBookingViewProps) {
     switch (bookingStage) {
       case "booking_details":
         return <BookingDetailsContent onAddMore={handleAddMore} isFullScreen />;
-      case "payment":
-        return <ReviewPayContent isFullScreen />;
+      // case "payment":
+      //   return <ReviewPayContent isFullScreen />;
       default:
         return null;
     }
