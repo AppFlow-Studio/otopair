@@ -187,6 +187,7 @@ export default function BookingFlowSearchScreen() {
         <ScrollView
           contentContainerStyle={styles.resultsContent}
           keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
           showsVerticalScrollIndicator={false}
         >
           {results.map((svc) => (
