@@ -23,7 +23,7 @@ import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Location from "expo-location";
 import MapView, { PROVIDER_DEFAULT, type Region } from "react-native-maps";
-import BottomSheet, { BottomSheetScrollView } from "@gorhom/bottom-sheet";
+import BottomSheet, { BottomSheetView } from "@gorhom/bottom-sheet";
 import { Search, X } from "lucide-react-native";
 
 import { Text } from "@/components/shared-ui";
@@ -142,12 +142,15 @@ export default function SelectServicesScreen() {
         backgroundComponent={GlassSheetBackground}
         handleComponent={GlassSheetHandle}
       >
-        <BottomSheetScrollView
-          contentContainerStyle={[
+        {/* BottomSheetView (not the ScrollView variant) — Ahmad's PM
+            wants the content fixed in place while the user can still
+            drag the sheet up/down. A plain View doesn't capture
+            vertical pan, so the sheet's drag gesture stays smooth. */}
+        <BottomSheetView
+          style={[
             styles.scrollContent,
             { paddingBottom: insets.bottom + 32 },
           ]}
-          showsVerticalScrollIndicator={false}
         >
           {/* Top control row */}
           <View style={styles.topRow}>
@@ -206,7 +209,7 @@ export default function SelectServicesScreen() {
           <View style={styles.quickBookWrap}>
             <QuickBookRow />
           </View>
-        </BottomSheetScrollView>
+        </BottomSheetView>
       </BottomSheet>
     </View>
   );
