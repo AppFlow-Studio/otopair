@@ -17,14 +17,17 @@
  * Spec: ~/Downloads/<figma frames> Screen 1.
  */
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import React, { useEffect, useMemo, useState } from "react";
+import { Dimensions, Pressable, StyleSheet, View } from "react-native";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+} from "react-native-reanimated";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Location from "expo-location";
 import MapView, { PROVIDER_DEFAULT, type Region } from "react-native-maps";
-import BottomSheet, { BottomSheetView } from "@gorhom/bottom-sheet";
-import { Easing } from "react-native-reanimated";
 import { Search, X } from "lucide-react-native";
 
 import { Text } from "@/components/shared-ui";
@@ -47,33 +50,42 @@ const FALLBACK_REGION: Region = {
   longitudeDelta: 0.08,
 };
 
-// Per Ahmad's PM: the sheet should stay where the user lets go
-// rather than springing back to discrete heights. @gorhom/bottom-
-// sheet only supports snap points, so we generate one every 1%
-// from MIN to MAX — at that density the snap distance is ~8pt on
-// a typical iPhone, which feels free-form to the user.
-const MIN_SNAP_PCT = 23;
-const MAX_SNAP_PCT = 92;
-const SNAP_POINTS: string[] = Array.from(
-  { length: MAX_SNAP_PCT - MIN_SNAP_PCT + 1 },
-  (_, i) => `${MIN_SNAP_PCT + i}%`,
-);
-const INITIAL_SNAP_INDEX = SNAP_POINTS.length - 1; // enter at fully expanded
-
-// 0ms timing means the snap-to-nearest happens instantly with no
-// spring-back animation. Paired with 1% spacing this gives a
-// "stays where you drop it" feel — the worst-case settle is ~8pt
-// off where the finger released, and it's invisible (no easing).
-const FREE_DRAG_ANIMATION = {
-  duration: 0,
-  easing: Easing.linear,
-};
+// Per Ahmad's PM: drop-where-you-release behavior. gorhom's
+// snap-to-nearest with velocity fling kept throwing the sheet to
+// the max even on a tiny upward drag, so we replace the library
+// here with a minimal Pan + Reanimated drag that just clamps the
+// sheet height to [MIN_H, MAX_H] and leaves it there.
+const { height: SCREEN_HEIGHT } = Dimensions.get("window");
+const MIN_H = SCREEN_HEIGHT * 0.23;
+const MAX_H = SCREEN_HEIGHT * 0.92;
 
 export default function SelectServicesScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const availableServices = useBookingStore((s) => s.availableServices);
-  const sheetRef = useRef<BottomSheet>(null);
+
+  // Sheet height in pixels — driven by Pan gesture below. Starts
+  // fully expanded; clamps to [MIN_H, MAX_H] on drag; whatever
+  // value it ends at on release stays put (no withTiming, no snap).
+  const sheetHeight = useSharedValue(MAX_H);
+  const startHeight = useSharedValue(MAX_H);
+
+  const dragGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .onBegin(() => {
+          startHeight.value = sheetHeight.value;
+        })
+        .onUpdate((e) => {
+          const next = startHeight.value - e.translationY;
+          sheetHeight.value = Math.max(MIN_H, Math.min(MAX_H, next));
+        }),
+    [sheetHeight, startHeight],
+  );
+
+  const sheetAnimatedStyle = useAnimatedStyle(() => ({
+    height: sheetHeight.value,
+  }));
 
   // Map region — locked (no interaction). Uses cached location
   // permission when granted; falls back to a NY metro region.
@@ -147,27 +159,19 @@ export default function SelectServicesScreen() {
         )}
       </View>
 
-      {/* Draggable glassy sheet — same snap config as the legacy flow */}
-      <BottomSheet
-        ref={sheetRef}
-        snapPoints={SNAP_POINTS}
-        index={INITIAL_SNAP_INDEX}
-        enablePanDownToClose={false}
-        enableDynamicSizing={false}
-        animationConfigs={FREE_DRAG_ANIMATION}
-        backgroundComponent={GlassSheetBackground}
-        handleComponent={GlassSheetHandle}
-      >
-        {/* BottomSheetView (not the ScrollView variant) — Ahmad's PM
-            wants the content fixed in place while the user can still
-            drag the sheet up/down. A plain View doesn't capture
-            vertical pan, so the sheet's drag gesture stays smooth. */}
-        <BottomSheetView
-          style={[
-            styles.scrollContent,
-            { paddingBottom: insets.bottom + 32 },
-          ]}
-        >
+      {/* Custom free-drag sheet — stays exactly where the user lets
+          go. Pan gesture covers the whole sheet so dragging from
+          anywhere (handle or content) works. */}
+      <GestureDetector gesture={dragGesture}>
+        <Animated.View style={[styles.sheet, sheetAnimatedStyle]}>
+          <GlassSheetBackground style={StyleSheet.absoluteFill} />
+          <GlassSheetHandle />
+          <View
+            style={[
+              styles.scrollContent,
+              { paddingBottom: insets.bottom + 32 },
+            ]}
+          >
           {/* Top control row */}
           <View style={styles.topRow}>
             <Pressable
@@ -225,8 +229,9 @@ export default function SelectServicesScreen() {
           <View style={styles.quickBookWrap}>
             <QuickBookRow />
           </View>
-        </BottomSheetView>
-      </BottomSheet>
+          </View>
+        </Animated.View>
+      </GestureDetector>
     </View>
   );
 }
@@ -239,9 +244,19 @@ const styles = StyleSheet.create({
   mapFallback: {
     backgroundColor: "#C8D7DE",
   },
+  sheet: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    overflow: "hidden",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+  },
   scrollContent: {
     paddingTop: 4,
     paddingBottom: 32,
+    flex: 1,
   },
   topRow: {
     flexDirection: "row",
