@@ -256,7 +256,7 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 24,
   },
   scrollContent: {
-    paddingTop: 6,
+    paddingTop: 0,
     paddingBottom: 32,
     flex: 1,
   },
@@ -264,8 +264,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 16,
-    paddingTop: 6,
-    paddingBottom: 16,
+    paddingTop: 0,
+    paddingBottom: 12,
   },
   iconBtn: {
     width: 40,
