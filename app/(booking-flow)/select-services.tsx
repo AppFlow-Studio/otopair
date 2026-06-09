@@ -46,13 +46,18 @@ const FALLBACK_REGION: Region = {
   longitudeDelta: 0.08,
 };
 
-// Same snap points the legacy ServiceBottomSheet used (see
-// components/booking/ServiceBottomSheet.tsx:171 `SNAP_POINTS_CONFIG.discovery`).
-// `enableDynamicSizing` is intentionally off so the heights here are
-// authoritative; otherwise gorhom can try to fit content height and
-// fight the user-driven drag.
-const SNAP_POINTS = ["23%", "38%", "55%", "92%"] as const;
-const INITIAL_SNAP_INDEX = 3; // enter at "expanded"
+// Per Ahmad's PM: the sheet should stay where the user lets go
+// rather than springing back to discrete heights. @gorhom/bottom-
+// sheet only supports snap points, so we generate one every 1%
+// from MIN to MAX — at that density the snap distance is ~8pt on
+// a typical iPhone, which feels free-form to the user.
+const MIN_SNAP_PCT = 23;
+const MAX_SNAP_PCT = 92;
+const SNAP_POINTS: string[] = Array.from(
+  { length: MAX_SNAP_PCT - MIN_SNAP_PCT + 1 },
+  (_, i) => `${MIN_SNAP_PCT + i}%`,
+);
+const INITIAL_SNAP_INDEX = SNAP_POINTS.length - 1; // enter at fully expanded
 
 export default function SelectServicesScreen() {
   const router = useRouter();
@@ -135,7 +140,7 @@ export default function SelectServicesScreen() {
       {/* Draggable glassy sheet — same snap config as the legacy flow */}
       <BottomSheet
         ref={sheetRef}
-        snapPoints={SNAP_POINTS as unknown as string[]}
+        snapPoints={SNAP_POINTS}
         index={INITIAL_SNAP_INDEX}
         enablePanDownToClose={false}
         enableDynamicSizing={false}
