@@ -22,10 +22,19 @@ import Animated, {
   useSharedValue,
   withTiming,
 } from "react-native-reanimated";
+import {
+  ArrowLeft,
+  Calendar,
+  ClipboardCheck,
+  CircleDot,
+  Wrench,
+  type LucideIcon,
+} from "lucide-react-native";
+
+import { categoryTitleTransition } from "@/components/booking-flow/CategoryListRow";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import * as Location from "expo-location";
 import MapView, { PROVIDER_DEFAULT, type Region } from "react-native-maps";
-import { ArrowLeft } from "lucide-react-native";
 
 import { Text } from "@/components/shared-ui";
 import {
@@ -69,6 +78,16 @@ const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 const MIN_H = SCREEN_HEIGHT * 0.23;
 const MAX_H = SCREEN_HEIGHT * 1.0;
 const INITIAL_H = SCREEN_HEIGHT * 0.92;
+
+// Same icon mapping as CategoryListRow so the shared-element
+// morph between Screen 1's row and Screen 2's header lands on a
+// matching glyph.
+const TAB_ICONS: Record<TaxonomyTab, LucideIcon> = {
+  routine_upkeep: Wrench,
+  tires_brakes: CircleDot,
+  major_service: Calendar,
+  inspections: ClipboardCheck,
+};
 
 const VALID_TABS = new Set<TaxonomyTab>([
   "routine_upkeep",
@@ -317,12 +336,28 @@ export default function CategoryDetailScreen() {
             <VehiclePuck />
           </View>
 
-          {tab ? (
+          {tab && tabKey ? (
             <View style={styles.header}>
-              <Text size="3xl" weight="bold" color="#0F172A" style={styles.title}>
-                {tab.label}
-              </Text>
-              <Text size="md" weight="regular" color="#6B7280">
+              <View style={styles.headerTitleRow}>
+                <Animated.View
+                  style={styles.headerIconTile}
+                  sharedTransitionTag={`cat-icon-${tabKey}`}
+                  sharedTransitionStyle={categoryTitleTransition}
+                >
+                  {(() => {
+                    const Icon = TAB_ICONS[tabKey];
+                    return <Icon size={22} color="#4B5563" strokeWidth={2} />;
+                  })()}
+                </Animated.View>
+                <Animated.Text
+                  sharedTransitionTag={`cat-title-${tabKey}`}
+                  sharedTransitionStyle={categoryTitleTransition}
+                  style={styles.titleTarget}
+                >
+                  {tab.label}
+                </Animated.Text>
+              </View>
+              <Text size="md" weight="regular" color="#6B7280" style={styles.subtitle}>
                 {tab.subtitle} · {filteredServices.length} service
                 {filteredServices.length === 1 ? "" : "s"}
               </Text>
@@ -448,10 +483,29 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     marginBottom: 18,
   },
-  title: {
+  headerTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginBottom: 8,
+  },
+  headerIconTile: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: "rgba(255, 255, 255, 0.7)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  titleTarget: {
+    fontFamily: "Urbanist-Bold",
     fontSize: 28,
     lineHeight: 34,
-    marginBottom: 4,
+    color: "#0F172A",
+    flexShrink: 1,
+  },
+  subtitle: {
+    marginTop: 2,
   },
   list: {
     marginBottom: 16,

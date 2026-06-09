@@ -6,6 +6,10 @@
 
 import React from "react";
 import { Pressable, StyleSheet, View } from "react-native";
+import Animated, {
+  SharedTransition,
+  Easing,
+} from "react-native-reanimated";
 import { useRouter } from "expo-router";
 import {
   Calendar,
@@ -18,6 +22,16 @@ import {
 
 import { Text } from "@/components/shared-ui";
 import type { TaxonomyTab } from "@/constants/serviceTaxonomy";
+
+// Shared transition between Screen 1's CategoryListRow title and
+// Screen 2's header title. Reanimated 4's SharedTransition is a
+// ComplexAnimationBuilder — chainable .duration().easing() form
+// is the right way to spec a custom curve. 380ms + ease-out
+// cubic-bezier reads as a smooth, glassy morph rather than a
+// snappy spring.
+export const categoryTitleTransition = SharedTransition.duration(380).easing(
+  Easing.bezier(0.22, 1, 0.36, 1),
+);
 
 interface CategoryListRowProps {
   tabKey: TaxonomyTab;
@@ -48,13 +62,21 @@ export function CategoryListRow({ tabKey, label, serviceCount }: CategoryListRow
       accessibilityRole="button"
       accessibilityLabel={`${label}, ${serviceCount} services`}
     >
-      <View style={styles.iconTile}>
+      <Animated.View
+        style={styles.iconTile}
+        sharedTransitionTag={`cat-icon-${tabKey}`}
+        sharedTransitionStyle={categoryTitleTransition}
+      >
         <Icon size={20} color="#4B5563" strokeWidth={2} />
-      </View>
+      </Animated.View>
       <View style={styles.text}>
-        <Text size="md" weight="semiBold" color="#0F172A">
+        <Animated.Text
+          sharedTransitionTag={`cat-title-${tabKey}`}
+          sharedTransitionStyle={categoryTitleTransition}
+          style={styles.titleSource}
+        >
           {label}
-        </Text>
+        </Animated.Text>
         <Text size="sm" weight="regular" color="#6B7280">
           {serviceCount} service{serviceCount === 1 ? "" : "s"}
         </Text>
@@ -86,5 +108,11 @@ const styles = StyleSheet.create({
   text: {
     flex: 1,
     minWidth: 0,
+  },
+  titleSource: {
+    fontFamily: "Urbanist-SemiBold",
+    fontSize: 16,
+    lineHeight: 22,
+    color: "#0F172A",
   },
 });
