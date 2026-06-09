@@ -57,7 +57,7 @@ const FALLBACK_REGION: Region = {
 // sheet height to [MIN_H, MAX_H] and leaves it there.
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 const MIN_H = SCREEN_HEIGHT * 0.23;
-const MAX_H = SCREEN_HEIGHT * 0.92;
+const MAX_H = SCREEN_HEIGHT * 0.97;
 
 export default function SelectServicesScreen() {
   const router = useRouter();
