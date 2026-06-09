@@ -766,7 +766,7 @@ export default function HomeScreen() {
                   {isLiquidGlassEnabled && LiquidGlassView ? (
                     <LiquidGlassView interactive effect="clear" style={styles.liquidGlassIcon}>
                       <View style={styles.bellIconContainer}>
-                        <Trophy size={22} color="#6B7280" fill="none" strokeWidth={2} />
+                        <Trophy size={22} color="#FFFFFF" fill="none" strokeWidth={2} />
                         {hasUnseenCredits ? <View style={styles.trophyDot} /> : null}
                       </View>
                     </LiquidGlassView>
@@ -781,7 +781,7 @@ export default function HomeScreen() {
                           style={styles.glassGloss}
                         />
                         <View style={styles.bellIconContainer}>
-                          <Trophy size={22} color="#6B7280" fill="none" strokeWidth={2} />
+                          <Trophy size={22} color="#FFFFFF" fill="none" strokeWidth={2} />
                           {hasUnseenCredits ? <View style={styles.trophyDot} /> : null}
                         </View>
                       </BlurView>
@@ -799,7 +799,7 @@ export default function HomeScreen() {
                   {isLiquidGlassEnabled && LiquidGlassView ? (
                     <LiquidGlassView interactive effect="clear" style={styles.liquidGlassIcon}>
                       <View style={styles.bellIconContainer}>
-                        <Bell size={22} color="#6B7280" fill="none" strokeWidth={2} />
+                        <Bell size={22} color="#FFFFFF" fill="none" strokeWidth={2} />
                         {hasUnreadNotifications ? <View style={styles.bellDot} /> : null}
                       </View>
                     </LiquidGlassView>
@@ -814,7 +814,7 @@ export default function HomeScreen() {
                           style={styles.glassGloss}
                         />
                         <View style={styles.bellIconContainer}>
-                          <Bell size={22} color="#6B7280" fill="none" strokeWidth={2} />
+                          <Bell size={22} color="#FFFFFF" fill="none" strokeWidth={2} />
                           {hasUnreadNotifications ? <View style={styles.bellDot} /> : null}
                         </View>
                       </BlurView>
