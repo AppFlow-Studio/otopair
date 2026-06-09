@@ -46,13 +46,14 @@ const FALLBACK_REGION: Region = {
   longitudeDelta: 0.08,
 };
 
-// Same snap points the legacy ServiceBottomSheet used (see
-// components/booking/ServiceBottomSheet.tsx:171 `SNAP_POINTS_CONFIG.discovery`).
-// `enableDynamicSizing` is intentionally off so the heights here are
-// authoritative; otherwise gorhom can try to fit content height and
-// fight the user-driven drag.
-const SNAP_POINTS = ["23%", "38%", "55%", "92%"] as const;
-const INITIAL_SNAP_INDEX = 3; // enter at "expanded"
+// Per Ahmad's PM: the sheet shows everything that fits without
+// scrolling, so the user shouldn't be able to drag it up or down.
+// Single snap point at 96% (small map peek at top for theme
+// continuity); `enableHandlePanningGesture` and
+// `enableContentPanningGesture` are turned off below so the sheet
+// stays put.
+const SNAP_POINTS = ["96%"] as const;
+const INITIAL_SNAP_INDEX = 0;
 
 export default function SelectServicesScreen() {
   const router = useRouter();
@@ -139,6 +140,9 @@ export default function SelectServicesScreen() {
         index={INITIAL_SNAP_INDEX}
         enablePanDownToClose={false}
         enableDynamicSizing={false}
+        // Lock the sheet at its single snap point — no drag-to-resize.
+        enableHandlePanningGesture={false}
+        enableContentPanningGesture={false}
         backgroundComponent={GlassSheetBackground}
         handleComponent={GlassSheetHandle}
       >
