@@ -24,6 +24,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Location from "expo-location";
 import MapView, { PROVIDER_DEFAULT, type Region } from "react-native-maps";
 import BottomSheet, { BottomSheetView } from "@gorhom/bottom-sheet";
+import { Easing } from "react-native-reanimated";
 import { Search, X } from "lucide-react-native";
 
 import { Text } from "@/components/shared-ui";
@@ -58,6 +59,15 @@ const SNAP_POINTS: string[] = Array.from(
   (_, i) => `${MIN_SNAP_PCT + i}%`,
 );
 const INITIAL_SNAP_INDEX = SNAP_POINTS.length - 1; // enter at fully expanded
+
+// 0ms timing means the snap-to-nearest happens instantly with no
+// spring-back animation. Paired with 1% spacing this gives a
+// "stays where you drop it" feel — the worst-case settle is ~8pt
+// off where the finger released, and it's invisible (no easing).
+const FREE_DRAG_ANIMATION = {
+  duration: 0,
+  easing: Easing.linear,
+};
 
 export default function SelectServicesScreen() {
   const router = useRouter();
@@ -144,6 +154,7 @@ export default function SelectServicesScreen() {
         index={INITIAL_SNAP_INDEX}
         enablePanDownToClose={false}
         enableDynamicSizing={false}
+        animationConfigs={FREE_DRAG_ANIMATION}
         backgroundComponent={GlassSheetBackground}
         handleComponent={GlassSheetHandle}
       >
