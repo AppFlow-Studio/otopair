@@ -45,6 +45,7 @@ import {
 } from "@/constants/serviceTaxonomy";
 import { BorderRadius } from "@/constants/theme";
 import { useBookableServices } from "@/hooks/useBookableServices";
+import { useBookingLaborHours } from "@/hooks/useBookingLaborHours";
 import { useServiceVehicleSpecsForEngine } from "@/hooks/useServiceVehicleSpecsForEngine";
 import { useVehicleReadiness } from "@/hooks/useVehicleReadiness";
 import { formatDurationForCar } from "@/lib/formatDuration";
@@ -122,6 +123,23 @@ export function ServiceSelectionContent({
   // catalog (we need applicability before we know what'll render).
   const allServiceIds = useMemo(() => availableServices.map((s) => s.id), [availableServices]);
   const engineSpecs = useServiceVehicleSpecsForEngine(engineId, allServiceIds);
+
+  // Engine-adjusted + director-rounded labor for the entire catalog. Same
+  // source of truth the rest of the booking flow (mechanic picker, Review
+  // & Pay, persisted estimated_labor_minutes) uses — so the "About X mins"
+  // chip on each card matches what the customer sees downstream instead of
+  // showing the raw catalog default.
+  const { laborHours: laborHoursByService } = useBookingLaborHours(
+    ownershipId,
+    allServiceIds,
+  );
+  const laborHoursMap = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const row of laborHoursByService) {
+      map.set(String(row.serviceId), row.hours);
+    }
+    return map;
+  }, [laborHoursByService]);
 
   // ═══════════════ Coverage filter (the dynamic filter engine) ═══════════════
   // Three per-service render states (driven by useBookableServices):
@@ -363,9 +381,15 @@ export function ServiceSelectionContent({
           : null;
       const diagnosticNotes = isDiagnostic && isSelected ? customerNotes.trim() : "";
 
-      // Meta-row time: prefer per-vehicle MOTOR labor hours when
-      // available, else the taxonomy est-time fallback.
-      const hours = engineSpecs[service.id]?.labor_hours ?? service.default_labor_hours;
+      // Meta-row time: prefer the engine-adjusted + director-rounded labor
+      // (laborHoursMap → same path the mechanic picker, Review & Pay, and
+      // persistence read). Fall back to MOTOR engine specs and then the
+      // catalog default — both shown without rounding because the vehicle
+      // context isn't resolved at those layers.
+      const hours =
+        laborHoursMap.get(String(service.id)) ??
+        engineSpecs[service.id]?.labor_hours ??
+        service.default_labor_hours;
       const carDuration = formatDurationForCar(hours);
       const metaTimeText = isQuote
         ? service.estTimeLabel ?? "Quote — pick brand & price"
@@ -493,6 +517,7 @@ export function ServiceSelectionContent({
       customerNotes,
       handleServicePress,
       engineSpecs,
+      laborHoursMap,
       ownershipId,
       bookableIds,
       needsSpecsIds,
