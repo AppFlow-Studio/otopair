@@ -14,7 +14,7 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Dimensions, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { Dimensions, Pressable, StyleSheet, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
   Easing,
@@ -23,7 +23,6 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Location from "expo-location";
 import MapView, { PROVIDER_DEFAULT, type Region } from "react-native-maps";
 import { ArrowLeft } from "lucide-react-native";
@@ -80,7 +79,6 @@ const VALID_TABS = new Set<TaxonomyTab>([
 
 export default function CategoryDetailScreen() {
   const router = useRouter();
-  const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ tab: string }>();
 
   const tabKey = useMemo<TaxonomyTab | null>(() => {
@@ -301,48 +299,36 @@ export default function CategoryDetailScreen() {
         )}
       </View>
 
-      <Animated.View style={[styles.sheet, sheetAnimatedStyle]}>
-        <GlassSheetBackground style={StyleSheet.absoluteFill} />
+      <GestureDetector gesture={dragGesture}>
+        <Animated.View style={[styles.sheet, sheetAnimatedStyle]}>
+          <GlassSheetBackground style={StyleSheet.absoluteFill} />
+          <GlassSheetHandle />
 
-        {/* Draggable chrome — handle, top row, and header. Pan lives
-            here (not on the list) so the user can still scroll the
-            service rows below without fighting the sheet drag. */}
-        <GestureDetector gesture={dragGesture}>
-          <View>
-            <GlassSheetHandle />
-            <View style={styles.topRow}>
-              <Pressable
-                style={styles.iconBtn}
-                onPress={onBack}
-                hitSlop={8}
-                accessibilityLabel="Back"
-              >
-                <ArrowLeft size={20} color="#1F2937" strokeWidth={2} />
-              </Pressable>
-              <View style={{ flex: 1 }} />
-              <VehiclePuck />
-            </View>
-
-            {tab ? (
-              <View style={styles.header}>
-                <Text size="3xl" weight="bold" color="#0F172A" style={styles.title}>
-                  {tab.label}
-                </Text>
-                <Text size="md" weight="regular" color="#6B7280">
-                  {tab.subtitle} · {filteredServices.length} service
-                  {filteredServices.length === 1 ? "" : "s"}
-                </Text>
-              </View>
-            ) : null}
+          <View style={styles.topRow}>
+            <Pressable
+              style={styles.iconBtn}
+              onPress={onBack}
+              hitSlop={8}
+              accessibilityLabel="Back"
+            >
+              <ArrowLeft size={20} color="#1F2937" strokeWidth={2} />
+            </Pressable>
+            <View style={{ flex: 1 }} />
+            <VehiclePuck />
           </View>
-        </GestureDetector>
 
-        {/* Scrollable service list */}
-        <ScrollView
-          style={styles.scroll}
-          contentContainerStyle={{ paddingBottom: insets.bottom + 120 }}
-          showsVerticalScrollIndicator={false}
-        >
+          {tab ? (
+            <View style={styles.header}>
+              <Text size="3xl" weight="bold" color="#0F172A" style={styles.title}>
+                {tab.label}
+              </Text>
+              <Text size="md" weight="regular" color="#6B7280">
+                {tab.subtitle} · {filteredServices.length} service
+                {filteredServices.length === 1 ? "" : "s"}
+              </Text>
+            </View>
+          ) : null}
+
           <View style={styles.list}>
             {filteredServices.map((svc) => {
               const slug = svc.slug;
@@ -387,8 +373,8 @@ export default function CategoryDetailScreen() {
               </View>
             ) : null}
           </View>
-        </ScrollView>
-      </Animated.View>
+        </Animated.View>
+      </GestureDetector>
 
       {/* Sticky Continue bar (over the sheet) */}
       <StickyContinueBar
@@ -442,9 +428,6 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-  },
-  scroll: {
-    flex: 1,
   },
   topRow: {
     flexDirection: "row",
