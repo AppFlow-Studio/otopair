@@ -33,7 +33,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 
 // 3. Shared UI (design system)
-import { BrandColors, EstimatePill, FixedPriceBadge, Spacing, Text } from "@/components/shared-ui";
+import { BrandColors, FixedPriceBadge, Spacing, Text } from "@/components/shared-ui";
 
 // 4. Constants, hooks, types
 import { getPartsBreakdown } from "@/constants/services";
@@ -280,15 +280,13 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
     [laborHoursMap],
   );
 
-  // Truth-in-pricing: when the Pricing v2 engine has a per-service band and
-  // the AI-enriched parts price falls outside −5% / +8% of it, the engine
-  // band wins (display + Stripe hold + persisted booking). Mirrors the
-  // identical helper in app/booking/mechanic/[id]/payment.tsx — co-edit
-  // both per the booking-flow-pages memory.
-  // Engine returns service totals (partsLow/High already scaled by unit_count
-  // server-side). Works generically for every parts_kind — per_axle (via
-  // booking position), per_cylinder (via engines.spark_plug_quantity),
-  // per_unit_spec (engine capacity field), per_wheel, fixed_kit.
+  // Round 6 — flag-only parts. Customer always sees the real AI/OEM cost;
+  // when AI lands outside the engine band we keep the AI value and let
+  // createBatch stamp `fallback_catch` server-side for director audit.
+  // Display metadata (unitCount / unitLabel) is still adopted from the
+  // engine when available. Mirrors the identical helper in
+  // app/booking/mechanic/[id]/payment.tsx — co-edit both per the
+  // booking-flow-pages memory.
   const getEffectiveParts = useCallback(
     (service: (typeof selectedServices)[0]) => {
       const aiCost = getServicePartsCost(service);
@@ -316,24 +314,11 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
       }
       const inBand =
         aiCost >= engine.partsLow * 0.95 && aiCost <= engine.partsHigh * 1.08;
-      if (inBand) {
-        return {
-          ...fallbackAi,
-          unitCount: engine.unitCount,
-          unitLabel: engine.unitLabel,
-          source: "ai" as const,
-        };
-      }
       return {
-        cost: (engine.partsLow + engine.partsHigh) / 2,
-        low: engine.partsLow,
-        high: engine.partsHigh,
-        perUnitLow: engine.perUnitLow,
-        perUnitHigh: engine.perUnitHigh,
+        ...fallbackAi,
         unitCount: engine.unitCount,
         unitLabel: engine.unitLabel,
-        source: "engine" as const,
-        partsSource: engine.partsSource ?? null,
+        source: inBand ? ("ai" as const) : ("ai_out_of_band" as const),
       };
     },
     [getServicePartsCost, quoteFallback.byService],
@@ -355,8 +340,9 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
     // Variable (banded) parts only — services that hit a flat price are
     // excluded and contribute their flat amount on both endpoints instead.
     // Mirrors `computeDisclosedRange` (server). Each variable line goes
-    // through getEffectiveParts so engine-corrected services contribute
-    // their real spec band, not a synthetic ±8% on a bad AI midpoint.
+    // through getEffectiveParts, which always returns the real AI/OEM cost
+    // with a ±8% band; out-of-band lines get flagged server-side via
+    // `fallback_catch` rather than substituted (Round 6).
     const variablePartsCost = selectedServices.reduce(
       (sum, s) =>
         fixedPriceMap.has(String(s.id))
@@ -520,7 +506,8 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
         low: labor + eff.low,
         high: labor + eff.high,
         isFixed: false as const,
-        isEngineEstimate: eff.source === "engine" || eff.source === "ai_estimate",
+        isEngineEstimate:
+          eff.source === "ai_out_of_band" || eff.source === "ai_estimate",
       };
     },
     [laborRate, getEffectiveParts, getServiceLaborHours, fixedPriceMap],
@@ -711,7 +698,6 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
                     {service.name}
                   </Text>
                   {lineRange.isFixed && <FixedPriceBadge size="sm" />}
-                  {lineRange.isEngineEstimate && <EstimatePill size="sm" />}
                   {lineDurationLabel ? (
                     <Text size="sm" weight="regular" color="#6B7280">
                       · {lineDurationLabel}
@@ -776,14 +762,11 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
                   if (fixedPriceMap.has(String(service.id))) return [];
                   const priced = pricedPartsMap.get(String(service.id));
                   if (!priced || !priced.winner) return [];
-                  // When the engine has corrected this service's parts band
-                  // (AI-enriched price was outside the multiplier band), the
-                  // AI per-OEM dollar amount is misleading. Keep the OEM name
-                  // + qty so the mechanic still knows what's being installed,
-                  // but render "Estimate" in place of the bad number — the
-                  // service-level line above carries the engine band.
+                  // Round 6: per-OEM rows show the real AI/OEM line_total.
+                  // When the engine refused entirely we render "Price TBD" so
+                  // the mechanic still sees the part name + qty but no
+                  // misleading dollar amount.
                   const eff = getEffectiveParts(service);
-                  const engineCorrected = eff.source === "engine";
                   const refusedEstimate = eff.source === "ai_estimate";
                   // Single-axle services have just `winner`. Position="both"
                   // services (Brake Pads All-four) have `secondaryWinner` too —
@@ -795,7 +778,7 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
                     const qtyLabel = part.quantity > 1 ? ` ×${part.quantity}` : "";
                     const hasPrice = part.has_price_data && part.line_total > 0;
                     const unitLabel =
-                      hasPrice && part.quantity > 1 && part.unit_price > 0 && !engineCorrected
+                      hasPrice && part.quantity > 1 && part.unit_price > 0
                         ? ` @ ~$${part.unit_price.toFixed(2)}`
                         : "";
                     return (
@@ -805,13 +788,11 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
                           {unitLabel}
                         </Text>
                         <Text size="sm" weight="medium" color="#6B7280">
-                          {engineCorrected
-                            ? `$${eff.perUnitLow.toFixed(2)} – $${eff.perUnitHigh.toFixed(2)}${eff.unitLabel ? ` / ${eff.unitLabel}` : ""}`
-                            : refusedEstimate
-                              ? "Price TBD"
-                              : hasPrice
-                                ? `$${part.line_total.toFixed(2)}`
-                                : "Price TBD"}
+                          {refusedEstimate
+                            ? "Price TBD"
+                            : hasPrice
+                              ? `$${part.line_total.toFixed(2)}`
+                              : "Price TBD"}
                         </Text>
                       </View>
                     );
@@ -877,7 +858,6 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
               </Text>
               <View style={styles.totalHeaderBadges}>
                 {hasAnyFixedPrice && <FixedPriceBadge size="sm" />}
-                {isEstimateBadgeActive && <EstimatePill size="sm" />}
                 <View style={styles.savingsBadge}>
                   <Text size="xs" weight="semiBold" color={BrandColors.secondary}>
                     → Saved $25 vs Dealership

@@ -14,7 +14,7 @@ import { Pressable, StyleSheet, View, useWindowDimensions } from "react-native";
 
 import { Calendar, Car, User } from "lucide-react-native";
 
-import { EstimatePill, FixedPriceBadge, Text } from "@/components/shared-ui";
+import { FixedPriceBadge, Text } from "@/components/shared-ui";
 import { ConfirmCountdownButton } from "@/components/tire-booking/QuoteRequestStatus";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
@@ -49,7 +49,6 @@ export function BookingConfirmStatus({
   const selectedMechanicSlot = useBookingStore((s) => s.selectedMechanicSlot);
   const disclosedRangeFormatted = useBookingStore((s) => s.disclosedRangeFormatted);
   const disclosedRangeIsFixedPrice = useBookingStore((s) => s.disclosedRangeIsFixedPrice);
-  const disclosedRangeIsEstimate = useBookingStore((s) => s.disclosedRangeIsEstimate);
   const getMechanicById = useMechanicStore((s) => s.getMechanicById);
   const getShopById = useShopStore((s) => s.getShopById);
   const selectedVehicle = useVehicleStore((s) =>
@@ -123,7 +122,6 @@ export function BookingConfirmStatus({
             </Text>
             <View style={styles.rangeBadges}>
               {disclosedRangeIsFixedPrice ? <FixedPriceBadge size="sm" /> : null}
-              {disclosedRangeIsEstimate ? <EstimatePill size="sm" /> : null}
             </View>
           </View>
         ) : null}

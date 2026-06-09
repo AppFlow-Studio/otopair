@@ -22,7 +22,7 @@ import { Calendar, Car, ChevronRight, FileText, Info, Star } from "lucide-react-
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // 3. Shared UI (design system)
-import { BrandColors, ErrorOccurredModal, EstimatePill, FixedPriceBadge, Spacing, Text } from "@/components/shared-ui";
+import { BrandColors, ErrorOccurredModal, FixedPriceBadge, Spacing, Text } from "@/components/shared-ui";
 
 // 4. Flow-specific components
 import { BookingPageHeader } from "@/components/booking/pages";
@@ -245,17 +245,13 @@ export default function PaymentScreen() {
       selectedServiceIds,
     );
 
-  // Truth-in-pricing: when the Pricing v2 engine has a per-service band and
-  // the AI-enriched parts price falls outside −5% / +8% of it, the engine
-  // band wins (display + Stripe hold + persisted booking). Customer sees a
-  // realistic number, mechanic gets authority for the band ceiling, and the
-  // per-OEM-part row still renders so the breakdown stays transparent.
-  // Returns the cost to use for tax/fee math (midpoint when corrected), the
-  // low/high band for the disclosed range, and the source for telemetry.
-  // Engine returns service totals (partsLow/High already scaled by unit_count
-  // server-side via serviceUnits.resolveServiceUnitCount). Per-OEM rows render
-  // the per-unit band. No more hardcoded axleCount — works for every
-  // parts_kind (per_axle, per_cylinder, per_unit_spec, per_wheel, fixed_kit).
+  // Round 6 — flag-only parts: the customer always sees the real AI/OEM
+  // priced number. The engine band is a sanity check, not a price source —
+  // when AI falls outside the band we keep the AI value and let
+  // createBatch stamp `fallback_catch` on the booking row for director
+  // audit. Display metadata (unitCount / unitLabel) is still adopted from
+  // the engine when available, since those are descriptive (e.g.
+  // "× 4 spark plugs"), not price overrides.
   const getEffectiveParts = useCallback(
     (service: (typeof selectedServices)[0]) => {
       const aiCost = getServicePartsCost(service);
@@ -283,24 +279,11 @@ export default function PaymentScreen() {
       }
       const inBand =
         aiCost >= engine.partsLow * 0.95 && aiCost <= engine.partsHigh * 1.08;
-      if (inBand) {
-        return {
-          ...fallbackAi,
-          unitCount: engine.unitCount,
-          unitLabel: engine.unitLabel,
-          source: "ai" as const,
-        };
-      }
       return {
-        cost: (engine.partsLow + engine.partsHigh) / 2,
-        low: engine.partsLow,
-        high: engine.partsHigh,
-        perUnitLow: engine.perUnitLow,
-        perUnitHigh: engine.perUnitHigh,
+        ...fallbackAi,
         unitCount: engine.unitCount,
         unitLabel: engine.unitLabel,
-        source: "engine" as const,
-        partsSource: engine.partsSource ?? null,
+        source: inBand ? ("ai" as const) : ("ai_out_of_band" as const),
       };
     },
     [getServicePartsCost, quoteFallback.byService],
@@ -327,11 +310,10 @@ export default function PaymentScreen() {
     // Split variable parts (banded) from fixed parts (pinned on both ends).
     // Mirrors computeDisclosedRange in convex/booking_quotes.ts so the
     // create call honors the same price the customer agrees to here.
-    // Per-service `getEffectiveParts` returns the engine-corrected band
-    // (Camry × multiplier × tier) when AI enrichment is off, otherwise
-    // returns AI ±8%. We sum cost (midpoint), low, and high separately so
-    // engine-corrected lines contribute their real spec band to the
-    // disclosed range and not a synthetic ±8% on the corrected midpoint.
+    // Per-service `getEffectiveParts` always returns the real AI/OEM cost
+    // with a ±8% band. When AI lands outside the engine band, we keep the
+    // AI value (Round 6 — flag-only) and surface `fallback_catch` server-
+    // side for director audit, instead of substituting the engine midpoint.
     const variablePartsCost = selectedServices.reduce(
       (sum, s) =>
         fixedPriceMap.has(String(s.id))
@@ -493,10 +475,11 @@ export default function PaymentScreen() {
         high: labor + eff.high,
         isFixed: false as const,
         // True whenever the engine couldn't confidently price this line —
-        // either it corrected from AI (source === "engine") or it refused
-        // and we're showing AI with an explicit estimate marker
-        // (source === "ai_estimate").
-        isEngineEstimate: eff.source === "engine" || eff.source === "ai_estimate",
+        // either AI fell outside the engine band (source === "ai_out_of_band")
+        // or the engine refused entirely and we're showing AI with an
+        // explicit estimate marker (source === "ai_estimate").
+        isEngineEstimate:
+          eff.source === "ai_out_of_band" || eff.source === "ai_estimate",
       };
     },
     [laborRate, getEffectiveParts, getServiceLaborHours, fixedPriceMap]
@@ -716,7 +699,6 @@ export default function PaymentScreen() {
                     {service.name}
                   </Text>
                   {lineRange.isFixed && <FixedPriceBadge size="sm" />}
-                  {lineRange.isEngineEstimate && <EstimatePill size="sm" />}
                   {lineDurationLabel ? (
                     <Text size="sm" weight="regular" color="#6B7280">
                       · {lineDurationLabel}
@@ -781,14 +763,11 @@ export default function PaymentScreen() {
                   if (fixedPriceMap.has(String(service.id))) return [];
                   const priced = pricedPartsMap.get(String(service.id));
                   if (!priced || !priced.winner) return [];
-                  // When the engine has corrected this service (AI-enriched
-                  // price was outside the multiplier band), the AI per-OEM
-                  // dollar amount is misleading. Keep the OEM name / brand /
-                  // qty so the mechanic still knows what's being installed,
-                  // but show "Estimate" in place of the bad number — the
-                  // service-level line above carries the engine band.
+                  // Round 6: render the real AI/OEM per-line range. When the
+                  // engine refused entirely we show "Price TBD" alongside the
+                  // OEM name + qty so the mechanic knows what's being
+                  // installed without a misleading dollar amount.
                   const eff = getEffectiveParts(service);
-                  const engineCorrected = eff.source === "engine";
                   const refusedEstimate = eff.source === "ai_estimate";
                   // Single-axle services have just `winner`. Position="both"
                   // services (e.g. Brake Pads All-four) carry `secondaryWinner`
@@ -819,13 +798,11 @@ export default function PaymentScreen() {
                           {part.name} (Part){qtyLabel}
                         </Text>
                         <Text size="sm" weight="medium" color="#6B7280">
-                          {engineCorrected
-                            ? `${formatRange(eff.perUnitLow, eff.perUnitHigh)}${eff.unitLabel ? ` / ${eff.unitLabel}` : ""}`
-                            : refusedEstimate
-                              ? "Price TBD"
-                              : hasPrice
-                                ? formatRange(lineLow, lineHigh)
-                                : "Price TBD"}
+                          {refusedEstimate
+                            ? "Price TBD"
+                            : hasPrice
+                              ? formatRange(lineLow, lineHigh)
+                              : "Price TBD"}
                         </Text>
                       </View>
                     );
@@ -886,7 +863,6 @@ export default function PaymentScreen() {
               </Text>
               <View style={styles.totalHeaderBadges}>
                 {hasAnyFixedPrice && <FixedPriceBadge size="sm" />}
-                {isEstimateBadgeActive && <EstimatePill size="sm" />}
                 <View style={styles.savingsBadge}>
                   <Text size="xs" weight="semiBold" color={BrandColors.secondary}>
                     → Saved $25 vs Dealership
