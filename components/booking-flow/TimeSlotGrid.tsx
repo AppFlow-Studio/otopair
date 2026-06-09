@@ -11,10 +11,19 @@
  */
 
 import React, { useMemo } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { Dimensions, Pressable, StyleSheet, View } from "react-native";
 import Animated, { FadeInUp } from "react-native-reanimated";
 
 import { Text } from "@/components/shared-ui";
+
+// Locked 3-per-row grid. Compute chip width from screen width so
+// each chip is identical and the row is evenly distributed.
+const SCREEN_WIDTH = Dimensions.get("window").width;
+const GRID_PAD_H = 20;
+const CHIP_GAP = 10;
+const COLS = 3;
+const CHIP_WIDTH =
+  (SCREEN_WIDTH - GRID_PAD_H * 2 - CHIP_GAP * (COLS - 1)) / COLS;
 
 interface TimeSlot {
   /** Display label like "9:00 AM" — used as the chip text. */
@@ -152,15 +161,18 @@ const styles = StyleSheet.create({
   grid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 10,
+    columnGap: CHIP_GAP,
+    rowGap: CHIP_GAP,
   },
   chip: {
+    width: CHIP_WIDTH,
     paddingVertical: 12,
-    paddingHorizontal: 18,
     borderRadius: 14,
     backgroundColor: "rgba(255, 255, 255, 0.75)",
     borderWidth: 1,
     borderColor: "rgba(255, 255, 255, 0.85)",
+    alignItems: "center",
+    justifyContent: "center",
   },
   chipSelected: {
     backgroundColor: "#5299FE",
