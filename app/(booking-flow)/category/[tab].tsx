@@ -13,13 +13,19 @@
  * Spec: ~/Downloads/<figma frames> Screen 2.
  */
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { Dimensions, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import Animated, {
+  Easing,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Location from "expo-location";
 import MapView, { PROVIDER_DEFAULT, type Region } from "react-native-maps";
-import BottomSheet, { BottomSheetScrollView } from "@gorhom/bottom-sheet";
 import { ArrowLeft } from "lucide-react-native";
 
 import { Text } from "@/components/shared-ui";
@@ -56,8 +62,14 @@ const FALLBACK_REGION: Region = {
   longitudeDelta: 0.08,
 };
 
-const SNAP_POINTS = ["23%", "38%", "55%", "92%"] as const;
-const INITIAL_SNAP_INDEX = 3;
+// Match Screen 1's custom drag sheet (release-where-you-let-go,
+// no snap-back). MIN_H is the tiny peek the user can shove the
+// sheet down to; MAX_H is full-screen; INITIAL_H is the open
+// peek-of-map look the screen mounts up into.
+const { height: SCREEN_HEIGHT } = Dimensions.get("window");
+const MIN_H = SCREEN_HEIGHT * 0.23;
+const MAX_H = SCREEN_HEIGHT * 1.0;
+const INITIAL_H = SCREEN_HEIGHT * 0.92;
 
 const VALID_TABS = new Set<TaxonomyTab>([
   "routine_upkeep",
@@ -136,8 +148,41 @@ export default function CategoryDetailScreen() {
     };
   }, []);
 
-  // Local sheet state
-  const sheetRef = useRef<BottomSheet>(null);
+  // Custom slide-up sheet — same behavior as Screen 1. Mounts at
+  // 0, rises smoothly to INITIAL_H so the screen reads as "sheet
+  // slides up over the map". Pan on the chrome (handle + topRow
+  // + header) drags the sheet; the service list scrolls normally.
+  const sheetHeight = useSharedValue(0);
+  const startHeight = useSharedValue(0);
+
+  useEffect(() => {
+    sheetHeight.value = withTiming(INITIAL_H, {
+      duration: 600,
+      easing: Easing.out(Easing.cubic),
+    });
+  }, [sheetHeight]);
+
+  const dragGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        // Defer activation a touch so taps on the X button + vehicle
+        // puck (sitting inside the drag chrome) don't get swallowed
+        // by the pan handler.
+        .activeOffsetY([-8, 8])
+        .onBegin(() => {
+          startHeight.value = sheetHeight.value;
+        })
+        .onUpdate((e) => {
+          const next = startHeight.value - e.translationY;
+          sheetHeight.value = Math.max(MIN_H, Math.min(MAX_H, next));
+        }),
+    [sheetHeight, startHeight],
+  );
+
+  const sheetAnimatedStyle = useAnimatedStyle(() => ({
+    height: sheetHeight.value,
+  }));
+
   const [specsCheckServiceId, setSpecsCheckServiceId] = useState<string | null>(null);
   const [infoSheetSlug, setInfoSheetSlug] = useState<string | null>(null);
 
@@ -256,50 +301,48 @@ export default function CategoryDetailScreen() {
         )}
       </View>
 
-      <BottomSheet
-        ref={sheetRef}
-        snapPoints={SNAP_POINTS as unknown as string[]}
-        index={INITIAL_SNAP_INDEX}
-        enablePanDownToClose={false}
-        enableDynamicSizing={false}
-        backgroundComponent={GlassSheetBackground}
-        handleComponent={GlassSheetHandle}
-      >
-        <BottomSheetScrollView
-          contentContainerStyle={[
-            styles.scrollContent,
-            { paddingBottom: insets.bottom + 120 },
-          ]}
+      <Animated.View style={[styles.sheet, sheetAnimatedStyle]}>
+        <GlassSheetBackground style={StyleSheet.absoluteFill} />
+
+        {/* Draggable chrome — handle, top row, and header. Pan lives
+            here (not on the list) so the user can still scroll the
+            service rows below without fighting the sheet drag. */}
+        <GestureDetector gesture={dragGesture}>
+          <View>
+            <GlassSheetHandle />
+            <View style={styles.topRow}>
+              <Pressable
+                style={styles.iconBtn}
+                onPress={onBack}
+                hitSlop={8}
+                accessibilityLabel="Back"
+              >
+                <ArrowLeft size={20} color="#1F2937" strokeWidth={2} />
+              </Pressable>
+              <View style={{ flex: 1 }} />
+              <VehiclePuck />
+            </View>
+
+            {tab ? (
+              <View style={styles.header}>
+                <Text size="3xl" weight="bold" color="#0F172A" style={styles.title}>
+                  {tab.label}
+                </Text>
+                <Text size="md" weight="regular" color="#6B7280">
+                  {tab.subtitle} · {filteredServices.length} service
+                  {filteredServices.length === 1 ? "" : "s"}
+                </Text>
+              </View>
+            ) : null}
+          </View>
+        </GestureDetector>
+
+        {/* Scrollable service list */}
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={{ paddingBottom: insets.bottom + 120 }}
           showsVerticalScrollIndicator={false}
         >
-          {/* Top controls */}
-          <View style={styles.topRow}>
-            <Pressable
-              style={styles.iconBtn}
-              onPress={onBack}
-              hitSlop={8}
-              accessibilityLabel="Back"
-            >
-              <ArrowLeft size={20} color="#1F2937" strokeWidth={2} />
-            </Pressable>
-            <View style={{ flex: 1 }} />
-            <VehiclePuck />
-          </View>
-
-          {/* Header */}
-          {tab ? (
-            <View style={styles.header}>
-              <Text size="3xl" weight="bold" color="#0F172A" style={styles.title}>
-                {tab.label}
-              </Text>
-              <Text size="md" weight="regular" color="#6B7280">
-                {tab.subtitle} · {filteredServices.length} service
-                {filteredServices.length === 1 ? "" : "s"}
-              </Text>
-            </View>
-          ) : null}
-
-          {/* Service rows */}
           <View style={styles.list}>
             {filteredServices.map((svc) => {
               const slug = svc.slug;
@@ -344,8 +387,8 @@ export default function CategoryDetailScreen() {
               </View>
             ) : null}
           </View>
-        </BottomSheetScrollView>
-      </BottomSheet>
+        </ScrollView>
+      </Animated.View>
 
       {/* Sticky Continue bar (over the sheet) */}
       <StickyContinueBar
@@ -391,15 +434,24 @@ const styles = StyleSheet.create({
   mapFallback: {
     backgroundColor: "#C8D7DE",
   },
-  scrollContent: {
-    paddingTop: 4,
+  sheet: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    overflow: "hidden",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+  },
+  scroll: {
+    flex: 1,
   },
   topRow: {
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 16,
-    paddingTop: 6,
-    paddingBottom: 16,
+    paddingTop: 0,
+    paddingBottom: 12,
   },
   iconBtn: {
     width: 40,
