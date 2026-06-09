@@ -53,7 +53,7 @@ const FALLBACK_REGION: Region = {
 };
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
-const SNAP_POINTS = ["52%", "82%"] as const;
+const SNAP_POINTS = ["53%", "82%"] as const;
 
 export default function ChooseMechanicScreen() {
   const router = useRouter();
