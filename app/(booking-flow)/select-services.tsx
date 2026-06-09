@@ -58,6 +58,7 @@ const FALLBACK_REGION: Region = {
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 const MIN_H = SCREEN_HEIGHT * 0.23;
 const MAX_H = SCREEN_HEIGHT * 1.0;
+const INITIAL_H = SCREEN_HEIGHT * 0.92;
 
 export default function SelectServicesScreen() {
   const router = useRouter();
@@ -65,10 +66,11 @@ export default function SelectServicesScreen() {
   const availableServices = useBookingStore((s) => s.availableServices);
 
   // Sheet height in pixels — driven by Pan gesture below. Starts
-  // fully expanded; clamps to [MIN_H, MAX_H] on drag; whatever
+  // at INITIAL_H (the original ~92% peek-of-map look); user can
+  // drag up to MAX_H (full screen) or down to MIN_H. Whatever
   // value it ends at on release stays put (no withTiming, no snap).
-  const sheetHeight = useSharedValue(MAX_H);
-  const startHeight = useSharedValue(MAX_H);
+  const sheetHeight = useSharedValue(INITIAL_H);
+  const startHeight = useSharedValue(INITIAL_H);
 
   const dragGesture = useMemo(
     () =>
