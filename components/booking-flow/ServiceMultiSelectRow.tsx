@@ -27,7 +27,7 @@ import {
   Droplet,
   Filter,
   Gauge,
-  Info,
+  HelpCircle,
   type LucideIcon,
   Search,
   Settings,
@@ -120,7 +120,7 @@ export function ServiceMultiSelectRow({
             hitSlop={10}
             accessibilityLabel={`More info about ${entry.label}`}
           >
-            <Info size={15} color="#9CA3AF" strokeWidth={2} />
+            <HelpCircle size={15} color="#5299FE" strokeWidth={2} />
           </Pressable>
         </View>
         <Text size="sm" weight="regular" color="#6B7280" numberOfLines={2} style={styles.subtitle}>
