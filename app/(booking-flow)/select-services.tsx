@@ -21,8 +21,10 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Dimensions, Pressable, StyleSheet, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
+  Easing,
   useAnimatedStyle,
   useSharedValue,
+  withTiming,
 } from "react-native-reanimated";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -65,12 +67,20 @@ export default function SelectServicesScreen() {
   const insets = useSafeAreaInsets();
   const availableServices = useBookingStore((s) => s.availableServices);
 
-  // Sheet height in pixels — driven by Pan gesture below. Starts
-  // at INITIAL_H (the original ~92% peek-of-map look); user can
-  // drag up to MAX_H (full screen) or down to MIN_H. Whatever
-  // value it ends at on release stays put (no withTiming, no snap).
-  const sheetHeight = useSharedValue(INITIAL_H);
-  const startHeight = useSharedValue(INITIAL_H);
+  // Sheet height in pixels — driven by Pan gesture below. Mounts
+  // at 0 and rises smoothly to INITIAL_H so the screen reads as
+  // "sheet slides up over the map" rather than appearing already
+  // open. User can then drag up to MAX_H (full screen) or down to
+  // MIN_H; release-where-you-let-go behavior (no snap).
+  const sheetHeight = useSharedValue(0);
+  const startHeight = useSharedValue(0);
+
+  useEffect(() => {
+    sheetHeight.value = withTiming(INITIAL_H, {
+      duration: 600,
+      easing: Easing.out(Easing.cubic),
+    });
+  }, [sheetHeight]);
 
   const dragGesture = useMemo(
     () =>
