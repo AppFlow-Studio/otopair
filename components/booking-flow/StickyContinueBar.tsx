@@ -67,10 +67,10 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     paddingHorizontal: 22,
     borderRadius: 999,
-    backgroundColor: "#0F172A",
+    backgroundColor: "#5299FE",
   },
   pillDisabled: {
-    backgroundColor: "rgba(15, 23, 42, 0.45)",
+    backgroundColor: "rgba(82, 153, 254, 0.45)",
   },
   label: {
     flex: 1,
