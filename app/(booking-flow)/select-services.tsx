@@ -169,7 +169,10 @@ export default function SelectServicesScreen() {
           <View
             style={[
               styles.scrollContent,
-              { paddingBottom: insets.bottom + 32 },
+              {
+                paddingTop: insets.top + 4,
+                paddingBottom: insets.bottom + 32,
+              },
             ]}
           >
           {/* Top control row */}
@@ -254,7 +257,6 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 24,
   },
   scrollContent: {
-    paddingTop: 4,
     paddingBottom: 32,
     flex: 1,
   },
