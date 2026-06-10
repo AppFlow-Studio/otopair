@@ -13,6 +13,7 @@ import { Check } from "lucide-react-native";
 import { CarSilhouette } from "@/components/shared-ui/CarSilhouette";
 import { Text } from "@/components/shared-ui";
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
+import { GlassSheetBackground } from "@/components/booking-flow/GlassSheet";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 
 interface VehicleSwitcherSheetProps {
@@ -54,6 +55,7 @@ export function VehicleSwitcherSheet({ onClose }: VehicleSwitcherSheetProps) {
       showBackdrop
       backdropMode="dim"
       onClose={onClose}
+      backgroundElement={<GlassSheetBackground style={StyleSheet.absoluteFill} />}
     >
       <View style={styles.body}>
         <Text size="xl" weight="bold" color="#0F172A" style={styles.title}>
@@ -129,17 +131,20 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 12,
     borderRadius: 14,
-    backgroundColor: "rgba(15, 23, 42, 0.04)",
+    backgroundColor: "rgba(255, 255, 255, 0.55)",
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.7)",
     marginBottom: 8,
   },
   rowActive: {
-    backgroundColor: "rgba(82, 153, 254, 0.16)",
+    backgroundColor: "rgba(82, 153, 254, 0.22)",
+    borderColor: "rgba(82, 153, 254, 0.55)",
   },
   thumb: {
     width: 48,
     height: 48,
     borderRadius: 12,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: "rgba(255, 255, 255, 0.85)",
     alignItems: "center",
     justifyContent: "center",
     overflow: "hidden",
