@@ -120,6 +120,16 @@ export default function ChooseMechanicScreen() {
   // visible) rather than trying to frame user + shop together —
   // shops can be far from the user in dev data, and an auto-fit
   // would zoom out continent-scale.
+  //
+  // Zoom delta is tracked in a ref so the +/- rail buttons can
+  // mutate the zoom without re-triggering the shop-swipe effect.
+  // The effect uses whatever the current ref value is so a user
+  // who's zoomed in stays zoomed in across shops.
+  const DEFAULT_DELTA = 0.035;
+  const MIN_DELTA = 0.002;
+  const MAX_DELTA = 1.0;
+  const zoomDeltaRef = useRef(DEFAULT_DELTA);
+
   useEffect(() => {
     if (!activeShop || !mapRef.current) return;
     if (activeShop.latitude === 0 && activeShop.longitude === 0) return;
@@ -127,12 +137,67 @@ export default function ChooseMechanicScreen() {
       {
         latitude: activeShop.latitude,
         longitude: activeShop.longitude,
-        latitudeDelta: 0.035,
-        longitudeDelta: 0.035,
+        latitudeDelta: zoomDeltaRef.current,
+        longitudeDelta: zoomDeltaRef.current,
       },
       450,
     );
   }, [activeShop]);
+
+  const animateZoom = useCallback(
+    (factor: number) => {
+      if (!mapRef.current || !activeShop) return;
+      const next = Math.min(
+        MAX_DELTA,
+        Math.max(MIN_DELTA, zoomDeltaRef.current * factor),
+      );
+      zoomDeltaRef.current = next;
+      mapRef.current.animateToRegion(
+        {
+          latitude: activeShop.latitude,
+          longitude: activeShop.longitude,
+          latitudeDelta: next,
+          longitudeDelta: next,
+        },
+        220,
+      );
+    },
+    [activeShop],
+  );
+
+  const onZoomIn = useCallback(() => animateZoom(0.5), [animateZoom]);
+  const onZoomOut = useCallback(() => animateZoom(2), [animateZoom]);
+
+  const onRecenter = useCallback(() => {
+    if (!mapRef.current) return;
+    // Crosshair = "where am I" — prefer the user's coords. If we
+    // don't have them (permission denied / not yet resolved), fall
+    // back to recentering on the active shop at default zoom.
+    zoomDeltaRef.current = DEFAULT_DELTA;
+    if (userLocation) {
+      mapRef.current.animateToRegion(
+        {
+          latitude: userLocation.latitude,
+          longitude: userLocation.longitude,
+          latitudeDelta: DEFAULT_DELTA,
+          longitudeDelta: DEFAULT_DELTA,
+        },
+        320,
+      );
+      return;
+    }
+    if (activeShop && activeShop.latitude !== 0) {
+      mapRef.current.animateToRegion(
+        {
+          latitude: activeShop.latitude,
+          longitude: activeShop.longitude,
+          latitudeDelta: DEFAULT_DELTA,
+          longitudeDelta: DEFAULT_DELTA,
+        },
+        320,
+      );
+    }
+  }, [activeShop, userLocation]);
 
   // Selection summary — shared across all pages (it's about the
   // user's cart, not the per-shop view).
@@ -275,13 +340,25 @@ export default function ChooseMechanicScreen() {
 
       {/* Floating right rail — visual only for Phase 3 */}
       <View style={[styles.rightRail, { top: insets.top + 200 }]} pointerEvents="box-none">
-        <Pressable style={styles.railBtn} accessibilityLabel="Zoom in">
+        <Pressable
+          style={styles.railBtn}
+          onPress={onZoomIn}
+          accessibilityLabel="Zoom in"
+        >
           <Plus size={18} color="#1F2937" strokeWidth={2} />
         </Pressable>
-        <Pressable style={styles.railBtn} accessibilityLabel="Zoom out">
+        <Pressable
+          style={styles.railBtn}
+          onPress={onZoomOut}
+          accessibilityLabel="Zoom out"
+        >
           <Minus size={18} color="#1F2937" strokeWidth={2} />
         </Pressable>
-        <Pressable style={styles.railBtn} accessibilityLabel="Recenter">
+        <Pressable
+          style={styles.railBtn}
+          onPress={onRecenter}
+          accessibilityLabel="Recenter"
+        >
           <Crosshair size={18} color="#1F2937" strokeWidth={2} />
         </Pressable>
       </View>
