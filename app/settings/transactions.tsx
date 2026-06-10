@@ -36,6 +36,23 @@ function fmtUSD(n: number | undefined): string {
 
 type CompletedBooking = ReturnType<typeof useMyBookingsWithDetails>["historyBookings"][number];
 
+interface CarBucket {
+  /** Stable key for grouping: year|model|vin so two cars with the
+   *  same year+model but different VINs stay distinct. */
+  key: string;
+  /** Display label (e.g. "2024 Volkswagen Tiguan"). Derived from
+   *  the booking itself, not the vehicle store, so a booking
+   *  whose VIN doesn't match a current garage car still shows up
+   *  with its correct label instead of getting dropped. */
+  label: string;
+  /** Optional ownership match — used to swap the makeLogoUrl
+   *  thumbnail for a real garage car photo when we have one. */
+  vehicleId?: string;
+  /** Thumbnail URL — sourced from the booking's makeLogoUrl. */
+  makeLogoUrl?: string;
+  bookings: CompletedBooking[];
+}
+
 export default function PastServicesScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -45,45 +62,70 @@ export default function PastServicesScreen() {
   const vehicles = useVehicleStore((s) => s.vehicles);
 
   // Local navigation: null = vehicle picker, else = drilled into a
-  // single car's service history.
-  const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null);
+  // single car bucket's service history (keyed by the bucket key,
+  // not vehicle id, since a booking's car may not match a stored
+  // vehicle).
+  const [selectedBucketKey, setSelectedBucketKey] = useState<string | null>(null);
 
   const completed = useMemo<CompletedBooking[]>(
     () => historyBookings.filter((b) => b.status === "completed"),
     [historyBookings],
   );
 
-  // Per-vehicle bucket of completed bookings, keyed by vehicleId.
-  // Bookings without a VIN — or with a VIN that doesn't match any
-  // garage car — fall into an `unknown` bucket the picker hides.
-  const bookingsByVehicleId = useMemo(() => {
-    const byVin: Record<string, string> = {};
+  // Bucket completed bookings by car. Identity comes from the
+  // booking row itself (year + carModel + vin) so we always show
+  // every completed booking — VIN-only joining against the
+  // garage store dropped any booking whose VIN was empty or stale.
+  // When a bucket's VIN happens to match a stored vehicle we
+  // borrow the vehicle's image for the picker; otherwise we use
+  // the booking's makeLogoUrl.
+  const buckets = useMemo<CarBucket[]>(() => {
+    const vehicleByVin: Record<string, string> = {};
     for (const id of vehicleIds) {
       const v = vehicles[id];
-      if (v?.vin) byVin[v.vin] = id;
+      if (v?.vin) vehicleByVin[v.vin] = id;
     }
-    const map: Record<string, CompletedBooking[]> = {};
+
+    const map = new Map<string, CarBucket>();
     for (const b of completed) {
-      const vid = b.vin ? byVin[b.vin] : undefined;
-      if (!vid) continue;
-      (map[vid] ??= []).push(b);
+      const year = (b.carYear ?? "").trim();
+      const model = (b.carModel ?? "").trim();
+      const vin = (b.vin ?? "").trim();
+      const key = `${year}|${model}|${vin}`;
+      const label =
+        [year, model].filter(Boolean).join(" ") || "Unknown vehicle";
+      const vehicleId = vin ? vehicleByVin[vin] : undefined;
+      let bucket = map.get(key);
+      if (!bucket) {
+        bucket = {
+          key,
+          label,
+          vehicleId,
+          makeLogoUrl: b.makeLogoUrl,
+          bookings: [],
+        };
+        map.set(key, bucket);
+      }
+      bucket.bookings.push(b);
     }
-    return map;
+    return Array.from(map.values());
   }, [completed, vehicleIds, vehicles]);
 
+  const selectedBucket = useMemo<CarBucket | null>(() => {
+    if (selectedBucketKey === null) return null;
+    return buckets.find((b) => b.key === selectedBucketKey) ?? null;
+  }, [buckets, selectedBucketKey]);
+
   const handleBack = () => {
-    if (selectedVehicleId !== null) {
-      setSelectedVehicleId(null);
+    if (selectedBucketKey !== null) {
+      setSelectedBucketKey(null);
       return;
     }
     if (router.canGoBack()) router.back();
     else router.replace("/(main-tabs)/home");
   };
 
-  const selectedVehicle = selectedVehicleId ? vehicles[selectedVehicleId] : null;
-  const selectedBookings = selectedVehicleId
-    ? bookingsByVehicleId[selectedVehicleId] ?? []
-    : [];
+  const selectedBookings = selectedBucket?.bookings ?? [];
 
   return (
     <View style={styles.screen}>
@@ -104,23 +146,20 @@ export default function PastServicesScreen() {
 
         <View style={styles.heroRow}>
           <Text weight="bold" color={INK} style={styles.heroTitle}>
-            {selectedVehicle
-              ? `${selectedVehicle.year} ${selectedVehicle.make} ${selectedVehicle.model}`
-              : "Past Services"}
+            {selectedBucket ? selectedBucket.label : "Past Services"}
           </Text>
           <Text size="md" color={MUTED} style={styles.heroSubtitle} center>
-            {selectedVehicle
+            {selectedBucket
               ? `${selectedBookings.length} completed service${selectedBookings.length === 1 ? "" : "s"}`
               : "Pick a car to see its history"}
           </Text>
         </View>
 
-        {selectedVehicleId === null ? (
+        {selectedBucket === null ? (
           <VehiclePicker
-            vehicleIds={vehicleIds}
+            buckets={buckets}
             vehicles={vehicles}
-            bookingsByVehicleId={bookingsByVehicleId}
-            onPick={setSelectedVehicleId}
+            onPick={setSelectedBucketKey}
           />
         ) : selectedBookings.length > 0 ? (
           <View style={styles.list}>
@@ -140,22 +179,13 @@ export default function PastServicesScreen() {
 }
 
 interface VehiclePickerProps {
-  vehicleIds: string[];
+  buckets: CarBucket[];
   vehicles: Record<string, ReturnType<typeof useVehicleStore.getState>["vehicles"][string]>;
-  bookingsByVehicleId: Record<string, CompletedBooking[]>;
-  onPick: (id: string) => void;
+  onPick: (key: string) => void;
 }
 
-function VehiclePicker({ vehicleIds, vehicles, bookingsByVehicleId, onPick }: VehiclePickerProps) {
-  // Only surface cars that actually have completed services. The
-  // user can pull more granular per-vehicle history from the Cars
-  // tab if they want a car with no history.
-  const visibleIds = useMemo(
-    () => vehicleIds.filter((id) => (bookingsByVehicleId[id]?.length ?? 0) > 0),
-    [vehicleIds, bookingsByVehicleId],
-  );
-
-  if (visibleIds.length === 0) {
+function VehiclePicker({ buckets, vehicles, onPick }: VehiclePickerProps) {
+  if (buckets.length === 0) {
     return (
       <EmptyState
         label="No past services yet"
@@ -166,25 +196,31 @@ function VehiclePicker({ vehicleIds, vehicles, bookingsByVehicleId, onPick }: Ve
 
   return (
     <View style={styles.vehicleList}>
-      {visibleIds.map((id) => {
-        const v = vehicles[id];
-        if (!v) return null;
-        const count = bookingsByVehicleId[id]?.length ?? 0;
+      {buckets.map((bucket) => {
+        const vehicle = bucket.vehicleId ? vehicles[bucket.vehicleId] : undefined;
+        const count = bucket.bookings.length;
+        const vinTail = bucket.key.split("|")[2];
         return (
           <Pressable
-            key={id}
+            key={bucket.key}
             style={({ pressed }) => [
               styles.vehicleCard,
               pressed && styles.vehicleCardPressed,
             ]}
-            onPress={() => onPick(id)}
+            onPress={() => onPick(bucket.key)}
             accessibilityRole="button"
-            accessibilityLabel={`${v.year} ${v.make} ${v.model}, ${count} services`}
+            accessibilityLabel={`${bucket.label}, ${count} services`}
           >
             <View style={styles.vehicleThumb}>
-              {v.imageSource ? (
+              {vehicle?.imageSource ? (
                 <Image
-                  source={v.imageSource}
+                  source={vehicle.imageSource}
+                  style={styles.vehicleThumbImage}
+                  resizeMode="contain"
+                />
+              ) : bucket.makeLogoUrl ? (
+                <Image
+                  source={{ uri: bucket.makeLogoUrl }}
                   style={styles.vehicleThumbImage}
                   resizeMode="contain"
                 />
@@ -194,11 +230,11 @@ function VehiclePicker({ vehicleIds, vehicles, bookingsByVehicleId, onPick }: Ve
             </View>
             <View style={styles.vehicleText}>
               <Text weight="bold" size="md" color={INK} numberOfLines={1}>
-                {v.year} {v.make} {v.model}
+                {bucket.label}
               </Text>
               <Text size="sm" color={MUTED} numberOfLines={1} style={styles.vehicleSub}>
                 {count} service{count === 1 ? "" : "s"}
-                {v.vin ? ` · VIN ${v.vin.slice(-6)}` : ""}
+                {vinTail ? ` · VIN ${vinTail.slice(-6)}` : ""}
               </Text>
             </View>
             <ChevronRight size={20} color="#9CA3AF" strokeWidth={2} />
@@ -216,8 +252,12 @@ interface RowProps {
 function PastServiceRow({ booking }: RowProps) {
   const subtitle = useMemo(() => {
     const services = booking.services.length;
-    const itemLabel = `${services} service${services === 1 ? "" : "s"}`;
-    return `${booking.shopName} · ${itemLabel} · ${fmtUSD(booking.totalCost)}`;
+    const parts = [booking.shopName];
+    if (services > 0) {
+      parts.push(`${services} service${services === 1 ? "" : "s"}`);
+    }
+    parts.push(fmtUSD(booking.totalCost));
+    return parts.join(" · ");
   }, [booking.shopName, booking.services.length, booking.totalCost]);
 
   return (
