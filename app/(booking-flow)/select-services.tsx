@@ -204,7 +204,7 @@ export default function SelectServicesScreen() {
               <Search size={20} color="#1F2937" strokeWidth={2} />
             </Pressable>
             <View style={{ width: 8 }} />
-            <VehiclePuck />
+            <VehiclePuck interactive />
           </View>
 
           {/* Header */}
