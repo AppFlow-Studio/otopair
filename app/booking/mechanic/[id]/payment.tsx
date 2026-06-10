@@ -756,11 +756,13 @@ export default function PaymentScreen() {
                   </View>
                 ))
               : selectedServices.flatMap((service) => {
-                  // Flat-price services are represented by their summary row +
-                  // FixedPriceBadge above; suppress them in the detailed
-                  // breakdown so we don't double-show or invent dollar amounts
-                  // that don't sum to the flat.
-                  if (fixedPriceMap.has(String(service.id))) return [];
+                  // Fixed-price services still surface their parts here so the
+                  // customer sees what's actually being installed — the right
+                  // column reads "Included" instead of a dollar amount, since
+                  // the price contract is the flat shown in the summary row
+                  // above. With no priced-parts data we render nothing extra
+                  // and let the FixedPriceBadge row stand alone.
+                  const isFixedLine = fixedPriceMap.has(String(service.id));
                   const priced = pricedPartsMap.get(String(service.id));
                   if (!priced || !priced.winner) return [];
                   // Round 6: render the real AI/OEM per-line range. When the
@@ -798,11 +800,13 @@ export default function PaymentScreen() {
                           {part.name} (Part){qtyLabel}
                         </Text>
                         <Text size="sm" weight="medium" color="#6B7280">
-                          {refusedEstimate
-                            ? "Price TBD"
-                            : hasPrice
-                              ? formatRange(lineLow, lineHigh)
-                              : "Price TBD"}
+                          {isFixedLine
+                            ? "Included"
+                            : refusedEstimate
+                              ? "Price TBD"
+                              : hasPrice
+                                ? formatRange(lineLow, lineHigh)
+                                : "Price TBD"}
                         </Text>
                       </View>
                     );

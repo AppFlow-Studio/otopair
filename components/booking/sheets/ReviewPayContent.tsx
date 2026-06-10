@@ -755,11 +755,13 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
                   </View>
                 ))
               : selectedServices.flatMap((service) => {
-                  // Flat-price services are represented by their summary row +
-                  // FixedPriceBadge above; suppress them in the detailed
-                  // breakdown so we don't double-show or invent dollar amounts
-                  // that don't sum to the flat.
-                  if (fixedPriceMap.has(String(service.id))) return [];
+                  // Fixed-price services still surface their parts here so the
+                  // customer sees what's actually being installed — the right
+                  // column reads "Included" instead of a dollar amount, since
+                  // the price contract is the flat shown in the summary row
+                  // above. With no priced-parts data we render nothing extra
+                  // and let the FixedPriceBadge row stand alone.
+                  const isFixedLine = fixedPriceMap.has(String(service.id));
                   const priced = pricedPartsMap.get(String(service.id));
                   if (!priced || !priced.winner) return [];
                   // Round 6: per-OEM rows show the real AI/OEM line_total.
@@ -777,8 +779,11 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
                   return parts.map((part) => {
                     const qtyLabel = part.quantity > 1 ? ` ×${part.quantity}` : "";
                     const hasPrice = part.has_price_data && part.line_total > 0;
+                    // Suppress the `@ ~$X.XX` unit-price suffix on fixed-price
+                    // lines — customer's contract is the flat amount, so any
+                    // dollar figure on a part row would compete with it.
                     const unitLabel =
-                      hasPrice && part.quantity > 1 && part.unit_price > 0
+                      !isFixedLine && hasPrice && part.quantity > 1 && part.unit_price > 0
                         ? ` @ ~$${part.unit_price.toFixed(2)}`
                         : "";
                     return (
@@ -788,11 +793,13 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
                           {unitLabel}
                         </Text>
                         <Text size="sm" weight="medium" color="#6B7280">
-                          {refusedEstimate
-                            ? "Price TBD"
-                            : hasPrice
-                              ? `$${part.line_total.toFixed(2)}`
-                              : "Price TBD"}
+                          {isFixedLine
+                            ? "Included"
+                            : refusedEstimate
+                              ? "Price TBD"
+                              : hasPrice
+                                ? `$${part.line_total.toFixed(2)}`
+                                : "Price TBD"}
                         </Text>
                       </View>
                     );

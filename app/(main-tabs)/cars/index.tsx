@@ -19,8 +19,6 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { haptics } from "@/lib/haptics";
 import { useToast } from "@/hooks/useToast";
-import * as DocumentPicker from "expo-document-picker";
-import { WebView } from "react-native-webview";
 import Svg, { Circle, Defs, LinearGradient as SvgLinearGradient, Stop } from "react-native-svg";
 
 // 3. Convex & hooks
@@ -64,7 +62,6 @@ import { CheckinBanner } from "@/components/cars/CheckinBanner";
 import UpcomingFollowUpsCard from "@/components/cars/UpcomingFollowUpsCard";
 import CarInfoStepper, { type CarInfoStepperHandle } from "@/components/cars/CarInfoStepper";
 import { AnimatedGradientBackground } from "@/components/shared-ui/AnimatedGradientBackground";
-import ServiceHistory, { ServiceRecord, type PickedDocument } from "@/components/cars/ServiceHistory";
 import { VehicleServiceHistory } from "@/components/cars/VehicleServiceHistory";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 import { PostOptimizeBookingSheet } from "@/components/cars/PostOptimizeBookingSheet";
@@ -199,8 +196,6 @@ export default function CarsHomeScreen() {
   const [showOptimizeBookingSheet, setShowOptimizeBookingSheet] = useState(false);
 
   // Fullscreen gears overlay
-  const [pickedDocuments, setPickedDocuments] = useState<PickedDocument[]>([]);
-  const [viewingDocument, setViewingDocument] = useState<PickedDocument | null>(null);
   const [gearsOverlayVisible, setGearsOverlayVisible] = useState(false);
   const [gearsPhase, setGearsPhase] = useState<'looping' | 'building' | 'ready'>('looping');
   const gearsOverlayOpacity = useRef(new Animated.Value(1)).current;
@@ -1270,9 +1265,6 @@ export default function CarsHomeScreen() {
     });
   }, [editPickerY, editPickerBackdrop]);
 
-  const serviceRecords: ServiceRecord[] = [];
-
-
   // True when the active vehicle is showing the covered-car fallback
   // (no `imageSource` has been resolved yet). In that case the page
   // gets the blue palette and skips the elliptical ground shadow
@@ -1909,61 +1901,17 @@ export default function CarsHomeScreen() {
             />
           ) : null}
 
-          {/* Vehicle Service History — Otopair completed bookings filtered
-              by active vehicle vin. Row tap opens the shared ReceiptSheet.
-              Per Receipt Spec v4 §"Where invoices live" this is the new
-              second entry point. Sits ABOVE the existing ServiceHistory
-              (imports flow) until the merge happens in a follow-up. */}
+          {/* Unified Service History — Otopair completed bookings + parsed
+              user uploads, filtered to the active VIN. Upload picker lives
+              inside the component (Reducto-parse flow), and row tap opens
+              ReceiptSheet (booking row) or ParsedDocumentSheet (doc row). */}
           {isOnboardingComplete && (
             <VehicleServiceHistory
               vin={activeVehicle?.vin}
+              vehicleOwnerId={activeOwnershipId}
               isDarkBg={isDarkBg}
             />
           )}
-
-          {/* Service History Section (hidden until onboarding complete) */}
-          {isOnboardingComplete && <ServiceHistory
-            isDarkBg={isDarkBg}
-            records={serviceRecords}
-            onAddNotes={(id) => {
-              // TODO: Open notes modal/screen for this service record
-              console.log("Add Notes for record", id);
-            }}
-            onDownloadReceipt={(id) => {
-              // TODO: Download PDF receipt for this service record
-              console.log("Download Receipt for record", id);
-            }}
-            onAddServiceHistory={async () => {
-              try {
-                const result = await DocumentPicker.getDocumentAsync({
-                  type: [
-                    'application/pdf',
-                    'image/*',
-                    'application/msword',
-                    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-                  ],
-                  multiple: true,
-                  copyToCacheDirectory: true,
-                });
-                if (!result.canceled && result.assets.length > 0) {
-                  const newDocs: PickedDocument[] = result.assets.map(asset => ({
-                    uri: asset.uri,
-                    name: asset.name,
-                    mimeType: asset.mimeType ?? 'application/octet-stream',
-                    size: asset.size ?? undefined,
-                  }));
-                  setPickedDocuments(prev => [...prev, ...newDocs]);
-                }
-              } catch (err) {
-                console.error("Document picker error:", err);
-              }
-            }}
-            documents={pickedDocuments}
-            onRemoveDocument={(index) => {
-              setPickedDocuments(prev => prev.filter((_, i) => i !== index));
-            }}
-            onOpenDocument={(doc) => setViewingDocument(doc)}
-          />}
 
           {/* Loyalty Points Section (hidden until onboarding complete) */}
           {isOnboardingComplete && <LoyaltyPoints
@@ -2563,43 +2511,7 @@ export default function CarsHomeScreen() {
         vehicleLabel={activeVehicleLabel}
       />
 
-      {/* Document Viewer Modal */}
-      <Modal
-        visible={!!viewingDocument}
-        animationType="slide"
-        presentationStyle="pageSheet"
-        onRequestClose={() => setViewingDocument(null)}
-      >
-        <View style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: verticalScale(56), paddingHorizontal: scale(16), paddingBottom: scale(12), borderBottomWidth: 1, borderBottomColor: '#E5E7EB' }}>
-            <Text weight="semiBold" style={{ fontSize: moderateScale(16), color: '#16293B', flex: 1 }} numberOfLines={1}>
-              {viewingDocument?.name ?? 'Document'}
-            </Text>
-            <Pressable onPress={() => setViewingDocument(null)} hitSlop={12}>
-              <Ionicons name="close-circle" size={28} color="#9CA3AF" />
-            </Pressable>
-          </View>
-          {viewingDocument?.mimeType.startsWith('image/') ? (
-            <Image
-              source={{ uri: viewingDocument.uri }}
-              style={{ flex: 1 }}
-              resizeMode="contain"
-            />
-          ) : (
-            <WebView
-              source={{ uri: viewingDocument?.uri ?? '' }}
-              style={{ flex: 1 }}
-              originWhitelist={['*']}
-              allowFileAccess
-              allowFileAccessFromFileURLs
-              allowUniversalAccessFromFileURLs
-              startInLoadingState
-            />
-          )}
-        </View>
-      </Modal>
-
-      <VehicleRoleSheet
+<VehicleRoleSheet
         visible={showRoleSheet}
         currentRole={activeOwnership?.garageRole as string | undefined}
         vehicleName={activeVehicleLabel}
