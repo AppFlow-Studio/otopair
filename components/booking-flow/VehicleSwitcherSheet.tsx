@@ -21,7 +21,7 @@ interface VehicleSwitcherSheetProps {
 }
 
 const SCREEN_HEIGHT = Dimensions.get("window").height;
-const ROW_HEIGHT = 72;
+const ROW_HEIGHT = 88;
 
 export function VehicleSwitcherSheet({ onClose }: VehicleSwitcherSheetProps) {
   const sheetRef = useRef<FloatingSheetRef>(null);
@@ -83,7 +83,7 @@ export function VehicleSwitcherSheet({ onClose }: VehicleSwitcherSheetProps) {
                   {v.imageSource ? (
                     <Image source={v.imageSource} style={styles.thumbImage} resizeMode="contain" />
                   ) : (
-                    <CarSilhouette variant="suv" width={36} height={26} />
+                    <CarSilhouette variant="suv" width={64} height={44} />
                   )}
                 </View>
                 <View style={styles.rowText}>
@@ -141,14 +141,14 @@ const styles = StyleSheet.create({
     borderColor: "rgba(82, 153, 254, 0.55)",
   },
   thumb: {
-    width: 48,
-    height: 48,
+    width: 72,
+    height: 56,
     alignItems: "center",
     justifyContent: "center",
   },
   thumbImage: {
-    width: "85%",
-    height: "85%",
+    width: "100%",
+    height: "100%",
   },
   rowText: {
     flex: 1,
