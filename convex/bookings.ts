@@ -12741,3 +12741,80 @@ export const getTopBookedServicesByUser = query({
     return results.filter((r): r is NonNullable<typeof r> => r !== null);
   },
 });
+
+// ============================================================================
+// DEV-ONLY CLEANUP
+// ============================================================================
+//
+// `_dev_clearCompletedBookingsForUser` — wipes a user's completed bookings
+// + their cascading rows (status history, reviews, job_actuals). Used as a
+// one-off after the v5 service reseed left historical bookings pointing at
+// services that no longer exist; deleting them is cleaner than carrying
+// rows whose service line items resolve to nothing.
+//
+// `internalMutation` keeps this off the public API — callable only via
+// `npx convex run --no-push bookings:_dev_clearCompletedBookingsForUser
+// '{ "userId": "<id>" }'` or the Convex dashboard's function runner.
+//
+// NOT intended for production. Hard delete, no archive.
+export const _dev_clearCompletedBookingsForUser = internalMutation({
+  args: { userId: v.id("users") },
+  handler: async (ctx, { userId }) => {
+    const rows = await ctx.db
+      .query("bookings")
+      .filter((q) =>
+        q.and(
+          q.eq(q.field("user_id"), userId),
+          q.eq(q.field("status"), "completed"),
+        ),
+      )
+      .collect();
+
+    let bookingsDeleted = 0;
+    let historyDeleted = 0;
+    let reviewsDeleted = 0;
+    let jobActualsDeleted = 0;
+
+    for (const b of rows) {
+      // Cascade: booking_status_history rows for this booking
+      const history = await ctx.db
+        .query("booking_status_history")
+        .withIndex("by_booking_id", (q) => q.eq("booking_id", b._id))
+        .collect();
+      for (const h of history) {
+        await ctx.db.delete(h._id);
+        historyDeleted++;
+      }
+
+      // Cascade: review rows for this booking (if any)
+      const reviews = await ctx.db
+        .query("reviews")
+        .filter((q) => q.eq(q.field("booking_id"), b._id))
+        .collect();
+      for (const r of reviews) {
+        await ctx.db.delete(r._id);
+        reviewsDeleted++;
+      }
+
+      // Cascade: job_actuals snapshots for this booking
+      const jas = await ctx.db
+        .query("job_actuals")
+        .filter((q) => q.eq(q.field("booking_id"), b._id))
+        .collect();
+      for (const ja of jas) {
+        await ctx.db.delete(ja._id);
+        jobActualsDeleted++;
+      }
+
+      await ctx.db.delete(b._id);
+      bookingsDeleted++;
+    }
+
+    return {
+      bookingsDeleted,
+      historyDeleted,
+      reviewsDeleted,
+      jobActualsDeleted,
+    };
+  },
+});
