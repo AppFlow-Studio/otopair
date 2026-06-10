@@ -346,7 +346,7 @@ const styles = StyleSheet.create({
   },
   heroRow: {
     alignItems: "center",
-    marginTop: -10,
+    marginTop: 24,
     marginBottom: 20,
   },
   heroTitle: {
