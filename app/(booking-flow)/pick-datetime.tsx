@@ -28,7 +28,6 @@ import { DateChipRow, type DateChipItem } from "@/components/booking-flow/DateCh
 import { TimeSlotGrid } from "@/components/booking-flow/TimeSlotGrid";
 import { VehiclePuck } from "@/components/booking-flow/VehiclePuck";
 import { useCalendarAvailabilityForShop } from "@/hooks/useCalendarAvailabilityForShop";
-import { useCreateBookingConvex } from "@/hooks/useCreateBookingConvex";
 import { useTimeSlotsForShop } from "@/hooks/useTimeSlotsForShop";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
@@ -166,8 +165,6 @@ export default function PickDateTimeScreen() {
     setSelectedTime(null);
   }, [selectedDateISO]);
 
-  const [isConfirming, setIsConfirming] = useState(false);
-
   // Selection label for the Confirm bar: "Mon, June 9 · 9:00 AM".
   const selectionLabel = useMemo(() => {
     if (!selectedDateISO || !selectedTime) return null;
@@ -196,71 +193,58 @@ export default function PickDateTimeScreen() {
     return `${mechLabel} · ${selectedCount} service${selectedCount === 1 ? "" : "s"} · ${minsText}`;
   }, [mechanic, totalMinutes, selectedCount]);
 
-  // Confirm flow — see plan §"Confirm flow".
-  const { createBookingConvex } = useCreateBookingConvex();
-  const onConfirm = async () => {
+  // Confirm flow — Screen 4's Confirm pill hands off to the legacy
+  // payment-method picker (`/booking/mechanic/[id]/payment`). That
+  // screen pushes to `/confirming` which runs createBookingConvex
+  // and lands on the existing `/confirmation` route. The booking
+  // mutation itself stays where it always lived; this screen's job
+  // is just to seed the booking store with the slot + appointment
+  // so the payment page has everything it needs to render the
+  // breakdown.
+  const onConfirm = () => {
     if (!shopId || !shop || !selectedDateISO || !selectedTime) return;
-    setIsConfirming(true);
-    try {
-      const timeSlotId = getSlotIdByDisplayTime(selectedTime);
-      const slotRow = slots.find((s) => s.displayTime === selectedTime);
-      const startHHMM = slotRow?.startTime ?? displayTimeToHHMM(selectedTime);
-      const endHHMM = slotRow?.endTime ?? startHHMM;
+    const timeSlotId = getSlotIdByDisplayTime(selectedTime);
+    const slotRow = slots.find((s) => s.displayTime === selectedTime);
+    const startHHMM = slotRow?.startTime ?? displayTimeToHHMM(selectedTime);
 
-      // Resolve concrete mechanic id for the post-booking URL when "Any"
-      // is selected. Falls back to shopId so the route param is non-empty.
-      const urlMechanicId =
-        mechanicId ?? findFirstMechanicForShop(shopId, getMechanicById) ?? shopId;
+    // Resolve concrete mechanic id for the post-booking URL when "Any"
+    // is selected. Falls back to shopId so the route param is non-empty.
+    const urlMechanicId =
+      mechanicId ?? findFirstMechanicForShop(shopId, getMechanicById) ?? shopId;
 
-      const d = isoToDate(selectedDateISO);
-      const dowAbbrev = DAY_OF_WEEK[d.getDay()];
+    const d = isoToDate(selectedDateISO);
+    const dowAbbrev = DAY_OF_WEEK[d.getDay()];
 
-      setSelectedMechanicSlot({
-        shopId,
-        shopName: shop.name,
-        mechanicId,
-        mechanicName: mechanic?.name ?? null,
-        slot: {
-          dayOfWeek: dowAbbrev,
-          day: String(d.getDate()),
-          time: selectedTime,
-          timeSlotId: timeSlotId ?? undefined,
-          scheduledDate: selectedDateISO,
-          scheduledTime: startHHMM,
-          mechanicId: mechanicId ?? undefined,
-        },
+    setSelectedMechanicSlot({
+      shopId,
+      shopName: shop.name,
+      mechanicId,
+      mechanicName: mechanic?.name ?? null,
+      slot: {
+        dayOfWeek: dowAbbrev,
+        day: String(d.getDate()),
+        time: selectedTime,
         timeSlotId: timeSlotId ?? undefined,
         scheduledDate: selectedDateISO,
         scheduledTime: startHHMM,
-      });
+        mechanicId: mechanicId ?? undefined,
+      },
+      timeSlotId: timeSlotId ?? undefined,
+      scheduledDate: selectedDateISO,
+      scheduledTime: startHHMM,
+    });
 
-      // endHHMM isn't on MechanicAvailabilitySlot — keep it as a
-      // local var so the post-confirm route can still use it via
-      // params if needed.
-      void endHHMM;
-      setScheduledAppointment({
-        date: selectedDateISO,
-        time: selectedTime,
-        displayDate: selectedDateHeader ?? selectedDateISO,
-      });
-      selectMechanic(mechanicId);
+    setScheduledAppointment({
+      date: selectedDateISO,
+      time: selectedTime,
+      displayDate: selectedDateHeader ?? selectedDateISO,
+    });
+    selectMechanic(mechanicId);
 
-      const bookingIds = await createBookingConvex(mechanicId, "schedule_later");
-      const firstBookingId =
-        Array.isArray(bookingIds) && bookingIds.length > 0
-          ? String(bookingIds[0])
-          : undefined;
-
-      router.replace({
-        pathname: "/booking/mechanic/[id]/confirmation",
-        params: firstBookingId
-          ? { id: urlMechanicId, bookingDbId: firstBookingId }
-          : { id: urlMechanicId },
-      });
-    } catch {
-      // Error toast is surfaced inside useCreateBookingConvex.
-      setIsConfirming(false);
-    }
+    router.push({
+      pathname: "/booking/mechanic/[id]/payment",
+      params: { id: urlMechanicId },
+    });
   };
 
   const onBack = () => {
@@ -362,7 +346,6 @@ export default function PickDateTimeScreen() {
 
       <ConfirmBookingBar
         selectionLabel={selectionLabel}
-        isLoading={isConfirming}
         onPress={onConfirm}
       />
     </View>
