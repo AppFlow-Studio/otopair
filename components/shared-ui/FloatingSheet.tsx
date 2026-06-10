@@ -98,6 +98,13 @@ interface FloatingSheetProps {
   sideInset?: number;
   /** Sheet body content (rendered below the grabber). */
   children?: React.ReactNode;
+  /** Replaces the default solid-white sheet fill. Renders
+   *  absoluteFill INSIDE the sheet chrome (below the handle and
+   *  body), so callers can supply a glass / gradient / blurred
+   *  background without modifying FloatingSheet's shadow + corner
+   *  geometry. When set, the sheetInner background goes
+   *  transparent so this element shows through. */
+  backgroundElement?: React.ReactNode;
 }
 
 // ============================================================================
@@ -118,6 +125,7 @@ export const FloatingSheet = forwardRef<FloatingSheetRef, FloatingSheetProps>(
       floatBottomInset,
       sideInset: sideInsetOverride,
       children,
+      backgroundElement,
     },
     ref,
   ) => {
@@ -381,8 +389,18 @@ export const FloatingSheet = forwardRef<FloatingSheetRef, FloatingSheetProps>(
           ]}
         >
           <Animated.View
-            style={[styles.sheetInner, { borderRadius: cornerRadius }, innerAnimStyle]}
+            style={[
+              styles.sheetInner,
+              backgroundElement ? styles.sheetInnerTransparent : null,
+              { borderRadius: cornerRadius },
+              innerAnimStyle,
+            ]}
           >
+            {backgroundElement ? (
+              <View style={StyleSheet.absoluteFill} pointerEvents="none">
+                {backgroundElement}
+              </View>
+            ) : null}
             <GestureDetector gesture={dragGesture}>
               <View style={styles.dragRegion}>
                 <View style={styles.handle} />
@@ -426,6 +444,9 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFFFFF",
     borderRadius: CORNER_RADIUS,
     overflow: "hidden",
+  },
+  sheetInnerTransparent: {
+    backgroundColor: "transparent",
   },
   dragRegion: {
     paddingHorizontal: 20,
