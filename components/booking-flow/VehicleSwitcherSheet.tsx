@@ -143,11 +143,8 @@ const styles = StyleSheet.create({
   thumb: {
     width: 48,
     height: 48,
-    borderRadius: 12,
-    backgroundColor: "rgba(255, 255, 255, 0.85)",
     alignItems: "center",
     justifyContent: "center",
-    overflow: "hidden",
   },
   thumbImage: {
     width: "85%",
