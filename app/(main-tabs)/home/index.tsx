@@ -519,11 +519,12 @@ export default function HomeScreen() {
     router.push("/booking/map?startCollapsed=true");
   };
 
-  // Search field tap (left side of the search bar): opens the map AND
-  // auto-expands the booking sheet, since the search field is the
-  // intended entry point for finding/booking a service.
+  // Search field tap (left side of the search bar): for now this is
+  // the temp Phase-1 entry point to the new booking flow. The map
+  // button below still routes to the legacy `/booking/map` flow so
+  // both can be compared side-by-side until the cutover commit.
   const handleSearchPress = () => {
-    router.push("/booking/map");
+    router.push("/(booking-flow)/select-services");
   };
 
   // Notifications bell — opens the global NotificationsSheet and
