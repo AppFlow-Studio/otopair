@@ -241,7 +241,11 @@ function SuccessPanel({ onDone }: SuccessPanelProps) {
       </Text>
       <Pressable
         onPress={onDone}
-        style={({ pressed }) => [styles.submit, pressed && styles.submitPressed]}
+        style={({ pressed }) => [
+          styles.submit,
+          styles.successDoneBtn,
+          pressed && styles.submitPressed,
+        ]}
         accessibilityRole="button"
         accessibilityLabel="Done"
       >
@@ -331,6 +335,9 @@ const styles = StyleSheet.create({
   successPanel: {
     alignItems: "center",
     paddingVertical: 18,
+  },
+  successDoneBtn: {
+    alignSelf: "stretch",
   },
   successBadge: {
     width: 64,
