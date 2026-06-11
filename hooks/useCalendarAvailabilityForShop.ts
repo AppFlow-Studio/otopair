@@ -12,6 +12,7 @@ import { useQuery } from "convex/react";
 import { useMemo } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { minBookableHHMM, todayLocalISO } from "@/utils/timeSlotUtils";
 
 export function useCalendarAvailabilityForShop(
   shopId: string | null,
@@ -32,6 +33,8 @@ export function useCalendarAvailabilityForShop(
           month,
           mechanicId: isRealMechanicId ? (mechanicId as Id<"mechanics">) : undefined,
           durationMinutes,
+          cutoffDate: todayLocalISO(),
+          cutoffTime: minBookableHHMM(),
         }
       : "skip",
   );

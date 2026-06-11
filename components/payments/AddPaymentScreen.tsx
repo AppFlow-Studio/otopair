@@ -23,11 +23,13 @@ import { useAction } from "convex/react";
 import {
   CardField,
   CardFieldInput,
+  initStripe,
   useStripe,
 } from "@stripe/stripe-react-native";
 import { ArrowLeft } from "lucide-react-native";
 
 import { api } from "@/convex/_generated/api";
+import { resolveStripePublishableKey } from "@/lib/stripeConfig";
 import { usePaymentStore } from "@/stores/usePaymentStore";
 import {
   FooterButton,
@@ -50,21 +52,43 @@ export function AddPaymentScreen() {
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [intentLoading, setIntentLoading] = useState(true);
+  const [stripeReady, setStripeReady] = useState(false);
   const clientSecretRef = useRef<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const { setupIntentClientSecret } = await createSetupIntent({});
+        const { setupIntentClientSecret, publishableKeyHint } =
+          await createSetupIntent({});
+        if (cancelled) return;
+
+        const publishableKey = resolveStripePublishableKey(
+          process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY,
+          publishableKeyHint,
+        );
+
+        if (!publishableKey) {
+          setErrorMessage(
+            "Card payments aren't configured for this build. Please contact support.",
+          );
+          return;
+        }
+
+        await initStripe({
+          publishableKey,
+          merchantIdentifier: process.env.EXPO_PUBLIC_STRIPE_MERCHANT_ID,
+          urlScheme: "otopair",
+        });
         if (cancelled) return;
         clientSecretRef.current = setupIntentClientSecret;
+        setStripeReady(true);
       } catch (err) {
         if (!cancelled) {
           setErrorMessage(
             "Couldn't start the card setup. Please try again.",
           );
-          console.warn("[AddPayment] createSetupIntent failed", err);
+          console.warn("[AddPayment] secure form setup failed", err);
         }
       } finally {
         if (!cancelled) setIntentLoading(false);
@@ -113,7 +137,8 @@ export function AddPaymentScreen() {
   const last4 = card?.last4 || undefined;
   const expMonth = card?.expiryMonth ?? undefined;
   const expYear = card?.expiryYear ?? undefined;
-  const canSave = !!card?.complete && !!clientSecretRef.current && !submitting;
+  const canSave =
+    stripeReady && !!card?.complete && !!clientSecretRef.current && !submitting;
 
   return (
     <View style={[styles.container, { paddingTop: insets.top + 8 }]}>
@@ -151,24 +176,26 @@ export function AddPaymentScreen() {
           >
             CARD DETAILS
           </Text>
-          <View style={styles.cardFieldWrap}>
-            <CardField
-              postalCodeEnabled={false}
-              placeholders={{ number: "1234 1234 1234 1234" }}
-              cardStyle={{
-                backgroundColor: "#FFFFFF",
-                textColor: "#1F2937",
-                placeholderColor: "#9CA3AF",
-                fontSize: 16,
-                borderWidth: 0,
-              }}
-              style={styles.cardField}
-              onCardChange={(details) => {
-                setCard(details);
-                if (details.complete) Keyboard.dismiss();
-              }}
-            />
-          </View>
+          {stripeReady ? (
+            <View style={styles.cardFieldWrap}>
+              <CardField
+                postalCodeEnabled={false}
+                placeholders={{ number: "1234 1234 1234 1234" }}
+                cardStyle={{
+                  backgroundColor: "#FFFFFF",
+                  textColor: "#1F2937",
+                  placeholderColor: "#9CA3AF",
+                  fontSize: 16,
+                  borderWidth: 0,
+                }}
+                style={styles.cardField}
+                onCardChange={(details) => {
+                  setCard(details);
+                  if (details.complete) Keyboard.dismiss();
+                }}
+              />
+            </View>
+          ) : null}
 
           {errorMessage ? (
             <Text size="sm" color="#EF4444" style={styles.errorText}>

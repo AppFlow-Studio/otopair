@@ -7,11 +7,11 @@ import { SemanticColors } from "@/constants/theme";
 import type { ToastVariant } from "./types";
 
 export const DEFAULT_DURATION_MS: Record<ToastVariant, number> = {
-  success: 3500,
-  info: 3000,
-  warning: 4500,
-  error: 5000,
-  trust: 4500,
+  success: 5000,
+  info: 4500,
+  warning: 6000,
+  error: 6500,
+  trust: 6000,
 };
 
 export interface ToastPalette {

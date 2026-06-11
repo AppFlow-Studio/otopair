@@ -159,8 +159,9 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
   }, [resolvedShopId, getShopById]);
   const laborRate = shop?.labor_rate;
   const mechanicDisplayName = mechanic?.name ?? "Any available mechanic";
-  const mechanicSubtitle =
-    mechanic?.title ?? mechanic?.shopName ?? selectedMechanicSlot?.shopName ?? shop?.name ?? "Shop will assign a mechanic";
+  const mechanicFirstName = mechanic?.name?.trim().split(/\s+/)[0] ?? "any available mechanic";
+  const shopDisplayName =
+    shop?.name ?? mechanic?.shopName ?? selectedMechanicSlot?.shopName ?? "Shop will assign a mechanic";
 
   // Get selected services
   const selectedServices = useMemo(
@@ -486,10 +487,10 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
 
             <View style={styles.mechanicInfo}>
               <Text size="lg" weight="bold" color={BrandColors.primary}>
-                {mechanicDisplayName}
+                {shopDisplayName}
               </Text>
               <Text size="sm" weight="medium" color="#6B7280">
-                {mechanicSubtitle}
+                with {mechanicFirstName}
               </Text>
             </View>
           </View>
@@ -914,7 +915,7 @@ const styles = StyleSheet.create({
   },
   ratingBadge: {
     position: "absolute",
-    bottom: -4,
+    bottom: -10,
     left: -4,
     flexDirection: "row",
     alignItems: "center",

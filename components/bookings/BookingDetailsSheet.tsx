@@ -17,6 +17,7 @@ import {
   Dimensions,
   Image,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -24,6 +25,7 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
+import * as Calendar from "expo-calendar";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
   Extrapolation,
@@ -50,6 +52,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Text } from "@/components/shared-ui";
 import { BorderRadius } from "@/constants/theme";
 import { useToast } from "@/hooks/useToast";
+import { buildBookingCalendarEvent, formatBookingReference } from "@/lib/booking-calendar";
 import { useBookingStore } from "@/stores/useBookingStore";
 import type { Booking } from "./BookingCard";
 import { MechanicChatSheet, type MechanicChatSheetRef } from "./MechanicChatSheet";
@@ -79,6 +82,7 @@ const DISMISS_OVERSHOOT = 80;
 type BookingStatus = Booking["status"];
 
 const STATUS_CONFIG: Record<BookingStatus, { label: string; bgColor: string; textColor: string }> = {
+  pending_shop_acceptance: { label: "Awaiting shop", bgColor: "#fff6ee", textColor: "#f89829" },
   pending: { label: "Pending", bgColor: "#fff6ee", textColor: "#f89829" },
   pending_quote: { label: "Pending Quote", bgColor: "#FFF8ED", textColor: "#C8972E" },
   quotes_ready: { label: "Quotes Ready", bgColor: "#E3F0FF", textColor: "#2F6DCC" },
@@ -88,6 +92,7 @@ const STATUS_CONFIG: Record<BookingStatus, { label: string; bgColor: string; tex
   completed: { label: "Completed", bgColor: "#f0fcf5", textColor: "#60d17e" },
   cancelled: { label: "Cancelled", bgColor: "#FEE2E2", textColor: "#DC2626" },
   delayed: { label: "Delayed", bgColor: "#FEF3C7", textColor: "#D97706" },
+  no_show: { label: "No-show", bgColor: "#FEE2E2", textColor: "#DC2626" },
 };
 
 // ============================================================================
@@ -568,7 +573,7 @@ export const BookingDetailsSheet = forwardRef<BookingDetailsSheetRef, BookingDet
                   serviceDescription={serviceDescription}
                   serviceDurationMinutes={serviceDurationMinutes}
                   vehicleMileage={vehicleMileage}
-                  shopAddress={shopAddress}
+                  shopAddress={resolvedShopAddress}
                   shopHoursLabel={shopHoursLabel}
                   shopRating={shopRating}
                   statusHistory={liveStatusHistory ?? statusHistory}
@@ -901,10 +906,54 @@ function FullContent({
     onRequestReschedule(booking.id, local?.scheduledDate ?? "", local?.scheduledTime ?? "");
   }, [booking.id, onRequestReschedule]);
 
-  const handleAddToCalendar = useCallback(() => {
-    // TODO: integrate expo-calendar
-    console.log("TODO: add to calendar", booking.id); // eslint-disable-line no-console
-  }, [booking.id]);
+  const handleAddToCalendar = useCallback(async () => {
+    const date = bookingDetail?.scheduledDate;
+    const time = bookingDetail?.scheduledTime ?? booking.time;
+    if (!date || !time) {
+      toast.warning("Booking details are still loading.");
+      return;
+    }
+
+    const eventDetails = buildBookingCalendarEvent({
+      shopName: booking.shopName,
+      serviceNames: bookingDetail?.serviceNames ?? booking.services,
+      date,
+      time,
+      location: shopAddress,
+      mechanicName: booking.mechanicName,
+      bookingReference: formatBookingReference(booking.id),
+      vehicleDisplay: [booking.carYear, booking.carModel].filter(Boolean).join(" "),
+      durationMinutes: serviceDurationMinutes,
+    });
+    if (!eventDetails) {
+      toast.warning("Couldn't read the appointment time.");
+      return;
+    }
+
+    try {
+      await Calendar.createEventInCalendarAsync(
+        eventDetails,
+        Platform.OS === "android" ? { startNewActivityTask: false } : undefined,
+      );
+    } catch (error) {
+      console.error("[booking-details] add-to-calendar failed", error);
+      toast.error("Couldn't add to your calendar.");
+    }
+  }, [
+    booking.carModel,
+    booking.carYear,
+    booking.id,
+    booking.mechanicName,
+    booking.services,
+    booking.shopName,
+    booking.time,
+    bookingDetail?.scheduledDate,
+    bookingDetail?.scheduledTime,
+    bookingDetail?.serviceNames,
+    serviceDurationMinutes,
+    shopAddress,
+    toast,
+  ]);
 
   const primaryService = booking.services[0] ?? "Service";
 
@@ -1579,6 +1628,7 @@ function StatusTimeline({
 
   const stages: BookingStatus[] = ["pending", "confirmed", "in_progress", "completed"];
   const stageLabels: Partial<Record<BookingStatus, string>> = {
+    pending_shop_acceptance: "Awaiting shop",
     pending: "Requested",
     pending_quote: "Awaiting Quote",
     pending_customer_acceptance: "Awaiting your approval",

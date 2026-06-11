@@ -154,9 +154,11 @@ export function adaptBookingForCard({
   // Convert store BookingStatus to BookingCard BookingStatus
   // BookingCard has "delayed" which store doesn't have, so map it appropriately
   const statusMap: Record<StoreBooking["status"], BookingCardBooking["status"]> = {
+    pending_shop_acceptance: "pending_shop_acceptance",
     pending: "pending",
     pending_quote: "pending_quote",
     quotes_ready: "quotes_ready",
+    pending_customer_acceptance: "pending_customer_acceptance",
     confirmed: "confirmed",
     in_progress: "in_progress",
     completed: "completed",

@@ -97,9 +97,11 @@ export interface UserLocation {
 
 /** Booking status options */
 export type BookingStatus =
+  | "pending_shop_acceptance"
   | "pending"
   | "pending_quote"
   | "quotes_ready"
+  | "pending_customer_acceptance"
   | "confirmed"
   | "in_progress"
   | "completed"

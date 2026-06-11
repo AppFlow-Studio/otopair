@@ -1091,5 +1091,3 @@ export async function sendSupportRequestAckEmail(data: SupportRequestAckEmailDat
   }
 }
 
-
-
