@@ -43,10 +43,7 @@ const SCROLL_THRESHOLD = 4; // 4+ vehicles → scrollable
 const SEARCH_THRESHOLD = 5; // 5+ vehicles → show search bar
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
-// Match the BookingDetailsSheet "floating card" feel — 0.92 was
-// kissing the status bar on tall phones. 0.76 leaves the clear
-// gap above the sheet that Ahmad called out as the right look.
-const SHEET_HEIGHT = SCREEN_HEIGHT * 0.76;
+const SHEET_HEIGHT = SCREEN_HEIGHT * 0.92;
 
 export interface GarageCarSheetRef {
   present: () => void;
