@@ -298,14 +298,21 @@ export const LeaveReviewSheet = forwardRef<LeaveReviewSheetRef, Props>(
     const ratingLabel = RATING_LABELS[rating] ?? RATING_LABELS[0];
     const submitDisabled = submitting || rating < 1;
     const snapHeights = useMemo(() => {
-      const maxSheetHeight = screenHeight - Math.max(insets.top, 12) - 8;
+      // Keep the sheet inside the "floating card" envelope the rest
+      // of the app uses — gap above the status bar so the top of the
+      // sheet clearly doesn't touch it. The old 8pt buffer let the
+      // expanded snap kiss the status bar on tall phones; FLOATING_TOP_GAP
+      // (52) gives a consistent breathing room.
+      const FLOATING_TOP_GAP = 52;
+      const maxSheetHeight =
+        screenHeight - Math.max(insets.top, 12) - FLOATING_TOP_GAP;
       const collapsedHeight = Math.min(
         maxSheetHeight,
-        Math.max(COLLAPSED_SHEET_MIN_HEIGHT, screenHeight * 0.76),
+        Math.max(COLLAPSED_SHEET_MIN_HEIGHT, screenHeight * 0.72),
       );
       const expandedHeight = Math.min(
         maxSheetHeight,
-        Math.max(EXPANDED_SHEET_MIN_HEIGHT, screenHeight * 0.9),
+        Math.max(EXPANDED_SHEET_MIN_HEIGHT, screenHeight * 0.82),
       );
 
       return [mechanicIncluded ? expandedHeight : collapsedHeight];
