@@ -906,18 +906,103 @@ export async function sendWaitlistNotificationEmail(data: WaitlistSignupData) {
 }
 
 // ============================================================================
-// TODO: stub — implementation pending website→app convex sync
+// Support / dispute requests
 // ============================================================================
-// `convex/invoices_node.ts` imports `sendInvoiceEmail` from this module, but
-// the function lives in otopair-web and wasn't carried over in commit 3f7b2a5
-// ("Merged (with errors)"). Without this stub, `npx convex codegen` and
-// `npx convex dev` fail to bundle.
 //
-// Runtime impact: this function is only called from the post-payment receipt
-// flow (`invoices_node.generateAndEmail`, scheduled from `invoices.ts:562`).
-// While stubbed, paid bookings won't email a receipt — they'll log a graceful
-// failure instead of crashing the action. Replace with the real implementation
-// when the website sync completes.
+// Customer-initiated "report an issue" mail from the Past Service detail
+// screen. Lands in support@otopair.com (overridable via SUPPORT_EMAIL). The
+// reply-to is set to the customer's email so ops can hit Reply and the
+// thread goes straight back to them.
 //
+// Body is plain HTML — short header + the booking snapshot, the chosen
+// reason, the customer note, then a footer. Keep this lean: the receiving
+// inbox is internal, not a marketing surface.
+export interface SupportRequestEmailData {
+  /** Short reason slug picked in the sheet (e.g. "service_quality"). */
+  reasonKey: string;
+  /** Human-readable reason label shown to ops. */
+  reasonLabel: string;
+  /** User-supplied description of the issue. */
+  message: string;
+  /** Customer's email — used as reply-to so ops can respond directly. */
+  customerEmail: string;
+  /** Customer display name when we have it. */
+  customerName?: string;
+  /** Snapshot of the booking the issue is about. */
+  booking: {
+    id: string;
+    orderNumber: string;
+    shopName: string;
+    mechanicName?: string;
+    date?: string;
+    time?: string;
+    vehicle?: string;
+    totalDollars?: number;
+  };
+}
+
+export async function sendSupportRequestEmail(data: SupportRequestEmailData) {
+  const supportInbox = process.env.SUPPORT_EMAIL || "support@otopair.com";
+  const { reasonKey, reasonLabel, message, customerEmail, customerName, booking } = data;
+  const safeMessage = (message || "").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+  const lineCss = "margin:0 0 6px;color:#1f2937;font-size:14px;line-height:1.5;";
+  const labelCss = "color:#6b7280;font-weight:600;";
+
+  const html = `
+    <!DOCTYPE html>
+    <html lang="en">
+    <head><meta charset="UTF-8"/><title>Otopair — support request</title></head>
+    <body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background-color:#f9fafb;">
+      <table role="presentation" style="width:100%;border-collapse:collapse;background-color:#f9fafb;">
+        <tr><td align="center" style="padding:32px 16px;">
+          <table role="presentation" style="max-width:560px;width:100%;border-collapse:collapse;background-color:#ffffff;border-radius:12px;box-shadow:0 4px 6px rgba(0,0,0,0.08);">
+            <tr><td style="padding:24px 28px 8px;border-bottom:1px solid #e5e7eb;">
+              <h1 style="margin:0;color:#0f172a;font-size:20px;font-weight:700;">New support request</h1>
+              <p style="margin:4px 0 0;color:#6b7280;font-size:13px;">Filed from the Past Service detail screen.</p>
+            </td></tr>
+            <tr><td style="padding:20px 28px 4px;">
+              <p style="${lineCss}"><span style="${labelCss}">Reason:</span> ${reasonLabel} <span style="color:#9ca3af;font-size:12px;">(${reasonKey})</span></p>
+              <p style="${lineCss}"><span style="${labelCss}">From:</span> ${customerName ? `${customerName} ` : ""}&lt;${customerEmail}&gt;</p>
+            </td></tr>
+            <tr><td style="padding:8px 28px 4px;">
+              <h2 style="margin:18px 0 8px;color:#0f172a;font-size:14px;text-transform:uppercase;letter-spacing:0.4px;">Booking</h2>
+              <p style="${lineCss}"><span style="${labelCss}">Order:</span> #${booking.orderNumber}</p>
+              <p style="${lineCss}"><span style="${labelCss}">Shop:</span> ${booking.shopName}</p>
+              ${booking.mechanicName ? `<p style="${lineCss}"><span style="${labelCss}">Mechanic:</span> ${booking.mechanicName}</p>` : ""}
+              ${booking.date ? `<p style="${lineCss}"><span style="${labelCss}">Date:</span> ${booking.date}${booking.time ? ` · ${booking.time}` : ""}</p>` : ""}
+              ${booking.vehicle ? `<p style="${lineCss}"><span style="${labelCss}">Vehicle:</span> ${booking.vehicle}</p>` : ""}
+              ${booking.totalDollars != null ? `<p style="${lineCss}"><span style="${labelCss}">Total:</span> $${booking.totalDollars.toFixed(2)}</p>` : ""}
+              <p style="${lineCss}"><span style="${labelCss}">Internal booking id:</span> <code style="font-size:12px;color:#374151;">${booking.id}</code></p>
+            </td></tr>
+            <tr><td style="padding:8px 28px 24px;">
+              <h2 style="margin:18px 0 8px;color:#0f172a;font-size:14px;text-transform:uppercase;letter-spacing:0.4px;">Message</h2>
+              <div style="background-color:#f3f4f6;border-radius:8px;padding:12px 14px;color:#1f2937;font-size:14px;line-height:1.55;white-space:pre-wrap;">${safeMessage || "(no message provided)"}</div>
+            </td></tr>
+            <tr><td style="padding:0 28px 24px;color:#9ca3af;font-size:12px;line-height:1.4;">
+              Reply to this email to respond to the customer directly.
+            </td></tr>
+          </table>
+        </td></tr>
+      </table>
+    </body>
+    </html>
+  `;
+
+  try {
+    const result = await resend.emails.send({
+      from: "Otopair Support <support@otopair.com>",
+      to: supportInbox,
+      replyTo: customerEmail,
+      subject: `Support request · ${reasonLabel} · Order #${booking.orderNumber}`,
+      html,
+    });
+    return { success: true, data: result };
+  } catch (error) {
+    console.error("Error sending support request email:", error);
+    return { success: false, error };
+  }
+}
+
 
 

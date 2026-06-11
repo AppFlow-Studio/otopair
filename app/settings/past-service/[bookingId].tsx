@@ -14,20 +14,25 @@
  */
 
 import React, { useMemo, useRef, useState } from "react";
-import { Image, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { Alert, Image, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Link, useLocalSearchParams, useRouter } from "expo-router";
 import { useQuery } from "convex/react";
-import {
-  Star,
-  Wrench,
-} from "lucide-react-native";
+import { MoreHorizontal, Star, Wrench } from "lucide-react-native";
 
 import {
   LeaveReviewSheet,
   type LeaveReviewSheetRef,
 } from "@/components/bookings/LeaveReviewSheet";
+import {
+  DisputeSheet,
+  type DisputeSheetRef,
+} from "@/components/past-services/DisputeSheet";
+import {
+  PastServiceActionsSheet,
+  type PastServiceActionsSheetRef,
+} from "@/components/past-services/PastServiceActionsSheet";
 import { ReceiptSheet } from "@/components/receipts/ReceiptSheet";
 import { Text } from "@/components/shared-ui";
 import { CardShadow, SurfaceColors } from "@/constants/theme";
@@ -94,6 +99,8 @@ export default function PastServiceDetailScreen() {
   const isReviewed = bookingId ? reviewedSet.has(bookingId) : false;
 
   const reviewSheetRef = useRef<LeaveReviewSheetRef>(null);
+  const actionsSheetRef = useRef<PastServiceActionsSheetRef>(null);
+  const disputeSheetRef = useRef<DisputeSheetRef>(null);
   const [receiptBookingId, setReceiptBookingId] = useState<Id<"bookings"> | null>(null);
 
   const handleBack = () => {
@@ -121,6 +128,45 @@ export default function PastServiceDetailScreen() {
       pathname: "/booking/map",
       params: { shopId: booking.shopId },
     });
+  };
+
+  // Hero "•••" → action sheet → routes to one of three handlers.
+  // The DisputeSheet handles its own Convex action; the screen only
+  // needs to open it. Delete is informational for now (no persisted
+  // hide) — confirms intent, then drops back to the list. Hooking up
+  // a real "hide from history" persisted field is a follow-up that
+  // needs a schema change.
+  const handleOpenActions = () => actionsSheetRef.current?.open();
+
+  const handleReportIssue = () => disputeSheetRef.current?.open();
+
+  const handleViewShopInfo = () => {
+    if (!booking?.shopId) return;
+    router.push({
+      pathname: "/booking/shop/[id]",
+      params: { id: booking.shopId },
+    });
+  };
+
+  const handleDelete = () => {
+    Alert.alert(
+      "Remove this service?",
+      "It'll be hidden from your history. The receipt and any review you left stay on the shop's side.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Remove",
+          style: "destructive",
+          onPress: () => {
+            // TODO(persisted hide): once we land a `dismissed_at_ms`
+            // field on bookings, call the mutation here. For now we
+            // just back out so the user gets feedback.
+            if (router.canGoBack()) router.back();
+            else router.replace("/settings/transactions");
+          },
+        },
+      ],
+    );
   };
 
   return (
@@ -164,6 +210,14 @@ export default function PastServiceDetailScreen() {
                     {booking.date}
                   </Text>
                 </View>
+                <Pressable
+                  style={styles.heroMoreBtn}
+                  onPress={handleOpenActions}
+                  hitSlop={10}
+                  accessibilityLabel="Service options"
+                >
+                  <MoreHorizontal size={18} color={INK} strokeWidth={2.2} />
+                </Pressable>
                 <View pointerEvents="none" style={StyleSheet.absoluteFill}>
                   <Link.AppleZoomTarget>
                     <View style={styles.zoomTarget} />
@@ -316,6 +370,16 @@ export default function PastServiceDetailScreen() {
         bookingId={receiptBookingId}
         onClose={() => setReceiptBookingId(null)}
       />
+      <PastServiceActionsSheet
+        ref={actionsSheetRef}
+        onReportIssue={handleReportIssue}
+        onViewShopInfo={handleViewShopInfo}
+        onDelete={handleDelete}
+      />
+      <DisputeSheet
+        ref={disputeSheetRef}
+        bookingId={booking?.id ?? null}
+      />
     </>
   );
 }
@@ -358,6 +422,21 @@ const styles = StyleSheet.create({
     paddingBottom: 28,
     alignItems: "center",
     boxShadow: CardShadow.default,
+  },
+  heroMoreBtn: {
+    position: "absolute",
+    top: 14,
+    right: 14,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(255, 255, 255, 0.75)",
+    alignItems: "center",
+    justifyContent: "center",
+    // Sit above the AppleZoomTarget overlay so the tap registers
+    // on this Pressable instead of getting swallowed by the
+    // route-transition source.
+    zIndex: 5,
   },
   zoomTarget: {
     flex: 1,
