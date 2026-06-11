@@ -34,7 +34,7 @@ interface PastServiceActionsSheetProps {
   onDelete: () => void;
 }
 
-const SNAP_HEIGHT = 360;
+const SNAP_HEIGHT = 290;
 
 export const PastServiceActionsSheet = forwardRef<
   PastServiceActionsSheetRef,
