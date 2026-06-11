@@ -298,25 +298,25 @@ export const LeaveReviewSheet = forwardRef<LeaveReviewSheetRef, Props>(
     const ratingLabel = RATING_LABELS[rating] ?? RATING_LABELS[0];
     const submitDisabled = submitting || rating < 1;
     const snapHeights = useMemo(() => {
-      // Keep the sheet inside the "floating card" envelope the rest
-      // of the app uses — gap above the status bar so the top of the
-      // sheet clearly doesn't touch it. The old 8pt buffer let the
-      // expanded snap kiss the status bar on tall phones; FLOATING_TOP_GAP
-      // (52) gives a consistent breathing room.
-      const FLOATING_TOP_GAP = 52;
-      const maxSheetHeight =
-        screenHeight - Math.max(insets.top, 12) - FLOATING_TOP_GAP;
-      const collapsedHeight = Math.min(
-        maxSheetHeight,
-        Math.max(COLLAPSED_SHEET_MIN_HEIGHT, screenHeight * 0.72),
+      // Same formula BookingDetailsSheet uses for its mid detent —
+      // hard-cap around 640pt so the sheet sits low on the screen
+      // with a clear floating gap above. Form content scrolls
+      // inside the ScrollView when it doesn't all fit.
+      const target = Math.max(
+        screenHeight * 0.66,
+        Math.min(screenHeight * 0.76, 640),
       );
-      const expandedHeight = Math.min(
-        maxSheetHeight,
-        Math.max(EXPANDED_SHEET_MIN_HEIGHT, screenHeight * 0.82),
+      // Mechanic section expanded needs a little more room than
+      // collapsed; bump the cap by 60pt so the mechanic stars +
+      // note input land above the Submit pill without immediate
+      // scrolling. Still capped well below the status bar.
+      const expandedTarget = Math.max(
+        screenHeight * 0.7,
+        Math.min(screenHeight * 0.82, 700),
       );
 
-      return [mechanicIncluded ? expandedHeight : collapsedHeight];
-    }, [insets.top, mechanicIncluded, screenHeight]);
+      return [mechanicIncluded ? expandedTarget : target];
+    }, [mechanicIncluded, screenHeight]);
 
     return (
       <FloatingSheet
