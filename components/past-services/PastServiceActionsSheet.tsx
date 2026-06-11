@@ -45,6 +45,15 @@ export const PastServiceActionsSheet = forwardRef<
 ) {
   const sheetRef = useRef<FloatingSheetRef>(null);
   const [mounted, setMounted] = React.useState(false);
+  // The callback the user picked. Held in a ref so it survives the
+  // close animation, then fired from `onClose` AFTER the action
+  // sheet's RN Modal has fully unmounted. Two FloatingSheets stacked
+  // back-to-back via a naive setTimeout race iOS's Modal manager —
+  // the second .open() request gets silently dropped while the
+  // first is still dismissing. Driving the chain off onClose makes
+  // the next sheet open only when there's no Modal already on
+  // screen.
+  const pendingActionRef = useRef<(() => void) | null>(null);
 
   useImperativeHandle(ref, () => ({
     open: () => setMounted(true),
@@ -57,11 +66,21 @@ export const PastServiceActionsSheet = forwardRef<
 
   if (!mounted) return null;
 
-  const dispatch = (cb: () => void) => {
+  const queueAndClose = (cb: () => void) => {
+    pendingActionRef.current = cb;
     sheetRef.current?.close();
-    // Defer the action callback until the close anim is mostly done
-    // so the next sheet / navigation doesn't race the current one.
-    setTimeout(cb, 220);
+  };
+
+  const handleClose = () => {
+    setMounted(false);
+    const cb = pendingActionRef.current;
+    pendingActionRef.current = null;
+    if (cb) {
+      // One frame of breathing room after Modal unmount before we
+      // present the next sheet's Modal. Empirically iOS needs this
+      // gap or the second present occasionally no-ops.
+      setTimeout(cb, 50);
+    }
   };
 
   return (
@@ -70,7 +89,7 @@ export const PastServiceActionsSheet = forwardRef<
       snapHeights={[SNAP_HEIGHT]}
       showBackdrop
       backdropMode="dim"
-      onClose={() => setMounted(false)}
+      onClose={handleClose}
     >
       <View style={styles.body}>
         <View style={styles.titleRow}>
@@ -91,18 +110,18 @@ export const PastServiceActionsSheet = forwardRef<
           <ActionRow
             icon={<AlertCircle size={20} color={INK} strokeWidth={1.8} />}
             label="Report an issue"
-            onPress={() => dispatch(onReportIssue)}
+            onPress={() => queueAndClose(onReportIssue)}
           />
           <ActionRow
             icon={<Store size={20} color={INK} strokeWidth={1.8} />}
             label="View shop info"
-            onPress={() => dispatch(onViewShopInfo)}
+            onPress={() => queueAndClose(onViewShopInfo)}
           />
           <ActionRow
             icon={<Trash2 size={20} color={DANGER} strokeWidth={1.8} />}
             label="Delete"
             labelColor={DANGER}
-            onPress={() => dispatch(onDelete)}
+            onPress={() => queueAndClose(onDelete)}
           />
         </View>
       </View>
