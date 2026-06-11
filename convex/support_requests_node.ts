@@ -17,7 +17,10 @@
 import { v, ConvexError } from "convex/values";
 import { action } from "./_generated/server";
 import { internal } from "./_generated/api";
-import { sendSupportRequestEmail } from "../email/send";
+import {
+  sendSupportRequestAckEmail,
+  sendSupportRequestEmail,
+} from "../email/send";
 
 const ALLOWED_REASONS: Record<string, string> = {
   service_quality: "Service quality",
@@ -78,19 +81,47 @@ export const submitSupportRequest = action({
       );
     }
 
-    const result = await sendSupportRequestEmail({
-      reasonKey: args.reasonKey,
-      reasonLabel: ALLOWED_REASONS[args.reasonKey],
-      message: trimmedMessage,
-      customerEmail: snapshot.customer.email,
-      customerName: snapshot.customer.name,
-      booking: snapshot.booking,
-    });
+    // Fire both emails in parallel — ops needs the inbox copy, the
+    // customer needs the "we got it" confirmation. We treat the
+    // support send as the source of truth: if support fails we tell
+    // the user to retry. The ack is best-effort — a missed ack is
+    // an inconvenience, not a lost report, so we log + carry on.
+    const reasonLabel = ALLOWED_REASONS[args.reasonKey];
+    const [supportResult, ackResult] = await Promise.all([
+      sendSupportRequestEmail({
+        reasonKey: args.reasonKey,
+        reasonLabel,
+        message: trimmedMessage,
+        customerEmail: snapshot.customer.email,
+        customerName: snapshot.customer.name,
+        booking: snapshot.booking,
+      }),
+      sendSupportRequestAckEmail({
+        customerEmail: snapshot.customer.email,
+        customerName: snapshot.customer.name,
+        reasonLabel,
+        message: trimmedMessage,
+        booking: {
+          orderNumber: snapshot.booking.orderNumber,
+          shopName: snapshot.booking.shopName,
+          date: snapshot.booking.date,
+          time: snapshot.booking.time,
+        },
+      }),
+    ]);
 
-    if (!result.success) {
+    if (!supportResult.success) {
       // Hide the underlying Resend error from the client — surface a
       // generic message and rely on `console.error` in send.ts for ops.
       return { ok: false, error: "We couldn't send your report. Please try again." };
+    }
+    if (!ackResult.success) {
+      // Don't block the user on the ack failing. Just log so ops can
+      // backfill the confirmation by hand if needed.
+      console.error(
+        "Support request acknowledgment failed for",
+        snapshot.customer.email,
+      );
     }
     return { ok: true };
   },
