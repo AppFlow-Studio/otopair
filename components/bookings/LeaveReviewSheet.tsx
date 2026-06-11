@@ -298,21 +298,21 @@ export const LeaveReviewSheet = forwardRef<LeaveReviewSheetRef, Props>(
     const ratingLabel = RATING_LABELS[rating] ?? RATING_LABELS[0];
     const submitDisabled = submitting || rating < 1;
     const snapHeights = useMemo(() => {
-      // Keep the sheet inside the "floating card" envelope the rest
-      // of the app uses — gap above the status bar so the top of the
-      // sheet clearly doesn't touch it. The old 8pt buffer let the
-      // expanded snap kiss the status bar on tall phones; FLOATING_TOP_GAP
-      // (52) gives a consistent breathing room.
-      const FLOATING_TOP_GAP = 52;
-      const maxSheetHeight =
-        screenHeight - Math.max(insets.top, 12) - FLOATING_TOP_GAP;
+      // Match the BookingDetailsSheet "floating card" feel — its
+      // medium detent opens at ~0.76 of viewport which is what
+      // Ahmad called out as the right look. Cap both detents at
+      // 0.76 of the screen so the top of the sheet always shows a
+      // clear gap from the status bar. The earlier 0.82 + 52pt
+      // gap was still hitting the top edge on tall phones.
+      const REVIEW_SHEET_RATIO = 0.76;
+      const maxSheetHeight = screenHeight * REVIEW_SHEET_RATIO;
       const collapsedHeight = Math.min(
         maxSheetHeight,
-        Math.max(COLLAPSED_SHEET_MIN_HEIGHT, screenHeight * 0.72),
+        Math.max(COLLAPSED_SHEET_MIN_HEIGHT, screenHeight * 0.68),
       );
       const expandedHeight = Math.min(
         maxSheetHeight,
-        Math.max(EXPANDED_SHEET_MIN_HEIGHT, screenHeight * 0.82),
+        Math.max(EXPANDED_SHEET_MIN_HEIGHT, screenHeight * REVIEW_SHEET_RATIO),
       );
 
       return [mechanicIncluded ? expandedHeight : collapsedHeight];
