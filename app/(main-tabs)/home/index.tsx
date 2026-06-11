@@ -887,7 +887,7 @@ export default function HomeScreen() {
                   resumeServicesPreview={resumeServicesPreview}
                   resumeVehicleName={resumeVehicleName}
                   resumeVehicleImage={resumeVehicleImage}
-                  onResumePress={() => router.push('/booking/map?openServices=true')}
+                  onResumePress={() => router.push('/(booking-flow)/select-services')}
                   // Account Setup
                   showAccountSetup={showAccountSetup}
                   onAccountSetupDismiss={() => setAccountSetupDismissed(true)}
@@ -958,7 +958,7 @@ export default function HomeScreen() {
                   );
                   store.clearSelectedServices();
                   if (matched) store.toggleServiceSelection(matched.id);
-                  router.push('/booking/map?openServices=true&origin=home');
+                  router.push('/(booking-flow)/select-services');
                 }}
               />
 
@@ -997,11 +997,7 @@ export default function HomeScreen() {
                       );
                       store.clearSelectedServices();
                       if (matched) store.toggleServiceSelection(matched.id);
-                      // `origin=home` tells map.tsx's back handler to return
-                      // to the Home tab — bypasses an Expo Router quirk
-                      // where selectVehicle() above causes the back action
-                      // to drift to the Cars tab.
-                      router.push('/booking/map?openServices=true&origin=home');
+                      router.push('/(booking-flow)/select-services');
                     }}
                     onSwipeStart={() => setIsCardSwiping(true)}
                     onSwipeEnd={() => setIsCardSwiping(false)}

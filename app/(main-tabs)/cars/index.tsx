@@ -1858,7 +1858,7 @@ export default function CarsHomeScreen() {
                 );
                 store.clearSelectedServices();
                 if (matched) store.toggleServiceSelection(matched.id);
-                router.push('/booking/map?openServices=true');
+                router.push('/(booking-flow)/select-services');
               }}
               onTakeAction={(item) => {
                 const vin = activeVehicle?.vin;
@@ -1896,7 +1896,7 @@ export default function CarsHomeScreen() {
                   tireStore.setType(tireSpecs.type as any);
                   tireStore.setTier(tireSpecs.tier as any);
                 }
-                router.push('/booking/map');
+                router.push('/(booking-flow)/select-services');
               }}
             />
           ) : null}

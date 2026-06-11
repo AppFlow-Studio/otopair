@@ -150,8 +150,8 @@ export function SuggestionsSection({ onCardPress }: SuggestionsSectionProps) {
         },
       });
     } else {
-      // Navigate to map with services sheet open
-      router.push('/booking/map?openServices=true');
+      // Navigate to the booking flow's service picker
+      router.push('/(booking-flow)/select-services');
     }
   };
 

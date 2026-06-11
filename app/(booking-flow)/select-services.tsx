@@ -17,7 +17,7 @@
  * Spec: ~/Downloads/<figma frames> Screen 1.
  */
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Dimensions, Pressable, StyleSheet, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
@@ -44,6 +44,7 @@ import { QuickBookRow } from "@/components/booking-flow/QuickBookRow";
 import { VehiclePuck } from "@/components/booking-flow/VehiclePuck";
 import { TABS, type TaxonomyTab } from "@/constants/serviceTaxonomy";
 import { useBookingStore } from "@/stores/useBookingStore";
+import type { ServiceCategory } from "@/stores/types/store.types";
 
 const FALLBACK_REGION: Region = {
   latitude: 41.1959,
@@ -51,6 +52,27 @@ const FALLBACK_REGION: Region = {
   latitudeDelta: 0.08,
   longitudeDelta: 0.08,
 };
+
+/** Map the legacy `initialServiceCategory` signal (set by home cards /
+ *  maintenance / recommendation deep-links pre-v5) onto a v5 tab.
+ *  Kept identical to the legacy ServiceSelectionContent mapping so the
+ *  same deep-link lands on the same tab in either flow. */
+function legacyCategoryToTab(
+  category: ServiceCategory | null | undefined,
+): TaxonomyTab | null {
+  if (!category) return null;
+  switch (category) {
+    case "basic_maintenance":
+      return "routine_upkeep";
+    case "tires_wheels":
+    case "brakes_suspension":
+      return "tires_brakes";
+    case "system_diagnostics":
+      return "inspections";
+    default:
+      return null;
+  }
+}
 
 // Per Ahmad's PM: drop-where-you-release behavior. gorhom's
 // snap-to-nearest with velocity fling kept throwing the sheet to
@@ -66,6 +88,45 @@ export default function SelectServicesScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const availableServices = useBookingStore((s) => s.availableServices);
+  const selectedServiceIds = useBookingStore((s) => s.selectedServiceIds);
+  const initialServiceCategory = useBookingStore((s) => s.initialServiceCategory);
+  const setInitialServiceCategory = useBookingStore(
+    (s) => s.setInitialServiceCategory,
+  );
+
+  // Deep-link seeding. Home cards / maintenance / recommendation entries
+  // seed the booking store with a target category (and often a
+  // pre-selected service) before navigating here. When such intent is
+  // present, skip the landing and drop straight onto the matching
+  // category screen — `selectedServiceIds` carry through and render
+  // already-checked there (category/[tab] reads them). Fires once; the
+  // one-shot `initialServiceCategory` signal is consumed so a later
+  // plain entry (e.g. the Home search field) stays on the landing.
+  const seedHandledRef = useRef(false);
+  useEffect(() => {
+    if (seedHandledRef.current) return;
+    let targetTab = legacyCategoryToTab(initialServiceCategory);
+    if (!targetTab && selectedServiceIds.length > 0) {
+      // Resolving the tab from a pre-selection needs the catalog loaded.
+      if (availableServices.length === 0) return;
+      targetTab =
+        availableServices.find((s) => s.id === selectedServiceIds[0])?.tab ??
+        null;
+    }
+    if (!targetTab) return;
+    seedHandledRef.current = true;
+    if (initialServiceCategory) setInitialServiceCategory(null);
+    router.replace({
+      pathname: "/(booking-flow)/category/[tab]",
+      params: { tab: targetTab },
+    });
+  }, [
+    initialServiceCategory,
+    selectedServiceIds,
+    availableServices,
+    router,
+    setInitialServiceCategory,
+  ]);
 
   // Sheet height in pixels — driven by Pan gesture below. Mounts
   // at 0 and rises smoothly to INITIAL_H so the screen reads as

@@ -1,4 +1,13 @@
-import { Badge, Icon, Label, NativeTabs } from "expo-router/unstable-native-tabs";
+// `Badge`, `Icon`, `Label` are NOT top-level exports of
+// `expo-router/unstable-native-tabs` — they are statics on
+// `NativeTabs.Trigger` (e.g. `NativeTabs.Trigger.Icon`). The earlier
+// destructured import silently resolved them to `undefined`, which made
+// every `<Icon sf="..." />` a no-op and removed the tab icons. Reach for
+// the statics via the namespace.
+import { NativeTabs } from "expo-router/unstable-native-tabs";
+const Label = NativeTabs.Trigger.Label;
+const Icon = NativeTabs.Trigger.Icon;
+const Badge = NativeTabs.Trigger.Badge;
 import { router, Tabs, useRootNavigationState } from "expo-router";
 import React, { useEffect } from "react";
 import { Platform } from "react-native";

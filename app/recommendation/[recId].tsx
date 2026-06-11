@@ -141,7 +141,7 @@ export default function RecommendationDetailScreen() {
       const svc = store.availableServices.find((s) => s.id === String(rec.service_id));
       if (svc?.category) store.setInitialServiceCategory(svc.category);
     }
-    router.push("/booking/map");
+    router.push("/(booking-flow)/select-services");
   };
 
   const handleConfirmDate = async () => {
@@ -160,7 +160,7 @@ export default function RecommendationDetailScreen() {
         const svc = store.availableServices.find((s) => s.id === String(rec.service_id));
         if (svc?.category) store.setInitialServiceCategory(svc.category);
       }
-      router.replace("/booking/map");
+      router.replace("/(booking-flow)/select-services");
     } finally {
       setSubmitting(false);
     }

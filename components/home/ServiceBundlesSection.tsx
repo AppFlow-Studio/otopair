@@ -151,8 +151,7 @@ export function ServiceBundlesSection({
     // effect in ServiceSelectionContent will snap to the first selected
     // row so the user sees the populated cart immediately.
     store.setInitialServiceCategory(matched[0]?.category ?? "basic_maintenance");
-    // `origin=home` keeps the back-arrow → Home behavior consistent.
-    router.push("/booking/map?openServices=true&origin=home");
+    router.push("/(booking-flow)/select-services");
   };
 
   return (

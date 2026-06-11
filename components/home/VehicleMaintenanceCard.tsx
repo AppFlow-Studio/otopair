@@ -181,7 +181,7 @@ export function VehicleMaintenanceCard({
     if (onBookNow) {
       onBookNow(vehicleId, serviceId);
     } else {
-      router.push('/booking/map?openServices=true');
+      router.push('/(booking-flow)/select-services');
     }
   };
 
