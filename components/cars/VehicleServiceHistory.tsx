@@ -253,6 +253,13 @@ export function VehicleServiceHistory({
     return [...bookingRows, ...importedRows].sort((a, b) => b.dateMs - a.dateMs);
   }, [bookingRows, importedRows]);
 
+  // Must run unconditionally — the early `return null` on isLoading below
+  // would otherwise change hook order between renders.
+  const selectedDocRow = useMemo(
+    () => docRows.find((r) => r.doc._id === selectedDocId) ?? null,
+    [docRows, selectedDocId],
+  );
+
   const isLoading = bookingsLoading || docsLoading;
   if (isLoading) return null;
 
@@ -311,11 +318,6 @@ export function VehicleServiceHistory({
   const handleDocPress = (documentId: Id<"vehicle_documents">) => {
     setSelectedDocId(documentId);
   };
-
-  const selectedDocRow = useMemo(
-    () => docRows.find((r) => r.doc._id === selectedDocId) ?? null,
-    [docRows, selectedDocId],
-  );
 
   return (
     <View style={styles.container}>

@@ -47,16 +47,6 @@ if (useExternalConvex) {
   };
 }
 
-// Disable Metro's package-exports resolution. Reanimated 4.2.1 ships
-// `src/common/types/` as a directory with an index.ts, but Metro 0.83
-// with package-exports enabled resolves the `./types` re-export in
-// `common/index.ts` as a literal `types.ts` file and ENOENTs instead
-// of falling back to directory + index resolution. Turning the flag off
-// restores classic CommonJS-style resolution which handles the fallback
-// correctly. Revisit when reanimated publishes an `exports` field that
-// maps these subpaths explicitly.
-config.resolver.unstable_enablePackageExports = false;
-
 // SVG-as-React-Component support (react-native-svg-transformer). Lets us
 // `import Visa from "@/assets/images/VISA.svg"` and render it as JSX.
 config.transformer = {
