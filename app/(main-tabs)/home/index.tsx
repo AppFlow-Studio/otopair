@@ -15,7 +15,8 @@ import {
 } from "@gorhom/bottom-sheet";
 import { BlurBackdrop } from "@/components/shared-ui/BlurBackdrop";
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
-import { Bell, MoveRight, Star, Trophy } from 'lucide-react-native';
+// MVP-DISABLED: loyalty/rewards — re-enable post-launch (drop Trophy)
+import { Bell, MoveRight, Star } from 'lucide-react-native';
 import { useMutation, useQuery } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { useMutationWithToast } from '@/hooks/useMutationWithToast';
@@ -524,15 +525,17 @@ export default function HomeScreen() {
   const { unreadCount: notificationsUnreadCount } = useNotificationsFromConvex();
   const hasUnreadNotifications = notificationsUnreadCount > 0;
 
+  // userId still consumed by the review-sheet flow below; keep it.
+  const { userId } = useUserFromConvex();
+  // MVP-DISABLED: loyalty/rewards — re-enable post-launch
   // Trophy dot — true when the user has earned any credit since the
   // last time they opened the loyalty surface. Cleared by the
   // `markCreditsSeen` mutation when the loyalty popover opens.
-  const { userId } = useUserFromConvex();
-  const hasUnseenCredits = useQuery(
-    api.rewards.hasUnseenCredits,
-    userId ? { userId } : "skip",
-  );
-  const markCreditsSeen = useMutation(api.rewards.markCreditsSeen);
+  // const hasUnseenCredits = useQuery(
+  //   api.rewards.hasUnseenCredits,
+  //   userId ? { userId } : "skip",
+  // );
+  // const markCreditsSeen = useMutation(api.rewards.markCreditsSeen);
 
   // When returning from map modal with "Add vehicle" tapped: navigate to cars tab
   const pendingNavigateToCars = usePendingNavigationStore((s) => s.pendingNavigateToCars);
@@ -761,9 +764,10 @@ export default function HomeScreen() {
                 </View>
               </View>
 
-              {/* Right Side - Gold Tier & Bell */}
+              {/* Right Side - Bell only (Trophy hidden for MVP) */}
               <View style={styles.headerRight}>
-                {/* Gold Tier Badge - Clickable */}
+                {/* MVP-DISABLED: loyalty/rewards — re-enable post-launch */}
+                {/*
                 <Pressable
                   onPress={() => {
                     if (hasUnseenCredits && userId) {
@@ -798,6 +802,7 @@ export default function HomeScreen() {
                     </View>
                   )}
                 </Pressable>
+                */}
 
                 {/* Notification Bell */}
                 <Pressable

@@ -57,7 +57,8 @@ const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 import CarCarousel, { Vehicle } from "@/components/cars/CarCarousel";
 import { VehicleRoleSheet } from "@/components/cars/VehicleRoleSheet";
 import { ProfileInitialsButton } from "@/components/home/ProfileInitialsButton";
-import LoyaltyPoints from "@/components/cars/LoyaltyPoints";
+// MVP-DISABLED: loyalty/rewards — re-enable post-launch
+// import LoyaltyPoints from "@/components/cars/LoyaltyPoints";
 import MaintenanceTracker from "@/components/cars/MaintenanceTracker";
 import MaintenanceInputModal from "@/components/cars/MaintenanceInputModal";
 import { CheckinBanner } from "@/components/cars/CheckinBanner";
@@ -1483,7 +1484,7 @@ export default function CarsHomeScreen() {
               only after the overlay fade completes. */}
           <LinearGradient
             colors={settledGradient as [string, string, ...string[]]}
-            locations={[0.20, 0.40, 0.60]}
+            locations={[0.10, 0.20, 0.30]}
             start={{ x: 0.5, y: 0 }}
             end={{ x: 0.5, y: 1 }}
             style={StyleSheet.absoluteFill}
@@ -1494,7 +1495,7 @@ export default function CarsHomeScreen() {
           <ReAnimated.View style={[StyleSheet.absoluteFill, overlayStyle]}>
             <LinearGradient
               colors={incomingGradient as [string, string, ...string[]]}
-              locations={[0.20, 0.40, 0.60]}
+              locations={[0.10, 0.20, 0.30]}
               start={{ x: 0.5, y: 0 }}
               end={{ x: 0.5, y: 1 }}
               style={StyleSheet.absoluteFill}
@@ -1965,7 +1966,8 @@ export default function CarsHomeScreen() {
             onOpenDocument={(doc) => setViewingDocument(doc)}
           />}
 
-          {/* Loyalty Points Section (hidden until onboarding complete) */}
+          {/* MVP-DISABLED: loyalty/rewards — re-enable post-launch */}
+          {/*
           {isOnboardingComplete && <LoyaltyPoints
             isDarkBg={isDarkBg}
             totalPoints={1240}
@@ -1979,6 +1981,7 @@ export default function CarsHomeScreen() {
               router.push('/membership');
             }}
           />}
+          */}
 
           {/* Remove Vehicle — destructive primary CTA at the bottom of the
               page. Shape/size mirrors the AIWelcomeScreen Continue button
@@ -3044,7 +3047,11 @@ const styles = StyleSheet.create({
     top: -SCREEN_HEIGHT * 0.5, // Extend above to cover when scrolling down
     left: 0,
     right: 0,
-    height: SCREEN_HEIGHT * 2.5, // Much taller to cover entire scroll content
+    // 5× screen height so pages with long service-history / loyalty
+    // sections stay covered. Past ~2× the white container would bleed
+    // through. Beyond the last gradient stop the bottom color holds, so
+    // extending the container is safe.
+    height: SCREEN_HEIGHT * 5,
     zIndex: 0,
   },
   header: {
