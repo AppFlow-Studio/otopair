@@ -326,6 +326,12 @@ export default function PastServiceDetailScreen() {
                 </Pressable>
               </View>
 
+              {/* Flex spacer — pushes the Book again pill down to
+                  the bottom of the viewport when the content above
+                  is short. Collapses to its minHeight when the
+                  services list pushes the page past the viewport. */}
+              <View style={styles.spacer} />
+
               {/* Book again */}
               <Pressable
                 onPress={handleBookAgain}
@@ -409,6 +415,17 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingHorizontal: 16,
+    // `flexGrow: 1` lets the content container stretch to the full
+    // scroll viewport height when the natural content height is
+    // shorter. Combined with the <Spacer /> View below the services
+    // card, the Book again pill pins to the bottom on sparse
+    // bookings (1 service) and naturally floats up when the list
+    // fills the page (5+ services).
+    flexGrow: 1,
+  },
+  spacer: {
+    flex: 1,
+    minHeight: 12,
   },
   heroHost: {
     position: "relative",
@@ -522,8 +539,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     alignItems: "center",
     justifyContent: "center",
-    marginTop: 16,
-    marginBottom: 24,
+    // Top gap comes from the flex <Spacer /> above; the spacer's
+    // minHeight (12) is the minimum cushion between Book again and
+    // the services card. Trailing space is left to the ScrollView's
+    // paddingBottom (insets.bottom + 32).
+    marginBottom: 0,
   },
   emptyState: {
     alignItems: "center",
