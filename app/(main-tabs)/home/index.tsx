@@ -650,6 +650,16 @@ export default function HomeScreen() {
   const [pendingReviewBooking, setPendingReviewBooking] = useState<
     typeof pendingReviewBookings[number] | null
   >(null);
+  // Holds the (booking, userId) tuple stashed when the user taps
+  // "Leave a review" inside the receipt. The receipt closes first;
+  // its onClose fires after the Modal has actually unmounted, and
+  // we open the LeaveReviewSheet from there. Driving the chain off
+  // onClose (instead of a setTimeout) avoids the iOS Modal-stacking
+  // race that left users staring at a blank white sheet.
+  const pendingReviewActionRef = useRef<{
+    booking: typeof pendingReviewBookings[number];
+    userId: string;
+  } | null>(null);
   useEffect(() => {
     void loadPromptedBookingIds().then((set) => {
       promptedIdsRef.current = set;
@@ -1128,17 +1138,32 @@ export default function HomeScreen() {
         auto-opens on focus. */}
     <ReceiptSheet
       bookingId={(pendingReviewBooking?.id as Id<'bookings'> | undefined) ?? null}
-      onClose={() => setPendingReviewBooking(null)}
+      onClose={() => {
+        setPendingReviewBooking(null);
+        // Fire any queued review hand-off now that the receipt's
+        // Modal has unmounted. Tiny breather so iOS gets one frame
+        // post-unmount before we present the next Modal — empirically
+        // presenting on the same tick still no-op'd occasionally.
+        const pending = pendingReviewActionRef.current;
+        pendingReviewActionRef.current = null;
+        if (pending) {
+          setTimeout(() => {
+            reviewSheetRef.current?.open(pending.booking, pending.userId);
+          }, 50);
+        }
+      }}
       onLeaveReview={() => {
         const target = pendingReviewBooking;
         if (!target || !userId) return;
-        // Close the receipt first, then hand off after FloatingSheet's
-        // close animation completes (~260ms) so the two sheets don't
-        // stack-fight.
+        // Stash the hand-off, then null the booking id which now
+        // properly triggers ReceiptSheet's close (the wasOpenRef
+        // gate inside it). The Review sheet opens from onClose
+        // above once the Modal has unmounted.
+        pendingReviewActionRef.current = {
+          booking: target,
+          userId: String(userId),
+        };
         setPendingReviewBooking(null);
-        setTimeout(() => {
-          reviewSheetRef.current?.open(target, String(userId));
-        }, 320);
       }}
     />
     <LeaveReviewSheet ref={reviewSheetRef} />
