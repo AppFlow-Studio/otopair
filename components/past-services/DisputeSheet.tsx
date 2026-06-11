@@ -43,7 +43,13 @@ const REASONS: { key: string; label: string }[] = [
   { key: "other", label: "Other" },
 ];
 
-const SNAP_HEIGHT = 580;
+// Two heights — the composer needs room for the reason chips +
+// textarea + Send pill; the post-submit confirmation panel is just
+// a badge, two lines of copy, and the Done pill, so we shrink the
+// sheet to match. FloatingSheet animates between snap heights on
+// prop change so the resize reads as a smooth pull-down.
+const SNAP_HEIGHT_FORM = 580;
+const SNAP_HEIGHT_SUCCESS = 380;
 
 export interface DisputeSheetRef {
   open: () => void;
@@ -114,7 +120,7 @@ export const DisputeSheet = forwardRef<DisputeSheetRef, DisputeSheetProps>(
     return (
       <FloatingSheet
         ref={sheetRef}
-        snapHeights={[SNAP_HEIGHT]}
+        snapHeights={[sentOk ? SNAP_HEIGHT_SUCCESS : SNAP_HEIGHT_FORM]}
         showBackdrop
         backdropMode="dim"
         liftWithKeyboard
