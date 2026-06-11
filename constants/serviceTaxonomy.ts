@@ -20,11 +20,11 @@ export type TaxonomyTab =
   | "tires_brakes"
   | "major_service";
 
-export const TABS: { key: TaxonomyTab; label: string; order: number }[] = [
-  { key: "routine_upkeep", label: "Routine upkeep", order: 1 },
-  { key: "inspections", label: "Inspections & checkups", order: 2 },
-  { key: "tires_brakes", label: "Tires & brakes", order: 3 },
-  { key: "major_service", label: "Major service", order: 4 },
+export const TABS: { key: TaxonomyTab; label: string; subtitle: string; order: number }[] = [
+  { key: "routine_upkeep", label: "Routine", subtitle: "Fluids, filters, battery", order: 1 },
+  { key: "tires_brakes", label: "Tires & Brakes", subtitle: "Tires, rotation, brakes", order: 2 },
+  { key: "major_service", label: "Scheduled service", subtitle: "Spark plugs, timing, fluids", order: 3 },
+  { key: "inspections", label: "Inspections", subtitle: "State, emissions, diagnostics", order: 4 },
 ];
 
 export interface TaxonomyEntry {
