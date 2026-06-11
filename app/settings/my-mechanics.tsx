@@ -83,12 +83,14 @@ interface MechanicListItemProps {
     fromFavorites: boolean,
     anchorRef: React.RefObject<View | null>,
   ) => void;
+  onOpenMechanic: (mechanicId: string) => void;
 }
 
 const MechanicListItem = ({
   mechanic,
   fromFavorites = false,
   onOpenMenu,
+  onOpenMechanic,
 }: MechanicListItemProps) => {
   const anchorRef = useRef<View>(null);
 
@@ -100,10 +102,13 @@ const MechanicListItem = ({
     >
       <Pressable
         key={mechanic.id}
+        onPress={() => onOpenMechanic(mechanic.id)}
         style={({ pressed }) => [
           styles.mechanicRow,
           pressed && styles.rowPressed,
         ]}
+        accessibilityRole="button"
+        accessibilityLabel={`View ${mechanic.name}'s page`}
       >
         <View style={styles.mechanicLeft}>
           <View style={styles.avatarContainer}>
@@ -218,6 +223,19 @@ export default function MyMechanicsScreen() {
       ]).start();
     }
   }, [isMenuVisible, backdropAnim, menuAnim]);
+
+  // Row tap → mechanic detail page. Same route the booking flow
+  // and shop detail header use, so the destination is consistent
+  // regardless of where the user entered from.
+  const openMechanic = useCallback(
+    (mechanicId: string) => {
+      router.push({
+        pathname: "/booking/mechanic/[id]",
+        params: { id: mechanicId },
+      });
+    },
+    [router],
+  );
 
   const openMenu = useCallback(
     (
@@ -380,6 +398,7 @@ export default function MyMechanicsScreen() {
                         mechanic={m}
                         fromFavorites={true}
                         onOpenMenu={openMenu}
+                        onOpenMechanic={openMechanic}
                       />
                     ))}
                 </Animated.View>
@@ -408,6 +427,7 @@ export default function MyMechanicsScreen() {
                       mechanic={m}
                       fromFavorites={false}
                       onOpenMenu={openMenu}
+                      onOpenMechanic={openMechanic}
                     />
                   ))}
               </Animated.View>
