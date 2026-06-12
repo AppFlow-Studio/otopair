@@ -39,6 +39,7 @@ import { useMechanicStore } from "@/stores/useMechanicStore";
 import { useNearbyBookingShops } from "@/hooks/useNearbyBookingShops";
 import { useNextAvailabilityForShop } from "@/hooks/useNextAvailabilityForShop";
 import { useBookingLaborHoursMap } from "@/hooks/useBookingLaborHoursMap";
+import { useBookingPartsBreakdown } from "@/hooks/useBookingPartsBreakdown";
 import { useShopFixedPricesForServices } from "@/hooks/useShopFixedPricesForServices";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
@@ -53,6 +54,7 @@ export default function ChooseMechanicScreen() {
 
   const selectedServiceIds = useBookingStore((s) => s.selectedServiceIds);
   const availableServices = useBookingStore((s) => s.availableServices);
+  const selectedServiceOptions = useBookingStore((s) => s.selectedServiceOptions);
   const ownershipId = useVehicleStore((s) => s.getSelectedVehicle())?.ownershipId;
 
   // Engine-adjusted + director-rounded labor (empirical → book →
@@ -60,9 +62,43 @@ export default function ChooseMechanicScreen() {
   // estimate breakdown on each shop page matches what the customer pays.
   const { laborHoursMap } = useBookingLaborHoursMap(ownershipId, selectedServiceIds);
 
+  // Real per-vehicle OEM parts totals (winning fitments × unit price) — the
+  // same source as Review & Pay. Without this the estimate is labor-only,
+  // because the catalog `default_parts_estimate` fallback is ~$0 for most
+  // parts-bearing services (e.g. spark plugs).
+  const { breakdown: pricedPartsByService } = useBookingPartsBreakdown(
+    ownershipId,
+    selectedServiceIds,
+    selectedServiceOptions,
+  );
+  const realPartsCostMap = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const row of pricedPartsByService) {
+      if (row.winner !== null && row.partsTotal > 0) {
+        m.set(String(row.serviceId), row.partsTotal);
+      }
+    }
+    return m;
+  }, [pricedPartsByService]);
+
   const selectedServices = useMemo(
     () => availableServices.filter((s) => selectedServiceIds.includes(s.id)),
     [availableServices, selectedServiceIds],
+  );
+
+  // Overlay the real OEM parts total onto each service so the price band
+  // (buildShopPriceLabel → deriveDisclosedRange) brackets the actual parts
+  // cost rather than the ~$0 catalog default. Falls back to the default when
+  // the resolver has no winner (unenriched vehicle/service).
+  const selectedServicesForPricing = useMemo(
+    () =>
+      selectedServices.map((s) => {
+        const realParts = realPartsCostMap.get(String(s.id));
+        return realParts != null
+          ? { ...s, default_parts_estimate: realParts }
+          : s;
+      }),
+    [selectedServices, realPartsCostMap],
   );
 
   const { results: nearbyShops, isLoading: shopsLoading } = useNearbyBookingShops(5);
@@ -84,12 +120,12 @@ export default function ChooseMechanicScreen() {
       activeShop
         ? buildShopPriceLabel({
             shop: activeShop,
-            selectedServices,
+            selectedServices: selectedServicesForPricing,
             laborHoursMap,
             fixedPriceMap: activeFixedMap,
           })
         : { text: null, isFixed: false },
-    [activeShop, selectedServices, laborHoursMap, activeFixedMap],
+    [activeShop, selectedServicesForPricing, laborHoursMap, activeFixedMap],
   );
 
   // Per-shop mechanic selection — null = Any. Reset when the active
@@ -386,7 +422,7 @@ export default function ChooseMechanicScreen() {
                   pageWidth={SCREEN_WIDTH}
                   totalMinutes={totalMinutes}
                   selectedCount={selectedCount}
-                  selectedServices={selectedServices}
+                  selectedServices={selectedServicesForPricing}
                   laborHoursMap={laborHoursMap}
                   vehicleOwnerId={ownershipId}
                   selectedMechanicId={
