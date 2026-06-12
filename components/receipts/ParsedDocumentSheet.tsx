@@ -15,7 +15,7 @@
  * we avoid a second query by reading directly from the listByVin result.
  */
 
-import React, { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
+import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -25,8 +25,17 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withDelay,
+  withSequence,
+  withSpring,
+  withTiming,
+} from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useMutation } from "convex/react";
+import { CheckCircle } from "lucide-react-native";
 
 import { Text } from "@/components/shared-ui";
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
@@ -35,6 +44,48 @@ import type { Id } from "@/convex/_generated/dataModel";
 
 import { ReceiptContent, type ReceiptPayload } from "./ReceiptContent";
 import type { VehicleDocumentRow } from "@/hooks/useVehicleDocumentsFromConvex";
+
+// ───────────────────────────────────────────────────────────────────────────
+// Input validators — pure, return { ok, value?, error? }
+// ───────────────────────────────────────────────────────────────────────────
+
+const ODOMETER_RE = /^\d{1,6}$/;
+const SERVICE_DATE_RE = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
+const TOTAL_RE = /^\d{1,5}(\.\d{1,2})?$/;
+const EARLIEST_SERVICE_MS = Date.parse("1980-01-01");
+
+type V<T> = { ok: true; value?: T; error?: undefined } | { ok: false; error: string };
+
+function validateOdometer(raw: string): V<number> {
+  const v = raw.trim();
+  if (!v) return { ok: true };
+  if (!ODOMETER_RE.test(v)) return { ok: false, error: "Whole number only (max 6 digits)" };
+  const n = parseInt(v, 10);
+  if (n > 999_999) return { ok: false, error: "Must be 999,999 or less" };
+  return { ok: true, value: n };
+}
+
+function validateServiceDate(raw: string): V<string> {
+  const v = raw.trim();
+  if (!v) return { ok: true };
+  if (!SERVICE_DATE_RE.test(v)) return { ok: false, error: "Use format YYYY-MM-DD" };
+  const t = Date.parse(v);
+  if (Number.isNaN(t)) return { ok: false, error: "Not a real calendar date" };
+  if (t > Date.now() + 86_400_000) return { ok: false, error: "Date can't be in the future" };
+  if (t < EARLIEST_SERVICE_MS) return { ok: false, error: "Date is too far in the past" };
+  return { ok: true, value: v };
+}
+
+function validateTotal(raw: string): V<number> {
+  const v = raw.trim();
+  if (!v) return { ok: true };
+  if (!TOTAL_RE.test(v)) return { ok: false, error: "Numbers only, up to 2 decimals" };
+  const dollars = parseFloat(v);
+  if (dollars < 0 || dollars > 99_999.99) {
+    return { ok: false, error: "Must be between $0 and $99,999.99" };
+  }
+  return { ok: true, value: Math.round(dollars * 100) };
+}
 
 interface Props {
   row: VehicleDocumentRow | null;
@@ -249,6 +300,8 @@ interface ReviewFormProps {
   onClose?: () => void;
 }
 
+type FormMode = "form" | "submitting" | "success";
+
 function ReviewForm({ row, onClose }: ReviewFormProps) {
   const payload = (row.extraction?.payload ?? {}) as Record<string, any>;
   const vehicle = payload.vehicle as Record<string, any> | undefined;
@@ -261,33 +314,45 @@ function ReviewForm({ row, onClose }: ReviewFormProps) {
   const [odometer, setOdometer] = useState(initialOdometer);
   const [serviceDate, setServiceDate] = useState(initialDate);
   const [totalDollars, setTotalDollars] = useState(initialTotalDollars);
-  const [submitting, setSubmitting] = useState(false);
+  const [touched, setTouched] = useState<{ odometer: boolean; serviceDate: boolean; total: boolean }>({
+    odometer: false,
+    serviceDate: false,
+    total: false,
+  });
+  const [mode, setMode] = useState<FormMode>("form");
 
   const confirm = useMutation(api.vehicleDocuments.confirmExtraction);
 
+  const odometerCheck = useMemo(() => validateOdometer(odometer), [odometer]);
+  const dateCheck = useMemo(() => validateServiceDate(serviceDate), [serviceDate]);
+  const totalCheck = useMemo(() => validateTotal(totalDollars), [totalDollars]);
+  const formValid = odometerCheck.ok && dateCheck.ok && totalCheck.ok;
+  const submitDisabled = mode !== "form" || !formValid;
+
   const onConfirm = async () => {
-    if (submitting) return;
-    setSubmitting(true);
+    if (submitDisabled) return;
+    setMode("submitting");
     try {
-      const odometerNum = odometer ? parseInt(odometer, 10) : undefined;
-      const totalCents = totalDollars
-        ? Math.round(parseFloat(totalDollars) * 100)
-        : undefined;
       const edits: Record<string, unknown> = {};
-      if (serviceDate) edits.service_date = serviceDate;
-      if (totalCents !== undefined && !Number.isNaN(totalCents)) edits.total_cents = totalCents;
-      if (odometerNum !== undefined && !Number.isNaN(odometerNum)) {
-        edits.vehicle = { ...(vehicle ?? {}), odometer_in: odometerNum };
+      if (dateCheck.ok && dateCheck.value !== undefined) edits.service_date = dateCheck.value;
+      if (totalCheck.ok && totalCheck.value !== undefined) edits.total_cents = totalCheck.value;
+      if (odometerCheck.ok && odometerCheck.value !== undefined) {
+        edits.vehicle = { ...(vehicle ?? {}), odometer_in: odometerCheck.value };
       }
       await confirm({
         documentId: row.doc._id as Id<"vehicle_documents">,
         edits,
       });
-      onClose?.();
-    } finally {
-      setSubmitting(false);
+      setMode("success");
+    } catch (err) {
+      setMode("form");
+      throw err;
     }
   };
+
+  if (mode === "success") {
+    return <SuccessState onDone={() => onClose?.()} />;
+  }
 
   return (
     <View style={styles.formWrap}>
@@ -302,35 +367,47 @@ function ReviewForm({ row, onClose }: ReviewFormProps) {
       <FormField
         label="Odometer (miles)"
         value={odometer}
-        onChangeText={setOdometer}
+        onChangeText={(v) => {
+          setOdometer(v);
+          if (!touched.odometer) setTouched((t) => ({ ...t, odometer: true }));
+        }}
         placeholder="e.g. 84200"
         keyboardType="number-pad"
+        error={touched.odometer && !odometerCheck.ok ? odometerCheck.error : undefined}
       />
       <FormField
         label="Service date"
         value={serviceDate}
-        onChangeText={setServiceDate}
+        onChangeText={(v) => {
+          setServiceDate(v);
+          if (!touched.serviceDate) setTouched((t) => ({ ...t, serviceDate: true }));
+        }}
         placeholder="YYYY-MM-DD"
+        error={touched.serviceDate && !dateCheck.ok ? dateCheck.error : undefined}
       />
       <FormField
         label="Total ($)"
         value={totalDollars}
-        onChangeText={setTotalDollars}
+        onChangeText={(v) => {
+          setTotalDollars(v);
+          if (!touched.total) setTouched((t) => ({ ...t, total: true }));
+        }}
         placeholder="e.g. 103.59"
         keyboardType="decimal-pad"
+        error={touched.total && !totalCheck.ok ? totalCheck.error : undefined}
       />
 
       <Pressable
         onPress={onConfirm}
-        disabled={submitting}
+        disabled={submitDisabled}
         style={({ pressed }) => [
           styles.confirmBtn,
           pressed && { opacity: 0.85 },
-          submitting && { opacity: 0.5 },
+          submitDisabled && { opacity: 0.45 },
         ]}
       >
         <Text weight="semiBold" size="sm" color="#FFFFFF">
-          {submitting ? "Saving…" : "Confirm & update health score"}
+          {mode === "submitting" ? "Saving…" : "Confirm & update health score"}
         </Text>
       </Pressable>
     </View>
@@ -343,9 +420,11 @@ interface FormFieldProps {
   onChangeText: (v: string) => void;
   placeholder?: string;
   keyboardType?: "default" | "number-pad" | "decimal-pad";
+  error?: string;
 }
 
-function FormField({ label, value, onChangeText, placeholder, keyboardType }: FormFieldProps) {
+function FormField({ label, value, onChangeText, placeholder, keyboardType, error }: FormFieldProps) {
+  const hasError = !!error;
   return (
     <View style={{ marginBottom: 14 }}>
       <Text size="xs" weight="semiBold" color="#6B7280" style={{ marginBottom: 6 }}>
@@ -357,8 +436,79 @@ function FormField({ label, value, onChangeText, placeholder, keyboardType }: Fo
         placeholder={placeholder}
         placeholderTextColor="#C7C7CC"
         keyboardType={keyboardType}
-        style={styles.input}
+        autoCapitalize="none"
+        autoCorrect={false}
+        style={[styles.input, hasError && styles.inputError]}
       />
+      {hasError && (
+        <Text size="xs" color="#DC2626" style={{ marginTop: 6 }}>
+          {error}
+        </Text>
+      )}
+    </View>
+  );
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Success state — Reanimated checkmark, auto-dismisses
+// ───────────────────────────────────────────────────────────────────────────
+
+const SUCCESS_HOLD_MS = 1600;
+
+function SuccessState({ onDone }: { onDone: () => void }) {
+  const scale = useSharedValue(0.3);
+  const opacity = useSharedValue(0);
+  const pulseScale = useSharedValue(0);
+  const pulseOpacity = useSharedValue(0);
+
+  useEffect(() => {
+    scale.value = withSpring(1, { damping: 12, stiffness: 160 });
+    opacity.value = withTiming(1, { duration: 220 });
+    pulseScale.value = withSequence(
+      withTiming(0, { duration: 0 }),
+      withTiming(1.8, { duration: 700 }),
+    );
+    pulseOpacity.value = withSequence(
+      withTiming(0.35, { duration: 0 }),
+      withTiming(0, { duration: 700 }),
+    );
+    const timer = setTimeout(() => {
+      opacity.value = withTiming(0, { duration: 220 }, () => {});
+      // schedule dismiss after the fade
+      setTimeout(onDone, 220);
+    }, SUCCESS_HOLD_MS);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const checkStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+    opacity: opacity.value,
+  }));
+  const pulseStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: pulseScale.value }],
+    opacity: pulseOpacity.value,
+  }));
+  const copyStyle = useAnimatedStyle(() => ({
+    opacity: withDelay(120, withTiming(opacity.value, { duration: 200 })),
+  }));
+
+  return (
+    <View style={styles.successWrap}>
+      <View style={styles.successIconWrap}>
+        <Animated.View style={[styles.pulse, pulseStyle]} />
+        <Animated.View style={checkStyle}>
+          <CheckCircle size={84} color="#10B981" strokeWidth={1.75} />
+        </Animated.View>
+      </View>
+      <Animated.View style={copyStyle}>
+        <Text weight="bold" size="lg" color="#0F172A" center style={{ marginTop: 20 }}>
+          Health score updated
+        </Text>
+        <Text size="sm" color="#6B7280" center style={{ marginTop: 6 }}>
+          We saved your receipt and refreshed the ring on the Cars tab.
+        </Text>
+      </Animated.View>
     </View>
   );
 }
@@ -387,12 +537,35 @@ const styles = StyleSheet.create({
     color: "#0F172A",
     backgroundColor: "#FFFFFF",
   },
+  inputError: {
+    borderColor: "#DC2626",
+    backgroundColor: "#FEF2F2",
+  },
   confirmBtn: {
     marginTop: 12,
     backgroundColor: "#5299FE",
     paddingVertical: 14,
     borderRadius: 999,
     alignItems: "center",
+  },
+  successWrap: {
+    paddingTop: 64,
+    paddingBottom: 48,
+    paddingHorizontal: 24,
+    alignItems: "center",
+  },
+  successIconWrap: {
+    width: 120,
+    height: 120,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  pulse: {
+    position: "absolute",
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: "#10B981",
   },
 });
 

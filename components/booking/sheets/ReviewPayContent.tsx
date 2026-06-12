@@ -768,8 +768,14 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
                   // When the engine refused entirely we render "Price TBD" so
                   // the mechanic still sees the part name + qty but no
                   // misleading dollar amount.
+                  // Fallback spec: we NEVER substitute or hide a price we
+                  // actually scraped. `eff.source` (ai_estimate = band engine
+                  // refused, ai_out_of_band = scraped price sits outside the
+                  // engine band) is an AUDIT signal only — it drives the
+                  // `fallback_catch` flag stamped server-side in createBatch so
+                  // the director can review "came out lower/higher than
+                  // expected". The customer still sees the real part + price.
                   const eff = getEffectiveParts(service);
-                  const refusedEstimate = eff.source === "ai_estimate";
                   // Single-axle services have just `winner`. Position="both"
                   // services (Brake Pads All-four) have `secondaryWinner` too —
                   // render both axles as separate part lines.
@@ -778,7 +784,22 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
                   );
                   return parts.map((part) => {
                     const qtyLabel = part.quantity > 1 ? ` ×${part.quantity}` : "";
-                    const hasPrice = part.has_price_data && part.line_total > 0;
+                    // Fallback spec: always present the REAL scraped sample
+                    // range (qty × kept-set min/max), even when it falls
+                    // outside the engine band — our data is the source of
+                    // truth; the band only logs/flags, it never adjusts parts.
+                    // When a single source priced the part (low === high) apply
+                    // a synthetic ±8% so the row still reads as a range
+                    // (matches payment.tsx + FALLBACK_BAND_RATIO).
+                    const hasPrice = part.has_price_data && part.line_total_high > 0;
+                    const SINGLE_SOURCE_BAND = 0.08;
+                    const singleSource = part.line_total_low === part.line_total_high;
+                    const lineLow = singleSource
+                      ? part.line_total_low * (1 - SINGLE_SOURCE_BAND)
+                      : part.line_total_low;
+                    const lineHigh = singleSource
+                      ? part.line_total_high * (1 + SINGLE_SOURCE_BAND)
+                      : part.line_total_high;
                     // Suppress the `@ ~$X.XX` unit-price suffix on fixed-price
                     // lines — customer's contract is the flat amount, so any
                     // dollar figure on a part row would compete with it.
@@ -788,18 +809,26 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
                         : "";
                     return (
                       <View key={`${service.id}-${part.part_id}`} style={styles.breakdownRow}>
-                        <Text size="sm" weight="regular" color="#6B7280" style={styles.breakdownLabel}>
-                          {part.name} (Part){qtyLabel}
-                          {unitLabel}
-                        </Text>
+                        <View style={styles.breakdownLabel}>
+                          <Text size="sm" weight="regular" color="#6B7280">
+                            {part.name} (Part){qtyLabel}
+                            {unitLabel}
+                          </Text>
+                          {/* DEV-only: surface which part the 7-layer selector
+                              returned + why a row reads "Price TBD". Stripped
+                              from production by the __DEV__ guard. */}
+                          {__DEV__ ? (
+                            <Text size="xs" weight="regular" color="#9CA3AF">
+                              {`${part.oem_part_number} · ${part.role_key ?? "?"} · src=${eff.source} · price=${part.has_price_data ? "Y" : "N"} · n=${part.price_sample_size} · lt=$${part.line_total.toFixed(2)}`}
+                            </Text>
+                          ) : null}
+                        </View>
                         <Text size="sm" weight="medium" color="#6B7280">
                           {isFixedLine
                             ? "Included"
-                            : refusedEstimate
-                              ? "Price TBD"
-                              : hasPrice
-                                ? `$${part.line_total.toFixed(2)}`
-                                : "Price TBD"}
+                            : hasPrice
+                              ? `$${lineLow.toFixed(2)} – $${lineHigh.toFixed(2)}`
+                              : "Price TBD"}
                         </Text>
                       </View>
                     );

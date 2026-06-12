@@ -769,8 +769,14 @@ export default function PaymentScreen() {
                   // engine refused entirely we show "Price TBD" alongside the
                   // OEM name + qty so the mechanic knows what's being
                   // installed without a misleading dollar amount.
+                  // Fallback spec: we NEVER substitute or hide a price we
+                  // actually scraped. `eff.source` (ai_estimate = band engine
+                  // refused, ai_out_of_band = scraped price sits outside the
+                  // engine band) is an AUDIT signal only — it drives the
+                  // `fallback_catch` flag stamped server-side in createBatch so
+                  // the director can review "came out lower/higher than
+                  // expected". The customer still sees the real part + price.
                   const eff = getEffectiveParts(service);
-                  const refusedEstimate = eff.source === "ai_estimate";
                   // Single-axle services have just `winner`. Position="both"
                   // services (e.g. Brake Pads All-four) carry `secondaryWinner`
                   // for the rear axle — render both as separate part lines.
@@ -796,17 +802,25 @@ export default function PaymentScreen() {
                       : part.line_total_high;
                     return (
                       <View key={`${service.id}-${part.part_id}`} style={styles.breakdownRow}>
-                        <Text size="sm" weight="regular" color="#6B7280" style={styles.breakdownLabel}>
-                          {part.name} (Part){qtyLabel}
-                        </Text>
+                        <View style={styles.breakdownLabel}>
+                          <Text size="sm" weight="regular" color="#6B7280">
+                            {part.name} (Part){qtyLabel}
+                          </Text>
+                          {/* DEV-only: surface which part the 7-layer selector
+                              returned + why a row reads "Price TBD". Stripped
+                              from production by the __DEV__ guard. */}
+                          {__DEV__ ? (
+                            <Text size="xs" weight="regular" color="#9CA3AF">
+                              {`${part.oem_part_number} · ${part.role_key ?? "?"} · src=${eff.source} · price=${part.has_price_data ? "Y" : "N"} · n=${part.price_sample_size} · lt=$${part.line_total_low.toFixed(2)}-$${part.line_total_high.toFixed(2)}`}
+                            </Text>
+                          ) : null}
+                        </View>
                         <Text size="sm" weight="medium" color="#6B7280">
                           {isFixedLine
                             ? "Included"
-                            : refusedEstimate
-                              ? "Price TBD"
-                              : hasPrice
-                                ? formatRange(lineLow, lineHigh)
-                                : "Price TBD"}
+                            : hasPrice
+                              ? formatRange(lineLow, lineHigh)
+                              : "Price TBD"}
                         </Text>
                       </View>
                     );

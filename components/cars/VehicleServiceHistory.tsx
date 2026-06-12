@@ -14,13 +14,20 @@
  * ParsedDocumentSheet on tap (built in a follow-up).
  */
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Pressable,
   StyleSheet,
   View,
 } from "react-native";
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withSequence,
+  withSpring,
+  withTiming,
+} from "react-native-reanimated";
 import {
   ChevronDown,
   ChevronRight,
@@ -30,6 +37,7 @@ import {
 } from "lucide-react-native";
 import * as DocumentPicker from "expo-document-picker";
 import { useMutation } from "convex/react";
+import { Image } from "expo-image";
 
 import { Text } from "@/components/shared-ui";
 import { api } from "@/convex/_generated/api";
@@ -70,6 +78,13 @@ interface DocRow {
   parseStatus: DocumentParseStatus;
   reviewState: DocumentReviewState | null;
   totalCents?: number;
+  /** Signed storage URL — used as the row icon for image uploads. */
+  thumbnailUrl: string | null;
+  /** True when the original upload was an image; otherwise (PDF / docx) the
+   *  row falls back to a colored tile + shop initial. */
+  isImage: boolean;
+  /** First letter of the shop name (or filename) for the PDF tile fallback. */
+  fallbackInitial: string;
 }
 
 type UnifiedRow = BookingRow | DocRow;
@@ -173,6 +188,99 @@ function statusLabel(status: DocumentParseStatus): { label: string; color: strin
   }
 }
 
+function isPending(s: DocumentParseStatus): boolean {
+  return s === "queued" || s === "parsing";
+}
+
+/** Status pill that pops + flashes when the row transitions from a
+ *  pending state (queued/parsing) to a terminal state (parsed/needs_review/
+ *  failed). On first mount with a non-pending status it renders statically. */
+function AnimatedStatusBadge({ status }: { status: DocumentParseStatus }) {
+  const badge = statusLabel(status);
+  const scale = useSharedValue(1);
+  const flash = useSharedValue(0);
+  const prevStatus = useRef<DocumentParseStatus>(status);
+
+  useEffect(() => {
+    const wasPending = isPending(prevStatus.current);
+    const nowTerminal = !isPending(status);
+    if (wasPending && nowTerminal) {
+      scale.value = withSequence(
+        withSpring(1.15, { damping: 8, stiffness: 220 }),
+        withSpring(1, { damping: 10, stiffness: 200 }),
+      );
+      flash.value = withSequence(
+        withTiming(1, { duration: 180 }),
+        withTiming(0, { duration: 420 }),
+      );
+    }
+    prevStatus.current = status;
+  }, [status, scale, flash]);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
+  const flashStyle = useAnimatedStyle(() => ({
+    opacity: flash.value,
+  }));
+
+  return (
+    <Animated.View
+      style={[
+        styles.statusPill,
+        { backgroundColor: `${badge.color}1A` },
+        animatedStyle,
+      ]}
+    >
+      <Animated.View
+        pointerEvents="none"
+        style={[
+          StyleSheet.absoluteFillObject,
+          { backgroundColor: badge.color, borderRadius: moderateScale(8) },
+          flashStyle,
+        ]}
+      />
+      <Text weight="semiBold" size="xs" color={badge.color}>
+        {badge.label}
+      </Text>
+    </Animated.View>
+  );
+}
+
+/** Row leading icon. Image uploads render as a true thumbnail; PDFs /
+ *  other docs render a tinted tile with the shop initial + a small PDF
+ *  glyph overlay so it still reads as "a document, not a photo." */
+function DocRowIcon({
+  thumbnailUrl,
+  isImage,
+  fallbackInitial,
+}: {
+  thumbnailUrl: string | null;
+  isImage: boolean;
+  fallbackInitial: string;
+}) {
+  if (isImage && thumbnailUrl) {
+    return (
+      <Image
+        source={{ uri: thumbnailUrl }}
+        style={styles.thumbnailImage}
+        contentFit="cover"
+        transition={150}
+      />
+    );
+  }
+  return (
+    <View style={[styles.rowIcon, styles.docRowIcon, styles.docTileIcon]}>
+      <Text weight="bold" size="md" color="#7C3AED">
+        {fallbackInitial}
+      </Text>
+      <View style={styles.docTileBadge}>
+        <FileText size={scale(10)} color="#FFFFFF" />
+      </View>
+    </View>
+  );
+}
+
 // ───────────────────────────────────────────────────────────────────────────
 // Component
 // ───────────────────────────────────────────────────────────────────────────
@@ -231,20 +339,35 @@ export function VehicleServiceHistory({
       .map((r) => {
         const view = projectExtraction(r);
         const dateMs = view.serviceDateMs ?? r.doc.uploaded_at ?? r.doc._creationTime;
-        const subtitleBits = [
-          fmtDateFromMs(dateMs),
-          view.shopName ?? r.doc.original_filename,
-        ].filter(Boolean) as string[];
+
+        // Title prefers the shop name — most "carfax-y" thing to lead with.
+        // Falls back to the services summary if we haven't extracted a shop
+        // yet (parsing, or schema didn't find one).
+        const title = view.shopName ?? view.servicesSummary ?? r.doc.original_filename;
+        // Subtitle stacks date + the services summary (when we have one and
+        // it's not redundant with the title).
+        const subtitleParts: string[] = [fmtDateFromMs(dateMs)];
+        if (view.servicesSummary && view.servicesSummary !== title) {
+          subtitleParts.push(view.servicesSummary);
+        }
+
+        const isImage = r.doc.mime_type.startsWith("image/");
+        const initialSeed = view.shopName ?? r.doc.original_filename ?? "?";
+        const fallbackInitial = (initialSeed.trim()[0] ?? "?").toUpperCase();
+
         return {
           kind: "doc" as const,
           id: `d:${r.doc._id}`,
           documentId: r.doc._id,
           dateMs,
-          title: view.servicesSummary,
-          subtitle: subtitleBits.join(" · "),
+          title,
+          subtitle: subtitleParts.join(" · "),
           parseStatus: r.doc.parse_status,
           reviewState: r.extraction?.review_state ?? null,
           totalCents: view.totalCents ?? undefined,
+          thumbnailUrl: isImage ? r.storage_url : null,
+          isImage,
+          fallbackInitial,
         };
       });
   }, [docRows]);
@@ -417,7 +540,6 @@ export function VehicleServiceHistory({
             }
 
             const total = fmtUSDCents(row.totalCents);
-            const badge = statusLabel(row.parseStatus);
             return (
               <Pressable
                 key={row.id}
@@ -427,9 +549,12 @@ export function VehicleServiceHistory({
                   pressed && { backgroundColor: "#F8FAFC" },
                 ]}
               >
-                <View style={[styles.rowIcon, styles.docRowIcon]}>
-                  <FileText size={scale(18)} color="#7C3AED" />
-                </View>
+                <DocRowIcon
+                  thumbnailUrl={row.thumbnailUrl}
+                  isImage={row.isImage}
+                  fallbackInitial={row.fallbackInitial}
+                />
+
                 <View style={{ flex: 1 }}>
                   <Text weight="semiBold" size="sm" color="#0F172A" numberOfLines={1}>
                     {row.title}
@@ -438,16 +563,7 @@ export function VehicleServiceHistory({
                     <Text size="xs" color="#9CA3AF" numberOfLines={1} style={{ flexShrink: 1 }}>
                       {row.subtitle}
                     </Text>
-                    <View
-                      style={[
-                        styles.statusPill,
-                        { backgroundColor: `${badge.color}1A` },
-                      ]}
-                    >
-                      <Text weight="semiBold" size="xs" color={badge.color}>
-                        {badge.label}
-                      </Text>
-                    </View>
+                    <AnimatedStatusBadge status={row.parseStatus} />
                   </View>
                 </View>
                 {total && (
@@ -570,6 +686,28 @@ const styles = StyleSheet.create({
   docRowIcon: {
     backgroundColor: "rgba(124, 58, 237, 0.10)",
   },
+  docTileIcon: {
+    position: "relative",
+  },
+  docTileBadge: {
+    position: "absolute",
+    right: -scale(2),
+    bottom: -scale(2),
+    width: scale(16),
+    height: scale(16),
+    borderRadius: moderateScale(8),
+    backgroundColor: "#7C3AED",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1.5,
+    borderColor: "#FFFFFF",
+  },
+  thumbnailImage: {
+    width: scale(36),
+    height: scale(36),
+    borderRadius: moderateScale(10),
+    backgroundColor: "#F1F5F9",
+  },
   docSubtitleRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -580,6 +718,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: scale(6),
     paddingVertical: scale(2),
     borderRadius: moderateScale(8),
+    overflow: "hidden",
   },
 });
 

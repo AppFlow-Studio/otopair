@@ -22,10 +22,8 @@ export function useBookingLaborHoursMap(
   vehicleOwnerId: string | undefined,
   serviceIds: string[],
 ) {
-  const { laborHours, isLoading, hasFallback } = useBookingLaborHours(
-    vehicleOwnerId,
-    serviceIds,
-  );
+  const { laborHours, isLoading, hasFallback, hasLaborFloor, hasLaborAboveTier } =
+    useBookingLaborHours(vehicleOwnerId, serviceIds);
 
   const laborHoursMap = useMemo(() => {
     const map = new Map<string, number>();
@@ -35,5 +33,5 @@ export function useBookingLaborHoursMap(
     return map;
   }, [laborHours]);
 
-  return { laborHoursMap, hasFallback, isLoading };
+  return { laborHoursMap, hasFallback, hasLaborFloor, hasLaborAboveTier, isLoading };
 }

@@ -46,6 +46,8 @@ import { ServiceMultiSelectRow } from "@/components/booking-flow/ServiceMultiSel
 import { StickyContinueBar } from "@/components/booking-flow/StickyContinueBar";
 import { VehiclePuck } from "@/components/booking-flow/VehiclePuck";
 import { PackageQuestionsSheet } from "@/components/cars/PackageQuestionsSheet";
+import { DiagnosticOptionsSheet } from "@/components/booking/sheets/DiagnosticOptionsSheet";
+import { SingleServiceOptionsSheet } from "@/components/booking/sheets/SingleServiceOptionsSheet";
 import {
   SLUG_DIAGNOSTIC_SCAN,
   SLUG_ROTOR_REPLACEMENT,
@@ -117,6 +119,16 @@ export default function CategoryDetailScreen() {
   const selectedServiceIds = useBookingStore((s) => s.selectedServiceIds);
   const toggleServiceSelection = useBookingStore((s) => s.toggleServiceSelection);
   const availableServices = useBookingStore((s) => s.availableServices);
+  const selectedDiagnosticSystem = useBookingStore((s) => s.selectedDiagnosticSystem);
+  const customerNotes = useBookingStore((s) => s.customerNotes);
+
+  // Service-option sheets — opened on tap for services that need a choice
+  // before they enter the cart (brake pads → Front/Rear/Both, battery →
+  // AGM/EFB, diagnostic scan → area + notes). Mirrors the legacy
+  // ServiceBottomSheet handoff.
+  const [optionsServiceId, setOptionsServiceId] = useState<string | null>(null);
+  const [showDiagnosticSheet, setShowDiagnosticSheet] = useState(false);
+  const [diagnosticServiceId, setDiagnosticServiceId] = useState<string | null>(null);
 
   // Vehicle context
   const selectedVehicle = useVehicleStore((s) => s.getSelectedVehicle());
@@ -257,23 +269,36 @@ export default function CategoryDetailScreen() {
 
       const isSelected = selectedServiceIds.includes(service.id);
 
-      // Diagnostic scan: opens the legacy area picker once Phase 2's
-      // own picker ships. Until then we just toggle (without the area
-      // recorded) so the user can still book — area picker is a
-      // small Phase-2.5 follow-up.
-      if (service.slug === SLUG_DIAGNOSTIC_SCAN && !isSelected) {
-        toggleServiceSelection(service.id);
+      // Diagnostic scan: a second tap on the selected row removes it;
+      // first tap opens the area + notes picker before it enters the cart.
+      if (service.slug === SLUG_DIAGNOSTIC_SCAN) {
+        if (isSelected) {
+          toggleServiceSelection(service.id);
+          return;
+        }
+        setDiagnosticServiceId(service.id);
+        setShowDiagnosticSheet(true);
         return;
       }
 
-      // Coverage filter — needs-specs row opens the inline questions.
+      // Coverage filter — needs-specs row opens the inline questions first
+      // (a package answer is a prerequisite for picking options below).
       if (!isSelected && needsSpecsIds.has(service.id)) {
         setSpecsCheckServiceId(service.id);
         return;
       }
 
-      // has_options services route to the per-service picker on first
-      // tap. Phase-2.5 will plug in the new picker; for now we toggle.
+      // has_options services (brake pads, tire rotation, battery, …) open
+      // the per-service option picker on first tap; a second tap removes.
+      if (service.has_options === true) {
+        if (isSelected) {
+          toggleServiceSelection(service.id);
+          return;
+        }
+        setOptionsServiceId(service.id);
+        return;
+      }
+
       toggleServiceSelection(service.id);
     },
     [router, selectedServiceIds, needsSpecsIds, toggleServiceSelection],
@@ -453,6 +478,56 @@ export default function CategoryDetailScreen() {
           onClose={() => setInfoSheetSlug(null)}
         />
       ) : null}
+
+      {/* Per-service option picker (has_options services) — resolves the
+          choice (Front/Rear/Both, AGM/EFB, …) before the service is added,
+          stashing it on the booking store for the price + persistence tail. */}
+      <SingleServiceOptionsSheet
+        visible={optionsServiceId != null}
+        serviceId={optionsServiceId}
+        serviceName={
+          availableServices.find((s) => s.id === optionsServiceId)?.name ?? "Service"
+        }
+        onClose={() => setOptionsServiceId(null)}
+        onConfirm={(option) => {
+          const id = optionsServiceId;
+          if (!id) return;
+          const store = useBookingStore.getState();
+          store.setSelectedServiceOption(id, {
+            optionId: option._id,
+            labor_hours: option.labor_hours,
+            parts_cost_avg: (option.parts_cost_low + option.parts_cost_high) / 2,
+            state_fee: option.state_fee,
+            option_label: option.option_label,
+            option_type: option.option_type,
+          });
+          if (!store.selectedServiceIds.includes(id)) {
+            store.toggleServiceSelection(id);
+          }
+          setOptionsServiceId(null);
+        }}
+      />
+
+      {/* Diagnostic Scan picker — resolves the area + notes, then adds the
+          service so totals + downstream stages have the data ready. */}
+      <DiagnosticOptionsSheet
+        visible={showDiagnosticSheet}
+        initialSystem={selectedDiagnosticSystem}
+        initialNotes={customerNotes}
+        onClose={() => setShowDiagnosticSheet(false)}
+        onConfirm={(system, notes) => {
+          const store = useBookingStore.getState();
+          store.setSelectedDiagnosticSystem(system);
+          store.setCustomerNotes(notes);
+          if (
+            diagnosticServiceId &&
+            !store.selectedServiceIds.includes(diagnosticServiceId)
+          ) {
+            store.toggleServiceSelection(diagnosticServiceId);
+          }
+          setShowDiagnosticSheet(false);
+        }}
+      />
     </View>
   );
 }

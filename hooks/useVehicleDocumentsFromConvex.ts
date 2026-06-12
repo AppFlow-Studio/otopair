@@ -44,6 +44,10 @@ export interface VehicleDocumentRow {
     review_state: DocumentReviewState;
     created_at: number;
   } | null;
+  /** Signed Convex storage URL for the raw upload (used to render image
+   *  thumbnails in the row icon). Null for PDFs the user has revoked or
+   *  storage entries that have expired. */
+  storage_url: string | null;
 }
 
 export interface UseVehicleDocumentsResult {

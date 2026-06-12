@@ -34,7 +34,7 @@ import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
 import { useShopStore } from "@/stores/useShopStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
-import { displayTimeToHHMM } from "@/utils/timeSlotUtils";
+import { displayTimeToHHMM, minBookableHHMM, todayLocalISO } from "@/utils/timeSlotUtils";
 
 const FRAME_GRADIENT = ["#CFE0EB", "#DCE7EF", "#E8EEF3"] as const;
 
@@ -157,15 +157,23 @@ export default function PickDateTimeScreen() {
     totalMinutes > 0 ? totalMinutes : undefined,
   );
   const slots = useMemo(() => {
+    // For today, hide any slot earlier than the minimum bookable time —
+    // now + 15 min, rounded up to the next 15-min boundary (same cutoff the
+    // calendar query uses). `startTime` is 24h "HH:MM", so a lexical
+    // compare is chronological. Future days have no time cutoff; their
+    // availability already excludes blocked times + booked slots server-side.
+    const isToday = selectedDateISO === todayLocalISO();
+    const minTime = minBookableHHMM();
     const seen = new Set<string>();
     const out: typeof rawSlots = [];
     for (const s of rawSlots) {
+      if (isToday && s.startTime < minTime) continue;
       if (seen.has(s.startTime)) continue;
       seen.add(s.startTime);
       out.push(s);
     }
     return out;
-  }, [rawSlots]);
+  }, [rawSlots, selectedDateISO]);
 
   const [selectedTime, setSelectedTime] = useState<string | null>(null);
 
