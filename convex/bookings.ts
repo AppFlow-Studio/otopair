@@ -46,6 +46,7 @@ import {
   computeQuotedSetPrice,
   reconcileDisclosedCeilingWithQuote,
 } from "./booking_quotes";
+import { deriveServiceVariantsFromOptions } from "./lib/brakeScope";
 import {
   detectTier,
   resolveLaborHours,
@@ -53,6 +54,7 @@ import {
   resolveVehicleConfigFromVin,
 } from "./lib/quoteEngine";
 import { resolveLaborRate, type VehicleTier } from "./lib/vehicleTiers";
+import { logPrejobMechanicVerification } from "./lib/mechanic_verification_logging";
 import {
   EARLY_PUSH_THRESHOLD_MS,
   addMinutesToHHMM,
@@ -1449,10 +1451,17 @@ export const createBatch = mutation({
       vehicleConfigId: vehicle.vehicle_config_id ?? null,
       vin: normalizedVin,
       confirmedPackages: new Set(ownerSpecs?.confirmed_packages ?? []),
-      serviceVariants: args.service_variants?.map((v) => ({
-        serviceId: v.service_id,
-        position: v.position,
-      })),
+      // Prefer the explicit per-service variants the client sent; otherwise
+      // derive axle scope from the customer's selected_service_options so the
+      // snapshot (→ locked quote + post-job parts) reflects the booked axle
+      // instead of defaulting a multi-axle service to front.
+      serviceVariants:
+        args.service_variants && args.service_variants.length > 0
+          ? args.service_variants.map((v) => ({
+              serviceId: v.service_id,
+              position: v.position,
+            }))
+          : deriveServiceVariantsFromOptions(args.selected_service_options),
     });
     const pricedPartsSnapshot = pricedPartsResult.rows;
 
@@ -4572,6 +4581,16 @@ async function persistPrejobSurvey(
     now,
     markConfirmed: true,
   });
+
+  // Log the mechanic's spec review/corrections to the Director "Mechanic Edits"
+  // page (mechanic_verifications). Best-effort — never blocks the pre-job save.
+  await logPrejobMechanicVerification(ctx, {
+    booking,
+    passportView,
+    prejob,
+    jobActualId: jobActual._id,
+    now,
+  });
 }
 
 function validatePostjobReport(postjob: any, baselineMileage: number | null, requiresParts: boolean) {
@@ -6888,6 +6907,9 @@ export const backfillPricedPartsSnapshot = internalMutation({
         vehicleConfigId: vehicle.vehicle_config_id,
         vin: (booking as any).vin,
         confirmedPackages: new Set(ownerSpecs?.confirmed_packages ?? []),
+        serviceVariants: deriveServiceVariantsFromOptions(
+          (booking as any).selected_service_options,
+        ),
       });
 
       if (result.rows.length === 0) {
@@ -10432,6 +10454,16 @@ export const accept = mutation({
 
     if (!["pending", "pending_shop_acceptance"].includes(booking.status)) {
       throw new Error("Only pending bookings can be accepted");
+    }
+
+    // A pre-job quote that's out of the customer's disclosed range is awaiting
+    // the customer's decision. Until they approve or decline it, the price is
+    // unsettled — the shop must not be able to accept the booking out from
+    // under the open approval.
+    if ((booking as any).payment_approval_state === "pre_job_pending") {
+      throw new Error(
+        "Your quote is awaiting the customer's approval. You can accept once they approve or decline it.",
+      );
     }
 
     return await applyBookingStatusTransition(ctx, {

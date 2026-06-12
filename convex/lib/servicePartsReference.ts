@@ -274,6 +274,7 @@ export const SERVICE_PARTS_REFERENCE: Record<string, ServicePartsSpec> = {
         serviceRole: "core",
         primary: true,
         quantity: { kind: "per_cylinder" },
+        universalFallback: { name: "Spark plug (iridium)", defaultPriceUsd: 12 },
       },
       {
         roleKey: "ignition_coil",
