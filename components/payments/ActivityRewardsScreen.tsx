@@ -676,7 +676,8 @@ export function ActivityRewardsScreen() {
                 </View>
               </Animated.View>
 
-              {/* Rewards */}
+              {/* MVP-DISABLED: loyalty/rewards — re-enable post-launch */}
+              {/*
               <View style={styles.section}>
                 <View style={styles.rewardsContainer}>
                   <View style={styles.rewardsHeader}>
@@ -733,6 +734,7 @@ export function ActivityRewardsScreen() {
                   </View>
                 </View>
               </View>
+              */}
             </Animated.ScrollView>
           </>
         )}

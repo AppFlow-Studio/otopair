@@ -212,6 +212,8 @@ import type * as spec_confirmations from "../spec_confirmations.js";
 import type * as spec_variances from "../spec_variances.js";
 import type * as specs from "../specs.js";
 import type * as stripe_webhook_events from "../stripe_webhook_events.js";
+import type * as support_requests from "../support_requests.js";
+import type * as support_requests_node from "../support_requests_node.js";
 import type * as telnyx from "../telnyx.js";
 import type * as test_helpers from "../test_helpers.js";
 import type * as time_slots from "../time_slots.js";
@@ -493,6 +495,8 @@ declare const fullApi: ApiFromModules<{
   spec_variances: typeof spec_variances;
   specs: typeof specs;
   stripe_webhook_events: typeof stripe_webhook_events;
+  support_requests: typeof support_requests;
+  support_requests_node: typeof support_requests_node;
   telnyx: typeof telnyx;
   test_helpers: typeof test_helpers;
   time_slots: typeof time_slots;

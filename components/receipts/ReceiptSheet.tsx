@@ -56,10 +56,22 @@ export const ReceiptSheet = forwardRef<ReceiptSheetRef, Props>(({ bookingId, onC
     dismiss: () => sheetRef.current?.close(),
   }));
 
-  // Open automatically when a bookingId arrives. Caller controls the
-  // close lifecycle (sets bookingId to null) via the onClose callback.
+  // Open automatically when a bookingId arrives, and ACTUALLY close
+  // the underlying FloatingSheet when the parent flips the id back
+  // to null. Previously the effect only handled the open direction,
+  // so a parent that did `setBookingId(null)` left the Modal mounted
+  // with `body = null` — visually a blank white sheet, and any sheet
+  // the parent then tried to present landed on top of (or got
+  // swallowed by) this still-mounted Modal.
+  const wasOpenRef = useRef(false);
   useEffect(() => {
-    if (bookingId) sheetRef.current?.open();
+    if (bookingId) {
+      wasOpenRef.current = true;
+      sheetRef.current?.open();
+    } else if (wasOpenRef.current) {
+      wasOpenRef.current = false;
+      sheetRef.current?.close();
+    }
   }, [bookingId]);
 
   const data = useQuery(

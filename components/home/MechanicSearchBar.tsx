@@ -16,7 +16,7 @@
  *   <MechanicSearchBar
  *     value={searchQuery}
  *     onChangeText={setSearchQuery}
- *     onMapPress={() => router.push('/booking/map')}
+ *     onMapPress={() => router.push('/(booking-flow)/select-services')}
  *   />
  *
  * OWNER: Ahmad Hamoudeh
