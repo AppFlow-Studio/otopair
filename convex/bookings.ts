@@ -44,6 +44,7 @@ import {
   computeDisclosedRange,
   computePricedPartsSnapshot,
   computeQuotedSetPrice,
+  reconcileDisclosedCeilingWithQuote,
 } from "./booking_quotes";
 import {
   detectTier,
@@ -56,6 +57,7 @@ import {
   EARLY_PUSH_THRESHOLD_MS,
   addMinutesToHHMM,
   getBookingEndTime,
+  normalizeBufferMinutes,
   roundDownToFiveMinutes,
 } from "./lib/schedule_overlap";
 import {
@@ -85,6 +87,8 @@ import {
   getDefaultOverrunExtensionMinutes,
   normalizeAssignmentPreference,
   normalizeNoShowThresholdMinutes,
+  normalizeOverrunAutoApplyMinutes,
+  normalizeOverrunEscalationMinutes,
   roundUpToQuarterMinutes,
 } from "../lib/scheduling-overhaul";
 import { computeBookingTax } from "../lib/tax";
@@ -850,7 +854,7 @@ export const create = mutation({
       serverMinutes: serverDerivedMinutes,
     });
 
-    await assertLaborCostMatchesDuration(ctx, {
+    const laborCostCheck = await assertLaborCostMatchesDuration(ctx, {
       shopId: args.shop_id,
       vin: normalizedVin,
       serviceIds: [args.service_id],
@@ -892,6 +896,10 @@ export const create = mutation({
       created_at: now,
       updated_at: now,
       source_recommendation_id: args.source_recommendation_id,
+      quote_flags: laborCostCheck ? ["labor_cost_above_engine"] : undefined,
+      labor_cost_delta_above_engine_dollars: laborCostCheck
+        ? laborCostCheck.aboveEngineByDollars
+        : undefined,
     });
 
     await logBookingStatusChange(
@@ -1032,6 +1040,17 @@ const FALLBACK_LABOR_RATE_DOLLARS = 120;
  * Pass `expectMinutes = undefined` to no-op (used during the optional-arg
  * rollout window).
  */
+/**
+ * Returns `{ aboveEngineByDollars, expectedDollars }` when the client's
+ * labor_cost is above the engine's expectation beyond ±8% — the caller
+ * should stamp `labor_cost_above_engine` on the booking + the delta. Returns
+ * `undefined` for the silent-pass cases (no config, refused service, within
+ * tolerance). Still throws when the client is materially BELOW the engine.
+ */
+type LaborCostCheckResult =
+  | { aboveEngineByDollars: number; expectedDollars: number }
+  | undefined;
+
 async function assertLaborCostMatchesDuration(
   ctx: any,
   args: {
@@ -1041,8 +1060,8 @@ async function assertLaborCostMatchesDuration(
     laborCostDollars: number;
     expectMinutes: number | undefined;
   },
-) {
-  if (args.expectMinutes == null || args.expectMinutes <= 0) return;
+): Promise<LaborCostCheckResult> {
+  if (args.expectMinutes == null || args.expectMinutes <= 0) return undefined;
 
   // Server-side Yassin recomputation: tier-aware labor rate + Camry-anchored
   // labor hours (with the new quality gate disqualifying low-trust vdb rows).
@@ -1073,10 +1092,29 @@ async function assertLaborCostMatchesDuration(
     return;
   }
 
-  const expectedLaborCost = series.labor_cost_total;
+  // Mirror the client's labor-hours rounding when the director toggle is on
+  // (laborTimes.ts ceil-to-15). Without this mirror the server computes raw
+  // hours (e.g. 0.6h) while the client submits the rounded value (0.75h),
+  // which makes a legitimate ±8% check fail at the boundary.
+  const settingsRow = await ctx.db
+    .query("director_settings")
+    .withIndex("by_key", (q: any) => q.eq("key", "global"))
+    .first();
+  const roundTo15 = settingsRow?.round_labor_times_to_15min ?? true;
+  const expectedLaborCost = roundTo15
+    ? Math.round(
+        series.quotes.reduce((sum, q) => {
+          if (!q.ok) return sum;
+          const roundedHours =
+            (Math.ceil((q.labor.hours * 60) / 15) * 15) / 60;
+          return sum + roundedHours * q.labor.rate;
+        }, 0) * 100,
+      ) / 100
+    : series.labor_cost_total;
   if (expectedLaborCost <= 0) return;
   const tolerance = expectedLaborCost * 0.08; // ±8% band per Pricing v2 spec
-  const delta = Math.abs(args.laborCostDollars - expectedLaborCost);
+  const signedDelta = args.laborCostDollars - expectedLaborCost;
+  const delta = Math.abs(signedDelta);
 
   // Telemetry: warn between 5% and 8% so we can audit drift before tightening.
   if (delta > expectedLaborCost * 0.05 && delta <= tolerance) {
@@ -1088,13 +1126,75 @@ async function assertLaborCostMatchesDuration(
   }
 
   if (delta > tolerance) {
+    // Directional reject. Customer paying MORE than the engine says they
+    // should (e.g. shop rounded up, fixed-price override, customer accepted
+    // a higher quote) is not a schedule/price desync — they consented to
+    // that number. Track it as a warning flag and continue.
+    //
+    // Customer paying LESS than expected by >8% is still a hard reject:
+    // either the client UI is stale, or someone is stripping price downward,
+    // and either way we shouldn't book on undercharged terms.
+    if (signedDelta >= 0) {
+      console.warn(
+        `[assertLaborCostMatchesDuration] labor_cost_above_engine: ` +
+          `client=$${args.laborCostDollars.toFixed(2)} ` +
+          `server=$${expectedLaborCost.toFixed(2)} delta=+$${delta.toFixed(2)} ` +
+          `(±8% = $${tolerance.toFixed(2)}). Customer agreed; tracking as flag, not rejecting. ` +
+          `vin=${args.vin}`,
+      );
+      return {
+        aboveEngineByDollars: Math.round(delta * 100) / 100,
+        expectedDollars: expectedLaborCost,
+      };
+    }
     throw new Error(
       `LABOR_COST_TIER_MISMATCH: client labor_cost=$${args.laborCostDollars.toFixed(2)} ` +
         `vs Yassin server cost=$${expectedLaborCost.toFixed(2)} ` +
-        `(±8% = $${tolerance.toFixed(2)}, delta=$${delta.toFixed(2)}). ` +
-        `Booking rejected to prevent schedule/price desync.`,
+        `(±8% = $${tolerance.toFixed(2)}, delta=-$${delta.toFixed(2)}). ` +
+        `Booking rejected — client cost is materially below engine.`,
     );
   }
+  return undefined;
+}
+
+/**
+ * Pricing v2 sanity-check: compare the shop-supplied total against the
+ * quoteEngine fallback band already attached to the disclosed range.
+ * Returns the union of engine flags (rolled up by computeDisclosedRange)
+ * plus `price_outside_fallback_band` when the client total falls outside
+ * −5% / +8% of the engine's [low, high]. Soft only — never throws.
+ *
+ * The asymmetric threshold mirrors assertLaborCostMatchesDuration's 5–8%
+ * drift band: the engine is the floor (shops shouldn't underbill into the
+ * engine's confidence interval) and the customer is the ceiling (shops
+ * shouldn't overbill more than 8% above the engine high).
+ */
+function computeQuoteFallbackFlags(args: {
+  baseFlags: string[];
+  fallbackLow: number | null;
+  fallbackHigh: number | null;
+  clientTotalDollars: number;
+  vin: string;
+}): string[] {
+  const flagSet = new Set<string>(args.baseFlags);
+  if (args.fallbackLow == null || args.fallbackHigh == null) {
+    return Array.from(flagSet);
+  }
+  const bandLow = args.fallbackLow * 0.95; // −5%
+  const bandHigh = args.fallbackHigh * 1.08; // +8%
+  if (
+    args.clientTotalDollars < bandLow ||
+    args.clientTotalDollars > bandHigh
+  ) {
+    flagSet.add("price_outside_fallback_band");
+    console.warn(
+      `[computeQuoteFallbackFlags] client_total=$${args.clientTotalDollars.toFixed(2)} ` +
+        `outside fallback band [$${bandLow.toFixed(2)}, $${bandHigh.toFixed(2)}] ` +
+        `(engine [$${args.fallbackLow.toFixed(2)}, $${args.fallbackHigh.toFixed(2)}]) ` +
+        `vin=${args.vin}`,
+    );
+  }
+  return Array.from(flagSet);
 }
 
 /**
@@ -1300,7 +1400,7 @@ export const createBatch = mutation({
       serverMinutes: enrichmentLaborMinutes,
     });
 
-    await assertLaborCostMatchesDuration(ctx, {
+    const laborCostCheck = await assertLaborCostMatchesDuration(ctx, {
       shopId: args.shop_id,
       vin: normalizedVin,
       serviceIds: args.services.map((s) => s.service_id),
@@ -1335,6 +1435,9 @@ export const createBatch = mutation({
     // Itemized parts snapshot — same per-unit prices the customer saw on
     // Review & Pay. Frozen on the booking so the mechanic's post-job dialog
     // can hydrate from this directly instead of re-querying part_prices.
+    // Computed before the per-service flag block so we can diff the AI's
+    // per-OEM prices against the submitted parts_cost and distinguish
+    // engine-corrected lines from missed catches.
     const ownerSpecs = await ctx.db
       .query("vehicle_owner_specs")
       .withIndex("by_vehicle_owner", (q) =>
@@ -1353,6 +1456,107 @@ export const createBatch = mutation({
     });
     const pricedPartsSnapshot = pricedPartsResult.rows;
 
+    // Aggregate the AI's per-OEM prices per service so we can tell the
+    // difference between "client submitted what AI quoted" (status quo)
+    // and "client corrected from AI to the engine band" (Phase 4 happy
+    // path). Used in the per-service flag block below.
+    const aiPartsDollarsByServiceId = new Map<string, number>();
+    for (const row of pricedPartsSnapshot) {
+      const sid = String(row.service_id);
+      aiPartsDollarsByServiceId.set(
+        sid,
+        (aiPartsDollarsByServiceId.get(sid) ?? 0) + row.line_total_cents / 100,
+      );
+    }
+
+    // Per-service flag detection: walk args.services alongside
+    // disclosedRange.service_quote_flags (same order). Distinguishes:
+    //   - 'fallback_catch'         : submitted outside engine band → client
+    //                                missed the swap, AI bad number persisted
+    //   - 'engine_corrected_parts' : submitted inside engine band BUT differs
+    //                                from AI snapshot by >5% → client used
+    //                                the engine band instead of AI (happy
+    //                                path for the Alfa-Stelvio bug class)
+    //   - no flag                  : AI was right, submitted matches engine
+    const serviceQuoteFlagsForBooking = disclosedRange.service_quote_flags.map(
+      (row, idx) => {
+        const svc = args.services[idx];
+        const partsCost = svc?.parts_cost ?? 0;
+        const flagsSet = new Set(row.flags);
+        // Fixed-price modes (per-(shop,service,tier) override or CCB absolute)
+        // are a set price, not an estimate — they cannot be "outside band" or
+        // "engine-corrected". Skip the fallback-spec band check entirely so
+        // they never get tagged as fallback. Parts-band logic for these is
+        // deferred to a follow-up.
+        const isFixedPrice =
+          flagsSet.has("fixed_price_override") ||
+          flagsSet.has("ccb_absolute_pricing");
+        if (
+          !isFixedPrice &&
+          row.engine_parts_low != null &&
+          row.engine_parts_high != null &&
+          row.engine_parts_low > 0
+        ) {
+          const bandLow = row.engine_parts_low * 0.95; // −5%
+          const bandHigh = row.engine_parts_high * 1.08; // +8%
+          if (partsCost < bandLow || partsCost > bandHigh) {
+            flagsSet.add("fallback_catch");
+            console.warn(
+              `[createBatch] per-service fallback catch service=${svc?.service_id} ` +
+                `client_parts=$${partsCost.toFixed(2)} ` +
+                `engine_band=[$${row.engine_parts_low.toFixed(2)}, $${row.engine_parts_high.toFixed(2)}] ` +
+                `vin=${normalizedVin}`,
+            );
+          } else {
+            // Inside band — check if it materially differs from what AI
+            // would have produced. If so, the client successfully corrected
+            // from AI to engine; record it as a positive signal.
+            const aiDollars = aiPartsDollarsByServiceId.get(
+              String(svc?.service_id),
+            );
+            if (
+              aiDollars != null &&
+              aiDollars > 0 &&
+              partsCost > 0 &&
+              Math.abs(aiDollars - partsCost) / partsCost > 0.05
+            ) {
+              flagsSet.add("engine_corrected_parts");
+              console.info(
+                `[createBatch] per-service engine-corrected parts service=${svc?.service_id} ` +
+                  `client_parts=$${partsCost.toFixed(2)} ` +
+                  `ai_snapshot_parts=$${aiDollars.toFixed(2)} ` +
+                  `engine_band=[$${row.engine_parts_low.toFixed(2)}, $${row.engine_parts_high.toFixed(2)}] ` +
+                  `vin=${normalizedVin}`,
+              );
+            }
+          }
+        }
+        return {
+          ...row,
+          flags: Array.from(flagsSet),
+          booking_line_parts_cost: partsCost,
+        };
+      },
+    );
+
+    // Booking-level aggregate: union of computeDisclosedRange engine flags +
+    // any per-service `fallback_catch` / `engine_corrected_parts` we just
+    // detected + the booking-total price_outside_fallback_band check from
+    // Phase 2. Persisted on the booking row; the mobile review screen
+    // renders an "Estimate" pill when non-empty.
+    const aggregatedFlags = new Set<string>(disclosedRange.quote_flags);
+    for (const row of serviceQuoteFlagsForBooking) {
+      for (const f of row.flags) aggregatedFlags.add(f);
+    }
+    if (laborCostCheck) aggregatedFlags.add("labor_cost_above_engine");
+    const quoteFlagsForBooking = computeQuoteFallbackFlags({
+      baseFlags: Array.from(aggregatedFlags),
+      fallbackLow: disclosedRange.quote_fallback_low_dollars,
+      fallbackHigh: disclosedRange.quote_fallback_high_dollars,
+      clientTotalDollars: labor_cost + parts_cost,
+      vin: normalizedVin,
+    });
+
     // Single-point quote the mechanic confirms against (no min/max). For
     // flat-priced services, the locked-in `price_cents` replaces the raw
     // OEM unit prices captured in `pricedPartsSnapshot`, so the mechanic
@@ -1363,6 +1567,15 @@ export const createBatch = mutation({
       pricedPartsSnapshot,
       fixedPriceLines: disclosedRange.fixed_price_lines,
     });
+    // The role-itemized, capacity-multiplied snapshot can legitimately sum
+    // above the bundled-basis disclosed band — raise the contracted ceiling
+    // to cover the quote so the `quoted ≤ disclosed_high` auto-capture
+    // invariant holds by construction (the customer saw these same itemized
+    // lines on Review & Pay).
+    const reconciledRange = reconcileDisclosedCeilingWithQuote(
+      disclosedRange,
+      quoted.total_cents,
+    );
 
     const durationMinutes =
       estimated_labor_minutes > 0
@@ -1405,9 +1618,9 @@ export const createBatch = mutation({
         args.selected_service_options && args.selected_service_options.length > 0
           ? args.selected_service_options
           : undefined,
-      disclosed_range_low_cents: disclosedRange.low_cents,
-      disclosed_range_high_cents: disclosedRange.high_cents,
-      disclosed_breakdown: disclosedRange.breakdown,
+      disclosed_range_low_cents: reconciledRange.low_cents,
+      disclosed_range_high_cents: reconciledRange.high_cents,
+      disclosed_breakdown: reconciledRange.breakdown,
       disclosed_at_ms: now,
       // Persist the flat-rate flag so the mechanic-facing UI knows to
       // render a "Fixed price" badge. Safe to surface — carries no
@@ -1421,6 +1634,28 @@ export const createBatch = mutation({
       quoted_set_price_cents: quoted.total_cents,
       quoted_breakdown: quoted.breakdown,
       payment_approval_state: "none",
+      quote_flags:
+        quoteFlagsForBooking.length > 0 ? quoteFlagsForBooking : undefined,
+      quote_fallback_low:
+        disclosedRange.quote_fallback_low_dollars ?? undefined,
+      quote_fallback_high:
+        disclosedRange.quote_fallback_high_dollars ?? undefined,
+      labor_cost_delta_above_engine_dollars: laborCostCheck
+        ? laborCostCheck.aboveEngineByDollars
+        : undefined,
+      service_quote_flags:
+        serviceQuoteFlagsForBooking.length > 0
+          ? serviceQuoteFlagsForBooking.map((r) => ({
+              service_id: r.service_id,
+              flags: r.flags,
+              engine_parts_low: r.engine_parts_low ?? undefined,
+              engine_parts_high: r.engine_parts_high ?? undefined,
+              engine_labor_hours: r.engine_labor_hours ?? undefined,
+              engine_labor_source: r.engine_labor_source ?? undefined,
+              parts_source: r.parts_source ?? undefined,
+              booking_line_parts_cost: r.booking_line_parts_cost ?? undefined,
+            }))
+          : undefined,
     });
 
     await logBookingStatusChange(
@@ -2213,6 +2448,138 @@ export const rescheduleFromNoShowAlert = mutation({
   },
 });
 
+// Front desk resolving a `manual_scheduling_required` alert by picking a new
+// slot for the blocked booking. Unlike `proposeReschedule`, this mirrors the
+// automatic cascade push: the booking is moved directly (status untouched,
+// no customer acceptance step) and the customer gets a courtesy
+// notification — the same `schedule_courtesy_update` push the automatic
+// cascade sends — so they can reschedule or cancel on their end if the new
+// time doesn't work.
+export const rescheduleFromManualSchedulingAlert = mutation({
+  args: {
+    bookingId: v.id("bookings"),
+    newScheduledDate: v.string(),
+    newScheduledTime: v.string(),
+    newMechanicId: v.optional(v.id("mechanics")),
+    assignmentPreference: v.optional(
+      v.union(v.literal("any"), v.literal("specific_mechanic")),
+    ),
+    allowOutsideShopHours: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    const user = await getCurrentUser(ctx);
+    const booking: any = await ctx.db.get(args.bookingId);
+    if (!booking) throw new Error("We couldn't find that booking. It may have been cancelled or removed.");
+
+    await requireShopStaff(ctx, user._id, booking.shop_id);
+
+    if (!DOWNSTREAM_MOVABLE_STATUSES.has(booking.status)) {
+      const statusLabel =
+        BOOKING_STATUS_VISUALS[booking.status as BookingStatus]?.label?.toLowerCase() ??
+        String(booking.status).replace(/_/g, " ");
+      throw new Error(`This booking can't be moved while it's ${statusLabel}.`);
+    }
+
+    const durationMinutes = booking.estimated_labor_minutes ?? 60;
+    const preference =
+      args.assignmentPreference === "specific_mechanic" || args.newMechanicId
+        ? "specific_mechanic"
+        : normalizeAssignmentPreference(booking.assignment_preference);
+    const targetMechanicId = await resolveMechanicForWindow(ctx, {
+      shopId: booking.shop_id,
+      date: args.newScheduledDate,
+      startTime: args.newScheduledTime,
+      durationMinutes,
+      preferredMechanicId:
+        preference === "specific_mechanic"
+          ? args.newMechanicId ?? booking.mechanic_id ?? undefined
+          : undefined,
+      excludeBookingId: String(booking._id),
+      allowAfterClose: args.allowOutsideShopHours === true,
+    });
+
+    const minutesShifted =
+      hhmmToMinutes(args.newScheduledTime) - hhmmToMinutes(booking.scheduled_time);
+
+    const patch: any = {
+      scheduled_date: args.newScheduledDate,
+      scheduled_time: args.newScheduledTime,
+      mechanic_id: targetMechanicId,
+      time_slot_id: undefined,
+      assignment_preference: preference,
+      updated_at: Date.now(),
+    };
+
+    if (
+      args.newScheduledDate !== booking.scheduled_date ||
+      args.newScheduledTime !== booking.scheduled_time ||
+      String(targetMechanicId) !== String(booking.mechanic_id)
+    ) {
+      patch.previous_scheduled_date = booking.scheduled_date;
+      patch.previous_scheduled_time = booking.scheduled_time;
+      patch.previous_mechanic_id = booking.mechanic_id;
+      patch.schedule_change_mode = "shop_delay_cascade";
+      patch.customer_can_restore_original = false;
+      if (minutesShifted > 0) {
+        patch.cascade_push_count = (booking.cascade_push_count ?? 0) + 1;
+        patch.cascade_pushed_minutes_total =
+          (booking.cascade_pushed_minutes_total ?? 0) + minutesShifted;
+      }
+    }
+
+    await ctx.db.patch(booking._id, patch);
+
+    if (booking.time_slot_id) {
+      await releaseBookingSlot(ctx, booking.time_slot_id);
+    }
+
+    await ctx.db.insert("booking_status_history", {
+      booking_id: booking._id,
+      old_status: booking.status,
+      new_status: booking.status,
+      changed_by: user._id,
+      reason: `pushed_by_front_desk_manual_review:${minutesShifted}min`,
+      changed_at: Date.now(),
+    } as any);
+
+    await enqueueNotificationOutbox(ctx, {
+      shopId: booking.shop_id,
+      bookingId: booking._id,
+      userId: booking.user_id,
+      channel: "push",
+      category: "schedule_courtesy_update",
+      dedupeKey: `schedule-courtesy:${String(booking._id)}:front_desk_manual:${args.newScheduledDate}:${args.newScheduledTime}:${String(targetMechanicId)}`,
+      payload: {
+        source: "front_desk_manual",
+        originalDate: booking.scheduled_date,
+        originalTime: booking.scheduled_time,
+        originalMechanicId: String(booking.mechanic_id ?? ""),
+        newDate: args.newScheduledDate,
+        newTime: args.newScheduledTime,
+        newMechanicId: String(targetMechanicId),
+        usedAlternateMechanic: String(targetMechanicId) !== String(booking.mechanic_id),
+      },
+    });
+
+    await resolveManualSchedulingAlertsForBooking(ctx, booking);
+
+    await syncBookingAssignments(ctx, [
+      {
+        shopId: booking.shop_id,
+        mechanicId: booking.mechanic_id,
+        date: booking.scheduled_date,
+      },
+      {
+        shopId: booking.shop_id,
+        mechanicId: targetMechanicId,
+        date: args.newScheduledDate,
+      },
+    ]);
+
+    return { success: true };
+  },
+});
+
 export const customerRequestReschedule = mutation({
   args: {
     bookingId: v.id("bookings"),
@@ -2499,6 +2866,12 @@ export const answerOverrunExtension = mutation({
   args: {
     bookingId: v.id("bookings"),
     extensionMinutes: v.number(),
+    // Blocking vs non-blocking extension (Dynamic Scheduling spec). true (or
+    // unset) = the bay stays occupied, so downstream same-bay bookings cascade.
+    // false = bay is free (waiting on a part/approval), so only this job's own
+    // end moves and nothing downstream is pushed.
+    blocksBay: v.optional(v.boolean()),
+    reasonCode: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const user = await getCurrentUser(ctx);
@@ -2519,9 +2892,82 @@ export const answerOverrunExtension = mutation({
       extensionMinutes: args.extensionMinutes,
       source: getOverrunAnswerSource(shopUser),
       userId: user._id,
+      blocksBay: args.blocksBay,
+      reasonCode: args.reasonCode,
     });
 
     return checkin._id;
+  },
+});
+
+/**
+ * QUERY: previewOverrunCascade
+ * Read-only dry-run of the downstream cascade for the shop-portal "Extend"
+ * control, so the mechanic sees "this pushes N later appointments by Δ min"
+ * (or "no appointments affected") BEFORE confirming. Runs the same
+ * buildDownstreamMovementPlan logic without writing anything.
+ *
+ * Returns:
+ *   - affectedCount: downstream bookings that would move or laterally swap
+ *   - deltaMinutes: the overflow Δ (new projected end − original projected end)
+ *   - blocked: true when a guard (cap / outside-hours / unmovable) would route
+ *     to the manual scheduling queue instead of cascading silently
+ */
+export const previewOverrunCascade = query({
+  args: {
+    bookingId: v.id("bookings"),
+    extensionMinutes: v.number(),
+    blocksBay: v.boolean(),
+  },
+  handler: async (ctx, args) => {
+    const user = await getCurrentUser(ctx);
+    const booking = await ctx.db.get(args.bookingId);
+    if (!booking) throw new Error("We couldn't find that booking. It may have been cancelled or removed.");
+    await requireShopStaff(ctx, user._id, booking.shop_id);
+
+    // Non-blocking extension never cascades — the bay is free.
+    if (
+      !args.blocksBay ||
+      !booking.shop_id ||
+      !booking.mechanic_id ||
+      !booking.scheduled_date ||
+      !booking.scheduled_time
+    ) {
+      return { affectedCount: 0, deltaMinutes: 0, blocked: false };
+    }
+
+    const originalEstimate = booking.estimated_labor_minutes ?? 60;
+    const newEstimate = originalEstimate + args.extensionMinutes;
+    const originalEndMinutes = hhmmToMinutes(
+      getBookingEndTime(booking.scheduled_time, originalEstimate),
+    );
+    const projectedEndMinutes = hhmmToMinutes(
+      getBookingEndTime(booking.scheduled_time, newEstimate),
+    );
+
+    const plan = await buildDownstreamMovementPlan(ctx, {
+      upstreamBooking: booking,
+      projectedEndMinutes,
+    });
+
+    const pushedProposals = plan.proposals
+      .filter((p: any) => !p.usedAlternateMechanic && p.proposedTime)
+      .map((p: any) => ({
+        originalTime: p.originalTime as string,
+        proposedTime: p.proposedTime as string,
+      }));
+    const lateralCount = plan.proposals.filter(
+      (p: any) => p.usedAlternateMechanic,
+    ).length;
+
+    return {
+      affectedCount: plan.proposals.length,
+      pushedCount: pushedProposals.length,
+      pushedProposals,
+      lateralCount,
+      deltaMinutes: projectedEndMinutes - originalEndMinutes,
+      blocked: Boolean(plan.blockingReason),
+    };
   },
 });
 
@@ -2600,14 +3046,17 @@ function toCanonicalVin(vin: string) {
   return vin.trim().toUpperCase();
 }
 
-function getTodayString() {
-  return new Date().toISOString().slice(0, 10);
+function getTodayString(timezone?: string | null) {
+  return new Date().toLocaleDateString("en-CA", {
+    timeZone: timezone ?? "UTC",
+  });
 }
 
-function getDateOffsetString(offsetDays: number) {
-  const date = new Date();
-  date.setUTCDate(date.getUTCDate() + offsetDays);
-  return date.toISOString().slice(0, 10);
+function getDateOffsetString(offsetDays: number, timezone?: string | null) {
+  const d = new Date(Date.now() + offsetDays * 24 * 60 * 60 * 1000);
+  return d.toLocaleDateString("en-CA", {
+    timeZone: timezone ?? "UTC",
+  });
 }
 
 function getStartOfCurrentWeekUtcMs() {
@@ -2746,6 +3195,12 @@ async function getShopSchedulingSettings(ctx: any, shopId: any) {
       Number.isFinite(shop.overrun_extension_floor_minutes)
         ? shop.overrun_extension_floor_minutes
         : DEFAULT_OVERRUN_EXTENSION_FLOOR_MINUTES,
+    overrunEscalationMinutes: normalizeOverrunEscalationMinutes(
+      shop?.overrun_escalation_minutes,
+    ),
+    overrunAutoApplyMinutes: normalizeOverrunAutoApplyMinutes(
+      shop?.overrun_auto_apply_minutes,
+    ),
   };
 }
 
@@ -5189,15 +5644,43 @@ async function buildLateStartReviewPlan(
 // confirmed slot, cancelled, declined, marked no-show, or completed).
 async function resolveManualSchedulingAlertsForBooking(
   ctx: any,
-  bookingId: any,
+  booking: any,
 ) {
+  const bookingId = booking?._id;
   if (!bookingId) return;
-  const rows = await ctx.db
+  const directRows = await ctx.db
     .query("notification_outbox")
     .withIndex("by_booking_id", (q: any) => q.eq("booking_id", bookingId))
     .collect();
+
+  // A blocked cascade's alert is attached to the downstream booking it's
+  // blocked on, not the upstream booking that triggered it — so also resolve
+  // alerts whose `payload.upstreamBookingId` matches this booking when the
+  // upstream itself resolves (completed/cancelled/etc.).
+  const shopRows = booking.shop_id
+    ? await ctx.db
+        .query("notification_outbox")
+        .withIndex("by_shop_and_status", (q: any) =>
+          q.eq("shop_id", booking.shop_id).eq("status", "pending"),
+        )
+        .collect()
+    : [];
+
+  const seen = new Set<string>();
+  const candidates = [...directRows, ...shopRows].filter((row: any) => {
+    if (
+      String(row.booking_id ?? "") !== String(bookingId) &&
+      String(row.payload?.upstreamBookingId ?? "") !== String(bookingId)
+    ) {
+      return false;
+    }
+    if (seen.has(String(row._id))) return false;
+    seen.add(String(row._id));
+    return true;
+  });
+
   const now = Date.now();
-  for (const row of rows) {
+  for (const row of candidates) {
     if (
       (row as any).channel !== "front_desk" ||
       (row as any).category !== "manual_scheduling_required" ||
@@ -5288,6 +5771,14 @@ async function createManualSchedulingAlert(
   });
 }
 
+// Per-booking delay-cascade caps (Dynamic Scheduling spec). A downstream
+// booking may be auto-pushed at most this many times OR this many cumulative
+// minutes, whichever comes first; beyond that it routes to the manual
+// scheduling queue instead of being silently re-pushed. Stops the
+// "pushed at 9:00, again 9:20, again 9:50" spiral.
+const CASCADE_MAX_PUSHES_PER_BOOKING = 2;
+const CASCADE_MAX_PUSHED_MINUTES = 60;
+
 async function buildDownstreamMovementPlan(
   ctx: any,
   {
@@ -5311,7 +5802,12 @@ async function buildDownstreamMovementPlan(
 
   const upstreamMechanicId = upstreamBooking.mechanic_id;
   const date = upstreamBooking.scheduled_date;
-  let cursorEndMinutes = projectedEndMinutes;
+  const shop = await ctx.db.get(upstreamBooking.shop_id);
+  const bufferMinutes = normalizeBufferMinutes(shop?.buffer_minutes);
+  // A downstream booking that starts within the shop's buffer window after
+  // the extended end time still needs to move — it just wouldn't show as
+  // "overlapping" the raw new end time.
+  let cursorEndMinutes = projectedEndMinutes + bufferMinutes;
 
   const downstreamBookings = (await getBlockingBookingsForShopDate(
     ctx,
@@ -5325,9 +5821,17 @@ async function buildDownstreamMovementPlan(
     )
     .sort(compareBookingsBySchedule);
 
+  const upstreamStartMinutes = hhmmToMinutes(upstreamBooking.scheduled_time);
+
   for (const downstreamBooking of downstreamBookings) {
     const bookingStartMinutes = hhmmToMinutes(downstreamBooking.scheduled_time);
     if (bookingStartMinutes >= cursorEndMinutes) break;
+
+    // Skip bookings that started before the upstream job — they're in the
+    // past relative to the overflow and can never be pushed by it. Without
+    // this, a 4:30 AM booking (same mechanic, same day) would be caught by
+    // the loop and block a 3:00 PM cascade.
+    if (bookingStartMinutes < upstreamStartMinutes) continue;
 
     if (!DOWNSTREAM_MOVABLE_STATUSES.has(downstreamBooking.status)) {
       const customer = downstreamBooking.user_id
@@ -5346,15 +5850,25 @@ async function buildDownstreamMovementPlan(
       return {
         proposals,
         blockingReason: `${customerName}'s booking${timeLabel} is already ${statusLabel} and can't be moved automatically. Please reschedule it manually.`,
+        blockedBookingId: downstreamBooking._id,
       };
     }
 
     if (downstreamBooking.status === "pending_customer_acceptance") {
-      return {
-        proposals,
-        blockingReason:
-          "A downstream booking already has a customer reschedule pending and needs manual review.",
-      };
+      // Only block if the pending reschedule came from a DIFFERENT source.
+      // If it came from this same upstream booking, the cascade is just
+      // updating its own earlier proposal — safe to continue.
+      const sameSource =
+        String(downstreamBooking.schedule_change_source_booking_id ?? "") ===
+        String(upstreamBooking._id);
+      if (!sameSource) {
+        return {
+          proposals,
+          blockingReason:
+            "A downstream booking already has a customer reschedule pending and needs manual review.",
+          blockedBookingId: downstreamBooking._id,
+        };
+      }
     }
 
     const durationMinutes = downstreamBooking.estimated_labor_minutes ?? 60;
@@ -5387,6 +5901,21 @@ async function buildDownstreamMovementPlan(
       }
     }
 
+    // Per-booking delay cap: a booking that has already absorbed its allowed
+    // pushes is handed to manual rescheduling rather than silently pushed
+    // again. (Lateral swap above keeps the customer's time, so it isn't
+    // capped — only a real delay counts.)
+    const priorPushes = downstreamBooking.cascade_push_count ?? 0;
+    const priorPushedMinutes =
+      downstreamBooking.cascade_pushed_minutes_total ?? 0;
+    if (priorPushes >= CASCADE_MAX_PUSHES_PER_BOOKING) {
+      return {
+        proposals,
+        blockingReason: `A downstream booking has already been auto-pushed ${priorPushes} times and needs manual rescheduling.`,
+        blockedBookingId: downstreamBooking._id,
+      };
+    }
+
     const pushedStartTime = await findEarliestStartOnMechanic(ctx, {
       shopId: upstreamBooking.shop_id,
       mechanicId: upstreamMechanicId,
@@ -5401,6 +5930,18 @@ async function buildDownstreamMovementPlan(
         proposals,
         blockingReason:
           "No safe downstream slot is available before close on the current mechanic.",
+        blockedBookingId: downstreamBooking._id,
+      };
+    }
+
+    const proposedDeltaMinutes =
+      hhmmToMinutes(pushedStartTime) -
+      hhmmToMinutes(downstreamBooking.scheduled_time);
+    if (priorPushedMinutes + proposedDeltaMinutes > CASCADE_MAX_PUSHED_MINUTES) {
+      return {
+        proposals,
+        blockingReason: `A downstream booking would exceed the ${CASCADE_MAX_PUSHED_MINUTES}-minute cumulative delay cap and needs manual rescheduling.`,
+        blockedBookingId: downstreamBooking._id,
       };
     }
 
@@ -5451,20 +5992,19 @@ async function applyDownstreamMovement(
 
   if (plan.blockingReason) {
     // Prefer the actually-blocked downstream booking as the alert subject so
-    // the front-desk banner identifies the booking that needs manual review.
-    const blockedProposal =
-      plan.proposals.find((p: any) => p.blocked_reason) ?? null;
-    const subjectBookingId =
-      blockedProposal?.booking?._id ?? upstreamBooking._id;
-    const subjectBooking: any = blockedProposal
-      ? await ctx.db.get(blockedProposal.booking._id)
-      : upstreamBooking;
+    // the front-desk banner highlights the booking that needs manual review,
+    // not the upstream job that triggered the cascade.
+    const subjectBookingId = plan.blockedBookingId ?? upstreamBooking._id;
+    const subjectBooking: any =
+      plan.blockedBookingId != null
+        ? await ctx.db.get(plan.blockedBookingId)
+        : upstreamBooking;
     const subjectTime12h = formatHHMMto12h(
       subjectBooking?.scheduled_time ?? null,
     );
     const upstreamHandle = shortBookingHandle(upstreamBooking._id);
     const subjectHandle = shortBookingHandle(subjectBookingId);
-    const reasonPrefix = blockedProposal
+    const reasonPrefix = plan.blockedBookingId != null
       ? `Booking ${subjectHandle}${subjectTime12h ? ` (${subjectTime12h})` : ""} couldn't be auto-rescheduled after overrun on ${upstreamHandle}.`
       : `Cascade from ${upstreamHandle} blocked.`;
     await createManualSchedulingAlert(ctx, {
@@ -5484,13 +6024,37 @@ async function applyDownstreamMovement(
   }
 
   for (const proposal of plan.proposals) {
-    await ctx.db.patch(proposal.booking._id, {
+    const minutesShifted =
+      hhmmToMinutes(proposal.proposedTime) -
+      hhmmToMinutes(proposal.originalTime ?? proposal.proposedTime);
+
+    const patch: any = {
       scheduled_date: proposal.proposedDate,
       scheduled_time: proposal.proposedTime,
       mechanic_id: proposal.proposedMechanicId,
       time_slot_id: undefined,
       updated_at: Date.now(),
-    });
+    };
+
+    // Real time push (vs. a same-time lateral mechanic swap): record the
+    // original slot + cascade provenance so the customer surface can show
+    // "was 3:45 PM → now 4:00 PM", and accrue the per-booking cap counters
+    // that stop the repeated-pushback spiral. A 0-minute lateral swap keeps
+    // the customer's time, so it neither sets shop_delay_cascade nor counts
+    // against the delay cap.
+    if (minutesShifted > 0) {
+      patch.previous_scheduled_date = proposal.originalDate;
+      patch.previous_scheduled_time = proposal.originalTime;
+      patch.previous_mechanic_id = proposal.originalMechanicId;
+      patch.schedule_change_mode = "shop_delay_cascade";
+      patch.schedule_change_source_booking_id = upstreamBooking._id;
+      patch.customer_can_restore_original = false;
+      patch.cascade_push_count = (proposal.booking.cascade_push_count ?? 0) + 1;
+      patch.cascade_pushed_minutes_total =
+        (proposal.booking.cascade_pushed_minutes_total ?? 0) + minutesShifted;
+    }
+
+    await ctx.db.patch(proposal.booking._id, patch);
 
     if (proposal.booking.time_slot_id) {
       await releaseBookingSlot(ctx, proposal.booking.time_slot_id);
@@ -5498,9 +6062,6 @@ async function applyDownstreamMovement(
 
     // R1.4 — audit each pushed downstream booking so the chain back to
     // the triggering upstream job is queryable from booking history.
-    const minutesShifted =
-      hhmmToMinutes(proposal.proposedTime) -
-      hhmmToMinutes(proposal.originalTime ?? proposal.proposedTime);
     await ctx.db.insert("booking_status_history", {
       booking_id: proposal.booking._id,
       old_status: proposal.booking.status ?? "confirmed",
@@ -5607,8 +6168,8 @@ async function upsertOverrunCheckinForBooking(
     mechanic_id: booking.mechanic_id,
     status: "scheduled",
     due_at_ms: dueAtMs,
-    escalation_due_at_ms: dueAtMs + 3 * 60 * 1000,
-    auto_apply_at_ms: dueAtMs + 6 * 60 * 1000,
+    escalation_due_at_ms: dueAtMs + settings.overrunEscalationMinutes * 60 * 1000,
+    auto_apply_at_ms: dueAtMs + settings.overrunAutoApplyMinutes * 60 * 1000,
     default_extension_minutes: getDefaultOverrunExtensionMinutes({
       estimatedMinutes,
       percent: settings.overrunDefaultExtensionPercent,
@@ -5630,12 +6191,16 @@ async function applyOverrunExtension(
     extensionMinutes,
     source,
     userId,
+    blocksBay,
+    reasonCode,
   }: {
     checkin: any;
     booking: any;
     extensionMinutes: number;
     source: "mechanic" | "front_desk" | "system";
     userId?: any;
+    blocksBay?: boolean;
+    reasonCode?: string;
   },
 ) {
   const now = Date.now();
@@ -5644,11 +6209,19 @@ async function applyOverrunExtension(
   const newEndTimeHHMM = getBookingEndTime(booking.scheduled_time, newEstimate);
   const projectedEndMinutes = hhmmToMinutes(newEndTimeHHMM);
 
-  await applyDownstreamMovement(ctx, {
-    upstreamBooking: booking,
-    projectedEndMinutes,
-    source: "job_overrun",
-  });
+  // The single most important rule: a delay only cascades downstream if the
+  // bay is genuinely blocked. Unset defaults to blocking (conservative — also
+  // covers system auto-applied extensions where no mechanic answered). A
+  // non-blocking extension (bay free, e.g. waiting on a part) moves only this
+  // job's own end; nothing downstream is pushed.
+  const isBlocking = blocksBay ?? true;
+  if (isBlocking) {
+    await applyDownstreamMovement(ctx, {
+      upstreamBooking: booking,
+      projectedEndMinutes,
+      source: "job_overrun",
+    });
+  }
 
   // R1.1 — persist the extension on the upstream booking so future
   // re-arms, downstream re-cascades, and analytics see the new estimate.
@@ -5689,6 +6262,8 @@ async function applyOverrunExtension(
     answer_source: source,
     is_complete: false,
     extension_minutes: extensionMinutes,
+    blocks_bay: isBlocking,
+    reason_code: reasonCode,
     resolved_at_ms: now,
     updated_at: now,
   });
@@ -5726,16 +6301,21 @@ async function applyOverrunExtension(
     5 * 60 * 1000,
     Math.floor(extensionMinutes * 0.75 * 60 * 1000),
   );
+  const rearmSettings = await getShopSchedulingSettings(ctx, checkin.shop_id);
   await ctx.db.insert("overrun_checkins", {
     shop_id: checkin.shop_id,
     booking_id: checkin.booking_id,
     mechanic_id: checkin.mechanic_id,
     status: "scheduled",
     due_at_ms: nextDueAtMs,
-    escalation_due_at_ms: nextDueAtMs + 3 * 60 * 1000,
-    auto_apply_at_ms: nextDueAtMs + 6 * 60 * 1000,
+    escalation_due_at_ms: nextDueAtMs + rearmSettings.overrunEscalationMinutes * 60 * 1000,
+    auto_apply_at_ms: nextDueAtMs + rearmSettings.overrunAutoApplyMinutes * 60 * 1000,
     default_extension_minutes: checkin.default_extension_minutes,
     cascade_depth: cascadeDepth,
+    // Inherit the bay-free answer as the pre-selected default for the next
+    // prompt (the mechanic still confirms; system auto-apply uses it as-is).
+    blocks_bay: isBlocking,
+    reason_code: reasonCode,
     created_at: now,
     updated_at: now,
   } as any);
@@ -6415,9 +6995,27 @@ export const backfillQuotedSetPrice = internalMutation({
         pricedPartsSnapshot: snapshot,
       });
 
+      // Keep the `quoted ≤ disclosed_high` invariant on backfilled rows too:
+      // the role-itemized snapshot can sum above the bundled-basis disclosed
+      // band (see reconcileDisclosedCeilingWithQuote). Raise the ceiling and
+      // the parts_high component by the shortfall.
+      const highCents = (booking as any).disclosed_range_high_cents as number;
+      const ceilingPatch =
+        quoted.total_cents > highCents
+          ? {
+              disclosed_range_high_cents: quoted.total_cents,
+              disclosed_breakdown: {
+                ...breakdown,
+                parts_high_cents:
+                  breakdown.parts_high_cents + (quoted.total_cents - highCents),
+              },
+            }
+          : {};
+
       await ctx.db.patch(booking._id, {
         quoted_set_price_cents: quoted.total_cents,
         quoted_breakdown: quoted.breakdown,
+        ...ceilingPatch,
         updated_at: Date.now(),
       });
       patched += 1;
@@ -6667,7 +7265,7 @@ export async function applyBookingStatusTransition(
       newStatus,
     )
   ) {
-    await resolveManualSchedulingAlertsForBooking(ctx, booking._id);
+    await resolveManualSchedulingAlertsForBooking(ctx, booking);
   }
 
   if (newStatus === "in_progress") {
@@ -6944,7 +7542,8 @@ export const getActiveJobsByShop = query({
 export const getTodaysBookingsByShop = query({
   args: { shopId: v.id("shops") },
   handler: async (ctx, args) => {
-    const today = getTodayString();
+    const shop = await ctx.db.get(args.shopId);
+    const today = getTodayString(shop?.timezone);
 
     const bookings = await ctx.db
       .query("bookings")
@@ -6998,7 +7597,8 @@ export const getTodaysBookingsByShop = query({
 export const getCompletedTodayByShop = query({
   args: { shopId: v.id("shops") },
   handler: async (ctx, args) => {
-    const today = getTodayString();
+    const shop = await ctx.db.get(args.shopId);
+    const today = getTodayString(shop?.timezone);
     const bookings = await ctx.db
       .query("bookings")
       .withIndex("by_shop_and_date", (q) =>
@@ -7083,8 +7683,8 @@ export const getMyShopJobContext = query({
 });
 
 export const getMyOwnerDashboard = query({
-  args: {},
-  handler: async (ctx) => {
+  args: { localDate: v.optional(v.string()) },
+  handler: async (ctx, args) => {
     const user = await getCurrentUserOrNull(ctx);
     if (!user) return null;
 
@@ -7094,7 +7694,9 @@ export const getMyOwnerDashboard = query({
     const shop: any = await ctx.db.get(primary.shopId);
     if (!shop) return null;
 
-    const today = getTodayString();
+    const today = shop.timezone
+      ? getTodayString(shop.timezone)
+      : (args.localDate ?? getTodayString(null));
     const startOfWeekMs = getStartOfCurrentWeekUtcMs();
 
     const todayBookingsRaw = await ctx.db
@@ -7420,8 +8022,8 @@ export const listForMyMechanic = query({
 });
 
 export const getMyMechanicDashboard = query({
-  args: {},
-  handler: async (ctx) => {
+  args: { localDate: v.optional(v.string()) },
+  handler: async (ctx, args) => {
     const user = await getCurrentUserOrNull(ctx);
     if (!user) return null;
 
@@ -7439,10 +8041,13 @@ export const getMyMechanicDashboard = query({
     if (!shop) return null;
 
     const mechanicId = mechanicContext.mechanic._id;
-    const today = getTodayString();
-    const weekStart = getDateOffsetString(-6);
+    const tz = (shop as any).timezone ?? null;
+    const today = tz
+      ? getTodayString(tz)
+      : (args.localDate ?? getTodayString(null));
+    const weekStart = getDateOffsetString(-6, tz);
     const upcomingDates = Array.from({ length: 7 }, (_, index) =>
-      getDateOffsetString(index + 1)
+      getDateOffsetString(index + 1, tz)
     );
 
     const todaysJobsRaw = await ctx.db
@@ -8980,7 +9585,7 @@ export const createByShop = mutation({
     if (existingVehicle && !existingVehicle.vehicle_config_id) {
       await ctx.scheduler.runAfter(
         0,
-        api.vehicleEnrichment.runPublic.go,
+        internal.vehicleEnrichment.runPublic.go,
         { vin: canonicalVin },
       );
     }
@@ -9412,7 +10017,7 @@ export const backfillCompletedBooking = mutation({
       vehicle = await ctx.db.get(newVehicleId);
     }
     if (vehicle && !vehicle.vehicle_config_id) {
-      await ctx.scheduler.runAfter(0, api.vehicleEnrichment.runPublic.go, {
+      await ctx.scheduler.runAfter(0, internal.vehicleEnrichment.runPublic.go, {
         vin: canonicalVin,
       });
     }
@@ -10045,7 +10650,7 @@ async function proposeRescheduleImpl(
 
   // Front-desk has proposed a manual reschedule — the corresponding
   // manual_scheduling_required alert (if any) is now stale.
-  await resolveManualSchedulingAlertsForBooking(ctx, booking._id);
+  await resolveManualSchedulingAlertsForBooking(ctx, booking);
 
   if (booking.status === "pending_customer_acceptance") {
     if (booking.time_slot_id) {
@@ -10716,6 +11321,9 @@ export const getOpenFrontDeskOverrunAlerts = query({
     const primary = await getPrimaryAuthorizedShop(ctx, user._id);
     if (!primary) return [];
     const scope = await getCurrentNotificationScope(ctx);
+    // Front-desk escalations are for front desk / owner only — never the
+    // mechanic, even for their own booking.
+    if (scope?.kind === "mechanic") return [];
 
     const rows = await ctx.db
       .query("overrun_checkins")
@@ -10834,6 +11442,9 @@ export const getOpenManualSchedulingAlerts = query({
     const primary = await getPrimaryAuthorizedShop(ctx, user._id);
     if (!primary) return [];
     const scope = await getCurrentNotificationScope(ctx);
+    // Manual scheduling review is for front desk / owner only — never the
+    // mechanic, even for their own booking.
+    if (scope?.kind === "mechanic") return [];
 
     const rows = await ctx.db
       .query("notification_outbox")
@@ -11460,7 +12071,30 @@ export const processOverrunCheckins = internalMutation({
         continue;
       }
 
+      const settings = await getShopSchedulingSettings(ctx, checkin.shop_id);
+      let escalationDueAtMs = checkin.escalation_due_at_ms;
+      let promptedAtMs = checkin.mechanic_prompted_at_ms ?? null;
+
       if (now >= checkin.due_at_ms && checkin.status === "scheduled") {
+        // Anchor both the escalation and auto-apply deadlines to the same
+        // reference point so their configured gap is preserved. Normally
+        // that's "now" (the prompt moment), giving the mechanic their full
+        // configured response window even if this pass was cron-lagged.
+        // But if we're catching up on a check-in that's already overdue by
+        // more than the full auto-apply window (e.g. the cron was stalled),
+        // anchor to due_at_ms instead so escalation and auto-apply can
+        // resolve in this same pass rather than restarting the clock from
+        // "now". A normal single cron-tick's worth of lag is far smaller
+        // than the auto-apply window, so this won't trigger in the
+        // ordinary case.
+        const overdueMs = now - checkin.due_at_ms;
+        promptedAtMs =
+          overdueMs >= settings.overrunAutoApplyMinutes * 60 * 1000
+            ? checkin.due_at_ms
+            : now;
+        escalationDueAtMs =
+          promptedAtMs + settings.overrunEscalationMinutes * 60 * 1000;
+
         await enqueueNotificationOutbox(ctx, {
           shopId: checkin.shop_id,
           bookingId: checkin.booking_id,
@@ -11475,13 +12109,23 @@ export const processOverrunCheckins = internalMutation({
         });
         await ctx.db.patch(checkin._id, {
           status: "mechanic_prompted",
-          mechanic_prompted_at_ms: now,
+          mechanic_prompted_at_ms: promptedAtMs,
+          escalation_due_at_ms: escalationDueAtMs,
           updated_at: now,
         });
+        checkin.status = "mechanic_prompted";
       }
 
+      // Recompute from the prompt time + the shop's current auto-apply
+      // setting on every pass, so a settings change takes effect for
+      // already-open check-ins (not just newly-created ones), and so it
+      // stays anchored to the same reference point as escalationDueAtMs.
+      const autoApplyAtMs =
+        (promptedAtMs ?? checkin.due_at_ms) +
+        settings.overrunAutoApplyMinutes * 60 * 1000;
+
       if (
-        now >= checkin.escalation_due_at_ms &&
+        now >= escalationDueAtMs &&
         (checkin.status === "mechanic_prompted" ||
           checkin.status === "awaiting_extension")
       ) {
@@ -11490,8 +12134,8 @@ export const processOverrunCheckins = internalMutation({
           bookingId: checkin.booking_id,
           channel: "front_desk",
           category: "overrun_front_desk_escalation",
-          dedupeKey: `overrun-frontdesk:${String(checkin._id)}:${checkin.escalation_due_at_ms}`,
-          scheduledForMs: checkin.escalation_due_at_ms,
+          dedupeKey: `overrun-frontdesk:${String(checkin._id)}:${escalationDueAtMs}`,
+          scheduledForMs: escalationDueAtMs,
           payload: {
             defaultExtensionMinutes: checkin.default_extension_minutes,
           },
@@ -11501,10 +12145,11 @@ export const processOverrunCheckins = internalMutation({
           frontdesk_escalated_at_ms: now,
           updated_at: now,
         });
+        checkin.status = "front_desk_escalated";
       }
 
       if (
-        now >= checkin.auto_apply_at_ms &&
+        now >= autoApplyAtMs &&
         OPEN_OVERRUN_CHECKIN_STATUSES.has(checkin.status)
       ) {
         await applyOverrunExtension(ctx, {
@@ -11512,6 +12157,11 @@ export const processOverrunCheckins = internalMutation({
           booking,
           extensionMinutes: checkin.default_extension_minutes,
           source: "system",
+          // Inherit the blocking signal from the re-armed check-in so the
+          // auto-apply respects the mechanic's last known bay-free answer.
+          // Falls back to true (conservative) if never answered.
+          blocksBay: checkin.blocks_bay ?? true,
+          reasonCode: checkin.reason_code,
         });
         continue;
       }
@@ -11520,10 +12170,10 @@ export const processOverrunCheckins = internalMutation({
         checkin.status === "scheduled" ? checkin.due_at_ms : null,
         checkin.status === "mechanic_prompted" ||
         checkin.status === "awaiting_extension"
-          ? checkin.escalation_due_at_ms
+          ? escalationDueAtMs
           : null,
         OPEN_OVERRUN_CHECKIN_STATUSES.has(checkin.status)
-          ? checkin.auto_apply_at_ms
+          ? autoApplyAtMs
           : null,
       ]) {
         if (typeof dueAtMs === "number" && dueAtMs > now) {
