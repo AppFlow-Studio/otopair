@@ -124,7 +124,7 @@ export function MechanicSearchBar({
                 >
                     <Search size={20} color={BrandColors.black} strokeWidth={2} />
                     <Text
-                        size="md"
+                        size="lg"
                         weight="regular"
                         color={SemanticColors.textDisabled}
                         numberOfLines={1}
