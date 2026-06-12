@@ -26,10 +26,11 @@ import type { TaxonomyTab } from "@/constants/serviceTaxonomy";
 // Shared transition between Screen 1's CategoryListRow title and
 // Screen 2's header title. Reanimated 4's SharedTransition is a
 // ComplexAnimationBuilder — chainable .duration().easing() form
-// is the right way to spec a custom curve. 380ms + ease-out
-// cubic-bezier reads as a smooth, glassy morph rather than a
-// snappy spring.
-export const categoryTitleTransition = SharedTransition.duration(380).easing(
+// is the right way to spec a custom curve. Duration matches the
+// booking-flow stack's fade (320ms) so the icon/title morph and the
+// screen cross-fade settle together; ease-out cubic-bezier reads as
+// a smooth, glassy morph rather than a snappy spring.
+export const categoryTitleTransition = SharedTransition.duration(320).easing(
   Easing.bezier(0.22, 1, 0.36, 1),
 );
 

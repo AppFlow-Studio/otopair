@@ -17,22 +17,19 @@
  * Spec: ~/Downloads/<figma frames> Screen 1.
  */
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef } from "react";
 import { Dimensions, Pressable, StyleSheet, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
-  Easing,
   useAnimatedStyle,
   useSharedValue,
-  withTiming,
 } from "react-native-reanimated";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import * as Location from "expo-location";
-import MapView, { PROVIDER_DEFAULT, type Region } from "react-native-maps";
 import { Search, X } from "lucide-react-native";
 
 import { Text } from "@/components/shared-ui";
+import { useBookingFlowMap } from "@/components/booking-flow/BookingFlowMap";
 import { CategoryListRow } from "@/components/booking-flow/CategoryListRow";
 import {
   GlassSheetBackground,
@@ -45,13 +42,6 @@ import { VehiclePuck } from "@/components/booking-flow/VehiclePuck";
 import { TABS, type TaxonomyTab } from "@/constants/serviceTaxonomy";
 import { useBookingStore } from "@/stores/useBookingStore";
 import type { ServiceCategory } from "@/stores/types/store.types";
-
-const FALLBACK_REGION: Region = {
-  latitude: 41.1959,
-  longitude: -73.4365,
-  latitudeDelta: 0.08,
-  longitudeDelta: 0.08,
-};
 
 /** Map the legacy `initialServiceCategory` signal (set by home cards /
  *  maintenance / recommendation deep-links pre-v5) onto a v5 tab.
@@ -128,20 +118,14 @@ export default function SelectServicesScreen() {
     setInitialServiceCategory,
   ]);
 
-  // Sheet height in pixels — driven by Pan gesture below. Mounts
-  // at 0 and rises smoothly to INITIAL_H so the screen reads as
-  // "sheet slides up over the map" rather than appearing already
-  // open. User can then drag up to MAX_H (full screen) or down to
-  // MIN_H; release-where-you-let-go behavior (no snap).
-  const sheetHeight = useSharedValue(0);
+  // Sheet height in pixels — driven by the Pan gesture below. Mounts
+  // already at INITIAL_H: the screen enters via the stack's cross-fade
+  // over the shared static map, so re-animating the sheet up from 0 on
+  // every screen entry only fought that transition. User can drag up
+  // to MAX_H (full screen) or down to MIN_H; release-where-you-let-go
+  // behavior (no snap).
+  const sheetHeight = useSharedValue(INITIAL_H);
   const startHeight = useSharedValue(0);
-
-  useEffect(() => {
-    sheetHeight.value = withTiming(INITIAL_H, {
-      duration: 600,
-      easing: Easing.out(Easing.cubic),
-    });
-  }, [sheetHeight]);
 
   const dragGesture = useMemo(
     () =>
@@ -160,35 +144,18 @@ export default function SelectServicesScreen() {
     height: sheetHeight.value,
   }));
 
-  // Map region — locked (no interaction). Uses cached location
-  // permission when granted; falls back to a NY metro region.
-  const [region, setRegion] = useState<Region | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const { status } = await Location.getForegroundPermissionsAsync();
-        if (cancelled) return;
-        if (status !== "granted") {
-          setRegion(FALLBACK_REGION);
-          return;
-        }
-        const loc = await Location.getCurrentPositionAsync({});
-        if (cancelled) return;
-        setRegion({
-          latitude: loc.coords.latitude,
-          longitude: loc.coords.longitude,
-          latitudeDelta: 0.05,
-          longitudeDelta: 0.05,
-        });
-      } catch {
-        if (!cancelled) setRegion(FALLBACK_REGION);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  // Shared persistent map (lives in the layout) — this screen uses it
+  // as a locked backdrop. Re-assert locked mode + recenter on every
+  // focus so coming back from the interactive choose-mechanic screen
+  // resets the camera.
+  const { setInteractive, setMarkers, mapRef, region } = useBookingFlowMap();
+  useFocusEffect(
+    useCallback(() => {
+      setInteractive(false);
+      setMarkers([]);
+      if (region) mapRef.current?.animateToRegion(region, 300);
+    }, [setInteractive, setMarkers, mapRef, region]),
+  );
 
   // Per-tab service counts from the live catalog. Drops services
   // without a v5 taxonomy entry (the hook already does this) and
@@ -212,25 +179,9 @@ export default function SelectServicesScreen() {
   };
 
   return (
-    <View style={styles.root}>
-      {/* Full-bleed map underneath the sheet */}
-      <View style={StyleSheet.absoluteFill} pointerEvents="none">
-        {region ? (
-          <MapView
-            style={StyleSheet.absoluteFill}
-            provider={PROVIDER_DEFAULT}
-            region={region}
-            showsUserLocation
-            scrollEnabled={false}
-            zoomEnabled={false}
-            pitchEnabled={false}
-            rotateEnabled={false}
-            pointerEvents="none"
-          />
-        ) : (
-          <View style={[StyleSheet.absoluteFill, styles.mapFallback]} />
-        )}
-      </View>
+    <View style={styles.root} pointerEvents="box-none">
+      {/* Map is the shared persistent backdrop rendered by the layout;
+          this screen only paints its sheet over it. */}
 
       {/* Custom free-drag sheet — stays exactly where the user lets
           go. Pan gesture covers the whole sheet so dragging from
@@ -312,10 +263,7 @@ export default function SelectServicesScreen() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: "#0F172A",
-  },
-  mapFallback: {
-    backgroundColor: "#C8D7DE",
+    backgroundColor: "transparent",
   },
   sheet: {
     position: "absolute",

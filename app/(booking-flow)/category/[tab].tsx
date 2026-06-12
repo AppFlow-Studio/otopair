@@ -17,10 +17,8 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Dimensions, Pressable, StyleSheet, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
-  Easing,
   useAnimatedStyle,
   useSharedValue,
-  withTiming,
 } from "react-native-reanimated";
 import {
   ArrowLeft,
@@ -32,11 +30,10 @@ import {
 } from "lucide-react-native";
 
 import { categoryTitleTransition } from "@/components/booking-flow/CategoryListRow";
-import { useLocalSearchParams, useRouter } from "expo-router";
-import * as Location from "expo-location";
-import MapView, { PROVIDER_DEFAULT, type Region } from "react-native-maps";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 
 import { Text } from "@/components/shared-ui";
+import { useBookingFlowMap } from "@/components/booking-flow/BookingFlowMap";
 import {
   GlassSheetBackground,
   GlassSheetHandle,
@@ -65,13 +62,6 @@ import { isApplicable } from "@/lib/serviceApplicability";
 import type { Service } from "@/stores/types/store.types";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
-
-const FALLBACK_REGION: Region = {
-  latitude: 41.1959,
-  longitude: -73.4365,
-  latitudeDelta: 0.08,
-  longitudeDelta: 0.08,
-};
 
 // Match Screen 1's custom drag sheet (release-where-you-let-go,
 // no snap-back). MIN_H is the tiny peek the user can shove the
@@ -155,48 +145,25 @@ export default function CategoryDetailScreen() {
   const { applicableIds, bookableIds, needsSpecsIds, isLoading: isBookableLoading } =
     useBookableServices(ownershipId);
 
-  // Map backdrop — same pattern as Screen 1
-  const [region, setRegion] = useState<Region | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const { status } = await Location.getForegroundPermissionsAsync();
-        if (cancelled) return;
-        if (status !== "granted") {
-          setRegion(FALLBACK_REGION);
-          return;
-        }
-        const loc = await Location.getCurrentPositionAsync({});
-        if (cancelled) return;
-        setRegion({
-          latitude: loc.coords.latitude,
-          longitude: loc.coords.longitude,
-          latitudeDelta: 0.05,
-          longitudeDelta: 0.05,
-        });
-      } catch {
-        if (!cancelled) setRegion(FALLBACK_REGION);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  // Shared persistent map (lives in the layout) — locked backdrop,
+  // same as Screen 1. Re-assert locked mode + recenter on focus.
+  const { setInteractive, setMarkers, mapRef, region } = useBookingFlowMap();
+  useFocusEffect(
+    useCallback(() => {
+      setInteractive(false);
+      setMarkers([]);
+      if (region) mapRef.current?.animateToRegion(region, 300);
+    }, [setInteractive, setMarkers, mapRef, region]),
+  );
 
-  // Custom slide-up sheet — same behavior as Screen 1. Mounts at
-  // 0, rises smoothly to INITIAL_H so the screen reads as "sheet
-  // slides up over the map". Pan on the chrome (handle + topRow
-  // + header) drags the sheet; the service list scrolls normally.
-  const sheetHeight = useSharedValue(0);
+  // Custom drag sheet — same behavior as Screen 1. Mounts already at
+  // INITIAL_H: the screen enters via the stack's cross-fade (with the
+  // category icon/title morphing into the header) over the shared
+  // static map, so re-animating the sheet up from 0 would only fight
+  // that. Pan on the chrome (handle + topRow + header) drags the
+  // sheet; the service list scrolls normally.
+  const sheetHeight = useSharedValue(INITIAL_H);
   const startHeight = useSharedValue(0);
-
-  useEffect(() => {
-    sheetHeight.value = withTiming(INITIAL_H, {
-      duration: 600,
-      easing: Easing.out(Easing.cubic),
-    });
-  }, [sheetHeight]);
 
   const dragGesture = useMemo(
     () =>
@@ -330,25 +297,8 @@ export default function CategoryDetailScreen() {
   };
 
   return (
-    <View style={styles.root}>
-      {/* Full-bleed map under the sheet */}
-      <View style={StyleSheet.absoluteFill} pointerEvents="none">
-        {region ? (
-          <MapView
-            style={StyleSheet.absoluteFill}
-            provider={PROVIDER_DEFAULT}
-            region={region}
-            showsUserLocation
-            scrollEnabled={false}
-            zoomEnabled={false}
-            pitchEnabled={false}
-            rotateEnabled={false}
-            pointerEvents="none"
-          />
-        ) : (
-          <View style={[StyleSheet.absoluteFill, styles.mapFallback]} />
-        )}
-      </View>
+    <View style={styles.root} pointerEvents="box-none">
+      {/* Map is the shared persistent backdrop rendered by the layout. */}
 
       <GestureDetector gesture={dragGesture}>
         <Animated.View style={[styles.sheet, sheetAnimatedStyle]}>
@@ -535,10 +485,7 @@ export default function CategoryDetailScreen() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: "#0F172A",
-  },
-  mapFallback: {
-    backgroundColor: "#C8D7DE",
+    backgroundColor: "transparent",
   },
   sheet: {
     position: "absolute",

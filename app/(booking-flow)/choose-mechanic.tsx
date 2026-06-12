@@ -24,18 +24,13 @@ import {
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from "react-native";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import * as Location from "expo-location";
-import MapView, {
-  Marker,
-  PROVIDER_DEFAULT,
-  type Region,
-} from "react-native-maps";
 import BottomSheet, { BottomSheetView } from "@gorhom/bottom-sheet";
 import { ArrowLeft, Crosshair, Minus, Plus } from "lucide-react-native";
 
 import { Text } from "@/components/shared-ui";
+import { useBookingFlowMap } from "@/components/booking-flow/BookingFlowMap";
 import { MapShopCard } from "@/components/booking-flow/MapShopCard";
 import { ShopPage } from "@/components/booking-flow/ShopPage";
 import { StickyContinueBar } from "@/components/booking-flow/StickyContinueBar";
@@ -48,13 +43,6 @@ import { useShopFixedPricesForServices } from "@/hooks/useShopFixedPricesForServ
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 import { buildShopPriceLabel } from "@/lib/shopPriceLabel";
-
-const FALLBACK_REGION: Region = {
-  latitude: 41.1959,
-  longitude: -73.4365,
-  latitudeDelta: 0.06,
-  longitudeDelta: 0.06,
-};
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
 const SNAP_POINTS = ["53%", "82%"] as const;
@@ -125,37 +113,36 @@ export default function ChooseMechanicScreen() {
     ? `Continue with ${selectedMechanic?.name ?? "Any"}`
     : "Select services";
 
-  // Map setup
+  // Map setup — this screen drives the shared persistent map (which
+  // lives in the layout) interactively: it owns the camera + markers
+  // while focused. `mapRef` is the shared handle; userLocation comes
+  // from the booking store for the recenter affordance.
   const userLocation = useBookingStore((s) => s.userLocation);
-  const [region, setRegion] = useState<Region | null>(null);
-  const mapRef = useRef<MapView>(null);
+  const { mapRef, setInteractive, setMarkers } = useBookingFlowMap();
 
+  // Claim interactive mode whenever this screen is focused; the
+  // locked screens reset it back when they regain focus.
+  useFocusEffect(
+    useCallback(() => {
+      setInteractive(true);
+    }, [setInteractive]),
+  );
+
+  // Drop a marker on the active shop (and clear it when none).
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const { status } = await Location.getForegroundPermissionsAsync();
-        if (cancelled) return;
-        if (status !== "granted") {
-          setRegion(FALLBACK_REGION);
-          return;
-        }
-        const loc = await Location.getCurrentPositionAsync({});
-        if (cancelled) return;
-        setRegion({
-          latitude: loc.coords.latitude,
-          longitude: loc.coords.longitude,
-          latitudeDelta: 0.04,
-          longitudeDelta: 0.04,
-        });
-      } catch {
-        if (!cancelled) setRegion(FALLBACK_REGION);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    if (activeShop && activeShop.latitude !== 0) {
+      setMarkers([
+        {
+          id: activeShop.id,
+          latitude: activeShop.latitude,
+          longitude: activeShop.longitude,
+          title: activeShop.name,
+        },
+      ]);
+    } else {
+      setMarkers([]);
+    }
+  }, [activeShop, setMarkers]);
 
   // Animate the map camera to the active shop whenever it changes.
   // Center on the shop with a fixed neighborhood-scale zoom (~1mi
@@ -294,31 +281,10 @@ export default function ChooseMechanicScreen() {
   };
 
   return (
-    <View style={styles.root}>
-      {/* Full-bleed map */}
-      <View style={StyleSheet.absoluteFill}>
-        {region ? (
-          <MapView
-            ref={mapRef}
-            style={StyleSheet.absoluteFill}
-            provider={PROVIDER_DEFAULT}
-            initialRegion={region}
-            showsUserLocation
-          >
-            {activeShop && activeShop.latitude !== 0 ? (
-              <Marker
-                coordinate={{
-                  latitude: activeShop.latitude,
-                  longitude: activeShop.longitude,
-                }}
-                title={activeShop.name}
-              />
-            ) : null}
-          </MapView>
-        ) : (
-          <View style={[StyleSheet.absoluteFill, styles.mapFallback]} />
-        )}
-      </View>
+    <View style={styles.root} pointerEvents="box-none">
+      {/* The interactive map is the shared persistent instance rendered
+          by the layout; this screen drives its camera + markers and
+          floats its chrome over it. */}
 
       {/* Top floating chrome */}
       <View
@@ -462,10 +428,7 @@ export default function ChooseMechanicScreen() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: "#0F172A",
-  },
-  mapFallback: {
-    backgroundColor: "#C8D7DE",
+    backgroundColor: "transparent",
   },
   topStack: {
     position: "absolute",
