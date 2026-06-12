@@ -512,17 +512,17 @@ export default function HomeScreen() {
     // TODO: Implement search functionality
   };
 
-  // Map button (right side of the search bar): opens just the map with the
-  // service sheet collapsed to its 23% peek — user came here to browse the
-  // map, not to start a booking flow.
+  // Map button (right side of the search bar): opens the booking-flow
+  // map browser (Choose Mechanic entered with an empty cart). User came
+  // to browse shops on the map; the sheet's CTA reads "Select services"
+  // until they pick something.
   const handleMapPress = () => {
-    router.push("/booking/map?startCollapsed=true");
+    router.push("/(booking-flow)/choose-mechanic");
   };
 
-  // Search field tap (left side of the search bar): for now this is
-  // the temp Phase-1 entry point to the new booking flow. The map
-  // button below still routes to the legacy `/booking/map` flow so
-  // both can be compared side-by-side until the cutover commit.
+  // Search field tap (left side of the search bar): entry point to the
+  // new booking flow's service picker. The map button above opens the
+  // same flow's map browser — both now route into (booking-flow).
   const handleSearchPress = () => {
     router.push("/(booking-flow)/select-services");
   };

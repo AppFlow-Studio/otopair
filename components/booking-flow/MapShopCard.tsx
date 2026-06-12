@@ -21,7 +21,10 @@ interface MapShopCardProps {
   shopName: string;
   rating: number | null;
   distanceMi: number;
-  priceRange: string | null; // e.g. "~$92 – $108"; null while loading
+  priceRange: string | null; // e.g. "~$92 – $108" or "$120" (fixed); null while loading
+  /** True when the price is a guaranteed fixed rate (no range) — swaps
+   *  the "Estimated price" eyebrow for "Fixed price". */
+  isFixed?: boolean;
   nextSlotLabel: string | null; // e.g. "Next: Mon 9:00 AM"; null while loading
 }
 
@@ -31,6 +34,7 @@ export function MapShopCard({
   rating,
   distanceMi,
   priceRange,
+  isFixed = false,
   nextSlotLabel,
 }: MapShopCardProps) {
   const router = useRouter();
@@ -77,7 +81,7 @@ export function MapShopCard({
       </View>
 
       <Text size="xs" weight="semiBold" color="#6B7280" style={styles.eyebrow}>
-        ESTIMATED PRICE
+        {isFixed ? "FIXED PRICE" : "ESTIMATED PRICE"}
       </Text>
       <View style={styles.priceRow}>
         <Text size="xl" weight="bold" color="#0F172A" style={styles.price}>

@@ -43,7 +43,11 @@ import { VehiclePuck } from "@/components/booking-flow/VehiclePuck";
 import { useMechanicStore } from "@/stores/useMechanicStore";
 import { useNearbyBookingShops } from "@/hooks/useNearbyBookingShops";
 import { useNextAvailabilityForShop } from "@/hooks/useNextAvailabilityForShop";
+import { useBookingLaborHoursMap } from "@/hooks/useBookingLaborHoursMap";
+import { useShopFixedPricesForServices } from "@/hooks/useShopFixedPricesForServices";
 import { useBookingStore } from "@/stores/useBookingStore";
+import { useVehicleStore } from "@/stores/useVehicleStore";
+import { buildShopPriceLabel } from "@/lib/shopPriceLabel";
 
 const FALLBACK_REGION: Region = {
   latitude: 41.1959,
@@ -61,12 +65,44 @@ export default function ChooseMechanicScreen() {
 
   const selectedServiceIds = useBookingStore((s) => s.selectedServiceIds);
   const availableServices = useBookingStore((s) => s.availableServices);
+  const ownershipId = useVehicleStore((s) => s.getSelectedVehicle())?.ownershipId;
+
+  // Engine-adjusted + director-rounded labor (empirical → book →
+  // engine-tier → catalog-default) — same source as Review & Pay so the
+  // estimate breakdown on each shop page matches what the customer pays.
+  const { laborHoursMap } = useBookingLaborHoursMap(ownershipId, selectedServiceIds);
+
+  const selectedServices = useMemo(
+    () => availableServices.filter((s) => selectedServiceIds.includes(s.id)),
+    [availableServices, selectedServiceIds],
+  );
 
   const { results: nearbyShops, isLoading: shopsLoading } = useNearbyBookingShops(5);
 
   // Active page index = which shop the user is currently viewing.
   const [activeIndex, setActiveIndex] = useState(0);
   const activeShop = nearbyShops[activeIndex]?.shop ?? null;
+
+  // Per-(shop, service, tier) flat-price overrides for the active shop.
+  // When a service is offered at a fixed rate the price renders as a
+  // single guaranteed `$N` instead of an estimate range.
+  const { map: activeFixedMap } = useShopFixedPricesForServices(
+    activeShop?.id ?? null,
+    ownershipId ?? null,
+    selectedServiceIds,
+  );
+  const activePriceLabel = useMemo(
+    () =>
+      activeShop
+        ? buildShopPriceLabel({
+            shop: activeShop,
+            selectedServices,
+            laborHoursMap,
+            fixedPriceMap: activeFixedMap,
+          })
+        : { text: null, isFixed: false },
+    [activeShop, selectedServices, laborHoursMap, activeFixedMap],
+  );
 
   // Per-shop mechanic selection — null = Any. Reset when the active
   // shop changes; mechanics are scoped to a shop.
@@ -81,7 +117,13 @@ export default function ChooseMechanicScreen() {
   const selectedMechanic = selectedMechanicId
     ? allMechanicsMap[selectedMechanicId] ?? null
     : null;
-  const continueLabel = `Continue with ${selectedMechanic?.name ?? "Any"}`;
+  // When the user arrives with an empty cart (e.g. the Home map-browse
+  // entry), the sheet doubles as a shop browser and the CTA becomes a
+  // "pick services" affordance instead of advancing to date/time.
+  const hasServices = selectedServiceIds.length > 0;
+  const continueLabel = hasServices
+    ? `Continue with ${selectedMechanic?.name ?? "Any"}`
+    : "Select services";
 
   // Map setup
   const userLocation = useBookingStore((s) => s.userLocation);
@@ -200,28 +242,16 @@ export default function ChooseMechanicScreen() {
   }, [activeShop, userLocation]);
 
   // Selection summary — shared across all pages (it's about the
-  // user's cart, not the per-shop view).
-  const { selectedCount, totalMinutes, partsEstimate, laborHoursTotal } =
-    useMemo(() => {
-      let mins = 0;
-      let parts = 0;
-      let laborH = 0;
-      const selectedSvcs = availableServices.filter((s) =>
-        selectedServiceIds.includes(s.id),
-      );
-      for (const svc of selectedSvcs) {
-        const h = svc.default_labor_hours ?? 0;
-        mins += Math.round(h * 60);
-        laborH += h;
-        parts += svc.default_parts_estimate ?? 0;
-      }
-      return {
-        selectedCount: selectedSvcs.length,
-        totalMinutes: mins,
-        partsEstimate: parts,
-        laborHoursTotal: laborH,
-      };
-    }, [availableServices, selectedServiceIds]);
+  // user's cart, not the per-shop view). Per-shop pricing lives in
+  // buildShopPriceLabel (here for the active card, in ShopPage per page).
+  const { selectedCount, totalMinutes } = useMemo(() => {
+    let mins = 0;
+    for (const svc of selectedServices) {
+      const h = laborHoursMap.get(svc.id) ?? svc.default_labor_hours ?? 0;
+      mins += Math.round(h * 60);
+    }
+    return { selectedCount: selectedServices.length, totalMinutes: mins };
+  }, [selectedServices, laborHoursMap]);
 
   // Horizontal-paged scroll handler. Pages snap by screen width so
   // every page lines up edge-to-edge inside the sheet.
@@ -229,23 +259,6 @@ export default function ChooseMechanicScreen() {
     const idx = Math.round(e.nativeEvent.contentOffset.x / SCREEN_WIDTH);
     setActiveIndex(idx);
   }, []);
-
-  // Active-shop derivations for the floating MapShopCard. Mirrors
-  // the math inside ShopPage so the card stays in sync as the user
-  // swipes between shops.
-  const activeFlatEstimate = useMemo(() => {
-    if (!activeShop) return null;
-    const rate = activeShop.labor_rate ?? 0;
-    return Math.round(rate * laborHoursTotal + partsEstimate);
-  }, [activeShop, laborHoursTotal, partsEstimate]);
-
-  const activePriceRange = useMemo(() => {
-    if (activeFlatEstimate == null || activeFlatEstimate <= 0) return null;
-    const low = Math.round(activeFlatEstimate * 0.9);
-    const high = Math.round(activeFlatEstimate * 1.1);
-    if (low === high) return `~$${low}`;
-    return `~$${low} – $${high}`;
-  }, [activeFlatEstimate]);
 
   const { slots: activeShopSlots } = useNextAvailabilityForShop(
     activeShop?.id ?? null,
@@ -266,6 +279,10 @@ export default function ChooseMechanicScreen() {
   };
 
   const onContinue = () => {
+    if (!hasServices) {
+      router.push("/(booking-flow)/select-services");
+      return;
+    }
     if (!activeShop) return;
     router.push({
       pathname: "/(booking-flow)/pick-datetime",
@@ -332,7 +349,8 @@ export default function ChooseMechanicScreen() {
             shopName={activeShop.name}
             rating={activeShop.rating}
             distanceMi={activeDistanceMi}
-            priceRange={activePriceRange}
+            priceRange={activePriceLabel.text}
+            isFixed={activePriceLabel.isFixed}
             nextSlotLabel={activeNextSlotLabel}
           />
         </View>
@@ -401,9 +419,10 @@ export default function ChooseMechanicScreen() {
                   shop={r.shop}
                   pageWidth={SCREEN_WIDTH}
                   totalMinutes={totalMinutes}
-                  partsEstimate={partsEstimate}
-                  laborHoursTotal={laborHoursTotal}
                   selectedCount={selectedCount}
+                  selectedServices={selectedServices}
+                  laborHoursMap={laborHoursMap}
+                  vehicleOwnerId={ownershipId}
                   selectedMechanicId={
                     selectedMechanicByShop[r.shop.id] ?? null
                   }

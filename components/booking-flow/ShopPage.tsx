@@ -24,19 +24,23 @@ import {
 import { useMechanicStore } from "@/stores/useMechanicStore";
 import { useNextAvailabilityForShop } from "@/hooks/useNextAvailabilityForShop";
 import { useNextAvailabilityPerMechanicForShop } from "@/hooks/useNextAvailabilityPerMechanicForShop";
-import type { Shop } from "@/stores/types/store.types";
+import { useShopFixedPricesForServices } from "@/hooks/useShopFixedPricesForServices";
+import { buildShopPriceLabel } from "@/lib/shopPriceLabel";
+import type { Service, Shop } from "@/stores/types/store.types";
 
 interface ShopPageProps {
   shop: Shop;
   pageWidth: number;
-  /** Sum of selected services' default labor hours × 60. */
+  /** Sum of selected services' resolved labor hours × 60. */
   totalMinutes: number;
-  /** Sum of selected services' default parts estimate. */
-  partsEstimate: number;
-  /** Sum of selected services' default labor hours. */
-  laborHoursTotal: number;
   /** Service count for the summary line. */
   selectedCount: number;
+  /** The selected service rows — for the per-shop price breakdown. */
+  selectedServices: Service[];
+  /** Resolved per-service labor hours (empirical → book → default). */
+  laborHoursMap: Map<string, number>;
+  /** Vehicle owner id — keys the per-shop fixed-price lookup. */
+  vehicleOwnerId: string | undefined;
   /** Current mechanic selection for THIS page. null = Any. */
   selectedMechanicId: string | null;
   onSelectMechanic: (mechanicId: string | null) => void;
@@ -46,21 +50,28 @@ export function ShopPage({
   shop,
   pageWidth,
   totalMinutes,
-  partsEstimate,
-  laborHoursTotal,
   selectedCount,
+  selectedServices,
+  laborHoursMap,
+  vehicleOwnerId,
   selectedMechanicId,
   onSelectMechanic,
 }: ShopPageProps) {
   const router = useRouter();
 
-  // Flat estimate for the summary card (shop labor_rate × labor hrs
-  // + parts). Floating range / decimals belong in Review & Pay; here
-  // we just want a single number.
-  const flatEstimate = useMemo(() => {
-    const laborRate = shop.labor_rate ?? 0;
-    return Math.round(laborRate * laborHoursTotal + partsEstimate);
-  }, [shop.labor_rate, laborHoursTotal, partsEstimate]);
+  // Per-shop price: fixed-rate overrides collapse to a guaranteed `$N`,
+  // everything else shows the estimate range — same math + source as the
+  // floating MapShopCard and Review & Pay (see buildShopPriceLabel).
+  const { map: fixedPriceMap } = useShopFixedPricesForServices(
+    shop.id,
+    vehicleOwnerId ?? null,
+    selectedServices.map((s) => s.id),
+  );
+  const priceLabel = useMemo(
+    () =>
+      buildShopPriceLabel({ shop, selectedServices, laborHoursMap, fixedPriceMap }),
+    [shop, selectedServices, laborHoursMap, fixedPriceMap],
+  );
 
   // Next slot for the shop overall (for the Any-mechanic earliest).
   const { slots: shopSlots } = useNextAvailabilityForShop(shop.id, null, 1);
@@ -137,9 +148,12 @@ export function ShopPage({
             {selectedCount} service{selectedCount === 1 ? "" : "s"} ·{" "}
             {formatTotalMinutes(totalMinutes)}
           </Text>
-          {flatEstimate > 0 ? (
+          {priceLabel.text ? (
             <Text size="sm" weight="regular" color="#6B7280">
-              Estimated <Text weight="bold" color="#0F172A">${flatEstimate}</Text>
+              {priceLabel.isFixed ? "Fixed price " : "Estimated "}
+              <Text weight="bold" color="#0F172A">
+                {priceLabel.text}
+              </Text>
             </Text>
           ) : null}
         </View>

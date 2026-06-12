@@ -55,6 +55,7 @@ import {
   type TaxonomyTab,
 } from "@/constants/serviceTaxonomy";
 import { useBookableServices } from "@/hooks/useBookableServices";
+import { useBookingLaborHoursMap } from "@/hooks/useBookingLaborHoursMap";
 import { useServiceVehicleSpecsForEngine } from "@/hooks/useServiceVehicleSpecsForEngine";
 import { useVehicleReadiness } from "@/hooks/useVehicleReadiness";
 import { formatDurationForCar } from "@/lib/formatDuration";
@@ -130,6 +131,12 @@ export default function CategoryDetailScreen() {
     [availableServices],
   );
   const engineSpecs = useServiceVehicleSpecsForEngine(engineId, allServiceIds);
+
+  // Engine-adjusted + director-rounded labor (empirical → book → engine-tier
+  // → catalog-default cascade) — the same source the mechanic picker, Review
+  // & Pay, and persisted estimate read, so the "About X" row chip matches
+  // downstream instead of showing the raw catalog default.
+  const { laborHoursMap } = useBookingLaborHoursMap(ownershipId, allServiceIds);
 
   // v5 coverage filter
   const readiness = useVehicleReadiness(ownershipId);
@@ -380,7 +387,10 @@ export default function CategoryDetailScreen() {
                     : "blocked"
                 : "bookable";
 
-              const hours = engineSpecs[svc.id]?.labor_hours ?? svc.default_labor_hours;
+              const hours =
+                laborHoursMap.get(svc.id) ??
+                engineSpecs[svc.id]?.labor_hours ??
+                svc.default_labor_hours;
               const carDuration = formatDurationForCar(hours);
               const durationText = carDuration
                 ? `About ${carDuration}`

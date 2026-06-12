@@ -27,11 +27,13 @@ import { ConfirmBookingBar } from "@/components/booking-flow/ConfirmBookingBar";
 import { DateChipRow, type DateChipItem } from "@/components/booking-flow/DateChipRow";
 import { TimeSlotGrid } from "@/components/booking-flow/TimeSlotGrid";
 import { VehiclePuck } from "@/components/booking-flow/VehiclePuck";
+import { useBookingLaborHoursMap } from "@/hooks/useBookingLaborHoursMap";
 import { useCalendarAvailabilityForShop } from "@/hooks/useCalendarAvailabilityForShop";
 import { useTimeSlotsForShop } from "@/hooks/useTimeSlotsForShop";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
 import { useShopStore } from "@/stores/useShopStore";
+import { useVehicleStore } from "@/stores/useVehicleStore";
 import { displayTimeToHHMM } from "@/utils/timeSlotUtils";
 
 const FRAME_GRADIENT = ["#CFE0EB", "#DCE7EF", "#E8EEF3"] as const;
@@ -72,15 +74,22 @@ export default function PickDateTimeScreen() {
   const shop = shopId ? getShopById(shopId) ?? null : null;
   const mechanic = mechanicId ? getMechanicById(mechanicId) ?? null : null;
 
+  // Engine-adjusted + director-rounded labor (empirical → book →
+  // engine-tier → catalog-default) — same source as Review & Pay so the
+  // "~Xh Ym" on the confirm card matches what the customer pays.
+  const ownershipId = useVehicleStore((s) => s.getSelectedVehicle())?.ownershipId;
+  const { laborHoursMap } = useBookingLaborHoursMap(ownershipId, selectedServiceIds);
+
   // Selection summary — services count + total minutes for the card.
   const { selectedCount, totalMinutes } = useMemo(() => {
     let mins = 0;
     const selected = availableServices.filter((s) => selectedServiceIds.includes(s.id));
     for (const s of selected) {
-      mins += Math.round((s.default_labor_hours ?? 0) * 60);
+      const h = laborHoursMap.get(s.id) ?? s.default_labor_hours ?? 0;
+      mins += Math.round(h * 60);
     }
     return { selectedCount: selected.length, totalMinutes: mins };
-  }, [availableServices, selectedServiceIds]);
+  }, [availableServices, selectedServiceIds, laborHoursMap]);
 
   // The 14 days of date chips we'll render — built from today forward.
   const dateChipItems = useMemo<DateChipItem[]>(() => {
