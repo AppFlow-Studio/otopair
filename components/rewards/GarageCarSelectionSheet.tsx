@@ -43,7 +43,13 @@ const SCROLL_THRESHOLD = 4; // 4+ vehicles → scrollable
 const SEARCH_THRESHOLD = 5; // 5+ vehicles → show search bar
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
-const SHEET_HEIGHT = SCREEN_HEIGHT * 0.92;
+// Same formula BookingDetailsSheet uses — hard-cap around 640pt
+// so the sheet sits low on the screen with a clear gap above.
+// Inner list is already scrollable when there are 4+ vehicles.
+const SHEET_HEIGHT = Math.max(
+  SCREEN_HEIGHT * 0.66,
+  Math.min(SCREEN_HEIGHT * 0.76, 640),
+);
 
 export interface GarageCarSheetRef {
   present: () => void;

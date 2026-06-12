@@ -298,18 +298,25 @@ export const LeaveReviewSheet = forwardRef<LeaveReviewSheetRef, Props>(
     const ratingLabel = RATING_LABELS[rating] ?? RATING_LABELS[0];
     const submitDisabled = submitting || rating < 1;
     const snapHeights = useMemo(() => {
-      const maxSheetHeight = screenHeight - Math.max(insets.top, 12) - 8;
-      const collapsedHeight = Math.min(
-        maxSheetHeight,
-        Math.max(COLLAPSED_SHEET_MIN_HEIGHT, screenHeight * 0.76),
+      // Same formula BookingDetailsSheet uses for its mid detent —
+      // hard-cap around 640pt so the sheet sits low on the screen
+      // with a clear floating gap above. Form content scrolls
+      // inside the ScrollView when it doesn't all fit.
+      const target = Math.max(
+        screenHeight * 0.66,
+        Math.min(screenHeight * 0.76, 640),
       );
-      const expandedHeight = Math.min(
-        maxSheetHeight,
-        Math.max(EXPANDED_SHEET_MIN_HEIGHT, screenHeight * 0.9),
+      // Mechanic section expanded needs a little more room than
+      // collapsed; bump the cap by 60pt so the mechanic stars +
+      // note input land above the Submit pill without immediate
+      // scrolling. Still capped well below the status bar.
+      const expandedTarget = Math.max(
+        screenHeight * 0.7,
+        Math.min(screenHeight * 0.82, 700),
       );
 
-      return [mechanicIncluded ? expandedHeight : collapsedHeight];
-    }, [insets.top, mechanicIncluded, screenHeight]);
+      return [mechanicIncluded ? expandedTarget : target];
+    }, [mechanicIncluded, screenHeight]);
 
     return (
       <FloatingSheet

@@ -57,22 +57,22 @@ try {
 }
 import { useFocusEffect } from "@react-navigation/native";
 import {
-  Award,
+  // MVP-DISABLED: loyalty/rewards — re-enable post-launch (Award, UserPlus)
+  // Award,
   Bell,
   Car,
   CircleDollarSign,
   Clock,
-  Code,
   CreditCard,
   FileText,
   Fingerprint,
   Headset,
   HelpCircle,
   Lock,
+  LogOut,
   MapPin,
   MessageSquare,
   QrCode,
-  Receipt,
   RotateCcw,
   ScanFace,
   Shield,
@@ -80,7 +80,7 @@ import {
   Sliders,
   Star,
   Trash2,
-  UserPlus,
+  // UserPlus,
   Users,
 } from "lucide-react-native";
 import { LinearGradient } from "expo-linear-gradient";
@@ -102,7 +102,6 @@ import { useBookingStore } from "@/stores/useBookingStore";
 import { useOnboardingStore } from "@/stores/useOnboardingStore";
 import { usePaymentStore } from "@/stores/usePaymentStore";
 import { clearUserSessionState } from "@/lib/session-state";
-import { useTransactionsFromConvex } from "@/hooks/useTransactionsFromConvex";
 import { useSettingsOverlayStore } from "@/stores/useSettingsOverlayStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 import { computeInitials } from "@/utils/userInitials";
@@ -180,9 +179,6 @@ export function SettingsContent({
   // stack on top of the overlay normally.
   const requestCloseOverlay = useSettingsOverlayStore((s) => s.requestClose);
   const paymentMethods = usePaymentStore((s) => s.paymentMethods);
-  const { transactions: convexTransactions } = useTransactionsFromConvex(
-    me?._id ?? undefined,
-  );
 
   const [biometricLabel, setBiometricLabel] = useState("Biometric Login");
 
@@ -274,7 +270,6 @@ export function SettingsContent({
   // Counts surfaced as row "value" text
   const vehicleCount = vehicleIds?.length ?? 0;
   const paymentMethodCount = paymentMethods?.length ?? 0;
-  const transactionCount = convexTransactions.length;
   const completedBookingsCount = useMemo(() => {
     if (Array.isArray(convexBookings)) {
       return convexBookings.filter((booking) => booking.status === "completed").length;
@@ -518,13 +513,14 @@ export function SettingsContent({
             label="Payment Methods"
             value={paymentMethodCount > 0 ? paymentMethodCount : undefined}
             onPress={() => router.push("/payments")}
+            // MVP-DISABLED: loyalty/rewards — re-enable post-launch
+            // `isLast` lifted here so the card closes cleanly while the
+            // Loyalty + Refer rows below are hidden. Remove when
+            // re-enabling.
+            isLast
           />
-          <SettingsRow
-            icon={<Receipt size={18} color="#FFFFFF" />}
-            label="Transactions & Receipts"
-            value={transactionCount > 0 ? transactionCount : undefined}
-            onPress={() => router.push("/settings/transactions")}
-          />
+          {/* MVP-DISABLED: loyalty/rewards — re-enable post-launch */}
+          {/*
           <SettingsRow
             icon={<Award size={18} color="#FFFFFF" />}
             label="Loyalty & Rewards"
@@ -536,6 +532,7 @@ export function SettingsContent({
             onPress={() => router.push("/settings/refer-a-friend")}
             isLast
           />
+          */}
         </SettingsCard>
 
         {/* SUPPORT */}
@@ -626,51 +623,20 @@ export function SettingsContent({
           />
         </SettingsCard>
 
-        {/* DELETE ACCOUNT */}
-        <SettingsCard style={styles.dangerCard}>
+        {/* Log out + Delete Account — standard row styling, own card. */}
+        <SettingsCard style={styles.cardSpacing}>
           <SettingsRow
-            icon={<Trash2 size={20} color="#FF5C5C" />}
+            icon={<LogOut size={18} color="#FFFFFF" />}
+            label="Log out"
+            onPress={() => setIsLogoutVisible(true)}
+          />
+          <SettingsRow
+            icon={<Trash2 size={18} color="#FFFFFF" />}
             label="Delete Account"
-            labelColor="#FF5C5C"
-            labelWeight="bold"
             onPress={() => router.push("/settings/delete-account")}
             isLast
           />
         </SettingsCard>
-
-        {__DEV__ ? (
-          <SettingsCard style={styles.cardSpacing}>
-            <SettingsRow
-              icon={<Code size={18} color="#FFFFFF" />}
-              label="[Dev] Run Onboarding Flow"
-              onPress={() =>
-                router.push({
-                  pathname: "/(onboarding)",
-                  params: { initialStep: "welcome" },
-                } as any)
-              }
-            />
-            <SettingsRow
-              icon={<Code size={18} color="#FFFFFF" />}
-              label="[Dev] Run About You Flow"
-              onPress={() => router.push("/(tell-us-about)/flow" as any)}
-              isLast
-            />
-          </SettingsCard>
-        ) : null}
-
-        {/* Footer */}
-        <Pressable
-          onPress={() => setIsLogoutVisible(true)}
-          style={({ pressed }) => [
-            styles.logoutButton,
-            pressed && styles.logoutButtonPressed,
-          ]}
-        >
-          <Text weight="bold" size="md" color="#FFFFFF">
-            Log out
-          </Text>
-        </Pressable>
         <Pressable onPress={() => router.push("/settings/about")} style={styles.footerRow}>
           <Text weight="medium" size="sm" color="rgba(255,255,255,0.55)">
             About OtoPair v1.0.0
@@ -892,30 +858,6 @@ const styles = StyleSheet.create({
   },
   cardSpacing: {
     marginTop: 12,
-  },
-  dangerCard: {
-    marginTop: 12,
-    backgroundColor: "rgba(255,92,92,0.16)",
-    borderColor: "rgba(255,92,92,0.55)",
-    borderWidth: 1,
-  },
-  logoutButton: {
-    marginTop: 24,
-    marginHorizontal: 4,
-    paddingVertical: 16,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 14,
-    backgroundColor: "#FF5C5C",
-    shadowColor: "#FF5C5C",
-    shadowOpacity: 0.35,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 4,
-  },
-  logoutButtonPressed: {
-    opacity: 0.85,
-    transform: [{ scale: 0.99 }],
   },
   footerRow: {
     alignItems: "center",

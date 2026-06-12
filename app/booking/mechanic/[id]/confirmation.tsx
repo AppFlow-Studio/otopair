@@ -20,7 +20,8 @@ import { Alert, BackHandler, Image, Platform, ScrollView, StyleSheet, TouchableO
 import * as Calendar from "expo-calendar";
 import * as Linking from "expo-linking";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
-import { Check, Gift, Navigation, Phone, Star } from "lucide-react-native";
+// MVP-DISABLED: loyalty/rewards — re-enable post-launch (drop Gift)
+import { Check, Navigation, Phone, Star } from "lucide-react-native";
 import Animated, {
   Easing,
   useAnimatedStyle,
@@ -57,9 +58,10 @@ import { openMapsForAddress, openPhone } from "@/utils/linking";
 
 const CONFETTI_COLORS = ["#FF6B6B", "#4ECDC4", "#FFE66D", "#95E1D3", "#F38181", "#AA96DA", "#A8D8EA", "#FCBAD3"];
 
+// MVP-DISABLED: loyalty/rewards — re-enable post-launch
 // Mock ownership credit data (in production, this would come from a user/rewards store)
-const OWNERSHIP_CREDIT_EARNED = 1.51;
-const OWNERSHIP_BALANCE = 27.51;
+// const OWNERSHIP_CREDIT_EARNED = 1.51;
+// const OWNERSHIP_BALANCE = 27.51;
 
 type ConfirmationMechanic = {
   id?: string | null;
@@ -657,7 +659,12 @@ export default function ConfirmationScreen() {
             </View>
           )}
 
-          {/* Ownership Credit Section */}
+          {/* MVP-DISABLED: loyalty/rewards — re-enable post-launch */}
+          {/* When re-enabling: the incoming origin/Ahmad-dev version
+              wrapped this in `!isReschedule ? (...) : null` so the
+              credit card hides on reschedule flows. Restore that
+              guard at the same time. */}
+          {/*
           {!isReschedule ? (
           <View style={[styles.ownershipCreditCard, isCompactLayout && styles.ownershipCreditCardCompact]}>
             <View style={[styles.ownershipLeft, isCompactLayout && styles.ownershipLeftCompact]}>
@@ -683,6 +690,7 @@ export default function ConfirmationScreen() {
             </View>
           </View>
           ) : null}
+          */}
 
           {/* Add to Calendar Button */}
           <TouchableOpacity

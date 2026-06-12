@@ -823,7 +823,7 @@ const styles = StyleSheet.create({
     borderColor: SemanticColors.border,
   },
   btnDeclineText: { color: BrandColors.primary, fontSize: 16 },
-  btnApprove: { backgroundColor: BrandColors.primary, flex: 1.4 },
+  btnApprove: { backgroundColor: BrandColors.secondary, flex: 1.4 },
   btnApproveText: { color: "#FFFFFF", fontSize: 16 },
   btnApproveStack: {
     alignItems: "center",
