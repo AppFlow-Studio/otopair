@@ -36,12 +36,14 @@ import {
   FinishLater,
 } from '@/components/shared-ui';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { BackHandler, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+// MVP-DISABLED: loyalty/rewards — re-enable post-launch (drop TextInput)
+import { BackHandler, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
 import { useOnboardingQuestion } from '@/hooks/useOnboardingQuestion';
-import { useMutation } from 'convex/react';
-import { api } from '@/convex/_generated/api';
-import { useUserFromConvex } from '@/hooks/useUserFromConvex';
+// MVP-DISABLED: loyalty/rewards — re-enable post-launch
+// import { useMutation } from 'convex/react';
+// import { api } from '@/convex/_generated/api';
+// import { useUserFromConvex } from '@/hooks/useUserFromConvex';
 import {
   Users,
   Share2,
@@ -74,14 +76,16 @@ export function HeardAboutStep({ onNext, onBack, progress }: HeardAboutStepProps
   const { saveQuestionAnswer } = useOnboardingQuestion('heardAboutOtopair');
 
   const [selected, setSelected] = useState<string | null>(data.heardAboutOtopair ?? null);
-  const [referralCode, setReferralCode] = useState<string>('');
-  const submitReferralCode = useMutation(api.referrals.submitCode);
+  // MVP-DISABLED: loyalty/rewards — re-enable post-launch
+  // const [referralCode, setReferralCode] = useState<string>('');
+  // const submitReferralCode = useMutation(api.referrals.submitCode);
 
   useEffect(() => {
     const sub = BackHandler.addEventListener("hardwareBackPress", () => { onBack(); return true; });
     return () => sub.remove();
   }, [onBack]);
-  const { userId } = useUserFromConvex();
+  // MVP-DISABLED: loyalty/rewards — re-enable post-launch
+  // const { userId } = useUserFromConvex();
 
   const handleContinue = async () => {
     if (!selected) return;
@@ -93,17 +97,18 @@ export function HeardAboutStep({ onNext, onBack, progress }: HeardAboutStepProps
       option?.label ?? selected
     );
 
+    // MVP-DISABLED: loyalty/rewards — re-enable post-launch
     // Optional: redeem a referral code if user pasted one. Non-blocking
     // — failures (already submitted, code not found) just continue
     // onboarding silently.
-    const trimmedCode = referralCode.trim();
-    if (trimmedCode && userId) {
-      try {
-        await submitReferralCode({ refereeUserId: userId, code: trimmedCode });
-      } catch {
-        // swallow; never block onboarding on referral failure
-      }
-    }
+    // const trimmedCode = referralCode.trim();
+    // if (trimmedCode && userId) {
+    //   try {
+    //     await submitReferralCode({ refereeUserId: userId, code: trimmedCode });
+    //   } catch {
+    //     // swallow; never block onboarding on referral failure
+    //   }
+    // }
 
     onNext();
   };
@@ -148,10 +153,8 @@ export function HeardAboutStep({ onNext, onBack, progress }: HeardAboutStepProps
             })}
           </View>
 
-          {/* Optional referral-code field. Revealed when the user
-              picks "Friend or family recommended it" — both sides
-              earn $15 in Ownership Credit once the new user
-              completes their first service (Rewards Framework v3 §8). */}
+          {/* MVP-DISABLED: loyalty/rewards — re-enable post-launch */}
+          {/*
           {selected === 'referral' && (
             <View style={styles.referralContainer}>
               <Text style={styles.referralLabel}>Have a referral code? (optional)</Text>
@@ -166,6 +169,7 @@ export function HeardAboutStep({ onNext, onBack, progress }: HeardAboutStepProps
               />
             </View>
           )}
+          */}
         </ScrollView>
 
         <FadeFooterContainer paddingBottom={insets.bottom + Spacing.lg}>

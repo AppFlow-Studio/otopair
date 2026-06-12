@@ -15,7 +15,8 @@ import {
 } from "@gorhom/bottom-sheet";
 import { BlurBackdrop } from "@/components/shared-ui/BlurBackdrop";
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
-import { Bell, MoveRight, Star, Trophy } from 'lucide-react-native';
+// MVP-DISABLED: loyalty/rewards — re-enable post-launch (drop Trophy)
+import { Bell, MoveRight, Star } from 'lucide-react-native';
 import { useMutation, useQuery } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { useMutationWithToast } from '@/hooks/useMutationWithToast';
@@ -534,15 +535,17 @@ export default function HomeScreen() {
   const { unreadCount: notificationsUnreadCount } = useNotificationsFromConvex();
   const hasUnreadNotifications = notificationsUnreadCount > 0;
 
+  // userId still consumed by the review-sheet flow below; keep it.
+  const { userId } = useUserFromConvex();
+  // MVP-DISABLED: loyalty/rewards — re-enable post-launch
   // Trophy dot — true when the user has earned any credit since the
   // last time they opened the loyalty surface. Cleared by the
   // `markCreditsSeen` mutation when the loyalty popover opens.
-  const { userId } = useUserFromConvex();
-  const hasUnseenCredits = useQuery(
-    api.rewards.hasUnseenCredits,
-    userId ? { userId } : "skip",
-  );
-  const markCreditsSeen = useMutation(api.rewards.markCreditsSeen);
+  // const hasUnseenCredits = useQuery(
+  //   api.rewards.hasUnseenCredits,
+  //   userId ? { userId } : "skip",
+  // );
+  // const markCreditsSeen = useMutation(api.rewards.markCreditsSeen);
 
   // When returning from map modal with "Add vehicle" tapped: navigate to cars tab
   const pendingNavigateToCars = usePendingNavigationStore((s) => s.pendingNavigateToCars);
@@ -673,6 +676,16 @@ export default function HomeScreen() {
   const [pendingReviewBooking, setPendingReviewBooking] = useState<
     typeof pendingReviewBookings[number] | null
   >(null);
+  // Holds the (booking, userId) tuple stashed when the user taps
+  // "Leave a review" inside the receipt. The receipt closes first;
+  // its onClose fires after the Modal has actually unmounted, and
+  // we open the LeaveReviewSheet from there. Driving the chain off
+  // onClose (instead of a setTimeout) avoids the iOS Modal-stacking
+  // race that left users staring at a blank white sheet.
+  const pendingReviewActionRef = useRef<{
+    booking: typeof pendingReviewBookings[number];
+    userId: string;
+  } | null>(null);
   useEffect(() => {
     void loadPromptedBookingIds().then((set) => {
       promptedIdsRef.current = set;
@@ -774,9 +787,10 @@ export default function HomeScreen() {
                 </View>
               </View>
 
-              {/* Right Side - Gold Tier & Bell */}
+              {/* Right Side - Bell only (Trophy hidden for MVP) */}
               <View style={styles.headerRight}>
-                {/* Gold Tier Badge - Clickable */}
+                {/* MVP-DISABLED: loyalty/rewards — re-enable post-launch */}
+                {/*
                 <Pressable
                   onPress={() => {
                     if (hasUnseenCredits && userId) {
@@ -789,7 +803,7 @@ export default function HomeScreen() {
                   {isLiquidGlassEnabled && LiquidGlassView ? (
                     <LiquidGlassView interactive effect="clear" style={styles.liquidGlassIcon}>
                       <View style={styles.bellIconContainer}>
-                        <Trophy size={22} color="#6B7280" fill="none" strokeWidth={2} />
+                        <Trophy size={22} color="#FFFFFF" fill="none" strokeWidth={2} />
                         {hasUnseenCredits ? <View style={styles.trophyDot} /> : null}
                       </View>
                     </LiquidGlassView>
@@ -804,13 +818,14 @@ export default function HomeScreen() {
                           style={styles.glassGloss}
                         />
                         <View style={styles.bellIconContainer}>
-                          <Trophy size={22} color="#6B7280" fill="none" strokeWidth={2} />
+                          <Trophy size={22} color="#FFFFFF" fill="none" strokeWidth={2} />
                           {hasUnseenCredits ? <View style={styles.trophyDot} /> : null}
                         </View>
                       </BlurView>
                     </View>
                   )}
                 </Pressable>
+                */}
 
                 {/* Notification Bell */}
                 <Pressable
@@ -822,7 +837,7 @@ export default function HomeScreen() {
                   {isLiquidGlassEnabled && LiquidGlassView ? (
                     <LiquidGlassView interactive effect="clear" style={styles.liquidGlassIcon}>
                       <View style={styles.bellIconContainer}>
-                        <Bell size={22} color="#6B7280" fill="none" strokeWidth={2} />
+                        <Bell size={22} color="#FFFFFF" fill="none" strokeWidth={2} />
                         {hasUnreadNotifications ? <View style={styles.bellDot} /> : null}
                       </View>
                     </LiquidGlassView>
@@ -837,7 +852,7 @@ export default function HomeScreen() {
                           style={styles.glassGloss}
                         />
                         <View style={styles.bellIconContainer}>
-                          <Bell size={22} color="#6B7280" fill="none" strokeWidth={2} />
+                          <Bell size={22} color="#FFFFFF" fill="none" strokeWidth={2} />
                           {hasUnreadNotifications ? <View style={styles.bellDot} /> : null}
                         </View>
                       </BlurView>
@@ -1159,17 +1174,32 @@ export default function HomeScreen() {
         auto-opens on focus. */}
     <ReceiptSheet
       bookingId={(pendingReviewBooking?.id as Id<'bookings'> | undefined) ?? null}
-      onClose={() => setPendingReviewBooking(null)}
+      onClose={() => {
+        setPendingReviewBooking(null);
+        // Fire any queued review hand-off now that the receipt's
+        // Modal has unmounted. Tiny breather so iOS gets one frame
+        // post-unmount before we present the next Modal — empirically
+        // presenting on the same tick still no-op'd occasionally.
+        const pending = pendingReviewActionRef.current;
+        pendingReviewActionRef.current = null;
+        if (pending) {
+          setTimeout(() => {
+            reviewSheetRef.current?.open(pending.booking, pending.userId);
+          }, 50);
+        }
+      }}
       onLeaveReview={() => {
         const target = pendingReviewBooking;
         if (!target || !userId) return;
-        // Close the receipt first, then hand off after FloatingSheet's
-        // close animation completes (~260ms) so the two sheets don't
-        // stack-fight.
+        // Stash the hand-off, then null the booking id which now
+        // properly triggers ReceiptSheet's close (the wasOpenRef
+        // gate inside it). The Review sheet opens from onClose
+        // above once the Modal has unmounted.
+        pendingReviewActionRef.current = {
+          booking: target,
+          userId: String(userId),
+        };
         setPendingReviewBooking(null);
-        setTimeout(() => {
-          reviewSheetRef.current?.open(target, String(userId));
-        }, 320);
       }}
     />
     <LeaveReviewSheet ref={reviewSheetRef} />
