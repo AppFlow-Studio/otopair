@@ -19,6 +19,17 @@
       "config": "build-ios-npm.yml",
       "autoIncrement": true,
       "channel": "production"
+    },
+    "preview-android": {
+      "config": "build-android-npm.yml",
+      "autoIncrement": true,
+      "environment": "preview",
+      "channel": "preview"
+    },
+    "production-android": {
+      "config": "build-android-npm.yml",
+      "autoIncrement": true,
+      "channel": "production"
     }
   },
   "submit": {

@@ -1,0 +1,25 @@
+build:
+  name: Android build (forced npm install)
+  steps:
+    - eas/checkout
+
+    # EAS's default `eas/install_node_modules` auto-detects the package manager,
+    # and the SDK 55 build image wrongly resolves this npm project to yarn.
+    # Run npm explicitly so the install always uses package-lock.json.
+    - run:
+        name: Install dependencies (npm ci)
+        command: npm ci
+
+    - eas/prebuild
+
+    - eas/configure_eas_update:
+        inputs:
+          throw_if_not_configured: false
+
+    - eas/inject_android_credentials
+
+    # No `command` input -> EAS auto-resolves the gradle task from the
+    # build profile (AAB for store, APK for internal), matching default behavior.
+    - eas/run_gradle
+
+    - eas/find_and_upload_build_artifacts
