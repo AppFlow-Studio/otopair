@@ -5,16 +5,19 @@
   },
   "build": {
     "development": {
+      "corepack": true,
       "developmentClient": true,
       "distribution": "internal",
       "channel": "development"
     },
     "preview": {
+      "corepack": true,
       "autoIncrement": true,
       "environment": "preview",
       "channel": "preview"
     },
     "production": {
+      "corepack": true,
       "autoIncrement": true,
       "channel": "production"
     }
