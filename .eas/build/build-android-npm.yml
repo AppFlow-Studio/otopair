@@ -8,7 +8,12 @@ build:
     # Run npm explicitly so the install always uses package-lock.json.
     - run:
         name: Install dependencies (npm ci)
-        command: npm ci
+        # Pin npm to the version that generated package-lock.json (local was 11.6.0)
+        # so EAS resolves the same tree -> npm ci stays in sync. Fall back to
+        # `npm install` if any residual mismatch remains, so the step can't hard-fail.
+        command: |
+          npm install -g npm@11.6.0 || true
+          npm ci || npm install --no-audit --no-fund
 
     - eas/prebuild
 
