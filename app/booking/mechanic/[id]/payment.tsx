@@ -777,13 +777,22 @@ export default function PaymentScreen() {
                   // the director can review "came out lower/higher than
                   // expected". The customer still sees the real part + price.
                   const eff = getEffectiveParts(service);
-                  // Single-axle services have just `winner`. Position="both"
-                  // services (e.g. Brake Pads All-four) carry `secondaryWinner`
-                  // for the rear axle — render both as separate part lines.
-                  const parts = [priced.winner, priced.secondaryWinner].filter(
-                    (p): p is NonNullable<typeof p> => p != null,
-                  );
-                  return parts.map((part) => {
+                  // Render EVERY locked line (core + default-kit), not just the
+                  // primary winner — secondary core consumables like the
+                  // drain-plug crush washer and oil-filter housing O-ring belong
+                  // on the customer quote too, so it matches the mechanic's
+                  // frozen `priced_parts_snapshot` (which keeps all
+                  // `includeInLockedQuote` rows). `priced.parts` already spans
+                  // both axles for position="both" services. Falls back to
+                  // winner/secondaryWinner for older backends that predate the
+                  // `locked` flag.
+                  const lockedParts = priced.parts.filter((p) => p.locked);
+                  const parts = (
+                    lockedParts.length > 0
+                      ? lockedParts
+                      : [priced.winner, priced.secondaryWinner]
+                  ).filter((p): p is NonNullable<typeof p> => p != null);
+                  return parts.map((part, partIdx) => {
                     const qtyLabel = part.quantity > 1 ? ` ×${part.quantity}` : "";
                     // Render the variance the algorithm actually observed —
                     // qty × kept-set min/max — instead of the single mean
@@ -801,7 +810,7 @@ export default function PaymentScreen() {
                       ? part.line_total_high * (1 + SINGLE_SOURCE_BAND)
                       : part.line_total_high;
                     return (
-                      <View key={`${service.id}-${part.part_id}`} style={styles.breakdownRow}>
+                      <View key={`${service.id}-${part.part_id}-${partIdx}`} style={styles.breakdownRow}>
                         <View style={styles.breakdownLabel}>
                           <Text size="sm" weight="regular" color="#6B7280">
                             {part.name} (Part){qtyLabel}

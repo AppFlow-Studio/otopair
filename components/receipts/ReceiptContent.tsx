@@ -79,7 +79,14 @@ export interface ReceiptPayload {
   };
   line_items: Array<
     | { type: "service"; name: string; labor_hours: number | null; labor_cost: number | null }
-    | { type: "part"; name: string; oem_number: string | null; cost: number | null }
+    | {
+        type: "part";
+        name: string;
+        oem_number: string | null;
+        quantity?: number;
+        unit_cost?: number | null;
+        cost: number | null;
+      }
   >;
   totals: {
     labor_subtotal: number | null;
@@ -215,7 +222,11 @@ export function ReceiptContent({ payload, onLeaveReview }: Props) {
                 icon={<Cog size={18} color="#475569" strokeWidth={1.8} />}
                 iconBg="rgba(100,116,139,0.10)"
                 name={line.name}
-                subtitle={line.oem_number ?? null}
+                subtitle={
+                  line.quantity != null && line.quantity > 1 && line.unit_cost != null
+                    ? `${line.oem_number ? `${line.oem_number} · ` : ""}${line.quantity} × ${fmtUSD(line.unit_cost)}`
+                    : line.oem_number ?? null
+                }
                 price={fmtUSD(line.cost)}
                 isLast={isLast}
               />

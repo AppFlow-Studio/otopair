@@ -106,7 +106,10 @@ export default function BookingConfirmingScreen() {
   // Open the sheet on mount, same shape as the tire-quote requesting flow.
   // Wallet flow gets the same countdown sheet as the card flow so the user
   // sees the appointment summary + Confirm-with-countdown before the
-  // booking lands.
+  // booking lands. The sheet renders inline (renderInModal={false} below)
+  // rather than inside a native <Modal>, because the wallet flow lands here
+  // straight off the Apple/Google Pay sheet — and iOS won't present a Modal
+  // while that one is still dismissing, which silently swallowed the open().
   useEffect(() => {
     sheetRef.current?.open();
   }, []);
@@ -339,6 +342,7 @@ export default function BookingConfirmingScreen() {
         snapHeights={[confirmLayout.sheetHeight]}
         onClose={handleSheetClose}
         cornerRadius={24}
+        renderInModal={false}
       >
         <BookingConfirmStatus
           onConfirm={handleConfirm}

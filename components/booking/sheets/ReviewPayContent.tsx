@@ -776,13 +776,22 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
                   // the director can review "came out lower/higher than
                   // expected". The customer still sees the real part + price.
                   const eff = getEffectiveParts(service);
-                  // Single-axle services have just `winner`. Position="both"
-                  // services (Brake Pads All-four) have `secondaryWinner` too —
-                  // render both axles as separate part lines.
-                  const parts = [priced.winner, priced.secondaryWinner].filter(
-                    (p): p is NonNullable<typeof p> => p != null,
-                  );
-                  return parts.map((part) => {
+                  // Render EVERY locked line (core + default-kit), not just the
+                  // primary winner — secondary core consumables like the
+                  // drain-plug crush washer and oil-filter housing O-ring belong
+                  // on the customer quote too, so it matches the mechanic's
+                  // frozen `priced_parts_snapshot` (which keeps all
+                  // `includeInLockedQuote` rows). `priced.parts` already spans
+                  // both axles for position="both" services. Falls back to
+                  // winner/secondaryWinner for older backends that predate the
+                  // `locked` flag.
+                  const lockedParts = priced.parts.filter((p) => p.locked);
+                  const parts = (
+                    lockedParts.length > 0
+                      ? lockedParts
+                      : [priced.winner, priced.secondaryWinner]
+                  ).filter((p): p is NonNullable<typeof p> => p != null);
+                  return parts.map((part, partIdx) => {
                     const qtyLabel = part.quantity > 1 ? ` ×${part.quantity}` : "";
                     // Fallback spec: always present the REAL scraped sample
                     // range (qty × kept-set min/max), even when it falls
@@ -808,7 +817,7 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
                         ? ` @ ~$${part.unit_price.toFixed(2)}`
                         : "";
                     return (
-                      <View key={`${service.id}-${part.part_id}`} style={styles.breakdownRow}>
+                      <View key={`${service.id}-${part.part_id}-${partIdx}`} style={styles.breakdownRow}>
                         <View style={styles.breakdownLabel}>
                           <Text size="sm" weight="regular" color="#6B7280">
                             {part.name} (Part){qtyLabel}

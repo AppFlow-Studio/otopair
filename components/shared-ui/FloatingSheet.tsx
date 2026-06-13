@@ -96,6 +96,14 @@ interface FloatingSheetProps {
    *  Pass `0` to keep the sheet pinned edge-to-edge at every detent
    *  (Vehicle-Health-overlay look). */
   sideInset?: number;
+  /** When true (default) the sheet renders inside a native <Modal> so it
+   *  floats above the global bottom tab bar. Set false on full-screen routes
+   *  that have no tab bar behind them (e.g. the booking `confirming` loader):
+   *  the native Modal cannot present on iOS while another modal — notably the
+   *  Apple/Google Pay sheet — is still dismissing, so a Modal-wrapped sheet
+   *  opened straight off a wallet payment is silently dropped. Rendering inline
+   *  sidesteps that race entirely. */
+  renderInModal?: boolean;
   /** Sheet body content (rendered below the grabber). */
   children?: React.ReactNode;
   /** Replaces the default solid-white sheet fill. Renders
@@ -124,6 +132,7 @@ export const FloatingSheet = forwardRef<FloatingSheetRef, FloatingSheetProps>(
       liftWithKeyboard = false,
       floatBottomInset,
       sideInset: sideInsetOverride,
+      renderInModal = true,
       children,
       backgroundElement,
     },
@@ -347,15 +356,10 @@ export const FloatingSheet = forwardRef<FloatingSheetRef, FloatingSheetProps>(
     // bottom tab bar (matches the membership-page bottom-sheet pattern).
     // Without this, the absolute-positioned sheet sits underneath the
     // floating TabBar and the user sees the tab bar peek through the
-    // dim/blur backdrop.
-    return (
-      <Modal
-        visible={mounted}
-        transparent
-        animationType="none"
-        statusBarTranslucent
-        onRequestClose={close}
-      >
+    // dim/blur backdrop. Callers on full-screen, tab-bar-less routes can opt
+    // out via `renderInModal={false}` to avoid the iOS modal-over-modal
+    // presentation race (see the prop doc).
+    const body = (
       <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
         {showBackdrop ? (
           <Animated.View style={[StyleSheet.absoluteFill, backdropAnimStyle]} pointerEvents="auto">
@@ -410,6 +414,19 @@ export const FloatingSheet = forwardRef<FloatingSheetRef, FloatingSheetProps>(
           </Animated.View>
         </Animated.View>
       </View>
+    );
+
+    if (!renderInModal) return body;
+
+    return (
+      <Modal
+        visible={mounted}
+        transparent
+        animationType="none"
+        statusBarTranslucent
+        onRequestClose={close}
+      >
+        {body}
       </Modal>
     );
   },
