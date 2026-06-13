@@ -639,7 +639,7 @@ export function SettingsContent({
         </SettingsCard>
         <Pressable onPress={() => router.push("/settings/about")} style={styles.footerRow}>
           <Text weight="medium" size="sm" color="rgba(255,255,255,0.55)">
-            About OtoPair v1.0.0
+            About OtoPair v1.1.0
           </Text>
         </Pressable>
       </Animated.ScrollView>
