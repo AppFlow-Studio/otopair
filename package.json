@@ -4,6 +4,7 @@
   "version": "1.1.0",
   "packageManager": "npm@11.6.0",
   "scripts": {
+    "eas-build-pre-install": "corepack enable",
     "start": "expo start",
     "reset-project": "node ./scripts/reset-project.js",
     "android": "expo run:android",
