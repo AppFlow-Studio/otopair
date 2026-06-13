@@ -1,0 +1,37 @@
+build:
+  name: iOS build (forced npm install)
+  steps:
+    - eas/checkout
+
+    # EAS's default `eas/install_node_modules` auto-detects the package manager,
+    # and the SDK 55 build image wrongly resolves this npm project to yarn.
+    # Run npm explicitly so the install always uses package-lock.json.
+    - run:
+        name: Install dependencies (npm ci)
+        command: npm ci
+
+    - eas/resolve_apple_team_id_from_credentials:
+        id: resolve_apple_team_id_from_credentials
+
+    - eas/prebuild:
+        inputs:
+          apple_team_id: ${ steps.resolve_apple_team_id_from_credentials.apple_team_id }
+
+    - run:
+        name: Install pods
+        working_directory: ./ios
+        command: pod install
+
+    - eas/configure_eas_update:
+        inputs:
+          throw_if_not_configured: false
+
+    - eas/configure_ios_credentials
+
+    - eas/generate_gymfile_from_template:
+        inputs:
+          credentials: ${ eas.job.secrets.buildCredentials }
+
+    - eas/run_fastlane
+
+    - eas/find_and_upload_build_artifacts

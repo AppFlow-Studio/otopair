@@ -5,19 +5,18 @@
   },
   "build": {
     "development": {
-      "corepack": true,
       "developmentClient": true,
       "distribution": "internal",
       "channel": "development"
     },
     "preview": {
-      "corepack": true,
+      "config": "build-ios-npm.yml",
       "autoIncrement": true,
       "environment": "preview",
       "channel": "preview"
     },
     "production": {
-      "corepack": true,
+      "config": "build-ios-npm.yml",
       "autoIncrement": true,
       "channel": "production"
     }
