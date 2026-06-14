@@ -25,12 +25,28 @@ import {
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { ChevronLeft, AlertCircle, AlertTriangle } from "lucide-react-native";
-import { useStripe } from "@stripe/stripe-react-native";
+import {
+  ChevronLeft,
+  ShieldCheck,
+  Wrench,
+  CreditCard,
+} from "lucide-react-native";
+import {
+  PlatformPay,
+  PlatformPayError,
+  useStripe,
+  usePlatformPay,
+} from "@stripe/stripe-react-native";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { Text } from "@/components/shared-ui";
-import { BrandColors, SemanticColors, Spacing } from "@/constants/theme";
+import {
+  BrandColors,
+  SemanticColors,
+  Spacing,
+  SurfaceColors,
+  CardShadow,
+} from "@/constants/theme";
 import { useOpenApprovalForBooking } from "@/hooks/useOpenApprovalForBooking";
 import { usePaymentStore } from "@/stores/usePaymentStore";
 import { useBookingStore } from "@/stores/useBookingStore";
@@ -41,9 +57,18 @@ function formatUsd(cents: number | undefined | null): string {
 }
 
 const HEADER_BY_CYCLE: Record<string, string> = {
-  pre_job: "YOUR CAR REQUIRES MORE THAN WE EXPECTED",
-  mid_job: "UPDATE FROM YOUR MECHANIC",
-  post_job: "FINAL BREAKDOWN — PLEASE CONFIRM",
+  pre_job: "Your car needs a little more than expected",
+  mid_job: "An update from your mechanic",
+  post_job: "Your final breakdown",
+};
+
+const SUBTITLE_BY_CYCLE: Record<string, string> = {
+  pre_job:
+    "Your mechanic took a closer look and found additional work. Here's what changed — review and approve to keep things moving.",
+  mid_job:
+    "While working, your mechanic found additional scope. Review the updated total below and approve to continue.",
+  post_job:
+    "The work is done. Here's the final breakdown before your card is charged.",
 };
 
 /**
@@ -160,137 +185,171 @@ function ApprovalDecisionView({ bookingId }: { bookingId: Id<"bookings"> }) {
   }
 
   const header = HEADER_BY_CYCLE[approval.cycle] ?? "Estimate update";
+  const subtitle = SUBTITLE_BY_CYCLE[approval.cycle] ?? "";
   const rangeLow = approval.disclosed_range_low_cents ?? 0;
   const rangeHigh = approval.disclosed_range_high_cents ?? 0;
+  const deltaCents = approval.mechanic_set_price_cents - rangeHigh;
 
   return (
-    <View
-      style={[
-        styles.root,
-        {
-          paddingTop: insets.top + Spacing.lg,
-        },
-      ]}
-    >
-      <Pressable onPress={() => router.back()} style={styles.backBtn}>
+    <View style={[styles.root, { paddingTop: insets.top + Spacing.lg }]}>
+      <Pressable onPress={() => router.back()} style={styles.backBtn} hitSlop={8}>
         <ChevronLeft size={24} color={BrandColors.primary} />
         <Text style={styles.backLabel}>Back</Text>
       </Pressable>
 
       <ScrollView
         contentContainerStyle={{
-          paddingHorizontal: Spacing.xl,
-          paddingBottom: 140 + insets.bottom,
+          paddingHorizontal: Spacing.lg,
+          paddingBottom: 160 + insets.bottom,
         }}
         showsVerticalScrollIndicator={false}
       >
-        <Text style={styles.h1}>{header}</Text>
-
-        {rangeHigh > 0 && (
-          <View style={{ marginTop: Spacing.xl }}>
-            <Text style={styles.muted}>Your original estimate</Text>
-            <Text style={styles.bodyBold}>
-              {formatUsd(rangeLow)} – {formatUsd(rangeHigh)}
-            </Text>
+        <View style={styles.hero}>
+          <View style={[styles.iconChip, styles.iconChipAmber]}>
+            <Wrench size={24} color={SemanticColors.warningAmber} />
           </View>
-        )}
-
-        <View style={{ marginTop: Spacing.xl }}>
-          <Text style={styles.muted}>Your mechanic's updated total</Text>
-          <Text
-            style={styles.h3}
-            numberOfLines={1}
-            adjustsFontSizeToFit
-            minimumFontScale={0.6}
-          >
-            {formatUsd(approval.mechanic_set_price_cents)}
+          <Text weight="bold" style={styles.h1}>
+            {header}
           </Text>
+          {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
         </View>
 
-        <View style={styles.divider} />
-
-        <Text style={styles.sectionLabel}>What changed</Text>
-        {breakdown.parts.map((p: any, idx: number) => {
-          if (p?.not_used) return null;
-          if (p?.supplied_by === "customer") return null;
-          const qty = Math.max(0, p?.quantity ?? 1);
-          const lineCents = Math.round((p?.cost ?? 0) * qty * 100);
-          const isManual = p?.source === "manual";
-          return (
-            <View key={idx} style={styles.partRow}>
-              <View style={{ flex: 1 }}>
-                <Text weight="semiBold" style={styles.partName}>
-                  {p?.part_name ?? "Part"}
-                </Text>
-                {p?.oem_number ? (
-                  <Text style={styles.partOem}>
-                    {p?.brand ? `${p.brand} · ` : ""}
-                    {p.oem_number}
-                  </Text>
-                ) : null}
-                <Text style={styles.partOem}>
-                  Qty {qty} · {formatUsd(Math.round((p?.cost ?? 0) * 100))} ea
-                </Text>
-                {isManual && p?.justification_text ? (
-                  <Text style={styles.partJustification}>
-                    “{p.justification_text}”
-                  </Text>
-                ) : null}
-              </View>
-              <Text weight="semiBold" style={styles.partTotal}>
-                {formatUsd(lineCents)}
+        <View style={styles.card}>
+          {rangeHigh > 0 && (
+            <View style={styles.estimateRow}>
+              <Text style={styles.cardMuted}>Original estimate</Text>
+              <Text style={styles.estimateOriginal}>
+                {formatUsd(rangeLow)} – {formatUsd(rangeHigh)}
               </Text>
             </View>
-          );
-        })}
-
-        {/* <View style={styles.divider} /> */}
-
-        <View style={styles.totalsBlock}>
-          <View style={styles.totalRow}>
-            <Text style={styles.totalLabel}>Parts</Text>
-            <Text style={styles.totalValue}>{formatUsd(breakdown.partsCents)}</Text>
-          </View>
-          {breakdown.laborCents > 0 && (
-            <View style={styles.totalRow}>
-              <Text style={styles.totalLabel}>
-                Labor{breakdown.laborHours ? ` (${breakdown.laborHours} hrs)` : ""}
-              </Text>
-              <Text style={styles.totalValue}>{formatUsd(breakdown.laborCents)}</Text>
-            </View>
           )}
-          {breakdown.remainder > 0 && (
-            <View style={styles.totalRow}>
-              <Text style={styles.totalLabel}>Tax + service fee</Text>
-              <Text style={styles.totalValue}>{formatUsd(breakdown.remainder)}</Text>
-            </View>
-          )}
-          <View style={[styles.totalRow, { marginTop: Spacing.sm }]}>
+          <View style={styles.totalHero}>
+            <Text style={styles.cardMuted}>Updated total</Text>
             <Text
-              weight="semiBold"
-              style={styles.totalLabelBold}
-              numberOfLines={1}
-            >
-              Updated total
-            </Text>
-            <Text
-              weight="semiBold"
-              style={[styles.totalLabelBold, styles.totalValueRight]}
+              weight="bold"
+              style={styles.totalHeroValue}
               numberOfLines={1}
               adjustsFontSizeToFit
-              minimumFontScale={0.75}
+              minimumFontScale={0.6}
             >
               {formatUsd(approval.mechanic_set_price_cents)}
             </Text>
           </View>
+          {deltaCents > 0 && (
+            <View style={styles.deltaPill}>
+              <Text weight="semiBold" style={styles.deltaPillText}>
+                {formatUsd(deltaCents)} above your estimate
+              </Text>
+            </View>
+          )}
+        </View>
+
+        <View style={styles.card}>
+          <Text weight="semiBold" style={styles.sectionLabel}>
+            What changed
+          </Text>
+          {breakdown.parts.map((p: any, idx: number) => {
+            if (p?.not_used) return null;
+            if (p?.supplied_by === "customer") return null;
+            const qty = Math.max(0, p?.quantity ?? 1);
+            const lineCents = Math.round((p?.cost ?? 0) * qty * 100);
+            const isManual = p?.source === "manual";
+            return (
+              <View key={idx} style={styles.partRow}>
+                <View style={{ flex: 1 }}>
+                  <Text weight="semiBold" style={styles.partName}>
+                    {p?.part_name ?? "Part"}
+                  </Text>
+                  {p?.oem_number ? (
+                    <Text style={styles.partOem}>
+                      {p?.brand ? `${p.brand} · ` : ""}
+                      {p.oem_number}
+                    </Text>
+                  ) : null}
+                  <Text style={styles.partOem}>
+                    Qty {qty} · {formatUsd(Math.round((p?.cost ?? 0) * 100))} ea
+                  </Text>
+                  {isManual && p?.justification_text ? (
+                    <Text style={styles.partJustification}>
+                      “{p.justification_text}”
+                    </Text>
+                  ) : null}
+                </View>
+                <Text weight="semiBold" style={styles.partTotal}>
+                  {formatUsd(lineCents)}
+                </Text>
+              </View>
+            );
+          })}
+
+          {approval.notes ? (
+            <View style={styles.noteBlock}>
+              <Text weight="semiBold" style={styles.noteLabel}>
+                Why the change
+              </Text>
+              <Text style={styles.noteText}>“{approval.notes}”</Text>
+            </View>
+          ) : null}
+
+          <View style={styles.cardDivider} />
+
+          <View style={styles.totalsBlock}>
+            <View style={styles.totalRow}>
+              <Text style={styles.totalLabel}>Parts</Text>
+              <Text style={styles.totalValue}>
+                {formatUsd(breakdown.partsCents)}
+              </Text>
+            </View>
+            {breakdown.laborCents > 0 && (
+              <View style={styles.totalRow}>
+                <Text style={styles.totalLabel}>
+                  Labor
+                  {breakdown.laborHours ? ` (${breakdown.laborHours} hrs)` : ""}
+                </Text>
+                <Text style={styles.totalValue}>
+                  {formatUsd(breakdown.laborCents)}
+                </Text>
+              </View>
+            )}
+            {breakdown.remainder > 0 && (
+              <View style={styles.totalRow}>
+                <Text style={styles.totalLabel}>Tax + service fee</Text>
+                <Text style={styles.totalValue}>
+                  {formatUsd(breakdown.remainder)}
+                </Text>
+              </View>
+            )}
+            <View style={[styles.totalRow, { marginTop: Spacing.sm }]}>
+              <Text
+                weight="semiBold"
+                style={styles.totalLabelBold}
+                numberOfLines={1}
+              >
+                Updated total
+              </Text>
+              <Text
+                weight="semiBold"
+                style={[styles.totalLabelBold, styles.totalValueRight]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.75}
+              >
+                {formatUsd(approval.mechanic_set_price_cents)}
+              </Text>
+            </View>
+          </View>
         </View>
 
         <View style={styles.infoBanner}>
-          <AlertCircle size={18} color={SemanticColors.primaryBlueDark} />
+          <ShieldCheck
+            size={18}
+            color={SemanticColors.primaryBlue}
+            style={{ marginTop: 1 }}
+          />
           <Text style={styles.infoText}>
-            This will raise the hold on your card to{" "}
+            Approving raises the hold on your card to{" "}
             {formatUsd(approval.mechanic_set_price_cents)}. You're only charged
-            when work is complete.
+            when the work is complete.
           </Text>
         </View>
       </ScrollView>
@@ -367,6 +426,7 @@ function ReauthView({
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { handleNextAction } = useStripe();
+  const { createPlatformPayPaymentMethod } = usePlatformPay();
   // Reauth uses a dedicated action (NOT createPaymentIntentForBooking):
   // the public booking action short-circuits when a PI already exists for
   // the booking and just returns it — useless here because the existing
@@ -378,6 +438,15 @@ function ReauthView({
     (s) => s.selectedPaymentMethodId,
   );
   const paymentMethods = usePaymentStore((s) => s.paymentMethods);
+  // Originating payment method (card vs. wallet) for this booking. Wallets
+  // can't silently reauth — we must re-prompt the customer for a fresh
+  // PlatformPay token because the original one-time PM is no longer valid.
+  const paymentOrigin = useQuery(
+    api.payments_stripe.getPaymentOriginForBooking,
+    { bookingId },
+  );
+  const isWalletOrigin =
+    paymentOrigin === "apple_pay" || paymentOrigin === "google_pay";
   const [submitting, setSubmitting] = useState(false);
 
   const isBookingLoading = booking === undefined;
@@ -402,18 +471,86 @@ function ReauthView({
 
   const handleConfirmHold = useCallback(async () => {
     if (submitting) return;
-    if (!pmId) {
-      Alert.alert(
-        "Add a card first",
-        "You don't have a saved card. Tap 'Use a different card' to add one.",
-      );
-      return;
+    let pmIdToCharge: string | null = null;
+    let originForRow: "card" | "apple_pay" | "google_pay" | undefined;
+
+    if (isWalletOrigin) {
+      // Wallet origin → re-present the same wallet sheet to mint a fresh
+      // one-time PM. The original wallet token is invalid for re-use; only
+      // the user's biometric / device auth on a new sheet can produce a
+      // valid PM. iOS shows Apple Pay; Android shows Google Pay.
+      setSubmitting(true);
+      try {
+        const { paymentMethod, error } =
+          paymentOrigin === "apple_pay"
+            ? await createPlatformPayPaymentMethod({
+                applePay: {
+                  cartItems: [
+                    {
+                      paymentType: PlatformPay.PaymentType.Immediate,
+                      label: "OtoPair booking",
+                      amount: ((newHoldCents ?? 0) / 100).toFixed(2),
+                    },
+                  ],
+                  merchantCountryCode: "US",
+                  currencyCode: "USD",
+                },
+              })
+            : await createPlatformPayPaymentMethod({
+                googlePay: {
+                  testEnv: __DEV__,
+                  merchantCountryCode: "US",
+                  currencyCode: "USD",
+                  merchantName: "OtoPair",
+                },
+              });
+        if (error) {
+          if (error.code !== PlatformPayError.Canceled) {
+            Alert.alert(
+              "Couldn't confirm hold",
+              error.message ?? "Wallet authorization failed.",
+            );
+          }
+          setSubmitting(false);
+          return;
+        }
+        if (!paymentMethod) {
+          Alert.alert(
+            "Couldn't confirm hold",
+            "Wallet didn't return a payment method.",
+          );
+          setSubmitting(false);
+          return;
+        }
+        pmIdToCharge = paymentMethod.id;
+        originForRow = paymentOrigin;
+      } catch (err: any) {
+        Alert.alert(
+          "Couldn't confirm hold",
+          err?.message ?? "Wallet authorization failed.",
+        );
+        setSubmitting(false);
+        return;
+      }
+    } else {
+      // Card origin (or origin not yet recorded — legacy bookings).
+      if (!pmId) {
+        Alert.alert(
+          "Add a card first",
+          "You don't have a saved card. Tap 'Use a different card' to add one.",
+        );
+        return;
+      }
+      pmIdToCharge = pmId;
+      originForRow = "card";
+      setSubmitting(true);
     }
-    setSubmitting(true);
+
     try {
       const pi = await resumeReauth({
         bookingId,
-        paymentMethodId: pmId,
+        paymentMethodId: pmIdToCharge!,
+        ...(originForRow ? { paymentOrigin: originForRow } : {}),
       });
       if (pi.requiresAction) {
         const { error } = await handleNextAction(pi.clientSecret);
@@ -442,7 +579,18 @@ function ReauthView({
     } finally {
       setSubmitting(false);
     }
-  }, [submitting, pmId, resumeReauth, bookingId, handleNextAction, router]);
+  }, [
+    submitting,
+    pmId,
+    isWalletOrigin,
+    paymentOrigin,
+    newHoldCents,
+    createPlatformPayPaymentMethod,
+    resumeReauth,
+    bookingId,
+    handleNextAction,
+    router,
+  ]);
 
   const handleUseDifferentCard = useCallback(() => {
     if (submitting) return;
@@ -509,43 +657,52 @@ function ReauthView({
 
       <ScrollView
         contentContainerStyle={{
-          paddingHorizontal: Spacing.xl,
-          paddingBottom: 220 + insets.bottom,
+          paddingHorizontal: Spacing.lg,
+          paddingBottom: 240 + insets.bottom,
         }}
         showsVerticalScrollIndicator={false}
       >
-        <Text style={styles.h1}>CONFIRM NEW HOLD ON YOUR CARD</Text>
+        <View style={styles.hero}>
+          <View style={[styles.iconChip, styles.iconChipBlue]}>
+            <CreditCard size={24} color={BrandColors.secondary} />
+          </View>
+          <Text weight="bold" style={styles.h1}>
+            Confirm your card hold
+          </Text>
+          <Text style={styles.subtitle}>
+            {isWalletOrigin
+              ? paymentOrigin === "apple_pay"
+                ? "We couldn't extend the hold on your Apple Pay automatically. Confirm below to re-authorize and keep your booking moving."
+                : "We couldn't extend the hold on your Google Pay automatically. Confirm below to re-authorize and keep your booking moving."
+              : "Your bank needs to verify the updated hold before work can begin. Confirm below — you may be asked to authenticate — or use a different card."}
+          </Text>
+        </View>
 
-        <View style={{ marginTop: Spacing.xl }}>
-          <Text style={styles.muted}>Your mechanic&apos;s updated total</Text>
+        <View style={styles.card}>
+          <Text style={styles.cardMuted}>New hold amount</Text>
           <Text
-            style={styles.h3}
+            weight="bold"
+            style={styles.totalHeroValue}
             numberOfLines={1}
             adjustsFontSizeToFit
             minimumFontScale={0.6}
           >
             {formatUsd(newHoldCents)}
           </Text>
-        </View>
 
-        <View style={styles.divider} />
+          <View style={styles.cardDivider} />
 
-        <View style={styles.reauthBanner}>
-          <AlertTriangle size={18} color="#b91c1c" />
-          <Text style={styles.reauthBannerText}>
-            Your card couldn&apos;t confirm the higher hold automatically.
-            This is usually because your bank needs to verify the charge
-            with you. Confirm below — you may be prompted to authenticate
-            with your bank — or use a different card.
-          </Text>
-        </View>
-
-        <View style={{ marginTop: Spacing.xl }}>
-          <Text style={styles.muted}>What happens next</Text>
-          <Text style={styles.bodyText}>
-            We&apos;ll re-authorize {formatUsd(newHoldCents)} on your card
-            as a hold. You&apos;re only charged when work is complete.
-          </Text>
+          <View style={styles.nextRow}>
+            <ShieldCheck
+              size={18}
+              color={SemanticColors.primaryBlue}
+              style={{ marginTop: 1 }}
+            />
+            <Text style={styles.infoTextPlain}>
+              We&apos;ll re-authorize {formatUsd(newHoldCents)} as a hold.
+              You&apos;re only charged when the work is complete.
+            </Text>
+          </View>
         </View>
       </ScrollView>
 
@@ -558,17 +715,26 @@ function ReauthView({
       >
         <Pressable
           onPress={handleConfirmHold}
-          disabled={submitting}
+          // paymentOrigin === undefined means the query is in flight —
+          // disable so the user doesn't tap and fall through to the card
+          // branch before the origin lands.
+          disabled={submitting || paymentOrigin === undefined}
           style={[
             styles.btn,
             styles.btnApprove,
             styles.btnFull,
-            submitting && { opacity: 0.7 },
+            (submitting || paymentOrigin === undefined) && { opacity: 0.7 },
           ]}
         >
           <View style={styles.btnApproveStack}>
             <Text weight="semiBold" style={styles.btnApproveLabel}>
-              {submitting ? "Confirming…" : "Confirm hold of"}
+              {submitting
+                ? "Confirming…"
+                : isWalletOrigin
+                  ? paymentOrigin === "apple_pay"
+                    ? "Confirm with Apple Pay"
+                    : "Confirm with Google Pay"
+                  : "Confirm hold of"}
             </Text>
             {!submitting && (
               <Text
@@ -615,53 +781,106 @@ function ReauthView({
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: "#FFFFFF" },
+  root: { flex: 1, backgroundColor: SurfaceColors.canvas },
   backBtn: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: Spacing.xl,
-    paddingBottom: Spacing.sm,
+    paddingHorizontal: Spacing.lg,
+    paddingBottom: Spacing.md,
   },
   backLabel: { color: BrandColors.primary, marginLeft: 2 },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
+
+  // ── Hero ──────────────────────────────────────────────────────────────
+  hero: {
+    alignItems: "center",
+    paddingTop: Spacing.sm,
+    paddingBottom: Spacing.xl,
+    paddingHorizontal: Spacing.sm,
+  },
+  iconChip: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: Spacing.lg,
+  },
+  iconChipAmber: { backgroundColor: "rgba(217,119,6,0.12)" },
+  iconChipBlue: { backgroundColor: "rgba(82,153,254,0.12)" },
   h1: {
-    fontSize: 22,
+    fontSize: 24,
+    lineHeight: 30,
     color: BrandColors.primary,
-    fontWeight: "700",
+    textAlign: "center",
+    letterSpacing: -0.4,
+  },
+  subtitle: {
+    fontSize: 15,
+    lineHeight: 21,
+    color: SemanticColors.textMuted,
+    textAlign: "center",
     marginTop: Spacing.sm,
-    letterSpacing: 0.3,
+    paddingHorizontal: Spacing.sm,
   },
-  h3: {
-    fontSize: 32,
-    lineHeight: 42,
-    color: BrandColors.primary,
-    fontWeight: "700",
-    marginTop: Spacing.xs,
-    paddingTop: 4,
-    includeFontPadding: true,
+
+  // ── Cards ─────────────────────────────────────────────────────────────
+  card: {
+    backgroundColor: SurfaceColors.cardSurface,
+    borderRadius: 24,
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.lg,
+    marginBottom: Spacing.md,
+    boxShadow: CardShadow.default,
   },
-  muted: { color: SemanticColors.textMuted, fontSize: 13 },
-  bodyBold: {
-    fontSize: 16,
+  cardMuted: { color: SemanticColors.textMuted, fontSize: 13 },
+  cardDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: SemanticColors.border,
+    marginVertical: Spacing.lg,
+  },
+
+  // ── Price summary ─────────────────────────────────────────────────────
+  estimateRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "baseline",
+    marginBottom: Spacing.lg,
+  },
+  estimateOriginal: {
+    fontSize: 15,
+    color: SemanticColors.textMuted,
+    textDecorationLine: "line-through",
+  },
+  totalHero: { alignItems: "flex-start" },
+  totalHeroValue: {
+    fontSize: 40,
+    lineHeight: 48,
     color: BrandColors.primary,
-    fontWeight: "600",
+    letterSpacing: -1,
     marginTop: 2,
   },
-  divider: {
-    height: 1,
-    backgroundColor: SemanticColors.border,
-    marginVertical: Spacing.xl,
+  deltaPill: {
+    alignSelf: "flex-start",
+    backgroundColor: "rgba(217,119,6,0.12)",
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    marginTop: Spacing.md,
   },
+  deltaPillText: { color: SemanticColors.warningAmber, fontSize: 13 },
+
+  // ── What changed ──────────────────────────────────────────────────────
   sectionLabel: {
-    fontSize: 14,
-    fontWeight: "600",
+    fontSize: 16,
     color: BrandColors.primary,
-    marginBottom: Spacing.md,
+    marginBottom: Spacing.sm,
+    letterSpacing: -0.2,
   },
   partRow: {
     flexDirection: "row",
     paddingVertical: Spacing.md,
-    borderBottomWidth: 1,
+    borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: SemanticColors.border,
   },
   partName: { fontSize: 15, color: BrandColors.primary },
@@ -673,6 +892,25 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   partTotal: { fontSize: 15, color: BrandColors.primary, marginLeft: Spacing.md },
+  noteBlock: {
+    backgroundColor: SurfaceColors.canvas,
+    borderRadius: 16,
+    padding: Spacing.md,
+    marginTop: Spacing.lg,
+  },
+  noteLabel: {
+    fontSize: 13,
+    color: SemanticColors.textMuted,
+    marginBottom: 4,
+  },
+  noteText: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: SemanticColors.textSecondary,
+    fontStyle: "italic",
+  },
+
+  // ── Totals ────────────────────────────────────────────────────────────
   totalsBlock: { gap: Spacing.sm },
   totalRow: { flexDirection: "row", justifyContent: "space-between" },
   totalLabel: { color: SemanticColors.textSecondary },
@@ -683,16 +921,33 @@ const styles = StyleSheet.create({
     marginLeft: Spacing.md,
     textAlign: "right",
   },
+
+  // ── Info / next-step note ─────────────────────────────────────────────
   infoBanner: {
     flexDirection: "row",
     alignItems: "flex-start",
     gap: 10,
     backgroundColor: SemanticColors.primaryBlueLight,
-    padding: Spacing.md,
-    borderRadius: 10,
-    marginTop: Spacing.xl,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.md,
+    borderRadius: 16,
+    marginTop: Spacing.xs,
   },
-  infoText: { flex: 1, color: SemanticColors.primaryBlueDark, fontSize: 13 },
+  infoText: {
+    flex: 1,
+    color: SemanticColors.primaryBlueDark,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  nextRow: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
+  infoTextPlain: {
+    flex: 1,
+    color: SemanticColors.textSecondary,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+
+  // ── Footer + buttons ──────────────────────────────────────────────────
   footer: {
     position: "absolute",
     left: 0,
@@ -700,66 +955,40 @@ const styles = StyleSheet.create({
     bottom: 0,
     flexDirection: "row",
     gap: Spacing.md,
-    paddingHorizontal: Spacing.xl,
+    paddingHorizontal: Spacing.lg,
     paddingTop: Spacing.md,
-    backgroundColor: "#FFFFFF",
-    borderTopWidth: 1,
+    backgroundColor: SurfaceColors.cardSurface,
+    borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: SemanticColors.border,
   },
   btn: {
     flex: 1,
-    borderRadius: 12,
-    paddingVertical: 16,
+    borderRadius: 16,
+    paddingVertical: 17,
     alignItems: "center",
     justifyContent: "center",
   },
-  btnDecline: {
-    backgroundColor: "#FFFFFF",
-    borderWidth: 1,
-    borderColor: SemanticColors.border,
-  },
+  btnDecline: { backgroundColor: "#F2F2F7" },
   btnDeclineText: { color: BrandColors.primary, fontSize: 16 },
-  btnApprove: { backgroundColor: BrandColors.primary, flex: 1.4 },
+  btnApprove: { backgroundColor: BrandColors.secondary, flex: 1.5 },
   btnApproveText: { color: "#FFFFFF", fontSize: 16 },
   btnApproveStack: {
     alignItems: "center",
     justifyContent: "center",
-    gap: 2,
+    gap: 1,
     paddingHorizontal: Spacing.sm,
   },
-  btnApproveLabel: { color: "#FFFFFF", fontSize: 12, opacity: 0.85 },
+  btnApproveLabel: { color: "#FFFFFF", fontSize: 12, opacity: 0.9 },
   btnApproveAmount: { color: "#FFFFFF", fontSize: 18 },
-  // ── Reauth-only additions ────────────────────────────────────────────
-  bodyText: {
-    fontSize: 14,
-    color: SemanticColors.textSecondary,
-    lineHeight: 20,
-    marginTop: 4,
-  },
-  reauthBanner: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 10,
-    backgroundColor: "#fef2f2",
-    borderColor: "#fca5a5",
-    borderWidth: 1,
-    padding: Spacing.md,
-    borderRadius: 10,
-    marginTop: Spacing.lg,
-  },
-  reauthBannerText: { flex: 1, color: "#7f1d1d", fontSize: 13, lineHeight: 18 },
+  // ── Reauth footer additions ───────────────────────────────────────────
   footerStack: { flexDirection: "column", gap: Spacing.sm },
   btnFull: { width: "100%", flex: 0 },
-  btnSecondary: {
-    backgroundColor: "#FFFFFF",
-    borderWidth: 1,
-    borderColor: SemanticColors.border,
-  },
+  btnSecondary: { backgroundColor: "#F2F2F7" },
   btnSecondaryText: { color: BrandColors.primary, fontSize: 15 },
   tertiaryLinkWrap: {
     paddingVertical: Spacing.sm,
     alignItems: "center",
     justifyContent: "center",
   },
-  tertiaryLinkText: { color: "#b91c1c", fontSize: 14 },
+  tertiaryLinkText: { color: SemanticColors.textMuted, fontSize: 14 },
 });

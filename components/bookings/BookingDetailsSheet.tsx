@@ -41,7 +41,7 @@ import Animated, {
 import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
 
-import { Bell, Car, ChevronDown, ChevronRight, DollarSign, FileText, MessageCircle, Navigation, Phone, ThumbsDown, ThumbsUp, User, Wrench, X } from "lucide-react-native";
+import { ArrowRight, Bell, Car, Check, ChevronDown, ChevronRight, FileText, MessageCircle, Navigation, Phone, ReceiptText, User, Wrench, X } from "lucide-react-native";
 
 import { openMapsForAddress, openPhone } from "@/utils/linking";
 import { useQuery } from "convex/react";
@@ -1282,13 +1282,13 @@ function ArrivalTrackingTimeline({ monitor }: { monitor: LateMonitor }) {
         const isLast = idx === events.length - 1;
         const IconComponent = event.icon === "bell" ? Bell : Car;
         const iconColor = event.icon === "bell" ? "#D97706" : "#059669";
-        const bgColor = event.icon === "bell" ? "#FEF3C7" : "#D1FAE5";
+        const bgColor = event.icon === "bell" ? "#FFFBEB" : "#ECFDF5";
 
         return (
           <View key={idx} style={styles.timelineRow}>
             <View style={styles.timelineDotColumn}>
               <View style={[styles.arrivalDot, { backgroundColor: bgColor }]}>
-                <IconComponent size={12} color={iconColor} />
+                <IconComponent size={13} color={iconColor} strokeWidth={2.4} />
               </View>
               {!isLast ? <View style={styles.timelineLine} /> : null}
             </View>
@@ -1405,23 +1405,28 @@ function activitySummary(ev: ActivityEvent, isCustomer: boolean): string {
   }
 }
 
+// Cohesive timeline palette: anchored on the brand blue for the primary
+// "created" moment, with restrained semantic color (green/amber/red, drawn
+// from the app's SemanticColors tokens) reserved only for events that
+// genuinely carry weight. Everything routine stays a calm neutral so the
+// timeline reads as one designed system, not a rainbow of alerts.
 function activityIcon(ev: ActivityEvent): { Icon: any; bg: string; fg: string } {
   switch (ev.type) {
     case "booking_created":
-      return { Icon: FileText, bg: "#E0E7FF", fg: "#4F46E5" };
+      return { Icon: FileText, bg: "rgba(82,153,254,0.12)", fg: "#5299FE" };
     case "status_change":
-      return { Icon: ChevronRight, bg: "#F2F2F7", fg: "#6B7280" };
+      return { Icon: ArrowRight, bg: "#F2F2F7", fg: "#8E8E93" };
     case "estimate_submitted":
-      return { Icon: DollarSign, bg: "#FEF3C7", fg: "#D97706" };
+      return { Icon: ReceiptText, bg: "#FFFBEB", fg: "#D97706" };
     case "estimate_decision": {
       const d = ev.data.decision;
       if (d === "approved" || d === "auto_approved_within_range") {
-        return { Icon: ThumbsUp, bg: "#D1FAE5", fg: "#059669" };
+        return { Icon: Check, bg: "#ECFDF5", fg: "#059669" };
       }
-      return { Icon: ThumbsDown, bg: "#FEE2E2", fg: "#DC2626" };
+      return { Icon: X, bg: "#FEF2F2", fg: "#DC2626" };
     }
     case "part_edit":
-      return { Icon: Wrench, bg: "#F3F4F6", fg: "#6B7280" };
+      return { Icon: Wrench, bg: "#F2F2F7", fg: "#8E8E93" };
   }
 }
 
@@ -1447,7 +1452,7 @@ function ActivityRow({
     <View style={styles.timelineRow}>
       <View style={styles.timelineDotColumn}>
         <View style={[styles.arrivalDot, { backgroundColor: bg }]}>
-          <Icon size={12} color={fg} />
+          <Icon size={13} color={fg} strokeWidth={2.4} />
         </View>
         {!isLast ? <View style={styles.timelineLine} /> : null}
       </View>

@@ -753,7 +753,15 @@ export const COLOR_SYNONYMS: Record<string, string[]> = {
   red:               ["red", "crimson", "ruby", "scarlet", "garnet", "rosso", "carmine", "cherry"],
   blue:              ["blue", "navy", "ocean", "azure", "sapphire", "indigo", "marine", "atlas", "storm", "sea", "abyss", "denim", "cobalt"],
   green:             ["green", "emerald", "jade", "forest", "moss", "olive", "lime", "british"],
-  beige:             ["beige", "sand", "tan", "khaki", "champagne", "wheat", "almond"],
+  // Yellow / gold / sand marketing names ("Saharan Sun", "Solar Yellow",
+  // "Golden Olive", "Amber Bronze") all land in beige — the classifier
+  // hashes warm yellow-amber hues into the beige family too, and beige
+  // has a tan/gold COLOR_GRADIENTS entry that reads as light gold. Red
+  // is iterated first so genuine "Sunset Red" / "Amber Red" hit red,
+  // not beige.
+  beige:             ["beige", "sand", "tan", "khaki", "champagne", "wheat", "almond",
+                      "sahara", "saharan", "sun", "solar", "gold", "golden",
+                      "amber", "honey", "yellow", "mustard", "maize"],
   brown:             ["brown", "espresso", "cocoa", "mahogany", "walnut", "bronze", "copper", "russet"],
 };
 
@@ -946,6 +954,36 @@ function hexToHsl(
     h *= 60;
   }
   return { h, s, l };
+}
+
+/**
+ * Pick which CarSilhouette variant matches an NHTSA/VDB body class
+ * string. Used by the add-vehicle-review loading skeleton so the
+ * placeholder reads as the right shape (SUV/truck/sedan) while the
+ * VDB image resolves.
+ *
+ * Pickup detection uses the literal word "pickup" rather than the
+ * generic "truck" — "Truck-Tractor" (semi cab) shouldn't show the
+ * consumer pickup silhouette. Wagons / Hatchbacks fall through to
+ * the sedan default.
+ */
+export function pickSilhouetteVariant(
+  body: string | null | undefined,
+): "sedan" | "suv" | "truck" {
+  if (!body) return "sedan";
+  const lower = body.toLowerCase();
+  if (lower.includes("pickup")) return "truck";
+  if (
+    lower.includes("sport utility") ||
+    lower.includes("suv") ||
+    lower.includes("crossover") ||
+    lower.includes("multi-purpose") ||
+    lower.includes("mpv") ||
+    lower.includes("cuv")
+  ) {
+    return "suv";
+  }
+  return "sedan";
 }
 
 /**

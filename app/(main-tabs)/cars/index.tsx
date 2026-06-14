@@ -19,8 +19,6 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { haptics } from "@/lib/haptics";
 import { useToast } from "@/hooks/useToast";
-import * as DocumentPicker from "expo-document-picker";
-import { WebView } from "react-native-webview";
 import Svg, { Circle, Defs, LinearGradient as SvgLinearGradient, Stop } from "react-native-svg";
 
 // 3. Convex & hooks
@@ -29,6 +27,7 @@ import { api } from "@/convex/_generated/api";
 import { useUserFromConvex } from "@/hooks/useUserFromConvex";
 import { useVehicleOwnershipFromConvex } from "@/hooks/useVehicleOwnershipFromConvex";
 import { useMergedMaintenance } from "@/hooks/useMaintenanceData";
+import { useUrgencyRankedItems } from "@/hooks/useUrgencyRankedItems";
 import { useDriverRecommendationsFromConvex } from "@/hooks/useDriverRecommendationsFromConvex";
 import { useBookingStore } from "@/stores/useBookingStore";
 import {
@@ -56,14 +55,15 @@ const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 import CarCarousel, { Vehicle } from "@/components/cars/CarCarousel";
 import { VehicleRoleSheet } from "@/components/cars/VehicleRoleSheet";
 import { ProfileInitialsButton } from "@/components/home/ProfileInitialsButton";
-import LoyaltyPoints from "@/components/cars/LoyaltyPoints";
+// MVP-DISABLED: loyalty/rewards — re-enable post-launch
+// import LoyaltyPoints from "@/components/cars/LoyaltyPoints";
 import MaintenanceTracker from "@/components/cars/MaintenanceTracker";
 import MaintenanceInputModal from "@/components/cars/MaintenanceInputModal";
 import { CheckinBanner } from "@/components/cars/CheckinBanner";
 import UpcomingFollowUpsCard from "@/components/cars/UpcomingFollowUpsCard";
 import CarInfoStepper, { type CarInfoStepperHandle } from "@/components/cars/CarInfoStepper";
 import { AnimatedGradientBackground } from "@/components/shared-ui/AnimatedGradientBackground";
-import ServiceHistory, { ServiceRecord, type PickedDocument } from "@/components/cars/ServiceHistory";
+import { VehicleServiceHistory } from "@/components/cars/VehicleServiceHistory";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 import { PostOptimizeBookingSheet } from "@/components/cars/PostOptimizeBookingSheet";
 import { PackageQuestionsSheet } from "@/components/cars/PackageQuestionsSheet";
@@ -155,7 +155,7 @@ export default function CarsHomeScreen() {
   const aiStepBottomClearance = scale(118) + insets.bottom;
   const isFocused = useIsFocused();
   const router = useRouter();
-  const params = useLocalSearchParams<{ openStepper?: string; focusVin?: string }>();
+  const params = useLocalSearchParams<{ openStepper?: string; focusVin?: string; openItemDetail?: string }>();
   const [refreshing, setRefreshing] = useState(false);
   // Active vehicle is tracked by VIN so adding/removing a car (which can
   // re-sort the list via `isDefault` then VIN) doesn't scramble which car is
@@ -197,8 +197,6 @@ export default function CarsHomeScreen() {
   const [showOptimizeBookingSheet, setShowOptimizeBookingSheet] = useState(false);
 
   // Fullscreen gears overlay
-  const [pickedDocuments, setPickedDocuments] = useState<PickedDocument[]>([]);
-  const [viewingDocument, setViewingDocument] = useState<PickedDocument | null>(null);
   const [gearsOverlayVisible, setGearsOverlayVisible] = useState(false);
   const [gearsPhase, setGearsPhase] = useState<'looping' | 'building' | 'ready'>('looping');
   const gearsOverlayOpacity = useRef(new Animated.Value(1)).current;
@@ -1074,6 +1072,18 @@ export default function CarsHomeScreen() {
     driverRecommendations,
   );
 
+  // Action Engine ranking (Yassin v1.1 §3): computes urgency + tier per
+  // item and bucket-groups them for MaintenanceTracker's tier-aware
+  // render. Side effect: emits tier-change events to Convex
+  // (`urgency_tier_events`) for post-launch calibration of the 75/55/25
+  // cutoffs. The MaintenanceTracker on this page is the authoritative
+  // emitter — other surfaces (Home callout) compute tiers without
+  // logging to avoid double-counting.
+  const { byTier: urgencyTierBuckets } = useUrgencyRankedItems(
+    mergedMaintenanceItems,
+    activeVehicle?.vin,
+  );
+
   // HP buffer for the active vehicle — every 15 HP yields +1 on the
   // displayed score, capped at +3 (Rewards Framework v3 §11).
   const hpForUser = useQuery(
@@ -1255,9 +1265,6 @@ export default function CarsHomeScreen() {
       cb?.();
     });
   }, [editPickerY, editPickerBackdrop]);
-
-  const serviceRecords: ServiceRecord[] = [];
-
 
   // True when the active vehicle is showing the covered-car fallback
   // (no `imageSource` has been resolved yet). In that case the page
@@ -1469,7 +1476,7 @@ export default function CarsHomeScreen() {
               only after the overlay fade completes. */}
           <LinearGradient
             colors={settledGradient as [string, string, ...string[]]}
-            locations={[0.20, 0.40, 0.60]}
+            locations={[0.10, 0.20, 0.30]}
             start={{ x: 0.5, y: 0 }}
             end={{ x: 0.5, y: 1 }}
             style={StyleSheet.absoluteFill}
@@ -1480,7 +1487,7 @@ export default function CarsHomeScreen() {
           <ReAnimated.View style={[StyleSheet.absoluteFill, overlayStyle]}>
             <LinearGradient
               colors={incomingGradient as [string, string, ...string[]]}
-              locations={[0.20, 0.40, 0.60]}
+              locations={[0.10, 0.20, 0.30]}
               start={{ x: 0.5, y: 0 }}
               end={{ x: 0.5, y: 1 }}
               style={StyleSheet.absoluteFill}
@@ -1818,6 +1825,8 @@ export default function CarsHomeScreen() {
             <MaintenanceTracker
               key={activeVehicle?.vin ?? "no-vehicle"}
               items={mergedMaintenanceItems}
+              tieredItems={urgencyTierBuckets}
+              openItemId={params.openItemDetail}
               vehicleCondition={computedHealthScore}
               healthScoreInput={healthScoreInput}
               isDarkBg={isDarkBg}
@@ -1850,7 +1859,7 @@ export default function CarsHomeScreen() {
                 );
                 store.clearSelectedServices();
                 if (matched) store.toggleServiceSelection(matched.id);
-                router.push('/booking/map?openServices=true');
+                router.push('/(booking-flow)/select-services');
               }}
               onTakeAction={(item) => {
                 const vin = activeVehicle?.vin;
@@ -1888,56 +1897,25 @@ export default function CarsHomeScreen() {
                   tireStore.setType(tireSpecs.type as any);
                   tireStore.setTier(tireSpecs.tier as any);
                 }
-                router.push('/booking/map');
+                router.push('/(booking-flow)/select-services');
               }}
             />
           ) : null}
 
-          {/* Service History Section (hidden until onboarding complete) */}
-          {isOnboardingComplete && <ServiceHistory
-            isDarkBg={isDarkBg}
-            records={serviceRecords}
-            onAddNotes={(id) => {
-              // TODO: Open notes modal/screen for this service record
-              console.log("Add Notes for record", id);
-            }}
-            onDownloadReceipt={(id) => {
-              // TODO: Download PDF receipt for this service record
-              console.log("Download Receipt for record", id);
-            }}
-            onAddServiceHistory={async () => {
-              try {
-                const result = await DocumentPicker.getDocumentAsync({
-                  type: [
-                    'application/pdf',
-                    'image/*',
-                    'application/msword',
-                    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-                  ],
-                  multiple: true,
-                  copyToCacheDirectory: true,
-                });
-                if (!result.canceled && result.assets.length > 0) {
-                  const newDocs: PickedDocument[] = result.assets.map(asset => ({
-                    uri: asset.uri,
-                    name: asset.name,
-                    mimeType: asset.mimeType ?? 'application/octet-stream',
-                    size: asset.size ?? undefined,
-                  }));
-                  setPickedDocuments(prev => [...prev, ...newDocs]);
-                }
-              } catch (err) {
-                console.error("Document picker error:", err);
-              }
-            }}
-            documents={pickedDocuments}
-            onRemoveDocument={(index) => {
-              setPickedDocuments(prev => prev.filter((_, i) => i !== index));
-            }}
-            onOpenDocument={(doc) => setViewingDocument(doc)}
-          />}
+          {/* Unified Service History — Otopair completed bookings + parsed
+              user uploads, filtered to the active VIN. Upload picker lives
+              inside the component (Reducto-parse flow), and row tap opens
+              ReceiptSheet (booking row) or ParsedDocumentSheet (doc row). */}
+          {isOnboardingComplete && (
+            <VehicleServiceHistory
+              vin={activeVehicle?.vin}
+              vehicleOwnerId={activeOwnershipId}
+              isDarkBg={isDarkBg}
+            />
+          )}
 
-          {/* Loyalty Points Section (hidden until onboarding complete) */}
+          {/* MVP-DISABLED: loyalty/rewards — re-enable post-launch */}
+          {/*
           {isOnboardingComplete && <LoyaltyPoints
             isDarkBg={isDarkBg}
             totalPoints={1240}
@@ -1951,6 +1929,7 @@ export default function CarsHomeScreen() {
               router.push('/membership');
             }}
           />}
+          */}
 
           {/* Remove Vehicle — destructive primary CTA at the bottom of the
               page. Shape/size mirrors the AIWelcomeScreen Continue button
@@ -2535,43 +2514,7 @@ export default function CarsHomeScreen() {
         vehicleLabel={activeVehicleLabel}
       />
 
-      {/* Document Viewer Modal */}
-      <Modal
-        visible={!!viewingDocument}
-        animationType="slide"
-        presentationStyle="pageSheet"
-        onRequestClose={() => setViewingDocument(null)}
-      >
-        <View style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: verticalScale(56), paddingHorizontal: scale(16), paddingBottom: scale(12), borderBottomWidth: 1, borderBottomColor: '#E5E7EB' }}>
-            <Text weight="semiBold" style={{ fontSize: moderateScale(16), color: '#16293B', flex: 1 }} numberOfLines={1}>
-              {viewingDocument?.name ?? 'Document'}
-            </Text>
-            <Pressable onPress={() => setViewingDocument(null)} hitSlop={12}>
-              <Ionicons name="close-circle" size={28} color="#9CA3AF" />
-            </Pressable>
-          </View>
-          {viewingDocument?.mimeType.startsWith('image/') ? (
-            <Image
-              source={{ uri: viewingDocument.uri }}
-              style={{ flex: 1 }}
-              resizeMode="contain"
-            />
-          ) : (
-            <WebView
-              source={{ uri: viewingDocument?.uri ?? '' }}
-              style={{ flex: 1 }}
-              originWhitelist={['*']}
-              allowFileAccess
-              allowFileAccessFromFileURLs
-              allowUniversalAccessFromFileURLs
-              startInLoadingState
-            />
-          )}
-        </View>
-      </Modal>
-
-      <VehicleRoleSheet
+<VehicleRoleSheet
         visible={showRoleSheet}
         currentRole={activeOwnership?.garageRole as string | undefined}
         vehicleName={activeVehicleLabel}
@@ -3016,7 +2959,11 @@ const styles = StyleSheet.create({
     top: -SCREEN_HEIGHT * 0.5, // Extend above to cover when scrolling down
     left: 0,
     right: 0,
-    height: SCREEN_HEIGHT * 2.5, // Much taller to cover entire scroll content
+    // 5× screen height so pages with long service-history / loyalty
+    // sections stay covered. Past ~2× the white container would bleed
+    // through. Beyond the last gradient stop the bottom color holds, so
+    // extending the container is safe.
+    height: SCREEN_HEIGHT * 5,
     zIndex: 0,
   },
   header: {

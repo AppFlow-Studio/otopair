@@ -14,7 +14,7 @@
 
 // 1. React & React Native
 import React, { useCallback, useMemo } from "react";
-import { Image, ScrollView, StyleSheet, TextInput, TouchableOpacity, View } from "react-native";
+import { Image, Platform, ScrollView, StyleSheet, TextInput, TouchableOpacity, View } from "react-native";
 
 // 2. Third-party libraries
 import { BottomSheetScrollView } from "@gorhom/bottom-sheet";
@@ -40,7 +40,10 @@ import { getPartsBreakdown } from "@/constants/services";
 import { BorderRadius, Shadows, getSheetContentPadding } from "@/constants/theme";
 import { useBookingLaborHours } from "@/hooks/useBookingLaborHours";
 import { useBookingPartsBreakdown } from "@/hooks/useBookingPartsBreakdown";
+import { useBookingQuoteFallback } from "@/hooks/useBookingQuoteFallback";
 import { useShopFixedPricesForServices } from "@/hooks/useShopFixedPricesForServices";
+import { positionFromOption } from "@/constants/serviceVariants";
+import { useWalletCheckout } from "@/hooks/useWalletCheckout";
 import { deriveDisclosedRange } from "@/lib/disclosedRange";
 import { formatDurationForCar } from "@/lib/formatDuration";
 import { computeBookingTax } from "@/lib/tax";
@@ -173,12 +176,15 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
   // When this returns data we use the per-part totals as the parts subtotal; when
   // it doesn't (walk-in vehicle, unconfigured vehicle, missing price data) we fall
   // back to the service's flat `default_parts_estimate`.
-  const { breakdown: pricedPartsByService, isLoading: isPricedPartsLoading } =
-    useBookingPartsBreakdown(
-      selectedVehicle?.ownershipId,
-      selectedServiceIds,
-      selectedServiceOptions,
-    );
+  const {
+    breakdown: pricedPartsByService,
+    isLoading: isPricedPartsLoading,
+    hasRealData: hasRealPartsData,
+  } = useBookingPartsBreakdown(
+    selectedVehicle?.ownershipId,
+    selectedServiceIds,
+    selectedServiceOptions,
+  );
 
   // TEMP: diagnose why priced parts aren't surfacing for the CR-V test booking.
   // Remove once the short-circuit (ownershipId / svc_* slugs) is fixed.
@@ -219,8 +225,33 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
 
   // Vehicle-specific labor hours from `labor_times.book_hours`; falls back to
   // `services.default_labor_hours` when there's no per-vehicle row.
-  const { laborHours: laborHoursByService, isLoading: isLaborHoursLoading } =
-    useBookingLaborHours(selectedVehicle?.ownershipId, selectedServiceIds);
+  const {
+    laborHours: laborHoursByService,
+    isLoading: isLaborHoursLoading,
+    hasFallback: hasLaborFallback,
+  } = useBookingLaborHours(selectedVehicle?.ownershipId, selectedServiceIds);
+
+  // Per-service booking positions for per_axle services (front/rear/both).
+  // Threaded into the engine query so the server-side scaling produces the
+  // correct SERVICE TOTAL for "both axles".
+  const servicePositions = useMemo(() => {
+    const out: Record<string, "front" | "rear" | "both"> = {};
+    for (const sid of selectedServiceIds) {
+      const pos = positionFromOption(selectedServiceOptions[sid]);
+      if (pos) out[sid] = pos;
+    }
+    return out;
+  }, [selectedServiceIds, selectedServiceOptions]);
+
+  // Pricing v2 engine band + per-quote flags for the booking. Drives the
+  // "Estimate" pill below when the engine refused a service or flagged any
+  // line as tier_estimate / outside-band / etc.
+  const quoteFallback = useBookingQuoteFallback(
+    resolvedShopId,
+    selectedVehicle?.ownershipId,
+    selectedServiceIds,
+    servicePositions,
+  );
 
   const laborHoursMap = useMemo(() => {
     const map = new Map<string, number>();
@@ -249,6 +280,50 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
     [laborHoursMap],
   );
 
+  // Round 6 — flag-only parts. Customer always sees the real AI/OEM cost;
+  // when AI lands outside the engine band we keep the AI value and let
+  // createBatch stamp `fallback_catch` server-side for director audit.
+  // Display metadata (unitCount / unitLabel) is still adopted from the
+  // engine when available. Mirrors the identical helper in
+  // app/booking/mechanic/[id]/payment.tsx — co-edit both per the
+  // booking-flow-pages memory.
+  const getEffectiveParts = useCallback(
+    (service: (typeof selectedServices)[0]) => {
+      const aiCost = getServicePartsCost(service);
+      const engine = quoteFallback.byService.get(String(service.id));
+      const fallbackAi = {
+        cost: aiCost,
+        low: aiCost * 0.92,
+        high: aiCost * 1.08,
+        perUnitLow: aiCost * 0.92,
+        perUnitHigh: aiCost * 1.08,
+        unitCount: 1,
+        unitLabel: null as string | null,
+      };
+      if (engine && engine.refused) {
+        return { ...fallbackAi, source: "ai_estimate" as const };
+      }
+      if (
+        !engine ||
+        engine.partsLow == null ||
+        engine.partsHigh == null ||
+        engine.perUnitLow == null ||
+        engine.perUnitHigh == null
+      ) {
+        return { ...fallbackAi, source: "ai" as const };
+      }
+      const inBand =
+        aiCost >= engine.partsLow * 0.95 && aiCost <= engine.partsHigh * 1.08;
+      return {
+        ...fallbackAi,
+        unitCount: engine.unitCount,
+        unitLabel: engine.unitLabel,
+        source: inBand ? ("ai" as const) : ("ai_out_of_band" as const),
+      };
+    },
+    [getServicePartsCost, quoteFallback.byService],
+  );
+
   // Calculate detailed breakdown (shop labor rate + per-service parts costs).
   const breakdown = useMemo(() => {
     const rate = laborRate ?? 0;
@@ -263,13 +338,30 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
     );
 
     // Variable (banded) parts only — services that hit a flat price are
-    // excluded from the ±25% band and contribute their flat amount on both
-    // endpoints instead. Mirrors `computeDisclosedRange` (server).
+    // excluded and contribute their flat amount on both endpoints instead.
+    // Mirrors `computeDisclosedRange` (server). Each variable line goes
+    // through getEffectiveParts, which always returns the real AI/OEM cost
+    // with a ±8% band; out-of-band lines get flagged server-side via
+    // `fallback_catch` rather than substituted (Round 6).
     const variablePartsCost = selectedServices.reduce(
       (sum, s) =>
         fixedPriceMap.has(String(s.id))
           ? sum
-          : sum + getServicePartsCost(s),
+          : sum + getEffectiveParts(s).cost,
+      0,
+    );
+    const variablePartsLowSum = selectedServices.reduce(
+      (sum, s) =>
+        fixedPriceMap.has(String(s.id))
+          ? sum
+          : sum + getEffectiveParts(s).low,
+      0,
+    );
+    const variablePartsHighSum = selectedServices.reduce(
+      (sum, s) =>
+        fixedPriceMap.has(String(s.id))
+          ? sum
+          : sum + getEffectiveParts(s).high,
       0,
     );
     const fixedPartsTotal = selectedServices.reduce(
@@ -310,20 +402,26 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
         laborCost: rate * getServiceLaborHours(s),
         partsFixed: fixedPriceMap.get(String(s.id)) ?? 0,
       }));
+    // Pass the engine-aware low/high explicitly so deriveDisclosedRange
+    // doesn't apply a synthetic band on top of an already-banded engine
+    // correction. Variable portion only — fixed lines pin both endpoints
+    // internally via fixedPriceLines.
     const range = deriveDisclosedRange({
       laborCost,
       partsCost: variablePartsCost,
+      partsLowDollars: variablePartsLowSum,
+      partsHighDollars: variablePartsHighSum,
       state: shop?.state,
       zip: shop?.zip,
       fixedPriceLines,
     });
 
     // Per-row range components so each line ($parts, $tax, $fee) can show
-    // the band the customer is actually agreeing to. Parts: ±25% on the
-    // variable portion only; flat parts add a fixed amount on both ends.
-    const PARTS_BAND = 0.25;
-    const partsLow = Math.max(0, variablePartsCost * (1 - PARTS_BAND)) + fixedPartsTotal;
-    const partsHigh = variablePartsCost * (1 + PARTS_BAND) + fixedPartsTotal;
+    // the band the customer is actually agreeing to. Engine-corrected
+    // lines contribute their real spec band; AI-priced lines get ±8% per
+    // line; flat lines pin both endpoints.
+    const partsLow = Math.max(0, variablePartsLowSum) + fixedPartsTotal;
+    const partsHigh = Math.max(partsLow, variablePartsHighSum) + fixedPartsTotal;
     const taxLow = computeBookingTax({
       laborDollars: billableLaborCost,
       partsDollars: partsLow,
@@ -358,19 +456,39 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
       feeLow,
       feeHigh,
     };
-  }, [selectedServices, laborRate, shop?.state, shop?.zip, getServicePartsCost, getServiceLaborHours, fixedPriceMap]);
+  }, [selectedServices, laborRate, shop?.state, shop?.zip, getEffectiveParts, getServiceLaborHours, fixedPriceMap]);
 
   // Stash the customer-facing range in the booking store so the next screen
   // in the flow (BookingConfirmStatus) can quote the same band the customer
   // just agreed to without re-running the breakdown.
   const setDisclosedRangeFormatted = useBookingStore((s) => s.setDisclosedRangeFormatted);
   const setDisclosedRangeIsFixedPrice = useBookingStore((s) => s.setDisclosedRangeIsFixedPrice);
+  const setDisclosedRangeIsEstimate = useBookingStore((s) => s.setDisclosedRangeIsEstimate);
+  // Only flags that *actually* mean the displayed band is uncertain. We
+  // intentionally exclude awd_surcharge_applied (real +10%), fixed_price_override
+  // (FixedPriceBadge covers it), ccb_absolute_pricing (fixed CCB), spread_exceeded
+  // (engine self-audit). Without this allowlist the pill fires on every booking.
+  const ESTIMATE_TRIGGERING_FLAGS = new Set([
+    "tier_estimate",
+    "fallback_only",
+    "fallback_catch",
+    "engine_corrected_parts",
+    "price_outside_fallback_band",
+  ]);
+  const isEstimateBadgeActive =
+    quoteFallback.refused ||
+    quoteFallback.flags.some((f) => ESTIMATE_TRIGGERING_FLAGS.has(f)) ||
+    hasLaborFallback ||
+    (!isPricedPartsLoading && !hasRealPartsData);
   React.useEffect(() => {
     setDisclosedRangeFormatted(breakdown.rangeFormatted);
   }, [breakdown.rangeFormatted, setDisclosedRangeFormatted]);
   React.useEffect(() => {
     setDisclosedRangeIsFixedPrice(hasAnyFixedPrice);
   }, [hasAnyFixedPrice, setDisclosedRangeIsFixedPrice]);
+  React.useEffect(() => {
+    setDisclosedRangeIsEstimate(isEstimateBadgeActive);
+  }, [isEstimateBadgeActive, setDisclosedRangeIsEstimate]);
 
   // Per-service line total — returns the labor+parts band so summary rows
   // can render the same ±25% parts variance that flows into the aggregate
@@ -380,17 +498,19 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
     (service: (typeof selectedServices)[0]) => {
       const flat = fixedPriceMap.get(String(service.id));
       if (flat != null) {
-        return { low: flat, high: flat, isFixed: true as const };
+        return { low: flat, high: flat, isFixed: true as const, isEngineEstimate: false };
       }
       const labor = (laborRate ?? 0) * getServiceLaborHours(service);
-      const parts = getServicePartsCost(service);
+      const eff = getEffectiveParts(service);
       return {
-        low: labor + parts * 0.75,
-        high: labor + parts * 1.25,
+        low: labor + eff.low,
+        high: labor + eff.high,
         isFixed: false as const,
+        isEngineEstimate:
+          eff.source === "ai_out_of_band" || eff.source === "ai_estimate",
       };
     },
-    [laborRate, getServicePartsCost, getServiceLaborHours, fixedPriceMap],
+    [laborRate, getEffectiveParts, getServiceLaborHours, fixedPriceMap],
   );
 
   // Fallback parts breakdown for services without real OEM-priced data.
@@ -430,15 +550,21 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
   const hasPayment = hasPaymentMethods();
 
   // ═══════════════ HANDLERS ═══════════════
-  const handleApplePay = useCallback(() => {
-    // Apple Pay integration would go here
-    console.log("Apple Pay selected");
-  }, []);
-
-  const handleGooglePay = useCallback(() => {
-    // Google Pay integration would go here
-    console.log("Google Pay selected");
-  }, []);
+  // Wallet checkout. Hidden when no mechanic is picked or when the device
+  // doesn't support Apple Pay / Google Pay; otherwise mints a one-time PM
+  // and routes to /confirming?paymentMode=wallet, where the existing
+  // booking-creation pipeline takes over.
+  const {
+    handleApplePay,
+    handleGooglePay,
+    applePaySupported,
+    googlePaySupported,
+    walletPending,
+  } = useWalletCheckout({
+    bookingMechanicId: selectedMechanicId ?? "",
+    totalCents: 2000,
+    enabled: Boolean(selectedMechanicId),
+  });
 
   // ═══════════════ RENDER ═══════════════
   // Choose the appropriate ScrollView component based on mode
@@ -603,10 +729,11 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
                   {/* Time is the TOTAL mechanic-occupancy duration (variable +
                       fixed); cost is the variable portion only, since the
                       fixed lines' labor is already bundled into their flat
-                      amount above. The visibility predicate stays on
-                      `variableLaborHours` so all-fixed carts still hide this
-                      row (cost would be $0). */}
-                  Labor ({formatDurationForCar(breakdown.laborHours) ?? "0 mins"})
+                      amount above. Rate suffix surfaces the per-tier labor
+                      rate so customers see what's being applied — different
+                      vehicle tiers get different shop rates. */}
+                  Labor ({formatDurationForCar(breakdown.laborHours) ?? "0 mins"}
+                  {laborRate ? ` @ $${laborRate}/hr` : ""})
                 </Text>
                 <Text size="sm" weight="medium" color="#6B7280">
                   ${breakdown.laborCost.toFixed(2)}
@@ -628,34 +755,89 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
                   </View>
                 ))
               : selectedServices.flatMap((service) => {
-                  // Flat-price services are represented by their summary row +
-                  // FixedPriceBadge above; suppress them in the detailed
-                  // breakdown so we don't double-show or invent dollar amounts
-                  // that don't sum to the flat.
-                  if (fixedPriceMap.has(String(service.id))) return [];
+                  // Fixed-price services still surface their parts here so the
+                  // customer sees what's actually being installed — the right
+                  // column reads "Included" instead of a dollar amount, since
+                  // the price contract is the flat shown in the summary row
+                  // above. With no priced-parts data we render nothing extra
+                  // and let the FixedPriceBadge row stand alone.
+                  const isFixedLine = fixedPriceMap.has(String(service.id));
                   const priced = pricedPartsMap.get(String(service.id));
                   if (!priced || !priced.winner) return [];
-                  // Single-axle services have just `winner`. Position="both"
-                  // services (Brake Pads All-four) have `secondaryWinner` too —
-                  // render both axles as separate part lines.
-                  const parts = [priced.winner, priced.secondaryWinner].filter(
-                    (p): p is NonNullable<typeof p> => p != null,
-                  );
-                  return parts.map((part) => {
+                  // Round 6: per-OEM rows show the real AI/OEM line_total.
+                  // When the engine refused entirely we render "Price TBD" so
+                  // the mechanic still sees the part name + qty but no
+                  // misleading dollar amount.
+                  // Fallback spec: we NEVER substitute or hide a price we
+                  // actually scraped. `eff.source` (ai_estimate = band engine
+                  // refused, ai_out_of_band = scraped price sits outside the
+                  // engine band) is an AUDIT signal only — it drives the
+                  // `fallback_catch` flag stamped server-side in createBatch so
+                  // the director can review "came out lower/higher than
+                  // expected". The customer still sees the real part + price.
+                  const eff = getEffectiveParts(service);
+                  // Render EVERY locked line (core + default-kit), not just the
+                  // primary winner — secondary core consumables like the
+                  // drain-plug crush washer and oil-filter housing O-ring belong
+                  // on the customer quote too, so it matches the mechanic's
+                  // frozen `priced_parts_snapshot` (which keeps all
+                  // `includeInLockedQuote` rows). `priced.parts` already spans
+                  // both axles for position="both" services. Falls back to
+                  // winner/secondaryWinner for older backends that predate the
+                  // `locked` flag.
+                  const lockedParts = priced.parts.filter((p) => p.locked);
+                  const parts = (
+                    lockedParts.length > 0
+                      ? lockedParts
+                      : [priced.winner, priced.secondaryWinner]
+                  ).filter((p): p is NonNullable<typeof p> => p != null);
+                  return parts.map((part, partIdx) => {
                     const qtyLabel = part.quantity > 1 ? ` ×${part.quantity}` : "";
-                    const hasPrice = part.has_price_data && part.line_total > 0;
+                    // Fallback spec: always present the REAL scraped sample
+                    // range (qty × kept-set min/max), even when it falls
+                    // outside the engine band — our data is the source of
+                    // truth; the band only logs/flags, it never adjusts parts.
+                    // When a single source priced the part (low === high) apply
+                    // a synthetic ±8% so the row still reads as a range
+                    // (matches payment.tsx + FALLBACK_BAND_RATIO).
+                    const hasPrice = part.has_price_data && part.line_total_high > 0;
+                    const SINGLE_SOURCE_BAND = 0.08;
+                    const singleSource = part.line_total_low === part.line_total_high;
+                    const lineLow = singleSource
+                      ? part.line_total_low * (1 - SINGLE_SOURCE_BAND)
+                      : part.line_total_low;
+                    const lineHigh = singleSource
+                      ? part.line_total_high * (1 + SINGLE_SOURCE_BAND)
+                      : part.line_total_high;
+                    // Suppress the `@ ~$X.XX` unit-price suffix on fixed-price
+                    // lines — customer's contract is the flat amount, so any
+                    // dollar figure on a part row would compete with it.
                     const unitLabel =
-                      hasPrice && part.quantity > 1 && part.unit_price > 0
+                      !isFixedLine && hasPrice && part.quantity > 1 && part.unit_price > 0
                         ? ` @ ~$${part.unit_price.toFixed(2)}`
                         : "";
                     return (
-                      <View key={`${service.id}-${part.part_id}`} style={styles.breakdownRow}>
-                        <Text size="sm" weight="regular" color="#6B7280" style={styles.breakdownLabel}>
-                          {part.name} (Part){qtyLabel}
-                          {unitLabel}
-                        </Text>
+                      <View key={`${service.id}-${part.part_id}-${partIdx}`} style={styles.breakdownRow}>
+                        <View style={styles.breakdownLabel}>
+                          <Text size="sm" weight="regular" color="#6B7280">
+                            {part.name} (Part){qtyLabel}
+                            {unitLabel}
+                          </Text>
+                          {/* DEV-only: surface which part the 7-layer selector
+                              returned + why a row reads "Price TBD". Stripped
+                              from production by the __DEV__ guard. */}
+                          {__DEV__ ? (
+                            <Text size="xs" weight="regular" color="#9CA3AF">
+                              {`${part.oem_part_number} · ${part.role_key ?? "?"} · src=${eff.source} · price=${part.has_price_data ? "Y" : "N"} · n=${part.price_sample_size} · lt=$${part.line_total.toFixed(2)}`}
+                            </Text>
+                          ) : null}
+                        </View>
                         <Text size="sm" weight="medium" color="#6B7280">
-                          {hasPrice ? `$${part.line_total.toFixed(2)}` : "Price TBD"}
+                          {isFixedLine
+                            ? "Included"
+                            : hasPrice
+                              ? `$${lineLow.toFixed(2)} – $${lineHigh.toFixed(2)}`
+                              : "Price TBD"}
                         </Text>
                       </View>
                     );
@@ -743,9 +925,9 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
           <View style={styles.rangeExplainer}>
             <Info size={12} color="#9CA3AF" />
             <Text size="xs" weight="regular" color="#6B7280" style={styles.rangeExplainerText}>
-              A $20 hold will be placed on your card today. The final amount
-              within this range is only charged once your mechanic has
-              inspected your car.
+              {isEstimateBadgeActive
+                ? "Estimate — final price confirmed at booking. A $20 hold will be placed on your card today and only charged once your mechanic has inspected your car."
+                : "A $20 hold will be placed on your card today. The final amount within this range is only charged once your mechanic has inspected your car."}
             </Text>
           </View>
         </View>
@@ -782,27 +964,41 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
           </View>
         )}
 
-        {/* Payment Options Section */}
+        {/* Payment Options Section. Wallet buttons are gated on platform
+            + device support so the sheet doesn't dangle an option that
+            errors when tapped. */}
         <View style={styles.paymentSection}>
-          {/* Apple Pay Button */}
-          <TouchableOpacity style={styles.applePayButton} onPress={handleApplePay} activeOpacity={0.8}>
-            <View style={styles.payButtonContent}>
-              <FontAwesome name="apple" size={20} color="#FFFFFF" />
-              <Text size="md" weight="semiBold" color={BrandColors.white}>
-                Pay
-              </Text>
-            </View>
-          </TouchableOpacity>
+          {Platform.OS === "ios" && applePaySupported ? (
+            <TouchableOpacity
+              style={styles.applePayButton}
+              onPress={handleApplePay}
+              activeOpacity={0.8}
+              disabled={walletPending}
+            >
+              <View style={styles.payButtonContent}>
+                <FontAwesome name="apple" size={20} color="#FFFFFF" />
+                <Text size="md" weight="semiBold" color={BrandColors.white}>
+                  Pay
+                </Text>
+              </View>
+            </TouchableOpacity>
+          ) : null}
 
-          {/* Google Pay Button */}
-          <TouchableOpacity style={styles.googlePayButton} onPress={handleGooglePay} activeOpacity={0.8}>
-            <View style={styles.payButtonContent}>
-              <FontAwesome name="google" size={18} color={BrandColors.primary} />
-              <Text size="md" weight="semiBold" color={BrandColors.primary}>
-                Pay
-              </Text>
-            </View>
-          </TouchableOpacity>
+          {Platform.OS === "android" && googlePaySupported ? (
+            <TouchableOpacity
+              style={styles.googlePayButton}
+              onPress={handleGooglePay}
+              activeOpacity={0.8}
+              disabled={walletPending}
+            >
+              <View style={styles.payButtonContent}>
+                <FontAwesome name="google" size={18} color={BrandColors.primary} />
+                <Text size="md" weight="semiBold" color={BrandColors.primary}>
+                  Pay
+                </Text>
+              </View>
+            </TouchableOpacity>
+          ) : null}
 
           {/* Divider */}
           <View style={styles.paymentDivider}>

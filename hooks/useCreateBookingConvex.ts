@@ -122,6 +122,7 @@ export function useCreateBookingConvex() {
     selectedServiceIds,
     selectedServiceOptions,
   );
+
   const pricedPartsTotalMap = useMemo(() => {
     const map = new Map<string, number>();
     for (const row of pricedPartsByService) {
@@ -170,6 +171,10 @@ export function useCreateBookingConvex() {
       // what the customer was shown:
       //   labor = rate × (vehicle-specific hours ?? default_labor_hours)
       //   parts = priced_parts total (part_fitments × part_prices) ?? default_parts_estimate
+      // Round 6: parts_cost is always the real AI / OEM number. When it
+      // falls outside the engine band, the server's createBatch band-check
+      // stamps `fallback_catch` on `service_quote_flags` — we flag, we
+      // don't substitute.
       const services = selectedServices.map((s) => {
         const variantHours = laborHoursMap.get(String(s.id));
         const hours = typeof variantHours === "number" ? variantHours : (s.default_labor_hours ?? 0);

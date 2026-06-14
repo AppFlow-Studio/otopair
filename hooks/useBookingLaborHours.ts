@@ -45,6 +45,23 @@ export function useBookingLaborHours(
     () => ({
       laborHours: data ?? EMPTY,
       isLoading: shouldQuery && data === undefined,
+      // True when at least one selected service fell through to
+      // services.default_labor_hours (no vehicle-specific row in
+      // labor_times). The Estimate pill on Review & Pay reads this so
+      // customers know their quote includes an interpolated value.
+      hasFallback:
+        !!data && data.some((s: LaborHoursForService) => s.source === "default"),
+      // Fallback spec (A): true when the minimum labor-time FLOOR was enforced
+      // on at least one service — i.e. the resolved hours were below the
+      // tier floor and got bumped up. Mirrors the `labor_below_tier_floor`
+      // quote flag stamped server-side in createBatch (quoteEngine.ts), so the
+      // booking flow can flag it for us to later improve our default times.
+      hasLaborFloor:
+        !!data && data.some((s: LaborHoursForService) => s.tierFloorApplied === true),
+      // True when resolved hours EXCEEDED the tier floor — informational only
+      // (`labor_above_tier_expected`).
+      hasLaborAboveTier:
+        !!data && data.some((s: LaborHoursForService) => s.aboveTierFloor === true),
     }),
     [data, shouldQuery],
   );

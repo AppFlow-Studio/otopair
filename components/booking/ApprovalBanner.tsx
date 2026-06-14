@@ -13,8 +13,14 @@
 import React from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { useRouter } from "expo-router";
-import { AlertTriangle } from "lucide-react-native";
+import { ChevronRight, CreditCard, Wrench } from "lucide-react-native";
 import { Text } from "@/components/shared-ui";
+import {
+  BrandColors,
+  SemanticColors,
+  SurfaceColors,
+  CardShadow,
+} from "@/constants/theme";
 import type { Id } from "@/convex/_generated/dataModel";
 
 type Props = {
@@ -44,24 +50,12 @@ const BODY_BY_STATE: Record<string, string> = {
     "Your card needs to confirm the updated hold before work can start.",
 };
 
-// Reauth uses a red palette to signal that the booking is blocked until
-// the customer acts; the amber palette stays for the approval-pending
-// states (work continues to be schedulable in the meantime).
-const REAUTH_COLORS = {
-  bg: "#fef2f2",
-  border: "#fca5a5",
-  icon: "#b91c1c",
-  title: "#7f1d1d",
-  body: "#b91c1c",
-} as const;
-
-const APPROVAL_COLORS = {
-  bg: "#fffbeb",
-  border: "#fcd34d",
-  icon: "#92400e",
-  title: "#78350f",
-  body: "#92400e",
-} as const;
+// The accent only tints the icon chip + a thin leading rail — the card
+// itself stays clean white so it sits seamlessly with the rest of the
+// booking detail. Reauth leans on the brand blue (it's a payment confirm,
+// not an error); approval-pending uses a warm amber.
+const REAUTH_ACCENT = BrandColors.secondary; // #5299FE
+const APPROVAL_ACCENT = SemanticColors.warningAmber; // #D97706
 
 export function ApprovalBanner({ bookingId, paymentApprovalState }: Props) {
   const router = useRouter();
@@ -69,10 +63,10 @@ export function ApprovalBanner({ bookingId, paymentApprovalState }: Props) {
     return null;
   }
   const isReauth = paymentApprovalState === "reauth_required";
-  const palette = isReauth ? REAUTH_COLORS : APPROVAL_COLORS;
+  const accent = isReauth ? REAUTH_ACCENT : APPROVAL_ACCENT;
+  const Icon = isReauth ? CreditCard : Wrench;
   const title = TITLE_BY_STATE[paymentApprovalState] ?? "Approval needed";
   const body = BODY_BY_STATE[paymentApprovalState] ?? "Tap to review.";
-  const cta = isReauth ? "Confirm →" : "Review →";
   return (
     <Pressable
       onPress={() =>
@@ -83,23 +77,19 @@ export function ApprovalBanner({ bookingId, paymentApprovalState }: Props) {
             : { id: String(bookingId) },
         } as any)
       }
-      style={[
-        styles.banner,
-        { backgroundColor: palette.bg, borderColor: palette.border },
-      ]}
+      style={({ pressed }) => [styles.banner, pressed && styles.bannerPressed]}
     >
-      <AlertTriangle size={20} color={palette.icon} style={{ marginTop: 2 }} />
-      <View style={{ flex: 1, marginLeft: 10 }}>
-        <Text weight="semiBold" style={{ color: palette.title, fontSize: 14 }}>
+      <View style={[styles.rail, { backgroundColor: accent }]} />
+      <View style={[styles.iconChip, { backgroundColor: `${accent}1F` }]}>
+        <Icon size={20} color={accent} />
+      </View>
+      <View style={styles.copy}>
+        <Text weight="semiBold" style={styles.title}>
           {title}
         </Text>
-        <Text style={{ color: palette.body, fontSize: 13, marginTop: 2 }}>
-          {body}
-        </Text>
+        <Text style={styles.body}>{body}</Text>
       </View>
-      <Text weight="semiBold" style={{ color: palette.body, fontSize: 13 }}>
-        {cta}
-      </Text>
+      <ChevronRight size={20} color={SemanticColors.textMuted} />
     </Pressable>
   );
 }
@@ -107,10 +97,33 @@ export function ApprovalBanner({ bookingId, paymentApprovalState }: Props) {
 const styles = StyleSheet.create({
   banner: {
     flexDirection: "row",
-    alignItems: "flex-start",
-    borderWidth: 1,
-    borderRadius: 10,
-    padding: 12,
+    alignItems: "center",
+    backgroundColor: SurfaceColors.cardSurface,
+    borderRadius: 18,
+    paddingVertical: 14,
+    paddingLeft: 18,
+    paddingRight: 14,
     marginBottom: 12,
+    overflow: "hidden",
+    boxShadow: CardShadow.default,
   },
+  bannerPressed: { opacity: 0.9 },
+  rail: {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 4,
+  },
+  iconChip: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 12,
+  },
+  copy: { flex: 1, marginRight: 8 },
+  title: { color: BrandColors.primary, fontSize: 14 },
+  body: { color: SemanticColors.textMuted, fontSize: 13, marginTop: 2 },
 });

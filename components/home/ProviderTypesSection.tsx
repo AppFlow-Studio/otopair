@@ -93,7 +93,7 @@ export function ProviderTypesSection() {
 
   const handleCardPress = (cardId: string) => {
     setInitialServiceCategory(CARD_TO_CATEGORY[cardId] ?? 'basic_maintenance');
-    router.push('/booking/map?openServices=true');
+    router.push('/(booking-flow)/select-services');
   };
 
   return (

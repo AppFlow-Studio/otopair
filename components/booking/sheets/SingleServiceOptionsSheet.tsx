@@ -11,7 +11,7 @@
  * USED IN: components/booking/ServiceBottomSheet.tsx
  */
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   Modal,
   Pressable,
@@ -22,7 +22,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { useQuery } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { ChevronLeft } from "lucide-react-native";
 
 import { BrandColors, Spacing, Text } from "@/components/shared-ui";
@@ -30,6 +30,28 @@ import { BorderRadius } from "@/constants/theme";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { ServiceOptionItem } from "@/hooks/useServiceOptionsForSelected";
+import { useVehicleStore } from "@/stores/useVehicleStore";
+
+// Pipeline writes `battery_type` as one of "AGM" | "flooded" | "EFB" |
+// "lithium-ion" (convex/vehicleEnrichment/prompts/batch1bPrompt.ts:108).
+// Map those values to the option_label strings seeded in
+// convex/seed_services_catalog.ts so we can pre-select the matching row.
+// "lithium-ion" is intentionally absent — no matching option exists yet, so
+// those vehicles fall through to manual selection.
+const BATTERY_TYPE_TO_OPTION_LABEL: Record<string, string> = {
+  flooded: "Standard (flooded)",
+  AGM: "AGM",
+  EFB: "EFB",
+};
+
+// Reverse map — used on confirm to persist the customer's pick back into
+// vehicle_owner_specs.battery.type using the enrichment vocabulary, so
+// next time we read it we round-trip cleanly.
+const OPTION_LABEL_TO_BATTERY_TYPE: Record<string, string> = {
+  "Standard (flooded)": "flooded",
+  AGM: "AGM",
+  EFB: "EFB",
+};
 
 interface SingleServiceOptionsSheetProps {
   visible: boolean;
@@ -62,14 +84,83 @@ export function SingleServiceOptionsSheet({
   const options = (raw?.[0]?.options ?? []) as unknown as ServiceOptionItem[];
   const optionType = options[0]?.option_type ?? "";
 
+  // Battery flow: pre-fill priority is (1) the customer's prior confirmed
+  // choice on this car (vehicle_owner_specs.battery.type), then (2) the
+  // enrichment-derived battery_type on the chassis (trim_specs today —
+  // pipeline dual-writes to chassis_specs per v3pipeline.ts:745 + :783, so
+  // once trim_specs is retired we can swap the spec source).
+  const getSelectedVehicle = useVehicleStore((s) => s.getSelectedVehicle);
+  const selectedVehicle = getSelectedVehicle();
+  const isBatteryFlow = optionType === "battery_type";
+
+  const ownerSpecBattery = useQuery(
+    api.serviceParts.getOwnerSpecBattery,
+    isBatteryFlow && selectedVehicle?.ownershipId
+      ? { vehicleOwnerId: selectedVehicle.ownershipId as Id<"vehicle_owners"> }
+      : "skip",
+  );
+  const specPack = useQuery(
+    api.specs.getFullVehicleSpecPack,
+    isBatteryFlow && selectedVehicle?.vin ? { vin: selectedVehicle.vin } : "skip",
+  );
+
+  const prefill = useMemo<{ optionId: string; source: "customer" | "spec" } | null>(() => {
+    if (!isBatteryFlow || options.length === 0) return null;
+    const customerValue = ownerSpecBattery?.type ?? null;
+    const specValue =
+      (specPack?.specs?.trim as { battery_type?: string } | null | undefined)?.battery_type ?? null;
+    const resolve = (value: string | null) => {
+      if (!value) return null;
+      const targetLabel = BATTERY_TYPE_TO_OPTION_LABEL[value];
+      if (!targetLabel) return null;
+      return options.find((o) => o.option_label === targetLabel)?._id ?? null;
+    };
+    const customerOptionId = resolve(customerValue);
+    if (customerOptionId) return { optionId: customerOptionId, source: "customer" };
+    const specOptionId = resolve(specValue);
+    if (specOptionId) return { optionId: specOptionId, source: "spec" };
+    return null;
+  }, [isBatteryFlow, options, ownerSpecBattery, specPack]);
+  const prefillOptionId = prefill?.optionId ?? null;
+
   // Reset selection each time the sheet opens for a fresh service.
   useEffect(() => {
     if (visible) setSelectedId(null);
   }, [visible, serviceId]);
 
+  // Pre-select from the vehicle's enrichment-derived battery_type once the
+  // spec query lands. Runs only when nothing is selected, so a manual choice
+  // made while the query was in flight isn't clobbered.
+  useEffect(() => {
+    if (visible && prefillOptionId && selectedId == null) {
+      setSelectedId(prefillOptionId);
+    }
+  }, [visible, prefillOptionId, selectedId]);
+
+  // Persist the customer's confirmed battery chemistry back to
+  // vehicle_owner_specs so future bookings + the rest of the app treat it
+  // as the truth ahead of the OEM spec. Fire-and-forget — we never block
+  // the cart on the write, but we do log failures for diagnostics.
+  const recordBatteryType = useMutation(api.serviceParts.recordBatteryType);
+
   const handleConfirm = () => {
     const picked = options.find((o) => o._id === selectedId);
-    if (picked) onConfirm(picked);
+    if (!picked) return;
+    if (isBatteryFlow && selectedVehicle?.ownershipId) {
+      const enrichmentValue = OPTION_LABEL_TO_BATTERY_TYPE[picked.option_label];
+      const alreadyOnRecord = ownerSpecBattery?.type === enrichmentValue;
+      if (enrichmentValue && !alreadyOnRecord) {
+        void recordBatteryType({
+          vehicleOwnerId: selectedVehicle.ownershipId as Id<"vehicle_owners">,
+          battery_type: enrichmentValue,
+          source: "user",
+        }).catch((e) => {
+          // eslint-disable-next-line no-console
+          console.warn("[battery persist] failed", e);
+        });
+      }
+    }
+    onConfirm(picked);
   };
 
   const isLoading = raw === undefined && serviceId != null;
@@ -103,6 +194,14 @@ export function SingleServiceOptionsSheet({
           <Text size="sm" weight="medium" color="#6B7280" style={styles.optionTypeLabel}>
             {isLoading ? "Loading options..." : formatOptionType(optionType)}
           </Text>
+
+          {prefill ? (
+            <Text size="xs" weight="regular" color="#6B7280" style={styles.prefillNote}>
+              {prefill.source === "customer"
+                ? "Pre-selected from what you confirmed last time. Change it if you've swapped batteries since."
+                : "Pre-selected based on your vehicle's spec — change if your shop installed a different chemistry."}
+            </Text>
+          ) : null}
 
           <View style={styles.optionsContainer}>
             {options.map((option) => {
@@ -178,6 +277,10 @@ const styles = StyleSheet.create({
   optionTypeLabel: {
     marginTop: Spacing.xs,
     marginBottom: Spacing.md,
+  },
+  prefillNote: {
+    marginBottom: Spacing.md,
+    lineHeight: 16,
   },
   optionsContainer: { gap: Spacing.sm },
   optionCard: {

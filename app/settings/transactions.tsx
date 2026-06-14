@@ -1,520 +1,324 @@
 /**
- * TransactionsScreen
+ * Past Services
  *
- * PURPOSE: Settings entry screen for viewing and filtering transactions,
- *          with a receipt detail bottom sheet.
+ * Two-step browser: pick a car → see that car's completed bookings.
+ * Replaces the flat "all past services" feed with a per-vehicle
+ * drill-in so users with several cars don't have to scan a mixed
+ * timeline. Search bar removed — the per-vehicle scope handles
+ * scale better than free-text filtering did.
  *
- * USED IN: app/(main-tabs)/settings/index.tsx
+ * Visual: same frosted-blue glass treatment as the booking flow
+ * (GlassSheetBackground at absoluteFill behind the scroll).
+ *
+ * USED IN: Settings → Past Services (My Garage section).
  */
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import {
-  BackHandler,
-  Pressable,
-  ScrollView,
-  SectionList,
-  StyleSheet,
-  TextInput,
-  View,
-} from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useLocalSearchParams } from 'expo-router';
-import { BottomSheetModal } from '@gorhom/bottom-sheet';
-import {
-  AlertTriangle,
-  BadgeCheck,
-  ChevronRight,
-  Download,
-  Fuel,
-  Mail,
-  Plus,
-  Receipt,
-  Search,
-  Settings,
-  Sparkles,
-  Wrench,
-  Car,
-  CreditCard,
-} from 'lucide-react-native';
+import React, { useMemo, useState } from "react";
+import { Image, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Link, useRouter } from "expo-router";
+import { Calendar, ChevronLeft, ChevronRight, Wrench } from "lucide-react-native";
 
-import {
-  AppBottomSheetModal,
-  BlurHeaderOverlay,
-  BrandColors,
-  Button,
-  Spacing,
-  Text,
-} from '@/components/shared-ui';
-import { getSheetContentPadding } from '@/constants/theme';
-import { useUserFromConvex } from '@/hooks/useUserFromConvex';
-import { useTransactionsFromConvex } from '@/hooks/useTransactionsFromConvex';
-import type { Doc } from '@/convex/_generated/dataModel';
+import { CarSilhouette } from "@/components/shared-ui/CarSilhouette";
+import { Text } from "@/components/shared-ui";
+import { GlassSheetBackground } from "@/components/booking-flow/GlassSheet";
+import { ListSpacing } from "@/constants/theme";
+import { useMyBookingsWithDetails } from "@/hooks/useMyBookingsWithDetails";
+import { useVehicleStore } from "@/stores/useVehicleStore";
 
-type TransactionFilter = 'all' | 'charge' | 'credit' | 'refund';
-type TransactionStatus = 'completed' | 'pending';
+const INK = "#0F172A";
+const MUTED = "#6B7280";
 
-interface LineItem {
+function fmtUSD(n: number | undefined): string {
+  if (n == null) return "—";
+  return n.toLocaleString("en-US", { style: "currency", currency: "USD" });
+}
+
+type CompletedBooking = ReturnType<typeof useMyBookingsWithDetails>["historyBookings"][number];
+
+interface CarBucket {
+  /** Stable key for grouping: year|model|vin so two cars with the
+   *  same year+model but different VINs stay distinct. */
+  key: string;
+  /** Display label (e.g. "2024 Volkswagen Tiguan"). Derived from
+   *  the booking itself, not the vehicle store, so a booking
+   *  whose VIN doesn't match a current garage car still shows up
+   *  with its correct label instead of getting dropped. */
   label: string;
-  amount: string;
+  /** Optional ownership match — used to swap the makeLogoUrl
+   *  thumbnail for a real garage car photo when we have one. */
+  vehicleId?: string;
+  /** Thumbnail URL — sourced from the booking's makeLogoUrl. */
+  makeLogoUrl?: string;
+  bookings: CompletedBooking[];
 }
 
-interface TransactionDetail {
-  dateLabel: string;
-  status: TransactionStatus;
-  lineItems: LineItem[];
-  subtotal: string;
-  taxLabel: string;
-  taxAmount: string;
-  total: string;
-  paymentMethod: string;
-  rewards: string;
-}
-
-interface TransactionItem {
-  id: string;
-  title: string;
-  subtitle: string;
-  amount: string;
-  type: Exclude<TransactionFilter, 'all'>;
-  icon: React.ElementType;
-  iconColor: string;
-  iconBg: string;
-  amountColor?: string;
-  badge?: { label: string; bgColor: string; textColor: string };
-  muted?: boolean;
-  strike?: boolean;
-  status?: TransactionStatus;
-  detail?: TransactionDetail;
-}
-
-interface TransactionSection {
-  title: string;
-  data: TransactionItem[];
-}
-
-const FILTERS: Array<{ id: TransactionFilter; label: string }> = [
-  { id: 'all', label: 'All' },
-  { id: 'charge', label: 'Charges' },
-  { id: 'credit', label: 'Credits' },
-  { id: 'refund', label: 'Refunds' },
-];
-
-const ICON_MAP: Record<
-  string,
-  { icon: typeof Wrench; iconColor: string; iconBg: string }
-> = {
-  wrench: { icon: Wrench, iconColor: '#111827', iconBg: '#F3F4F6' },
-  leaf: { icon: Sparkles, iconColor: '#16A34A', iconBg: 'rgba(22, 163, 74, 0.12)' },
-  sparkles: { icon: Sparkles, iconColor: '#16A34A', iconBg: 'rgba(22, 163, 74, 0.12)' },
-  car: { icon: Car, iconColor: '#EA580C', iconBg: 'rgba(234, 88, 12, 0.12)' },
-  fuel: { icon: Fuel, iconColor: '#111827', iconBg: '#F3F4F6' },
-  card: { icon: CreditCard, iconColor: '#2563EB', iconBg: 'rgba(37, 99, 235, 0.12)' },
-};
-
-function formatSectionTitle(createdAtMs: number): string {
-  const d = new Date(createdAtMs);
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  const yesterday = today - 24 * 60 * 60 * 1000;
-  const dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
-  if (dayStart === today) return 'Today';
-  if (dayStart === yesterday) return 'Yesterday';
-  const month = d.toLocaleString('en-US', { month: 'long' });
-  return `${month} ${d.getDate()}`;
-}
-
-function formatTime(createdAtMs: number): string {
-  return new Date(createdAtMs).toLocaleTimeString('en-US', {
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  });
-}
-
-function formatAmount(amount: number): string {
-  const abs = Math.abs(amount);
-  const formatted = `$${abs.toFixed(2)}`;
-  return amount >= 0 ? `+${formatted}` : `-${formatted}`;
-}
-
-function formatDateLabel(createdAtMs: number): string {
-  const d = new Date(createdAtMs);
-  return d.toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  }) + ' • ' + formatTime(createdAtMs);
-}
-
-function transactionDocToItem(doc: Doc<'transactions'>): TransactionItem {
-  const iconType = doc.icon_type ?? 'wrench';
-  const { icon, iconColor, iconBg } = ICON_MAP[iconType] ?? ICON_MAP.wrench;
-  const amountStr = formatAmount(doc.amount);
-  const subtitle = doc.sub_description ?? formatTime(doc.created_at);
-  const status = doc.status as TransactionStatus;
-  const detail: TransactionDetail = {
-    dateLabel: formatDateLabel(doc.created_at),
-    status,
-    lineItems: [{ label: doc.description, amount: formatAmount(Math.abs(doc.amount)) }],
-    subtotal: formatAmount(Math.abs(doc.amount)),
-    taxLabel: 'Tax (0%)',
-    taxAmount: '$0.00',
-    total: amountStr.startsWith('+') ? amountStr : amountStr.slice(1),
-    paymentMethod: doc.transaction_type === 'credit' ? 'Otopair credits' : 'VISA •••• 1234',
-    rewards: '+0 pts',
-  };
-  return {
-    id: doc._id as string,
-    title: doc.description,
-    subtitle,
-    amount: amountStr,
-    type: doc.transaction_type as Exclude<TransactionFilter, 'all'>,
-    icon,
-    iconColor,
-    iconBg,
-    status,
-    detail,
-  };
-}
-
-function buildSectionsFromTransactions(
-  transactions: Doc<'transactions'>[]
-): TransactionSection[] {
-  const sections: { title: string; data: TransactionItem[]; sortKey: number }[] = [];
-  const byTitle: Record<string, { data: TransactionItem[]; sortKey: number }> = {};
-  for (const doc of transactions) {
-    const title = formatSectionTitle(doc.created_at);
-    if (!byTitle[title]) {
-      byTitle[title] = { data: [], sortKey: doc.created_at };
-    }
-    byTitle[title].data.push(transactionDocToItem(doc));
-  }
-  return Object.entries(byTitle)
-    .map(([title, { data, sortKey }]) => ({ title, data, sortKey }))
-    .sort((a, b) => b.sortKey - a.sortKey)
-    .map(({ title, data }) => ({ title, data }));
-}
-
-const DEFAULT_DETAIL: TransactionDetail = {
-  dateLabel: 'Oct 24, 2024 • 10:30 AM',
-  status: 'completed',
-  lineItems: [{ label: 'Service item', amount: '$0.00' }],
-  subtotal: '$0.00',
-  taxLabel: 'Tax (0%)',
-  taxAmount: '$0.00',
-  total: '$0.00',
-  paymentMethod: 'VISA •••• 1234',
-  rewards: '+0 pts',
-};
-
-export default function TransactionsScreen() {
+export default function PastServicesScreen() {
   const insets = useSafeAreaInsets();
-  const sheetRef = useRef<BottomSheetModal>(null);
-  const { shop } = useLocalSearchParams<{ shop?: string }>();
-  const { userId } = useUserFromConvex();
-  const [query, setQuery] = useState(typeof shop === 'string' ? shop : '');
-  const [activeFilter, setActiveFilter] = useState<TransactionFilter>('all');
-  const [selectedTransaction, setSelectedTransaction] = useState<TransactionItem | null>(null);
+  const router = useRouter();
+  const { historyBookings } = useMyBookingsWithDetails();
 
-  useEffect(() => {
-    if (typeof shop === 'string') {
-      setQuery(shop);
+  const vehicleIds = useVehicleStore((s) => s.vehicleIds);
+  const vehicles = useVehicleStore((s) => s.vehicles);
+
+  // Local navigation: null = vehicle picker, else = drilled into a
+  // single car bucket's service history (keyed by the bucket key,
+  // not vehicle id, since a booking's car may not match a stored
+  // vehicle).
+  const [selectedBucketKey, setSelectedBucketKey] = useState<string | null>(null);
+
+  const completed = useMemo<CompletedBooking[]>(
+    () => historyBookings.filter((b) => b.status === "completed"),
+    [historyBookings],
+  );
+
+  // Bucket completed bookings by car. Identity comes from the
+  // booking row itself (year + carModel + vin) so we always show
+  // every completed booking — VIN-only joining against the
+  // garage store dropped any booking whose VIN was empty or stale.
+  // When a bucket's VIN happens to match a stored vehicle we
+  // borrow the vehicle's image for the picker; otherwise we use
+  // the booking's makeLogoUrl.
+  const buckets = useMemo<CarBucket[]>(() => {
+    const vehicleByVin: Record<string, string> = {};
+    for (const id of vehicleIds) {
+      const v = vehicles[id];
+      if (v?.vin) vehicleByVin[v.vin] = id;
     }
-  }, [shop]);
 
-  useEffect(() => {
-    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
-      if (selectedTransaction != null) {
-        sheetRef.current?.dismiss();
-        return true;
+    const map = new Map<string, CarBucket>();
+    for (const b of completed) {
+      const year = (b.carYear ?? "").trim();
+      const model = (b.carModel ?? "").trim();
+      const vin = (b.vin ?? "").trim();
+      const key = `${year}|${model}|${vin}`;
+      const label =
+        [year, model].filter(Boolean).join(" ") || "Unknown vehicle";
+      const vehicleId = vin ? vehicleByVin[vin] : undefined;
+      let bucket = map.get(key);
+      if (!bucket) {
+        bucket = {
+          key,
+          label,
+          vehicleId,
+          makeLogoUrl: b.makeLogoUrl,
+          bookings: [],
+        };
+        map.set(key, bucket);
       }
-      return false;
-    });
-    return () => sub.remove();
-  }, [selectedTransaction]);
+      bucket.bookings.push(b);
+    }
+    return Array.from(map.values());
+  }, [completed, vehicleIds, vehicles]);
 
-  const transactionType =
-    activeFilter === 'all' ? undefined : (activeFilter as 'charge' | 'credit' | 'refund');
-  const { transactions } = useTransactionsFromConvex(userId, transactionType);
+  const selectedBucket = useMemo<CarBucket | null>(() => {
+    if (selectedBucketKey === null) return null;
+    return buckets.find((b) => b.key === selectedBucketKey) ?? null;
+  }, [buckets, selectedBucketKey]);
 
-  const filteredSections = useMemo(() => {
-    const sections = buildSectionsFromTransactions(transactions);
-    const normalizedQuery = query.trim().toLowerCase();
-    if (!normalizedQuery) return sections;
-    return sections
-      .map((section) => ({
-        ...section,
-        data: section.data.filter((item) => {
-          const content = `${item.title} ${item.subtitle}`.toLowerCase();
-          return content.includes(normalizedQuery);
-        }),
-      }))
-      .filter((section) => section.data.length > 0);
-  }, [transactions, query]);
-
-  const handleOpenDetail = (item: TransactionItem) => {
-    setSelectedTransaction(item);
-    sheetRef.current?.present();
+  const handleBack = () => {
+    if (selectedBucketKey !== null) {
+      setSelectedBucketKey(null);
+      return;
+    }
+    if (router.canGoBack()) router.back();
+    else router.replace("/(main-tabs)/home");
   };
 
-  const detail = selectedTransaction?.detail ?? DEFAULT_DETAIL;
-  const isPending = detail.status === 'pending';
+  const selectedBookings = selectedBucket?.bookings ?? [];
 
   return (
-    <View style={[styles.screen, { backgroundColor: BrandColors.background }]}>
-      <BlurHeaderOverlay title="Transactions" />
-
-      <SectionList
-        sections={filteredSections}
-        keyExtractor={(item) => item.id}
+    <View style={styles.screen}>
+      <GlassSheetBackground style={StyleSheet.absoluteFill} />
+      <ScrollView
         showsVerticalScrollIndicator={false}
-        stickySectionHeadersEnabled={true}
         contentContainerStyle={[
           styles.scrollContent,
-          {
-            paddingTop: insets.top + 90,
-            paddingBottom: getSheetContentPadding(false, insets.bottom),
-          },
+          { paddingTop: insets.top, paddingBottom: insets.bottom + 32 },
         ]}
-        ListHeaderComponent={
-          <View style={styles.controlsSection}>
-            <View style={styles.searchContainer}>
-              <Search size={18} color="#9CA3AF" />
-              <TextInput
-                placeholder="Search"
-                placeholderTextColor="#9CA3AF"
-                value={query}
-                onChangeText={setQuery}
-                style={styles.searchInput}
-              />
-            </View>
-
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.chipRow}
-            >
-              {FILTERS.map((filter) => {
-                const isActive = activeFilter === filter.id;
-                return (
-                  <Pressable
-                    key={filter.id}
-                    onPress={() => setActiveFilter(filter.id)}
-                    style={[styles.chip, isActive && styles.chipActive]}
-                  >
-                    <Text
-                      weight={isActive ? 'bold' : 'medium'}
-                      size="sm"
-                      color={isActive ? '#FFFFFF' : '#86868B'}
-                    >
-                      {filter.label}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
-          </View>
-        }
-        renderSectionHeader={({ section }) => (
-          <View style={styles.sectionHeader}>
-            <Text weight="bold" size="xs" color="#86868B" style={styles.sectionHeaderText}>
-              {section.title.toUpperCase()}
-            </Text>
-          </View>
-        )}
-        renderItem={({ item }) => {
-          const Icon = item.icon;
-          const amountColor = item.amountColor ?? (item.amount.startsWith('+') ? '#34C759' : '#1D1D1F');
-          
-          return (
-            <Pressable
-              onPress={() => handleOpenDetail(item)}
-              style={({ pressed }) => [
-                styles.transactionRow,
-                pressed && styles.transactionRowPressed,
-                item.muted && styles.transactionRowMuted,
-              ]}
-            >
-              <View style={styles.transactionLeft}>
-                <View style={styles.transactionIconOuter}>
-                  <View style={[styles.transactionIconInner, { backgroundColor: item.iconBg }]}>
-                    <Icon size={20} color={item.iconColor} strokeWidth={2} />
-                  </View>
-                </View>
-                <View style={styles.transactionText}>
-                  <Text 
-                    weight="bold" 
-                    size="md" 
-                    color="#1D1D1F" 
-                    numberOfLines={1}
-                    style={[item.strike && styles.strikeText]}
-                  >
-                    {item.title}
-                  </Text>
-                  <Text size="sm" color="#86868B" style={styles.transactionSubtitle}>
-                    {item.subtitle}
-                  </Text>
-                </View>
-              </View>
-              <View style={styles.transactionRight}>
-                <Text 
-                  weight="bold" 
-                  size="md" 
-                  color={amountColor} 
-                  style={[styles.amountText, item.strike && styles.strikeText]}
-                >
-                  {item.amount}
-                </Text>
-                {(item.badge || item.status === 'pending') && (
-                  <View style={[
-                    styles.badge, 
-                    { backgroundColor: item.badge?.bgColor ?? '#FEF3C7' }
-                  ]}>
-                    <Text 
-                      weight="bold" 
-                      size="xs" 
-                      color={item.badge?.textColor ?? '#B45309'} 
-                      style={styles.badgeText}
-                    >
-                      {(item.badge?.label ?? 'PENDING').toUpperCase()}
-                    </Text>
-                  </View>
-                )}
-              </View>
-            </Pressable>
-          );
-        }}
-      />
-
-      <AppBottomSheetModal
-        ref={sheetRef}
-        title="Receipt"
-        snapPoints={['80%', '92%']}
-        contentContainerStyle={{ paddingBottom: getSheetContentPadding(false, insets.bottom) }}
-        onClose={() => setSelectedTransaction(null)}
       >
-        <View style={styles.sheetHeader}>
-          <Text weight="bold" size="lg" color="#111318" style={styles.sheetTitle}>
-            {selectedTransaction?.title ?? 'Transaction details'}
-          </Text>
-          <Text size="sm" color="#616E89">
-            {detail.dateLabel}
-          </Text>
-        <View style={[styles.statusBadge, isPending && styles.statusBadgePending]}>
-          <BadgeCheck size={16} color={isPending ? '#6B7280' : BrandColors.secondary} />
-          <Text
-            weight="semiBold"
-            size="xs"
-            color={isPending ? '#6B7280' : BrandColors.secondary}
-          >
-            {isPending ? 'Pending' : 'Completed'}
-          </Text>
-        </View>
+        <View style={styles.topBar}>
+          <Pressable onPress={handleBack} hitSlop={12} style={styles.backBtn}>
+            <ChevronLeft size={26} color={INK} />
+          </Pressable>
+          <View style={{ flex: 1 }} />
         </View>
 
-        <View style={styles.amountHero}>
-          <Text weight="extraBold" size="4xl" color="#111318">
-            {detail.total}
+        <View style={styles.heroRow}>
+          <Text weight="bold" color={INK} style={styles.heroTitle}>
+            {selectedBucket ? selectedBucket.label : "Past Services"}
+          </Text>
+          <Text size="md" color={MUTED} style={styles.heroSubtitle} center>
+            {selectedBucket
+              ? `${selectedBookings.length} completed service${selectedBookings.length === 1 ? "" : "s"}`
+              : "Pick a car to see its history"}
           </Text>
         </View>
 
-        <View style={styles.detailCard}>
-          <View style={styles.lineItems}>
-            {detail.lineItems.map((line, index) => (
-              <View key={`${line.label}-${index}`} style={styles.lineItem}>
-                <Text size="sm" color="#1F2937">
-                  {line.label}
-                </Text>
-                <Text weight="semiBold" size="sm" color="#111318">
-                  {line.amount}
-                </Text>
-              </View>
+        {selectedBucket === null ? (
+          <VehiclePicker
+            buckets={buckets}
+            vehicles={vehicles}
+            onPick={setSelectedBucketKey}
+          />
+        ) : selectedBookings.length > 0 ? (
+          <View style={styles.list}>
+            {selectedBookings.map((b) => (
+              <PastServiceRow key={b.id} booking={b} />
             ))}
           </View>
-          <View style={styles.cardDivider} />
-          <View style={styles.summaryRow}>
-            <Text size="sm" color="#6B7280">
-              Subtotal
-            </Text>
-            <Text weight="medium" size="sm" color="#111318">
-              {detail.subtotal}
-            </Text>
-          </View>
-          <View style={styles.summaryRow}>
-            <Text size="sm" color="#6B7280">
-              {detail.taxLabel}
-            </Text>
-            <Text weight="medium" size="sm" color="#111318">
-              {detail.taxAmount}
-            </Text>
-          </View>
-          <View style={styles.totalRow}>
-            <Text weight="bold" size="md" color="#111318">
-              Total
-            </Text>
-            <Text weight="bold" size="md" color="#111318">
-              {detail.total}
-            </Text>
-          </View>
-        </View>
+        ) : (
+          <EmptyState
+            label="No services yet for this car"
+            sub="When you complete a booking it'll show up here."
+          />
+        )}
+      </ScrollView>
+    </View>
+  );
+}
 
-        <View style={styles.detailCard}>
-          <View style={styles.paymentRow}>
-            <View style={styles.paymentLeft}>
-              <View style={styles.cardBadge}>
-                <Text weight="bold" size="xs" color="#FFF">
-                  VISA
-                </Text>
-              </View>
-              <View>
-                <Text size="xs" color="#6B7280">
-                  Payment method
-                </Text>
-                <Text weight="semiBold" size="sm" color="#111318">
-                  {detail.paymentMethod}
-                </Text>
-              </View>
+interface VehiclePickerProps {
+  buckets: CarBucket[];
+  vehicles: Record<string, ReturnType<typeof useVehicleStore.getState>["vehicles"][string]>;
+  onPick: (key: string) => void;
+}
+
+function VehiclePicker({ buckets, vehicles, onPick }: VehiclePickerProps) {
+  if (buckets.length === 0) {
+    return (
+      <EmptyState
+        label="No past services yet"
+        sub="Completed bookings will show up here grouped by car."
+      />
+    );
+  }
+
+  return (
+    <View style={styles.vehicleList}>
+      {buckets.map((bucket) => {
+        const vehicle = bucket.vehicleId ? vehicles[bucket.vehicleId] : undefined;
+        const count = bucket.bookings.length;
+        const vinTail = bucket.key.split("|")[2];
+        return (
+          <Pressable
+            key={bucket.key}
+            style={({ pressed }) => [
+              styles.vehicleCard,
+              pressed && styles.vehicleCardPressed,
+            ]}
+            onPress={() => onPick(bucket.key)}
+            accessibilityRole="button"
+            accessibilityLabel={`${bucket.label}, ${count} services`}
+          >
+            <View style={styles.vehicleThumb}>
+              {vehicle?.imageSource ? (
+                <Image
+                  source={vehicle.imageSource}
+                  style={styles.vehicleThumbImage}
+                  resizeMode="contain"
+                />
+              ) : bucket.makeLogoUrl ? (
+                <Image
+                  source={{ uri: bucket.makeLogoUrl }}
+                  style={styles.vehicleThumbImage}
+                  resizeMode="contain"
+                />
+              ) : (
+                <CarSilhouette variant="suv" width={72} height={50} />
+              )}
             </View>
-            <View style={styles.paymentRight}>
-              <Text size="xs" color="#6B7280">
-                Rewards
+            <View style={styles.vehicleText}>
+              <Text weight="bold" size="md" color={INK} numberOfLines={1}>
+                {bucket.label}
               </Text>
-              <View style={styles.rewardsRow}>
-                <Sparkles size={14} color={BrandColors.secondary} />
-                <Text weight="bold" size="sm" color={BrandColors.secondary}>
-                  {detail.rewards}
-                </Text>
-              </View>
+              <Text size="sm" color={MUTED} numberOfLines={1} style={styles.vehicleSub}>
+                {count} service{count === 1 ? "" : "s"}
+                {vinTail ? ` · VIN ${vinTail.slice(-6)}` : ""}
+              </Text>
+            </View>
+            <ChevronRight size={20} color="#9CA3AF" strokeWidth={2} />
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+interface RowProps {
+  booking: CompletedBooking;
+}
+
+function PastServiceRow({ booking }: RowProps) {
+  const subtitle = useMemo(() => {
+    const services = booking.services.length;
+    const parts = [booking.shopName];
+    if (services > 0) {
+      parts.push(`${services} service${services === 1 ? "" : "s"}`);
+    }
+    parts.push(fmtUSD(booking.totalCost));
+    return parts.join(" · ");
+  }, [booking.shopName, booking.services.length, booking.totalCost]);
+
+  return (
+    <Link
+      href={{
+        pathname: "/settings/past-service/[bookingId]",
+        params: { bookingId: booking.id },
+      }}
+      asChild
+    >
+      <Pressable>
+        {({ pressed }) => (
+          <View style={[styles.row, pressed && styles.rowPressed]}>
+            <View style={styles.thumb}>
+              {booking.makeLogoUrl ? (
+                <Image
+                  source={{ uri: booking.makeLogoUrl }}
+                  style={styles.thumbImage}
+                  resizeMode="contain"
+                />
+              ) : (
+                <Wrench size={22} color="#5299FE" strokeWidth={1.8} />
+              )}
+            </View>
+            <View style={styles.rowText}>
+              <Text weight="bold" size="md" color={INK} numberOfLines={1}>
+                Completed {booking.date}
+              </Text>
+              <Text size="sm" color={MUTED} style={styles.rowSubtitle} numberOfLines={1}>
+                {subtitle}
+              </Text>
+            </View>
+            <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+              <Link.AppleZoom>
+                <View style={styles.zoomSource} />
+              </Link.AppleZoom>
             </View>
           </View>
-        </View>
+        )}
+      </Pressable>
+    </Link>
+  );
+}
 
-        <View style={styles.actionGroup}>
-          <Button
-            fullWidth
-            backgroundColor={BrandColors.secondary}
-            textColor="#FFF"
-            leftIcon={<Download size={18} color="#FFF" />}
-            style={styles.actionButton}
-          >
-            Download receipt
-          </Button>
-          <Button
-            fullWidth
-            backgroundColor="rgba(255, 255, 255, 0.7)"
-            textColor="#111318"
-            leftIcon={<Mail size={18} color="#111318" />}
-            style={[styles.actionButton, styles.secondaryAction]}
-          >
-            Email receipt
-          </Button>
-          <Pressable style={styles.reportAction}>
-            <Text weight="medium" size="sm" color="rgba(239, 68, 68, 0.85)">
-              Report an issue
-            </Text>
-          </Pressable>
-        </View>
-      </AppBottomSheetModal>
+interface EmptyStateProps {
+  label: string;
+  sub: string;
+}
+
+function EmptyState({ label, sub }: EmptyStateProps) {
+  return (
+    <View style={styles.emptyState}>
+      <View style={styles.emptyIconContainer}>
+        <Calendar size={48} color="#9CA3AF" strokeWidth={1.5} />
+      </View>
+      <Text weight="semiBold" size="lg" color="#374151" center>
+        {label}
+      </Text>
+      <Text size="sm" color={MUTED} center style={styles.emptyText}>
+        {sub}
+      </Text>
     </View>
   );
 }
@@ -522,288 +326,129 @@ export default function TransactionsScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
+    backgroundColor: "#CFE0EB",
   },
-  scrollContent: {
-    paddingHorizontal: Spacing.lg,
+  topBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 12,
+    height: 32,
   },
-  controlsSection: {
-    paddingTop: Spacing.sm,
-    marginBottom: Spacing.xl,
-    gap: Spacing.md,
-  },
-  searchContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.8)',
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(0, 0, 0, 0.03)',
-    paddingHorizontal: 16,
-    height: 48,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.02,
-    shadowRadius: 10,
-  },
-  searchIconBox: {
-    marginRight: 12,
-  },
-  searchInput: {
-    flex: 1,
-    fontSize: 16,
-    color: '#1D1D1F',
-  },
-  chipRow: {
-    gap: 12,
-    paddingBottom: 8,
-  },
-  chip: {
-    paddingHorizontal: 24,
-    height: 36,
-    borderRadius: 999,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.7)',
-    borderWidth: 1,
-    borderColor: 'rgba(0, 0, 0, 0.03)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.02,
-    shadowRadius: 8,
-  },
-  chipActive: {
-    backgroundColor: BrandColors.secondary,
-    borderColor: BrandColors.secondary,
-    shadowOpacity: 0.1,
-    shadowRadius: 10,
-  },
-  sectionHeader: {
-    paddingVertical: 10,
-    paddingHorizontal: Spacing.md,
-    backgroundColor: 'rgba(245, 245, 247, 0.8)',
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0, 0, 0, 0.05)',
-    marginHorizontal: -Spacing.lg,
-    paddingLeft: Spacing.lg + Spacing.md,
-  },
-  sectionHeaderText: {
-    letterSpacing: 1.5,
-    fontSize: 11,
-    color: '#86868B',
-  },
-  transactionRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 12,
-    paddingHorizontal: 4,
-    height: 72,
-    borderRadius: 16,
-  },
-  transactionRowPressed: {
-    backgroundColor: '#FFFFFF',
-  },
-  transactionRowMuted: {
-    opacity: 0.6,
-  },
-  transactionLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 16,
-    flex: 1,
-  },
-  transactionIconOuter: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: 'rgba(0, 0, 0, 0.06)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 1,
-  },
-  transactionIconInner: {
+  backBtn: {
     width: 40,
     height: 40,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
+    marginLeft: -16,
+    alignItems: "center",
+    justifyContent: "center",
   },
-  transactionText: {
+  scrollContent: {
+    paddingHorizontal: 20,
+  },
+  heroRow: {
+    alignItems: "center",
+    marginTop: 24,
+    marginBottom: 20,
+  },
+  heroTitle: {
+    fontSize: 28,
+    lineHeight: 34,
+    textAlign: "center",
+  },
+  heroSubtitle: {
+    marginTop: 6,
+  },
+  vehicleList: {
+    gap: 12,
+  },
+  vehicleCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    borderRadius: 18,
+    backgroundColor: "rgba(255, 255, 255, 0.55)",
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.7)",
+  },
+  vehicleCardPressed: {
+    backgroundColor: "rgba(255, 255, 255, 0.75)",
+  },
+  vehicleThumb: {
+    width: 80,
+    height: 60,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  vehicleThumbImage: {
+    width: "100%",
+    height: "100%",
+  },
+  vehicleText: {
     flex: 1,
-    justifyContent: 'center',
-    gap: 2,
+    minWidth: 0,
   },
-  transactionSubtitle: {
+  vehicleSub: {
     marginTop: 2,
   },
-  transactionRight: {
-    alignItems: 'flex-end',
-    justifyContent: 'center',
+  list: {
     gap: 4,
   },
-  amountText: {
-    letterSpacing: -0.5,
-  },
-  strikeText: {
-    textDecorationLine: 'line-through',
-    textDecorationColor: 'rgba(0, 0, 0, 0.3)',
-  },
-  rightActionArea: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  badge: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 999,
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: ListSpacing.rowVertical,
+    paddingHorizontal: 14,
+    borderRadius: 16,
+    gap: 12,
+    backgroundColor: "rgba(255, 255, 255, 0.45)",
     borderWidth: 1,
-    borderColor: 'rgba(0, 0, 0, 0.02)',
+    borderColor: "rgba(255, 255, 255, 0.65)",
+    marginBottom: 10,
   },
-  badgeText: {
-    letterSpacing: 0.6,
+  rowPressed: {
+    backgroundColor: "rgba(255, 255, 255, 0.7)",
   },
-  pendingBadge: {
-    backgroundColor: '#FEF3C7',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 999,
-  },
-  chevron: {
-    marginLeft: 4,
-  },
-  rowDivider: {
-    height: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.05)',
-    marginLeft: 64,
-  },
-  fab: {
-    position: 'absolute',
-    right: 24,
-    bottom: 24,
+  thumb: {
     width: 56,
     height: 56,
-    borderRadius: 28,
-    backgroundColor: '#1D1D1F',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.2,
-    shadowRadius: 16,
-    elevation: 8,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
   },
-  sheetHeader: {
-    alignItems: 'center',
-    textAlign: 'center',
-    marginBottom: Spacing['2xl'],
+  zoomSource: {
+    flex: 1,
+    backgroundColor: "transparent",
   },
-  sheetTitle: {
-    textAlign: 'center',
-    marginBottom: 6,
+  thumbImage: {
+    width: 56,
+    height: 56,
   },
-  statusBadge: {
-    marginTop: Spacing.md,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: 'rgba(36, 99, 235, 0.1)',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: 'rgba(36, 99, 235, 0.1)',
+  rowText: {
+    flex: 1,
+    minWidth: 0,
   },
-  statusBadgePending: {
-    backgroundColor: 'rgba(148, 163, 184, 0.25)',
-    borderColor: 'rgba(148, 163, 184, 0.25)',
+  rowSubtitle: {
+    marginTop: 2,
   },
-  amountHero: {
-    alignItems: 'center',
-    marginBottom: Spacing['2xl'],
+  emptyState: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 60,
+    paddingHorizontal: 40,
   },
-  detailCard: {
-    backgroundColor: 'rgba(255, 255, 255, 0.4)',
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.6)',
-    padding: Spacing.lg,
-    marginBottom: Spacing.lg,
+  emptyIconContainer: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: "rgba(255, 255, 255, 0.6)",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 20,
   },
-  lineItems: {
-    gap: 10,
-    marginBottom: Spacing.md,
-  },
-  lineItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-  },
-  cardDivider: {
-    height: 1,
-    backgroundColor: 'rgba(148, 163, 184, 0.35)',
-    marginBottom: Spacing.md,
-  },
-  summaryRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  totalRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+  emptyText: {
     marginTop: 8,
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(148, 163, 184, 0.35)',
-  },
-  paymentRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  paymentLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  cardBadge: {
-    backgroundColor: '#1E3A8A',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 6,
-  },
-  paymentRight: {
-    alignItems: 'flex-end',
-    gap: 4,
-  },
-  rewardsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  actionGroup: {
-    marginTop: Spacing.lg,
-    gap: 12,
-  },
-  actionButton: {
-    borderRadius: 16,
-    paddingVertical: 12,
-  },
-  secondaryAction: {
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.6)',
-  },
-  reportAction: {
-    alignItems: 'center',
-    paddingVertical: 6,
+    lineHeight: 22,
   },
 });

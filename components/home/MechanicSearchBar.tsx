@@ -16,7 +16,7 @@
  *   <MechanicSearchBar
  *     value={searchQuery}
  *     onChangeText={setSearchQuery}
- *     onMapPress={() => router.push('/booking/map')}
+ *     onMapPress={() => router.push('/(booking-flow)/select-services')}
  *   />
  *
  * OWNER: Ahmad Hamoudeh
@@ -124,7 +124,7 @@ export function MechanicSearchBar({
                 >
                     <Search size={20} color={BrandColors.black} strokeWidth={2} />
                     <Text
-                        size="md"
+                        size="lg"
                         weight="regular"
                         color={SemanticColors.textDisabled}
                         numberOfLines={1}

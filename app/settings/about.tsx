@@ -76,7 +76,7 @@ export default function AboutOtopairScreen() {
           </Text>
           <View style={styles.versionPill}>
             <Text weight="medium" size="xs" color="#6B7280">
-              Version 1.0.0
+              Version 1.1.0
             </Text>
           </View>
           <Text weight="medium" size="sm" color="#616E89">

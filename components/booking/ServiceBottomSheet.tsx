@@ -84,6 +84,7 @@ import { SingleServiceOptionsSheet } from "./sheets/SingleServiceOptionsSheet";
 import { ShopPreviewContent } from "./sheets/ShopPreviewContent";
 
 // 5. Constants, hooks, types, stores
+import { SLUG_DIAGNOSTIC_SCAN, SLUG_TIRE_REPLACEMENT } from "@/constants/serviceTaxonomy";
 import { BorderRadius, FontFamily, FontSize, Shadows } from "@/constants/theme";
 import { useBookingLaborHours } from "@/hooks/useBookingLaborHours";
 import { useBookingPartsBreakdown } from "@/hooks/useBookingPartsBreakdown";
@@ -353,10 +354,10 @@ export function ServiceBottomSheet({
   }, [servicesWithOptions, selectedServiceOptions]);
 
   // Diagnostic Scan adds a system-area picker (5 options) + customer notes to
-  // the legacy service_options stage. Matched by name because the catalog
-  // service id is the Convex _id (varies per env), not the constants slug.
+  // the legacy service_options stage. Matched by slug per v5 taxonomy
+  // (labels are display-only).
   const diagnosticServiceId = useMemo(
-    () => availableServices.find((s) => s.name === "Diagnostic Scan")?.id ?? null,
+    () => availableServices.find((s) => s.slug === SLUG_DIAGNOSTIC_SCAN)?.id ?? null,
     [availableServices],
   );
   const isDiagnosticServiceSelected =
@@ -966,11 +967,10 @@ export function ServiceBottomSheet({
   // Service selection complete -> go to service options if any, else mechanic selection
   const handleServicesSelected = useCallback(() => {
     // Tire Replacement bypasses the generic Option Selection stage and
-    // hands off to the dedicated Shop Tires flow (per-wheel picker +
-    // size + type + quality tier). Matched by name because the mock
-    // catalog id (`svc_tire_replacement`) differs from the Convex doc id.
+    // hands off to the dedicated Shop Tires flow. Matched by slug per
+    // v5 taxonomy (labels are display-only).
     const tireReplacementSelected = availableServices.some(
-      (svc) => selectedServiceIds.includes(svc.id) && svc.name === "Tire Replacement",
+      (svc) => selectedServiceIds.includes(svc.id) && svc.slug === SLUG_TIRE_REPLACEMENT,
     );
     const servicesNeedingOptions = availableServices.filter(
       (svc) => selectedServiceIds.includes(svc.id) && svc.has_options === true,
