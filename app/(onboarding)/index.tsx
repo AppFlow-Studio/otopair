@@ -12,10 +12,7 @@ import {
     getDevicePermissionState,
     getIncompleteOnboardingStepsFromResumeData,
 } from '@/lib/onboarding-resume';
-import {
-    getTrustedSavedOnboardingStep,
-    shouldRedirectCompletedOnboardingToHome,
-} from '@/lib/auth-routing';
+import { getTrustedSavedOnboardingStep } from '@/lib/auth-routing';
 import { BrandColors } from '@/constants/theme';
 
 export default function OnboardingScreen() {
@@ -55,11 +52,6 @@ export default function OnboardingScreen() {
     const isResumeMode = params.isResumeMode === 'true';
     const isCreateAccountResume = params.resumeSource === 'createAccount';
     const hasExplicitResumeTarget = !!params.initialStep || !!params.filteredSteps;
-    const shouldRedirectHome = shouldRedirectCompletedOnboardingToHome({
-        isSignedIn: isSignedIn === true,
-        onboardingCompleted: me?.onboardingCompleted,
-        essentialOnboardingCompleted: me?.essentialOnboardingCompleted,
-    });
     const shouldAutoResumeSignedInEntryRef = useRef<boolean | null>(null);
     if (isLoaded && shouldAutoResumeSignedInEntryRef.current === null) {
         shouldAutoResumeSignedInEntryRef.current = !hasExplicitResumeTarget && isSignedIn === true;
@@ -94,7 +86,6 @@ export default function OnboardingScreen() {
             shouldAutoResumeSignedInEntry: shouldAutoResumeSignedInEntryRef.current,
             isAutoResume,
             autoResumeReady,
-            shouldRedirectHome,
         });
     }, [
         autoResumeReady,
@@ -109,20 +100,7 @@ export default function OnboardingScreen() {
         params,
         rawMe,
         rawOnboardingQa,
-        shouldRedirectHome,
     ]);
-
-    useEffect(() => {
-        if (me === undefined || !shouldRedirectHome) return;
-
-        console.log('[onboarding-resume:screen] navigating home: onboarding already complete', {
-            clerkUserId,
-            convexUserId: me?._id,
-            onboardingCompleted: me?.onboardingCompleted,
-            essentialOnboardingCompleted: me?.essentialOnboardingCompleted,
-        });
-        router.replace('/(main-tabs)/home');
-    }, [clerkUserId, me, shouldRedirectHome]);
 
     useEffect(() => {
         if (isAutoResume) {
@@ -143,7 +121,6 @@ export default function OnboardingScreen() {
     // Auto-resume: wait for Convex data, compute first incomplete step, hydrate store.
     useEffect(() => {
         if (!isAutoResume) return;
-        if (shouldRedirectHome) return;
         // Wait for both queries to finish loading (undefined = still in flight)
         if (me === undefined || onboardingQa === undefined) return;
 
@@ -241,7 +218,7 @@ export default function OnboardingScreen() {
         });
 
         return () => { cancelled = true; };
-    }, [clerkUserId, isAutoResume, me, onboardingQa, shouldRedirectHome, updateOnboardingData]);
+    }, [clerkUserId, isAutoResume, me, onboardingQa, updateOnboardingData]);
 
     // Normal mode (explicit params or fresh start): hydrate store from Convex in background.
     useEffect(() => {
@@ -285,7 +262,7 @@ export default function OnboardingScreen() {
         return () => { cancelled = true; };
     }, [isAutoResume, me, onboardingQa, updateOnboardingData]);
 
-    if (shouldRedirectHome || !autoResumeReady) {
+    if (!autoResumeReady) {
         return (
             <View style={styles.loading}>
                 <ActivityIndicator size="large" color={BrandColors.white} />

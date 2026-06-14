@@ -29,7 +29,6 @@ import {
   type LucideIcon,
 } from "lucide-react-native";
 
-import { categoryTitleTransition } from "@/components/booking-flow/CategoryListRow";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 
 import { Text } from "@/components/shared-ui";
@@ -323,8 +322,6 @@ export default function CategoryDetailScreen() {
               <View style={styles.headerTitleRow}>
                 <Animated.View
                   style={styles.headerIconTile}
-                  sharedTransitionTag={`cat-icon-${tabKey}`}
-                  sharedTransitionStyle={categoryTitleTransition}
                 >
                   {(() => {
                     const Icon = TAB_ICONS[tabKey];
@@ -332,8 +329,6 @@ export default function CategoryDetailScreen() {
                   })()}
                 </Animated.View>
                 <Animated.Text
-                  sharedTransitionTag={`cat-title-${tabKey}`}
-                  sharedTransitionStyle={categoryTitleTransition}
                   style={styles.titleTarget}
                 >
                   {tab.label}
