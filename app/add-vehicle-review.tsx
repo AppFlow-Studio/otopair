@@ -44,6 +44,7 @@ import { classifyColorFamily, fetchVehicleImageUrl, pickBestVdbTrim, pickSilhoue
 import { COLOR_GRADIENTS } from '@/constants/colorGradients';
 import { ColorSwatchSkeletonRow, VehicleImageSkeleton } from '@/components/shared-ui/ColorSwatchSkeleton';
 import { FloatingSheet, type FloatingSheetRef } from '@/components/shared-ui/FloatingSheet';
+import { formatEngineLiters } from '@/utils/vehicleDisplay';
 
 // ============================================================================
 // COMPONENT
@@ -427,6 +428,8 @@ export default function AddVehicleReviewScreen() {
   // liters) when the new specs-specific field is blank — keeps older
   // decode paths working.
   const liters = litersFromSpecs ?? parseOptionalNum(params.displacement);
+  const litersDisplay = formatEngineLiters(liters);
+  const vehicleCardLitersDisplay = formatEngineLiters(params.displacement);
   const cylConfig = params.cylindersConfiguration || '';
   const transType = params.transType || '';
   const transSpeeds = parseOptionalNum(params.transSpeeds);
@@ -443,8 +446,8 @@ export default function AddVehicleReviewScreen() {
 
   // Engine tile: "2.0L I-4" primary, "272 hp" secondary.
   const engineLine1 =
-    liters || cylConfig
-      ? `${liters ? `${liters}L` : ''}${liters && cylConfig ? ' ' : ''}${cylConfig}`.trim()
+    litersDisplay || cylConfig
+      ? `${litersDisplay ? `${litersDisplay}L` : ''}${litersDisplay && cylConfig ? ' ' : ''}${cylConfig}`.trim()
       : DASH;
   const engineLine2 = hp ? `${hp} hp` : DASH;
 
@@ -594,7 +597,7 @@ export default function AddVehicleReviewScreen() {
           </Pressable>
           {(params.displacement || params.fuelType) && (
             <Text size="xs" color="#888888" style={styles.vehicleTrim}>
-              {params.displacement ? `${params.displacement}L ` : ''}{params.fuelType}
+              {vehicleCardLitersDisplay ? `${vehicleCardLitersDisplay}L ` : ''}{params.fuelType}
             </Text>
           )}
           <View style={styles.vinBadge}>
@@ -612,7 +615,7 @@ export default function AddVehicleReviewScreen() {
           <View style={styles.colorCard}>
             <View style={styles.colorHeaderRow}>
               <Text weight="semiBold" size="md" color="#1F2937">
-                Choose your {params.make}'s color
+                Choose your {params.make}{"'"}s color
               </Text>
               <Text size="xs" color="#9CA3AF" numberOfLines={1} style={styles.colorHeaderRight}>
                 {selectedSwatch
