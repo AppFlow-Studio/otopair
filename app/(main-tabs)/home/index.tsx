@@ -1,6 +1,6 @@
 // 1. React & React Native
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Image, Pressable, StyleSheet, Text as RNText, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, Image, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated from 'react-native-reanimated';
 
@@ -14,7 +14,7 @@ import {
   BottomSheetScrollView,
 } from "@gorhom/bottom-sheet";
 import { BlurBackdrop } from "@/components/shared-ui/BlurBackdrop";
-import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
+import type { FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
 // MVP-DISABLED: loyalty/rewards — re-enable post-launch (drop Trophy)
 import { Bell, MoveRight, Star } from 'lucide-react-native';
 import { useMutation, useQuery } from 'convex/react';
@@ -93,6 +93,7 @@ try {
 
 // 6. Flow-specific components
 import { ActionCardsCarousel } from "@/components/home/ActionCardsCarousel";
+import { AddVehicleRequiredSheet } from "@/components/home/AddVehicleRequiredSheet";
 import { AddFirstVehicleCard } from "@/components/home/AddFirstVehicleCard";
 import {
   FinishCarSetupPickerSheet,
@@ -137,7 +138,6 @@ export default function HomeScreen() {
     initialInsetTopRef.current = insets.top;
   }
   const stableInsetTop = initialInsetTopRef.current;
-  const { height: screenHeight } = useWindowDimensions();
   const router = useRouter();
   const { isNewUser, shouldShowReactivationSheet, setShouldShowReactivationSheet } = useAuthStore();
   const { vehicles: listVehicles, hasVehicles, isLoading: vehiclesLoading } = useVehicleOwnershipFromConvex();
@@ -1100,58 +1100,14 @@ export default function HomeScreen() {
     </ScrollDrivenGradientBackground>
 
     {/* No-vehicle gate — shown when user taps into booking without a vehicle */}
-    <FloatingSheet
+    <AddVehicleRequiredSheet
       ref={noVehicleSheetRef}
-      snapHeights={[screenHeight * 0.50]}
-      showBackdrop
-    >
-      <View style={[styles.sheetContentContainer, styles.noVehicleContent]}>
-        <View style={styles.sheetTitleWrap}>
-          <View style={styles.noVehicleIconWrap}>
-            <RNText
-              style={{
-                fontSize: 26,
-                lineHeight: 28,
-                textAlign: 'center',
-                textAlignVertical: 'center',
-                includeFontPadding: false,
-                transform: [{ translateY: -2 }],
-              }}
-            >
-              🚗
-            </RNText>
-          </View>
-          <Text style={styles.sheetTitle}>Add a vehicle first</Text>
-        </View>
-
-        <View style={styles.sheetBody}>
-          <Text style={styles.sheetBodyText}>
-            We need to know your vehicle to match you with the right mechanic and services.
-          </Text>
-        </View>
-
-        <View style={styles.sheetActions}>
-          <Pressable
-            style={({ pressed }) => [styles.sheetPrimaryButton, pressed && styles.sheetPressed]}
-            onPress={() => {
-              noVehicleSheetRef.current?.close();
-              router.push('/add-vehicle');
-            }}
-          >
-            <Text weight="semiBold" color="#FFF" style={styles.sheetPrimaryButtonText}>
-              Add a vehicle
-            </Text>
-          </Pressable>
-
-          <Pressable
-            onPress={() => noVehicleSheetRef.current?.close()}
-            style={styles.noVehicleSecondaryAction}
-          >
-            <Text style={styles.noVehicleSecondaryText}>Maybe later</Text>
-          </Pressable>
-        </View>
-      </View>
-    </FloatingSheet>
+      onAddVehicle={() => {
+        noVehicleSheetRef.current?.close();
+        router.push('/add-vehicle');
+      }}
+      onMaybeLater={() => noVehicleSheetRef.current?.close()}
+    />
 
     {/* Reschedule availability picker. Mirrors the bookings tab's wiring. */}
     <AvailabilityModal
