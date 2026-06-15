@@ -13,8 +13,9 @@
  * Spec: ~/Downloads/<figma frames> Screen 2.
  */
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Dimensions, Pressable, StyleSheet, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
   useAnimatedStyle,
@@ -34,11 +35,14 @@ import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from "
 
 import { Text } from "@/components/shared-ui";
 import { useBookingFlowMap } from "@/components/booking-flow/BookingFlowMap";
-import {
-  GlassSheetBackground,
-  GlassSheetHandle,
-} from "@/components/booking-flow/GlassSheet";
+import { LinearGradient } from "expo-linear-gradient";
+import { GlassSheetHandle } from "@/components/booking-flow/GlassSheet";
 import { ServiceInfoSheet } from "@/components/booking-flow/ServiceInfoSheet";
+import { SelectedServicesFab } from "@/components/booking-flow/SelectedServicesFab";
+import {
+  SelectedServicesSheet,
+  type SelectedServicesSheetRef,
+} from "@/components/booking-flow/SelectedServicesSheet";
 import { ServiceMultiSelectRow } from "@/components/booking-flow/ServiceMultiSelectRow";
 import { StickyContinueBar } from "@/components/booking-flow/StickyContinueBar";
 import { VehiclePuck } from "@/components/booking-flow/VehiclePuck";
@@ -92,7 +96,9 @@ const VALID_TABS = new Set<TaxonomyTab>([
 export default function CategoryDetailScreen() {
   const router = useRouter();
   const navigation = useNavigation();
+  const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ tab: string }>();
+  const reviewSheetRef = useRef<SelectedServicesSheetRef>(null);
 
   const tabKey = useMemo<TaxonomyTab | null>(() => {
     if (!params.tab) return null;
@@ -331,7 +337,15 @@ export default function CategoryDetailScreen() {
 
       <GestureDetector gesture={dragGesture}>
         <Animated.View style={[styles.sheet, sheetAnimatedStyle]}>
-          <GlassSheetBackground style={StyleSheet.absoluteFill} />
+          {/* Sheet fill — same gradient the home tab paints (matches
+              the select-services sheet so the two screens read as
+              one continuous surface). */}
+          <LinearGradient
+            colors={["#86C2E8", "#B0D6F0", "#EAF2FA"]}
+            start={{ x: 0.5, y: 0 }}
+            end={{ x: 0.5, y: 1 }}
+            style={StyleSheet.absoluteFill}
+          />
           <GlassSheetHandle />
 
           <View style={styles.topRow}>
@@ -431,6 +445,28 @@ export default function CategoryDetailScreen() {
         onPress={() => router.push("/(booking-flow)/choose-mechanic")}
       />
 
+      {/* Cart review FAB — sits above the Continue pill at the
+          bottom-right. Only renders when at least one service is
+          selected (the FAB component returns null when count is 0).
+          Tap → opens the SelectedServicesSheet with every selected
+          service across all tabs, each with an X to remove. */}
+      <View
+        pointerEvents="box-none"
+        style={[
+          styles.fabHost,
+          {
+            bottom: insets.bottom + 96,
+          },
+        ]}
+      >
+        <SelectedServicesFab
+          count={selectedServiceIds.length}
+          onPress={() => reviewSheetRef.current?.open()}
+        />
+      </View>
+
+      <SelectedServicesSheet ref={reviewSheetRef} />
+
       {/* Inline package-questions sheet (needs-specs taps) */}
       {ownershipId && specsCheckServiceId ? (
         <PackageQuestionsSheet
@@ -515,6 +551,14 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
     backgroundColor: "transparent",
+  },
+  fabHost: {
+    position: "absolute",
+    right: 16,
+    // `bottom` is set inline from insets so the FAB clears the
+    // Continue pill on all phone shapes. `pointerEvents: 'box-none'`
+    // on the host so the empty space around the FAB doesn't block
+    // taps on the sheet content underneath.
   },
   sheet: {
     position: "absolute",
