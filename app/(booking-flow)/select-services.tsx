@@ -26,7 +26,6 @@ import Animated, {
 } from "react-native-reanimated";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { LinearGradient } from "expo-linear-gradient";
 import { Search, X } from "lucide-react-native";
 
 import { Text } from "@/components/shared-ui";
@@ -184,15 +183,6 @@ export default function SelectServicesScreen() {
           anywhere (handle or content) works. */}
       <GestureDetector gesture={dragGesture}>
         <Animated.View style={[styles.sheet, sheetAnimatedStyle]}>
-          {/* Sheet fill — same gradient the home tab paints (matches
-              ScrollDrivenGradientBackground's app-wide stops) so this
-              sheet visually inherits the home bg over the map. */}
-          <LinearGradient
-            colors={["#86C2E8", "#B0D6F0", "#EAF2FA"]}
-            start={{ x: 0.5, y: 0 }}
-            end={{ x: 0.5, y: 1 }}
-            style={StyleSheet.absoluteFill}
-          />
           <GlassSheetHandle />
           <View
             style={[
@@ -277,6 +267,7 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
+    backgroundColor: "#FFFFFF",
   },
   scrollContent: {
     paddingTop: 0,

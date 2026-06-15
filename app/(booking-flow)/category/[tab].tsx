@@ -35,7 +35,6 @@ import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from "
 
 import { Text } from "@/components/shared-ui";
 import { useBookingFlowMap } from "@/components/booking-flow/BookingFlowMap";
-import { LinearGradient } from "expo-linear-gradient";
 import { GlassSheetHandle } from "@/components/booking-flow/GlassSheet";
 import { ServiceInfoSheet } from "@/components/booking-flow/ServiceInfoSheet";
 import { SelectedServicesFab } from "@/components/booking-flow/SelectedServicesFab";
@@ -337,15 +336,6 @@ export default function CategoryDetailScreen() {
 
       <GestureDetector gesture={dragGesture}>
         <Animated.View style={[styles.sheet, sheetAnimatedStyle]}>
-          {/* Sheet fill — same gradient the home tab paints (matches
-              the select-services sheet so the two screens read as
-              one continuous surface). */}
-          <LinearGradient
-            colors={["#86C2E8", "#B0D6F0", "#EAF2FA"]}
-            start={{ x: 0.5, y: 0 }}
-            end={{ x: 0.5, y: 1 }}
-            style={StyleSheet.absoluteFill}
-          />
           <GlassSheetHandle />
 
           <View style={styles.topRow}>
@@ -568,6 +558,7 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
+    backgroundColor: "#FFFFFF",
   },
   topRow: {
     flexDirection: "row",
