@@ -24,7 +24,7 @@ import {
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from "react-native";
-import { useFocusEffect, useRouter } from "expo-router";
+import { useFocusEffect, useNavigation, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import BottomSheet, { BottomSheetView } from "@gorhom/bottom-sheet";
 import { ArrowLeft, Crosshair, Minus, Plus } from "lucide-react-native";
@@ -50,6 +50,7 @@ const SNAP_POINTS = ["53%", "82%"] as const;
 
 export default function ChooseMechanicScreen() {
   const router = useRouter();
+  const navigation = useNavigation();
   const insets = useSafeAreaInsets();
 
   const selectedServiceIds = useBookingStore((s) => s.selectedServiceIds);
@@ -296,9 +297,18 @@ export default function ChooseMechanicScreen() {
 
   const activeDistanceMi = nearbyShops[activeIndex]?.distanceMi ?? 0;
 
+  // Back normalizes to Screen 1 when we're the first route in the
+  // (booking-flow) stack — i.e. the user got here via a direct
+  // entry point (Most Booked card, Quick Book, etc.) rather than
+  // walking 1 → 2 → 3. Length > 1 means a real in-flow back exists.
   const onBack = () => {
-    if (router.canGoBack()) router.back();
-    else router.replace("/(booking-flow)/select-services");
+    const state = navigation.getState?.();
+    const stackLength = state?.routes?.length ?? 0;
+    if (stackLength > 1) {
+      router.back();
+    } else {
+      router.replace("/(booking-flow)/select-services");
+    }
   };
 
   const onContinue = () => {

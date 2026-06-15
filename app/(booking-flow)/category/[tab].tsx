@@ -30,7 +30,7 @@ import {
 } from "lucide-react-native";
 
 import { categoryTitleTransition } from "@/components/booking-flow/CategoryListRow";
-import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from "expo-router";
 
 import { Text } from "@/components/shared-ui";
 import { useBookingFlowMap } from "@/components/booking-flow/BookingFlowMap";
@@ -91,6 +91,7 @@ const VALID_TABS = new Set<TaxonomyTab>([
 
 export default function CategoryDetailScreen() {
   const router = useRouter();
+  const navigation = useNavigation();
   const params = useLocalSearchParams<{ tab: string }>();
 
   const tabKey = useMemo<TaxonomyTab | null>(() => {
@@ -291,9 +292,23 @@ export default function CategoryDetailScreen() {
       .trim();
   }, [selectedVehicle]);
 
+  // Back behavior: if the user entered the booking flow on this
+  // screen directly (e.g. Quick Book pushed straight to Choose
+  // Mechanic, or a category card on home pushed straight here),
+  // the (booking-flow) stack has us as its only route. In that
+  // case "back" should land on Screen 1, NOT pop out of the flow
+  // entirely to wherever they came from. We detect this by
+  // looking at the booking-flow stack's routes — length 1 means
+  // we're the first in the flow and should normalize to
+  // select-services rather than ejecting.
   const onBack = () => {
-    if (router.canGoBack()) router.back();
-    else router.replace("/(booking-flow)/select-services");
+    const state = navigation.getState?.();
+    const stackLength = state?.routes?.length ?? 0;
+    if (stackLength > 1) {
+      router.back();
+    } else {
+      router.replace("/(booking-flow)/select-services");
+    }
   };
 
   return (
