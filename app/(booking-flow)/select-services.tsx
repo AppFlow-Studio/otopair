@@ -37,6 +37,11 @@ import { GlassSheetHandle } from "@/components/booking-flow/GlassSheet";
 import { HeroCardClosestShop } from "@/components/booking-flow/HeroCardClosestShop";
 import { HeroCardMostBooked } from "@/components/booking-flow/HeroCardMostBooked";
 import { QuickBookRow } from "@/components/booking-flow/QuickBookRow";
+import { SelectedServicesFab } from "@/components/booking-flow/SelectedServicesFab";
+import {
+  SelectedServicesSheet,
+  type SelectedServicesSheetRef,
+} from "@/components/booking-flow/SelectedServicesSheet";
 import { VehiclePuck } from "@/components/booking-flow/VehiclePuck";
 import { TABS, type TaxonomyTab } from "@/constants/serviceTaxonomy";
 import { useBookingStore } from "@/stores/useBookingStore";
@@ -77,6 +82,7 @@ export default function SelectServicesScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const availableServices = useBookingStore((s) => s.availableServices);
+  const selectedServiceIds = useBookingStore((s) => s.selectedServiceIds);
   const initialServiceCategory = useBookingStore((s) => s.initialServiceCategory);
   const setInitialServiceCategory = useBookingStore(
     (s) => s.setInitialServiceCategory,
@@ -99,6 +105,7 @@ export default function SelectServicesScreen() {
   // re-fired and the user got trapped in a Screen 1 ↔ Screen 2
   // loop with no way out except clearing the cart.
   const seedHandledRef = useRef(false);
+  const reviewSheetRef = useRef<SelectedServicesSheetRef>(null);
   useEffect(() => {
     if (seedHandledRef.current) return;
     const targetTab = legacyCategoryToTab(initialServiceCategory);
@@ -267,6 +274,23 @@ export default function SelectServicesScreen() {
           </View>
         </Animated.View>
       </GestureDetector>
+
+      {/* Cart review FAB — same one Screen 2 has so the user can
+          see + edit the multi-tab selection from Screen 1 too.
+          Bottom-right, count-gated by the FAB itself (renders null
+          when count === 0). Screen 1 has no Continue pill below
+          it, so we sit a little lower than on Screen 2. */}
+      <View
+        pointerEvents="box-none"
+        style={[styles.fabHost, { bottom: insets.bottom + 24 }]}
+      >
+        <SelectedServicesFab
+          count={selectedServiceIds.length}
+          onPress={() => reviewSheetRef.current?.open()}
+        />
+      </View>
+
+      <SelectedServicesSheet ref={reviewSheetRef} />
     </View>
   );
 }
@@ -275,6 +299,13 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
     backgroundColor: "transparent",
+  },
+  fabHost: {
+    position: "absolute",
+    right: 16,
+    // `bottom` is set inline from insets. pointerEvents: 'box-none'
+    // on the host so empty space around the FAB doesn't block sheet
+    // taps underneath.
   },
   sheet: {
     position: "absolute",
