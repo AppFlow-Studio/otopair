@@ -266,18 +266,21 @@ export default function PickDateTimeScreen() {
   };
 
   // Back normalizes to Screen 1 when the user landed on Pick
-  // Date & Time without walking the rest of the flow first
-  // (rare — pick-datetime is typically reached from Choose
-  // Mechanic, but a deep-link or external entry could drop them
-  // here). Length > 1 means a real in-flow back exists.
+  // Date & Time without walking the rest of the flow first.
+  // Length > 1 means a real in-flow back exists. The first-in-
+  // stack case uses navigation.reset (not router.replace) since
+  // replace within the same Stack occasionally no-op'd.
   const onBack = () => {
     const state = navigation.getState?.();
     const stackLength = state?.routes?.length ?? 0;
     if (stackLength > 1) {
       router.back();
-    } else {
-      router.replace("/(booking-flow)/select-services");
+      return;
     }
+    (navigation.reset as ((state: { index: number; routes: { name: string }[] }) => void) | undefined)?.({
+      index: 0,
+      routes: [{ name: "select-services" }],
+    });
   };
 
   return (

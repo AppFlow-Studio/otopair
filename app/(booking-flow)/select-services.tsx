@@ -130,6 +130,10 @@ export default function SelectServicesScreen() {
   const dragGesture = useMemo(
     () =>
       Gesture.Pan()
+        // 20pt threshold so taps on the X / search / vehicle puck
+        // (sitting inside the drag chrome) never get swallowed by
+        // the pan handler — only deliberate swipes win.
+        .activeOffsetY([-20, 20])
         .onBegin(() => {
           startHeight.value = sheetHeight.value;
         })

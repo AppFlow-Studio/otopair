@@ -301,14 +301,19 @@ export default function ChooseMechanicScreen() {
   // (booking-flow) stack — i.e. the user got here via a direct
   // entry point (Most Booked card, Quick Book, etc.) rather than
   // walking 1 → 2 → 3. Length > 1 means a real in-flow back exists.
+  // For the reset path we use navigation.reset (not router.replace)
+  // since replace within the same Stack occasionally no-op'd.
   const onBack = () => {
     const state = navigation.getState?.();
     const stackLength = state?.routes?.length ?? 0;
     if (stackLength > 1) {
       router.back();
-    } else {
-      router.replace("/(booking-flow)/select-services");
+      return;
     }
+    (navigation.reset as ((state: { index: number; routes: { name: string }[] }) => void) | undefined)?.({
+      index: 0,
+      routes: [{ name: "select-services" }],
+    });
   };
 
   const onContinue = () => {

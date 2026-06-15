@@ -169,10 +169,13 @@ export default function CategoryDetailScreen() {
   const dragGesture = useMemo(
     () =>
       Gesture.Pan()
-        // Defer activation a touch so taps on the X button + vehicle
-        // puck (sitting inside the drag chrome) don't get swallowed
-        // by the pan handler.
-        .activeOffsetY([-8, 8])
+        // Defer activation generously so taps on the back button +
+        // vehicle puck (sitting inside the drag chrome) don't get
+        // swallowed by the pan handler. 8pt was occasionally
+        // intercepting back-button taps when the user's finger
+        // micro-moved during release — bumped to 20 so the pan only
+        // wins on a clear swipe, never an accidental tap.
+        .activeOffsetY([-20, 20])
         .onBegin(() => {
           startHeight.value = sheetHeight.value;
         })
@@ -297,18 +300,29 @@ export default function CategoryDetailScreen() {
   // Mechanic, or a category card on home pushed straight here),
   // the (booking-flow) stack has us as its only route. In that
   // case "back" should land on Screen 1, NOT pop out of the flow
-  // entirely to wherever they came from. We detect this by
-  // looking at the booking-flow stack's routes — length 1 means
-  // we're the first in the flow and should normalize to
-  // select-services rather than ejecting.
+  // entirely to wherever they came from.
+  //
+  // We detect this by looking at the booking-flow stack's
+  // routes — length > 1 means there's a real in-flow back; length
+  // 1 means we're the first in the flow. For that case we use
+  // `navigation.reset` (not router.replace) — replace within the
+  // same Stack occasionally no-op'd, where reset deterministically
+  // rebuilds the stack to a single select-services route.
   const onBack = () => {
     const state = navigation.getState?.();
     const stackLength = state?.routes?.length ?? 0;
     if (stackLength > 1) {
       router.back();
-    } else {
-      router.replace("/(booking-flow)/select-services");
+      return;
     }
+    // Cast: navigation.reset's route-name type is inferred from the
+    // parent navigator's route map and lands as `never` for the
+    // top-level useNavigation() here. The string is correct at
+    // runtime; cast to silence the generic constraint.
+    (navigation.reset as ((state: { index: number; routes: { name: string }[] }) => void) | undefined)?.({
+      index: 0,
+      routes: [{ name: "select-services" }],
+    });
   };
 
   return (
