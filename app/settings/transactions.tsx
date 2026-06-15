@@ -17,7 +17,7 @@ import React, { useMemo, useState } from "react";
 import { Image, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Link, useRouter } from "expo-router";
-import { Calendar, ChevronLeft, ChevronRight, Wrench } from "lucide-react-native";
+import { Calendar, ChevronLeft, Wrench } from "lucide-react-native";
 
 import { LinearGradient } from "expo-linear-gradient";
 
@@ -245,7 +245,6 @@ function VehiclePicker({ buckets, vehicles, onPick }: VehiclePickerProps) {
                 {vinTail ? ` · VIN ${vinTail.slice(-6)}` : ""}
               </Text>
             </View>
-            <ChevronRight size={20} color="#9CA3AF" strokeWidth={2} />
           </Pressable>
         );
       })}
@@ -405,15 +404,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: ListSpacing.rowVertical,
     paddingHorizontal: 14,
-    borderRadius: 16,
+    borderRadius: 26,
     gap: 12,
-    backgroundColor: "rgba(255, 255, 255, 0.45)",
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.65)",
-    marginBottom: 10,
+    backgroundColor: SurfaceColors.cardSurface,
+    boxShadow: CardShadow.default,
+    marginBottom: 12,
   },
   rowPressed: {
-    backgroundColor: "rgba(255, 255, 255, 0.7)",
+    opacity: 0.85,
   },
   thumb: {
     width: 56,
