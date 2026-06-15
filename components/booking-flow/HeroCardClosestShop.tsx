@@ -10,7 +10,6 @@ import { useRouter } from "expo-router";
 import { MapPin } from "lucide-react-native";
 
 import { Text } from "@/components/shared-ui";
-import { CardShadow, SurfaceColors } from "@/constants/theme";
 import { useClosestShop } from "@/hooks/useClosestShop";
 
 export function HeroCardClosestShop() {
@@ -70,16 +69,17 @@ const styles = StyleSheet.create({
   card: {
     flex: 1,
     padding: 16,
-    backgroundColor: SurfaceColors.cardSurface,
+    backgroundColor: "rgba(255, 255, 255, 0.55)",
     borderRadius: 18,
-    boxShadow: CardShadow.default,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.85)",
     minHeight: 160,
   },
   iconWrap: {
     width: 34,
     height: 34,
     borderRadius: 10,
-    backgroundColor: "#F1F5F9",
+    backgroundColor: "rgba(255, 255, 255, 0.7)",
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 28,

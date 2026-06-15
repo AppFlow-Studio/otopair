@@ -14,7 +14,6 @@ import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { useRouter } from "expo-router";
 
 import { Text } from "@/components/shared-ui";
-import { CardShadow, SurfaceColors } from "@/constants/theme";
 import {
   SLUG_DIAGNOSTIC_SCAN,
   SLUG_ROTOR_REPLACEMENT,
@@ -98,8 +97,9 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 18,
     borderRadius: 999,
-    backgroundColor: SurfaceColors.cardSurface,
-    boxShadow: CardShadow.default,
+    backgroundColor: "rgba(255, 255, 255, 0.6)",
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.8)",
   },
   chipPressed: {
     opacity: 0.8,

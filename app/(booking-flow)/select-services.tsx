@@ -29,7 +29,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Search, X } from "lucide-react-native";
 
 import { Text } from "@/components/shared-ui";
-import { CardShadow, SurfaceColors } from "@/constants/theme";
 import { useBookingFlowMap } from "@/components/booking-flow/BookingFlowMap";
 import { CategoryListRow } from "@/components/booking-flow/CategoryListRow";
 import { GlassSheetHandle } from "@/components/booking-flow/GlassSheet";
@@ -286,7 +285,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: "#F1F5F9",
+    backgroundColor: "rgba(255, 255, 255, 0.7)",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -307,9 +306,10 @@ const styles = StyleSheet.create({
   },
   list: {
     marginHorizontal: 20,
-    backgroundColor: SurfaceColors.cardSurface,
+    backgroundColor: "rgba(255, 255, 255, 0.55)",
     borderRadius: 22,
-    boxShadow: CardShadow.default,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.8)",
     overflow: "hidden",
     marginBottom: 22,
   },

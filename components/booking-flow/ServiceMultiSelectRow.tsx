@@ -24,7 +24,6 @@ import {
 } from "lucide-react-native";
 
 import { Text } from "@/components/shared-ui";
-import { CardShadow, SurfaceColors } from "@/constants/theme";
 import { getServiceIcon } from "@/components/booking-flow/serviceIcons";
 import type { TaxonomyEntry } from "@/constants/serviceTaxonomy";
 
@@ -123,13 +122,13 @@ const styles = StyleSheet.create({
     marginHorizontal: 20,
     marginBottom: 10,
     gap: 12,
-    backgroundColor: SurfaceColors.cardSurface,
+    backgroundColor: "rgba(255, 255, 255, 0.55)",
     borderRadius: 18,
-    boxShadow: CardShadow.default,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.85)",
   },
   rowSelected: {
-    backgroundColor: "rgba(82, 153, 254, 0.12)",
-    borderWidth: 1,
+    backgroundColor: "rgba(82, 153, 254, 0.18)",
     borderColor: "rgba(82, 153, 254, 0.55)",
   },
   rowBlocked: {
@@ -139,7 +138,7 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 12,
-    backgroundColor: "#F1F5F9",
+    backgroundColor: "rgba(255, 255, 255, 0.75)",
     alignItems: "center",
     justifyContent: "center",
   },
