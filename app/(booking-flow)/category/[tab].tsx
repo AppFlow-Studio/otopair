@@ -33,6 +33,8 @@ import {
 import { categoryTitleTransition } from "@/components/booking-flow/CategoryListRow";
 import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from "expo-router";
 
+import { LinearGradient } from "expo-linear-gradient";
+
 import { Text } from "@/components/shared-ui";
 import { useBookingFlowMap } from "@/components/booking-flow/BookingFlowMap";
 import { GlassSheetHandle } from "@/components/booking-flow/GlassSheet";
@@ -336,6 +338,16 @@ export default function CategoryDetailScreen() {
 
       <GestureDetector gesture={dragGesture}>
         <Animated.View style={[styles.sheet, sheetAnimatedStyle]}>
+          {/* Same near-white gradient as Screen 1's sheet so the
+              BlurView in each card has a real surface to grab onto
+              — keeps the sheet reading as white while the cards
+              actually feel glassy. */}
+          <LinearGradient
+            colors={["#FFFFFF", "#F4F7FB"]}
+            start={{ x: 0.5, y: 0 }}
+            end={{ x: 0.5, y: 1 }}
+            style={StyleSheet.absoluteFill}
+          />
           <GlassSheetHandle />
 
           <View style={styles.topRow}>

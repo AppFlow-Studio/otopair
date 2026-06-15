@@ -27,6 +27,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { LinearGradient } from "expo-linear-gradient";
 import { Search, X } from "lucide-react-native";
 
 import { Text } from "@/components/shared-ui";
@@ -185,6 +186,17 @@ export default function SelectServicesScreen() {
           anywhere (handle or content) works. */}
       <GestureDetector gesture={dragGesture}>
         <Animated.View style={[styles.sheet, sheetAnimatedStyle]}>
+          {/* Near-white gradient gives the BlurView in each card
+              something to actually grab onto — without this, the
+              sheet was flat white and the blur had no surface to
+              show. End color is a faint slate so the cards' frosted
+              tint reads as glass without the sheet looking tinted. */}
+          <LinearGradient
+            colors={["#FFFFFF", "#F4F7FB"]}
+            start={{ x: 0.5, y: 0 }}
+            end={{ x: 0.5, y: 1 }}
+            style={StyleSheet.absoluteFill}
+          />
           <GlassSheetHandle />
           <View
             style={[
