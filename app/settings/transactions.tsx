@@ -19,10 +19,11 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Link, useRouter } from "expo-router";
 import { Calendar, ChevronLeft, ChevronRight, Wrench } from "lucide-react-native";
 
+import { LinearGradient } from "expo-linear-gradient";
+
 import { CarSilhouette } from "@/components/shared-ui/CarSilhouette";
 import { Text } from "@/components/shared-ui";
-import { GlassSheetBackground } from "@/components/booking-flow/GlassSheet";
-import { ListSpacing } from "@/constants/theme";
+import { CardShadow, ListSpacing, SurfaceColors } from "@/constants/theme";
 import { useMyBookingsWithDetails } from "@/hooks/useMyBookingsWithDetails";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 
@@ -129,7 +130,14 @@ export default function PastServicesScreen() {
 
   return (
     <View style={styles.screen}>
-      <GlassSheetBackground style={StyleSheet.absoluteFill} />
+      {/* Match the home tab's background — same gradient stops the
+          ScrollDrivenGradientBackground paints app-wide. */}
+      <LinearGradient
+        colors={["#86C2E8", "#B0D6F0", "#EAF2FA"]}
+        start={{ x: 0.5, y: 0 }}
+        end={{ x: 0.5, y: 1 }}
+        style={StyleSheet.absoluteFill}
+      />
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[
@@ -326,7 +334,6 @@ function EmptyState({ label, sub }: EmptyStateProps) {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: "#CFE0EB",
   },
   topBar: {
     flexDirection: "row",
@@ -366,13 +373,12 @@ const styles = StyleSheet.create({
     gap: 14,
     paddingVertical: 14,
     paddingHorizontal: 14,
-    borderRadius: 18,
-    backgroundColor: "rgba(255, 255, 255, 0.55)",
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.7)",
+    borderRadius: 26,
+    backgroundColor: SurfaceColors.cardSurface,
+    boxShadow: CardShadow.default,
   },
   vehicleCardPressed: {
-    backgroundColor: "rgba(255, 255, 255, 0.75)",
+    opacity: 0.85,
   },
   vehicleThumb: {
     width: 80,
