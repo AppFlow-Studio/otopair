@@ -48,6 +48,18 @@ test("Home and booking flow share the same add-vehicle-required sheet", () => {
   assert.doesNotMatch(bookingFlowLayoutSource, /styles\.primaryButton/);
 });
 
+test("global booking-flow lock returns to the previous screen when the sheet closes", () => {
+  assert.match(addVehicleRequiredSheetSource, /onClose\?: \(\) => void;/);
+  assert.match(addVehicleRequiredSheetSource, /onClose=\{onClose\}/);
+  assert.match(bookingFlowLayoutSource, /const suppressCloseNavigationRef = useRef\(false\);/);
+  assert.match(bookingFlowLayoutSource, /const returnToPreviousScreen = useCallback\(\(\) => \{/);
+  assert.match(bookingFlowLayoutSource, /if \(router\.canGoBack\(\)\) \{/);
+  assert.match(bookingFlowLayoutSource, /router\.back\(\);/);
+  assert.match(bookingFlowLayoutSource, /router\.replace\("\/\(main-tabs\)\/home"\);/);
+  assert.match(bookingFlowLayoutSource, /onClose=\{returnToPreviousScreen\}/);
+  assert.match(bookingFlowLayoutSource, /suppressCloseNavigationRef\.current = true;\s*sheetRef\.current\?\.close\(\);\s*router\.replace\("\/add-vehicle"\);/s);
+});
+
 test("shared add-vehicle-required sheet preserves the Home button shape", () => {
   assert.match(addVehicleRequiredSheetSource, /borderRadius: 28/);
   assert.match(addVehicleRequiredSheetSource, /height: 56/);

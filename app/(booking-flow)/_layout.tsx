@@ -1,5 +1,5 @@
 import { Stack, useRouter } from "expo-router";
-import React, { useEffect, useRef } from "react";
+import React, { useCallback, useEffect, useRef } from "react";
 import { StyleSheet, View } from "react-native";
 
 import { BookingFlowMapProvider } from "@/components/booking-flow/BookingFlowMap";
@@ -66,6 +66,7 @@ export default function BookingFlowLayout() {
 function NoVehicleBookingLock() {
   const router = useRouter();
   const sheetRef = useRef<FloatingSheetRef>(null);
+  const suppressCloseNavigationRef = useRef(false);
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
@@ -74,12 +75,18 @@ function NoVehicleBookingLock() {
     return () => cancelAnimationFrame(frame);
   }, []);
 
-  const goHome = () => {
-    sheetRef.current?.close();
+  const returnToPreviousScreen = useCallback(() => {
+    if (suppressCloseNavigationRef.current) return;
+    suppressCloseNavigationRef.current = true;
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
     router.replace("/(main-tabs)/home");
-  };
+  }, [router]);
 
   const goAddVehicle = () => {
+    suppressCloseNavigationRef.current = true;
     sheetRef.current?.close();
     router.replace("/add-vehicle");
   };
@@ -89,7 +96,8 @@ function NoVehicleBookingLock() {
       <AddVehicleRequiredSheet
         ref={sheetRef}
         onAddVehicle={goAddVehicle}
-        onMaybeLater={goHome}
+        onMaybeLater={() => sheetRef.current?.close()}
+        onClose={returnToPreviousScreen}
       />
     </View>
   );

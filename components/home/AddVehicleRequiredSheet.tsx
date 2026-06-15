@@ -8,10 +8,11 @@ import { BrandColors } from "@/constants/theme";
 interface AddVehicleRequiredSheetProps {
   onAddVehicle: () => void;
   onMaybeLater: () => void;
+  onClose?: () => void;
 }
 
 export const AddVehicleRequiredSheet = forwardRef<FloatingSheetRef, AddVehicleRequiredSheetProps>(
-  function AddVehicleRequiredSheet({ onAddVehicle, onMaybeLater }, ref) {
+  function AddVehicleRequiredSheet({ onAddVehicle, onMaybeLater, onClose }, ref) {
     const { height: screenHeight } = useWindowDimensions();
 
     return (
@@ -19,6 +20,7 @@ export const AddVehicleRequiredSheet = forwardRef<FloatingSheetRef, AddVehicleRe
         ref={ref}
         snapHeights={[screenHeight * 0.5]}
         showBackdrop
+        onClose={onClose}
       >
         <View style={[styles.sheetContentContainer, styles.noVehicleContent]}>
           <View style={styles.sheetTitleWrap}>
