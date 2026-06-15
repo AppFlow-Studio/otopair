@@ -59,6 +59,10 @@ interface ServiceCard {
   imageScale?: number;
 }
 
+interface MoreServicesSectionProps {
+  onBeforeOpenBookingFlow?: () => boolean;
+}
+
 // ============================================================================
 // CONSTANTS
 // ============================================================================
@@ -122,13 +126,16 @@ const SERVICE_CARDS: ServiceCard[] = [
 // COMPONENT
 // ============================================================================
 
-export function MoreServicesSection() {
+export function MoreServicesSection({ onBeforeOpenBookingFlow }: MoreServicesSectionProps) {
   const router = useRouter();
   const setInitialServiceCategory = useBookingStore(
     (state) => state.setInitialServiceCategory,
   );
 
   const handleCardPress = (serviceId: string) => {
+    if (onBeforeOpenBookingFlow?.() === false) {
+      return;
+    }
     // Seed the booking-store one-shot category signal so the service
     // selector mounts on the right tab. Cards not in the map default
     // to `basic_maintenance` (Maintenance tab).

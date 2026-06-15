@@ -513,13 +513,24 @@ export default function HomeScreen() {
     // TODO: Implement search functionality
   };
 
+  const openBookingFlow = useCallback((): boolean => {
+    if (vehiclesLoading) return false;
+    if (!hasVehicles) {
+      noVehicleSheetRef.current?.open();
+      return false;
+    }
+    return true;
+  }, [hasVehicles, vehiclesLoading]);
+
   // Both the search field and the map button are entry points to the new
   // booking flow's service picker — they route to the same place.
   const handleMapPress = () => {
+    if (!openBookingFlow()) return;
     router.push("/(booking-flow)/select-services");
   };
 
   const handleSearchPress = () => {
+    if (!openBookingFlow()) return;
     router.push("/(booking-flow)/select-services");
   };
 
@@ -1018,13 +1029,13 @@ export default function HomeScreen() {
               </View>
 
               {/* More Services Section (6-card service-type grid) */}
-              <MoreServicesSection />
+              <MoreServicesSection onBeforeOpenBookingFlow={openBookingFlow} />
 
               {/* Service Bundles Section */}
-              <ServiceBundlesSection />
+              <ServiceBundlesSection onBeforeOpenBookingFlow={openBookingFlow} />
 
               {/* Provider Types Section ("More" — 3 provider cards) */}
-              <ProviderTypesSection />
+              <ProviderTypesSection onBeforeOpenBookingFlow={openBookingFlow} />
             </View>
           </Animated.ScrollView>
 
