@@ -26,15 +26,13 @@ import Animated, {
 } from "react-native-reanimated";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { LinearGradient } from "expo-linear-gradient";
 import { Search, X } from "lucide-react-native";
 
 import { Text } from "@/components/shared-ui";
 import { useBookingFlowMap } from "@/components/booking-flow/BookingFlowMap";
 import { CategoryListRow } from "@/components/booking-flow/CategoryListRow";
-import {
-  GlassSheetBackground,
-  GlassSheetHandle,
-} from "@/components/booking-flow/GlassSheet";
+import { GlassSheetHandle } from "@/components/booking-flow/GlassSheet";
 import { HeroCardClosestShop } from "@/components/booking-flow/HeroCardClosestShop";
 import { HeroCardMostBooked } from "@/components/booking-flow/HeroCardMostBooked";
 import { QuickBookRow } from "@/components/booking-flow/QuickBookRow";
@@ -78,7 +76,6 @@ export default function SelectServicesScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const availableServices = useBookingStore((s) => s.availableServices);
-  const selectedServiceIds = useBookingStore((s) => s.selectedServiceIds);
   const initialServiceCategory = useBookingStore((s) => s.initialServiceCategory);
   const setInitialServiceCategory = useBookingStore(
     (s) => s.setInitialServiceCategory,
@@ -92,31 +89,26 @@ export default function SelectServicesScreen() {
   // already-checked there (category/[tab] reads them). Fires once; the
   // one-shot `initialServiceCategory` signal is consumed so a later
   // plain entry (e.g. the Home search field) stays on the landing.
+  // Only the EXPLICIT one-shot `initialServiceCategory` signal seeds
+  // a category jump. The previous fallback that derived a target
+  // tab from `selectedServiceIds` made the cart stickier than
+  // intended: once a service was in the cart, every plain entry
+  // (Home search, map icon) auto-bounced past Screen 1 — and
+  // because back from Screen 2 normalizes to Screen 1, the seed
+  // re-fired and the user got trapped in a Screen 1 ↔ Screen 2
+  // loop with no way out except clearing the cart.
   const seedHandledRef = useRef(false);
   useEffect(() => {
     if (seedHandledRef.current) return;
-    let targetTab = legacyCategoryToTab(initialServiceCategory);
-    if (!targetTab && selectedServiceIds.length > 0) {
-      // Resolving the tab from a pre-selection needs the catalog loaded.
-      if (availableServices.length === 0) return;
-      targetTab =
-        availableServices.find((s) => s.id === selectedServiceIds[0])?.tab ??
-        null;
-    }
+    const targetTab = legacyCategoryToTab(initialServiceCategory);
     if (!targetTab) return;
     seedHandledRef.current = true;
-    if (initialServiceCategory) setInitialServiceCategory(null);
+    setInitialServiceCategory(null);
     router.replace({
       pathname: "/(booking-flow)/category/[tab]",
       params: { tab: targetTab },
     });
-  }, [
-    initialServiceCategory,
-    selectedServiceIds,
-    availableServices,
-    router,
-    setInitialServiceCategory,
-  ]);
+  }, [initialServiceCategory, router, setInitialServiceCategory]);
 
   // Sheet height in pixels — driven by the Pan gesture below. Mounts
   // already at INITIAL_H: the screen enters via the stack's cross-fade
@@ -192,7 +184,15 @@ export default function SelectServicesScreen() {
           anywhere (handle or content) works. */}
       <GestureDetector gesture={dragGesture}>
         <Animated.View style={[styles.sheet, sheetAnimatedStyle]}>
-          <GlassSheetBackground style={StyleSheet.absoluteFill} />
+          {/* Sheet fill — same gradient the home tab paints (matches
+              ScrollDrivenGradientBackground's app-wide stops) so this
+              sheet visually inherits the home bg over the map. */}
+          <LinearGradient
+            colors={["#86C2E8", "#B0D6F0", "#EAF2FA"]}
+            start={{ x: 0.5, y: 0 }}
+            end={{ x: 0.5, y: 1 }}
+            style={StyleSheet.absoluteFill}
+          />
           <GlassSheetHandle />
           <View
             style={[
