@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useAuth } from '@clerk/clerk-expo';
-import { useQuery } from 'convex/react';
+import { useConvexAuth, useQuery } from 'convex/react';
 import { OnboardingFlow, OnboardingStep } from '@/components/onboarding/OnboardingFlow';
 import { api } from '@/convex/_generated/api';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
@@ -26,12 +26,20 @@ export default function OnboardingScreen() {
         isResumeMode?: string;
         resumeSource?: string;
     }>();
+    // useConvexAuth().isAuthenticated flips true only after the Clerk JWT has
+    // actually propagated to Convex. Until then, getMe's ctx.auth.getUserIdentity()
+    // is null and the query returns null even for an existing, fully-onboarded
+    // user — which must NOT be mistaken for "no user record exists" (that would
+    // make every resume-data field look empty and resolve auto-resume to "phone").
+    const { isAuthenticated: convexAuthenticated } = useConvexAuth();
     const rawMe = useQuery(api.users.getMe, isLoaded && isSignedIn ? undefined : 'skip');
     const me =
         rawMe === undefined
             ? undefined
             : rawMe === null
-                ? null
+                ? isSignedIn === true && !convexAuthenticated
+                    ? undefined
+                    : null
                 : rawMe.clerkUserId === clerkUserId
                     ? rawMe
                     : undefined;

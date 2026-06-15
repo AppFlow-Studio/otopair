@@ -15,7 +15,7 @@ import { useEffect, useRef } from "react";
 import { View, ActivityIndicator, StyleSheet } from "react-native";
 import { router, useRootNavigationState } from "expo-router";
 import { useAuth } from "@clerk/clerk-expo";
-import { useQuery } from "convex/react";
+import { useConvexAuth, useQuery } from "convex/react";
 import * as SecureStore from "expo-secure-store";
 import { api } from "@/convex/_generated/api";
 import { BrandColors } from "@/constants/theme";
@@ -26,6 +26,11 @@ export default function Index() {
   const { isSignedIn, isLoaded, userId: clerkUserId } = useAuth();
   const rootNavigationState = useRootNavigationState();
   const rootNavigationReady = Boolean(rootNavigationState?.key);
+  // useConvexAuth().isAuthenticated flips true only after the Clerk JWT has
+  // actually propagated to Convex. Until then, getMe's ctx.auth.getUserIdentity()
+  // is null and the query returns null even for an existing, fully-onboarded
+  // user — which must NOT be mistaken for "no user record exists".
+  const { isAuthenticated: convexAuthenticated } = useConvexAuth();
   // Only run the Convex query once Clerk confirms the user is signed in.
   // Using isSignedIn === true (not !== false) prevents the query from running
   // while Clerk is still loading (isSignedIn = undefined), which would fire without
@@ -35,7 +40,9 @@ export default function Index() {
     rawMe === undefined
       ? undefined
       : rawMe === null
-        ? null
+        ? isSignedIn === true && !convexAuthenticated
+          ? undefined
+          : null
         : rawMe.clerkUserId === clerkUserId
           ? rawMe
           : undefined;
