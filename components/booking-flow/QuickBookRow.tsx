@@ -10,10 +10,12 @@
  */
 
 import React, { useCallback } from "react";
-import { Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { Platform, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { BlurView } from "expo-blur";
 import { useRouter } from "expo-router";
 
 import { Text } from "@/components/shared-ui";
+import { CardShadow } from "@/constants/theme";
 import {
   SLUG_DIAGNOSTIC_SCAN,
   SLUG_ROTOR_REPLACEMENT,
@@ -73,6 +75,9 @@ export function QuickBookRow() {
             accessibilityRole="button"
             accessibilityLabel={`Book ${chip.taxonomy.label}`}
           >
+            {Platform.OS === "ios" ? (
+              <BlurView intensity={25} tint="light" style={StyleSheet.absoluteFill} />
+            ) : null}
             <Text size="sm" weight="semiBold" color="#1F2937">
               {chip.taxonomy.label}
             </Text>
@@ -100,6 +105,8 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255, 255, 255, 0.6)",
     borderWidth: 1,
     borderColor: "rgba(255, 255, 255, 0.8)",
+    overflow: "hidden",
+    boxShadow: CardShadow.default,
   },
   chipPressed: {
     opacity: 0.8,

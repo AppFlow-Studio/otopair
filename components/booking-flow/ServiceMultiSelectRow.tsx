@@ -15,7 +15,8 @@
  */
 
 import React from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { Platform, Pressable, StyleSheet, View } from "react-native";
+import { BlurView } from "expo-blur";
 import {
   Check,
   ChevronRight,
@@ -24,6 +25,7 @@ import {
 } from "lucide-react-native";
 
 import { Text } from "@/components/shared-ui";
+import { CardShadow } from "@/constants/theme";
 import { getServiceIcon } from "@/components/booking-flow/serviceIcons";
 import type { TaxonomyEntry } from "@/constants/serviceTaxonomy";
 
@@ -67,6 +69,9 @@ export function ServiceMultiSelectRow({
       accessibilityState={{ selected: isSelected, disabled: isBlocked }}
       accessibilityLabel={`${entry.label}. ${entry.subtitle}. ${durationText}.`}
     >
+      {Platform.OS === "ios" ? (
+        <BlurView intensity={25} tint="light" style={StyleSheet.absoluteFill} />
+      ) : null}
       <View style={styles.iconTile}>
         <Icon size={22} color="#4B5563" strokeWidth={2} />
       </View>
@@ -126,6 +131,8 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     borderWidth: 1,
     borderColor: "rgba(255, 255, 255, 0.85)",
+    overflow: "hidden",
+    boxShadow: CardShadow.default,
   },
   rowSelected: {
     backgroundColor: "rgba(82, 153, 254, 0.18)",

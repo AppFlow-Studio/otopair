@@ -5,11 +5,13 @@
  */
 
 import React from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { Platform, Pressable, StyleSheet, View } from "react-native";
+import { BlurView } from "expo-blur";
 import { useRouter } from "expo-router";
 import { MapPin } from "lucide-react-native";
 
 import { Text } from "@/components/shared-ui";
+import { CardShadow } from "@/constants/theme";
 import { useClosestShop } from "@/hooks/useClosestShop";
 
 export function HeroCardClosestShop() {
@@ -35,6 +37,9 @@ export function HeroCardClosestShop() {
         result ? `Closest shop ${result.shop.name}` : "Loading closest shop"
       }
     >
+      {Platform.OS === "ios" ? (
+        <BlurView intensity={25} tint="light" style={StyleSheet.absoluteFill} />
+      ) : null}
       <View style={styles.iconWrap}>
         <MapPin size={20} color="#4B5563" strokeWidth={2} />
       </View>
@@ -74,6 +79,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(255, 255, 255, 0.85)",
     minHeight: 160,
+    // overflow clips the BlurView child to the rounded corners.
+    // boxShadow renders outside the bounds so it survives the clip.
+    overflow: "hidden",
+    boxShadow: CardShadow.default,
   },
   iconWrap: {
     width: 34,

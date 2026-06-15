@@ -18,7 +18,8 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef } from "react";
-import { Dimensions, Pressable, StyleSheet, View } from "react-native";
+import { Dimensions, Platform, Pressable, StyleSheet, View } from "react-native";
+import { BlurView } from "expo-blur";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
   useAnimatedStyle,
@@ -29,6 +30,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Search, X } from "lucide-react-native";
 
 import { Text } from "@/components/shared-ui";
+import { CardShadow } from "@/constants/theme";
 import { useBookingFlowMap } from "@/components/booking-flow/BookingFlowMap";
 import { CategoryListRow } from "@/components/booking-flow/CategoryListRow";
 import { GlassSheetHandle } from "@/components/booking-flow/GlassSheet";
@@ -231,6 +233,9 @@ export default function SelectServicesScreen() {
 
           {/* Category list */}
           <View style={styles.list}>
+            {Platform.OS === "ios" ? (
+              <BlurView intensity={25} tint="light" style={StyleSheet.absoluteFill} />
+            ) : null}
             {TABS.map((tab, idx) => (
               <View key={tab.key}>
                 {idx > 0 ? <View style={styles.divider} /> : null}
@@ -312,6 +317,7 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255, 255, 255, 0.8)",
     overflow: "hidden",
     marginBottom: 22,
+    boxShadow: CardShadow.default,
   },
   divider: {
     height: 1,

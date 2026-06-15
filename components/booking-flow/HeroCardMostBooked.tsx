@@ -6,11 +6,13 @@
  */
 
 import React, { useCallback } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { Platform, Pressable, StyleSheet, View } from "react-native";
+import { BlurView } from "expo-blur";
 import { useRouter } from "expo-router";
 import { Flame } from "lucide-react-native";
 
 import { Text } from "@/components/shared-ui";
+import { CardShadow } from "@/constants/theme";
 import {
   SLUG_DIAGNOSTIC_SCAN,
   SLUG_ROTOR_REPLACEMENT,
@@ -62,6 +64,9 @@ export function HeroCardMostBooked() {
         result ? `Most booked: ${result.taxonomy.label}` : "Loading most booked"
       }
     >
+      {Platform.OS === "ios" ? (
+        <BlurView intensity={25} tint="light" style={StyleSheet.absoluteFill} />
+      ) : null}
       <View style={styles.iconWrap}>
         <Flame size={20} color="#4B5563" strokeWidth={2} />
       </View>
@@ -95,6 +100,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(255, 255, 255, 0.85)",
     minHeight: 160,
+    overflow: "hidden",
+    boxShadow: CardShadow.default,
   },
   iconWrap: {
     width: 34,
