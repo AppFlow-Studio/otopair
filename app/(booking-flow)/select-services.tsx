@@ -27,7 +27,6 @@ import Animated, {
 } from "react-native-reanimated";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { LinearGradient } from "expo-linear-gradient";
 import { Search, X } from "lucide-react-native";
 
 import { Text } from "@/components/shared-ui";
@@ -186,17 +185,18 @@ export default function SelectServicesScreen() {
           anywhere (handle or content) works. */}
       <GestureDetector gesture={dragGesture}>
         <Animated.View style={[styles.sheet, sheetAnimatedStyle]}>
-          {/* Near-white gradient gives the BlurView in each card
-              something to actually grab onto — without this, the
-              sheet was flat white and the blur had no surface to
-              show. End color is a faint slate so the cards' frosted
-              tint reads as glass without the sheet looking tinted. */}
-          <LinearGradient
-            colors={["#FFFFFF", "#F4F7FB"]}
-            start={{ x: 0.5, y: 0 }}
-            end={{ x: 0.5, y: 1 }}
-            style={StyleSheet.absoluteFill}
-          />
+          {/* Real frosted-glass sheet — same pattern Settings uses
+              for its blurred header. On iOS BlurView blurs the
+              map underneath; on Android we fall back to a thick
+              translucent white since BlurView there is unreliable. */}
+          {Platform.OS === "ios" ? (
+            <BlurView intensity={60} tint="light" style={StyleSheet.absoluteFill} />
+          ) : (
+            <View
+              style={[StyleSheet.absoluteFill, styles.sheetAndroidFallback]}
+              pointerEvents="none"
+            />
+          )}
           <GlassSheetHandle />
           <View
             style={[
@@ -284,7 +284,9 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    backgroundColor: "#FFFFFF",
+  },
+  sheetAndroidFallback: {
+    backgroundColor: "rgba(255, 255, 255, 0.85)",
   },
   scrollContent: {
     paddingTop: 0,

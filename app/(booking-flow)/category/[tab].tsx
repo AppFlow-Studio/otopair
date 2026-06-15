@@ -14,7 +14,8 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Dimensions, Pressable, StyleSheet, View } from "react-native";
+import { Dimensions, Platform, Pressable, StyleSheet, View } from "react-native";
+import { BlurView } from "expo-blur";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
@@ -32,8 +33,6 @@ import {
 
 import { categoryTitleTransition } from "@/components/booking-flow/CategoryListRow";
 import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from "expo-router";
-
-import { LinearGradient } from "expo-linear-gradient";
 
 import { Text } from "@/components/shared-ui";
 import { useBookingFlowMap } from "@/components/booking-flow/BookingFlowMap";
@@ -338,16 +337,17 @@ export default function CategoryDetailScreen() {
 
       <GestureDetector gesture={dragGesture}>
         <Animated.View style={[styles.sheet, sheetAnimatedStyle]}>
-          {/* Same near-white gradient as Screen 1's sheet so the
-              BlurView in each card has a real surface to grab onto
-              — keeps the sheet reading as white while the cards
-              actually feel glassy. */}
-          <LinearGradient
-            colors={["#FFFFFF", "#F4F7FB"]}
-            start={{ x: 0.5, y: 0 }}
-            end={{ x: 0.5, y: 1 }}
-            style={StyleSheet.absoluteFill}
-          />
+          {/* Real frosted-glass sheet — iOS BlurView blurs the
+              map underneath; Android falls back to a thick
+              translucent white. Same pattern as Screen 1. */}
+          {Platform.OS === "ios" ? (
+            <BlurView intensity={60} tint="light" style={StyleSheet.absoluteFill} />
+          ) : (
+            <View
+              style={[StyleSheet.absoluteFill, styles.sheetAndroidFallback]}
+              pointerEvents="none"
+            />
+          )}
           <GlassSheetHandle />
 
           <View style={styles.topRow}>
@@ -570,7 +570,9 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    backgroundColor: "#FFFFFF",
+  },
+  sheetAndroidFallback: {
+    backgroundColor: "rgba(255, 255, 255, 0.85)",
   },
   topRow: {
     flexDirection: "row",
