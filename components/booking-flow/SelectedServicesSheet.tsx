@@ -49,13 +49,20 @@ const DANGER = "#EF4444";
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 
-// Match BookingDetailsSheet's mid-detent formula so the sheet floats
-// the same comfortable distance below the status bar across phone
-// sizes. Caps around 640pt, floors at 0.66× viewport.
-const SHEET_HEIGHT = Math.max(
-  SCREEN_HEIGHT * 0.66,
-  Math.min(SCREEN_HEIGHT * 0.76, 640),
-);
+// Dynamic sizing — the sheet hugs the row count instead of taking up
+// a fixed slab. Floor is 1-service tall (~260pt) so a single row
+// doesn't look orphaned; cap matches BookingDetails' mid-detent
+// (~640pt) so a giant cart still floats below the status bar with
+// the scroll view soaking up the overflow.
+const HEADER_BLOCK = 96; // title row + paddings + handle clearance
+const ROW_HEIGHT = 70; // row body + gap
+const FLOOR = 260;
+const CEILING = Math.min(SCREEN_HEIGHT * 0.76, 640);
+
+function computeSheetHeight(rowCount: number): number {
+  const target = HEADER_BLOCK + Math.max(rowCount, 1) * ROW_HEIGHT;
+  return Math.max(FLOOR, Math.min(CEILING, target));
+}
 
 export interface SelectedServicesSheetRef {
   open: () => void;
@@ -116,12 +123,20 @@ export const SelectedServicesSheet = forwardRef<SelectedServicesSheetRef>(
       [toggleServiceSelection],
     );
 
+    // Snap-height tracks the row count — FloatingSheet animates
+    // between snap heights when `snapHeights` changes, so removing
+    // a row also smoothly shrinks the sheet down.
+    const sheetHeight = useMemo(
+      () => computeSheetHeight(rows.length),
+      [rows.length],
+    );
+
     if (!mounted) return null;
 
     return (
       <FloatingSheet
         ref={sheetRef}
-        snapHeights={[SHEET_HEIGHT]}
+        snapHeights={[sheetHeight]}
         showBackdrop
         backdropMode="dim"
         onClose={() => setMounted(false)}
