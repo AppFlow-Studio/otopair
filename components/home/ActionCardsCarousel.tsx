@@ -50,6 +50,7 @@ import { FinishCarSetupCard } from './FinishCarSetupCard';
 import { NavigationETABar } from './NavigationETABar';
 import { ResumeBookingCard } from './ResumeBookingCard';
 import { BookingCard, type Booking as BookingCardBooking } from '@/components/bookings/BookingCard';
+import { getCarouselHeightTransition } from './actionCardsCarouselHeight';
 
 // ============================================================================
 // TYPES
@@ -149,8 +150,10 @@ export function ActionCardsCarousel({
 }: ActionCardsCarouselProps) {
   const { width: screenWidth } = useWindowDimensions();
   const scrollViewRef = useRef<ScrollView>(null);
+  const hasAppliedInitialHeightRef = useRef(false);
   const [activeIndex, setActiveIndex] = useState(0);
   const [cardHeights, setCardHeights] = useState<Record<string, number>>({});
+  const [hasAppliedInitialHeight, setHasAppliedInitialHeight] = useState(false);
 
   // Build array of visible cards - account setup first when visible, then appointment, resume, car
   const cards = [
@@ -173,23 +176,47 @@ export function ActionCardsCarousel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showAccountSetup, showAppointment, showResumeBooking, showCarSetup]);
 
-  if (cards.length === 0) return null;
-
   const activeCard = cards[activeIndex] ?? cards[0];
   const containerHeight = activeCard ? cardHeights[activeCard.id] : undefined;
 
   // Smooth post-swipe reflow: instead of snapping the container to the new
   // active card's height, drive the height through a Reanimated shared value
   // with a 280 ms `withTiming` so the sections below (Vehicle Maintenance,
-  // etc.) glide in lockstep. Mirrors VehicleMaintenanceCard.tsx:375-414.
+  // etc.) glide in lockstep after the first measured height is in place.
   const animatedCardHeight = useSharedValue<number>(containerHeight ?? 0);
   useEffect(() => {
-    if (containerHeight == null) return;
-    animatedCardHeight.value = withTiming(containerHeight, { duration: 280 });
+    const transition = getCarouselHeightTransition(
+      containerHeight,
+      hasAppliedInitialHeightRef.current,
+    );
+    if (!transition) return;
+
+    if (transition.mode === "direct") {
+      animatedCardHeight.value = transition.height;
+      hasAppliedInitialHeightRef.current = true;
+      setHasAppliedInitialHeight(true);
+      return;
+    }
+
+    animatedCardHeight.value = withTiming(transition.height, {
+      duration: transition.duration,
+    });
   }, [containerHeight, animatedCardHeight]);
   const containerHeightStyle = useAnimatedStyle(() => ({
     height: animatedCardHeight.value,
   }));
+  const heightTransition = getCarouselHeightTransition(
+    containerHeight,
+    hasAppliedInitialHeight,
+  );
+  const cardHeightStyle =
+    heightTransition?.mode === "direct"
+      ? { height: heightTransition.height }
+      : heightTransition?.mode === "animated"
+        ? containerHeightStyle
+        : undefined;
+
+  if (cards.length === 0) return null;
 
   const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const contentOffsetX = event.nativeEvent.contentOffset.x;
@@ -299,7 +326,7 @@ export function ActionCardsCarousel({
     <Animated.View
       style={[
         styles.container,
-        containerHeight != null && containerHeightStyle,
+        cardHeightStyle,
       ]}
     >
       <ScrollView
