@@ -39,6 +39,7 @@ import {
   FloatingSheet,
   type FloatingSheetRef,
 } from "@/components/shared-ui/FloatingSheet";
+import { GlassSheetBackground } from "@/components/booking-flow/GlassSheet";
 import { getServiceIcon } from "@/components/booking-flow/serviceIcons";
 import { TAXONOMY } from "@/constants/serviceTaxonomy";
 import { useBookingStore } from "@/stores/useBookingStore";
@@ -139,6 +140,7 @@ export const SelectedServicesSheet = forwardRef<SelectedServicesSheetRef>(
         snapHeights={[sheetHeight]}
         showBackdrop
         backdropMode="dim"
+        backgroundElement={<GlassSheetBackground style={StyleSheet.absoluteFill} />}
         onClose={() => setMounted(false)}
       >
         <View style={styles.body}>
@@ -234,21 +236,25 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   row: {
+    // Mirrors the `rowSelected` look on ServiceMultiSelectRow so
+    // the user reads the cart card as "the same thing I just
+    // tapped, lifted into the review". Pale blue tint + a subtle
+    // blue border over the sheet's glass background.
     flexDirection: "row",
     alignItems: "center",
     gap: 14,
-    paddingVertical: 12,
+    paddingVertical: 14,
     paddingHorizontal: 14,
-    borderRadius: 16,
-    backgroundColor: "rgba(255, 255, 255, 0.55)",
+    borderRadius: 18,
+    backgroundColor: "rgba(82, 153, 254, 0.18)",
     borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.7)",
+    borderColor: "rgba(82, 153, 254, 0.55)",
   },
   iconTile: {
-    width: 40,
-    height: 40,
+    width: 44,
+    height: 44,
     borderRadius: 12,
-    backgroundColor: "rgba(255, 255, 255, 0.85)",
+    backgroundColor: "rgba(255, 255, 255, 0.75)",
     alignItems: "center",
     justifyContent: "center",
   },
