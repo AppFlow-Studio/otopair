@@ -1095,9 +1095,9 @@ const s = StyleSheet.create({
   steppingFooter: {
     // Was scale(16) — Ahmad called out the dots row + Complete pill
     // + "Finish for now" sitting too high against the Warning Lights
-    // card. Bump the gap above the dots to scale(48) so the whole
-    // footer block drops down with clear breathing room.
-    paddingTop: scale(48),
+    // card. Bumped to scale(96) so the whole footer block drops down
+    // with clear breathing room.
+    paddingTop: scale(96),
     gap: scale(12),
     alignItems: "center",
   },
