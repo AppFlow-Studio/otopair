@@ -25,7 +25,11 @@ import { getOnboardingFinishedLaterKey } from "@/lib/onboarding-resume";
 export default function Index() {
   const { isSignedIn, isLoaded, userId: clerkUserId } = useAuth();
   const rootNavigationState = useRootNavigationState();
-  const rootNavigationReady = Boolean(rootNavigationState?.key);
+  // stale: true means the navigator is mid-rehydration (e.g. app returning from
+  // Android background). assertIsReady() throws in that window even though the key
+  // already exists, so we must wait until stale flips to false before navigating.
+  const rootNavigationReady =
+    Boolean(rootNavigationState?.key) && rootNavigationState?.stale !== true;
   // useConvexAuth().isAuthenticated flips true only after the Clerk JWT has
   // actually propagated to Convex. Until then, getMe's ctx.auth.getUserIdentity()
   // is null and the query returns null even for an existing, fully-onboarded
@@ -74,8 +78,15 @@ export default function Index() {
 
     if (!isSignedIn) {
       console.log("[onboarding-resume:index] navigating to onboarding: signed out");
-      router.replace("/(onboarding)");
-      hasNavigated.current = true;
+      try {
+        router.replace("/(onboarding)");
+        hasNavigated.current = true;
+      } catch (e) {
+        // Navigator mid-rehydration — stale guard should prevent this, but catch
+        // as a safety net so the error boundary isn't triggered. Effect will
+        // re-fire once rootNavigationReady flips (stale → false).
+        console.warn("[onboarding-resume:index] navigation not ready, will retry:", e);
+      }
       return;
     }
 
@@ -88,14 +99,23 @@ export default function Index() {
     (async () => {
       if (hasNavigated.current) return;
 
+      const safeReplace = (destination: Parameters<typeof router.replace>[0]): boolean => {
+        try {
+          router.replace(destination);
+          return true;
+        } catch (e) {
+          console.warn("[onboarding-resume:index] navigation not ready, will retry:", e);
+          return false;
+        }
+      };
+
       // Onboarding fully complete → home
       if (me?.onboardingCompleted === true) {
         console.log("[onboarding-resume:index] navigating home: onboarding completed", {
           convexUserId: me._id,
           clerkUserId,
         });
-        router.replace("/(main-tabs)/home");
-        hasNavigated.current = true;
+        if (safeReplace("/(main-tabs)/home")) hasNavigated.current = true;
         return;
       }
 
@@ -105,8 +125,7 @@ export default function Index() {
           convexUserId: me._id,
           clerkUserId,
         });
-        router.replace("/(main-tabs)/home");
-        hasNavigated.current = true;
+        if (safeReplace("/(main-tabs)/home")) hasNavigated.current = true;
         return;
       }
 
@@ -119,8 +138,7 @@ export default function Index() {
           finishedLaterKey,
           clerkUserId,
         });
-        router.replace("/(main-tabs)/home");
-        hasNavigated.current = true;
+        if (safeReplace("/(main-tabs)/home")) hasNavigated.current = true;
       } else {
         // Signed in but onboarding incomplete — resume from last completed step
         console.log("[onboarding-resume:index] navigating to onboarding auto-resume", {
@@ -129,11 +147,9 @@ export default function Index() {
           convexUserId: me?._id,
           clerkUserId,
         });
-        router.replace({
-          pathname: "/(onboarding)",
-          params: { isResumeMode: "true" },
-        });
-        hasNavigated.current = true;
+        if (safeReplace({ pathname: "/(onboarding)", params: { isResumeMode: "true" } })) {
+          hasNavigated.current = true;
+        }
       }
     })();
   }, [clerkUserId, isLoaded, isSignedIn, me, rawMe, rootNavigationReady]);
