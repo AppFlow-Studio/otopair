@@ -1065,11 +1065,6 @@ const s = StyleSheet.create({
   steppingPage: {
     flex: 1,
     paddingHorizontal: scale(24),
-    // Push the whole step (title + grid + footer) down from the top
-    // of the screen — Ahmad's preference for the Service History
-    // step. The flex:1 body absorbs the shift so the dots/Complete/
-    // Finish footer also lands lower without growing the footer.
-    paddingTop: scale(80),
   },
   steppingHeader: {
     marginBottom: scale(8),
@@ -1112,11 +1107,17 @@ const s = StyleSheet.create({
 
   // ── Card grid ──
   cardGrid: {
-    justifyContent: "center",
+    // Was `justifyContent: 'center'` — cards centered vertically in
+    // the flex:1 body. Ahmad wants the cards + footer block lower
+    // on the screen without the title moving, so anchor the cards
+    // to the TOP of the body and add a paddingTop to push them
+    // down from there. Title stays put; cards drop; footer (sized
+    // by its own paddingTop:48) trails at the bottom.
+    justifyContent: "flex-start",
     alignItems: "center",
     gap: GRID_GAP,
     paddingHorizontal: GRID_H_PAD,
-    marginTop: 0,
+    paddingTop: scale(80),
   },
   cardGridSquares: {
     flexDirection: "row",
