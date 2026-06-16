@@ -899,7 +899,14 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
           </Animated.View>
 
           {/* Footer */}
-          <Animated.View style={[s.steppingFooter, { paddingBottom: insets.bottom + scale(4), opacity: mountFooterFade }]}>
+          {/* paddingBottom was `insets.bottom + scale(4)` — flush with the
+              home indicator. Ahmad wants the dots / Complete / Finish for
+              now block physically lower on the screen. Since the flex:1
+              body absorbs any paddingTop bump (content Y position is
+              determined by `screen - content - paddingBottom`), the only
+              way to actually drop the block is to shrink the bottom pad.
+              Eat a chunk of the safe area below the home indicator. */}
+          <Animated.View style={[s.steppingFooter, { paddingBottom: Math.max(insets.bottom - scale(12), scale(4)), opacity: mountFooterFade }]}>
             {/* Progress dots */}
             <View style={s.dotsRow}>
               {ALL_CARD_IDS.map((id) => (
