@@ -15,8 +15,21 @@ import { useIsFocused } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { ArrowLeft, Briefcase, Car, Check as CheckIcon, ChevronDown, Copy, Info, Plus, Route, Sparkles, Star, Sun, Users, X } from "lucide-react-native";
 import * as Clipboard from "expo-clipboard";
+import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter } from "expo-router";
+
+// Native iOS 26 liquid glass (optional). Mirrors the home / map-controls
+// pattern — falls back to a frosted BlurView when the lib is unavailable.
+let LiquidGlassView: React.ComponentType<any> | null = null;
+let isLiquidGlassEnabled = false;
+try {
+  const lg = require("@callstack/liquid-glass");
+  LiquidGlassView = lg.LiquidGlassView;
+  isLiquidGlassEnabled = !!lg.isLiquidGlassSupported;
+} catch {
+  // Not available — BlurView fallback.
+}
 import { haptics } from "@/lib/haptics";
 import { useToast } from "@/hooks/useToast";
 import Svg, { Circle, Defs, LinearGradient as SvgLinearGradient, Stop } from "react-native-svg";
@@ -1942,9 +1955,27 @@ export default function CarsHomeScreen() {
                 pressed && styles.removeVehicleButtonPressed,
               ]}
             >
-              <Text style={styles.removeVehicleButtonText} weight="semiBold">
-                Remove Vehicle
-              </Text>
+              {isLiquidGlassEnabled && LiquidGlassView ? (
+                <LiquidGlassView
+                  interactive
+                  effect="clear"
+                  style={styles.removeVehicleButtonGlass}
+                >
+                  <Text style={styles.removeVehicleButtonText} weight="semiBold">
+                    Remove Vehicle
+                  </Text>
+                </LiquidGlassView>
+              ) : (
+                <BlurView
+                  intensity={50}
+                  tint="light"
+                  style={styles.removeVehicleButtonGlass}
+                >
+                  <Text style={styles.removeVehicleButtonText} weight="semiBold">
+                    Remove Vehicle
+                  </Text>
+                </BlurView>
+              )}
             </Pressable>
           )}
         </View>
@@ -2505,14 +2536,17 @@ export default function CarsHomeScreen() {
       )}
       </Modal>
 
+      {/* COMMENTED-OUT: post-add-car booking prompt — restore when ready */}
       {/* Post-optimize booking sheet — pops on the car's dashboard right
           after `dismissGearsOverlay` runs. */}
+      {/*
       <PostOptimizeBookingSheet
         visible={showOptimizeBookingSheet}
         onClose={() => setShowOptimizeBookingSheet(false)}
         maintenanceItems={mergedMaintenanceItems}
         vehicleLabel={activeVehicleLabel}
       />
+      */}
 
 <VehicleRoleSheet
         visible={showRoleSheet}
@@ -2908,25 +2942,25 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFFFFF",
   },
   removeVehicleButton: {
-    backgroundColor: "#B91C1C",
     borderRadius: 16,
-    paddingVertical: 16,
-    alignItems: "center",
+    overflow: "hidden",
     marginTop: scale(56),
     marginBottom: scale(40),
     marginHorizontal: scale(16),
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(82,153,254,0.35)",
+  },
+  removeVehicleButtonGlass: {
+    paddingVertical: 16,
+    alignItems: "center",
+    justifyContent: "center",
   },
   removeVehicleButtonPressed: {
-    opacity: 0.9,
+    opacity: 0.85,
     transform: [{ scale: 0.98 }],
   },
   removeVehicleButtonText: {
-    color: "#FFFFFF",
+    color: "#5299FE",
     fontSize: 16,
   },
   emptyContainer: {
