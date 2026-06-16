@@ -70,6 +70,7 @@ export default function ShopDetailScreen() {
   const getShopById = useShopStore((state) => state.getShopById);
   const resetBookingFlow = useBookingStore((state) => state.resetBookingFlow);
   const bookingStage = useBookingStore((state) => state.bookingStage);
+  const selectedServiceIds = useBookingStore((state) => state.selectedServiceIds);
   const addRecentShop = useSearchStore((state) => state.addRecentShop);
 
   // ═══════════════ COMPUTED VALUES ═══════════════
@@ -115,14 +116,22 @@ export default function ShopDetailScreen() {
   const handleBack = useCallback(() => {
     // Only reset booking flow if we're NOT in mechanic selection stage
     // If we're in mechanic_selection, we came from "Choose Mechanic" screen
-    // and should preserve the booking state when going back
-    if (bookingStage !== "mechanic_selection") {
-      // We came from map carousel or other source, reset the booking flow
+    // and should preserve the booking state when going back.
+    //
+    // ALSO preserve when the user already has services in the cart —
+    // the new (booking-flow) Select Services screen builds the cart
+    // BEFORE picking a mechanic (bookingStage is still "discovery"
+    // here), so wiping on back was nuking the user's selection any
+    // time they tapped a Closest Shop / View shop details card.
+    const hasActiveCart = selectedServiceIds.length > 0;
+    if (bookingStage !== "mechanic_selection" && !hasActiveCart) {
+      // We came from map carousel or other source with no cart in
+      // flight — safe to reset the booking flow.
       resetBookingFlow();
     }
     // Navigate back to previous screen (respects navigation history)
     router.back();
-  }, [bookingStage, resetBookingFlow, router]);
+  }, [bookingStage, selectedServiceIds.length, resetBookingFlow, router]);
 
   const handleCloseBookingModal = useCallback(() => {
     setShowBookingModal(false);
