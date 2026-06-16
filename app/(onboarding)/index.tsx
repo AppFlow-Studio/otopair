@@ -12,10 +12,7 @@ import {
     getDevicePermissionState,
     getIncompleteOnboardingStepsFromResumeData,
 } from '@/lib/onboarding-resume';
-import {
-    getTrustedSavedOnboardingStep,
-    shouldRedirectCompletedOnboardingToHome,
-} from '@/lib/auth-routing';
+import { getTrustedSavedOnboardingStep } from '@/lib/auth-routing';
 import { BrandColors } from '@/constants/theme';
 
 export default function OnboardingScreen() {
@@ -63,11 +60,10 @@ export default function OnboardingScreen() {
     const isResumeMode = params.isResumeMode === 'true';
     const isCreateAccountResume = params.resumeSource === 'createAccount';
     const hasExplicitResumeTarget = !!params.initialStep || !!params.filteredSteps;
-    const shouldRedirectHome = shouldRedirectCompletedOnboardingToHome({
-        isSignedIn: isSignedIn === true,
-        onboardingCompleted: me?.onboardingCompleted,
-        essentialOnboardingCompleted: me?.essentialOnboardingCompleted,
-    });
+    // Only redirect home when the FULL onboarding flow has been completed.
+    // essentialOnboardingCompleted flips true mid-flow (after phone+name) so
+    // it cannot be used here — it would exit active onboarding prematurely.
+    const shouldRedirectHome = isSignedIn === true && me?.onboardingCompleted === true;
     const shouldAutoResumeSignedInEntryRef = useRef<boolean | null>(null);
     if (isLoaded && shouldAutoResumeSignedInEntryRef.current === null) {
         shouldAutoResumeSignedInEntryRef.current = !hasExplicitResumeTarget && isSignedIn === true;
