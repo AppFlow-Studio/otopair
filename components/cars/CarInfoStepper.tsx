@@ -899,14 +899,13 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
           </Animated.View>
 
           {/* Footer */}
-          {/* paddingBottom was `insets.bottom + scale(4)` — content was
-              floating ~38pt above the screen bottom. Ahmad wants the
-              dots / Complete / Finish for now block physically lower
-              on the screen. Since the flex:1 body absorbs any paddingTop
-              bump, the only way to actually drop the block is to shrink
-              the bottom pad. Drop to a flat `scale(4)` so the Finish for
-              now link sits right above the home indicator. */}
-          <Animated.View style={[s.steppingFooter, { paddingBottom: scale(4), opacity: mountFooterFade }]}>
+          {/* paddingBottom was originally `insets.bottom + scale(4)`
+              (~38pt above screen bottom), then scale(4) (flush with
+              home indicator). Ahmad asked for "slightly higher" than
+              flush — scale(20) lands the Finish for now link a clean
+              ~20pt above the home indicator. Dots / Complete pill
+              ride above that. */}
+          <Animated.View style={[s.steppingFooter, { paddingBottom: scale(20), opacity: mountFooterFade }]}>
             {/* Progress dots */}
             <View style={s.dotsRow}>
               {ALL_CARD_IDS.map((id) => (
