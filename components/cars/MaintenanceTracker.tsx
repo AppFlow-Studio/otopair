@@ -637,19 +637,57 @@ function HealthySection({
    *  horizon" for Action Engine Soon-ish tier items. */
   variant?: 'resting' | 'soonish';
 }) {
+  // Always default to expanded — items are shown by default and the
+  // user can collapse with the chevron if they want.
+  const [expanded, setExpanded] = useState(true);
+  const chevronRotation = useSharedValue(1);
+
   if (items.length === 0) return null;
 
-  // Duplicate "On the horizon" / "Healthy" header removed — the
-  // blue uppercase tier section label above already announces the
-  // group; the dot + lowercase label + expand chevron read as
-  // redundant. Keep `variant` + `isDarkBg` on the prop signature so
-  // existing call sites don't need updating.
-  void variant;
-  void isDarkBg;
+  const toggle = () => {
+    setExpanded(prev => !prev);
+    chevronRotation.value = withTiming(expanded ? 0 : 1, { duration: 200 });
+  };
+
+  const chevronStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${chevronRotation.value * 90}deg` }],
+  }));
+
+  const isSoonish = variant === 'soonish';
+
+  // "On the horizon" already has the blue uppercase tier section
+  // label above (line ~391), so the soonish variant skips this
+  // header to avoid the duplicate. "Healthy" has no such uppercase
+  // label, so resting keeps it.
+  const showHeader = !isSoonish;
 
   return (
     <View>
-      <HealthyItemsCard items={items} cascadeStartDelay={cascadeStartDelay} />
+      {showHeader ? (
+        <Animated.View entering={FadeInUp.duration(450).delay(cascadeStartDelay)}>
+          <Pressable onPress={toggle} style={({ pressed }) => pressed && { opacity: 0.7 }}>
+            <View style={summaryStyles.headerRow}>
+              <View style={summaryStyles.dot} />
+              <Text
+                weight="semiBold"
+                style={[
+                  summaryStyles.headerText,
+                  isDarkBg && summaryStyles.headerTextOnDark,
+                ]}
+              >
+                Healthy
+              </Text>
+              <Animated.View style={chevronStyle}>
+                <Ionicons name="chevron-forward" size={16} color="#C7C7CC" />
+              </Animated.View>
+            </View>
+          </Pressable>
+        </Animated.View>
+      ) : null}
+
+      {expanded && (
+        <HealthyItemsCard items={items} cascadeStartDelay={cascadeStartDelay} />
+      )}
     </View>
   );
 }
