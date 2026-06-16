@@ -637,51 +637,19 @@ function HealthySection({
    *  horizon" for Action Engine Soon-ish tier items. */
   variant?: 'resting' | 'soonish';
 }) {
-  // Always default to expanded — items are shown by default and the
-  // user can collapse with the chevron if they want.
-  const [expanded, setExpanded] = useState(true);
-  const chevronRotation = useSharedValue(1);
-
   if (items.length === 0) return null;
 
-  const toggle = () => {
-    setExpanded(prev => !prev);
-    chevronRotation.value = withTiming(expanded ? 0 : 1, { duration: 200 });
-  };
-
-  const chevronStyle = useAnimatedStyle(() => ({
-    transform: [{ rotate: `${chevronRotation.value * 90}deg` }],
-  }));
-
-  const isSoonish = variant === 'soonish';
-  // Per Ahmad: keep the label words but drop the leading item count.
-  const headerLabel = isSoonish ? 'On the horizon' : 'Healthy';
+  // Duplicate "On the horizon" / "Healthy" header removed — the
+  // blue uppercase tier section label above already announces the
+  // group; the dot + lowercase label + expand chevron read as
+  // redundant. Keep `variant` + `isDarkBg` on the prop signature so
+  // existing call sites don't need updating.
+  void variant;
+  void isDarkBg;
 
   return (
     <View>
-      <Animated.View entering={FadeInUp.duration(450).delay(cascadeStartDelay)}>
-        <Pressable onPress={toggle} style={({ pressed }) => pressed && { opacity: 0.7 }}>
-          <View style={summaryStyles.headerRow}>
-            <View style={[summaryStyles.dot, isSoonish && summaryStyles.dotSoonish]} />
-            <Text
-              weight="semiBold"
-              style={[
-                summaryStyles.headerText,
-                isDarkBg && summaryStyles.headerTextOnDark,
-              ]}
-            >
-              {headerLabel}
-            </Text>
-            <Animated.View style={chevronStyle}>
-              <Ionicons name="chevron-forward" size={16} color="#C7C7CC" />
-            </Animated.View>
-          </View>
-        </Pressable>
-      </Animated.View>
-
-      {expanded && (
-        <HealthyItemsCard items={items} cascadeStartDelay={cascadeStartDelay} />
-      )}
+      <HealthyItemsCard items={items} cascadeStartDelay={cascadeStartDelay} />
     </View>
   );
 }
