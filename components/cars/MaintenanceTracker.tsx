@@ -654,9 +654,8 @@ function HealthySection({
   }));
 
   const isSoonish = variant === 'soonish';
-  const headerLabel = isSoonish
-    ? `${items.length} ${items.length === 1 ? 'item' : 'items'} on the horizon`
-    : `${items.length} ${items.length === 1 ? 'item' : 'items'} healthy`;
+  // Per Ahmad: keep the label words but drop the leading item count.
+  const headerLabel = isSoonish ? 'On the horizon' : 'Healthy';
 
   return (
     <View>
