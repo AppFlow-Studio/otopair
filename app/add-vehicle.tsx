@@ -31,6 +31,7 @@ import { useAction } from 'convex/react';
 import { Text } from '@/components/shared-ui';
 import { Spacing } from '@/constants/theme';
 import { api } from '@/convex/_generated/api';
+import { checkVehicleEligibility } from '@/lib/vehicleEligibility';
 import { scale, moderateScale } from '@/utils/responsive';
 
 // ============================================================================
@@ -76,6 +77,20 @@ export default function AddVehicleScreen() {
       const result = await decodeVin({ vin });
 
       if (result.success) {
+        // Eligibility gate — Otopair only services cars, SUVs/MPVs,
+        // and light-duty pickup trucks. Anything else (motorcycle,
+        // semi-truck, bus, trailer, low-speed cart) is rejected here
+        // before the user gets to the review screen so we don't
+        // burn pipeline cost on a vehicle we can't book for.
+        const eligibility = checkVehicleEligibility({
+          vehicleType: result.vehicleType,
+          bodyClass: result.bodyClass,
+        });
+        if (!eligibility.ok) {
+          setDecodeError(eligibility.message ?? "Otopair doesn't service this type of vehicle yet.");
+          setIsDecoding(false);
+          return;
+        }
         router.push({
           pathname: '/add-vehicle-review',
           params: {
