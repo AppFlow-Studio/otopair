@@ -637,18 +637,52 @@ function HealthySection({
    *  horizon" for Action Engine Soon-ish tier items. */
   variant?: 'resting' | 'soonish';
 }) {
+  // Always default to expanded — items are shown by default and the
+  // user can collapse with the chevron if they want.
+  const [expanded, setExpanded] = useState(true);
+  const chevronRotation = useSharedValue(1);
+
   if (items.length === 0) return null;
 
-  // Subheader row ("N items healthy" / "N items on the horizon")
-  // removed per Ahmad — items render directly without the label,
-  // dot, or expand/collapse chevron. `variant` + `isDarkBg` stay on
-  // the prop signature for callers that already pass them.
-  void variant;
-  void isDarkBg;
+  const toggle = () => {
+    setExpanded(prev => !prev);
+    chevronRotation.value = withTiming(expanded ? 0 : 1, { duration: 200 });
+  };
+
+  const chevronStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${chevronRotation.value * 90}deg` }],
+  }));
+
+  const isSoonish = variant === 'soonish';
+  const headerLabel = isSoonish
+    ? `${items.length} ${items.length === 1 ? 'item' : 'items'} on the horizon`
+    : `${items.length} ${items.length === 1 ? 'item' : 'items'} healthy`;
 
   return (
     <View>
-      <HealthyItemsCard items={items} cascadeStartDelay={cascadeStartDelay} />
+      <Animated.View entering={FadeInUp.duration(450).delay(cascadeStartDelay)}>
+        <Pressable onPress={toggle} style={({ pressed }) => pressed && { opacity: 0.7 }}>
+          <View style={summaryStyles.headerRow}>
+            <View style={[summaryStyles.dot, isSoonish && summaryStyles.dotSoonish]} />
+            <Text
+              weight="semiBold"
+              style={[
+                summaryStyles.headerText,
+                isDarkBg && summaryStyles.headerTextOnDark,
+              ]}
+            >
+              {headerLabel}
+            </Text>
+            <Animated.View style={chevronStyle}>
+              <Ionicons name="chevron-forward" size={16} color="#C7C7CC" />
+            </Animated.View>
+          </View>
+        </Pressable>
+      </Animated.View>
+
+      {expanded && (
+        <HealthyItemsCard items={items} cascadeStartDelay={cascadeStartDelay} />
+      )}
     </View>
   );
 }
