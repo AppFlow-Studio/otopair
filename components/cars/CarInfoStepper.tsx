@@ -1065,6 +1065,11 @@ const s = StyleSheet.create({
   steppingPage: {
     flex: 1,
     paddingHorizontal: scale(24),
+    // Push the whole step (title + grid + footer) down from the top
+    // of the screen — Ahmad's preference for the Service History
+    // step. The flex:1 body absorbs the shift so the dots/Complete/
+    // Finish footer also lands lower without growing the footer.
+    paddingTop: scale(80),
   },
   steppingHeader: {
     marginBottom: scale(8),
