@@ -8,8 +8,8 @@ import { NativeTabs } from "expo-router/unstable-native-tabs";
 const Label = NativeTabs.Trigger.Label;
 const Icon = NativeTabs.Trigger.Icon;
 const Badge = NativeTabs.Trigger.Badge;
-import { router, Tabs, useRootNavigationState } from "expo-router";
-import React, { useEffect } from "react";
+import { Tabs } from "expo-router";
+import React from "react";
 import { Platform } from "react-native";
 import { useAuth } from "@clerk/clerk-expo";
 import { TabBar } from "@/components/navigation/TabBar";
@@ -56,18 +56,12 @@ export default function TabLayout() {
 
 function SignedOutMainTabsGuard({ children }: { children: React.ReactNode }) {
   const { isLoaded, isSignedIn } = useAuth();
-  const rootNavigationState = useRootNavigationState();
   const shouldRedirect = shouldRedirectSignedOutFromMainTabs(isLoaded, isSignedIn);
-  const rootNavigationReady = Boolean(rootNavigationState?.key);
 
-  useEffect(() => {
-    if (!shouldRedirect || !rootNavigationReady) return;
-    router.replace({
-      pathname: "/(onboarding)",
-      params: { initialStep: "signup" },
-    });
-  }, [rootNavigationReady, shouldRedirect]);
-
+  // Render null to protect main-tabs content when signed out. Navigation to
+  // onboarding is handled exclusively by app/index.tsx (cold start) and
+  // SettingsContent.tsx (runtime logout) to prevent competing router.replace
+  // calls that cause double-screen and "navigate before mounting" errors.
   if (!isLoaded || shouldRedirect) {
     return null;
   }
