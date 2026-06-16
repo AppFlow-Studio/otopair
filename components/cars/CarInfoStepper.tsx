@@ -1107,17 +1107,15 @@ const s = StyleSheet.create({
 
   // ── Card grid ──
   cardGrid: {
-    // Was `justifyContent: 'center'` — cards centered vertically in
-    // the flex:1 body. Ahmad wants the cards + footer block lower
-    // on the screen without the title moving, so anchor the cards
-    // to the TOP of the body and add a paddingTop to push them
-    // down from there. Title stays put; cards drop; footer (sized
-    // by its own paddingTop:48) trails at the bottom.
+    // Cards anchor to the TOP of the body so they sit right under
+    // the title — Ahmad wants them as high as possible while
+    // letting the footer (dots / Complete / Finish for now) hang
+    // at the bottom with a big gap between.
     justifyContent: "flex-start",
     alignItems: "center",
     gap: GRID_GAP,
     paddingHorizontal: GRID_H_PAD,
-    paddingTop: scale(80),
+    paddingTop: scale(8),
   },
   cardGridSquares: {
     flexDirection: "row",
