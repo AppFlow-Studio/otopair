@@ -1095,9 +1095,12 @@ const s = StyleSheet.create({
   steppingFooter: {
     // Was scale(16) — Ahmad called out the dots row + Complete pill
     // + "Finish for now" sitting too high against the Warning Lights
-    // card. Bumped to scale(96) so the whole footer block drops down
-    // with clear breathing room.
-    paddingTop: scale(96),
+    // card. scale(48) is the sweet spot: enough breathing room that
+    // the footer reads as its own block, but small enough that the
+    // flex:1 body doesn't shrink below the cards' fixed heights
+    // (going to scale(96) made the cards overflow up into the
+    // header).
+    paddingTop: scale(48),
     gap: scale(12),
     alignItems: "center",
   },
