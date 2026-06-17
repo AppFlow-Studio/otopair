@@ -16,8 +16,8 @@
  * TICKET: OTO-XXX
  */
 
-import { useState, useEffect } from "react";
-import { useAuth, useSignIn } from "@clerk/clerk-expo";
+import { useEffect } from "react";
+import { useAuth } from "@clerk/clerk-expo";
 import { BrandColors, FontFamily, FontSize, Spacing, Text, BorderRadius } from "@/components/shared-ui";
 import { FooterButton } from "@/components/shared-ui/FooterButton";
 import { Image } from "expo-image";
@@ -34,18 +34,13 @@ interface WelcomeStepProps {
   onBack: () => void;
 }
 
-export function WelcomeStep({ onNext, onBack }: WelcomeStepProps) {
+export function WelcomeStep({ onNext }: WelcomeStepProps) {
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
   const { setIsNewUser, setIsAuthenticated } = useAuthStore();
   const { updateData: updateOnboardingData } = useOnboardingStore();
-  const { isSignedIn } = useAuth();
-  const { signIn, setActive, isLoaded } = useSignIn();
+  const { isLoaded, isSignedIn } = useAuth();
   const ensureConvexUser = useEnsureConvexUser();
-  const [loginLoading, setLoginLoading] = useState(false);
-  const [loginError, setLoginError] = useState<string | null>(null);
-  const guestEmail = process.env.EXPO_PUBLIC_GUEST_EMAIL;
-  const guestPassword = process.env.EXPO_PUBLIC_GUEST_PASSWORD;
 
   const dynamicStyles = {
     container: { paddingTop: insets.top + Spacing.lg },
@@ -75,8 +70,6 @@ export function WelcomeStep({ onNext, onBack }: WelcomeStepProps) {
   };
 
   const handleLogIn = async () => {
-    if (loginLoading) return;
-
     // If already signed in, ensure Convex user and continue
     if (isSignedIn) {
       try {
@@ -88,7 +81,6 @@ export function WelcomeStep({ onNext, onBack }: WelcomeStepProps) {
       setIsAuthenticated(true);
       updateOnboardingData({ authMode: "login" });
       router.replace("/(main-tabs)/home");
-      onBack();
       return;
     }
 
@@ -131,19 +123,13 @@ export function WelcomeStep({ onNext, onBack }: WelcomeStepProps) {
         </View>
         <View style={[styles.bottomContainer, dynamicStyles.bottomContainerSecondary]}>
           <FooterButton
-            label={loginLoading ? "Logging In..." : "Log In"}
+            label="Log In"
             onPress={handleLogIn}
-            disabled={loginLoading}
             rightIcon={<MoveRight size={FontSize.md} color={BrandColors.white} />}
             size={buttonSize}
             paddingVertical={buttonPaddingVertical}
             variant="secondary"
           />
-          {loginError ? (
-            <Text style={styles.loginErrorText} accessibilityRole="alert">
-              {loginError}
-            </Text>
-          ) : null}
         </View>
       </View>
     </KeyboardAvoidingView>
@@ -189,12 +175,5 @@ const styles = StyleSheet.create({
   bottomContainer: {
     paddingTop: Spacing.sm,
     paddingHorizontal: Spacing["2xl"],
-  },
-  loginErrorText: {
-    textAlign: "center",
-    color: "#DC2626",
-    fontSize: FontSize.sm,
-    fontFamily: FontFamily.medium,
-    marginTop: Spacing.xs,
   },
 });
