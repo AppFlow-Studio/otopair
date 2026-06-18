@@ -20,11 +20,12 @@ import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
-import { ArrowLeft, Briefcase } from "lucide-react-native";
+import { ArrowLeft, Briefcase, ChevronDown } from "lucide-react-native";
 
 import { Text } from "@/components/shared-ui";
 import { ConfirmBookingBar } from "@/components/booking-flow/ConfirmBookingBar";
 import { DateChipRow, type DateChipItem } from "@/components/booking-flow/DateChipRow";
+import { MonthPickerSheet, type MonthOption } from "@/components/booking-flow/MonthPickerSheet";
 import { TimeSlotGrid } from "@/components/booking-flow/TimeSlotGrid";
 import { VehiclePuck } from "@/components/booking-flow/VehiclePuck";
 import { useBookingLaborHoursMap } from "@/hooks/useBookingLaborHoursMap";
@@ -91,14 +92,39 @@ export default function PickDateTimeScreen() {
     return { selectedCount: selected.length, totalMinutes: mins };
   }, [availableServices, selectedServiceIds, laborHoursMap]);
 
-  // The 14 days of date chips we'll render — built from today forward.
+  // Which month the day picker is showing. null = the default
+  // today-anchored view (current month). A non-null value comes from
+  // the month picker and jumps the row forward into a future month.
+  const [viewMonth, setViewMonth] = useState<MonthOption | null>(null);
+  const [monthPickerVisible, setMonthPickerVisible] = useState(false);
+
+  // The date chips we'll render. For the current month we anchor on
+  // today and render DATE_RANGE_DAYS forward (no past days). For a
+  // chosen future month we render every day of that month from the 1st.
   const dateChipItems = useMemo<DateChipItem[]>(() => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
+
+    const isCurrentMonth =
+      !viewMonth ||
+      (viewMonth.year === today.getFullYear() &&
+        viewMonth.month === today.getMonth() + 1);
+
+    let start: Date;
+    let count: number;
+    if (isCurrentMonth) {
+      start = today;
+      count = DATE_RANGE_DAYS;
+    } else {
+      start = new Date(viewMonth.year, viewMonth.month - 1, 1);
+      // Day 0 of the next month = last day of this month → days-in-month.
+      count = new Date(viewMonth.year, viewMonth.month, 0).getDate();
+    }
+
     const items: DateChipItem[] = [];
-    for (let i = 0; i < DATE_RANGE_DAYS; i++) {
-      const d = new Date(today);
-      d.setDate(today.getDate() + i);
+    for (let i = 0; i < count; i++) {
+      const d = new Date(start);
+      d.setDate(start.getDate() + i);
       items.push({
         isoDate: toIsoDate(d),
         dayOfWeek: DAY_OF_WEEK[d.getDay()].toUpperCase(),
@@ -107,7 +133,7 @@ export default function PickDateTimeScreen() {
       });
     }
     return items;
-  }, []);
+  }, [viewMonth]);
 
   // The first date chip we'd LIKE to anchor on — used for the calendar query.
   const anchorDate = dateChipItems[0]?.isoDate ?? toIsoDate(new Date());
@@ -269,6 +295,15 @@ export default function PickDateTimeScreen() {
     else router.replace("/(booking-flow)/select-services");
   };
 
+  // Jump the day picker to the chosen month. Clearing the selected day
+  // lets the default-select effect re-anchor on the first available day
+  // of the new month once its availability resolves.
+  const onSelectMonth = (option: MonthOption) => {
+    setViewMonth(option);
+    setSelectedDateISO(null);
+    setMonthPickerVisible(false);
+  };
+
   return (
     <View style={styles.root}>
       <LinearGradient
@@ -324,9 +359,18 @@ export default function PickDateTimeScreen() {
             <Text size="lg" weight="bold" color="#0F172A">
               Choose a date
             </Text>
-            <Text size="xs" weight="semiBold" color="rgba(15, 23, 42, 0.4)" style={styles.monthLabel}>
-              {monthYearLabel}
-            </Text>
+            <Pressable
+              style={styles.monthPill}
+              onPress={() => setMonthPickerVisible(true)}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel={`Change month, currently ${monthYearLabel}`}
+            >
+              <Text size="xs" weight="semiBold" color="rgba(15, 23, 42, 0.55)" style={styles.monthLabel}>
+                {monthYearLabel}
+              </Text>
+              <ChevronDown size={14} color="rgba(15, 23, 42, 0.55)" strokeWidth={2.5} />
+            </Pressable>
           </View>
           <DateChipRow
             items={chipItemsWithAvailability}
@@ -364,6 +408,14 @@ export default function PickDateTimeScreen() {
       <ConfirmBookingBar
         selectionLabel={selectionLabel}
         onPress={onConfirm}
+      />
+
+      <MonthPickerSheet
+        visible={monthPickerVisible}
+        selectedYear={anchorYear}
+        selectedMonth={anchorMonth}
+        onSelect={onSelectMonth}
+        onClose={() => setMonthPickerVisible(false)}
       />
     </View>
   );
@@ -466,6 +518,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 20,
+  },
+  monthPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
   },
   monthLabel: {
     letterSpacing: 0.8,
