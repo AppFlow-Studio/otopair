@@ -10,8 +10,9 @@ const onboardingIndexSource = readFileSync(
   "utf8",
 );
 
-test("onboarding index redirects completed or essential-complete signed-in users home before rendering onboarding", () => {
+test("onboarding index redirects completed or auto-resumed essential-complete users home before rendering onboarding", () => {
   assert.equal(onboardingIndexSource.includes("shouldRedirectCompletedOnboardingToHome"), true);
+  assert.equal(onboardingIndexSource.includes("isAutoResume,"), true);
   assert.equal(onboardingIndexSource.includes("router.replace('/(main-tabs)/home')"), true);
   assert.equal(onboardingIndexSource.includes("if (shouldRedirectHome || !autoResumeReady)"), true);
 });

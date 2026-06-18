@@ -63,13 +63,6 @@ export default function OnboardingScreen() {
     const isResumeMode = params.isResumeMode === 'true';
     const isCreateAccountResume = params.resumeSource === 'createAccount';
     const hasExplicitResumeTarget = !!params.initialStep || !!params.filteredSteps;
-    const shouldRedirectHome =
-        !hasExplicitResumeTarget &&
-        shouldRedirectCompletedOnboardingToHome({
-            isSignedIn: isSignedIn === true,
-            onboardingCompleted: me?.onboardingCompleted,
-            essentialOnboardingCompleted: me?.essentialOnboardingCompleted,
-        });
     const shouldAutoResumeSignedInEntryRef = useRef<boolean | null>(null);
     if (isLoaded && shouldAutoResumeSignedInEntryRef.current === null) {
         shouldAutoResumeSignedInEntryRef.current = !hasExplicitResumeTarget && isSignedIn === true;
@@ -81,6 +74,14 @@ export default function OnboardingScreen() {
     const isAutoResume =
         !hasExplicitResumeTarget &&
         (isResumeMode || shouldAutoResumeSignedInEntryRef.current === true);
+    const shouldRedirectHome =
+        !hasExplicitResumeTarget &&
+        shouldRedirectCompletedOnboardingToHome({
+            isSignedIn: isSignedIn === true,
+            onboardingCompleted: me?.onboardingCompleted,
+            essentialOnboardingCompleted: me?.essentialOnboardingCompleted,
+            isAutoResume,
+        });
 
     const [autoResumeStep, setAutoResumeStep] = useState<OnboardingStep | null>(null);
     const [autoResumeFiltered, setAutoResumeFiltered] = useState<OnboardingStep[] | undefined>(undefined);
