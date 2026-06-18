@@ -503,7 +503,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: Spacing["2xl"],
-    backgroundColor: OnboardingSurfaceColors.background,
+    backgroundColor: BrandColors.background,
   },
   signingInCard: {
     alignItems: "center",

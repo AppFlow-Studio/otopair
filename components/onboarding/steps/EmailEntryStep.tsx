@@ -25,7 +25,6 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
-    BrandColors,
     Spacing,
     Text,
     FontSize,
@@ -35,7 +34,7 @@ import { FooterButton } from '@/components/shared-ui/FooterButton';
 import { ProgressBar } from '@/components/shared-ui/ProgressBar';
 import { BackButton } from '@/components/shared-ui/BackButton';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
-import { useOnboardingQuestion } from '@/hooks/useOnboardingQuestion';
+import { isValidEmailAddress } from '@/lib/contact-validation';
 
 interface EmailEntryStepProps {
     onNext: () => void;
@@ -56,12 +55,7 @@ export function EmailEntryStep({ onNext, onBack, progress }: EmailEntryStepProps
         }
     };
 
-    const isEmailValid = (emailStr: string) => {
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        return emailRegex.test(emailStr);
-    };
-
-    const canContinue = email.trim().length > 0 && isEmailValid(email.trim());
+    const canContinue = isValidEmailAddress(email);
 
     return (
         <KeyboardAvoidingView
@@ -81,9 +75,9 @@ export function EmailEntryStep({ onNext, onBack, progress }: EmailEntryStepProps
                     keyboardShouldPersistTaps="handled"
                 >
                     <View style={styles.headerContent}>
-                        <Text style={styles.title}>What's your email?</Text>
+                        <Text style={styles.title}>{"What's your email?"}</Text>
                         <Text style={styles.subtitle}>
-                            We'll use this to send you receipts and important updates.
+                            {"We'll use this to send you receipts and important updates."}
                         </Text>
                     </View>
 

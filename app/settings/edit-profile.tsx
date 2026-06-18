@@ -7,6 +7,7 @@ import React, {
 } from "react";
 import {
   ActivityIndicator,
+  Animated,
   FlatList,
   Image,
   Keyboard,
@@ -20,6 +21,7 @@ import {
   TouchableOpacity,
   TouchableWithoutFeedback,
   View,
+  useWindowDimensions,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -29,11 +31,14 @@ import { Country } from "react-native-country-picker-modal";
 import * as ImagePicker from "expo-image-picker";
 import { useQuery } from "convex/react";
 import { useUser } from "@clerk/clerk-expo";
+import { X } from "lucide-react-native";
 
 import {
   BlurHeaderOverlay,
   BrandColors,
   Button,
+  FontFamily,
+  FontSize,
   Spacing,
   Text,
 } from "@/components/shared-ui";
@@ -41,6 +46,20 @@ import { api } from "@/convex/_generated/api";
 import { useOnboardingStore } from "@/stores/useOnboardingStore";
 import { useOnboardingPersistence } from "@/hooks/useOnboardingPersistence";
 import { useToast } from "@/hooks/useToast";
+import { OnboardingSurfaceColors } from "@/components/onboarding/onboardingColors";
+import {
+  cleanupStaleUnverifiedPhoneNumbers,
+  findPhoneNumberByNormalizedValue,
+  isIdentifierAlreadyTakenError,
+  isPhoneNumberVerified,
+  normalizePhoneForComparison,
+} from "@/lib/clerk-phone-numbers";
+import {
+  isValidEmailAddress,
+  isValidPhoneNumber,
+  normalizeContactEmail,
+  normalizePhoneDigits,
+} from "@/lib/contact-validation";
 
 // Try to import getAllCountries from the country picker module.
 let getAllCountries: ((locale?: string) => Promise<Country[]>) | undefined;
@@ -53,6 +72,7 @@ try {
 
 export default function EditProfileScreen() {
   const insets = useSafeAreaInsets();
+  const { height } = useWindowDimensions();
   const toast = useToast();
   const router = useRouter();
   const params = useLocalSearchParams<{ showPhotos?: string }>();
@@ -84,7 +104,11 @@ export default function EditProfileScreen() {
   const [phoneCountry, setPhoneCountry] = useState<Country | null>(null);
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [showContactErrorSheet, setShowContactErrorSheet] = useState(false);
+  const [contactErrorTitle, setContactErrorTitle] = useState("Unable to update phone");
+  const [contactErrorMessage, setContactErrorMessage] = useState<string | null>(null);
   const hasHydratedRef = useRef(false);
+  const contactErrorSlideAnim = useRef(new Animated.Value(height)).current;
 
   useEffect(() => {
     const show = Keyboard.addListener(
@@ -299,6 +323,140 @@ export default function EditProfileScreen() {
     setCountrySearchQuery("");
   }, []);
 
+  useEffect(() => {
+    if (showContactErrorSheet) {
+      contactErrorSlideAnim.setValue(height);
+      requestAnimationFrame(() => {
+        Animated.spring(contactErrorSlideAnim, {
+          toValue: 0,
+          useNativeDriver: true,
+          tension: 40,
+          friction: 8,
+        }).start();
+      });
+    } else {
+      Animated.timing(contactErrorSlideAnim, {
+        toValue: height,
+        duration: 300,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [contactErrorSlideAnim, height, showContactErrorSheet]);
+
+  const handleCloseContactErrorSheet = useCallback(() => {
+    setShowContactErrorSheet(false);
+    setContactErrorMessage(null);
+  }, []);
+
+  const showPhoneTakenSheet = useCallback(() => {
+    setContactErrorTitle("Phone number already in use");
+    setContactErrorMessage("That phone number is already associated with another account.");
+    setShowContactErrorSheet(true);
+  }, []);
+
+  const showEmailTakenSheet = useCallback(() => {
+    setContactErrorTitle("Email already in use");
+    setContactErrorMessage("That email address is already associated with another account.");
+    setShowContactErrorSheet(true);
+  }, []);
+
+  const prepareProfilePhoneVerification = useCallback(
+    async (nextPhoneNumber: string) => {
+      if (!clerkUser) {
+        throw new Error("User session not ready. Please try again.");
+      }
+
+      const normalizedPendingPhone = normalizePhoneForComparison(nextPhoneNumber);
+
+      try {
+        await cleanupStaleUnverifiedPhoneNumbers(clerkUser, normalizedPendingPhone);
+        const existingPhone = findPhoneNumberByNormalizedValue(
+          clerkUser,
+          normalizedPendingPhone,
+        );
+
+        if (existingPhone) {
+          if (!isPhoneNumberVerified(existingPhone)) {
+            await existingPhone.prepareVerification?.();
+          }
+          return existingPhone.id;
+        }
+
+        const phoneNumberResource = await clerkUser.createPhoneNumber({
+          phoneNumber: nextPhoneNumber,
+        });
+        await phoneNumberResource.prepareVerification();
+        return phoneNumberResource.id;
+      } catch (error) {
+        if (!isIdentifierAlreadyTakenError(error)) {
+          throw error;
+        }
+
+        await clerkUser.reload();
+        const existingPhone = findPhoneNumberByNormalizedValue(
+          clerkUser,
+          normalizedPendingPhone,
+        );
+        if (existingPhone) {
+          if (!isPhoneNumberVerified(existingPhone)) {
+            await existingPhone.prepareVerification?.();
+          }
+          return existingPhone.id;
+        }
+
+        throw error;
+      }
+    },
+    [clerkUser],
+  );
+
+  const prepareProfileEmailVerification = useCallback(
+    async (nextEmail: string) => {
+      if (!clerkUser) {
+        throw new Error("User session not ready. Please try again.");
+      }
+
+      const normalizedPendingEmail = normalizeContactEmail(nextEmail);
+      const findExistingEmail = () =>
+        clerkUser.emailAddresses.find(
+          (emailAddress) =>
+            normalizeContactEmail(emailAddress.emailAddress) === normalizedPendingEmail,
+        );
+
+      try {
+        const existingEmail = findExistingEmail();
+        if (existingEmail) {
+          if (existingEmail.verification?.status !== "verified") {
+            await existingEmail.prepareVerification?.({ strategy: "email_code" });
+          }
+          return existingEmail.id;
+        }
+
+        const emailAddressResource = await clerkUser.createEmailAddress({
+          email: normalizedPendingEmail,
+        });
+        await emailAddressResource.prepareVerification({ strategy: "email_code" });
+        return emailAddressResource.id;
+      } catch (error) {
+        if (!isIdentifierAlreadyTakenError(error)) {
+          throw error;
+        }
+
+        await clerkUser.reload();
+        const existingEmail = findExistingEmail();
+        if (existingEmail) {
+          if (existingEmail.verification?.status !== "verified") {
+            await existingEmail.prepareVerification?.({ strategy: "email_code" });
+          }
+          return existingEmail.id;
+        }
+
+        throw error;
+      }
+    },
+    [clerkUser],
+  );
+
   const requestLibraryPermission = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     return status === "granted";
@@ -359,8 +517,8 @@ export default function EditProfileScreen() {
     try {
       const normalizedFirstName = firstName.trim();
       const normalizedLastName = lastName.trim();
-      const normalizedEmail = email.trim().toLowerCase();
-      const normalizedPhoneDigits = phone.replace(/\D/g, "");
+      const normalizedEmail = normalizeContactEmail(email);
+      const normalizedPhoneDigits = normalizePhoneDigits(phone);
 
       const nextEmail = normalizedEmail.length > 0 ? normalizedEmail : null;
       const nextPhoneNumber =
@@ -376,9 +534,51 @@ export default function EditProfileScreen() {
         .toString()
         .replace(/\D/g, "");
       const nextPhoneDigits = (nextPhoneNumber ?? "").replace(/\D/g, "");
-      const emailChanged = nextEmail != null && nextEmail !== currentEmail;
-      const phoneChanged =
-        nextPhoneNumber != null && nextPhoneDigits !== currentPhoneDigits;
+      const emailChanged = nextEmail !== currentEmail;
+      const phoneChanged = nextPhoneDigits !== currentPhoneDigits;
+
+      let pendingPhoneVerificationId = "";
+      if (phoneChanged && nextPhoneNumber != null) {
+        try {
+          pendingPhoneVerificationId =
+            nextPhoneNumber != null
+              ? await prepareProfilePhoneVerification(nextPhoneNumber)
+              : "";
+        } catch (error) {
+          if (isIdentifierAlreadyTakenError(error)) {
+            showPhoneTakenSheet();
+          } else {
+            const message =
+              error instanceof Error
+                ? error.message
+                : "Unable to send verification code.";
+            setContactErrorTitle("Unable to send code");
+            setContactErrorMessage(message);
+            setShowContactErrorSheet(true);
+          }
+          return;
+        }
+      }
+
+      let pendingEmailVerificationId = "";
+      if (emailChanged && nextEmail != null) {
+        try {
+          pendingEmailVerificationId = await prepareProfileEmailVerification(nextEmail);
+        } catch (error) {
+          if (isIdentifierAlreadyTakenError(error)) {
+            showEmailTakenSheet();
+          } else {
+            const message =
+              error instanceof Error
+                ? error.message
+                : "Unable to send verification code.";
+            setContactErrorTitle("Unable to send code");
+            setContactErrorMessage(message);
+            setShowContactErrorSheet(true);
+          }
+          return;
+        }
+      }
 
       if (editPhotoUri !== profilePhotoUri) {
         updateData({ profilePhotoUri: editPhotoUri });
@@ -412,6 +612,8 @@ export default function EditProfileScreen() {
             verifyEmail: emailChanged ? "1" : "0",
             pendingPhone: nextPhoneNumber ?? "",
             pendingEmail: nextEmail ?? "",
+            pendingPhoneVerificationId,
+            pendingEmailVerificationId,
           },
         });
         return;
@@ -450,11 +652,16 @@ export default function EditProfileScreen() {
     lastName,
     me?.email,
     me?.phone,
+    prepareProfileEmailVerification,
     persistProfileField,
     persistProfilePhoto,
     phone,
+    prepareProfilePhoneVerification,
     profilePhotoUri,
     router,
+    showEmailTakenSheet,
+    showPhoneTakenSheet,
+    toast,
     updateData,
   ]);
 
@@ -487,7 +694,29 @@ export default function EditProfileScreen() {
     [getFlagEmoji, handleCountrySelect, phoneCountryCode],
   );
 
-  const canSave = !isSaving;
+  const currentFirstName = (me?.first_name ?? data.firstName ?? "").toString().trim();
+  const currentLastName = (me?.last_name ?? data.lastName ?? "").toString().trim();
+  const currentEmail = normalizeContactEmail(me?.email ?? data.email);
+  const currentPhoneDigits = normalizePhoneDigits(me?.phone ?? data.phoneNumber);
+  const normalizedFirstName = firstName.trim();
+  const normalizedLastName = lastName.trim();
+  const normalizedEmail = normalizeContactEmail(email);
+  const normalizedPhoneDigits = normalizePhoneDigits(phone);
+  const nextPhoneNumber =
+    normalizedPhoneDigits.length > 0
+      ? `+${getCallingCode()}${normalizedPhoneDigits}`
+      : null;
+  const nextPhoneDigits = normalizePhoneDigits(nextPhoneNumber);
+  const emailChanged = normalizedEmail !== currentEmail;
+  const phoneChanged = nextPhoneDigits !== currentPhoneDigits;
+  const isTextFieldChanged =
+    normalizedFirstName !== currentFirstName ||
+    normalizedLastName !== currentLastName ||
+    emailChanged ||
+    phoneChanged;
+  const isPhoneValidForSave = !phoneChanged || isValidPhoneNumber(phone, getCallingCode());
+  const isEmailValidForSave = !emailChanged || isValidEmailAddress(email);
+  const canSave = !isSaving && isTextFieldChanged && isPhoneValidForSave && isEmailValidForSave;
   const isIOS26Plus =
     Platform.OS === "ios" && parseInt(String(Platform.Version), 10) >= 26;
   const bottomActionPadding = insets.bottom + (isIOS26Plus ? 80 : 100);
@@ -799,6 +1028,45 @@ export default function EditProfileScreen() {
           </Pressable>
         </Pressable>
       </Modal>
+
+      <Modal
+        visible={showContactErrorSheet}
+        transparent
+        animationType="none"
+        statusBarTranslucent
+        navigationBarTranslucent
+        onRequestClose={handleCloseContactErrorSheet}
+      >
+        <Pressable
+          style={styles.errorModalBackdrop}
+          onPress={handleCloseContactErrorSheet}
+        >
+          <Animated.View
+            style={[
+              styles.errorModal,
+              {
+                transform: [{ translateY: contactErrorSlideAnim }],
+              },
+            ]}
+            onStartShouldSetResponder={() => true}
+          >
+            <View style={styles.errorModalHandle} />
+            <View style={styles.errorIconContainer}>
+              <X size={48} color="#EF4444" strokeWidth={3} />
+            </View>
+            <Text style={styles.errorTitle}>{contactErrorTitle}</Text>
+            <Text style={styles.errorMessage}>
+              {contactErrorMessage || "Please try again."}
+            </Text>
+            <TouchableOpacity
+              style={styles.errorButton}
+              onPress={handleCloseContactErrorSheet}
+            >
+              <Text style={styles.errorButtonText}>Got it</Text>
+            </TouchableOpacity>
+          </Animated.View>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -1087,5 +1355,61 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 15,
     color: "#111827",
+  },
+  errorModalBackdrop: {
+    flex: 1,
+    backgroundColor: OnboardingSurfaceColors.backdrop,
+    justifyContent: "flex-end",
+    alignItems: "center",
+  },
+  errorModal: {
+    backgroundColor: OnboardingSurfaceColors.card,
+    borderRadius: 28,
+    padding: Spacing["2xl"],
+    paddingBottom: Spacing["3xl"],
+    alignItems: "center",
+    width: "95%",
+    alignSelf: "center",
+    marginBottom: Spacing.lg,
+    borderWidth: 1,
+    borderColor: OnboardingSurfaceColors.border,
+  },
+  errorModalHandle: {
+    width: 40,
+    height: 4,
+    backgroundColor: OnboardingSurfaceColors.handle,
+    borderRadius: 2,
+    marginBottom: Spacing.xs,
+  },
+  errorIconContainer: {
+    marginBottom: Spacing.lg,
+  },
+  errorTitle: {
+    fontSize: FontSize["2xl"],
+    fontFamily: FontFamily.bold,
+    color: OnboardingSurfaceColors.text,
+    textAlign: "center",
+    marginBottom: Spacing.md,
+  },
+  errorMessage: {
+    fontSize: FontSize.md,
+    fontFamily: FontFamily.regular,
+    color: OnboardingSurfaceColors.mutedText,
+    textAlign: "center",
+    marginBottom: Spacing["2xl"],
+    lineHeight: 22,
+  },
+  errorButton: {
+    backgroundColor: OnboardingSurfaceColors.primaryButton,
+    borderRadius: 12,
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing["2xl"],
+    width: "100%",
+    alignItems: "center",
+  },
+  errorButtonText: {
+    fontSize: FontSize.lg,
+    fontFamily: FontFamily.semiBold,
+    color: OnboardingSurfaceColors.primaryButtonText,
   },
 });
