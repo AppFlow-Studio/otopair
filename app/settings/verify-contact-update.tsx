@@ -9,7 +9,8 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useLocalSearchParams } from "expo-router";
+import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useUser } from "@clerk/clerk-expo";
 

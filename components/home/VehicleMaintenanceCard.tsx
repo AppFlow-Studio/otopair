@@ -34,7 +34,7 @@ import {
 // 2. Expo & Third-party
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useRouter } from 'expo-router';
+import { useGuardedRouter as useRouter } from '@/hooks/useGuardedRouter';
 import { useVehicleStore } from '@/stores/useVehicleStore';
 import Animated, {
   Easing,

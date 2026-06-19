@@ -27,7 +27,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useGuardedRouter as useRouter } from '@/hooks/useGuardedRouter';
 import { Eye, EyeOff } from 'lucide-react-native';
 import { zxcvbn, zxcvbnOptions } from '@zxcvbn-ts/core';
 import * as zxcvbnCommonPackage from '@zxcvbn-ts/language-common';

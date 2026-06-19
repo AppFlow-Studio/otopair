@@ -26,7 +26,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useGuardedRouter as useRouter } from '@/hooks/useGuardedRouter';
 import {
   ChevronRight,
   Paperclip,

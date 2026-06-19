@@ -15,7 +15,8 @@
 import React, { useCallback, useMemo, useState, useEffect } from 'react';
 import { Pressable, Share, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter, useFocusEffect } from 'expo-router';
+import { useFocusEffect } from 'expo-router';
+import { useGuardedRouter as useRouter } from '@/hooks/useGuardedRouter';
 import { BlurView } from 'expo-blur';
 import Animated from 'react-native-reanimated';
 import Svg, { Circle } from 'react-native-svg';

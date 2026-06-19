@@ -24,7 +24,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // 2. Expo & Third-party
 import * as Notifications from 'expo-notifications';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams } from 'expo-router';
+import { useGuardedRouter as useRouter } from '@/hooks/useGuardedRouter';
 import { ArrowLeft, Bell, Check } from 'lucide-react-native';
 
 // 3. Shared UI

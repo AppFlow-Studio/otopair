@@ -22,7 +22,8 @@ import React, { useCallback, useMemo, useState } from "react";
 import { BackHandler, Platform, ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
 
 // 2. Expo & Third-party
-import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
+import { useFocusEffect, useLocalSearchParams } from "expo-router";
+import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { Calendar, ChevronRight, Clock } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 

@@ -16,7 +16,8 @@
 import React, { useMemo, useState } from "react";
 import { Image, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Link, useRouter } from "expo-router";
+import { Link } from "expo-router";
+import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { Calendar, ChevronLeft, ChevronRight, Wrench } from "lucide-react-native";
 
 import { CarSilhouette } from "@/components/shared-ui/CarSilhouette";

@@ -33,7 +33,7 @@ import Animated, { useAnimatedStyle, useSharedValue, withTiming, withSpring, Eas
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { haptics } from "@/lib/haptics";
 import { useToast } from "@/hooks/useToast";
-import { useRouter } from "expo-router";
+import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { AlignLeft, SquarePen, Ellipsis, Sparkles, History, CarFront, Zap, ChevronDown } from "lucide-react-native";
 import { MenuView } from "@react-native-menu/menu";
 

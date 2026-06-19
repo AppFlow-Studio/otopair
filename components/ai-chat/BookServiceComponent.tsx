@@ -18,7 +18,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
 
 // 2. Expo & Third-party
-import { useRouter } from "expo-router";
+import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { useQuery } from "convex/react";
 import Animated, {
   Easing,

@@ -17,7 +17,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Modal, Pressable, StyleSheet, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useGuardedRouter as useRouter } from '@/hooks/useGuardedRouter';
 import { Check, Mail, MessageSquareText } from 'lucide-react-native';
 
 import { BrandColors, Button, FontFamily, FontSize, Shadows, Spacing, Text, BlurHeaderOverlay } from '@/components/shared-ui';

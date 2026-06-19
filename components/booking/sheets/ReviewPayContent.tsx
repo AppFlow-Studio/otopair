@@ -30,7 +30,7 @@ import {
   Stethoscope,
 } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useRouter } from "expo-router";
+import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 
 // 3. Shared UI (design system)
 import { BrandColors, FixedPriceBadge, Spacing, Text } from "@/components/shared-ui";

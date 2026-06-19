@@ -1,6 +1,6 @@
 import React from 'react';
 import { Pressable, StyleSheet } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useGuardedRouter as useRouter } from '@/hooks/useGuardedRouter';
 import { useAuth } from '@clerk/clerk-expo';
 import { useMutation } from 'convex/react';
 import * as SecureStore from 'expo-secure-store';

@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useQuery } from "convex/react";
-import { useRouter } from "expo-router";
+import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";

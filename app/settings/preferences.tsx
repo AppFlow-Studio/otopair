@@ -28,7 +28,7 @@ import {
   Animated,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useGuardedRouter as useRouter } from '@/hooks/useGuardedRouter';
 import { ChevronRight, Check } from 'lucide-react-native';
 import { useQuery } from "convex/react";
 import { BlurView } from 'expo-blur';

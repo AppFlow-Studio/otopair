@@ -16,7 +16,7 @@
 import React, { useCallback, useEffect, useRef } from "react";
 import { Dimensions, StyleSheet, View } from "react-native";
 
-import { useRouter } from "expo-router";
+import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import LottieView from "lottie-react-native";
 import Animated, {
   useAnimatedStyle,

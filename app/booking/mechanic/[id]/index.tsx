@@ -20,7 +20,8 @@ import { BackHandler, Platform, Pressable, StyleSheet, View } from "react-native
 
 // 2. Expo & Third-party
 import { BlurView } from "expo-blur";
-import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
+import { useFocusEffect, useLocalSearchParams } from "expo-router";
+import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import Animated, { interpolate, useAnimatedRef, useAnimatedStyle, useScrollOffset } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 

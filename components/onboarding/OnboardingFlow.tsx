@@ -21,7 +21,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { BackHandler, StyleSheet, View, Keyboard } from 'react-native';
-import { router } from 'expo-router';
+import { guardedRouter as router } from '@/lib/navigationLock';
 import {
     useSharedValue,
     withTiming,

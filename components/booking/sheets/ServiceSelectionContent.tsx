@@ -26,7 +26,7 @@ import { ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
 
 // 2. Third-party libraries
 import { BottomSheetScrollView } from "@gorhom/bottom-sheet";
-import { useRouter } from "expo-router";
+import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { ChevronRight, Clock, Sparkles } from "lucide-react-native";
 
 // 3. Shared UI (design system)
