@@ -284,9 +284,12 @@ export default function AboutOtopairScreen() {
                   <Text size="md" weight="bold" color={BrandColors.primary}>
                     Total
                   </Text>
+                  {/* Illustrative mock only — not a live computation. Value is
+                      consistent with the labor-rate-delta model in
+                      lib/dealerSavings.ts for a small job (~0.5h × ~$40/hr delta). */}
                   <View style={styles.showcaseSavingsBadge}>
                     <Text size="xs" weight="semiBold" color={BrandColors.secondary}>
-                      → Saved $25 vs Dealership
+                      → Save ~$20 vs dealership
                     </Text>
                   </View>
                 </View>
