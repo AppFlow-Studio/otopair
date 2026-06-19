@@ -30,7 +30,7 @@ import { Alert, Image, PixelRatio, Pressable, StyleSheet, View } from 'react-nat
 import type { View as RNView } from 'react-native';
 
 // 2. Expo & Third-party
-import { useRouter } from 'expo-router';
+import { useGuardedRouter as useRouter } from '@/hooks/useGuardedRouter';
 import { Car, FileText, Star, User } from 'lucide-react-native';
 import Animated, { FadeOut, LinearTransition, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 

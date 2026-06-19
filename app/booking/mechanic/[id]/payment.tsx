@@ -17,7 +17,8 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, BackHandler, Image, Platform, ScrollView, StyleSheet, TextInput, TouchableOpacity, View } from "react-native";
 
 // 2. Expo & Third-party
-import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
+import { useFocusEffect, useLocalSearchParams } from "expo-router";
+import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { Calendar, Car, ChevronRight, FileText, Info, Star } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -45,6 +46,7 @@ import { deriveDisclosedRange, formatRange } from "@/lib/disclosedRange";
 import { formatDurationForCar } from "@/lib/formatDuration";
 import { computeBookingTax } from "@/lib/tax";
 import { computePlatformFeeDollars } from "@/lib/platformFee";
+import { computeDealerLaborSavings } from "@/lib/dealerSavings";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
 import { usePaymentStore } from "@/stores/usePaymentStore";
@@ -419,6 +421,14 @@ export default function PaymentScreen() {
       rangeFormatted: range.formatted,
     };
   }, [selectedServices, laborRate, shop?.state, shop?.zip, getEffectiveParts, getServiceLaborHours, fixedPriceMap]);
+
+  // Conservative dealer-vs-independent saving (labor-rate delta). Null on
+  // parts-only / diagnostic / flat-fee tickets or when no shop rate resolved,
+  // so the badge self-suppresses where a saving claim isn't credible.
+  const dealerSavings = useMemo(
+    () => computeDealerLaborSavings({ laborHours: breakdown.laborHours, shopLaborRate: laborRate }),
+    [breakdown.laborHours, laborRate],
+  );
 
   // Stash the customer-facing range + fixed-price flag so BookingConfirmStatus
   // can re-quote the same band the customer just agreed to and decide
@@ -890,11 +900,13 @@ export default function PaymentScreen() {
               </Text>
               <View style={styles.totalHeaderBadges}>
                 {hasAnyFixedPrice && <FixedPriceBadge size="sm" />}
-                <View style={styles.savingsBadge}>
-                  <Text size="xs" weight="semiBold" color={BrandColors.secondary}>
-                    → Saved $25 vs Dealership
-                  </Text>
-                </View>
+                {dealerSavings !== null && (
+                  <View style={styles.savingsBadge}>
+                    <Text size="xs" weight="semiBold" color={BrandColors.secondary}>
+                      → Save ~${dealerSavings} vs dealership
+                    </Text>
+                  </View>
+                )}
               </View>
             </View>
             <Text

@@ -33,7 +33,7 @@ import { useOnboardingStore } from "@/stores/useOnboardingStore";
 import { useEnsureConvexUser } from "@/hooks/useEnsureConvexUser";
 import { Mail } from "lucide-react-native";
 import { useAuthStore } from "@/stores/useAuthStore";
-import { router } from "expo-router";
+import { guardedRouter as router } from "@/lib/navigationLock";
 import { api } from "@/convex/_generated/api";
 import { getAndroidSmsRetrieverHash } from "@/lib/android-app-signature";
 

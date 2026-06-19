@@ -59,7 +59,7 @@ import { Text } from '@/components/shared-ui';
 
 // 4. Constants
 import { BrandColors, Colors, Spacing } from '@/constants/theme';
-import { router } from 'expo-router';
+import { guardedRouter as router } from '@/lib/navigationLock';
 
 // 5. Responsive utilities
 import { scale, verticalScale, moderateScale, isTablet } from '@/utils/responsive';

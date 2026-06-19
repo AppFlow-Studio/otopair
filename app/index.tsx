@@ -13,7 +13,8 @@
 
 import { useEffect, useRef } from "react";
 import { View, ActivityIndicator, StyleSheet } from "react-native";
-import { router, useRootNavigationState } from "expo-router";
+import { useRootNavigationState } from "expo-router";
+import { guardedRouter as router } from "@/lib/navigationLock";
 import { useAuth } from "@clerk/clerk-expo";
 import { useQuery } from "convex/react";
 import * as SecureStore from "expo-secure-store";

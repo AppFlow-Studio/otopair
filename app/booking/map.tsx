@@ -16,7 +16,8 @@ import { BackHandler, InteractionManager, Platform, StyleSheet, TouchableOpacity
 
 // 2. Third-party libraries
 import { BlurView } from "expo-blur";
-import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
+import { useFocusEffect, useLocalSearchParams } from "expo-router";
+import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { ChevronLeft } from "lucide-react-native";
 import MapView from "react-native-maps";
 import Animated, { Extrapolation, interpolate, SharedValue, useAnimatedStyle } from "react-native-reanimated";

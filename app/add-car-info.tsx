@@ -30,7 +30,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // 2. Expo & Third-party
 import { StatusBar } from "expo-status-bar";
-import { useRouter, useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams } from "expo-router";
+import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { Car, Bike, Truck, Check, ChevronLeft, ChevronRight, X } from "lucide-react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import LottieView from "lottie-react-native";

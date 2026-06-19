@@ -50,7 +50,7 @@ import CarInfoStepper from "@/components/cars/CarInfoStepper";
 
 // 2. Expo & Third-party
 import BottomSheet, { BottomSheetFooter, BottomSheetFooterProps } from "@gorhom/bottom-sheet";
-import { useRouter } from "expo-router";
+import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { Car, Clock, MapPin, Search, Star, User, Wrench, X } from "lucide-react-native";
 import Animated, {
   Extrapolation,

@@ -21,7 +21,8 @@
  * TICKET: OTO-XXX
  */
 
-import { router, usePathname } from 'expo-router';
+import { usePathname } from 'expo-router';
+import { guardedRouter as router } from '@/lib/navigationLock';
 import { ArrowLeft } from 'lucide-react-native';
 import { Pressable, StyleSheet } from 'react-native';
 import { FontSize, Spacing, BrandColors } from '@/constants/theme';

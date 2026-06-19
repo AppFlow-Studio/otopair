@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
-import { router } from "expo-router";
+import { guardedRouter as router } from "@/lib/navigationLock";
 import { useAuth, useSignUp, useUser } from "@clerk/clerk-expo";
 import { useQuery } from "convex/react";
 

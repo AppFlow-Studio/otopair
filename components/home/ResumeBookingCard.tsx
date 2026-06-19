@@ -26,7 +26,7 @@ import React from 'react';
 import { Image, type ImageSourcePropType, Pressable, StyleSheet, View } from 'react-native';
 
 // 2. Expo & Third-party
-import { useRouter } from 'expo-router';
+import { useGuardedRouter as useRouter } from '@/hooks/useGuardedRouter';
 import { ArrowRight, Clock } from 'lucide-react-native';
 
 // 3. Shared UI

@@ -10,7 +10,7 @@ import Animated, {
   SharedTransition,
   Easing,
 } from "react-native-reanimated";
-import { useRouter } from "expo-router";
+import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import {
   Calendar,
   ChevronRight,

@@ -17,7 +17,7 @@
 
 import React, { useState, useCallback, useEffect } from 'react';
 import { StyleSheet, View, Keyboard } from 'react-native';
-import { router } from 'expo-router';
+import { guardedRouter as router } from '@/lib/navigationLock';
 import Animated, { 
     useSharedValue, 
     withTiming, 

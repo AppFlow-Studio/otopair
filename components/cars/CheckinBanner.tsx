@@ -8,7 +8,7 @@
 
 import React from "react";
 import { Pressable, StyleSheet, View } from "react-native";
-import { useRouter } from "expo-router";
+import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { useQuery } from "convex/react";
 import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
 import { ArrowRight, Clock, AlertTriangle } from "lucide-react-native";

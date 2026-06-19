@@ -31,7 +31,7 @@ import { FooterButton } from "@/components/shared-ui/FooterButton";
 import { BackButton } from "@/components/shared-ui/BackButton";
 import { useOnboardingStore } from "@/stores/useOnboardingStore";
 import { Eye, EyeOff } from "lucide-react-native";
-import { router } from "expo-router";
+import { guardedRouter as router } from "@/lib/navigationLock";
 import { useAuth, useSignIn } from "@clerk/clerk-expo";
 import { useAuthStore } from "@/stores/useAuthStore";
 
