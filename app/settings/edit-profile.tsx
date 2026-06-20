@@ -13,6 +13,7 @@ import {
   Image,
   Keyboard,
   KeyboardAvoidingView,
+  type LayoutChangeEvent,
   Modal,
   Platform,
   Pressable,
@@ -71,6 +72,8 @@ try {
   console.log("getAllCountries not available in library");
 }
 
+type EditableProfileField = "firstName" | "lastName" | "phone" | "email";
+
 export default function EditProfileScreen() {
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
@@ -88,6 +91,11 @@ export default function EditProfileScreen() {
       updateData: state.updateData,
     })),
   );
+
+  const scrollViewRef = useRef<ScrollView | null>(null);
+  const focusedFieldRef = useRef<EditableProfileField | null>(null);
+  const fieldYOffsetsRef = useRef<Partial<Record<EditableProfileField, number>>>({});
+  const fieldFocusTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -126,11 +134,55 @@ export default function EditProfileScreen() {
   }, [handleBack]);
 
   useEffect(() => {
+    return () => {
+      if (fieldFocusTimeoutRef.current) {
+        clearTimeout(fieldFocusTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  const handleFieldLayout = useCallback(
+    (field: EditableProfileField) => (event: LayoutChangeEvent) => {
+      fieldYOffsetsRef.current[field] = event.nativeEvent.layout.y;
+    },
+    [],
+  );
+
+  const scrollFocusedFieldIntoView = useCallback((field: EditableProfileField) => {
+    if (fieldFocusTimeoutRef.current) {
+      clearTimeout(fieldFocusTimeoutRef.current);
+    }
+
+    fieldFocusTimeoutRef.current = setTimeout(() => {
+      const fieldOffset = fieldYOffsetsRef.current[field];
+      if (typeof fieldOffset !== "number") return;
+
+      scrollViewRef.current?.scrollTo({
+        y: Math.max(fieldOffset - Spacing["2xl"], 0),
+        animated: true,
+      });
+    }, Platform.OS === "ios" ? 280 : 140);
+  }, []);
+
+  const handleFieldFocus = useCallback(
+    (field: EditableProfileField) => {
+      focusedFieldRef.current = field;
+      scrollFocusedFieldIntoView(field);
+    },
+    [scrollFocusedFieldIntoView],
+  );
+
+  useEffect(() => {
     const show = Keyboard.addListener(
       Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow",
       (event) => {
         setIsKeyboardVisible(true);
         setKeyboardHeight(event.endCoordinates?.height ?? 0);
+
+        const focusedField = focusedFieldRef.current;
+        if (focusedField) {
+          scrollFocusedFieldIntoView(focusedField);
+        }
       },
     );
     const hide = Keyboard.addListener(
@@ -144,7 +196,7 @@ export default function EditProfileScreen() {
       show.remove();
       hide.remove();
     };
-  }, []);
+  }, [scrollFocusedFieldIntoView]);
 
   const profilePhotoUri = useMemo(() => {
     if (me?.profile_photo_url) return me.profile_photo_url;
@@ -792,6 +844,7 @@ export default function EditProfileScreen() {
         style={{ flex: 1 }}
       >
         <ScrollView
+          ref={scrollViewRef}
           style={{ flex: 1 }}
           contentContainerStyle={[
             styles.scrollContent,
@@ -851,7 +904,7 @@ export default function EditProfileScreen() {
           ) : null}
 
           <View style={styles.glassCard}>
-            <View style={styles.formRow}>
+            <View style={styles.formRow} onLayout={handleFieldLayout("firstName")}>
               <Text
                 weight="medium"
                 size="xs"
@@ -867,11 +920,12 @@ export default function EditProfileScreen() {
                 placeholderTextColor="#AEAEB2"
                 style={styles.rowInput}
                 autoCapitalize="words"
+                onFocus={() => handleFieldFocus("firstName")}
               />
             </View>
             <View style={styles.separator} />
 
-            <View style={styles.formRow}>
+            <View style={styles.formRow} onLayout={handleFieldLayout("lastName")}>
               <Text
                 weight="medium"
                 size="xs"
@@ -887,11 +941,12 @@ export default function EditProfileScreen() {
                 placeholderTextColor="#AEAEB2"
                 style={styles.rowInput}
                 autoCapitalize="words"
+                onFocus={() => handleFieldFocus("lastName")}
               />
             </View>
             <View style={styles.separator} />
 
-            <View style={styles.formRow}>
+            <View style={styles.formRow} onLayout={handleFieldLayout("phone")}>
               <Text
                 weight="medium"
                 size="xs"
@@ -917,12 +972,13 @@ export default function EditProfileScreen() {
                   placeholderTextColor="#AEAEB2"
                   style={styles.phoneInput}
                   keyboardType="phone-pad"
+                  onFocus={() => handleFieldFocus("phone")}
                 />
               </View>
             </View>
             <View style={styles.separator} />
 
-            <View style={styles.formRow}>
+            <View style={styles.formRow} onLayout={handleFieldLayout("email")}>
               <Text
                 weight="medium"
                 size="xs"
@@ -939,6 +995,7 @@ export default function EditProfileScreen() {
                 style={styles.rowInput}
                 keyboardType="email-address"
                 autoCapitalize="none"
+                onFocus={() => handleFieldFocus("email")}
               />
             </View>
           </View>

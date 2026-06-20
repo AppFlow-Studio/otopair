@@ -60,3 +60,23 @@ test("edit profile focus resync does not rerun while save dependencies change be
   assert.match(source, /hasHydratedProfileRef\.current = hasHydratedProfile/);
   assert.match(source, /useFocusEffect\(\s*useCallback\(\(\) => \{[\s\S]*\}, \[\]\),\s*\);/s);
 });
+
+test("edit profile scrolls focused contact inputs above the keyboard", () => {
+  assert.match(source, /const scrollViewRef = useRef<ScrollView \| null>\(null\)/);
+  assert.match(source, /const focusedFieldRef = useRef<EditableProfileField \| null>\(null\)/);
+  assert.match(source, /const fieldYOffsetsRef = useRef<Partial<Record<EditableProfileField, number>>>\(\{\}\)/);
+  assert.match(source, /const scrollFocusedFieldIntoView = useCallback/);
+  assert.match(source, /const handleFieldFocus = useCallback/);
+  assert.match(source, /scrollViewRef\.current\?\.scrollTo\(\{/);
+  assert.match(source, /ref=\{scrollViewRef\}/);
+  assert.match(source, /onLayout=\{handleFieldLayout\("phone"\)\}/);
+  assert.match(source, /onFocus=\{\(\) => handleFieldFocus\("phone"\)\}/);
+  assert.match(source, /onLayout=\{handleFieldLayout\("email"\)\}/);
+  assert.match(source, /onFocus=\{\(\) => handleFieldFocus\("email"\)\}/);
+});
+
+test("edit profile scrolls the last focused field whenever the keyboard reopens", () => {
+  assert.match(source, /const focusedField = focusedFieldRef\.current/);
+  assert.match(source, /if \(focusedField\) \{\s*scrollFocusedFieldIntoView\(focusedField\);/s);
+  assert.match(source, /setIsKeyboardVisible\(true\);[\s\S]*scrollFocusedFieldIntoView\(focusedField\);/s);
+});
