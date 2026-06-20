@@ -8,6 +8,7 @@ import React, {
 import {
   ActivityIndicator,
   Animated,
+  BackHandler,
   FlatList,
   Image,
   Keyboard,
@@ -107,8 +108,22 @@ export default function EditProfileScreen() {
   const [showContactErrorSheet, setShowContactErrorSheet] = useState(false);
   const [contactErrorTitle, setContactErrorTitle] = useState("Unable to update phone");
   const [contactErrorMessage, setContactErrorMessage] = useState<string | null>(null);
+  const [hasHydratedProfile, setHasHydratedProfile] = useState(false);
   const hasHydratedRef = useRef(false);
   const contactErrorSlideAnim = useRef(new Animated.Value(height)).current;
+
+  const handleBack = useCallback(() => {
+    router.back();
+  }, [router]);
+
+  useEffect(() => {
+    const backHandler = BackHandler.addEventListener("hardwareBackPress", () => {
+      handleBack();
+      return true;
+    });
+
+    return () => backHandler.remove();
+  }, [handleBack]);
 
   useEffect(() => {
     const show = Keyboard.addListener(
@@ -201,7 +216,7 @@ export default function EditProfileScreen() {
   }, []);
 
   useEffect(() => {
-    if (hasHydratedRef.current || allCountries.length === 0) return;
+    if (hasHydratedRef.current || allCountries.length === 0 || me === undefined) return;
 
     const fromConvexFirst = (me?.first_name ?? "").toString().trim();
     const fromConvexLast = (me?.last_name ?? "").toString().trim();
@@ -257,16 +272,14 @@ export default function EditProfileScreen() {
     setEditPhotoUri(profilePhotoUri);
     setShowPhotoOptions(params.showPhotos === "1");
     hasHydratedRef.current = true;
+    setHasHydratedProfile(true);
   }, [
     allCountries,
     data.email,
     data.firstName,
     data.lastName,
     data.phoneNumber,
-    me?.email,
-    me?.first_name,
-    me?.last_name,
-    me?.phone,
+    me,
     params.showPhotos,
     profilePhotoUri,
   ]);
@@ -721,9 +734,28 @@ export default function EditProfileScreen() {
     Platform.OS === "ios" && parseInt(String(Platform.Version), 10) >= 26;
   const bottomActionPadding = insets.bottom + (isIOS26Plus ? 80 : 100);
 
+  if (!hasHydratedProfile) {
+    return (
+      <View style={styles.screen}>
+        <BlurHeaderOverlay title="Edit Profile" onBack={handleBack} />
+        <View
+          style={[
+            styles.loadingContainer,
+            {
+              paddingTop: insets.top + 80,
+              paddingBottom: insets.bottom + 100,
+            },
+          ]}
+        >
+          <ActivityIndicator size="large" color={BrandColors.secondary} />
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.screen}>
-      <BlurHeaderOverlay title="Edit Profile" onBack={() => router.back()} />
+      <BlurHeaderOverlay title="Edit Profile" onBack={handleBack} />
 
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : undefined}
@@ -1079,6 +1111,11 @@ const styles = StyleSheet.create({
   scrollContent: {
     flexGrow: 1,
     paddingHorizontal: 16,
+  },
+  loadingContainer: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
   },
   avatarSection: {
     alignItems: "center",

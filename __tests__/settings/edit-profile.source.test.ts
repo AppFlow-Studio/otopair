@@ -35,3 +35,12 @@ test("edit profile only enables save for changed text fields with valid changed 
   assert.match(source, /isEmailValidForSave/);
   assert.match(source, /const canSave = !isSaving && isTextFieldChanged && isPhoneValidForSave && isEmailValidForSave/);
 });
+
+test("edit profile waits to render the editable fields until profile data has hydrated", () => {
+  assert.match(source, /const \[hasHydratedProfile, setHasHydratedProfile\] = useState\(false\)/);
+  assert.match(source, /allCountries\.length === 0 \|\| me === undefined/);
+  assert.match(source, /setHasHydratedProfile\(true\)/);
+  assert.match(source, /if \(!hasHydratedProfile\) \{/);
+  assert.match(source, /<ActivityIndicator[\s\S]*color=\{BrandColors\.secondary\}/s);
+  assert.match(source, /hasHydratedProfile[\s\S]*<TextInput[\s\S]*placeholder="Enter first name"/s);
+});

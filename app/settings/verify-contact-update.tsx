@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   ActivityIndicator,
   Animated,
+  BackHandler,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -23,6 +24,7 @@ import {
   BrandColors,
   FontFamily,
   FontSize,
+  FooterButton,
   Spacing,
   Text,
 } from "@/components/shared-ui";
@@ -144,6 +146,15 @@ export default function VerifyContactUpdateScreen() {
     await destroyPendingResources();
     router.back();
   }, [destroyPendingResources, router]);
+
+  useEffect(() => {
+    const backHandler = BackHandler.addEventListener("hardwareBackPress", () => {
+      void handleCancel();
+      return true;
+    });
+
+    return () => backHandler.remove();
+  }, [handleCancel]);
 
   useEffect(() => {
     if (showErrorModal) {
@@ -535,11 +546,7 @@ export default function VerifyContactUpdateScreen() {
           )}
 
           <View style={styles.footer}>
-            <Pressable style={styles.cancelButton} onPress={handleCancel} disabled={isSubmitting}>
-              <Text weight="medium" color="#1d1d1f" style={styles.cancelButtonText}>
-                Cancel
-              </Text>
-            </Pressable>
+            <FooterButton label="Cancel" onPress={handleCancel} disabled={isSubmitting} />
           </View>
         </View>
       </ScrollView>
@@ -688,31 +695,6 @@ const styles = StyleSheet.create({
     marginTop: "auto",
     paddingTop: 40,
     gap: 16,
-  },
-  submitButton: {
-    backgroundColor: BrandColors.secondary,
-    height: 56,
-    borderRadius: 28,
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: BrandColors.secondary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  submitButtonText: {
-    fontSize: 17,
-    fontFamily: FontFamily.semiBold,
-  },
-  cancelButton: {
-    height: 44,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  cancelButtonText: {
-    fontSize: 17,
-    fontFamily: FontFamily.medium,
   },
   errorModalBackdrop: {
     flex: 1,

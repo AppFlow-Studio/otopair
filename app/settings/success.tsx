@@ -16,7 +16,7 @@
  * TICKET: OTO-XXX
  */
 
-import React, { useEffect, useMemo } from "react";
+import React, { useCallback, useEffect, useMemo } from "react";
 import { BackHandler, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter, useLocalSearchParams } from "expo-router";
@@ -57,6 +57,10 @@ export default function SuccessScreen() {
   const router = useRouter();
   const { type = "2fa" } = useLocalSearchParams<{ type?: SuccessType }>();
 
+  const handleDone = useCallback(() => {
+    router.replace("/home");
+  }, [router]);
+
   const title = useMemo(() => {
     switch (type) {
       case "face": return "Face ID Enabled";
@@ -88,7 +92,7 @@ export default function SuccessScreen() {
 
   useEffect(() => {
     const backAction = () => {
-      router.replace("/home");
+      handleDone();
       return true;
     };
 
@@ -98,7 +102,7 @@ export default function SuccessScreen() {
     );
 
     return () => backHandler.remove();
-  }, [router]);
+  }, [handleDone]);
 
   useEffect(() => {
     // 1. First, the container "pops" in
@@ -187,7 +191,7 @@ export default function SuccessScreen() {
       <View>
         <FooterButton
           label="Done"
-          onPress={() => router.replace("/home")}
+          onPress={handleDone}
         />
       </View>
     </View>
