@@ -44,3 +44,19 @@ test("edit profile waits to render the editable fields until profile data has hy
   assert.match(source, /<ActivityIndicator[\s\S]*color=\{BrandColors\.secondary\}/s);
   assert.match(source, /hasHydratedProfile[\s\S]*<TextInput[\s\S]*placeholder="Enter first name"/s);
 });
+
+test("edit profile resyncs contact fields from current profile data when returning from verification", () => {
+  assert.match(source, /useFocusEffect/);
+  assert.match(source, /const syncProfileFieldsFromCurrentData = useCallback/);
+  assert.match(source, /syncProfileFieldsFromCurrentData\(\{ openPhotoOptions: true \}\)/);
+  assert.match(source, /useFocusEffect\(\s*useCallback\(\(\) => \{/s);
+  assert.match(source, /if \(hasHydratedProfileRef\.current\) \{\s*syncProfileFieldsRef\.current\(\);/s);
+});
+
+test("edit profile focus resync does not rerun while save dependencies change before verification navigation", () => {
+  assert.match(source, /const syncProfileFieldsRef = useRef\(syncProfileFieldsFromCurrentData\)/);
+  assert.match(source, /syncProfileFieldsRef\.current = syncProfileFieldsFromCurrentData/);
+  assert.match(source, /const hasHydratedProfileRef = useRef\(hasHydratedProfile\)/);
+  assert.match(source, /hasHydratedProfileRef\.current = hasHydratedProfile/);
+  assert.match(source, /useFocusEffect\(\s*useCallback\(\(\) => \{[\s\S]*\}, \[\]\),\s*\);/s);
+});

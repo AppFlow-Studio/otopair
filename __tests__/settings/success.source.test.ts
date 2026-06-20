@@ -20,3 +20,9 @@ test("settings success screen keeps the checkmark animation", () => {
   assert.match(source, /M25 52 L45 72 L80 34/);
   assert.match(source, /strokeDashoffset/);
 });
+
+test("settings success title stays on one line and scales down to fit", () => {
+  assert.match(source, /numberOfLines=\{1\}/);
+  assert.match(source, /adjustsFontSizeToFit/);
+  assert.match(source, /minimumFontScale=\{0\.7\}/);
+});

@@ -25,7 +25,7 @@ import {
   useWindowDimensions,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useShallow } from "zustand/react/shallow";
 import { Country } from "react-native-country-picker-modal";
 // @ts-ignore Expo module available at runtime
@@ -215,74 +215,104 @@ export default function EditProfileScreen() {
     loadCountries();
   }, []);
 
-  useEffect(() => {
-    if (hasHydratedRef.current || allCountries.length === 0 || me === undefined) return;
+  const syncProfileFieldsFromCurrentData = useCallback(
+    (options?: { openPhotoOptions?: boolean }) => {
+      if (allCountries.length === 0 || me === undefined) return false;
 
-    const fromConvexFirst = (me?.first_name ?? "").toString().trim();
-    const fromConvexLast = (me?.last_name ?? "").toString().trim();
-    const fromStoreFirst = (data.firstName ?? "").toString().trim();
-    const fromStoreLast = (data.lastName ?? "").toString().trim();
-    const nextFirst =
-      fromConvexFirst.length > 0 ? fromConvexFirst : fromStoreFirst;
-    const nextLast = fromConvexLast.length > 0 ? fromConvexLast : fromStoreLast;
+      const fromConvexFirst = (me?.first_name ?? "").toString().trim();
+      const fromConvexLast = (me?.last_name ?? "").toString().trim();
+      const fromStoreFirst = (data.firstName ?? "").toString().trim();
+      const fromStoreLast = (data.lastName ?? "").toString().trim();
+      const nextFirst =
+        fromConvexFirst.length > 0 ? fromConvexFirst : fromStoreFirst;
+      const nextLast = fromConvexLast.length > 0 ? fromConvexLast : fromStoreLast;
 
-    const nextEmail = (me?.email ?? data.email ?? "")
-      .toString()
-      .toLowerCase()
-      .trim();
-    const rawPhone = (me?.phone ?? data.phoneNumber ?? "").toString();
-    const digitsOnlyPhone = rawPhone.replace(/\D/g, "");
-    let nationalPhone = digitsOnlyPhone;
-    let selectedCountryCode = "US";
-    let selectedCountry: Country | null =
-      allCountries.find((c) => c.cca2 === "US") ?? null;
+      const nextEmail = (me?.email ?? data.email ?? "")
+        .toString()
+        .toLowerCase()
+        .trim();
+      const rawPhone = (me?.phone ?? data.phoneNumber ?? "").toString();
+      const digitsOnlyPhone = rawPhone.replace(/\D/g, "");
+      let nationalPhone = digitsOnlyPhone;
+      let selectedCountryCode = "US";
+      let selectedCountry: Country | null =
+        allCountries.find((c) => c.cca2 === "US") ?? null;
 
-    if (rawPhone.trim().startsWith("+")) {
-      const matches = allCountries
-        .filter(
-          (c) =>
-            c.callingCode?.[0] && rawPhone.startsWith(`+${c.callingCode[0]}`),
-        )
-        .sort(
-          (a, b) =>
-            (b.callingCode?.[0]?.length ?? 0) -
-            (a.callingCode?.[0]?.length ?? 0),
-        );
+      if (rawPhone.trim().startsWith("+")) {
+        const matches = allCountries
+          .filter(
+            (c) =>
+              c.callingCode?.[0] && rawPhone.startsWith(`+${c.callingCode[0]}`),
+          )
+          .sort(
+            (a, b) =>
+              (b.callingCode?.[0]?.length ?? 0) -
+              (a.callingCode?.[0]?.length ?? 0),
+          );
 
-      if (matches.length > 0) {
-        const usPlusOneMatch = matches.find(
-          (c) => c.cca2 === "US" && c.callingCode?.[0] === "1",
-        );
-        const bestMatch = usPlusOneMatch ?? matches[0];
-        const callingPrefix = bestMatch.callingCode?.[0] ?? "";
-        selectedCountryCode = bestMatch.cca2;
-        selectedCountry = bestMatch;
-        nationalPhone = rawPhone
-          .replace(`+${callingPrefix}`, "")
-          .replace(/\D/g, "");
+        if (matches.length > 0) {
+          const usPlusOneMatch = matches.find(
+            (c) => c.cca2 === "US" && c.callingCode?.[0] === "1",
+          );
+          const bestMatch = usPlusOneMatch ?? matches[0];
+          const callingPrefix = bestMatch.callingCode?.[0] ?? "";
+          selectedCountryCode = bestMatch.cca2;
+          selectedCountry = bestMatch;
+          nationalPhone = rawPhone
+            .replace(`+${callingPrefix}`, "")
+            .replace(/\D/g, "");
+        }
       }
-    }
 
-    setFirstName(nextFirst);
-    setLastName(nextLast);
-    setEmail(nextEmail);
-    setPhone(nationalPhone);
-    setPhoneCountryCode(selectedCountryCode);
-    setPhoneCountry(selectedCountry);
-    setEditPhotoUri(profilePhotoUri);
-    setShowPhotoOptions(params.showPhotos === "1");
-    hasHydratedRef.current = true;
-    setHasHydratedProfile(true);
-  }, [
-    allCountries,
-    data.email,
-    data.firstName,
-    data.lastName,
-    data.phoneNumber,
-    me,
-    params.showPhotos,
-    profilePhotoUri,
-  ]);
+      setFirstName(nextFirst);
+      setLastName(nextLast);
+      setEmail(nextEmail);
+      setPhone(nationalPhone);
+      setPhoneCountryCode(selectedCountryCode);
+      setPhoneCountry(selectedCountry);
+      setEditPhotoUri(profilePhotoUri);
+      if (options?.openPhotoOptions) {
+        setShowPhotoOptions(params.showPhotos === "1");
+      }
+      setHasHydratedProfile(true);
+      return true;
+    },
+    [
+      allCountries,
+      data.email,
+      data.firstName,
+      data.lastName,
+      data.phoneNumber,
+      me,
+      params.showPhotos,
+      profilePhotoUri,
+    ],
+  );
+  const syncProfileFieldsRef = useRef(syncProfileFieldsFromCurrentData);
+  const hasHydratedProfileRef = useRef(hasHydratedProfile);
+
+  useEffect(() => {
+    syncProfileFieldsRef.current = syncProfileFieldsFromCurrentData;
+  }, [syncProfileFieldsFromCurrentData]);
+
+  useEffect(() => {
+    hasHydratedProfileRef.current = hasHydratedProfile;
+  }, [hasHydratedProfile]);
+
+  useEffect(() => {
+    if (hasHydratedRef.current) return;
+    if (syncProfileFieldsFromCurrentData({ openPhotoOptions: true })) {
+      hasHydratedRef.current = true;
+    }
+  }, [syncProfileFieldsFromCurrentData]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (hasHydratedProfileRef.current) {
+        syncProfileFieldsRef.current();
+      }
+    }, []),
+  );
 
   const getFlagEmoji = useCallback((code: string) => {
     if (code && code.length === 2) {

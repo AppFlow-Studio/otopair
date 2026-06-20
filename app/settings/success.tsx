@@ -181,7 +181,15 @@ export default function SuccessScreen() {
           <Animated.View style={[styles.groundShadow, animatedShadowStyle]} />
         </View>
 
-        <Text weight="bold" size="3xl" color="#111827" style={styles.title}>
+        <Text
+          weight="bold"
+          size="3xl"
+          color="#111827"
+          style={styles.title}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.7}
+        >
           {title}
         </Text>
         <Text size="md" color="#6B7280" style={styles.subtitle} center>
