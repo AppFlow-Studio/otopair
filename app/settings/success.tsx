@@ -1,12 +1,13 @@
 /**
  * SuccessScreen
  *
- * PURPOSE: Displays a success message and animation after setting up 2FA or Biometrics.
+ * PURPOSE: Displays a success message and animation after setting up 2FA,
+ *          Biometrics, or contact info updates.
  *
  * USED IN: app/(main-tabs)/settings/two-factor-verify.tsx, app/(main-tabs)/settings/biometric-setup.tsx
  *
  * PARAMS:
- *   - type ('2fa' | 'face' | 'touch' | 'fingerprint' | 'biometric'): 2FA or the type of security enabled
+ *   - type: success message variant
  *
  * EXAMPLE:
  *   router.replace({ pathname: '/settings/success', params: { type: 'face' } })
@@ -41,27 +42,42 @@ import { Layout } from "@/constants/theme";
 const AnimatedPath = Animated.createAnimatedComponent(Path);
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 const PATH_LENGTH = 100;
+type SuccessType =
+  | "2fa"
+  | "face"
+  | "touch"
+  | "fingerprint"
+  | "biometric"
+  | "contact_phone"
+  | "contact_email"
+  | "contact_both";
 
 export default function SuccessScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { type = '2fa' } = useLocalSearchParams<{ type: '2fa' | 'face' | 'touch' | 'fingerprint' | 'biometric' }>();
+  const { type = "2fa" } = useLocalSearchParams<{ type?: SuccessType }>();
 
   const title = useMemo(() => {
     switch (type) {
-      case 'face': return 'Face ID Enabled';
-      case 'touch': return 'Touch ID Enabled';
-      case '2fa': return 'All done!';
-      default: return 'Biometrics Enabled';
+      case "face": return "Face ID Enabled";
+      case "touch": return "Touch ID Enabled";
+      case "contact_phone": return "Phone number updated";
+      case "contact_email": return "Email updated";
+      case "contact_both": return "Contact info updated";
+      case "2fa": return "All done!";
+      default: return "Biometrics Enabled";
     }
   }, [type]);
 
   const subtitle = useMemo(() => {
     switch (type) {
-      case 'face': return 'You can now use Face ID to sign in securely.';
-      case 'touch': return 'You can now use Touch ID to sign in securely.';
-      case '2fa': return 'Your two-factor authentication is enabled';
-      default: return 'You can now use biometrics to sign in securely.';
+      case "face": return "You can now use Face ID to sign in securely.";
+      case "touch": return "You can now use Touch ID to sign in securely.";
+      case "contact_phone": return "Your phone number has been changed successfully.";
+      case "contact_email": return "Your email address has been changed successfully.";
+      case "contact_both": return "Your phone number and email address have been changed successfully.";
+      case "2fa": return "Your two-factor authentication is enabled";
+      default: return "You can now use biometrics to sign in securely.";
     }
   }, [type]);
 

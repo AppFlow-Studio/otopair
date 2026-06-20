@@ -31,3 +31,25 @@ test("verify contact update accepts a prepared email verification resource from 
   assert.match(source, /pendingEmailVerificationId/);
   assert.match(source, /find\(.*emailAddress\.id === pendingEmailVerificationId/s);
 });
+
+test("verify contact update clears the first code before moving to the next contact method", () => {
+  assert.match(
+    source,
+    /if \(stepIndex < steps\.length - 1\) \{\s*setCode\(\["", "", "", "", "", ""\]\);\s*setFocusedIndex\(0\);\s*setStepIndex\(\(prev\) => prev \+ 1\);/s,
+  );
+});
+
+test("verify contact update refocuses the first code input after changing verification steps", () => {
+  assert.match(
+    source,
+    /useEffect\(\(\) => \{[\s\S]*setCode\(\["", "", "", "", "", ""\]\);[\s\S]*setFocusedIndex\(0\);[\s\S]*requestAnimationFrame\(\(\) => \{[\s\S]*inputRefs\.current\[0\]\?\.focus\(\);[\s\S]*\}\);[\s\S]*prepareVerificationForCurrentStep\(\);/s,
+  );
+});
+
+test("verify contact update routes to the conditional settings success screen after all verification steps", () => {
+  assert.match(source, /contact_both/);
+  assert.match(source, /contact_phone/);
+  assert.match(source, /contact_email/);
+  assert.match(source, /pathname:\s*"\/settings\/success"/);
+  assert.match(source, /params:\s*\{\s*type:\s*successType\s*\}/s);
+});

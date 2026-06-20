@@ -38,6 +38,7 @@ import { normalizeContactEmail } from "@/lib/contact-validation";
 import { OnboardingSurfaceColors } from "@/components/onboarding/onboardingColors";
 
 type VerificationTarget = "phone" | "email";
+type ContactUpdateSuccessType = "contact_phone" | "contact_email" | "contact_both";
 
 // Prevent duplicate auto-send bursts across rapid remount/re-render cycles in dev.
 const recentAutoSendMap = new Map<string, number>();
@@ -95,6 +96,11 @@ export default function VerifyContactUpdateScreen() {
 
   const currentStep = steps[stepIndex];
   const isMultiStep = steps.length === 2;
+  const successType = useMemo<ContactUpdateSuccessType>(() => {
+    if (verifyPhone === "1" && verifyEmail === "1") return "contact_both";
+    if (verifyPhone === "1") return "contact_phone";
+    return "contact_email";
+  }, [verifyEmail, verifyPhone]);
 
   useEffect(() => {
     if (!user) return;
@@ -277,7 +283,11 @@ export default function VerifyContactUpdateScreen() {
     setFocusedIndex(0);
     setErrorMessage(null);
     setShowErrorModal(false);
+    const focusFrame = requestAnimationFrame(() => {
+      inputRefs.current[0]?.focus();
+    });
     prepareVerificationForCurrentStep();
+    return () => cancelAnimationFrame(focusFrame);
   }, [stepIndex, steps.length, prepareVerificationForCurrentStep, router]);
 
   const handleCodeChange = (value: string, index: number) => {
@@ -362,12 +372,16 @@ export default function VerifyContactUpdateScreen() {
 
     updateData(storePayload);
     await persistProfileField(payload);
-    router.replace("/home");
+    router.replace({
+      pathname: "/settings/success",
+      params: { type: successType },
+    });
   }, [
     pendingEmail,
     pendingPhone,
     persistProfileField,
     router,
+    successType,
     updateData,
     verifyEmail,
     verifyPhone,
@@ -388,6 +402,8 @@ export default function VerifyContactUpdateScreen() {
       }
 
       if (stepIndex < steps.length - 1) {
+        setCode(["", "", "", "", "", ""]);
+        setFocusedIndex(0);
         setStepIndex((prev) => prev + 1);
       } else {
         await finalizeUpdates();

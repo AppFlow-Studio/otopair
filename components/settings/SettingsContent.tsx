@@ -19,14 +19,13 @@
  * OWNER: Ahmad Hamoudeh (extraction), Daniel Chelala (data plumbing)
  */
 
-import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   Image,
   type LayoutChangeEvent,
   Modal,
   Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   TouchableWithoutFeedback,
   View,
@@ -38,6 +37,8 @@ import Animated, {
   useAnimatedScrollHandler,
   useAnimatedStyle,
   useSharedValue,
+  withRepeat,
+  withTiming,
 } from "react-native-reanimated";
 import { BlurView } from "expo-blur";
 import MaskedView from "@react-native-masked-view/masked-view";
@@ -107,6 +108,7 @@ import { useVehicleStore } from "@/stores/useVehicleStore";
 import { computeInitials } from "@/utils/userInitials";
 
 const AnimatedText = Animated.createAnimatedComponent(Text);
+type SharedTextProps = React.ComponentProps<typeof Text>;
 
 // ============================================================================
 // CONSTANTS
@@ -120,6 +122,33 @@ const TAB_BAR_HEIGHT =
 const BG_GRADIENT_TOP = "#1A2C4E";
 const BG_GRADIENT_BOTTOM = "#0B1120";
 const SCREEN_BASE = "#0B1120";
+
+function LoadingEllipsisText(props: Omit<SharedTextProps, "children">) {
+  const progress = useSharedValue(0);
+
+  useEffect(() => {
+    progress.value = withRepeat(withTiming(1, { duration: 1200 }), -1, false);
+  }, [progress]);
+
+  const dotOneStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(progress.value, [0, 0.2, 1], [0.25, 1, 1], Extrapolation.CLAMP),
+  }));
+  const dotTwoStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(progress.value, [0, 0.33, 0.5, 1], [0.25, 0.25, 1, 1], Extrapolation.CLAMP),
+  }));
+  const dotThreeStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(progress.value, [0, 0.66, 0.83, 1], [0.25, 0.25, 1, 1], Extrapolation.CLAMP),
+  }));
+
+  return (
+    <Text {...props}>
+      Loading
+      <AnimatedText color={props.color} size={props.size} weight={props.weight} style={dotOneStyle}>.</AnimatedText>
+      <AnimatedText color={props.color} size={props.size} weight={props.weight} style={dotTwoStyle}>.</AnimatedText>
+      <AnimatedText color={props.color} size={props.size} weight={props.weight} style={dotThreeStyle}>.</AnimatedText>
+    </Text>
+  );
+}
 
 // ============================================================================
 // TYPES
@@ -229,7 +258,7 @@ export function SettingsContent({
   );
 
   // Identity (Convex first, then onboarding store, then Clerk)
-  const fullName = useMemo(() => {
+  const fullName = useMemo<string | null>(() => {
     const fromConvex =
       me != null && (me.first_name ?? me.last_name)
         ? `${me.first_name ?? ""} ${me.last_name ?? ""}`.trim()
@@ -237,8 +266,12 @@ export function SettingsContent({
     if (fromConvex.length > 0) return fromConvex;
     const fromOnboarding =
       `${data.firstName ?? ""} ${data.lastName ?? ""}`.trim();
-    return fromOnboarding.length > 0 ? fromOnboarding : "John Doe";
-  }, [me, data.firstName, data.lastName]);
+    if (fromOnboarding.length > 0) return fromOnboarding;
+    const fromClerk =
+      `${clerkUser?.firstName ?? ""} ${clerkUser?.lastName ?? ""}`.trim();
+    if (fromClerk.length > 0) return fromClerk;
+    return me === undefined ? null : "OtoPair User";
+  }, [me, data.firstName, data.lastName, clerkUser?.firstName, clerkUser?.lastName]);
 
   const initials = useMemo(
     () =>
@@ -261,11 +294,19 @@ export function SettingsContent({
   }, [me?.profile_photo_storage_id, me?.profile_photo_url, data.profilePhotoUri]);
 
   // Handle = email prefix.
-  const handle = useMemo(() => {
-    const email = (me?.email ?? data.email ?? "").trim().toLowerCase();
+  const handle = useMemo<string | null>(() => {
+    const email = (
+      me?.email ??
+      data.email ??
+      clerkUser?.primaryEmailAddress?.emailAddress ??
+      ""
+    )
+      .trim()
+      .toLowerCase();
     const prefix = email.split("@")[0] ?? "";
-    return prefix.length > 0 ? prefix : "user";
-  }, [me?.email, data.email]);
+    if (prefix.length > 0) return prefix;
+    return me === undefined ? null : "user";
+  }, [me, data.email, clerkUser?.primaryEmailAddress?.emailAddress]);
 
   // Counts surfaced as row "value" text
   const vehicleCount = vehicleIds?.length ?? 0;
@@ -313,7 +354,7 @@ export function SettingsContent({
   }, [router]);
 
   // Scroll-driven blur header
-  const scrollRef = useRef<ScrollView>(null);
+  const scrollRef = useRef<React.ComponentRef<typeof Animated.ScrollView>>(null);
   const scrollY = useSharedValue(0);
   const onScroll = useAnimatedScrollHandler((event) => {
     scrollY.value = event.contentOffset.y;
@@ -429,20 +470,33 @@ export function SettingsContent({
           {avatarOverride !== undefined ? avatarOverride : defaultAvatar}
 
           <View onLayout={onNameLayout} style={styles.nameWrapper}>
-            <Text
-              weight="bold"
-              size="3xl"
-              color="#FFFFFF"
-              numberOfLines={1}
-            >
-              {fullName}
-            </Text>
+            {fullName ? (
+              <Text
+                weight="bold"
+                size="3xl"
+                color="#FFFFFF"
+                numberOfLines={1}
+              >
+                {fullName}
+              </Text>
+            ) : (
+              <LoadingEllipsisText
+                weight="bold"
+                size="3xl"
+                color="#FFFFFF"
+                numberOfLines={1}
+              />
+            )}
           </View>
 
           <View style={styles.handleRow}>
-            <Text weight="regular" size="md" color="rgba(255,255,255,0.6)">
-              @{handle}
-            </Text>
+            {handle ? (
+              <Text weight="regular" size="md" color="rgba(255,255,255,0.6)">
+                {`@${handle}`}
+              </Text>
+            ) : (
+              <LoadingEllipsisText weight="regular" size="md" color="rgba(255,255,255,0.6)" />
+            )}
             <QrCode
               size={14}
               color="rgba(255,255,255,0.6)"
@@ -686,16 +740,29 @@ export function SettingsContent({
       >
         <View style={styles.stickySide} />
         <View style={styles.stickyCenter} pointerEvents="none">
-          <AnimatedText
-            weight="semiBold"
-            size="md"
-            color="#FFFFFF"
-            numberOfLines={1}
-            adjustsFontSizeToFit
-            style={[styles.stickyName, stickyNameStyle]}
-          >
-            {fullName}
-          </AnimatedText>
+          {fullName ? (
+            <AnimatedText
+              weight="semiBold"
+              size="md"
+              color="#FFFFFF"
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              style={[styles.stickyName, stickyNameStyle]}
+            >
+              {fullName}
+            </AnimatedText>
+          ) : (
+            <Animated.View style={stickyNameStyle}>
+              <LoadingEllipsisText
+                weight="semiBold"
+                size="md"
+                color="#FFFFFF"
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                style={styles.stickyName}
+              />
+            </Animated.View>
+          )}
         </View>
         <View style={styles.stickySide} />
       </View>

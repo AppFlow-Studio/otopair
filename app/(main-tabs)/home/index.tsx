@@ -28,6 +28,7 @@ import { Button, BrandColors, ScrollDrivenGradientBackground, Text } from "@/com
 // 4. Stores & Hooks
 import { useAuthStore } from '@/stores/useAuthStore';
 import { useBookingStore } from '@/stores/useBookingStore';
+import { useOnboardingStore } from '@/stores/useOnboardingStore';
 import {
   MAINTENANCE_TYPE_TO_CATEGORY,
   extractMaintenanceType,
@@ -123,6 +124,31 @@ function formatBookingTime(timeStr: string): string {
   return `${hour12}:${m.toString().padStart(2, '0')} ${suffix}`;
 }
 
+interface HomeMaintenanceItem {
+  id: string;
+  serviceName: string;
+  dueText: string;
+  isOverdue: boolean;
+  description?: string;
+  suggestedServiceId?: string;
+}
+
+interface HomeNowItem {
+  itemId: string;
+  serviceName: string;
+  description?: string;
+  suggestedServiceId?: string;
+  urgencyScore: number;
+}
+
+interface HomeVehicleBaseData {
+  id: string;
+  name: string;
+  vin: string;
+  maintenanceItems: HomeMaintenanceItem[];
+  nowItems: HomeNowItem[];
+}
+
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   // Lock `insets.top` to its first-render value for the lifetime of the
@@ -156,6 +182,7 @@ export default function HomeScreen() {
   const [rescheduleBooking, setRescheduleBooking] = useState<BookingCardBooking | null>(null);
   const toast = useToast();
   const selectVehicle = useVehicleStore((s) => s.selectVehicle);
+  const updateOnboardingData = useOnboardingStore((s) => s.updateData);
 
   // Reactivation bottom sheet (from temur-dev)
   const sheetRef = useRef<BottomSheetModal>(null);
@@ -194,6 +221,15 @@ export default function HomeScreen() {
     api.bookings.getByUserIdWithDetails,
     me?._id ? { userId: me._id } : "skip"
   );
+
+  useEffect(() => {
+    if (!me) return;
+    updateOnboardingData({
+      firstName: me.first_name ?? null,
+      lastName: me.last_name ?? null,
+      email: me.email ?? null,
+    });
+  }, [me, updateOnboardingData]);
 
   // Hold a splash screen until the critical Convex queries — current
   // user + vehicle ownership — have settled. Without this, the home
@@ -377,7 +413,7 @@ export default function HomeScreen() {
   );
 
   // ── Vehicle data with maintenance (no image dep — avoids cascading recomputation) ──
-  const vehicleBaseData = useMemo(() => {
+  const vehicleBaseData = useMemo<HomeVehicleBaseData[]>(() => {
     if (!listVehicles?.length) return [];
     const seen = new Set<string>();
     return listVehicles
@@ -402,25 +438,12 @@ export default function HomeScreen() {
         const odometer: number | null = isOnboardingComplete ? (o?.mileage ?? null) : null;
         const knownIssues = o?.knownIssues as string[] | undefined;
 
-        const urgentItems: {
-          id: string;
-          serviceName: string;
-          dueText: string;
-          isOverdue: boolean;
-          description?: string;
-          suggestedServiceId?: string;
-        }[] = [];
+        const urgentItems: HomeMaintenanceItem[] = [];
         // Now-tier items per Yassin v1.1 §3.2 — aggregated into
         // allNowItems below to drive the Home callout. Always populated
         // (no cap), unlike urgentItems which is capped at 3 for the
         // existing VehicleMaintenanceCard.
-        const nowItems: {
-          itemId: string;
-          serviceName: string;
-          description?: string;
-          suggestedServiceId?: string;
-          urgencyScore: number;
-        }[] = [];
+        const nowItems: HomeNowItem[] = [];
         for (const rec of records) {
           const result = computeMaintenanceStatus(
             {
