@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   Animated,
   KeyboardAvoidingView,
   Modal,
@@ -81,6 +82,8 @@ export default function VerifyContactUpdateScreen() {
   const [timer, setTimer] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isPreparing, setIsPreparing] = useState(false);
+  const [isStepReady, setIsStepReady] = useState(false);
+  const [visibleStepIndex, setVisibleStepIndex] = useState(0);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [showErrorModal, setShowErrorModal] = useState(false);
 
@@ -95,7 +98,9 @@ export default function VerifyContactUpdateScreen() {
   });
 
   const currentStep = steps[stepIndex];
+  const visibleStep = steps[visibleStepIndex] ?? currentStep;
   const isMultiStep = steps.length === 2;
+  const isCodeLoading = isSubmitting || !isStepReady || stepIndex !== visibleStepIndex;
   const successType = useMemo<ContactUpdateSuccessType>(() => {
     if (verifyPhone === "1" && verifyEmail === "1") return "contact_both";
     if (verifyPhone === "1") return "contact_phone";
@@ -279,15 +284,30 @@ export default function VerifyContactUpdateScreen() {
       router.back();
       return;
     }
+    let isActive = true;
+    let focusFrame: number | null = null;
+    setIsStepReady(false);
     setCode(["", "", "", "", "", ""]);
     setFocusedIndex(0);
     setErrorMessage(null);
     setShowErrorModal(false);
-    const focusFrame = requestAnimationFrame(() => {
-      inputRefs.current[0]?.focus();
-    });
-    prepareVerificationForCurrentStep();
-    return () => cancelAnimationFrame(focusFrame);
+
+    void (async () => {
+      await prepareVerificationForCurrentStep();
+      if (!isActive) return;
+      setVisibleStepIndex(stepIndex);
+      setIsStepReady(true);
+      focusFrame = requestAnimationFrame(() => {
+        inputRefs.current[0]?.focus();
+      });
+    })();
+
+    return () => {
+      isActive = false;
+      if (focusFrame != null) {
+        cancelAnimationFrame(focusFrame);
+      }
+    };
   }, [stepIndex, steps.length, prepareVerificationForCurrentStep, router]);
 
   const handleCodeChange = (value: string, index: number) => {
@@ -320,73 +340,56 @@ export default function VerifyContactUpdateScreen() {
     }
   };
 
-  const finalizeUpdates = useCallback(async () => {
-    const payload: Record<string, any> = {};
-    const storePayload: Record<string, any> = {};
-    const userUpdatePayload: Record<string, any> = {};
-
-    // 1) Promote newly-verified resources to primary in Clerk.
-    if (verifyPhone === "1" && phoneVerificationRef.current?.id) {
-      userUpdatePayload.primaryPhoneNumberId = phoneVerificationRef.current.id;
-    }
-    if (verifyEmail === "1" && emailVerificationRef.current?.id) {
-      userUpdatePayload.primaryEmailAddressId = emailVerificationRef.current.id;
+  const commitVerifiedContactStep = useCallback(async (target: VerificationTarget) => {
+    if (!user) {
+      throw new Error("User session not ready. Please try again.");
     }
 
-    if (Object.keys(userUpdatePayload).length > 0 && user) {
-      await user.update(userUpdatePayload);
-    }
-
-    // 2) Remove old contact methods so updates act as replace (not append).
-    if (verifyPhone === "1" && user && phoneVerificationRef.current?.id) {
+    if (target === "phone") {
+      if (!phoneVerificationRef.current?.id || !pendingPhone) return;
+      await user.update({ primaryPhoneNumberId: phoneVerificationRef.current.id });
       await destroyOtherPhoneNumbers(user, phoneVerificationRef.current.id);
+      updateData({ phoneNumber: pendingPhone, phoneVerified: true });
+      await persistProfileField({ phone: pendingPhone, phoneVerified: true });
+      phoneVerificationRef.current = null;
+      return;
     }
 
-    if (
-      verifyEmail === "1" &&
-      user &&
-      initialPrimaryEmailIdRef.current &&
-      initialPrimaryEmailIdRef.current !== emailVerificationRef.current?.id
-    ) {
-      const previousPrimaryEmail = user.emailAddresses.find(
-        (e) => e.id === initialPrimaryEmailIdRef.current,
-      );
-      try {
-        await previousPrimaryEmail?.destroy();
-      } catch (error) {
-        console.warn("Failed to remove previous primary email address:", error);
+    if (target === "email") {
+      if (!emailVerificationRef.current?.id || !pendingEmail) return;
+      await user.update({ primaryEmailAddressId: emailVerificationRef.current.id });
+      if (
+        initialPrimaryEmailIdRef.current &&
+        initialPrimaryEmailIdRef.current !== emailVerificationRef.current.id
+      ) {
+        const previousPrimaryEmail = user.emailAddresses.find(
+          (emailAddress) => emailAddress.id === initialPrimaryEmailIdRef.current,
+        );
+        try {
+          await previousPrimaryEmail?.destroy();
+        } catch (error) {
+          console.warn("Failed to remove previous primary email address:", error);
+        }
       }
+      updateData({ email: pendingEmail });
+      await persistProfileField({ email: pendingEmail });
+      initialPrimaryEmailIdRef.current = emailVerificationRef.current.id;
+      emailVerificationRef.current = null;
     }
-
-    // 3) Persist final values in app data stores.
-    if (verifyPhone === "1" && pendingPhone) {
-      payload.phone = pendingPhone;
-      payload.phoneVerified = true;
-      storePayload.phoneNumber = pendingPhone;
-      storePayload.phoneVerified = true;
-    }
-    if (verifyEmail === "1" && pendingEmail) {
-      payload.email = pendingEmail;
-      storePayload.email = pendingEmail;
-    }
-
-    updateData(storePayload);
-    await persistProfileField(payload);
-    router.replace({
-      pathname: "/settings/success",
-      params: { type: successType },
-    });
   }, [
     pendingEmail,
     pendingPhone,
     persistProfileField,
-    router,
-    successType,
     updateData,
-    verifyEmail,
-    verifyPhone,
     user,
   ]);
+
+  const routeToSuccess = useCallback(() => {
+    router.replace({
+      pathname: "/settings/success",
+      params: { type: successType },
+    });
+  }, [router, successType]);
 
   const handleSubmitCode = useCallback(async (fullCode: string) => {
     if (!currentStep || fullCode.length !== 6) return;
@@ -400,13 +403,15 @@ export default function VerifyContactUpdateScreen() {
       } else {
         await emailVerificationRef.current?.attemptVerification({ code: fullCode });
       }
+      await commitVerifiedContactStep(currentStep);
 
       if (stepIndex < steps.length - 1) {
+        setIsStepReady(false);
         setCode(["", "", "", "", "", ""]);
         setFocusedIndex(0);
         setStepIndex((prev) => prev + 1);
       } else {
-        await finalizeUpdates();
+        routeToSuccess();
       }
     } catch (error: any) {
       const msg =
@@ -421,7 +426,7 @@ export default function VerifyContactUpdateScreen() {
     } finally {
       setIsSubmitting(false);
     }
-  }, [currentStep, finalizeUpdates, showVerificationError, stepIndex, steps.length]);
+  }, [commitVerifiedContactStep, currentStep, routeToSuccess, showVerificationError, stepIndex, steps.length]);
 
   useEffect(() => {
     const fullCode = code.join("");
@@ -440,7 +445,7 @@ export default function VerifyContactUpdateScreen() {
     await prepareVerificationForCurrentStep({ force: true });
   };
 
-  const destination = currentStep === "phone" ? pendingPhone : pendingEmail;
+  const destination = visibleStep === "phone" ? pendingPhone : pendingEmail;
 
   return (
     <KeyboardAvoidingView
@@ -463,7 +468,7 @@ export default function VerifyContactUpdateScreen() {
         <View style={styles.verificationContainer}>
           {isMultiStep ? (
             <Text size="sm" color="#6B7280" style={styles.stepText}>
-              Step {stepIndex + 1} of {steps.length}
+              Step {visibleStepIndex + 1} of {steps.length}
             </Text>
           ) : null}
 
@@ -477,43 +482,57 @@ export default function VerifyContactUpdateScreen() {
           </View>
 
           <View style={styles.codeContainer}>
-            {code.map((digit, index) => (
-              <View key={index} style={styles.codeInputWrapper}>
-                {index === 3 && <Text style={styles.codeSeparator}>-</Text>}
-                <TextInput
-                  ref={(ref) => {
-                    inputRefs.current[index] = ref;
-                  }}
-                  style={[
-                    styles.codeInput,
-                    focusedIndex === index && styles.codeInputFocused,
-                  ]}
-                  value={digit}
-                  onChangeText={(value) => handleCodeChange(value, index)}
-                  onKeyPress={(e) => handleKeyPress(e, index)}
-                  onFocus={() => setFocusedIndex(index)}
-                  keyboardType="number-pad"
-                  maxLength={1}
-                  selectTextOnFocus
-                  autoFocus={index === 0}
+            {isCodeLoading ? (
+              <View style={styles.codeLoadingContainer}>
+                <ActivityIndicator
+                  size="large"
+                  color={BrandColors.secondary}
+                  accessibilityLabel="Verifying code"
                 />
               </View>
-            ))}
+            ) : (
+              code.map((digit, index) => (
+                <View key={index} style={styles.codeInputWrapper}>
+                  {index === 3 && <Text style={styles.codeSeparator}>-</Text>}
+                  <TextInput
+                    ref={(ref) => {
+                      inputRefs.current[index] = ref;
+                    }}
+                    style={[
+                      styles.codeInput,
+                      focusedIndex === index && styles.codeInputFocused,
+                    ]}
+                    value={digit}
+                    onChangeText={(value) => handleCodeChange(value, index)}
+                    onKeyPress={(e) => handleKeyPress(e, index)}
+                    onFocus={() => setFocusedIndex(index)}
+                    keyboardType="number-pad"
+                    maxLength={1}
+                    selectTextOnFocus
+                    autoFocus={index === 0}
+                  />
+                </View>
+              ))
+            )}
           </View>
 
-          <Pressable
-            onPress={handleResendCode}
-            style={styles.resendContainer}
-            disabled={timer > 0 || isPreparing}
-          >
-            <Text style={[styles.resendText, (timer > 0 || isPreparing) && styles.resendDisabled]}>
-              {isPreparing
-                ? "Sending code..."
-                : timer > 0
-                ? `Resend code in ${timer}s`
-                : "Resend code"}
-            </Text>
-          </Pressable>
+          {isCodeLoading ? (
+            <View style={styles.resendPlaceholder} />
+          ) : (
+            <Pressable
+              onPress={handleResendCode}
+              style={styles.resendContainer}
+              disabled={timer > 0 || isPreparing}
+            >
+              <Text style={[styles.resendText, (timer > 0 || isPreparing) && styles.resendDisabled]}>
+                {isPreparing
+                  ? "Sending code..."
+                  : timer > 0
+                  ? `Resend code in ${timer}s`
+                  : "Resend code"}
+              </Text>
+            </Pressable>
+          )}
 
           <View style={styles.footer}>
             <Pressable style={styles.cancelButton} onPress={handleCancel} disabled={isSubmitting}>
@@ -609,6 +628,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing["2xl"],
     marginBottom: Spacing.xl,
     marginTop: 8,
+    minHeight: 60,
+  },
+  codeLoadingContainer: {
+    height: 60,
+    alignItems: "center",
+    justifyContent: "center",
   },
   codeInputWrapper: {
     position: "relative",
@@ -644,6 +669,10 @@ const styles = StyleSheet.create({
   },
   resendContainer: {
     alignItems: "center",
+    marginTop: 24,
+  },
+  resendPlaceholder: {
+    height: 24,
     marginTop: 24,
   },
   resendText: {

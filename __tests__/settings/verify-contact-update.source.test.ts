@@ -35,14 +35,51 @@ test("verify contact update accepts a prepared email verification resource from 
 test("verify contact update clears the first code before moving to the next contact method", () => {
   assert.match(
     source,
-    /if \(stepIndex < steps\.length - 1\) \{\s*setCode\(\["", "", "", "", "", ""\]\);\s*setFocusedIndex\(0\);\s*setStepIndex\(\(prev\) => prev \+ 1\);/s,
+    /if \(stepIndex < steps\.length - 1\) \{\s*setIsStepReady\(false\);\s*setCode\(\["", "", "", "", "", ""\]\);\s*setFocusedIndex\(0\);\s*setStepIndex\(\(prev\) => prev \+ 1\);/s,
   );
 });
 
 test("verify contact update refocuses the first code input after changing verification steps", () => {
   assert.match(
     source,
-    /useEffect\(\(\) => \{[\s\S]*setCode\(\["", "", "", "", "", ""\]\);[\s\S]*setFocusedIndex\(0\);[\s\S]*requestAnimationFrame\(\(\) => \{[\s\S]*inputRefs\.current\[0\]\?\.focus\(\);[\s\S]*\}\);[\s\S]*prepareVerificationForCurrentStep\(\);/s,
+    /await prepareVerificationForCurrentStep\(\);[\s\S]*setVisibleStepIndex\(stepIndex\);[\s\S]*setIsStepReady\(true\);[\s\S]*requestAnimationFrame\(\(\) => \{[\s\S]*inputRefs\.current\[0\]\?\.focus\(\);/s,
+  );
+});
+
+test("verify contact update shows a loading indicator instead of code inputs during step transitions", () => {
+  assert.match(source, /ActivityIndicator/);
+  assert.match(source, /const isCodeLoading = isSubmitting \|\| !isStepReady \|\| stepIndex !== visibleStepIndex/);
+  assert.match(source, /isCodeLoading \? \(/);
+  assert.match(source, /<ActivityIndicator[\s\S]*color=\{BrandColors\.secondary\}/s);
+  assert.match(source, /: \(\s*code\.map/s);
+});
+
+test("verify contact update keeps prior visible step text until the next step is prepared", () => {
+  assert.match(source, /const \[visibleStepIndex, setVisibleStepIndex\] = useState\(0\)/);
+  assert.match(source, /const visibleStep = steps\[visibleStepIndex\] \?\? currentStep/);
+  assert.match(source, /Step \{visibleStepIndex \+ 1\} of \{steps\.length\}/);
+  assert.match(source, /visibleStep === "phone" \? pendingPhone : pendingEmail/);
+});
+
+test("verify contact update commits each verified contact method before advancing", () => {
+  assert.match(source, /const commitVerifiedContactStep = useCallback/);
+  assert.match(
+    source,
+    /await commitVerifiedContactStep\(currentStep\);[\s\S]*if \(stepIndex < steps\.length - 1\)/s,
+  );
+});
+
+test("verify contact update persists phone changes to Clerk and Convex immediately after phone code verification", () => {
+  assert.match(
+    source,
+    /target === "phone"[\s\S]*await user\.update\(\{ primaryPhoneNumberId: phoneVerificationRef\.current\.id \}\);[\s\S]*await destroyOtherPhoneNumbers\(user, phoneVerificationRef\.current\.id\);[\s\S]*updateData\(\{ phoneNumber: pendingPhone, phoneVerified: true \}\);[\s\S]*await persistProfileField\(\{ phone: pendingPhone, phoneVerified: true \}\);[\s\S]*phoneVerificationRef\.current = null;/s,
+  );
+});
+
+test("verify contact update persists email changes to Clerk and Convex immediately after email code verification", () => {
+  assert.match(
+    source,
+    /target === "email"[\s\S]*await user\.update\(\{ primaryEmailAddressId: emailVerificationRef\.current\.id \}\);[\s\S]*updateData\(\{ email: pendingEmail \}\);[\s\S]*await persistProfileField\(\{ email: pendingEmail \}\);[\s\S]*emailVerificationRef\.current = null;/s,
   );
 });
 

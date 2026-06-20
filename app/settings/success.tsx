@@ -227,6 +227,8 @@ const styles = StyleSheet.create({
   },
   title: {
     marginBottom: Spacing.sm,
+    textAlign: "center",
+    alignSelf: "stretch",
   },
   subtitle: {
     textAlign: "center",
