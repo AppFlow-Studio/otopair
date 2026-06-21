@@ -13,7 +13,7 @@ import ReAnimated, {
 } from "react-native-reanimated";
 import { useIsFocused } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
-import { ArrowLeft, Briefcase, Car, Check as CheckIcon, ChevronDown, Copy, Info, Plus, Route, Sparkles, Star, Sun, Users, X } from "lucide-react-native";
+import { ArrowLeft, Briefcase, Car, Check as CheckIcon, ChevronDown, Copy, Gauge, Info, Plus, Route, Sparkles, Star, Sun, Users, X } from "lucide-react-native";
 import * as Clipboard from "expo-clipboard";
 import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
@@ -72,6 +72,7 @@ import { ProfileInitialsButton } from "@/components/home/ProfileInitialsButton";
 // import LoyaltyPoints from "@/components/cars/LoyaltyPoints";
 import MaintenanceTracker from "@/components/cars/MaintenanceTracker";
 import MaintenanceInputModal from "@/components/cars/MaintenanceInputModal";
+import { MileageEditModal } from "@/components/cars/MileageEditModal";
 import { CheckinBanner } from "@/components/cars/CheckinBanner";
 import UpcomingFollowUpsCard from "@/components/cars/UpcomingFollowUpsCard";
 import CarInfoStepper, { type CarInfoStepperHandle } from "@/components/cars/CarInfoStepper";
@@ -1254,6 +1255,8 @@ export default function CarsHomeScreen() {
   // Edit-picker bottom sheet state
   const [showEditPicker, setShowEditPicker] = useState(false);
   const [editPickerModal, setEditPickerModal] = useState(false);
+  const [mileageEditOpen, setMileageEditOpen] = useState(false);
+  const updateMileageMutation = useMutation(api.vehicles.updateMileage);
   const editPickerY = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
   const editPickerBackdrop = useRef(new Animated.Value(0)).current;
 
@@ -2074,6 +2077,30 @@ export default function CarsHomeScreen() {
           <Text weight="semiBold" size="xl" color="#1F2937" style={pickerStyles.title}>
             Edit Maintenance Info
           </Text>
+
+          {/* Mileage row — sits above the maintenance-type rows
+              since the odometer drives every interval calc. Opens
+              the MileageEditModal which patches vehicle_owners.mileage
+              via `api.vehicles.updateMileage`. */}
+          <Pressable
+            style={({ pressed }) => [pickerStyles.row, pressed && { backgroundColor: "rgba(0,0,0,0.04)" }]}
+            onPress={() => {
+              closeEditPicker(() => setMileageEditOpen(true));
+            }}
+          >
+            <View style={pickerStyles.rowIcon}>
+              <Gauge size={22} color="#5299FE" strokeWidth={2} />
+            </View>
+            <Text weight="medium" size="md" color="#1F2937" style={{ flex: 1 }}>
+              Mileage
+            </Text>
+            <Text weight="semiBold" size="sm" color="#5299FE">
+              {currentOdometer != null
+                ? `${Math.round(currentOdometer).toLocaleString()} mi`
+                : "Update"}
+            </Text>
+          </Pressable>
+
           {ALL_MAINTENANCE_TYPES.map((type) => {
             const renderIcon = () => {
               switch (type) {
@@ -2566,6 +2593,22 @@ export default function CarsHomeScreen() {
           onClose={() => setShowPackageQuestionsSheet(false)}
         />
       )}
+
+      {/* Mileage edit — opened from the Edit Maintenance Info sheet's
+          Mileage row. Patches vehicle_owners.mileage so every interval
+          calc downstream sees the new odometer immediately. */}
+      <MileageEditModal
+        visible={mileageEditOpen}
+        initialMileage={currentOdometer}
+        onClose={() => setMileageEditOpen(false)}
+        onSave={async (mileage) => {
+          const vin = activeVehicle?.vin;
+          if (!vin || !userId) {
+            throw new Error("Sign in and pick a vehicle to update mileage.");
+          }
+          await updateMileageMutation({ vin, userId, mileage });
+        }}
+      />
 
     </View>
   );
