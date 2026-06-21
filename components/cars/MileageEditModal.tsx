@@ -130,6 +130,13 @@ export function MileageEditModal({
                 returnKeyType="done"
                 onSubmitEditing={handleSave}
                 accessibilityLabel="Mileage"
+                // Suppress the floating iOS "Done" pill the
+                // keyboard-controller toolbar injects globally. The
+                // modal already has its own Save / Cancel pills
+                // below the input, so an extra Done above the
+                // keyboard is just noise. Pointing at a non-existent
+                // accessory id makes the toolbar render nothing.
+                inputAccessoryViewID="mileage-no-accessory"
               />
               <Text weight="semiBold" size="md" color={MUTED} style={styles.unit}>
                 mi
