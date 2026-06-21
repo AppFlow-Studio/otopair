@@ -14,7 +14,7 @@
  */
 
 import React, { useMemo, useState } from "react";
-import { Image, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { Image, Platform, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Link } from "expo-router";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
@@ -29,6 +29,13 @@ import { useVehicleStore } from "@/stores/useVehicleStore";
 
 const INK = "#0F172A";
 const MUTED = "#6B7280";
+
+type AppleZoomRouterLink = typeof Link & {
+  AppleZoom?: React.ComponentType<React.PropsWithChildren>;
+};
+
+const AppleZoom =
+  Platform.OS === "ios" ? (Link as AppleZoomRouterLink).AppleZoom : undefined;
 
 function fmtUSD(n: number | undefined): string {
   if (n == null) return "—";
@@ -251,6 +258,11 @@ interface RowProps {
 }
 
 function PastServiceRow({ booking }: RowProps) {
+  const href = {
+    pathname: "/settings/past-service/[bookingId]",
+    params: { bookingId: booking.id },
+  } as const;
+
   const subtitle = useMemo(() => {
     const services = booking.services.length;
     const parts = [booking.shopName];
@@ -263,10 +275,7 @@ function PastServiceRow({ booking }: RowProps) {
 
   return (
     <Link
-      href={{
-        pathname: "/settings/past-service/[bookingId]",
-        params: { bookingId: booking.id },
-      }}
+      href={href}
       asChild
     >
       <Pressable>
@@ -291,11 +300,13 @@ function PastServiceRow({ booking }: RowProps) {
                 {subtitle}
               </Text>
             </View>
-            <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-              <Link.AppleZoom>
-                <View style={styles.zoomSource} />
-              </Link.AppleZoom>
-            </View>
+            {AppleZoom ? (
+              <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+                <AppleZoom>
+                  <View style={styles.zoomSource} />
+                </AppleZoom>
+              </View>
+            ) : null}
           </View>
         )}
       </Pressable>
