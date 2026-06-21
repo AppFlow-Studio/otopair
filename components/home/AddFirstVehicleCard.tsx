@@ -22,7 +22,7 @@ import { Image, Pressable, StyleSheet, View } from 'react-native';
 
 // 2. Expo & Third-party
 import { LinearGradient } from 'expo-linear-gradient';
-import { useRouter } from 'expo-router';
+import { useGuardedRouter as useRouter } from '@/hooks/useGuardedRouter';
 import { Plus } from 'lucide-react-native';
 
 // 3. Shared UI

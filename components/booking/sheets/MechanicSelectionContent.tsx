@@ -16,7 +16,7 @@ import { Image, Pressable, ScrollView, StyleSheet, TextInput, View } from "react
 // 2. Third-party libraries
 import { BottomSheetFlatList } from "@gorhom/bottom-sheet";
 import { Car, ChevronLeft, Search } from "lucide-react-native";
-import { useRouter } from "expo-router";
+import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 
 
 // 3. Shared UI (design system)

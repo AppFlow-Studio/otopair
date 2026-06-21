@@ -41,7 +41,7 @@ import { StyleSheet, View } from "react-native";
 
 // 2. Expo & Third-party
 import { BlurView } from "expo-blur";
-import { useRouter } from "expo-router";
+import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { ArrowLeft, Settings2 } from "lucide-react-native";
 import Animated, { FadeIn, FadeOut, SharedValue } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";

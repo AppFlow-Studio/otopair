@@ -18,7 +18,8 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { BackHandler, Platform, StyleSheet, View, useWindowDimensions, type DimensionValue } from "react-native";
 
-import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
+import { useFocusEffect, useLocalSearchParams } from "expo-router";
+import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import LottieView from "lottie-react-native";
 import Animated, {
   useAnimatedStyle,

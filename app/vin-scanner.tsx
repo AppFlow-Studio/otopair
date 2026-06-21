@@ -16,7 +16,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 // 2. Expo & Third-party
 import { CameraView, useCameraPermissions, BarcodeScanningResult } from 'expo-camera';
 import { StatusBar } from 'expo-status-bar';
-import { useRouter } from 'expo-router';
+import { useGuardedRouter as useRouter } from '@/hooks/useGuardedRouter';
 import { X, Flashlight } from 'lucide-react-native';
 import { useAction } from 'convex/react';
 

@@ -27,7 +27,7 @@ import * as DocumentPicker from "expo-document-picker";
 import ReAnimated from "react-native-reanimated";
 
 // 2. Expo & Third-party
-import { useRouter } from "expo-router";
+import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import {
   ArrowLeft,
   BadgeCheck,

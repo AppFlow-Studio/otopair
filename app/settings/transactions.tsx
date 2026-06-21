@@ -30,7 +30,8 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Link, useRouter } from "expo-router";
+import { Link } from "expo-router";
+import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { Calendar, ChevronLeft, Wrench } from "lucide-react-native";
 
 import { Text } from "@/components/shared-ui";

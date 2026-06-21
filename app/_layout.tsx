@@ -4,7 +4,8 @@ import { StripeProvider } from "@stripe/stripe-react-native";
 import { tokenCache } from "@clerk/clerk-expo/token-cache";
 import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
 import { DarkTheme, DefaultTheme, ThemeProvider } from "@react-navigation/native";
-import { Stack, router, useSegments, type ErrorBoundaryProps } from "expo-router";
+import { Stack, useSegments, type ErrorBoundaryProps } from "expo-router";
+import { guardedRouter as router } from "@/lib/navigationLock";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import { ConvexReactClient, useQuery } from "convex/react";
@@ -253,7 +254,7 @@ export default function RootLayout() {
                 <ToastProvider>
                 <StripeProvider
                   publishableKey={process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? ""}
-                  merchantIdentifier={process.env.EXPO_PUBLIC_STRIPE_MERCHANT_ID}
+                  merchantIdentifier={process.env.EXPO_PUBLIC_STRIPE_MERCHANT_ID ?? "merchant.com.otopair.app"}
                   urlScheme="otopair"
                 >
                 <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>

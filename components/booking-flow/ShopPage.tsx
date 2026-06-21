@@ -13,7 +13,7 @@
 
 import React, { useCallback, useMemo } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
-import { useRouter } from "expo-router";
+import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { Star, Wrench } from "lucide-react-native";
 
 import { Text } from "@/components/shared-ui";

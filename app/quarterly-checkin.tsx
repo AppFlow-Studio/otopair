@@ -12,7 +12,8 @@ import {
 } from "react-native";
 import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useLocalSearchParams } from "expo-router";
+import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { useMutation, useQuery } from "convex/react";
 import { ArrowLeft, Check } from "lucide-react-native";
 import { LinearGradient } from "expo-linear-gradient";

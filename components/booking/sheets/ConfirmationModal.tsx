@@ -19,7 +19,7 @@ import { Dimensions, Image, StyleSheet, TouchableOpacity, View } from "react-nat
 // 2. Third-party libraries
 import { BottomSheetModal, BottomSheetView } from "@gorhom/bottom-sheet";
 import { BlurBackdrop } from "@/components/shared-ui/BlurBackdrop";
-import { useRouter } from "expo-router";
+import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { BadgeCheck, Calendar, Check, Clock, Star, User } from "lucide-react-native";
 import Animated, {
   Easing,

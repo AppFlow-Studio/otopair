@@ -20,7 +20,7 @@ import {
   Dimensions,
   Animated as RNAnimated,
 } from "react-native";
-import { useRouter } from "expo-router";
+import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import {

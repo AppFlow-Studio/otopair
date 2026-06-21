@@ -19,7 +19,8 @@ import { Alert, BackHandler, Image, Platform, ScrollView, StyleSheet, TouchableO
 // 2. Expo & Third-party
 import * as Calendar from "expo-calendar";
 import * as Linking from "expo-linking";
-import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
+import { useFocusEffect, useLocalSearchParams } from "expo-router";
+import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 // MVP-DISABLED: loyalty/rewards — re-enable post-launch (drop Gift)
 import { Check, Navigation, Phone, Star } from "lucide-react-native";
 import Animated, {

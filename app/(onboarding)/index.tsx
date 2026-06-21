@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
-import { useLocalSearchParams, router } from 'expo-router';
+import { useLocalSearchParams } from 'expo-router';
+import { guardedRouter as router } from '@/lib/navigationLock';
 import { useAuth } from '@clerk/clerk-expo';
 import { useQuery } from 'convex/react';
 import { OnboardingFlow, OnboardingStep } from '@/components/onboarding/OnboardingFlow';

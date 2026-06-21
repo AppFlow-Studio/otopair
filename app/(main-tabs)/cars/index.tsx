@@ -17,7 +17,8 @@ import { ArrowLeft, Briefcase, Car, Check as CheckIcon, ChevronDown, Copy, Gauge
 import * as Clipboard from "expo-clipboard";
 import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useLocalSearchParams } from "expo-router";
+import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 
 // Native iOS 26 liquid glass (optional). Mirrors the home / map-controls
 // pattern — falls back to a frosted BlurView when the lib is unavailable.

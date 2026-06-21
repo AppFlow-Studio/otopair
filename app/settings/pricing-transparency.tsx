@@ -19,7 +19,7 @@
 import React from 'react';
 import { StyleSheet, View, Pressable, ScrollView } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useGuardedRouter as useRouter } from '@/hooks/useGuardedRouter';
 import Animated, { FadeInUp } from 'react-native-reanimated';
 import {
   Wrench,

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Platform } from "react-native";
-import { useRouter } from "expo-router";
+import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import {
   PlatformPay,
   PlatformPayError,
