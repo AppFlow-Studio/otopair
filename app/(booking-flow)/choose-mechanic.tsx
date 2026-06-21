@@ -18,12 +18,12 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   Dimensions,
   Pressable,
-  ScrollView,
   StyleSheet,
   View,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from "react-native";
+import { ScrollView } from "react-native-gesture-handler";
 import { useFocusEffect } from "expo-router";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -106,6 +106,7 @@ export default function ChooseMechanicScreen() {
 
   // Active page index = which shop the user is currently viewing.
   const [activeIndex, setActiveIndex] = useState(0);
+  const [isMechanicCarouselInteracting, setIsMechanicCarouselInteracting] = useState(false);
   const activeShop = nearbyShops[activeIndex]?.shop ?? null;
 
   // Per-(shop, service, tier) flat-price overrides for the active shop.
@@ -282,6 +283,11 @@ export default function ChooseMechanicScreen() {
   const onPageChange = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const idx = Math.round(e.nativeEvent.contentOffset.x / SCREEN_WIDTH);
     setActiveIndex(idx);
+    setIsMechanicCarouselInteracting(false);
+  }, []);
+
+  const handleMechanicCarouselInteractionChange = useCallback((isInteracting: boolean) => {
+    setIsMechanicCarouselInteracting(isInteracting);
   }, []);
 
   const { slots: activeShopSlots } = useNextAvailabilityForShop(
@@ -412,6 +418,8 @@ export default function ChooseMechanicScreen() {
             <ScrollView
               horizontal
               pagingEnabled
+              nestedScrollEnabled
+              scrollEnabled={!isMechanicCarouselInteracting}
               showsHorizontalScrollIndicator={false}
               onMomentumScrollEnd={onPageChange}
               decelerationRate="fast"
@@ -435,6 +443,7 @@ export default function ChooseMechanicScreen() {
                       [r.shop.id]: mId,
                     }))
                   }
+                  onMechanicCarouselInteractionChange={handleMechanicCarouselInteractionChange}
                 />
               ))}
             </ScrollView>

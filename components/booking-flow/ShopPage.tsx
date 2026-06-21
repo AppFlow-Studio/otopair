@@ -44,6 +44,7 @@ interface ShopPageProps {
   /** Current mechanic selection for THIS page. null = Any. */
   selectedMechanicId: string | null;
   onSelectMechanic: (mechanicId: string | null) => void;
+  onMechanicCarouselInteractionChange: (isInteracting: boolean) => void;
 }
 
 export function ShopPage({
@@ -56,6 +57,7 @@ export function ShopPage({
   vehicleOwnerId,
   selectedMechanicId,
   onSelectMechanic,
+  onMechanicCarouselInteractionChange,
 }: ShopPageProps) {
   const router = useRouter();
 
@@ -166,6 +168,7 @@ export function ShopPage({
         items={carouselItems}
         selectedMechanicId={selectedMechanicId}
         onSelect={onSelectMechanic}
+        onInteractionChange={onMechanicCarouselInteractionChange}
       />
     </View>
   );
