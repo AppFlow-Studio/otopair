@@ -8,7 +8,8 @@
  * the Upcoming tab.
  */
 
-import { useFocusEffect, useRouter } from "expo-router";
+import { useFocusEffect } from "expo-router";
+import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { haptics } from "@/lib/haptics";
 import {
   Car,

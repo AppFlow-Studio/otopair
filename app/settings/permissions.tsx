@@ -18,7 +18,7 @@ import {
   AppState,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useGuardedRouter as useRouter } from '@/hooks/useGuardedRouter';
 import { useFocusEffect } from '@react-navigation/native';
 import * as Location from 'expo-location';
 import { Camera } from 'expo-camera';

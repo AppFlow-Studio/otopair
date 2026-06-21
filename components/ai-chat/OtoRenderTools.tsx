@@ -18,7 +18,7 @@
 import React from "react";
 import { Dimensions, Pressable, StyleSheet, View } from "react-native";
 
-import { useRouter } from "expo-router";
+import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { useQuery } from "convex/react";
 import Animated, { FadeIn } from "react-native-reanimated";
 import { useSettingsOverlayStore } from "@/stores/useSettingsOverlayStore";

@@ -29,7 +29,9 @@ import {
   type LucideIcon,
 } from "lucide-react-native";
 
-import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
+import { categoryTitleTransition } from "@/components/booking-flow/CategoryListRow";
+import { useFocusEffect, useLocalSearchParams } from "expo-router";
+import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 
 import { Text } from "@/components/shared-ui";
 import { useBookingFlowMap } from "@/components/booking-flow/BookingFlowMap";

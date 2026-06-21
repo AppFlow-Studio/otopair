@@ -22,7 +22,7 @@ import { BackButton } from "@/components/shared-ui/BackButton";
 import { FontAwesome } from "@expo/vector-icons";
 import { Mail } from "lucide-react-native";
 import { useOnboardingStore } from "@/stores/useOnboardingStore";
-import { router } from "expo-router";
+import { guardedRouter as router } from "@/lib/navigationLock";
 import { useAuth, useSignIn } from "@clerk/clerk-expo";
 import { useAuthStore } from "@/stores/useAuthStore";
 

@@ -30,7 +30,7 @@ import {
   Stethoscope,
 } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useRouter } from "expo-router";
+import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 
 // 3. Shared UI (design system)
 import { BrandColors, FixedPriceBadge, Spacing, Text } from "@/components/shared-ui";
@@ -48,6 +48,7 @@ import { deriveDisclosedRange } from "@/lib/disclosedRange";
 import { formatDurationForCar } from "@/lib/formatDuration";
 import { computeBookingTax } from "@/lib/tax";
 import { computePlatformFeeDollars } from "@/lib/platformFee";
+import { computeDealerLaborSavings } from "@/lib/dealerSavings";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
 import { usePaymentStore } from "@/stores/usePaymentStore";
@@ -457,6 +458,15 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
       feeHigh,
     };
   }, [selectedServices, laborRate, shop?.state, shop?.zip, getEffectiveParts, getServiceLaborHours, fixedPriceMap]);
+
+  // Conservative dealer-vs-independent saving (labor-rate delta). Null on
+  // parts-only / diagnostic / flat-fee tickets or when no shop rate resolved,
+  // so the badge self-suppresses where a saving claim isn't credible. Mirrors
+  // payment.tsx so the sheet and the full screen always agree.
+  const dealerSavings = useMemo(
+    () => computeDealerLaborSavings({ laborHours: breakdown.laborHours, shopLaborRate: laborRate }),
+    [breakdown.laborHours, laborRate],
+  );
 
   // Stash the customer-facing range in the booking store so the next screen
   // in the flow (BookingConfirmStatus) can quote the same band the customer
@@ -903,11 +913,13 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
               </Text>
               <View style={styles.totalHeaderBadges}>
                 {hasAnyFixedPrice && <FixedPriceBadge size="sm" />}
-                <View style={styles.savingsBadge}>
-                  <Text size="xs" weight="semiBold" color={BrandColors.secondary}>
-                    → Saved $25 vs Dealership
-                  </Text>
-                </View>
+                {dealerSavings !== null && (
+                  <View style={styles.savingsBadge}>
+                    <Text size="xs" weight="semiBold" color={BrandColors.secondary}>
+                      → Save ~${dealerSavings} vs dealership
+                    </Text>
+                  </View>
+                )}
               </View>
             </View>
             <Text

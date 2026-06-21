@@ -19,7 +19,8 @@
 import React, { useCallback, useEffect, useMemo } from "react";
 import { BackHandler, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useRouter, useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams } from "expo-router";
+import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import Animated, {
   useAnimatedProps,
   useAnimatedStyle,

@@ -16,7 +16,8 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { router, useNavigation } from "expo-router";
+import { useNavigation } from "expo-router";
+import { guardedRouter as router } from "@/lib/navigationLock";
 import { ChevronLeft } from "lucide-react-native";
 
 import { Text } from "@/components/shared-ui";

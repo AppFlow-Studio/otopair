@@ -21,7 +21,7 @@ import { useAuth } from "@clerk/clerk-expo";
 import { BrandColors, FontFamily, FontSize, Spacing, Text, BorderRadius } from "@/components/shared-ui";
 import { FooterButton } from "@/components/shared-ui/FooterButton";
 import { Image } from "expo-image";
-import { router } from "expo-router";
+import { guardedRouter as router } from "@/lib/navigationLock";
 import { MoveRight } from "lucide-react-native";
 import { KeyboardAvoidingView, Platform, StyleSheet, View, useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";

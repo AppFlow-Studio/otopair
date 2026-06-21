@@ -19,7 +19,8 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useLocalSearchParams, router } from "expo-router";
+import { useLocalSearchParams } from "expo-router";
+import { guardedRouter as router } from "@/lib/navigationLock";
 import { ChevronLeft } from "lucide-react-native";
 import { useMutation } from "convex/react";
 

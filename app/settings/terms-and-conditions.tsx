@@ -18,7 +18,7 @@
 import React, { useState } from 'react';
 import { StyleSheet, View, Pressable, ScrollView, Linking } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useGuardedRouter as useRouter } from '@/hooks/useGuardedRouter';
 import Animated, { FadeInUp, FadeIn, FadeOut, LinearTransition, useAnimatedStyle, withTiming, interpolateColor, useDerivedValue } from 'react-native-reanimated';
 import {
   FileText,

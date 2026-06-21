@@ -15,7 +15,8 @@
 import React, { useCallback, useMemo, useState, useEffect } from 'react';
 import { Pressable, Share, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter, useFocusEffect } from 'expo-router';
+import { useFocusEffect } from 'expo-router';
+import { useGuardedRouter as useRouter } from '@/hooks/useGuardedRouter';
 import { BlurView } from 'expo-blur';
 import Animated from 'react-native-reanimated';
 import Svg, { Circle } from 'react-native-svg';
@@ -283,9 +284,12 @@ export default function AboutOtopairScreen() {
                   <Text size="md" weight="bold" color={BrandColors.primary}>
                     Total
                   </Text>
+                  {/* Illustrative mock only — not a live computation. Value is
+                      consistent with the labor-rate-delta model in
+                      lib/dealerSavings.ts for a small job (~0.5h × ~$40/hr delta). */}
                   <View style={styles.showcaseSavingsBadge}>
                     <Text size="xs" weight="semiBold" color={BrandColors.secondary}>
-                      → Saved $25 vs Dealership
+                      → Save ~$20 vs dealership
                     </Text>
                   </View>
                 </View>

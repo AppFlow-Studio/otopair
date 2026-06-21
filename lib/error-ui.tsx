@@ -4,7 +4,7 @@
  */
 
 import React, { Component, type ReactNode } from "react";
-import { useRouter } from "expo-router";
+import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { ErrorOccurredModal } from "@/components/shared-ui";
 
 export type ErrState = { error?: unknown; visible: boolean };

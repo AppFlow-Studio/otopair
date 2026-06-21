@@ -41,7 +41,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQuery } from "convex/react";
 import { useShallow } from "zustand/react/shallow";
 import { X } from "lucide-react-native";
-import { useRouter } from "expo-router";
+import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 
 import { SettingsContent } from "@/components/settings/SettingsContent";
 import { api } from "@/convex/_generated/api";

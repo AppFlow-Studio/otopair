@@ -11,7 +11,7 @@
 import React from "react";
 import { Platform, Pressable, StyleSheet, View } from "react-native";
 import { BlurView } from "expo-blur";
-import { useRouter } from "expo-router";
+import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { ChevronRight, Star } from "lucide-react-native";
 
 import { Text } from "@/components/shared-ui";

@@ -31,7 +31,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { BlurView } from "expo-blur";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useRouter } from "expo-router";
+import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { Bell, Calendar, X } from "lucide-react-native";
 
 import { Text } from "@/components/shared-ui";

@@ -26,7 +26,7 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { router } from "expo-router";
+import { guardedRouter as router } from "@/lib/navigationLock";
 import { Mail } from "lucide-react-native";
 import { useAuthStore } from "@/stores/useAuthStore";
 import { useEnsureConvexUser } from "@/hooks/useEnsureConvexUser";

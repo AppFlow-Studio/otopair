@@ -30,7 +30,7 @@ import {
 } from 'react-native';
 
 // 2. Expo & Third-party
-import { useRouter } from 'expo-router';
+import { useGuardedRouter as useRouter } from '@/hooks/useGuardedRouter';
 import { BriefcaseBusiness, Car, Sparkles, Truck, Wrench } from 'lucide-react-native';
 
 // 3. Shared UI

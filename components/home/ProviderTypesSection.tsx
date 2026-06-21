@@ -22,7 +22,7 @@ import React from 'react';
 import { Dimensions, Image, ImageSourcePropType, Pressable, StyleSheet, View } from 'react-native';
 
 // 2. Expo & Third-party
-import { useRouter } from 'expo-router';
+import { useGuardedRouter as useRouter } from '@/hooks/useGuardedRouter';
 
 // 3. Shared UI
 import { Text } from '@/components/shared-ui';

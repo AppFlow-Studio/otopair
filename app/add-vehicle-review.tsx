@@ -30,7 +30,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 
 // 2. Expo & Third-party
 import { StatusBar } from 'expo-status-bar';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams } from 'expo-router';
+import { useGuardedRouter as useRouter } from '@/hooks/useGuardedRouter';
 import { ArrowLeft, Bell, Car, ChevronDown, CircleDot, Cog, Fuel, Gauge, History, MapPin, Plus, Wrench } from 'lucide-react-native';
 import { useAction, useMutation, useQuery } from 'convex/react';
 

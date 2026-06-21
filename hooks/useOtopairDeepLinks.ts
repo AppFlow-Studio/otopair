@@ -18,7 +18,7 @@
 
 import { useEffect } from "react";
 import * as Linking from "expo-linking";
-import { useRouter } from "expo-router";
+import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { routeOtopairDeepLink } from "@/utils/linking";
 
 export function useOtopairDeepLinks() {

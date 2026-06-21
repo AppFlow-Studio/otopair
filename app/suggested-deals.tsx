@@ -15,7 +15,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import ReAnimated from "react-native-reanimated";
 
 // 2. Expo & Third-party
-import { useRouter } from "expo-router";
+import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { ArrowLeft, Star } from "lucide-react-native";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";

@@ -20,7 +20,7 @@ import React from "react";
 import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 
 // 2. Expo & Third-party
-import { useRouter } from "expo-router";
+import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import Animated, { FadeInUp } from "react-native-reanimated";
 
 // 3. Shared UI
