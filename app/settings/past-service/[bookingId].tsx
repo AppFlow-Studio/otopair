@@ -21,7 +21,6 @@ import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { useQuery } from "convex/react";
 import { MoreHorizontal, Star, Wrench } from "lucide-react-native";
 
-import { GlassSheetBackground } from "@/components/booking-flow/GlassSheet";
 import {
   LeaveReviewSheet,
   type LeaveReviewSheetRef,
@@ -173,7 +172,6 @@ export default function PastServiceDetailScreen() {
   return (
     <>
       <View style={styles.screen}>
-        <GlassSheetBackground style={StyleSheet.absoluteFill} />
         <ScrollView
           showsVerticalScrollIndicator={false}
           contentContainerStyle={[
@@ -409,9 +407,7 @@ function PastServiceSkeleton() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    // Solid backstop matching the top of the glass gradient so the
-    // edges don't flash white during route push/pop.
-    backgroundColor: "#CFE0EB",
+    backgroundColor: SurfaceColors.canvasWarm,
   },
   scrollContent: {
     paddingHorizontal: 16,

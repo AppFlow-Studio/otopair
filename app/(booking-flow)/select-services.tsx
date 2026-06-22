@@ -18,7 +18,8 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef } from "react";
-import { Dimensions, Pressable, StyleSheet, View } from "react-native";
+import { Dimensions, Platform, Pressable, StyleSheet, View } from "react-native";
+import { BlurView } from "expo-blur";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
   useAnimatedStyle,
@@ -30,15 +31,18 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Search, X } from "lucide-react-native";
 
 import { Text } from "@/components/shared-ui";
+import { CardShadow } from "@/constants/theme";
 import { useBookingFlowMap } from "@/components/booking-flow/BookingFlowMap";
 import { CategoryListRow } from "@/components/booking-flow/CategoryListRow";
-import {
-  GlassSheetBackground,
-  GlassSheetHandle,
-} from "@/components/booking-flow/GlassSheet";
+import { GlassSheetHandle } from "@/components/booking-flow/GlassSheet";
 import { HeroCardClosestShop } from "@/components/booking-flow/HeroCardClosestShop";
 import { HeroCardMostBooked } from "@/components/booking-flow/HeroCardMostBooked";
 import { QuickBookRow } from "@/components/booking-flow/QuickBookRow";
+import { SelectedServicesFab } from "@/components/booking-flow/SelectedServicesFab";
+import {
+  SelectedServicesSheet,
+  type SelectedServicesSheetRef,
+} from "@/components/booking-flow/SelectedServicesSheet";
 import { VehiclePuck } from "@/components/booking-flow/VehiclePuck";
 import { TABS, type TaxonomyTab } from "@/constants/serviceTaxonomy";
 import { useBookingStore } from "@/stores/useBookingStore";
@@ -93,31 +97,27 @@ export default function SelectServicesScreen() {
   // already-checked there (category/[tab] reads them). Fires once; the
   // one-shot `initialServiceCategory` signal is consumed so a later
   // plain entry (e.g. the Home search field) stays on the landing.
+  // Only the EXPLICIT one-shot `initialServiceCategory` signal seeds
+  // a category jump. The previous fallback that derived a target
+  // tab from `selectedServiceIds` made the cart stickier than
+  // intended: once a service was in the cart, every plain entry
+  // (Home search, map icon) auto-bounced past Screen 1 — and
+  // because back from Screen 2 normalizes to Screen 1, the seed
+  // re-fired and the user got trapped in a Screen 1 ↔ Screen 2
+  // loop with no way out except clearing the cart.
   const seedHandledRef = useRef(false);
+  const reviewSheetRef = useRef<SelectedServicesSheetRef>(null);
   useEffect(() => {
     if (seedHandledRef.current) return;
-    let targetTab = legacyCategoryToTab(initialServiceCategory);
-    if (!targetTab && selectedServiceIds.length > 0) {
-      // Resolving the tab from a pre-selection needs the catalog loaded.
-      if (availableServices.length === 0) return;
-      targetTab =
-        availableServices.find((s) => s.id === selectedServiceIds[0])?.tab ??
-        null;
-    }
+    const targetTab = legacyCategoryToTab(initialServiceCategory);
     if (!targetTab) return;
     seedHandledRef.current = true;
-    if (initialServiceCategory) setInitialServiceCategory(null);
+    setInitialServiceCategory(null);
     router.replace({
       pathname: "/(booking-flow)/category/[tab]",
       params: { tab: targetTab },
     });
-  }, [
-    initialServiceCategory,
-    selectedServiceIds,
-    availableServices,
-    router,
-    setInitialServiceCategory,
-  ]);
+  }, [initialServiceCategory, router, setInitialServiceCategory]);
 
   // Sheet height in pixels — driven by the Pan gesture below. Mounts
   // already at INITIAL_H: the screen enters via the stack's cross-fade
@@ -131,6 +131,10 @@ export default function SelectServicesScreen() {
   const dragGesture = useMemo(
     () =>
       Gesture.Pan()
+        // 20pt threshold so taps on the X / search / vehicle puck
+        // (sitting inside the drag chrome) never get swallowed by
+        // the pan handler — only deliberate swipes win.
+        .activeOffsetY([-20, 20])
         .onBegin(() => {
           startHeight.value = sheetHeight.value;
         })
@@ -189,7 +193,18 @@ export default function SelectServicesScreen() {
           anywhere (handle or content) works. */}
       <GestureDetector gesture={dragGesture}>
         <Animated.View style={[styles.sheet, sheetAnimatedStyle]}>
-          <GlassSheetBackground style={StyleSheet.absoluteFill} />
+          {/* Real frosted-glass sheet — same pattern Settings uses
+              for its blurred header. On iOS BlurView blurs the
+              map underneath; on Android we fall back to a thick
+              translucent white since BlurView there is unreliable. */}
+          {Platform.OS === "ios" ? (
+            <BlurView intensity={60} tint="light" style={StyleSheet.absoluteFill} />
+          ) : (
+            <View
+              style={[StyleSheet.absoluteFill, styles.sheetAndroidFallback]}
+              pointerEvents="none"
+            />
+          )}
           <GlassSheetHandle />
           <View
             style={[
@@ -238,6 +253,9 @@ export default function SelectServicesScreen() {
 
           {/* Category list */}
           <View style={styles.list}>
+            {Platform.OS === "ios" ? (
+              <BlurView intensity={25} tint="light" style={StyleSheet.absoluteFill} />
+            ) : null}
             {TABS.map((tab, idx) => (
               <View key={tab.key}>
                 {idx > 0 ? <View style={styles.divider} /> : null}
@@ -257,6 +275,23 @@ export default function SelectServicesScreen() {
           </View>
         </Animated.View>
       </GestureDetector>
+
+      {/* Cart review FAB — same one Screen 2 has so the user can
+          see + edit the multi-tab selection from Screen 1 too.
+          Bottom-right, count-gated by the FAB itself (renders null
+          when count === 0). Screen 1 has no Continue pill below
+          it, so we sit a little lower than on Screen 2. */}
+      <View
+        pointerEvents="box-none"
+        style={[styles.fabHost, { bottom: insets.bottom + 24 }]}
+      >
+        <SelectedServicesFab
+          count={selectedServiceIds.length}
+          onPress={() => reviewSheetRef.current?.open()}
+        />
+      </View>
+
+      <SelectedServicesSheet ref={reviewSheetRef} />
     </View>
   );
 }
@@ -266,6 +301,13 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "transparent",
   },
+  fabHost: {
+    position: "absolute",
+    right: 16,
+    // `bottom` is set inline from insets. pointerEvents: 'box-none'
+    // on the host so empty space around the FAB doesn't block sheet
+    // taps underneath.
+  },
   sheet: {
     position: "absolute",
     left: 0,
@@ -274,6 +316,9 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
+  },
+  sheetAndroidFallback: {
+    backgroundColor: "rgba(255, 255, 255, 0.85)",
   },
   scrollContent: {
     paddingTop: 0,
@@ -318,6 +363,7 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255, 255, 255, 0.8)",
     overflow: "hidden",
     marginBottom: 22,
+    boxShadow: CardShadow.default,
   },
   divider: {
     height: 1,

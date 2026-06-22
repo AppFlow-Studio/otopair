@@ -17,7 +17,7 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, View } from "react-native";
-import { useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams, useNavigation } from "expo-router";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
@@ -54,6 +54,7 @@ const DATE_RANGE_DAYS = 14; // how many days from today to render in the picker
 
 export default function PickDateTimeScreen() {
   const router = useRouter();
+  const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ shopId?: string; mechanicId?: string }>();
   const shopId = params.shopId ?? null;
@@ -291,9 +292,22 @@ export default function PickDateTimeScreen() {
     });
   };
 
+  // Back normalizes to Screen 1 when the user landed on Pick
+  // Date & Time without walking the rest of the flow first.
+  // Length > 1 means a real in-flow back exists. The first-in-
+  // stack case uses navigation.reset (not router.replace) since
+  // replace within the same Stack occasionally no-op'd.
   const onBack = () => {
-    if (router.canGoBack()) router.back();
-    else router.replace("/(booking-flow)/select-services");
+    const state = navigation.getState?.();
+    const stackLength = state?.routes?.length ?? 0;
+    if (stackLength > 1) {
+      router.back();
+      return;
+    }
+    (navigation.reset as ((state: { index: number; routes: { name: string }[] }) => void) | undefined)?.({
+      index: 0,
+      routes: [{ name: "select-services" }],
+    });
   };
 
   // Jump the day picker to the chosen month. Clearing the selected day

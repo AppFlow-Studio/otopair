@@ -24,7 +24,7 @@ import {
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from "react-native";
-import { useFocusEffect } from "expo-router";
+import { useFocusEffect, useNavigation } from "expo-router";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import BottomSheet, { BottomSheetView } from "@gorhom/bottom-sheet";
@@ -51,6 +51,7 @@ const SNAP_POINTS = ["53%", "82%"] as const;
 
 export default function ChooseMechanicScreen() {
   const router = useRouter();
+  const navigation = useNavigation();
   const insets = useSafeAreaInsets();
 
   const selectedServiceIds = useBookingStore((s) => s.selectedServiceIds);
@@ -297,9 +298,23 @@ export default function ChooseMechanicScreen() {
 
   const activeDistanceMi = nearbyShops[activeIndex]?.distanceMi ?? 0;
 
+  // Back normalizes to Screen 1 when we're the first route in the
+  // (booking-flow) stack — i.e. the user got here via a direct
+  // entry point (Most Booked card, Quick Book, etc.) rather than
+  // walking 1 → 2 → 3. Length > 1 means a real in-flow back exists.
+  // For the reset path we use navigation.reset (not router.replace)
+  // since replace within the same Stack occasionally no-op'd.
   const onBack = () => {
-    if (router.canGoBack()) router.back();
-    else router.replace("/(booking-flow)/select-services");
+    const state = navigation.getState?.();
+    const stackLength = state?.routes?.length ?? 0;
+    if (stackLength > 1) {
+      router.back();
+      return;
+    }
+    (navigation.reset as ((state: { index: number; routes: { name: string }[] }) => void) | undefined)?.({
+      index: 0,
+      routes: [{ name: "select-services" }],
+    });
   };
 
   const onContinue = () => {
