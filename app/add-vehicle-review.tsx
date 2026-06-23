@@ -40,6 +40,7 @@ import { Text } from '@/components/shared-ui';
 import { Spacing } from '@/constants/theme';
 import { api } from '@/convex/_generated/api';
 import { Id } from '@/convex/_generated/dataModel';
+import { useToast } from '@/hooks/useToast';
 import { scale, verticalScale, moderateScale } from '@/utils/responsive';
 import { classifyColorFamily, fetchVehicleImageUrl, pickBestVdbTrim, pickSilhouetteVariant, useVdbColorsForVin, useVdbVariants, type VdbVariant } from '@/utils/vehicleImage';
 import { COLOR_GRADIENTS } from '@/constants/colorGradients';
@@ -110,6 +111,7 @@ function ColorSwatchItem({
 export default function AddVehicleReviewScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const toast = useToast();
   const params = useLocalSearchParams<{
     vin: string;
     make: string;
@@ -372,6 +374,19 @@ export default function AddVehicleReviewScreen() {
             // Non-fatal: cars page useEffect will retry.
           });
         }
+
+        // Surface the async backend pipeline: confirmVehicleForUser
+        // schedules `enrichVehicleBatchV3` (see convex/vehicle_pipeline.ts
+        // ~line 1391) for any new year/make/model/trim/engine combo. Tell
+        // the user something is happening behind the scenes so the
+        // freshly-added vehicle's gradual data fill-in feels intentional
+        // instead of "why's it empty?". Fires unconditionally — on cache
+        // hits the message is still honest (their data is ready), and we
+        // don't want to thread a hit/miss signal through just for copy.
+        toast.trust(
+          "Your car is being enriched",
+          "We'll keep updating its info in the background.",
+        );
 
         router.replace({
           pathname: '/vehicle-added',

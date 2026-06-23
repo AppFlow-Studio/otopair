@@ -56,18 +56,20 @@ function dynamicTypeScale(base: number): number {
 
 interface Props {
   item: ToastQueueItem;
-  topOffset: number;
+  bottomOffset: number;
   onRequestDismiss: (id: string) => void;
 }
 
-export function Toast({ item, topOffset, onRequestDismiss }: Props) {
+export function Toast({ item, bottomOffset, onRequestDismiss }: Props) {
   const scheme = useColorScheme() ?? "light";
   const tokens = VARIANT_TOKENS[item.variant];
   const palette = tokens[scheme];
   const textColors = TOAST_TEXT[scheme];
   const reduceMotion = useReducedMotion();
 
-  const translateY = useSharedValue(reduceMotion ? 0 : -120);
+  // Bottom-anchored (Airbnb-style): toast starts BELOW its rest
+  // position and slides up. Positive translateY means "down".
+  const translateY = useSharedValue(reduceMotion ? 0 : 120);
   const opacity = useSharedValue(0);
 
   useEffect(() => {
@@ -101,7 +103,8 @@ export function Toast({ item, topOffset, onRequestDismiss }: Props) {
       return;
     }
     opacity.value = withTiming(0, EXIT_TIMING);
-    translateY.value = withTiming(-8, EXIT_TIMING, (done) => {
+    // Exit drifts downward by 8pt while fading.
+    translateY.value = withTiming(8, EXIT_TIMING, (done) => {
       if (done) runOnJS(finalize)();
     });
   }
@@ -111,24 +114,26 @@ export function Toast({ item, topOffset, onRequestDismiss }: Props) {
     dismiss("tap");
   }
 
+  // Bottom-anchored swipe-to-dismiss = swipe DOWN. Drag past the
+  // threshold OR flick downward fast enough → fly out below.
   const swipeGesture = Gesture.Pan()
     .activeOffsetY([-10, 10])
     .onUpdate((event) => {
-      if (event.translationY < 0) {
+      if (event.translationY > 0) {
         translateY.value = event.translationY;
-        opacity.value = Math.max(0, 1 + event.translationY / 120);
+        opacity.value = Math.max(0, 1 - event.translationY / 120);
       }
     })
     .onEnd((event) => {
-      const fastEnough = event.velocityY < -SWIPE_VELOCITY_THRESHOLD;
-      const farEnough = event.translationY < -SWIPE_DISMISS_THRESHOLD;
+      const fastEnough = event.velocityY > SWIPE_VELOCITY_THRESHOLD;
+      const farEnough = event.translationY > SWIPE_DISMISS_THRESHOLD;
       if (fastEnough || farEnough) {
         if (reduceMotion) {
           opacity.value = withTiming(0, REDUCE_FADE, (done) => {
             if (done) runOnJS(finalize)();
           });
         } else {
-          translateY.value = withSpring(-200, { damping: 22, stiffness: 280 });
+          translateY.value = withSpring(200, { damping: 22, stiffness: 280 });
           opacity.value = withTiming(0, { duration: 160 }, (done) => {
             if (done) runOnJS(finalize)();
           });
@@ -158,7 +163,7 @@ export function Toast({ item, topOffset, onRequestDismiss }: Props) {
   return (
     <GestureDetector gesture={swipeGesture}>
       <Animated.View
-        style={[styles.outer, { top: topOffset }, animatedStyle]}
+        style={[styles.outer, { bottom: bottomOffset }, animatedStyle]}
         pointerEvents="box-none"
       >
         <Pressable

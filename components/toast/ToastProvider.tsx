@@ -12,6 +12,7 @@ import { AppState, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { haptics } from "@/lib/haptics";
+import { Layout } from "@/constants/theme";
 
 import { Toast } from "./Toast";
 import { MAX_QUEUE_SIZE } from "./tokens";
@@ -138,7 +139,13 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         {current ? (
           <Toast
             item={current}
-            topOffset={insets.top + 8}
+            // Bottom-anchored (Airbnb-style). Clear the home indicator
+            // (insets.bottom) PLUS the tab bar height — added
+            // unconditionally so the toast floats with consistent
+            // breathing room on every screen shape. On tab-bar-less
+            // screens (booking flow, modals, onboarding) the extra
+            // ~30pt reads as intentional padding rather than a bug.
+            bottomOffset={insets.bottom + Layout.tabBarHeight + 8}
             onRequestDismiss={handleDismissed}
           />
         ) : null}
