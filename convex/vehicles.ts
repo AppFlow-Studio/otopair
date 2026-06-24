@@ -1828,6 +1828,14 @@ const ENRICHMENT_IN_PROGRESS_STATUSES = new Set<string>([
   "batch2",
   "started",
 ]);
+// Terminal states — bookings can proceed once a config lands here.
+// Mirrors convex/vehicles.ts:~1760 (existing booking gate constant).
+const ENRICHMENT_TERMINAL_STATUSES = new Set<string>([
+  "seeded",
+  "partial",
+  "complete",
+  "verified",
+]);
 // Typical end-to-end enrichment runtime from docs/ENRICHMENT_PIPELINE_COMPLETE.md
 // (~7 minutes async, Batch API polled every 1 min). Used as the ETA baseline
 // for the "try again in N minutes" toast on the booking flow.
@@ -1902,5 +1910,96 @@ export const getEnrichmentStatusByVin = query({
     const etaMinutes = Math.max(1, Math.ceil(remainingMs / 60_000));
 
     return { status, isInProgress: true, etaMinutes, elapsedMs };
+  },
+});
+
+/**
+ * Returns every active-owned vehicle for the current user with its current
+ * enrichment phase. Powers the global completion watcher that fires a
+ * persistent "your car is ready — book now" toast when a vehicle's
+ * enrichment finishes mid-session.
+ *
+ * Phase classification (client-friendly):
+ *   - "in_progress" → status ∈ in-progress set (pipeline running)
+ *   - "ready"       → status ∈ terminal set (bookable)
+ *   - "not_started" → no vehicle_config_id, or status is null
+ *
+ * Returns `null` when not authenticated. Returns `[]` when the user has
+ * no active ownerships.
+ */
+export const getMyVehiclesEnrichmentStatus = query({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return null;
+
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_clerkUserId", (q) => q.eq("clerkUserId", identity.subject))
+      .unique();
+    if (!user) return [];
+
+    const ownerships = await ctx.db
+      .query("vehicle_owners")
+      .withIndex("by_user_status", (q) =>
+        q.eq("user_id", user._id).eq("status", "active"),
+      )
+      .collect();
+
+    const results = await Promise.all(
+      ownerships.map(async (ownership) => {
+        const vin = ownership.vin;
+        const vehicle = await ctx.db
+          .query("vehicles")
+          .withIndex("by_vin", (q) => q.eq("vin", vin))
+          .unique();
+
+        // Resolve a user-readable label. Same shape the cars page +
+        // the existing "Enriching your <car>" toast use.
+        let label = "your car";
+        if (vehicle) {
+          const trim = vehicle.trim_id ? await ctx.db.get(vehicle.trim_id) : null;
+          let make: string | null = null;
+          let model: string | null = null;
+          if (trim) {
+            const trimRow = trim as { name?: string; model_id?: any };
+            const modelRow = trimRow.model_id ? await ctx.db.get(trimRow.model_id) : null;
+            if (modelRow) {
+              const mRow = modelRow as { name?: string; make_id?: any };
+              model = mRow.name ?? null;
+              const makeRow = mRow.make_id ? await ctx.db.get(mRow.make_id) : null;
+              if (makeRow) make = (makeRow as { name?: string }).name ?? null;
+            }
+          }
+          const parts: string[] = [];
+          if (vehicle.year != null) parts.push(String(vehicle.year));
+          if (make) parts.push(make);
+          if (model) parts.push(model);
+          if (parts.length > 0) label = parts.join(" ");
+        }
+
+        const configId = (vehicle as any)?.vehicle_config_id ?? null;
+        let phase: "in_progress" | "ready" | "not_started" = "not_started";
+        let status: string | null = null;
+        if (configId) {
+          const config = await ctx.db.get(configId);
+          status = (config as any)?.enrichment_status ?? null;
+          if (typeof status === "string") {
+            if (ENRICHMENT_IN_PROGRESS_STATUSES.has(status)) phase = "in_progress";
+            else if (ENRICHMENT_TERMINAL_STATUSES.has(status)) phase = "ready";
+          }
+        }
+
+        return {
+          vin,
+          label,
+          ownershipId: String(ownership._id),
+          status,
+          phase,
+        };
+      }),
+    );
+
+    return results;
   },
 });

@@ -99,10 +99,16 @@ export function Toast({ item, bottomOffset, onRequestDismiss }: Props) {
       opacity.value = withTiming(1, { duration: 220 });
     }
 
-    const duration = item.duration ?? DEFAULT_DURATION_MS[item.variant];
-    const timer = setTimeout(() => dismiss("auto"), duration);
+    // Persistent toasts skip the auto-dismiss timer — they stick around
+    // until the user taps or swipes them. Used for tap-to-act surfaces
+    // (e.g. "your car is ready — book now").
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    if (!item.persistent) {
+      const duration = item.duration ?? DEFAULT_DURATION_MS[item.variant];
+      timer = setTimeout(() => dismiss("auto"), duration);
+    }
     return () => {
-      clearTimeout(timer);
+      if (timer) clearTimeout(timer);
       cancelAnimation(translateY);
       cancelAnimation(opacity);
     };
