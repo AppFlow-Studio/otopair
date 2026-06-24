@@ -1873,6 +1873,36 @@ export const getEnrichmentStatusByVin = query({
 
     const configId = (vehicle as any).vehicle_config_id;
     if (!configId) {
+      // No config attached yet. Two cases:
+      //   (1) Early window — the user JUST added this vehicle and
+      //       confirmVehicleForUser has scheduled enrichVehicleBatchV3
+      //       but STAGE 0 hasn't created the vehicle_configs row yet
+      //       (~seconds-to-tens-of-seconds gap on a cold scheduler).
+      //       Until the config exists we have nothing to read a status
+      //       off, so this query was reporting `isInProgress: false`
+      //       and the Screen 1 toast skipped.
+      //   (2) Genuinely stuck — the vehicle row has been around for a
+      //       while with no config (legacy data, never enriched, etc.).
+      //
+      // Treat case (1) as in-progress by using the vehicle row's own
+      // age: if it was created within RECENT_THRESHOLD_MS, the pipeline
+      // is almost certainly running but just hasn't stamped the config
+      // yet. Use `vehicle._creationTime` as the elapsed-time origin.
+      const RECENT_THRESHOLD_MS = 15 * 60 * 1000;
+      const vehicleCreated = (vehicle as any)._creationTime as number | undefined;
+      if (vehicleCreated != null) {
+        const elapsedMs = Math.max(0, Date.now() - vehicleCreated);
+        if (elapsedMs < RECENT_THRESHOLD_MS) {
+          const remainingMs = Math.max(0, ENRICHMENT_BASELINE_MS - elapsedMs);
+          const etaMinutes = Math.max(1, Math.ceil(remainingMs / 60_000));
+          return {
+            status: null,
+            isInProgress: true,
+            etaMinutes,
+            elapsedMs,
+          };
+        }
+      }
       return {
         status: null,
         isInProgress: false,
@@ -1987,6 +2017,17 @@ export const getMyVehiclesEnrichmentStatus = query({
           if (typeof status === "string") {
             if (ENRICHMENT_IN_PROGRESS_STATUSES.has(status)) phase = "in_progress";
             else if (ENRICHMENT_TERMINAL_STATUSES.has(status)) phase = "ready";
+          }
+        } else if (vehicle) {
+          // Early-window race: vehicle row exists but vehicle_config_id
+          // isn't stamped yet (see getEnrichmentStatusByVin for the long
+          // comment). Treat as in-progress when the vehicle row is very
+          // recent so the global completion watcher also picks up the
+          // transition later (in_progress → ready) for newly-added cars.
+          const RECENT_THRESHOLD_MS = 15 * 60 * 1000;
+          const vehicleCreated = (vehicle as any)._creationTime as number | undefined;
+          if (vehicleCreated != null && Date.now() - vehicleCreated < RECENT_THRESHOLD_MS) {
+            phase = "in_progress";
           }
         }
 
