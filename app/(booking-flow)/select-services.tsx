@@ -44,6 +44,9 @@ import {
   type SelectedServicesSheetRef,
 } from "@/components/booking-flow/SelectedServicesSheet";
 import { VehiclePuck } from "@/components/booking-flow/VehiclePuck";
+import { useToast } from "@/hooks/useToast";
+import { useVehicleEnrichmentStatus } from "@/hooks/useVehicleEnrichmentStatus";
+import { useVehicleStore } from "@/stores/useVehicleStore";
 import { TABS, type TaxonomyTab } from "@/constants/serviceTaxonomy";
 import { useBookingStore } from "@/stores/useBookingStore";
 import type { ServiceCategory } from "@/stores/types/store.types";
@@ -160,6 +163,42 @@ export default function SelectServicesScreen() {
       setMarkers([]);
       if (region) mapRef.current?.animateToRegion(region, 300);
     }, [setInteractive, setMarkers, mapRef, region]),
+  );
+
+  // Enrichment-in-progress nudge. If the currently selected vehicle
+  // is still being enriched by the v3 pipeline (i.e. server-side
+  // booking creation would throw VEHICLE_ENRICHMENT_INCOMPLETE), pop
+  // a toast on every focus telling the user to check back in N
+  // minutes. Toast-only — no in-screen block per Ahmad. Dedupe by
+  // `${vin}:${isInProgress}` so we don't re-fire on tab switches if
+  // the underlying state hasn't changed.
+  const toast = useToast();
+  const selectedVin = useVehicleStore((s) => s.getSelectedVehicle()?.vin ?? null);
+  const enrichment = useVehicleEnrichmentStatus(selectedVin);
+  const lastEnrichmentToastRef = useRef<string | null>(null);
+  useFocusEffect(
+    useCallback(() => {
+      if (!selectedVin || !enrichment?.isInProgress) {
+        // Reset the dedupe key so re-entering with the same vehicle
+        // after it finishes & re-starts (very rare) fires fresh.
+        lastEnrichmentToastRef.current = null;
+        return;
+      }
+      const dedupeKey = `${selectedVin}:in-progress`;
+      if (lastEnrichmentToastRef.current === dedupeKey) return;
+      lastEnrichmentToastRef.current = dedupeKey;
+
+      const eta = enrichment.etaMinutes ?? 0;
+      const baselineElapsed =
+        enrichment.elapsedMs != null && enrichment.elapsedMs > 7 * 60 * 1000;
+
+      const title = "Still prepping your car";
+      const body = baselineElapsed
+        ? "Almost there — give us another minute or two."
+        : `We're not quite done. Try again in ~${eta} minute${eta === 1 ? "" : "s"}.`;
+
+      toast.trust(title, body);
+    }, [selectedVin, enrichment?.isInProgress, enrichment?.etaMinutes, enrichment?.elapsedMs, toast]),
   );
 
   // Per-tab service counts from the live catalog. Drops services

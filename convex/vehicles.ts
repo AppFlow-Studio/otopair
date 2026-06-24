@@ -1818,3 +1818,89 @@ export const getReadiness = query({
     return { status, pendingPackages };
   },
 });
+
+// Enrichment-status sets — duplicated from v3pipeline.ts:1118 so this
+// public query doesn't have to import the pipeline module.
+const ENRICHMENT_IN_PROGRESS_STATUSES = new Set<string>([
+  "enriching",
+  "scraping",
+  "batch1",
+  "batch2",
+  "started",
+]);
+// Typical end-to-end enrichment runtime from docs/ENRICHMENT_PIPELINE_COMPLETE.md
+// (~7 minutes async, Batch API polled every 1 min). Used as the ETA baseline
+// for the "try again in N minutes" toast on the booking flow.
+const ENRICHMENT_BASELINE_MS = 7 * 60 * 1000;
+
+/**
+ * Public read of a vehicle's enrichment status keyed by VIN. Powers the
+ * booking-flow "your car is still being prepped" toast on Screen 1.
+ *
+ * Returns `null` when the VIN doesn't resolve to a vehicle (or the vehicle
+ * has no `vehicle_config_id` yet — meaning enrichment hasn't even been
+ * scheduled). When found, returns:
+ *   - `isInProgress` — true iff status ∈ in-progress set
+ *   - `etaMinutes`   — best-effort minutes until enrichment finishes, computed
+ *     from the latest `enrichment_runs.started_at` (fallback:
+ *     `vehicle_configs._creationTime`) + the 7-minute baseline. Capped at 1
+ *     minute minimum so we never tell the user "0 minutes". Null when not
+ *     in-progress.
+ *   - `elapsedMs`    — ms since the run started. Null when not in-progress.
+ *
+ * The client decides the copy ("Try again in ~N minutes" vs the soft
+ * "almost there" message once `elapsedMs > baseline`).
+ */
+export const getEnrichmentStatusByVin = query({
+  args: { vin: v.string() },
+  handler: async (ctx, args) => {
+    const normalizedVin = args.vin.toUpperCase().trim();
+    if (normalizedVin.length === 0) return null;
+
+    const vehicle = await ctx.db
+      .query("vehicles")
+      .withIndex("by_vin", (q) => q.eq("vin", normalizedVin))
+      .first();
+    if (!vehicle) return null;
+
+    const configId = (vehicle as any).vehicle_config_id;
+    if (!configId) {
+      return {
+        status: null,
+        isInProgress: false,
+        etaMinutes: null,
+        elapsedMs: null,
+      };
+    }
+
+    const config = await ctx.db.get(configId);
+    if (!config) return null;
+
+    const status = (config as any).enrichment_status ?? null;
+    const isInProgress =
+      typeof status === "string" && ENRICHMENT_IN_PROGRESS_STATUSES.has(status);
+
+    if (!isInProgress) {
+      return { status, isInProgress: false, etaMinutes: null, elapsedMs: null };
+    }
+
+    // Resolve a start timestamp. Prefer the latest enrichment_runs.started_at
+    // — that's the true pipeline launch. Fall back to the config's creation
+    // time if no run row exists yet (rare scheduler race).
+    const latestRun = await ctx.db
+      .query("enrichment_runs")
+      .withIndex("by_vehicle_config", (q) => q.eq("vehicle_config_id", configId))
+      .order("desc")
+      .first();
+    const startedAt =
+      (latestRun as any)?.started_at ?? (config as any)._creationTime ?? null;
+
+    const now = Date.now();
+    const elapsedMs = startedAt != null ? Math.max(0, now - startedAt) : 0;
+    const remainingMs = Math.max(0, ENRICHMENT_BASELINE_MS - elapsedMs);
+    // Round UP so a 30s remainder still reads as "1 minute" instead of "0".
+    const etaMinutes = Math.max(1, Math.ceil(remainingMs / 60_000));
+
+    return { status, isInProgress: true, etaMinutes, elapsedMs };
+  },
+});
