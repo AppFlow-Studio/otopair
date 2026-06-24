@@ -166,6 +166,14 @@ export function VehicleMaintenanceCard({
   const translateX = useSharedValue(0);
   const rotation = useSharedValue(0);
   const cardOpacity = useSharedValue(1);
+  // Inner-press flag — set to 1 while the touch lives inside an
+  // interactive child Pressable (e.g. the Book Now button), so the
+  // parent's Gesture.Tap onEnd skips its "open the Cars tab" route.
+  // Without this the parent's tap and the button's onPress both
+  // resolve on the same touch and race; the parent's navigation was
+  // winning on quick taps, sending the user to /cars instead of the
+  // booking flow.
+  const innerPressedSV = useSharedValue(0);
 
   useEffect(() => {
     vehicles.forEach((v) => {
@@ -325,6 +333,18 @@ export function VehicleMaintenanceCard({
                 </Text>
               </View>
               <Pressable
+                onPressIn={() => {
+                  // Tell the parent Gesture.Tap to skip this touch.
+                  innerPressedSV.value = 1;
+                }}
+                onPressOut={() => {
+                  // Hold the flag a beat after release so the parent's
+                  // tap onEnd (which fires on touch release) still sees
+                  // it before we clear.
+                  setTimeout(() => {
+                    innerPressedSV.value = 0;
+                  }, 250);
+                }}
                 onPress={() => {
                   if (item.id === 'healthy') {
                     if (vehicle.vin) useVehicleStore.getState().selectVehicle(vehicle.vin);
@@ -372,7 +392,14 @@ export function VehicleMaintenanceCard({
     // ScrollView take the gesture and scroll (kills the dead zone).
     .maxDistance(8)
     .onEnd((_e, success) => {
-      if (success) runOnJS(handleCardPress)();
+      'worklet';
+      // Skip the parent "open Cars" route when the touch landed on an
+      // inner Pressable (e.g. Book Now). The button's own onPress will
+      // handle the navigation; without this guard, the parent fired
+      // simultaneously and clobbered the destination.
+      if (success && innerPressedSV.value === 0) {
+        runOnJS(handleCardPress)();
+      }
     });
   // Race (not Exclusive): whichever of pan/tap recognizes first wins, and
   // a vertical drag recognizes NEITHER (pan needs horizontal, tap fails on
