@@ -51,6 +51,7 @@ import {
 import { useOpenApprovalForBooking } from "@/hooks/useOpenApprovalForBooking";
 import { usePaymentStore } from "@/stores/usePaymentStore";
 import { useBookingStore } from "@/stores/useBookingStore";
+import { buildInspectionFindingRows } from "@/lib/inspection-findings";
 
 function formatUsd(cents: number | undefined | null): string {
   const v = ((cents ?? 0) / 100).toFixed(2);
@@ -126,6 +127,10 @@ function ApprovalDecisionView({ bookingId }: { bookingId: Id<"bookings"> }) {
     const remainder = Math.max(0, total - partsCents - laborCents);
     return { parts, partsCents, laborCents, laborHours, total, remainder };
   }, [approval]);
+  const inspectionFindings = useMemo(
+    () => buildInspectionFindingRows(approval?.inspection_snapshot),
+    [approval?.inspection_snapshot],
+  );
 
   const handleApprove = async () => {
     if (submitting) return;
@@ -245,6 +250,40 @@ function ApprovalDecisionView({ bookingId }: { bookingId: Id<"bookings"> }) {
           )}
         </View>
 
+        {inspectionFindings.length > 0 ? (
+          <View style={styles.card}>
+            <Text weight="semiBold" style={styles.sectionLabel}>
+              Inspection findings
+            </Text>
+            <Text style={styles.inspectionIntro}>
+              Measurements recorded before work began.
+            </Text>
+            {inspectionFindings.map((section, sectionIndex) => (
+              <View
+                key={section.title}
+                style={[
+                  styles.inspectionGroup,
+                  sectionIndex > 0 && styles.inspectionGroupBorder,
+                ]}
+              >
+                <Text weight="semiBold" style={styles.inspectionGroupTitle}>
+                  {section.title}
+                </Text>
+                <View style={styles.inspectionGrid}>
+                  {section.values.map((row) => (
+                    <View key={row.label} style={styles.inspectionCell}>
+                      <Text style={styles.inspectionLabel}>{row.label}</Text>
+                      <Text weight="semiBold" style={styles.inspectionValue}>
+                        {row.value}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              </View>
+            ))}
+          </View>
+        ) : null}
+
         <View style={styles.card}>
           <Text weight="semiBold" style={styles.sectionLabel}>
             What changed
@@ -349,7 +388,7 @@ function ApprovalDecisionView({ bookingId }: { bookingId: Id<"bookings"> }) {
           />
           <Text style={styles.infoText}>
             Approving raises the hold on your card to{" "}
-            {formatUsd(approval.mechanic_set_price_cents)}. You're only charged
+            {formatUsd(approval.mechanic_set_price_cents)}. You&apos;re only charged
             when the work is complete.
           </Text>
         </View>
@@ -912,6 +951,44 @@ const styles = StyleSheet.create({
   },
 
   // ── Totals ────────────────────────────────────────────────────────────
+  inspectionIntro: {
+    color: SemanticColors.textMuted,
+    fontSize: 13,
+    lineHeight: 18,
+    marginTop: -2,
+  },
+  inspectionGroup: {
+    paddingTop: Spacing.md,
+  },
+  inspectionGroupBorder: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: SemanticColors.border,
+    marginTop: Spacing.md,
+  },
+  inspectionGroupTitle: {
+    color: BrandColors.primary,
+    fontSize: 14,
+    marginBottom: Spacing.sm,
+  },
+  inspectionGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    marginHorizontal: -4,
+    rowGap: Spacing.sm,
+  },
+  inspectionCell: {
+    width: "50%",
+    paddingHorizontal: 4,
+  },
+  inspectionLabel: {
+    color: SemanticColors.textMuted,
+    fontSize: 12,
+  },
+  inspectionValue: {
+    color: BrandColors.primary,
+    fontSize: 15,
+    marginTop: 2,
+  },
   totalsBlock: { gap: Spacing.sm },
   totalRow: { flexDirection: "row", justifyContent: "space-between" },
   totalLabel: { color: SemanticColors.textSecondary },
