@@ -899,7 +899,13 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
           </Animated.View>
 
           {/* Footer */}
-          <Animated.View style={[s.steppingFooter, { paddingBottom: insets.bottom + scale(4), opacity: mountFooterFade }]}>
+          {/* paddingBottom was originally `insets.bottom + scale(4)`
+              (~38pt above screen bottom), then scale(4) (flush with
+              home indicator). Ahmad asked for "slightly higher" than
+              flush — scale(20) lands the Finish for now link a clean
+              ~20pt above the home indicator. Dots / Complete pill
+              ride above that. */}
+          <Animated.View style={[s.steppingFooter, { paddingBottom: scale(20), opacity: mountFooterFade }]}>
             {/* Progress dots */}
             <View style={s.dotsRow}>
               {ALL_CARD_IDS.map((id) => (
@@ -1093,18 +1099,29 @@ const s = StyleSheet.create({
     marginTop: scale(20),
   },
   steppingFooter: {
-    paddingTop: scale(16),
+    // Was scale(16) — Ahmad called out the dots row + Complete pill
+    // + "Finish for now" sitting too high against the Warning Lights
+    // card. scale(48) is the sweet spot: enough breathing room that
+    // the footer reads as its own block, but small enough that the
+    // flex:1 body doesn't shrink below the cards' fixed heights
+    // (going to scale(96) made the cards overflow up into the
+    // header).
+    paddingTop: scale(48),
     gap: scale(12),
     alignItems: "center",
   },
 
   // ── Card grid ──
   cardGrid: {
-    justifyContent: "center",
+    // Cards anchor to the TOP of the body so they sit right under
+    // the title — Ahmad wants them as high as possible while
+    // letting the footer (dots / Complete / Finish for now) hang
+    // at the bottom with a big gap between.
+    justifyContent: "flex-start",
     alignItems: "center",
     gap: GRID_GAP,
     paddingHorizontal: GRID_H_PAD,
-    marginTop: 0,
+    paddingTop: scale(8),
   },
   cardGridSquares: {
     flexDirection: "row",

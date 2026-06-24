@@ -1,29 +1,41 @@
 /**
  * Past Services
  *
- * Two-step browser: pick a car → see that car's completed bookings.
- * Replaces the flat "all past services" feed with a per-vehicle
- * drill-in so users with several cars don't have to scan a mixed
- * timeline. Search bar removed — the per-vehicle scope handles
- * scale better than free-text filtering did.
+ * Single-page list of every completed booking, sorted by date desc.
+ * Header shows a horizontal filter pill row when the user has more
+ * than one car — first pill is `All cars`, the rest scope the list
+ * to a single vehicle. In "All cars" mode every row gets a small
+ * vehicle kicker so it's obvious which car each booking is for
+ * without forcing a drilldown.
  *
- * Visual: same frosted-blue glass treatment as the booking flow
- * (GlassSheetBackground at absoluteFill behind the scroll).
+ * Replaces the old two-step "pick a car → see its history" browser:
+ * the default is now an informative full list, the filter is opt-in,
+ * and the back button has only one level to handle.
+ *
+ * Visual: home-tab gradient backdrop (matches the rest of the
+ * settings overlay destinations).
  *
  * USED IN: Settings → Past Services (My Garage section).
  */
 
 import React, { useMemo, useState } from "react";
-import { Image, Platform, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import {
+  Image,
+  LayoutAnimation,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  UIManager,
+  View,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Link } from "expo-router";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
-import { Calendar, ChevronLeft, ChevronRight, Wrench } from "lucide-react-native";
+import { Calendar, ChevronLeft, Wrench } from "lucide-react-native";
 
-import { CarSilhouette } from "@/components/shared-ui/CarSilhouette";
 import { Text } from "@/components/shared-ui";
-import { GlassSheetBackground } from "@/components/booking-flow/GlassSheet";
-import { ListSpacing } from "@/constants/theme";
+import { BrandColors, SurfaceColors } from "@/constants/theme";
 import { useMyBookingsWithDetails } from "@/hooks/useMyBookingsWithDetails";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 
@@ -36,10 +48,79 @@ type AppleZoomRouterLink = typeof Link & {
 
 const AppleZoom =
   Platform.OS === "ios" ? (Link as AppleZoomRouterLink).AppleZoom : undefined;
+// Android: LayoutAnimation needs an opt-in. No-op on iOS.
+if (
+  Platform.OS === "android" &&
+  UIManager.setLayoutAnimationEnabledExperimental
+) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 function fmtUSD(n: number | undefined): string {
   if (n == null) return "—";
   return n.toLocaleString("en-US", { style: "currency", currency: "USD" });
+}
+
+
+// `carModel` in our booking rows is actually "Make Model Trim …" (e.g.
+// "Volkswagen Tiguan 2.0T SE R-Line Black"). Pull out just the model
+// for the filter pill so chips stay short.
+//   "Volkswagen Tiguan 2.0T SE R-Line Black" → "Tiguan"
+//   "Chevrolet Corvette"                     → "Corvette"
+//   "Ford F-150 SuperCrew"                   → "F-150"
+//   "Tesla Model 3"                          → "Model 3"
+//   "BMW 7 Series 750i xDrive"               → "7 Series"
+// Single-token strings pass through unchanged.
+function extractModel(full: string): string {
+  const tokens = full.trim().split(/\s+/).filter(Boolean);
+  if (tokens.length <= 1) return full;
+  // Tesla naming uses "Model X / 3 / Y / S" — keep the qualifier token.
+  if (tokens[1].toLowerCase() === "model" && tokens[2]) {
+    return `${tokens[1]} ${tokens[2]}`;
+  }
+  // BMW naming uses "<digit> Series" — keep the "Series" qualifier.
+  if (/^\d+$/.test(tokens[1]) && tokens[2]?.toLowerCase() === "series") {
+    return `${tokens[1]} ${tokens[2]}`;
+  }
+  return tokens[1];
+}
+
+// Sibling of `extractModel` that returns "YEAR MAKE MODEL" for the per-row
+// kicker — trims the trim/sub-trim suffix that `carModel` carries so the
+// eyebrow fits on one line.
+//   "2024" + "Volkswagen Tiguan 2.0T SE R-Line Black" → "2024 Volkswagen Tiguan"
+//   "2024" + "Tesla Model 3 Long Range"               → "2024 Tesla Model 3"
+//   "2024" + "BMW 7 Series 750i xDrive"               → "2024 BMW 7 Series"
+//   "2024" + "Land Rover Defender"                    → "2024 Land Rover Defender"
+function extractYearMakeModel(year: string | undefined, carModel: string): string {
+  const tokens = carModel.trim().split(/\s+/).filter(Boolean);
+  const yr = (year ?? "").trim();
+  if (tokens.length === 0) return yr;
+  if (tokens.length === 1) return [yr, tokens[0]].filter(Boolean).join(" ");
+
+  // Two-word makes — first two tokens are the make, take the next as the model.
+  const firstTwo = `${tokens[0]} ${tokens[1]}`.toLowerCase();
+  const isTwoWordMake =
+    firstTwo === "land rover" ||
+    firstTwo === "alfa romeo" ||
+    firstTwo === "aston martin";
+  if (isTwoWordMake) {
+    const make = `${tokens[0]} ${tokens[1]}`;
+    const model = tokens[2] ?? "";
+    return [yr, make, model].filter(Boolean).join(" ");
+  }
+
+  const make = tokens[0];
+  let model = tokens[1];
+  // Tesla → keep the qualifier ("Model 3", "Model X", …).
+  if (model.toLowerCase() === "model" && tokens[2]) {
+    model = `Model ${tokens[2]}`;
+  }
+  // BMW → keep the "Series" qualifier ("7 Series", "3 Series", …).
+  else if (/^\d+$/.test(model) && tokens[2]?.toLowerCase() === "series") {
+    model = `${model} Series`;
+  }
+  return [yr, make, model].filter(Boolean).join(" ");
 }
 
 type CompletedBooking = ReturnType<typeof useMyBookingsWithDetails>["historyBookings"][number];
@@ -48,18 +129,20 @@ interface CarBucket {
   /** Stable key for grouping: year|model|vin so two cars with the
    *  same year+model but different VINs stay distinct. */
   key: string;
-  /** Display label (e.g. "2024 Volkswagen Tiguan"). Derived from
-   *  the booking itself, not the vehicle store, so a booking
-   *  whose VIN doesn't match a current garage car still shows up
-   *  with its correct label instead of getting dropped. */
+  /** Full label (e.g. "2024 Tiguan") — used for the row kicker. */
   label: string;
+  /** Raw model — used as the filter pill title (e.g. "Tiguan",
+   *  "F-150", "Model 3", "Grand Cherokee"). Falls back to the full
+   *  label when the booking has no carModel. */
+  model: string;
   /** Optional ownership match — used to swap the makeLogoUrl
    *  thumbnail for a real garage car photo when we have one. */
   vehicleId?: string;
-  /** Thumbnail URL — sourced from the booking's makeLogoUrl. */
   makeLogoUrl?: string;
   bookings: CompletedBooking[];
 }
+
+type FilterValue = "all" | string;
 
 export default function PastServicesScreen() {
   const insets = useSafeAreaInsets();
@@ -69,24 +152,21 @@ export default function PastServicesScreen() {
   const vehicleIds = useVehicleStore((s) => s.vehicleIds);
   const vehicles = useVehicleStore((s) => s.vehicles);
 
-  // Local navigation: null = vehicle picker, else = drilled into a
-  // single car bucket's service history (keyed by the bucket key,
-  // not vehicle id, since a booking's car may not match a stored
-  // vehicle).
-  const [selectedBucketKey, setSelectedBucketKey] = useState<string | null>(null);
+  // "all" → show every car's bookings; otherwise = a bucket.key.
+  const [filter, setFilter] = useState<FilterValue>("all");
 
   const completed = useMemo<CompletedBooking[]>(
     () => historyBookings.filter((b) => b.status === "completed"),
     [historyBookings],
   );
 
-  // Bucket completed bookings by car. Identity comes from the
-  // booking row itself (year + carModel + vin) so we always show
-  // every completed booking — VIN-only joining against the
-  // garage store dropped any booking whose VIN was empty or stale.
-  // When a bucket's VIN happens to match a stored vehicle we
-  // borrow the vehicle's image for the picker; otherwise we use
-  // the booking's makeLogoUrl.
+  // Bucket completed bookings by car. Identity comes from the booking
+  // row itself (year + carModel + vin) so we always show every completed
+  // booking — VIN-only joining against the garage store dropped any
+  // booking whose VIN was empty or stale. When a bucket's VIN happens
+  // to match a stored vehicle we borrow the vehicle's image for the
+  // (currently unused) thumbnail; otherwise we use the booking's
+  // makeLogoUrl. Buckets feed the filter pill row.
   const buckets = useMemo<CarBucket[]>(() => {
     const vehicleByVin: Record<string, string> = {};
     for (const id of vehicleIds) {
@@ -102,12 +182,14 @@ export default function PastServicesScreen() {
       const key = `${year}|${model}|${vin}`;
       const label =
         [year, model].filter(Boolean).join(" ") || "Unknown vehicle";
+      const pillModel = model ? extractModel(model) : label;
       const vehicleId = vin ? vehicleByVin[vin] : undefined;
       let bucket = map.get(key);
       if (!bucket) {
         bucket = {
           key,
           label,
+          model: pillModel,
           vehicleId,
           makeLogoUrl: b.makeLogoUrl,
           bookings: [],
@@ -119,25 +201,38 @@ export default function PastServicesScreen() {
     return Array.from(map.values());
   }, [completed, vehicleIds, vehicles]);
 
-  const selectedBucket = useMemo<CarBucket | null>(() => {
-    if (selectedBucketKey === null) return null;
-    return buckets.find((b) => b.key === selectedBucketKey) ?? null;
-  }, [buckets, selectedBucketKey]);
+  // Flat list, newest first. `date` is "YYYY-MM-DD" so lexicographic
+  // sort doubles as chronological.
+  const allBookings = useMemo(() => {
+    const sorted = [...completed];
+    sorted.sort((a, b) => (b.date ?? "").localeCompare(a.date ?? ""));
+    return sorted;
+  }, [completed]);
+
+  const visibleBookings = useMemo(() => {
+    if (filter === "all") return allBookings;
+    return allBookings.filter((b) => {
+      const key = `${(b.carYear ?? "").trim()}|${(b.carModel ?? "").trim()}|${(b.vin ?? "").trim()}`;
+      return key === filter;
+    });
+  }, [allBookings, filter]);
+
+  const handleFilterChange = (next: FilterValue) => {
+    if (next === filter) return;
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setFilter(next);
+  };
 
   const handleBack = () => {
-    if (selectedBucketKey !== null) {
-      setSelectedBucketKey(null);
-      return;
-    }
     if (router.canGoBack()) router.back();
     else router.replace("/(main-tabs)/home");
   };
 
-  const selectedBookings = selectedBucket?.bookings ?? [];
+  const showFilterRow = buckets.length > 1;
+  const showVehicleKicker = filter === "all" && buckets.length > 1;
 
   return (
     <View style={styles.screen}>
-      <GlassSheetBackground style={StyleSheet.absoluteFill} />
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[
@@ -154,31 +249,56 @@ export default function PastServicesScreen() {
 
         <View style={styles.heroRow}>
           <Text weight="bold" color={INK} style={styles.heroTitle}>
-            {selectedBucket ? selectedBucket.label : "Past Services"}
+            Past Services
           </Text>
           <Text size="md" color={MUTED} style={styles.heroSubtitle} center>
-            {selectedBucket
-              ? `${selectedBookings.length} completed service${selectedBookings.length === 1 ? "" : "s"}`
-              : "Pick a car to see its history"}
+            {visibleBookings.length === 0
+              ? filter === "all"
+                ? "No services yet"
+                : "No services for this car"
+              : `${visibleBookings.length} completed service${visibleBookings.length === 1 ? "" : "s"}`}
           </Text>
         </View>
 
-        {selectedBucket === null ? (
-          <VehiclePicker
-            buckets={buckets}
-            vehicles={vehicles}
-            onPick={setSelectedBucketKey}
-          />
-        ) : selectedBookings.length > 0 ? (
+        {showFilterRow && (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.filterRow}
+            style={styles.filterScroll}
+          >
+            <FilterPill
+              label="All cars"
+              count={allBookings.length}
+              active={filter === "all"}
+              onPress={() => handleFilterChange("all")}
+            />
+            {buckets.map((bucket) => (
+              <FilterPill
+                key={bucket.key}
+                label={bucket.model}
+                count={bucket.bookings.length}
+                active={filter === bucket.key}
+                onPress={() => handleFilterChange(bucket.key)}
+              />
+            ))}
+          </ScrollView>
+        )}
+
+        {visibleBookings.length > 0 ? (
           <View style={styles.list}>
-            {selectedBookings.map((b) => (
-              <PastServiceRow key={b.id} booking={b} />
+            {visibleBookings.map((b) => (
+              <PastServiceRow
+                key={b.id}
+                booking={b}
+                showVehicleKicker={showVehicleKicker}
+              />
             ))}
           </View>
         ) : (
           <EmptyState
-            label="No services yet for this car"
-            sub="When you complete a booking it'll show up here."
+            label="No past services yet"
+            sub="Completed bookings will show up here."
           />
         )}
       </ScrollView>
@@ -186,82 +306,56 @@ export default function PastServicesScreen() {
   );
 }
 
-interface VehiclePickerProps {
-  buckets: CarBucket[];
-  vehicles: Record<string, ReturnType<typeof useVehicleStore.getState>["vehicles"][string]>;
-  onPick: (key: string) => void;
+interface FilterPillProps {
+  label: string;
+  count: number;
+  active: boolean;
+  onPress: () => void;
 }
 
-function VehiclePicker({ buckets, vehicles, onPick }: VehiclePickerProps) {
-  if (buckets.length === 0) {
-    return (
-      <EmptyState
-        label="No past services yet"
-        sub="Completed bookings will show up here grouped by car."
-      />
-    );
-  }
-
+function FilterPill({ label, count, active, onPress }: FilterPillProps) {
   return (
-    <View style={styles.vehicleList}>
-      {buckets.map((bucket) => {
-        const vehicle = bucket.vehicleId ? vehicles[bucket.vehicleId] : undefined;
-        const count = bucket.bookings.length;
-        const vinTail = bucket.key.split("|")[2];
-        return (
-          <Pressable
-            key={bucket.key}
-            style={({ pressed }) => [
-              styles.vehicleCard,
-              pressed && styles.vehicleCardPressed,
-            ]}
-            onPress={() => onPick(bucket.key)}
-            accessibilityRole="button"
-            accessibilityLabel={`${bucket.label}, ${count} services`}
-          >
-            <View style={styles.vehicleThumb}>
-              {vehicle?.imageSource ? (
-                <Image
-                  source={vehicle.imageSource}
-                  style={styles.vehicleThumbImage}
-                  resizeMode="contain"
-                />
-              ) : bucket.makeLogoUrl ? (
-                <Image
-                  source={{ uri: bucket.makeLogoUrl }}
-                  style={styles.vehicleThumbImage}
-                  resizeMode="contain"
-                />
-              ) : (
-                <CarSilhouette variant="suv" width={72} height={50} />
-              )}
-            </View>
-            <View style={styles.vehicleText}>
-              <Text weight="bold" size="md" color={INK} numberOfLines={1}>
-                {bucket.label}
-              </Text>
-              <Text size="sm" color={MUTED} numberOfLines={1} style={styles.vehicleSub}>
-                {count} service{count === 1 ? "" : "s"}
-                {vinTail ? ` · VIN ${vinTail.slice(-6)}` : ""}
-              </Text>
-            </View>
-            <ChevronRight size={20} color="#9CA3AF" strokeWidth={2} />
-          </Pressable>
-        );
-      })}
-    </View>
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.pill,
+        active && styles.pillActive,
+        pressed && styles.pillPressed,
+      ]}
+      accessibilityRole="button"
+      accessibilityState={{ selected: active }}
+      accessibilityLabel={`${label}, ${count} service${count === 1 ? "" : "s"}`}
+    >
+      <Text
+        weight="semiBold"
+        style={[styles.pillLabel, active && styles.pillLabelActive]}
+        numberOfLines={1}
+      >
+        {label}
+      </Text>
+      <Text style={[styles.pillCount, active && styles.pillCountActive]}>
+        {count}
+      </Text>
+    </Pressable>
   );
 }
 
 interface RowProps {
   booking: CompletedBooking;
+  showVehicleKicker: boolean;
 }
 
-function PastServiceRow({ booking }: RowProps) {
+function PastServiceRow({ booking, showVehicleKicker }: RowProps) {
   const href = {
     pathname: "/settings/past-service/[bookingId]",
     params: { bookingId: booking.id },
   } as const;
+
+  const kicker = useMemo(
+    () =>
+      extractYearMakeModel(booking.carYear, booking.carModel ?? "").toUpperCase(),
+    [booking.carYear, booking.carModel],
+  );
 
   const subtitle = useMemo(() => {
     const services = booking.services.length;
@@ -289,10 +383,15 @@ function PastServiceRow({ booking }: RowProps) {
                   resizeMode="contain"
                 />
               ) : (
-                <Wrench size={22} color="#5299FE" strokeWidth={1.8} />
+                <Wrench size={22} color={MUTED} strokeWidth={1.8} />
               )}
             </View>
             <View style={styles.rowText}>
+              {showVehicleKicker && kicker.length > 0 ? (
+                <Text style={styles.kicker} numberOfLines={1}>
+                  {kicker}
+                </Text>
+              ) : null}
               <Text weight="bold" size="md" color={INK} numberOfLines={1}>
                 Completed {booking.date}
               </Text>
@@ -338,7 +437,7 @@ function EmptyState({ label, sub }: EmptyStateProps) {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: "#CFE0EB",
+    backgroundColor: SurfaceColors.canvasWarm,
   },
   topBar: {
     flexDirection: "row",
@@ -369,65 +468,74 @@ const styles = StyleSheet.create({
   heroSubtitle: {
     marginTop: 6,
   },
-  vehicleList: {
-    gap: 12,
+
+  // ── Filter pill row ──────────────────────────────────────────────
+  filterScroll: {
+    marginHorizontal: -20,
+    marginBottom: 16,
   },
-  vehicleCard: {
+  filterRow: {
+    paddingHorizontal: 20,
+    gap: 8,
+    alignItems: "center",
+  },
+  pill: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 14,
-    paddingVertical: 14,
+    gap: 6,
+    paddingVertical: 8,
     paddingHorizontal: 14,
-    borderRadius: 18,
-    backgroundColor: "rgba(255, 255, 255, 0.55)",
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.7)",
+    borderRadius: 9999,
+    backgroundColor: SurfaceColors.cardSurface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(15,23,42,0.08)",
   },
-  vehicleCardPressed: {
-    backgroundColor: "rgba(255, 255, 255, 0.75)",
+  pillActive: {
+    backgroundColor: BrandColors.secondary,
+    borderColor: "transparent",
   },
-  vehicleThumb: {
-    width: 80,
-    height: 60,
-    alignItems: "center",
-    justifyContent: "center",
+  pillPressed: {
+    opacity: 0.85,
   },
-  vehicleThumbImage: {
-    width: "100%",
-    height: "100%",
+  pillLabel: {
+    fontSize: 13,
+    color: INK,
   },
-  vehicleText: {
-    flex: 1,
-    minWidth: 0,
+  pillLabelActive: {
+    color: "#FFFFFF",
   },
-  vehicleSub: {
-    marginTop: 2,
+  pillCount: {
+    fontSize: 12,
+    color: MUTED,
   },
+  pillCountActive: {
+    color: "rgba(255,255,255,0.85)",
+  },
+
+  // ── Bookings list ────────────────────────────────────────────────
   list: {
-    gap: 4,
+    // No `gap` — each row's `marginBottom` owns the spacing.
   },
   row: {
+    // Flat editorial row — no card surface, no shadow. Rows sit
+    // directly on the canvas separated by whitespace alone.
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: ListSpacing.rowVertical,
-    paddingHorizontal: 14,
-    borderRadius: 16,
-    gap: 12,
-    backgroundColor: "rgba(255, 255, 255, 0.45)",
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.65)",
-    marginBottom: 10,
+    paddingVertical: 12,
+    gap: 14,
+    marginBottom: 16,
   },
   rowPressed: {
-    backgroundColor: "rgba(255, 255, 255, 0.7)",
+    opacity: 0.85,
   },
   thumb: {
-    width: 56,
-    height: 56,
-    borderRadius: 14,
+    width: 72,
+    height: 72,
+    borderRadius: 20,
     alignItems: "center",
     justifyContent: "center",
     overflow: "hidden",
+    backgroundColor: SurfaceColors.cardSurface,
   },
   zoomSource: {
     flex: 1,
@@ -441,9 +549,17 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
   },
+  kicker: {
+    fontSize: 10,
+    letterSpacing: 1.2,
+    color: MUTED,
+    marginBottom: 2,
+  },
   rowSubtitle: {
     marginTop: 2,
   },
+
+  // ── Empty state ──────────────────────────────────────────────────
   emptyState: {
     alignItems: "center",
     justifyContent: "center",

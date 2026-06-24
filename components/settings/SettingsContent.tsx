@@ -532,7 +532,7 @@ export function SettingsContent({
           />
         </View>
 
-        {/* MY GARAGE — addresses, history, and preferences */}
+        {/* MY GARAGE — addresses, history, preferences, payment methods */}
         <SettingsCard style={styles.cardSpacing}>
           <SettingsRow
             icon={<MapPin size={18} color="#FFFFFF" />}
@@ -556,25 +556,18 @@ export function SettingsContent({
             icon={<Sliders size={18} color="#FFFFFF" />}
             label="App Preferences"
             onPress={() => router.push("/settings/preferences")}
-            isLast
           />
-        </SettingsCard>
-
-        {/* PAYMENTS & REWARDS */}
-        <SettingsCard style={styles.cardSpacing}>
           <SettingsRow
             icon={<CreditCard size={18} color="#FFFFFF" />}
             label="Payment Methods"
             value={paymentMethodCount > 0 ? paymentMethodCount : undefined}
             onPress={() => router.push("/payments")}
-            // MVP-DISABLED: loyalty/rewards — re-enable post-launch
-            // `isLast` lifted here so the card closes cleanly while the
-            // Loyalty + Refer rows below are hidden. Remove when
-            // re-enabling.
             isLast
           />
-          {/* MVP-DISABLED: loyalty/rewards — re-enable post-launch */}
-          {/*
+        </SettingsCard>
+
+        {/* MVP-DISABLED: loyalty/rewards — re-enable post-launch.
+        <SettingsCard style={styles.cardSpacing}>
           <SettingsRow
             icon={<Award size={18} color="#FFFFFF" />}
             label="Loyalty & Rewards"
@@ -586,8 +579,8 @@ export function SettingsContent({
             onPress={() => router.push("/settings/refer-a-friend")}
             isLast
           />
-          */}
         </SettingsCard>
+        */}
 
         {/* SUPPORT */}
         <SettingsCard style={styles.cardSpacing}>
@@ -721,7 +714,7 @@ export function SettingsContent({
             }
           >
             <BlurView
-              intensity={50}
+              intensity={35}
               tint="dark"
               style={StyleSheet.absoluteFill}
             />
@@ -863,7 +856,7 @@ const styles = StyleSheet.create({
   },
   blurHeaderTint: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(11,17,32,0.35)",
+    backgroundColor: "rgba(11,17,32,0.18)",
   },
   stickyTopRow: {
     position: "absolute",

@@ -15,56 +15,19 @@
  */
 
 import React from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { Platform, Pressable, StyleSheet, View } from "react-native";
+import { BlurView } from "expo-blur";
 import {
-  Battery,
-  BatteryCharging,
   Check,
   ChevronRight,
-  ClipboardCheck,
   Clock,
-  Disc,
-  Droplet,
-  Filter,
-  Gauge,
   HelpCircle,
-  type LucideIcon,
-  Search,
-  Settings,
-  ShieldCheck,
-  Sparkles,
-  Wrench,
-  Zap,
 } from "lucide-react-native";
 
 import { Text } from "@/components/shared-ui";
+import { CardShadow } from "@/constants/theme";
+import { getServiceIcon } from "@/components/booking-flow/serviceIcons";
 import type { TaxonomyEntry } from "@/constants/serviceTaxonomy";
-
-const SLUG_ICONS: Record<string, LucideIcon> = {
-  oil_change: Droplet,
-  filter_replacement: Filter,
-  battery_test: Battery,
-  battery_replacement: BatteryCharging,
-  state_inspection: ClipboardCheck,
-  emissions_test: ShieldCheck,
-  check_engine_light: Zap,
-  diagnostic_scan: Search,
-  pre_purchase_inspection: ClipboardCheck,
-  tire_rotation: Disc,
-  tire_balance: Gauge,
-  wheel_alignment: Settings,
-  tire_replacement: Disc,
-  brake_pad_replacement: Disc,
-  rotor_replacement: Disc,
-  brake_fluid_flush: Droplet,
-  spark_plugs: Sparkles,
-  timing_belt: Wrench,
-  coolant_flush: Droplet,
-  transmission_service: Droplet,
-  power_steering_flush: Droplet,
-  differential_service: Droplet,
-  fuel_system_cleaning: Sparkles,
-};
 
 interface ServiceMultiSelectRowProps {
   slug: string;
@@ -88,7 +51,7 @@ export function ServiceMultiSelectRow({
   onPress,
   onInfoPress,
 }: ServiceMultiSelectRowProps) {
-  const Icon = SLUG_ICONS[slug] ?? Wrench;
+  const Icon = getServiceIcon(slug);
   const isQuote = entry.variant === "quote";
   const isBlocked = state === "blocked";
   const isNeedsSpecs = state === "needs_specs";
@@ -106,6 +69,9 @@ export function ServiceMultiSelectRow({
       accessibilityState={{ selected: isSelected, disabled: isBlocked }}
       accessibilityLabel={`${entry.label}. ${entry.subtitle}. ${durationText}.`}
     >
+      {Platform.OS === "ios" ? (
+        <BlurView intensity={25} tint="light" style={StyleSheet.absoluteFill} />
+      ) : null}
       <View style={styles.iconTile}>
         <Icon size={22} color="#4B5563" strokeWidth={2} />
       </View>
@@ -165,6 +131,8 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     borderWidth: 1,
     borderColor: "rgba(255, 255, 255, 0.85)",
+    overflow: "hidden",
+    boxShadow: CardShadow.default,
   },
   rowSelected: {
     backgroundColor: "rgba(82, 153, 254, 0.18)",

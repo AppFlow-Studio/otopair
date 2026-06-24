@@ -654,31 +654,35 @@ function HealthySection({
   }));
 
   const isSoonish = variant === 'soonish';
-  const headerLabel = isSoonish
-    ? `${items.length} ${items.length === 1 ? 'item' : 'items'} on the horizon`
-    : `${items.length} ${items.length === 1 ? 'item' : 'items'} healthy`;
+
+  // "On the horizon" already has the blue uppercase tier section
+  // label above (line ~391), so the soonish variant skips this
+  // header to avoid the duplicate. "Healthy" has no such uppercase
+  // label, so resting keeps it.
+  const showHeader = !isSoonish;
 
   return (
     <View>
-      <Animated.View entering={FadeInUp.duration(450).delay(cascadeStartDelay)}>
-        <Pressable onPress={toggle} style={({ pressed }) => pressed && { opacity: 0.7 }}>
-          <View style={summaryStyles.headerRow}>
-            <View style={[summaryStyles.dot, isSoonish && summaryStyles.dotSoonish]} />
-            <Text
-              weight="semiBold"
-              style={[
-                summaryStyles.headerText,
-                isDarkBg && summaryStyles.headerTextOnDark,
-              ]}
-            >
-              {headerLabel}
-            </Text>
-            <Animated.View style={chevronStyle}>
-              <Ionicons name="chevron-forward" size={16} color="#C7C7CC" />
-            </Animated.View>
-          </View>
-        </Pressable>
-      </Animated.View>
+      {showHeader ? (
+        <Animated.View entering={FadeInUp.duration(450).delay(cascadeStartDelay)}>
+          <Pressable onPress={toggle} style={({ pressed }) => pressed && { opacity: 0.7 }}>
+            {/* Visual treatment matches the NOW / SOON / ON THE HORIZON
+                tier labels above: tiny dot + bold uppercase text in the
+                tier's color, fontSize 11, letterSpacing 0.8. Healthy
+                green for both the dot and the text. The chevron stays
+                so the user can still collapse the list. */}
+            <View style={summaryStyles.headerRow}>
+              <View style={summaryStyles.dot} />
+              <Text weight="bold" style={summaryStyles.healthyText}>
+                HEALTHY
+              </Text>
+              <Animated.View style={chevronStyle}>
+                <Ionicons name="chevron-forward" size={16} color="#C7C7CC" />
+              </Animated.View>
+            </View>
+          </Pressable>
+        </Animated.View>
+      ) : null}
 
       {expanded && (
         <HealthyItemsCard items={items} cascadeStartDelay={cascadeStartDelay} />
@@ -1217,13 +1221,17 @@ const groupLabelStyles = StyleSheet.create({
 // ============================================================================
 
 const summaryStyles = StyleSheet.create({
+  // Matches groupLabelStyles.row (NOW / SOON / ON THE HORIZON
+  // headers) so the Healthy label sits at the same horizontal
+  // position and uses the same gap as the others.
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: scale(10),
-    paddingVertical: scale(14),
-    paddingHorizontal: scale(24),
-    marginTop: scale(8),
+    gap: scale(6),
+    paddingLeft: scale(20),
+    paddingRight: scale(24),
+    marginTop: scale(16),
+    marginBottom: scale(8),
   },
   dot: {
     width: scale(8),
@@ -1235,13 +1243,23 @@ const summaryStyles = StyleSheet.create({
   dotSoonish: {
     backgroundColor: '#5299FE',
   },
+  // "HEALTHY" — uppercase, tiny, bold, healthy-green. Same
+  // shape as overdueText / needsAttentionText / onTheHorizonText
+  // above. `flex: 1` so the chevron pushes to the right edge.
+  healthyText: {
+    flex: 1,
+    fontSize: moderateScale(11),
+    color: '#34C759',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+  },
+  // Legacy keys kept so older call sites (if any) don't fail
+  // type lookups while we transition. Unused after this commit.
   headerText: {
     flex: 1,
     fontSize: moderateScale(15),
     color: '#2d3435',
   },
-  // Used by HealthySection when the page bg is dark — keeps the
-  // "N items healthy" label readable on saturated/dark gradients.
   headerTextOnDark: {
     color: '#FFFFFF',
   },

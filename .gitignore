@@ -58,8 +58,9 @@ Otopair Developer Guide_files/
 # Claude local worktrees
 .claude/worktrees/
 
-#Package Lock
-package-lock.json
+# NOTE: package-lock.json must be committed AND not ignored.
+# EAS Build respects .gitignore when uploading the project, so ignoring the
+# lockfile means EAS never receives it -> it falls back to yarn / `npm ci` fails.
 
 #Convex
 _generated/api.d.ts
