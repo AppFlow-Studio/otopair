@@ -75,7 +75,7 @@ export function useEnrichmentCompletionWatcher() {
       const curr = v.phase as Phase;
       if (prev === "in_progress" && curr === "ready") {
         toast.trust(
-          `Your ${v.label} is ready`,
+          `Connected to your ${v.label}`,
           "Tap to book a service.",
           {
             persistent: true,

@@ -178,6 +178,11 @@ export function Toast({ item, bottomOffset, onRequestDismiss }: Props) {
   }));
 
   const isTrust = item.variant === "trust";
+  // Per Ahmad's redesign: the trust toast wears a flat white card on
+  // light mode (matches every other variant). Skip the gradient
+  // overlay on light scheme — it would tint the white. Dark mode
+  // keeps the BlurView+gradient look since white-on-dark is harsh.
+  const renderTrustOverlay = isTrust && scheme !== "light";
   const shadow = isTrust ? TRUST_SHADOW[scheme] : TOAST_SHADOW[scheme];
   const role: AccessibilityRole = POLITE_VARIANTS.has(item.variant) ? "summary" : "alert";
 
@@ -210,14 +215,14 @@ export function Toast({ item, bottomOffset, onRequestDismiss }: Props) {
           style={[
             styles.container,
             {
-              backgroundColor: isTrust ? "transparent" : palette.bg,
+              backgroundColor: renderTrustOverlay ? "transparent" : palette.bg,
               borderColor: palette.border,
               maxHeight,
             },
             shadow,
           ]}
         >
-          {isTrust ? (
+          {renderTrustOverlay ? (
             <TrustToastBackground scheme={scheme} borderColor={palette.border} />
           ) : null}
           <View style={styles.row}>

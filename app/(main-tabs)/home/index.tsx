@@ -568,10 +568,10 @@ export default function HomeScreen() {
       if (pendingEnrichmentToast) {
         const carLabel = pendingEnrichmentToast;
         setPendingEnrichmentToast(null);
-        toast.trust(
-          `Enriching your ${carLabel}`,
-          "We'll keep updating its info in the background.",
-        );
+        // Universal-language pass per Ahmad: most users won't know
+        // what "enriching" means. "Connecting to your <car>" reads
+        // as a familiar tech action (like pairing) and stays short.
+        toast.trust(`Connecting to your ${carLabel}`);
       }
     }, [pendingEnrichmentToast, setPendingEnrichmentToast, toast])
   );

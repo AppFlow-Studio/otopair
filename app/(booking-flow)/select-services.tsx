@@ -192,10 +192,14 @@ export default function SelectServicesScreen() {
       const baselineElapsed =
         enrichment.elapsedMs != null && enrichment.elapsedMs > 7 * 60 * 1000;
 
-      const title = "Still prepping your car";
+      // Universal-language pass per Ahmad: "connecting" instead of
+      // "enriching" / "prepping" so any user understands what's
+      // happening. Body stays informational but trimmed — single
+      // short line with the ETA.
+      const title = "Still connecting to your car";
       const body = baselineElapsed
-        ? "Almost there — give us another minute or two."
-        : `We're not quite done. Try again in ~${eta} minute${eta === 1 ? "" : "s"}.`;
+        ? "Almost there."
+        : `Try again in ~${eta} minute${eta === 1 ? "" : "s"}.`;
 
       toast.trust(title, body);
     }, [selectedVin, enrichment?.isInProgress, enrichment?.etaMinutes, enrichment?.elapsedMs, toast]),
