@@ -48,15 +48,15 @@ const REDUCE_FADE = { duration: 200, easing: Easing.linear } as const;
 const SWIPE_DISMISS_THRESHOLD = 32;
 const SWIPE_VELOCITY_THRESHOLD = 600;
 
-// Airbnb-style title pop: when a toast enters, the title briefly
-// renders in brand blue at a slightly larger scale, holds for a
-// beat, then eases back to the resting style. Driven by a 0→1
-// shared value with two phases (pop then settle), totaling ~600ms.
-const TITLE_POP_HOLD_MS = 200;
-const TITLE_POP_UP_MS = 220;
-const TITLE_POP_DOWN_MS = 400;
-const TITLE_POP_SCALE = 1.08;
-const TITLE_POP_COLOR = "#5299FE";
+// Stadium-wave title effect: a "wave position" shared value sweeps
+// across the title text. Each character derives its own scale +
+// color from the distance to the wave's current position, so the
+// pop traverses letter-by-letter — by the time the wave reaches
+// the tail, the leading letters are already back to resting black.
+const WAVE_PER_CHAR_MS = 45;     // controls the wave's travel speed
+const WAVE_WIDTH = 4;            // chars in the active window (half-width on each side)
+const WAVE_PEAK_SCALE = 1.18;
+const WAVE_PEAK_COLOR = "#5299FE";
 
 const TABLET_MAX_WIDTH = 480;
 
@@ -89,36 +89,14 @@ export function Toast({ item, bottomOffset, onRequestDismiss }: Props) {
   // position and slides up. Positive translateY means "down".
   const translateY = useSharedValue(reduceMotion ? 0 : 120);
   const opacity = useSharedValue(0);
-  // 0 → resting style; 1 → fully popped (blue + scaled). Driven on
-  // mount to do a pop-then-settle pass on the title text only.
-  const titlePop = useSharedValue(0);
 
   useEffect(() => {
     if (reduceMotion) {
       translateY.value = 0;
       opacity.value = withTiming(1, REDUCE_FADE);
-      // Reduce Motion: skip the pop, leave title at its resting style.
-      titlePop.value = 0;
     } else {
       translateY.value = withSpring(0, ENTER_SPRING);
       opacity.value = withTiming(1, { duration: 220 });
-      // Pop up, hold, then glide back. The hold is encoded as a
-      // delay on the down-ramp so the chain reads naturally even
-      // if the user dismisses early (cancelAnimation tears it down).
-      titlePop.value = withTiming(
-        1,
-        { duration: TITLE_POP_UP_MS, easing: Easing.out(Easing.cubic) },
-        (done) => {
-          if (!done) return;
-          titlePop.value = withDelay(
-            TITLE_POP_HOLD_MS,
-            withTiming(0, {
-              duration: TITLE_POP_DOWN_MS,
-              easing: Easing.bezier(0.33, 0, 0.67, 1),
-            }),
-          );
-        },
-      );
     }
 
     const duration = item.duration ?? DEFAULT_DURATION_MS[item.variant];
@@ -127,7 +105,6 @@ export function Toast({ item, bottomOffset, onRequestDismiss }: Props) {
       clearTimeout(timer);
       cancelAnimation(translateY);
       cancelAnimation(opacity);
-      cancelAnimation(titlePop);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [item.id]);
@@ -194,22 +171,6 @@ export function Toast({ item, bottomOffset, onRequestDismiss }: Props) {
     opacity: opacity.value,
   }));
 
-  // Title pop — color glides from the resting title color to brand
-  // blue, scale gently grows then settles. transformOrigin pinned
-  // to the left so the text doesn't drift right as it scales up.
-  const titleAnimatedStyle = useAnimatedStyle(() => {
-    const t = titlePop.value;
-    return {
-      color: interpolateColor(
-        t,
-        [0, 1],
-        [textColors.title, TITLE_POP_COLOR],
-      ),
-      transform: [{ scale: 1 + (TITLE_POP_SCALE - 1) * t }],
-      transformOrigin: "left center",
-    };
-  });
-
   const isTrust = item.variant === "trust";
   const shadow = isTrust ? TRUST_SHADOW[scheme] : TOAST_SHADOW[scheme];
   const role: AccessibilityRole = POLITE_VARIANTS.has(item.variant) ? "summary" : "alert";
@@ -256,23 +217,14 @@ export function Toast({ item, bottomOffset, onRequestDismiss }: Props) {
           <View style={styles.row}>
             <ToastIcon variant={item.variant} palette={palette} />
             <View style={styles.textCol}>
-              <Animated.Text
-                numberOfLines={2}
-                ellipsizeMode="tail"
-                style={[
-                  styles.title,
-                  {
-                    fontSize: dynamicTypeScale(15),
-                    lineHeight: dynamicTypeScale(20),
-                  },
-                  // Animated color + scale come LAST so they
-                  // override the resting title color from
-                  // textColors.title during the pop window.
-                  titleAnimatedStyle,
-                ]}
-              >
-                {item.title}
-              </Animated.Text>
+              <WaveTitle
+                key={item.id}
+                text={item.title}
+                restColor={textColors.title}
+                fontSize={dynamicTypeScale(15)}
+                lineHeight={dynamicTypeScale(20)}
+                reduceMotion={reduceMotion}
+              />
               {item.body ? (
                 <Animated.Text
                   numberOfLines={3}
@@ -296,6 +248,162 @@ export function Toast({ item, bottomOffset, onRequestDismiss }: Props) {
     </GestureDetector>
   );
 }
+
+// ============================================================================
+// WAVE TITLE — per-char stadium-wave animation
+// ============================================================================
+
+interface WaveTitleProps {
+  text: string;
+  restColor: string;
+  fontSize: number;
+  lineHeight: number;
+  reduceMotion: boolean;
+}
+
+/** Renders the toast title as a wrap-row of per-character
+ *  `Animated.Text` nodes. A single `wave` shared value sweeps
+ *  from -WAVE_WIDTH past `text.length + WAVE_WIDTH`; each char
+ *  reads it through `useAnimatedStyle` and computes its own
+ *  scale + color from the distance to the wave's current
+ *  position. Result: a Mexican-wave-style pulse traveling
+ *  letter-by-letter across the title. */
+function WaveTitle({
+  text,
+  restColor,
+  fontSize,
+  lineHeight,
+  reduceMotion,
+}: WaveTitleProps) {
+  const totalChars = text.length;
+  // Start before the first letter, end past the last. Linear so
+  // the wave's apparent speed reads as constant across the title.
+  const wave = useSharedValue<number>(
+    reduceMotion ? totalChars + WAVE_WIDTH : -WAVE_WIDTH,
+  );
+
+  useEffect(() => {
+    if (reduceMotion) {
+      wave.value = totalChars + WAVE_WIDTH;
+      return;
+    }
+    wave.value = -WAVE_WIDTH;
+    const totalSpan = totalChars + WAVE_WIDTH * 2;
+    wave.value = withTiming(totalChars + WAVE_WIDTH, {
+      duration: totalSpan * WAVE_PER_CHAR_MS,
+      easing: Easing.linear,
+    });
+    return () => cancelAnimation(wave);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [text]);
+
+  // Split by space so each word stays together when wrapping.
+  // Each word gets its own non-wrapping row View; spaces between
+  // words go inside the word container so they wrap with the word.
+  const words = text.split(" ");
+  let globalIdx = 0;
+
+  return (
+    <View style={waveStyles.wrap} accessible={false}>
+      {words.map((word, wIdx) => {
+        const chars = Array.from(word);
+        const startIdx = globalIdx;
+        globalIdx += chars.length;
+        // Trailing space char ALSO gets a wave node so the wave
+        // sweeps continuously across word boundaries instead of
+        // hiccuping over invisible gaps.
+        const trailingSpaceIdx = wIdx < words.length - 1 ? globalIdx++ : null;
+
+        return (
+          <View
+            key={`${wIdx}-${word}`}
+            style={waveStyles.word}
+            accessible={false}
+          >
+            {chars.map((c, ci) => (
+              <WaveChar
+                key={`${wIdx}-${ci}`}
+                char={c}
+                index={startIdx + ci}
+                wave={wave}
+                restColor={restColor}
+                fontSize={fontSize}
+                lineHeight={lineHeight}
+              />
+            ))}
+            {trailingSpaceIdx !== null ? (
+              <WaveChar
+                char=" "
+                index={trailingSpaceIdx}
+                wave={wave}
+                restColor={restColor}
+                fontSize={fontSize}
+                lineHeight={lineHeight}
+              />
+            ) : null}
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
+interface WaveCharProps {
+  char: string;
+  index: number;
+  wave: ReturnType<typeof useSharedValue<number>>;
+  restColor: string;
+  fontSize: number;
+  lineHeight: number;
+}
+
+function WaveChar({
+  char,
+  index,
+  wave,
+  restColor,
+  fontSize,
+  lineHeight,
+}: WaveCharProps) {
+  const animatedStyle = useAnimatedStyle(() => {
+    const dist = Math.abs(wave.value - index);
+    // 1 at the wave's exact position; 0 outside the active window.
+    const pop = Math.max(0, 1 - dist / WAVE_WIDTH);
+    return {
+      color: interpolateColor(pop, [0, 1], [restColor, WAVE_PEAK_COLOR]),
+      transform: [{ scale: 1 + (WAVE_PEAK_SCALE - 1) * pop }],
+      // Pinned to bottom-center so the baseline doesn't shift as
+      // the letter scales up.
+      transformOrigin: "center bottom",
+    };
+  });
+
+  return (
+    <Animated.Text
+      accessible={false}
+      style={[
+        {
+          fontFamily: FontFamily.semiBold,
+          fontSize,
+          lineHeight,
+        },
+        animatedStyle,
+      ]}
+    >
+      {char}
+    </Animated.Text>
+  );
+}
+
+const waveStyles = StyleSheet.create({
+  wrap: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+  },
+  word: {
+    flexDirection: "row",
+  },
+});
 
 const styles = StyleSheet.create({
   outer: {
