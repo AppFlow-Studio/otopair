@@ -140,12 +140,12 @@ export function ToastProvider({ children }: { children: ReactNode }) {
           <Toast
             item={current}
             // Bottom-anchored (Airbnb-style). Clear the home indicator
-            // (insets.bottom) PLUS the tab bar height — added
-            // unconditionally so the toast floats with consistent
-            // breathing room on every screen shape. On tab-bar-less
-            // screens (booking flow, modals, onboarding) the extra
-            // ~30pt reads as intentional padding rather than a bug.
-            bottomOffset={insets.bottom + Layout.tabBarHeight + 8}
+            // (insets.bottom) PLUS the tab bar height + a 28pt lift so
+            // the toast sits a touch higher than flush — feels less
+            // glued to the tab bar. On tab-bar-less screens (booking
+            // flow, modals, onboarding) the extra ~30pt reads as
+            // intentional padding rather than a bug.
+            bottomOffset={insets.bottom + Layout.tabBarHeight + 28}
             onRequestDismiss={handleDismissed}
           />
         ) : null}
