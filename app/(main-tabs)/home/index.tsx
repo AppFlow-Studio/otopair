@@ -555,6 +555,27 @@ export default function HomeScreen() {
     }, [pendingNavigateToCars, setPendingNavigateToCars, router])
   );
 
+  // Enrichment-toast deferred from add-vehicle-review. Per Ahmad: don't
+  // fire the toast right after confirm (would overlap the /vehicle-added
+  // celebration). Surface it the next time the user lands on home so the
+  // background pipeline feels deliberate. The label is the user-visible
+  // "2024 Volkswagen Tiguan" so the toast can call out the specific car.
+  // One-shot: cleared as soon as it's read.
+  const pendingEnrichmentToast = usePendingNavigationStore((s) => s.pendingEnrichmentToast);
+  const setPendingEnrichmentToast = usePendingNavigationStore((s) => s.setPendingEnrichmentToast);
+  useFocusEffect(
+    useCallback(() => {
+      if (pendingEnrichmentToast) {
+        const carLabel = pendingEnrichmentToast;
+        setPendingEnrichmentToast(null);
+        toast.trust(
+          `Enriching your ${carLabel}`,
+          "We'll keep updating its info in the background.",
+        );
+      }
+    }, [pendingEnrichmentToast, setPendingEnrichmentToast, toast])
+  );
+
   const handleAppointmentPress = () => {
     console.log("Appointment pressed");
     // TODO: Navigate to appointment details
