@@ -696,7 +696,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     gap: 6,
-    marginTop: 12,
+    // Clear the card's drop-shadow (shadowOffset.height: 4 +
+    // shadowRadius: 12 ≈ 16pt of bleed below the bottom edge). At
+    // marginTop: 12 the shadow's faded tail was painting over the
+    // dots' top edge, making them look clipped by the card.
+    marginTop: 24,
+    // swiperContainer above us has zIndex: 1, so its rendered
+    // stacking context (including the card's shadow) sits above any
+    // sibling with the default zIndex of 0. Hoist the dots above so
+    // they always paint cleanly regardless of shadow overlap.
+    zIndex: 3,
   },
 });
 
