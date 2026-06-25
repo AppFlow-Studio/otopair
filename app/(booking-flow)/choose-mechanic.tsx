@@ -37,6 +37,8 @@ import { ShopPage } from "@/components/booking-flow/ShopPage";
 import { StickyContinueBar } from "@/components/booking-flow/StickyContinueBar";
 import { VehiclePuck } from "@/components/booking-flow/VehiclePuck";
 import { useMechanicStore } from "@/stores/useMechanicStore";
+import { useShopStore } from "@/stores/useShopStore";
+import { distanceBetween } from "@/utils/geo";
 import { useNearbyBookingShops } from "@/hooks/useNearbyBookingShops";
 import { useNextAvailabilityForShop } from "@/hooks/useNextAvailabilityForShop";
 import { useBookingLaborHoursMap } from "@/hooks/useBookingLaborHoursMap";
@@ -57,6 +59,11 @@ export default function ChooseMechanicScreen() {
   const selectedServiceIds = useBookingStore((s) => s.selectedServiceIds);
   const availableServices = useBookingStore((s) => s.availableServices);
   const selectedServiceOptions = useBookingStore((s) => s.selectedServiceOptions);
+  // Pre-pinned shop from the shop-detail "Book a Service" CTA. When
+  // set, the carousel below filters down to JUST this shop so the
+  // user lands on the shop they came in for. Cleared via
+  // `clearPreSelections` (booking store) on flow reset.
+  const preSelectedShopId = useBookingStore((s) => s.preSelectedShopId);
   const ownershipId = useVehicleStore((s) => s.getSelectedVehicle())?.ownershipId;
 
   // Engine-adjusted + director-rounded labor (empirical → book →
@@ -103,7 +110,43 @@ export default function ChooseMechanicScreen() {
     [selectedServices, realPartsCostMap],
   );
 
-  const { results: nearbyShops, isLoading: shopsLoading } = useNearbyBookingShops(5);
+  const { results: nearbyResults, isLoading: shopsLoading } = useNearbyBookingShops(5);
+  const getShopById = useShopStore((s) => s.getShopById);
+  const userLocationForDistance = useBookingStore((s) => s.userLocation);
+
+  // When the user entered via the shop-detail Book CTA, the booking
+  // store has `preSelectedShopId` set — pin the carousel to JUST
+  // that shop so the picked shop is the only one in the swipe deck.
+  // If the shop happens to be in the top-5 nearby, reuse that
+  // entry (preserves distance + coversAll). Otherwise synthesize a
+  // NearbyShopResult straight from the shop store so a far-away
+  // search hit still surfaces.
+  const KM_PER_MI = 1.609344;
+  const nearbyShops = useMemo(() => {
+    if (!preSelectedShopId) return nearbyResults;
+    const matchInNearby = nearbyResults.find((r) => r.shop.id === preSelectedShopId);
+    if (matchInNearby) return [matchInNearby];
+    const shop = getShopById(preSelectedShopId);
+    if (!shop) return nearbyResults;
+    const km =
+      userLocationForDistance && shop.latitude !== 0 && shop.longitude !== 0
+        ? distanceBetween(
+            { latitude: userLocationForDistance.latitude, longitude: userLocationForDistance.longitude },
+            { latitude: shop.latitude, longitude: shop.longitude },
+          )
+        : null;
+    const coversAll =
+      selectedServiceIds.length === 0
+        ? true
+        : selectedServiceIds.every((sid) => shop.serviceIds.includes(sid));
+    return [
+      {
+        shop,
+        distanceMi: km != null ? km / KM_PER_MI : 0,
+        coversAll,
+      },
+    ];
+  }, [nearbyResults, preSelectedShopId, getShopById, userLocationForDistance, selectedServiceIds]);
 
   // Active page index = which shop the user is currently viewing.
   const [activeIndex, setActiveIndex] = useState(0);

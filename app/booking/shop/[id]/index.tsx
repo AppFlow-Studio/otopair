@@ -72,6 +72,7 @@ export default function ShopDetailScreen() {
   const resetBookingFlow = useBookingStore((state) => state.resetBookingFlow);
   const bookingStage = useBookingStore((state) => state.bookingStage);
   const selectedServiceIds = useBookingStore((state) => state.selectedServiceIds);
+  const setPreSelectedShop = useBookingStore((state) => state.setPreSelectedShop);
   const addRecentShop = useSearchStore((state) => state.addRecentShop);
 
   // ═══════════════ COMPUTED VALUES ═══════════════
@@ -206,11 +207,20 @@ export default function ShopDetailScreen() {
   };
 
   const handleSchedulePress = useCallback(() => {
-    // Match the existing "schedule" tab behavior: open the booking
-    // modal with "Any" mechanic.
-    setBookingMechanicId(null);
-    setShowBookingModal(true);
-  }, []);
+    // Route into the booking flow with THIS shop pre-pinned. The
+    // user picks services on Screen 1, then Choose Mechanic
+    // (Screen 3) reads `preSelectedShopId` from the booking store
+    // and locks the carousel to this shop so the user lands on the
+    // shop they came in for (not the closest one to them).
+    //
+    // Legacy `ShopBookingModal` is still mounted below for any
+    // residual call sites, but this CTA + the top "Book" pill no
+    // longer open it — both flow through the new (booking-flow)
+    // stack now.
+    if (!shop) return;
+    setPreSelectedShop(shop.id);
+    router.push("/(booking-flow)/select-services");
+  }, [router, setPreSelectedShop, shop]);
 
   return (
     <FullScreenContainer style={styles.container}>
@@ -256,8 +266,11 @@ export default function ShopDetailScreen() {
         {/* Hero map */}
         <MechanicDetailHeader shop={shop} onBack={handleBack} />
 
-        {/* Floating shop info card — overlaps the map bottom edge */}
-        <ShopHeroCard shop={shop} />
+        {/* Floating shop info card — overlaps the map bottom edge.
+            Pass the same Book handler the sticky CTA uses so the
+            top-of-card "Book" pill routes through the new
+            (booking-flow) stack instead of the legacy modal. */}
+        <ShopHeroCard shop={shop} onSchedulePress={handleSchedulePress} />
 
         {/* Tab Navigation */}
         <MechanicDetailTabs activeTab={activeTab} onTabChange={handleTabChange} />
