@@ -33,6 +33,7 @@ try {
 }
 import { haptics } from "@/lib/haptics";
 import { useToast } from "@/hooks/useToast";
+import { useUpdateMileage } from "@/hooks/useUpdateMileage";
 import Svg, { Circle, Defs, LinearGradient as SvgLinearGradient, Stop } from "react-native-svg";
 
 // 3. Convex & hooks
@@ -1263,7 +1264,12 @@ export default function CarsHomeScreen() {
   const [showEditPicker, setShowEditPicker] = useState(false);
   const [editPickerModal, setEditPickerModal] = useState(false);
   const [mileageEditOpen, setMileageEditOpen] = useState(false);
-  const updateMileageMutation = useMutation(api.vehicles.updateMileage);
+  // Shared mileage-update hook — wraps `api.vehicles.updateMileage`
+  // with validation, toast, and the reactive maintenance recompute
+  // (no extra call needed; the tracker re-tiers on the next render
+  // tick automatically). Same hook is the entry point for Oto AI's
+  // mileage-update flow.
+  const { updateMileage: updateMileageWithUx } = useUpdateMileage();
   const editPickerY = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
   const editPickerBackdrop = useRef(new Animated.Value(0)).current;
 
@@ -2614,8 +2620,11 @@ export default function CarsHomeScreen() {
           if (!vin || !userId) {
             throw new Error("Sign in and pick a vehicle to update mileage.");
           }
-          await updateMileageMutation({ vin, userId, mileage });
-          toast.success("Mileage updated");
+          // Hook fires its own toast on success AND on validation /
+          // mutation failure. Re-throwing on !ok preserves the
+          // MileageEditModal's inline-error contract.
+          const result = await updateMileageWithUx({ vin, userId, mileage });
+          if (!result.ok) throw new Error(result.error);
         }}
       />
 
