@@ -207,11 +207,16 @@ export default function ShopDetailScreen() {
   };
 
   const handleSchedulePress = useCallback(() => {
-    // Route into the booking flow with THIS shop pre-pinned. The
-    // user picks services on Screen 1, then Choose Mechanic
-    // (Screen 3) reads `preSelectedShopId` from the booking store
-    // and locks the carousel to this shop so the user lands on the
-    // shop they came in for (not the closest one to them).
+    // Route into the booking flow with THIS shop pre-pinned, and
+    // REPLACE the shop detail in the stack instead of pushing on
+    // top of it. `push` was causing the booking-flow sheet to
+    // appear over the shop detail (both screens mounted, sheet
+    // semi-transparent → user saw shop detail bleeding through);
+    // `replace` swaps in the booking-flow cleanly so it reads as
+    // a full-page navigation. Back from inside the booking flow
+    // returns to whatever was below the shop detail (search,
+    // home, etc.) — which is the right behavior since the user
+    // already committed to booking with this shop.
     //
     // Legacy `ShopBookingModal` is still mounted below for any
     // residual call sites, but this CTA + the top "Book" pill no
@@ -219,7 +224,7 @@ export default function ShopDetailScreen() {
     // stack now.
     if (!shop) return;
     setPreSelectedShop(shop.id);
-    router.push("/(booking-flow)/select-services");
+    router.replace("/(booking-flow)/select-services");
   }, [router, setPreSelectedShop, shop]);
 
   return (

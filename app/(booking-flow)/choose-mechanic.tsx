@@ -115,17 +115,27 @@ export default function ChooseMechanicScreen() {
   const userLocationForDistance = useBookingStore((s) => s.userLocation);
 
   // When the user entered via the shop-detail Book CTA, the booking
-  // store has `preSelectedShopId` set — pin the carousel to JUST
-  // that shop so the picked shop is the only one in the swipe deck.
-  // If the shop happens to be in the top-5 nearby, reuse that
-  // entry (preserves distance + coversAll). Otherwise synthesize a
-  // NearbyShopResult straight from the shop store so a far-away
-  // search hit still surfaces.
+  // store has `preSelectedShopId` set — surface that shop as the
+  // FIRST page of the swipe deck, but keep the rest of the nearby
+  // shops available so the user can still browse alternatives.
+  //
+  // Two sub-cases for sourcing the pinned shop's NearbyShopResult:
+  //   1. It's already in the top-5 nearby (the common case) — pull
+  //      it out of nearbyResults so distance + coversAll stay
+  //      accurate, then put it at index 0 with the others behind.
+  //   2. It isn't in the top-5 (user searched a far-away shop) —
+  //      synthesize a NearbyShopResult from useShopStore +
+  //      userLocation so the pinned shop still surfaces, then
+  //      append the regular nearby list behind it.
   const KM_PER_MI = 1.609344;
   const nearbyShops = useMemo(() => {
     if (!preSelectedShopId) return nearbyResults;
     const matchInNearby = nearbyResults.find((r) => r.shop.id === preSelectedShopId);
-    if (matchInNearby) return [matchInNearby];
+    if (matchInNearby) {
+      // Move the matched shop to the front, keep the rest in order.
+      const rest = nearbyResults.filter((r) => r.shop.id !== preSelectedShopId);
+      return [matchInNearby, ...rest];
+    }
     const shop = getShopById(preSelectedShopId);
     if (!shop) return nearbyResults;
     const km =
@@ -139,13 +149,12 @@ export default function ChooseMechanicScreen() {
       selectedServiceIds.length === 0
         ? true
         : selectedServiceIds.every((sid) => shop.serviceIds.includes(sid));
-    return [
-      {
-        shop,
-        distanceMi: km != null ? km / KM_PER_MI : 0,
-        coversAll,
-      },
-    ];
+    const synthesized = {
+      shop,
+      distanceMi: km != null ? km / KM_PER_MI : 0,
+      coversAll,
+    };
+    return [synthesized, ...nearbyResults];
   }, [nearbyResults, preSelectedShopId, getShopById, userLocationForDistance, selectedServiceIds]);
 
   // Active page index = which shop the user is currently viewing.
