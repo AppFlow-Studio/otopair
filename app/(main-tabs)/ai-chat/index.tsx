@@ -455,6 +455,8 @@ export default function AIChatScreen() {
           linkButton,
           bookingCard,
           bookingsList,
+          reasoning,
+          sources,
         } = await sendMessageAction({
           conversationId,
           message: messageText,
@@ -502,6 +504,28 @@ export default function AIChatScreen() {
               } as import("@/services/ai/types").VehicleUpdatePayload)
             : undefined;
 
+        // render_reasoning — map Oto's { title, detail } steps onto the
+        // AIReasoning shape ({ id, text, completed }). Without this, a fired
+        // render_reasoning produced no visible trace on the mobile bubble.
+        const reasoningSteps = Array.isArray(reasoning)
+          ? (reasoning as Array<{ title?: string; detail?: string }>).map((s, i) => ({
+              id: `oto_reason_${i}`,
+              text: s?.detail ? `${s.title ?? ""} — ${s.detail}` : (s?.title ?? ""),
+              completed: true,
+            }))
+          : undefined;
+        // render_sources — map Oto's free-form { title, details, url } citations
+        // onto a generic "reference" source pill (url surfaces in the tooltip).
+        const sourceList = Array.isArray(sources)
+          ? (sources as Array<{ title?: string; details?: string; url?: string }>).map((s) => ({
+              type: "reference" as const,
+              label: s?.title ?? "Source",
+              icon: "🔗",
+              description: s?.details ?? "Cited reference",
+              details: s?.url ?? s?.details,
+            }))
+          : undefined;
+
         const nextStage: ChatMessage["stage"] = bookServiceEnvelope
           ? "confirmation"
           : undefined;
@@ -519,6 +543,8 @@ export default function AIChatScreen() {
           linkButton: linkButtonEnvelope,
           bookingCard: bookingCardEnvelope,
           bookingsList: bookingsListEnvelope,
+          reasoning: reasoningSteps,
+          sources: sourceList,
           stage: nextStage,
         };
         setState((prev) => ({
