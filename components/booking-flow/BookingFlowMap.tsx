@@ -140,10 +140,17 @@ export function BookingFlowMapProvider({
       }}
     >
       <View style={styles.root}>
-        {/* Persistent map behind every screen. pointerEvents follows
-            the interactive flag so the locked backdrop never eats a
-            touch meant for the sheet above it, while the interactive
-            screen can receive pan/pinch in its exposed map area. */}
+        {/* Persistent map behind every screen. Gesture props on the
+            MapView are ALWAYS on — react-native-maps has been spotty
+            about re-applying scrollEnabled/zoomEnabled mid-mount, so
+            we let the MapView always think it's interactive and gate
+            real touches at the wrapper's pointerEvents instead. When
+            `interactive` is false the wrapper blocks all touches, so
+            the MapView never sees a gesture; when true, touches
+            arrive on an already-configured MapView. This avoids the
+            class of bugs where the user flips a screen to interactive
+            and the map silently refuses to pan because the prop
+            change didn't propagate. */}
         <View
           style={StyleSheet.absoluteFill}
           pointerEvents={interactive ? "auto" : "none"}
@@ -155,10 +162,10 @@ export function BookingFlowMapProvider({
               provider={PROVIDER_DEFAULT}
               initialRegion={region}
               showsUserLocation
-              scrollEnabled={interactive}
-              zoomEnabled={interactive}
+              scrollEnabled
+              zoomEnabled
               pitchEnabled={false}
-              rotateEnabled={interactive}
+              rotateEnabled
             >
               {markers.map((m) => (
                 <Marker
