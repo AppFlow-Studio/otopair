@@ -168,11 +168,22 @@ export interface ChatMessage {
 export interface VehicleUpdatePayload {
   // vehicles._id — resolved on the frontend, not present in the backend payload.
   vehicle_id: string;
-  // Odometer reading the user stated this turn.
+  // CURRENT odometer reading the user stated this turn.
   mileage?: number;
   // Services the user reported. "due"/"light_on" FLAG the service; "completed"
-  // RECORDS it done (clears the flag).
-  service_claims?: { service_slug: string; kind: "due" | "light_on" | "completed" }[];
+  // RECORDS it done (clears the flag). For a PAST "completed" service, the
+  // optional anchors say WHEN / at-what-mileage it was done so the maintenance
+  // pipeline re-anchors the due clock to then (not today):
+  //   service_mileage  — the service's own odometer ("at 89,000")
+  //   service_age_days — days ago ("a week ago" → 7), server-resolved to now − days
+  //   service_date     — absolute ms timestamp (wins over service_age_days)
+  service_claims?: {
+    service_slug: string;
+    kind: "due" | "light_on" | "completed";
+    service_mileage?: number;
+    service_age_days?: number;
+    service_date?: number;
+  }[];
   // Named warning lights (e.g. ["check_engine"]).
   fault_lights?: string[];
 }

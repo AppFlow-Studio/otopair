@@ -116,6 +116,19 @@ function capitalize(s: string): string {
   return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
 }
 
+/** Human "when" suffix for a past completed service ("a week ago", "3 months ago"). */
+function describeAge(ageDays?: number, dateMs?: number): string | null {
+  let days = ageDays;
+  if (days == null && dateMs != null) {
+    days = Math.round((Date.now() - dateMs) / 86_400_000);
+  }
+  if (days == null || days <= 0) return null;
+  if (days === 1) return "yesterday";
+  if (days < 14) return days === 7 ? "a week ago" : `${days} days ago`;
+  if (days < 60) return `${Math.round(days / 7)} weeks ago`;
+  return `${Math.round(days / 30)} months ago`;
+}
+
 /** The one-line rows the card shows for the present payload fields (schematic §3). */
 function buildRows(payload: VehicleUpdatePayload): string[] {
   const rows: string[] = [];
@@ -124,11 +137,16 @@ function buildRows(payload: VehicleUpdatePayload): string[] {
   }
   for (const claim of payload.service_claims ?? []) {
     const label = humanizeSlug(claim.service_slug);
-    rows.push(
-      claim.kind === "completed"
-        ? `Log ${label} as done`
-        : `Flag ${label} as due`,
-    );
+    if (claim.kind === "completed") {
+      // Surface the past anchor the user is about to write, so the confirm is honest.
+      const when: string[] = [];
+      if (claim.service_mileage != null) when.push(`at ${num(claim.service_mileage)} mi`);
+      const ago = describeAge(claim.service_age_days, claim.service_date);
+      if (ago) when.push(ago);
+      rows.push(`Log ${label} as done${when.length ? ` (${when.join(", ")})` : ""}`);
+    } else {
+      rows.push(`Flag ${label} as due`);
+    }
   }
   for (const light of payload.fault_lights ?? []) {
     rows.push(`Log ${humanizeLight(light)} light`);

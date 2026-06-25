@@ -78,6 +78,88 @@ describe("applyVehicleTruth", () => {
     });
   });
 
+  // Past-dated completed service — "I did my oil at 89,000 (now at 90,000)" /
+  // "a week ago". The record's anchor must land on the PAST mileage/date so the
+  // maintenance pipeline projects next-due from THEN, not from now/current.
+  describe("past-dated completed service (re-anchors the maintenance record)", () => {
+    it("records the service at the stated PAST mileage, not the current odometer", async () => {
+      const t = makeT(); const s = await seed(t); // current odometer 40000
+      const res = await t.withIdentity(ident).mutation(api.vehicleTruth.applyVehicleTruth, {
+        vehicle_id: s.vehicleId,
+        service_claims: [{ service_slug: "oil_change", kind: "completed", service_mileage: 35000 }],
+      });
+      expect(res.ok).toBe(true);
+      // 35000 is BELOW current 40000 — must NOT be rejected as "backward" (that
+      // guard is scoped to the current-odometer field only).
+      expect(res.needsReconfirm).toBeFalsy();
+      const rec: any = await t.run((ctx: any) =>
+        ctx.db.query("maintenance_records")
+          .withIndex("by_vehicle_and_type", (q: any) => q.eq("vehicleOwnerId", s.ownerId).eq("type", "oil"))
+          .unique());
+      expect(rec.lastServiceMileage).toBe(35000); // the PAST anchor, not 40000
+      const owner: any = await t.run((ctx: any) => ctx.db.get(s.ownerId));
+      expect(owner.mileage).toBe(40000); // current odometer untouched
+    });
+
+    it("resolves service_age_days to lastServiceDate ≈ now − days", async () => {
+      const t = makeT(); const s = await seed(t);
+      const before = Date.now();
+      await t.withIdentity(ident).mutation(api.vehicleTruth.applyVehicleTruth, {
+        vehicle_id: s.vehicleId,
+        service_claims: [{ service_slug: "oil_change", kind: "completed", service_age_days: 7 }],
+      });
+      const rec: any = await t.run((ctx: any) =>
+        ctx.db.query("maintenance_records")
+          .withIndex("by_vehicle_and_type", (q: any) => q.eq("vehicleOwnerId", s.ownerId).eq("type", "oil"))
+          .unique());
+      const expected = before - 7 * 24 * 60 * 60 * 1000;
+      expect(Math.abs(rec.lastServiceDate - expected)).toBeLessThan(60_000);
+    });
+
+    it("an absolute service_date wins over service_age_days", async () => {
+      const t = makeT(); const s = await seed(t);
+      const exact = Date.now() - 30 * 24 * 60 * 60 * 1000; // 30 days ago, explicit
+      await t.withIdentity(ident).mutation(api.vehicleTruth.applyVehicleTruth, {
+        vehicle_id: s.vehicleId,
+        service_claims: [{ service_slug: "oil_change", kind: "completed", service_age_days: 7, service_date: exact }],
+      });
+      const rec: any = await t.run((ctx: any) =>
+        ctx.db.query("maintenance_records")
+          .withIndex("by_vehicle_and_type", (q: any) => q.eq("vehicleOwnerId", s.ownerId).eq("type", "oil"))
+          .unique());
+      expect(rec.lastServiceDate).toBe(exact);
+    });
+
+    it("falls back to current odometer + now when no past values are given", async () => {
+      const t = makeT(); const s = await seed(t);
+      const before = Date.now();
+      await t.withIdentity(ident).mutation(api.vehicleTruth.applyVehicleTruth, {
+        vehicle_id: s.vehicleId, mileage: 41000,
+        service_claims: [{ service_slug: "oil_change", kind: "completed" }],
+      });
+      const rec: any = await t.run((ctx: any) =>
+        ctx.db.query("maintenance_records")
+          .withIndex("by_vehicle_and_type", (q: any) => q.eq("vehicleOwnerId", s.ownerId).eq("type", "oil"))
+          .unique());
+      expect(rec.lastServiceMileage).toBe(41000); // current-odometer fallback
+      expect(rec.lastServiceDate).toBeGreaterThanOrEqual(before - 1000); // ~now
+    });
+
+    it("ignores an implausible service_mileage above the current odometer", async () => {
+      const t = makeT(); const s = await seed(t); // current 40000
+      await t.withIdentity(ident).mutation(api.vehicleTruth.applyVehicleTruth, {
+        vehicle_id: s.vehicleId,
+        service_claims: [{ service_slug: "oil_change", kind: "completed", service_mileage: 99999 }],
+      });
+      const rec: any = await t.run((ctx: any) =>
+        ctx.db.query("maintenance_records")
+          .withIndex("by_vehicle_and_type", (q: any) => q.eq("vehicleOwnerId", s.ownerId).eq("type", "oil"))
+          .unique());
+      // 99999 > current 40000 → rejected → fall back to current odometer.
+      expect(rec.lastServiceMileage).toBe(40000);
+    });
+  });
+
   it("adds the service warning-light code to knownIssues from a maintenance-reminder claim", async () => {
     const t = makeT(); const s = await seed(t);
     await t.withIdentity(ident).mutation(api.vehicleTruth.applyVehicleTruth, {
