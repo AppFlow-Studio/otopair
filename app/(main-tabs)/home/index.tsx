@@ -514,10 +514,12 @@ export default function HomeScreen() {
     // TODO: Implement search functionality
   };
 
-  // Both the search field and the map button are entry points to the new
-  // booking flow's service picker — they route to the same place.
+  // Both the search field and the map button route to the booking
+  // flow's service picker, but the map button passes `entry=map` so
+  // the picker mounts in peek mode: low sheet, interactive map
+  // underneath. Search-entry behavior is unchanged (full sheet).
   const handleMapPress = () => {
-    router.push("/(booking-flow)/select-services");
+    router.push("/(booking-flow)/select-services?entry=map");
   };
 
   const handleSearchPress = () => {

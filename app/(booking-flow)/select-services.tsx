@@ -17,7 +17,7 @@
  * Spec: ~/Downloads/<figma frames> Screen 1.
  */
 
-import React, { useCallback, useEffect, useMemo, useRef } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Dimensions,
   Platform,
@@ -27,7 +27,12 @@ import {
   View,
 } from "react-native";
 import { BlurView } from "expo-blur";
-import { useFocusEffect } from "expo-router";
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+} from "react-native-reanimated";
+import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Search, X } from "lucide-react-native";
@@ -74,16 +79,42 @@ function legacyCategoryToTab(
   }
 }
 
-// Sheet is a fixed-height frosted card — the content inside scrolls.
-// Previously had a free-drag Pan gesture that resized the sheet, but
-// users found the whole sheet moving on vertical drag distracting
-// vs. a normal scrollable list. Reverted to fixed-height + ScrollView.
+// Sheet is a fixed-height frosted card by default — the content
+// inside scrolls. Two heights:
+//   - SHEET_H_FULL: default open state (search-entry path + after
+//     the user expands the peek).
+//   - SHEET_H_PEEK: low peek shown when the user enters via the
+//     map button on Home. Map underneath is interactive so they
+//     can pan around looking for shops; a tap on the sheet
+//     animates it up to full.
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
-const SHEET_H = SCREEN_HEIGHT * 0.92;
+const SHEET_H_FULL = SCREEN_HEIGHT * 0.92;
+const SHEET_H_PEEK = SCREEN_HEIGHT * 0.18;
 
 export default function SelectServicesScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { entry } = useLocalSearchParams<{ entry?: string }>();
+  // Peek mode: home's Map button passes `?entry=map` so the picker
+  // mounts low and lets the user interact with the map first. They
+  // tap the sheet to expand into the normal full-picker UI.
+  const isPeekEntry = entry === "map";
+  const [isPeekExpanded, setIsPeekExpanded] = useState(!isPeekEntry);
+  const sheetHeight = useSharedValue(
+    isPeekEntry ? SHEET_H_PEEK : SHEET_H_FULL,
+  );
+  const sheetAnimatedStyle = useAnimatedStyle(() => ({
+    height: sheetHeight.value,
+  }));
+  const expandPeekSheet = useCallback(() => {
+    if (isPeekExpanded) return;
+    sheetHeight.value = withSpring(SHEET_H_FULL, {
+      damping: 22,
+      stiffness: 180,
+    });
+    setIsPeekExpanded(true);
+  }, [isPeekExpanded, sheetHeight]);
+
   const availableServices = useBookingStore((s) => s.availableServices);
   const selectedServiceIds = useBookingStore((s) => s.selectedServiceIds);
   const initialServiceCategory = useBookingStore((s) => s.initialServiceCategory);
@@ -121,18 +152,27 @@ export default function SelectServicesScreen() {
     });
   }, [initialServiceCategory, router, setInitialServiceCategory]);
 
-  // Shared persistent map (lives in the layout) — this screen uses it
-  // as a locked backdrop. Re-assert locked mode + recenter on every
-  // focus so coming back from the interactive choose-mechanic screen
-  // resets the camera.
+  // Shared persistent map (lives in the layout). Locked backdrop by
+  // default, but in peek mode (entered via Home's Map button) it
+  // unlocks while the sheet is still low so the user can pan/zoom
+  // around looking for shops. Once they tap the peek and the sheet
+  // expands, we re-lock so the map doesn't intercept gestures meant
+  // for the now-full sheet.
   const { setInteractive, setMarkers, mapRef, region } = useBookingFlowMap();
+  const mapShouldBeInteractive = isPeekEntry && !isPeekExpanded;
   useFocusEffect(
     useCallback(() => {
-      setInteractive(false);
+      setInteractive(mapShouldBeInteractive);
       setMarkers([]);
       if (region) mapRef.current?.animateToRegion(region, 300);
-    }, [setInteractive, setMarkers, mapRef, region]),
+    }, [setInteractive, setMarkers, mapRef, region, mapShouldBeInteractive]),
   );
+  // Also flip interactivity whenever the peek state changes mid-focus
+  // (without waiting for the next focus tick) so tap → expand
+  // immediately disables the map underneath.
+  useEffect(() => {
+    setInteractive(mapShouldBeInteractive);
+  }, [setInteractive, mapShouldBeInteractive]);
 
   // Enrichment-in-progress nudge. If the currently selected vehicle
   // is still being enriched by the v3 pipeline (i.e. server-side
@@ -200,11 +240,11 @@ export default function SelectServicesScreen() {
       {/* Map is the shared persistent backdrop rendered by the layout;
           this screen only paints its sheet over it. */}
 
-      {/* Fixed-height frosted sheet — content scrolls inside.
-          (Previously a free-drag Pan gesture resized the sheet on
-          vertical swipe, which Ahmad found distracting next to a
-          regular scrollable list.) */}
-      <View style={[styles.sheet, { height: SHEET_H }]}>
+      {/* Frosted sheet — fixed height by default, animates from peek
+          to full height when the user enters via Home's map button
+          and taps the sheet. Content scrolls inside (no Pan gesture
+          that resizes the sheet mid-scroll). */}
+      <Animated.View style={[styles.sheet, sheetAnimatedStyle]}>
           {/* Real frosted-glass sheet — same pattern Settings uses
               for its blurred header. On iOS BlurView blurs the
               map underneath; on Android we fall back to a thick
@@ -218,6 +258,33 @@ export default function SelectServicesScreen() {
             />
           )}
           <GlassSheetHandle />
+          {/* Peek body — only rendered while the map-entry user
+              hasn't tapped to expand. Whole peek is a Pressable so
+              the entire visible sheet area is a tap target. Picking
+              a separate component instead of an overlay avoids the
+              tap conflicting with any nested Pressables (X / search
+              icons) since those don't render until after expansion. */}
+          {isPeekEntry && !isPeekExpanded ? (
+            <Pressable
+              onPress={expandPeekSheet}
+              style={styles.peekBody}
+              accessibilityRole="button"
+              accessibilityLabel="Browse services"
+              accessibilityHint="Expands the service picker"
+            >
+              <Text
+                size="lg"
+                weight="semiBold"
+                color="#0F172A"
+                style={styles.peekTitle}
+              >
+                Find shops on the map
+              </Text>
+              <Text size="sm" weight="regular" color="#6B7280" center>
+                Tap to pick a service
+              </Text>
+            </Pressable>
+          ) : (
           <ScrollView
             contentContainerStyle={[
               styles.scrollContent,
@@ -286,7 +353,8 @@ export default function SelectServicesScreen() {
             <QuickBookRow />
           </View>
           </ScrollView>
-      </View>
+          )}
+      </Animated.View>
 
       {/* Cart review FAB — same one Screen 2 has so the user can
           see + edit the multi-tab selection from Screen 1 too.
@@ -336,6 +404,17 @@ const styles = StyleSheet.create({
     paddingTop: 0,
     paddingBottom: 32,
     flex: 1,
+  },
+  peekBody: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 32,
+    paddingBottom: 16,
+    gap: 6,
+  },
+  peekTitle: {
+    textAlign: "center",
   },
   topRow: {
     flexDirection: "row",
