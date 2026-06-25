@@ -139,7 +139,7 @@ export function BookingFlowMapProvider({
         setMarkers: setMarkersCb,
       }}
     >
-      <View style={styles.root}>
+      <View style={styles.root} pointerEvents="box-none">
         {/* Persistent map behind every screen. Gesture props on the
             MapView are ALWAYS on — react-native-maps has been spotty
             about re-applying scrollEnabled/zoomEnabled mid-mount, so

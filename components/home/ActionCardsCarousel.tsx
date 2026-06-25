@@ -344,11 +344,20 @@ export function ActionCardsCarousel({
 
 const styles = StyleSheet.create({
   container: {
-    overflow: 'visible',
+    // Clip card content to the container's animated height. The
+    // container tracks the ACTIVE card's height (compact-active-card
+    // layout). If a sibling card (e.g. the appointment card with its
+    // BookingCard + NavigationETABar map) is taller than the active
+    // card, `overflow: 'visible'` would let it paint past the
+    // container's bottom edge — straight into the NowTierCallout
+    // below. That's the bug Ahmad caught where the map + red SUV
+    // image from the booking-in-progress card visually invaded the
+    // Oil Change "Book Service" card. Clip it.
+    overflow: 'hidden',
   },
   scrollView: {
     marginHorizontal: -16, // Extend scroll view to edges
-    overflow: 'visible',
+    overflow: 'hidden',
   },
   scrollContent: {
     alignItems: 'flex-start',
