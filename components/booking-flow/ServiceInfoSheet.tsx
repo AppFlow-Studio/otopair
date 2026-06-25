@@ -26,7 +26,12 @@ import { Clock, Info } from "lucide-react-native";
 import { Text } from "@/components/shared-ui";
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
 import { TAXONOMY } from "@/constants/serviceTaxonomy";
-import { getServiceCopy, type ServiceSimpleCopy } from "@/constants/serviceCopy";
+import {
+  getServiceCopy,
+  pickServiceCopyTier,
+  type ServiceTierCopy,
+} from "@/constants/serviceCopy";
+import { useServiceCopyTier } from "@/hooks/useServiceCopyTier";
 
 interface ServiceInfoSheetProps {
   slug: string;
@@ -39,6 +44,12 @@ export function ServiceInfoSheet({ slug, onClose }: ServiceInfoSheetProps) {
   const sheetRef = useRef<FloatingSheetRef>(null);
   const entry = TAXONOMY[slug];
   const copy = getServiceCopy(slug);
+  // Pick the tier from the onboarding ExperienceStep answer. The hook
+  // resolves to "simple" when the user hasn't answered, matching Oto
+  // AI's friendly baseline. Same level for both surfaces so the
+  // InfoSheet and chat speak in the same voice.
+  const tier = useServiceCopyTier();
+  const tieredCopy: ServiceTierCopy | null = copy ? pickServiceCopyTier(copy, tier) : null;
 
   useEffect(() => {
     sheetRef.current?.open();
@@ -70,7 +81,7 @@ export function ServiceInfoSheet({ slug, onClose }: ServiceInfoSheetProps) {
             {entry.label}
           </Text>
 
-          {copy ? (
+          {copy && tieredCopy ? (
             <>
               <View style={styles.quickSummary}>
                 {copy.quickSummary.map((line, idx) => (
@@ -86,9 +97,9 @@ export function ServiceInfoSheet({ slug, onClose }: ServiceInfoSheetProps) {
                 ))}
               </View>
 
-              <SimpleSection title="What it is" body={copy.simple.whatItIs} />
-              <SimpleSection title="Why it matters" body={copy.simple.whyItMatters} />
-              <SimpleSection title="Signs you might need it" body={copy.simple.signs} />
+              <SimpleSection title="What it is" body={tieredCopy.whatItIs} />
+              <SimpleSection title="Why it matters" body={tieredCopy.whyItMatters} />
+              <SimpleSection title="Signs you might need it" body={tieredCopy.signs} />
             </>
           ) : (
             // Legacy fallback — single-line subtitle, used when the
@@ -128,7 +139,7 @@ export function ServiceInfoSheet({ slug, onClose }: ServiceInfoSheetProps) {
 /** Single labeled paragraph inside the sheet — used for WHAT IT IS,
  *  WHY IT MATTERS, and SIGNS. Section title is small, uppercase, and
  *  blue-tinted to match the doc's section headers. */
-function SimpleSection({ title, body }: { title: string; body: ServiceSimpleCopy[keyof ServiceSimpleCopy] }) {
+function SimpleSection({ title, body }: { title: string; body: string }) {
   return (
     <View style={styles.section}>
       <Text weight="bold" style={styles.sectionTitle}>
