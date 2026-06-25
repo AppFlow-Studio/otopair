@@ -14,14 +14,17 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Dimensions, Platform, Pressable, StyleSheet, View } from "react-native";
+import {
+  Dimensions,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  View,
+} from "react-native";
 import { BlurView } from "expo-blur";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Gesture, GestureDetector } from "react-native-gesture-handler";
-import Animated, {
-  useAnimatedStyle,
-  useSharedValue,
-} from "react-native-reanimated";
+import Animated from "react-native-reanimated";
 import {
   ArrowLeft,
   Calendar,
@@ -68,14 +71,13 @@ import type { Service } from "@/stores/types/store.types";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 
-// Match Screen 1's custom drag sheet (release-where-you-let-go,
-// no snap-back). MIN_H is the tiny peek the user can shove the
-// sheet down to; MAX_H is full-screen; INITIAL_H is the open
-// peek-of-map look the screen mounts up into.
+// Fixed-height frosted sheet — content scrolls inside, sheet itself
+// doesn't move. Mirrors Screen 1 (select-services.tsx). Previously a
+// free-drag Pan gesture resized the sheet on vertical swipe, but
+// users found the whole-sheet movement distracting next to a normal
+// scrollable list.
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
-const MIN_H = SCREEN_HEIGHT * 0.23;
-const MAX_H = SCREEN_HEIGHT * 1.0;
-const INITIAL_H = SCREEN_HEIGHT * 0.92;
+const SHEET_H = SCREEN_HEIGHT * 0.92;
 
 // Same icon mapping as CategoryListRow so the shared-element
 // morph between Screen 1's row and Screen 2's header lands on a
@@ -163,39 +165,6 @@ export default function CategoryDetailScreen() {
       if (region) mapRef.current?.animateToRegion(region, 300);
     }, [setInteractive, setMarkers, mapRef, region]),
   );
-
-  // Custom drag sheet — same behavior as Screen 1. Mounts already at
-  // INITIAL_H: the screen enters via the stack's cross-fade (with the
-  // category icon/title morphing into the header) over the shared
-  // static map, so re-animating the sheet up from 0 would only fight
-  // that. Pan on the chrome (handle + topRow + header) drags the
-  // sheet; the service list scrolls normally.
-  const sheetHeight = useSharedValue(INITIAL_H);
-  const startHeight = useSharedValue(0);
-
-  const dragGesture = useMemo(
-    () =>
-      Gesture.Pan()
-        // Defer activation generously so taps on the back button +
-        // vehicle puck (sitting inside the drag chrome) don't get
-        // swallowed by the pan handler. 8pt was occasionally
-        // intercepting back-button taps when the user's finger
-        // micro-moved during release — bumped to 20 so the pan only
-        // wins on a clear swipe, never an accidental tap.
-        .activeOffsetY([-20, 20])
-        .onBegin(() => {
-          startHeight.value = sheetHeight.value;
-        })
-        .onUpdate((e) => {
-          const next = startHeight.value - e.translationY;
-          sheetHeight.value = Math.max(MIN_H, Math.min(MAX_H, next));
-        }),
-    [sheetHeight, startHeight],
-  );
-
-  const sheetAnimatedStyle = useAnimatedStyle(() => ({
-    height: sheetHeight.value,
-  }));
 
   const [specsCheckServiceId, setSpecsCheckServiceId] = useState<string | null>(null);
   const [infoSheetSlug, setInfoSheetSlug] = useState<string | null>(null);
@@ -336,8 +305,7 @@ export default function CategoryDetailScreen() {
     <View style={styles.root} pointerEvents="box-none">
       {/* Map is the shared persistent backdrop rendered by the layout. */}
 
-      <GestureDetector gesture={dragGesture}>
-        <Animated.View style={[styles.sheet, sheetAnimatedStyle]}>
+      <View style={[styles.sheet, { height: SHEET_H }]}>
           {/* Real frosted-glass sheet — iOS BlurView blurs the
               map underneath; Android falls back to a thick
               translucent white. Same pattern as Screen 1. */}
@@ -351,96 +319,102 @@ export default function CategoryDetailScreen() {
           )}
           <GlassSheetHandle />
 
-          <View style={styles.topRow}>
-            <Pressable
-              style={styles.iconBtn}
-              onPress={onBack}
-              hitSlop={8}
-              accessibilityLabel="Back"
-            >
-              <ArrowLeft size={20} color="#1F2937" strokeWidth={2} />
-            </Pressable>
-            <View style={{ flex: 1 }} />
-            <VehiclePuck />
-          </View>
-
-          {tab && tabKey ? (
-            <View style={styles.header}>
-              <View style={styles.headerTitleRow}>
-                <Animated.View
-                  style={styles.headerIconTile}
-                  sharedTransitionTag={`cat-icon-${tabKey}`}
-                  sharedTransitionStyle={categoryTitleTransition}
-                >
-                  {(() => {
-                    const Icon = TAB_ICONS[tabKey];
-                    return <Icon size={22} color="#4B5563" strokeWidth={2} />;
-                  })()}
-                </Animated.View>
-                <Animated.Text
-                  sharedTransitionTag={`cat-title-${tabKey}`}
-                  sharedTransitionStyle={categoryTitleTransition}
-                  style={styles.titleTarget}
-                >
-                  {tab.label}
-                </Animated.Text>
-              </View>
-              <Text size="md" weight="regular" color="#6B7280" style={styles.subtitle}>
-                {tab.subtitle} · {filteredServices.length} service
-                {filteredServices.length === 1 ? "" : "s"}
-              </Text>
+          <ScrollView
+            contentContainerStyle={{
+              paddingBottom: insets.bottom + 120,
+            }}
+            showsVerticalScrollIndicator={false}
+          >
+            <View style={styles.topRow}>
+              <Pressable
+                style={styles.iconBtn}
+                onPress={onBack}
+                hitSlop={8}
+                accessibilityLabel="Back"
+              >
+                <ArrowLeft size={20} color="#1F2937" strokeWidth={2} />
+              </Pressable>
+              <View style={{ flex: 1 }} />
+              <VehiclePuck />
             </View>
-          ) : null}
 
-          <View style={styles.list}>
-            {filteredServices.map((svc) => {
-              const slug = svc.slug;
-              if (!slug) return null;
-              const entry = TAXONOMY[slug];
-              if (!entry) return null;
-
-              const isSelected = selectedServiceIds.includes(svc.id);
-              const state: "bookable" | "needs_specs" | "blocked" = ownershipId
-                ? bookableIds.has(svc.id)
-                  ? "bookable"
-                  : needsSpecsIds.has(svc.id)
-                    ? "needs_specs"
-                    : "blocked"
-                : "bookable";
-
-              const hours =
-                laborHoursMap.get(svc.id) ??
-                engineSpecs[svc.id]?.labor_hours ??
-                svc.default_labor_hours;
-              const carDuration = formatDurationForCar(hours);
-              const durationText = carDuration
-                ? `About ${carDuration}`
-                : (entry.estTimeLabel ?? "");
-
-              return (
-                <ServiceMultiSelectRow
-                  key={svc.id}
-                  slug={slug}
-                  entry={entry}
-                  durationText={durationText}
-                  isSelected={isSelected}
-                  state={state}
-                  onPress={() => handleServicePress(svc)}
-                  onInfoPress={() => setInfoSheetSlug(slug)}
-                />
-              );
-            })}
-
-            {filteredServices.length === 0 ? (
-              <View style={styles.empty}>
-                <Text size="md" weight="medium" color="#9CA3AF" center>
-                  No services available for this tab right now.
+            {tab && tabKey ? (
+              <View style={styles.header}>
+                <View style={styles.headerTitleRow}>
+                  <Animated.View
+                    style={styles.headerIconTile}
+                    sharedTransitionTag={`cat-icon-${tabKey}`}
+                    sharedTransitionStyle={categoryTitleTransition}
+                  >
+                    {(() => {
+                      const Icon = TAB_ICONS[tabKey];
+                      return <Icon size={22} color="#4B5563" strokeWidth={2} />;
+                    })()}
+                  </Animated.View>
+                  <Animated.Text
+                    sharedTransitionTag={`cat-title-${tabKey}`}
+                    sharedTransitionStyle={categoryTitleTransition}
+                    style={styles.titleTarget}
+                  >
+                    {tab.label}
+                  </Animated.Text>
+                </View>
+                <Text size="md" weight="regular" color="#6B7280" style={styles.subtitle}>
+                  {tab.subtitle} · {filteredServices.length} service
+                  {filteredServices.length === 1 ? "" : "s"}
                 </Text>
               </View>
             ) : null}
-          </View>
-        </Animated.View>
-      </GestureDetector>
+
+            <View style={styles.list}>
+              {filteredServices.map((svc) => {
+                const slug = svc.slug;
+                if (!slug) return null;
+                const entry = TAXONOMY[slug];
+                if (!entry) return null;
+
+                const isSelected = selectedServiceIds.includes(svc.id);
+                const state: "bookable" | "needs_specs" | "blocked" = ownershipId
+                  ? bookableIds.has(svc.id)
+                    ? "bookable"
+                    : needsSpecsIds.has(svc.id)
+                      ? "needs_specs"
+                      : "blocked"
+                  : "bookable";
+
+                const hours =
+                  laborHoursMap.get(svc.id) ??
+                  engineSpecs[svc.id]?.labor_hours ??
+                  svc.default_labor_hours;
+                const carDuration = formatDurationForCar(hours);
+                const durationText = carDuration
+                  ? `About ${carDuration}`
+                  : (entry.estTimeLabel ?? "");
+
+                return (
+                  <ServiceMultiSelectRow
+                    key={svc.id}
+                    slug={slug}
+                    entry={entry}
+                    durationText={durationText}
+                    isSelected={isSelected}
+                    state={state}
+                    onPress={() => handleServicePress(svc)}
+                    onInfoPress={() => setInfoSheetSlug(slug)}
+                  />
+                );
+              })}
+
+              {filteredServices.length === 0 ? (
+                <View style={styles.empty}>
+                  <Text size="md" weight="medium" color="#9CA3AF" center>
+                    No services available for this tab right now.
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+          </ScrollView>
+      </View>
 
       {/* Sticky Continue bar (over the sheet) */}
       <StickyContinueBar

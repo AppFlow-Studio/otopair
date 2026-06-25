@@ -35,6 +35,7 @@ import {
   findServiceForMaintenanceType,
   findServiceFromDescription,
 } from '@/lib/maintenanceServiceMapping';
+import { buildWarningLightItem } from "@/lib/warningLightItems";
 import { usePendingNavigationStore } from "@/stores/usePendingNavigationStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 import { useNotificationsSheetStore } from "@/stores/useNotificationsSheetStore";
@@ -206,10 +207,23 @@ export default function HomeScreen() {
     useShallow((s) => ({ selectedServiceIds: s.selectedServiceIds, availableServices: s.availableServices }))
   );
 
-  // Upcoming appointment: next future booking that's pending or confirmed
+  // Upcoming appointment: next future booking that's pending or confirmed.
+  //
+  // `today` MUST be built from the user's LOCAL timezone, not UTC.
+  // bookings.scheduled_date is stored as a local "YYYY-MM-DD" string
+  // (no timezone), so comparing it against `new Date().toISOString()`
+  // (UTC) was off-by-one in evenings west of UTC: e.g. 11pm in NY
+  // (UTC-5) is already 4am the next day UTC, so a booking scheduled
+  // for "today in NY" failed the `>= today` check and the card
+  // randomly disappeared. The bug surfaced only at certain hours,
+  // matching Ahmad's "sometimes doesn't show" report.
   const upcomingBooking = useMemo(() => {
     if (!allBookings) return null;
-    const today = new Date().toISOString().split('T')[0];
+    const now = new Date();
+    const yyyy = now.getFullYear();
+    const mm = String(now.getMonth() + 1).padStart(2, "0");
+    const dd = String(now.getDate()).padStart(2, "0");
+    const today = `${yyyy}-${mm}-${dd}`;
     return allBookings
       .filter(
         (b: any) =>
@@ -472,6 +486,111 @@ export default function HomeScreen() {
           }
         }
 
+        // ── Warning lights → nowItems (Yassin urgency model) ───────────
+        // Home's loop above only iterates maintenance_records, so any
+        // active dashboard warning light that doesn't have a paired
+        // record (e.g. user reports oil_pressure but hasn't logged any
+        // oil change yet, OR user reports check_engine which has no
+        // paired type at all) was silently dropped here — that's the
+        // bug Ahmad caught.
+        //
+        // Two passes mirror useMergedMaintenance for the Cars page:
+        //  1. Paired-light fallback: for each paired light active in
+        //     knownIssues with no corresponding record, push a
+        //     synthesized now-tier item so Home shows it.
+        //  2. Consolidated unpaired-light card via buildWarningLightItem.
+        if (ownershipId && knownIssues && knownIssues.length > 0) {
+          const trackedTypes = new Set(records.map((r: any) => r.type as string));
+          const PAIRED_LIGHT_BY_TYPE_HOME: Record<
+            string,
+            { lightId: string; label: string }
+          > = {
+            oil: {
+              lightId: "oil_pressure",
+              label: "Oil pressure warning light active — service urgently needed",
+            },
+            battery: {
+              lightId: "battery_charging",
+              label: "Battery / charging warning light active — have it tested",
+            },
+            brakes: {
+              lightId: "abs",
+              label: "ABS / brake warning light active — have brakes inspected",
+            },
+            tires: {
+              lightId: "tpms",
+              label: "Tire pressure (TPMS) warning light active — check tires",
+            },
+          };
+          for (const [type, info] of Object.entries(PAIRED_LIGHT_BY_TYPE_HOME)) {
+            if (!knownIssues.includes(info.lightId)) continue;
+            if (trackedTypes.has(type)) continue; // record loop already handled it
+            const itemId = `${type}-${ownershipId}`;
+            const matched = findServiceFromDescription(info.label, availableServices);
+            const genericLabel =
+              MAINTENANCE_LABELS[type as keyof typeof MAINTENANCE_LABELS] ?? type;
+            nowItems.push({
+              itemId,
+              serviceName: matched?.name ?? genericLabel,
+              description: info.label,
+              suggestedServiceId: matched?.id,
+              urgencyScore: 100,
+            });
+            // Also push to urgentItems so the Home VehicleMaintenanceCard
+            // surfaces the same warning. Without this, a car whose only
+            // urgent item is a paired-light fallback (no maintenance
+            // records logged yet) shows "All systems healthy" on the
+            // card while the NowTierCallout above screams about the
+            // light — exactly the inconsistency Ahmad caught.
+            if (urgentItems.length < 3) {
+              urgentItems.push({
+                id: itemId,
+                serviceName: matched?.name ?? genericLabel,
+                dueText: "Overdue",
+                isOverdue: true,
+                description: info.label,
+                suggestedServiceId: matched?.id,
+              });
+            }
+          }
+
+          const warningItem = buildWarningLightItem({
+            knownIssues,
+            scopeId: String(ownershipId),
+          });
+          if (warningItem) {
+            // Pre-seed the diagnostic scan service so the booking flow
+            // opens with it ticked. Slug match is intentional — the
+            // catalog seed alternates `diagnostic_scan` (underscored)
+            // vs `diagnostic-scan` (hyphenated) across environments.
+            const diagnostic = availableServices.find((s) => {
+              const slug = (s.slug ?? "").toLowerCase().replace(/-/g, "_");
+              return slug === "diagnostic_scan";
+            });
+            nowItems.push({
+              itemId: warningItem.id,
+              serviceName: warningItem.serviceName,
+              description: warningItem.description,
+              suggestedServiceId: diagnostic?.id,
+              urgencyScore: 100,
+            });
+            // Mirror into urgentItems so VehicleMaintenanceCard shows
+            // the consolidated warning card too. Cap of 3 preserved —
+            // first-come-first-served is fine; the NowTierCallout shows
+            // everything.
+            if (urgentItems.length < 3) {
+              urgentItems.push({
+                id: warningItem.id,
+                serviceName: warningItem.serviceName,
+                dueText: "Overdue",
+                isOverdue: true,
+                description: warningItem.description,
+                suggestedServiceId: diagnostic?.id,
+              });
+            }
+          }
+        }
+
         const items = urgentItems.length > 0
           ? urgentItems
           : [{ id: "healthy", serviceName: "All systems healthy", dueText: "No action needed", isOverdue: false }];
@@ -514,10 +633,17 @@ export default function HomeScreen() {
     // TODO: Implement search functionality
   };
 
-  // Both the search field and the map button are entry points to the new
-  // booking flow's service picker — they route to the same place.
+  // Both the search field and the map button route to the booking
+  // flow's service picker, but the map button passes `entry=map` so
+  // the picker mounts in peek mode: low sheet, interactive map
+  // underneath. Search-entry behavior is unchanged (full sheet).
+  // Object form for router.push so Expo Router serializes the param
+  // into the route consistently across SDK versions.
   const handleMapPress = () => {
-    router.push("/(booking-flow)/select-services");
+    router.push({
+      pathname: "/(booking-flow)/select-services",
+      params: { entry: "map" },
+    });
   };
 
   const handleSearchPress = () => {
@@ -553,6 +679,27 @@ export default function HomeScreen() {
         router.navigate("/(main-tabs)/cars");
       }
     }, [pendingNavigateToCars, setPendingNavigateToCars, router])
+  );
+
+  // Enrichment-toast deferred from add-vehicle-review. Per Ahmad: don't
+  // fire the toast right after confirm (would overlap the /vehicle-added
+  // celebration). Surface it the next time the user lands on home so the
+  // background pipeline feels deliberate. The label is the user-visible
+  // "2024 Volkswagen Tiguan" so the toast can call out the specific car.
+  // One-shot: cleared as soon as it's read.
+  const pendingEnrichmentToast = usePendingNavigationStore((s) => s.pendingEnrichmentToast);
+  const setPendingEnrichmentToast = usePendingNavigationStore((s) => s.setPendingEnrichmentToast);
+  useFocusEffect(
+    useCallback(() => {
+      if (pendingEnrichmentToast) {
+        const carLabel = pendingEnrichmentToast;
+        setPendingEnrichmentToast(null);
+        // Universal-language pass per Ahmad: most users won't know
+        // what "enriching" means. "Connecting to your <car>" reads
+        // as a familiar tech action (like pairing) and stays short.
+        toast.trust(`Connecting to your ${carLabel}`);
+      }
+    }, [pendingEnrichmentToast, setPendingEnrichmentToast, toast])
   );
 
   const handleAppointmentPress = () => {

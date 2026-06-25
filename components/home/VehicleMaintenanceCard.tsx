@@ -166,6 +166,14 @@ export function VehicleMaintenanceCard({
   const translateX = useSharedValue(0);
   const rotation = useSharedValue(0);
   const cardOpacity = useSharedValue(1);
+  // Inner-press flag — set to 1 while the touch lives inside an
+  // interactive child Pressable (e.g. the Book Now button), so the
+  // parent's Gesture.Tap onEnd skips its "open the Cars tab" route.
+  // Without this the parent's tap and the button's onPress both
+  // resolve on the same touch and race; the parent's navigation was
+  // winning on quick taps, sending the user to /cars instead of the
+  // booking flow.
+  const innerPressedSV = useSharedValue(0);
 
   useEffect(() => {
     vehicles.forEach((v) => {
@@ -325,6 +333,18 @@ export function VehicleMaintenanceCard({
                 </Text>
               </View>
               <Pressable
+                onPressIn={() => {
+                  // Tell the parent Gesture.Tap to skip this touch.
+                  innerPressedSV.value = 1;
+                }}
+                onPressOut={() => {
+                  // Hold the flag a beat after release so the parent's
+                  // tap onEnd (which fires on touch release) still sees
+                  // it before we clear.
+                  setTimeout(() => {
+                    innerPressedSV.value = 0;
+                  }, 250);
+                }}
                 onPress={() => {
                   if (item.id === 'healthy') {
                     if (vehicle.vin) useVehicleStore.getState().selectVehicle(vehicle.vin);
@@ -372,7 +392,14 @@ export function VehicleMaintenanceCard({
     // ScrollView take the gesture and scroll (kills the dead zone).
     .maxDistance(8)
     .onEnd((_e, success) => {
-      if (success) runOnJS(handleCardPress)();
+      'worklet';
+      // Skip the parent "open Cars" route when the touch landed on an
+      // inner Pressable (e.g. Book Now). The button's own onPress will
+      // handle the navigation; without this guard, the parent fired
+      // simultaneously and clobbered the destination.
+      if (success && innerPressedSV.value === 0) {
+        runOnJS(handleCardPress)();
+      }
     });
   // Race (not Exclusive): whichever of pan/tap recognizes first wins, and
   // a vertical drag recognizes NEITHER (pan needs horizontal, tap fails on
@@ -556,12 +583,27 @@ const styles = StyleSheet.create({
   },
   backCard: {
     position: 'absolute',
+    // Pin to both top and bottom of the swiperContainer so the back
+    // card's layout height tracks the FRONT card's measured height,
+    // not the back vehicle's natural content height. Without the
+    // `bottom: 8`, a back vehicle with more text (e.g. an unhealthy
+    // CR-V) renders taller than a healthy Porsche front card and the
+    // back card bled out the bottom edge of the swiper. Now the
+    // top: -8 / bottom: 8 pair makes the back card the SAME height as
+    // the front, just shifted up by 8pt → after scale(0.98) it peeks
+    // ~6pt above and sits ~10pt above the bottom edge (no bottom peek).
     top: -8,
+    bottom: 8,
     left: 12,
     right: 12,
     zIndex: 0,
     opacity: 0.9,
     transform: [{ scale: 0.98 }],
+    // Clip any back-vehicle content that doesn't fit the constrained
+    // height so the inner card's white background doesn't leak past
+    // the front card's footprint.
+    overflow: 'hidden',
+    borderRadius: 12,
   },
   card: {
     borderRadius: 12,
@@ -669,7 +711,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     gap: 6,
-    marginTop: 12,
+    // Clear the card's drop-shadow (shadowOffset.height: 4 +
+    // shadowRadius: 12 ≈ 16pt of bleed below the bottom edge). At
+    // marginTop: 12 the shadow's faded tail was painting over the
+    // dots' top edge, making them look clipped by the card.
+    marginTop: 24,
+    // swiperContainer above us has zIndex: 1, so its rendered
+    // stacking context (including the card's shadow) sits above any
+    // sibling with the default zIndex of 0. Hoist the dots above so
+    // they always paint cleanly regardless of shadow overlap.
+    zIndex: 3,
   },
 });
 
