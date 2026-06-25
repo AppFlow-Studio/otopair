@@ -33,6 +33,7 @@ import Animated, {
   useSharedValue,
   withTiming,
 } from "react-native-reanimated";
+import MapView, { PROVIDER_DEFAULT } from "react-native-maps";
 import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -241,8 +242,29 @@ export default function SelectServicesScreen() {
 
   return (
     <View style={styles.root} pointerEvents="box-none">
-      {/* Map is the shared persistent backdrop rendered by the layout;
-          this screen only paints its sheet over it. */}
+      {/* Map is normally the shared persistent backdrop from the
+          layout, but in peek mode (Home → Map button) we render a
+          LOCAL interactive MapView right here inside the screen.
+          The layout-level map's touches were being eaten by
+          react-navigation's native-stack Card before they could
+          fall through to the map sibling — a known quirk of
+          UIViewController-based screens absorbing touches at the
+          native frame boundary. Mounting the map as a direct child
+          of the screen's view tree gives it touches naturally.
+          On expand we drop this back to the shared map (the sheet
+          covers the area so the map isn't visible anyway). */}
+      {isPeekEntry && !isPeekExpanded && region ? (
+        <MapView
+          style={StyleSheet.absoluteFill}
+          provider={PROVIDER_DEFAULT}
+          initialRegion={region}
+          showsUserLocation
+          scrollEnabled
+          zoomEnabled
+          pitchEnabled={false}
+          rotateEnabled
+        />
+      ) : null}
 
       {/* Frosted sheet — fixed height by default, animates from peek
           to full height when the user enters via Home's map button
