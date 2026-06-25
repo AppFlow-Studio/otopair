@@ -22,6 +22,7 @@ import { useMutation, useQuery } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { useMutationWithToast } from '@/hooks/useMutationWithToast';
 import { useToast } from '@/hooks/useToast';
+import { useOemServiceIntervalsBatch } from '@/hooks/useOemServiceIntervals';
 
 // 3. Shared UI
 import { Button, BrandColors, ScrollDrivenGradientBackground, Text } from "@/components/shared-ui";
@@ -381,6 +382,20 @@ export default function HomeScreen() {
     allOwnershipIds.length > 0 ? { vehicleOwnerIds: allOwnershipIds } : "skip"
   );
 
+  // ── OEM service intervals for ALL vehicles (per-config map) ──
+  // Batched into one round-trip so the per-vehicle loop below can look
+  // up its config's intervals without N queries. Configs that haven't
+  // been enriched yet just won't have a key — the maintenance calc
+  // falls back to MAKE_OVERRIDES / DEFAULT_INTERVALS for those.
+  const allVehicleConfigIds = useMemo(
+    () =>
+      (listVehicles ?? [])
+        .map((r: any) => r.vehicle?.vehicle_config_id)
+        .filter(Boolean) as Id<"vehicle_configs">[],
+    [listVehicles],
+  );
+  const allOemIntervals = useOemServiceIntervalsBatch(allVehicleConfigIds);
+
   // ── Vehicle data with maintenance (no image dep — avoids cascading recomputation) ──
   const vehicleBaseData = useMemo(() => {
     if (!listVehicles?.length) return [];
@@ -406,6 +421,14 @@ export default function HomeScreen() {
         const isOnboardingComplete = o?.onboardingComplete === true;
         const odometer: number | null = isOnboardingComplete ? (o?.mileage ?? null) : null;
         const knownIssues = o?.knownIssues as string[] | undefined;
+        // Per-vehicle OEM intervals from the batch query above. Empty
+        // map when the v3 pipeline hasn't enriched this config yet —
+        // computeMaintenanceStatus → getInterval falls back through
+        // MAKE_OVERRIDES → DEFAULT_INTERVALS for that case.
+        const configId = v?.vehicle_config_id as string | undefined;
+        const oemIntervalsForVehicle = configId
+          ? (allOemIntervals[configId] ?? undefined)
+          : undefined;
 
         const urgentItems: {
           id: string;
@@ -441,7 +464,8 @@ export default function HomeScreen() {
             o?.drivingConditions as string | undefined,
             o?.avgMonthlyDriving as string | undefined,
             knownIssues,
-            v?.year as number | undefined
+            v?.year as number | undefined,
+            oemIntervalsForVehicle,
           );
           const itemId = `${rec.type}-${ownershipId}`;
 
@@ -596,7 +620,7 @@ export default function HomeScreen() {
           : [{ id: "healthy", serviceName: "All systems healthy", dueText: "No action needed", isOverdue: false }];
         return { id: r.vin, name: displayName, vin: r.vin, maintenanceItems: items, nowItems };
       });
-  }, [listVehicles, allMaintenanceRecords, availableServices]);
+  }, [listVehicles, allMaintenanceRecords, availableServices, allOemIntervals]);
 
   // Merge image URLs separately — cheap, only re-maps when images arrive
   const mappedVehicles = useMemo(

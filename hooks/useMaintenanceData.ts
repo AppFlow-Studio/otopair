@@ -25,6 +25,7 @@ import {
   ALL_MAINTENANCE_TYPES,
   MAINTENANCE_LABELS,
   type MaintenanceType,
+  type OemServiceIntervalsInput,
 } from "@/utils/maintenanceStatus";
 import { buildMaintenanceItems, enrichUrgentItem } from "@/utils/maintenanceEnrichment";
 import { buildWarningLightItem } from "@/lib/warningLightItems";
@@ -70,7 +71,12 @@ export function useMaintenanceRecords(
   drivingConditions?: string,
   avgMonthlyDriving?: string,
   knownIssues?: string[],
-  vehicleYear?: number
+  vehicleYear?: number,
+  // Slug-keyed OEM intervals from the v3 enrichment pipeline (see
+  // `useOemServiceIntervals`). Forwarded through buildMaintenanceItems
+  // so the maintenance status calc can prefer per-vehicle OEM cadences
+  // over the hardcoded fallback chain.
+  oemIntervals?: OemServiceIntervalsInput,
 ) {
   const records = useQuery(
     api.maintenance.getRecordsByVehicle,
@@ -93,8 +99,9 @@ export function useMaintenanceRecords(
       avgMonthlyDriving,
       knownIssues,
       vehicleYear,
+      oemIntervals,
     );
-  }, [records, currentOdometer, make, drivingConditions, avgMonthlyDriving, knownIssues, vehicleYear]);
+  }, [records, currentOdometer, make, drivingConditions, avgMonthlyDriving, knownIssues, vehicleYear, oemIntervals]);
 
   return { records, items };
 }
@@ -154,8 +161,13 @@ export function useMergedMaintenance(
   knownIssues?: string[],
   vehicleYear?: number,
   driverRecommendations?: DriverRecommendationLike[],
+  // OEM intervals from `useOemServiceIntervals(activeOwnership?.vehicle_config_id)`.
+  // Forwarded into useMaintenanceRecords → buildMaintenanceItems →
+  // computeMaintenanceStatus → getInterval. Optional; falls back to
+  // MAKE_OVERRIDES / DEFAULT_INTERVALS when undefined or empty.
+  oemIntervals?: OemServiceIntervalsInput,
 ) {
-  const { records, items: userItems } = useMaintenanceRecords(vehicleOwnerId, currentOdometer, make, drivingConditions, avgMonthlyDriving, knownIssues, vehicleYear);
+  const { records, items: userItems } = useMaintenanceRecords(vehicleOwnerId, currentOdometer, make, drivingConditions, avgMonthlyDriving, knownIssues, vehicleYear, oemIntervals);
 
   // Merge: user record > unknown.
   const mergedItems = useMemo(() => {
