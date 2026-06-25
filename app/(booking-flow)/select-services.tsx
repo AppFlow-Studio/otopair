@@ -18,13 +18,15 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef } from "react";
-import { Dimensions, Platform, Pressable, StyleSheet, View } from "react-native";
+import {
+  Dimensions,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  View,
+} from "react-native";
 import { BlurView } from "expo-blur";
-import { Gesture, GestureDetector } from "react-native-gesture-handler";
-import Animated, {
-  useAnimatedStyle,
-  useSharedValue,
-} from "react-native-reanimated";
 import { useFocusEffect } from "expo-router";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -72,15 +74,12 @@ function legacyCategoryToTab(
   }
 }
 
-// Per Ahmad's PM: drop-where-you-release behavior. gorhom's
-// snap-to-nearest with velocity fling kept throwing the sheet to
-// the max even on a tiny upward drag, so we replace the library
-// here with a minimal Pan + Reanimated drag that just clamps the
-// sheet height to [MIN_H, MAX_H] and leaves it there.
+// Sheet is a fixed-height frosted card — the content inside scrolls.
+// Previously had a free-drag Pan gesture that resized the sheet, but
+// users found the whole sheet moving on vertical drag distracting
+// vs. a normal scrollable list. Reverted to fixed-height + ScrollView.
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
-const MIN_H = SCREEN_HEIGHT * 0.23;
-const MAX_H = SCREEN_HEIGHT * 1.0;
-const INITIAL_H = SCREEN_HEIGHT * 0.92;
+const SHEET_H = SCREEN_HEIGHT * 0.92;
 
 export default function SelectServicesScreen() {
   const router = useRouter();
@@ -121,36 +120,6 @@ export default function SelectServicesScreen() {
       params: { tab: targetTab },
     });
   }, [initialServiceCategory, router, setInitialServiceCategory]);
-
-  // Sheet height in pixels — driven by the Pan gesture below. Mounts
-  // already at INITIAL_H: the screen enters via the stack's cross-fade
-  // over the shared static map, so re-animating the sheet up from 0 on
-  // every screen entry only fought that transition. User can drag up
-  // to MAX_H (full screen) or down to MIN_H; release-where-you-let-go
-  // behavior (no snap).
-  const sheetHeight = useSharedValue(INITIAL_H);
-  const startHeight = useSharedValue(0);
-
-  const dragGesture = useMemo(
-    () =>
-      Gesture.Pan()
-        // 20pt threshold so taps on the X / search / vehicle puck
-        // (sitting inside the drag chrome) never get swallowed by
-        // the pan handler — only deliberate swipes win.
-        .activeOffsetY([-20, 20])
-        .onBegin(() => {
-          startHeight.value = sheetHeight.value;
-        })
-        .onUpdate((e) => {
-          const next = startHeight.value - e.translationY;
-          sheetHeight.value = Math.max(MIN_H, Math.min(MAX_H, next));
-        }),
-    [sheetHeight, startHeight],
-  );
-
-  const sheetAnimatedStyle = useAnimatedStyle(() => ({
-    height: sheetHeight.value,
-  }));
 
   // Shared persistent map (lives in the layout) — this screen uses it
   // as a locked backdrop. Re-assert locked mode + recenter on every
@@ -231,11 +200,11 @@ export default function SelectServicesScreen() {
       {/* Map is the shared persistent backdrop rendered by the layout;
           this screen only paints its sheet over it. */}
 
-      {/* Custom free-drag sheet — stays exactly where the user lets
-          go. Pan gesture covers the whole sheet so dragging from
-          anywhere (handle or content) works. */}
-      <GestureDetector gesture={dragGesture}>
-        <Animated.View style={[styles.sheet, sheetAnimatedStyle]}>
+      {/* Fixed-height frosted sheet — content scrolls inside.
+          (Previously a free-drag Pan gesture resized the sheet on
+          vertical swipe, which Ahmad found distracting next to a
+          regular scrollable list.) */}
+      <View style={[styles.sheet, { height: SHEET_H }]}>
           {/* Real frosted-glass sheet — same pattern Settings uses
               for its blurred header. On iOS BlurView blurs the
               map underneath; on Android we fall back to a thick
@@ -249,11 +218,12 @@ export default function SelectServicesScreen() {
             />
           )}
           <GlassSheetHandle />
-          <View
-            style={[
+          <ScrollView
+            contentContainerStyle={[
               styles.scrollContent,
               { paddingBottom: insets.bottom + 32 },
             ]}
+            showsVerticalScrollIndicator={false}
           >
           {/* Top control row */}
           <View style={styles.topRow}>
@@ -315,9 +285,8 @@ export default function SelectServicesScreen() {
           <View style={styles.quickBookWrap}>
             <QuickBookRow />
           </View>
-          </View>
-        </Animated.View>
-      </GestureDetector>
+          </ScrollView>
+      </View>
 
       {/* Cart review FAB — same one Screen 2 has so the user can
           see + edit the multi-tab selection from Screen 1 too.
