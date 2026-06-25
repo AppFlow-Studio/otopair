@@ -18,13 +18,27 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef } from "react";
-import { Dimensions, Platform, Pressable, StyleSheet, View } from "react-native";
+import {
+  Platform,
+  Pressable,
+  StyleSheet,
+  useWindowDimensions,
+  View,
+} from "react-native";
 import { BlurView } from "expo-blur";
-import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import {
+  Gesture,
+  GestureDetector,
+  ScrollView,
+} from "react-native-gesture-handler";
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
 } from "react-native-reanimated";
+import {
+  moderateScale,
+  moderateVerticalScale,
+} from "react-native-size-matters";
 import { useFocusEffect } from "expo-router";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -38,6 +52,10 @@ import { GlassSheetHandle } from "@/components/booking-flow/GlassSheet";
 import { HeroCardClosestShop } from "@/components/booking-flow/HeroCardClosestShop";
 import { HeroCardMostBooked } from "@/components/booking-flow/HeroCardMostBooked";
 import { QuickBookRow } from "@/components/booking-flow/QuickBookRow";
+import {
+  clampSheetHeight,
+  getCustomSheetBounds,
+} from "@/components/booking-flow/responsiveSheetLayout";
 import { SelectedServicesFab } from "@/components/booking-flow/SelectedServicesFab";
 import {
   SelectedServicesSheet,
@@ -74,14 +92,14 @@ function legacyCategoryToTab(
 // the max even on a tiny upward drag, so we replace the library
 // here with a minimal Pan + Reanimated drag that just clamps the
 // sheet height to [MIN_H, MAX_H] and leaves it there.
-const { height: SCREEN_HEIGHT } = Dimensions.get("window");
-const MIN_H = SCREEN_HEIGHT * 0.23;
-const MAX_H = SCREEN_HEIGHT * 1.0;
-const INITIAL_H = SCREEN_HEIGHT * 0.92;
-
 export default function SelectServicesScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { height: viewportHeight } = useWindowDimensions();
+  const sheetBounds = useMemo(
+    () => getCustomSheetBounds(viewportHeight),
+    [viewportHeight],
+  );
   const availableServices = useBookingStore((s) => s.availableServices);
   const selectedServiceIds = useBookingStore((s) => s.selectedServiceIds);
   const initialServiceCategory = useBookingStore((s) => s.initialServiceCategory);
@@ -125,8 +143,12 @@ export default function SelectServicesScreen() {
   // every screen entry only fought that transition. User can drag up
   // to MAX_H (full screen) or down to MIN_H; release-where-you-let-go
   // behavior (no snap).
-  const sheetHeight = useSharedValue(INITIAL_H);
+  const sheetHeight = useSharedValue(sheetBounds.initial);
   const startHeight = useSharedValue(0);
+
+  useEffect(() => {
+    sheetHeight.value = clampSheetHeight(sheetHeight.value, sheetBounds);
+  }, [sheetBounds, sheetHeight]);
 
   const dragGesture = useMemo(
     () =>
@@ -140,9 +162,12 @@ export default function SelectServicesScreen() {
         })
         .onUpdate((e) => {
           const next = startHeight.value - e.translationY;
-          sheetHeight.value = Math.max(MIN_H, Math.min(MAX_H, next));
+          sheetHeight.value = Math.max(
+            sheetBounds.minimum,
+            Math.min(sheetBounds.maximum, next),
+          );
         }),
-    [sheetHeight, startHeight],
+    [sheetBounds.maximum, sheetBounds.minimum, sheetHeight, startHeight],
   );
 
   const sheetAnimatedStyle = useAnimatedStyle(() => ({
@@ -191,8 +216,7 @@ export default function SelectServicesScreen() {
       {/* Custom free-drag sheet — stays exactly where the user lets
           go. Pan gesture covers the whole sheet so dragging from
           anywhere (handle or content) works. */}
-      <GestureDetector gesture={dragGesture}>
-        <Animated.View style={[styles.sheet, sheetAnimatedStyle]}>
+      <Animated.View style={[styles.sheet, sheetAnimatedStyle]}>
           {/* Real frosted-glass sheet — same pattern Settings uses
               for its blurred header. On iOS BlurView blurs the
               map underneath; on Android we fall back to a thick
@@ -205,35 +229,45 @@ export default function SelectServicesScreen() {
               pointerEvents="none"
             />
           )}
-          <GlassSheetHandle />
-          <View
-            style={[
+          <GestureDetector gesture={dragGesture}>
+            <View>
+              <GlassSheetHandle />
+              <View style={styles.topRow}>
+                <Pressable
+                  style={styles.iconBtn}
+                  onPress={onClose}
+                  hitSlop={8}
+                  accessibilityLabel="Close"
+                >
+                  <X size={20} color="#1F2937" strokeWidth={2} />
+                </Pressable>
+                <View style={{ flex: 1 }} />
+                <Pressable
+                  style={styles.iconBtn}
+                  onPress={() => router.push("/(booking-flow)/search")}
+                  hitSlop={8}
+                  accessibilityLabel="Search services"
+                >
+                  <Search size={20} color="#1F2937" strokeWidth={2} />
+                </Pressable>
+                <View style={styles.vehicleGap} />
+                <VehiclePuck interactive />
+              </View>
+            </View>
+          </GestureDetector>
+
+          <ScrollView
+            style={styles.scrollView}
+            contentContainerStyle={[
               styles.scrollContent,
-              { paddingBottom: insets.bottom + 32 },
+              {
+                paddingBottom:
+                  insets.bottom + moderateVerticalScale(32, 0.35),
+              },
             ]}
+            showsVerticalScrollIndicator={false}
+            nestedScrollEnabled
           >
-          {/* Top control row */}
-          <View style={styles.topRow}>
-            <Pressable
-              style={styles.iconBtn}
-              onPress={onClose}
-              hitSlop={8}
-              accessibilityLabel="Close"
-            >
-              <X size={20} color="#1F2937" strokeWidth={2} />
-            </Pressable>
-            <View style={{ flex: 1 }} />
-            <Pressable
-              style={styles.iconBtn}
-              onPress={() => router.push("/(booking-flow)/search")}
-              hitSlop={8}
-              accessibilityLabel="Search services"
-            >
-              <Search size={20} color="#1F2937" strokeWidth={2} />
-            </Pressable>
-            <View style={{ width: 8 }} />
-            <VehiclePuck interactive />
-          </View>
 
           {/* Header */}
           <View style={styles.header}>
@@ -272,9 +306,8 @@ export default function SelectServicesScreen() {
           <View style={styles.quickBookWrap}>
             <QuickBookRow />
           </View>
-          </View>
+          </ScrollView>
         </Animated.View>
-      </GestureDetector>
 
       {/* Cart review FAB — same one Screen 2 has so the user can
           see + edit the multi-tab selection from Screen 1 too.
@@ -322,15 +355,19 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingTop: 0,
-    paddingBottom: 32,
+  },
+  scrollView: {
     flex: 1,
   },
   topRow: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 16,
+    paddingHorizontal: moderateScale(16, 0.25),
     paddingTop: 0,
-    paddingBottom: 12,
+    paddingBottom: moderateVerticalScale(12, 0.25),
+  },
+  vehicleGap: {
+    width: moderateScale(8, 0.25),
   },
   iconBtn: {
     width: 40,
@@ -363,7 +400,7 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255, 255, 255, 0.8)",
     overflow: "hidden",
     marginBottom: 22,
-    boxShadow: CardShadow.default,
+    boxShadow: Platform.OS === "ios" ? CardShadow.default : undefined,
   },
   divider: {
     height: 1,

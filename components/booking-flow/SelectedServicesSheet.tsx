@@ -26,12 +26,14 @@ import React, {
   useState,
 } from "react";
 import {
-  Dimensions,
   Pressable,
   ScrollView,
   StyleSheet,
+  useWindowDimensions,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { moderateVerticalScale } from "react-native-size-matters";
 import { X } from "lucide-react-native";
 
 import { Text } from "@/components/shared-ui";
@@ -43,12 +45,14 @@ import { GlassSheetBackground } from "@/components/booking-flow/GlassSheet";
 import { getServiceIcon } from "@/components/booking-flow/serviceIcons";
 import { TAXONOMY } from "@/constants/serviceTaxonomy";
 import { useBookingStore } from "@/stores/useBookingStore";
+import {
+  getCappedSheetHeight,
+  getOverlayClearance,
+} from "@/components/booking-flow/responsiveSheetLayout";
 
 const INK = "#0F172A";
 const MUTED = "#6B7280";
 const DANGER = "#EF4444";
-
-const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 
 // Dynamic sizing — the sheet hugs the row count instead of taking up
 // a fixed slab. Floor is 1-service tall (~260pt) so a single row
@@ -58,11 +62,15 @@ const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 const HEADER_BLOCK = 96; // title row + paddings + handle clearance
 const ROW_HEIGHT = 70; // row body + gap
 const FLOOR = 260;
-const CEILING = Math.min(SCREEN_HEIGHT * 0.76, 640);
-
-function computeSheetHeight(rowCount: number): number {
+function computeSheetHeight(rowCount: number, viewportHeight: number): number {
   const target = HEADER_BLOCK + Math.max(rowCount, 1) * ROW_HEIGHT;
-  return Math.max(FLOOR, Math.min(CEILING, target));
+  return getCappedSheetHeight({
+    viewportHeight,
+    desiredHeight: target,
+    minimumHeight: FLOOR,
+    maximumRatio: 0.76,
+    absoluteMaximum: 640,
+  });
 }
 
 export interface SelectedServicesSheetRef {
@@ -74,6 +82,13 @@ export const SelectedServicesSheet = forwardRef<SelectedServicesSheetRef>(
   function SelectedServicesSheet(_props, ref) {
     const sheetRef = useRef<FloatingSheetRef>(null);
     const [mounted, setMounted] = useState(false);
+    const { height: viewportHeight } = useWindowDimensions();
+    const insets = useSafeAreaInsets();
+    const listBottomPadding = getOverlayClearance({
+      safeAreaBottom: insets.bottom,
+      overlayHeight: 0,
+      extraSpacing: moderateVerticalScale(12, 0.3),
+    });
 
     const selectedServiceIds = useBookingStore((s) => s.selectedServiceIds);
     const availableServices = useBookingStore((s) => s.availableServices);
@@ -128,8 +143,8 @@ export const SelectedServicesSheet = forwardRef<SelectedServicesSheetRef>(
     // between snap heights when `snapHeights` changes, so removing
     // a row also smoothly shrinks the sheet down.
     const sheetHeight = useMemo(
-      () => computeSheetHeight(rows.length),
-      [rows.length],
+      () => computeSheetHeight(rows.length, viewportHeight),
+      [rows.length, viewportHeight],
     );
 
     if (!mounted) return null;
@@ -169,7 +184,10 @@ export const SelectedServicesSheet = forwardRef<SelectedServicesSheetRef>(
           ) : (
             <ScrollView
               showsVerticalScrollIndicator={false}
-              contentContainerStyle={styles.list}
+              contentContainerStyle={[
+                styles.list,
+                { paddingBottom: listBottomPadding },
+              ]}
             >
               {rows.map((row) => {
                 const Icon = getServiceIcon(row.slug);

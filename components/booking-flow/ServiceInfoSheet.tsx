@@ -10,23 +10,34 @@
  */
 
 import React, { useEffect, useRef } from "react";
-import { Dimensions, StyleSheet, View } from "react-native";
+import {
+  ScrollView,
+  StyleSheet,
+  useWindowDimensions,
+  View,
+} from "react-native";
 import { Clock, Info } from "lucide-react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { moderateVerticalScale } from "react-native-size-matters";
 
 import { Text } from "@/components/shared-ui";
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
 import { TAXONOMY } from "@/constants/serviceTaxonomy";
+import {
+  getCappedSheetHeight,
+  getOverlayClearance,
+} from "@/components/booking-flow/responsiveSheetLayout";
 
 interface ServiceInfoSheetProps {
   slug: string;
   onClose: () => void;
 }
 
-const SCREEN_HEIGHT = Dimensions.get("window").height;
-
 export function ServiceInfoSheet({ slug, onClose }: ServiceInfoSheetProps) {
   const sheetRef = useRef<FloatingSheetRef>(null);
   const entry = TAXONOMY[slug];
+  const { height: viewportHeight } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
 
   useEffect(() => {
     sheetRef.current?.open();
@@ -35,7 +46,18 @@ export function ServiceInfoSheet({ slug, onClose }: ServiceInfoSheetProps) {
   // Compact single-snap sheet sized to the content. The exact height
   // doesn't matter — FloatingSheet snaps to whatever we pass and the
   // user dismisses by dragging down or tapping the backdrop.
-  const snapHeight = Math.min(420, SCREEN_HEIGHT * 0.45);
+  const snapHeight = getCappedSheetHeight({
+    viewportHeight,
+    desiredHeight: 420,
+    minimumHeight: 260,
+    maximumRatio: 0.45,
+    absoluteMaximum: 420,
+  });
+  const contentBottomPadding = getOverlayClearance({
+    safeAreaBottom: insets.bottom,
+    overlayHeight: 0,
+    extraSpacing: moderateVerticalScale(20, 0.3),
+  });
 
   return (
     <FloatingSheet
@@ -45,7 +67,13 @@ export function ServiceInfoSheet({ slug, onClose }: ServiceInfoSheetProps) {
       backdropMode="dim"
       onClose={onClose}
     >
-      <View style={styles.body}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={[
+          styles.body,
+          { paddingBottom: contentBottomPadding },
+        ]}
+      >
         {entry ? (
           <>
             <Text size="2xl" weight="bold" color="#0F172A" style={styles.title}>
@@ -75,7 +103,7 @@ export function ServiceInfoSheet({ slug, onClose }: ServiceInfoSheetProps) {
             No info available.
           </Text>
         )}
-      </View>
+      </ScrollView>
     </FloatingSheet>
   );
 }

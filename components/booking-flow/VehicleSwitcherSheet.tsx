@@ -7,24 +7,43 @@
  */
 
 import React, { useEffect, useMemo, useRef } from "react";
-import { Dimensions, Image, Pressable, StyleSheet, View } from "react-native";
+import {
+  Image,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  useWindowDimensions,
+  View,
+} from "react-native";
 import { Check } from "lucide-react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { moderateVerticalScale } from "react-native-size-matters";
 
 import { CarSilhouette } from "@/components/shared-ui/CarSilhouette";
 import { Text } from "@/components/shared-ui";
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
 import { GlassSheetBackground } from "@/components/booking-flow/GlassSheet";
 import { useVehicleStore } from "@/stores/useVehicleStore";
+import {
+  getCappedSheetHeight,
+  getOverlayClearance,
+} from "@/components/booking-flow/responsiveSheetLayout";
 
 interface VehicleSwitcherSheetProps {
   onClose: () => void;
 }
 
-const SCREEN_HEIGHT = Dimensions.get("window").height;
 const ROW_HEIGHT = 88;
 
 export function VehicleSwitcherSheet({ onClose }: VehicleSwitcherSheetProps) {
   const sheetRef = useRef<FloatingSheetRef>(null);
+  const { height: viewportHeight } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const listBottomPadding = getOverlayClearance({
+    safeAreaBottom: insets.bottom,
+    overlayHeight: 0,
+    extraSpacing: moderateVerticalScale(16, 0.3),
+  });
 
   const vehicleIds = useVehicleStore((s) => s.vehicleIds);
   const vehicles = useVehicleStore((s) => s.vehicles);
@@ -40,8 +59,14 @@ export function VehicleSwitcherSheet({ onClose }: VehicleSwitcherSheetProps) {
     const headerH = 64;
     const listH = Math.max(1, vehicleIds.length) * ROW_HEIGHT;
     const padding = 60;
-    return Math.min(SCREEN_HEIGHT * 0.7, headerH + listH + padding);
-  }, [vehicleIds.length]);
+    return getCappedSheetHeight({
+      viewportHeight,
+      desiredHeight: headerH + listH + padding,
+      minimumHeight: 240,
+      maximumRatio: 0.7,
+      absoluteMaximum: Number.POSITIVE_INFINITY,
+    });
+  }, [vehicleIds.length, viewportHeight]);
 
   const onPick = (id: string) => {
     selectVehicle(id);
@@ -66,7 +91,11 @@ export function VehicleSwitcherSheet({ onClose }: VehicleSwitcherSheetProps) {
             No vehicles yet. Add one from your garage to switch.
           </Text>
         ) : (
-          vehicleIds.map((id) => {
+          <ScrollView
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={{ paddingBottom: listBottomPadding }}
+          >
+          {vehicleIds.map((id) => {
             const v = vehicles[id];
             if (!v) return null;
             const isActive = id === selectedVehicleId;
@@ -103,7 +132,8 @@ export function VehicleSwitcherSheet({ onClose }: VehicleSwitcherSheetProps) {
                 ) : null}
               </Pressable>
             );
-          })
+          })}
+          </ScrollView>
         )}
       </View>
     </FloatingSheet>
@@ -114,7 +144,8 @@ const styles = StyleSheet.create({
   body: {
     paddingHorizontal: 20,
     paddingTop: 6,
-    paddingBottom: 16,
+    paddingBottom: 0,
+    flex: 1,
   },
   title: {
     fontSize: 20,

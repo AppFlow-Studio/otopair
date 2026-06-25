@@ -14,14 +14,25 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Dimensions, Platform, Pressable, StyleSheet, View } from "react-native";
+import {
+  Platform,
+  Pressable,
+  StyleSheet,
+  useWindowDimensions,
+  View,
+} from "react-native";
 import { BlurView } from "expo-blur";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import {
+  Gesture,
+  GestureDetector,
+  ScrollView,
+} from "react-native-gesture-handler";
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
 } from "react-native-reanimated";
+import { moderateVerticalScale } from "react-native-size-matters";
 import {
   ArrowLeft,
   Calendar,
@@ -31,7 +42,6 @@ import {
   type LucideIcon,
 } from "lucide-react-native";
 
-import { categoryTitleTransition } from "@/components/booking-flow/CategoryListRow";
 import { useFocusEffect, useLocalSearchParams, useNavigation } from "expo-router";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 
@@ -46,6 +56,12 @@ import {
 } from "@/components/booking-flow/SelectedServicesSheet";
 import { ServiceMultiSelectRow } from "@/components/booking-flow/ServiceMultiSelectRow";
 import { StickyContinueBar } from "@/components/booking-flow/StickyContinueBar";
+import {
+  BOOKING_FLOW_CTA_HEIGHT,
+  clampSheetHeight,
+  getCustomSheetBounds,
+  getOverlayClearance,
+} from "@/components/booking-flow/responsiveSheetLayout";
 import { VehiclePuck } from "@/components/booking-flow/VehiclePuck";
 import { PackageQuestionsSheet } from "@/components/cars/PackageQuestionsSheet";
 import { DiagnosticOptionsSheet } from "@/components/booking/sheets/DiagnosticOptionsSheet";
@@ -72,11 +88,6 @@ import { useVehicleStore } from "@/stores/useVehicleStore";
 // no snap-back). MIN_H is the tiny peek the user can shove the
 // sheet down to; MAX_H is full-screen; INITIAL_H is the open
 // peek-of-map look the screen mounts up into.
-const { height: SCREEN_HEIGHT } = Dimensions.get("window");
-const MIN_H = SCREEN_HEIGHT * 0.23;
-const MAX_H = SCREEN_HEIGHT * 1.0;
-const INITIAL_H = SCREEN_HEIGHT * 0.92;
-
 // Same icon mapping as CategoryListRow so the shared-element
 // morph between Screen 1's row and Screen 2's header lands on a
 // matching glyph.
@@ -98,6 +109,16 @@ export default function CategoryDetailScreen() {
   const router = useRouter();
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
+  const { height: viewportHeight } = useWindowDimensions();
+  const sheetBounds = useMemo(
+    () => getCustomSheetBounds(viewportHeight),
+    [viewportHeight],
+  );
+  const overlayClearance = getOverlayClearance({
+    safeAreaBottom: insets.bottom,
+    overlayHeight: BOOKING_FLOW_CTA_HEIGHT,
+    extraSpacing: moderateVerticalScale(24, 0.35),
+  });
   const params = useLocalSearchParams<{ tab: string }>();
   const reviewSheetRef = useRef<SelectedServicesSheetRef>(null);
 
@@ -170,8 +191,12 @@ export default function CategoryDetailScreen() {
   // static map, so re-animating the sheet up from 0 would only fight
   // that. Pan on the chrome (handle + topRow + header) drags the
   // sheet; the service list scrolls normally.
-  const sheetHeight = useSharedValue(INITIAL_H);
+  const sheetHeight = useSharedValue(sheetBounds.initial);
   const startHeight = useSharedValue(0);
+
+  useEffect(() => {
+    sheetHeight.value = clampSheetHeight(sheetHeight.value, sheetBounds);
+  }, [sheetBounds, sheetHeight]);
 
   const dragGesture = useMemo(
     () =>
@@ -188,9 +213,12 @@ export default function CategoryDetailScreen() {
         })
         .onUpdate((e) => {
           const next = startHeight.value - e.translationY;
-          sheetHeight.value = Math.max(MIN_H, Math.min(MAX_H, next));
+          sheetHeight.value = Math.max(
+            sheetBounds.minimum,
+            Math.min(sheetBounds.maximum, next),
+          );
         }),
-    [sheetHeight, startHeight],
+    [sheetBounds.maximum, sheetBounds.minimum, sheetHeight, startHeight],
   );
 
   const sheetAnimatedStyle = useAnimatedStyle(() => ({
@@ -336,8 +364,7 @@ export default function CategoryDetailScreen() {
     <View style={styles.root} pointerEvents="box-none">
       {/* Map is the shared persistent backdrop rendered by the layout. */}
 
-      <GestureDetector gesture={dragGesture}>
-        <Animated.View style={[styles.sheet, sheetAnimatedStyle]}>
+      <Animated.View style={[styles.sheet, sheetAnimatedStyle]}>
           {/* Real frosted-glass sheet — iOS BlurView blurs the
               map underneath; Android falls back to a thick
               translucent white. Same pattern as Screen 1. */}
@@ -349,6 +376,8 @@ export default function CategoryDetailScreen() {
               pointerEvents="none"
             />
           )}
+          <GestureDetector gesture={dragGesture}>
+            <View>
           <GlassSheetHandle />
 
           <View style={styles.topRow}>
@@ -387,8 +416,18 @@ export default function CategoryDetailScreen() {
               </Text>
             </View>
           ) : null}
+            </View>
+          </GestureDetector>
 
-          <View style={styles.list}>
+          <ScrollView
+            style={styles.scrollView}
+            contentContainerStyle={[
+              styles.list,
+              { paddingBottom: overlayClearance },
+            ]}
+            showsVerticalScrollIndicator={false}
+            nestedScrollEnabled
+          >
             {filteredServices.map((svc) => {
               const slug = svc.slug;
               if (!slug) return null;
@@ -434,9 +473,8 @@ export default function CategoryDetailScreen() {
                 </Text>
               </View>
             ) : null}
-          </View>
+          </ScrollView>
         </Animated.View>
-      </GestureDetector>
 
       {/* Sticky Continue bar (over the sheet) */}
       <StickyContinueBar
@@ -454,7 +492,7 @@ export default function CategoryDetailScreen() {
         style={[
           styles.fabHost,
           {
-            bottom: insets.bottom + 96,
+            bottom: overlayClearance,
           },
         ]}
       >
@@ -616,6 +654,9 @@ const styles = StyleSheet.create({
   },
   list: {
     marginBottom: 16,
+  },
+  scrollView: {
+    flex: 1,
   },
   empty: {
     paddingVertical: 40,

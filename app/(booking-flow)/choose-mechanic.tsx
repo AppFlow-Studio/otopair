@@ -16,9 +16,9 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Dimensions,
   Pressable,
   StyleSheet,
+  useWindowDimensions,
   View,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
@@ -45,14 +45,27 @@ import { useShopFixedPricesForServices } from "@/hooks/useShopFixedPricesForServ
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 import { buildShopPriceLabel } from "@/lib/shopPriceLabel";
-
-const SCREEN_WIDTH = Dimensions.get("window").width;
-const SNAP_POINTS = ["53%", "82%"] as const;
+import {
+  BOOKING_FLOW_CTA_HEIGHT,
+  getOverlayClearance,
+} from "@/components/booking-flow/responsiveSheetLayout";
+import { moderateVerticalScale } from "react-native-size-matters";
 
 export default function ChooseMechanicScreen() {
   const router = useRouter();
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
+  const { width: viewportWidth, height: viewportHeight } =
+    useWindowDimensions();
+  const snapPoints = useMemo(
+    () => [viewportHeight * 0.53, viewportHeight * 0.82],
+    [viewportHeight],
+  );
+  const overlayClearance = getOverlayClearance({
+    safeAreaBottom: insets.bottom,
+    overlayHeight: BOOKING_FLOW_CTA_HEIGHT,
+    extraSpacing: moderateVerticalScale(24, 0.35),
+  });
 
   const selectedServiceIds = useBookingStore((s) => s.selectedServiceIds);
   const availableServices = useBookingStore((s) => s.availableServices);
@@ -282,10 +295,10 @@ export default function ChooseMechanicScreen() {
   // Horizontal-paged scroll handler. Pages snap by screen width so
   // every page lines up edge-to-edge inside the sheet.
   const onPageChange = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const idx = Math.round(e.nativeEvent.contentOffset.x / SCREEN_WIDTH);
+    const idx = Math.round(e.nativeEvent.contentOffset.x / viewportWidth);
     setActiveIndex(idx);
     setIsMechanicCarouselInteracting(false);
-  }, []);
+  }, [viewportWidth]);
 
   const handleMechanicCarouselInteractionChange = useCallback((isInteracting: boolean) => {
     setIsMechanicCarouselInteracting(isInteracting);
@@ -410,7 +423,7 @@ export default function ChooseMechanicScreen() {
           resizes the sheet (gorhom's vertical pan + our horizontal
           ScrollView don't conflict). */}
       <BottomSheet
-        snapPoints={SNAP_POINTS as unknown as string[]}
+        snapPoints={snapPoints}
         index={0}
         enablePanDownToClose={false}
         enableDynamicSizing={false}
@@ -420,7 +433,7 @@ export default function ChooseMechanicScreen() {
         <BottomSheetView
           style={[
             styles.sheetContent,
-            { paddingBottom: insets.bottom + 120 },
+            { paddingBottom: overlayClearance },
           ]}
         >
           {nearbyShops.length === 0 ? (
@@ -443,7 +456,7 @@ export default function ChooseMechanicScreen() {
                 <ShopPage
                   key={r.shop.id}
                   shop={r.shop}
-                  pageWidth={SCREEN_WIDTH}
+                  pageWidth={viewportWidth}
                   totalMinutes={totalMinutes}
                   selectedCount={selectedCount}
                   selectedServices={selectedServicesForPricing}
@@ -518,9 +531,9 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   iconBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: "rgba(15, 23, 42, 0.08)",
     alignItems: "center",
     justifyContent: "center",
@@ -538,9 +551,9 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   railBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: "rgba(255, 255, 255, 0.95)",
     alignItems: "center",
     justifyContent: "center",
