@@ -24,17 +24,17 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useFocusEffect } from "expo-router";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { ArrowLeft, ChevronRight, User, Wrench } from "lucide-react-native";
+import { ArrowLeft, ChevronRight, Store, Wrench } from "lucide-react-native";
 
 import { Text } from "@/components/shared-ui";
 import { HANDOFF_SLUGS } from "@/constants/serviceTaxonomy";
 import { useBookingStore } from "@/stores/useBookingStore";
-import { useMechanicsFromConvex } from "@/hooks/useMechanicsFromConvex";
-import type { Mechanic, Service } from "@/stores/types/store.types";
+import { useShopsFromConvex } from "@/hooks/useShopsFromConvex";
+import type { Service, Shop } from "@/stores/types/store.types";
 
 const MAX_RESULTS = 12;
 
-type SearchScope = "services" | "mechanics";
+type SearchScope = "services" | "shops";
 
 /** Score a service against a lowercased query. Mirrors the scoring
  *  in useSearchStore.getMatchingServices, but uncapped so a
@@ -54,12 +54,11 @@ function scoreService(query: string, service: Service): number {
   return 0;
 }
 
-/** Score a mechanic against a lowercased query. Name-only match per
- *  Ahmad's pick — exact > startsWith > contains. Shop name and
- *  specialty matches are intentionally skipped to keep results
- *  predictable; a shop-search use case is a separate scope. */
-function scoreMechanic(query: string, mechanic: Mechanic): number {
-  const nameLower = mechanic.name.toLowerCase();
+/** Score a shop against a lowercased query. Name-only match per
+ *  Ahmad's pick — exact > startsWith > contains. Address /
+ *  specialties intentionally skipped to keep results predictable. */
+function scoreShop(query: string, shop: Shop): number {
+  const nameLower = shop.name.toLowerCase();
   if (nameLower === query) return 100;
   if (nameLower.startsWith(query)) return 80;
   if (nameLower.includes(query)) return 60;
@@ -82,11 +81,11 @@ export default function BookingFlowSearchScreen() {
   const availableServices = useBookingStore((s) => s.availableServices);
   const toggleServiceSelection = useBookingStore((s) => s.toggleServiceSelection);
   const selectedServiceIds = useBookingStore((s) => s.selectedServiceIds);
-  // Mechanics list — hooked once at module level so swapping scopes
-  // is instant (no spinner on tab switch). useMechanicsFromConvex
-  // hydrates useMechanicStore as a side effect; we read mechanics
-  // straight off the hook for filtering.
-  const { mechanics } = useMechanicsFromConvex();
+  // Shop list — hooked once at module level so swapping scopes is
+  // instant (no spinner on tab switch). useShopsFromConvex hydrates
+  // useShopStore as a side effect; we read shops straight off the
+  // hook for filtering.
+  const { shops } = useShopsFromConvex();
 
   // Auto-focus the input every time the screen comes into focus so
   // the keyboard slides up immediately — `useFocusEffect` waits
@@ -116,19 +115,19 @@ export default function BookingFlowSearchScreen() {
     return scored.map((item) => item.service);
   }, [query, availableServices, scope]);
 
-  // Live-filter mechanics by name only. Only computed when scope is
-  // "mechanics" — no point doing the work otherwise.
-  const mechanicResults: Mechanic[] = useMemo(() => {
-    if (scope !== "mechanics") return [];
+  // Live-filter shops by name only. Only computed when scope is
+  // "shops" — no point doing the work otherwise.
+  const shopResults: Shop[] = useMemo(() => {
+    if (scope !== "shops") return [];
     const q = query.trim().toLowerCase();
     if (!q) return [];
-    const scored = mechanics
-      .map((mechanic) => ({ mechanic, score: scoreMechanic(q, mechanic) }))
+    const scored = shops
+      .map((shop) => ({ shop, score: scoreShop(q, shop) }))
       .filter((item) => item.score > 0)
       .sort((a, b) => b.score - a.score)
       .slice(0, MAX_RESULTS);
-    return scored.map((item) => item.mechanic);
-  }, [query, mechanics, scope]);
+    return scored.map((item) => item.shop);
+  }, [query, shops, scope]);
 
   const handlePick = (service: Service) => {
     inputRef.current?.blur();
@@ -157,17 +156,18 @@ export default function BookingFlowSearchScreen() {
     }
   };
 
-  const handlePickMechanic = (mechanic: Mechanic) => {
+  const handlePickShop = (shop: Shop) => {
     inputRef.current?.blur();
-    // Route to the existing mechanic detail screen — same surface
-    // a user lands on when picking a mechanic from Choose Mechanic
-    // (Screen 3). It shows the shop map header, services list,
-    // reviews, and a Book Now CTA. `router.push` (not replace) so
-    // back from the detail returns to search; this lets the user
-    // keep browsing mechanics without re-typing the query.
+    // Route to the existing shop detail screen — same surface the
+    // Home "Closest Shop" hero card and the Choose Mechanic
+    // "View shop details" link land on. Shows the shop map header,
+    // services list, mechanics carousel, reviews, and a Book Now
+    // CTA. `router.push` (not replace) so back from the detail
+    // returns to search; lets the user keep browsing without
+    // re-typing the query.
     router.push({
-      pathname: "/booking/mechanic/[id]",
-      params: { id: mechanic.id },
+      pathname: "/booking/shop/[id]",
+      params: { id: shop.id },
     });
   };
 
@@ -178,7 +178,7 @@ export default function BookingFlowSearchScreen() {
 
   const showResults = query.trim().length > 0;
   const hasResults =
-    scope === "services" ? serviceResults.length > 0 : mechanicResults.length > 0;
+    scope === "services" ? serviceResults.length > 0 : shopResults.length > 0;
   const showEmpty = showResults && !hasResults;
 
   return (
@@ -205,7 +205,7 @@ export default function BookingFlowSearchScreen() {
             value={query}
             onChangeText={setQuery}
             placeholder={
-              scope === "services" ? "Search services" : "Search mechanics"
+              scope === "services" ? "Search services" : "Search shops"
             }
             placeholderTextColor="#9CA3AF"
             returnKeyType="search"
@@ -217,7 +217,7 @@ export default function BookingFlowSearchScreen() {
         </View>
       </View>
 
-      {/* Scope toggle — Services vs Mechanics. Matches the segmented
+      {/* Scope toggle — Services vs Shops. Matches the segmented
           control on the My Bookings tab. Switching scope keeps the
           query so the user can quickly compare matches across both
           domains. */}
@@ -241,21 +241,21 @@ export default function BookingFlowSearchScreen() {
           </Text>
         </Pressable>
         <Pressable
-          onPress={() => setScope("mechanics")}
+          onPress={() => setScope("shops")}
           style={[
             styles.scopeChip,
-            scope === "mechanics" && styles.scopeChipActive,
+            scope === "shops" && styles.scopeChipActive,
           ]}
           accessibilityRole="button"
-          accessibilityState={{ selected: scope === "mechanics" }}
-          accessibilityLabel="Search mechanics"
+          accessibilityState={{ selected: scope === "shops" }}
+          accessibilityLabel="Search shops"
         >
           <Text
             size="sm"
-            weight={scope === "mechanics" ? "bold" : "medium"}
-            color={scope === "mechanics" ? "#0F172A" : "#6B7280"}
+            weight={scope === "shops" ? "bold" : "medium"}
+            color={scope === "shops" ? "#0F172A" : "#6B7280"}
           >
-            Mechanics
+            Shops
           </Text>
         </Pressable>
       </View>
@@ -270,12 +270,12 @@ export default function BookingFlowSearchScreen() {
           <Text size="md" weight="medium" color="#6B7280" center>
             {scope === "services"
               ? `No services match “${query.trim()}”`
-              : `No mechanics match “${query.trim()}”`}
+              : `No shops match “${query.trim()}”`}
           </Text>
           <Text size="sm" weight="regular" color="#9CA3AF" center style={styles.emptyHint}>
             {scope === "services"
               ? "Try “rotors”, “smog”, or “oil”."
-              : "Try a mechanic's first or last name."}
+              : "Try part of the shop's name."}
           </Text>
         </View>
       ) : (
@@ -310,31 +310,24 @@ export default function BookingFlowSearchScreen() {
                   <ChevronRight size={18} color="#9CA3AF" strokeWidth={2} />
                 </Pressable>
               ))
-            : mechanicResults.map((mech) => (
+            : shopResults.map((shop) => (
                 <Pressable
-                  key={mech.id}
+                  key={shop.id}
                   style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
-                  onPress={() => handlePickMechanic(mech)}
+                  onPress={() => handlePickShop(shop)}
                   accessibilityRole="button"
-                  accessibilityLabel={`View ${mech.name}'s profile`}
+                  accessibilityLabel={`View ${shop.name}`}
                 >
-                  {mech.photoUrl ? (
-                    <Image
-                      source={{ uri: mech.photoUrl }}
-                      style={styles.avatar}
-                    />
-                  ) : (
-                    <View style={styles.iconTile}>
-                      <User size={18} color="#4B5563" strokeWidth={2} />
-                    </View>
-                  )}
+                  <View style={styles.iconTile}>
+                    <Store size={18} color="#4B5563" strokeWidth={2} />
+                  </View>
                   <View style={styles.rowText}>
                     <Text size="md" weight="bold" color="#0F172A" numberOfLines={1}>
-                      {mech.name}
+                      {shop.name}
                     </Text>
-                    {mech.shopName ? (
+                    {shop.address ? (
                       <Text size="sm" weight="regular" color="#6B7280" numberOfLines={1}>
-                        {mech.shopName}
+                        {shop.address}
                       </Text>
                     ) : null}
                   </View>
@@ -398,12 +391,6 @@ const styles = StyleSheet.create({
   scopeChipActive: {
     backgroundColor: "#FFFFFF",
     borderColor: "rgba(15, 23, 42, 0.08)",
-  },
-  avatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "rgba(255, 255, 255, 0.85)",
   },
   logoBody: {
     flex: 1,
