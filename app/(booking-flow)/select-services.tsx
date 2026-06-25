@@ -28,9 +28,10 @@ import {
 } from "react-native";
 import { BlurView } from "expo-blur";
 import Animated, {
+  Easing,
   useAnimatedStyle,
   useSharedValue,
-  withSpring,
+  withTiming,
 } from "react-native-reanimated";
 import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
@@ -108,9 +109,12 @@ export default function SelectServicesScreen() {
   }));
   const expandPeekSheet = useCallback(() => {
     if (isPeekExpanded) return;
-    sheetHeight.value = withSpring(SHEET_H_FULL, {
-      damping: 22,
-      stiffness: 180,
+    // Timing curve instead of a spring — the spring's slight
+    // overshoot at the top of the sheet read as a "jump" once the
+    // sheet hit its full height. A monotonic ease-out lands cleanly.
+    sheetHeight.value = withTiming(SHEET_H_FULL, {
+      duration: 360,
+      easing: Easing.out(Easing.cubic),
     });
     setIsPeekExpanded(true);
   }, [isPeekExpanded, sheetHeight]);

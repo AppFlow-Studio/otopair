@@ -518,8 +518,13 @@ export default function HomeScreen() {
   // flow's service picker, but the map button passes `entry=map` so
   // the picker mounts in peek mode: low sheet, interactive map
   // underneath. Search-entry behavior is unchanged (full sheet).
+  // Object form for router.push so Expo Router serializes the param
+  // into the route consistently across SDK versions.
   const handleMapPress = () => {
-    router.push("/(booking-flow)/select-services?entry=map");
+    router.push({
+      pathname: "/(booking-flow)/select-services",
+      params: { entry: "map" },
+    });
   };
 
   const handleSearchPress = () => {
