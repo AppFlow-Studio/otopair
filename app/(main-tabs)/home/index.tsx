@@ -523,6 +523,22 @@ export default function HomeScreen() {
               suggestedServiceId: matched?.id,
               urgencyScore: 100,
             });
+            // Also push to urgentItems so the Home VehicleMaintenanceCard
+            // surfaces the same warning. Without this, a car whose only
+            // urgent item is a paired-light fallback (no maintenance
+            // records logged yet) shows "All systems healthy" on the
+            // card while the NowTierCallout above screams about the
+            // light — exactly the inconsistency Ahmad caught.
+            if (urgentItems.length < 3) {
+              urgentItems.push({
+                id: itemId,
+                serviceName: matched?.name ?? genericLabel,
+                dueText: "Overdue",
+                isOverdue: true,
+                description: info.label,
+                suggestedServiceId: matched?.id,
+              });
+            }
           }
 
           const warningItem = buildWarningLightItem({
@@ -545,6 +561,20 @@ export default function HomeScreen() {
               suggestedServiceId: diagnostic?.id,
               urgencyScore: 100,
             });
+            // Mirror into urgentItems so VehicleMaintenanceCard shows
+            // the consolidated warning card too. Cap of 3 preserved —
+            // first-come-first-served is fine; the NowTierCallout shows
+            // everything.
+            if (urgentItems.length < 3) {
+              urgentItems.push({
+                id: warningItem.id,
+                serviceName: warningItem.serviceName,
+                dueText: "Overdue",
+                isOverdue: true,
+                description: warningItem.description,
+                suggestedServiceId: diagnostic?.id,
+              });
+            }
           }
         }
 
