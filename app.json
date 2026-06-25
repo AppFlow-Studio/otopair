@@ -119,10 +119,10 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "556287b6-2b93-4418-8e8a-15bf5594b496"
+        "projectId": "d79a7759-b627-4d72-bbfa-90e60010e817"
       }
     },
-    "owner": "otopair-dev",
+    "owner": "waleedmansourr",
     "runtimeVersion": {
       "policy": "appVersion"
     },
