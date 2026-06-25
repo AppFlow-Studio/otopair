@@ -147,10 +147,7 @@ export function BookingFlowMapProvider({
             real touches at the wrapper's pointerEvents instead. When
             `interactive` is false the wrapper blocks all touches, so
             the MapView never sees a gesture; when true, touches
-            arrive on an already-configured MapView. This avoids the
-            class of bugs where the user flips a screen to interactive
-            and the map silently refuses to pan because the prop
-            change didn't propagate. */}
+            arrive on an already-configured MapView. */}
         <View
           style={StyleSheet.absoluteFill}
           pointerEvents={interactive ? "auto" : "none"}
@@ -180,7 +177,20 @@ export function BookingFlowMapProvider({
           )}
         </View>
 
-        {children}
+        {/* Children (the booking-flow Stack) wrapped in a controlled
+            pointerEvents layer. When the map is interactive, this
+            wrapper is `box-none` so empty screen areas pass touches
+            straight through to the map sibling underneath — fixes
+            the case where a screen's own `box-none` root wasn't
+            enough to defeat the react-navigation Card from
+            consuming touches. When the map is locked, this wrapper
+            is `auto` so screens behave like a normal opaque layer. */}
+        <View
+          style={StyleSheet.absoluteFill}
+          pointerEvents={interactive ? "box-none" : "auto"}
+        >
+          {children}
+        </View>
       </View>
     </BookingFlowMapContext.Provider>
   );
