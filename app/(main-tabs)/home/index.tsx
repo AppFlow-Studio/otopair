@@ -207,10 +207,23 @@ export default function HomeScreen() {
     useShallow((s) => ({ selectedServiceIds: s.selectedServiceIds, availableServices: s.availableServices }))
   );
 
-  // Upcoming appointment: next future booking that's pending or confirmed
+  // Upcoming appointment: next future booking that's pending or confirmed.
+  //
+  // `today` MUST be built from the user's LOCAL timezone, not UTC.
+  // bookings.scheduled_date is stored as a local "YYYY-MM-DD" string
+  // (no timezone), so comparing it against `new Date().toISOString()`
+  // (UTC) was off-by-one in evenings west of UTC: e.g. 11pm in NY
+  // (UTC-5) is already 4am the next day UTC, so a booking scheduled
+  // for "today in NY" failed the `>= today` check and the card
+  // randomly disappeared. The bug surfaced only at certain hours,
+  // matching Ahmad's "sometimes doesn't show" report.
   const upcomingBooking = useMemo(() => {
     if (!allBookings) return null;
-    const today = new Date().toISOString().split('T')[0];
+    const now = new Date();
+    const yyyy = now.getFullYear();
+    const mm = String(now.getMonth() + 1).padStart(2, "0");
+    const dd = String(now.getDate()).padStart(2, "0");
+    const today = `${yyyy}-${mm}-${dd}`;
     return allBookings
       .filter(
         (b: any) =>
