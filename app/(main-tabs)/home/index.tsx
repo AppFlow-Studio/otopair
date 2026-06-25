@@ -35,6 +35,7 @@ import {
   findServiceForMaintenanceType,
   findServiceFromDescription,
 } from '@/lib/maintenanceServiceMapping';
+import { buildWarningLightItem } from "@/lib/warningLightItems";
 import { usePendingNavigationStore } from "@/stores/usePendingNavigationStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 import { useNotificationsSheetStore } from "@/stores/useNotificationsSheetStore";
@@ -468,6 +469,81 @@ export default function HomeScreen() {
               isOverdue: result.status === "overdue",
               description: result.description,
               suggestedServiceId: matched?.id,
+            });
+          }
+        }
+
+        // ── Warning lights → nowItems (Yassin urgency model) ───────────
+        // Home's loop above only iterates maintenance_records, so any
+        // active dashboard warning light that doesn't have a paired
+        // record (e.g. user reports oil_pressure but hasn't logged any
+        // oil change yet, OR user reports check_engine which has no
+        // paired type at all) was silently dropped here — that's the
+        // bug Ahmad caught.
+        //
+        // Two passes mirror useMergedMaintenance for the Cars page:
+        //  1. Paired-light fallback: for each paired light active in
+        //     knownIssues with no corresponding record, push a
+        //     synthesized now-tier item so Home shows it.
+        //  2. Consolidated unpaired-light card via buildWarningLightItem.
+        if (ownershipId && knownIssues && knownIssues.length > 0) {
+          const trackedTypes = new Set(records.map((r: any) => r.type as string));
+          const PAIRED_LIGHT_BY_TYPE_HOME: Record<
+            string,
+            { lightId: string; label: string }
+          > = {
+            oil: {
+              lightId: "oil_pressure",
+              label: "Oil pressure warning light active — service urgently needed",
+            },
+            battery: {
+              lightId: "battery_charging",
+              label: "Battery / charging warning light active — have it tested",
+            },
+            brakes: {
+              lightId: "abs",
+              label: "ABS / brake warning light active — have brakes inspected",
+            },
+            tires: {
+              lightId: "tpms",
+              label: "Tire pressure (TPMS) warning light active — check tires",
+            },
+          };
+          for (const [type, info] of Object.entries(PAIRED_LIGHT_BY_TYPE_HOME)) {
+            if (!knownIssues.includes(info.lightId)) continue;
+            if (trackedTypes.has(type)) continue; // record loop already handled it
+            const itemId = `${type}-${ownershipId}`;
+            const matched = findServiceFromDescription(info.label, availableServices);
+            const genericLabel =
+              MAINTENANCE_LABELS[type as keyof typeof MAINTENANCE_LABELS] ?? type;
+            nowItems.push({
+              itemId,
+              serviceName: matched?.name ?? genericLabel,
+              description: info.label,
+              suggestedServiceId: matched?.id,
+              urgencyScore: 100,
+            });
+          }
+
+          const warningItem = buildWarningLightItem({
+            knownIssues,
+            scopeId: String(ownershipId),
+          });
+          if (warningItem) {
+            // Pre-seed the diagnostic scan service so the booking flow
+            // opens with it ticked. Slug match is intentional — the
+            // catalog seed alternates `diagnostic_scan` (underscored)
+            // vs `diagnostic-scan` (hyphenated) across environments.
+            const diagnostic = availableServices.find((s) => {
+              const slug = (s.slug ?? "").toLowerCase().replace(/-/g, "_");
+              return slug === "diagnostic_scan";
+            });
+            nowItems.push({
+              itemId: warningItem.id,
+              serviceName: warningItem.serviceName,
+              description: warningItem.description,
+              suggestedServiceId: diagnostic?.id,
+              urgencyScore: 100,
             });
           }
         }
