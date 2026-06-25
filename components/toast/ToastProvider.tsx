@@ -10,6 +10,7 @@ import {
 } from "react";
 import { AppState, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useSegments } from "expo-router";
 
 import { haptics } from "@/lib/haptics";
 import { Layout } from "@/constants/theme";
@@ -46,6 +47,15 @@ function nextId(): string {
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const insets = useSafeAreaInsets();
+  // Drive the toast's bottom offset off the active route group. Tab-bar
+  // screens need the toast lifted above the tab bar; tab-bar-less
+  // screens (booking flow, modal-style booking screens, onboarding)
+  // were inheriting that same tabBarHeight lift and floating ~80pt off
+  // the bottom edge — Ahmad caught this on the booking screens and
+  // asked for them to come up lower. We now sit just above the home
+  // indicator on those routes.
+  const segments = useSegments();
+  const isTabbedRoute = segments[0] === "(main-tabs)";
   const [current, setCurrent] = useState<ToastQueueItem | null>(null);
   const queueRef = useRef<ToastQueueItem[]>([]);
   const appStateRef = useRef(AppState.currentState);
@@ -139,13 +149,18 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         {current ? (
           <Toast
             item={current}
-            // Bottom-anchored (Airbnb-style). Clear the home indicator
-            // (insets.bottom) PLUS the tab bar height + a 28pt lift so
-            // the toast sits a touch higher than flush — feels less
-            // glued to the tab bar. On tab-bar-less screens (booking
-            // flow, modals, onboarding) the extra ~30pt reads as
-            // intentional padding rather than a bug.
-            bottomOffset={insets.bottom + Layout.tabBarHeight + 28}
+            // Bottom-anchored (Airbnb-style). On tabbed screens we lift
+            // above the tab bar (tabBarHeight + 28pt breathing room).
+            // On tab-bar-less screens (booking flow, mechanic confirm,
+            // approve estimate, modals, onboarding) we sit just above
+            // the home indicator with a small 12pt lift — keeps the
+            // toast close to the bottom edge where the user expects
+            // confirmation feedback instead of floating mid-screen.
+            bottomOffset={
+              isTabbedRoute
+                ? insets.bottom + Layout.tabBarHeight + 28
+                : insets.bottom + 12
+            }
             onRequestDismiss={handleDismissed}
           />
         ) : null}
