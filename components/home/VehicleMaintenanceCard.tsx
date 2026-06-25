@@ -583,12 +583,27 @@ const styles = StyleSheet.create({
   },
   backCard: {
     position: 'absolute',
+    // Pin to both top and bottom of the swiperContainer so the back
+    // card's layout height tracks the FRONT card's measured height,
+    // not the back vehicle's natural content height. Without the
+    // `bottom: 8`, a back vehicle with more text (e.g. an unhealthy
+    // CR-V) renders taller than a healthy Porsche front card and the
+    // back card bled out the bottom edge of the swiper. Now the
+    // top: -8 / bottom: 8 pair makes the back card the SAME height as
+    // the front, just shifted up by 8pt → after scale(0.98) it peeks
+    // ~6pt above and sits ~10pt above the bottom edge (no bottom peek).
     top: -8,
+    bottom: 8,
     left: 12,
     right: 12,
     zIndex: 0,
     opacity: 0.9,
     transform: [{ scale: 0.98 }],
+    // Clip any back-vehicle content that doesn't fit the constrained
+    // height so the inner card's white background doesn't leak past
+    // the front card's footprint.
+    overflow: 'hidden',
+    borderRadius: 12,
   },
   card: {
     borderRadius: 12,
