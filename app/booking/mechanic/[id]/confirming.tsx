@@ -36,6 +36,7 @@ import { Text } from "@/components/shared-ui";
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
 import { BookingConfirmStatus } from "@/components/booking/BookingConfirmStatus";
 import { useCreateBookingConvex } from "@/hooks/useCreateBookingConvex";
+import { useToast } from "@/hooks/useToast";
 import { calculateBookingConfirmLayout } from "@/lib/bookingConfirmSheet";
 import { getBookingConfirmingCopy, isBookingRescheduleMode } from "@/lib/reschedule-flow";
 import { useBookingStore } from "@/stores/useBookingStore";
@@ -88,6 +89,7 @@ export default function BookingConfirmingScreen() {
   const isWalletFlow = paymentMode === "wallet";
   const createPaymentIntent = useAction(api.payments_stripe.createPaymentIntentForBooking);
   const customerRequestReschedule = useMutation(api.bookings.customerRequestReschedule);
+  const toast = useToast();
   // The PaymentIntent is created + confirmed server-side. If 3DS is needed,
   // Stripe returns requires_action and the client *finishes* the challenge
   // via `handleNextAction(clientSecret)` — NOT `confirmPayment`, which
@@ -183,6 +185,7 @@ export default function BookingConfirmingScreen() {
         });
         if (navigatedRef.current) return;
         navigatedRef.current = true;
+        toast.success("Appointment rescheduled");
         router.replace({
           pathname: "/booking/mechanic/[id]/confirmation",
           params: {

@@ -49,6 +49,7 @@ import {
   CardShadow,
 } from "@/constants/theme";
 import { useOpenApprovalForBooking } from "@/hooks/useOpenApprovalForBooking";
+import { useToast } from "@/hooks/useToast";
 import { usePaymentStore } from "@/stores/usePaymentStore";
 import { useBookingStore } from "@/stores/useBookingStore";
 
@@ -103,6 +104,7 @@ function ApprovalDecisionView({ bookingId }: { bookingId: Id<"bookings"> }) {
   const insets = useSafeAreaInsets();
   const { approval, isLoading } = useOpenApprovalForBooking(bookingId);
   const applyDecision = useMutation(api.booking_approvals.applyApprovalDecision);
+  const toast = useToast();
   const [submitting, setSubmitting] = useState<"approved" | "declined" | null>(
     null,
   );
@@ -132,6 +134,7 @@ function ApprovalDecisionView({ bookingId }: { bookingId: Id<"bookings"> }) {
     setSubmitting("approved");
     try {
       await applyDecision({ bookingId, decision: "approved" });
+      toast.success("Estimate approved");
       router.back();
     } catch (err: any) {
       Alert.alert("Could not approve", err?.message ?? "Try again in a moment.");
@@ -154,6 +157,7 @@ function ApprovalDecisionView({ bookingId }: { bookingId: Id<"bookings"> }) {
             setSubmitting("declined");
             try {
               await applyDecision({ bookingId, decision: "declined" });
+              toast.info("Estimate declined");
               router.back();
             } catch (err: any) {
               Alert.alert(

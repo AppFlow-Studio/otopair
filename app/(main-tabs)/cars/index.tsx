@@ -928,9 +928,15 @@ export default function CarsHomeScreen() {
       if (!vin || !userId) return;
       // garageRole is the single source of truth; "Primary" also flips the
       // default car (handled server-side in setVehicleRole).
-      setVehicleRole({ vin, userId, role }).catch(() => {});
+      setVehicleRole({ vin, userId, role })
+        .then(() => {
+          toast.success(role ? "Role saved" : "Role cleared");
+        })
+        .catch(() => {
+          toast.error("Couldn't save role. Try again.");
+        });
     },
-    [activeVehicle?.vin, userId, setVehicleRole],
+    [activeVehicle?.vin, userId, setVehicleRole, toast],
   );
 
   // The active vehicle's stored paint-color family (null when none was
@@ -1398,6 +1404,7 @@ export default function CarsHomeScreen() {
       if (!userId) return;
       try {
         await updateOwnershipPrimary({ vin: vehicleId, userId, is_primary: isDefault });
+        toast.success(isDefault ? "Primary vehicle updated" : "No primary vehicle");
       } catch (e) {
         console.warn("Failed to set primary vehicle", e);
         toast.error("Couldn't set as primary. Try again.");
@@ -2608,6 +2615,7 @@ export default function CarsHomeScreen() {
             throw new Error("Sign in and pick a vehicle to update mileage.");
           }
           await updateMileageMutation({ vin, userId, mileage });
+          toast.success("Mileage updated");
         }}
       />
 
