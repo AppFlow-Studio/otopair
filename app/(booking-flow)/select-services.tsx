@@ -237,8 +237,17 @@ export default function SelectServicesScreen() {
   }, [availableServices]);
 
   const onClose = () => {
-    if (router.canGoBack()) router.back();
-    else router.replace("/(main-tabs)/home");
+    // X = "close the booking flow", NOT "back one step". The
+    // previous canGoBack() / router.back() shape walked the user
+    // through every intermediate screen the booking-flow stack had
+    // accumulated (e.g. Home → search → shop-detail → replaced
+    // select-services left both the search screen AND the original
+    // select-services below in the stack, so X took two back-taps
+    // to reach Home and showed both surfaces flashing past). Jump
+    // straight to Home — the Home focus effect on
+    // `app/(main-tabs)/home/index.tsx` clears the pre-pinned shop
+    // on arrival so the next booking attempt starts fresh.
+    router.replace("/(main-tabs)/home");
   };
 
   return (
