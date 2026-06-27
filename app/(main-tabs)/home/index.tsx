@@ -59,6 +59,20 @@ import * as SecureStore from 'expo-secure-store';
 // review-prompt sheet on home, so each completed booking only auto-prompts
 // once across app restarts.
 const REVIEW_PROMPT_SEEN_KEY = 'otopair.reviewPromptSeenBookingIds.v1';
+
+/** Rotating example searches shown in the Home search bar's placeholder
+ *  with a typewriter effect. Same vibe as the doc-marked QUICK 3-LINE
+ *  summaries: real things real users say, not feature names. Add /
+ *  remove freely — the bar cycles indefinitely. */
+const SEARCH_PLACEHOLDER_PHRASES = [
+  'Book an oil change',
+  'Mechanics near me',
+  'Book an inspection',
+  'Check engine light',
+  'Brake service',
+  'Tire rotation',
+  'Find a shop nearby',
+] as const;
 async function loadPromptedBookingIds(): Promise<Set<string>> {
   try {
     const raw = await SecureStore.getItemAsync(REVIEW_PROMPT_SEEN_KEY);
@@ -1039,6 +1053,7 @@ export default function HomeScreen() {
                 onSubmit={handleSearch}
                 onMapPress={handleMapPress}
                 onPress={handleSearchPress}
+                placeholderPhrases={SEARCH_PLACEHOLDER_PHRASES}
               />
             </View>
 
