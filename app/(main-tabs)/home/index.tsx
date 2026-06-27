@@ -719,6 +719,22 @@ export default function HomeScreen() {
     }, [pendingNavigateToCars, setPendingNavigateToCars, router])
   );
 
+  // Clear any pre-pinned shop from a previous shop-detail Book CTA the
+  // moment the user lands back on Home. Without this, `preSelectedShopId`
+  // (set on shop-detail at `app/booking/shop/[id]/index.tsx:226`) lives
+  // forever in the booking store, so a brand-new booking started from
+  // Home would silently inherit the previous shop — exactly the bug
+  // Ahmad caught. The `Resume Booking` flow on Home uses a different
+  // store field (`selectedVehicleVin` + `selectedServiceIds`) and is
+  // unaffected; we're only resetting the shop / service pre-pins set by
+  // shop-detail, not the in-progress cart.
+  const clearPreSelections = useBookingStore((s) => s.clearPreSelections);
+  useFocusEffect(
+    useCallback(() => {
+      clearPreSelections();
+    }, [clearPreSelections]),
+  );
+
   // Enrichment-toast deferred from add-vehicle-review. Per Ahmad: don't
   // fire the toast right after confirm (would overlap the /vehicle-added
   // celebration). Surface it the next time the user lands on home so the
