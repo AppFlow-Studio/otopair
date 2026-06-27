@@ -20,12 +20,16 @@ import {
 } from "@/constants/serviceTaxonomy";
 import { useMostBookedService } from "@/hooks/useMostBookedService";
 import { useBookingStore } from "@/stores/useBookingStore";
+import { routeToNextBookingStep } from "@/lib/bookingFlowNext";
 
 export function HeroCardMostBooked() {
   const router = useRouter();
   const { result, isLoading } = useMostBookedService();
   const toggleServiceSelection = useBookingStore((s) => s.toggleServiceSelection);
   const selectedServiceIds = useBookingStore((s) => s.selectedServiceIds);
+  // When the user entered via the shop-detail Book CTA, skip Choose
+  // Mechanic and jump straight to date/time at that shop.
+  const preSelectedShopId = useBookingStore((s) => s.preSelectedShopId);
 
   const onPress = useCallback(() => {
     if (!result) return;
@@ -50,8 +54,8 @@ export function HeroCardMostBooked() {
       });
       return;
     }
-    router.push("/(booking-flow)/choose-mechanic");
-  }, [result, router, selectedServiceIds, toggleServiceSelection]);
+    routeToNextBookingStep(router, preSelectedShopId);
+  }, [result, router, selectedServiceIds, toggleServiceSelection, preSelectedShopId]);
 
   return (
     <Pressable

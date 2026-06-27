@@ -23,12 +23,16 @@ import {
 } from "@/constants/serviceTaxonomy";
 import { useUserTopBookedServices, type QuickBookChip } from "@/hooks/useUserTopBookedServices";
 import { useBookingStore } from "@/stores/useBookingStore";
+import { routeToNextBookingStep } from "@/lib/bookingFlowNext";
 
 export function QuickBookRow() {
   const router = useRouter();
   const { chips, isLoading } = useUserTopBookedServices();
   const toggleServiceSelection = useBookingStore((s) => s.toggleServiceSelection);
   const selectedServiceIds = useBookingStore((s) => s.selectedServiceIds);
+  // When the user entered via the shop-detail Book CTA, skip Choose
+  // Mechanic and jump straight to date/time at that shop.
+  const preSelectedShopId = useBookingStore((s) => s.preSelectedShopId);
 
   const handleTap = useCallback(
     (chip: QuickBookChip) => {
@@ -50,9 +54,9 @@ export function QuickBookRow() {
         });
         return;
       }
-      router.push("/(booking-flow)/choose-mechanic");
+      routeToNextBookingStep(router, preSelectedShopId);
     },
-    [router, selectedServiceIds, toggleServiceSelection],
+    [router, selectedServiceIds, toggleServiceSelection, preSelectedShopId],
   );
 
   if (isLoading || chips.length === 0) return null;
