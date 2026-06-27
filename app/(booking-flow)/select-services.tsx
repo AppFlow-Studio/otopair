@@ -29,11 +29,13 @@ import {
 import { BlurView } from "expo-blur";
 import Animated, {
   Easing,
+  runOnJS,
   useAnimatedStyle,
   useSharedValue,
   withTiming,
 } from "react-native-reanimated";
-import MapView, { PROVIDER_DEFAULT } from "react-native-maps";
+import MapView, { Marker, PROVIDER_DEFAULT } from "react-native-maps";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -48,6 +50,8 @@ import { HeroCardClosestShop } from "@/components/booking-flow/HeroCardClosestSh
 import { HeroCardMostBooked } from "@/components/booking-flow/HeroCardMostBooked";
 import { PinnedShopChip } from "@/components/booking-flow/PinnedShopChip";
 import { QuickBookRow } from "@/components/booking-flow/QuickBookRow";
+import { RatingMarkerPill } from "@/components/booking-flow/RatingMarkerPill";
+import { useNearbyBookingShops } from "@/hooks/useNearbyBookingShops";
 import { SelectedServicesFab } from "@/components/booking-flow/SelectedServicesFab";
 import {
   SelectedServicesSheet,
@@ -120,6 +124,44 @@ export default function SelectServicesScreen() {
     });
     setIsPeekExpanded(true);
   }, [isPeekExpanded, sheetHeight]);
+  // Mirror — swipe the expanded sheet back down to peek so the user
+  // can re-reveal the rating pins on the map (ChatGPT-style). Same
+  // timing curve as expand so the motion reads as one continuous
+  // tween in either direction.
+  const collapsePeekSheet = useCallback(() => {
+    if (!isPeekExpanded) return;
+    sheetHeight.value = withTiming(SHEET_H_PEEK, {
+      duration: 360,
+      easing: Easing.out(Easing.cubic),
+    });
+    setIsPeekExpanded(false);
+  }, [isPeekExpanded, sheetHeight]);
+
+  // Vertical-only Pan gesture that fires `collapsePeekSheet` on a
+  // clean downward swipe (>= 60pt translation). We don't drive
+  // sheetHeight continuously off the gesture — that was the
+  // jumpy-feeling shape we ripped out a few iterations ago. Just a
+  // discrete "user wants peek" signal.
+  const collapsePanGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .activeOffsetY([-20, 20])
+        .onEnd((e) => {
+          "worklet";
+          if (e.translationY > 60) {
+            runOnJS(collapsePeekSheet)();
+          }
+        }),
+    [collapsePeekSheet],
+  );
+
+  // Rating-pin shop list for the LOCAL MapView in peek mode. We
+  // re-use the same hook choose-mechanic uses; it's free of side
+  // effects on its own (the booking-flow Stack stays mounted in
+  // either case). `selectedShopId` is local state — pin tap behavior
+  // beyond the visual swap is intentionally TBD; Ahmad will spec it.
+  const { results: nearbyShops } = useNearbyBookingShops(5);
+  const [selectedShopId, setSelectedShopId] = useState<string | null>(null);
 
   const availableServices = useBookingStore((s) => s.availableServices);
   const selectedServiceIds = useBookingStore((s) => s.selectedServiceIds);
@@ -282,7 +324,28 @@ export default function SelectServicesScreen() {
           zoomEnabled
           pitchEnabled={false}
           rotateEnabled
-        />
+        >
+          {nearbyShops
+            .filter((r) => r.shop.latitude !== 0 && r.shop.longitude !== 0)
+            .map((r) => (
+              <Marker
+                key={r.shop.id}
+                coordinate={{
+                  latitude: r.shop.latitude,
+                  longitude: r.shop.longitude,
+                }}
+                anchor={{ x: 0.5, y: 0.5 }}
+                tracksViewChanges={r.shop.id === selectedShopId}
+                onPress={() => setSelectedShopId(r.shop.id)}
+              >
+                <RatingMarkerPill
+                  rating={r.shop.rating}
+                  shopName={r.shop.name}
+                  isSelected={r.shop.id === selectedShopId}
+                />
+              </Marker>
+            ))}
+        </MapView>
       ) : null}
 
       {/* Frosted sheet — fixed height by default, animates from peek
@@ -302,7 +365,16 @@ export default function SelectServicesScreen() {
               pointerEvents="none"
             />
           )}
-          <GlassSheetHandle />
+          {/* GestureDetector wraps just the handle area — a vertical
+              swipe-down here collapses the sheet back to peek so the
+              user can browse rating pins on the map. The 20pt
+              activeOffsetY keeps casual touches on the handle (e.g.
+              tap to focus) from kicking off the pan. */}
+          <GestureDetector gesture={collapsePanGesture}>
+            <View>
+              <GlassSheetHandle />
+            </View>
+          </GestureDetector>
           {/* Peek body — only rendered while the map-entry user
               hasn't tapped to expand. Whole peek is a Pressable so
               the entire visible sheet area is a tap target. Picking

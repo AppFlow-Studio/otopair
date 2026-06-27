@@ -49,7 +49,13 @@ import { useVehicleStore } from "@/stores/useVehicleStore";
 import { buildShopPriceLabel } from "@/lib/shopPriceLabel";
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
-const SNAP_POINTS = ["53%", "82%"] as const;
+// Three snap points: low peek (~12% — handle visible, map fully
+// revealed for the ChatGPT-style "browse pins" mode), standard
+// (~53%, the historical default that fits the active shop card +
+// mechanic strip), and expanded (~82% for scrolling reviews etc).
+// Initial index = 1 so the standard view is what users land on; 0
+// is reached only via a deliberate swipe-down.
+const SNAP_POINTS = ["12%", "53%", "82%"] as const;
 
 export default function ChooseMechanicScreen() {
   const router = useRouter();
@@ -208,7 +214,11 @@ export default function ChooseMechanicScreen() {
   // while focused. `mapRef` is the shared handle; userLocation comes
   // from the booking store for the recenter affordance.
   const userLocation = useBookingStore((s) => s.userLocation);
-  const { mapRef, setInteractive, setMarkers } = useBookingFlowMap();
+  const { mapRef, setInteractive, setMarkers, setShopPins } = useBookingFlowMap();
+  // Ref to the paged carousel ScrollView so a pin tap can scroll
+  // the bottom sheet to that shop's page (the reverse direction of
+  // the existing swipe → setActiveIndex flow).
+  const pagerScrollRef = useRef<ScrollView | null>(null);
 
   // Claim interactive mode whenever this screen is focused; the
   // locked screens reset it back when they regain focus.
@@ -218,21 +228,62 @@ export default function ChooseMechanicScreen() {
     }, [setInteractive]),
   );
 
-  // Drop a marker on the active shop (and clear it when none).
+  // Tap a rating pin on the map → swap the active shop, scroll the
+  // carousel below to that shop's page, and re-render the pins so
+  // the new shop's pill goes black. The camera-pan effect further
+  // down already fires off activeIndex changes (~line 258), so we
+  // don't need to call mapRef directly here.
+  const onPinTap = useCallback(
+    (idx: number) => {
+      if (idx < 0 || idx >= nearbyShops.length) return;
+      setActiveIndex(idx);
+      pagerScrollRef.current?.scrollTo({
+        x: idx * SCREEN_WIDTH,
+        animated: true,
+      });
+    },
+    [nearbyShops.length],
+  );
+
+  // Render rating pins for ALL nearby shops (not just the active
+  // one). The pill for `activeIndex` is selected; the rest are
+  // unselected. Same effect re-fires when `activeIndex` changes
+  // (from either a pin tap or a carousel swipe), so the selection
+  // state stays in sync without a separate listener.
+  //
+  // Old single-marker `setMarkers([activeShop])` is gone — the
+  // shop pins handle that representation now. The `setMarkers([])`
+  // call in the else branch keeps any title-only markers from
+  // earlier screens cleared.
   useEffect(() => {
-    if (activeShop && activeShop.latitude !== 0) {
-      setMarkers([
-        {
-          id: activeShop.id,
-          latitude: activeShop.latitude,
-          longitude: activeShop.longitude,
-          title: activeShop.name,
-        },
-      ]);
-    } else {
-      setMarkers([]);
+    setMarkers([]);
+    if (nearbyShops.length === 0) {
+      setShopPins([]);
+      return;
     }
-  }, [activeShop, setMarkers]);
+    setShopPins(
+      nearbyShops
+        .filter((r) => r.shop.latitude !== 0 && r.shop.longitude !== 0)
+        .map((r, idx) => ({
+          shopId: r.shop.id,
+          latitude: r.shop.latitude,
+          longitude: r.shop.longitude,
+          shopName: r.shop.name,
+          rating: r.shop.rating,
+          isSelected: idx === activeIndex,
+          onPress: () => onPinTap(idx),
+        })),
+    );
+  }, [nearbyShops, activeIndex, setMarkers, setShopPins, onPinTap]);
+
+  // Clear pins on unmount so they don't leak onto Screen 1's
+  // locked-backdrop view (the shared map provider persists across
+  // routes in the booking-flow stack).
+  useEffect(() => {
+    return () => {
+      setShopPins([]);
+    };
+  }, [setShopPins]);
 
   // Animate the map camera to the active shop whenever it changes.
   // Center on the shop with a fixed neighborhood-scale zoom (~1mi
@@ -457,7 +508,10 @@ export default function ChooseMechanicScreen() {
           ScrollView don't conflict). */}
       <BottomSheet
         snapPoints={SNAP_POINTS as unknown as string[]}
-        index={0}
+        // Start at index 1 = the standard 53% peek. Index 0 is the
+        // new low 12% peek; reached only via a deliberate swipe-down
+        // so users can browse rating pins on the map ChatGPT-style.
+        index={1}
         enablePanDownToClose={false}
         enableDynamicSizing={false}
         backgroundStyle={styles.sheetBackground}
@@ -477,6 +531,7 @@ export default function ChooseMechanicScreen() {
             </View>
           ) : (
             <ScrollView
+              ref={pagerScrollRef}
               horizontal
               pagingEnabled
               showsHorizontalScrollIndicator={false}
