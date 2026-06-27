@@ -243,11 +243,20 @@ export default function SelectServicesScreen() {
     // accumulated (e.g. Home → search → shop-detail → replaced
     // select-services left both the search screen AND the original
     // select-services below in the stack, so X took two back-taps
-    // to reach Home and showed both surfaces flashing past). Jump
-    // straight to Home — the Home focus effect on
-    // `app/(main-tabs)/home/index.tsx` clears the pre-pinned shop
-    // on arrival so the next booking attempt starts fresh.
-    router.replace("/(main-tabs)/home");
+    // to reach Home and showed both surfaces flashing past).
+    //
+    // dismissTo (not replace) pops the entire booking-flow stack and
+    // lands on the ALREADY-MOUNTED Home tab — same primitive
+    // `app/booking/mechanic/[id]/confirmation.tsx:405` uses for the
+    // post-confirm exit. Using replace was forcing Home to unmount
+    // + remount, which made the cards re-render in slowly.
+    // dismissTo keeps Home's existing instance alive so the cards
+    // are already there when the user lands.
+    //
+    // The Home focus effect on `app/(main-tabs)/home/index.tsx`
+    // clears the pre-pinned shop on arrival so the next booking
+    // attempt starts fresh.
+    router.dismissTo("/(main-tabs)/home");
   };
 
   return (
