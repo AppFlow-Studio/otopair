@@ -46,6 +46,7 @@ import { CategoryListRow } from "@/components/booking-flow/CategoryListRow";
 import { GlassSheetHandle } from "@/components/booking-flow/GlassSheet";
 import { HeroCardClosestShop } from "@/components/booking-flow/HeroCardClosestShop";
 import { HeroCardMostBooked } from "@/components/booking-flow/HeroCardMostBooked";
+import { PinnedShopChip } from "@/components/booking-flow/PinnedShopChip";
 import { QuickBookRow } from "@/components/booking-flow/QuickBookRow";
 import { SelectedServicesFab } from "@/components/booking-flow/SelectedServicesFab";
 import {
@@ -350,6 +351,12 @@ export default function SelectServicesScreen() {
               What does your car need?
             </Text>
           </View>
+
+          {/* Pre-pinned shop indicator. Only renders when the user came
+              in from the shop-detail Book CTA; tapping the X clears the
+              pin in-place so they can switch shops without backing
+              out to Home. */}
+          <PinnedShopChip />
 
           {/* Hero pair */}
           <View style={styles.heroRow}>

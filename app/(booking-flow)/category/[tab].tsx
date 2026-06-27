@@ -41,6 +41,7 @@ import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { Text } from "@/components/shared-ui";
 import { useBookingFlowMap } from "@/components/booking-flow/BookingFlowMap";
 import { GlassSheetHandle } from "@/components/booking-flow/GlassSheet";
+import { PinnedShopChip } from "@/components/booking-flow/PinnedShopChip";
 import { ServiceInfoSheet } from "@/components/booking-flow/ServiceInfoSheet";
 import { SelectedServicesFab } from "@/components/booking-flow/SelectedServicesFab";
 import {
@@ -391,6 +392,13 @@ export default function CategoryDetailScreen() {
                 </Text>
               </View>
             ) : null}
+
+            {/* Same shop-pin indicator the user saw on Screen 1.
+                Tapping the X clears the pin in-place — the service
+                list above this row re-renders without the shop
+                filter and the Continue button below goes back to
+                the regular Choose Mechanic surface. */}
+            <PinnedShopChip />
 
             <View style={styles.list}>
               {filteredServices.map((svc) => {
