@@ -29,10 +29,12 @@ import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import BottomSheet, { BottomSheetView } from "@gorhom/bottom-sheet";
 import { ArrowLeft, Crosshair, Minus, Plus } from "lucide-react-native";
+import MapView, { Marker, PROVIDER_DEFAULT } from "react-native-maps";
 
 import { Text } from "@/components/shared-ui";
 import { useBookingFlowMap } from "@/components/booking-flow/BookingFlowMap";
 import { MapShopCard } from "@/components/booking-flow/MapShopCard";
+import { RatingMarkerPill } from "@/components/booking-flow/RatingMarkerPill";
 import { ShopPage } from "@/components/booking-flow/ShopPage";
 import { StickyContinueBar } from "@/components/booking-flow/StickyContinueBar";
 import { VehiclePuck } from "@/components/booking-flow/VehiclePuck";
@@ -209,23 +211,36 @@ export default function ChooseMechanicScreen() {
     ? `Continue with ${selectedMechanic?.name ?? "Any"}`
     : "Select services";
 
-  // Map setup — this screen drives the shared persistent map (which
-  // lives in the layout) interactively: it owns the camera + markers
-  // while focused. `mapRef` is the shared handle; userLocation comes
-  // from the booking store for the recenter affordance.
+  // Map setup. We mount a LOCAL MapView as a direct child of this
+  // screen (see render below) instead of driving the shared
+  // persistent map — same fix select-services peek mode uses. The
+  // shared map's MapView sits behind react-navigation's native-stack
+  // Card, which absorbs finger gestures at the UIViewController
+  // frame boundary on iOS, so pan/zoom never reaches the shared
+  // map even with the `box-none` chain in place. A local MapView
+  // sidesteps that.
+  //
+  // `region` from the booking-flow context is still our source of
+  // truth for the initial camera so the shared map and the local
+  // map line up if the user ever sees both during a transition.
   const userLocation = useBookingStore((s) => s.userLocation);
-  const { mapRef, setInteractive, setMarkers, setShopPins } = useBookingFlowMap();
+  const { setInteractive, setMarkers, setShopPins, region } = useBookingFlowMap();
+  const mapRef = useRef<MapView | null>(null);
   // Ref to the paged carousel ScrollView so a pin tap can scroll
   // the bottom sheet to that shop's page (the reverse direction of
   // the existing swipe → setActiveIndex flow).
   const pagerScrollRef = useRef<ScrollView | null>(null);
 
-  // Claim interactive mode whenever this screen is focused; the
-  // locked screens reset it back when they regain focus.
+  // Lock the SHARED map down (no touches, no pins) so it doesn't
+  // compete with the local MapView for gestures or render duplicate
+  // markers. Other booking-flow screens reset this on their own
+  // focus effects.
   useFocusEffect(
     useCallback(() => {
-      setInteractive(true);
-    }, [setInteractive]),
+      setInteractive(false);
+      setMarkers([]);
+      setShopPins([]);
+    }, [setInteractive, setMarkers, setShopPins]),
   );
 
   // Tap a rating pin on the map → swap the active shop, scroll the
@@ -245,45 +260,8 @@ export default function ChooseMechanicScreen() {
     [nearbyShops.length],
   );
 
-  // Render rating pins for ALL nearby shops (not just the active
-  // one). The pill for `activeIndex` is selected; the rest are
-  // unselected. Same effect re-fires when `activeIndex` changes
-  // (from either a pin tap or a carousel swipe), so the selection
-  // state stays in sync without a separate listener.
-  //
-  // Old single-marker `setMarkers([activeShop])` is gone — the
-  // shop pins handle that representation now. The `setMarkers([])`
-  // call in the else branch keeps any title-only markers from
-  // earlier screens cleared.
-  useEffect(() => {
-    setMarkers([]);
-    if (nearbyShops.length === 0) {
-      setShopPins([]);
-      return;
-    }
-    setShopPins(
-      nearbyShops
-        .filter((r) => r.shop.latitude !== 0 && r.shop.longitude !== 0)
-        .map((r, idx) => ({
-          shopId: r.shop.id,
-          latitude: r.shop.latitude,
-          longitude: r.shop.longitude,
-          shopName: r.shop.name,
-          rating: r.shop.rating,
-          isSelected: idx === activeIndex,
-          onPress: () => onPinTap(idx),
-        })),
-    );
-  }, [nearbyShops, activeIndex, setMarkers, setShopPins, onPinTap]);
-
-  // Clear pins on unmount so they don't leak onto Screen 1's
-  // locked-backdrop view (the shared map provider persists across
-  // routes in the booking-flow stack).
-  useEffect(() => {
-    return () => {
-      setShopPins([]);
-    };
-  }, [setShopPins]);
+  // Pin rendering moved onto the local MapView in the render block —
+  // no need to push pins through the shared BookingFlowMap context.
 
   // Animate the map camera to the active shop whenever it changes.
   // Center on the shop with a fixed neighborhood-scale zoom (~1mi
@@ -437,9 +415,47 @@ export default function ChooseMechanicScreen() {
 
   return (
     <View style={styles.root} pointerEvents="box-none">
-      {/* The interactive map is the shared persistent instance rendered
-          by the layout; this screen drives its camera + markers and
-          floats its chrome over it. */}
+      {/* Local interactive MapView. The shared layout-level
+          BookingFlowMap is locked behind us (its touches were being
+          eaten by react-navigation's native-stack Card before they
+          could fall through — same UIViewController quirk that
+          forced the local-MapView fix on select-services peek
+          mode). Mounting the map as a direct child of the screen
+          gives it touches naturally. */}
+      {region ? (
+        <MapView
+          ref={mapRef}
+          style={StyleSheet.absoluteFill}
+          provider={PROVIDER_DEFAULT}
+          initialRegion={region}
+          showsUserLocation
+          scrollEnabled
+          zoomEnabled
+          pitchEnabled={false}
+          rotateEnabled
+        >
+          {nearbyShops
+            .filter((r) => r.shop.latitude !== 0 && r.shop.longitude !== 0)
+            .map((r, idx) => (
+              <Marker
+                key={r.shop.id}
+                coordinate={{
+                  latitude: r.shop.latitude,
+                  longitude: r.shop.longitude,
+                }}
+                anchor={{ x: 0.5, y: 0.5 }}
+                tracksViewChanges={idx === activeIndex}
+                onPress={() => onPinTap(idx)}
+              >
+                <RatingMarkerPill
+                  rating={r.shop.rating}
+                  shopName={r.shop.name}
+                  isSelected={idx === activeIndex}
+                />
+              </Marker>
+            ))}
+        </MapView>
+      ) : null}
 
       {/* Top floating chrome */}
       <View
