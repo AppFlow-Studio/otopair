@@ -30,6 +30,12 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import BottomSheet, { BottomSheetView } from "@gorhom/bottom-sheet";
 import { ArrowLeft, Crosshair, Minus, Plus } from "lucide-react-native";
 import MapView, { Marker, PROVIDER_DEFAULT } from "react-native-maps";
+import Animated, {
+  Extrapolation,
+  interpolate,
+  useAnimatedStyle,
+  useSharedValue,
+} from "react-native-reanimated";
 
 import { Text } from "@/components/shared-ui";
 import { useBookingFlowMap } from "@/components/booking-flow/BookingFlowMap";
@@ -248,6 +254,19 @@ export default function ChooseMechanicScreen() {
   // Ref to the BottomSheet itself so a browse-card tap can
   // re-open it (snapToIndex(0)).
   const bottomSheetRef = useRef<BottomSheet | null>(null);
+  // gorhom's `animatedIndex` shared value. -1 = fully closed, 0 =
+  // first snap (53%), 1 = second snap (82%). Drives the Continue
+  // bar's fade so the bar tracks the sheet's drag continuously
+  // instead of popping in/out at the snap-change boundary.
+  const sheetAnimatedIndex = useSharedValue(0);
+  const continueBarStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(
+      sheetAnimatedIndex.value,
+      [-1, 0],
+      [0, 1],
+      Extrapolation.CLAMP,
+    ),
+  }));
 
   // Lock the SHARED map down (no touches, no pins) so it doesn't
   // compete with the local MapView for gestures or render duplicate
@@ -601,6 +620,7 @@ export default function ChooseMechanicScreen() {
         // the screen.
         index={0}
         onChange={setSheetIndex}
+        animatedIndex={sheetAnimatedIndex}
         enablePanDownToClose
         enableDynamicSizing={false}
         backgroundStyle={styles.sheetBackground}
@@ -668,13 +688,20 @@ export default function ChooseMechanicScreen() {
         </BottomSheetView>
       </BottomSheet>
 
-      {/* Continue bar is only meaningful when the user is engaging
-          with the sheet's carousel. When the sheet is hidden the
-          user is browsing the map and the browse-card carousel
-          replaces all bottom chrome. */}
-      {isSheetHidden ? null : (
+      {/* Continue bar fades in/out with the sheet's drag instead
+          of popping at the snap boundary. Opacity is driven by
+          `animatedIndex` so the fade is fully synced with the
+          finger — 1 at the 53% snap, 0 once the sheet has
+          fully closed.
+          pointerEvents flip to "none" once the React state catches
+          up so the (invisible) bar can't intercept taps on the
+          browse-card carousel underneath. */}
+      <Animated.View
+        style={[styles.continueLayer, continueBarStyle]}
+        pointerEvents={isSheetHidden ? "none" : "box-none"}
+      >
         <StickyContinueBar count={1} label={continueLabel} onPress={onContinue} />
-      )}
+      </Animated.View>
     </View>
   );
 }
@@ -733,6 +760,15 @@ const styles = StyleSheet.create({
     bottom: 40,
     left: 0,
     right: 0,
+  },
+  continueLayer: {
+    // Animated wrapper that drives only opacity — the
+    // StickyContinueBar inside is already `position: absolute,
+    // bottom: 0`, so this layer doesn't need to take any space.
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
   },
   browseCardSlot: {
     width: SCREEN_WIDTH,
