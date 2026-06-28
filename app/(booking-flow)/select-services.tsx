@@ -25,6 +25,8 @@ import {
   ScrollView,
   StyleSheet,
   View,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
 } from "react-native";
 import { BlurView } from "expo-blur";
 import Animated, {
@@ -48,6 +50,7 @@ import { CategoryListRow } from "@/components/booking-flow/CategoryListRow";
 import { GlassSheetHandle } from "@/components/booking-flow/GlassSheet";
 import { HeroCardClosestShop } from "@/components/booking-flow/HeroCardClosestShop";
 import { HeroCardMostBooked } from "@/components/booking-flow/HeroCardMostBooked";
+import { MapBrowseShopCard } from "@/components/booking-flow/MapBrowseShopCard";
 import { PinnedShopChip } from "@/components/booking-flow/PinnedShopChip";
 import { QuickBookRow } from "@/components/booking-flow/QuickBookRow";
 import { RatingMarkerPill } from "@/components/booking-flow/RatingMarkerPill";
@@ -94,7 +97,7 @@ function legacyCategoryToTab(
 //     map button on Home. Map underneath is interactive so they
 //     can pan around looking for shops; a tap on the sheet
 //     animates it up to full.
-const { height: SCREEN_HEIGHT } = Dimensions.get("window");
+const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get("window");
 const SHEET_H_FULL = SCREEN_HEIGHT * 0.92;
 const SHEET_H_PEEK = SCREEN_HEIGHT * 0.18;
 
@@ -158,10 +161,38 @@ export default function SelectServicesScreen() {
   // Rating-pin shop list for the LOCAL MapView in peek mode. We
   // re-use the same hook choose-mechanic uses; it's free of side
   // effects on its own (the booking-flow Stack stays mounted in
-  // either case). `selectedShopId` is local state — pin tap behavior
-  // beyond the visual swap is intentionally TBD; Ahmad will spec it.
+  // either case).
+  //
+  // `selectedShopId` doubles as the visual-select signal for the
+  // map pins AND the page index for the browse-card carousel
+  // mounted above the peek sheet. Pin tap → setSelectedShopId →
+  // useEffect scrolls the carousel; carousel swipe → setSelectedShopId
+  // → marker `tracksViewChanges` flips the pill to selected.
   const { results: nearbyShops } = useNearbyBookingShops(5);
   const [selectedShopId, setSelectedShopId] = useState<string | null>(null);
+  const browseScrollRef = useRef<ScrollView | null>(null);
+  const selectedIndex = useMemo(() => {
+    if (!selectedShopId) return 0;
+    const i = nearbyShops.findIndex((r) => r.shop.id === selectedShopId);
+    return i >= 0 ? i : 0;
+  }, [selectedShopId, nearbyShops]);
+  // Pin tap / selectedShopId change → scroll the browse carousel to
+  // match. Skip when the carousel hasn't mounted yet (peek mode is
+  // gated on isPeekEntry && !isPeekExpanded).
+  useEffect(() => {
+    browseScrollRef.current?.scrollTo({
+      x: selectedIndex * SCREEN_WIDTH,
+      animated: true,
+    });
+  }, [selectedIndex]);
+  const onBrowsePageChange = useCallback(
+    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const idx = Math.round(e.nativeEvent.contentOffset.x / SCREEN_WIDTH);
+      const shop = nearbyShops[idx]?.shop;
+      if (shop) setSelectedShopId(shop.id);
+    },
+    [nearbyShops],
+  );
 
   const availableServices = useBookingStore((s) => s.availableServices);
   const selectedServiceIds = useBookingStore((s) => s.selectedServiceIds);
@@ -348,6 +379,41 @@ export default function SelectServicesScreen() {
         </MapView>
       ) : null}
 
+      {/* Browse-card carousel — peek mode only. Sits just above the
+          peek sheet so the cards and the "Tap to pick a service"
+          handle don't visually compete. Swipe to flip pin
+          selection on the map; tap a card → MapBrowseShopCard's
+          default route, which is the shop detail page. */}
+      {isPeekEntry && !isPeekExpanded ? (
+        <View
+          style={[styles.browseStrip, { bottom: SHEET_H_PEEK + 16 }]}
+          pointerEvents="box-none"
+        >
+          <ScrollView
+            ref={browseScrollRef}
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            onMomentumScrollEnd={onBrowsePageChange}
+            decelerationRate="fast"
+            contentOffset={{ x: selectedIndex * SCREEN_WIDTH, y: 0 }}
+          >
+            {nearbyShops.map((r) => (
+              <View key={r.shop.id} style={styles.browseCardSlot}>
+                <MapBrowseShopCard
+                  shopId={r.shop.id}
+                  shopName={r.shop.name}
+                  imageUrl={r.shop.imageUrl}
+                  rating={r.shop.rating}
+                  category="Auto repair shop"
+                  isOpen={r.shop.hasAvailableSlots}
+                />
+              </View>
+            ))}
+          </ScrollView>
+        </View>
+      ) : null}
+
       {/* Frosted sheet — fixed height by default, animates from peek
           to full height when the user enters via Home's map button
           and taps the sheet. Content scrolls inside (no Pan gesture
@@ -519,6 +585,17 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
+  },
+  browseStrip: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    // `bottom` is set inline from SHEET_H_PEEK so the carousel
+    // sits just above the peek sheet's top edge.
+  },
+  browseCardSlot: {
+    width: SCREEN_WIDTH,
+    paddingHorizontal: 16,
   },
   sheetAndroidFallback: {
     backgroundColor: "rgba(255, 255, 255, 0.85)",
