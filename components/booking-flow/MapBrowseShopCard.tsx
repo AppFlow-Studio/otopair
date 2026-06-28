@@ -31,6 +31,10 @@ interface MapBrowseShopCardProps {
    *  shop's `hasAvailableSlots` flag — close enough to live hours
    *  for v1; swap for real hours if/when we ingest them. */
   isOpen: boolean;
+  /** Optional tap override. Default → shop detail page. On Choose
+   *  Mechanic at the closed-sheet snap, this is wired to re-open
+   *  the bottom sheet instead. */
+  onPress?: () => void;
 }
 
 export function MapBrowseShopCard({
@@ -40,15 +44,19 @@ export function MapBrowseShopCard({
   rating,
   category,
   isOpen,
+  onPress,
 }: MapBrowseShopCardProps) {
   const router = useRouter();
+
+  const handlePress =
+    onPress ??
+    (() =>
+      router.push({ pathname: "/booking/shop/[id]", params: { id: shopId } }));
 
   return (
     <Pressable
       style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
-      onPress={() =>
-        router.push({ pathname: "/booking/shop/[id]", params: { id: shopId } })
-      }
+      onPress={handlePress}
       accessibilityRole="button"
       accessibilityLabel={`${shopName} details`}
     >

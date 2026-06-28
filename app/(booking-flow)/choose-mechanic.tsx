@@ -52,14 +52,14 @@ import { useVehicleStore } from "@/stores/useVehicleStore";
 import { buildShopPriceLabel } from "@/lib/shopPriceLabel";
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
-const SCREEN_HEIGHT = Dimensions.get("window").height;
-// Three snap points: low peek (~12% — handle visible, map fully
-// revealed for the ChatGPT-style "browse pins" mode), standard
-// (~53%, the historical default that fits the active shop card +
-// mechanic strip), and expanded (~82% for scrolling reviews etc).
-// Initial index = 1 so the standard view is what users land on; 0
-// is reached only via a deliberate swipe-down.
-const SNAP_POINTS = ["12%", "53%", "82%"] as const;
+// Two snap points: standard (~53%, the default that fits the
+// active shop card + mechanic strip) and expanded (~82% for
+// scrolling reviews etc). With `enablePanDownToClose`, the user
+// can also drag the sheet OUT of view entirely — at which point
+// `sheetIndex === -1` and the screen swaps to the browse-card
+// carousel (ChatGPT-style "shops on a map" mode). Tap a card to
+// bring the sheet back to index 0.
+const SNAP_POINTS = ["53%", "82%"] as const;
 
 export default function ChooseMechanicScreen() {
   const router = useRouter();
@@ -171,12 +171,13 @@ export default function ChooseMechanicScreen() {
   const [activeIndex, setActiveIndex] = useState(0);
   const activeShop = nearbyShops[activeIndex]?.shop ?? null;
 
-  // Bottom-sheet snap index. Drives the chrome swap at the low
-  // 12% peek (index 0): hide Continue + the rich MapShopCard, show
-  // the minimal ChatGPT-style MapBrowseShopCard instead so the
-  // map is the focus while the user browses pins.
-  const [sheetIndex, setSheetIndex] = useState(1);
-  const isLowPeek = sheetIndex === 0;
+  // Bottom-sheet snap index. Drives the chrome swap when the user
+  // swipes the sheet fully closed (`sheetIndex === -1`): hide the
+  // Continue CTA + the rich MapShopCard, show the
+  // ChatGPT-style MapBrowseShopCard CAROUSEL instead so the map
+  // is the focus while the user browses pins.
+  const [sheetIndex, setSheetIndex] = useState(0);
+  const isSheetHidden = sheetIndex === -1;
 
   // Per-(shop, service, tier) flat-price overrides for the active shop.
   // When a service is offered at a fixed rate the price renders as a
@@ -239,6 +240,14 @@ export default function ChooseMechanicScreen() {
   // the bottom sheet to that shop's page (the reverse direction of
   // the existing swipe → setActiveIndex flow).
   const pagerScrollRef = useRef<ScrollView | null>(null);
+  // Ref to the EXTERNAL browse-card carousel (only mounted when
+  // the bottom sheet is hidden). Pin tap on the map scrolls this
+  // to the matching shop too, so the visible card always
+  // reflects the active shop.
+  const browseScrollRef = useRef<ScrollView | null>(null);
+  // Ref to the BottomSheet itself so a browse-card tap can
+  // re-open it (snapToIndex(0)).
+  const bottomSheetRef = useRef<BottomSheet | null>(null);
 
   // Lock the SHARED map down (no touches, no pins) so it doesn't
   // compete with the local MapView for gestures or render duplicate
@@ -252,11 +261,12 @@ export default function ChooseMechanicScreen() {
     }, [setInteractive, setMarkers, setShopPins]),
   );
 
-  // Tap a rating pin on the map → swap the active shop, scroll the
-  // carousel below to that shop's page, and re-render the pins so
-  // the new shop's pill goes black. The camera-pan effect further
-  // down already fires off activeIndex changes (~line 258), so we
-  // don't need to call mapRef directly here.
+  // Tap a rating pin on the map → swap the active shop and scroll
+  // BOTH the sheet's internal carousel AND the external browse
+  // carousel (the one shown when the sheet is hidden) so they
+  // stay in sync regardless of which one's visible. The
+  // camera-pan effect further down fires off activeIndex changes,
+  // so we don't need to call mapRef directly here.
   const onPinTap = useCallback(
     (idx: number) => {
       if (idx < 0 || idx >= nearbyShops.length) return;
@@ -265,8 +275,25 @@ export default function ChooseMechanicScreen() {
         x: idx * SCREEN_WIDTH,
         animated: true,
       });
+      browseScrollRef.current?.scrollTo({
+        x: idx * SCREEN_WIDTH,
+        animated: true,
+      });
     },
     [nearbyShops.length],
+  );
+
+  // External browse-carousel swipe → mirror the internal pager's
+  // onPageChange. Keep the internal pager scrolled to the same
+  // page (no animation — the user can't see it) so that when the
+  // sheet reopens it lands on the right shop.
+  const onBrowsePageChange = useCallback(
+    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const idx = Math.round(e.nativeEvent.contentOffset.x / SCREEN_WIDTH);
+      setActiveIndex(idx);
+      pagerScrollRef.current?.scrollTo({ x: idx * SCREEN_WIDTH, animated: false });
+    },
+    [],
   );
 
   // Pin rendering moved onto the local MapView in the render block —
@@ -487,12 +514,15 @@ export default function ChooseMechanicScreen() {
         </View>
       </View>
 
-      {/* Floating shop card. Two variants by sheet snap:
-          - Standard/expanded (53% / 82%) → the rich MapShopCard
-            with estimated price + next slot.
-          - Low peek (12%) → the minimal MapBrowseShopCard
-            (image + name + rating + open status), ChatGPT-style. */}
-      {activeShop && !isLowPeek ? (
+      {/* Floating shop card. Two layouts by sheet state:
+          - Sheet open (53% / 82%) → the rich MapShopCard with
+            estimated price + next slot, anchored at top 30%.
+          - Sheet hidden → a horizontal pager of minimal
+            MapBrowseShopCards (image + name + rating + open
+            status), ChatGPT-style. Swiping the pager changes
+            the active shop; tapping a card brings the sheet
+            back. */}
+      {activeShop && !isSheetHidden ? (
         <View style={styles.shopCardWrap} pointerEvents="box-none">
           <MapShopCard
             shopId={activeShop.id}
@@ -505,16 +535,31 @@ export default function ChooseMechanicScreen() {
           />
         </View>
       ) : null}
-      {activeShop && isLowPeek ? (
-        <View style={styles.browseCardWrap} pointerEvents="box-none">
-          <MapBrowseShopCard
-            shopId={activeShop.id}
-            shopName={activeShop.name}
-            imageUrl={activeShop.imageUrl}
-            rating={activeShop.rating}
-            category="Auto repair shop"
-            isOpen={activeShop.hasAvailableSlots}
-          />
+      {isSheetHidden ? (
+        <View style={styles.browseStrip} pointerEvents="box-none">
+          <ScrollView
+            ref={browseScrollRef}
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            onMomentumScrollEnd={onBrowsePageChange}
+            decelerationRate="fast"
+            contentOffset={{ x: activeIndex * SCREEN_WIDTH, y: 0 }}
+          >
+            {nearbyShops.map((r) => (
+              <View key={r.shop.id} style={styles.browseCardSlot}>
+                <MapBrowseShopCard
+                  shopId={r.shop.id}
+                  shopName={r.shop.name}
+                  imageUrl={r.shop.imageUrl}
+                  rating={r.shop.rating}
+                  category="Auto repair shop"
+                  isOpen={r.shop.hasAvailableSlots}
+                  onPress={() => bottomSheetRef.current?.snapToIndex(0)}
+                />
+              </View>
+            ))}
+          </ScrollView>
         </View>
       ) : null}
 
@@ -548,13 +593,15 @@ export default function ChooseMechanicScreen() {
           resizes the sheet (gorhom's vertical pan + our horizontal
           ScrollView don't conflict). */}
       <BottomSheet
+        ref={bottomSheetRef}
         snapPoints={SNAP_POINTS as unknown as string[]}
-        // Start at index 1 = the standard 53% peek. Index 0 is the
-        // new low 12% peek; reached only via a deliberate swipe-down
-        // so users can browse rating pins on the map ChatGPT-style.
-        index={1}
+        // Start at index 0 = standard 53% peek. Swipe down past
+        // index 0 → sheet closes entirely (`sheetIndex === -1`)
+        // and the browse-card carousel takes over the bottom of
+        // the screen.
+        index={0}
         onChange={setSheetIndex}
-        enablePanDownToClose={false}
+        enablePanDownToClose
         enableDynamicSizing={false}
         backgroundStyle={styles.sheetBackground}
         handleIndicatorStyle={styles.sheetHandleIndicator}
@@ -622,9 +669,10 @@ export default function ChooseMechanicScreen() {
       </BottomSheet>
 
       {/* Continue bar is only meaningful when the user is engaging
-          with the carousel — at the low peek the sheet is just a
-          handle and the user is browsing the map. */}
-      {isLowPeek ? null : (
+          with the sheet's carousel. When the sheet is hidden the
+          user is browsing the map and the browse-card carousel
+          replaces all bottom chrome. */}
+      {isSheetHidden ? null : (
         <StickyContinueBar count={1} label={continueLabel} onPress={onContinue} />
       )}
     </View>
@@ -677,14 +725,18 @@ const styles = StyleSheet.create({
     right: 16,
     alignItems: "center",
   },
-  browseCardWrap: {
+  browseStrip: {
     position: "absolute",
-    // Sit just above the 12% sheet handle. SNAP_POINTS[0] is "12%"
-    // of screen height, +16pt gap so the card breathes off the
-    // sheet's top edge.
-    bottom: SCREEN_HEIGHT * 0.12 + 16,
-    left: 16,
-    right: 16,
+    // No sheet underneath in this mode — float the card carousel
+    // just above the home-indicator area so it doesn't crowd the
+    // bottom edge of the device.
+    bottom: 40,
+    left: 0,
+    right: 0,
+  },
+  browseCardSlot: {
+    width: SCREEN_WIDTH,
+    paddingHorizontal: 16,
   },
   rightRail: {
     position: "absolute",
