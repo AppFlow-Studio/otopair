@@ -33,6 +33,7 @@ import MapView, { Marker, PROVIDER_DEFAULT } from "react-native-maps";
 
 import { Text } from "@/components/shared-ui";
 import { useBookingFlowMap } from "@/components/booking-flow/BookingFlowMap";
+import { MapBrowseShopCard } from "@/components/booking-flow/MapBrowseShopCard";
 import { MapShopCard } from "@/components/booking-flow/MapShopCard";
 import { RatingMarkerPill } from "@/components/booking-flow/RatingMarkerPill";
 import { ShopPage } from "@/components/booking-flow/ShopPage";
@@ -51,6 +52,7 @@ import { useVehicleStore } from "@/stores/useVehicleStore";
 import { buildShopPriceLabel } from "@/lib/shopPriceLabel";
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
+const SCREEN_HEIGHT = Dimensions.get("window").height;
 // Three snap points: low peek (~12% — handle visible, map fully
 // revealed for the ChatGPT-style "browse pins" mode), standard
 // (~53%, the historical default that fits the active shop card +
@@ -168,6 +170,13 @@ export default function ChooseMechanicScreen() {
   // Active page index = which shop the user is currently viewing.
   const [activeIndex, setActiveIndex] = useState(0);
   const activeShop = nearbyShops[activeIndex]?.shop ?? null;
+
+  // Bottom-sheet snap index. Drives the chrome swap at the low
+  // 12% peek (index 0): hide Continue + the rich MapShopCard, show
+  // the minimal ChatGPT-style MapBrowseShopCard instead so the
+  // map is the focus while the user browses pins.
+  const [sheetIndex, setSheetIndex] = useState(1);
+  const isLowPeek = sheetIndex === 0;
 
   // Per-(shop, service, tier) flat-price overrides for the active shop.
   // When a service is offered at a fixed rate the price renders as a
@@ -478,8 +487,12 @@ export default function ChooseMechanicScreen() {
         </View>
       </View>
 
-      {/* Floating glassy shop card — syncs to the active shop. */}
-      {activeShop ? (
+      {/* Floating shop card. Two variants by sheet snap:
+          - Standard/expanded (53% / 82%) → the rich MapShopCard
+            with estimated price + next slot.
+          - Low peek (12%) → the minimal MapBrowseShopCard
+            (image + name + rating + open status), ChatGPT-style. */}
+      {activeShop && !isLowPeek ? (
         <View style={styles.shopCardWrap} pointerEvents="box-none">
           <MapShopCard
             shopId={activeShop.id}
@@ -489,6 +502,18 @@ export default function ChooseMechanicScreen() {
             priceRange={activePriceLabel.text}
             isFixed={activePriceLabel.isFixed}
             nextSlotLabel={activeNextSlotLabel}
+          />
+        </View>
+      ) : null}
+      {activeShop && isLowPeek ? (
+        <View style={styles.browseCardWrap} pointerEvents="box-none">
+          <MapBrowseShopCard
+            shopId={activeShop.id}
+            shopName={activeShop.name}
+            imageUrl={activeShop.imageUrl}
+            rating={activeShop.rating}
+            category="Auto repair shop"
+            isOpen={activeShop.hasAvailableSlots}
           />
         </View>
       ) : null}
@@ -528,6 +553,7 @@ export default function ChooseMechanicScreen() {
         // new low 12% peek; reached only via a deliberate swipe-down
         // so users can browse rating pins on the map ChatGPT-style.
         index={1}
+        onChange={setSheetIndex}
         enablePanDownToClose={false}
         enableDynamicSizing={false}
         backgroundStyle={styles.sheetBackground}
@@ -595,7 +621,12 @@ export default function ChooseMechanicScreen() {
         </BottomSheetView>
       </BottomSheet>
 
-      <StickyContinueBar count={1} label={continueLabel} onPress={onContinue} />
+      {/* Continue bar is only meaningful when the user is engaging
+          with the carousel — at the low peek the sheet is just a
+          handle and the user is browsing the map. */}
+      {isLowPeek ? null : (
+        <StickyContinueBar count={1} label={continueLabel} onPress={onContinue} />
+      )}
     </View>
   );
 }
@@ -645,6 +676,15 @@ const styles = StyleSheet.create({
     left: 16,
     right: 16,
     alignItems: "center",
+  },
+  browseCardWrap: {
+    position: "absolute",
+    // Sit just above the 12% sheet handle. SNAP_POINTS[0] is "12%"
+    // of screen height, +16pt gap so the card breathes off the
+    // sheet's top edge.
+    bottom: SCREEN_HEIGHT * 0.12 + 16,
+    left: 16,
+    right: 16,
   },
   rightRail: {
     position: "absolute",
