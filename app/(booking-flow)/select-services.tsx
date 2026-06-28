@@ -261,7 +261,15 @@ export default function SelectServicesScreen() {
   // expands, we re-lock so the map doesn't intercept gestures meant
   // for the now-full sheet.
   const { setInteractive, setMarkers, mapRef, region } = useBookingFlowMap();
-  const mapShouldBeInteractive = isPeekEntry && !isPeekExpanded;
+  // Peek mode is entry-agnostic: whether the user reached it by
+  // entering via Home → Map OR by entering via Search and then
+  // swiping the sheet down, the experience underneath is the
+  // same — a draggable local map with shop pins and a browse-card
+  // carousel. So all peek-mode rendering gates key on
+  // `!isPeekExpanded` only. The initial state at line 112 is the
+  // only thing that still cares about `isPeekEntry` (whether
+  // to land at peek or full).
+  const mapShouldBeInteractive = !isPeekExpanded;
   useFocusEffect(
     useCallback(() => {
       setInteractive(mapShouldBeInteractive);
@@ -368,7 +376,7 @@ export default function SelectServicesScreen() {
           of the screen's view tree gives it touches naturally.
           On expand we drop this back to the shared map (the sheet
           covers the area so the map isn't visible anyway). */}
-      {isPeekEntry && !isPeekExpanded && region ? (
+      {!isPeekExpanded && region ? (
         <MapView
           ref={localMapRef}
           style={StyleSheet.absoluteFill}
@@ -408,7 +416,7 @@ export default function SelectServicesScreen() {
           handle don't visually compete. Swipe to flip pin
           selection on the map; tap a card → MapBrowseShopCard's
           default route, which is the shop detail page. */}
-      {isPeekEntry && !isPeekExpanded ? (
+      {!isPeekExpanded ? (
         <View
           style={[styles.browseStrip, { bottom: SHEET_H_PEEK + 16 }]}
           pointerEvents="box-none"
@@ -471,7 +479,7 @@ export default function SelectServicesScreen() {
               a separate component instead of an overlay avoids the
               tap conflicting with any nested Pressables (X / search
               icons) since those don't render until after expansion. */}
-          {isPeekEntry && !isPeekExpanded ? (
+          {!isPeekExpanded ? (
             <Pressable
               onPress={expandPeekSheet}
               style={styles.peekBody}
