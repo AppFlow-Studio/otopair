@@ -171,6 +171,10 @@ export default function SelectServicesScreen() {
   const { results: nearbyShops } = useNearbyBookingShops(5);
   const [selectedShopId, setSelectedShopId] = useState<string | null>(null);
   const browseScrollRef = useRef<ScrollView | null>(null);
+  // Local map ref so the camera can pan to the selected shop as
+  // the user swipes the carousel. Same pattern choose-mechanic
+  // uses for its sheet's internal pager.
+  const localMapRef = useRef<MapView | null>(null);
   const selectedIndex = useMemo(() => {
     if (!selectedShopId) return 0;
     const i = nearbyShops.findIndex((r) => r.shop.id === selectedShopId);
@@ -185,6 +189,25 @@ export default function SelectServicesScreen() {
       animated: true,
     });
   }, [selectedIndex]);
+  // Pan the camera to the selected shop. Fixed neighborhood-scale
+  // zoom (~1mi) — same magic number choose-mechanic uses for its
+  // default. Skipping when the shop has no real coords (dev
+  // fixtures) so we don't fly to (0, 0).
+  useEffect(() => {
+    const r = nearbyShops[selectedIndex];
+    if (!r || !localMapRef.current) return;
+    const { latitude, longitude } = r.shop;
+    if (latitude === 0 && longitude === 0) return;
+    localMapRef.current.animateToRegion(
+      {
+        latitude,
+        longitude,
+        latitudeDelta: 0.035,
+        longitudeDelta: 0.035,
+      },
+      450,
+    );
+  }, [selectedIndex, nearbyShops]);
   const onBrowsePageChange = useCallback(
     (e: NativeSyntheticEvent<NativeScrollEvent>) => {
       const idx = Math.round(e.nativeEvent.contentOffset.x / SCREEN_WIDTH);
@@ -347,6 +370,7 @@ export default function SelectServicesScreen() {
           covers the area so the map isn't visible anyway). */}
       {isPeekEntry && !isPeekExpanded && region ? (
         <MapView
+          ref={localMapRef}
           style={StyleSheet.absoluteFill}
           provider={PROVIDER_DEFAULT}
           initialRegion={region}
