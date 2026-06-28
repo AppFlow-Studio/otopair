@@ -1859,14 +1859,10 @@ async function computeEarlyPushPreview(ctx: any, booking: any) {
 
   const nowParts = getShopLocalDateTimeParts(timezone, new Date(now));
   const proposedScheduledTime = roundDownToFiveMinutes(nowParts.time);
-  // If "now" rolled into a different calendar day than the original booking
-  // (rare — customer "early" across midnight), fall back to scheduled_date
-  // so the booking doesn't jump days. Same-day is the expected case.
-  const proposedScheduledDate =
-    nowParts.date === booking.scheduled_date ? nowParts.date : booking.scheduled_date;
+  const proposedScheduledDate = nowParts.date;
   const proposedEndTime = getBookingEndTime(proposedScheduledTime, durationMinutes);
 
-  let conflict: "booking" | "blocked" | "outside_shop_hours" | null = null;
+  let conflict: "booking" | "blocked" | "outside_shop_hours" | "ends_outside_shop_hours" | null = null;
   let conflictingBookingId: string | null = null;
 
   try {
@@ -1876,8 +1872,11 @@ async function computeEarlyPushPreview(ctx: any, booking: any) {
       startTime: proposedScheduledTime,
       durationMinutes,
     });
-  } catch {
-    conflict = "outside_shop_hours";
+  } catch (err: unknown) {
+    conflict =
+      err instanceof Error && err.message.includes("end after")
+        ? "ends_outside_shop_hours"
+        : "outside_shop_hours";
   }
 
   if (!conflict) {
@@ -2140,7 +2139,10 @@ export const getEarlyPushPreview = query({
 });
 
 export const pushBookingEarlierAndArrive = mutation({
-  args: { bookingId: v.id("bookings") },
+  args: {
+    bookingId: v.id("bookings"),
+    overrideShopHours: v.optional(v.boolean()),
+  },
   handler: async (ctx, args) => {
     const user = await getCurrentUser(ctx);
     const booking = await ctx.db.get(args.bookingId);
@@ -2161,8 +2163,16 @@ export const pushBookingEarlierAndArrive = mutation({
         "Customer isn't early enough to push the booking — must be at least 10 minutes before scheduled start.",
       );
     }
-    if (preview.conflict === "outside_shop_hours") {
-      throw new Error("The proposed earlier start is outside the shop's operating hours.");
+    if (
+      (preview.conflict === "outside_shop_hours" ||
+        preview.conflict === "ends_outside_shop_hours") &&
+      args.overrideShopHours !== true
+    ) {
+      throw new Error(
+        preview.conflict === "ends_outside_shop_hours"
+          ? "The proposed job would end outside the shop's operating hours."
+          : "The proposed earlier start is outside the shop's operating hours.",
+      );
     }
     if (preview.conflict === "booking") {
       throw new Error("Cannot push earlier — the mechanic has another booking in that window.");
@@ -2182,6 +2192,7 @@ export const pushBookingEarlierAndArrive = mutation({
       preferredMechanicId: booking.mechanic_id,
       excludeBookingId: String(booking._id),
       allowAfterClose: false,
+      allowOutsideShopHours: args.overrideShopHours === true,
     });
 
     const oldSlotId = booking.time_slot_id;
@@ -4955,6 +4966,7 @@ async function resolveMechanicForWindow(
     excludeBookingId,
     excludeTireQuoteResponseId,
     allowAfterClose,
+    allowOutsideShopHours,
   }: {
     shopId: any;
     date: string;
@@ -4964,6 +4976,7 @@ async function resolveMechanicForWindow(
     excludeBookingId?: string;
     excludeTireQuoteResponseId?: string;
     allowAfterClose?: boolean;
+    allowOutsideShopHours?: boolean;
   }
 ) {
   return await resolveAvailableMechanicForWindow(ctx, {
@@ -4975,6 +4988,7 @@ async function resolveMechanicForWindow(
     excludeBookingId,
     excludeTireQuoteResponseId,
     allowAfterClose,
+    allowOutsideShopHours,
   });
 }
 
