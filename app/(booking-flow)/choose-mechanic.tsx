@@ -267,6 +267,18 @@ export default function ChooseMechanicScreen() {
       Extrapolation.CLAMP,
     ),
   }));
+  // Browse-card strip fades in as the sheet fades out — same
+  // shared value, inverted curve. Always-mounted so the
+  // ScrollView holds its scroll position across open/close
+  // transitions.
+  const browseStripStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(
+      sheetAnimatedIndex.value,
+      [-1, 0],
+      [1, 0],
+      Extrapolation.CLAMP,
+    ),
+  }));
 
   // Lock the SHARED map down (no touches, no pins) so it doesn't
   // compete with the local MapView for gestures or render duplicate
@@ -415,10 +427,14 @@ export default function ChooseMechanicScreen() {
   }, [selectedServices, laborHoursMap]);
 
   // Horizontal-paged scroll handler. Pages snap by screen width so
-  // every page lines up edge-to-edge inside the sheet.
+  // every page lines up edge-to-edge inside the sheet. Also pushes
+  // the same page index into the (always-mounted but invisible)
+  // browse carousel so it's already on the right shop when the
+  // user swipes the sheet closed.
   const onPageChange = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const idx = Math.round(e.nativeEvent.contentOffset.x / SCREEN_WIDTH);
     setActiveIndex(idx);
+    browseScrollRef.current?.scrollTo({ x: idx * SCREEN_WIDTH, animated: false });
   }, []);
 
   const { slots: activeShopSlots } = useNextAvailabilityForShop(
@@ -554,33 +570,41 @@ export default function ChooseMechanicScreen() {
           />
         </View>
       ) : null}
-      {isSheetHidden ? (
-        <View style={styles.browseStrip} pointerEvents="box-none">
-          <ScrollView
-            ref={browseScrollRef}
-            horizontal
-            pagingEnabled
-            showsHorizontalScrollIndicator={false}
-            onMomentumScrollEnd={onBrowsePageChange}
-            decelerationRate="fast"
-            contentOffset={{ x: activeIndex * SCREEN_WIDTH, y: 0 }}
-          >
-            {nearbyShops.map((r) => (
-              <View key={r.shop.id} style={styles.browseCardSlot}>
-                <MapBrowseShopCard
-                  shopId={r.shop.id}
-                  shopName={r.shop.name}
-                  imageUrl={r.shop.imageUrl}
-                  rating={r.shop.rating}
-                  category="Auto repair shop"
-                  isOpen={r.shop.hasAvailableSlots}
-                  onPress={() => bottomSheetRef.current?.snapToIndex(0)}
-                />
-              </View>
-            ))}
-          </ScrollView>
-        </View>
-      ) : null}
+      {/* Browse-card carousel. Always mounted so the ScrollView
+          keeps its position across open/close transitions, but
+          opacity is driven by the sheet's animatedIndex so it
+          fades in continuously as the sheet fades out. Only
+          captures touches when the sheet has fully closed
+          (otherwise an invisible carousel could swallow taps
+          meant for the sheet's content). */}
+      <Animated.View
+        style={[styles.browseStrip, browseStripStyle]}
+        pointerEvents={isSheetHidden ? "box-none" : "none"}
+      >
+        <ScrollView
+          ref={browseScrollRef}
+          horizontal
+          pagingEnabled
+          showsHorizontalScrollIndicator={false}
+          onMomentumScrollEnd={onBrowsePageChange}
+          decelerationRate="fast"
+          contentOffset={{ x: activeIndex * SCREEN_WIDTH, y: 0 }}
+        >
+          {nearbyShops.map((r) => (
+            <View key={r.shop.id} style={styles.browseCardSlot}>
+              <MapBrowseShopCard
+                shopId={r.shop.id}
+                shopName={r.shop.name}
+                imageUrl={r.shop.imageUrl}
+                rating={r.shop.rating}
+                category="Auto repair shop"
+                isOpen={r.shop.hasAvailableSlots}
+                onPress={() => bottomSheetRef.current?.snapToIndex(0)}
+              />
+            </View>
+          ))}
+        </ScrollView>
+      </Animated.View>
 
       {/* Floating right rail — visual only for Phase 3 */}
       <View style={[styles.rightRail, { top: insets.top + 200 }]} pointerEvents="box-none">
