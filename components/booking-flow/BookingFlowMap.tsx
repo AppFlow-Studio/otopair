@@ -36,6 +36,7 @@ import MapView, {
   PROVIDER_DEFAULT,
   type Region,
 } from "react-native-maps";
+import { useBookingStore } from "@/stores/useBookingStore";
 
 const FALLBACK_REGION: Region = {
   latitude: 41.1959,
@@ -84,10 +85,11 @@ export function BookingFlowMapProvider({
 }) {
   const mapRef = useRef<MapView | null>(null);
   const [region, setRegion] = useState<Region | null>(null);
-  const [userLocation, setUserLocation] = useState<{
+  const [userLocation, setMapUserLocation] = useState<{
     latitude: number;
     longitude: number;
   } | null>(null);
+  const setBookingUserLocation = useBookingStore((s) => s.setUserLocation);
   const [interactive, setInteractive] = useState(false);
   const [markers, setMarkers] = useState<BookingFlowMarker[]>([]);
 
@@ -109,7 +111,13 @@ export function BookingFlowMapProvider({
           latitude: loc.coords.latitude,
           longitude: loc.coords.longitude,
         };
-        setUserLocation(coords);
+        setMapUserLocation(coords);
+        setBookingUserLocation({
+          label: "Current Location",
+          ...coords,
+          city: "",
+          state: "",
+        });
         setRegion({ ...coords, latitudeDelta: 0.05, longitudeDelta: 0.05 });
       } catch {
         if (!cancelled) setRegion(FALLBACK_REGION);
@@ -118,7 +126,7 @@ export function BookingFlowMapProvider({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [setBookingUserLocation]);
 
   const setInteractiveCb = useCallback(
     (next: boolean) => setInteractive(next),
