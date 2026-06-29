@@ -1854,6 +1854,9 @@ async function computeEarlyPushPreview(ctx: any, booking: any) {
       proposedEndTime: getBookingEndTime(booking.scheduled_time, durationMinutes),
       conflict: null,
       conflictingBookingId: null,
+      alternateMechanicId: null,
+      alternateMechanicName: null,
+      backfillConflict: null,
     };
   }
 
@@ -1865,59 +1868,150 @@ async function computeEarlyPushPreview(ctx: any, booking: any) {
   let conflict: "booking" | "blocked" | "outside_shop_hours" | "ends_outside_shop_hours" | null = null;
   let conflictingBookingId: string | null = null;
 
-  try {
-    await assertBookingWithinShopHours(ctx, {
-      shopId: booking.shop_id,
-      date: proposedScheduledDate,
-      startTime: proposedScheduledTime,
-      durationMinutes,
-    });
-  } catch (err: unknown) {
-    conflict =
-      err instanceof Error && err.message.includes("end after")
-        ? "ends_outside_shop_hours"
-        : "outside_shop_hours";
-  }
-
-  if (!conflict) {
-    const dayBookings = await getBlockingBookingsForShopDate(
+  // Mechanic-level overlap (an existing booking or a manual block) is
+  // checked first and unconditionally — it can't be overridden from the
+  // dialog at all, so it must never be hidden behind the shop-hours check.
+  // Checking shop hours first would short-circuit this and let a real
+  // double-booking through once the user clicks "push anyway" on the hours
+  // prompt (the mutation's resolveMechanicForWindow call would then throw a
+  // raw, uncaught error instead of the friendly one below).
+  const dayBookings = await getBlockingBookingsForShopDate(
+    ctx,
+    booking.shop_id,
+    proposedScheduledDate,
+  );
+  const conflictBooking = dayBookings.find((other: any) => {
+    if (String(other._id) === String(booking._id)) return false;
+    if (!other.mechanic_id) return false;
+    if (String(other.mechanic_id) !== String(booking.mechanic_id)) return false;
+    if (["cancelled", "declined", "no_show"].includes(other.status)) return false;
+    const otherStart = hhmmToMinutes(other.scheduled_time);
+    const otherEnd = otherStart + (other.estimated_labor_minutes ?? 60);
+    const newStart = hhmmToMinutes(proposedScheduledTime);
+    const newEnd = hhmmToMinutes(proposedEndTime);
+    return otherStart < newEnd && otherEnd > newStart;
+  });
+  if (conflictBooking) {
+    conflict = "booking";
+    conflictingBookingId = String(conflictBooking._id);
+  } else {
+    const blocked = await getManualBlockedSlotsForShop(
       ctx,
       booking.shop_id,
       proposedScheduledDate,
     );
-    const conflictBooking = dayBookings.find((other: any) => {
+    const blockedConflict = blocked.find((slot: any) => {
+      if (slot.mechanic_id && String(slot.mechanic_id) !== String(booking.mechanic_id)) {
+        return false;
+      }
+      const sStart = hhmmToMinutes(slot.start_time);
+      const sEnd = hhmmToMinutes(slot.end_time);
+      const newStart = hhmmToMinutes(proposedScheduledTime);
+      const newEnd = hhmmToMinutes(proposedEndTime);
+      return sStart < newEnd && sEnd > newStart;
+    });
+    if (blockedConflict) {
+      conflict = "blocked";
+    }
+  }
+
+  // The mechanic was never specified by the customer ("any") — rather than
+  // surface the conflict, see if a different mechanic is free for this
+  // window, same as any other "any mechanic" assignment in this codebase.
+  let alternateMechanicId: any = null;
+  let alternateMechanicName: string | null = null;
+  if (
+    (conflict === "booking" || conflict === "blocked") &&
+    booking.assignment_preference !== "specific_mechanic"
+  ) {
+    try {
+      alternateMechanicId = await resolveMechanicForWindow(ctx, {
+        shopId: booking.shop_id,
+        date: proposedScheduledDate,
+        startTime: proposedScheduledTime,
+        durationMinutes,
+        excludeBookingId: String(booking._id),
+      });
+      conflict = null;
+      conflictingBookingId = null;
+      const altMechanic: any = await ctx.db.get(alternateMechanicId);
+      alternateMechanicName = altMechanic
+        ? `${altMechanic.first_name ?? ""} ${altMechanic.last_name ?? ""}`.trim() ||
+          "Mechanic"
+        : null;
+    } catch {
+      // No other mechanic free either — fall through with the original
+      // conflict so the dialog shows "keep original time".
+    }
+  }
+
+  // Shop hours only matter for display/override purposes once we know the
+  // mechanic side is actually clear — a real booking/blocked conflict (with
+  // no alternate) already blocks the push outright, regardless of hours.
+  if (!conflict) {
+    try {
+      await assertBookingWithinShopHours(ctx, {
+        shopId: booking.shop_id,
+        date: proposedScheduledDate,
+        startTime: proposedScheduledTime,
+        durationMinutes,
+      });
+    } catch (err: unknown) {
+      conflict =
+        err instanceof Error && err.message.includes("end after")
+          ? "ends_outside_shop_hours"
+          : "outside_shop_hours";
+    }
+  }
+
+  // Backfilled jobs are logged as `completed` (the work already happened), so
+  // they never show up as a real scheduling conflict above. But landing a new
+  // "any mechanic" booking on top of one still looks wrong on the schedule —
+  // offer a different mechanic instead of silently overlapping them. Only for
+  // "any": a customer-specified mechanic keeps today's behavior (silent
+  // overlap is fine — the backfill already finished).
+  let backfillConflict: { alternateMechanicId: any; alternateMechanicName: string | null } | null = null;
+  if (!conflict && booking.assignment_preference !== "specific_mechanic") {
+    const sameDayBookings = await ctx.db
+      .query("bookings")
+      .withIndex("by_shop_and_date", (q: any) =>
+        q.eq("shop_id", booking.shop_id).eq("scheduled_date", proposedScheduledDate),
+      )
+      .collect();
+    const backfillHit = sameDayBookings.find((other: any) => {
       if (String(other._id) === String(booking._id)) return false;
-      if (!other.mechanic_id) return false;
-      if (String(other.mechanic_id) !== String(booking.mechanic_id)) return false;
-      if (["cancelled", "declined", "no_show"].includes(other.status)) return false;
+      if (other.backfilled_at_ms == null) return false;
+      if (!other.mechanic_id || String(other.mechanic_id) !== String(booking.mechanic_id)) return false;
       const otherStart = hhmmToMinutes(other.scheduled_time);
       const otherEnd = otherStart + (other.estimated_labor_minutes ?? 60);
       const newStart = hhmmToMinutes(proposedScheduledTime);
       const newEnd = hhmmToMinutes(proposedEndTime);
       return otherStart < newEnd && otherEnd > newStart;
     });
-    if (conflictBooking) {
-      conflict = "booking";
-      conflictingBookingId = String(conflictBooking._id);
-    } else {
-      const blocked = await getManualBlockedSlotsForShop(
-        ctx,
-        booking.shop_id,
-        proposedScheduledDate,
-      );
-      const blockedConflict = blocked.find((slot: any) => {
-        if (slot.mechanic_id && String(slot.mechanic_id) !== String(booking.mechanic_id)) {
-          return false;
-        }
-        const sStart = hhmmToMinutes(slot.start_time);
-        const sEnd = hhmmToMinutes(slot.end_time);
-        const newStart = hhmmToMinutes(proposedScheduledTime);
-        const newEnd = hhmmToMinutes(proposedEndTime);
-        return sStart < newEnd && sEnd > newStart;
-      });
-      if (blockedConflict) {
-        conflict = "blocked";
+    if (backfillHit) {
+      // Always surface the warning when a backfill genuinely overlaps —
+      // whether or not a swap is offered depends on whether anyone else is
+      // free; the front desk still gets to choose "push anyway" either way.
+      let altId: any = null;
+      let altName: string | null = null;
+      try {
+        altId = await resolveMechanicForWindow(ctx, {
+          shopId: booking.shop_id,
+          date: proposedScheduledDate,
+          startTime: proposedScheduledTime,
+          durationMinutes,
+          excludeMechanicId: booking.mechanic_id,
+          excludeBookingId: String(booking._id),
+        });
+        const altMechanic: any = await ctx.db.get(altId);
+        altName = altMechanic
+          ? `${altMechanic.first_name ?? ""} ${altMechanic.last_name ?? ""}`.trim() ||
+            "Mechanic"
+          : null;
+      } catch {
+        // No alternate free — still warn, just without a swap option.
       }
+      backfillConflict = { alternateMechanicId: altId, alternateMechanicName: altName };
     }
   }
 
@@ -1930,6 +2024,9 @@ async function computeEarlyPushPreview(ctx: any, booking: any) {
     proposedEndTime,
     conflict,
     conflictingBookingId,
+    alternateMechanicId,
+    alternateMechanicName,
+    backfillConflict,
   };
 }
 
@@ -2142,6 +2239,9 @@ export const pushBookingEarlierAndArrive = mutation({
   args: {
     bookingId: v.id("bookings"),
     overrideShopHours: v.optional(v.boolean()),
+    // Front desk's explicit choice from the backfill-conflict dialog: keep
+    // the originally-assigned mechanic, or swap to the offered alternate.
+    mechanicId: v.optional(v.id("mechanics")),
   },
   handler: async (ctx, args) => {
     const user = await getCurrentUser(ctx);
@@ -2182,6 +2282,12 @@ export const pushBookingEarlierAndArrive = mutation({
     }
 
     const durationMinutes = booking.estimated_labor_minutes ?? 60;
+    // An "any mechanic" booking that couldn't push earlier on its assigned
+    // mechanic was already resolved to a free alternate in the preview —
+    // move it there instead of throwing. An explicit `args.mechanicId` (the
+    // front desk's pick from the backfill-conflict dialog) wins over both.
+    const targetMechanicId =
+      args.mechanicId ?? preview.alternateMechanicId ?? booking.mechanic_id;
     // Defense-in-depth: re-validate via the canonical helper so we get the
     // same errors any other reschedule path would surface.
     await resolveMechanicForWindow(ctx, {
@@ -2189,7 +2295,7 @@ export const pushBookingEarlierAndArrive = mutation({
       date: preview.proposedScheduledDate,
       startTime: preview.proposedScheduledTime,
       durationMinutes,
-      preferredMechanicId: booking.mechanic_id,
+      preferredMechanicId: targetMechanicId,
       excludeBookingId: String(booking._id),
       allowAfterClose: false,
       allowOutsideShopHours: args.overrideShopHours === true,
@@ -2202,6 +2308,7 @@ export const pushBookingEarlierAndArrive = mutation({
     await ctx.db.patch(booking._id, {
       scheduled_date: preview.proposedScheduledDate,
       scheduled_time: preview.proposedScheduledTime,
+      mechanic_id: targetMechanicId,
       time_slot_id: undefined,
       vehicle_arrived_at_ms: now,
       vehicle_arrived_by_user_id: user._id,
@@ -2216,6 +2323,7 @@ export const pushBookingEarlierAndArrive = mutation({
       ...booking,
       scheduled_date: preview.proposedScheduledDate,
       scheduled_time: preview.proposedScheduledTime,
+      mechanic_id: targetMechanicId,
       time_slot_id: undefined,
       vehicle_arrived_at_ms: now,
       vehicle_arrived_by_user_id: user._id,
@@ -2236,7 +2344,7 @@ export const pushBookingEarlierAndArrive = mutation({
       },
       {
         shopId: booking.shop_id,
-        mechanicId: booking.mechanic_id,
+        mechanicId: targetMechanicId,
         date: preview.proposedScheduledDate,
       },
     ]);
@@ -4963,6 +5071,7 @@ async function resolveMechanicForWindow(
     startTime,
     durationMinutes,
     preferredMechanicId,
+    excludeMechanicId,
     excludeBookingId,
     excludeTireQuoteResponseId,
     allowAfterClose,
@@ -4973,6 +5082,7 @@ async function resolveMechanicForWindow(
     startTime: string;
     durationMinutes: number;
     preferredMechanicId?: any;
+    excludeMechanicId?: any;
     excludeBookingId?: string;
     excludeTireQuoteResponseId?: string;
     allowAfterClose?: boolean;
@@ -4985,6 +5095,7 @@ async function resolveMechanicForWindow(
     startTime,
     durationMinutes,
     preferredMechanicId,
+    excludeMechanicId,
     excludeBookingId,
     excludeTireQuoteResponseId,
     allowAfterClose,
