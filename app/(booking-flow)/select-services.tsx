@@ -539,6 +539,13 @@ export default function SelectServicesScreen() {
             </Pressable>
           ) : (
           <ScrollView
+            // `style` (the scroll container itself) flexes to fill
+            // the remaining sheet height. The contentContainerStyle
+            // must NOT also flex: 1 — that collapses content into
+            // the container and gives the rubber-band snap-back
+            // the user was seeing. Pattern matches the inspections
+            // category screen.
+            style={styles.scrollView}
             contentContainerStyle={[
               styles.scrollContent,
               { paddingBottom: insets.bottom + 32 },
@@ -670,10 +677,12 @@ const styles = StyleSheet.create({
   sheetAndroidFallback: {
     backgroundColor: "rgba(255, 255, 255, 0.85)",
   },
+  scrollView: {
+    flex: 1,
+  },
   scrollContent: {
     paddingTop: 0,
     paddingBottom: 32,
-    flex: 1,
   },
   peekBody: {
     flex: 1,
