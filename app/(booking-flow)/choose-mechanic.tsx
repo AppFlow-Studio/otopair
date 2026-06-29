@@ -345,6 +345,11 @@ export default function ChooseMechanicScreen() {
   const MAX_DELTA = 1.0;
   const zoomDeltaRef = useRef(DEFAULT_DELTA);
 
+  // Re-fires on `isSheetHidden` too so a sheet swipe-down → pan
+  // back to the active shop. The user can pan the map around
+  // freely with the sheet open; closing the sheet recenters on
+  // the shop they're committed to so the browse-card carousel
+  // matches what the map is showing.
   useEffect(() => {
     if (!activeShop || !mapRef.current) return;
     if (activeShop.latitude === 0 && activeShop.longitude === 0) return;
@@ -357,7 +362,7 @@ export default function ChooseMechanicScreen() {
       },
       450,
     );
-  }, [activeShop]);
+  }, [activeShop, isSheetHidden]);
 
   const animateZoom = useCallback(
     (factor: number) => {
@@ -498,7 +503,26 @@ export default function ChooseMechanicScreen() {
           ref={mapRef}
           style={StyleSheet.absoluteFill}
           provider={PROVIDER_DEFAULT}
-          initialRegion={region}
+          // Open the map on the active shop, not the user. The
+          // ChatGPT-style browsing flow puts the shop at the
+          // center of attention — anchoring on the user just
+          // means the user has to manually swipe to find the
+          // shop they're considering. Falls back to the user
+          // region only when the active shop hasn't hydrated
+          // yet (cold start); the camera-pan effect catches up
+          // once nearbyShops loads.
+          initialRegion={
+            activeShop &&
+            activeShop.latitude !== 0 &&
+            activeShop.longitude !== 0
+              ? {
+                  latitude: activeShop.latitude,
+                  longitude: activeShop.longitude,
+                  latitudeDelta: DEFAULT_DELTA,
+                  longitudeDelta: DEFAULT_DELTA,
+                }
+              : region
+          }
           showsUserLocation
           scrollEnabled
           zoomEnabled
