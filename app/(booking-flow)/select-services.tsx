@@ -51,6 +51,7 @@ import { GlassSheetHandle } from "@/components/booking-flow/GlassSheet";
 import { HeroCardClosestShop } from "@/components/booking-flow/HeroCardClosestShop";
 import { HeroCardMostBooked } from "@/components/booking-flow/HeroCardMostBooked";
 import { MapBrowseShopCard } from "@/components/booking-flow/MapBrowseShopCard";
+import { MapSwipeHint } from "@/components/booking-flow/MapSwipeHint";
 import { PinnedShopChip } from "@/components/booking-flow/PinnedShopChip";
 import { QuickBookRow } from "@/components/booking-flow/QuickBookRow";
 import { RatingMarkerPill } from "@/components/booking-flow/RatingMarkerPill";
@@ -507,6 +508,7 @@ export default function SelectServicesScreen() {
           <GestureDetector gesture={collapsePanGesture}>
             <View>
               <GlassSheetHandle />
+              {isPeekExpanded ? <MapSwipeHint /> : null}
             </View>
           </GestureDetector>
           {/* Peek body — only rendered while the map-entry user

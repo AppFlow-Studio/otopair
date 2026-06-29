@@ -41,6 +41,7 @@ import { Text } from "@/components/shared-ui";
 import { useBookingFlowMap } from "@/components/booking-flow/BookingFlowMap";
 import { MapBrowseShopCard } from "@/components/booking-flow/MapBrowseShopCard";
 import { MapShopCard } from "@/components/booking-flow/MapShopCard";
+import { MapSwipeHint } from "@/components/booking-flow/MapSwipeHint";
 import { RatingMarkerPill } from "@/components/booking-flow/RatingMarkerPill";
 import { ShopPage } from "@/components/booking-flow/ShopPage";
 import { StickyContinueBar } from "@/components/booking-flow/StickyContinueBar";
@@ -680,6 +681,10 @@ export default function ChooseMechanicScreen() {
             { paddingBottom: insets.bottom + 120 },
           ]}
         >
+          {/* Tell the user the sheet swipes down to reveal the
+              map underneath. Only renders inside the sheet body,
+              so it's automatically gone once the sheet is hidden. */}
+          <MapSwipeHint />
           {nearbyShops.length === 0 ? (
             <View style={styles.empty}>
               <Text size="md" weight="medium" color="#9CA3AF" center>
