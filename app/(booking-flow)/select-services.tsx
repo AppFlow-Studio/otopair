@@ -193,21 +193,35 @@ export default function SelectServicesScreen() {
   // zoom (~1mi) — same magic number choose-mechanic uses for its
   // default. Skipping when the shop has no real coords (dev
   // fixtures) so we don't fly to (0, 0).
+  //
+  // Keyed on `isPeekExpanded` too so the pan re-fires the moment
+  // the user swipes the sheet down: the local MapView remounts
+  // with `initialRegion` = user location, then we immediately
+  // pan to the active shop. Without this dep the user lands at
+  // their own coords after every swipe-down and has to manually
+  // swipe the carousel to reorient.
+  // A short setTimeout defers the call past the MapView's native
+  // setup tick — calling animateToRegion synchronously on a
+  // freshly-mounted MapView is silently dropped on iOS.
   useEffect(() => {
+    if (isPeekExpanded) return;
     const r = nearbyShops[selectedIndex];
-    if (!r || !localMapRef.current) return;
+    if (!r) return;
     const { latitude, longitude } = r.shop;
     if (latitude === 0 && longitude === 0) return;
-    localMapRef.current.animateToRegion(
-      {
-        latitude,
-        longitude,
-        latitudeDelta: 0.035,
-        longitudeDelta: 0.035,
-      },
-      450,
-    );
-  }, [selectedIndex, nearbyShops]);
+    const t = setTimeout(() => {
+      localMapRef.current?.animateToRegion(
+        {
+          latitude,
+          longitude,
+          latitudeDelta: 0.035,
+          longitudeDelta: 0.035,
+        },
+        450,
+      );
+    }, 80);
+    return () => clearTimeout(t);
+  }, [isPeekExpanded, selectedIndex, nearbyShops]);
   const onBrowsePageChange = useCallback(
     (e: NativeSyntheticEvent<NativeScrollEvent>) => {
       const idx = Math.round(e.nativeEvent.contentOffset.x / SCREEN_WIDTH);
