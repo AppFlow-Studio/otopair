@@ -26,13 +26,9 @@ import { FontFamily } from "@/constants/theme";
 import { useReducedMotion } from "@/lib/accessibility";
 
 import { ToastIcon } from "./ToastIcon";
-import { TrustToastBackground } from "./TrustToast";
 import {
   DEFAULT_DURATION_MS,
   TOAST_SHADOW,
-  TOAST_TEXT,
-  TRUST_SHADOW,
-  VARIANT_TOKENS,
 } from "./tokens";
 import type { ToastQueueItem, ToastVariant } from "./types";
 
@@ -56,7 +52,10 @@ const SWIPE_VELOCITY_THRESHOLD = 600;
 const WAVE_PER_CHAR_MS = 45;     // controls the wave's travel speed
 const WAVE_WIDTH = 4;            // chars in the active window (half-width on each side)
 const WAVE_PEAK_SCALE = 1.18;
-const WAVE_PEAK_COLOR = "#5299FE";
+// Wave peak now == rest (#FFFFFF) since the toast bg IS the
+// accent blue. Letters still scale but don't color-shift; the
+// wave reads as a subtle bounce instead of a color sweep.
+const WAVE_PEAK_COLOR = "#FFFFFF";
 
 // Pill-style sizing per Ahmad's PM: match Airbnb's tight
 // hug-the-content toast rather than the full-width banner the
@@ -67,6 +66,29 @@ const WAVE_PEAK_COLOR = "#5299FE";
 // short titles from rendering as a sliver.
 const TOAST_MIN_WIDTH = 180;
 const TOAST_MAX_WIDTH = 320;
+
+// Brand-blue color lock. PM wants every toast to look like the
+// "Book Service" CTA — Otopair accent #5299FE with white text —
+// regardless of variant. Variant tokens stay in place
+// (success/error/warning/info/trust still drive icon choice and
+// accessibility role) but the visual palette is forced. Switch
+// to per-variant colors again if/when the design system grows
+// distinct toast tones.
+const TOAST_BG = "#5299FE";
+const TOAST_FG = "#FFFFFF";
+const TOAST_BG_OVERRIDE = {
+  bg: TOAST_BG,
+  border: TOAST_BG,
+  iconColor: TOAST_FG,
+  iconContainerBg: "transparent",
+  iconContainerBorder: undefined,
+} as const;
+const TOAST_TEXT_OVERRIDE = {
+  title: TOAST_FG,
+  // Slightly soft body so the secondary line reads as supporting
+  // copy without competing with the bold title.
+  body: "rgba(255, 255, 255, 0.92)",
+} as const;
 
 const POLITE_VARIANTS = new Set<ToastVariant>(["info", "trust", "success"]);
 
@@ -88,9 +110,12 @@ interface Props {
 
 export function Toast({ item, bottomOffset, onRequestDismiss }: Props) {
   const scheme = useColorScheme() ?? "light";
-  const tokens = VARIANT_TOKENS[item.variant];
-  const palette = tokens[scheme];
-  const textColors = TOAST_TEXT[scheme];
+  // Variant tokens are kept for icon choice + accessibility role,
+  // but the *visual* palette (bg, border, text, icon color) is
+  // locked to the brand-blue override below. Light/dark scheme
+  // no longer changes the toast appearance.
+  const palette = TOAST_BG_OVERRIDE;
+  const textColors = TOAST_TEXT_OVERRIDE;
   const reduceMotion = useReducedMotion();
 
   // Bottom-anchored (Airbnb-style): toast starts BELOW its rest
@@ -185,13 +210,11 @@ export function Toast({ item, bottomOffset, onRequestDismiss }: Props) {
     opacity: opacity.value,
   }));
 
-  const isTrust = item.variant === "trust";
-  // Per Ahmad's redesign: the trust toast wears a flat white card on
-  // light mode (matches every other variant). Skip the gradient
-  // overlay on light scheme — it would tint the white. Dark mode
-  // keeps the BlurView+gradient look since white-on-dark is harsh.
-  const renderTrustOverlay = isTrust && scheme !== "light";
-  const shadow = isTrust ? TRUST_SHADOW[scheme] : TOAST_SHADOW[scheme];
+  // Trust gradient overlay is gone in the brand-blue look — the
+  // toast is already a flat brand-color card, so a gradient on
+  // top would muddy it. Variant still drives the icon
+  // (ShieldCheck for trust, CheckCircle2 for success, etc.).
+  const shadow = TOAST_SHADOW[scheme === "dark" ? "dark" : "light"];
   const role: AccessibilityRole = POLITE_VARIANTS.has(item.variant) ? "summary" : "alert";
 
   const screen = Dimensions.get("window");
@@ -223,16 +246,13 @@ export function Toast({ item, bottomOffset, onRequestDismiss }: Props) {
           style={[
             styles.container,
             {
-              backgroundColor: renderTrustOverlay ? "transparent" : palette.bg,
+              backgroundColor: palette.bg,
               borderColor: palette.border,
               maxHeight,
             },
             shadow,
           ]}
         >
-          {renderTrustOverlay ? (
-            <TrustToastBackground scheme={scheme} borderColor={palette.border} />
-          ) : null}
           <View style={styles.row}>
             <ToastIcon variant={item.variant} palette={palette} />
             <View style={styles.textCol}>
