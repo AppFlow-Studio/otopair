@@ -58,7 +58,15 @@ const WAVE_WIDTH = 4;            // chars in the active window (half-width on ea
 const WAVE_PEAK_SCALE = 1.18;
 const WAVE_PEAK_COLOR = "#5299FE";
 
-const TABLET_MAX_WIDTH = 480;
+// Pill-style sizing per Ahmad's PM: match Airbnb's tight
+// hug-the-content toast rather than the full-width banner the
+// app shipped before. Container drops `width: 100%` and
+// `alignSelf: center`s inside an outer that no longer constrains
+// horizontal space, so the Pressable's width comes from its
+// children. Caps below keep long bodies from sprawling and
+// short titles from rendering as a sliver.
+const TOAST_MIN_WIDTH = 180;
+const TOAST_MAX_WIDTH = 320;
 
 const POLITE_VARIANTS = new Set<ToastVariant>(["info", "trust", "success"]);
 
@@ -419,30 +427,42 @@ const waveStyles = StyleSheet.create({
 const styles = StyleSheet.create({
   outer: {
     position: "absolute",
-    left: 16,
-    right: 16,
+    // No left/right pinning — outer spans the screen and the
+    // container self-centers inside it, sized to its own
+    // content. paddingHorizontal keeps long-bodied toasts from
+    // touching the screen edges on the rare case they hit
+    // TOAST_MAX_WIDTH.
+    left: 0,
+    right: 0,
+    paddingHorizontal: 16,
     alignItems: "center",
     zIndex: 9999,
     ...(Platform.OS === "android" ? { elevation: 24 } : null),
   },
   container: {
-    width: "100%",
-    maxWidth: TABLET_MAX_WIDTH,
+    // No `width` — content sizes the pill. Min keeps tiny
+    // single-word toasts from looking like a chip; max keeps
+    // novel-length bodies from sprawling across the screen.
+    minWidth: TOAST_MIN_WIDTH,
+    maxWidth: TOAST_MAX_WIDTH,
     alignSelf: "center",
-    minHeight: 56,
-    borderRadius: 16,
+    minHeight: 48,
+    borderRadius: 18,
     borderWidth: 1,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
     overflow: "hidden",
   },
   row: {
     flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 12,
+    alignItems: "center",
+    gap: 10,
   },
   textCol: {
-    flex: 1,
+    // `flexShrink: 1` (not `flex: 1`) — only shrink to the max
+    // width cap, don't stretch to fill. Lets the row hug the
+    // icon + text instead of pushing the icon to the left edge.
+    flexShrink: 1,
   },
   title: {
     fontFamily: FontFamily.semiBold,
