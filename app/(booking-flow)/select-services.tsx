@@ -127,35 +127,57 @@ export default function SelectServicesScreen() {
     });
     setIsPeekExpanded(true);
   }, [isPeekExpanded, sheetHeight]);
-  // Mirror — swipe the expanded sheet back down to peek so the user
-  // can re-reveal the rating pins on the map (ChatGPT-style). Same
-  // timing curve as expand so the motion reads as one continuous
-  // tween in either direction.
-  const collapsePeekSheet = useCallback(() => {
-    if (!isPeekExpanded) return;
-    sheetHeight.value = withTiming(SHEET_H_PEEK, {
-      duration: 360,
-      easing: Easing.out(Easing.cubic),
-    });
-    setIsPeekExpanded(false);
-  }, [isPeekExpanded, sheetHeight]);
+  // Collapse path is now handled inline by `collapsePanGesture`
+  // below — it drives `sheetHeight` continuously off the finger
+  // and settles on release. The old discrete-threshold helper
+  // is gone.
 
-  // Vertical-only Pan gesture that fires `collapsePeekSheet` on a
-  // clean downward swipe (>= 60pt translation). We don't drive
-  // sheetHeight continuously off the gesture — that was the
-  // jumpy-feeling shape we ripped out a few iterations ago. Just a
-  // discrete "user wants peek" signal.
+  // Vertical-only Pan gesture that drives `sheetHeight` directly
+  // off the finger so the sheet follows the drag in real time
+  // (instead of waiting for a 60pt threshold and then jumping to
+  // peek). On release we settle to PEEK or FULL based on velocity
+  // first, then position fallback:
+  //   - downward flick (velocityY > 500)    → PEEK
+  //   - upward flick   (velocityY < -500)   → FULL
+  //   - slow release                        → nearest of PEEK / FULL
+  // The gesture is wired only to the handle area (see render)
+  // so the inner ScrollView keeps its own scrolling behavior.
+  const dragStartHeight = useSharedValue(SHEET_H_FULL);
+  const setExpandedState = useCallback(
+    (expanded: boolean) => setIsPeekExpanded(expanded),
+    [],
+  );
   const collapsePanGesture = useMemo(
     () =>
       Gesture.Pan()
         .activeOffsetY([-20, 20])
+        .onBegin(() => {
+          "worklet";
+          dragStartHeight.value = sheetHeight.value;
+        })
+        .onUpdate((e) => {
+          "worklet";
+          const next = dragStartHeight.value - e.translationY;
+          sheetHeight.value = Math.min(
+            SHEET_H_FULL,
+            Math.max(SHEET_H_PEEK, next),
+          );
+        })
         .onEnd((e) => {
           "worklet";
-          if (e.translationY > 60) {
-            runOnJS(collapsePeekSheet)();
-          }
+          const midpoint = (SHEET_H_PEEK + SHEET_H_FULL) / 2;
+          let goCollapse: boolean;
+          if (e.velocityY > 500) goCollapse = true;
+          else if (e.velocityY < -500) goCollapse = false;
+          else goCollapse = sheetHeight.value < midpoint;
+          const target = goCollapse ? SHEET_H_PEEK : SHEET_H_FULL;
+          sheetHeight.value = withTiming(target, {
+            duration: 280,
+            easing: Easing.out(Easing.cubic),
+          });
+          runOnJS(setExpandedState)(!goCollapse);
         }),
-    [collapsePeekSheet],
+    [sheetHeight, dragStartHeight, setExpandedState],
   );
 
   // Rating-pin shop list for the LOCAL MapView in peek mode. We
