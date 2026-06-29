@@ -39,6 +39,7 @@ import { useCreateBookingConvex } from "@/hooks/useCreateBookingConvex";
 import { calculateBookingConfirmLayout } from "@/lib/bookingConfirmSheet";
 import { getBookingConfirmingCopy, isBookingRescheduleMode } from "@/lib/reschedule-flow";
 import { useBookingStore } from "@/stores/useBookingStore";
+import { useMechanicStore } from "@/stores/useMechanicStore";
 import { usePaymentStore } from "@/stores/usePaymentStore";
 import { displayTimeToHHMM } from "@/utils/timeSlotUtils";
 import { api } from "@/convex/_generated/api";
@@ -82,11 +83,13 @@ export default function BookingConfirmingScreen() {
   const selectedMechanicSlot = useBookingStore((s) => s.selectedMechanicSlot);
   const scheduledAppointment = useBookingStore((s) => s.scheduledAppointment);
   const bookingType = useBookingStore((s) => s.bookingType);
+  const getMechanicById = useMechanicStore((s) => s.getMechanicById);
   const selectedPaymentMethodId = usePaymentStore((s) => s.selectedPaymentMethodId);
   const selectedWalletPm = usePaymentStore((s) => s.selectedWalletPm);
   const setSelectedWalletPm = usePaymentStore((s) => s.setSelectedWalletPm);
   const isWalletFlow = paymentMode === "wallet";
-  const createPaymentIntent = useAction(api.payments_stripe.createPaymentIntentForBooking);
+  const preauthorizePayment = useAction(api.payments_stripe.preauthorizePaymentForBooking);
+  const cancelPreauthorizedPayment = useAction(api.payments_stripe.cancelPreauthorizedPaymentIntent);
   const customerRequestReschedule = useMutation(api.bookings.customerRequestReschedule);
   // The PaymentIntent is created + confirmed server-side. If 3DS is needed,
   // Stripe returns requires_action and the client *finishes* the challenge
@@ -94,6 +97,7 @@ export default function BookingConfirmingScreen() {
   // would error out on an already-confirmed PI.
   const { handleNextAction } = useStripe();
   const navigatedRef = useRef(false);
+  const confirmationAttemptIdRef = useRef(`${Date.now()}:${Math.random().toString(36).slice(2)}`);
   const [submitting, setSubmitting] = useState(false);
   const isCompactLayout = windowHeight < 860;
   const isVeryCompactLayout = windowHeight < 760;
@@ -201,7 +205,11 @@ export default function BookingConfirmingScreen() {
       }
       return;
     }
-    if (!selectedMechanicId && !selectedMechanicSlot?.shopId) {
+    const shopId =
+      selectedMechanicSlot?.shopId ??
+      (selectedMechanicId ? getMechanicById(selectedMechanicId)?.shopId : null);
+
+    if (!shopId) {
       navigatedRef.current = true;
       router.replace({
         pathname: "/booking/mechanic/[id]/payment",
@@ -229,35 +237,42 @@ export default function BookingConfirmingScreen() {
     }
     const paymentOrigin = isWalletFlow ? selectedWalletPm?.type : "card";
     setSubmitting(true);
+    let preauthorizedPaymentIntentId: string | null = null;
+    let bookingCreated = false;
     try {
-      const bookingIds = await createBookingConvex(selectedMechanicId, bookingType || "book_now");
-      const newBookingId = bookingIds[0];
+      const preauth = await preauthorizePayment({
+        shopId: shopId as Id<"shops">,
+        paymentMethodId,
+        confirmationAttemptId: confirmationAttemptIdRef.current,
+        ...(paymentOrigin ? { paymentOrigin } : {}),
+      });
+      preauthorizedPaymentIntentId = preauth.paymentIntentId;
 
-      // If the booking was created locally (no Convex id), skip the
-      // PaymentIntent step — there's nothing to authorize against yet.
-      // (`createBookingConvex` returns a local-only id when Convex args
-      // are missing; the booking will be re-submitted later.)
-      const isConvexBookingId = typeof newBookingId === "string" && newBookingId.length > 10;
-      if (isConvexBookingId) {
-        const pi = await createPaymentIntent({
-          bookingId: newBookingId as Id<"bookings">,
-          paymentMethodId,
-          ...(paymentOrigin ? { paymentOrigin } : {}),
-        });
-
-        if (pi.requiresAction) {
-          const { error } = await handleNextAction(pi.clientSecret);
-          if (error) {
-            throw new Error(error.message ?? "Card authorization failed.");
-          }
-        } else if (
-          pi.status !== "requires_capture" &&
-          pi.status !== "succeeded" &&
-          pi.status !== "processing"
-        ) {
-          throw new Error(`Card authorization failed (status: ${pi.status}).`);
+      if (preauth.requiresAction) {
+        const { error } = await handleNextAction(preauth.clientSecret);
+        if (error) {
+          throw new Error(error.message ?? "Card authorization failed.");
         }
+      } else if (
+        preauth.status !== "requires_capture" &&
+        preauth.status !== "succeeded" &&
+        preauth.status !== "processing"
+      ) {
+        throw new Error(`Card authorization failed (status: ${preauth.status}).`);
       }
+
+      const bookingIds = await createBookingConvex(
+        selectedMechanicId,
+        bookingType || "book_now",
+        {
+          stripePaymentIntentId: preauth.paymentIntentId,
+          idempotencyKey: preauth.idempotencyKey,
+          holdAmountCents: preauth.holdAmountCents,
+          ...(paymentOrigin ? { paymentOrigin } : {}),
+        },
+      );
+      const newBookingId = bookingIds[0];
+      bookingCreated = true;
 
       if (navigatedRef.current) return;
       navigatedRef.current = true;
@@ -266,6 +281,13 @@ export default function BookingConfirmingScreen() {
         params: newBookingId ? { id, bookingDbId: newBookingId } : { id },
       });
     } catch (err) {
+      if (preauthorizedPaymentIntentId && !bookingCreated) {
+        try {
+          await cancelPreauthorizedPayment({ paymentIntentId: preauthorizedPaymentIntentId });
+        } catch {
+          // Best effort: no booking was created, and Stripe will expire an uncaptured hold.
+        }
+      }
       if (navigatedRef.current) return;
       navigatedRef.current = true;
       router.replace({
@@ -286,12 +308,14 @@ export default function BookingConfirmingScreen() {
     selectedWalletPm,
     setSelectedWalletPm,
     isWalletFlow,
+    getMechanicById,
     scheduledAppointment,
     isReschedule,
     bookingDbId,
     bookingType,
     createBookingConvex,
-    createPaymentIntent,
+    preauthorizePayment,
+    cancelPreauthorizedPayment,
     customerRequestReschedule,
     handleNextAction,
     router,

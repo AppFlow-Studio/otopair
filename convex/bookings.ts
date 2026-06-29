@@ -1307,6 +1307,20 @@ export const createBatch = mutation({
         })
       )
     ),
+    preauthorized_payment: v.optional(
+      v.object({
+        stripe_payment_intent_id: v.string(),
+        idempotency_key: v.string(),
+        hold_amount_cents: v.number(),
+        payment_origin: v.optional(
+          v.union(
+            v.literal("card"),
+            v.literal("apple_pay"),
+            v.literal("google_pay"),
+          ),
+        ),
+      }),
+    ),
   },
   handler: async (ctx, args) => {
     if (args.services.length === 0) {
@@ -1676,6 +1690,29 @@ export const createBatch = mutation({
             }))
           : undefined,
     });
+
+    if (args.preauthorized_payment) {
+      const paymentId = await ctx.db.insert("payments", {
+        booking_id: bookingId,
+        user_id: args.user_id,
+        shop_id: args.shop_id,
+        amount: total_cost,
+        payment_method: "card",
+        status: "processing",
+        stripe_payment_intent_id:
+          args.preauthorized_payment.stripe_payment_intent_id,
+        idempotency_key: args.preauthorized_payment.idempotency_key,
+        hold_amount_cents: args.preauthorized_payment.hold_amount_cents,
+        payment_origin: args.preauthorized_payment.payment_origin,
+        created_at: now,
+        updated_at: now,
+      });
+      await ctx.scheduler.runAfter(0, internal.payment_status_history.log, {
+        payment_id: paymentId,
+        old_status: undefined,
+        new_status: "processing",
+      });
+    }
 
     await logBookingStatusChange(
       ctx,
