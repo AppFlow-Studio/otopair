@@ -21,6 +21,7 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import { LinearGradient } from "expo-linear-gradient";
 
 import { FontFamily } from "@/constants/theme";
 import { useReducedMotion } from "@/lib/accessibility";
@@ -76,6 +77,13 @@ const TOAST_MAX_WIDTH = 320;
 // distinct toast tones.
 const TOAST_BG = "#5299FE";
 const TOAST_FG = "#FFFFFF";
+// Diagonal gradient (top-left light → bottom-right deep) painted
+// over the flat brand-blue card. Two tints sampled from the base
+// #5299FE — lighter for the top edge, deeper for the bottom edge
+// — so the toast reads as a soft glassy pill instead of a flat
+// rectangle. Direction is TL→BR to suggest a highlight running
+// across the top-left, the same trick the Book Service CTA uses.
+const TOAST_GRADIENT = ["#7BB1FF", "#3D7AC8"] as const;
 const TOAST_BG_OVERRIDE = {
   bg: TOAST_BG,
   border: TOAST_BG,
@@ -246,13 +254,24 @@ export function Toast({ item, bottomOffset, onRequestDismiss }: Props) {
           style={[
             styles.container,
             {
+              // Fallback bg in case the gradient fails to mount (e.g.
+              // during a hot reload race). Border picks up the
+              // gradient's deepest stop so the edge doesn't read
+              // brighter than the bottom of the card.
               backgroundColor: palette.bg,
-              borderColor: palette.border,
+              borderColor: TOAST_GRADIENT[1],
               maxHeight,
             },
             shadow,
           ]}
         >
+          <LinearGradient
+            colors={TOAST_GRADIENT as unknown as readonly [string, string]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={StyleSheet.absoluteFill}
+            pointerEvents="none"
+          />
           <View style={styles.row}>
             <ToastIcon variant={item.variant} palette={palette} />
             <View style={styles.textCol}>
@@ -422,7 +441,9 @@ function WaveChar({
       accessible={false}
       style={[
         {
-          fontFamily: FontFamily.semiBold,
+          // Bold (was semiBold) so the title pops harder against
+          // the gradient blue bg.
+          fontFamily: FontFamily.bold,
           fontSize,
           lineHeight,
         },
@@ -485,10 +506,12 @@ const styles = StyleSheet.create({
     flexShrink: 1,
   },
   title: {
-    fontFamily: FontFamily.semiBold,
+    fontFamily: FontFamily.bold,
   },
   body: {
-    fontFamily: FontFamily.regular,
+    // semiBold (was regular) so the body still pulls back from the
+    // bold title hierarchy but reads cleanly on the gradient blue.
+    fontFamily: FontFamily.semiBold,
     marginTop: 2,
   },
 });
