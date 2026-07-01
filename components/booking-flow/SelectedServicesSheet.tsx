@@ -27,12 +27,14 @@ import React, {
 } from "react";
 import {
   Dimensions,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   View,
 } from "react-native";
-import { X } from "lucide-react-native";
+import { BlurView } from "expo-blur";
+import { Clock, Trash2, X } from "lucide-react-native";
 
 import { Text } from "@/components/shared-ui";
 import {
@@ -42,6 +44,7 @@ import {
 import { GlassSheetBackground } from "@/components/booking-flow/GlassSheet";
 import { getServiceIcon } from "@/components/booking-flow/serviceIcons";
 import { TAXONOMY } from "@/constants/serviceTaxonomy";
+import { CardShadow } from "@/constants/theme";
 import { useBookingStore } from "@/stores/useBookingStore";
 
 const INK = "#0F172A";
@@ -55,10 +58,10 @@ const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 // doesn't look orphaned; cap matches BookingDetails' mid-detent
 // (~640pt) so a giant cart still floats below the status bar with
 // the scroll view soaking up the overflow.
-const HEADER_BLOCK = 96; // title row + paddings + handle clearance
-const ROW_HEIGHT = 70; // row body + gap
-const FLOOR = 260;
-const CEILING = Math.min(SCREEN_HEIGHT * 0.76, 640);
+const HEADER_BLOCK = 108; // title row + subtitle + paddings + handle clearance
+const ROW_HEIGHT = 110; // Screen 2 row aesthetic: label + subtitle + meta
+const FLOOR = 280;
+const CEILING = Math.min(SCREEN_HEIGHT * 0.76, 680);
 
 function computeSheetHeight(rowCount: number): number {
   const target = HEADER_BLOCK + Math.max(rowCount, 1) * ROW_HEIGHT;
@@ -103,16 +106,31 @@ export const SelectedServicesSheet = forwardRef<SelectedServicesSheetRef>(
 
     // Resolve the selected ids into renderable rows. Skip any id
     // that can't be matched (defensive against stale ids after a
-    // catalog reseed). Preserve selection order.
-    const rows = useMemo(() => {
-      const out: { id: string; slug: string; label: string }[] = [];
+    // catalog reseed). Preserve selection order. Row now carries
+    // subtitle + estTimeLabel too so it matches Screen 2's
+    // ServiceMultiSelectRow content, not just the label.
+    type Row = {
+      id: string;
+      slug: string;
+      label: string;
+      subtitle: string;
+      estTimeLabel: string;
+    };
+    const rows = useMemo<Row[]>(() => {
+      const out: Row[] = [];
       for (const id of selectedServiceIds) {
         const svc = availableServices.find((s) => s.id === id);
         const slug = svc?.slug;
         if (!slug) continue;
         const entry = TAXONOMY[slug];
         if (!entry) continue;
-        out.push({ id, slug, label: entry.label });
+        out.push({
+          id,
+          slug,
+          label: entry.label,
+          subtitle: entry.subtitle,
+          estTimeLabel: entry.estTimeLabel,
+        });
       }
       return out;
     }, [selectedServiceIds, availableServices]);
@@ -145,9 +163,21 @@ export const SelectedServicesSheet = forwardRef<SelectedServicesSheetRef>(
       >
         <View style={styles.body}>
           <View style={styles.titleRow}>
-            <Text weight="bold" size="lg" color={INK}>
-              Selected services
-            </Text>
+            <View style={styles.titleCol}>
+              <Text weight="bold" size="lg" color={INK}>
+                Your cart
+              </Text>
+              <Text
+                size="sm"
+                weight="medium"
+                color={MUTED}
+                style={styles.titleSubtitle}
+              >
+                {rows.length === 1
+                  ? "1 service ready to book"
+                  : `${rows.length} services ready to book`}
+              </Text>
+            </View>
             <Pressable
               style={styles.closeBtn}
               hitSlop={8}
@@ -175,29 +205,55 @@ export const SelectedServicesSheet = forwardRef<SelectedServicesSheetRef>(
                 const Icon = getServiceIcon(row.slug);
                 return (
                   <View key={row.id} style={styles.row}>
+                    {Platform.OS === "ios" ? (
+                      <BlurView
+                        intensity={25}
+                        tint="light"
+                        style={StyleSheet.absoluteFill}
+                      />
+                    ) : null}
                     <View style={styles.iconTile}>
                       <Icon size={22} color="#4B5563" strokeWidth={2} />
                     </View>
-                    <Text
-                      weight="semiBold"
-                      size="md"
-                      color={INK}
-                      style={styles.label}
-                      numberOfLines={2}
-                    >
-                      {row.label}
-                    </Text>
+
+                    <View style={styles.rowText}>
+                      <Text
+                        size="md"
+                        weight="bold"
+                        color={INK}
+                        numberOfLines={2}
+                        style={styles.rowTitle}
+                      >
+                        {row.label}
+                      </Text>
+                      <Text
+                        size="sm"
+                        weight="regular"
+                        color={MUTED}
+                        numberOfLines={2}
+                        style={styles.rowSubtitle}
+                      >
+                        {row.subtitle}
+                      </Text>
+                      <View style={styles.metaRow}>
+                        <Clock size={13} color={MUTED} strokeWidth={2} />
+                        <Text size="xs" weight="medium" color={MUTED}>
+                          {row.estTimeLabel}
+                        </Text>
+                      </View>
+                    </View>
+
                     <Pressable
                       style={({ pressed }) => [
                         styles.removeBtn,
                         pressed && styles.removeBtnPressed,
                       ]}
-                      hitSlop={6}
+                      hitSlop={8}
                       onPress={() => handleRemove(row.id)}
                       accessibilityRole="button"
                       accessibilityLabel={`Remove ${row.label}`}
                     >
-                      <X size={16} color={DANGER} strokeWidth={2.4} />
+                      <Trash2 size={16} color={DANGER} strokeWidth={2.2} />
                     </Pressable>
                   </View>
                 );
@@ -212,16 +268,24 @@ export const SelectedServicesSheet = forwardRef<SelectedServicesSheetRef>(
 
 const styles = StyleSheet.create({
   body: {
-    paddingHorizontal: 22,
+    paddingHorizontal: 20,
     paddingTop: 4,
     paddingBottom: 16,
     flex: 1,
   },
   titleRow: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     justifyContent: "space-between",
-    marginBottom: 12,
+    marginBottom: 14,
+    gap: 12,
+  },
+  titleCol: {
+    flexShrink: 1,
+    minWidth: 0,
+  },
+  titleSubtitle: {
+    marginTop: 2,
   },
   closeBtn: {
     width: 32,
@@ -236,42 +300,59 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   row: {
-    // Mirrors the `rowSelected` look on ServiceMultiSelectRow so
-    // the user reads the cart card as "the same thing I just
-    // tapped, lifted into the review". Pale blue tint + a subtle
-    // blue border over the sheet's glass background.
+    // Mirrors ServiceMultiSelectRow's `rowSelected` look so the
+    // cart card reads as "the same thing I just tapped, lifted
+    // into the review". Pale blue tint + subtle blue border,
+    // BlurView backing on iOS for the glass depth, and CardShadow
+    // to lift it off the sheet's frosted surface.
     flexDirection: "row",
     alignItems: "center",
-    gap: 14,
-    paddingVertical: 14,
-    paddingHorizontal: 14,
+    gap: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
     borderRadius: 18,
-    backgroundColor: "rgba(82, 153, 254, 0.18)",
+    backgroundColor: "rgba(82, 153, 254, 0.16)",
     borderWidth: 1,
-    borderColor: "rgba(82, 153, 254, 0.55)",
+    borderColor: "rgba(82, 153, 254, 0.45)",
+    overflow: "hidden",
+    boxShadow: CardShadow.default,
   },
   iconTile: {
     width: 44,
     height: 44,
     borderRadius: 12,
-    backgroundColor: "rgba(255, 255, 255, 0.75)",
+    backgroundColor: "rgba(255, 255, 255, 0.85)",
     alignItems: "center",
     justifyContent: "center",
   },
-  label: {
+  rowText: {
     flex: 1,
     minWidth: 0,
   },
+  rowTitle: {
+    flexShrink: 1,
+  },
+  rowSubtitle: {
+    marginTop: 2,
+  },
+  metaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginTop: 6,
+  },
   removeBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     backgroundColor: "rgba(239, 68, 68, 0.1)",
+    borderWidth: 1,
+    borderColor: "rgba(239, 68, 68, 0.22)",
     alignItems: "center",
     justifyContent: "center",
   },
   removeBtnPressed: {
-    backgroundColor: "rgba(239, 68, 68, 0.2)",
+    backgroundColor: "rgba(239, 68, 68, 0.22)",
   },
   empty: {
     paddingVertical: 28,
