@@ -11,7 +11,7 @@
  * USED IN: Payment screen, confirmation flow
  */
 
-import { useMutation, useQuery } from "convex/react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import { useCallback, useMemo } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -41,6 +41,7 @@ type PreauthorizedPayment = {
 
 export function useCreateBookingConvex() {
   const createBatch = useMutation(api.bookings.createBatch);
+  const confirmPreauthorizedBatch = useAction(api.bookings.confirmPreauthorizedBatch);
   const toast = useToast();
   const { userId } = useUserFromConvex();
   const { primaryVin } = useVehicleOwnershipFromConvex();
@@ -300,7 +301,9 @@ export function useCreateBookingConvex() {
             : undefined,
         };
 
-        bookingIds = await createBatch(createBatchPayload);
+        bookingIds = await (preauthorizedPayment
+          ? confirmPreauthorizedBatch(createBatchPayload)
+          : createBatch(createBatchPayload));
       } catch (err) {
         toast.error(
           "Couldn't submit booking.",
@@ -327,6 +330,7 @@ export function useCreateBookingConvex() {
       scheduledAppointment,
       getShopById,
       createBatch,
+      confirmPreauthorizedBatch,
       sourceRecommendationId,
       setSourceRecommendationId,
       selectedServiceOptions,

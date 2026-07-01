@@ -26,6 +26,24 @@ test("booking confirmation authorizes payment before creating the booking", () =
   assert.doesNotMatch(confirmingSource, /createPaymentIntentForBooking/);
 });
 
+test("server verifies the preauthorized payment before creating the booking", () => {
+  const actionIndex = bookingsSource.indexOf("export const confirmPreauthorizedBatch = action(");
+  const retrievePaymentIndex = bookingsSource.indexOf("stripe.paymentIntents.retrieve", actionIndex);
+  const createBatchIndex = bookingsSource.indexOf(
+    "ctx.runMutation(internal.bookings._createBatchAfterAuthorization",
+    actionIndex,
+  );
+
+  assert.ok(actionIndex > -1);
+  assert.ok(retrievePaymentIndex > actionIndex);
+  assert.ok(createBatchIndex > retrievePaymentIndex);
+  assert.match(bookingsSource, /pi\.metadata\?\.userId !== String\(user\._id\)/);
+  assert.match(bookingsSource, /pi\.metadata\?\.shopId !== String\(args\.shop_id\)/);
+  assert.match(bookingsSource, /cancelPreauthorizedPaymentIntent/);
+  assert.match(bookingsSource, /export const _createBatchAfterAuthorization = internalMutation/);
+  assert.match(bookingsSource, /await assertCreateBatchUser\(ctx, args\.user_id\)/);
+});
+
 test("booking creation stays the final fallible confirmation step before success", () => {
   const createBookingIndex = confirmingSource.indexOf("const bookingIds = await createBookingConvex(");
   const catchIndex = confirmingSource.indexOf("} catch (err) {", createBookingIndex);
