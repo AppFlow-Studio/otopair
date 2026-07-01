@@ -91,6 +91,7 @@ export default function BookingConfirmingScreen() {
   const preauthorizePayment = useAction(api.payments_stripe.preauthorizePaymentForBooking);
   const cancelPreauthorizedPayment = useAction(api.payments_stripe.cancelPreauthorizedPaymentIntent);
   const customerRequestReschedule = useMutation(api.bookings.customerRequestReschedule);
+  const rollbackFailedBookingCreation = useMutation(api.bookings.rollbackFailedBookingCreation);
   // The PaymentIntent is created + confirmed server-side. If 3DS is needed,
   // Stripe returns requires_action and the client *finishes* the challenge
   // via `handleNextAction(clientSecret)` — NOT `confirmPayment`, which
@@ -238,7 +239,7 @@ export default function BookingConfirmingScreen() {
     const paymentOrigin = isWalletFlow ? selectedWalletPm?.type : "card";
     setSubmitting(true);
     let preauthorizedPaymentIntentId: string | null = null;
-    let bookingCreated = false;
+    let createdBookingId: Id<"bookings"> | null = null;
     try {
       const preauth = await preauthorizePayment({
         shopId: shopId as Id<"shops">,
@@ -272,7 +273,9 @@ export default function BookingConfirmingScreen() {
         },
       );
       const newBookingId = bookingIds[0];
-      bookingCreated = true;
+      if (typeof newBookingId === "string" && newBookingId.length > 10) {
+        createdBookingId = newBookingId as Id<"bookings">;
+      }
 
       if (navigatedRef.current) return;
       navigatedRef.current = true;
@@ -281,11 +284,21 @@ export default function BookingConfirmingScreen() {
         params: newBookingId ? { id, bookingDbId: newBookingId } : { id },
       });
     } catch (err) {
-      if (preauthorizedPaymentIntentId && !bookingCreated) {
+      if (preauthorizedPaymentIntentId) {
         try {
           await cancelPreauthorizedPayment({ paymentIntentId: preauthorizedPaymentIntentId });
         } catch {
-          // Best effort: no booking was created, and Stripe will expire an uncaptured hold.
+          // Best effort: Stripe will expire an uncaptured hold if cancel fails.
+        }
+      }
+      if (createdBookingId) {
+        try {
+          await rollbackFailedBookingCreation({
+            bookingId: createdBookingId,
+            reason: extractErrorMessage(err).slice(0, 500),
+          });
+        } catch {
+          // Best effort: still show the original error so the user can retry.
         }
       }
       if (navigatedRef.current) return;
@@ -316,6 +329,7 @@ export default function BookingConfirmingScreen() {
     createBookingConvex,
     preauthorizePayment,
     cancelPreauthorizedPayment,
+    rollbackFailedBookingCreation,
     customerRequestReschedule,
     handleNextAction,
     router,

@@ -576,6 +576,70 @@ export const cancelBooking = mutation({
   },
 });
 
+export const rollbackFailedBookingCreation = mutation({
+  args: {
+    bookingId: v.id("bookings"),
+    reason: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const user = await getCurrentUser(ctx);
+    const booking = await ctx.db.get(args.bookingId);
+    if (!booking) return;
+    if (booking.user_id !== user._id) {
+      throw new Error("Not your booking.");
+    }
+    if (booking.status !== "pending") {
+      throw new Error("Only pending bookings can be rolled back.");
+    }
+
+    const payments = await ctx.db
+      .query("payments")
+      .withIndex("by_booking_id", (q) => q.eq("booking_id", args.bookingId))
+      .collect();
+    for (const payment of payments) {
+      const paymentHistory = await ctx.db
+        .query("payment_status_history")
+        .withIndex("by_payment_id", (q) => q.eq("payment_id", payment._id))
+        .collect();
+      for (const row of paymentHistory) await ctx.db.delete(row._id);
+      await ctx.db.delete(payment._id);
+    }
+
+    const bookingHistory = await ctx.db
+      .query("booking_status_history")
+      .withIndex("by_booking_id", (q) => q.eq("booking_id", args.bookingId))
+      .collect();
+    for (const row of bookingHistory) await ctx.db.delete(row._id);
+
+    const outboxRows = await ctx.db
+      .query("notification_outbox")
+      .withIndex("by_booking_id", (q) => q.eq("booking_id", args.bookingId))
+      .collect();
+    for (const row of outboxRows) await ctx.db.delete(row._id);
+
+    const funnels = await ctx.db
+      .query("conversion_funnels")
+      .withIndex("by_booking_id", (q) => q.eq("booking_id", args.bookingId))
+      .collect();
+    for (const funnel of funnels) {
+      await ctx.db.patch(funnel._id, {
+        completed: false,
+        stage: "booking_failed",
+        drop_off_reason: args.reason ?? "booking_creation_rolled_back",
+      });
+    }
+
+    await ctx.db.delete(args.bookingId);
+    await syncBookingAssignments(ctx, [
+      {
+        shopId: booking.shop_id,
+        mechanicId: booking.mechanic_id ?? undefined,
+        date: booking.scheduled_date,
+      },
+    ]);
+  },
+});
+
 /**
  * QUERY: getRecentlyBookedShopIdsByUserId
  * Get unique shop IDs the user has booked at, ordered by most recent booking first.
