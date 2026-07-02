@@ -436,11 +436,57 @@ export default defineSchema({
     price_type: v.optional(v.string()),
     source_url: v.optional(v.string()),
     source_domain: v.optional(v.string()),
+    msrp: v.optional(v.number()),
+    discount: v.optional(v.number()),
     refreshed_at: v.optional(v.number()),
     created_at: v.optional(v.number()),
   })
     .index("by_part", ["part_id"])
     .index("by_part_source", ["part_id", "source_domain"]),
+
+  // Raw per-config RepairPal estimate-endpoint cache — one row per (config,
+  // service), storing the whole endpoint response at its natural granularity so
+  // `part_prices` stays SKU-only. Labor is ALSO projected into labor_observations
+  // (source repairpal_endpoint, weight 0.9).
+  // Parts: each endpoint part's averaged per-unit price (total_price avg ÷
+  // quantity) is ALSO projected into part_prices as a fallback POINT
+  // (source_domain="repairpal_endpoint", a price_type excluded from the pooled
+  // SKU aggregate). resolvePartsCost (flag PARTS_SOURCE_REAL_PRIMARY) pools SKU
+  // prices WITH this endpoint point per role, falling back to it when a part has
+  // no SKU price, then to Camry×multiplier. See
+  // docs/superpowers/plans/2026-06-23-parts-real-primary-endpoint-point.md.
+  repairpal_endpoint_estimates: defineTable({
+    vehicle_config_id: v.id("vehicle_configs"),
+    service_id: v.id("services"),
+    base_vehicle_id: v.number(),               // resolved RepairPal baseVehicleId
+    variant_label: v.optional(v.string()),     // matched engine/position variant
+    labor_minutes: v.optional(v.number()),
+    labor_hours: v.optional(v.number()),
+    labor_low: v.optional(v.number()),         // labor $ band (unrounded)
+    labor_high: v.optional(v.number()),
+    total_independent_low: v.optional(v.number()),
+    total_independent_high: v.optional(v.number()),
+    total_dealer_low: v.optional(v.number()),
+    total_dealer_high: v.optional(v.number()),
+    parts: v.optional(
+      v.array(
+        v.object({
+          role: v.optional(v.string()),        // oem_parts.subcategory (+position) via endpointPartCategory
+          name: v.string(),                    // RepairPal part name (verbatim)
+          quantity: v.optional(v.number()),
+          price_low: v.optional(v.number()),
+          price_high: v.optional(v.number()),
+          position: v.optional(v.string()),    // "front" | "rear" for brakes
+        }),
+      ),
+    ),
+    zip: v.optional(v.string()),
+    match_quality: v.optional(v.string()),   // "exact" | "engine_sibling"
+    matched_via: v.optional(v.string()),     // RP modelName substituted when engine_sibling
+    fetched_at: v.number(),
+  })
+    .index("by_config_service", ["vehicle_config_id", "service_id"])
+    .index("by_config", ["vehicle_config_id"]),
 
   // Materialized view of "which part does this shop reach for on this
   // service+vehicle_config?" Built from observation: every shop-supplied
@@ -1043,6 +1089,13 @@ export default defineSchema({
     source: v.optional(v.string()),
     confidence: v.optional(v.number()),
     data_quality: v.optional(v.string()),
+    // [Phase 1] Multi-source guardrail flags (spec 2026-06-13). book_hours is
+    // > 15 min from the Pricing-v2 tier fallback (suspicious single source):
+    labor_outside_fallback_band: v.optional(v.boolean()),
+    // ≥2 strong sources disagreed beyond the agreement band before MAD:
+    labor_sources_disagree: v.optional(v.boolean()),
+    // |book_hours − fallback| in whole minutes (for the director panel):
+    fallback_gap_minutes: v.optional(v.number()),
     created_at: v.optional(v.number()),
   })
     .index("by_vehicle_config", ["vehicle_config_id"])
@@ -1104,6 +1157,8 @@ export default defineSchema({
     nickname: v.optional(v.string()),
     is_primary: v.optional(v.boolean()),
     mileage: v.optional(v.number()),
+    mileage_source: v.optional(v.string()),      // e.g. "chat_self_reported" | "onboarding" | "verified"
+    mileage_updated_at: v.optional(v.number()),  // ms epoch of the last mileage write
     added_at: v.optional(v.number()),
     removed_at: v.optional(v.number()),
     ownershipType: v.optional(v.string()),
@@ -1244,6 +1299,46 @@ export default defineSchema({
   })
     .index("by_vin", ["vin"])
     .index("by_updated_at", ["updated_at"]),
+
+  // Gamified multi-point inspection record — the new pre-job flow. One row per
+  // booking (upserted as the mechanic fills zones). Stores the full zone-by-zone
+  // state so the inspection can be resumed and rendered to a downloadable PDF.
+  // The derived PreJobSurveyPayload still drives prejob_report + passport, so
+  // this table is additive and never the source of truth for pricing.
+  vehicle_inspections: defineTable({
+    booking_id: v.id("bookings"),
+    job_actual_id: v.optional(v.id("job_actuals")),
+    vin: v.string(),
+    shop_id: v.optional(v.id("shops")),
+    mechanic_id: v.optional(v.id("mechanics")),
+    template_version: v.string(),
+    zones: v.array(
+      v.object({
+        zone_id: v.string(),
+        done: v.boolean(),
+        // Free-form per-field maps keyed by the template field keys. `v.any()`
+        // because the template owns the shape and it evolves with the template
+        // version (recorded above) rather than the schema.
+        measures: v.optional(v.any()),
+        tri: v.optional(v.any()),
+        descriptors: v.optional(v.any()),
+        text: v.optional(v.any()),
+        select: v.optional(v.any()),
+        photo_ids: v.optional(v.array(v.id("_storage"))),
+      }),
+    ),
+    findings_attention: v.array(
+      v.object({ label: v.string(), zone: v.string() }),
+    ),
+    findings_monitor: v.array(
+      v.object({ label: v.string(), zone: v.string() }),
+    ),
+    pdf_storage_id: v.optional(v.id("_storage")),
+    created_at: v.float64(),
+    updated_at: v.float64(),
+  })
+    .index("by_booking", ["booking_id"])
+    .index("by_vin", ["vin"]),
 
   // [I] Daniel/Waleed
   vehicle_tiers: defineTable({
@@ -3258,6 +3353,14 @@ export default defineSchema({
     ),
     // Backlink to the scheduled reminder we created for this rec.
     followup_id: v.optional(v.id("follow_ups")),
+    // Where this recommendation originated: "post_job" (default/legacy, mechanic
+    // entered it in the post-job survey), "inspection" (auto-derived from a
+    // multi-point inspection's measurements), or "diagnostic".
+    source: v.optional(v.string()),
+    // Denormalized attribution shown to the driver, e.g.
+    // "Based on last inspection @ Temur Auto & Motor". Set at creation so every
+    // consumer can render it without re-joining shop/source.
+    author_label: v.optional(v.string()),
     created_at: v.number(),
     updated_at: v.optional(v.number()),
   })

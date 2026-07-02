@@ -397,6 +397,34 @@ function ApprovalDecisionView({ bookingId }: { bookingId: Id<"bookings"> }) {
 }
 
 /**
+ * Itemized breakdown behind the hold amount, returned by
+ * `getReauthBreakdownForBooking`. Typed locally because the vendored mobile
+ * Convex client surfaces query returns as `any` (same reason the sibling
+ * `booking` prop is `any`).
+ */
+interface ReauthBreakdownPart {
+  part_name: string;
+  oem_number?: string;
+  brand?: string;
+  quantity: number;
+  unit_price_cents: number;
+  line_total_cents: number;
+  justification_text?: string;
+}
+interface ReauthBreakdown {
+  source: "approved" | "quote";
+  cycle: string | null;
+  totalCents: number;
+  partsCents: number;
+  laborCents: number;
+  taxCents: number;
+  feeCents: number;
+  laborHours: number | null;
+  notes: string | null;
+  parts: ReauthBreakdownPart[];
+}
+
+/**
  * ReauthView — customer-side confirm-hold flow.
  *
  * Backend wrote `payment_approval_state = "reauth_required"` after Stripe's
@@ -448,6 +476,13 @@ function ReauthView({
   );
   const isWalletOrigin =
     paymentOrigin === "apple_pay" || paymentOrigin === "google_pay";
+  // Itemized breakdown of what makes up the hold — the approved estimate
+  // that set the ceiling, or the booking's original quote as fallback.
+  // `undefined` = loading, `null` = no source (legacy booking).
+  const breakdown: ReauthBreakdown | null | undefined = useQuery(
+    api.booking_approvals.getReauthBreakdownForBooking,
+    { bookingId },
+  );
   const [submitting, setSubmitting] = useState(false);
 
   const isBookingLoading = booking === undefined;
@@ -705,6 +740,101 @@ function ReauthView({
             </Text>
           </View>
         </View>
+
+        {breakdown ? (
+          <View style={styles.card}>
+            <Text weight="semiBold" style={styles.sectionLabel}>
+              What&apos;s included
+            </Text>
+            {breakdown.parts.map((p, idx) => (
+              <View key={idx} style={styles.partRow}>
+                <View style={{ flex: 1 }}>
+                  <Text weight="semiBold" style={styles.partName}>
+                    {p.part_name}
+                  </Text>
+                  {p.oem_number ? (
+                    <Text style={styles.partOem}>
+                      {p.brand ? `${p.brand} · ` : ""}
+                      {p.oem_number}
+                    </Text>
+                  ) : null}
+                  <Text style={styles.partOem}>
+                    Qty {p.quantity} · {formatUsd(p.unit_price_cents)} ea
+                  </Text>
+                  {p.justification_text ? (
+                    <Text style={styles.partJustification}>
+                      “{p.justification_text}”
+                    </Text>
+                  ) : null}
+                </View>
+                <Text weight="semiBold" style={styles.partTotal}>
+                  {formatUsd(p.line_total_cents)}
+                </Text>
+              </View>
+            ))}
+
+            {breakdown.notes ? (
+              <View style={styles.noteBlock}>
+                <Text weight="semiBold" style={styles.noteLabel}>
+                  Why the change
+                </Text>
+                <Text style={styles.noteText}>“{breakdown.notes}”</Text>
+              </View>
+            ) : null}
+
+            <View style={styles.cardDivider} />
+
+            <View style={styles.totalsBlock}>
+              <View style={styles.totalRow}>
+                <Text style={styles.totalLabel}>Parts</Text>
+                <Text style={styles.totalValue}>
+                  {formatUsd(breakdown.partsCents)}
+                </Text>
+              </View>
+              {breakdown.laborCents > 0 && (
+                <View style={styles.totalRow}>
+                  <Text style={styles.totalLabel}>
+                    Labor
+                    {breakdown.laborHours
+                      ? ` (${breakdown.laborHours} hrs)`
+                      : ""}
+                  </Text>
+                  <Text style={styles.totalValue}>
+                    {formatUsd(breakdown.laborCents)}
+                  </Text>
+                </View>
+              )}
+              {breakdown.taxCents + breakdown.feeCents > 0 && (
+                <View style={styles.totalRow}>
+                  <Text style={styles.totalLabel}>Tax + service fee</Text>
+                  <Text style={styles.totalValue}>
+                    {formatUsd(breakdown.taxCents + breakdown.feeCents)}
+                  </Text>
+                </View>
+              )}
+              <View style={[styles.totalRow, { marginTop: Spacing.sm }]}>
+                <Text
+                  weight="semiBold"
+                  style={styles.totalLabelBold}
+                  numberOfLines={1}
+                >
+                  {breakdown.totalCents === newHoldCents
+                    ? "Total"
+                    : "Estimated total"}
+                </Text>
+                <Text
+                  weight="semiBold"
+                  style={[styles.totalLabelBold, styles.totalValueRight]}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.75}
+                >
+                  {formatUsd(breakdown.totalCents)}
+                </Text>
+              </View>
+            </View>
+          </View>
+        ) : null}
       </ScrollView>
 
       <View
