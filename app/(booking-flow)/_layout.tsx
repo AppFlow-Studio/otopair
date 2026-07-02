@@ -1,6 +1,12 @@
-import { Stack } from "expo-router";
+import { Stack, useRouter } from "expo-router";
+import React, { useCallback, useEffect, useRef } from "react";
+import { StyleSheet, View } from "react-native";
 
 import { BookingFlowMapProvider } from "@/components/booking-flow/BookingFlowMap";
+import { AddVehicleRequiredSheet } from "@/components/home/AddVehicleRequiredSheet";
+import type { FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
+import { BrandColors } from "@/constants/theme";
+import { useVehicleOwnershipFromConvex } from "@/hooks/useVehicleOwnershipFromConvex";
 
 /**
  * Booking-flow Stack — the 4-screen linear flow that replaces the
@@ -19,6 +25,16 @@ import { BookingFlowMapProvider } from "@/components/booking-flow/BookingFlowMap
  * (no map) just paints its own opaque background over it.
  */
 export default function BookingFlowLayout() {
+  const { hasVehicles, isLoading } = useVehicleOwnershipFromConvex();
+
+  if (isLoading) {
+    return <View style={styles.gateRoot} />;
+  }
+
+  if (!hasVehicles) {
+    return <NoVehicleBookingLock />;
+  }
+
   return (
     <BookingFlowMapProvider>
       <Stack
@@ -46,3 +62,50 @@ export default function BookingFlowLayout() {
     </BookingFlowMapProvider>
   );
 }
+
+function NoVehicleBookingLock() {
+  const router = useRouter();
+  const sheetRef = useRef<FloatingSheetRef>(null);
+  const suppressCloseNavigationRef = useRef(false);
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      sheetRef.current?.open();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, []);
+
+  const returnToPreviousScreen = useCallback(() => {
+    if (suppressCloseNavigationRef.current) return;
+    suppressCloseNavigationRef.current = true;
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+    router.replace("/(main-tabs)/home");
+  }, [router]);
+
+  const goAddVehicle = () => {
+    suppressCloseNavigationRef.current = true;
+    sheetRef.current?.close();
+    router.replace("/add-vehicle");
+  };
+
+  return (
+    <View style={styles.gateRoot}>
+      <AddVehicleRequiredSheet
+        ref={sheetRef}
+        onAddVehicle={goAddVehicle}
+        onMaybeLater={() => sheetRef.current?.close()}
+        onClose={returnToPreviousScreen}
+      />
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  gateRoot: {
+    flex: 1,
+    backgroundColor: BrandColors.background,
+  },
+});

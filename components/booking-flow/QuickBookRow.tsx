@@ -110,7 +110,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(255, 255, 255, 0.8)",
     overflow: "hidden",
-    boxShadow: CardShadow.default,
+    boxShadow: Platform.OS === "ios" ? CardShadow.default : undefined,
   },
   chipPressed: {
     opacity: 0.8,

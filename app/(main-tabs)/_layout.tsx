@@ -57,18 +57,12 @@ export default function TabLayout() {
 
 function SignedOutMainTabsGuard({ children }: { children: React.ReactNode }) {
   const { isLoaded, isSignedIn } = useAuth();
-  const rootNavigationState = useRootNavigationState();
   const shouldRedirect = shouldRedirectSignedOutFromMainTabs(isLoaded, isSignedIn);
-  const rootNavigationReady = Boolean(rootNavigationState?.key);
 
-  useEffect(() => {
-    if (!shouldRedirect || !rootNavigationReady) return;
-    router.replace({
-      pathname: "/(onboarding)",
-      params: { initialStep: "signup" },
-    });
-  }, [rootNavigationReady, shouldRedirect]);
-
+  // Render null to protect main-tabs content when signed out. Navigation to
+  // onboarding is handled exclusively by app/index.tsx (cold start) and
+  // SettingsContent.tsx (runtime logout) to prevent competing router.replace
+  // calls that cause double-screen and "navigate before mounting" errors.
   if (!isLoaded || shouldRedirect) {
     return null;
   }

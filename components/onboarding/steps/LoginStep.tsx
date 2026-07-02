@@ -6,7 +6,7 @@
  * USED IN: components/onboarding/OnboardingFlow.tsx
  */
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useSignIn, useAuth, useSSO } from "@clerk/clerk-expo";
 import * as WebBrowser from "expo-web-browser";
 import { useConvex, useMutation } from "convex/react";
@@ -59,6 +59,7 @@ export function LoginStep({ onBack }: LoginStepProps) {
   const [error, setError] = useState<string | null>(null);
   const [showEmailForm, setShowEmailForm] = useState(false);
   const [showForgotPasswordFlow, setShowForgotPasswordFlow] = useState(false);
+  const explicitLoginNavigationStartedRef = useRef(false);
 
   // Already signed in → go straight to home
   const dynamicStyles = {
@@ -114,7 +115,7 @@ export function LoginStep({ onBack }: LoginStepProps) {
   useEffect(() => {
     // Don't auto-redirect while an explicit login flow is in progress,
     // because post-login navigation may need to pass route params.
-    if (loading !== null || showForgotPasswordFlow) return;
+    if (loading !== null || showForgotPasswordFlow || explicitLoginNavigationStartedRef.current) return;
 
     if (isLoaded && isSignedIn) {
       setIsNewUser(false);
@@ -172,9 +173,11 @@ export function LoginStep({ onBack }: LoginStepProps) {
         }
         setIsNewUser(false);
         setIsAuthenticated(true);
+        explicitLoginNavigationStartedRef.current = true;
         await navigateAfterLogin();
       }
     } catch (err) {
+      explicitLoginNavigationStartedRef.current = false;
       const message = err instanceof Error ? err.message : "Authentication failed";
       setError(message);
     } finally {
@@ -209,8 +212,10 @@ export function LoginStep({ onBack }: LoginStepProps) {
       }
       setIsNewUser(false);
       setIsAuthenticated(true);
+      explicitLoginNavigationStartedRef.current = true;
       await navigateAfterLogin();
     } catch (err: any) {
+      explicitLoginNavigationStartedRef.current = false;
       const message = err?.errors?.[0]?.longMessage || err?.errors?.[0]?.message || err?.message || "Unable to sign in";
       setError(message);
     } finally {
@@ -226,6 +231,7 @@ export function LoginStep({ onBack }: LoginStepProps) {
     }
     setIsNewUser(false);
     setIsAuthenticated(true);
+    explicitLoginNavigationStartedRef.current = true;
     await navigateAfterLogin();
   };
 
@@ -242,6 +248,17 @@ export function LoginStep({ onBack }: LoginStepProps) {
         }}
         onAuthenticated={handlePasswordResetAuthenticated}
       />
+    );
+  }
+
+  if (loading !== null || explicitLoginNavigationStartedRef.current) {
+    return (
+      <View style={styles.signingInContainer}>
+        <View style={styles.signingInCard}>
+          <ActivityIndicator size="large" color={BrandColors.primary} />
+          <Text style={styles.signingInTitle}>Signing you in</Text>
+        </View>
+      </View>
     );
   }
 
@@ -480,5 +497,21 @@ const styles = StyleSheet.create({
     fontFamily: FontFamily.medium,
     marginTop: Spacing.md,
     paddingHorizontal: Spacing["2xl"],
+  },
+  signingInContainer: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: Spacing["2xl"],
+    backgroundColor: BrandColors.background,
+  },
+  signingInCard: {
+    alignItems: "center",
+    gap: Spacing.md,
+  },
+  signingInTitle: {
+    fontSize: FontSize.lg,
+    fontFamily: FontFamily.semiBold,
+    color: "#0F172A",
   },
 });

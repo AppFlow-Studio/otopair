@@ -1,24 +1,31 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Animated,
+  BackHandler,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   TextInput,
+  TouchableOpacity,
   View,
+  useWindowDimensions,
 } from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useUser } from "@clerk/clerk-expo";
+import { X } from "lucide-react-native";
 
 import {
   BlurHeaderOverlay,
   BrandColors,
   FontFamily,
   FontSize,
+  FooterButton,
   Spacing,
   Text,
 } from "@/components/shared-ui";
@@ -31,8 +38,11 @@ import {
   isPhoneNumberVerified,
   normalizePhoneForComparison,
 } from "@/lib/clerk-phone-numbers";
+import { normalizeContactEmail } from "@/lib/contact-validation";
+import { OnboardingSurfaceColors } from "@/components/onboarding/onboardingColors";
 
 type VerificationTarget = "phone" | "email";
+type ContactUpdateSuccessType = "contact_phone" | "contact_email" | "contact_both";
 
 // Prevent duplicate auto-send bursts across rapid remount/re-render cycles in dev.
 const recentAutoSendMap = new Map<string, number>();
@@ -41,6 +51,7 @@ const AUTO_SEND_DEBOUNCE_MS = 5000;
 export default function VerifyContactUpdateScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { height } = useWindowDimensions();
   const { user } = useUser();
   const { persistProfileField } = useOnboardingPersistence();
   const updateData = useOnboardingStore((s) => s.updateData);
@@ -50,11 +61,15 @@ export default function VerifyContactUpdateScreen() {
     verifyEmail = "0",
     pendingPhone = "",
     pendingEmail = "",
+    pendingPhoneVerificationId = "",
+    pendingEmailVerificationId = "",
   } = useLocalSearchParams<{
     verifyPhone?: string;
     verifyEmail?: string;
     pendingPhone?: string;
     pendingEmail?: string;
+    pendingPhoneVerificationId?: string;
+    pendingEmailVerificationId?: string;
   }>();
 
   const steps = useMemo<VerificationTarget[]>(() => {
@@ -70,20 +85,30 @@ export default function VerifyContactUpdateScreen() {
   const [timer, setTimer] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isPreparing, setIsPreparing] = useState(false);
+  const [isStepReady, setIsStepReady] = useState(false);
+  const [visibleStepIndex, setVisibleStepIndex] = useState(0);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [showErrorModal, setShowErrorModal] = useState(false);
 
   const inputRefs = useRef<(TextInput | null)[]>([]);
   const phoneVerificationRef = useRef<any>(null);
   const emailVerificationRef = useRef<any>(null);
   const initialPrimaryEmailIdRef = useRef<string | null>(null);
+  const slideAnim = useRef(new Animated.Value(height)).current;
   const autoPreparedStepsRef = useRef<Record<VerificationTarget, boolean>>({
     phone: false,
     email: false,
   });
 
   const currentStep = steps[stepIndex];
-  const isCodeComplete = code.join("").length === 6;
+  const visibleStep = steps[visibleStepIndex] ?? currentStep;
   const isMultiStep = steps.length === 2;
+  const isCodeLoading = isSubmitting || !isStepReady || stepIndex !== visibleStepIndex;
+  const successType = useMemo<ContactUpdateSuccessType>(() => {
+    if (verifyPhone === "1" && verifyEmail === "1") return "contact_both";
+    if (verifyPhone === "1") return "contact_phone";
+    return "contact_email";
+  }, [verifyEmail, verifyPhone]);
 
   useEffect(() => {
     if (!user) return;
@@ -123,9 +148,57 @@ export default function VerifyContactUpdateScreen() {
     router.back();
   }, [destroyPendingResources, router]);
 
+  useEffect(() => {
+    const backHandler = BackHandler.addEventListener("hardwareBackPress", () => {
+      void handleCancel();
+      return true;
+    });
+
+    return () => backHandler.remove();
+  }, [handleCancel]);
+
+  useEffect(() => {
+    if (showErrorModal) {
+      slideAnim.setValue(height);
+      requestAnimationFrame(() => {
+        Animated.spring(slideAnim, {
+          toValue: 0,
+          useNativeDriver: true,
+          tension: 40,
+          friction: 8,
+        }).start();
+      });
+    } else {
+      Animated.timing(slideAnim, {
+        toValue: height,
+        duration: 300,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [height, showErrorModal, slideAnim]);
+
+  const showVerificationError = useCallback((message: string) => {
+    setErrorMessage(message);
+    setShowErrorModal(true);
+  }, []);
+
+  const handleCloseErrorModal = useCallback(() => {
+    setShowErrorModal(false);
+    setErrorMessage(null);
+  }, []);
+
   const prepareVerificationForCurrentStep = useCallback(async (options?: { force?: boolean }) => {
     if (!currentStep) return;
     const force = options?.force === true;
+
+    if (currentStep === "phone" && user && pendingPhoneVerificationId && !phoneVerificationRef.current) {
+      phoneVerificationRef.current =
+        user.phoneNumbers.find((phoneNumber) => phoneNumber.id === pendingPhoneVerificationId) ?? null;
+    }
+    if (currentStep === "email" && user && pendingEmailVerificationId && !emailVerificationRef.current) {
+      emailVerificationRef.current =
+        user.emailAddresses.find((emailAddress) => emailAddress.id === pendingEmailVerificationId) ?? null;
+    }
 
     if (!force && autoPreparedStepsRef.current[currentStep]) {
       return;
@@ -142,7 +215,7 @@ export default function VerifyContactUpdateScreen() {
     }
 
     if (!user) {
-      setErrorMessage("User session not ready. Please try again.");
+      showVerificationError("User session not ready. Please try again.");
       return;
     }
 
@@ -152,23 +225,49 @@ export default function VerifyContactUpdateScreen() {
       if (currentStep === "phone") {
         const normalizedPendingPhone = normalizePhoneForComparison(pendingPhone);
         await cleanupStaleUnverifiedPhoneNumbers(user, normalizedPendingPhone);
+        let preparedPhoneWasProvided =
+          pendingPhoneVerificationId.length > 0 &&
+          phoneVerificationRef.current?.id === pendingPhoneVerificationId;
         if (!phoneVerificationRef.current) {
+          const preparedPhone = pendingPhoneVerificationId
+            ? user.phoneNumbers.find((phoneNumber) => phoneNumber.id === pendingPhoneVerificationId)
+            : null;
+          preparedPhoneWasProvided = preparedPhone != null;
           const existingPhone = findPhoneNumberByNormalizedValue(user, normalizedPendingPhone);
           phoneVerificationRef.current =
-            existingPhone && !isPhoneNumberVerified(existingPhone)
+            preparedPhone ??
+            (existingPhone && !isPhoneNumberVerified(existingPhone)
               ? existingPhone
               : await user.createPhoneNumber({
                   phoneNumber: pendingPhone,
-                });
+                }));
         }
-        await phoneVerificationRef.current.prepareVerification();
+        if (force || !pendingPhoneVerificationId || !preparedPhoneWasProvided) {
+          await phoneVerificationRef.current.prepareVerification();
+        }
       } else {
+        let preparedEmailWasProvided =
+          pendingEmailVerificationId.length > 0 &&
+          emailVerificationRef.current?.id === pendingEmailVerificationId;
         if (!emailVerificationRef.current) {
-          emailVerificationRef.current = await user.createEmailAddress({
-            email: pendingEmail,
-          });
+          const preparedEmail = pendingEmailVerificationId
+            ? user.emailAddresses.find((emailAddress) => emailAddress.id === pendingEmailVerificationId)
+            : null;
+          const existingEmail = user.emailAddresses.find(
+            (emailAddress) =>
+              normalizeContactEmail(emailAddress.emailAddress) === normalizeContactEmail(pendingEmail),
+          );
+          preparedEmailWasProvided = preparedEmail != null;
+          emailVerificationRef.current =
+            preparedEmail ??
+            existingEmail ??
+            (await user.createEmailAddress({
+              email: pendingEmail,
+            }));
         }
-        await emailVerificationRef.current.prepareVerification({ strategy: "email_code" });
+        if (force || !pendingEmailVerificationId || !preparedEmailWasProvided) {
+          await emailVerificationRef.current.prepareVerification({ strategy: "email_code" });
+        }
       }
       setTimer(60);
       autoPreparedStepsRef.current[currentStep] = true;
@@ -178,21 +277,49 @@ export default function VerifyContactUpdateScreen() {
         error?.errors?.[0]?.message ||
         error?.message ||
         "Unable to send verification code.";
-      setErrorMessage(msg);
+      showVerificationError(msg);
     } finally {
       setIsPreparing(false);
     }
-  }, [currentStep, pendingEmail, pendingPhone, user]);
+  }, [
+    currentStep,
+    pendingEmail,
+    pendingEmailVerificationId,
+    pendingPhone,
+    pendingPhoneVerificationId,
+    showVerificationError,
+    user,
+  ]);
 
   useEffect(() => {
     if (steps.length === 0) {
       router.back();
       return;
     }
+    let isActive = true;
+    let focusFrame: number | null = null;
+    setIsStepReady(false);
     setCode(["", "", "", "", "", ""]);
     setFocusedIndex(0);
     setErrorMessage(null);
-    prepareVerificationForCurrentStep();
+    setShowErrorModal(false);
+
+    void (async () => {
+      await prepareVerificationForCurrentStep();
+      if (!isActive) return;
+      setVisibleStepIndex(stepIndex);
+      setIsStepReady(true);
+      focusFrame = requestAnimationFrame(() => {
+        inputRefs.current[0]?.focus();
+      });
+    })();
+
+    return () => {
+      isActive = false;
+      if (focusFrame != null) {
+        cancelAnimationFrame(focusFrame);
+      }
+    };
   }, [stepIndex, steps.length, prepareVerificationForCurrentStep, router]);
 
   const handleCodeChange = (value: string, index: number) => {
@@ -225,76 +352,62 @@ export default function VerifyContactUpdateScreen() {
     }
   };
 
-  const finalizeUpdates = useCallback(async () => {
-    const payload: Record<string, any> = {};
-    const storePayload: Record<string, any> = {};
-    const userUpdatePayload: Record<string, any> = {};
-
-    // 1) Promote newly-verified resources to primary in Clerk.
-    if (verifyPhone === "1" && phoneVerificationRef.current?.id) {
-      userUpdatePayload.primaryPhoneNumberId = phoneVerificationRef.current.id;
-    }
-    if (verifyEmail === "1" && emailVerificationRef.current?.id) {
-      userUpdatePayload.primaryEmailAddressId = emailVerificationRef.current.id;
+  const commitVerifiedContactStep = useCallback(async (target: VerificationTarget) => {
+    if (!user) {
+      throw new Error("User session not ready. Please try again.");
     }
 
-    if (Object.keys(userUpdatePayload).length > 0 && user) {
-      await user.update(userUpdatePayload);
-    }
-
-    // 2) Remove old contact methods so updates act as replace (not append).
-    if (verifyPhone === "1" && user && phoneVerificationRef.current?.id) {
+    if (target === "phone") {
+      if (!phoneVerificationRef.current?.id || !pendingPhone) return;
+      await user.update({ primaryPhoneNumberId: phoneVerificationRef.current.id });
       await destroyOtherPhoneNumbers(user, phoneVerificationRef.current.id);
+      updateData({ phoneNumber: pendingPhone, phoneVerified: true });
+      await persistProfileField({ phone: pendingPhone, phoneVerified: true });
+      phoneVerificationRef.current = null;
+      return;
     }
 
-    if (
-      verifyEmail === "1" &&
-      user &&
-      initialPrimaryEmailIdRef.current &&
-      initialPrimaryEmailIdRef.current !== emailVerificationRef.current?.id
-    ) {
-      const previousPrimaryEmail = user.emailAddresses.find(
-        (e) => e.id === initialPrimaryEmailIdRef.current,
-      );
-      try {
-        await previousPrimaryEmail?.destroy();
-      } catch (error) {
-        console.warn("Failed to remove previous primary email address:", error);
+    if (target === "email") {
+      if (!emailVerificationRef.current?.id || !pendingEmail) return;
+      await user.update({ primaryEmailAddressId: emailVerificationRef.current.id });
+      if (
+        initialPrimaryEmailIdRef.current &&
+        initialPrimaryEmailIdRef.current !== emailVerificationRef.current.id
+      ) {
+        const previousPrimaryEmail = user.emailAddresses.find(
+          (emailAddress) => emailAddress.id === initialPrimaryEmailIdRef.current,
+        );
+        try {
+          await previousPrimaryEmail?.destroy();
+        } catch (error) {
+          console.warn("Failed to remove previous primary email address:", error);
+        }
       }
+      updateData({ email: pendingEmail });
+      await persistProfileField({ email: pendingEmail });
+      initialPrimaryEmailIdRef.current = emailVerificationRef.current.id;
+      emailVerificationRef.current = null;
     }
-
-    // 3) Persist final values in app data stores.
-    if (verifyPhone === "1" && pendingPhone) {
-      payload.phone = pendingPhone;
-      payload.phoneVerified = true;
-      storePayload.phoneNumber = pendingPhone;
-      storePayload.phoneVerified = true;
-    }
-    if (verifyEmail === "1" && pendingEmail) {
-      payload.email = pendingEmail;
-      storePayload.email = pendingEmail;
-    }
-
-    updateData(storePayload);
-    await persistProfileField(payload);
-    router.replace("/home");
   }, [
     pendingEmail,
     pendingPhone,
     persistProfileField,
-    router,
     updateData,
-    verifyEmail,
-    verifyPhone,
     user,
   ]);
 
-  const handleSubmitCode = async () => {
-    if (!currentStep || !isCodeComplete) return;
+  const routeToSuccess = useCallback(() => {
+    router.replace({
+      pathname: "/settings/success",
+      params: { type: successType },
+    });
+  }, [router, successType]);
+
+  const handleSubmitCode = useCallback(async (fullCode: string) => {
+    if (!currentStep || fullCode.length !== 6) return;
 
     setIsSubmitting(true);
     setErrorMessage(null);
-    const fullCode = code.join("");
 
     try {
       if (currentStep === "phone") {
@@ -302,11 +415,15 @@ export default function VerifyContactUpdateScreen() {
       } else {
         await emailVerificationRef.current?.attemptVerification({ code: fullCode });
       }
+      await commitVerifiedContactStep(currentStep);
 
       if (stepIndex < steps.length - 1) {
+        setIsStepReady(false);
+        setCode(["", "", "", "", "", ""]);
+        setFocusedIndex(0);
         setStepIndex((prev) => prev + 1);
       } else {
-        await finalizeUpdates();
+        routeToSuccess();
       }
     } catch (error: any) {
       const msg =
@@ -314,22 +431,33 @@ export default function VerifyContactUpdateScreen() {
         error?.errors?.[0]?.message ||
         error?.message ||
         "Verification failed. Please check the code and try again.";
-      setErrorMessage(msg);
+      showVerificationError(msg);
+      setCode(["", "", "", "", "", ""]);
+      setFocusedIndex(0);
+      inputRefs.current[0]?.focus();
     } finally {
       setIsSubmitting(false);
     }
-  };
+  }, [commitVerifiedContactStep, currentStep, routeToSuccess, showVerificationError, stepIndex, steps.length]);
+
+  useEffect(() => {
+    const fullCode = code.join("");
+    if (fullCode.length === 6 && !isSubmitting && !isPreparing) {
+      handleSubmitCode(fullCode);
+    }
+  }, [code, handleSubmitCode, isPreparing, isSubmitting]);
 
   const handleResendCode = async () => {
     if (timer > 0 || isPreparing) return;
     setCode(["", "", "", "", "", ""]);
     setFocusedIndex(0);
     setErrorMessage(null);
+    setShowErrorModal(false);
     inputRefs.current[0]?.focus();
     await prepareVerificationForCurrentStep({ force: true });
   };
 
-  const destination = currentStep === "phone" ? pendingPhone : pendingEmail;
+  const destination = visibleStep === "phone" ? pendingPhone : pendingEmail;
 
   return (
     <KeyboardAvoidingView
@@ -352,7 +480,7 @@ export default function VerifyContactUpdateScreen() {
         <View style={styles.verificationContainer}>
           {isMultiStep ? (
             <Text size="sm" color="#6B7280" style={styles.stepText}>
-              Step {stepIndex + 1} of {steps.length}
+              Step {visibleStepIndex + 1} of {steps.length}
             </Text>
           ) : null}
 
@@ -365,82 +493,97 @@ export default function VerifyContactUpdateScreen() {
             </Text>
           </View>
 
-          {errorMessage && (
-            <View style={styles.errorContainer}>
-              <Text size="sm" color="#f87171" weight="medium">
-                {errorMessage}
-              </Text>
-            </View>
-          )}
-
           <View style={styles.codeContainer}>
-            {code.map((digit, index) => (
-              <View key={index} style={styles.codeInputWrapper}>
-                {index === 3 && <Text style={styles.codeSeparator}>-</Text>}
-                <TextInput
-                  ref={(ref) => {
-                    inputRefs.current[index] = ref;
-                  }}
-                  style={[
-                    styles.codeInput,
-                    focusedIndex === index && styles.codeInputFocused,
-                  ]}
-                  value={digit}
-                  onChangeText={(value) => handleCodeChange(value, index)}
-                  onKeyPress={(e) => handleKeyPress(e, index)}
-                  onFocus={() => setFocusedIndex(index)}
-                  keyboardType="number-pad"
-                  maxLength={1}
-                  selectTextOnFocus
-                  autoFocus={index === 0}
+            {isCodeLoading ? (
+              <View style={styles.codeLoadingContainer}>
+                <ActivityIndicator
+                  size="large"
+                  color={BrandColors.secondary}
+                  accessibilityLabel="Verifying code"
                 />
               </View>
-            ))}
+            ) : (
+              code.map((digit, index) => (
+                <View key={index} style={styles.codeInputWrapper}>
+                  {index === 3 && <Text style={styles.codeSeparator}>-</Text>}
+                  <TextInput
+                    ref={(ref) => {
+                      inputRefs.current[index] = ref;
+                    }}
+                    style={[
+                      styles.codeInput,
+                      focusedIndex === index && styles.codeInputFocused,
+                    ]}
+                    value={digit}
+                    onChangeText={(value) => handleCodeChange(value, index)}
+                    onKeyPress={(e) => handleKeyPress(e, index)}
+                    onFocus={() => setFocusedIndex(index)}
+                    keyboardType="number-pad"
+                    maxLength={1}
+                    selectTextOnFocus
+                    autoFocus={index === 0}
+                  />
+                </View>
+              ))
+            )}
           </View>
 
-          <Pressable
-            onPress={handleResendCode}
-            style={styles.resendContainer}
-            disabled={timer > 0 || isPreparing}
-          >
-            <Text style={[styles.resendText, (timer > 0 || isPreparing) && styles.resendDisabled]}>
-              {isPreparing
-                ? "Sending code..."
-                : timer > 0
-                ? `Resend code in ${timer}s`
-                : "Resend code"}
-            </Text>
-          </Pressable>
-
-          <View style={styles.footer}>
+          {isCodeLoading ? (
+            <View style={styles.resendPlaceholder} />
+          ) : (
             <Pressable
-              style={({ pressed }) => [
-                styles.submitButton,
-                (pressed || isSubmitting || !isCodeComplete) && {
-                  opacity: 0.8,
-                  transform: [{ scale: 0.98 }],
-                },
-              ]}
-              onPress={handleSubmitCode}
-              disabled={isSubmitting || !isCodeComplete || isPreparing}
+              onPress={handleResendCode}
+              style={styles.resendContainer}
+              disabled={timer > 0 || isPreparing}
             >
-              {isSubmitting ? (
-                <ActivityIndicator color="#FFF" />
-              ) : (
-                <Text weight="semiBold" color="#FFF" style={styles.submitButtonText}>
-                  Update
-                </Text>
-              )}
-            </Pressable>
-
-            <Pressable style={styles.cancelButton} onPress={handleCancel} disabled={isSubmitting}>
-              <Text weight="medium" color="#1d1d1f" style={styles.cancelButtonText}>
-                Cancel
+              <Text style={[styles.resendText, (timer > 0 || isPreparing) && styles.resendDisabled]}>
+                {isPreparing
+                  ? "Sending code..."
+                  : timer > 0
+                  ? `Resend code in ${timer}s`
+                  : "Resend code"}
               </Text>
             </Pressable>
+          )}
+
+          <View style={styles.footer}>
+            <FooterButton label="Cancel" onPress={handleCancel} disabled={isSubmitting} />
           </View>
         </View>
       </ScrollView>
+
+      <Modal
+        visible={showErrorModal}
+        transparent
+        animationType="none"
+        statusBarTranslucent
+        navigationBarTranslucent
+        onRequestClose={handleCloseErrorModal}
+      >
+        <Pressable style={styles.errorModalBackdrop} onPress={handleCloseErrorModal}>
+          <Animated.View
+            style={[
+              styles.errorModal,
+              {
+                transform: [{ translateY: slideAnim }],
+              },
+            ]}
+            onStartShouldSetResponder={() => true}
+          >
+            <View style={styles.errorModalHandle} />
+            <View style={styles.errorIconContainer}>
+              <X size={48} color="#EF4444" strokeWidth={3} />
+            </View>
+            <Text style={styles.errorTitle}>Incorrect code entered</Text>
+            <Text style={styles.errorMessage}>
+              {errorMessage || "Please check the code and try again"}
+            </Text>
+            <TouchableOpacity style={styles.errorButton} onPress={handleCloseErrorModal}>
+              <Text style={styles.errorButtonText}>Got it</Text>
+            </TouchableOpacity>
+          </Animated.View>
+        </Pressable>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -493,6 +636,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing["2xl"],
     marginBottom: Spacing.xl,
     marginTop: 8,
+    minHeight: 60,
+  },
+  codeLoadingContainer: {
+    height: 60,
+    alignItems: "center",
+    justifyContent: "center",
   },
   codeInputWrapper: {
     position: "relative",
@@ -530,6 +679,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginTop: 24,
   },
+  resendPlaceholder: {
+    height: 24,
+    marginTop: 24,
+  },
   resendText: {
     fontSize: FontSize.md,
     fontFamily: FontFamily.semiBold,
@@ -544,29 +697,60 @@ const styles = StyleSheet.create({
     paddingTop: 40,
     gap: 16,
   },
-  submitButton: {
-    backgroundColor: BrandColors.secondary,
-    height: 56,
+  errorModalBackdrop: {
+    flex: 1,
+    backgroundColor: OnboardingSurfaceColors.backdrop,
+    justifyContent: "flex-end",
+    alignItems: "center",
+  },
+  errorModal: {
+    backgroundColor: OnboardingSurfaceColors.card,
     borderRadius: 28,
+    padding: Spacing["2xl"],
+    paddingBottom: Spacing["3xl"],
     alignItems: "center",
-    justifyContent: "center",
-    shadowColor: BrandColors.secondary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
+    width: "95%",
+    alignSelf: "center",
+    marginBottom: Spacing.lg,
+    borderWidth: 1,
+    borderColor: OnboardingSurfaceColors.border,
   },
-  submitButtonText: {
-    fontSize: 17,
+  errorModalHandle: {
+    width: 40,
+    height: 4,
+    backgroundColor: OnboardingSurfaceColors.handle,
+    borderRadius: 2,
+    marginBottom: Spacing.xs,
+  },
+  errorIconContainer: {
+    marginBottom: Spacing.lg,
+  },
+  errorTitle: {
+    fontSize: FontSize["2xl"],
+    fontFamily: FontFamily.bold,
+    color: OnboardingSurfaceColors.text,
+    textAlign: "center",
+    marginBottom: Spacing.md,
+  },
+  errorMessage: {
+    fontSize: FontSize.md,
+    fontFamily: FontFamily.regular,
+    color: OnboardingSurfaceColors.mutedText,
+    textAlign: "center",
+    marginBottom: Spacing["2xl"],
+    lineHeight: 22,
+  },
+  errorButton: {
+    backgroundColor: OnboardingSurfaceColors.primaryButton,
+    borderRadius: 12,
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing["2xl"],
+    width: "100%",
+    alignItems: "center",
+  },
+  errorButtonText: {
+    fontSize: FontSize.lg,
     fontFamily: FontFamily.semiBold,
-  },
-  cancelButton: {
-    height: 44,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  cancelButtonText: {
-    fontSize: 17,
-    fontFamily: FontFamily.medium,
+    color: OnboardingSurfaceColors.primaryButtonText,
   },
 });

@@ -13,6 +13,7 @@
 
 import React, { useCallback, useMemo } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
+import { ScrollView } from "react-native-gesture-handler";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { Star, Wrench } from "lucide-react-native";
 
@@ -44,6 +45,7 @@ interface ShopPageProps {
   /** Current mechanic selection for THIS page. null = Any. */
   selectedMechanicId: string | null;
   onSelectMechanic: (mechanicId: string | null) => void;
+  onMechanicCarouselInteractionChange: (isInteracting: boolean) => void;
 }
 
 export function ShopPage({
@@ -56,6 +58,7 @@ export function ShopPage({
   vehicleOwnerId,
   selectedMechanicId,
   onSelectMechanic,
+  onMechanicCarouselInteractionChange,
 }: ShopPageProps) {
   const router = useRouter();
 
@@ -117,7 +120,12 @@ export function ShopPage({
   );
 
   return (
-    <View style={[styles.page, { width: pageWidth }]}>
+    <ScrollView
+      style={[styles.page, { width: pageWidth }]}
+      contentContainerStyle={styles.pageContent}
+      showsVerticalScrollIndicator={false}
+      nestedScrollEnabled
+    >
       <View style={styles.shopHeader}>
         <View style={styles.shopHeaderText}>
           <Text size="xl" weight="bold" color="#0F172A" numberOfLines={1}>
@@ -166,8 +174,9 @@ export function ShopPage({
         items={carouselItems}
         selectedMechanicId={selectedMechanicId}
         onSelect={onSelectMechanic}
+        onInteractionChange={onMechanicCarouselInteractionChange}
       />
-    </View>
+    </ScrollView>
   );
 }
 
@@ -182,7 +191,11 @@ function formatTotalMinutes(min: number): string {
 
 const styles = StyleSheet.create({
   page: {
+    flex: 1,
+  },
+  pageContent: {
     paddingTop: 8,
+    paddingBottom: 16,
   },
   shopHeader: {
     flexDirection: "row",

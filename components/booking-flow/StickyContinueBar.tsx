@@ -10,6 +10,10 @@ import React from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ArrowRight } from "lucide-react-native";
+import {
+  moderateScale,
+  moderateVerticalScale,
+} from "react-native-size-matters";
 
 import { Text } from "@/components/shared-ui";
 
@@ -30,7 +34,11 @@ export function StickyContinueBar({ count, onPress, label }: StickyContinueBarPr
     <View
       style={[
         styles.wrap,
-        { paddingBottom: Math.max(insets.bottom, 12) + 8 },
+        {
+          paddingBottom:
+            Math.max(insets.bottom, moderateVerticalScale(12, 0.25)) +
+            moderateVerticalScale(8, 0.25),
+        },
       ]}
       pointerEvents="box-none"
     >
@@ -57,15 +65,16 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    paddingHorizontal: 16,
-    paddingTop: 8,
+    paddingHorizontal: moderateScale(16, 0.25),
+    paddingTop: moderateVerticalScale(8, 0.25),
   },
   pill: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingVertical: 16,
-    paddingHorizontal: 22,
+    minHeight: 56,
+    paddingVertical: moderateVerticalScale(16, 0.2),
+    paddingHorizontal: moderateScale(22, 0.2),
     borderRadius: 999,
     backgroundColor: "#5299FE",
   },

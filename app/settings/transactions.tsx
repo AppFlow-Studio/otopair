@@ -42,6 +42,12 @@ import { useVehicleStore } from "@/stores/useVehicleStore";
 const INK = "#0F172A";
 const MUTED = "#6B7280";
 
+type AppleZoomRouterLink = typeof Link & {
+  AppleZoom?: React.ComponentType<React.PropsWithChildren>;
+};
+
+const AppleZoom =
+  Platform.OS === "ios" ? (Link as AppleZoomRouterLink).AppleZoom : undefined;
 // Android: LayoutAnimation needs an opt-in. No-op on iOS.
 if (
   Platform.OS === "android" &&
@@ -340,6 +346,11 @@ interface RowProps {
 }
 
 function PastServiceRow({ booking, showVehicleKicker }: RowProps) {
+  const href = {
+    pathname: "/settings/past-service/[bookingId]",
+    params: { bookingId: booking.id },
+  } as const;
+
   const kicker = useMemo(
     () =>
       extractYearMakeModel(booking.carYear, booking.carModel ?? "").toUpperCase(),
@@ -358,10 +369,7 @@ function PastServiceRow({ booking, showVehicleKicker }: RowProps) {
 
   return (
     <Link
-      href={{
-        pathname: "/settings/past-service/[bookingId]",
-        params: { bookingId: booking.id },
-      }}
+      href={href}
       asChild
     >
       <Pressable>
@@ -391,11 +399,13 @@ function PastServiceRow({ booking, showVehicleKicker }: RowProps) {
                 {subtitle}
               </Text>
             </View>
-            <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-              <Link.AppleZoom>
-                <View style={styles.zoomSource} />
-              </Link.AppleZoom>
-            </View>
+            {AppleZoom ? (
+              <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+                <AppleZoom>
+                  <View style={styles.zoomSource} />
+                </AppleZoom>
+              </View>
+            ) : null}
           </View>
         )}
       </Pressable>

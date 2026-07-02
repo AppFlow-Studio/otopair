@@ -7,24 +7,43 @@
  */
 
 import React, { useEffect, useMemo, useRef } from "react";
-import { Dimensions, Image, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import {
+  Image,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  useWindowDimensions,
+  View,
+} from "react-native";
 import { Check } from "lucide-react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { moderateVerticalScale } from "react-native-size-matters";
 
 import { CarSilhouette } from "@/components/shared-ui/CarSilhouette";
 import { Text } from "@/components/shared-ui";
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
 import { GlassSheetBackground } from "@/components/booking-flow/GlassSheet";
 import { useVehicleStore } from "@/stores/useVehicleStore";
+import {
+  getCappedSheetHeight,
+  getOverlayClearance,
+} from "@/components/booking-flow/responsiveSheetLayout";
 
 interface VehicleSwitcherSheetProps {
   onClose: () => void;
 }
 
-const SCREEN_HEIGHT = Dimensions.get("window").height;
 const ROW_HEIGHT = 88;
 
 export function VehicleSwitcherSheet({ onClose }: VehicleSwitcherSheetProps) {
   const sheetRef = useRef<FloatingSheetRef>(null);
+  const { height: viewportHeight } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const listBottomPadding = getOverlayClearance({
+    safeAreaBottom: insets.bottom,
+    overlayHeight: 0,
+    extraSpacing: moderateVerticalScale(16, 0.3),
+  });
 
   const vehicleIds = useVehicleStore((s) => s.vehicleIds);
   const vehicles = useVehicleStore((s) => s.vehicles);
@@ -40,8 +59,14 @@ export function VehicleSwitcherSheet({ onClose }: VehicleSwitcherSheetProps) {
     const headerH = 64;
     const listH = Math.max(1, vehicleIds.length) * ROW_HEIGHT;
     const padding = 60;
-    return Math.min(SCREEN_HEIGHT * 0.7, headerH + listH + padding);
-  }, [vehicleIds.length]);
+    return getCappedSheetHeight({
+      viewportHeight,
+      desiredHeight: headerH + listH + padding,
+      minimumHeight: 240,
+      maximumRatio: 0.7,
+      absoluteMaximum: Number.POSITIVE_INFINITY,
+    });
+  }, [vehicleIds.length, viewportHeight]);
 
   const onPick = (id: string) => {
     selectVehicle(id);
@@ -66,14 +91,14 @@ export function VehicleSwitcherSheet({ onClose }: VehicleSwitcherSheetProps) {
             No vehicles yet. Add one from your garage to switch.
           </Text>
         ) : (
-          // Sheet's snap height is clamped at SCREEN_HEIGHT * 0.7; on
+          // Sheet's snap height is clamped at 0.7 of the viewport; on
           // larger garages the row list overflows. Wrap in ScrollView
           // so the user can reach every car, including newly added
           // ones at the bottom of the list.
           <ScrollView
             style={styles.scroll}
-            contentContainerStyle={styles.scrollContent}
             showsVerticalScrollIndicator={false}
+            contentContainerStyle={{ paddingBottom: listBottomPadding }}
           >
             {vehicleIds.map((id) => {
               const v = vehicles[id];
@@ -125,15 +150,10 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: 20,
     paddingTop: 6,
-    paddingBottom: 16,
+    paddingBottom: 0,
   },
   scroll: {
     flex: 1,
-  },
-  scrollContent: {
-    // Trailing pad so the last row clears the safe-area bottom +
-    // home indicator visually even when the list overflows.
-    paddingBottom: 12,
   },
   title: {
     fontSize: 20,

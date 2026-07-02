@@ -49,6 +49,10 @@ interface ProviderCard {
   image: ImageSourcePropType;
 }
 
+interface ProviderTypesSectionProps {
+  onBeforeOpenBookingFlow?: () => boolean;
+}
+
 // ============================================================================
 // CONSTANTS
 // ============================================================================
@@ -85,13 +89,16 @@ const PROVIDER_CARDS: ProviderCard[] = [
 // COMPONENT
 // ============================================================================
 
-export function ProviderTypesSection() {
+export function ProviderTypesSection({ onBeforeOpenBookingFlow }: ProviderTypesSectionProps) {
   const router = useRouter();
   const setInitialServiceCategory = useBookingStore(
     (state) => state.setInitialServiceCategory,
   );
 
   const handleCardPress = (cardId: string) => {
+    if (onBeforeOpenBookingFlow?.() === false) {
+      return;
+    }
     setInitialServiceCategory(CARD_TO_CATEGORY[cardId] ?? 'basic_maintenance');
     router.push('/(booking-flow)/select-services');
   };

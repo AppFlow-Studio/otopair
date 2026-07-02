@@ -14,13 +14,14 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import "react-native-reanimated";
 import { KeyboardProvider } from "react-native-keyboard-controller";
-import { LogBox } from "react-native";
+import { BackHandler, LogBox } from "react-native";
 
 // Suppress the dev-mode red LogBox overlay for Convex mutation/query
 // errors. We always catch these in app code and surface them via the
 // existing error modal — the LogBox dump is just dev-time noise on top.
 // Errors still log to Metro for debugging; this only hides the overlay.
 import { ErrorBoundary as AppErrorBoundary, ErrorModalHost, errorBus } from "@/lib/error-ui";
+import { ErrorOccurredModal } from "@/components/shared-ui";
 import { StripePaymentMethodsSync } from "@/components/payments/StripePaymentMethodsSync";
 import { ToastProvider } from "@/components/toast";
 import { useEnrichmentCompletionWatcher } from "@/hooks/useEnrichmentCompletionWatcher";
@@ -229,7 +230,22 @@ function RootErrorBoundary({ error }: ErrorBoundaryProps) {
   useEffect(() => {
     errorBus.set({ visible: true, error });
   }, [error]);
-  return null;
+
+  const message =
+    error instanceof Error
+      ? error.message
+      : "Something went wrong. Please close and reopen the app.";
+
+  return (
+    <ErrorOccurredModal
+      visible
+      title="Something went wrong"
+      message={message}
+      onClose={() => {
+        BackHandler.exitApp();
+      }}
+    />
+  );
 }
 
 export { RootErrorBoundary as ErrorBoundary };

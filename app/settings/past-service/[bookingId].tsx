@@ -14,7 +14,7 @@
  */
 
 import React, { useMemo, useRef, useState } from "react";
-import { Alert, Image, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { Alert, Image, Platform, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Link, useLocalSearchParams } from "expo-router";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
@@ -46,6 +46,13 @@ const INK = "#0F172A";
 const MUTED = "#86868B";
 const HAIRLINE = "#E5E7EB";
 const ACCENT = "#5299FE";
+
+type AppleZoomRouterLink = typeof Link & {
+  AppleZoomTarget?: React.ComponentType<React.PropsWithChildren>;
+};
+
+const AppleZoomTarget =
+  Platform.OS === "ios" ? (Link as AppleZoomRouterLink).AppleZoomTarget : undefined;
 
 function fmtUSD(n: number | undefined): string {
   if (n == null) return "—";
@@ -184,10 +191,7 @@ export default function PastServiceDetailScreen() {
         >
           {booking ? (
             <>
-              {/* Hero card. The AppleZoomTarget is an invisible overlay
-                  covering the same area — keeping it OUTSIDE the
-                  visible content avoids the `display: 'contents'`
-                  collapse that hides text rendered as its direct child. */}
+              {/* Hero card */}
               <View style={styles.heroHost}>
                 <View style={styles.heroCard}>
                   <Text
@@ -213,11 +217,13 @@ export default function PastServiceDetailScreen() {
                 >
                   <MoreHorizontal size={18} color={INK} strokeWidth={2.2} />
                 </Pressable>
-                <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-                  <Link.AppleZoomTarget>
-                    <View style={styles.zoomTarget} />
-                  </Link.AppleZoomTarget>
-                </View>
+                {AppleZoomTarget ? (
+                  <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+                    <AppleZoomTarget>
+                      <View style={styles.zoomTarget} />
+                    </AppleZoomTarget>
+                  </View>
+                ) : null}
               </View>
 
               {/* Review — TEMP: always rendered regardless of review
@@ -446,9 +452,7 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255, 255, 255, 0.75)",
     alignItems: "center",
     justifyContent: "center",
-    // Sit above the AppleZoomTarget overlay so the tap registers
-    // on this Pressable instead of getting swallowed by the
-    // route-transition source.
+    // Sit above the optional AppleZoomTarget overlay so the tap registers here.
     zIndex: 5,
   },
   zoomTarget: {

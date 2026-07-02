@@ -559,8 +559,8 @@ export default function PaymentScreen() {
   // (matches the "$20 hold placed today" disclosure on the screen). The
   // hook mints a one-time PM via PlatformPay, stashes it in
   // usePaymentStore.selectedWalletPm, and routes to /confirming with
-  // paymentMode=wallet — the confirming screen then runs the same booking
-  // creation + createPaymentIntentForBooking flow as a saved card.
+  // paymentMode=wallet. The confirming screen preauthorizes the hold before
+  // creating the booking, same as a saved card.
   const {
     handleApplePay,
     handleGooglePay,

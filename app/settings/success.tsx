@@ -1,12 +1,13 @@
 /**
  * SuccessScreen
  *
- * PURPOSE: Displays a success message and animation after setting up 2FA or Biometrics.
+ * PURPOSE: Displays a success message and animation after setting up 2FA,
+ *          Biometrics, or contact info updates.
  *
  * USED IN: app/(main-tabs)/settings/two-factor-verify.tsx, app/(main-tabs)/settings/biometric-setup.tsx
  *
  * PARAMS:
- *   - type ('2fa' | 'face' | 'touch' | 'fingerprint' | 'biometric'): 2FA or the type of security enabled
+ *   - type: success message variant
  *
  * EXAMPLE:
  *   router.replace({ pathname: '/settings/success', params: { type: 'face' } })
@@ -15,7 +16,7 @@
  * TICKET: OTO-XXX
  */
 
-import React, { useEffect, useMemo } from "react";
+import React, { useCallback, useEffect, useMemo } from "react";
 import { BackHandler, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams } from "expo-router";
@@ -42,27 +43,46 @@ import { Layout } from "@/constants/theme";
 const AnimatedPath = Animated.createAnimatedComponent(Path);
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 const PATH_LENGTH = 100;
+type SuccessType =
+  | "2fa"
+  | "face"
+  | "touch"
+  | "fingerprint"
+  | "biometric"
+  | "contact_phone"
+  | "contact_email"
+  | "contact_both";
 
 export default function SuccessScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { type = '2fa' } = useLocalSearchParams<{ type: '2fa' | 'face' | 'touch' | 'fingerprint' | 'biometric' }>();
+  const { type = "2fa" } = useLocalSearchParams<{ type?: SuccessType }>();
+
+  const handleDone = useCallback(() => {
+    router.replace("/home");
+  }, [router]);
 
   const title = useMemo(() => {
     switch (type) {
-      case 'face': return 'Face ID Enabled';
-      case 'touch': return 'Touch ID Enabled';
-      case '2fa': return 'All done!';
-      default: return 'Biometrics Enabled';
+      case "face": return "Face ID Enabled";
+      case "touch": return "Touch ID Enabled";
+      case "contact_phone": return "Phone number updated";
+      case "contact_email": return "Email updated";
+      case "contact_both": return "Contact info updated";
+      case "2fa": return "All done!";
+      default: return "Biometrics Enabled";
     }
   }, [type]);
 
   const subtitle = useMemo(() => {
     switch (type) {
-      case 'face': return 'You can now use Face ID to sign in securely.';
-      case 'touch': return 'You can now use Touch ID to sign in securely.';
-      case '2fa': return 'Your two-factor authentication is enabled';
-      default: return 'You can now use biometrics to sign in securely.';
+      case "face": return "You can now use Face ID to sign in securely.";
+      case "touch": return "You can now use Touch ID to sign in securely.";
+      case "contact_phone": return "Your phone number has been changed successfully.";
+      case "contact_email": return "Your email address has been changed successfully.";
+      case "contact_both": return "Your phone number and email address have been changed successfully.";
+      case "2fa": return "Your two-factor authentication is enabled";
+      default: return "You can now use biometrics to sign in securely.";
     }
   }, [type]);
 
@@ -73,7 +93,7 @@ export default function SuccessScreen() {
 
   useEffect(() => {
     const backAction = () => {
-      router.replace("/home");
+      handleDone();
       return true;
     };
 
@@ -83,7 +103,7 @@ export default function SuccessScreen() {
     );
 
     return () => backHandler.remove();
-  }, [router]);
+  }, [handleDone]);
 
   useEffect(() => {
     // 1. First, the container "pops" in
@@ -162,7 +182,15 @@ export default function SuccessScreen() {
           <Animated.View style={[styles.groundShadow, animatedShadowStyle]} />
         </View>
 
-        <Text weight="bold" size="3xl" color="#111827" style={styles.title}>
+        <Text
+          weight="bold"
+          size="3xl"
+          color="#111827"
+          style={styles.title}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.7}
+        >
           {title}
         </Text>
         <Text size="md" color="#6B7280" style={styles.subtitle} center>
@@ -172,7 +200,7 @@ export default function SuccessScreen() {
       <View>
         <FooterButton
           label="Done"
-          onPress={() => router.replace("/home")}
+          onPress={handleDone}
         />
       </View>
     </View>
@@ -212,6 +240,8 @@ const styles = StyleSheet.create({
   },
   title: {
     marginBottom: Spacing.sm,
+    textAlign: "center",
+    alignSelf: "stretch",
   },
   subtitle: {
     textAlign: "center",

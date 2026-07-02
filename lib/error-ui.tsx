@@ -4,7 +4,7 @@
  */
 
 import React, { Component, type ReactNode } from "react";
-import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
+import { useRouter } from "expo-router";
 import { ErrorOccurredModal } from "@/components/shared-ui";
 
 export type ErrState = { error?: unknown; visible: boolean };
@@ -81,6 +81,10 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   render() {
+    if (this.state.err) {
+      return null;
+    }
+
     return this.props.children;
   }
 }

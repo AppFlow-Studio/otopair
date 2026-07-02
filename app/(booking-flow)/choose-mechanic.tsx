@@ -18,12 +18,15 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   Dimensions,
   Pressable,
-  ScrollView,
   StyleSheet,
   View,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from "react-native";
+// gesture-handler ScrollView so the nested mechanic-carousel swipe
+// composes with the shop pager on Android (see the android-gestures
+// source test).
+import { ScrollView } from "react-native-gesture-handler";
 import { useFocusEffect, useNavigation } from "expo-router";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -177,6 +180,11 @@ export default function ChooseMechanicScreen() {
   // Active page index = which shop the user is currently viewing.
   const [activeIndex, setActiveIndex] = useState(0);
   const activeShop = nearbyShops[activeIndex]?.shop ?? null;
+
+  // Android gesture fix: while the user is touching the mechanic
+  // carousel inside a ShopPage, disable the outer shop pager so the
+  // horizontal swipe isn't hijacked by the parent ScrollView.
+  const [isMechanicCarouselInteracting, setIsMechanicCarouselInteracting] = useState(false);
 
   // Bottom-sheet snap index. Drives the chrome swap when the user
   // swipes the sheet fully closed (`sheetIndex === -1`): hide the
@@ -699,6 +707,7 @@ export default function ChooseMechanicScreen() {
               showsHorizontalScrollIndicator={false}
               onMomentumScrollEnd={onPageChange}
               decelerationRate="fast"
+              scrollEnabled={!isMechanicCarouselInteracting}
             >
               {nearbyShops.map((r) => (
                 <ShopPage
@@ -719,6 +728,7 @@ export default function ChooseMechanicScreen() {
                       [r.shop.id]: mId,
                     }))
                   }
+                  onMechanicCarouselInteractionChange={setIsMechanicCarouselInteracting}
                 />
               ))}
             </ScrollView>
