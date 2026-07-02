@@ -41,6 +41,7 @@ import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { Text } from "@/components/shared-ui";
 import { useBookingFlowMap } from "@/components/booking-flow/BookingFlowMap";
 import { GlassSheetHandle } from "@/components/booking-flow/GlassSheet";
+import { PinnedShopChip } from "@/components/booking-flow/PinnedShopChip";
 import { ServiceInfoSheet } from "@/components/booking-flow/ServiceInfoSheet";
 import { SelectedServicesFab } from "@/components/booking-flow/SelectedServicesFab";
 import {
@@ -49,6 +50,7 @@ import {
 } from "@/components/booking-flow/SelectedServicesSheet";
 import { ServiceMultiSelectRow } from "@/components/booking-flow/ServiceMultiSelectRow";
 import { StickyContinueBar } from "@/components/booking-flow/StickyContinueBar";
+import { routeToNextBookingStep } from "@/lib/bookingFlowNext";
 import { VehiclePuck } from "@/components/booking-flow/VehiclePuck";
 import { PackageQuestionsSheet } from "@/components/cars/PackageQuestionsSheet";
 import { DiagnosticOptionsSheet } from "@/components/booking/sheets/DiagnosticOptionsSheet";
@@ -70,6 +72,7 @@ import { isApplicable } from "@/lib/serviceApplicability";
 import type { Service } from "@/stores/types/store.types";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
+import { useShopStore } from "@/stores/useShopStore";
 
 // Fixed-height frosted sheet — content scrolls inside, sheet itself
 // doesn't move. Mirrors Screen 1 (select-services.tsx). Previously a
@@ -121,6 +124,20 @@ export default function CategoryDetailScreen() {
   const availableServices = useBookingStore((s) => s.availableServices);
   const selectedDiagnosticSystem = useBookingStore((s) => s.selectedDiagnosticSystem);
   const customerNotes = useBookingStore((s) => s.customerNotes);
+  // When the user entered via a shop-detail Book CTA, the store
+  // holds the picked shop. Two things change:
+  //   1. Continue skips Choose Mechanic and routes straight to
+  //      pick-datetime at that shop (see `routeToNextBookingStep`).
+  //   2. The service list below is filtered to what the shop offers
+  //      so the user can't pick something unbookable here.
+  const preSelectedShopId = useBookingStore((s) => s.preSelectedShopId);
+  const getShopById = useShopStore((s) => s.getShopById);
+  const shopServiceIdSet = useMemo(() => {
+    if (!preSelectedShopId) return null;
+    const shop = getShopById(preSelectedShopId);
+    if (!shop) return null;
+    return new Set(shop.serviceIds);
+  }, [preSelectedShopId, getShopById]);
 
   // Service-option sheets — opened on tap for services that need a choice
   // before they enter the cart (brake pads → Front/Rear/Both, battery →
@@ -177,7 +194,7 @@ export default function CategoryDetailScreen() {
   // coverage filter (which already drops missing_data).
   const filteredServices = useMemo(() => {
     if (!tabKey) return [];
-    const list = availableServices
+    let list = availableServices
       .filter((service) => {
         if (service.tab !== tabKey) return false;
         if (!service.slug) return false;
@@ -187,6 +204,15 @@ export default function CategoryDetailScreen() {
         return isApplicable(entry, selectedVehicle ?? null, spec);
       })
       .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+    // Shop-pinned flow: hide services the picked shop doesn't cover
+    // so the user can't pick something they won't be able to book.
+    // Guard on serviceIds.length > 0 — an empty array usually means
+    // the shop's catalog hasn't been hydrated yet, NOT that it
+    // offers nothing. Filtering on an empty set would hide
+    // everything and brick the screen.
+    if (shopServiceIdSet && shopServiceIdSet.size > 0) {
+      list = list.filter((s) => shopServiceIdSet.has(s.id));
+    }
     if (!ownershipId) return list;
     if (isBookableLoading) return [];
     return list.filter((s) => applicableIds.has(s.id));
@@ -198,6 +224,7 @@ export default function CategoryDetailScreen() {
     ownershipId,
     isBookableLoading,
     applicableIds,
+    shopServiceIdSet,
   ]);
 
   // Tap handler — slug routing matches the v5 grid + Screen 1 entries
@@ -366,6 +393,13 @@ export default function CategoryDetailScreen() {
               </View>
             ) : null}
 
+            {/* Same shop-pin indicator the user saw on Screen 1.
+                Tapping the X clears the pin in-place — the service
+                list above this row re-renders without the shop
+                filter and the Continue button below goes back to
+                the regular Choose Mechanic surface. */}
+            <PinnedShopChip />
+
             <View style={styles.list}>
               {filteredServices.map((svc) => {
                 const slug = svc.slug;
@@ -419,7 +453,7 @@ export default function CategoryDetailScreen() {
       {/* Sticky Continue bar (over the sheet) */}
       <StickyContinueBar
         count={selectedServiceIds.length}
-        onPress={() => router.push("/(booking-flow)/choose-mechanic")}
+        onPress={() => routeToNextBookingStep(router, preSelectedShopId)}
       />
 
       {/* Cart review FAB — sits above the Continue pill at the

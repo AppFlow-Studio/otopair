@@ -26,12 +26,16 @@ import { ArrowLeft, Briefcase, ChevronDown } from "lucide-react-native";
 import { Text } from "@/components/shared-ui";
 import { ConfirmBookingBar } from "@/components/booking-flow/ConfirmBookingBar";
 import { DateChipRow, type DateChipItem } from "@/components/booking-flow/DateChipRow";
+import { MechanicCarousel } from "@/components/booking-flow/MechanicCarousel";
 import { MonthPickerSheet, type MonthOption } from "@/components/booking-flow/MonthPickerSheet";
 import { TimeSlotGrid } from "@/components/booking-flow/TimeSlotGrid";
 import { VehiclePuck } from "@/components/booking-flow/VehiclePuck";
 import { useBookingLaborHoursMap } from "@/hooks/useBookingLaborHoursMap";
 import { useCalendarAvailabilityForShop } from "@/hooks/useCalendarAvailabilityForShop";
+import { useNextAvailabilityForShop } from "@/hooks/useNextAvailabilityForShop";
+import { useNextAvailabilityPerMechanicForShop } from "@/hooks/useNextAvailabilityPerMechanicForShop";
 import { useTimeSlotsForShop } from "@/hooks/useTimeSlotsForShop";
+import { buildMechanicCarouselItems } from "@/lib/buildMechanicCarouselItems";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
 import { useShopStore } from "@/stores/useShopStore";
@@ -58,7 +62,16 @@ export default function PickDateTimeScreen() {
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ shopId?: string; mechanicId?: string }>();
   const shopId = params.shopId ?? null;
-  const mechanicId = params.mechanicId && params.mechanicId.length > 0 ? params.mechanicId : null;
+  // Seed the local mechanic selection from the route param so deep
+  // links / the legacy Choose Mechanic → pick-datetime hop both still
+  // honor the pre-picked mechanic. From there the user can re-pick
+  // via the strip at the top — `selectedMechanicId` is the source of
+  // truth, NOT the param.
+  const initialMechanicId =
+    params.mechanicId && params.mechanicId.length > 0 ? params.mechanicId : null;
+  const [selectedMechanicId, setSelectedMechanicId] = useState<string | null>(
+    initialMechanicId,
+  );
 
   // Bounce home if shopId is missing / invalid.
   useEffect(() => {
@@ -75,13 +88,32 @@ export default function PickDateTimeScreen() {
   const getMechanicById = useMechanicStore((s) => s.getMechanicById);
 
   const shop = shopId ? getShopById(shopId) ?? null : null;
-  const mechanic = mechanicId ? getMechanicById(mechanicId) ?? null : null;
+  const mechanic = selectedMechanicId ? getMechanicById(selectedMechanicId) ?? null : null;
 
   // Engine-adjusted + director-rounded labor (empirical → book →
   // engine-tier → catalog-default) — same source as Review & Pay so the
   // "~Xh Ym" on the confirm card matches what the customer pays.
   const ownershipId = useVehicleStore((s) => s.getSelectedVehicle())?.ownershipId;
   const { laborHoursMap } = useBookingLaborHoursMap(ownershipId, selectedServiceIds);
+
+  // ── Mechanic strip data ─────────────────────────────────────────────
+  // Same shape ShopPage uses: shop-wide "next slot" feeds the "Any"
+  // card's subtitle, per-mechanic "next slots" feed the individual
+  // mechanic cards. `buildMechanicCarouselItems` is the shared util
+  // so the carousel reads identically here and on the legacy Choose
+  // Mechanic surface.
+  const { slots: shopNextSlots } = useNextAvailabilityForShop(shopId, null, 1);
+  const { slotsByMechanicId } = useNextAvailabilityPerMechanicForShop(shopId);
+  const allMechanicsMap = useMechanicStore((s) => s.mechanics);
+  const mechanicCarouselItems = useMemo(
+    () =>
+      buildMechanicCarouselItems({
+        slotsByMechanicId,
+        mechanicsMap: allMechanicsMap,
+        shopHasAnySlot: shopNextSlots.length > 0,
+      }),
+    [slotsByMechanicId, allMechanicsMap, shopNextSlots.length],
+  );
 
   // Selection summary — services count + total minutes for the card.
   const { selectedCount, totalMinutes } = useMemo(() => {
@@ -145,7 +177,7 @@ export default function PickDateTimeScreen() {
     shopId,
     anchorYear,
     anchorMonth,
-    mechanicId,
+    selectedMechanicId,
     totalMinutes > 0 ? totalMinutes : undefined,
   );
 
@@ -181,7 +213,7 @@ export default function PickDateTimeScreen() {
   } = useTimeSlotsForShop(
     shopId,
     selectedDateISO,
-    mechanicId,
+    selectedMechanicId,
     totalMinutes > 0 ? totalMinutes : undefined,
   );
   const slots = useMemo(() => {
@@ -255,7 +287,7 @@ export default function PickDateTimeScreen() {
     // Resolve concrete mechanic id for the post-booking URL when "Any"
     // is selected. Falls back to shopId so the route param is non-empty.
     const urlMechanicId =
-      mechanicId ?? findFirstMechanicForShop(shopId, getMechanicById) ?? shopId;
+      selectedMechanicId ?? findFirstMechanicForShop(shopId, getMechanicById) ?? shopId;
 
     const d = isoToDate(selectedDateISO);
     const dowAbbrev = DAY_OF_WEEK[d.getDay()];
@@ -263,7 +295,7 @@ export default function PickDateTimeScreen() {
     setSelectedMechanicSlot({
       shopId,
       shopName: shop.name,
-      mechanicId,
+      mechanicId: selectedMechanicId,
       mechanicName: mechanic?.name ?? null,
       slot: {
         dayOfWeek: dowAbbrev,
@@ -272,7 +304,7 @@ export default function PickDateTimeScreen() {
         timeSlotId: timeSlotId ?? undefined,
         scheduledDate: selectedDateISO,
         scheduledTime: startHHMM,
-        mechanicId: mechanicId ?? undefined,
+        mechanicId: selectedMechanicId ?? undefined,
       },
       timeSlotId: timeSlotId ?? undefined,
       scheduledDate: selectedDateISO,
@@ -284,7 +316,7 @@ export default function PickDateTimeScreen() {
       time: selectedTime,
       displayDate: selectedDateHeader ?? selectedDateISO,
     });
-    selectMechanic(mechanicId);
+    selectMechanic(selectedMechanicId);
 
     router.push({
       pathname: "/booking/mechanic/[id]/payment",
@@ -365,6 +397,26 @@ export default function PickDateTimeScreen() {
                 {summarySubtitle}
               </Text>
             </View>
+          </View>
+        ) : null}
+
+        {/* Mechanic strip — shown only when we have a shop. Same
+            picker used inside ShopPage on the legacy Choose Mechanic
+            surface; defaults to "Any" until the user picks one.
+            Flipping the selection re-fires the calendar + time-slot
+            queries above. */}
+        {shopId ? (
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Text size="lg" weight="bold" color="#0F172A">
+                Choose your mechanic
+              </Text>
+            </View>
+            <MechanicCarousel
+              items={mechanicCarouselItems}
+              selectedMechanicId={selectedMechanicId}
+              onSelect={setSelectedMechanicId}
+            />
           </View>
         ) : null}
 

@@ -25,15 +25,19 @@ import {
   ScrollView,
   StyleSheet,
   View,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
 } from "react-native";
 import { BlurView } from "expo-blur";
 import Animated, {
   Easing,
+  runOnJS,
   useAnimatedStyle,
   useSharedValue,
   withTiming,
 } from "react-native-reanimated";
-import MapView, { PROVIDER_DEFAULT } from "react-native-maps";
+import MapView, { Marker, PROVIDER_DEFAULT } from "react-native-maps";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -46,7 +50,12 @@ import { CategoryListRow } from "@/components/booking-flow/CategoryListRow";
 import { GlassSheetHandle } from "@/components/booking-flow/GlassSheet";
 import { HeroCardClosestShop } from "@/components/booking-flow/HeroCardClosestShop";
 import { HeroCardMostBooked } from "@/components/booking-flow/HeroCardMostBooked";
+import { MapBrowseShopCard } from "@/components/booking-flow/MapBrowseShopCard";
+import { MapSwipeHint } from "@/components/booking-flow/MapSwipeHint";
+import { PinnedShopChip } from "@/components/booking-flow/PinnedShopChip";
 import { QuickBookRow } from "@/components/booking-flow/QuickBookRow";
+import { RatingMarkerPill } from "@/components/booking-flow/RatingMarkerPill";
+import { useNearbyBookingShops } from "@/hooks/useNearbyBookingShops";
 import { SelectedServicesFab } from "@/components/booking-flow/SelectedServicesFab";
 import {
   SelectedServicesSheet,
@@ -89,7 +98,7 @@ function legacyCategoryToTab(
 //     map button on Home. Map underneath is interactive so they
 //     can pan around looking for shops; a tap on the sheet
 //     animates it up to full.
-const { height: SCREEN_HEIGHT } = Dimensions.get("window");
+const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get("window");
 const SHEET_H_FULL = SCREEN_HEIGHT * 0.92;
 const SHEET_H_PEEK = SCREEN_HEIGHT * 0.18;
 
@@ -119,6 +128,131 @@ export default function SelectServicesScreen() {
     });
     setIsPeekExpanded(true);
   }, [isPeekExpanded, sheetHeight]);
+  // Collapse path is now handled inline by `collapsePanGesture`
+  // below — it drives `sheetHeight` continuously off the finger
+  // and settles on release. The old discrete-threshold helper
+  // is gone.
+
+  // Vertical-only Pan gesture that drives `sheetHeight` directly
+  // off the finger so the sheet follows the drag in real time
+  // (instead of waiting for a 60pt threshold and then jumping to
+  // peek). On release we settle to PEEK or FULL based on velocity
+  // first, then position fallback:
+  //   - downward flick (velocityY > 500)    → PEEK
+  //   - upward flick   (velocityY < -500)   → FULL
+  //   - slow release                        → nearest of PEEK / FULL
+  // The gesture is wired only to the handle area (see render)
+  // so the inner ScrollView keeps its own scrolling behavior.
+  const dragStartHeight = useSharedValue(SHEET_H_FULL);
+  const setExpandedState = useCallback(
+    (expanded: boolean) => setIsPeekExpanded(expanded),
+    [],
+  );
+  const collapsePanGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .activeOffsetY([-20, 20])
+        .onBegin(() => {
+          "worklet";
+          dragStartHeight.value = sheetHeight.value;
+        })
+        .onUpdate((e) => {
+          "worklet";
+          const next = dragStartHeight.value - e.translationY;
+          sheetHeight.value = Math.min(
+            SHEET_H_FULL,
+            Math.max(SHEET_H_PEEK, next),
+          );
+        })
+        .onEnd((e) => {
+          "worklet";
+          const midpoint = (SHEET_H_PEEK + SHEET_H_FULL) / 2;
+          let goCollapse: boolean;
+          if (e.velocityY > 500) goCollapse = true;
+          else if (e.velocityY < -500) goCollapse = false;
+          else goCollapse = sheetHeight.value < midpoint;
+          const target = goCollapse ? SHEET_H_PEEK : SHEET_H_FULL;
+          sheetHeight.value = withTiming(target, {
+            duration: 280,
+            easing: Easing.out(Easing.cubic),
+          });
+          runOnJS(setExpandedState)(!goCollapse);
+        }),
+    [sheetHeight, dragStartHeight, setExpandedState],
+  );
+
+  // Rating-pin shop list for the LOCAL MapView in peek mode. We
+  // re-use the same hook choose-mechanic uses; it's free of side
+  // effects on its own (the booking-flow Stack stays mounted in
+  // either case).
+  //
+  // `selectedShopId` doubles as the visual-select signal for the
+  // map pins AND the page index for the browse-card carousel
+  // mounted above the peek sheet. Pin tap → setSelectedShopId →
+  // useEffect scrolls the carousel; carousel swipe → setSelectedShopId
+  // → marker `tracksViewChanges` flips the pill to selected.
+  const { results: nearbyShops } = useNearbyBookingShops(5);
+  const [selectedShopId, setSelectedShopId] = useState<string | null>(null);
+  const browseScrollRef = useRef<ScrollView | null>(null);
+  // Local map ref so the camera can pan to the selected shop as
+  // the user swipes the carousel. Same pattern choose-mechanic
+  // uses for its sheet's internal pager.
+  const localMapRef = useRef<MapView | null>(null);
+  const selectedIndex = useMemo(() => {
+    if (!selectedShopId) return 0;
+    const i = nearbyShops.findIndex((r) => r.shop.id === selectedShopId);
+    return i >= 0 ? i : 0;
+  }, [selectedShopId, nearbyShops]);
+  // Pin tap / selectedShopId change → scroll the browse carousel to
+  // match. Skip when the carousel hasn't mounted yet (peek mode is
+  // gated on isPeekEntry && !isPeekExpanded).
+  useEffect(() => {
+    browseScrollRef.current?.scrollTo({
+      x: selectedIndex * SCREEN_WIDTH,
+      animated: true,
+    });
+  }, [selectedIndex]);
+  // Pan the camera to the selected shop. Fixed neighborhood-scale
+  // zoom (~1mi) — same magic number choose-mechanic uses for its
+  // default. Skipping when the shop has no real coords (dev
+  // fixtures) so we don't fly to (0, 0).
+  //
+  // Keyed on `isPeekExpanded` too so the pan re-fires the moment
+  // the user swipes the sheet down: the local MapView remounts
+  // with `initialRegion` = user location, then we immediately
+  // pan to the active shop. Without this dep the user lands at
+  // their own coords after every swipe-down and has to manually
+  // swipe the carousel to reorient.
+  // A short setTimeout defers the call past the MapView's native
+  // setup tick — calling animateToRegion synchronously on a
+  // freshly-mounted MapView is silently dropped on iOS.
+  useEffect(() => {
+    if (isPeekExpanded) return;
+    const r = nearbyShops[selectedIndex];
+    if (!r) return;
+    const { latitude, longitude } = r.shop;
+    if (latitude === 0 && longitude === 0) return;
+    const t = setTimeout(() => {
+      localMapRef.current?.animateToRegion(
+        {
+          latitude,
+          longitude,
+          latitudeDelta: 0.035,
+          longitudeDelta: 0.035,
+        },
+        450,
+      );
+    }, 80);
+    return () => clearTimeout(t);
+  }, [isPeekExpanded, selectedIndex, nearbyShops]);
+  const onBrowsePageChange = useCallback(
+    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const idx = Math.round(e.nativeEvent.contentOffset.x / SCREEN_WIDTH);
+      const shop = nearbyShops[idx]?.shop;
+      if (shop) setSelectedShopId(shop.id);
+    },
+    [nearbyShops],
+  );
 
   const availableServices = useBookingStore((s) => s.availableServices);
   const selectedServiceIds = useBookingStore((s) => s.selectedServiceIds);
@@ -164,7 +298,15 @@ export default function SelectServicesScreen() {
   // expands, we re-lock so the map doesn't intercept gestures meant
   // for the now-full sheet.
   const { setInteractive, setMarkers, mapRef, region } = useBookingFlowMap();
-  const mapShouldBeInteractive = isPeekEntry && !isPeekExpanded;
+  // Peek mode is entry-agnostic: whether the user reached it by
+  // entering via Home → Map OR by entering via Search and then
+  // swiping the sheet down, the experience underneath is the
+  // same — a draggable local map with shop pins and a browse-card
+  // carousel. So all peek-mode rendering gates key on
+  // `!isPeekExpanded` only. The initial state at line 112 is the
+  // only thing that still cares about `isPeekEntry` (whether
+  // to land at peek or full).
+  const mapShouldBeInteractive = !isPeekExpanded;
   useFocusEffect(
     useCallback(() => {
       setInteractive(mapShouldBeInteractive);
@@ -236,8 +378,26 @@ export default function SelectServicesScreen() {
   }, [availableServices]);
 
   const onClose = () => {
-    if (router.canGoBack()) router.back();
-    else router.replace("/(main-tabs)/home");
+    // X = "close the booking flow", NOT "back one step". The
+    // previous canGoBack() / router.back() shape walked the user
+    // through every intermediate screen the booking-flow stack had
+    // accumulated (e.g. Home → search → shop-detail → replaced
+    // select-services left both the search screen AND the original
+    // select-services below in the stack, so X took two back-taps
+    // to reach Home and showed both surfaces flashing past).
+    //
+    // dismissTo (not replace) pops the entire booking-flow stack and
+    // lands on the ALREADY-MOUNTED Home tab — same primitive
+    // `app/booking/mechanic/[id]/confirmation.tsx:405` uses for the
+    // post-confirm exit. Using replace was forcing Home to unmount
+    // + remount, which made the cards re-render in slowly.
+    // dismissTo keeps Home's existing instance alive so the cards
+    // are already there when the user lands.
+    //
+    // The Home focus effect on `app/(main-tabs)/home/index.tsx`
+    // clears the pre-pinned shop on arrival so the next booking
+    // attempt starts fresh.
+    router.dismissTo("/(main-tabs)/home");
   };
 
   return (
@@ -253,8 +413,9 @@ export default function SelectServicesScreen() {
           of the screen's view tree gives it touches naturally.
           On expand we drop this back to the shared map (the sheet
           covers the area so the map isn't visible anyway). */}
-      {isPeekEntry && !isPeekExpanded && region ? (
+      {!isPeekExpanded && region ? (
         <MapView
+          ref={localMapRef}
           style={StyleSheet.absoluteFill}
           provider={PROVIDER_DEFAULT}
           initialRegion={region}
@@ -263,7 +424,63 @@ export default function SelectServicesScreen() {
           zoomEnabled
           pitchEnabled={false}
           rotateEnabled
-        />
+        >
+          {nearbyShops
+            .filter((r) => r.shop.latitude !== 0 && r.shop.longitude !== 0)
+            .map((r) => (
+              <Marker
+                key={r.shop.id}
+                coordinate={{
+                  latitude: r.shop.latitude,
+                  longitude: r.shop.longitude,
+                }}
+                anchor={{ x: 0.5, y: 0.5 }}
+                tracksViewChanges={r.shop.id === selectedShopId}
+                onPress={() => setSelectedShopId(r.shop.id)}
+              >
+                <RatingMarkerPill
+                  rating={r.shop.rating}
+                  shopName={r.shop.name}
+                  isSelected={r.shop.id === selectedShopId}
+                />
+              </Marker>
+            ))}
+        </MapView>
+      ) : null}
+
+      {/* Browse-card carousel — peek mode only. Sits just above the
+          peek sheet so the cards and the "Tap to pick a service"
+          handle don't visually compete. Swipe to flip pin
+          selection on the map; tap a card → MapBrowseShopCard's
+          default route, which is the shop detail page. */}
+      {!isPeekExpanded ? (
+        <View
+          style={[styles.browseStrip, { bottom: SHEET_H_PEEK + 16 }]}
+          pointerEvents="box-none"
+        >
+          <ScrollView
+            ref={browseScrollRef}
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            onMomentumScrollEnd={onBrowsePageChange}
+            decelerationRate="fast"
+            contentOffset={{ x: selectedIndex * SCREEN_WIDTH, y: 0 }}
+          >
+            {nearbyShops.map((r) => (
+              <View key={r.shop.id} style={styles.browseCardSlot}>
+                <MapBrowseShopCard
+                  shopId={r.shop.id}
+                  shopName={r.shop.name}
+                  imageUrl={r.shop.imageUrl}
+                  rating={r.shop.rating}
+                  category="Auto repair shop"
+                  isOpen={r.shop.hasAvailableSlots}
+                />
+              </View>
+            ))}
+          </ScrollView>
+        </View>
       ) : null}
 
       {/* Frosted sheet — fixed height by default, animates from peek
@@ -283,14 +500,24 @@ export default function SelectServicesScreen() {
               pointerEvents="none"
             />
           )}
-          <GlassSheetHandle />
+          {/* GestureDetector wraps just the handle area — a vertical
+              swipe-down here collapses the sheet back to peek so the
+              user can browse rating pins on the map. The 20pt
+              activeOffsetY keeps casual touches on the handle (e.g.
+              tap to focus) from kicking off the pan. */}
+          <GestureDetector gesture={collapsePanGesture}>
+            <View>
+              <GlassSheetHandle />
+              {isPeekExpanded ? <MapSwipeHint /> : null}
+            </View>
+          </GestureDetector>
           {/* Peek body — only rendered while the map-entry user
               hasn't tapped to expand. Whole peek is a Pressable so
               the entire visible sheet area is a tap target. Picking
               a separate component instead of an overlay avoids the
               tap conflicting with any nested Pressables (X / search
               icons) since those don't render until after expansion. */}
-          {isPeekEntry && !isPeekExpanded ? (
+          {!isPeekExpanded ? (
             <Pressable
               onPress={expandPeekSheet}
               style={styles.peekBody}
@@ -312,6 +539,13 @@ export default function SelectServicesScreen() {
             </Pressable>
           ) : (
           <ScrollView
+            // `style` (the scroll container itself) flexes to fill
+            // the remaining sheet height. The contentContainerStyle
+            // must NOT also flex: 1 — that collapses content into
+            // the container and gives the rubber-band snap-back
+            // the user was seeing. Pattern matches the inspections
+            // category screen.
+            style={styles.scrollView}
             contentContainerStyle={[
               styles.scrollContent,
               { paddingBottom: insets.bottom + 32 },
@@ -350,6 +584,12 @@ export default function SelectServicesScreen() {
               What does your car need?
             </Text>
           </View>
+
+          {/* Pre-pinned shop indicator. Only renders when the user came
+              in from the shop-detail Book CTA; tapping the X clears the
+              pin in-place so they can switch shops without backing
+              out to Home. */}
+          <PinnedShopChip />
 
           {/* Hero pair */}
           <View style={styles.heroRow}>
@@ -423,13 +663,26 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
   },
+  browseStrip: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    // `bottom` is set inline from SHEET_H_PEEK so the carousel
+    // sits just above the peek sheet's top edge.
+  },
+  browseCardSlot: {
+    width: SCREEN_WIDTH,
+    paddingHorizontal: 16,
+  },
   sheetAndroidFallback: {
     backgroundColor: "rgba(255, 255, 255, 0.85)",
+  },
+  scrollView: {
+    flex: 1,
   },
   scrollContent: {
     paddingTop: 0,
     paddingBottom: 32,
-    flex: 1,
   },
   peekBody: {
     flex: 1,

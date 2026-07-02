@@ -94,6 +94,36 @@ interface ServiceInterval {
   months: number | null;
 }
 
+/**
+ * OEM interval rows fetched from `service_intervals` via
+ * `hooks/useOemServiceIntervals`. Structural type — declared here
+ * instead of imported from the Convex query file so this util stays
+ * Convex-free (no `Id<>` types leaking in).
+ *
+ * Keys are taxonomy slugs (`oil_change`, `brake_pad_replacement`,
+ * etc.). Missing keys mean "no usable OEM data for this slug" —
+ * `getInterval` falls through to MAKE_OVERRIDES → DEFAULT_INTERVALS.
+ */
+export type OemServiceIntervalsInput = Record<
+  string,
+  { interval_miles: number | null; interval_months: number | null }
+>;
+
+/** Maps a tracker maintenance type onto the taxonomy slug whose OEM
+ *  interval represents the same cadence. Intentionally separate from
+ *  `lib/maintenanceServiceMapping.ts:MAINTENANCE_TYPE_TO_SLUG` —
+ *  that table picks inspection/test variants for the booking flow,
+ *  whereas these need to be the actual periodic-service rows the
+ *  enrichment writes (e.g. brake-pad replacement IS the brakes
+ *  cadence, brake_system_inspection is just a check-in). */
+const TYPE_TO_OEM_SLUG: Partial<Record<MaintenanceType, string>> = {
+  oil: "oil_change",
+  brakes: "brake_pad_replacement",
+  tires: "tire_replacement",
+  battery: "battery_replacement",
+  inspection: "state_inspection",
+};
+
 /** Default intervals — used when no make-specific override exists */
 const DEFAULT_INTERVALS: Record<MaintenanceType, ServiceInterval> = {
   oil: { miles: 5_000, months: 6 },
@@ -201,19 +231,52 @@ const DRIVING_CONDITION_MULTIPLIERS: Record<string, Partial<Record<MaintenanceTy
   mixed: {},
 };
 
-/** Get the service interval for a type, respecting per-make overrides and driving conditions */
-function getInterval(type: MaintenanceType, make?: string, drivingConditions?: string): ServiceInterval {
+/**
+ * Get the service interval for a type, respecting OEM enrichment,
+ * per-make overrides, and driving conditions.
+ *
+ * Tier order (locked with Ahmad):
+ *  1. OEM intervals from the v3 enrichment pipeline (highest
+ *     priority). Already filtered server-side to mechanic_verified
+ *     OR confidence >= 0.75 in
+ *     `convex/service_intervals_queries.ts`. Half-fallback for
+ *     missing axes: e.g. a row with miles but no months keeps the
+ *     OEM miles and pulls months from DEFAULT_INTERVALS so the
+ *     downstream hybrid math has both numbers to work with.
+ *  2. Per-make overrides (`MAKE_OVERRIDES`).
+ *  3. Hardcoded `DEFAULT_INTERVALS`.
+ *
+ * The driving-conditions multiplier applies on top of whichever tier
+ * won — that math doesn't care where the base number came from.
+ */
+function getInterval(
+  type: MaintenanceType,
+  make?: string,
+  drivingConditions?: string,
+  oemIntervals?: OemServiceIntervalsInput,
+): ServiceInterval {
   let interval: ServiceInterval;
 
-  if (make) {
+  // Tier 1 — OEM enrichment (v3 pipeline).
+  const oemSlug = TYPE_TO_OEM_SLUG[type];
+  const oem = oemSlug ? oemIntervals?.[oemSlug] : undefined;
+  if (oem && (oem.interval_miles != null || oem.interval_months != null)) {
+    interval = {
+      miles: oem.interval_miles ?? DEFAULT_INTERVALS[type].miles,
+      months: oem.interval_months ?? DEFAULT_INTERVALS[type].months,
+    };
+  } else if (make) {
+    // Tier 2 — per-make override.
     const normalized = make.toLowerCase().trim();
     const overrides = MAKE_OVERRIDES[normalized];
     if (overrides && overrides[type]) {
       interval = { ...overrides[type]! };
     } else {
+      // Tier 3 — default.
       interval = { ...DEFAULT_INTERVALS[type] };
     }
   } else {
+    // Tier 3 — default (no make signal).
     interval = { ...DEFAULT_INTERVALS[type] };
   }
 
@@ -294,7 +357,11 @@ export function computeMaintenanceStatus(
   drivingConditions?: string,
   avgMonthlyDriving?: string,
   knownIssues?: string[],
-  vehicleYear?: number
+  vehicleYear?: number,
+  // OEM intervals from the v3 enrichment pipeline. Passed all the way
+  // down to `getInterval` which applies the tier order (OEM → MAKE →
+  // DEFAULT). Optional — when undefined, behavior matches pre-v1.
+  oemIntervals?: OemServiceIntervalsInput,
 ): StatusResult {
   const type = record.type as MaintenanceType;
 
@@ -305,21 +372,21 @@ export function computeMaintenanceStatus(
 
   // Special case: Tires — factor in tire pressure custom inputs
   if (type === "tires") {
-    return computeTireStatus(record, currentOdometer, make, now, drivingConditions, avgMonthlyDriving, knownIssues, vehicleYear);
+    return computeTireStatus(record, currentOdometer, make, now, drivingConditions, avgMonthlyDriving, knownIssues, vehicleYear, oemIntervals);
   }
 
   // Special case: Brakes — factor in symptoms + warning light
   if (type === "brakes") {
-    return computeBrakeStatus(record, currentOdometer, make, now, drivingConditions, avgMonthlyDriving, knownIssues);
+    return computeBrakeStatus(record, currentOdometer, make, now, drivingConditions, avgMonthlyDriving, knownIssues, oemIntervals);
   }
 
   // Special case: Battery — time-based with specific thresholds + slow starts
   if (type === "battery") {
-    return computeBatteryStatus(record, make, now, knownIssues);
+    return computeBatteryStatus(record, make, now, knownIssues, oemIntervals);
   }
 
   // Generic: Oil (hybrid mileage + time, whichever comes first)
-  return computeOilStatus(record, currentOdometer, make, now, drivingConditions, avgMonthlyDriving, knownIssues);
+  return computeOilStatus(record, currentOdometer, make, now, drivingConditions, avgMonthlyDriving, knownIssues, oemIntervals);
 }
 
 // ============================================================================
@@ -333,9 +400,10 @@ function computeOilStatus(
   now: number,
   drivingConditions?: string,
   avgMonthlyDriving?: string,
-  knownIssues?: string[]
+  knownIssues?: string[],
+  oemIntervals?: OemServiceIntervalsInput,
 ): StatusResult {
-  const result = computeHybridStatus("oil", record, currentOdometer, make, now, drivingConditions, avgMonthlyDriving);
+  const result = computeHybridStatus("oil", record, currentOdometer, make, now, drivingConditions, avgMonthlyDriving, oemIntervals);
 
   // Confirmed healthy (Q4b) overrides both interval and warning-light escalation
   // because the user explicitly said "all good" in the same check-in that asks about lights
@@ -384,9 +452,10 @@ function computeHybridStatus(
   make: string | undefined,
   now: number,
   drivingConditions?: string,
-  avgMonthlyDriving?: string
+  avgMonthlyDriving?: string,
+  oemIntervals?: OemServiceIntervalsInput,
 ): StatusResult {
-  const interval = getInterval(type, make, drivingConditions);
+  const interval = getInterval(type, make, drivingConditions, oemIntervals);
 
   // No interval defined (e.g. Tesla oil)
   if (!interval.miles && !interval.months) {
@@ -470,13 +539,14 @@ function computeTireStatus(
   drivingConditions?: string,
   avgMonthlyDriving?: string,
   knownIssues?: string[],
-  vehicleYear?: number
+  vehicleYear?: number,
+  oemIntervals?: OemServiceIntervalsInput,
 ): StatusResult {
   if (isConfirmedHealthy(record, now)) {
     return { status: "on_time", percentUsed: 0, description: "Confirmed in good shape", detail: "On time" };
   }
 
-  const result = computeTireStatusCore(record, currentOdometer, make, now, drivingConditions, avgMonthlyDriving, vehicleYear);
+  const result = computeTireStatusCore(record, currentOdometer, make, now, drivingConditions, avgMonthlyDriving, vehicleYear, oemIntervals);
 
   if (knownIssues?.includes("tpms")) {
     return escalateForWarningLight(result, "Tire pressure (TPMS) warning light active — check tires soon");
@@ -493,6 +563,7 @@ function computeTireStatusCore(
   drivingConditions?: string,
   avgMonthlyDriving?: string,
   vehicleYear?: number,
+  oemIntervals?: OemServiceIntervalsInput,
 ): StatusResult {
   const tp = record.customInputs?.tirePressure as Record<string, number | null> | undefined;
 
@@ -638,7 +709,7 @@ function computeTireStatusCore(
   // Quick Read: patched/plugged tire — flag regardless of interval status
   if (tireRepaired === "yes") {
     const intervalResult = record.lastServiceDate
-      ? computeHybridStatus("tires", record, currentOdometer, make, now, drivingConditions, avgMonthlyDriving)
+      ? computeHybridStatus("tires", record, currentOdometer, make, now, drivingConditions, avgMonthlyDriving, oemIntervals)
       : null;
     const worstStatus: MaintenanceStatus =
       intervalResult && (intervalResult.status === "overdue" || intervalResult.status === "due_soon")
@@ -656,7 +727,7 @@ function computeTireStatusCore(
   }
 
   // Standard hybrid interval (mileage + time)
-  return computeHybridStatus("tires", record, currentOdometer, make, now, drivingConditions, avgMonthlyDriving);
+  return computeHybridStatus("tires", record, currentOdometer, make, now, drivingConditions, avgMonthlyDriving, oemIntervals);
 }
 
 function computeBrakeStatus(
@@ -666,14 +737,15 @@ function computeBrakeStatus(
   now: number,
   drivingConditions?: string,
   avgMonthlyDriving?: string,
-  knownIssues?: string[]
+  knownIssues?: string[],
+  oemIntervals?: OemServiceIntervalsInput,
 ): StatusResult {
   // Confirmed healthy overrides both interval and warning-light escalation
   if (isConfirmedHealthy(record, now)) {
     return { status: "on_time", percentUsed: 0, description: "Confirmed in good shape", detail: "On time" };
   }
 
-  const result = computeBrakeStatusCore(record, currentOdometer, make, now, drivingConditions, avgMonthlyDriving);
+  const result = computeBrakeStatusCore(record, currentOdometer, make, now, drivingConditions, avgMonthlyDriving, oemIntervals);
 
   if (knownIssues?.includes("abs")) {
     return escalateForWarningLight(result, "ABS / brake warning light active — have brakes inspected soon");
@@ -689,6 +761,7 @@ function computeBrakeStatusCore(
   now: number,
   drivingConditions?: string,
   avgMonthlyDriving?: string,
+  oemIntervals?: OemServiceIntervalsInput,
 ): StatusResult {
   // Legacy field OR Quick Read brakeFeel → unified symptom flags
   const brakeFeel = record.customInputs?.brakeFeel as string | undefined;
@@ -707,7 +780,7 @@ function computeBrakeStatusCore(
   let intervalDescription = "No brake service history";
 
   if (hasIntervalData) {
-    const hybrid = computeHybridStatus("brakes", record, currentOdometer, make, now, drivingConditions, avgMonthlyDriving);
+    const hybrid = computeHybridStatus("brakes", record, currentOdometer, make, now, drivingConditions, avgMonthlyDriving, oemIntervals);
     intervalRatio = hybrid.percentUsed / 100;
     intervalDescription = hybrid.description;
     intervalStatus = hybrid.status;
@@ -774,14 +847,15 @@ function computeBrakeStatusCore(
   }
 
   // Return the hybrid result
-  return computeHybridStatus("brakes", record, currentOdometer, make, now, drivingConditions, avgMonthlyDriving);
+  return computeHybridStatus("brakes", record, currentOdometer, make, now, drivingConditions, avgMonthlyDriving, oemIntervals);
 }
 
 function computeBatteryStatus(
   record: MaintenanceRecord,
   make: string | undefined,
   now: number,
-  knownIssues?: string[]
+  knownIssues?: string[],
+  oemIntervals?: OemServiceIntervalsInput,
 ): StatusResult {
   // Confirmed healthy overrides both interval and warning-light escalation
   if (isConfirmedHealthy(record, now)) {
@@ -818,7 +892,7 @@ function computeBatteryStatus(
 
   // Battery thresholds from spec:
   // Flag at 3 years (36 months), urgent at 4.5 years (54 months), max ~5 years (60 months)
-  const interval = getInterval("battery", make);
+  const interval = getInterval("battery", make, undefined, oemIntervals);
   const maxMonths = interval.months ?? 60;
 
   // Pure age-based
