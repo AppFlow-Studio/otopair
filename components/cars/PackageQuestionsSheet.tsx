@@ -38,7 +38,13 @@ import type { PendingPackageQuestion } from "@/hooks/useVehicleReadiness";
 // TYPES
 // ============================================================================
 
-type Answer = "yes" | "no";
+// "unsure" is a client-only option per Ahmad — backend has no
+// dedicated bucket for it. We submit it as part of `denied` so:
+//   (a) the question stops re-prompting (pending list filter uses
+//       `!confirmed && !denied`), and
+//   (b) the price band stays on the safe side (no optional-package
+//       assumption → cheaper stock fitment, no overpromise).
+type Answer = "yes" | "no" | "unsure";
 
 interface PackageQuestionsSheetProps {
   visible: boolean;
@@ -89,7 +95,9 @@ export function PackageQuestionsSheet({
     for (const q of questions) {
       const a = answers[q.code];
       if (a === "yes") confirmed.push(q.code);
-      else if (a === "no") denied.push(q.code);
+      // "no" and "unsure" both route to denied — see the Answer type
+      // comment above for why "unsure" is safe to bucket here.
+      else if (a === "no" || a === "unsure") denied.push(q.code);
     }
     try {
       await recordAnswers({
@@ -159,6 +167,13 @@ export function PackageQuestionsSheet({
                     selected={picked === "no"}
                     onPress={() =>
                       setAnswers((prev) => ({ ...prev, [q.code]: "no" }))
+                    }
+                  />
+                  <AnswerCard
+                    label="Not sure"
+                    selected={picked === "unsure"}
+                    onPress={() =>
+                      setAnswers((prev) => ({ ...prev, [q.code]: "unsure" }))
                     }
                   />
                 </View>

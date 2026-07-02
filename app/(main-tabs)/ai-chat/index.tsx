@@ -64,6 +64,8 @@ import {
   AIWelcomeScreen,
   AIRecordConfirmation,
   type RecordConfirmationDecision,
+  AIVehicleUpdate,
+  type VehicleUpdateOutcome,
   BookServiceComponent,
   LinkButton,
   BookingCard,
@@ -448,10 +450,13 @@ export default function AIChatScreen() {
           text,
           quickReplies,
           showRecordConfirmation,
+          showVehicleUpdate,
           bookService,
           linkButton,
           bookingCard,
           bookingsList,
+          reasoning,
+          sources,
         } = await sendMessageAction({
           conversationId,
           message: messageText,
@@ -483,6 +488,43 @@ export default function AIChatScreen() {
         const bookingsListEnvelope = bookingsList as
           | { booking_ids: string[] }
           | undefined;
+        // render_vehicle_update — the backend payload carries only the captured
+        // truth (mileage / service_claims / fault_lights); resolve the active
+        // vehicle's Convex id here from the picker selection (primary fallback)
+        // so the card can call applyVehicleTruth(vehicle_id, …).
+        const activeVehicleId =
+          rawVehicles?.find((r: any) => r.vin === selectedVehicleVin)?.vehicle
+            ?._id ??
+          rawVehicles?.find((r: any) => r.ownership?.is_primary)?.vehicle?._id;
+        const vehicleUpdateEnvelope =
+          showVehicleUpdate && activeVehicleId
+            ? ({
+                ...(showVehicleUpdate as object),
+                vehicle_id: activeVehicleId as string,
+              } as import("@/services/ai/types").VehicleUpdatePayload)
+            : undefined;
+
+        // render_reasoning — map Oto's { title, detail } steps onto the
+        // AIReasoning shape ({ id, text, completed }). Without this, a fired
+        // render_reasoning produced no visible trace on the mobile bubble.
+        const reasoningSteps = Array.isArray(reasoning)
+          ? (reasoning as Array<{ title?: string; detail?: string }>).map((s, i) => ({
+              id: `oto_reason_${i}`,
+              text: s?.detail ? `${s.title ?? ""} — ${s.detail}` : (s?.title ?? ""),
+              completed: true,
+            }))
+          : undefined;
+        // render_sources — map Oto's free-form { title, details, url } citations
+        // onto a generic "reference" source pill (url surfaces in the tooltip).
+        const sourceList = Array.isArray(sources)
+          ? (sources as Array<{ title?: string; details?: string; url?: string }>).map((s) => ({
+              type: "reference" as const,
+              label: s?.title ?? "Source",
+              icon: "🔗",
+              description: s?.details ?? "Cited reference",
+              details: s?.url ?? s?.details,
+            }))
+          : undefined;
 
         const nextStage: ChatMessage["stage"] = bookServiceEnvelope
           ? "confirmation"
@@ -496,10 +538,13 @@ export default function AIChatScreen() {
           isStreaming: true,
           quickReplies: quickReplies as QuickReply[] | undefined,
           showRecordConfirmation: recordConfirmEnvelope,
+          showVehicleUpdate: vehicleUpdateEnvelope,
           bookService: bookServiceEnvelope,
           linkButton: linkButtonEnvelope,
           bookingCard: bookingCardEnvelope,
           bookingsList: bookingsListEnvelope,
+          reasoning: reasoningSteps,
+          sources: sourceList,
           stage: nextStage,
         };
         setState((prev) => ({
@@ -546,6 +591,7 @@ export default function AIChatScreen() {
       createConversation,
       sendMessageAction,
       selectedVehicleVin,
+      rawVehicles,
       showToast,
     ]
   );
@@ -714,6 +760,29 @@ export default function AIChatScreen() {
       // synthetic echoText still goes through sendToOtoAI for chat-history
       // continuity, but the fact is the canonical state signal.
       pushFact(factText);
+      sendToOtoAI(echoText);
+    },
+    [isProcessing, pushFact, sendToOtoAI],
+  );
+
+  // Handle a successful apply from AIVehicleUpdate. The component has already
+  // written via vehicleTruth.applyVehicleTruth (mileage guard + pipeline). We
+  // send a synthetic user message so Oto sees the outcome on the next turn and
+  // can react (e.g. "Thanks — with 100k on it, you're due for…").
+  const handleVehicleUpdateDecision = useCallback(
+    (outcome: VehicleUpdateOutcome) => {
+      if (isProcessing) return;
+      const parts: string[] = [];
+      if (outcome.mileageUpdated) parts.push("updated my mileage");
+      if (outcome.servicesCompleted.length)
+        parts.push(`logged ${outcome.servicesCompleted.join(", ")} as done`);
+      if (outcome.servicesFlagged.length)
+        parts.push(`flagged ${outcome.servicesFlagged.join(", ")} as due`);
+      if (outcome.faultLightsAdded.length)
+        parts.push(`logged the ${outcome.faultLightsAdded.join(", ")} light`);
+      if (parts.length === 0) return;
+      const echoText = `Done — ${parts.join(", ")}.`;
+      pushFact(`vehicle_truth_applied: ${parts.join("; ")}`);
       sendToOtoAI(echoText);
     },
     [isProcessing, pushFact, sendToOtoAI],
@@ -1276,19 +1345,21 @@ export default function AIChatScreen() {
                 // also drop quickReplies from the bubble so a confused
                 // payload can't double-render a tap surface.
                 const isAssistant = message.role === "assistant";
-                const terminalKind: "bookService" | "recordConfirm" | "bookingCard" | "bookingsList" | "linkButton" | null =
+                const terminalKind: "bookService" | "recordConfirm" | "vehicleUpdate" | "bookingCard" | "bookingsList" | "linkButton" | null =
                   isAssistant
                     ? message.bookService
                       ? "bookService"
                       : message.showRecordConfirmation
                         ? "recordConfirm"
-                        : message.bookingCard
-                          ? "bookingCard"
-                          : message.bookingsList
-                            ? "bookingsList"
-                            : message.linkButton
-                              ? "linkButton"
-                              : null
+                        : message.showVehicleUpdate
+                          ? "vehicleUpdate"
+                          : message.bookingCard
+                            ? "bookingCard"
+                            : message.bookingsList
+                              ? "bookingsList"
+                              : message.linkButton
+                                ? "linkButton"
+                                : null
                     : null;
                 const messageForBubble = terminalKind
                   ? { ...message, quickReplies: undefined }
@@ -1323,6 +1394,15 @@ export default function AIChatScreen() {
                           vehicleId={message.showRecordConfirmation.vehicle_id}
                           maintenanceType={message.showRecordConfirmation.maintenance_type}
                           onDecision={handleRecordDecision}
+                          disabled={isProcessing}
+                        />
+                      </View>
+                    )}
+                    {terminalKind === "vehicleUpdate" && message.showVehicleUpdate && (
+                      <View style={styles.servicePickerContainer}>
+                        <AIVehicleUpdate
+                          payload={message.showVehicleUpdate}
+                          onDecision={handleVehicleUpdateDecision}
                           disabled={isProcessing}
                         />
                       </View>

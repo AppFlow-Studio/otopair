@@ -30,17 +30,17 @@ import { ScrollDrivenGradientBackground, Text } from "@/components/shared-ui";
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
 import { useMyBookingsWithDetails } from "@/hooks/useMyBookingsWithDetails";
 import { CustomerLateBanner } from "@/components/bookings/CustomerLateBanner";
+import { RecommendedServicesContent } from "@/components/bookings/RecommendedServicesContent";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useBookingsBadgeStore } from "@/stores/useBookingsBadgeStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
-import { useRecHistoryFromConvex } from "@/hooks/useRecHistoryFromConvex";
 import { api } from "@/convex/_generated/api";
 import { useMutationWithToast } from "@/hooks/useMutationWithToast";
 import { useToast } from "@/hooks/useToast";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
-import { Calendar, Check, ChevronRight, ListFilter, Star } from "lucide-react-native";
+import { Calendar, Check, ListFilter, Star } from "lucide-react-native";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Image, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
 import Animated from "react-native-reanimated";
@@ -51,8 +51,8 @@ import SegmentedControl from "@react-native-segmented-control/segmented-control"
 // TYPES
 // ============================================================================
 
-type TabType = "bookings" | "quotes";
-const TAB_ORDER: TabType[] = ["bookings", "quotes"];
+type TabType = "bookings" | "quotes" | "recommended";
+const TAB_ORDER: TabType[] = ["bookings", "quotes", "recommended"];
 const BOTTOM_NAV_SCROLL_CLEARANCE = 96;
 
 // ============================================================================
@@ -125,17 +125,6 @@ export default function BookingsScreen() {
     ? allVehicles.find((v) => v.id === filterVehicleId)
     : null;
 
-  // Active-rec count for the entry-point card. Scoped to the currently
-  // filtered vehicle when one is selected, else the primary garaged car.
-  const activeVin =
-    filterVehicle?.vin ?? useVehicleStore.getState().getSelectedVehicle()?.vin;
-  const { history: recHistory } = useRecHistoryFromConvex(activeVin);
-  const activeRecCount = recHistory.filter(
-    (r) =>
-      r.status === "open" ||
-      r.status === "acknowledged" ||
-      (r.status === "dismissed" && r.dismissed_reason === "hidden_by_driver"),
-  ).length;
   const matchesListFilter = useCallback(
     (b: Booking) => {
       if (!filterVehicle) return true;
@@ -337,7 +326,7 @@ export default function BookingsScreen() {
             {/* Tab Switcher */}
             <View style={styles.segmentedWrapper}>
               <SegmentedControl
-                values={["Bookings", "Quotes"]}
+                values={["Bookings", "Quotes", "Recommended"]}
                 selectedIndex={TAB_ORDER.indexOf(activeTab)}
                 onChange={(event) => {
                   setActiveTab(TAB_ORDER[event.nativeEvent.selectedSegmentIndex]);
@@ -392,53 +381,32 @@ export default function BookingsScreen() {
               </View>
             ) : null}
 
-            {/* Mechanic-rec history entry point. Surfaces hidden + resolved
-                recs so drivers can address what's still dragging their VHS.
-                The circular Star button sits to its right when there are
-                completed bookings still awaiting a review — keeps both
-                lifecycle prompts compact instead of stacking cards. */}
-            {activeTab === "bookings" ? (
+            {/* Pending-review prompt — surfaces completed bookings still
+                awaiting a star rating. The Recommended-services entry
+                point used to live here as a separate card, but it now
+                lives as a third segment in the tab pill above (see
+                TAB_ORDER), so only the review button remains. */}
+            {activeTab === "bookings" && pendingReviewCount > 0 ? (
               <View style={styles.recRow}>
                 <Pressable
-                  onPress={() => router.push("/bookings/recommended")}
+                  onPress={() => router.push("/bookings/pending-reviews")}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Pending reviews, ${pendingReviewCount}`}
                   style={({ pressed }) => [
-                    styles.recHistoryCard,
+                    styles.pendingReviewsButton,
                     pressed && { opacity: 0.85 },
                   ]}
                 >
-                  <Text weight="semiBold" style={styles.recHistoryTitle}>
-                    Recommended services
-                  </Text>
-                  {activeRecCount > 0 ? (
-                    <View style={styles.recHistoryBadge}>
-                      <Text weight="semiBold" style={styles.recHistoryBadgeText}>
-                        {activeRecCount}
-                      </Text>
-                    </View>
-                  ) : null}
-                  <ChevronRight size={18} color="#C7C7CC" />
+                  <Star size={20} color="#141C24" />
+                  <View style={styles.pendingReviewsBadge}>
+                    <Text
+                      weight="semiBold"
+                      style={styles.pendingReviewsBadgeText}
+                    >
+                      {pendingReviewCount}
+                    </Text>
+                  </View>
                 </Pressable>
-                {pendingReviewCount > 0 ? (
-                  <Pressable
-                    onPress={() => router.push("/bookings/pending-reviews")}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Pending reviews, ${pendingReviewCount}`}
-                    style={({ pressed }) => [
-                      styles.pendingReviewsButton,
-                      pressed && { opacity: 0.85 },
-                    ]}
-                  >
-                    <Star size={20} color="#141C24" />
-                    <View style={styles.pendingReviewsBadge}>
-                      <Text
-                        weight="semiBold"
-                        style={styles.pendingReviewsBadgeText}
-                      >
-                        {pendingReviewCount}
-                      </Text>
-                    </View>
-                  </Pressable>
-                ) : null}
               </View>
             ) : null}
 
@@ -446,46 +414,55 @@ export default function BookingsScreen() {
                 cards now — their per-card progress bar communicates
                 status inline, replacing the old Live Tracker tab.
                 Completed-but-unreviewed bookings live behind the circular
-                Star button above — see /bookings/pending-reviews. */}
+                Star button above — see /bookings/pending-reviews.
+                The Recommended tab swaps the list for the mechanic-rec
+                history view instead — same content as the standalone
+                /bookings/recommended screen (kept for deep links). */}
             <View style={styles.content}>
-              <CustomerLateBanner onReschedule={(bookingId) => handleReschedule(String(bookingId))} />
-              {bookings.length > 0 ? (
-                bookings.map((booking) =>
-                  booking.status === "pending_quote" || booking.status === "quotes_ready" ? (
-                    <PendingQuoteCard
-                      key={booking.id}
-                      booking={booking}
-                      onPress={handleViewDetails}
-                      onViewQuotes={handleViewQuotes}
-                      onCancel={handleCancelBooking}
-                    />
-                  ) : (
-                    <BookingCard
-                      key={booking.id}
-                      booking={booking}
-                      variant="upcoming"
-                      onViewDetails={handleViewDetails}
-                      onCancelBooking={handleCancelBooking}
-                      onReschedule={handleReschedule}
-                      onDownloadPdf={handleDownloadPdf}
-                      onToggleFavorite={handleToggleFavorite}
-                    />
-                  ),
-                )
+              {activeTab === "recommended" ? (
+                <RecommendedServicesContent />
               ) : (
-                <View style={styles.emptyState}>
-                  <View style={styles.emptyIconContainer}>
-                    <Calendar size={48} color="#9CA3AF" strokeWidth={1.5} />
-                  </View>
-                  <Text weight="semiBold" size="lg" color="#374151" center>
-                    {activeTab === "bookings" ? "No Bookings Yet" : "No Quotes Yet"}
-                  </Text>
-                  <Text weight="regular" size="sm" color="#6B7280" center style={styles.emptyText}>
-                    {activeTab === "bookings"
-                      ? "You don't have any active appointments. Book a service to get started!"
-                      : "Shop responses will appear here once quotes come back for one of your tire requests."}
-                  </Text>
-                </View>
+                <>
+                  <CustomerLateBanner onReschedule={(bookingId) => handleReschedule(String(bookingId))} />
+                  {bookings.length > 0 ? (
+                    bookings.map((booking) =>
+                      booking.status === "pending_quote" || booking.status === "quotes_ready" ? (
+                        <PendingQuoteCard
+                          key={booking.id}
+                          booking={booking}
+                          onPress={handleViewDetails}
+                          onViewQuotes={handleViewQuotes}
+                          onCancel={handleCancelBooking}
+                        />
+                      ) : (
+                        <BookingCard
+                          key={booking.id}
+                          booking={booking}
+                          variant="upcoming"
+                          onViewDetails={handleViewDetails}
+                          onCancelBooking={handleCancelBooking}
+                          onReschedule={handleReschedule}
+                          onDownloadPdf={handleDownloadPdf}
+                          onToggleFavorite={handleToggleFavorite}
+                        />
+                      ),
+                    )
+                  ) : (
+                    <View style={styles.emptyState}>
+                      <View style={styles.emptyIconContainer}>
+                        <Calendar size={48} color="#9CA3AF" strokeWidth={1.5} />
+                      </View>
+                      <Text weight="semiBold" size="lg" color="#374151" center>
+                        {activeTab === "bookings" ? "No Bookings Yet" : "No Quotes Yet"}
+                      </Text>
+                      <Text weight="regular" size="sm" color="#6B7280" center style={styles.emptyText}>
+                        {activeTab === "bookings"
+                          ? "You don't have any active appointments. Book a service to get started!"
+                          : "Shop responses will appear here once quotes come back for one of your tire requests."}
+                      </Text>
+                    </View>
+                  )}
+                </>
               )}
             </View>
           </Animated.ScrollView>
@@ -727,36 +704,6 @@ const styles = StyleSheet.create({
     gap: 8,
     marginHorizontal: 20,
     marginTop: 12,
-  },
-  recHistoryCard: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 12,
-    borderWidth: 0.5,
-    borderColor: "rgba(0,0,0,0.06)",
-  },
-  recHistoryTitle: {
-    flex: 1,
-    fontSize: 14,
-    color: "#141C24",
-  },
-  recHistoryBadge: {
-    minWidth: 22,
-    height: 22,
-    paddingHorizontal: 7,
-    borderRadius: 11,
-    backgroundColor: "#5299FE",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  recHistoryBadgeText: {
-    fontSize: 12,
-    color: "#FFFFFF",
   },
   pendingReviewsButton: {
     width: 44,

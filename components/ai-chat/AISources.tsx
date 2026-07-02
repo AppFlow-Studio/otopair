@@ -45,7 +45,8 @@ export type SourceType =
   | 'error_codes'
   | 'service_history'
   | 'common_scenarios'
-  | 'manufacturer_data';
+  | 'manufacturer_data'
+  | 'reference'; // generic citation — Oto render_sources ({ title, details, url })
 
 export interface Source {
   type: SourceType;
@@ -87,6 +88,13 @@ export const SOURCE_DEFINITIONS: Record<SourceType, Omit<Source, 'details'>> = {
     label: 'Manufacturer Data',
     icon: '🏭',
     description: 'Vehicle specifications and VIN database',
+  },
+  // Generic citation for Oto's free-form render_sources ({ title, details, url }).
+  reference: {
+    type: 'reference',
+    label: 'Source',
+    icon: '🔗',
+    description: 'Cited reference',
   },
 };
 

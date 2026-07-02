@@ -27,13 +27,26 @@ export interface ToastVariantTokens {
   dark: ToastPalette;
 }
 
+// Per Ahmad: every toast wears a flat white card on light mode, with
+// the icon naked (no chip background) in its variant color. Dark mode
+// keeps its tinted look so the toast stays readable against dark
+// surfaces — flat white there would be harsh.
+const LIGHT_CARD_BG = "#FFFFFF";
+const LIGHT_CARD_BORDER = "rgba(15, 23, 42, 0.08)";
+// `iconContainerBg: "transparent"` + `iconContainerBorder: undefined`
+// (when also `borderWidth: 0`) gives ToastIcon a no-chip naked icon.
+const NO_CHIP = {
+  iconContainerBg: "transparent",
+  iconContainerBorder: undefined,
+} as const;
+
 export const VARIANT_TOKENS: Record<ToastVariant, ToastVariantTokens> = {
   success: {
     light: {
-      bg: SemanticColors.successGreenLight,
-      border: `${SemanticColors.successGreen}33`,
+      bg: LIGHT_CARD_BG,
+      border: LIGHT_CARD_BORDER,
       iconColor: SemanticColors.successGreen,
-      iconContainerBg: "#FFFFFF",
+      ...NO_CHIP,
     },
     dark: {
       bg: SemanticColors.successGreenDarkBg,
@@ -45,10 +58,10 @@ export const VARIANT_TOKENS: Record<ToastVariant, ToastVariantTokens> = {
   },
   info: {
     light: {
-      bg: SemanticColors.primaryBlueLight,
-      border: `${SemanticColors.primaryBlue}33`,
+      bg: LIGHT_CARD_BG,
+      border: LIGHT_CARD_BORDER,
       iconColor: SemanticColors.primaryBlue,
-      iconContainerBg: "#FFFFFF",
+      ...NO_CHIP,
     },
     dark: {
       bg: SemanticColors.primaryBlueDarkBg,
@@ -60,10 +73,10 @@ export const VARIANT_TOKENS: Record<ToastVariant, ToastVariantTokens> = {
   },
   warning: {
     light: {
-      bg: SemanticColors.warningAmberLight,
-      border: `${SemanticColors.warningAmber}40`,
+      bg: LIGHT_CARD_BG,
+      border: LIGHT_CARD_BORDER,
       iconColor: SemanticColors.warningAmber,
-      iconContainerBg: "#FFFFFF",
+      ...NO_CHIP,
     },
     dark: {
       bg: SemanticColors.warningAmberDarkBg,
@@ -75,10 +88,10 @@ export const VARIANT_TOKENS: Record<ToastVariant, ToastVariantTokens> = {
   },
   error: {
     light: {
-      bg: SemanticColors.errorRedLight,
-      border: `${SemanticColors.errorRed}40`,
+      bg: LIGHT_CARD_BG,
+      border: LIGHT_CARD_BORDER,
       iconColor: SemanticColors.errorRed,
-      iconContainerBg: "#FFFFFF",
+      ...NO_CHIP,
     },
     dark: {
       bg: SemanticColors.errorRedDarkBg,
@@ -90,12 +103,10 @@ export const VARIANT_TOKENS: Record<ToastVariant, ToastVariantTokens> = {
   },
   trust: {
     light: {
-      // gradient applied separately; this is the fallback solid color
-      bg: SemanticColors.primaryBlueLight,
-      border: `${SemanticColors.primaryBlue}59`,
+      bg: LIGHT_CARD_BG,
+      border: LIGHT_CARD_BORDER,
       iconColor: SemanticColors.primaryBlue,
-      iconContainerBg: "#FFFFFF",
-      iconContainerBorder: `${SemanticColors.primaryBlue}33`,
+      ...NO_CHIP,
     },
     dark: {
       bg: SemanticColors.primaryBlueDarkBg,

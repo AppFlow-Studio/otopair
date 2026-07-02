@@ -55,6 +55,12 @@ export {
   AIRecordConfirmation,
   type RecordConfirmationDecision,
 } from "./AIRecordConfirmation";
+// render_vehicle_update — vehicle-truth confirm card (mileage / service claims /
+// fault lights). Renders when message.showVehicleUpdate is set.
+export {
+  AIVehicleUpdate,
+  type VehicleUpdateOutcome,
+} from "./AIVehicleUpdate";
 // Sprint 4 — feedback modal triggered by the thumbs-up / thumbs-down buttons.
 export { AIFeedbackModal, type FeedbackRating } from "./AIFeedbackModal";
 // Sprint 4 Day 1 Pass B — single consolidated booking surface. Renders when
