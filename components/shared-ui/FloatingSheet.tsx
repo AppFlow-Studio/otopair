@@ -450,11 +450,15 @@ const styles = StyleSheet.create({
     borderTopRightRadius: CORNER_RADIUS,
     borderBottomLeftRadius: CORNER_RADIUS,
     borderBottomRightRadius: CORNER_RADIUS,
+    // Softer shadow — the previous 8/24/0.12 combo was big enough
+    // to render as a full rounded silhouette below the sheet, which
+    // read as "another card underneath." Tightening the offset and
+    // radius keeps a lifted feel without the ghost-card effect.
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.12,
-    shadowRadius: 24,
-    elevation: 12,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 14,
+    elevation: 6,
   },
   sheetInner: {
     flex: 1,
