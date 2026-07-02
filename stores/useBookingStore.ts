@@ -293,14 +293,6 @@ interface BookingState {
 // DEFAULT VALUES
 // ─────────────────────────────────────────────────────────────
 
-const DEFAULT_LOCATION: UserLocation = {
-  label: "San Francisco, CA",
-  latitude: 37.7749,
-  longitude: -122.4194,
-  city: "San Francisco",
-  state: "CA",
-};
-
 // ─────────────────────────────────────────────────────────────
 // MOCK SERVICES DATA
 // ─────────────────────────────────────────────────────────────
@@ -410,8 +402,8 @@ const MOCK_SERVICES: Service[] = [
 
 export const useBookingStore = create<BookingState>()((set, get) => ({
   // ═══════════════ INITIAL STATE ═══════════════
-  userLocation: DEFAULT_LOCATION,
-  isLoadingLocation: false,
+  userLocation: null,
+  isLoadingLocation: true,
   preSelectedShopId: null,
   preSelectedServiceIds: [],
   selectedServiceCategory: null, // No service category selected by default
@@ -712,8 +704,9 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
 
   // ═══════════════ GETTERS ═══════════════
   getLocationLabel: () => {
-    const { userLocation } = get();
-    return userLocation?.label ?? "Set Location";
+    const { isLoadingLocation, userLocation } = get();
+    if (userLocation) return userLocation.label;
+    return isLoadingLocation ? "Finding location..." : "Set Location";
   },
 
   getSelectedServicesTotal: () => {
@@ -852,7 +845,7 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
       return {
         bookings: {
           ...state.bookings,
-          [id]: { ...target, status: nextStatus as const, updatedAt: now },
+          [id]: { ...target, status: nextStatus, updatedAt: now },
         },
       };
     });

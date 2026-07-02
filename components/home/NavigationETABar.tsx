@@ -25,7 +25,7 @@
 // 1. React & React Native
 import React, { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
-import MapView, { Marker, PROVIDER_DEFAULT } from 'react-native-maps';
+import MapView, { Circle, Marker, PROVIDER_DEFAULT } from 'react-native-maps';
 
 // 2. Expo & Third-party
 import { BlurView } from 'expo-blur';
@@ -35,6 +35,8 @@ import * as Location from 'expo-location';
 import { Text } from '@/components/shared-ui';
 
 // 4. Utils
+import { BrandColors, SemanticColors } from '@/constants/theme';
+import { useStagedLocation } from '@/hooks/useStagedLocation';
 import { calculateDistanceKm } from '@/utils/geo';
 import { openMapsForAddress, openMapsForCoordinates } from '@/utils/linking';
 
@@ -70,12 +72,6 @@ function hasValidCoords(lat: number | undefined, lng: number | undefined): boole
   return true;
 }
 
-// Default location (San Francisco) - used as fallback
-const DEFAULT_LOCATION = {
-  latitude: 37.7749,
-  longitude: -122.4194,
-};
-
 // Rough drive-time estimate: scale straight-line distance to account
 // for roads (~1.3×) at a typical urban average speed (~40 km/h).
 // Good enough for a glanceable home-screen pill; the user's map app
@@ -100,10 +96,7 @@ export function NavigationETABar({
   destinationAddress,
 }: NavigationETABarProps) {
   const coordsValid = hasValidCoords(destinationLatitude, destinationLongitude);
-  const [userLocation, setUserLocation] = useState<{
-    latitude: number;
-    longitude: number;
-  } | null>(null);
+  const { location: userLocation, isResolving } = useStagedLocation();
   // When the shop record lacks coords but has a postal address, geocode
   // the address once so the ETA can still compute. The maps app handles
   // the address itself on Navigate; this lookup is purely for the ETA
@@ -122,24 +115,6 @@ export function NavigationETABar({
   const destLng = coordsValid
     ? (destinationLongitude as number)
     : geocodedDest?.longitude ?? null;
-
-  useEffect(() => {
-    (async () => {
-      // Request location permission
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        console.log('Location permission denied');
-        return;
-      }
-
-      // Get current location
-      const location = await Location.getCurrentPositionAsync({});
-      setUserLocation({
-        latitude: location.coords.latitude,
-        longitude: location.coords.longitude,
-      });
-    })();
-  }, []);
 
   useEffect(() => {
     // Skip when we already have real coords, or when there's no
@@ -172,10 +147,6 @@ export function NavigationETABar({
     };
   }, [coordsValid, destinationAddress]);
 
-  // Use user location if available, otherwise use default
-  const currentLatitude = userLocation?.latitude ?? DEFAULT_LOCATION.latitude;
-  const currentLongitude = userLocation?.longitude ?? DEFAULT_LOCATION.longitude;
-
   // Prefer a caller-supplied ETA; otherwise estimate from haversine
   // distance once we have a real user fix AND a real destination.
   // While either is missing we render a dash rather than a
@@ -192,7 +163,7 @@ export function NavigationETABar({
         )
       : null;
   const displayEta = etaMinutes ?? computedEtaMinutes;
-  const etaLabel = displayEta !== null ? `${displayEta} min` : '—';
+  const etaLabel = displayEta !== null ? `${displayEta} min` : isResolving ? '...' : '—';
   const buttonLabel =
     displayEta !== null ? `Navigate-${displayEta} Min` : 'Navigate';
 
@@ -215,35 +186,55 @@ export function NavigationETABar({
   return (
     <View style={styles.container}>
       {/* Full Map Background - centered on user location, shifted right so pin shows on left */}
-      <MapView
-        style={styles.map}
-        provider={PROVIDER_DEFAULT}
-        region={{
-          latitude: currentLatitude,
-          longitude: currentLongitude + 0.035,
-          latitudeDelta: 0.02,
-          longitudeDelta: 0.02,
-        }}
-        scrollEnabled={false}
-        zoomEnabled={false}
-        rotateEnabled={false}
-        pitchEnabled={false}
-        showsUserLocation={false}
-      >
-        {/* Current Location Pin - shows user's actual location */}
-        <Marker
-          coordinate={{
-            latitude: currentLatitude,
-            longitude: currentLongitude - 0.002,
+      {userLocation ? (
+        <MapView
+          style={styles.map}
+          provider={PROVIDER_DEFAULT}
+          region={{
+            latitude: userLocation.latitude,
+            longitude: userLocation.longitude + 0.035,
+            latitudeDelta: 0.02,
+            longitudeDelta: 0.02,
           }}
-          anchor={{ x: 0.5, y: 0.5 }}
+          scrollEnabled={false}
+          zoomEnabled={false}
+          rotateEnabled={false}
+          pitchEnabled={false}
+          showsUserLocation={false}
         >
-          <View style={styles.locationPinContainer}>
-            <View style={styles.locationPinOuter} />
-            <View style={styles.locationPinInner} />
-          </View>
-        </Marker>
-      </MapView>
+          {userLocation.accuracyMeters && userLocation.source !== "precise" ? (
+            <Circle
+              center={{
+                latitude: userLocation.latitude,
+                longitude: userLocation.longitude,
+              }}
+              radius={Math.max(userLocation.accuracyMeters, 250)}
+              fillColor="rgba(82, 153, 254, 0.16)"
+              strokeColor="rgba(82, 153, 254, 0.35)"
+              strokeWidth={1}
+            />
+          ) : null}
+          {/* Current Location Pin - shows user's actual location */}
+          <Marker
+            coordinate={{
+              latitude: userLocation.latitude,
+              longitude: userLocation.longitude - 0.002,
+            }}
+            anchor={{ x: 0.5, y: 0.5 }}
+          >
+            <View style={styles.locationPinContainer}>
+              <View style={styles.locationPinOuter} />
+              <View style={styles.locationPinInner} />
+            </View>
+          </Marker>
+        </MapView>
+      ) : (
+        <View style={[styles.map, styles.mapFallback]}>
+          <Text size="xs" weight="semiBold" color={SemanticColors.textMuted}>
+            Finding location...
+          </Text>
+        </View>
+      )}
 
       {/* Overlay - ETA Pill with Glass Effect */}
       <View style={styles.overlay}>
@@ -293,6 +284,11 @@ const styles = StyleSheet.create({
   },
   map: {
     ...StyleSheet.absoluteFillObject,
+  },
+  mapFallback: {
+    alignItems: 'center',
+    backgroundColor: BrandColors.background,
+    justifyContent: 'center',
   },
   locationPinContainer: {
     width: 40,

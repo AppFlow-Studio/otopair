@@ -93,6 +93,10 @@ export interface UserLocation {
   city: string;
   /** State/region */
   state: string;
+  /** Accuracy radius from the platform, in meters. */
+  accuracyMeters?: number | null;
+  /** Whether this fix came from cache, a fast estimate, or precise GPS. */
+  source?: "cached" | "estimate" | "precise";
 }
 
 /** Booking status options */
