@@ -7,6 +7,10 @@ export interface ToastOptions {
   duration?: number;
   /** Makes the whole toast tappable. Fires before dismiss. */
   onPress?: () => void;
+  /** Skip the auto-dismiss timer. The toast sits there until the user
+   *  taps it or swipes it away. Use for high-value notifications the
+   *  user is expected to act on (e.g. "your car is ready — book now"). */
+  persistent?: boolean;
 }
 
 export interface ToastQueueItem extends ToastOptions {

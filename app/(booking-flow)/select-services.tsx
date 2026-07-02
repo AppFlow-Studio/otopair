@@ -17,29 +17,24 @@
  * Spec: ~/Downloads/<figma frames> Screen 1.
  */
 
-import React, { useCallback, useEffect, useMemo, useRef } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Dimensions,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
-  useWindowDimensions,
   View,
 } from "react-native";
 import { BlurView } from "expo-blur";
-import {
-  Gesture,
-  GestureDetector,
-  ScrollView,
-} from "react-native-gesture-handler";
 import Animated, {
+  Easing,
   useAnimatedStyle,
   useSharedValue,
+  withTiming,
 } from "react-native-reanimated";
-import {
-  moderateScale,
-  moderateVerticalScale,
-} from "react-native-size-matters";
-import { useFocusEffect } from "expo-router";
+import MapView, { PROVIDER_DEFAULT } from "react-native-maps";
+import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Search, X } from "lucide-react-native";
@@ -52,16 +47,15 @@ import { GlassSheetHandle } from "@/components/booking-flow/GlassSheet";
 import { HeroCardClosestShop } from "@/components/booking-flow/HeroCardClosestShop";
 import { HeroCardMostBooked } from "@/components/booking-flow/HeroCardMostBooked";
 import { QuickBookRow } from "@/components/booking-flow/QuickBookRow";
-import {
-  clampSheetHeight,
-  getCustomSheetBounds,
-} from "@/components/booking-flow/responsiveSheetLayout";
 import { SelectedServicesFab } from "@/components/booking-flow/SelectedServicesFab";
 import {
   SelectedServicesSheet,
   type SelectedServicesSheetRef,
 } from "@/components/booking-flow/SelectedServicesSheet";
 import { VehiclePuck } from "@/components/booking-flow/VehiclePuck";
+import { useToast } from "@/hooks/useToast";
+import { useVehicleEnrichmentStatus } from "@/hooks/useVehicleEnrichmentStatus";
+import { useVehicleStore } from "@/stores/useVehicleStore";
 import { TABS, type TaxonomyTab } from "@/constants/serviceTaxonomy";
 import { useBookingStore } from "@/stores/useBookingStore";
 import type { ServiceCategory } from "@/stores/types/store.types";
@@ -87,19 +81,45 @@ function legacyCategoryToTab(
   }
 }
 
-// Per Ahmad's PM: drop-where-you-release behavior. gorhom's
-// snap-to-nearest with velocity fling kept throwing the sheet to
-// the max even on a tiny upward drag, so we replace the library
-// here with a minimal Pan + Reanimated drag that just clamps the
-// sheet height to [MIN_H, MAX_H] and leaves it there.
+// Sheet is a fixed-height frosted card by default — the content
+// inside scrolls. Two heights:
+//   - SHEET_H_FULL: default open state (search-entry path + after
+//     the user expands the peek).
+//   - SHEET_H_PEEK: low peek shown when the user enters via the
+//     map button on Home. Map underneath is interactive so they
+//     can pan around looking for shops; a tap on the sheet
+//     animates it up to full.
+const { height: SCREEN_HEIGHT } = Dimensions.get("window");
+const SHEET_H_FULL = SCREEN_HEIGHT * 0.92;
+const SHEET_H_PEEK = SCREEN_HEIGHT * 0.18;
+
 export default function SelectServicesScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { height: viewportHeight } = useWindowDimensions();
-  const sheetBounds = useMemo(
-    () => getCustomSheetBounds(viewportHeight),
-    [viewportHeight],
+  const { entry } = useLocalSearchParams<{ entry?: string }>();
+  // Peek mode: home's Map button passes `?entry=map` so the picker
+  // mounts low and lets the user interact with the map first. They
+  // tap the sheet to expand into the normal full-picker UI.
+  const isPeekEntry = entry === "map";
+  const [isPeekExpanded, setIsPeekExpanded] = useState(!isPeekEntry);
+  const sheetHeight = useSharedValue(
+    isPeekEntry ? SHEET_H_PEEK : SHEET_H_FULL,
   );
+  const sheetAnimatedStyle = useAnimatedStyle(() => ({
+    height: sheetHeight.value,
+  }));
+  const expandPeekSheet = useCallback(() => {
+    if (isPeekExpanded) return;
+    // Timing curve instead of a spring — the spring's slight
+    // overshoot at the top of the sheet read as a "jump" once the
+    // sheet hit its full height. A monotonic ease-out lands cleanly.
+    sheetHeight.value = withTiming(SHEET_H_FULL, {
+      duration: 360,
+      easing: Easing.out(Easing.cubic),
+    });
+    setIsPeekExpanded(true);
+  }, [isPeekExpanded, sheetHeight]);
+
   const availableServices = useBookingStore((s) => s.availableServices);
   const selectedServiceIds = useBookingStore((s) => s.selectedServiceIds);
   const initialServiceCategory = useBookingStore((s) => s.initialServiceCategory);
@@ -137,54 +157,66 @@ export default function SelectServicesScreen() {
     });
   }, [initialServiceCategory, router, setInitialServiceCategory]);
 
-  // Sheet height in pixels — driven by the Pan gesture below. Mounts
-  // already at INITIAL_H: the screen enters via the stack's cross-fade
-  // over the shared static map, so re-animating the sheet up from 0 on
-  // every screen entry only fought that transition. User can drag up
-  // to MAX_H (full screen) or down to MIN_H; release-where-you-let-go
-  // behavior (no snap).
-  const sheetHeight = useSharedValue(sheetBounds.initial);
-  const startHeight = useSharedValue(0);
-
-  useEffect(() => {
-    sheetHeight.value = clampSheetHeight(sheetHeight.value, sheetBounds);
-  }, [sheetBounds, sheetHeight]);
-
-  const dragGesture = useMemo(
-    () =>
-      Gesture.Pan()
-        // 20pt threshold so taps on the X / search / vehicle puck
-        // (sitting inside the drag chrome) never get swallowed by
-        // the pan handler — only deliberate swipes win.
-        .activeOffsetY([-20, 20])
-        .onBegin(() => {
-          startHeight.value = sheetHeight.value;
-        })
-        .onUpdate((e) => {
-          const next = startHeight.value - e.translationY;
-          sheetHeight.value = Math.max(
-            sheetBounds.minimum,
-            Math.min(sheetBounds.maximum, next),
-          );
-        }),
-    [sheetBounds.maximum, sheetBounds.minimum, sheetHeight, startHeight],
-  );
-
-  const sheetAnimatedStyle = useAnimatedStyle(() => ({
-    height: sheetHeight.value,
-  }));
-
-  // Shared persistent map (lives in the layout) — this screen uses it
-  // as a locked backdrop. Re-assert locked mode + recenter on every
-  // focus so coming back from the interactive choose-mechanic screen
-  // resets the camera.
+  // Shared persistent map (lives in the layout). Locked backdrop by
+  // default, but in peek mode (entered via Home's Map button) it
+  // unlocks while the sheet is still low so the user can pan/zoom
+  // around looking for shops. Once they tap the peek and the sheet
+  // expands, we re-lock so the map doesn't intercept gestures meant
+  // for the now-full sheet.
   const { setInteractive, setMarkers, mapRef, region } = useBookingFlowMap();
+  const mapShouldBeInteractive = isPeekEntry && !isPeekExpanded;
   useFocusEffect(
     useCallback(() => {
-      setInteractive(false);
+      setInteractive(mapShouldBeInteractive);
       setMarkers([]);
       if (region) mapRef.current?.animateToRegion(region, 300);
-    }, [setInteractive, setMarkers, mapRef, region]),
+    }, [setInteractive, setMarkers, mapRef, region, mapShouldBeInteractive]),
+  );
+  // Also flip interactivity whenever the peek state changes mid-focus
+  // (without waiting for the next focus tick) so tap → expand
+  // immediately disables the map underneath.
+  useEffect(() => {
+    setInteractive(mapShouldBeInteractive);
+  }, [setInteractive, mapShouldBeInteractive]);
+
+  // Enrichment-in-progress nudge. If the currently selected vehicle
+  // is still being enriched by the v3 pipeline (i.e. server-side
+  // booking creation would throw VEHICLE_ENRICHMENT_INCOMPLETE), pop
+  // a toast on every focus telling the user to check back in N
+  // minutes. Toast-only — no in-screen block per Ahmad. Dedupe by
+  // `${vin}:${isInProgress}` so we don't re-fire on tab switches if
+  // the underlying state hasn't changed.
+  const toast = useToast();
+  const selectedVin = useVehicleStore((s) => s.getSelectedVehicle()?.vin ?? null);
+  const enrichment = useVehicleEnrichmentStatus(selectedVin);
+  const lastEnrichmentToastRef = useRef<string | null>(null);
+  useFocusEffect(
+    useCallback(() => {
+      if (!selectedVin || !enrichment?.isInProgress) {
+        // Reset the dedupe key so re-entering with the same vehicle
+        // after it finishes & re-starts (very rare) fires fresh.
+        lastEnrichmentToastRef.current = null;
+        return;
+      }
+      const dedupeKey = `${selectedVin}:in-progress`;
+      if (lastEnrichmentToastRef.current === dedupeKey) return;
+      lastEnrichmentToastRef.current = dedupeKey;
+
+      const eta = enrichment.etaMinutes ?? 0;
+      const baselineElapsed =
+        enrichment.elapsedMs != null && enrichment.elapsedMs > 7 * 60 * 1000;
+
+      // Universal-language pass per Ahmad: "connecting" instead of
+      // "enriching" / "prepping" so any user understands what's
+      // happening. Body stays informational but trimmed — single
+      // short line with the ETA.
+      const title = "Still connecting to your car";
+      const body = baselineElapsed
+        ? "Almost there."
+        : `Try again in ~${eta} minute${eta === 1 ? "" : "s"}.`;
+
+      toast.trust(title, body);
+    }, [selectedVin, enrichment?.isInProgress, enrichment?.etaMinutes, enrichment?.elapsedMs, toast]),
   );
 
   // Per-tab service counts from the live catalog. Drops services
@@ -210,12 +242,34 @@ export default function SelectServicesScreen() {
 
   return (
     <View style={styles.root} pointerEvents="box-none">
-      {/* Map is the shared persistent backdrop rendered by the layout;
-          this screen only paints its sheet over it. */}
+      {/* Map is normally the shared persistent backdrop from the
+          layout, but in peek mode (Home → Map button) we render a
+          LOCAL interactive MapView right here inside the screen.
+          The layout-level map's touches were being eaten by
+          react-navigation's native-stack Card before they could
+          fall through to the map sibling — a known quirk of
+          UIViewController-based screens absorbing touches at the
+          native frame boundary. Mounting the map as a direct child
+          of the screen's view tree gives it touches naturally.
+          On expand we drop this back to the shared map (the sheet
+          covers the area so the map isn't visible anyway). */}
+      {isPeekEntry && !isPeekExpanded && region ? (
+        <MapView
+          style={StyleSheet.absoluteFill}
+          provider={PROVIDER_DEFAULT}
+          initialRegion={region}
+          showsUserLocation
+          scrollEnabled
+          zoomEnabled
+          pitchEnabled={false}
+          rotateEnabled
+        />
+      ) : null}
 
-      {/* Custom free-drag sheet — stays exactly where the user lets
-          go. Pan gesture covers the whole sheet so dragging from
-          anywhere (handle or content) works. */}
+      {/* Frosted sheet — fixed height by default, animates from peek
+          to full height when the user enters via Home's map button
+          and taps the sheet. Content scrolls inside (no Pan gesture
+          that resizes the sheet mid-scroll). */}
       <Animated.View style={[styles.sheet, sheetAnimatedStyle]}>
           {/* Real frosted-glass sheet — same pattern Settings uses
               for its blurred header. On iOS BlurView blurs the
@@ -229,45 +283,63 @@ export default function SelectServicesScreen() {
               pointerEvents="none"
             />
           )}
-          <GestureDetector gesture={dragGesture}>
-            <View>
-              <GlassSheetHandle />
-              <View style={styles.topRow}>
-                <Pressable
-                  style={styles.iconBtn}
-                  onPress={onClose}
-                  hitSlop={8}
-                  accessibilityLabel="Close"
-                >
-                  <X size={20} color="#1F2937" strokeWidth={2} />
-                </Pressable>
-                <View style={{ flex: 1 }} />
-                <Pressable
-                  style={styles.iconBtn}
-                  onPress={() => router.push("/(booking-flow)/search")}
-                  hitSlop={8}
-                  accessibilityLabel="Search services"
-                >
-                  <Search size={20} color="#1F2937" strokeWidth={2} />
-                </Pressable>
-                <View style={styles.vehicleGap} />
-                <VehiclePuck interactive />
-              </View>
-            </View>
-          </GestureDetector>
-
+          <GlassSheetHandle />
+          {/* Peek body — only rendered while the map-entry user
+              hasn't tapped to expand. Whole peek is a Pressable so
+              the entire visible sheet area is a tap target. Picking
+              a separate component instead of an overlay avoids the
+              tap conflicting with any nested Pressables (X / search
+              icons) since those don't render until after expansion. */}
+          {isPeekEntry && !isPeekExpanded ? (
+            <Pressable
+              onPress={expandPeekSheet}
+              style={styles.peekBody}
+              accessibilityRole="button"
+              accessibilityLabel="Browse services"
+              accessibilityHint="Expands the service picker"
+            >
+              <Text
+                size="lg"
+                weight="semiBold"
+                color="#0F172A"
+                style={styles.peekTitle}
+              >
+                Find shops on the map
+              </Text>
+              <Text size="sm" weight="regular" color="#6B7280" center>
+                Tap to pick a service
+              </Text>
+            </Pressable>
+          ) : (
           <ScrollView
-            style={styles.scrollView}
             contentContainerStyle={[
               styles.scrollContent,
-              {
-                paddingBottom:
-                  insets.bottom + moderateVerticalScale(32, 0.35),
-              },
+              { paddingBottom: insets.bottom + 32 },
             ]}
             showsVerticalScrollIndicator={false}
-            nestedScrollEnabled
           >
+          {/* Top control row */}
+          <View style={styles.topRow}>
+            <Pressable
+              style={styles.iconBtn}
+              onPress={onClose}
+              hitSlop={8}
+              accessibilityLabel="Close"
+            >
+              <X size={20} color="#1F2937" strokeWidth={2} />
+            </Pressable>
+            <View style={{ flex: 1 }} />
+            <Pressable
+              style={styles.iconBtn}
+              onPress={() => router.push("/(booking-flow)/search")}
+              hitSlop={8}
+              accessibilityLabel="Search services"
+            >
+              <Search size={20} color="#1F2937" strokeWidth={2} />
+            </Pressable>
+            <View style={{ width: 8 }} />
+            <VehiclePuck interactive />
+          </View>
 
           {/* Header */}
           <View style={styles.header}>
@@ -307,7 +379,8 @@ export default function SelectServicesScreen() {
             <QuickBookRow />
           </View>
           </ScrollView>
-        </Animated.View>
+          )}
+      </Animated.View>
 
       {/* Cart review FAB — same one Screen 2 has so the user can
           see + edit the multi-tab selection from Screen 1 too.
@@ -355,19 +428,26 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingTop: 0,
-  },
-  scrollView: {
+    paddingBottom: 32,
     flex: 1,
+  },
+  peekBody: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 32,
+    paddingBottom: 16,
+    gap: 6,
+  },
+  peekTitle: {
+    textAlign: "center",
   },
   topRow: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: moderateScale(16, 0.25),
+    paddingHorizontal: 16,
     paddingTop: 0,
-    paddingBottom: moderateVerticalScale(12, 0.25),
-  },
-  vehicleGap: {
-    width: moderateScale(8, 0.25),
+    paddingBottom: 12,
   },
   iconBtn: {
     width: 40,
@@ -400,7 +480,7 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255, 255, 255, 0.8)",
     overflow: "hidden",
     marginBottom: 22,
-    boxShadow: Platform.OS === "ios" ? CardShadow.default : undefined,
+    boxShadow: CardShadow.default,
   },
   divider: {
     height: 1,

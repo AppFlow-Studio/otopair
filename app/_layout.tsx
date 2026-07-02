@@ -24,6 +24,7 @@ import { ErrorBoundary as AppErrorBoundary, ErrorModalHost, errorBus } from "@/l
 import { ErrorOccurredModal } from "@/components/shared-ui";
 import { StripePaymentMethodsSync } from "@/components/payments/StripePaymentMethodsSync";
 import { ToastProvider } from "@/components/toast";
+import { useEnrichmentCompletionWatcher } from "@/hooks/useEnrichmentCompletionWatcher";
 import { api } from "@/convex/_generated/api";
 
 import { useColorScheme } from "@/hooks/use-color-scheme";
@@ -268,6 +269,11 @@ export default function RootLayout() {
             <GestureHandlerRootView style={{ flex: 1 }}>
               <BottomSheetModalProvider>
                 <ToastProvider>
+                {/* Mounts the global enrichment-completion watcher.
+                    Subscribes to the user's vehicles' enrichment phases
+                    and fires a persistent tap-to-book toast the moment
+                    any of them transitions in_progress → ready. */}
+                <EnrichmentCompletionMount />
                 <StripeProvider
                   publishableKey={process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? ""}
                   merchantIdentifier={process.env.EXPO_PUBLIC_STRIPE_MERCHANT_ID ?? "merchant.com.otopair.app"}
@@ -435,4 +441,13 @@ export default function RootLayout() {
       </StartupSplashGate>
     </ClerkProvider>
   );
+}
+
+/** Mount-only component for the global enrichment-completion watcher.
+ *  Needs to be a child of <ToastProvider> so it can call useToast(),
+ *  so we wrap the hook in its own component instead of inlining it
+ *  into RootLayout. Renders nothing. */
+function EnrichmentCompletionMount(): null {
+  useEnrichmentCompletionWatcher();
+  return null;
 }

@@ -12,9 +12,11 @@ import {
 import Animated, {
   Easing,
   cancelAnimation,
+  interpolateColor,
   runOnJS,
   useAnimatedStyle,
   useSharedValue,
+  withDelay,
   withSpring,
   withTiming,
 } from "react-native-reanimated";
@@ -35,10 +37,26 @@ import {
 import type { ToastQueueItem, ToastVariant } from "./types";
 
 const ENTER_SPRING = { damping: 18, stiffness: 220, mass: 0.6 } as const;
-const EXIT_TIMING = { duration: 220, easing: Easing.in(Easing.cubic) } as const;
+// Slower, gentler exit per Ahmad — the previous 220ms `Easing.in.cubic`
+// felt like a snap-out. 480ms with the standard Material-style
+// out-cubic glides the toast back down to the bottom edge.
+const EXIT_TIMING = {
+  duration: 480,
+  easing: Easing.bezier(0.33, 0, 0.67, 1),
+} as const;
 const REDUCE_FADE = { duration: 200, easing: Easing.linear } as const;
 const SWIPE_DISMISS_THRESHOLD = 32;
 const SWIPE_VELOCITY_THRESHOLD = 600;
+
+// Stadium-wave title effect: a "wave position" shared value sweeps
+// across the title text. Each character derives its own scale +
+// color from the distance to the wave's current position, so the
+// pop traverses letter-by-letter — by the time the wave reaches
+// the tail, the leading letters are already back to resting black.
+const WAVE_PER_CHAR_MS = 45;     // controls the wave's travel speed
+const WAVE_WIDTH = 4;            // chars in the active window (half-width on each side)
+const WAVE_PEAK_SCALE = 1.18;
+const WAVE_PEAK_COLOR = "#5299FE";
 
 const TABLET_MAX_WIDTH = 480;
 
@@ -56,18 +74,20 @@ function dynamicTypeScale(base: number): number {
 
 interface Props {
   item: ToastQueueItem;
-  topOffset: number;
+  bottomOffset: number;
   onRequestDismiss: (id: string) => void;
 }
 
-export function Toast({ item, topOffset, onRequestDismiss }: Props) {
+export function Toast({ item, bottomOffset, onRequestDismiss }: Props) {
   const scheme = useColorScheme() ?? "light";
   const tokens = VARIANT_TOKENS[item.variant];
   const palette = tokens[scheme];
   const textColors = TOAST_TEXT[scheme];
   const reduceMotion = useReducedMotion();
 
-  const translateY = useSharedValue(reduceMotion ? 0 : -120);
+  // Bottom-anchored (Airbnb-style): toast starts BELOW its rest
+  // position and slides up. Positive translateY means "down".
+  const translateY = useSharedValue(reduceMotion ? 0 : 120);
   const opacity = useSharedValue(0);
 
   useEffect(() => {
@@ -79,10 +99,16 @@ export function Toast({ item, topOffset, onRequestDismiss }: Props) {
       opacity.value = withTiming(1, { duration: 220 });
     }
 
-    const duration = item.duration ?? DEFAULT_DURATION_MS[item.variant];
-    const timer = setTimeout(() => dismiss("auto"), duration);
+    // Persistent toasts skip the auto-dismiss timer — they stick around
+    // until the user taps or swipes them. Used for tap-to-act surfaces
+    // (e.g. "your car is ready — book now").
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    if (!item.persistent) {
+      const duration = item.duration ?? DEFAULT_DURATION_MS[item.variant];
+      timer = setTimeout(() => dismiss("auto"), duration);
+    }
     return () => {
-      clearTimeout(timer);
+      if (timer) clearTimeout(timer);
       cancelAnimation(translateY);
       cancelAnimation(opacity);
     };
@@ -101,7 +127,8 @@ export function Toast({ item, topOffset, onRequestDismiss }: Props) {
       return;
     }
     opacity.value = withTiming(0, EXIT_TIMING);
-    translateY.value = withTiming(-8, EXIT_TIMING, (done) => {
+    // Exit drifts downward by 8pt while fading.
+    translateY.value = withTiming(8, EXIT_TIMING, (done) => {
       if (done) runOnJS(finalize)();
     });
   }
@@ -111,24 +138,26 @@ export function Toast({ item, topOffset, onRequestDismiss }: Props) {
     dismiss("tap");
   }
 
+  // Bottom-anchored swipe-to-dismiss = swipe DOWN. Drag past the
+  // threshold OR flick downward fast enough → fly out below.
   const swipeGesture = Gesture.Pan()
     .activeOffsetY([-10, 10])
     .onUpdate((event) => {
-      if (event.translationY < 0) {
+      if (event.translationY > 0) {
         translateY.value = event.translationY;
-        opacity.value = Math.max(0, 1 + event.translationY / 120);
+        opacity.value = Math.max(0, 1 - event.translationY / 120);
       }
     })
     .onEnd((event) => {
-      const fastEnough = event.velocityY < -SWIPE_VELOCITY_THRESHOLD;
-      const farEnough = event.translationY < -SWIPE_DISMISS_THRESHOLD;
+      const fastEnough = event.velocityY > SWIPE_VELOCITY_THRESHOLD;
+      const farEnough = event.translationY > SWIPE_DISMISS_THRESHOLD;
       if (fastEnough || farEnough) {
         if (reduceMotion) {
           opacity.value = withTiming(0, REDUCE_FADE, (done) => {
             if (done) runOnJS(finalize)();
           });
         } else {
-          translateY.value = withSpring(-200, { damping: 22, stiffness: 280 });
+          translateY.value = withSpring(200, { damping: 22, stiffness: 280 });
           opacity.value = withTiming(0, { duration: 160 }, (done) => {
             if (done) runOnJS(finalize)();
           });
@@ -149,6 +178,11 @@ export function Toast({ item, topOffset, onRequestDismiss }: Props) {
   }));
 
   const isTrust = item.variant === "trust";
+  // Per Ahmad's redesign: the trust toast wears a flat white card on
+  // light mode (matches every other variant). Skip the gradient
+  // overlay on light scheme — it would tint the white. Dark mode
+  // keeps the BlurView+gradient look since white-on-dark is harsh.
+  const renderTrustOverlay = isTrust && scheme !== "light";
   const shadow = isTrust ? TRUST_SHADOW[scheme] : TOAST_SHADOW[scheme];
   const role: AccessibilityRole = POLITE_VARIANTS.has(item.variant) ? "summary" : "alert";
 
@@ -158,7 +192,7 @@ export function Toast({ item, topOffset, onRequestDismiss }: Props) {
   return (
     <GestureDetector gesture={swipeGesture}>
       <Animated.View
-        style={[styles.outer, { top: topOffset }, animatedStyle]}
+        style={[styles.outer, { bottom: bottomOffset }, animatedStyle]}
         pointerEvents="box-none"
       >
         <Pressable
@@ -181,33 +215,27 @@ export function Toast({ item, topOffset, onRequestDismiss }: Props) {
           style={[
             styles.container,
             {
-              backgroundColor: isTrust ? "transparent" : palette.bg,
+              backgroundColor: renderTrustOverlay ? "transparent" : palette.bg,
               borderColor: palette.border,
               maxHeight,
             },
             shadow,
           ]}
         >
-          {isTrust ? (
+          {renderTrustOverlay ? (
             <TrustToastBackground scheme={scheme} borderColor={palette.border} />
           ) : null}
           <View style={styles.row}>
             <ToastIcon variant={item.variant} palette={palette} />
             <View style={styles.textCol}>
-              <Animated.Text
-                numberOfLines={2}
-                ellipsizeMode="tail"
-                style={[
-                  styles.title,
-                  {
-                    color: textColors.title,
-                    fontSize: dynamicTypeScale(15),
-                    lineHeight: dynamicTypeScale(20),
-                  },
-                ]}
-              >
-                {item.title}
-              </Animated.Text>
+              <WaveTitle
+                key={item.id}
+                text={item.title}
+                restColor={textColors.title}
+                fontSize={dynamicTypeScale(15)}
+                lineHeight={dynamicTypeScale(20)}
+                reduceMotion={reduceMotion}
+              />
               {item.body ? (
                 <Animated.Text
                   numberOfLines={3}
@@ -231,6 +259,162 @@ export function Toast({ item, topOffset, onRequestDismiss }: Props) {
     </GestureDetector>
   );
 }
+
+// ============================================================================
+// WAVE TITLE — per-char stadium-wave animation
+// ============================================================================
+
+interface WaveTitleProps {
+  text: string;
+  restColor: string;
+  fontSize: number;
+  lineHeight: number;
+  reduceMotion: boolean;
+}
+
+/** Renders the toast title as a wrap-row of per-character
+ *  `Animated.Text` nodes. A single `wave` shared value sweeps
+ *  from -WAVE_WIDTH past `text.length + WAVE_WIDTH`; each char
+ *  reads it through `useAnimatedStyle` and computes its own
+ *  scale + color from the distance to the wave's current
+ *  position. Result: a Mexican-wave-style pulse traveling
+ *  letter-by-letter across the title. */
+function WaveTitle({
+  text,
+  restColor,
+  fontSize,
+  lineHeight,
+  reduceMotion,
+}: WaveTitleProps) {
+  const totalChars = text.length;
+  // Start before the first letter, end past the last. Linear so
+  // the wave's apparent speed reads as constant across the title.
+  const wave = useSharedValue<number>(
+    reduceMotion ? totalChars + WAVE_WIDTH : -WAVE_WIDTH,
+  );
+
+  useEffect(() => {
+    if (reduceMotion) {
+      wave.value = totalChars + WAVE_WIDTH;
+      return;
+    }
+    wave.value = -WAVE_WIDTH;
+    const totalSpan = totalChars + WAVE_WIDTH * 2;
+    wave.value = withTiming(totalChars + WAVE_WIDTH, {
+      duration: totalSpan * WAVE_PER_CHAR_MS,
+      easing: Easing.linear,
+    });
+    return () => cancelAnimation(wave);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [text]);
+
+  // Split by space so each word stays together when wrapping.
+  // Each word gets its own non-wrapping row View; spaces between
+  // words go inside the word container so they wrap with the word.
+  const words = text.split(" ");
+  let globalIdx = 0;
+
+  return (
+    <View style={waveStyles.wrap} accessible={false}>
+      {words.map((word, wIdx) => {
+        const chars = Array.from(word);
+        const startIdx = globalIdx;
+        globalIdx += chars.length;
+        // Trailing space char ALSO gets a wave node so the wave
+        // sweeps continuously across word boundaries instead of
+        // hiccuping over invisible gaps.
+        const trailingSpaceIdx = wIdx < words.length - 1 ? globalIdx++ : null;
+
+        return (
+          <View
+            key={`${wIdx}-${word}`}
+            style={waveStyles.word}
+            accessible={false}
+          >
+            {chars.map((c, ci) => (
+              <WaveChar
+                key={`${wIdx}-${ci}`}
+                char={c}
+                index={startIdx + ci}
+                wave={wave}
+                restColor={restColor}
+                fontSize={fontSize}
+                lineHeight={lineHeight}
+              />
+            ))}
+            {trailingSpaceIdx !== null ? (
+              <WaveChar
+                char=" "
+                index={trailingSpaceIdx}
+                wave={wave}
+                restColor={restColor}
+                fontSize={fontSize}
+                lineHeight={lineHeight}
+              />
+            ) : null}
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
+interface WaveCharProps {
+  char: string;
+  index: number;
+  wave: ReturnType<typeof useSharedValue<number>>;
+  restColor: string;
+  fontSize: number;
+  lineHeight: number;
+}
+
+function WaveChar({
+  char,
+  index,
+  wave,
+  restColor,
+  fontSize,
+  lineHeight,
+}: WaveCharProps) {
+  const animatedStyle = useAnimatedStyle(() => {
+    const dist = Math.abs(wave.value - index);
+    // 1 at the wave's exact position; 0 outside the active window.
+    const pop = Math.max(0, 1 - dist / WAVE_WIDTH);
+    return {
+      color: interpolateColor(pop, [0, 1], [restColor, WAVE_PEAK_COLOR]),
+      transform: [{ scale: 1 + (WAVE_PEAK_SCALE - 1) * pop }],
+      // Pinned to bottom-center so the baseline doesn't shift as
+      // the letter scales up.
+      transformOrigin: "center bottom",
+    };
+  });
+
+  return (
+    <Animated.Text
+      accessible={false}
+      style={[
+        {
+          fontFamily: FontFamily.semiBold,
+          fontSize,
+          lineHeight,
+        },
+        animatedStyle,
+      ]}
+    >
+      {char}
+    </Animated.Text>
+  );
+}
+
+const waveStyles = StyleSheet.create({
+  wrap: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+  },
+  word: {
+    flexDirection: "row",
+  },
+});
 
 const styles = StyleSheet.create({
   outer: {

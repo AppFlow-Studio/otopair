@@ -25,6 +25,20 @@ interface Props {
 
 export function ToastIcon({ variant, palette }: Props) {
   const Icon = ICON_MAP[variant];
+  // `naked` = no chip background, no border — the icon sits directly
+  // on the toast card. Triggered when the palette opts out via a
+  // transparent iconContainerBg (the light-mode redesign).
+  const naked =
+    palette.iconContainerBg === "transparent" && !palette.iconContainerBorder;
+
+  if (naked) {
+    return (
+      <View style={styles.naked}>
+        <Icon size={28} color={palette.iconColor} strokeWidth={2} />
+      </View>
+    );
+  }
+
   return (
     <View
       style={[
@@ -46,6 +60,14 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  naked: {
+    // Same size envelope as the chipped version so the row layout
+    // doesn't shift between variants — just no fill/border.
+    width: 32,
+    height: 32,
     alignItems: "center",
     justifyContent: "center",
   },

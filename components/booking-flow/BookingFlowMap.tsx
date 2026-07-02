@@ -147,11 +147,15 @@ export function BookingFlowMapProvider({
         setMarkers: setMarkersCb,
       }}
     >
-      <View style={styles.root}>
-        {/* Persistent map behind every screen. pointerEvents follows
-            the interactive flag so the locked backdrop never eats a
-            touch meant for the sheet above it, while the interactive
-            screen can receive pan/pinch in its exposed map area. */}
+      <View style={styles.root} pointerEvents="box-none">
+        {/* Persistent map behind every screen. Gesture props on the
+            MapView are ALWAYS on — react-native-maps has been spotty
+            about re-applying scrollEnabled/zoomEnabled mid-mount, so
+            we let the MapView always think it's interactive and gate
+            real touches at the wrapper's pointerEvents instead. When
+            `interactive` is false the wrapper blocks all touches, so
+            the MapView never sees a gesture; when true, touches
+            arrive on an already-configured MapView. */}
         <View
           style={StyleSheet.absoluteFill}
           pointerEvents={interactive ? "auto" : "none"}
@@ -163,10 +167,10 @@ export function BookingFlowMapProvider({
               provider={PROVIDER_DEFAULT}
               initialRegion={region}
               showsUserLocation
-              scrollEnabled={interactive}
-              zoomEnabled={interactive}
+              scrollEnabled
+              zoomEnabled
               pitchEnabled={false}
-              rotateEnabled={interactive}
+              rotateEnabled
             >
               {markers.map((m) => (
                 <Marker
@@ -181,7 +185,20 @@ export function BookingFlowMapProvider({
           )}
         </View>
 
-        {children}
+        {/* Children (the booking-flow Stack) wrapped in a controlled
+            pointerEvents layer. When the map is interactive, this
+            wrapper is `box-none` so empty screen areas pass touches
+            straight through to the map sibling underneath — fixes
+            the case where a screen's own `box-none` root wasn't
+            enough to defeat the react-navigation Card from
+            consuming touches. When the map is locked, this wrapper
+            is `auto` so screens behave like a normal opaque layer. */}
+        <View
+          style={StyleSheet.absoluteFill}
+          pointerEvents={interactive ? "box-none" : "auto"}
+        >
+          {children}
+        </View>
       </View>
     </BookingFlowMapContext.Provider>
   );

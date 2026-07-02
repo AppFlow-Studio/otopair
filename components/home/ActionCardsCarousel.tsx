@@ -163,18 +163,28 @@ export function ActionCardsCarousel({
     { id: 'car', visible: showCarSetup },
   ].filter((card) => card.visible);
 
-  // Scroll to first card on mount or when card list changes
+  // Clamp + re-snap whenever the cards array changes. When a booking
+  // is made, showAppointment flips and the cards array grows — the
+  // ScrollView's stale contentOffset would otherwise land on a
+  // half-page boundary, which is the bug Ahmad caught where the
+  // appointment card (red SUV + small navigation map) and the
+  // NowTierCallout Oil Change content visually collide mid-scroll.
+  // Clamp activeIndex to the new valid range and imperatively re-snap
+  // to that clamped page, without animation so the realignment is
+  // invisible.
   useEffect(() => {
-    if (scrollViewRef.current && cards.length > 0) {
-      scrollViewRef.current.scrollTo({
-        x: 0,
-        animated: false,
-      });
-      setActiveIndex(0);
-      onCardChange?.(0);
+    if (!scrollViewRef.current || cards.length === 0) return;
+    const clamped = Math.min(activeIndex, cards.length - 1);
+    if (clamped !== activeIndex) {
+      setActiveIndex(clamped);
+      onCardChange?.(clamped);
     }
+    scrollViewRef.current.scrollTo({
+      x: clamped * screenWidth,
+      animated: false,
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showAccountSetup, showAppointment, showResumeBooking, showCarSetup]);
+  }, [showAccountSetup, showAppointment, showResumeBooking, showCarSetup, cards.length, screenWidth]);
 
   const activeCard = cards[activeIndex] ?? cards[0];
   const containerHeight = activeCard ? cardHeights[activeCard.id] : undefined;
@@ -339,6 +349,15 @@ export function ActionCardsCarousel({
         style={styles.scrollView}
         onScroll={handleScroll}
         scrollEventThrottle={16}
+        // Explicit snap + disable multi-page momentum so a swipe always
+        // lands on a single page boundary, even when the parent layout
+        // re-renders mid-scroll (e.g. when a booking mutation flips
+        // showAppointment). Without these, the carousel could settle
+        // on a half-page with the appointment card's navigation map
+        // bleeding into a sibling card.
+        snapToInterval={screenWidth}
+        snapToAlignment="start"
+        disableIntervalMomentum
       >
         {cards.map((card, index) => renderCard(card.id, index))}
       </ScrollView>
@@ -352,11 +371,20 @@ export function ActionCardsCarousel({
 
 const styles = StyleSheet.create({
   container: {
-    overflow: 'visible',
+    // Clip card content to the container's animated height. The
+    // container tracks the ACTIVE card's height (compact-active-card
+    // layout). If a sibling card (e.g. the appointment card with its
+    // BookingCard + NavigationETABar map) is taller than the active
+    // card, `overflow: 'visible'` would let it paint past the
+    // container's bottom edge — straight into the NowTierCallout
+    // below. That's the bug Ahmad caught where the map + red SUV
+    // image from the booking-in-progress card visually invaded the
+    // Oil Change "Book Service" card. Clip it.
+    overflow: 'hidden',
   },
   scrollView: {
     marginHorizontal: -16, // Extend scroll view to edges
-    overflow: 'visible',
+    overflow: 'hidden',
   },
   scrollContent: {
     alignItems: 'flex-start',

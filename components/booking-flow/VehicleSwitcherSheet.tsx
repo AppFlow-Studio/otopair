@@ -91,48 +91,53 @@ export function VehicleSwitcherSheet({ onClose }: VehicleSwitcherSheetProps) {
             No vehicles yet. Add one from your garage to switch.
           </Text>
         ) : (
+          // Sheet's snap height is clamped at 0.7 of the viewport; on
+          // larger garages the row list overflows. Wrap in ScrollView
+          // so the user can reach every car, including newly added
+          // ones at the bottom of the list.
           <ScrollView
+            style={styles.scroll}
             showsVerticalScrollIndicator={false}
             contentContainerStyle={{ paddingBottom: listBottomPadding }}
           >
-          {vehicleIds.map((id) => {
-            const v = vehicles[id];
-            if (!v) return null;
-            const isActive = id === selectedVehicleId;
-            return (
-              <Pressable
-                key={id}
-                style={[styles.row, isActive && styles.rowActive]}
-                onPress={() => onPick(id)}
-                accessibilityRole="button"
-                accessibilityState={{ selected: isActive }}
-                accessibilityLabel={`${v.year} ${v.make} ${v.model}`}
-              >
-                <View style={styles.thumb}>
-                  {v.imageSource ? (
-                    <Image source={v.imageSource} style={styles.thumbImage} resizeMode="contain" />
-                  ) : (
-                    <CarSilhouette variant="suv" width={64} height={44} />
-                  )}
-                </View>
-                <View style={styles.rowText}>
-                  <Text size="md" weight="bold" color="#0F172A" numberOfLines={1}>
-                    {v.year} {v.make} {v.model}
-                  </Text>
-                  {v.vin ? (
-                    <Text size="xs" weight="regular" color="#6B7280" numberOfLines={1}>
-                      VIN ending {v.vin.slice(-6)}
-                    </Text>
-                  ) : null}
-                </View>
-                {isActive ? (
-                  <View style={styles.check}>
-                    <Check size={16} color="#FFFFFF" strokeWidth={2.5} />
+            {vehicleIds.map((id) => {
+              const v = vehicles[id];
+              if (!v) return null;
+              const isActive = id === selectedVehicleId;
+              return (
+                <Pressable
+                  key={id}
+                  style={[styles.row, isActive && styles.rowActive]}
+                  onPress={() => onPick(id)}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: isActive }}
+                  accessibilityLabel={`${v.year} ${v.make} ${v.model}`}
+                >
+                  <View style={styles.thumb}>
+                    {v.imageSource ? (
+                      <Image source={v.imageSource} style={styles.thumbImage} resizeMode="contain" />
+                    ) : (
+                      <CarSilhouette variant="suv" width={64} height={44} />
+                    )}
                   </View>
-                ) : null}
-              </Pressable>
-            );
-          })}
+                  <View style={styles.rowText}>
+                    <Text size="md" weight="bold" color="#0F172A" numberOfLines={1}>
+                      {v.year} {v.make} {v.model}
+                    </Text>
+                    {v.vin ? (
+                      <Text size="xs" weight="regular" color="#6B7280" numberOfLines={1}>
+                        VIN ending {v.vin.slice(-6)}
+                      </Text>
+                    ) : null}
+                  </View>
+                  {isActive ? (
+                    <View style={styles.check}>
+                      <Check size={16} color="#FFFFFF" strokeWidth={2.5} />
+                    </View>
+                  ) : null}
+                </Pressable>
+              );
+            })}
           </ScrollView>
         )}
       </View>
@@ -142,9 +147,12 @@ export function VehicleSwitcherSheet({ onClose }: VehicleSwitcherSheetProps) {
 
 const styles = StyleSheet.create({
   body: {
+    flex: 1,
     paddingHorizontal: 20,
     paddingTop: 6,
     paddingBottom: 0,
+  },
+  scroll: {
     flex: 1,
   },
   title: {
