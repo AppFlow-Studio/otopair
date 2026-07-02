@@ -22,6 +22,7 @@ import { useMutation, useQuery } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { useMutationWithToast } from '@/hooks/useMutationWithToast';
 import { useToast } from '@/hooks/useToast';
+import { useOemServiceIntervalsBatch } from '@/hooks/useOemServiceIntervals';
 
 // 3. Shared UI
 import { Button, BrandColors, ScrollDrivenGradientBackground, Text } from "@/components/shared-ui";
@@ -59,6 +60,20 @@ import * as SecureStore from 'expo-secure-store';
 // review-prompt sheet on home, so each completed booking only auto-prompts
 // once across app restarts.
 const REVIEW_PROMPT_SEEN_KEY = 'otopair.reviewPromptSeenBookingIds.v1';
+
+/** Rotating example searches shown in the Home search bar's placeholder
+ *  with a typewriter effect. Same vibe as the doc-marked QUICK 3-LINE
+ *  summaries: real things real users say, not feature names. Add /
+ *  remove freely — the bar cycles indefinitely. */
+const SEARCH_PLACEHOLDER_PHRASES = [
+  'Book an oil change',
+  'Mechanics near me',
+  'Book an inspection',
+  'Check engine light',
+  'Brake service',
+  'Tire rotation',
+  'Find a shop nearby',
+] as const;
 async function loadPromptedBookingIds(): Promise<Set<string>> {
   try {
     const raw = await SecureStore.getItemAsync(REVIEW_PROMPT_SEEN_KEY);
@@ -427,6 +442,20 @@ export default function HomeScreen() {
     allOwnershipIds.length > 0 ? { vehicleOwnerIds: allOwnershipIds } : "skip"
   );
 
+  // ── OEM service intervals for ALL vehicles (per-config map) ──
+  // Batched into one round-trip so the per-vehicle loop below can look
+  // up its config's intervals without N queries. Configs that haven't
+  // been enriched yet just won't have a key — the maintenance calc
+  // falls back to MAKE_OVERRIDES / DEFAULT_INTERVALS for those.
+  const allVehicleConfigIds = useMemo(
+    () =>
+      (listVehicles ?? [])
+        .map((r: any) => r.vehicle?.vehicle_config_id)
+        .filter(Boolean) as Id<"vehicle_configs">[],
+    [listVehicles],
+  );
+  const allOemIntervals = useOemServiceIntervalsBatch(allVehicleConfigIds);
+
   // ── Vehicle data with maintenance (no image dep — avoids cascading recomputation) ──
   const vehicleBaseData = useMemo<HomeVehicleBaseData[]>(() => {
     if (!listVehicles?.length) return [];
@@ -452,6 +481,14 @@ export default function HomeScreen() {
         const isOnboardingComplete = o?.onboardingComplete === true;
         const odometer: number | null = isOnboardingComplete ? (o?.mileage ?? null) : null;
         const knownIssues = o?.knownIssues as string[] | undefined;
+        // Per-vehicle OEM intervals from the batch query above. Empty
+        // map when the v3 pipeline hasn't enriched this config yet —
+        // computeMaintenanceStatus → getInterval falls back through
+        // MAKE_OVERRIDES → DEFAULT_INTERVALS for that case.
+        const configId = v?.vehicle_config_id as string | undefined;
+        const oemIntervalsForVehicle = configId
+          ? (allOemIntervals[configId] ?? undefined)
+          : undefined;
 
         const urgentItems: HomeMaintenanceItem[] = [];
         // Now-tier items per Yassin v1.1 §3.2 — aggregated into
@@ -474,7 +511,8 @@ export default function HomeScreen() {
             o?.drivingConditions as string | undefined,
             o?.avgMonthlyDriving as string | undefined,
             knownIssues,
-            v?.year as number | undefined
+            v?.year as number | undefined,
+            oemIntervalsForVehicle,
           );
           const itemId = `${rec.type}-${ownershipId}`;
 
@@ -629,7 +667,7 @@ export default function HomeScreen() {
           : [{ id: "healthy", serviceName: "All systems healthy", dueText: "No action needed", isOverdue: false }];
         return { id: r.vin, name: displayName, vin: r.vin, maintenanceItems: items, nowItems };
       });
-  }, [listVehicles, allMaintenanceRecords, availableServices]);
+  }, [listVehicles, allMaintenanceRecords, availableServices, allOemIntervals]);
 
   // Merge image URLs separately — cheap, only re-maps when images arrive
   const mappedVehicles = useMemo(
@@ -723,6 +761,22 @@ export default function HomeScreen() {
         router.navigate("/(main-tabs)/cars");
       }
     }, [pendingNavigateToCars, setPendingNavigateToCars, router])
+  );
+
+  // Clear any pre-pinned shop from a previous shop-detail Book CTA the
+  // moment the user lands back on Home. Without this, `preSelectedShopId`
+  // (set on shop-detail at `app/booking/shop/[id]/index.tsx:226`) lives
+  // forever in the booking store, so a brand-new booking started from
+  // Home would silently inherit the previous shop — exactly the bug
+  // Ahmad caught. The `Resume Booking` flow on Home uses a different
+  // store field (`selectedVehicleVin` + `selectedServiceIds`) and is
+  // unaffected; we're only resetting the shop / service pre-pins set by
+  // shop-detail, not the in-progress cart.
+  const clearPreSelections = useBookingStore((s) => s.clearPreSelections);
+  useFocusEffect(
+    useCallback(() => {
+      clearPreSelections();
+    }, [clearPreSelections]),
   );
 
   // Enrichment-toast deferred from add-vehicle-review. Per Ahmad: don't
@@ -1059,6 +1113,7 @@ export default function HomeScreen() {
                 onSubmit={handleSearch}
                 onMapPress={handleMapPress}
                 onPress={handleSearchPress}
+                placeholderPhrases={SEARCH_PLACEHOLDER_PHRASES}
               />
             </View>
 
@@ -1160,7 +1215,17 @@ export default function HomeScreen() {
                   );
                   store.clearSelectedServices();
                   if (matched) store.toggleServiceSelection(matched.id);
-                  router.push('/(booking-flow)/select-services');
+                  // When we successfully pre-selected the service (the
+                  // common case for a NOW-tier callout), skip the
+                  // service picker and jump straight to Choose
+                  // Mechanic — the user knows what they want. Falls
+                  // back to select-services when the maintenance type
+                  // doesn't resolve to a catalog service (rare).
+                  router.push(
+                    matched
+                      ? '/(booking-flow)/choose-mechanic'
+                      : '/(booking-flow)/select-services',
+                  );
                 }}
               />
 
@@ -1199,7 +1264,14 @@ export default function HomeScreen() {
                       );
                       store.clearSelectedServices();
                       if (matched) store.toggleServiceSelection(matched.id);
-                      router.push('/(booking-flow)/select-services');
+                      // Same short-circuit as the NowTierCallout above —
+                      // when the service pre-selects cleanly, skip
+                      // Screen 1 and land on Choose Mechanic.
+                      router.push(
+                        matched
+                          ? '/(booking-flow)/choose-mechanic'
+                          : '/(booking-flow)/select-services',
+                      );
                     }}
                     onSwipeStart={() => setIsCardSwiping(true)}
                     onSwipeEnd={() => setIsCardSwiping(false)}

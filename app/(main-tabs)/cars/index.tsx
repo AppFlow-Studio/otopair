@@ -42,6 +42,7 @@ import { api } from "@/convex/_generated/api";
 import { useUserFromConvex } from "@/hooks/useUserFromConvex";
 import { useVehicleOwnershipFromConvex } from "@/hooks/useVehicleOwnershipFromConvex";
 import { useMergedMaintenance } from "@/hooks/useMaintenanceData";
+import { useOemServiceIntervals } from "@/hooks/useOemServiceIntervals";
 import { useUrgencyRankedItems } from "@/hooks/useUrgencyRankedItems";
 import { useDriverRecommendationsFromConvex } from "@/hooks/useDriverRecommendationsFromConvex";
 import { useBookingStore } from "@/stores/useBookingStore";
@@ -792,16 +793,17 @@ export default function CarsHomeScreen() {
   }, [listVehicles]);
 
   // Map Convex list to Vehicle[] for CarCarousel (also track ownership IDs + raw ownership)
-  const { vehicles, ownershipIds, ownerships, colorFamilies } = useMemo(() => {
+  const { vehicles, ownershipIds, ownerships, colorFamilies, vehicleConfigIds } = useMemo(() => {
     if (!listVehicles?.length) return {
       vehicles: [] as Vehicle[],
       ownershipIds: [] as (Id<"vehicle_owners"> | undefined)[],
       ownerships: [] as (Record<string, any> | undefined)[],
       colorFamilies: [] as (string | null)[],
+      vehicleConfigIds: [] as (Id<"vehicle_configs"> | undefined)[],
     };
 
     // Build paired list of vehicles + ownership IDs + raw ownership records
-    const paired: { vehicle: Vehicle; ownershipId: Id<"vehicle_owners"> | undefined; ownership: Record<string, any> | undefined; colorFamily: string | null }[] = [];
+    const paired: { vehicle: Vehicle; ownershipId: Id<"vehicle_owners"> | undefined; ownership: Record<string, any> | undefined; colorFamily: string | null; vehicleConfigId: Id<"vehicle_configs"> | undefined }[] = [];
     listVehicles.forEach((r: any, i: number) => {
       const v = r.vehicle;
       const o = r.ownership;
@@ -840,6 +842,10 @@ export default function CarsHomeScreen() {
         ownershipId: o?._id,
         ownership: o,
         colorFamily: familyId,
+        // Threaded through to useOemServiceIntervals — null/undefined
+        // when the v3 pipeline hasn't resolved a config yet (the
+        // ~7-min enrichment window after a vehicle is added).
+        vehicleConfigId: (v?.vehicle_config_id as Id<"vehicle_configs"> | undefined) ?? undefined,
       });
     });
 
@@ -855,6 +861,7 @@ export default function CarsHomeScreen() {
       ownershipIds: paired.map((p) => p.ownershipId),
       ownerships: paired.map((p) => p.ownership),
       colorFamilies: paired.map((p) => p.colorFamily),
+      vehicleConfigIds: paired.map((p) => p.vehicleConfigId),
     };
   }, [listVehicles, vehicleImageUrls]);
 
@@ -915,6 +922,14 @@ export default function CarsHomeScreen() {
   }, [activeVehicle]);
   const activeOwnershipId = useMemo(() => ownershipIds[activeVehicleIndex], [ownershipIds, activeVehicleIndex]);
   const activeOwnership = useMemo(() => ownerships[activeVehicleIndex], [ownerships, activeVehicleIndex]);
+  // Active vehicle's resolved Convex config — fed to useOemServiceIntervals
+  // so the maintenance calc can prefer per-vehicle OEM cadences from
+  // the v3 enrichment over the hardcoded MAKE_OVERRIDES / DEFAULT_INTERVALS.
+  const activeVehicleConfigId = useMemo(
+    () => vehicleConfigIds[activeVehicleIndex],
+    [vehicleConfigIds, activeVehicleIndex],
+  );
+  const oemIntervals = useOemServiceIntervals(activeVehicleConfigId);
 
   // ── Vehicle readiness (status pill + package-question CTA) ──
   // See docs/TICKET_PACKAGE_QUESTIONS.md. While the pipeline runs, shows
@@ -1092,6 +1107,7 @@ export default function CarsHomeScreen() {
     activeOwnershipKnownIssues,
     activeVehicle?.year,
     driverRecommendations,
+    oemIntervals,
   );
 
   // Action Engine ranking (Yassin v1.1 §3): computes urgency + tier per
@@ -1889,7 +1905,16 @@ export default function CarsHomeScreen() {
                 );
                 store.clearSelectedServices();
                 if (matched) store.toggleServiceSelection(matched.id);
-                router.push('/(booking-flow)/select-services');
+                // Same behavior as the Home surfaces: when we can
+                // pre-select the service, skip the service picker and
+                // jump straight to Choose Mechanic. Falls back to
+                // select-services if the maintenance type doesn't
+                // resolve to a catalog service.
+                router.push(
+                  matched
+                    ? '/(booking-flow)/choose-mechanic'
+                    : '/(booking-flow)/select-services',
+                );
               }}
               onTakeAction={(item) => {
                 const vin = activeVehicle?.vin;
@@ -1927,7 +1952,23 @@ export default function CarsHomeScreen() {
                   tireStore.setType(tireSpecs.type as any);
                   tireStore.setTier(tireSpecs.tier as any);
                 }
-                router.push('/(booking-flow)/select-services');
+                // Add the recommendation's service to the cart so
+                // Choose Mechanic has something to price / filter
+                // shops against. Clear first so this doesn't append
+                // to whatever the user last picked.
+                if (serviceId) {
+                  bookingStore.clearSelectedServices();
+                  bookingStore.toggleServiceSelection(serviceId);
+                }
+                // Skip the service picker when we know the specific
+                // serviceId (the follow-up card always carries one
+                // for a recommendation). Falls back to
+                // select-services when serviceId is missing.
+                router.push(
+                  serviceId
+                    ? '/(booking-flow)/choose-mechanic'
+                    : '/(booking-flow)/select-services',
+                );
               }}
             />
           ) : null}

@@ -12,7 +12,6 @@ import {
 import Animated, {
   Easing,
   cancelAnimation,
-  interpolateColor,
   runOnJS,
   useAnimatedStyle,
   useSharedValue,
@@ -21,18 +20,15 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import { LinearGradient } from "expo-linear-gradient";
 
 import { FontFamily } from "@/constants/theme";
 import { useReducedMotion } from "@/lib/accessibility";
 
 import { ToastIcon } from "./ToastIcon";
-import { TrustToastBackground } from "./TrustToast";
 import {
   DEFAULT_DURATION_MS,
   TOAST_SHADOW,
-  TOAST_TEXT,
-  TRUST_SHADOW,
-  VARIANT_TOKENS,
 } from "./tokens";
 import type { ToastQueueItem, ToastVariant } from "./types";
 
@@ -48,17 +44,45 @@ const REDUCE_FADE = { duration: 200, easing: Easing.linear } as const;
 const SWIPE_DISMISS_THRESHOLD = 32;
 const SWIPE_VELOCITY_THRESHOLD = 600;
 
-// Stadium-wave title effect: a "wave position" shared value sweeps
-// across the title text. Each character derives its own scale +
-// color from the distance to the wave's current position, so the
-// pop traverses letter-by-letter — by the time the wave reaches
-// the tail, the leading letters are already back to resting black.
-const WAVE_PER_CHAR_MS = 45;     // controls the wave's travel speed
-const WAVE_WIDTH = 4;            // chars in the active window (half-width on each side)
-const WAVE_PEAK_SCALE = 1.18;
-const WAVE_PEAK_COLOR = "#5299FE";
+// Pill-style sizing per Ahmad's PM: match Airbnb's tight
+// hug-the-content toast rather than the full-width banner the
+// app shipped before. Container drops `width: 100%` and
+// `alignSelf: center`s inside an outer that no longer constrains
+// horizontal space, so the Pressable's width comes from its
+// children. Caps below keep long bodies from sprawling and
+// short titles from rendering as a sliver.
+const TOAST_MIN_WIDTH = 180;
+const TOAST_MAX_WIDTH = 320;
 
-const TABLET_MAX_WIDTH = 480;
+// Brand-blue color lock. PM wants every toast to look like the
+// "Book Service" CTA — Otopair accent #5299FE with white text —
+// regardless of variant. Variant tokens stay in place
+// (success/error/warning/info/trust still drive icon choice and
+// accessibility role) but the visual palette is forced. Switch
+// to per-variant colors again if/when the design system grows
+// distinct toast tones.
+const TOAST_BG = "#5299FE";
+const TOAST_FG = "#FFFFFF";
+// Diagonal gradient (top-left light → bottom-right deep) painted
+// over the flat brand-blue card. Two tints sampled from the base
+// #5299FE — lighter for the top edge, deeper for the bottom edge
+// — so the toast reads as a soft glassy pill instead of a flat
+// rectangle. Direction is TL→BR to suggest a highlight running
+// across the top-left, the same trick the Book Service CTA uses.
+const TOAST_GRADIENT = ["#7BB1FF", "#3D7AC8"] as const;
+const TOAST_BG_OVERRIDE = {
+  bg: TOAST_BG,
+  border: TOAST_BG,
+  iconColor: TOAST_FG,
+  iconContainerBg: "transparent",
+  iconContainerBorder: undefined,
+} as const;
+const TOAST_TEXT_OVERRIDE = {
+  title: TOAST_FG,
+  // Slightly soft body so the secondary line reads as supporting
+  // copy without competing with the bold title.
+  body: "rgba(255, 255, 255, 0.92)",
+} as const;
 
 const POLITE_VARIANTS = new Set<ToastVariant>(["info", "trust", "success"]);
 
@@ -80,9 +104,12 @@ interface Props {
 
 export function Toast({ item, bottomOffset, onRequestDismiss }: Props) {
   const scheme = useColorScheme() ?? "light";
-  const tokens = VARIANT_TOKENS[item.variant];
-  const palette = tokens[scheme];
-  const textColors = TOAST_TEXT[scheme];
+  // Variant tokens are kept for icon choice + accessibility role,
+  // but the *visual* palette (bg, border, text, icon color) is
+  // locked to the brand-blue override below. Light/dark scheme
+  // no longer changes the toast appearance.
+  const palette = TOAST_BG_OVERRIDE;
+  const textColors = TOAST_TEXT_OVERRIDE;
   const reduceMotion = useReducedMotion();
 
   // Bottom-anchored (Airbnb-style): toast starts BELOW its rest
@@ -177,13 +204,11 @@ export function Toast({ item, bottomOffset, onRequestDismiss }: Props) {
     opacity: opacity.value,
   }));
 
-  const isTrust = item.variant === "trust";
-  // Per Ahmad's redesign: the trust toast wears a flat white card on
-  // light mode (matches every other variant). Skip the gradient
-  // overlay on light scheme — it would tint the white. Dark mode
-  // keeps the BlurView+gradient look since white-on-dark is harsh.
-  const renderTrustOverlay = isTrust && scheme !== "light";
-  const shadow = isTrust ? TRUST_SHADOW[scheme] : TOAST_SHADOW[scheme];
+  // Trust gradient overlay is gone in the brand-blue look — the
+  // toast is already a flat brand-color card, so a gradient on
+  // top would muddy it. Variant still drives the icon
+  // (ShieldCheck for trust, CheckCircle2 for success, etc.).
+  const shadow = TOAST_SHADOW[scheme === "dark" ? "dark" : "light"];
   const role: AccessibilityRole = POLITE_VARIANTS.has(item.variant) ? "summary" : "alert";
 
   const screen = Dimensions.get("window");
@@ -215,27 +240,49 @@ export function Toast({ item, bottomOffset, onRequestDismiss }: Props) {
           style={[
             styles.container,
             {
-              backgroundColor: renderTrustOverlay ? "transparent" : palette.bg,
-              borderColor: palette.border,
+              // Fallback bg in case the gradient fails to mount (e.g.
+              // during a hot reload race). Border picks up the
+              // gradient's deepest stop so the edge doesn't read
+              // brighter than the bottom of the card.
+              backgroundColor: palette.bg,
+              borderColor: TOAST_GRADIENT[1],
               maxHeight,
             },
             shadow,
           ]}
         >
-          {renderTrustOverlay ? (
-            <TrustToastBackground scheme={scheme} borderColor={palette.border} />
-          ) : null}
+          <LinearGradient
+            colors={TOAST_GRADIENT as unknown as readonly [string, string]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={StyleSheet.absoluteFill}
+            pointerEvents="none"
+          />
           <View style={styles.row}>
             <ToastIcon variant={item.variant} palette={palette} />
             <View style={styles.textCol}>
-              <WaveTitle
-                key={item.id}
-                text={item.title}
-                restColor={textColors.title}
-                fontSize={dynamicTypeScale(15)}
-                lineHeight={dynamicTypeScale(20)}
-                reduceMotion={reduceMotion}
-              />
+              {/* Was the per-char WaveTitle. Its per-word View
+                  wrappers inside a flex-wrap Row didn't measure
+                  the wrapped-second-line height, so a title like
+                  "Still connecting to your car" put "car" on line
+                  2 while the body ("Almost there.") rendered at
+                  line 2's Y position too — the two overlapped.
+                  Plain Text with an explicit numberOfLines cap +
+                  lineHeight settles the layout deterministically. */}
+              <Animated.Text
+                numberOfLines={2}
+                ellipsizeMode="tail"
+                style={[
+                  styles.title,
+                  {
+                    color: textColors.title,
+                    fontSize: dynamicTypeScale(15),
+                    lineHeight: dynamicTypeScale(20),
+                  },
+                ]}
+              >
+                {item.title}
+              </Animated.Text>
               {item.body ? (
                 <Animated.Text
                   numberOfLines={3}
@@ -260,195 +307,56 @@ export function Toast({ item, bottomOffset, onRequestDismiss }: Props) {
   );
 }
 
-// ============================================================================
-// WAVE TITLE — per-char stadium-wave animation
-// ============================================================================
-
-interface WaveTitleProps {
-  text: string;
-  restColor: string;
-  fontSize: number;
-  lineHeight: number;
-  reduceMotion: boolean;
-}
-
-/** Renders the toast title as a wrap-row of per-character
- *  `Animated.Text` nodes. A single `wave` shared value sweeps
- *  from -WAVE_WIDTH past `text.length + WAVE_WIDTH`; each char
- *  reads it through `useAnimatedStyle` and computes its own
- *  scale + color from the distance to the wave's current
- *  position. Result: a Mexican-wave-style pulse traveling
- *  letter-by-letter across the title. */
-function WaveTitle({
-  text,
-  restColor,
-  fontSize,
-  lineHeight,
-  reduceMotion,
-}: WaveTitleProps) {
-  const totalChars = text.length;
-  // Start before the first letter, end past the last. Linear so
-  // the wave's apparent speed reads as constant across the title.
-  const wave = useSharedValue<number>(
-    reduceMotion ? totalChars + WAVE_WIDTH : -WAVE_WIDTH,
-  );
-
-  useEffect(() => {
-    if (reduceMotion) {
-      wave.value = totalChars + WAVE_WIDTH;
-      return;
-    }
-    wave.value = -WAVE_WIDTH;
-    const totalSpan = totalChars + WAVE_WIDTH * 2;
-    wave.value = withTiming(totalChars + WAVE_WIDTH, {
-      duration: totalSpan * WAVE_PER_CHAR_MS,
-      easing: Easing.linear,
-    });
-    return () => cancelAnimation(wave);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [text]);
-
-  // Split by space so each word stays together when wrapping.
-  // Each word gets its own non-wrapping row View; spaces between
-  // words go inside the word container so they wrap with the word.
-  const words = text.split(" ");
-  let globalIdx = 0;
-
-  return (
-    <View style={waveStyles.wrap} accessible={false}>
-      {words.map((word, wIdx) => {
-        const chars = Array.from(word);
-        const startIdx = globalIdx;
-        globalIdx += chars.length;
-        // Trailing space char ALSO gets a wave node so the wave
-        // sweeps continuously across word boundaries instead of
-        // hiccuping over invisible gaps.
-        const trailingSpaceIdx = wIdx < words.length - 1 ? globalIdx++ : null;
-
-        return (
-          <View
-            key={`${wIdx}-${word}`}
-            style={waveStyles.word}
-            accessible={false}
-          >
-            {chars.map((c, ci) => (
-              <WaveChar
-                key={`${wIdx}-${ci}`}
-                char={c}
-                index={startIdx + ci}
-                wave={wave}
-                restColor={restColor}
-                fontSize={fontSize}
-                lineHeight={lineHeight}
-              />
-            ))}
-            {trailingSpaceIdx !== null ? (
-              <WaveChar
-                char=" "
-                index={trailingSpaceIdx}
-                wave={wave}
-                restColor={restColor}
-                fontSize={fontSize}
-                lineHeight={lineHeight}
-              />
-            ) : null}
-          </View>
-        );
-      })}
-    </View>
-  );
-}
-
-interface WaveCharProps {
-  char: string;
-  index: number;
-  wave: ReturnType<typeof useSharedValue<number>>;
-  restColor: string;
-  fontSize: number;
-  lineHeight: number;
-}
-
-function WaveChar({
-  char,
-  index,
-  wave,
-  restColor,
-  fontSize,
-  lineHeight,
-}: WaveCharProps) {
-  const animatedStyle = useAnimatedStyle(() => {
-    const dist = Math.abs(wave.value - index);
-    // 1 at the wave's exact position; 0 outside the active window.
-    const pop = Math.max(0, 1 - dist / WAVE_WIDTH);
-    return {
-      color: interpolateColor(pop, [0, 1], [restColor, WAVE_PEAK_COLOR]),
-      transform: [{ scale: 1 + (WAVE_PEAK_SCALE - 1) * pop }],
-      // Pinned to bottom-center so the baseline doesn't shift as
-      // the letter scales up.
-      transformOrigin: "center bottom",
-    };
-  });
-
-  return (
-    <Animated.Text
-      accessible={false}
-      style={[
-        {
-          fontFamily: FontFamily.semiBold,
-          fontSize,
-          lineHeight,
-        },
-        animatedStyle,
-      ]}
-    >
-      {char}
-    </Animated.Text>
-  );
-}
-
-const waveStyles = StyleSheet.create({
-  wrap: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-  },
-  word: {
-    flexDirection: "row",
-  },
-});
-
 const styles = StyleSheet.create({
   outer: {
     position: "absolute",
-    left: 16,
-    right: 16,
+    // No left/right pinning — outer spans the screen and the
+    // container self-centers inside it, sized to its own
+    // content. paddingHorizontal keeps long-bodied toasts from
+    // touching the screen edges on the rare case they hit
+    // TOAST_MAX_WIDTH.
+    left: 0,
+    right: 0,
+    paddingHorizontal: 16,
     alignItems: "center",
     zIndex: 9999,
     ...(Platform.OS === "android" ? { elevation: 24 } : null),
   },
   container: {
-    width: "100%",
-    maxWidth: TABLET_MAX_WIDTH,
+    // No `width` — content sizes the pill. Min keeps tiny
+    // single-word toasts from looking like a chip; max keeps
+    // novel-length bodies from sprawling across the screen.
+    minWidth: TOAST_MIN_WIDTH,
+    maxWidth: TOAST_MAX_WIDTH,
     alignSelf: "center",
-    minHeight: 56,
-    borderRadius: 16,
+    minHeight: 48,
+    borderRadius: 18,
     borderWidth: 1,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
     overflow: "hidden",
   },
   row: {
     flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 12,
+    alignItems: "center",
+    gap: 10,
   },
   textCol: {
-    flex: 1,
+    // `flexShrink: 1` (not `flex: 1`) — only shrink to the max
+    // width cap, don't stretch to fill. Lets the row hug the
+    // icon + text instead of pushing the icon to the left edge.
+    flexShrink: 1,
   },
   title: {
-    fontFamily: FontFamily.semiBold,
+    fontFamily: FontFamily.bold,
   },
   body: {
-    fontFamily: FontFamily.regular,
-    marginTop: 2,
+    // semiBold (was regular) so the body still pulls back from the
+    // bold title hierarchy but reads cleanly on the gradient blue.
+    // marginTop 2 → 4 for a hair more breathing room when the title
+    // wraps to two lines — the extra gap keeps the transition to
+    // the body visible even on a wrapped title.
+    fontFamily: FontFamily.semiBold,
+    marginTop: 4,
   },
 });

@@ -38,6 +38,11 @@ import MapView, {
 } from "react-native-maps";
 import { useBookingStore } from "@/stores/useBookingStore";
 
+import {
+  RatingMarkerPill,
+  RATING_MARKER_REPAINT_MS,
+} from "@/components/booking-flow/RatingMarkerPill";
+
 const FALLBACK_REGION: Region = {
   latitude: 41.1959,
   longitude: -73.4365,
@@ -52,6 +57,24 @@ export interface BookingFlowMarker {
   title?: string;
 }
 
+/** ChatGPT-style shop pin: rendered as a Marker whose child is a
+ *  `<RatingMarkerPill>`. Kept as a separate setter from `setMarkers`
+ *  so the bare-title-only contract stays compatible for any future
+ *  caller that just wants a default pin.
+ *
+ *  `isSelected` drives the black-vs-white pill background. `onPress`
+ *  fires when the user taps the marker — choose-mechanic uses it to
+ *  swap the active shop + scroll the carousel below to that page. */
+export interface BookingFlowShopPin {
+  shopId: string;
+  latitude: number;
+  longitude: number;
+  shopName: string;
+  rating: number | null;
+  isSelected: boolean;
+  onPress?: () => void;
+}
+
 interface BookingFlowMapContextValue {
   /** Imperative handle — choose-mechanic animates the camera through it. */
   mapRef: React.RefObject<MapView | null>;
@@ -61,8 +84,12 @@ interface BookingFlowMapContextValue {
   userLocation: { latitude: number; longitude: number } | null;
   /** Toggle pan/zoom/rotate gestures (off = locked backdrop). */
   setInteractive: (interactive: boolean) => void;
-  /** Replace the rendered markers. */
+  /** Replace the rendered markers (default pins, title-only). */
   setMarkers: (markers: BookingFlowMarker[]) => void;
+  /** Replace the rendered shop pins (ChatGPT-style rating pills with
+   *  shop names and tap handlers). Iterated separately from `markers`
+   *  in the render block so a caller can use either or both. */
+  setShopPins: (pins: BookingFlowShopPin[]) => void;
 }
 
 const BookingFlowMapContext =
@@ -92,6 +119,7 @@ export function BookingFlowMapProvider({
   const setBookingUserLocation = useBookingStore((s) => s.setUserLocation);
   const [interactive, setInteractive] = useState(false);
   const [markers, setMarkers] = useState<BookingFlowMarker[]>([]);
+  const [shopPins, setShopPins] = useState<BookingFlowShopPin[]>([]);
 
   // Resolve location once for the whole flow (each screen used to do
   // this independently). Falls back to a NY-metro region.
@@ -136,6 +164,10 @@ export function BookingFlowMapProvider({
     (next: BookingFlowMarker[]) => setMarkers(next),
     [],
   );
+  const setShopPinsCb = useCallback(
+    (next: BookingFlowShopPin[]) => setShopPins(next),
+    [],
+  );
 
   return (
     <BookingFlowMapContext.Provider
@@ -145,6 +177,7 @@ export function BookingFlowMapProvider({
         userLocation,
         setInteractive: setInteractiveCb,
         setMarkers: setMarkersCb,
+        setShopPins: setShopPinsCb,
       }}
     >
       <View style={styles.root} pointerEvents="box-none">
@@ -179,6 +212,12 @@ export function BookingFlowMapProvider({
                   title={m.title}
                 />
               ))}
+              {shopPins.map((p) => (
+                <BookingFlowShopPinMarker
+                  key={p.shopId}
+                  pin={p}
+                />
+              ))}
             </MapView>
           ) : (
             <View style={[StyleSheet.absoluteFill, styles.fallback]} />
@@ -201,6 +240,41 @@ export function BookingFlowMapProvider({
         </View>
       </View>
     </BookingFlowMapContext.Provider>
+  );
+}
+
+/** Wraps a `RatingMarkerPill` inside a `<Marker>` with the
+ *  tracksViewChanges trick: native side has to repaint when the
+ *  selected state flips, but leaving the prop on full-time thrashes
+ *  the frame budget. We flip to `true` for ~200ms on isSelected
+ *  change, then back to `false`. Same shape `ShopMarker` uses. */
+function BookingFlowShopPinMarker({ pin }: { pin: BookingFlowShopPin }) {
+  const [track, setTrack] = useState(true);
+  // First mount tracks once so the initial layout lands, then we
+  // turn it off until the next isSelected flip.
+  useEffect(() => {
+    const t = setTimeout(() => setTrack(false), RATING_MARKER_REPAINT_MS);
+    return () => clearTimeout(t);
+  }, []);
+  useEffect(() => {
+    setTrack(true);
+    const t = setTimeout(() => setTrack(false), RATING_MARKER_REPAINT_MS);
+    return () => clearTimeout(t);
+  }, [pin.isSelected]);
+
+  return (
+    <Marker
+      coordinate={{ latitude: pin.latitude, longitude: pin.longitude }}
+      onPress={pin.onPress}
+      anchor={{ x: 0.5, y: 0.5 }}
+      tracksViewChanges={track}
+    >
+      <RatingMarkerPill
+        rating={pin.rating}
+        shopName={pin.shopName}
+        isSelected={pin.isSelected}
+      />
+    </Marker>
   );
 }
 

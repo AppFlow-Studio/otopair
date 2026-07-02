@@ -40,6 +40,7 @@ import { Text } from '../shared-ui';
 
 // 4. Constants, hooks, types
 import { BrandColors, FontFamily, FontSize, SemanticColors, Spacing } from '@/constants/theme';
+import { useTypewriterText } from '@/hooks/useTypewriterText';
 
 // ============================================================================
 // TYPES
@@ -64,6 +65,13 @@ interface MechanicSearchBarProps {
     style?: ViewStyle;
     /** Placeholder text */
     placeholder?: string;
+    /** When provided AND `onPress` mode is active, cycles through
+     *  these phrases with a typewriter animation instead of showing
+     *  the static `placeholder`. Used on Home to surface real example
+     *  queries ("Book an oil change", "Mechanics near me"…). Ignored
+     *  in the editable TextInput mode — native placeholder text
+     *  doesn't animate cleanly. */
+    placeholderPhrases?: readonly string[];
 }
 
 // ============================================================================
@@ -79,9 +87,17 @@ export function MechanicSearchBar({
     onPress,
     style,
     placeholder = 'Search for mechanics...',
+    placeholderPhrases,
 }: MechanicSearchBarProps) {
     const [internalValue, setInternalValue] = useState('');
     const [isFocused, setIsFocused] = useState(false);
+    // Typewriter-animated placeholder is only used in the Pressable
+    // (read-only) mode below. The editable TextInput keeps its
+    // native `placeholder` because animating that on iOS / Android
+    // produces a flicker and breaks accessibility.
+    const animatedPlaceholder = useTypewriterText(placeholderPhrases ?? []);
+    const useAnimatedPlaceholder =
+        !!onPress && placeholderPhrases && placeholderPhrases.length > 0;
 
     // Use controlled or uncontrolled value
     const searchValue = value !== undefined ? value : internalValue;
@@ -132,7 +148,7 @@ export function MechanicSearchBar({
                         minimumFontScale={0.72}
                         style={styles.placeholderText}
                     >
-                        {placeholder}
+                        {useAnimatedPlaceholder ? animatedPlaceholder : placeholder}
                     </Text>
                 </Pressable>
             ) : (

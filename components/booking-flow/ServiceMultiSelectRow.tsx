@@ -76,20 +76,26 @@ export function ServiceMultiSelectRow({
         <Icon size={22} color="#4B5563" strokeWidth={2} />
       </View>
 
+      {/* Text column — title / subtitle / clock + estimated time.
+          `paddingRight` leaves headroom for the absolute `?`
+          button in the top-right so the title never runs under it. */}
       <View style={styles.text}>
-        <View style={styles.titleRow}>
-          <Text size="md" weight="bold" color="#0F172A" numberOfLines={2} style={styles.title}>
-            {entry.label}
-          </Text>
-          <Pressable
-            onPress={onInfoPress}
-            hitSlop={10}
-            accessibilityLabel={`More info about ${entry.label}`}
-          >
-            <HelpCircle size={15} color="#5299FE" strokeWidth={2} />
-          </Pressable>
-        </View>
-        <Text size="sm" weight="regular" color="#6B7280" numberOfLines={2} style={styles.subtitle}>
+        <Text
+          size="md"
+          weight="bold"
+          color="#0F172A"
+          numberOfLines={2}
+          style={styles.title}
+        >
+          {entry.label}
+        </Text>
+        <Text
+          size="sm"
+          weight="regular"
+          color="#6B7280"
+          numberOfLines={2}
+          style={styles.subtitle}
+        >
           {entry.subtitle}
         </Text>
         {isNeedsSpecs ? (
@@ -97,15 +103,18 @@ export function ServiceMultiSelectRow({
             Tap to answer a quick spec question
           </Text>
         ) : null}
-      </View>
-
-      <View style={styles.trailing}>
-        <View style={styles.timeRow}>
+        <View style={styles.metaRow}>
           {!isQuote ? <Clock size={14} color="#6B7280" strokeWidth={2} /> : null}
-          <Text size="xs" weight="medium" color="#6B7280">
+          <Text size="sm" weight="medium" color="#6B7280">
             {isQuote ? "Quote" : durationText}
           </Text>
         </View>
+      </View>
+
+      {/* Trailing state indicator — check when selected, chevron
+          otherwise. Centered vertically on the row instead of
+          stacked under the time (which now lives in the text col). */}
+      <View style={styles.trailing}>
         {isSelected ? (
           <View style={styles.stateCheck}>
             <Check size={18} color="#FFFFFF" strokeWidth={2.5} />
@@ -114,21 +123,37 @@ export function ServiceMultiSelectRow({
           <ChevronRight size={20} color="#9CA3AF" strokeWidth={2} />
         )}
       </View>
+
+      {/* Info button — top-right corner of the card, bumped from
+          15 → 20 pt. Positioned absolutely so it sits above the
+          title's right edge instead of inline in the title row. */}
+      <Pressable
+        onPress={onInfoPress}
+        hitSlop={14}
+        style={styles.infoBtn}
+        accessibilityRole="button"
+        accessibilityLabel={`More info about ${entry.label}`}
+      >
+        <HelpCircle size={20} color="#5299FE" strokeWidth={2} />
+      </Pressable>
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   row: {
+    // Bumped paddings all around so the content breathes — the
+    // old 14/14 was cramming the icon, text, meta, and trailing
+    // chevron together. 18/16 gives each element its own air.
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 14,
-    paddingHorizontal: 14,
+    paddingVertical: 18,
+    paddingHorizontal: 16,
     marginHorizontal: 20,
-    marginBottom: 10,
-    gap: 12,
+    marginBottom: 12,
+    gap: 14,
     backgroundColor: "rgba(255, 255, 255, 0.55)",
-    borderRadius: 18,
+    borderRadius: 20,
     borderWidth: 1,
     borderColor: "rgba(255, 255, 255, 0.85)",
     overflow: "hidden",
@@ -152,29 +177,33 @@ const styles = StyleSheet.create({
   text: {
     flex: 1,
     minWidth: 0,
-  },
-  titleRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
+    // Leaves headroom for the absolute `?` in the top-right so
+    // the title's rightmost characters never run under it.
+    paddingRight: 28,
   },
   title: {
     flexShrink: 1,
   },
   subtitle: {
-    marginTop: 2,
-  },
-  needsSpecsHint: {
     marginTop: 4,
   },
-  trailing: {
-    alignItems: "flex-end",
-    gap: 10,
+  needsSpecsHint: {
+    marginTop: 6,
   },
-  timeRow: {
+  metaRow: {
+    // The estimated time now sits below the subtitle rather than
+    // stacked in the trailing column. Generous top margin so it
+    // reads as separate meta info, not a third line of body copy.
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
+    gap: 5,
+    marginTop: 10,
+  },
+  trailing: {
+    // Just the state indicator (check / chevron) now — the time
+    // moved into the text column above.
+    alignItems: "flex-end",
+    justifyContent: "center",
   },
   stateCheck: {
     width: 28,
@@ -183,5 +212,17 @@ const styles = StyleSheet.create({
     backgroundColor: "#0F172A",
     alignItems: "center",
     justifyContent: "center",
+  },
+  infoBtn: {
+    // Top-right corner of the card. Bumped from an inline 15pt
+    // icon in the title row to a 20pt icon anchored here.
+    position: "absolute",
+    top: 12,
+    right: 12,
+    width: 24,
+    height: 24,
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 2,
   },
 });

@@ -32,9 +32,10 @@ import { useBookingStore } from "@/stores/useBookingStore";
 import { useShopsFromConvex } from "@/hooks/useShopsFromConvex";
 import type { Service, Shop } from "@/stores/types/store.types";
 
+// Per-group cap. Both groups can hit this simultaneously, so
+// worst-case the list renders 24 rows — still shorter than a
+// typical scroll page.
 const MAX_RESULTS = 12;
-
-type SearchScope = "services" | "shops";
 
 /** Score a service against a lowercased query. Mirrors the scoring
  *  in useSearchStore.getMatchingServices, but uncapped so a
@@ -74,9 +75,6 @@ export default function BookingFlowSearchScreen() {
   const insets = useSafeAreaInsets();
   const inputRef = useRef<TextInput>(null);
   const [query, setQuery] = useState("");
-  // Scope toggle below the input. Defaults to services since that's
-  // the historical behavior and the most common booking-flow intent.
-  const [scope, setScope] = useState<SearchScope>("services");
 
   const availableServices = useBookingStore((s) => s.availableServices);
   const toggleServiceSelection = useBookingStore((s) => s.toggleServiceSelection);
@@ -100,11 +98,11 @@ export default function BookingFlowSearchScreen() {
   );
 
   // Live-filter the catalog. Same alias-aware scoring as the
-  // useSearchStore helper, but uncapped so a dedicated search
-  // screen surfaces every match (capped at MAX_RESULTS for sanity).
-  // Only computed when the active scope is "services".
+  // useSearchStore helper, uncapped in intent then sliced to
+  // MAX_RESULTS. Runs against both groups on every query — the
+  // Services / Shops scope toggle is gone; results are grouped
+  // and rendered together with section headers instead.
   const serviceResults: Service[] = useMemo(() => {
-    if (scope !== "services") return [];
     const q = query.trim().toLowerCase();
     if (!q) return [];
     const scored = availableServices
@@ -113,12 +111,9 @@ export default function BookingFlowSearchScreen() {
       .sort((a, b) => b.score - a.score)
       .slice(0, MAX_RESULTS);
     return scored.map((item) => item.service);
-  }, [query, availableServices, scope]);
+  }, [query, availableServices]);
 
-  // Live-filter shops by name only. Only computed when scope is
-  // "shops" — no point doing the work otherwise.
   const shopResults: Shop[] = useMemo(() => {
-    if (scope !== "shops") return [];
     const q = query.trim().toLowerCase();
     if (!q) return [];
     const scored = shops
@@ -127,7 +122,7 @@ export default function BookingFlowSearchScreen() {
       .sort((a, b) => b.score - a.score)
       .slice(0, MAX_RESULTS);
     return scored.map((item) => item.shop);
-  }, [query, shops, scope]);
+  }, [query, shops]);
 
   const handlePick = (service: Service) => {
     inputRef.current?.blur();
@@ -177,8 +172,7 @@ export default function BookingFlowSearchScreen() {
   };
 
   const showResults = query.trim().length > 0;
-  const hasResults =
-    scope === "services" ? serviceResults.length > 0 : shopResults.length > 0;
+  const hasResults = serviceResults.length > 0 || shopResults.length > 0;
   const showEmpty = showResults && !hasResults;
 
   return (
@@ -204,9 +198,7 @@ export default function BookingFlowSearchScreen() {
             ref={inputRef}
             value={query}
             onChangeText={setQuery}
-            placeholder={
-              scope === "services" ? "Search services" : "Search shops"
-            }
+            placeholder="Search services & shops"
             placeholderTextColor="#9CA3AF"
             returnKeyType="search"
             autoCorrect={false}
@@ -217,49 +209,6 @@ export default function BookingFlowSearchScreen() {
         </View>
       </View>
 
-      {/* Scope toggle — Services vs Shops. Matches the segmented
-          control on the My Bookings tab. Switching scope keeps the
-          query so the user can quickly compare matches across both
-          domains. */}
-      <View style={styles.scopeRow}>
-        <Pressable
-          onPress={() => setScope("services")}
-          style={[
-            styles.scopeChip,
-            scope === "services" && styles.scopeChipActive,
-          ]}
-          accessibilityRole="button"
-          accessibilityState={{ selected: scope === "services" }}
-          accessibilityLabel="Search services"
-        >
-          <Text
-            size="sm"
-            weight={scope === "services" ? "bold" : "medium"}
-            color={scope === "services" ? "#0F172A" : "#6B7280"}
-          >
-            Services
-          </Text>
-        </Pressable>
-        <Pressable
-          onPress={() => setScope("shops")}
-          style={[
-            styles.scopeChip,
-            scope === "shops" && styles.scopeChipActive,
-          ]}
-          accessibilityRole="button"
-          accessibilityState={{ selected: scope === "shops" }}
-          accessibilityLabel="Search shops"
-        >
-          <Text
-            size="sm"
-            weight={scope === "shops" ? "bold" : "medium"}
-            color={scope === "shops" ? "#0F172A" : "#6B7280"}
-          >
-            Shops
-          </Text>
-        </Pressable>
-      </View>
-
       {/* Body — logo placeholder, live results, or empty state */}
       {!showResults ? (
         <View style={styles.logoBody}>
@@ -268,14 +217,10 @@ export default function BookingFlowSearchScreen() {
       ) : showEmpty ? (
         <View style={styles.emptyBody}>
           <Text size="md" weight="medium" color="#6B7280" center>
-            {scope === "services"
-              ? `No services match “${query.trim()}”`
-              : `No shops match “${query.trim()}”`}
+            {`No services or shops match “${query.trim()}”`}
           </Text>
           <Text size="sm" weight="regular" color="#9CA3AF" center style={styles.emptyHint}>
-            {scope === "services"
-              ? "Try “rotors”, “smog”, or “oil”."
-              : "Try part of the shop's name."}
+            Try &ldquo;rotors&rdquo;, &ldquo;smog&rdquo;, or part of a shop&rsquo;s name.
           </Text>
         </View>
       ) : (
@@ -285,8 +230,20 @@ export default function BookingFlowSearchScreen() {
           keyboardDismissMode="on-drag"
           showsVerticalScrollIndicator={false}
         >
-          {scope === "services"
-            ? serviceResults.map((svc) => (
+          {/* Services section — rendered first (more common intent
+              in the booking flow) and only when there are matches
+              so a shops-only query doesn't leave an empty header. */}
+          {serviceResults.length > 0 ? (
+            <>
+              <Text
+                size="xs"
+                weight="bold"
+                color="#6B7280"
+                style={styles.sectionHeader}
+              >
+                SERVICES
+              </Text>
+              {serviceResults.map((svc) => (
                 <Pressable
                   key={svc.id}
                   style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
@@ -309,8 +266,22 @@ export default function BookingFlowSearchScreen() {
                   </View>
                   <ChevronRight size={18} color="#9CA3AF" strokeWidth={2} />
                 </Pressable>
-              ))
-            : shopResults.map((shop) => (
+              ))}
+            </>
+          ) : null}
+
+          {/* Shops section — same guard. */}
+          {shopResults.length > 0 ? (
+            <>
+              <Text
+                size="xs"
+                weight="bold"
+                color="#6B7280"
+                style={styles.sectionHeader}
+              >
+                SHOPS
+              </Text>
+              {shopResults.map((shop) => (
                 <Pressable
                   key={shop.id}
                   style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
@@ -334,6 +305,8 @@ export default function BookingFlowSearchScreen() {
                   <ChevronRight size={18} color="#9CA3AF" strokeWidth={2} />
                 </Pressable>
               ))}
+            </>
+          ) : null}
         </ScrollView>
       )}
     </View>
@@ -374,23 +347,15 @@ const styles = StyleSheet.create({
     color: "#0F172A",
     padding: 0,
   },
-  scopeRow: {
-    flexDirection: "row",
-    gap: 8,
-    paddingHorizontal: 14,
-    paddingBottom: 12,
-  },
-  scopeChip: {
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    borderRadius: 16,
-    backgroundColor: "rgba(255, 255, 255, 0.55)",
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.75)",
-  },
-  scopeChipActive: {
-    backgroundColor: "#FFFFFF",
-    borderColor: "rgba(15, 23, 42, 0.08)",
+  sectionHeader: {
+    // Small-caps eyebrow, wide letter-spacing so it reads as a
+    // group label rather than a row title. Padding lifts subsequent
+    // groups off each other.
+    fontSize: 11,
+    letterSpacing: 1.5,
+    marginTop: 12,
+    marginBottom: 6,
+    paddingHorizontal: 4,
   },
   logoBody: {
     flex: 1,

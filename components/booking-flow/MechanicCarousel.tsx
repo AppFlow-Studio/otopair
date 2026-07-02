@@ -31,7 +31,11 @@ interface MechanicCarouselProps {
   items: MechanicCarouselItem[];
   selectedMechanicId: string | null;
   onSelect: (mechanicId: string | null) => void;
-  onInteractionChange: (isInteracting: boolean) => void;
+  /** Optional — parents with a competing horizontal gesture (the shop
+   *  pager on Choose Mechanic) use this to disable their scroll while
+   *  the user is touching the carousel. Standalone hosts (pick-datetime)
+   *  can omit it. */
+  onInteractionChange?: (isInteracting: boolean) => void;
 }
 
 const CARD_W = 96;
@@ -45,23 +49,23 @@ export function MechanicCarousel({
   const isDraggingRef = useRef(false);
 
   const handleInteractionStart = useCallback(() => {
-    onInteractionChange(true);
+    onInteractionChange?.(true);
   }, [onInteractionChange]);
 
   const handleTouchEnd = useCallback(() => {
     if (!isDraggingRef.current) {
-      onInteractionChange(false);
+      onInteractionChange?.(false);
     }
   }, [onInteractionChange]);
 
   const handleScrollBeginDrag = useCallback(() => {
     isDraggingRef.current = true;
-    onInteractionChange(true);
+    onInteractionChange?.(true);
   }, [onInteractionChange]);
 
   const handleInteractionEnd = useCallback(() => {
     isDraggingRef.current = false;
-    onInteractionChange(false);
+    onInteractionChange?.(false);
   }, [onInteractionChange]);
 
   return (
