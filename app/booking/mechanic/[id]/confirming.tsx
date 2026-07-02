@@ -346,7 +346,16 @@ export default function BookingConfirmingScreen() {
         snapHeights={[confirmLayout.sheetHeight]}
         onClose={handleSheetClose}
         cornerRadius={24}
-        renderInModal={false}
+        // Card flow: render inside the native <Modal> like the
+        // rotor / tire quote-requesting screens do — that hides
+        // the ghost-card white strip that shows through the
+        // sheet's rounded bottom corners in inline mode.
+        // Wallet flow: MUST stay inline. iOS won't present a
+        // Modal while the Apple / Google Pay sheet is still
+        // dismissing, and the open() call gets silently
+        // swallowed — the user would see the loading screen
+        // with no confirmation sheet.
+        renderInModal={!isWalletFlow}
       >
         <BookingConfirmStatus
           onConfirm={handleConfirm}
