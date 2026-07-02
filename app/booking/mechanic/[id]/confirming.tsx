@@ -364,7 +364,14 @@ export default function BookingConfirmingScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
+    // Match the Lottie animation's radial-gradient bottom edge.
+    // Lottie is translated upward (see `lottieTranslateY`) to lift
+    // the pin to a better vertical position, which leaves the bottom
+    // strip of the screen showing through — with a #FFFFFF backing
+    // it read as a "second card underneath" the floating sheet. A
+    // soft pale-blue matches the Lottie's edge so the strip blends
+    // into the background instead of hard-edging as white.
+    backgroundColor: "#E6EFFA",
   },
   lottie: {
     ...StyleSheet.absoluteFillObject,
