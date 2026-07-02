@@ -14,6 +14,8 @@
 import React from 'react';
 import { View, Pressable, StyleSheet, Platform } from 'react-native';
 import { BlurView } from 'expo-blur';
+import { LinearGradient } from 'expo-linear-gradient';
+import MaskedView from '@react-native-masked-view/masked-view';
 import { ChevronRight } from 'lucide-react-native';
 import Animated, {
   Extrapolation,
@@ -135,15 +137,33 @@ export function AIChatHistory({
         ]}
       >
         <Animated.View style={[StyleSheet.absoluteFill, blurStyle]}>
-          {Platform.OS === 'ios' ? (
-            <BlurView
-              intensity={30}
-              tint="light"
-              style={StyleSheet.absoluteFill}
-            />
-          ) : (
-            <View style={[StyleSheet.absoluteFill, styles.headerFallback]} />
-          )}
+          {/* MaskedView feathers the blur to zero at the bottom
+              edge of the header so there's no hard cutoff line
+              between the frosted title area and the sharp
+              scrolling list below. Mask: opaque top → opaque
+              through 70% → transparent at the bottom. */}
+          <MaskedView
+            style={StyleSheet.absoluteFill}
+            maskElement={
+              <LinearGradient
+                colors={['#000', '#000', 'transparent']}
+                locations={[0, 0.7, 1]}
+                start={{ x: 0.5, y: 0 }}
+                end={{ x: 0.5, y: 1 }}
+                style={StyleSheet.absoluteFill}
+              />
+            }
+          >
+            {Platform.OS === 'ios' ? (
+              <BlurView
+                intensity={30}
+                tint="light"
+                style={StyleSheet.absoluteFill}
+              />
+            ) : (
+              <View style={[StyleSheet.absoluteFill, styles.headerFallback]} />
+            )}
+          </MaskedView>
         </Animated.View>
         <View style={styles.headerContent}>
           <Text style={styles.brandTitle}>Oto</Text>
