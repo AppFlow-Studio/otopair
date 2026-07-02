@@ -592,7 +592,7 @@ Return JSON in this exact shape:
 export const backfillEngineOilForVin = internalAction({
   args: { vin: v.string(), force: v.optional(v.boolean()) },
   handler: async (ctx, { vin, force }): Promise<{
-    status: "ok" | "already_present" | "no_vehicle" | "no_config" | "missing_labels" | "no_anthropic_key" | "claude_failed" | "claude_unknown_sku";
+    status: "ok" | "already_present" | "no_vehicle" | "no_config" | "missing_labels" | "no_anthropic_key" | "claude_failed" | "claude_unknown_sku" | "rejected_cross_make";
     vin: string;
     vehicle?: string;
     oem_part_number?: string;

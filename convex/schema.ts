@@ -25,6 +25,7 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import {
+  customerInspectionSnapshotValidator,
   postjobPartValidator,
   postjobPhotoValidator,
   postjobReportValidator,
@@ -824,6 +825,9 @@ export default defineSchema({
     // scrape action to the price-write step. `format_version` lets the price
     // path treat older markdown-only rows as a miss so they re-fetch HTML.
     part_prices_json: v.optional(v.string()),
+    // Part replacement chains parsed from the same raw HTML ("replaced by",
+    // "supersedes"), serialized as ParsedSupersession[].
+    supersessions_json: v.optional(v.string()),
     format_version: v.optional(v.number()),
   })
     .index("by_cache_key", ["cache_key"])
@@ -4430,6 +4434,7 @@ export default defineSchema({
     labor_hours: v.optional(v.number()),
     labor_rate_cents: v.optional(v.number()),
     notes: v.optional(v.string()),
+    inspection_snapshot: v.optional(customerInspectionSnapshotValidator),
 
     // Gating context: the ceiling the submission was evaluated against.
     // For pre_job this is disclosed_range_high_cents; for mid/post it's

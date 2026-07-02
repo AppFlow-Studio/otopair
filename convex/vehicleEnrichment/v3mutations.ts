@@ -5,7 +5,39 @@ import { enqueueNotificationOutbox } from "../bookings";
 import { recomputeLaborForConfigService } from "../lib/labor_aggregation";
 import { isLaborOnlyService } from "../lib/servicePartsReference";
 import { partFitsConfigMake } from "../partSelector";
+import { makesSameFamily } from "./contentSanitization";
 import { normalizeOemNumber } from "./priceParser";
+
+/**
+ * Family-aware make compatibility for WRITE paths. The strict id-equality
+ * guard (partFitsConfigMake) treats Audi ≠ VW, but VAG/Mopar/etc. genuinely
+ * share part numbers across marques — a 5Q0 MQB part stamped `audi` (because
+ * an Audi was enriched first) is a legitimate fitment for a VW config, not
+ * contamination. Observed in the Jul 2026 quarantine dry-run: 87 audi→vw
+ * rows that are shared-platform parts, vs 27 ford→alfa true contaminants.
+ */
+async function partMakeCompatibleForWrite(
+  ctx: any,
+  partMakeId: any,
+  configMakeId: any,
+): Promise<boolean> {
+  if (partFitsConfigMake(partMakeId, configMakeId)) return true;
+  const [partMake, configMake] = await Promise.all([
+    ctx.db.get(partMakeId),
+    ctx.db.get(configMakeId),
+  ]);
+  return makesSameFamily(partMake?.name, configMake?.name);
+}
+
+/**
+ * Confidence for chassis/engine-cloned rows: a small haircut off the source
+ * row's confidence, and NEVER raised above it. The old floor of 0.70 laundered
+ * low-confidence data upward — a 0.40-confidence fitment became 0.70 on clone
+ * and cleared the selector's confidence gate.
+ */
+function clonedConfidence(source: number | null | undefined): number {
+  return Math.max((source ?? 0) - 0.03, 0);
+}
 
 // ============================================================================
 // 1. upsertVehicleConfig
@@ -423,6 +455,77 @@ export const updateTransmissionSpecs = internalMutation({
 });
 
 // ============================================================================
+// 5b. recordSupersessions — deterministic part replacement chains
+// ============================================================================
+
+/** Look up an oem_parts row by normalized number, falling back to the exact
+ *  string for legacy rows that predate the normalized field. */
+async function findPartByNumber(ctx: any, num: string) {
+  const norm = normalizeOemNumber(num);
+  const byNorm = await ctx.db
+    .query("oem_parts")
+    .withIndex("by_part_number_normalized", (q: any) =>
+      q.eq("oem_part_number_normalized", norm)
+    )
+    .first();
+  if (byNorm) return byNorm;
+  return await ctx.db
+    .query("oem_parts")
+    .withIndex("by_part_number", (q: any) => q.eq("oem_part_number", num))
+    .first();
+}
+
+/**
+ * Apply supersession chains parsed from registry HTML ("replaced by …").
+ * Marks the OLD part is_current:false + superseded_by, stamps `supersedes` on
+ * the successor when we have its row. Rows we don't know yet are skipped — the
+ * chain re-applies for free on the next enrichment scrape.
+ */
+export const recordSupersessions = internalMutation({
+  args: {
+    supersessions: v.array(
+      v.object({
+        old_number: v.string(),
+        new_number: v.string(),
+        source_domain: v.string(),
+        source_url: v.string(),
+      }),
+    ),
+  },
+  handler: async (ctx, args) => {
+    let markedOld = 0;
+    let stampedNew = 0;
+    for (const s of args.supersessions) {
+      const oldPart = await findPartByNumber(ctx, s.old_number);
+      const newPart = await findPartByNumber(ctx, s.new_number);
+
+      // Refuse cycles: if the "new" part already points at the "old" one,
+      // conflicting sources disagree — leave both untouched for review.
+      if (newPart?.superseded_by && normalizeOemNumber(newPart.superseded_by) === normalizeOemNumber(s.old_number)) {
+        console.warn(`[supersession] conflicting chain ${s.old_number} <-> ${s.new_number} (${s.source_domain}) — skipped`);
+        continue;
+      }
+
+      if (oldPart && normalizeOemNumber(oldPart.superseded_by ?? "") !== normalizeOemNumber(s.new_number)) {
+        await ctx.db.patch(oldPart._id, {
+          superseded_by: s.new_number,
+          is_current: false,
+        });
+        markedOld++;
+      }
+      if (newPart && normalizeOemNumber(newPart.supersedes ?? "") !== normalizeOemNumber(s.old_number)) {
+        await ctx.db.patch(newPart._id, { supersedes: s.old_number });
+        stampedNew++;
+      }
+    }
+    if (markedOld + stampedNew > 0) {
+      console.log(`[supersession] applied ${args.supersessions.length} chains: ${markedOld} superseded, ${stampedNew} successors stamped`);
+    }
+    return { markedOld, stampedNew };
+  },
+});
+
+// ============================================================================
 // 6. upsertPartAndFitment
 // ============================================================================
 
@@ -485,11 +588,32 @@ export const upsertPartAndFitment = internalMutation({
         .first();
     }
 
+    // Supersession redirect: never fit a number the registry says was
+    // replaced. When we know the successor's row, the fitment (and any later
+    // pricing keyed off part_id) lands on the CURRENT part; the superseded row
+    // stays for audit. Unknown successor → keep the old part (still sellable).
+    if (part && part.is_current === false && part.superseded_by) {
+      const successor = await ctx.db
+        .query("oem_parts")
+        .withIndex("by_part_number_normalized", (q) =>
+          q.eq("oem_part_number_normalized", normalizeOemNumber(part!.superseded_by!))
+        )
+        .first();
+      if (successor) {
+        console.log(
+          `[v8-parts] supersession redirect: ${args.oem_part_number} → ${successor.oem_part_number}`,
+        );
+        part = successor;
+      }
+    }
+
     // I1 write-time make guard: a part already known to belong to a different
-    // make must never gain a fitment on this config (the read-time guard in
-    // serviceParts.ts is the backstop; this stops the contamination from being
-    // stored at all). Universal consumables (make_id null) pass.
-    if (part && !partFitsConfigMake(part.make_id, config?.make_id)) {
+    // make FAMILY must never gain a fitment on this config (the read-time
+    // guard in serviceParts.ts is the backstop; this stops the contamination
+    // from being stored at all). Universal consumables (make_id null) pass;
+    // corporate siblings (Audi part on a VW config) pass — those catalogs
+    // genuinely share numbers.
+    if (part && !(await partMakeCompatibleForWrite(ctx, part.make_id, config?.make_id))) {
       console.log(
         `[v8-parts] REJECTED cross-make fitment: part ${args.oem_part_number} has make_id=${part.make_id}, config ${args.vehicle_config_id} has make_id=${config?.make_id}`,
       );
@@ -507,7 +631,9 @@ export const upsertPartAndFitment = internalMutation({
         name: args.name,
         category: args.category,
         subcategory: args.subcategory,
-        oem_part_number_normalized: normalized,
+        // Lazy backfill of the row's OWN normalized identity (NOT the incoming
+        // args value — after a supersession redirect they differ).
+        oem_part_number_normalized: normalizeOemNumber(part.oem_part_number),
         last_confirmed_at: now,
         source_count: (part.source_count ?? 0) + 1,
       });
@@ -1171,7 +1297,7 @@ export const cloneFromChassisMatch = internalMutation({
           interval_months: si.interval_months,
           status: si.status,
           display_string: si.display_string,
-          confidence: Math.max((si.confidence ?? 0) - 0.03, 0.70), // slight confidence reduction for cloned data
+          confidence: clonedConfidence(si.confidence), // slight confidence reduction for cloned data
           data_quality: "chassis_clone",
           source_count: 1,
           mechanic_verified: false,
@@ -1209,7 +1335,7 @@ export const cloneFromChassisMatch = internalMutation({
           empirical_p75: lt.empirical_p75,
           source: "chassis_clone",
           data_quality: "chassis_clone",
-          confidence: Math.max((lt.confidence ?? 0) - 0.03, 0.70),
+          confidence: clonedConfidence(lt.confidence),
           engine_family: lt.engine_family,
           created_at: now,
         });
@@ -1225,7 +1351,16 @@ export const cloneFromChassisMatch = internalMutation({
       )
       .collect();
 
+    // I1 make guard: the sibling query is make-scoped, but re-assert per part
+    // so a cross-make contaminant already on the source config can't propagate.
+    const targetConfig = await ctx.db.get(args.target_config_id);
+
     for (const pf of sourceFitments) {
+      const part = await ctx.db.get(pf.part_id);
+      if (part && !(await partMakeCompatibleForWrite(ctx, part.make_id, targetConfig?.make_id))) {
+        console.log(`[chassis-clone] skipping cross-make part ${part.oem_part_number} → ${args.target_config_id}`);
+        continue;
+      }
       const existing = await ctx.db
         .query("part_fitments")
         .withIndex("by_config_service", (q) =>
@@ -1242,7 +1377,7 @@ export const cloneFromChassisMatch = internalMutation({
           service_type: pf.service_type,
           quantity_needed: pf.quantity_needed,
           position: pf.position,
-          confidence: Math.max((pf.confidence ?? 0) - 0.03, 0.70),
+          confidence: clonedConfidence(pf.confidence),
           source_count: 1,
           first_confirmed_at: now,
           last_confirmed_at: now,
@@ -1390,7 +1525,7 @@ export const backfillChassisSiblings = internalMutation({
             status: si.status,
             display_string: si.display_string,
             data_quality: "chassis_backfill",
-            confidence: Math.max((si.confidence ?? 0) - 0.03, 0.70),
+            confidence: clonedConfidence(si.confidence),
             source_count: 1,
             mechanic_verified: false,
             created_at: now,
@@ -1418,7 +1553,7 @@ export const backfillChassisSiblings = internalMutation({
             empirical_p75: lt.empirical_p75,
             source: lt.source,
             data_quality: "chassis_backfill",
-            confidence: Math.max((lt.confidence ?? 0) - 0.03, 0.70),
+            confidence: clonedConfidence(lt.confidence),
             engine_family: lt.engine_family,
             created_at: now,
           });
@@ -1427,7 +1562,14 @@ export const backfillChassisSiblings = internalMutation({
       }
 
       // Backfill part_fitments
+      // I1 make guard: re-assert per part (see cloneFromChassisMatch).
+      const siblingConfig = await ctx.db.get(siblingId);
       for (const pf of sourceFitments) {
+        const part = await ctx.db.get(pf.part_id);
+        if (part && !(await partMakeCompatibleForWrite(ctx, part.make_id, siblingConfig?.make_id))) {
+          console.log(`[chassis-backfill] skipping cross-make part ${part.oem_part_number} → sibling ${siblingId}`);
+          continue;
+        }
         const existing = await ctx.db
           .query("part_fitments")
           .withIndex("by_config_service", (q) =>
@@ -1442,7 +1584,7 @@ export const backfillChassisSiblings = internalMutation({
             service_type: pf.service_type,
             quantity_needed: pf.quantity_needed,
             position: pf.position,
-            confidence: Math.max((pf.confidence ?? 0) - 0.03, 0.70),
+            confidence: clonedConfidence(pf.confidence),
             source_count: 1,
             first_confirmed_at: now,
             last_confirmed_at: now,
@@ -1864,7 +2006,7 @@ export const cloneFromEngineSibling = internalMutation({
           interval_months: si.interval_months,
           status: si.status,
           display_string: si.display_string,
-          confidence: Math.max((si.confidence ?? 0) - 0.03, 0.70),
+          confidence: clonedConfidence(si.confidence),
           data_quality: "engine_clone",
           source_count: 1,
           mechanic_verified: false,
@@ -1899,7 +2041,7 @@ export const cloneFromEngineSibling = internalMutation({
           empirical_p75: lt.empirical_p75,
           source: lt.source,
           data_quality: "engine_clone",
-          confidence: Math.max((lt.confidence ?? 0) - 0.03, 0.70),
+          confidence: clonedConfidence(lt.confidence),
           engine_family: lt.engine_family,
           created_at: now,
         });
@@ -1913,8 +2055,16 @@ export const cloneFromEngineSibling = internalMutation({
       .withIndex("by_vehicle_config", (q) => q.eq("vehicle_config_id", args.source_config_id))
       .collect();
 
+    // I1 make guard: re-assert per part (see cloneFromChassisMatch).
+    const targetConfig = await ctx.db.get(args.target_config_id);
+
     for (const pf of sourceFitments) {
       if (!pf.service_type || !ENGINE_PART_SERVICE_TYPES.has(pf.service_type)) continue;
+      const part = await ctx.db.get(pf.part_id);
+      if (part && !(await partMakeCompatibleForWrite(ctx, part.make_id, targetConfig?.make_id))) {
+        console.log(`[engine-clone] skipping cross-make part ${part.oem_part_number} → ${args.target_config_id}`);
+        continue;
+      }
       const existing = await ctx.db
         .query("part_fitments")
         .withIndex("by_config_service", (q) =>
@@ -1929,7 +2079,7 @@ export const cloneFromEngineSibling = internalMutation({
           service_type: pf.service_type,
           quantity_needed: pf.quantity_needed,
           position: pf.position,
-          confidence: Math.max((pf.confidence ?? 0) - 0.03, 0.70),
+          confidence: clonedConfidence(pf.confidence),
           source_count: 1,
           first_confirmed_at: now,
           last_confirmed_at: now,
@@ -2007,7 +2157,7 @@ export const backfillEngineSiblings = internalMutation({
             status: si.status,
             display_string: si.display_string,
             data_quality: "engine_backfill",
-            confidence: Math.max((si.confidence ?? 0) - 0.03, 0.70),
+            confidence: clonedConfidence(si.confidence),
             source_count: 1,
             mechanic_verified: false,
             created_at: now,
@@ -2035,7 +2185,7 @@ export const backfillEngineSiblings = internalMutation({
             empirical_p75: lt.empirical_p75,
             source: lt.source,
             data_quality: "engine_backfill",
-            confidence: Math.max((lt.confidence ?? 0) - 0.03, 0.70),
+            confidence: clonedConfidence(lt.confidence),
             engine_family: lt.engine_family,
             created_at: now,
           });
@@ -2043,8 +2193,15 @@ export const backfillEngineSiblings = internalMutation({
         }
       }
 
+      // I1 make guard: re-assert per part (see cloneFromChassisMatch).
+      const siblingConfig = await ctx.db.get(siblingId);
       for (const pf of sourceFitments) {
         if (!pf.service_type || !ENGINE_PART_SERVICE_TYPES.has(pf.service_type)) continue;
+        const part = await ctx.db.get(pf.part_id);
+        if (part && !(await partMakeCompatibleForWrite(ctx, part.make_id, siblingConfig?.make_id))) {
+          console.log(`[engine-backfill] skipping cross-make part ${part.oem_part_number} → sibling ${siblingId}`);
+          continue;
+        }
         const existing = await ctx.db
           .query("part_fitments")
           .withIndex("by_config_service", (q) =>
@@ -2059,7 +2216,7 @@ export const backfillEngineSiblings = internalMutation({
             service_type: pf.service_type,
             quantity_needed: pf.quantity_needed,
             position: pf.position,
-            confidence: Math.max((pf.confidence ?? 0) - 0.03, 0.70),
+            confidence: clonedConfidence(pf.confidence),
             source_count: 1,
             first_confirmed_at: now,
             last_confirmed_at: now,

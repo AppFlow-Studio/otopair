@@ -810,11 +810,18 @@ export const findEngineSiblings = internalQuery({
     exclude_config_id: v.id("vehicle_configs"),
   },
   handler: async (ctx, args) => {
+    const source = await ctx.db.get(args.exclude_config_id);
+
     const all = await ctx.db
       .query("vehicle_configs")
       .withIndex("by_engine", (q) => q.eq("engine_id", args.engine_id))
       .collect();
 
-    return all.filter((c) => c._id !== args.exclude_config_id);
+    // Same-make only (see findBestEngineSibling above).
+    return all.filter(
+      (c) =>
+        c._id !== args.exclude_config_id &&
+        (!source?.make_id || c.make_id === source.make_id),
+    );
   },
 });
