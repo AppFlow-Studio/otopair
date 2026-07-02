@@ -37,6 +37,12 @@ export default function MechanicBookingLayout() {
                     // confirmation screen for a clean visual handoff.
                     gestureEnabled: false,
                     animation: "fade",
+                    // Native-stack's default screen container is white,
+                    // which shows through the sheet's rounded bottom
+                    // corners at the safe-area edge and reads as a
+                    // second card. Match the confirming screen's own
+                    // pale-blue backdrop so the strip disappears.
+                    contentStyle: { backgroundColor: "#E6EFFA" },
                 }}
             />
             <Stack.Screen
