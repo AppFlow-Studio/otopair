@@ -490,14 +490,19 @@ export type Finding = { label: string; zone: string };
 
 export type Findings = { attention: Finding[]; monitor: Finding[] };
 
-export function gatherFindings(state: InspectionState): Findings {
+export function gatherFindings(
+  state: InspectionState,
+  opts?: { onlyCompletedZones?: boolean },
+): Findings {
   const attention: Finding[] = [];
   const monitor: Finding[] = [];
+  const onlyDone = !!opts?.onlyCompletedZones;
 
   for (const zone of INSPECTION_ZONES) {
     if (zone.dynamic) continue;
     const zs = state.zones[zone.id];
     if (!zs) continue;
+    if (onlyDone && !zs.done) continue;
     for (const field of zone.fields) {
       if (field.type === "tri") {
         const s = zs.tri[field.key];
@@ -695,6 +700,7 @@ export const SERVICE_SLUGS = {
 function measuresAcrossCorners(
   state: InspectionState,
   key: string,
+  onlyDone = false,
 ): { values: number[]; worst: GradeLevel; min: number | null; ref?: number | null } {
   const corners: ZoneId[] = ["FL", "FR", "RL", "RR"];
   const rank: Record<GradeLevel, number> = { none: 0, ok: 1, warn: 2, bad: 3 };
@@ -704,6 +710,7 @@ function measuresAcrossCorners(
   for (const id of corners) {
     const zs = state.zones[id];
     if (!zs) continue;
+    if (onlyDone && !zs.done) continue;
     const field = INSPECTION_ZONES_BY_ID[id].fields.find(
       (f) => f.type === "measure" && f.key === key,
     );
@@ -721,15 +728,17 @@ function measuresAcrossCorners(
 
 export function deriveSuggestedRecommendations(
   state: InspectionState,
+  opts?: { onlyCompletedZones?: boolean },
 ): SuggestedRecommendation[] {
   const out: SuggestedRecommendation[] = [];
+  const onlyDone = !!opts?.onlyCompletedZones;
   const gradeUrgency = (lvl: GradeLevel): SuggestedRecUrgency | null =>
     lvl === "bad" ? "soon" : lvl === "warn" ? "within_3_months" : null;
   const triUrgency = (v: TriValue | undefined): SuggestedRecUrgency | null =>
     v === "r" ? "soon" : v === "y" ? "within_3_months" : null;
 
   // --- Measure-based (exact measurements) ---
-  const pad = measuresAcrossCorners(state, "pad");
+  const pad = measuresAcrossCorners(state, "pad", onlyDone);
   const padUrg = gradeUrgency(pad.worst);
   if (padUrg) {
     out.push({
@@ -742,7 +751,7 @@ export function deriveSuggestedRecommendations(
     });
   }
 
-  const rotor = measuresAcrossCorners(state, "rotor");
+  const rotor = measuresAcrossCorners(state, "rotor", onlyDone);
   const rotorUrg = gradeUrgency(rotor.worst);
   if (rotorUrg) {
     out.push({
@@ -757,7 +766,7 @@ export function deriveSuggestedRecommendations(
     });
   }
 
-  const tread = measuresAcrossCorners(state, "tread");
+  const tread = measuresAcrossCorners(state, "tread", onlyDone);
   const treadUrg = gradeUrgency(tread.worst);
   if (treadUrg) {
     out.push({
@@ -771,7 +780,7 @@ export function deriveSuggestedRecommendations(
 
   // --- Engine-bay measurements + eye-level (R/Y/G) checks ---
   const eng = state.zones.ENG;
-  if (eng) {
+  if (eng && (!onlyDone || eng.done)) {
     const battField = INSPECTION_ZONES_BY_ID.ENG.fields.find(
       (f) => f.type === "measure" && f.key === "batt",
     );
@@ -851,6 +860,45 @@ type StoredZone = {
 };
 
 const TRI_GRADE: Record<TriValue, GradeLevel> = { g: "ok", y: "warn", r: "bad" };
+
+// ---------------------------------------------------------------------------
+// Safeguard — detect zones the mechanic typed into but never tapped "Mark zone
+// complete". Those values don't count toward findings/recs/VHS, so the dialog
+// warns before submit instead of silently dropping them.
+// ---------------------------------------------------------------------------
+
+/** True if the zone's state differs from its blank/default template state. */
+export function zoneHasInput(zoneId: ZoneId, zs: ZoneState): boolean {
+  const zone = INSPECTION_ZONES_BY_ID[zoneId];
+  if (!zone) return false;
+  for (const field of zone.fields) {
+    if (field.type === "measure") {
+      if ((zs.measures[field.key] ?? "").trim() !== "") return true;
+    } else if (field.type === "tri") {
+      // Differs from the template default (e.g. flagged y/r).
+      if (zs.tri[field.key] && zs.tri[field.key] !== field.default) return true;
+    } else if (field.type === "descriptors") {
+      if ((zs.descriptors[field.key] ?? []).length > 0) return true;
+    } else if (field.type === "text") {
+      if ((zs.text[field.key] ?? "").trim() !== "") return true;
+    } else if (field.type === "select") {
+      if ((zs.select[field.key] ?? "").trim() !== "") return true;
+    }
+  }
+  return zs.photoIds.length > 0;
+}
+
+/** Zones with entered data that were never marked complete. */
+export function getDirtyIncompleteZones(state: InspectionState): ZoneId[] {
+  const out: ZoneId[] = [];
+  for (const zone of INSPECTION_ZONES) {
+    if (zone.dynamic) continue;
+    const zs = state.zones[zone.id];
+    if (!zs || zs.done) continue;
+    if (zoneHasInput(zone.id, zs)) out.push(zone.id);
+  }
+  return out;
+}
 
 export function formatZonesForPdf(storedZones: StoredZone[]): PdfZone[] {
   const byId = new Map(storedZones.map((z) => [z.zone_id, z]));

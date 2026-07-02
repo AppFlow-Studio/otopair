@@ -735,6 +735,15 @@ Return JSON:
       },
     );
 
+    if (!partId) {
+      return {
+        status: "rejected_cross_make" as const,
+        vin: normalized,
+        vehicle: vehicleLabel,
+        oem_part_number: oemPartNumber,
+      };
+    }
+
     if (Number.isFinite(pricePerQt) && pricePerQt > 0) {
       await writeVerifiedLlmPrice(ctx, {
         part_id:       partId,
@@ -1045,6 +1054,15 @@ RULES:
             source_domain:     sourceDomain,
           },
         );
+        if (!partId) {
+          results.push({
+            ...baseResult,
+            status: "rejected_cross_make" as const,
+            oem_part_number: resolved.oem_part_number,
+            cache_hit: wasCached,
+          });
+          continue;
+        }
         if (resolved.price_per_qt != null) {
           await writeVerifiedLlmPrice(ctx, {
             part_id:       partId,

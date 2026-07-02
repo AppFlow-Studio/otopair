@@ -4,6 +4,8 @@ import { updateSourceScores } from "../services/sourceScoring";
 import { enqueueNotificationOutbox } from "../bookings";
 import { recomputeLaborForConfigService } from "../lib/labor_aggregation";
 import { isLaborOnlyService } from "../lib/servicePartsReference";
+import { partFitsConfigMake } from "../partSelector";
+import { normalizeOemNumber } from "./priceParser";
 
 // ============================================================================
 // 1. upsertVehicleConfig
@@ -460,29 +462,59 @@ export const upsertPartAndFitment = internalMutation({
       );
     }
 
-    // Upsert OEM part
+    const config = await ctx.db.get(args.vehicle_config_id);
+
+    // Upsert OEM part — identity is the NORMALIZED number so formatting
+    // variants ("5Q0 698 451 A" vs "5Q0698451A") resolve to one row instead of
+    // splitting fitments and price history across duplicates.
+    const normalized = normalizeOemNumber(args.oem_part_number);
     let part = await ctx.db
       .query("oem_parts")
-      .withIndex("by_part_number", (q) =>
-        q.eq("oem_part_number", args.oem_part_number)
+      .withIndex("by_part_number_normalized", (q) =>
+        q.eq("oem_part_number_normalized", normalized)
       )
       .first();
+    if (!part) {
+      // Legacy rows predate the normalized field — fall back to the exact
+      // string; the patch below lazily backfills their normalized identity.
+      part = await ctx.db
+        .query("oem_parts")
+        .withIndex("by_part_number", (q) =>
+          q.eq("oem_part_number", args.oem_part_number)
+        )
+        .first();
+    }
+
+    // I1 write-time make guard: a part already known to belong to a different
+    // make must never gain a fitment on this config (the read-time guard in
+    // serviceParts.ts is the backstop; this stops the contamination from being
+    // stored at all). Universal consumables (make_id null) pass.
+    if (part && !partFitsConfigMake(part.make_id, config?.make_id)) {
+      console.log(
+        `[v8-parts] REJECTED cross-make fitment: part ${args.oem_part_number} has make_id=${part.make_id}, config ${args.vehicle_config_id} has make_id=${config?.make_id}`,
+      );
+      return { part_id: null, fitment_id: null, rejected: "cross_make" as const };
+    }
 
     let partId;
     if (part) {
       partId = part._id;
+      // Deliberately NOT patched on existing parts:
+      // - make_id: stamping the caller's make onto a shared part is exactly how
+      //   cross-make contamination spread (a Ford part re-written as Alfa).
+      // - is_current: forcing true would silently undo supersession marking.
       await ctx.db.patch(partId, {
         name: args.name,
         category: args.category,
         subcategory: args.subcategory,
-        make_id: args.make_id,
+        oem_part_number_normalized: normalized,
         last_confirmed_at: now,
-        is_current: true,
         source_count: (part.source_count ?? 0) + 1,
       });
     } else {
       partId = await ctx.db.insert("oem_parts", {
         oem_part_number: args.oem_part_number,
+        oem_part_number_normalized: normalized,
         name: args.name,
         category: args.category,
         subcategory: args.subcategory,
@@ -512,13 +544,20 @@ export const upsertPartAndFitment = internalMutation({
       (f) => (f.package_code ?? null) === (args.package_code ?? null),
     );
 
+    // Corroboration signal: distinct domains that attested this fitment.
+    const domain = args.source_domain?.toLowerCase().replace(/^www\./, "") || null;
+
     let fitmentId;
     if (existingFitment) {
       fitmentId = existingFitment._id;
+      const domains = existingFitment.source_domains ?? [];
       await ctx.db.patch(fitmentId, {
         confidence: args.confidence,
         last_confirmed_at: now,
         source_count: (existingFitment.source_count ?? 0) + 1,
+        ...(domain && !domains.includes(domain)
+          ? { source_domains: [...domains, domain] }
+          : {}),
         // Backfill/refresh the reference role on re-confirm so older rows that
         // predate role stamping pick it up. Only when the caller supplies one.
         ...(args.service_role ? { service_role: args.service_role } : {}),
@@ -534,6 +573,7 @@ export const upsertPartAndFitment = internalMutation({
         service_role: args.service_role,
         confidence: args.confidence,
         source_count: 1,
+        ...(domain ? { source_domains: [domain] } : {}),
         first_confirmed_at: now,
         last_confirmed_at: now,
         mechanic_verified: false,
@@ -846,6 +886,11 @@ export const reconcileConfigForReenrich = internalMutation({
     config_key: v.string(),
     drivetrain: v.optional(v.string()),
     nhtsa_vin_key: v.optional(v.string()),
+    // Healed transmission link from STEP 3a. On a PIN re-enrich we must push the
+    // repaired transmission_id onto the config too, else a config poisoned with
+    // an "unknown" placeholder link stays poisoned even after the vehicle row is
+    // healed (director re-enrich uses this reconcile path, not the full upsert).
+    transmission_id: v.optional(v.id("transmissions")),
   },
   handler: async (ctx, args) => {
     const patch: any = {
@@ -854,6 +899,7 @@ export const reconcileConfigForReenrich = internalMutation({
     };
     if (args.drivetrain && args.drivetrain !== "unknown") patch.drivetrain = args.drivetrain;
     if (args.nhtsa_vin_key) patch.nhtsa_vin_key = args.nhtsa_vin_key;
+    if (args.transmission_id) patch.transmission_id = args.transmission_id;
     await ctx.db.patch(args.config_id, patch);
     return args.config_id;
   },
