@@ -41,7 +41,6 @@ import {
   FloatingSheet,
   type FloatingSheetRef,
 } from "@/components/shared-ui/FloatingSheet";
-import { GlassSheetBackground } from "@/components/booking-flow/GlassSheet";
 import { getServiceIcon } from "@/components/booking-flow/serviceIcons";
 import { TAXONOMY } from "@/constants/serviceTaxonomy";
 import { CardShadow } from "@/constants/theme";
@@ -158,7 +157,9 @@ export const SelectedServicesSheet = forwardRef<SelectedServicesSheetRef>(
         snapHeights={[sheetHeight]}
         showBackdrop
         backdropMode="dim"
-        backgroundElement={<GlassSheetBackground style={StyleSheet.absoluteFill} />}
+        backgroundElement={
+          <View style={[StyleSheet.absoluteFill, styles.sheetBackground]} />
+        }
         onClose={() => setMounted(false)}
       >
         <View style={styles.body}>
@@ -267,6 +268,12 @@ export const SelectedServicesSheet = forwardRef<SelectedServicesSheetRef>(
 );
 
 const styles = StyleSheet.create({
+  sheetBackground: {
+    // Plain white per Ahmad — the glass frosted look competed
+    // with the blue selected-tint of the row cards. White gives
+    // the tinted rows a clean canvas to sit on.
+    backgroundColor: "#FFFFFF",
+  },
   body: {
     paddingHorizontal: 20,
     paddingTop: 4,
