@@ -62,7 +62,7 @@ export function useShopsFromConvex() {
   const [geocoded, setGeocoded] = useState<Record<string, Coords>>({});
 
   const shops: Shop[] = useMemo(() => {
-    if (!convexShops || !shopServicesList) return [];
+    if (convexShops === undefined || shopServicesList === undefined) return [];
 
     const serviceIdsByShop: Record<string, string[]> = {};
     for (const ss of shopServicesList) {
@@ -83,10 +83,10 @@ export function useShopsFromConvex() {
   }, [convexShops, shopServicesList, geocoded]);
 
   useEffect(() => {
-    if (shops.length > 0) {
+    if (convexShops !== undefined && shopServicesList !== undefined) {
       setShops(shops);
     }
-  }, [shops, setShops]);
+  }, [convexShops, shopServicesList, shops, setShops]);
 
   // Fire forward-geocoding for any shop missing lat/lng. Resolves are
   // batched into state so a single render hydrates them all.
