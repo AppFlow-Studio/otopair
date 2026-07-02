@@ -445,15 +445,18 @@ const styles = StyleSheet.create({
   },
   sheetShadow: {
     position: "absolute",
-    backgroundColor: "#FFFFFF",
+    // Fill left transparent — the inner sheet's white fill is the
+    // ONLY white surface. Previously this layer was also white, and
+    // a subpixel rounded-corner mismatch between outer + inner
+    // showed a thin white silhouette peeking below the sheet at
+    // the safe-area edge (Ahmad's "ghost card underneath"). With
+    // transparent fill iOS still renders the boxShadow off the
+    // view's border geometry, so the lifted feel survives.
+    backgroundColor: "transparent",
     borderTopLeftRadius: CORNER_RADIUS,
     borderTopRightRadius: CORNER_RADIUS,
     borderBottomLeftRadius: CORNER_RADIUS,
     borderBottomRightRadius: CORNER_RADIUS,
-    // Softer shadow — the previous 8/24/0.12 combo was big enough
-    // to render as a full rounded silhouette below the sheet, which
-    // read as "another card underneath." Tightening the offset and
-    // radius keeps a lifted feel without the ghost-card effect.
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.08,
