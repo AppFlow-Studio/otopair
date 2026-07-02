@@ -1171,7 +1171,17 @@ export default function HomeScreen() {
                   );
                   store.clearSelectedServices();
                   if (matched) store.toggleServiceSelection(matched.id);
-                  router.push('/(booking-flow)/select-services');
+                  // When we successfully pre-selected the service (the
+                  // common case for a NOW-tier callout), skip the
+                  // service picker and jump straight to Choose
+                  // Mechanic — the user knows what they want. Falls
+                  // back to select-services when the maintenance type
+                  // doesn't resolve to a catalog service (rare).
+                  router.push(
+                    matched
+                      ? '/(booking-flow)/choose-mechanic'
+                      : '/(booking-flow)/select-services',
+                  );
                 }}
               />
 
@@ -1210,7 +1220,14 @@ export default function HomeScreen() {
                       );
                       store.clearSelectedServices();
                       if (matched) store.toggleServiceSelection(matched.id);
-                      router.push('/(booking-flow)/select-services');
+                      // Same short-circuit as the NowTierCallout above —
+                      // when the service pre-selects cleanly, skip
+                      // Screen 1 and land on Choose Mechanic.
+                      router.push(
+                        matched
+                          ? '/(booking-flow)/choose-mechanic'
+                          : '/(booking-flow)/select-services',
+                      );
                     }}
                     onSwipeStart={() => setIsCardSwiping(true)}
                     onSwipeEnd={() => setIsCardSwiping(false)}

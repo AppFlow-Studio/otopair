@@ -1905,7 +1905,16 @@ export default function CarsHomeScreen() {
                 );
                 store.clearSelectedServices();
                 if (matched) store.toggleServiceSelection(matched.id);
-                router.push('/(booking-flow)/select-services');
+                // Same behavior as the Home surfaces: when we can
+                // pre-select the service, skip the service picker and
+                // jump straight to Choose Mechanic. Falls back to
+                // select-services if the maintenance type doesn't
+                // resolve to a catalog service.
+                router.push(
+                  matched
+                    ? '/(booking-flow)/choose-mechanic'
+                    : '/(booking-flow)/select-services',
+                );
               }}
               onTakeAction={(item) => {
                 const vin = activeVehicle?.vin;
@@ -1943,7 +1952,23 @@ export default function CarsHomeScreen() {
                   tireStore.setType(tireSpecs.type as any);
                   tireStore.setTier(tireSpecs.tier as any);
                 }
-                router.push('/(booking-flow)/select-services');
+                // Add the recommendation's service to the cart so
+                // Choose Mechanic has something to price / filter
+                // shops against. Clear first so this doesn't append
+                // to whatever the user last picked.
+                if (serviceId) {
+                  bookingStore.clearSelectedServices();
+                  bookingStore.toggleServiceSelection(serviceId);
+                }
+                // Skip the service picker when we know the specific
+                // serviceId (the follow-up card always carries one
+                // for a recommendation). Falls back to
+                // select-services when serviceId is missing.
+                router.push(
+                  serviceId
+                    ? '/(booking-flow)/choose-mechanic'
+                    : '/(booking-flow)/select-services',
+                );
               }}
             />
           ) : null}
