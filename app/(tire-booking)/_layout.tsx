@@ -12,7 +12,17 @@ export default function TireBookingLayout() {
       }}
     >
       <Stack.Screen name="index" />
-      <Stack.Screen name="requesting" />
+      <Stack.Screen
+        name="requesting"
+        options={{
+          // Match the Lottie's radial-gradient bottom edge so the
+          // FloatingSheet's rounded bottom corners don't show
+          // through onto a hard white screen backdrop (native-stack
+          // defaults contentStyle.backgroundColor to white). Same
+          // fix as the mechanic-flow confirming route.
+          contentStyle: { backgroundColor: "#E6EFFA" },
+        }}
+      />
     </Stack>
   );
 }

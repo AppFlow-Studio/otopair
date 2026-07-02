@@ -154,7 +154,11 @@ export default function RotorRequestingScreen({
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
+    // Blends with the Lottie's radial-gradient bottom edge so the
+    // FloatingSheet's rounded bottom corners don't show a white
+    // strip at the safe-area edge. Layout parent's contentStyle
+    // is set to the same tint for the belt-and-suspenders fix.
+    backgroundColor: "#E6EFFA",
   },
   lottie: {
     ...StyleSheet.absoluteFillObject,
