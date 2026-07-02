@@ -46,7 +46,13 @@ function isUpcoming(row: ConvexBookingWithDetails): boolean {
   if (row.status === "in_progress") return false;
   if (row.status === "pending_quote") return true;
   if (row.status === "quotes_ready") return true;
-  const today = new Date().toISOString().slice(0, 10);
+  // Local-tz "today" — bookings.scheduled_date is a local YYYY-MM-DD
+  // string with no timezone, so comparing it against `toISOString()`
+  // (which returns UTC) drops same-day bookings whenever local time
+  // has rolled into the next UTC day (evenings west of UTC). Sister
+  // of the same fix in app/(main-tabs)/home/index.tsx.
+  const now = new Date();
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
   return row.scheduled_date >= today;
 }
 

@@ -72,6 +72,7 @@ export default function ShopDetailScreen() {
   const resetBookingFlow = useBookingStore((state) => state.resetBookingFlow);
   const bookingStage = useBookingStore((state) => state.bookingStage);
   const selectedServiceIds = useBookingStore((state) => state.selectedServiceIds);
+  const setPreSelectedShop = useBookingStore((state) => state.setPreSelectedShop);
   const addRecentShop = useSearchStore((state) => state.addRecentShop);
 
   // ═══════════════ COMPUTED VALUES ═══════════════
@@ -206,11 +207,25 @@ export default function ShopDetailScreen() {
   };
 
   const handleSchedulePress = useCallback(() => {
-    // Match the existing "schedule" tab behavior: open the booking
-    // modal with "Any" mechanic.
-    setBookingMechanicId(null);
-    setShowBookingModal(true);
-  }, []);
+    // Route into the booking flow with THIS shop pre-pinned, and
+    // REPLACE the shop detail in the stack instead of pushing on
+    // top of it. `push` was causing the booking-flow sheet to
+    // appear over the shop detail (both screens mounted, sheet
+    // semi-transparent → user saw shop detail bleeding through);
+    // `replace` swaps in the booking-flow cleanly so it reads as
+    // a full-page navigation. Back from inside the booking flow
+    // returns to whatever was below the shop detail (search,
+    // home, etc.) — which is the right behavior since the user
+    // already committed to booking with this shop.
+    //
+    // Legacy `ShopBookingModal` is still mounted below for any
+    // residual call sites, but this CTA + the top "Book" pill no
+    // longer open it — both flow through the new (booking-flow)
+    // stack now.
+    if (!shop) return;
+    setPreSelectedShop(shop.id);
+    router.replace("/(booking-flow)/select-services");
+  }, [router, setPreSelectedShop, shop]);
 
   return (
     <FullScreenContainer style={styles.container}>
@@ -256,8 +271,11 @@ export default function ShopDetailScreen() {
         {/* Hero map */}
         <MechanicDetailHeader shop={shop} onBack={handleBack} />
 
-        {/* Floating shop info card — overlaps the map bottom edge */}
-        <ShopHeroCard shop={shop} />
+        {/* Floating shop info card — overlaps the map bottom edge.
+            Pass the same Book handler the sticky CTA uses so the
+            top-of-card "Book" pill routes through the new
+            (booking-flow) stack instead of the legacy modal. */}
+        <ShopHeroCard shop={shop} onSchedulePress={handleSchedulePress} />
 
         {/* Tab Navigation */}
         <MechanicDetailTabs activeTab={activeTab} onTabChange={handleTabChange} />

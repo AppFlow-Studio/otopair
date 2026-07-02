@@ -20,7 +20,7 @@
 
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   Dimensions,
   NativeScrollEvent,
@@ -126,6 +126,27 @@ function NowCard({
 
 export function NowTierCallout({ items, onBookNow, onCardPress }: NowTierCalloutProps) {
   const [activeIndex, setActiveIndex] = useState(0);
+  const scrollRef = useRef<ScrollView>(null);
+
+  // Clamp + realign the scroll position whenever the items array shifts.
+  // When a booking gets made the urgency list often shrinks (the just-
+  // booked item drops out) and the ScrollView's stale contentOffset
+  // lands the viewport between two pages — the bug Ahmad caught where
+  // a card "shrinks and hides behind the next one with the map peeking
+  // through." Re-clamp the activeIndex to the new valid range and
+  // imperatively scroll to it.
+  useEffect(() => {
+    if (items.length === 0) return;
+    const clamped = Math.min(activeIndex, items.length - 1);
+    if (clamped !== activeIndex) setActiveIndex(clamped);
+    // Re-snap without animation so the realignment is invisible.
+    scrollRef.current?.scrollTo({
+      x: clamped * PAGE_WIDTH,
+      y: 0,
+      animated: false,
+    });
+  }, [items.length]);
+
   if (items.length === 0) return null;
 
   const onMomentumScrollEnd = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -136,11 +157,18 @@ export function NowTierCallout({ items, onBookNow, onCardPress }: NowTierCallout
   return (
     <Animated.View entering={FadeInUp.duration(450)} style={styles.outer}>
       <ScrollView
+        ref={scrollRef}
         horizontal
         pagingEnabled
         showsHorizontalScrollIndicator={false}
         onMomentumScrollEnd={onMomentumScrollEnd}
         decelerationRate="fast"
+        // Explicit snap reinforces pagingEnabled when the parent layout
+        // recomputes mid-scroll (e.g. after a booking mutation re-renders
+        // siblings). Without this, the viewport can settle on a half-page.
+        snapToInterval={PAGE_WIDTH}
+        snapToAlignment="start"
+        disableIntervalMomentum
       >
         {items.map((item) => (
           <NowCard

@@ -46,6 +46,7 @@ import { useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useUserFromConvex } from "@/hooks/useUserFromConvex";
 import { buildYearOptions, useMakes, useModels } from "@/hooks/useYmmtCatalog";
+import { usePendingNavigationStore } from "@/stores/usePendingNavigationStore";
 
 // 4. Shared UI
 import { Text } from "@/components/shared-ui";
@@ -126,6 +127,13 @@ export default function AddVehicleDetailsScreen() {
   const addOwner = useMutation(api.vehicles.addOwner);
   const upsertVehicle = useMutation(api.vehicles.upsertVehicle);
   const saveVehicleImageUrl = useMutation(api.vehicles.saveVehicleImageUrl);
+  // Queues the "Connecting to your <car>" toast for the user's NEXT
+  // home visit. Mirrors the VIN flow in add-vehicle-review.tsx so the
+  // manual-entry path gets the same enrichment-in-progress signal
+  // instead of silently dropping the user onto /vehicle-added.
+  const setPendingEnrichmentToast = usePendingNavigationStore(
+    (s) => s.setPendingEnrichmentToast,
+  );
   const isManualEntry = manual === "true";
 
   // State — hardcoded Lexus RX350 details for VIN mode, blank for manual mode.
@@ -382,6 +390,21 @@ export default function AddVehicleDetailsScreen() {
     } catch (e) {
       console.warn("Convex add vehicle failed", e);
     }
+
+    // Queue the enrichment toast for the next time the user lands on
+    // home — mirrors the VIN flow's behavior in add-vehicle-review.tsx
+    // so the manual path doesn't drop the user onto /vehicle-added
+    // with no signal that their car is being set up behind the scenes.
+    // Label uses the user-visible "<year> <brand> <model>" so the
+    // toast calls out their specific car.
+    const carLabel = [year.trim(), brand.trim(), model.trim()]
+      .filter(Boolean)
+      .join(" ")
+      .trim();
+    if (carLabel) {
+      setPendingEnrichmentToast(carLabel);
+    }
+
     router.push({
       pathname: "/vehicle-added",
       params: {
