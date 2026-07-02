@@ -22,6 +22,7 @@ import { History } from "lucide-react-native";
 import { Text } from "@/components/shared-ui";
 import { CardShadow } from "@/constants/theme";
 import { useMostRecentBooking } from "@/hooks/useMostRecentBooking";
+import { useBookingStore } from "@/stores/useBookingStore";
 
 /** Collapse the services list into one line: single service by
  *  label, multiple as "First + N more". Cap the display label at
@@ -37,13 +38,67 @@ export function HeroCardMostBooked() {
   const router = useRouter();
   const { booking, isLoading } = useMostRecentBooking();
 
+  // Store handles for the one-tap re-book flow: fill the cart
+  // with the same services and pin the shop, then jump the user
+  // straight to the date/time picker (the "checkout" step).
+  const availableServices = useBookingStore((s) => s.availableServices);
+  const clearSelectedServices = useBookingStore((s) => s.clearSelectedServices);
+  const toggleServiceSelection = useBookingStore(
+    (s) => s.toggleServiceSelection,
+  );
+  const setPreSelectedShop = useBookingStore((s) => s.setPreSelectedShop);
+
   const onPress = useCallback(() => {
     if (!booking?.shopId) return;
+
+    // Tire / rotor quote bookings live in their own flow (they
+    // don't use the standard cart). Route those to the shop
+    // detail page — from there the Book Service CTA hands off
+    // to the right dedicated flow.
+    if (booking.quoteType) {
+      router.push({
+        pathname: "/booking/shop/[id]",
+        params: { id: booking.shopId },
+      });
+      return;
+    }
+
+    // Reverse-lookup service IDs from the booking's stored label
+    // list against the current catalog. Match by `name` or
+    // `displayLabel` — both fields hold user-visible strings that
+    // Convex might have written into the booking snapshot. Skip
+    // any label that no longer resolves (rare — catalog reseed,
+    // deleted service).
+    const matchedIds: string[] = [];
+    for (const label of booking.services) {
+      const svc = availableServices.find(
+        (s) => s.name === label || s.displayLabel === label,
+      );
+      if (svc) matchedIds.push(svc.id);
+    }
+
+    clearSelectedServices();
+    for (const id of matchedIds) toggleServiceSelection(id);
+    setPreSelectedShop(booking.shopId);
+
+    // Jump straight to the date/time picker. Empty `mechanicId`
+    // param = "Any mechanic"; the user can change it in the
+    // picker if they want the same person as last time.
     router.push({
-      pathname: "/booking/shop/[id]",
-      params: { id: booking.shopId },
+      pathname: "/(booking-flow)/pick-datetime",
+      params: {
+        shopId: booking.shopId,
+        mechanicId: booking.mechanicId ?? "",
+      },
     });
-  }, [booking, router]);
+  }, [
+    booking,
+    router,
+    availableServices,
+    clearSelectedServices,
+    toggleServiceSelection,
+    setPreSelectedShop,
+  ]);
 
   const hasBooking = !!booking;
   const servicesLabel = booking ? formatServicesLabel(booking.services) : null;
