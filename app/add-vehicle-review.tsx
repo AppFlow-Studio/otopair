@@ -40,7 +40,6 @@ import { Text } from '@/components/shared-ui';
 import { Spacing } from '@/constants/theme';
 import { api } from '@/convex/_generated/api';
 import { Id } from '@/convex/_generated/dataModel';
-import { usePendingNavigationStore } from '@/stores/usePendingNavigationStore';
 import { scale, verticalScale, moderateScale } from '@/utils/responsive';
 import { classifyColorFamily, fetchVehicleImageUrl, pickBestVdbTrim, pickSilhouetteVariant, useVdbColorsForVin, useVdbVariants, type VdbVariant } from '@/utils/vehicleImage';
 import { COLOR_GRADIENTS } from '@/constants/colorGradients';
@@ -112,9 +111,6 @@ function ColorSwatchItem({
 export default function AddVehicleReviewScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const setPendingEnrichmentToast = usePendingNavigationStore(
-    (s) => s.setPendingEnrichmentToast,
-  );
   const params = useLocalSearchParams<{
     vin: string;
     make: string;
@@ -378,21 +374,10 @@ export default function AddVehicleReviewScreen() {
           });
         }
 
-        // Queue an enrichment toast for the NEXT time the user lands
-        // on home. Per Ahmad: firing right after confirm overlaps the
-        // /vehicle-added celebration; let the user enjoy that, then
-        // gently surface what's happening in the background the next
-        // time they come back to the dashboard. Home's useFocusEffect
-        // reads this field, fires the toast, and clears it. The label
-        // is the user-visible "2024 VW Tiguan" so the toast can call
-        // out the specific car.
-        const yearStr = (params.year ?? '').trim();
-        const makeStr = (params.make ?? '').trim();
-        const modelStr = (effectiveModel || params.model || '').trim();
-        const carLabel = [yearStr, makeStr, modelStr].filter(Boolean).join(' ').trim();
-        if (carLabel) {
-          setPendingEnrichmentToast(carLabel);
-        }
+        // No enrichment toast queued anymore — the persistent
+        // EnrichmentStatusPill in the (main-tabs) layout picks the new
+        // car up from getMyVehiclesEnrichmentStatus and shows
+        // "Connecting to your <car>" until the pipeline finishes.
 
         router.replace({
           pathname: '/vehicle-added',

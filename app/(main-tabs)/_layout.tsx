@@ -8,11 +8,12 @@ import { NativeTabs } from "expo-router/unstable-native-tabs";
 const Label = NativeTabs.Trigger.Label;
 const Icon = NativeTabs.Trigger.Icon;
 const Badge = NativeTabs.Trigger.Badge;
-import { Tabs, useRootNavigationState } from "expo-router";
+import { Tabs, usePathname, useRootNavigationState } from "expo-router";
 import { guardedRouter as router } from "@/lib/navigationLock";
 import React, { useEffect } from "react";
 import { Platform } from "react-native";
 import { useAuth } from "@clerk/clerk-expo";
+import { EnrichmentStatusPill } from "@/components/booking-flow/EnrichmentStatusPill";
 import { TabBar } from "@/components/navigation/TabBar";
 import { useBookingsFromConvex } from "@/hooks/useBookingsFromConvex";
 import { useUnseenBookingsCount } from "@/hooks/useUnseenBookingsCount";
@@ -45,6 +46,24 @@ function HydrateBookingData() {
   useVehicleOwnershipFromConvex();
   useBookingsFromConvex();
   return null;
+}
+
+/** Tab pages that show the persistent "Connecting to your car" pill while
+ *  any garage vehicle is enriching. Add a path prefix here to toggle the
+ *  pill on for another page. Oto (ai-chat) is deliberately left off — the
+ *  chat has its own vehicle context UI and the pill would fight it.
+ *  Settings is covered for free: it's an overlay above these tab routes
+ *  (pathname doesn't change), and the pill renders above it. */
+const ENRICHMENT_PILL_PATHS = ["/home", "/bookings", "/cars"];
+
+function MainTabsEnrichmentPill() {
+  const pathname = usePathname();
+  const show = ENRICHMENT_PILL_PATHS.some((p) => pathname.startsWith(p));
+  if (!show) return null;
+  // scope "any": a just-added enriching car is usually not the selected
+  // one, so the tabs watch the whole garage. Bottom placement hovers the
+  // pill above the tab bar, Airbnb-style.
+  return <EnrichmentStatusPill placement="bottom" scope="any" />;
 }
 
 export default function TabLayout() {
@@ -127,6 +146,7 @@ function ProtectedTabLayout() {
         <RescheduleDecisionOverlay />
         <SettingsOverlay />
         <UpdateAvailableBanner />
+        <MainTabsEnrichmentPill />
       </>
     );
   }
@@ -158,6 +178,7 @@ function ProtectedTabLayout() {
       <RescheduleDecisionOverlay />
       <SettingsOverlay />
       <UpdateAvailableBanner />
+      <MainTabsEnrichmentPill />
     </>
   );
 }

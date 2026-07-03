@@ -69,7 +69,9 @@ const TOAST_FG = "#FFFFFF";
 // — so the toast reads as a soft glassy pill instead of a flat
 // rectangle. Direction is TL→BR to suggest a highlight running
 // across the top-left, the same trick the Book Service CTA uses.
-const TOAST_GRADIENT = ["#7BB1FF", "#3D7AC8"] as const;
+// Exported for EnrichmentStatusPill, which wears the same brand-blue
+// glass so the persistent status pill and the toasts read as one family.
+export const TOAST_GRADIENT = ["#7BB1FF", "#3D7AC8"] as const;
 const TOAST_BG_OVERRIDE = {
   bg: TOAST_BG,
   border: TOAST_BG,
