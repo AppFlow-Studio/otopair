@@ -5,6 +5,7 @@ import {
     FontSize,
     type FontSizeKey
 } from '@/constants/theme';
+import { resolveThemeColorScheme } from '@/constants/themeColorScheme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import React from 'react';
 import {
@@ -106,7 +107,7 @@ export function Text({
     children,
     ...textProps
 }: TextProps) {
-    const colorScheme = useColorScheme() ?? 'light';
+    const colorScheme = resolveThemeColorScheme(useColorScheme());
 
     // Variant sets defaults; explicit size/weight props override.
     const resolvedSize = size ?? (variant ? variantDefaults[variant].size : 'md');

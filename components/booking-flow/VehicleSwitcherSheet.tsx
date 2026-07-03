@@ -7,24 +7,43 @@
  */
 
 import React, { useEffect, useMemo, useRef } from "react";
-import { Dimensions, Image, Pressable, StyleSheet, View } from "react-native";
+import {
+  Image,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  useWindowDimensions,
+  View,
+} from "react-native";
 import { Check } from "lucide-react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { moderateVerticalScale } from "react-native-size-matters";
 
 import { CarSilhouette } from "@/components/shared-ui/CarSilhouette";
 import { Text } from "@/components/shared-ui";
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
 import { GlassSheetBackground } from "@/components/booking-flow/GlassSheet";
 import { useVehicleStore } from "@/stores/useVehicleStore";
+import {
+  getCappedSheetHeight,
+  getOverlayClearance,
+} from "@/components/booking-flow/responsiveSheetLayout";
 
 interface VehicleSwitcherSheetProps {
   onClose: () => void;
 }
 
-const SCREEN_HEIGHT = Dimensions.get("window").height;
 const ROW_HEIGHT = 88;
 
 export function VehicleSwitcherSheet({ onClose }: VehicleSwitcherSheetProps) {
   const sheetRef = useRef<FloatingSheetRef>(null);
+  const { height: viewportHeight } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const listBottomPadding = getOverlayClearance({
+    safeAreaBottom: insets.bottom,
+    overlayHeight: 0,
+    extraSpacing: moderateVerticalScale(16, 0.3),
+  });
 
   const vehicleIds = useVehicleStore((s) => s.vehicleIds);
   const vehicles = useVehicleStore((s) => s.vehicles);
@@ -40,8 +59,14 @@ export function VehicleSwitcherSheet({ onClose }: VehicleSwitcherSheetProps) {
     const headerH = 64;
     const listH = Math.max(1, vehicleIds.length) * ROW_HEIGHT;
     const padding = 60;
-    return Math.min(SCREEN_HEIGHT * 0.7, headerH + listH + padding);
-  }, [vehicleIds.length]);
+    return getCappedSheetHeight({
+      viewportHeight,
+      desiredHeight: headerH + listH + padding,
+      minimumHeight: 240,
+      maximumRatio: 0.7,
+      absoluteMaximum: Number.POSITIVE_INFINITY,
+    });
+  }, [vehicleIds.length, viewportHeight]);
 
   const onPick = (id: string) => {
     selectVehicle(id);
@@ -66,44 +91,54 @@ export function VehicleSwitcherSheet({ onClose }: VehicleSwitcherSheetProps) {
             No vehicles yet. Add one from your garage to switch.
           </Text>
         ) : (
-          vehicleIds.map((id) => {
-            const v = vehicles[id];
-            if (!v) return null;
-            const isActive = id === selectedVehicleId;
-            return (
-              <Pressable
-                key={id}
-                style={[styles.row, isActive && styles.rowActive]}
-                onPress={() => onPick(id)}
-                accessibilityRole="button"
-                accessibilityState={{ selected: isActive }}
-                accessibilityLabel={`${v.year} ${v.make} ${v.model}`}
-              >
-                <View style={styles.thumb}>
-                  {v.imageSource ? (
-                    <Image source={v.imageSource} style={styles.thumbImage} resizeMode="contain" />
-                  ) : (
-                    <CarSilhouette variant="suv" width={64} height={44} />
-                  )}
-                </View>
-                <View style={styles.rowText}>
-                  <Text size="md" weight="bold" color="#0F172A" numberOfLines={1}>
-                    {v.year} {v.make} {v.model}
-                  </Text>
-                  {v.vin ? (
-                    <Text size="xs" weight="regular" color="#6B7280" numberOfLines={1}>
-                      VIN ending {v.vin.slice(-6)}
-                    </Text>
-                  ) : null}
-                </View>
-                {isActive ? (
-                  <View style={styles.check}>
-                    <Check size={16} color="#FFFFFF" strokeWidth={2.5} />
+          // Sheet's snap height is clamped at 0.7 of the viewport; on
+          // larger garages the row list overflows. Wrap in ScrollView
+          // so the user can reach every car, including newly added
+          // ones at the bottom of the list.
+          <ScrollView
+            style={styles.scroll}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={{ paddingBottom: listBottomPadding }}
+          >
+            {vehicleIds.map((id) => {
+              const v = vehicles[id];
+              if (!v) return null;
+              const isActive = id === selectedVehicleId;
+              return (
+                <Pressable
+                  key={id}
+                  style={[styles.row, isActive && styles.rowActive]}
+                  onPress={() => onPick(id)}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: isActive }}
+                  accessibilityLabel={`${v.year} ${v.make} ${v.model}`}
+                >
+                  <View style={styles.thumb}>
+                    {v.imageSource ? (
+                      <Image source={v.imageSource} style={styles.thumbImage} resizeMode="contain" />
+                    ) : (
+                      <CarSilhouette variant="suv" width={64} height={44} />
+                    )}
                   </View>
-                ) : null}
-              </Pressable>
-            );
-          })
+                  <View style={styles.rowText}>
+                    <Text size="md" weight="bold" color="#0F172A" numberOfLines={1}>
+                      {v.year} {v.make} {v.model}
+                    </Text>
+                    {v.vin ? (
+                      <Text size="xs" weight="regular" color="#6B7280" numberOfLines={1}>
+                        VIN ending {v.vin.slice(-6)}
+                      </Text>
+                    ) : null}
+                  </View>
+                  {isActive ? (
+                    <View style={styles.check}>
+                      <Check size={16} color="#FFFFFF" strokeWidth={2.5} />
+                    </View>
+                  ) : null}
+                </Pressable>
+              );
+            })}
+          </ScrollView>
         )}
       </View>
     </FloatingSheet>
@@ -112,9 +147,13 @@ export function VehicleSwitcherSheet({ onClose }: VehicleSwitcherSheetProps) {
 
 const styles = StyleSheet.create({
   body: {
+    flex: 1,
     paddingHorizontal: 20,
     paddingTop: 6,
-    paddingBottom: 16,
+    paddingBottom: 0,
+  },
+  scroll: {
+    flex: 1,
   },
   title: {
     fontSize: 20,

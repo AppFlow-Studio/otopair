@@ -35,6 +35,7 @@ import { ChevronDown, ChevronUp, Star } from "lucide-react-native";
 
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
 import { Text } from "@/components/shared-ui";
+import { useToast } from "@/hooks/useToast";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { Booking } from "@/components/bookings/BookingCard";
@@ -105,6 +106,7 @@ export const LeaveReviewSheet = forwardRef<LeaveReviewSheetRef, Props>(
     const [error, setError] = useState<string | null>(null);
 
     const submitReview = useMutation(api.reviews.submit);
+    const toast = useToast();
 
     // One Animated.Value per star for the pop-on-tap micro-interaction.
     const starScales = useRef<Animated.Value[]>(
@@ -242,6 +244,7 @@ export const LeaveReviewSheet = forwardRef<LeaveReviewSheetRef, Props>(
         });
         onSubmitted?.(booking.id);
         sheetRef.current?.close();
+        toast.success("Thanks for the review");
       } catch (err) {
         setError(err instanceof Error ? err.message : "Couldn't submit review.");
       } finally {
@@ -262,6 +265,7 @@ export const LeaveReviewSheet = forwardRef<LeaveReviewSheetRef, Props>(
       mechanicComment,
       submitReview,
       onSubmitted,
+      toast,
     ]);
 
     const mechanicAvailable = !!(booking?.mechanicId && booking?.mechanicName);

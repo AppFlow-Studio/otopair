@@ -36,9 +36,11 @@ import { Text } from "@/components/shared-ui";
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
 import { BookingConfirmStatus } from "@/components/booking/BookingConfirmStatus";
 import { useCreateBookingConvex } from "@/hooks/useCreateBookingConvex";
+import { useToast } from "@/hooks/useToast";
 import { calculateBookingConfirmLayout } from "@/lib/bookingConfirmSheet";
 import { getBookingConfirmingCopy, isBookingRescheduleMode } from "@/lib/reschedule-flow";
 import { useBookingStore } from "@/stores/useBookingStore";
+import { useMechanicStore } from "@/stores/useMechanicStore";
 import { usePaymentStore } from "@/stores/usePaymentStore";
 import { displayTimeToHHMM } from "@/utils/timeSlotUtils";
 import { api } from "@/convex/_generated/api";
@@ -82,18 +84,23 @@ export default function BookingConfirmingScreen() {
   const selectedMechanicSlot = useBookingStore((s) => s.selectedMechanicSlot);
   const scheduledAppointment = useBookingStore((s) => s.scheduledAppointment);
   const bookingType = useBookingStore((s) => s.bookingType);
+  const getMechanicById = useMechanicStore((s) => s.getMechanicById);
   const selectedPaymentMethodId = usePaymentStore((s) => s.selectedPaymentMethodId);
   const selectedWalletPm = usePaymentStore((s) => s.selectedWalletPm);
   const setSelectedWalletPm = usePaymentStore((s) => s.setSelectedWalletPm);
   const isWalletFlow = paymentMode === "wallet";
-  const createPaymentIntent = useAction(api.payments_stripe.createPaymentIntentForBooking);
+  const preauthorizePayment = useAction(api.payments_stripe.preauthorizePaymentForBooking);
+  const cancelPreauthorizedPayment = useAction(api.payments_stripe.cancelPreauthorizedPaymentIntent);
   const customerRequestReschedule = useMutation(api.bookings.customerRequestReschedule);
+  const rollbackFailedBookingCreation = useMutation(api.bookings.rollbackFailedBookingCreation);
+  const toast = useToast();
   // The PaymentIntent is created + confirmed server-side. If 3DS is needed,
   // Stripe returns requires_action and the client *finishes* the challenge
   // via `handleNextAction(clientSecret)` — NOT `confirmPayment`, which
   // would error out on an already-confirmed PI.
   const { handleNextAction } = useStripe();
   const navigatedRef = useRef(false);
+  const confirmationAttemptIdRef = useRef(`${Date.now()}:${Math.random().toString(36).slice(2)}`);
   const [submitting, setSubmitting] = useState(false);
   const isCompactLayout = windowHeight < 860;
   const isVeryCompactLayout = windowHeight < 760;
@@ -183,6 +190,7 @@ export default function BookingConfirmingScreen() {
         });
         if (navigatedRef.current) return;
         navigatedRef.current = true;
+        toast.success("Appointment rescheduled");
         router.replace({
           pathname: "/booking/mechanic/[id]/confirmation",
           params: {
@@ -201,7 +209,11 @@ export default function BookingConfirmingScreen() {
       }
       return;
     }
-    if (!selectedMechanicId && !selectedMechanicSlot?.shopId) {
+    const shopId =
+      selectedMechanicSlot?.shopId ??
+      (selectedMechanicId ? getMechanicById(selectedMechanicId)?.shopId : null);
+
+    if (!shopId) {
       navigatedRef.current = true;
       router.replace({
         pathname: "/booking/mechanic/[id]/payment",
@@ -229,34 +241,43 @@ export default function BookingConfirmingScreen() {
     }
     const paymentOrigin = isWalletFlow ? selectedWalletPm?.type : "card";
     setSubmitting(true);
+    let preauthorizedPaymentIntentId: string | null = null;
+    let createdBookingId: Id<"bookings"> | null = null;
     try {
-      const bookingIds = await createBookingConvex(selectedMechanicId, bookingType || "book_now");
-      const newBookingId = bookingIds[0];
+      const preauth = await preauthorizePayment({
+        shopId: shopId as Id<"shops">,
+        paymentMethodId,
+        confirmationAttemptId: confirmationAttemptIdRef.current,
+        ...(paymentOrigin ? { paymentOrigin } : {}),
+      });
+      preauthorizedPaymentIntentId = preauth.paymentIntentId;
 
-      // If the booking was created locally (no Convex id), skip the
-      // PaymentIntent step — there's nothing to authorize against yet.
-      // (`createBookingConvex` returns a local-only id when Convex args
-      // are missing; the booking will be re-submitted later.)
-      const isConvexBookingId = typeof newBookingId === "string" && newBookingId.length > 10;
-      if (isConvexBookingId) {
-        const pi = await createPaymentIntent({
-          bookingId: newBookingId as Id<"bookings">,
-          paymentMethodId,
-          ...(paymentOrigin ? { paymentOrigin } : {}),
-        });
-
-        if (pi.requiresAction) {
-          const { error } = await handleNextAction(pi.clientSecret);
-          if (error) {
-            throw new Error(error.message ?? "Card authorization failed.");
-          }
-        } else if (
-          pi.status !== "requires_capture" &&
-          pi.status !== "succeeded" &&
-          pi.status !== "processing"
-        ) {
-          throw new Error(`Card authorization failed (status: ${pi.status}).`);
+      if (preauth.requiresAction) {
+        const { error } = await handleNextAction(preauth.clientSecret);
+        if (error) {
+          throw new Error(error.message ?? "Card authorization failed.");
         }
+      } else if (
+        preauth.status !== "requires_capture" &&
+        preauth.status !== "succeeded" &&
+        preauth.status !== "processing"
+      ) {
+        throw new Error(`Card authorization failed (status: ${preauth.status}).`);
+      }
+
+      const bookingIds = await createBookingConvex(
+        selectedMechanicId,
+        bookingType || "book_now",
+        {
+          stripePaymentIntentId: preauth.paymentIntentId,
+          idempotencyKey: preauth.idempotencyKey,
+          holdAmountCents: preauth.holdAmountCents,
+          ...(paymentOrigin ? { paymentOrigin } : {}),
+        },
+      );
+      const newBookingId = bookingIds[0];
+      if (typeof newBookingId === "string" && newBookingId.length > 10) {
+        createdBookingId = newBookingId as Id<"bookings">;
       }
 
       if (navigatedRef.current) return;
@@ -266,6 +287,23 @@ export default function BookingConfirmingScreen() {
         params: newBookingId ? { id, bookingDbId: newBookingId } : { id },
       });
     } catch (err) {
+      if (preauthorizedPaymentIntentId) {
+        try {
+          await cancelPreauthorizedPayment({ paymentIntentId: preauthorizedPaymentIntentId });
+        } catch {
+          // Best effort: Stripe will expire an uncaptured hold if cancel fails.
+        }
+      }
+      if (createdBookingId) {
+        try {
+          await rollbackFailedBookingCreation({
+            bookingId: createdBookingId,
+            reason: extractErrorMessage(err).slice(0, 500),
+          });
+        } catch {
+          // Best effort: still show the original error so the user can retry.
+        }
+      }
       if (navigatedRef.current) return;
       navigatedRef.current = true;
       router.replace({
@@ -286,12 +324,15 @@ export default function BookingConfirmingScreen() {
     selectedWalletPm,
     setSelectedWalletPm,
     isWalletFlow,
+    getMechanicById,
     scheduledAppointment,
     isReschedule,
     bookingDbId,
     bookingType,
     createBookingConvex,
-    createPaymentIntent,
+    preauthorizePayment,
+    cancelPreauthorizedPayment,
+    rollbackFailedBookingCreation,
     customerRequestReschedule,
     handleNextAction,
     router,
@@ -343,7 +384,16 @@ export default function BookingConfirmingScreen() {
         snapHeights={[confirmLayout.sheetHeight]}
         onClose={handleSheetClose}
         cornerRadius={24}
-        renderInModal={false}
+        // Card flow: render inside the native <Modal> like the
+        // rotor / tire quote-requesting screens do — that hides
+        // the ghost-card white strip that shows through the
+        // sheet's rounded bottom corners in inline mode.
+        // Wallet flow: MUST stay inline. iOS won't present a
+        // Modal while the Apple / Google Pay sheet is still
+        // dismissing, and the open() call gets silently
+        // swallowed — the user would see the loading screen
+        // with no confirmation sheet.
+        renderInModal={!isWalletFlow}
       >
         <BookingConfirmStatus
           onConfirm={handleConfirm}
@@ -361,7 +411,14 @@ export default function BookingConfirmingScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
+    // Match the Lottie animation's radial-gradient bottom edge.
+    // Lottie is translated upward (see `lottieTranslateY`) to lift
+    // the pin to a better vertical position, which leaves the bottom
+    // strip of the screen showing through — with a #FFFFFF backing
+    // it read as a "second card underneath" the floating sheet. A
+    // soft pale-blue matches the Lottie's edge so the strip blends
+    // into the background instead of hard-edging as white.
+    backgroundColor: "#E6EFFA",
   },
   lottie: {
     ...StyleSheet.absoluteFillObject,

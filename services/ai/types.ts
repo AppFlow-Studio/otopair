@@ -151,9 +151,41 @@ export interface ChatMessage {
   bookingCard?: { booking_id: string };
   // Sprint 3 Day 5 §14.3 — multi-booking list card. Trigger-only.
   bookingsList?: { booking_ids: string[] };
+  // render_vehicle_update — vehicle-truth confirm card. Oto fires this when the
+  // user states a mileage reading, a named fault light, and/or a service they
+  // report due/done. The card writes via vehicleTruth.applyVehicleTruth on
+  // confirm. See: convex/oto/tools.ts → render_vehicle_update.
+  showVehicleUpdate?: VehicleUpdatePayload;
   // Metadata
   scenarioType?: ScenarioType;
   stage?: ConversationStage;
+}
+
+// render_vehicle_update — payload for the Vehicle-Update Confirm card.
+// Backend (convex/oto/dispatcher.ts → renderD("showVehicleUpdate", …)) carries
+// only the captured truth; `vehicle_id` is stamped on the frontend from the
+// active chat vehicle (mirrors how BookServicePayload resolves its vehicle).
+export interface VehicleUpdatePayload {
+  // vehicles._id — resolved on the frontend, not present in the backend payload.
+  vehicle_id: string;
+  // CURRENT odometer reading the user stated this turn.
+  mileage?: number;
+  // Services the user reported. "due"/"light_on" FLAG the service; "completed"
+  // RECORDS it done (clears the flag). For a PAST "completed" service, the
+  // optional anchors say WHEN / at-what-mileage it was done so the maintenance
+  // pipeline re-anchors the due clock to then (not today):
+  //   service_mileage  — the service's own odometer ("at 89,000")
+  //   service_age_days — days ago ("a week ago" → 7), server-resolved to now − days
+  //   service_date     — absolute ms timestamp (wins over service_age_days)
+  service_claims?: {
+    service_slug: string;
+    kind: "due" | "light_on" | "completed";
+    service_mileage?: number;
+    service_age_days?: number;
+    service_date?: number;
+  }[];
+  // Named warning lights (e.g. ["check_engine"]).
+  fault_lights?: string[];
 }
 
 // Sprint 4 Day 1 Pass B — payload for `render_book_service` AI tool.

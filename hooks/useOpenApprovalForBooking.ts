@@ -1,6 +1,7 @@
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import type { CustomerInspectionSnapshot } from "@/lib/inspection-findings";
 
 export type OpenApproval = {
   _id: string;
@@ -11,6 +12,7 @@ export type OpenApproval = {
   labor_hours?: number;
   labor_rate_cents?: number;
   notes?: string;
+  inspection_snapshot?: CustomerInspectionSnapshot;
   submitted_at_ms: number;
   sla_expires_at_ms?: number;
   disclosed_range_low_cents?: number;

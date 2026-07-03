@@ -81,6 +81,9 @@ export const SemanticColors = {
 export const SurfaceColors = {
   canvas: "#F2F2F2",
   cardSurface: "#FFFFFF",
+  // Flat warm off-white — for editorial list layouts where rows sit
+  // directly on the canvas without per-row card chrome.
+  canvasWarm: "#FAF9F7",
 } as const;
 
 // Layered drop shadow for elevated cards on a soft canvas (e.g.

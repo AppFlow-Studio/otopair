@@ -7,8 +7,9 @@
  * tap on a name picks that mechanic.
  */
 
-import React from "react";
-import { Image, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import React, { useCallback, useRef } from "react";
+import { Image, Pressable, StyleSheet, View } from "react-native";
+import { ScrollView } from "react-native-gesture-handler";
 import { Check, User } from "lucide-react-native";
 
 import { Text } from "@/components/shared-ui";
@@ -30,6 +31,11 @@ interface MechanicCarouselProps {
   items: MechanicCarouselItem[];
   selectedMechanicId: string | null;
   onSelect: (mechanicId: string | null) => void;
+  /** Optional — parents with a competing horizontal gesture (the shop
+   *  pager on Choose Mechanic) use this to disable their scroll while
+   *  the user is touching the carousel. Standalone hosts (pick-datetime)
+   *  can omit it. */
+  onInteractionChange?: (isInteracting: boolean) => void;
 }
 
 const CARD_W = 96;
@@ -38,12 +44,42 @@ export function MechanicCarousel({
   items,
   selectedMechanicId,
   onSelect,
+  onInteractionChange,
 }: MechanicCarouselProps) {
+  const isDraggingRef = useRef(false);
+
+  const handleInteractionStart = useCallback(() => {
+    onInteractionChange?.(true);
+  }, [onInteractionChange]);
+
+  const handleTouchEnd = useCallback(() => {
+    if (!isDraggingRef.current) {
+      onInteractionChange?.(false);
+    }
+  }, [onInteractionChange]);
+
+  const handleScrollBeginDrag = useCallback(() => {
+    isDraggingRef.current = true;
+    onInteractionChange?.(true);
+  }, [onInteractionChange]);
+
+  const handleInteractionEnd = useCallback(() => {
+    isDraggingRef.current = false;
+    onInteractionChange?.(false);
+  }, [onInteractionChange]);
+
   return (
     <ScrollView
       horizontal
+      nestedScrollEnabled
       showsHorizontalScrollIndicator={false}
       contentContainerStyle={styles.row}
+      onTouchStart={handleInteractionStart}
+      onTouchEnd={handleTouchEnd}
+      onTouchCancel={handleInteractionEnd}
+      onScrollBeginDrag={handleScrollBeginDrag}
+      onScrollEndDrag={handleInteractionEnd}
+      onMomentumScrollEnd={handleInteractionEnd}
     >
       {items.map((item) => {
         const isSelected = item.mechanicId === selectedMechanicId;

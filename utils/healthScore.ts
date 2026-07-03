@@ -27,9 +27,19 @@ import { extractMaintenanceType } from "@/lib/maintenanceServiceMapping";
 // ============================================================================
 
 /** Per-category weights for the maintenance term (sum = 100). Safety items
- *  dominate; paperwork/compliance is lowest. */
+ *  dominate; paperwork/compliance is lowest.
+ *
+ *  `warning` mirrors `brakes` (top weight) because a lit dashboard
+ *  warning light is treated as safety-critical for the urgency model in
+ *  `utils/urgency.ts` — the consolidated "Warning Lights Active"
+ *  MaintenanceItem (id `warning-active-…`) needs to score into the Now
+ *  tier so it surfaces on Home + the Cars MaintenanceTracker. This
+ *  weight is NOT consumed by the maintenance-term sum (no real
+ *  maintenance record carries `type: "warning"`); it only routes
+ *  through the urgency layer's `extractMaintenanceType` lookup. */
 export const CATEGORY_WEIGHTS = {
   brakes: 25,
+  warning: 25,
   tires: 20,
   oil: 20,
   battery: 13,

@@ -50,6 +50,7 @@ import { FinishCarSetupCard } from './FinishCarSetupCard';
 import { NavigationETABar } from './NavigationETABar';
 import { ResumeBookingCard } from './ResumeBookingCard';
 import { BookingCard, type Booking as BookingCardBooking } from '@/components/bookings/BookingCard';
+import { getCarouselHeightTransition } from './actionCardsCarouselHeight';
 
 // ============================================================================
 // TYPES
@@ -149,8 +150,10 @@ export function ActionCardsCarousel({
 }: ActionCardsCarouselProps) {
   const { width: screenWidth } = useWindowDimensions();
   const scrollViewRef = useRef<ScrollView>(null);
+  const hasAppliedInitialHeightRef = useRef(false);
   const [activeIndex, setActiveIndex] = useState(0);
   const [cardHeights, setCardHeights] = useState<Record<string, number>>({});
+  const [hasAppliedInitialHeight, setHasAppliedInitialHeight] = useState(false);
 
   // Build array of visible cards - account setup first when visible, then appointment, resume, car
   const cards = [
@@ -160,20 +163,28 @@ export function ActionCardsCarousel({
     { id: 'car', visible: showCarSetup },
   ].filter((card) => card.visible);
 
-  // Scroll to first card on mount or when card list changes
+  // Clamp + re-snap whenever the cards array changes. When a booking
+  // is made, showAppointment flips and the cards array grows — the
+  // ScrollView's stale contentOffset would otherwise land on a
+  // half-page boundary, which is the bug Ahmad caught where the
+  // appointment card (red SUV + small navigation map) and the
+  // NowTierCallout Oil Change content visually collide mid-scroll.
+  // Clamp activeIndex to the new valid range and imperatively re-snap
+  // to that clamped page, without animation so the realignment is
+  // invisible.
   useEffect(() => {
-    if (scrollViewRef.current && cards.length > 0) {
-      scrollViewRef.current.scrollTo({
-        x: 0,
-        animated: false,
-      });
-      setActiveIndex(0);
-      onCardChange?.(0);
+    if (!scrollViewRef.current || cards.length === 0) return;
+    const clamped = Math.min(activeIndex, cards.length - 1);
+    if (clamped !== activeIndex) {
+      setActiveIndex(clamped);
+      onCardChange?.(clamped);
     }
+    scrollViewRef.current.scrollTo({
+      x: clamped * screenWidth,
+      animated: false,
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showAccountSetup, showAppointment, showResumeBooking, showCarSetup]);
-
-  if (cards.length === 0) return null;
+  }, [showAccountSetup, showAppointment, showResumeBooking, showCarSetup, cards.length, screenWidth]);
 
   const activeCard = cards[activeIndex] ?? cards[0];
   const containerHeight = activeCard ? cardHeights[activeCard.id] : undefined;
@@ -181,15 +192,41 @@ export function ActionCardsCarousel({
   // Smooth post-swipe reflow: instead of snapping the container to the new
   // active card's height, drive the height through a Reanimated shared value
   // with a 280 ms `withTiming` so the sections below (Vehicle Maintenance,
-  // etc.) glide in lockstep. Mirrors VehicleMaintenanceCard.tsx:375-414.
+  // etc.) glide in lockstep after the first measured height is in place.
   const animatedCardHeight = useSharedValue<number>(containerHeight ?? 0);
   useEffect(() => {
-    if (containerHeight == null) return;
-    animatedCardHeight.value = withTiming(containerHeight, { duration: 280 });
+    const transition = getCarouselHeightTransition(
+      containerHeight,
+      hasAppliedInitialHeightRef.current,
+    );
+    if (!transition) return;
+
+    if (transition.mode === "direct") {
+      animatedCardHeight.value = transition.height;
+      hasAppliedInitialHeightRef.current = true;
+      setHasAppliedInitialHeight(true);
+      return;
+    }
+
+    animatedCardHeight.value = withTiming(transition.height, {
+      duration: transition.duration,
+    });
   }, [containerHeight, animatedCardHeight]);
   const containerHeightStyle = useAnimatedStyle(() => ({
     height: animatedCardHeight.value,
   }));
+  const heightTransition = getCarouselHeightTransition(
+    containerHeight,
+    hasAppliedInitialHeight,
+  );
+  const cardHeightStyle =
+    heightTransition?.mode === "direct"
+      ? { height: heightTransition.height }
+      : heightTransition?.mode === "animated"
+        ? containerHeightStyle
+        : undefined;
+
+  if (cards.length === 0) return null;
 
   const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const contentOffsetX = event.nativeEvent.contentOffset.x;
@@ -299,7 +336,7 @@ export function ActionCardsCarousel({
     <Animated.View
       style={[
         styles.container,
-        containerHeight != null && containerHeightStyle,
+        cardHeightStyle,
       ]}
     >
       <ScrollView
@@ -312,6 +349,15 @@ export function ActionCardsCarousel({
         style={styles.scrollView}
         onScroll={handleScroll}
         scrollEventThrottle={16}
+        // Explicit snap + disable multi-page momentum so a swipe always
+        // lands on a single page boundary, even when the parent layout
+        // re-renders mid-scroll (e.g. when a booking mutation flips
+        // showAppointment). Without these, the carousel could settle
+        // on a half-page with the appointment card's navigation map
+        // bleeding into a sibling card.
+        snapToInterval={screenWidth}
+        snapToAlignment="start"
+        disableIntervalMomentum
       >
         {cards.map((card, index) => renderCard(card.id, index))}
       </ScrollView>
@@ -325,11 +371,20 @@ export function ActionCardsCarousel({
 
 const styles = StyleSheet.create({
   container: {
-    overflow: 'visible',
+    // Clip card content to the container's animated height. The
+    // container tracks the ACTIVE card's height (compact-active-card
+    // layout). If a sibling card (e.g. the appointment card with its
+    // BookingCard + NavigationETABar map) is taller than the active
+    // card, `overflow: 'visible'` would let it paint past the
+    // container's bottom edge — straight into the NowTierCallout
+    // below. That's the bug Ahmad caught where the map + red SUV
+    // image from the booking-in-progress card visually invaded the
+    // Oil Change "Book Service" card. Clip it.
+    overflow: 'hidden',
   },
   scrollView: {
     marginHorizontal: -16, // Extend scroll view to edges
-    overflow: 'visible',
+    overflow: 'hidden',
   },
   scrollContent: {
     alignItems: 'flex-start',

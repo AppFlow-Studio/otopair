@@ -15,32 +15,74 @@ import Animated, {
   runOnJS,
   useAnimatedStyle,
   useSharedValue,
+  withDelay,
   withSpring,
   withTiming,
 } from "react-native-reanimated";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import { LinearGradient } from "expo-linear-gradient";
 
 import { FontFamily } from "@/constants/theme";
 import { useReducedMotion } from "@/lib/accessibility";
 
 import { ToastIcon } from "./ToastIcon";
-import { TrustToastBackground } from "./TrustToast";
 import {
   DEFAULT_DURATION_MS,
   TOAST_SHADOW,
-  TOAST_TEXT,
-  TRUST_SHADOW,
-  VARIANT_TOKENS,
 } from "./tokens";
 import type { ToastQueueItem, ToastVariant } from "./types";
 
 const ENTER_SPRING = { damping: 18, stiffness: 220, mass: 0.6 } as const;
-const EXIT_TIMING = { duration: 220, easing: Easing.in(Easing.cubic) } as const;
+// Slower, gentler exit per Ahmad — the previous 220ms `Easing.in.cubic`
+// felt like a snap-out. 480ms with the standard Material-style
+// out-cubic glides the toast back down to the bottom edge.
+const EXIT_TIMING = {
+  duration: 480,
+  easing: Easing.bezier(0.33, 0, 0.67, 1),
+} as const;
 const REDUCE_FADE = { duration: 200, easing: Easing.linear } as const;
 const SWIPE_DISMISS_THRESHOLD = 32;
 const SWIPE_VELOCITY_THRESHOLD = 600;
 
-const TABLET_MAX_WIDTH = 480;
+// Pill-style sizing per Ahmad's PM: match Airbnb's tight
+// hug-the-content toast rather than the full-width banner the
+// app shipped before. Container drops `width: 100%` and
+// `alignSelf: center`s inside an outer that no longer constrains
+// horizontal space, so the Pressable's width comes from its
+// children. Caps below keep long bodies from sprawling and
+// short titles from rendering as a sliver.
+const TOAST_MIN_WIDTH = 180;
+const TOAST_MAX_WIDTH = 320;
+
+// Brand-blue color lock. PM wants every toast to look like the
+// "Book Service" CTA — Otopair accent #5299FE with white text —
+// regardless of variant. Variant tokens stay in place
+// (success/error/warning/info/trust still drive icon choice and
+// accessibility role) but the visual palette is forced. Switch
+// to per-variant colors again if/when the design system grows
+// distinct toast tones.
+const TOAST_BG = "#5299FE";
+const TOAST_FG = "#FFFFFF";
+// Diagonal gradient (top-left light → bottom-right deep) painted
+// over the flat brand-blue card. Two tints sampled from the base
+// #5299FE — lighter for the top edge, deeper for the bottom edge
+// — so the toast reads as a soft glassy pill instead of a flat
+// rectangle. Direction is TL→BR to suggest a highlight running
+// across the top-left, the same trick the Book Service CTA uses.
+const TOAST_GRADIENT = ["#7BB1FF", "#3D7AC8"] as const;
+const TOAST_BG_OVERRIDE = {
+  bg: TOAST_BG,
+  border: TOAST_BG,
+  iconColor: TOAST_FG,
+  iconContainerBg: "transparent",
+  iconContainerBorder: undefined,
+} as const;
+const TOAST_TEXT_OVERRIDE = {
+  title: TOAST_FG,
+  // Slightly soft body so the secondary line reads as supporting
+  // copy without competing with the bold title.
+  body: "rgba(255, 255, 255, 0.92)",
+} as const;
 
 const POLITE_VARIANTS = new Set<ToastVariant>(["info", "trust", "success"]);
 
@@ -56,18 +98,23 @@ function dynamicTypeScale(base: number): number {
 
 interface Props {
   item: ToastQueueItem;
-  topOffset: number;
+  bottomOffset: number;
   onRequestDismiss: (id: string) => void;
 }
 
-export function Toast({ item, topOffset, onRequestDismiss }: Props) {
+export function Toast({ item, bottomOffset, onRequestDismiss }: Props) {
   const scheme = useColorScheme() ?? "light";
-  const tokens = VARIANT_TOKENS[item.variant];
-  const palette = tokens[scheme];
-  const textColors = TOAST_TEXT[scheme];
+  // Variant tokens are kept for icon choice + accessibility role,
+  // but the *visual* palette (bg, border, text, icon color) is
+  // locked to the brand-blue override below. Light/dark scheme
+  // no longer changes the toast appearance.
+  const palette = TOAST_BG_OVERRIDE;
+  const textColors = TOAST_TEXT_OVERRIDE;
   const reduceMotion = useReducedMotion();
 
-  const translateY = useSharedValue(reduceMotion ? 0 : -120);
+  // Bottom-anchored (Airbnb-style): toast starts BELOW its rest
+  // position and slides up. Positive translateY means "down".
+  const translateY = useSharedValue(reduceMotion ? 0 : 120);
   const opacity = useSharedValue(0);
 
   useEffect(() => {
@@ -79,10 +126,16 @@ export function Toast({ item, topOffset, onRequestDismiss }: Props) {
       opacity.value = withTiming(1, { duration: 220 });
     }
 
-    const duration = item.duration ?? DEFAULT_DURATION_MS[item.variant];
-    const timer = setTimeout(() => dismiss("auto"), duration);
+    // Persistent toasts skip the auto-dismiss timer — they stick around
+    // until the user taps or swipes them. Used for tap-to-act surfaces
+    // (e.g. "your car is ready — book now").
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    if (!item.persistent) {
+      const duration = item.duration ?? DEFAULT_DURATION_MS[item.variant];
+      timer = setTimeout(() => dismiss("auto"), duration);
+    }
     return () => {
-      clearTimeout(timer);
+      if (timer) clearTimeout(timer);
       cancelAnimation(translateY);
       cancelAnimation(opacity);
     };
@@ -101,7 +154,8 @@ export function Toast({ item, topOffset, onRequestDismiss }: Props) {
       return;
     }
     opacity.value = withTiming(0, EXIT_TIMING);
-    translateY.value = withTiming(-8, EXIT_TIMING, (done) => {
+    // Exit drifts downward by 8pt while fading.
+    translateY.value = withTiming(8, EXIT_TIMING, (done) => {
       if (done) runOnJS(finalize)();
     });
   }
@@ -111,24 +165,26 @@ export function Toast({ item, topOffset, onRequestDismiss }: Props) {
     dismiss("tap");
   }
 
+  // Bottom-anchored swipe-to-dismiss = swipe DOWN. Drag past the
+  // threshold OR flick downward fast enough → fly out below.
   const swipeGesture = Gesture.Pan()
     .activeOffsetY([-10, 10])
     .onUpdate((event) => {
-      if (event.translationY < 0) {
+      if (event.translationY > 0) {
         translateY.value = event.translationY;
-        opacity.value = Math.max(0, 1 + event.translationY / 120);
+        opacity.value = Math.max(0, 1 - event.translationY / 120);
       }
     })
     .onEnd((event) => {
-      const fastEnough = event.velocityY < -SWIPE_VELOCITY_THRESHOLD;
-      const farEnough = event.translationY < -SWIPE_DISMISS_THRESHOLD;
+      const fastEnough = event.velocityY > SWIPE_VELOCITY_THRESHOLD;
+      const farEnough = event.translationY > SWIPE_DISMISS_THRESHOLD;
       if (fastEnough || farEnough) {
         if (reduceMotion) {
           opacity.value = withTiming(0, REDUCE_FADE, (done) => {
             if (done) runOnJS(finalize)();
           });
         } else {
-          translateY.value = withSpring(-200, { damping: 22, stiffness: 280 });
+          translateY.value = withSpring(200, { damping: 22, stiffness: 280 });
           opacity.value = withTiming(0, { duration: 160 }, (done) => {
             if (done) runOnJS(finalize)();
           });
@@ -148,8 +204,11 @@ export function Toast({ item, topOffset, onRequestDismiss }: Props) {
     opacity: opacity.value,
   }));
 
-  const isTrust = item.variant === "trust";
-  const shadow = isTrust ? TRUST_SHADOW[scheme] : TOAST_SHADOW[scheme];
+  // Trust gradient overlay is gone in the brand-blue look — the
+  // toast is already a flat brand-color card, so a gradient on
+  // top would muddy it. Variant still drives the icon
+  // (ShieldCheck for trust, CheckCircle2 for success, etc.).
+  const shadow = TOAST_SHADOW[scheme === "dark" ? "dark" : "light"];
   const role: AccessibilityRole = POLITE_VARIANTS.has(item.variant) ? "summary" : "alert";
 
   const screen = Dimensions.get("window");
@@ -158,7 +217,7 @@ export function Toast({ item, topOffset, onRequestDismiss }: Props) {
   return (
     <GestureDetector gesture={swipeGesture}>
       <Animated.View
-        style={[styles.outer, { top: topOffset }, animatedStyle]}
+        style={[styles.outer, { bottom: bottomOffset }, animatedStyle]}
         pointerEvents="box-none"
       >
         <Pressable
@@ -181,19 +240,35 @@ export function Toast({ item, topOffset, onRequestDismiss }: Props) {
           style={[
             styles.container,
             {
-              backgroundColor: isTrust ? "transparent" : palette.bg,
-              borderColor: palette.border,
+              // Fallback bg in case the gradient fails to mount (e.g.
+              // during a hot reload race). Border picks up the
+              // gradient's deepest stop so the edge doesn't read
+              // brighter than the bottom of the card.
+              backgroundColor: palette.bg,
+              borderColor: TOAST_GRADIENT[1],
               maxHeight,
             },
             shadow,
           ]}
         >
-          {isTrust ? (
-            <TrustToastBackground scheme={scheme} borderColor={palette.border} />
-          ) : null}
+          <LinearGradient
+            colors={TOAST_GRADIENT as unknown as readonly [string, string]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={StyleSheet.absoluteFill}
+            pointerEvents="none"
+          />
           <View style={styles.row}>
             <ToastIcon variant={item.variant} palette={palette} />
             <View style={styles.textCol}>
+              {/* Was the per-char WaveTitle. Its per-word View
+                  wrappers inside a flex-wrap Row didn't measure
+                  the wrapped-second-line height, so a title like
+                  "Still connecting to your car" put "car" on line
+                  2 while the body ("Almost there.") rendered at
+                  line 2's Y position too — the two overlapped.
+                  Plain Text with an explicit numberOfLines cap +
+                  lineHeight settles the layout deterministically. */}
               <Animated.Text
                 numberOfLines={2}
                 ellipsizeMode="tail"
@@ -235,36 +310,53 @@ export function Toast({ item, topOffset, onRequestDismiss }: Props) {
 const styles = StyleSheet.create({
   outer: {
     position: "absolute",
-    left: 16,
-    right: 16,
+    // No left/right pinning — outer spans the screen and the
+    // container self-centers inside it, sized to its own
+    // content. paddingHorizontal keeps long-bodied toasts from
+    // touching the screen edges on the rare case they hit
+    // TOAST_MAX_WIDTH.
+    left: 0,
+    right: 0,
+    paddingHorizontal: 16,
     alignItems: "center",
     zIndex: 9999,
     ...(Platform.OS === "android" ? { elevation: 24 } : null),
   },
   container: {
-    width: "100%",
-    maxWidth: TABLET_MAX_WIDTH,
+    // No `width` — content sizes the pill. Min keeps tiny
+    // single-word toasts from looking like a chip; max keeps
+    // novel-length bodies from sprawling across the screen.
+    minWidth: TOAST_MIN_WIDTH,
+    maxWidth: TOAST_MAX_WIDTH,
     alignSelf: "center",
-    minHeight: 56,
-    borderRadius: 16,
+    minHeight: 48,
+    borderRadius: 18,
     borderWidth: 1,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
     overflow: "hidden",
   },
   row: {
     flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 12,
+    alignItems: "center",
+    gap: 10,
   },
   textCol: {
-    flex: 1,
+    // `flexShrink: 1` (not `flex: 1`) — only shrink to the max
+    // width cap, don't stretch to fill. Lets the row hug the
+    // icon + text instead of pushing the icon to the left edge.
+    flexShrink: 1,
   },
   title: {
-    fontFamily: FontFamily.semiBold,
+    fontFamily: FontFamily.bold,
   },
   body: {
-    fontFamily: FontFamily.regular,
-    marginTop: 2,
+    // semiBold (was regular) so the body still pulls back from the
+    // bold title hierarchy but reads cleanly on the gradient blue.
+    // marginTop 2 → 4 for a hair more breathing room when the title
+    // wraps to two lines — the extra gap keeps the transition to
+    // the body visible even on a wrapped title.
+    fontFamily: FontFamily.semiBold,
+    marginTop: 4,
   },
 });

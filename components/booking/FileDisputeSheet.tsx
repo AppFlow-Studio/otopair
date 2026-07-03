@@ -31,6 +31,7 @@ import {
   type FloatingSheetRef,
 } from "@/components/shared-ui/FloatingSheet";
 import { Text } from "@/components/shared-ui";
+import { useToast } from "@/hooks/useToast";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 
@@ -65,6 +66,7 @@ export const FileDisputeSheet = forwardRef<FileDisputeSheetRef, Props>(
     const [error, setError] = useState<string | null>(null);
 
     const fileDispute = useMutation(api.booking_disputes.fileDispute);
+    const toast = useToast();
 
     useImperativeHandle(ref, () => ({
       open: (id) => {
@@ -90,11 +92,15 @@ export const FileDisputeSheet = forwardRef<FileDisputeSheetRef, Props>(
         });
         onSubmitted?.(bookingId);
         sheetRef.current?.close();
+        toast.trust(
+          "Dispute filed",
+          "We'll review it and follow up within 1 business day.",
+        );
       } catch (e: any) {
         setError(e?.message ?? "We couldn't file your dispute. Please try again.");
         setSubmitting(false);
       }
-    }, [bookingId, reasonKey, notes, submitting, fileDispute, onSubmitted]);
+    }, [bookingId, reasonKey, notes, submitting, fileDispute, onSubmitted, toast]);
 
     return (
       <FloatingSheet

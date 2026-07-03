@@ -36,6 +36,12 @@ import MapView, {
   PROVIDER_DEFAULT,
   type Region,
 } from "react-native-maps";
+import { useBookingStore } from "@/stores/useBookingStore";
+
+import {
+  RatingMarkerPill,
+  RATING_MARKER_REPAINT_MS,
+} from "@/components/booking-flow/RatingMarkerPill";
 
 const FALLBACK_REGION: Region = {
   latitude: 41.1959,
@@ -51,6 +57,24 @@ export interface BookingFlowMarker {
   title?: string;
 }
 
+/** ChatGPT-style shop pin: rendered as a Marker whose child is a
+ *  `<RatingMarkerPill>`. Kept as a separate setter from `setMarkers`
+ *  so the bare-title-only contract stays compatible for any future
+ *  caller that just wants a default pin.
+ *
+ *  `isSelected` drives the black-vs-white pill background. `onPress`
+ *  fires when the user taps the marker — choose-mechanic uses it to
+ *  swap the active shop + scroll the carousel below to that page. */
+export interface BookingFlowShopPin {
+  shopId: string;
+  latitude: number;
+  longitude: number;
+  shopName: string;
+  rating: number | null;
+  isSelected: boolean;
+  onPress?: () => void;
+}
+
 interface BookingFlowMapContextValue {
   /** Imperative handle — choose-mechanic animates the camera through it. */
   mapRef: React.RefObject<MapView | null>;
@@ -60,8 +84,12 @@ interface BookingFlowMapContextValue {
   userLocation: { latitude: number; longitude: number } | null;
   /** Toggle pan/zoom/rotate gestures (off = locked backdrop). */
   setInteractive: (interactive: boolean) => void;
-  /** Replace the rendered markers. */
+  /** Replace the rendered markers (default pins, title-only). */
   setMarkers: (markers: BookingFlowMarker[]) => void;
+  /** Replace the rendered shop pins (ChatGPT-style rating pills with
+   *  shop names and tap handlers). Iterated separately from `markers`
+   *  in the render block so a caller can use either or both. */
+  setShopPins: (pins: BookingFlowShopPin[]) => void;
 }
 
 const BookingFlowMapContext =
@@ -84,12 +112,14 @@ export function BookingFlowMapProvider({
 }) {
   const mapRef = useRef<MapView | null>(null);
   const [region, setRegion] = useState<Region | null>(null);
-  const [userLocation, setUserLocation] = useState<{
+  const [userLocation, setMapUserLocation] = useState<{
     latitude: number;
     longitude: number;
   } | null>(null);
+  const setBookingUserLocation = useBookingStore((s) => s.setUserLocation);
   const [interactive, setInteractive] = useState(false);
   const [markers, setMarkers] = useState<BookingFlowMarker[]>([]);
+  const [shopPins, setShopPins] = useState<BookingFlowShopPin[]>([]);
 
   // Resolve location once for the whole flow (each screen used to do
   // this independently). Falls back to a NY-metro region.
@@ -109,7 +139,13 @@ export function BookingFlowMapProvider({
           latitude: loc.coords.latitude,
           longitude: loc.coords.longitude,
         };
-        setUserLocation(coords);
+        setMapUserLocation(coords);
+        setBookingUserLocation({
+          label: "Current Location",
+          ...coords,
+          city: "",
+          state: "",
+        });
         setRegion({ ...coords, latitudeDelta: 0.05, longitudeDelta: 0.05 });
       } catch {
         if (!cancelled) setRegion(FALLBACK_REGION);
@@ -118,7 +154,7 @@ export function BookingFlowMapProvider({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [setBookingUserLocation]);
 
   const setInteractiveCb = useCallback(
     (next: boolean) => setInteractive(next),
@@ -126,6 +162,10 @@ export function BookingFlowMapProvider({
   );
   const setMarkersCb = useCallback(
     (next: BookingFlowMarker[]) => setMarkers(next),
+    [],
+  );
+  const setShopPinsCb = useCallback(
+    (next: BookingFlowShopPin[]) => setShopPins(next),
     [],
   );
 
@@ -137,13 +177,18 @@ export function BookingFlowMapProvider({
         userLocation,
         setInteractive: setInteractiveCb,
         setMarkers: setMarkersCb,
+        setShopPins: setShopPinsCb,
       }}
     >
-      <View style={styles.root}>
-        {/* Persistent map behind every screen. pointerEvents follows
-            the interactive flag so the locked backdrop never eats a
-            touch meant for the sheet above it, while the interactive
-            screen can receive pan/pinch in its exposed map area. */}
+      <View style={styles.root} pointerEvents="box-none">
+        {/* Persistent map behind every screen. Gesture props on the
+            MapView are ALWAYS on — react-native-maps has been spotty
+            about re-applying scrollEnabled/zoomEnabled mid-mount, so
+            we let the MapView always think it's interactive and gate
+            real touches at the wrapper's pointerEvents instead. When
+            `interactive` is false the wrapper blocks all touches, so
+            the MapView never sees a gesture; when true, touches
+            arrive on an already-configured MapView. */}
         <View
           style={StyleSheet.absoluteFill}
           pointerEvents={interactive ? "auto" : "none"}
@@ -155,10 +200,10 @@ export function BookingFlowMapProvider({
               provider={PROVIDER_DEFAULT}
               initialRegion={region}
               showsUserLocation
-              scrollEnabled={interactive}
-              zoomEnabled={interactive}
+              scrollEnabled
+              zoomEnabled
               pitchEnabled={false}
-              rotateEnabled={interactive}
+              rotateEnabled
             >
               {markers.map((m) => (
                 <Marker
@@ -167,15 +212,69 @@ export function BookingFlowMapProvider({
                   title={m.title}
                 />
               ))}
+              {shopPins.map((p) => (
+                <BookingFlowShopPinMarker
+                  key={p.shopId}
+                  pin={p}
+                />
+              ))}
             </MapView>
           ) : (
             <View style={[StyleSheet.absoluteFill, styles.fallback]} />
           )}
         </View>
 
-        {children}
+        {/* Children (the booking-flow Stack) wrapped in a controlled
+            pointerEvents layer. When the map is interactive, this
+            wrapper is `box-none` so empty screen areas pass touches
+            straight through to the map sibling underneath — fixes
+            the case where a screen's own `box-none` root wasn't
+            enough to defeat the react-navigation Card from
+            consuming touches. When the map is locked, this wrapper
+            is `auto` so screens behave like a normal opaque layer. */}
+        <View
+          style={StyleSheet.absoluteFill}
+          pointerEvents={interactive ? "box-none" : "auto"}
+        >
+          {children}
+        </View>
       </View>
     </BookingFlowMapContext.Provider>
+  );
+}
+
+/** Wraps a `RatingMarkerPill` inside a `<Marker>` with the
+ *  tracksViewChanges trick: native side has to repaint when the
+ *  selected state flips, but leaving the prop on full-time thrashes
+ *  the frame budget. We flip to `true` for ~200ms on isSelected
+ *  change, then back to `false`. Same shape `ShopMarker` uses. */
+function BookingFlowShopPinMarker({ pin }: { pin: BookingFlowShopPin }) {
+  const [track, setTrack] = useState(true);
+  // First mount tracks once so the initial layout lands, then we
+  // turn it off until the next isSelected flip.
+  useEffect(() => {
+    const t = setTimeout(() => setTrack(false), RATING_MARKER_REPAINT_MS);
+    return () => clearTimeout(t);
+  }, []);
+  useEffect(() => {
+    setTrack(true);
+    const t = setTimeout(() => setTrack(false), RATING_MARKER_REPAINT_MS);
+    return () => clearTimeout(t);
+  }, [pin.isSelected]);
+
+  return (
+    <Marker
+      coordinate={{ latitude: pin.latitude, longitude: pin.longitude }}
+      onPress={pin.onPress}
+      anchor={{ x: 0.5, y: 0.5 }}
+      tracksViewChanges={track}
+    >
+      <RatingMarkerPill
+        rating={pin.rating}
+        shopName={pin.shopName}
+        isSelected={pin.isSelected}
+      />
+    </Marker>
   );
 }
 

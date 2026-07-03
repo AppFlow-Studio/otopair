@@ -14,6 +14,8 @@
     "clone:dev": "bash scripts/clone-convex-deployment.sh",
     "sync:convex": "bash scripts/sync-convex-from-web.sh",
     "check:convex-drift": "bash scripts/check-convex-drift.sh",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "prepare": "git config core.hooksPath scripts/git-hooks || true"
   },
   "dependencies": {
@@ -46,6 +48,7 @@
     "expo-camera": "~55.0.19",
     "expo-clipboard": "~55.0.13",
     "expo-constants": "~55.0.16",
+    "expo-dev-client": "~55.0.36",
     "expo-document-picker": "~55.0.13",
     "expo-font": "~55.0.8",
     "expo-haptics": "~55.0.14",
@@ -87,6 +90,7 @@
     "react-native-reanimated-carousel": "^4.0.3",
     "react-native-safe-area-context": "~5.6.0",
     "react-native-screens": "4.24.0",
+    "react-native-size-matters": "0.4.2",
     "react-native-svg": "15.15.3",
     "react-native-teleport": "^1.0.2",
     "react-native-web": "^0.21.0",
@@ -98,7 +102,9 @@
     "zustand": "^5.0.9"
   },
   "devDependencies": {
+    "@edge-runtime/vm": "^5.0.0",
     "@expo/ngrok": "^4.1.3",
+    "convex-test": "^0.0.52",
     "@types/react": "~19.2.10",
     "eslint": "^9.25.0",
     "eslint-config-expo": "~55.0.1",

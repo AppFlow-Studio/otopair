@@ -10,10 +10,12 @@
  */
 
 import React, { useCallback } from "react";
-import { Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { Platform, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { BlurView } from "expo-blur";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 
 import { Text } from "@/components/shared-ui";
+import { CardShadow } from "@/constants/theme";
 import {
   SLUG_DIAGNOSTIC_SCAN,
   SLUG_ROTOR_REPLACEMENT,
@@ -21,12 +23,16 @@ import {
 } from "@/constants/serviceTaxonomy";
 import { useUserTopBookedServices, type QuickBookChip } from "@/hooks/useUserTopBookedServices";
 import { useBookingStore } from "@/stores/useBookingStore";
+import { routeToNextBookingStep } from "@/lib/bookingFlowNext";
 
 export function QuickBookRow() {
   const router = useRouter();
   const { chips, isLoading } = useUserTopBookedServices();
   const toggleServiceSelection = useBookingStore((s) => s.toggleServiceSelection);
   const selectedServiceIds = useBookingStore((s) => s.selectedServiceIds);
+  // When the user entered via the shop-detail Book CTA, skip Choose
+  // Mechanic and jump straight to date/time at that shop.
+  const preSelectedShopId = useBookingStore((s) => s.preSelectedShopId);
 
   const handleTap = useCallback(
     (chip: QuickBookChip) => {
@@ -48,9 +54,9 @@ export function QuickBookRow() {
         });
         return;
       }
-      router.push("/(booking-flow)/choose-mechanic");
+      routeToNextBookingStep(router, preSelectedShopId);
     },
-    [router, selectedServiceIds, toggleServiceSelection],
+    [router, selectedServiceIds, toggleServiceSelection, preSelectedShopId],
   );
 
   if (isLoading || chips.length === 0) return null;
@@ -73,6 +79,9 @@ export function QuickBookRow() {
             accessibilityRole="button"
             accessibilityLabel={`Book ${chip.taxonomy.label}`}
           >
+            {Platform.OS === "ios" ? (
+              <BlurView intensity={25} tint="light" style={StyleSheet.absoluteFill} />
+            ) : null}
             <Text size="sm" weight="semiBold" color="#1F2937">
               {chip.taxonomy.label}
             </Text>
@@ -100,6 +109,8 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255, 255, 255, 0.6)",
     borderWidth: 1,
     borderColor: "rgba(255, 255, 255, 0.8)",
+    overflow: "hidden",
+    boxShadow: Platform.OS === "ios" ? CardShadow.default : undefined,
   },
   chipPressed: {
     opacity: 0.8,

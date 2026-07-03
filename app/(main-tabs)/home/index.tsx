@@ -1,6 +1,6 @@
 // 1. React & React Native
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Image, Pressable, StyleSheet, Text as RNText, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, BackHandler, Image, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated from 'react-native-reanimated';
 
@@ -15,13 +15,14 @@ import {
   BottomSheetScrollView,
 } from "@gorhom/bottom-sheet";
 import { BlurBackdrop } from "@/components/shared-ui/BlurBackdrop";
-import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
+import type { FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
 // MVP-DISABLED: loyalty/rewards — re-enable post-launch (drop Trophy)
 import { Bell, MoveRight, Star } from 'lucide-react-native';
 import { useMutation, useQuery } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { useMutationWithToast } from '@/hooks/useMutationWithToast';
 import { useToast } from '@/hooks/useToast';
+import { useOemServiceIntervalsBatch } from '@/hooks/useOemServiceIntervals';
 
 // 3. Shared UI
 import { Button, BrandColors, ScrollDrivenGradientBackground, Text } from "@/components/shared-ui";
@@ -29,12 +30,14 @@ import { Button, BrandColors, ScrollDrivenGradientBackground, Text } from "@/com
 // 4. Stores & Hooks
 import { useAuthStore } from '@/stores/useAuthStore';
 import { useBookingStore } from '@/stores/useBookingStore';
+import { useOnboardingStore } from '@/stores/useOnboardingStore';
 import {
   MAINTENANCE_TYPE_TO_CATEGORY,
   extractMaintenanceType,
   findServiceForMaintenanceType,
   findServiceFromDescription,
 } from '@/lib/maintenanceServiceMapping';
+import { buildWarningLightItem } from "@/lib/warningLightItems";
 import { usePendingNavigationStore } from "@/stores/usePendingNavigationStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 import { useNotificationsSheetStore } from "@/stores/useNotificationsSheetStore";
@@ -57,6 +60,20 @@ import * as SecureStore from 'expo-secure-store';
 // review-prompt sheet on home, so each completed booking only auto-prompts
 // once across app restarts.
 const REVIEW_PROMPT_SEEN_KEY = 'otopair.reviewPromptSeenBookingIds.v1';
+
+/** Rotating example searches shown in the Home search bar's placeholder
+ *  with a typewriter effect. Same vibe as the doc-marked QUICK 3-LINE
+ *  summaries: real things real users say, not feature names. Add /
+ *  remove freely — the bar cycles indefinitely. */
+const SEARCH_PLACEHOLDER_PHRASES = [
+  'Book an oil change',
+  'Mechanics near me',
+  'Book an inspection',
+  'Check engine light',
+  'Brake service',
+  'Tire rotation',
+  'Find a shop nearby',
+] as const;
 async function loadPromptedBookingIds(): Promise<Set<string>> {
   try {
     const raw = await SecureStore.getItemAsync(REVIEW_PROMPT_SEEN_KEY);
@@ -94,6 +111,7 @@ try {
 
 // 6. Flow-specific components
 import { ActionCardsCarousel } from "@/components/home/ActionCardsCarousel";
+import { AddVehicleRequiredSheet } from "@/components/home/AddVehicleRequiredSheet";
 import { AddFirstVehicleCard } from "@/components/home/AddFirstVehicleCard";
 import {
   FinishCarSetupPickerSheet,
@@ -123,6 +141,31 @@ function formatBookingTime(timeStr: string): string {
   return `${hour12}:${m.toString().padStart(2, '0')} ${suffix}`;
 }
 
+interface HomeMaintenanceItem {
+  id: string;
+  serviceName: string;
+  dueText: string;
+  isOverdue: boolean;
+  description?: string;
+  suggestedServiceId?: string;
+}
+
+interface HomeNowItem {
+  itemId: string;
+  serviceName: string;
+  description?: string;
+  suggestedServiceId?: string;
+  urgencyScore: number;
+}
+
+interface HomeVehicleBaseData {
+  id: string;
+  name: string;
+  vin: string;
+  maintenanceItems: HomeMaintenanceItem[];
+  nowItems: HomeNowItem[];
+}
+
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   // Lock `insets.top` to its first-render value for the lifetime of the
@@ -138,7 +181,6 @@ export default function HomeScreen() {
     initialInsetTopRef.current = insets.top;
   }
   const stableInsetTop = initialInsetTopRef.current;
-  const { height: screenHeight } = useWindowDimensions();
   const router = useRouter();
   const { isNewUser, shouldShowReactivationSheet, setShouldShowReactivationSheet } = useAuthStore();
   const { vehicles: listVehicles, hasVehicles, isLoading: vehiclesLoading } = useVehicleOwnershipFromConvex();
@@ -157,6 +199,7 @@ export default function HomeScreen() {
   const [rescheduleBooking, setRescheduleBooking] = useState<BookingCardBooking | null>(null);
   const toast = useToast();
   const selectVehicle = useVehicleStore((s) => s.selectVehicle);
+  const updateOnboardingData = useOnboardingStore((s) => s.updateData);
 
   // Reactivation bottom sheet (from temur-dev)
   const sheetRef = useRef<BottomSheetModal>(null);
@@ -169,6 +212,16 @@ export default function HomeScreen() {
       setShowWelcome(false);
     }
   }, [shouldShowReactivationSheet, showWelcome]);
+
+  useFocusEffect(
+    useCallback(() => {
+      const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+        BackHandler.exitApp();
+        return true;
+      });
+      return () => subscription.remove();
+    }, []),
+  );
 
   useEffect(() => {
     if (!shouldShowReactivationSheet || showWelcome || hasPresentedReactivationRef.current) return;
@@ -185,6 +238,15 @@ export default function HomeScreen() {
     api.bookings.getByUserIdWithDetails,
     me?._id ? { userId: me._id } : "skip"
   );
+
+  useEffect(() => {
+    if (!me) return;
+    updateOnboardingData({
+      firstName: me.first_name ?? null,
+      lastName: me.last_name ?? null,
+      email: me.email ?? null,
+    });
+  }, [me, updateOnboardingData]);
 
   // Hold a splash screen until the critical Convex queries — current
   // user + vehicle ownership — have settled. Without this, the home
@@ -206,10 +268,23 @@ export default function HomeScreen() {
     useShallow((s) => ({ selectedServiceIds: s.selectedServiceIds, availableServices: s.availableServices }))
   );
 
-  // Upcoming appointment: next future booking that's pending or confirmed
+  // Upcoming appointment: next future booking that's pending or confirmed.
+  //
+  // `today` MUST be built from the user's LOCAL timezone, not UTC.
+  // bookings.scheduled_date is stored as a local "YYYY-MM-DD" string
+  // (no timezone), so comparing it against `new Date().toISOString()`
+  // (UTC) was off-by-one in evenings west of UTC: e.g. 11pm in NY
+  // (UTC-5) is already 4am the next day UTC, so a booking scheduled
+  // for "today in NY" failed the `>= today` check and the card
+  // randomly disappeared. The bug surfaced only at certain hours,
+  // matching Ahmad's "sometimes doesn't show" report.
   const upcomingBooking = useMemo(() => {
     if (!allBookings) return null;
-    const today = new Date().toISOString().split('T')[0];
+    const now = new Date();
+    const yyyy = now.getFullYear();
+    const mm = String(now.getMonth() + 1).padStart(2, "0");
+    const dd = String(now.getDate()).padStart(2, "0");
+    const today = `${yyyy}-${mm}-${dd}`;
     return allBookings
       .filter(
         (b: any) =>
@@ -367,8 +442,22 @@ export default function HomeScreen() {
     allOwnershipIds.length > 0 ? { vehicleOwnerIds: allOwnershipIds } : "skip"
   );
 
+  // ── OEM service intervals for ALL vehicles (per-config map) ──
+  // Batched into one round-trip so the per-vehicle loop below can look
+  // up its config's intervals without N queries. Configs that haven't
+  // been enriched yet just won't have a key — the maintenance calc
+  // falls back to MAKE_OVERRIDES / DEFAULT_INTERVALS for those.
+  const allVehicleConfigIds = useMemo(
+    () =>
+      (listVehicles ?? [])
+        .map((r: any) => r.vehicle?.vehicle_config_id)
+        .filter(Boolean) as Id<"vehicle_configs">[],
+    [listVehicles],
+  );
+  const allOemIntervals = useOemServiceIntervalsBatch(allVehicleConfigIds);
+
   // ── Vehicle data with maintenance (no image dep — avoids cascading recomputation) ──
-  const vehicleBaseData = useMemo(() => {
+  const vehicleBaseData = useMemo<HomeVehicleBaseData[]>(() => {
     if (!listVehicles?.length) return [];
     const seen = new Set<string>();
     return listVehicles
@@ -392,26 +481,21 @@ export default function HomeScreen() {
         const isOnboardingComplete = o?.onboardingComplete === true;
         const odometer: number | null = isOnboardingComplete ? (o?.mileage ?? null) : null;
         const knownIssues = o?.knownIssues as string[] | undefined;
+        // Per-vehicle OEM intervals from the batch query above. Empty
+        // map when the v3 pipeline hasn't enriched this config yet —
+        // computeMaintenanceStatus → getInterval falls back through
+        // MAKE_OVERRIDES → DEFAULT_INTERVALS for that case.
+        const configId = v?.vehicle_config_id as string | undefined;
+        const oemIntervalsForVehicle = configId
+          ? (allOemIntervals[configId] ?? undefined)
+          : undefined;
 
-        const urgentItems: {
-          id: string;
-          serviceName: string;
-          dueText: string;
-          isOverdue: boolean;
-          description?: string;
-          suggestedServiceId?: string;
-        }[] = [];
+        const urgentItems: HomeMaintenanceItem[] = [];
         // Now-tier items per Yassin v1.1 §3.2 — aggregated into
         // allNowItems below to drive the Home callout. Always populated
         // (no cap), unlike urgentItems which is capped at 3 for the
         // existing VehicleMaintenanceCard.
-        const nowItems: {
-          itemId: string;
-          serviceName: string;
-          description?: string;
-          suggestedServiceId?: string;
-          urgencyScore: number;
-        }[] = [];
+        const nowItems: HomeNowItem[] = [];
         for (const rec of records) {
           const result = computeMaintenanceStatus(
             {
@@ -427,7 +511,8 @@ export default function HomeScreen() {
             o?.drivingConditions as string | undefined,
             o?.avgMonthlyDriving as string | undefined,
             knownIssues,
-            v?.year as number | undefined
+            v?.year as number | undefined,
+            oemIntervalsForVehicle,
           );
           const itemId = `${rec.type}-${ownershipId}`;
 
@@ -472,12 +557,117 @@ export default function HomeScreen() {
           }
         }
 
+        // ── Warning lights → nowItems (Yassin urgency model) ───────────
+        // Home's loop above only iterates maintenance_records, so any
+        // active dashboard warning light that doesn't have a paired
+        // record (e.g. user reports oil_pressure but hasn't logged any
+        // oil change yet, OR user reports check_engine which has no
+        // paired type at all) was silently dropped here — that's the
+        // bug Ahmad caught.
+        //
+        // Two passes mirror useMergedMaintenance for the Cars page:
+        //  1. Paired-light fallback: for each paired light active in
+        //     knownIssues with no corresponding record, push a
+        //     synthesized now-tier item so Home shows it.
+        //  2. Consolidated unpaired-light card via buildWarningLightItem.
+        if (ownershipId && knownIssues && knownIssues.length > 0) {
+          const trackedTypes = new Set(records.map((r: any) => r.type as string));
+          const PAIRED_LIGHT_BY_TYPE_HOME: Record<
+            string,
+            { lightId: string; label: string }
+          > = {
+            oil: {
+              lightId: "oil_pressure",
+              label: "Oil pressure warning light active — service urgently needed",
+            },
+            battery: {
+              lightId: "battery_charging",
+              label: "Battery / charging warning light active — have it tested",
+            },
+            brakes: {
+              lightId: "abs",
+              label: "ABS / brake warning light active — have brakes inspected",
+            },
+            tires: {
+              lightId: "tpms",
+              label: "Tire pressure (TPMS) warning light active — check tires",
+            },
+          };
+          for (const [type, info] of Object.entries(PAIRED_LIGHT_BY_TYPE_HOME)) {
+            if (!knownIssues.includes(info.lightId)) continue;
+            if (trackedTypes.has(type)) continue; // record loop already handled it
+            const itemId = `${type}-${ownershipId}`;
+            const matched = findServiceFromDescription(info.label, availableServices);
+            const genericLabel =
+              MAINTENANCE_LABELS[type as keyof typeof MAINTENANCE_LABELS] ?? type;
+            nowItems.push({
+              itemId,
+              serviceName: matched?.name ?? genericLabel,
+              description: info.label,
+              suggestedServiceId: matched?.id,
+              urgencyScore: 100,
+            });
+            // Also push to urgentItems so the Home VehicleMaintenanceCard
+            // surfaces the same warning. Without this, a car whose only
+            // urgent item is a paired-light fallback (no maintenance
+            // records logged yet) shows "All systems healthy" on the
+            // card while the NowTierCallout above screams about the
+            // light — exactly the inconsistency Ahmad caught.
+            if (urgentItems.length < 3) {
+              urgentItems.push({
+                id: itemId,
+                serviceName: matched?.name ?? genericLabel,
+                dueText: "Overdue",
+                isOverdue: true,
+                description: info.label,
+                suggestedServiceId: matched?.id,
+              });
+            }
+          }
+
+          const warningItem = buildWarningLightItem({
+            knownIssues,
+            scopeId: String(ownershipId),
+          });
+          if (warningItem) {
+            // Pre-seed the diagnostic scan service so the booking flow
+            // opens with it ticked. Slug match is intentional — the
+            // catalog seed alternates `diagnostic_scan` (underscored)
+            // vs `diagnostic-scan` (hyphenated) across environments.
+            const diagnostic = availableServices.find((s) => {
+              const slug = (s.slug ?? "").toLowerCase().replace(/-/g, "_");
+              return slug === "diagnostic_scan";
+            });
+            nowItems.push({
+              itemId: warningItem.id,
+              serviceName: warningItem.serviceName,
+              description: warningItem.description,
+              suggestedServiceId: diagnostic?.id,
+              urgencyScore: 100,
+            });
+            // Mirror into urgentItems so VehicleMaintenanceCard shows
+            // the consolidated warning card too. Cap of 3 preserved —
+            // first-come-first-served is fine; the NowTierCallout shows
+            // everything.
+            if (urgentItems.length < 3) {
+              urgentItems.push({
+                id: warningItem.id,
+                serviceName: warningItem.serviceName,
+                dueText: "Overdue",
+                isOverdue: true,
+                description: warningItem.description,
+                suggestedServiceId: diagnostic?.id,
+              });
+            }
+          }
+        }
+
         const items = urgentItems.length > 0
           ? urgentItems
           : [{ id: "healthy", serviceName: "All systems healthy", dueText: "No action needed", isOverdue: false }];
         return { id: r.vin, name: displayName, vin: r.vin, maintenanceItems: items, nowItems };
       });
-  }, [listVehicles, allMaintenanceRecords, availableServices]);
+  }, [listVehicles, allMaintenanceRecords, availableServices, allOemIntervals]);
 
   // Merge image URLs separately — cheap, only re-maps when images arrive
   const mappedVehicles = useMemo(
@@ -514,13 +704,31 @@ export default function HomeScreen() {
     // TODO: Implement search functionality
   };
 
-  // Both the search field and the map button are entry points to the new
-  // booking flow's service picker — they route to the same place.
+  const openBookingFlow = useCallback((): boolean => {
+    if (vehiclesLoading) return false;
+    if (!hasVehicles) {
+      noVehicleSheetRef.current?.open();
+      return false;
+    }
+    return true;
+  }, [hasVehicles, vehiclesLoading]);
+
+  // Both the search field and the map button route to the booking
+  // flow's service picker, but the map button passes `entry=map` so
+  // the picker mounts in peek mode: low sheet, interactive map
+  // underneath. Search-entry behavior is unchanged (full sheet).
+  // Object form for router.push so Expo Router serializes the param
+  // into the route consistently across SDK versions.
   const handleMapPress = () => {
-    router.push("/(booking-flow)/select-services");
+    if (!openBookingFlow()) return;
+    router.push({
+      pathname: "/(booking-flow)/select-services",
+      params: { entry: "map" },
+    });
   };
 
   const handleSearchPress = () => {
+    if (!openBookingFlow()) return;
     router.push("/(booking-flow)/select-services");
   };
 
@@ -553,6 +761,43 @@ export default function HomeScreen() {
         router.navigate("/(main-tabs)/cars");
       }
     }, [pendingNavigateToCars, setPendingNavigateToCars, router])
+  );
+
+  // Clear any pre-pinned shop from a previous shop-detail Book CTA the
+  // moment the user lands back on Home. Without this, `preSelectedShopId`
+  // (set on shop-detail at `app/booking/shop/[id]/index.tsx:226`) lives
+  // forever in the booking store, so a brand-new booking started from
+  // Home would silently inherit the previous shop — exactly the bug
+  // Ahmad caught. The `Resume Booking` flow on Home uses a different
+  // store field (`selectedVehicleVin` + `selectedServiceIds`) and is
+  // unaffected; we're only resetting the shop / service pre-pins set by
+  // shop-detail, not the in-progress cart.
+  const clearPreSelections = useBookingStore((s) => s.clearPreSelections);
+  useFocusEffect(
+    useCallback(() => {
+      clearPreSelections();
+    }, [clearPreSelections]),
+  );
+
+  // Enrichment-toast deferred from add-vehicle-review. Per Ahmad: don't
+  // fire the toast right after confirm (would overlap the /vehicle-added
+  // celebration). Surface it the next time the user lands on home so the
+  // background pipeline feels deliberate. The label is the user-visible
+  // "2024 Volkswagen Tiguan" so the toast can call out the specific car.
+  // One-shot: cleared as soon as it's read.
+  const pendingEnrichmentToast = usePendingNavigationStore((s) => s.pendingEnrichmentToast);
+  const setPendingEnrichmentToast = usePendingNavigationStore((s) => s.setPendingEnrichmentToast);
+  useFocusEffect(
+    useCallback(() => {
+      if (pendingEnrichmentToast) {
+        const carLabel = pendingEnrichmentToast;
+        setPendingEnrichmentToast(null);
+        // Universal-language pass per Ahmad: most users won't know
+        // what "enriching" means. "Connecting to your <car>" reads
+        // as a familiar tech action (like pairing) and stays short.
+        toast.trust(`Connecting to your ${carLabel}`);
+      }
+    }, [pendingEnrichmentToast, setPendingEnrichmentToast, toast])
   );
 
   const handleAppointmentPress = () => {
@@ -868,6 +1113,7 @@ export default function HomeScreen() {
                 onSubmit={handleSearch}
                 onMapPress={handleMapPress}
                 onPress={handleSearchPress}
+                placeholderPhrases={SEARCH_PLACEHOLDER_PHRASES}
               />
             </View>
 
@@ -969,7 +1215,17 @@ export default function HomeScreen() {
                   );
                   store.clearSelectedServices();
                   if (matched) store.toggleServiceSelection(matched.id);
-                  router.push('/(booking-flow)/select-services');
+                  // When we successfully pre-selected the service (the
+                  // common case for a NOW-tier callout), skip the
+                  // service picker and jump straight to Choose
+                  // Mechanic — the user knows what they want. Falls
+                  // back to select-services when the maintenance type
+                  // doesn't resolve to a catalog service (rare).
+                  router.push(
+                    matched
+                      ? '/(booking-flow)/choose-mechanic'
+                      : '/(booking-flow)/select-services',
+                  );
                 }}
               />
 
@@ -1008,7 +1264,14 @@ export default function HomeScreen() {
                       );
                       store.clearSelectedServices();
                       if (matched) store.toggleServiceSelection(matched.id);
-                      router.push('/(booking-flow)/select-services');
+                      // Same short-circuit as the NowTierCallout above —
+                      // when the service pre-selects cleanly, skip
+                      // Screen 1 and land on Choose Mechanic.
+                      router.push(
+                        matched
+                          ? '/(booking-flow)/choose-mechanic'
+                          : '/(booking-flow)/select-services',
+                      );
                     }}
                     onSwipeStart={() => setIsCardSwiping(true)}
                     onSwipeEnd={() => setIsCardSwiping(false)}
@@ -1019,13 +1282,13 @@ export default function HomeScreen() {
               </View>
 
               {/* More Services Section (6-card service-type grid) */}
-              <MoreServicesSection />
+              <MoreServicesSection onBeforeOpenBookingFlow={openBookingFlow} />
 
               {/* Service Bundles Section */}
-              <ServiceBundlesSection />
+              <ServiceBundlesSection onBeforeOpenBookingFlow={openBookingFlow} />
 
               {/* Provider Types Section ("More" — 3 provider cards) */}
-              <ProviderTypesSection />
+              <ProviderTypesSection onBeforeOpenBookingFlow={openBookingFlow} />
             </View>
           </Animated.ScrollView>
 
@@ -1090,58 +1353,14 @@ export default function HomeScreen() {
     </ScrollDrivenGradientBackground>
 
     {/* No-vehicle gate — shown when user taps into booking without a vehicle */}
-    <FloatingSheet
+    <AddVehicleRequiredSheet
       ref={noVehicleSheetRef}
-      snapHeights={[screenHeight * 0.50]}
-      showBackdrop
-    >
-      <View style={[styles.sheetContentContainer, styles.noVehicleContent]}>
-        <View style={styles.sheetTitleWrap}>
-          <View style={styles.noVehicleIconWrap}>
-            <RNText
-              style={{
-                fontSize: 26,
-                lineHeight: 28,
-                textAlign: 'center',
-                textAlignVertical: 'center',
-                includeFontPadding: false,
-                transform: [{ translateY: -2 }],
-              }}
-            >
-              🚗
-            </RNText>
-          </View>
-          <Text style={styles.sheetTitle}>Add a vehicle first</Text>
-        </View>
-
-        <View style={styles.sheetBody}>
-          <Text style={styles.sheetBodyText}>
-            We need to know your vehicle to match you with the right mechanic and services.
-          </Text>
-        </View>
-
-        <View style={styles.sheetActions}>
-          <Pressable
-            style={({ pressed }) => [styles.sheetPrimaryButton, pressed && styles.sheetPressed]}
-            onPress={() => {
-              noVehicleSheetRef.current?.close();
-              router.push('/add-vehicle');
-            }}
-          >
-            <Text weight="semiBold" color="#FFF" style={styles.sheetPrimaryButtonText}>
-              Add a vehicle
-            </Text>
-          </Pressable>
-
-          <Pressable
-            onPress={() => noVehicleSheetRef.current?.close()}
-            style={styles.noVehicleSecondaryAction}
-          >
-            <Text style={styles.noVehicleSecondaryText}>Maybe later</Text>
-          </Pressable>
-        </View>
-      </View>
-    </FloatingSheet>
+      onAddVehicle={() => {
+        noVehicleSheetRef.current?.close();
+        router.push('/add-vehicle');
+      }}
+      onMaybeLater={() => noVehicleSheetRef.current?.close()}
+    />
 
     {/* Reschedule availability picker. Mirrors the bookings tab's wiring. */}
     <AvailabilityModal

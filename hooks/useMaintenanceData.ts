@@ -25,8 +25,23 @@ import {
   ALL_MAINTENANCE_TYPES,
   MAINTENANCE_LABELS,
   type MaintenanceType,
+  type OemServiceIntervalsInput,
 } from "@/utils/maintenanceStatus";
 import { buildMaintenanceItems, enrichUrgentItem } from "@/utils/maintenanceEnrichment";
+import { buildWarningLightItem } from "@/lib/warningLightItems";
+
+/** Paired maintenance type → light id that should escalate it to Now
+ *  tier. Mirrors WARNING_LIGHT_FOR_TYPE inside the merge loop below;
+ *  exposed at module scope so the post-process pass can hoist any
+ *  paired item (record-based or fallback) up to `overdue` status when
+ *  the light is on. Lets paired-light prompts surface on Home alongside
+ *  the consolidated unpaired card. */
+const PAIRED_LIGHT_BY_TYPE: Partial<Record<MaintenanceType, string>> = {
+  oil: "oil_pressure",
+  battery: "battery_charging",
+  brakes: "abs",
+  tires: "tpms",
+};
 
 // ============================================================================
 // TYPES
@@ -56,7 +71,12 @@ export function useMaintenanceRecords(
   drivingConditions?: string,
   avgMonthlyDriving?: string,
   knownIssues?: string[],
-  vehicleYear?: number
+  vehicleYear?: number,
+  // Slug-keyed OEM intervals from the v3 enrichment pipeline (see
+  // `useOemServiceIntervals`). Forwarded through buildMaintenanceItems
+  // so the maintenance status calc can prefer per-vehicle OEM cadences
+  // over the hardcoded fallback chain.
+  oemIntervals?: OemServiceIntervalsInput,
 ) {
   const records = useQuery(
     api.maintenance.getRecordsByVehicle,
@@ -79,8 +99,9 @@ export function useMaintenanceRecords(
       avgMonthlyDriving,
       knownIssues,
       vehicleYear,
+      oemIntervals,
     );
-  }, [records, currentOdometer, make, drivingConditions, avgMonthlyDriving, knownIssues, vehicleYear]);
+  }, [records, currentOdometer, make, drivingConditions, avgMonthlyDriving, knownIssues, vehicleYear, oemIntervals]);
 
   return { records, items };
 }
@@ -140,8 +161,13 @@ export function useMergedMaintenance(
   knownIssues?: string[],
   vehicleYear?: number,
   driverRecommendations?: DriverRecommendationLike[],
+  // OEM intervals from `useOemServiceIntervals(activeOwnership?.vehicle_config_id)`.
+  // Forwarded into useMaintenanceRecords → buildMaintenanceItems →
+  // computeMaintenanceStatus → getInterval. Optional; falls back to
+  // MAKE_OVERRIDES / DEFAULT_INTERVALS when undefined or empty.
+  oemIntervals?: OemServiceIntervalsInput,
 ) {
-  const { records, items: userItems } = useMaintenanceRecords(vehicleOwnerId, currentOdometer, make, drivingConditions, avgMonthlyDriving, knownIssues, vehicleYear);
+  const { records, items: userItems } = useMaintenanceRecords(vehicleOwnerId, currentOdometer, make, drivingConditions, avgMonthlyDriving, knownIssues, vehicleYear, oemIntervals);
 
   // Merge: user record > unknown.
   const mergedItems = useMemo(() => {
@@ -188,12 +214,20 @@ export function useMergedMaintenance(
 
       const lightInfo = WARNING_LIGHT_FOR_TYPE[type];
       if (lightInfo && knownIssues?.includes(lightInfo.lightId)) {
+        // Paired-light fallback (no maintenance record yet, but the
+        // light is on). Status is `overdue` so the urgency model puts
+        // this in the Now tier — surfaces on Home + the Cars tracker
+        // exactly like every other now-tier item. Bumped from the
+        // legacy `needs_attention` because that previously landed at
+        // "soon" tier and Ahmad's gripe was warning lights never
+        // showed up on Home.
         result.push({
           id: `unknown-${type}`,
           serviceName: MAINTENANCE_LABELS[type] || type,
           description: lightInfo.label,
           detail: "Warning light",
-          status: "needs_attention",
+          status: "overdue",
+          percentUsed: 100,
         });
         continue;
       }
@@ -260,8 +294,38 @@ export function useMergedMaintenance(
       }
     }
 
-    return result.map(enrichUrgentItem);
-  }, [userItems, records, knownIssues, vehicleYear, driverRecommendations]);
+    // Post-process: when a paired warning light is active, force the
+    // matching item up to `overdue` regardless of record state. The
+    // computeMaintenanceStatus pipeline only escalates to
+    // `needs_attention` (lands at "soon" tier in utils/urgency.ts),
+    // which is why warning lights weren't surfacing on Home before
+    // — they need `overdue` to clear the Now-tier cutoff.
+    const escalated = result.map((item) => {
+      const itemType = item.id.replace(/^(unknown-|user-|smartcar-)/, "");
+      const lightId = PAIRED_LIGHT_BY_TYPE[itemType as MaintenanceType];
+      if (!lightId || !knownIssues?.includes(lightId)) return item;
+      if (item.status === "overdue") return item; // already there
+      return { ...item, status: "overdue" as const, percentUsed: 100 };
+    });
+
+    const enriched = escalated.map(enrichUrgentItem);
+
+    // Consolidated unpaired-light item — appended AFTER enrichment so
+    // its hand-tuned description/urgency copy doesn't get clobbered by
+    // the generic URGENT_DETAILS fallback in enrichUrgentItem. Scope
+    // the id to `vehicleOwnerId` so multiple vehicles aggregated on
+    // Home produce distinct items. Returns null when no unpaired
+    // light is on — see `lib/warningLightItems.ts` for the rules.
+    if (vehicleOwnerId) {
+      const warningItem = buildWarningLightItem({
+        knownIssues,
+        scopeId: String(vehicleOwnerId),
+      });
+      if (warningItem) enriched.push(warningItem);
+    }
+
+    return enriched;
+  }, [userItems, records, knownIssues, vehicleYear, driverRecommendations, vehicleOwnerId]);
 
   // Expose raw records so the modal can pre-fill from existing data
   const recordsByType = useMemo(() => {

@@ -13,13 +13,27 @@ import ReAnimated, {
 } from "react-native-reanimated";
 import { useIsFocused } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
-import { ArrowLeft, Briefcase, Car, Check as CheckIcon, ChevronDown, Copy, Info, Plus, Route, Sparkles, Star, Sun, Users, X } from "lucide-react-native";
+import { ArrowLeft, Briefcase, Car, Check as CheckIcon, ChevronDown, Copy, Gauge, Info, Plus, Route, Sparkles, Star, Sun, Users, X } from "lucide-react-native";
 import * as Clipboard from "expo-clipboard";
+import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams } from "expo-router";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
+
+// Native iOS 26 liquid glass (optional). Mirrors the home / map-controls
+// pattern — falls back to a frosted BlurView when the lib is unavailable.
+let LiquidGlassView: React.ComponentType<any> | null = null;
+let isLiquidGlassEnabled = false;
+try {
+  const lg = require("@callstack/liquid-glass");
+  LiquidGlassView = lg.LiquidGlassView;
+  isLiquidGlassEnabled = !!lg.isLiquidGlassSupported;
+} catch {
+  // Not available — BlurView fallback.
+}
 import { haptics } from "@/lib/haptics";
 import { useToast } from "@/hooks/useToast";
+import { useUpdateMileage } from "@/hooks/useUpdateMileage";
 import Svg, { Circle, Defs, LinearGradient as SvgLinearGradient, Stop } from "react-native-svg";
 
 // 3. Convex & hooks
@@ -28,6 +42,7 @@ import { api } from "@/convex/_generated/api";
 import { useUserFromConvex } from "@/hooks/useUserFromConvex";
 import { useVehicleOwnershipFromConvex } from "@/hooks/useVehicleOwnershipFromConvex";
 import { useMergedMaintenance } from "@/hooks/useMaintenanceData";
+import { useOemServiceIntervals } from "@/hooks/useOemServiceIntervals";
 import { useUrgencyRankedItems } from "@/hooks/useUrgencyRankedItems";
 import { useDriverRecommendationsFromConvex } from "@/hooks/useDriverRecommendationsFromConvex";
 import { useBookingStore } from "@/stores/useBookingStore";
@@ -60,6 +75,7 @@ import { ProfileInitialsButton } from "@/components/home/ProfileInitialsButton";
 // import LoyaltyPoints from "@/components/cars/LoyaltyPoints";
 import MaintenanceTracker from "@/components/cars/MaintenanceTracker";
 import MaintenanceInputModal from "@/components/cars/MaintenanceInputModal";
+import { MileageEditModal } from "@/components/cars/MileageEditModal";
 import { CheckinBanner } from "@/components/cars/CheckinBanner";
 import UpcomingFollowUpsCard from "@/components/cars/UpcomingFollowUpsCard";
 import CarInfoStepper, { type CarInfoStepperHandle } from "@/components/cars/CarInfoStepper";
@@ -777,16 +793,17 @@ export default function CarsHomeScreen() {
   }, [listVehicles]);
 
   // Map Convex list to Vehicle[] for CarCarousel (also track ownership IDs + raw ownership)
-  const { vehicles, ownershipIds, ownerships, colorFamilies } = useMemo(() => {
+  const { vehicles, ownershipIds, ownerships, colorFamilies, vehicleConfigIds } = useMemo(() => {
     if (!listVehicles?.length) return {
       vehicles: [] as Vehicle[],
       ownershipIds: [] as (Id<"vehicle_owners"> | undefined)[],
       ownerships: [] as (Record<string, any> | undefined)[],
       colorFamilies: [] as (string | null)[],
+      vehicleConfigIds: [] as (Id<"vehicle_configs"> | undefined)[],
     };
 
     // Build paired list of vehicles + ownership IDs + raw ownership records
-    const paired: { vehicle: Vehicle; ownershipId: Id<"vehicle_owners"> | undefined; ownership: Record<string, any> | undefined; colorFamily: string | null }[] = [];
+    const paired: { vehicle: Vehicle; ownershipId: Id<"vehicle_owners"> | undefined; ownership: Record<string, any> | undefined; colorFamily: string | null; vehicleConfigId: Id<"vehicle_configs"> | undefined }[] = [];
     listVehicles.forEach((r: any, i: number) => {
       const v = r.vehicle;
       const o = r.ownership;
@@ -825,6 +842,10 @@ export default function CarsHomeScreen() {
         ownershipId: o?._id,
         ownership: o,
         colorFamily: familyId,
+        // Threaded through to useOemServiceIntervals — null/undefined
+        // when the v3 pipeline hasn't resolved a config yet (the
+        // ~7-min enrichment window after a vehicle is added).
+        vehicleConfigId: (v?.vehicle_config_id as Id<"vehicle_configs"> | undefined) ?? undefined,
       });
     });
 
@@ -840,6 +861,7 @@ export default function CarsHomeScreen() {
       ownershipIds: paired.map((p) => p.ownershipId),
       ownerships: paired.map((p) => p.ownership),
       colorFamilies: paired.map((p) => p.colorFamily),
+      vehicleConfigIds: paired.map((p) => p.vehicleConfigId),
     };
   }, [listVehicles, vehicleImageUrls]);
 
@@ -900,6 +922,14 @@ export default function CarsHomeScreen() {
   }, [activeVehicle]);
   const activeOwnershipId = useMemo(() => ownershipIds[activeVehicleIndex], [ownershipIds, activeVehicleIndex]);
   const activeOwnership = useMemo(() => ownerships[activeVehicleIndex], [ownerships, activeVehicleIndex]);
+  // Active vehicle's resolved Convex config — fed to useOemServiceIntervals
+  // so the maintenance calc can prefer per-vehicle OEM cadences from
+  // the v3 enrichment over the hardcoded MAKE_OVERRIDES / DEFAULT_INTERVALS.
+  const activeVehicleConfigId = useMemo(
+    () => vehicleConfigIds[activeVehicleIndex],
+    [vehicleConfigIds, activeVehicleIndex],
+  );
+  const oemIntervals = useOemServiceIntervals(activeVehicleConfigId);
 
   // ── Vehicle readiness (status pill + package-question CTA) ──
   // See docs/TICKET_PACKAGE_QUESTIONS.md. While the pipeline runs, shows
@@ -914,9 +944,15 @@ export default function CarsHomeScreen() {
       if (!vin || !userId) return;
       // garageRole is the single source of truth; "Primary" also flips the
       // default car (handled server-side in setVehicleRole).
-      setVehicleRole({ vin, userId, role }).catch(() => {});
+      setVehicleRole({ vin, userId, role })
+        .then(() => {
+          toast.success(role ? "Role saved" : "Role cleared");
+        })
+        .catch(() => {
+          toast.error("Couldn't save role. Try again.");
+        });
     },
-    [activeVehicle?.vin, userId, setVehicleRole],
+    [activeVehicle?.vin, userId, setVehicleRole, toast],
   );
 
   // The active vehicle's stored paint-color family (null when none was
@@ -1071,6 +1107,7 @@ export default function CarsHomeScreen() {
     activeOwnershipKnownIssues,
     activeVehicle?.year,
     driverRecommendations,
+    oemIntervals,
   );
 
   // Action Engine ranking (Yassin v1.1 §3): computes urgency + tier per
@@ -1242,6 +1279,13 @@ export default function CarsHomeScreen() {
   // Edit-picker bottom sheet state
   const [showEditPicker, setShowEditPicker] = useState(false);
   const [editPickerModal, setEditPickerModal] = useState(false);
+  const [mileageEditOpen, setMileageEditOpen] = useState(false);
+  // Shared mileage-update hook — wraps `api.vehicles.updateMileage`
+  // with validation, toast, and the reactive maintenance recompute
+  // (no extra call needed; the tracker re-tiers on the next render
+  // tick automatically). Same hook is the entry point for Oto AI's
+  // mileage-update flow.
+  const { updateMileage: updateMileageWithUx } = useUpdateMileage();
   const editPickerY = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
   const editPickerBackdrop = useRef(new Animated.Value(0)).current;
 
@@ -1382,6 +1426,7 @@ export default function CarsHomeScreen() {
       if (!userId) return;
       try {
         await updateOwnershipPrimary({ vin: vehicleId, userId, is_primary: isDefault });
+        toast.success(isDefault ? "Primary vehicle updated" : "No primary vehicle");
       } catch (e) {
         console.warn("Failed to set primary vehicle", e);
         toast.error("Couldn't set as primary. Try again.");
@@ -1860,7 +1905,16 @@ export default function CarsHomeScreen() {
                 );
                 store.clearSelectedServices();
                 if (matched) store.toggleServiceSelection(matched.id);
-                router.push('/(booking-flow)/select-services');
+                // Same behavior as the Home surfaces: when we can
+                // pre-select the service, skip the service picker and
+                // jump straight to Choose Mechanic. Falls back to
+                // select-services if the maintenance type doesn't
+                // resolve to a catalog service.
+                router.push(
+                  matched
+                    ? '/(booking-flow)/choose-mechanic'
+                    : '/(booking-flow)/select-services',
+                );
               }}
               onTakeAction={(item) => {
                 const vin = activeVehicle?.vin;
@@ -1898,7 +1952,23 @@ export default function CarsHomeScreen() {
                   tireStore.setType(tireSpecs.type as any);
                   tireStore.setTier(tireSpecs.tier as any);
                 }
-                router.push('/(booking-flow)/select-services');
+                // Add the recommendation's service to the cart so
+                // Choose Mechanic has something to price / filter
+                // shops against. Clear first so this doesn't append
+                // to whatever the user last picked.
+                if (serviceId) {
+                  bookingStore.clearSelectedServices();
+                  bookingStore.toggleServiceSelection(serviceId);
+                }
+                // Skip the service picker when we know the specific
+                // serviceId (the follow-up card always carries one
+                // for a recommendation). Falls back to
+                // select-services when serviceId is missing.
+                router.push(
+                  serviceId
+                    ? '/(booking-flow)/choose-mechanic'
+                    : '/(booking-flow)/select-services',
+                );
               }}
             />
           ) : null}
@@ -1943,9 +2013,27 @@ export default function CarsHomeScreen() {
                 pressed && styles.removeVehicleButtonPressed,
               ]}
             >
-              <Text style={styles.removeVehicleButtonText} weight="semiBold">
-                Remove Vehicle
-              </Text>
+              {isLiquidGlassEnabled && LiquidGlassView ? (
+                <LiquidGlassView
+                  interactive
+                  effect="clear"
+                  style={styles.removeVehicleButtonGlass}
+                >
+                  <Text style={styles.removeVehicleButtonText} weight="semiBold">
+                    Remove Vehicle
+                  </Text>
+                </LiquidGlassView>
+              ) : (
+                <BlurView
+                  intensity={50}
+                  tint="light"
+                  style={styles.removeVehicleButtonGlass}
+                >
+                  <Text style={styles.removeVehicleButtonText} weight="semiBold">
+                    Remove Vehicle
+                  </Text>
+                </BlurView>
+              )}
             </Pressable>
           )}
         </View>
@@ -2044,6 +2132,30 @@ export default function CarsHomeScreen() {
           <Text weight="semiBold" size="xl" color="#1F2937" style={pickerStyles.title}>
             Edit Maintenance Info
           </Text>
+
+          {/* Mileage row — sits above the maintenance-type rows
+              since the odometer drives every interval calc. Opens
+              the MileageEditModal which patches vehicle_owners.mileage
+              via `api.vehicles.updateMileage`. */}
+          <Pressable
+            style={({ pressed }) => [pickerStyles.row, pressed && { backgroundColor: "rgba(0,0,0,0.04)" }]}
+            onPress={() => {
+              closeEditPicker(() => setMileageEditOpen(true));
+            }}
+          >
+            <View style={pickerStyles.rowIcon}>
+              <Gauge size={22} color="#5299FE" strokeWidth={2} />
+            </View>
+            <Text weight="medium" size="md" color="#1F2937" style={{ flex: 1 }}>
+              Mileage
+            </Text>
+            <Text weight="semiBold" size="sm" color="#5299FE">
+              {currentOdometer != null
+                ? `${Math.round(currentOdometer).toLocaleString()} mi`
+                : "Update"}
+            </Text>
+          </Pressable>
+
           {ALL_MAINTENANCE_TYPES.map((type) => {
             const renderIcon = () => {
               switch (type) {
@@ -2506,14 +2618,17 @@ export default function CarsHomeScreen() {
       )}
       </Modal>
 
+      {/* COMMENTED-OUT: post-add-car booking prompt — restore when ready */}
       {/* Post-optimize booking sheet — pops on the car's dashboard right
           after `dismissGearsOverlay` runs. */}
+      {/*
       <PostOptimizeBookingSheet
         visible={showOptimizeBookingSheet}
         onClose={() => setShowOptimizeBookingSheet(false)}
         maintenanceItems={mergedMaintenanceItems}
         vehicleLabel={activeVehicleLabel}
       />
+      */}
 
 <VehicleRoleSheet
         visible={showRoleSheet}
@@ -2533,6 +2648,26 @@ export default function CarsHomeScreen() {
           onClose={() => setShowPackageQuestionsSheet(false)}
         />
       )}
+
+      {/* Mileage edit — opened from the Edit Maintenance Info sheet's
+          Mileage row. Patches vehicle_owners.mileage so every interval
+          calc downstream sees the new odometer immediately. */}
+      <MileageEditModal
+        visible={mileageEditOpen}
+        initialMileage={currentOdometer}
+        onClose={() => setMileageEditOpen(false)}
+        onSave={async (mileage) => {
+          const vin = activeVehicle?.vin;
+          if (!vin || !userId) {
+            throw new Error("Sign in and pick a vehicle to update mileage.");
+          }
+          // Hook fires its own toast on success AND on validation /
+          // mutation failure. Re-throwing on !ok preserves the
+          // MileageEditModal's inline-error contract.
+          const result = await updateMileageWithUx({ vin, userId, mileage });
+          if (!result.ok) throw new Error(result.error);
+        }}
+      />
 
     </View>
   );
@@ -2909,25 +3044,25 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFFFFF",
   },
   removeVehicleButton: {
-    backgroundColor: "#B91C1C",
     borderRadius: 16,
-    paddingVertical: 16,
-    alignItems: "center",
+    overflow: "hidden",
     marginTop: scale(56),
     marginBottom: scale(40),
     marginHorizontal: scale(16),
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(82,153,254,0.35)",
+  },
+  removeVehicleButtonGlass: {
+    paddingVertical: 16,
+    alignItems: "center",
+    justifyContent: "center",
   },
   removeVehicleButtonPressed: {
-    opacity: 0.9,
+    opacity: 0.85,
     transform: [{ scale: 0.98 }],
   },
   removeVehicleButtonText: {
-    color: "#FFFFFF",
+    color: "#5299FE",
     fontSize: 16,
   },
   emptyContainer: {

@@ -18,25 +18,40 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   Dimensions,
   Pressable,
-  ScrollView,
   StyleSheet,
   View,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from "react-native";
-import { useFocusEffect } from "expo-router";
+// gesture-handler ScrollView so the nested mechanic-carousel swipe
+// composes with the shop pager on Android (see the android-gestures
+// source test).
+import { ScrollView } from "react-native-gesture-handler";
+import { useFocusEffect, useNavigation } from "expo-router";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import BottomSheet, { BottomSheetView } from "@gorhom/bottom-sheet";
 import { ArrowLeft, Crosshair, Minus, Plus } from "lucide-react-native";
+import MapView, { Marker, PROVIDER_DEFAULT } from "react-native-maps";
+import Animated, {
+  Extrapolation,
+  interpolate,
+  useAnimatedStyle,
+  useSharedValue,
+} from "react-native-reanimated";
 
 import { Text } from "@/components/shared-ui";
 import { useBookingFlowMap } from "@/components/booking-flow/BookingFlowMap";
+import { MapBrowseShopCard } from "@/components/booking-flow/MapBrowseShopCard";
 import { MapShopCard } from "@/components/booking-flow/MapShopCard";
+import { MapSwipeHint } from "@/components/booking-flow/MapSwipeHint";
+import { RatingMarkerPill } from "@/components/booking-flow/RatingMarkerPill";
 import { ShopPage } from "@/components/booking-flow/ShopPage";
 import { StickyContinueBar } from "@/components/booking-flow/StickyContinueBar";
 import { VehiclePuck } from "@/components/booking-flow/VehiclePuck";
 import { useMechanicStore } from "@/stores/useMechanicStore";
+import { useShopStore } from "@/stores/useShopStore";
+import { distanceBetween } from "@/utils/geo";
 import { useNearbyBookingShops } from "@/hooks/useNearbyBookingShops";
 import { useNextAvailabilityForShop } from "@/hooks/useNextAvailabilityForShop";
 import { useBookingLaborHoursMap } from "@/hooks/useBookingLaborHoursMap";
@@ -47,15 +62,28 @@ import { useVehicleStore } from "@/stores/useVehicleStore";
 import { buildShopPriceLabel } from "@/lib/shopPriceLabel";
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
+// Two snap points: standard (~53%, the default that fits the
+// active shop card + mechanic strip) and expanded (~82% for
+// scrolling reviews etc). With `enablePanDownToClose`, the user
+// can also drag the sheet OUT of view entirely — at which point
+// `sheetIndex === -1` and the screen swaps to the browse-card
+// carousel (ChatGPT-style "shops on a map" mode). Tap a card to
+// bring the sheet back to index 0.
 const SNAP_POINTS = ["53%", "82%"] as const;
 
 export default function ChooseMechanicScreen() {
   const router = useRouter();
+  const navigation = useNavigation();
   const insets = useSafeAreaInsets();
 
   const selectedServiceIds = useBookingStore((s) => s.selectedServiceIds);
   const availableServices = useBookingStore((s) => s.availableServices);
   const selectedServiceOptions = useBookingStore((s) => s.selectedServiceOptions);
+  // Pre-pinned shop from the shop-detail "Book a Service" CTA. When
+  // set, the carousel below filters down to JUST this shop so the
+  // user lands on the shop they came in for. Cleared via
+  // `clearPreSelections` (booking store) on flow reset.
+  const preSelectedShopId = useBookingStore((s) => s.preSelectedShopId);
   const ownershipId = useVehicleStore((s) => s.getSelectedVehicle())?.ownershipId;
 
   // Engine-adjusted + director-rounded labor (empirical → book →
@@ -102,11 +130,69 @@ export default function ChooseMechanicScreen() {
     [selectedServices, realPartsCostMap],
   );
 
-  const { results: nearbyShops, isLoading: shopsLoading } = useNearbyBookingShops(5);
+  const { results: nearbyResults, isLoading: shopsLoading } = useNearbyBookingShops(5);
+  const getShopById = useShopStore((s) => s.getShopById);
+  const userLocationForDistance = useBookingStore((s) => s.userLocation);
+
+  // When the user entered via the shop-detail Book CTA, the booking
+  // store has `preSelectedShopId` set — surface that shop as the
+  // FIRST page of the swipe deck, but keep the rest of the nearby
+  // shops available so the user can still browse alternatives.
+  //
+  // Two sub-cases for sourcing the pinned shop's NearbyShopResult:
+  //   1. It's already in the top-5 nearby (the common case) — pull
+  //      it out of nearbyResults so distance + coversAll stay
+  //      accurate, then put it at index 0 with the others behind.
+  //   2. It isn't in the top-5 (user searched a far-away shop) —
+  //      synthesize a NearbyShopResult from useShopStore +
+  //      userLocation so the pinned shop still surfaces, then
+  //      append the regular nearby list behind it.
+  const KM_PER_MI = 1.609344;
+  const nearbyShops = useMemo(() => {
+    if (!preSelectedShopId) return nearbyResults;
+    const matchInNearby = nearbyResults.find((r) => r.shop.id === preSelectedShopId);
+    if (matchInNearby) {
+      // Move the matched shop to the front, keep the rest in order.
+      const rest = nearbyResults.filter((r) => r.shop.id !== preSelectedShopId);
+      return [matchInNearby, ...rest];
+    }
+    const shop = getShopById(preSelectedShopId);
+    if (!shop) return nearbyResults;
+    const km =
+      userLocationForDistance && shop.latitude !== 0 && shop.longitude !== 0
+        ? distanceBetween(
+            { latitude: userLocationForDistance.latitude, longitude: userLocationForDistance.longitude },
+            { latitude: shop.latitude, longitude: shop.longitude },
+          )
+        : null;
+    const coversAll =
+      selectedServiceIds.length === 0
+        ? true
+        : selectedServiceIds.every((sid) => shop.serviceIds.includes(sid));
+    const synthesized = {
+      shop,
+      distanceMi: km != null ? km / KM_PER_MI : 0,
+      coversAll,
+    };
+    return [synthesized, ...nearbyResults];
+  }, [nearbyResults, preSelectedShopId, getShopById, userLocationForDistance, selectedServiceIds]);
 
   // Active page index = which shop the user is currently viewing.
   const [activeIndex, setActiveIndex] = useState(0);
   const activeShop = nearbyShops[activeIndex]?.shop ?? null;
+
+  // Android gesture fix: while the user is touching the mechanic
+  // carousel inside a ShopPage, disable the outer shop pager so the
+  // horizontal swipe isn't hijacked by the parent ScrollView.
+  const [isMechanicCarouselInteracting, setIsMechanicCarouselInteracting] = useState(false);
+
+  // Bottom-sheet snap index. Drives the chrome swap when the user
+  // swipes the sheet fully closed (`sheetIndex === -1`): hide the
+  // Continue CTA + the rich MapShopCard, show the
+  // ChatGPT-style MapBrowseShopCard CAROUSEL instead so the map
+  // is the focus while the user browses pins.
+  const [sheetIndex, setSheetIndex] = useState(0);
+  const isSheetHidden = sheetIndex === -1;
 
   // Per-(shop, service, tier) flat-price overrides for the active shop.
   // When a service is offered at a fixed rate the price renders as a
@@ -150,36 +236,108 @@ export default function ChooseMechanicScreen() {
     ? `Continue with ${selectedMechanic?.name ?? "Any"}`
     : "Select services";
 
-  // Map setup — this screen drives the shared persistent map (which
-  // lives in the layout) interactively: it owns the camera + markers
-  // while focused. `mapRef` is the shared handle; userLocation comes
-  // from the booking store for the recenter affordance.
+  // Map setup. We mount a LOCAL MapView as a direct child of this
+  // screen (see render below) instead of driving the shared
+  // persistent map — same fix select-services peek mode uses. The
+  // shared map's MapView sits behind react-navigation's native-stack
+  // Card, which absorbs finger gestures at the UIViewController
+  // frame boundary on iOS, so pan/zoom never reaches the shared
+  // map even with the `box-none` chain in place. A local MapView
+  // sidesteps that.
+  //
+  // `region` from the booking-flow context is still our source of
+  // truth for the initial camera so the shared map and the local
+  // map line up if the user ever sees both during a transition.
   const userLocation = useBookingStore((s) => s.userLocation);
-  const { mapRef, setInteractive, setMarkers } = useBookingFlowMap();
+  const { setInteractive, setMarkers, setShopPins, region } = useBookingFlowMap();
+  const mapRef = useRef<MapView | null>(null);
+  // Ref to the paged carousel ScrollView so a pin tap can scroll
+  // the bottom sheet to that shop's page (the reverse direction of
+  // the existing swipe → setActiveIndex flow).
+  const pagerScrollRef = useRef<ScrollView | null>(null);
+  // Ref to the EXTERNAL browse-card carousel (only mounted when
+  // the bottom sheet is hidden). Pin tap on the map scrolls this
+  // to the matching shop too, so the visible card always
+  // reflects the active shop.
+  const browseScrollRef = useRef<ScrollView | null>(null);
+  // Ref to the BottomSheet itself so a browse-card tap can
+  // re-open it (snapToIndex(0)).
+  const bottomSheetRef = useRef<BottomSheet | null>(null);
+  // gorhom's `animatedIndex` shared value. -1 = fully closed, 0 =
+  // first snap (53%), 1 = second snap (82%). Drives the Continue
+  // bar's fade so the bar tracks the sheet's drag continuously
+  // instead of popping in/out at the snap-change boundary.
+  const sheetAnimatedIndex = useSharedValue(0);
+  const continueBarStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(
+      sheetAnimatedIndex.value,
+      [-1, 0],
+      [0, 1],
+      Extrapolation.CLAMP,
+    ),
+  }));
+  // Browse-card strip fades in as the sheet fades out — same
+  // shared value, inverted curve. Always-mounted so the
+  // ScrollView holds its scroll position across open/close
+  // transitions.
+  const browseStripStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(
+      sheetAnimatedIndex.value,
+      [-1, 0],
+      [1, 0],
+      Extrapolation.CLAMP,
+    ),
+  }));
 
-  // Claim interactive mode whenever this screen is focused; the
-  // locked screens reset it back when they regain focus.
+  // Lock the SHARED map down (no touches, no pins) so it doesn't
+  // compete with the local MapView for gestures or render duplicate
+  // markers. Other booking-flow screens reset this on their own
+  // focus effects.
   useFocusEffect(
     useCallback(() => {
-      setInteractive(true);
-    }, [setInteractive]),
+      setInteractive(false);
+      setMarkers([]);
+      setShopPins([]);
+    }, [setInteractive, setMarkers, setShopPins]),
   );
 
-  // Drop a marker on the active shop (and clear it when none).
-  useEffect(() => {
-    if (activeShop && activeShop.latitude !== 0) {
-      setMarkers([
-        {
-          id: activeShop.id,
-          latitude: activeShop.latitude,
-          longitude: activeShop.longitude,
-          title: activeShop.name,
-        },
-      ]);
-    } else {
-      setMarkers([]);
-    }
-  }, [activeShop, setMarkers]);
+  // Tap a rating pin on the map → swap the active shop and scroll
+  // BOTH the sheet's internal carousel AND the external browse
+  // carousel (the one shown when the sheet is hidden) so they
+  // stay in sync regardless of which one's visible. The
+  // camera-pan effect further down fires off activeIndex changes,
+  // so we don't need to call mapRef directly here.
+  const onPinTap = useCallback(
+    (idx: number) => {
+      if (idx < 0 || idx >= nearbyShops.length) return;
+      setActiveIndex(idx);
+      pagerScrollRef.current?.scrollTo({
+        x: idx * SCREEN_WIDTH,
+        animated: true,
+      });
+      browseScrollRef.current?.scrollTo({
+        x: idx * SCREEN_WIDTH,
+        animated: true,
+      });
+    },
+    [nearbyShops.length],
+  );
+
+  // External browse-carousel swipe → mirror the internal pager's
+  // onPageChange. Keep the internal pager scrolled to the same
+  // page (no animation — the user can't see it) so that when the
+  // sheet reopens it lands on the right shop.
+  const onBrowsePageChange = useCallback(
+    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const idx = Math.round(e.nativeEvent.contentOffset.x / SCREEN_WIDTH);
+      setActiveIndex(idx);
+      pagerScrollRef.current?.scrollTo({ x: idx * SCREEN_WIDTH, animated: false });
+    },
+    [],
+  );
+
+  // Pin rendering moved onto the local MapView in the render block —
+  // no need to push pins through the shared BookingFlowMap context.
 
   // Animate the map camera to the active shop whenever it changes.
   // Center on the shop with a fixed neighborhood-scale zoom (~1mi
@@ -196,6 +354,11 @@ export default function ChooseMechanicScreen() {
   const MAX_DELTA = 1.0;
   const zoomDeltaRef = useRef(DEFAULT_DELTA);
 
+  // Re-fires on `isSheetHidden` too so a sheet swipe-down → pan
+  // back to the active shop. The user can pan the map around
+  // freely with the sheet open; closing the sheet recenters on
+  // the shop they're committed to so the browse-card carousel
+  // matches what the map is showing.
   useEffect(() => {
     if (!activeShop || !mapRef.current) return;
     if (activeShop.latitude === 0 && activeShop.longitude === 0) return;
@@ -208,7 +371,7 @@ export default function ChooseMechanicScreen() {
       },
       450,
     );
-  }, [activeShop]);
+  }, [activeShop, isSheetHidden]);
 
   const animateZoom = useCallback(
     (factor: number) => {
@@ -278,10 +441,14 @@ export default function ChooseMechanicScreen() {
   }, [selectedServices, laborHoursMap]);
 
   // Horizontal-paged scroll handler. Pages snap by screen width so
-  // every page lines up edge-to-edge inside the sheet.
+  // every page lines up edge-to-edge inside the sheet. Also pushes
+  // the same page index into the (always-mounted but invisible)
+  // browse carousel so it's already on the right shop when the
+  // user swipes the sheet closed.
   const onPageChange = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const idx = Math.round(e.nativeEvent.contentOffset.x / SCREEN_WIDTH);
     setActiveIndex(idx);
+    browseScrollRef.current?.scrollTo({ x: idx * SCREEN_WIDTH, animated: false });
   }, []);
 
   const { slots: activeShopSlots } = useNextAvailabilityForShop(
@@ -297,9 +464,23 @@ export default function ChooseMechanicScreen() {
 
   const activeDistanceMi = nearbyShops[activeIndex]?.distanceMi ?? 0;
 
+  // Back normalizes to Screen 1 when we're the first route in the
+  // (booking-flow) stack — i.e. the user got here via a direct
+  // entry point (Most Booked card, Quick Book, etc.) rather than
+  // walking 1 → 2 → 3. Length > 1 means a real in-flow back exists.
+  // For the reset path we use navigation.reset (not router.replace)
+  // since replace within the same Stack occasionally no-op'd.
   const onBack = () => {
-    if (router.canGoBack()) router.back();
-    else router.replace("/(booking-flow)/select-services");
+    const state = navigation.getState?.();
+    const stackLength = state?.routes?.length ?? 0;
+    if (stackLength > 1) {
+      router.back();
+      return;
+    }
+    (navigation.reset as ((state: { index: number; routes: { name: string }[] }) => void) | undefined)?.({
+      index: 0,
+      routes: [{ name: "select-services" }],
+    });
   };
 
   const onContinue = () => {
@@ -319,9 +500,66 @@ export default function ChooseMechanicScreen() {
 
   return (
     <View style={styles.root} pointerEvents="box-none">
-      {/* The interactive map is the shared persistent instance rendered
-          by the layout; this screen drives its camera + markers and
-          floats its chrome over it. */}
+      {/* Local interactive MapView. The shared layout-level
+          BookingFlowMap is locked behind us (its touches were being
+          eaten by react-navigation's native-stack Card before they
+          could fall through — same UIViewController quirk that
+          forced the local-MapView fix on select-services peek
+          mode). Mounting the map as a direct child of the screen
+          gives it touches naturally. */}
+      {region ? (
+        <MapView
+          ref={mapRef}
+          style={StyleSheet.absoluteFill}
+          provider={PROVIDER_DEFAULT}
+          // Open the map on the active shop, not the user. The
+          // ChatGPT-style browsing flow puts the shop at the
+          // center of attention — anchoring on the user just
+          // means the user has to manually swipe to find the
+          // shop they're considering. Falls back to the user
+          // region only when the active shop hasn't hydrated
+          // yet (cold start); the camera-pan effect catches up
+          // once nearbyShops loads.
+          initialRegion={
+            activeShop &&
+            activeShop.latitude !== 0 &&
+            activeShop.longitude !== 0
+              ? {
+                  latitude: activeShop.latitude,
+                  longitude: activeShop.longitude,
+                  latitudeDelta: DEFAULT_DELTA,
+                  longitudeDelta: DEFAULT_DELTA,
+                }
+              : region
+          }
+          showsUserLocation
+          scrollEnabled
+          zoomEnabled
+          pitchEnabled={false}
+          rotateEnabled
+        >
+          {nearbyShops
+            .filter((r) => r.shop.latitude !== 0 && r.shop.longitude !== 0)
+            .map((r, idx) => (
+              <Marker
+                key={r.shop.id}
+                coordinate={{
+                  latitude: r.shop.latitude,
+                  longitude: r.shop.longitude,
+                }}
+                anchor={{ x: 0.5, y: 0.5 }}
+                tracksViewChanges={idx === activeIndex}
+                onPress={() => onPinTap(idx)}
+              >
+                <RatingMarkerPill
+                  rating={r.shop.rating}
+                  shopName={r.shop.name}
+                  isSelected={idx === activeIndex}
+                />
+              </Marker>
+            ))}
+        </MapView>
+      ) : null}
 
       {/* Top floating chrome */}
       <View
@@ -344,8 +582,15 @@ export default function ChooseMechanicScreen() {
         </View>
       </View>
 
-      {/* Floating glassy shop card — syncs to the active shop. */}
-      {activeShop ? (
+      {/* Floating shop card. Two layouts by sheet state:
+          - Sheet open (53% / 82%) → the rich MapShopCard with
+            estimated price + next slot, anchored at top 30%.
+          - Sheet hidden → a horizontal pager of minimal
+            MapBrowseShopCards (image + name + rating + open
+            status), ChatGPT-style. Swiping the pager changes
+            the active shop; tapping a card brings the sheet
+            back. */}
+      {activeShop && !isSheetHidden ? (
         <View style={styles.shopCardWrap} pointerEvents="box-none">
           <MapShopCard
             shopId={activeShop.id}
@@ -358,6 +603,41 @@ export default function ChooseMechanicScreen() {
           />
         </View>
       ) : null}
+      {/* Browse-card carousel. Always mounted so the ScrollView
+          keeps its position across open/close transitions, but
+          opacity is driven by the sheet's animatedIndex so it
+          fades in continuously as the sheet fades out. Only
+          captures touches when the sheet has fully closed
+          (otherwise an invisible carousel could swallow taps
+          meant for the sheet's content). */}
+      <Animated.View
+        style={[styles.browseStrip, browseStripStyle]}
+        pointerEvents={isSheetHidden ? "box-none" : "none"}
+      >
+        <ScrollView
+          ref={browseScrollRef}
+          horizontal
+          pagingEnabled
+          showsHorizontalScrollIndicator={false}
+          onMomentumScrollEnd={onBrowsePageChange}
+          decelerationRate="fast"
+          contentOffset={{ x: activeIndex * SCREEN_WIDTH, y: 0 }}
+        >
+          {nearbyShops.map((r) => (
+            <View key={r.shop.id} style={styles.browseCardSlot}>
+              <MapBrowseShopCard
+                shopId={r.shop.id}
+                shopName={r.shop.name}
+                imageUrl={r.shop.imageUrl}
+                rating={r.shop.rating}
+                category="Auto repair shop"
+                isOpen={r.shop.hasAvailableSlots}
+                onPress={() => bottomSheetRef.current?.snapToIndex(0)}
+              />
+            </View>
+          ))}
+        </ScrollView>
+      </Animated.View>
 
       {/* Floating right rail — visual only for Phase 3 */}
       <View style={[styles.rightRail, { top: insets.top + 200 }]} pointerEvents="box-none">
@@ -389,9 +669,16 @@ export default function ChooseMechanicScreen() {
           resizes the sheet (gorhom's vertical pan + our horizontal
           ScrollView don't conflict). */}
       <BottomSheet
+        ref={bottomSheetRef}
         snapPoints={SNAP_POINTS as unknown as string[]}
+        // Start at index 0 = standard 53% peek. Swipe down past
+        // index 0 → sheet closes entirely (`sheetIndex === -1`)
+        // and the browse-card carousel takes over the bottom of
+        // the screen.
         index={0}
-        enablePanDownToClose={false}
+        onChange={setSheetIndex}
+        animatedIndex={sheetAnimatedIndex}
+        enablePanDownToClose
         enableDynamicSizing={false}
         backgroundStyle={styles.sheetBackground}
         handleIndicatorStyle={styles.sheetHandleIndicator}
@@ -402,6 +689,10 @@ export default function ChooseMechanicScreen() {
             { paddingBottom: insets.bottom + 120 },
           ]}
         >
+          {/* Tell the user the sheet swipes down to reveal the
+              map underneath. Only renders inside the sheet body,
+              so it's automatically gone once the sheet is hidden. */}
+          <MapSwipeHint />
           {nearbyShops.length === 0 ? (
             <View style={styles.empty}>
               <Text size="md" weight="medium" color="#9CA3AF" center>
@@ -410,11 +701,13 @@ export default function ChooseMechanicScreen() {
             </View>
           ) : (
             <ScrollView
+              ref={pagerScrollRef}
               horizontal
               pagingEnabled
               showsHorizontalScrollIndicator={false}
               onMomentumScrollEnd={onPageChange}
               decelerationRate="fast"
+              scrollEnabled={!isMechanicCarouselInteracting}
             >
               {nearbyShops.map((r) => (
                 <ShopPage
@@ -435,6 +728,7 @@ export default function ChooseMechanicScreen() {
                       [r.shop.id]: mId,
                     }))
                   }
+                  onMechanicCarouselInteractionChange={setIsMechanicCarouselInteracting}
                 />
               ))}
             </ScrollView>
@@ -457,7 +751,20 @@ export default function ChooseMechanicScreen() {
         </BottomSheetView>
       </BottomSheet>
 
-      <StickyContinueBar count={1} label={continueLabel} onPress={onContinue} />
+      {/* Continue bar fades in/out with the sheet's drag instead
+          of popping at the snap boundary. Opacity is driven by
+          `animatedIndex` so the fade is fully synced with the
+          finger — 1 at the 53% snap, 0 once the sheet has
+          fully closed.
+          pointerEvents flip to "none" once the React state catches
+          up so the (invisible) bar can't intercept taps on the
+          browse-card carousel underneath. */}
+      <Animated.View
+        style={[styles.continueLayer, continueBarStyle]}
+        pointerEvents={isSheetHidden ? "none" : "box-none"}
+      >
+        <StickyContinueBar count={1} label={continueLabel} onPress={onContinue} />
+      </Animated.View>
     </View>
   );
 }
@@ -507,6 +814,28 @@ const styles = StyleSheet.create({
     left: 16,
     right: 16,
     alignItems: "center",
+  },
+  browseStrip: {
+    position: "absolute",
+    // No sheet underneath in this mode — float the card carousel
+    // just above the home-indicator area so it doesn't crowd the
+    // bottom edge of the device.
+    bottom: 40,
+    left: 0,
+    right: 0,
+  },
+  continueLayer: {
+    // Animated wrapper that drives only opacity — the
+    // StickyContinueBar inside is already `position: absolute,
+    // bottom: 0`, so this layer doesn't need to take any space.
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  browseCardSlot: {
+    width: SCREEN_WIDTH,
+    paddingHorizontal: 16,
   },
   rightRail: {
     position: "absolute",

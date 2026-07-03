@@ -14,15 +14,17 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import "react-native-reanimated";
 import { KeyboardProvider } from "react-native-keyboard-controller";
-import { LogBox } from "react-native";
+import { BackHandler, LogBox } from "react-native";
 
 // Suppress the dev-mode red LogBox overlay for Convex mutation/query
 // errors. We always catch these in app code and surface them via the
 // existing error modal — the LogBox dump is just dev-time noise on top.
 // Errors still log to Metro for debugging; this only hides the overlay.
 import { ErrorBoundary as AppErrorBoundary, ErrorModalHost, errorBus } from "@/lib/error-ui";
+import { ErrorOccurredModal } from "@/components/shared-ui";
 import { StripePaymentMethodsSync } from "@/components/payments/StripePaymentMethodsSync";
 import { ToastProvider } from "@/components/toast";
+import { useEnrichmentCompletionWatcher } from "@/hooks/useEnrichmentCompletionWatcher";
 import { api } from "@/convex/_generated/api";
 
 import { useColorScheme } from "@/hooks/use-color-scheme";
@@ -228,7 +230,22 @@ function RootErrorBoundary({ error }: ErrorBoundaryProps) {
   useEffect(() => {
     errorBus.set({ visible: true, error });
   }, [error]);
-  return null;
+
+  const message =
+    error instanceof Error
+      ? error.message
+      : "Something went wrong. Please close and reopen the app.";
+
+  return (
+    <ErrorOccurredModal
+      visible
+      title="Something went wrong"
+      message={message}
+      onClose={() => {
+        BackHandler.exitApp();
+      }}
+    />
+  );
 }
 
 export { RootErrorBoundary as ErrorBoundary };
@@ -252,6 +269,11 @@ export default function RootLayout() {
             <GestureHandlerRootView style={{ flex: 1 }}>
               <BottomSheetModalProvider>
                 <ToastProvider>
+                {/* Mounts the global enrichment-completion watcher.
+                    Subscribes to the user's vehicles' enrichment phases
+                    and fires a persistent tap-to-book toast the moment
+                    any of them transitions in_progress → ready. */}
+                <EnrichmentCompletionMount />
                 <StripeProvider
                   publishableKey={process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? ""}
                   merchantIdentifier={process.env.EXPO_PUBLIC_STRIPE_MERCHANT_ID ?? "merchant.com.otopair.app"}
@@ -419,4 +441,13 @@ export default function RootLayout() {
       </StartupSplashGate>
     </ClerkProvider>
   );
+}
+
+/** Mount-only component for the global enrichment-completion watcher.
+ *  Needs to be a child of <ToastProvider> so it can call useToast(),
+ *  so we wrap the hook in its own component instead of inlining it
+ *  into RootLayout. Renders nothing. */
+function EnrichmentCompletionMount(): null {
+  useEnrichmentCompletionWatcher();
+  return null;
 }

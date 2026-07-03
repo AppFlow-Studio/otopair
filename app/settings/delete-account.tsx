@@ -48,6 +48,7 @@ import {
   BlurHeaderOverlay,
   FontSize,
   FontFamily,
+  FooterButton,
 } from "@/components/shared-ui";
 import { api } from "@/convex/_generated/api";
 import { useOnboardingStore } from "@/stores/useOnboardingStore";
@@ -573,19 +574,11 @@ export default function DeleteAccountScreen() {
             </Pressable>
 
             <View style={styles.footer}>
-              <Pressable
-                style={styles.cancelButton}
+              <FooterButton
+                label="Cancel"
                 onPress={() => setCodeSent(false)}
                 disabled={isDeleting}
-              >
-                <Text
-                  weight="medium"
-                  color="#1d1d1f"
-                  style={styles.cancelButtonText}
-                >
-                  Back
-                </Text>
-              </Pressable>
+              />
             </View>
           </View>
         )}

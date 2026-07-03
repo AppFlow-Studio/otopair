@@ -29,8 +29,12 @@ import { ArrowLeft, ChevronRight, Store, Wrench } from "lucide-react-native";
 import { Text } from "@/components/shared-ui";
 import { HANDOFF_SLUGS } from "@/constants/serviceTaxonomy";
 import { useBookingStore } from "@/stores/useBookingStore";
-import type { Service } from "@/stores/types/store.types";
+import { useShopsFromConvex } from "@/hooks/useShopsFromConvex";
+import type { Service, Shop } from "@/stores/types/store.types";
 
+// Per-group cap. Both groups can hit this simultaneously, so
+// worst-case the list renders 24 rows — still shorter than a
+// typical scroll page.
 const MAX_RESULTS = 12;
 
 /** Score a service against a lowercased query. Mirrors the scoring
@@ -51,6 +55,17 @@ function scoreService(query: string, service: Service): number {
   return 0;
 }
 
+/** Score a shop against a lowercased query. Name-only match per
+ *  Ahmad's pick — exact > startsWith > contains. Address /
+ *  specialties intentionally skipped to keep results predictable. */
+function scoreShop(query: string, shop: Shop): number {
+  const nameLower = shop.name.toLowerCase();
+  if (nameLower === query) return 100;
+  if (nameLower.startsWith(query)) return 80;
+  if (nameLower.includes(query)) return 60;
+  return 0;
+}
+
 const OTOPAIR_LOGO = require("@/assets/images/pin-logo-3d.png");
 
 const FRAME_GRADIENT = ["#CFE0EB", "#DCE7EF", "#E8EEF3"] as const;
@@ -64,6 +79,11 @@ export default function BookingFlowSearchScreen() {
   const availableServices = useBookingStore((s) => s.availableServices);
   const toggleServiceSelection = useBookingStore((s) => s.toggleServiceSelection);
   const selectedServiceIds = useBookingStore((s) => s.selectedServiceIds);
+  // Shop list — hooked once at module level so swapping scopes is
+  // instant (no spinner on tab switch). useShopsFromConvex hydrates
+  // useShopStore as a side effect; we read shops straight off the
+  // hook for filtering.
+  const { shops } = useShopsFromConvex();
 
   // Auto-focus the input every time the screen comes into focus so
   // the keyboard slides up immediately — `useFocusEffect` waits
@@ -78,9 +98,11 @@ export default function BookingFlowSearchScreen() {
   );
 
   // Live-filter the catalog. Same alias-aware scoring as the
-  // useSearchStore helper, but uncapped so a dedicated search
-  // screen surfaces every match (capped at MAX_RESULTS for sanity).
-  const results: Service[] = useMemo(() => {
+  // useSearchStore helper, uncapped in intent then sliced to
+  // MAX_RESULTS. Runs against both groups on every query — the
+  // Services / Shops scope toggle is gone; results are grouped
+  // and rendered together with section headers instead.
+  const serviceResults: Service[] = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return [];
     const scored = availableServices
@@ -90,6 +112,17 @@ export default function BookingFlowSearchScreen() {
       .slice(0, MAX_RESULTS);
     return scored.map((item) => item.service);
   }, [query, availableServices]);
+
+  const shopResults: Shop[] = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return [];
+    const scored = shops
+      .map((shop) => ({ shop, score: scoreShop(q, shop) }))
+      .filter((item) => item.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, MAX_RESULTS);
+    return scored.map((item) => item.shop);
+  }, [query, shops]);
 
   const handlePick = (service: Service) => {
     inputRef.current?.blur();
@@ -118,13 +151,29 @@ export default function BookingFlowSearchScreen() {
     }
   };
 
+  const handlePickShop = (shop: Shop) => {
+    inputRef.current?.blur();
+    // Route to the existing shop detail screen — same surface the
+    // Home "Closest Shop" hero card and the Choose Mechanic
+    // "View shop details" link land on. Shows the shop map header,
+    // services list, mechanics carousel, reviews, and a Book Now
+    // CTA. `router.push` (not replace) so back from the detail
+    // returns to search; lets the user keep browsing without
+    // re-typing the query.
+    router.push({
+      pathname: "/booking/shop/[id]",
+      params: { id: shop.id },
+    });
+  };
+
   const onBack = () => {
     if (router.canGoBack()) router.back();
     else router.replace("/(booking-flow)/select-services");
   };
 
   const showResults = query.trim().length > 0;
-  const showEmpty = showResults && results.length === 0;
+  const hasResults = serviceResults.length > 0 || shopResults.length > 0;
+  const showEmpty = showResults && !hasResults;
 
   return (
     <View style={styles.root}>
@@ -149,7 +198,7 @@ export default function BookingFlowSearchScreen() {
             ref={inputRef}
             value={query}
             onChangeText={setQuery}
-            placeholder="Search services"
+            placeholder="Search services & shops"
             placeholderTextColor="#9CA3AF"
             returnKeyType="search"
             autoCorrect={false}
@@ -158,16 +207,6 @@ export default function BookingFlowSearchScreen() {
             style={styles.input}
           />
         </View>
-        <Pressable
-          style={styles.shopBtn}
-          onPress={() => {
-            /* TODO scope toggle — Ahmad to spec */
-          }}
-          hitSlop={8}
-          accessibilityLabel="Switch search scope"
-        >
-          <Store size={18} color="#1F2937" strokeWidth={2} />
-        </Pressable>
       </View>
 
       {/* Body — logo placeholder, live results, or empty state */}
@@ -178,10 +217,10 @@ export default function BookingFlowSearchScreen() {
       ) : showEmpty ? (
         <View style={styles.emptyBody}>
           <Text size="md" weight="medium" color="#6B7280" center>
-            No services match “{query.trim()}”
+            {`No services or shops match “${query.trim()}”`}
           </Text>
           <Text size="sm" weight="regular" color="#9CA3AF" center style={styles.emptyHint}>
-            Try “rotors”, “smog”, or “oil”.
+            Try &ldquo;rotors&rdquo;, &ldquo;smog&rdquo;, or part of a shop&rsquo;s name.
           </Text>
         </View>
       ) : (
@@ -191,30 +230,83 @@ export default function BookingFlowSearchScreen() {
           keyboardDismissMode="on-drag"
           showsVerticalScrollIndicator={false}
         >
-          {results.map((svc) => (
-            <Pressable
-              key={svc.id}
-              style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
-              onPress={() => handlePick(svc)}
-              accessibilityRole="button"
-              accessibilityLabel={`Book ${svc.displayLabel ?? svc.name}`}
-            >
-              <View style={styles.iconTile}>
-                <Wrench size={18} color="#4B5563" strokeWidth={2} />
-              </View>
-              <View style={styles.rowText}>
-                <Text size="md" weight="bold" color="#0F172A" numberOfLines={1}>
-                  {svc.displayLabel ?? svc.name}
-                </Text>
-                {svc.subtitle ? (
-                  <Text size="sm" weight="regular" color="#6B7280" numberOfLines={1}>
-                    {svc.subtitle}
-                  </Text>
-                ) : null}
-              </View>
-              <ChevronRight size={18} color="#9CA3AF" strokeWidth={2} />
-            </Pressable>
-          ))}
+          {/* Services section — rendered first (more common intent
+              in the booking flow) and only when there are matches
+              so a shops-only query doesn't leave an empty header. */}
+          {serviceResults.length > 0 ? (
+            <>
+              <Text
+                size="xs"
+                weight="bold"
+                color="#6B7280"
+                style={styles.sectionHeader}
+              >
+                SERVICES
+              </Text>
+              {serviceResults.map((svc) => (
+                <Pressable
+                  key={svc.id}
+                  style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
+                  onPress={() => handlePick(svc)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Book ${svc.displayLabel ?? svc.name}`}
+                >
+                  <View style={styles.iconTile}>
+                    <Wrench size={18} color="#4B5563" strokeWidth={2} />
+                  </View>
+                  <View style={styles.rowText}>
+                    <Text size="md" weight="bold" color="#0F172A" numberOfLines={1}>
+                      {svc.displayLabel ?? svc.name}
+                    </Text>
+                    {svc.subtitle ? (
+                      <Text size="sm" weight="regular" color="#6B7280" numberOfLines={1}>
+                        {svc.subtitle}
+                      </Text>
+                    ) : null}
+                  </View>
+                  <ChevronRight size={18} color="#9CA3AF" strokeWidth={2} />
+                </Pressable>
+              ))}
+            </>
+          ) : null}
+
+          {/* Shops section — same guard. */}
+          {shopResults.length > 0 ? (
+            <>
+              <Text
+                size="xs"
+                weight="bold"
+                color="#6B7280"
+                style={styles.sectionHeader}
+              >
+                SHOPS
+              </Text>
+              {shopResults.map((shop) => (
+                <Pressable
+                  key={shop.id}
+                  style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
+                  onPress={() => handlePickShop(shop)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`View ${shop.name}`}
+                >
+                  <View style={styles.iconTile}>
+                    <Store size={18} color="#4B5563" strokeWidth={2} />
+                  </View>
+                  <View style={styles.rowText}>
+                    <Text size="md" weight="bold" color="#0F172A" numberOfLines={1}>
+                      {shop.name}
+                    </Text>
+                    {shop.address ? (
+                      <Text size="sm" weight="regular" color="#6B7280" numberOfLines={1}>
+                        {shop.address}
+                      </Text>
+                    ) : null}
+                  </View>
+                  <ChevronRight size={18} color="#9CA3AF" strokeWidth={2} />
+                </Pressable>
+              ))}
+            </>
+          ) : null}
         </ScrollView>
       )}
     </View>
@@ -255,15 +347,15 @@ const styles = StyleSheet.create({
     color: "#0F172A",
     padding: 0,
   },
-  shopBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: "rgba(255, 255, 255, 0.75)",
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.85)",
+  sectionHeader: {
+    // Small-caps eyebrow, wide letter-spacing so it reads as a
+    // group label rather than a row title. Padding lifts subsequent
+    // groups off each other.
+    fontSize: 11,
+    letterSpacing: 1.5,
+    marginTop: 12,
+    marginBottom: 6,
+    paddingHorizontal: 4,
   },
   logoBody: {
     flex: 1,
