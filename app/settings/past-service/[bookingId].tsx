@@ -40,6 +40,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useMyBookingsWithDetails } from "@/hooks/useMyBookingsWithDetails";
 import { useUserFromConvex } from "@/hooks/useUserFromConvex";
+import { useBookingStore } from "@/stores/useBookingStore";
 import { getServiceIcon } from "@/utils/serviceIcons";
 
 const INK = "#0F172A";
@@ -69,6 +70,7 @@ export default function PastServiceDetailScreen() {
   const { bookingId } = useLocalSearchParams<{ bookingId: string }>();
   const { historyBookings, isLoading } = useMyBookingsWithDetails();
   const { userId } = useUserFromConvex();
+  const setPreSelectedShop = useBookingStore((s) => s.setPreSelectedShop);
 
   const booking = useMemo(
     () => historyBookings.find((b) => b.id === bookingId) ?? null,
@@ -126,15 +128,8 @@ export default function PastServiceDetailScreen() {
   };
 
   const handleBookAgain = () => {
-    if (!booking?.shopId) {
-      router.push("/booking/map");
-      return;
-    }
-    // TODO: have /booking/map honor the shopId param to pre-select.
-    router.push({
-      pathname: "/booking/map",
-      params: { shopId: booking.shopId },
-    });
+    setPreSelectedShop(booking?.shopId ?? null);
+    router.push("/(booking-flow)/select-services");
   };
 
   // Hero "•••" → action sheet → routes to one of three handlers.

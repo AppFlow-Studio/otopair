@@ -235,13 +235,14 @@ export default function BookingsScreen() {
   };
 
   // Count of completed bookings still awaiting a review (scoped to the
-  // active vehicle filter). Drives the circular Star button next to the
-  // "Recommended services" pill — the actual list + LeaveReviewSheet
-  // live on /bookings/pending-reviews.
+  // active vehicle filter). Drives the circular Star button beside the
+  // vehicle picker; the actual list + LeaveReviewSheet live on
+  // /bookings/pending-reviews.
   const pendingReviewCount = useMemo(
     () => pendingReviewBookings.filter(matchesListFilter).length,
     [pendingReviewBookings, matchesListFilter],
   );
+  const showPendingReviewsButton = activeTab === "bookings" && pendingReviewCount > 0;
 
   const handleReschedule = useCallback(
     (bookingId?: string) => {
@@ -335,78 +336,71 @@ export default function BookingsScreen() {
               />
             </View>
 
-            {/* Vehicle picker button — opens a bottom sheet with the
-                user's cars. Only shown with 2+ cars. */}
-            {allVehicles.length > 1 ? (
+            {/* Vehicle picker + pending-review shortcut. */}
+            {allVehicles.length > 1 || showPendingReviewsButton ? (
               <View style={styles.pickerRow}>
-                <Pressable
-                  onPress={() => {
-                    vehiclePickerRef.current?.open();
-                  }}
-                  style={({ pressed }) => [
-                    styles.pickerButton,
-                    pressed && styles.pickerButtonPressed,
-                  ]}
-                >
-                  <View style={styles.pickerSide}>
-                    {filterVehicle?.imageSource ? (
-                      <Image
-                        source={filterVehicle.imageSource}
-                        style={styles.pickerThumb}
-                        resizeMode="contain"
-                      />
-                    ) : (
-                      <Image
-                        source={require("@/assets/images/covered-car.png")}
-                        style={styles.pickerCoveredCar}
-                        resizeMode="contain"
-                      />
-                    )}
-                  </View>
-                  <Text
-                    size="md"
-                    weight="semiBold"
-                    color="#1F2937"
-                    style={styles.pickerLabel}
-                    numberOfLines={1}
+                {allVehicles.length > 1 ? (
+                  <Pressable
+                    onPress={() => {
+                      vehiclePickerRef.current?.open();
+                    }}
+                    style={({ pressed }) => [
+                      styles.pickerButton,
+                      pressed && styles.pickerButtonPressed,
+                    ]}
                   >
-                    {filterVehicle
-                      ? `${filterVehicle.year} ${filterVehicle.model}`
-                      : "All Vehicles"}
-                  </Text>
-                  <View style={styles.pickerSide}>
-                    <ListFilter size={16} color="#8E8E93" />
-                  </View>
-                </Pressable>
-              </View>
-            ) : null}
-
-            {/* Pending-review prompt — surfaces completed bookings still
-                awaiting a star rating. The Recommended-services entry
-                point used to live here as a separate card, but it now
-                lives as a third segment in the tab pill above (see
-                TAB_ORDER), so only the review button remains. */}
-            {activeTab === "bookings" && pendingReviewCount > 0 ? (
-              <View style={styles.recRow}>
-                <Pressable
-                  onPress={() => router.push("/bookings/pending-reviews")}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Pending reviews, ${pendingReviewCount}`}
-                  style={({ pressed }) => [
-                    styles.pendingReviewsButton,
-                    pressed && { opacity: 0.85 },
-                  ]}
-                >
-                  <Star size={20} color="#141C24" />
-                  <View style={styles.pendingReviewsBadge}>
+                    <View style={styles.pickerSide}>
+                      {filterVehicle?.imageSource ? (
+                        <Image
+                          source={filterVehicle.imageSource}
+                          style={styles.pickerThumb}
+                          resizeMode="contain"
+                        />
+                      ) : (
+                        <Image
+                          source={require("@/assets/images/covered-car.png")}
+                          style={styles.pickerCoveredCar}
+                          resizeMode="contain"
+                        />
+                      )}
+                    </View>
                     <Text
+                      size="md"
                       weight="semiBold"
-                      style={styles.pendingReviewsBadgeText}
+                      color="#1F2937"
+                      style={styles.pickerLabel}
+                      numberOfLines={1}
                     >
-                      {pendingReviewCount}
+                      {filterVehicle
+                        ? `${filterVehicle.year} ${filterVehicle.model}`
+                        : "All Vehicles"}
                     </Text>
-                  </View>
-                </Pressable>
+                    <View style={styles.pickerSide}>
+                      <ListFilter size={16} color="#8E8E93" />
+                    </View>
+                  </Pressable>
+                ) : null}
+                {showPendingReviewsButton ? (
+                  <Pressable
+                    onPress={() => router.push("/bookings/pending-reviews")}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Pending reviews, ${pendingReviewCount}`}
+                    style={({ pressed }) => [
+                      styles.pendingReviewsButton,
+                      pressed && { opacity: 0.85 },
+                    ]}
+                  >
+                    <Star size={20} color="#141C24" />
+                    <View style={styles.pendingReviewsBadge}>
+                      <Text
+                        weight="semiBold"
+                        style={styles.pendingReviewsBadgeText}
+                      >
+                        {pendingReviewCount}
+                      </Text>
+                    </View>
+                  </Pressable>
+                ) : null}
               </View>
             ) : null}
 
@@ -605,10 +599,14 @@ const styles = StyleSheet.create({
   },
   // Vehicle picker button + sheet
   pickerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
     paddingHorizontal: 20,
     paddingTop: 14,
   },
   pickerButton: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "#FFFFFF",
@@ -697,13 +695,6 @@ const styles = StyleSheet.create({
   content: {
     paddingHorizontal: 20,
     paddingTop: 16,
-  },
-  recRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginHorizontal: 20,
-    marginTop: 12,
   },
   pendingReviewsButton: {
     width: 44,
