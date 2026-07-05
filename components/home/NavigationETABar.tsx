@@ -320,19 +320,23 @@ const styles = StyleSheet.create({
   },
   destChip: {
     // Top-left liquid-glass pill — Apple iOS 26 style. Heavy
-    // BlurView (already applied) + very translucent white fill +
-    // a subtle bright border give it that "frosted lens sitting
-    // over the map" feel, not the flat white chip it was before.
+    // BlurView + very translucent white fill + subtle bright
+    // border. Tucked flush into the card's rounded top-left
+    // corner: only the bottom-right corner stays rounded so the
+    // chip's outer edge blends into the container's arc.
     position: 'absolute',
-    top: 8,
-    left: 8,
+    top: 0,
+    left: 0,
     zIndex: 2,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
     paddingHorizontal: 10,
     paddingVertical: 5,
-    borderRadius: 8,
+    borderTopLeftRadius: 10,
+    borderTopRightRadius: 0,
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 8,
     backgroundColor: 'rgba(255, 255, 255, 0.32)',
     borderWidth: 0.5,
     borderColor: 'rgba(255, 255, 255, 0.7)',
