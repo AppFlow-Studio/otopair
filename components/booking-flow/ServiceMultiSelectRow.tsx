@@ -19,7 +19,6 @@ import { Platform, Pressable, StyleSheet, View } from "react-native";
 import { BlurView } from "expo-blur";
 import {
   Check,
-  ChevronRight,
   Clock,
   HelpCircle,
 } from "lucide-react-native";
@@ -106,15 +105,16 @@ export function ServiceMultiSelectRow({
       {/* Trailing state indicator — check when selected, chevron
           otherwise. Centered vertically on the row instead of
           stacked under the time (which now lives in the text col). */}
-      <View style={styles.trailing}>
-        {isSelected ? (
+      {/* Trailing state — check pill when selected, nothing when
+          not. Chevron dropped per Ahmad since the whole row is
+          already a tappable target. */}
+      {isSelected ? (
+        <View style={styles.trailing}>
           <View style={styles.stateCheck}>
             <Check size={18} color="#FFFFFF" strokeWidth={2.5} />
           </View>
-        ) : (
-          <ChevronRight size={20} color="#9CA3AF" strokeWidth={2} />
-        )}
-      </View>
+        </View>
+      ) : null}
 
       {/* Info button — top-right corner of the card, bumped from
           15 → 20 pt. Positioned absolutely so it sits above the
