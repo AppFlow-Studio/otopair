@@ -193,9 +193,17 @@ export function NavigationETABar({
         )
       : null;
   const displayEta = etaMinutes ?? computedEtaMinutes;
-  const etaLabel = displayEta !== null ? `${displayEta} min` : '—';
+  // When we fell back to the heuristic (no caller-supplied ETA),
+  // prefix the number with `~` so the label reads honestly as an
+  // estimate rather than a routed drive time. Real routed ETAs from
+  // a caller (etaMinutes prop) don't get the tilde.
+  const isEstimated = etaMinutes == null && computedEtaMinutes !== null;
+  const etaNumber = displayEta !== null
+    ? `${isEstimated ? '~' : ''}${displayEta}`
+    : null;
+  const etaLabel = etaNumber !== null ? `${etaNumber} min` : '—';
   const buttonLabel =
-    displayEta !== null ? `Navigate-${displayEta} Min` : 'Navigate';
+    etaNumber !== null ? `Navigate-${etaNumber} Min` : 'Navigate';
 
   const canNavigate = coordsValid || !!destinationAddress?.trim();
 
