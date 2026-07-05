@@ -76,9 +76,10 @@ export function ServiceMultiSelectRow({
         <Icon size={22} color="#4B5563" strokeWidth={2} />
       </View>
 
-      {/* Text column — title / subtitle / clock + estimated time.
+      {/* Text column — title / clock + estimated time.
           `paddingRight` leaves headroom for the absolute `?`
-          button in the top-right so the title never runs under it. */}
+          button in the top-right so the title never runs under it.
+          Subtitle removed per Ahmad — tap the ? for the full copy. */}
       <View style={styles.text}>
         <Text
           size="md"
@@ -88,15 +89,6 @@ export function ServiceMultiSelectRow({
           style={styles.title}
         >
           {entry.label}
-        </Text>
-        <Text
-          size="sm"
-          weight="regular"
-          color="#6B7280"
-          numberOfLines={2}
-          style={styles.subtitle}
-        >
-          {entry.subtitle}
         </Text>
         {isNeedsSpecs ? (
           <Text size="xs" weight="semiBold" color="#2563EB" style={styles.needsSpecsHint}>
@@ -183,9 +175,6 @@ const styles = StyleSheet.create({
   },
   title: {
     flexShrink: 1,
-  },
-  subtitle: {
-    marginTop: 4,
   },
   needsSpecsHint: {
     marginTop: 6,
