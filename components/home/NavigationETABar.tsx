@@ -233,7 +233,7 @@ export function NavigationETABar({
             !canNavigate && styles.navigateButtonDisabled,
           ]}
         >
-          <Text weight="semiBold" size="sm" color="#FFFFFF">
+          <Text weight="bold" size="md" color="#FFFFFF">
             Go Now
           </Text>
         </Pressable>
@@ -320,9 +320,9 @@ const styles = StyleSheet.create({
   },
   navigateButton: {
     backgroundColor: '#5299FE',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 8,
+    paddingHorizontal: 24,
+    paddingVertical: 14,
+    borderRadius: 10,
   },
   navigateButtonPressed: {
     opacity: 0.8,
