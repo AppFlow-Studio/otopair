@@ -634,7 +634,7 @@ export default function ChooseMechanicScreen() {
       </Animated.View>
 
       {/* Floating right rail — visual only for Phase 3 */}
-      <View style={[styles.rightRail, { top: insets.top + 200 }]} pointerEvents="box-none">
+      <View style={[styles.rightRail, { top: insets.top + 140 }]} pointerEvents="box-none">
         <Pressable
           style={styles.railBtn}
           onPress={onZoomIn}
