@@ -59,7 +59,7 @@ import { useVehicleStore } from "@/stores/useVehicleStore";
 import { buildShopPriceLabel } from "@/lib/shopPriceLabel";
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
-// Two snap points: standard (~68%, tall enough that the
+// Two snap points: standard (~60%, tall enough that the
 // horizontal-carousel page-indicator dots land above the
 // Continue bar — the old 53% pushed them below the fold) and
 // expanded (~82% for scrolling reviews etc). With
@@ -68,7 +68,7 @@ const SCREEN_WIDTH = Dimensions.get("window").width;
 // the screen swaps to the browse-card carousel (ChatGPT-style
 // "shops on a map" mode). Tap a card to bring the sheet back
 // to index 0.
-const SNAP_POINTS = ["68%", "82%"] as const;
+const SNAP_POINTS = ["60%", "82%"] as const;
 
 export default function ChooseMechanicScreen() {
   const router = useRouter();
