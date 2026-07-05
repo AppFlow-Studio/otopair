@@ -30,7 +30,11 @@ export function StickyContinueBar({ count, onPress, label }: StickyContinueBarPr
     <View
       style={[
         styles.wrap,
-        { paddingBottom: Math.max(insets.bottom, 12) + 8 },
+        // Sit closer to the home indicator — the previous `+ 8` gave
+        // an extra 8pt cushion above the safe area that made the pill
+        // feel unnaturally lifted. Just enough padding now to clear
+        // the indicator itself.
+        { paddingBottom: Math.max(insets.bottom - 4, 6) },
       ]}
       pointerEvents="box-none"
     >
