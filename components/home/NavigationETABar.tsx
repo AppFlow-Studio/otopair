@@ -213,8 +213,23 @@ export function NavigationETABar({
   };
 
   return (
-    <View style={styles.container}>
-      {/* Full Map Background - centered on user location, shifted right so pin shows on left */}
+    // Whole card is tappable — anywhere on the map preview opens
+    // Apple Maps to the shop's destination, same as the Navigate
+    // pill inside. The inner Pressable stays as a separate affordance
+    // for the button-style visual but both routes hit handleNavigate.
+    <Pressable
+      style={({ pressed }) => [
+        styles.container,
+        pressed && canNavigate ? styles.containerPressed : null,
+      ]}
+      onPress={handleNavigate}
+      disabled={!canNavigate}
+      accessibilityRole="button"
+      accessibilityLabel={`Navigate to ${destinationName}`}
+    >
+      {/* Full Map Background - centered on user location, shifted right so pin shows on left.
+          scrollEnabled/zoomEnabled/etc all false — the MapView is decorative,
+          taps bubble up to the outer Pressable. */}
       <MapView
         style={styles.map}
         provider={PROVIDER_DEFAULT}
@@ -229,6 +244,7 @@ export function NavigationETABar({
         rotateEnabled={false}
         pitchEnabled={false}
         showsUserLocation={false}
+        pointerEvents="none"
       >
         {/* Current Location Pin - shows user's actual location */}
         <Marker
@@ -272,7 +288,7 @@ export function NavigationETABar({
           </Pressable>
         </BlurView>
       </View>
-    </View>
+    </Pressable>
   );
 }
 
@@ -290,6 +306,9 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.15,
     shadowRadius: 12,
     elevation: 5,
+  },
+  containerPressed: {
+    opacity: 0.85,
   },
   map: {
     ...StyleSheet.absoluteFillObject,
