@@ -30,7 +30,14 @@ import MapView, { Marker, PROVIDER_DEFAULT } from 'react-native-maps';
 // 2. Expo & Third-party
 import { BlurView } from 'expo-blur';
 import * as Location from 'expo-location';
-import { MapPin } from 'lucide-react-native';
+import { ArrowRight, MapPin } from 'lucide-react-native';
+import Animated, {
+  Easing,
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withTiming,
+} from 'react-native-reanimated';
 
 // 3. Shared UI
 import { Text } from '@/components/shared-ui';
@@ -112,6 +119,52 @@ export function NavigationETABar({
   const currentLongitude = userLocation?.longitude ?? DEFAULT_LOCATION.longitude;
 
   const canNavigate = coordsValid || !!destinationAddress?.trim();
+
+  // Subtle "alive" pulse on the Go Now button. Scales 1.0 → 1.05 →
+  // 1.0 in a slow 1.2s ease-in-out loop so the CTA gently breathes
+  // — enough to catch the eye without being annoying. Runs only
+  // when the button is actually navigable; disabled state stays
+  // static.
+  const pulseScale = useSharedValue(1);
+  useEffect(() => {
+    if (!canNavigate) {
+      pulseScale.value = 1;
+      return;
+    }
+    pulseScale.value = withRepeat(
+      withTiming(1.05, {
+        duration: 1200,
+        easing: Easing.inOut(Easing.quad),
+      }),
+      -1,
+      true, // reverse
+    );
+  }, [canNavigate, pulseScale]);
+  const pulseStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: pulseScale.value }],
+  }));
+
+  // Nudge the arrow to the right in sync with the pulse for a
+  // "let's go" feel. Slightly smaller amplitude so it reads as a
+  // subtle push rather than a fidget.
+  const arrowShift = useSharedValue(0);
+  useEffect(() => {
+    if (!canNavigate) {
+      arrowShift.value = 0;
+      return;
+    }
+    arrowShift.value = withRepeat(
+      withTiming(3, {
+        duration: 1200,
+        easing: Easing.inOut(Easing.quad),
+      }),
+      -1,
+      true,
+    );
+  }, [canNavigate, arrowShift]);
+  const arrowStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: arrowShift.value }],
+  }));
 
   const handleNavigate = () => {
     // Prefer coordinates when present; fall back to the address string
@@ -224,19 +277,24 @@ export function NavigationETABar({
           number entirely — the button just says "Navigate" and
           Apple Maps shows the real ETA on tap. */}
       <View style={styles.overlay}>
-        <Pressable
-          onPress={handleNavigate}
-          disabled={!canNavigate}
-          style={({ pressed }) => [
-            styles.navigateButton,
-            pressed && styles.navigateButtonPressed,
-            !canNavigate && styles.navigateButtonDisabled,
-          ]}
-        >
-          <Text weight="bold" size="md" color="#FFFFFF">
-            Go Now
-          </Text>
-        </Pressable>
+        <Animated.View style={pulseStyle}>
+          <Pressable
+            onPress={handleNavigate}
+            disabled={!canNavigate}
+            style={({ pressed }) => [
+              styles.navigateButton,
+              pressed && styles.navigateButtonPressed,
+              !canNavigate && styles.navigateButtonDisabled,
+            ]}
+          >
+            <Text weight="bold" size="md" color="#FFFFFF">
+              Go Now
+            </Text>
+            <Animated.View style={[styles.arrowSlot, arrowStyle]}>
+              <ArrowRight size={16} color="#FFFFFF" strokeWidth={2.5} />
+            </Animated.View>
+          </Pressable>
+        </Animated.View>
       </View>
     </Pressable>
   );
@@ -319,10 +377,27 @@ const styles = StyleSheet.create({
     paddingLeft: 80,
   },
   navigateButton: {
+    // Row so the "Go Now" label sits alongside the animated arrow.
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
     backgroundColor: '#5299FE',
     paddingHorizontal: 24,
     paddingVertical: 14,
     borderRadius: 10,
+    // Soft brand-blue glow so the button feels lit-up rather than
+    // flat — reinforces the "alive" pulse.
+    shadowColor: '#5299FE',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.45,
+    shadowRadius: 12,
+    elevation: 6,
+  },
+  arrowSlot: {
+    // Wrapper so the arrow can translate independently of the
+    // label. No sizing — the icon inside supplies its own bounds.
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   navigateButtonPressed: {
     opacity: 0.8,
