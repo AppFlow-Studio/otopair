@@ -30,6 +30,7 @@ import MapView, { Marker, PROVIDER_DEFAULT } from 'react-native-maps';
 // 2. Expo & Third-party
 import { BlurView } from 'expo-blur';
 import * as Location from 'expo-location';
+import { MapPin } from 'lucide-react-native';
 
 // 3. Shared UI
 import { Text } from '@/components/shared-ui';
@@ -261,6 +262,27 @@ export function NavigationETABar({
         </Marker>
       </MapView>
 
+      {/* Destination chip — anchors the map to a specific shop so
+          it's obvious the card is "your active booking's shop,"
+          not a generic map. Sits at the top-left with a glassy
+          backing so the map still reads through. */}
+      <BlurView
+        intensity={70}
+        tint="light"
+        style={styles.destChip}
+      >
+        <MapPin size={12} color="#1F2937" strokeWidth={2.4} />
+        <Text
+          size="xs"
+          weight="bold"
+          color="#141C24"
+          numberOfLines={1}
+          style={styles.destChipText}
+        >
+          {destinationName}
+        </Text>
+      </BlurView>
+
       {/* Overlay - ETA Pill with Glass Effect */}
       <View style={styles.overlay}>
         <BlurView
@@ -309,6 +331,28 @@ const styles = StyleSheet.create({
   },
   containerPressed: {
     opacity: 0.85,
+  },
+  destChip: {
+    // Top-left glassy pill — makes the destination unambiguous
+    // ("your booking is with this shop, and here's the map to
+    // get there"). Constrained maxWidth so long shop names
+    // truncate rather than pushing the ETA pill off the card.
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    zIndex: 2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    backgroundColor: 'rgba(255, 255, 255, 0.85)',
+    overflow: 'hidden',
+    maxWidth: '55%',
+  },
+  destChipText: {
+    flexShrink: 1,
   },
   map: {
     ...StyleSheet.absoluteFillObject,
