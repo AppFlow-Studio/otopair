@@ -1225,11 +1225,7 @@ export const saveOnboardingField = mutation({
 
       if (existing) {
         // Clear confirmedHealthyAt — new info invalidates check-in confirmation
-        await ctx.db.patch(existing._id, {
-          ...data,
-          confirmedHealthyAt: undefined,
-          confirmedHealthyMileage: undefined,
-        });
+        await ctx.db.patch(existing._id, { ...data, confirmedHealthyAt: undefined });
       } else {
         await ctx.db.insert("maintenance_records", {
           vehicleOwnerId,
@@ -1583,11 +1579,7 @@ export const autoCompleteNewVehicleOnboarding = mutation({
       const data = { lastServiceDate, lastServiceMileage, customInputs, updatedAt: now };
 
       if (existing) {
-        await ctx.db.patch(existing._id, {
-          ...data,
-          confirmedHealthyAt: undefined,
-          confirmedHealthyMileage: undefined,
-        });
+        await ctx.db.patch(existing._id, { ...data, confirmedHealthyAt: undefined });
       } else {
         await ctx.db.insert("maintenance_records", {
           vehicleOwnerId,

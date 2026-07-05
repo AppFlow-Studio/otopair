@@ -57,46 +57,10 @@ export const ALL_MAINTENANCE_TYPES: MaintenanceType[] = [
 
 const CONFIRMED_HEALTHY_TTL_MS = 90 * 24 * 60 * 60 * 1000; // 90 days
 
-/**
- * "You told me this is fine within the last 90 days" override —
- * short-circuits normal status math to `on_time`.
- *
- * Now bounded on TWO axes so a stale confirmation from a big
- * mileage gap doesn't lie to the user:
- *   1. Time — confirmation must be within CONFIRMED_HEALTHY_TTL_MS
- *      (90 days), same as before.
- *   2. Mileage — if we have `confirmedHealthyMileage` on the record
- *      AND `currentOdometer` from the vehicle AND an `intervalMiles`
- *      for this service, the delta since confirmation must be
- *      LESS than the interval. Drive a whole oil-change worth of
- *      miles since your confirmation and it invalidates.
- *
- * Missing mileage fields fall through to the pure time check —
- * legacy records without `confirmedHealthyMileage` still behave
- * the old way.
- */
-function isConfirmedHealthy(
-  record: MaintenanceRecord,
-  now: number,
-  currentOdometer?: number | null,
-  intervalMiles?: number | null,
-): boolean {
+function isConfirmedHealthy(record: MaintenanceRecord, now: number): boolean {
   const confirmedAt = record.confirmedHealthyAt;
   if (!confirmedAt) return false;
-  if ((now - confirmedAt) >= CONFIRMED_HEALTHY_TTL_MS) return false;
-
-  const confirmedMi = record.confirmedHealthyMileage;
-  if (
-    confirmedMi != null &&
-    currentOdometer != null &&
-    intervalMiles != null &&
-    intervalMiles > 0
-  ) {
-    const drivenSinceConfirmation = currentOdometer - confirmedMi;
-    if (drivenSinceConfirmation >= intervalMiles) return false;
-  }
-
-  return true;
+  return (now - confirmedAt) < CONFIRMED_HEALTHY_TTL_MS;
 }
 
 // ============================================================================
@@ -359,13 +323,6 @@ interface MaintenanceRecord {
   lastServiceMileage?: number;
   customInputs?: Record<string, unknown>;
   confirmedHealthyAt?: number;
-  /** Odometer at the moment the user confirmed the item was
-   *  healthy. Pairs with `confirmedHealthyAt` to invalidate the
-   *  90-day override when the user has driven far enough since
-   *  confirmation that a service interval could have passed.
-   *  Legacy records without it fall through to the pure
-   *  time-based check (backward compatible). */
-  confirmedHealthyMileage?: number;
 }
 
 interface StatusResult {
@@ -447,11 +404,10 @@ function computeOilStatus(
   oemIntervals?: OemServiceIntervalsInput,
 ): StatusResult {
   const result = computeHybridStatus("oil", record, currentOdometer, make, now, drivingConditions, avgMonthlyDriving, oemIntervals);
-  const oilIntervalMiles = getInterval("oil", make, drivingConditions, oemIntervals).miles;
 
   // Confirmed healthy (Q4b) overrides both interval and warning-light escalation
   // because the user explicitly said "all good" in the same check-in that asks about lights
-  if (isConfirmedHealthy(record, now, currentOdometer, oilIntervalMiles)) {
+  if (isConfirmedHealthy(record, now)) {
     return { status: "on_time", percentUsed: 0, description: "Confirmed in good shape", detail: "On time" };
   }
 
@@ -586,8 +542,7 @@ function computeTireStatus(
   vehicleYear?: number,
   oemIntervals?: OemServiceIntervalsInput,
 ): StatusResult {
-  const tireIntervalMiles = getInterval("tires", make, drivingConditions, oemIntervals).miles;
-  if (isConfirmedHealthy(record, now, currentOdometer, tireIntervalMiles)) {
+  if (isConfirmedHealthy(record, now)) {
     return { status: "on_time", percentUsed: 0, description: "Confirmed in good shape", detail: "On time" };
   }
 
@@ -673,11 +628,8 @@ function computeTireStatusCore(
   }
 
   // Confirmed healthy via check-in → on_time (tire pressure safety checks above still take priority)
-  {
-    const tireIntervalMiles2 = getInterval("tires", make, drivingConditions, oemIntervals).miles;
-    if (isConfirmedHealthy(record, now, currentOdometer, tireIntervalMiles2)) {
-      return { status: "on_time", percentUsed: 0, description: "Confirmed in good shape", detail: "On time" };
-    }
+  if (isConfirmedHealthy(record, now)) {
+    return { status: "on_time", percentUsed: 0, description: "Confirmed in good shape", detail: "On time" };
   }
 
   // Quick Read fields
@@ -788,9 +740,8 @@ function computeBrakeStatus(
   knownIssues?: string[],
   oemIntervals?: OemServiceIntervalsInput,
 ): StatusResult {
-  const brakeIntervalMiles = getInterval("brakes", make, drivingConditions, oemIntervals).miles;
   // Confirmed healthy overrides both interval and warning-light escalation
-  if (isConfirmedHealthy(record, now, currentOdometer, brakeIntervalMiles)) {
+  if (isConfirmedHealthy(record, now)) {
     return { status: "on_time", percentUsed: 0, description: "Confirmed in good shape", detail: "On time" };
   }
 
@@ -874,12 +825,9 @@ function computeBrakeStatusCore(
     };
   }
 
-  // No symptoms, confirmed healthy via check-in → on_time.
-  {
-    const brakeIntervalMiles2 = getInterval("brakes", make, drivingConditions, oemIntervals).miles;
-    if (!hasSymptom && isConfirmedHealthy(record, now, currentOdometer, brakeIntervalMiles2)) {
-      return { status: "on_time", percentUsed: 0, description: "Confirmed in good shape", detail: "On time" };
-    }
+  // No symptoms, confirmed healthy via check-in → on_time
+  if (!hasSymptom && isConfirmedHealthy(record, now)) {
+    return { status: "on_time", percentUsed: 0, description: "Confirmed in good shape", detail: "On time" };
   }
 
   // F1 fix (2026-05-18): without interval data we can't claim health.
@@ -909,9 +857,7 @@ function computeBatteryStatus(
   knownIssues?: string[],
   oemIntervals?: OemServiceIntervalsInput,
 ): StatusResult {
-  // Confirmed healthy overrides both interval and warning-light escalation.
-  // Battery is time-based (interval.miles typically null) so the mileage
-  // guard is a no-op — passes null and the check falls through to time.
+  // Confirmed healthy overrides both interval and warning-light escalation
   if (isConfirmedHealthy(record, now)) {
     return { status: "on_time", percentUsed: 0, description: "Confirmed in good shape", detail: "On time" };
   }
