@@ -313,6 +313,7 @@ export const completeCheckin = mutation({
             lastServiceMileage: args.mileageReported,
             customInputs: cleaned,
             confirmedHealthyAt: now,
+            confirmedHealthyMileage: args.mileageReported,
             serviceSource,
             confidence,
             updatedAt: now,
@@ -416,6 +417,7 @@ export const completeCheckin = mutation({
         await ctx.db.patch(existing._id, {
           customInputs: cleaned,
           confirmedHealthyAt: now,
+          confirmedHealthyMileage: args.mileageReported,
           updatedAt: now,
         });
       } else {
@@ -423,6 +425,7 @@ export const completeCheckin = mutation({
           vehicleOwnerId: args.vehicleOwnerId,
           type: partType,
           confirmedHealthyAt: now,
+          confirmedHealthyMileage: args.mileageReported,
           serviceSource: "checkin_confirmation",
           confidence: "self_reported",
           createdAt: now,

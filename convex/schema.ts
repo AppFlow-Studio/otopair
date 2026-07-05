@@ -1400,6 +1400,15 @@ export default defineSchema({
     lastServiceMileage: v.optional(v.number()),
     customInputs: v.optional(v.any()),
     confirmedHealthyAt: v.optional(v.number()),
+    /** Odometer reading (miles) at the moment the user confirmed
+     *  this item was healthy. Paired with `confirmedHealthyAt` so
+     *  the "you told me it's fine" override on
+     *  computeMaintenanceStatus can also be invalidated when the
+     *  user's driven far enough since the confirmation that a
+     *  service interval has passed. Optional — legacy records
+     *  don't have it, and the mileage guard falls through when
+     *  missing. */
+    confirmedHealthyMileage: v.optional(v.number()),
     serviceSource: v.optional(v.string()),
     /** Categorical: "verified" | "unverified" | "self_reported". Schema
      *  was originally v.number() but every writer (checkin, bookings)
