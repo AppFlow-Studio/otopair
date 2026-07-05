@@ -685,6 +685,26 @@ export default function ChooseMechanicScreen() {
               map underneath. Only renders inside the sheet body,
               so it's automatically gone once the sheet is hidden. */}
           <MapSwipeHint />
+
+          {/* Page indicator dots — moved from BELOW the ScrollView
+              to ABOVE it so they're visible at the standard 53%
+              snap without the user having to expand the sheet.
+              Previously the horizontal ScrollView's content
+              pushed the dots off the visible area. */}
+          {nearbyShops.length > 1 ? (
+            <View style={styles.dots}>
+              {nearbyShops.map((_, idx) => (
+                <View
+                  key={idx}
+                  style={[
+                    styles.dot,
+                    idx === activeIndex ? styles.dotActive : null,
+                  ]}
+                />
+              ))}
+            </View>
+          ) : null}
+
           {nearbyShops.length === 0 ? (
             <View style={styles.empty}>
               <Text size="md" weight="medium" color="#9CA3AF" center>
@@ -724,20 +744,6 @@ export default function ChooseMechanicScreen() {
             </ScrollView>
           )}
 
-          {/* Page indicator dots */}
-          {nearbyShops.length > 1 ? (
-            <View style={styles.dots}>
-              {nearbyShops.map((_, idx) => (
-                <View
-                  key={idx}
-                  style={[
-                    styles.dot,
-                    idx === activeIndex ? styles.dotActive : null,
-                  ]}
-                />
-              ))}
-            </View>
-          ) : null}
         </BottomSheetView>
       </BottomSheet>
 
@@ -866,7 +872,11 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "center",
     gap: 6,
-    marginTop: 12,
+    // Now sits between MapSwipeHint and the ScrollView. Small
+    // marginBottom keeps the dots from crowding the shop card
+    // below.
+    marginTop: 2,
+    marginBottom: 10,
   },
   dot: {
     width: 6,
