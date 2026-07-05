@@ -802,7 +802,7 @@ const styles = StyleSheet.create({
   },
   shopCardWrap: {
     position: "absolute",
-    top: "30%",
+    top: "20%",
     left: 16,
     right: 16,
     alignItems: "center",
