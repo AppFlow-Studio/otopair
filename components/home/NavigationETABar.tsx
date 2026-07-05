@@ -146,15 +146,25 @@ export function NavigationETABar({
       accessibilityRole="button"
       accessibilityLabel={`Navigate to ${destinationName}`}
     >
-      {/* Full Map Background - centered on user location, shifted right so pin shows on left.
-          scrollEnabled/zoomEnabled/etc all false — the MapView is decorative,
-          taps bubble up to the outer Pressable. */}
+      {/* Map background — centered on the SHOP'S coordinates (not
+          the user's) so the preview reads as "here's where you're
+          going." Falls back to the user's location only when the
+          shop record has no valid coords yet. Region longitude
+          shifted so the destination pin sits left-of-center,
+          leaving room on the right for the Navigate CTA overlay.
+          scrollEnabled/zoomEnabled/etc all false — the MapView is
+          decorative, taps bubble up to the outer Pressable. */}
       <MapView
         style={styles.map}
         provider={PROVIDER_DEFAULT}
         region={{
-          latitude: currentLatitude,
-          longitude: currentLongitude + 0.035,
+          latitude: coordsValid
+            ? (destinationLatitude as number)
+            : currentLatitude,
+          longitude:
+            (coordsValid
+              ? (destinationLongitude as number)
+              : currentLongitude) + 0.008,
           latitudeDelta: 0.02,
           longitudeDelta: 0.02,
         }}
@@ -165,19 +175,23 @@ export function NavigationETABar({
         showsUserLocation={false}
         pointerEvents="none"
       >
-        {/* Current Location Pin - shows user's actual location */}
-        <Marker
-          coordinate={{
-            latitude: currentLatitude,
-            longitude: currentLongitude - 0.002,
-          }}
-          anchor={{ x: 0.5, y: 0.5 }}
-        >
-          <View style={styles.locationPinContainer}>
-            <View style={styles.locationPinOuter} />
-            <View style={styles.locationPinInner} />
-          </View>
-        </Marker>
+        {/* Destination pin — shows where the SHOP is on the map,
+            not where the user is. Uses the brand-blue treatment
+            we already had for the previous user-location pin. */}
+        {coordsValid ? (
+          <Marker
+            coordinate={{
+              latitude: destinationLatitude as number,
+              longitude: destinationLongitude as number,
+            }}
+            anchor={{ x: 0.5, y: 0.5 }}
+          >
+            <View style={styles.locationPinContainer}>
+              <View style={styles.locationPinOuter} />
+              <View style={styles.locationPinInner} />
+            </View>
+          </Marker>
+        ) : null}
       </MapView>
 
       {/* Destination chip — anchors the map to a specific shop so
