@@ -189,10 +189,13 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   trailing: {
-    // Just the state indicator (check / chevron) now — the time
-    // moved into the text column above.
+    // Just the state indicator (check pill) now — the time moved
+    // into the text column above. Align to flex-end vertically so
+    // the pill sits near the row's BOTTOM-right instead of the
+    // middle — otherwise it stacks against the absolute `?` in the
+    // top-right corner.
     alignItems: "flex-end",
-    justifyContent: "center",
+    justifyContent: "flex-end",
   },
   stateCheck: {
     width: 28,
