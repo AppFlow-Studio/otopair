@@ -252,7 +252,7 @@ export function NavigationETABar({
           not a generic map. Sits at the top-left with a glassy
           backing so the map still reads through. */}
       <BlurView
-        intensity={70}
+        intensity={90}
         tint="light"
         style={styles.destChip}
       >
@@ -319,10 +319,10 @@ const styles = StyleSheet.create({
     opacity: 0.85,
   },
   destChip: {
-    // Top-left glassy pill — makes the destination unambiguous
-    // ("your booking is with this shop, and here's the map to
-    // get there"). Constrained maxWidth so long shop names
-    // truncate rather than pushing the ETA pill off the card.
+    // Top-left liquid-glass pill — Apple iOS 26 style. Heavy
+    // BlurView (already applied) + very translucent white fill +
+    // a subtle bright border give it that "frosted lens sitting
+    // over the map" feel, not the flat white chip it was before.
     position: 'absolute',
     top: 8,
     left: 8,
@@ -330,10 +330,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-    backgroundColor: 'rgba(255, 255, 255, 0.85)',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.32)',
+    borderWidth: 0.5,
+    borderColor: 'rgba(255, 255, 255, 0.7)',
     overflow: 'hidden',
     maxWidth: '55%',
   },
