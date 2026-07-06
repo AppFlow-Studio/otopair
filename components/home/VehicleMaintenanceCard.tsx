@@ -38,6 +38,7 @@ import { useGuardedRouter as useRouter } from '@/hooks/useGuardedRouter';
 import { useVehicleStore } from '@/stores/useVehicleStore';
 import Animated, {
   Easing,
+  FadeInDown,
   runOnJS,
   useAnimatedStyle,
   useSharedValue,
@@ -350,7 +351,13 @@ export function VehicleMaintenanceCard({
       <View style={styles.bottomSection}>
         <View style={styles.maintenanceList}>
           {items.map((item, index) => (
-            <View
+            <Animated.View
+              // Cascade each row down as the card mounts. Reanimated
+              // remounts these when `item.id` changes (i.e. on every
+              // vehicle swipe), so the entrance replays per card. 60ms
+              // stagger + 340ms fall gives a clear top-to-bottom flow
+              // without dragging on for long lists.
+              entering={FadeInDown.delay(index * 60).duration(340).easing(Easing.out(Easing.cubic))}
               key={item.id}
               style={[
                 styles.maintenanceItem,
@@ -398,7 +405,7 @@ export function VehicleMaintenanceCard({
                   {item.id === 'healthy' ? 'View' : 'Book Now'}
                 </Text>
               </Pressable>
-            </View>
+            </Animated.View>
           ))}
         </View>
       </View>
@@ -466,8 +473,11 @@ export function VehicleMaintenanceCard({
   const animatedCardHeight = useSharedValue<number>(resolvedCardHeight ?? 0);
   useEffect(() => {
     if (resolvedCardHeight == null) return;
+    // 420ms + ease-out-cubic — long enough that the staggered
+    // FadeInDown cascade on the maintenance items has room to
+    // finish underneath it, so height + items settle together.
     animatedCardHeight.value = withTiming(resolvedCardHeight, {
-      duration: 340,
+      duration: 420,
       easing: Easing.out(Easing.cubic),
     });
   }, [resolvedCardHeight, animatedCardHeight]);
