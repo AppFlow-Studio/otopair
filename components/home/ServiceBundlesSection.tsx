@@ -280,9 +280,9 @@ const styles = StyleSheet.create({
     ...Shadows.md,
   },
 
-  // ── Editorial serif headline ─────────────────────────────────────────
+  // ── Bundle title — Urbanist Bold to match the rest of the app ────────
   title: {
-    fontFamily: FontFamily.serifBold,
+    fontFamily: FontFamily.bold,
     fontSize: 26,
     lineHeight: 30,
     color: "#0F172A",
@@ -312,14 +312,14 @@ const styles = StyleSheet.create({
     color: SemanticColors.textMuted,
   },
   statValueTime: {
-    fontFamily: FontFamily.serifBold,
+    fontFamily: FontFamily.bold,
     fontSize: 22,
     lineHeight: 26,
     color: "#0F172A",
     fontVariant: ["tabular-nums"],
   },
   statValueSavings: {
-    fontFamily: FontFamily.serifBold,
+    fontFamily: FontFamily.bold,
     fontSize: 22,
     lineHeight: 26,
     color: BrandColors.secondary,
