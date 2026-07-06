@@ -373,7 +373,7 @@ export function VehicleMaintenanceCard({
           than N staggered per-row appearances. */}
       <Animated.View
         style={styles.bottomSection}
-        entering={FadeInDown.delay(220).duration(360).easing(Easing.out(Easing.cubic))}
+        entering={FadeInDown.delay(400).duration(600).easing(Easing.out(Easing.cubic))}
       >
         <View style={styles.maintenanceList}>
           {items.map((item, index) => (
