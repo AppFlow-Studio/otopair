@@ -167,6 +167,12 @@ export function VehicleMaintenanceCard({
   const translateX = useSharedValue(0);
   const rotation = useSharedValue(0);
   const cardOpacity = useSharedValue(1);
+  // Scale of the incoming front card. Runs alongside the fade-in
+  // so the new card feels like it's "coming forward" from the back
+  // stack (which sits at 0.98) into the front (1.0). Fade + scale
+  // together make the transition read as a real hand-off rather
+  // than a pop.
+  const cardScale = useSharedValue(1);
   // Inner-press flag — set to 1 while the touch lives inside an
   // interactive child Pressable (e.g. the Book Now button), so the
   // parent's Gesture.Tap onEnd skips its "open the Cars tab" route.
@@ -213,10 +219,13 @@ export function VehicleMaintenanceCard({
   // shifted to a different vehicle mid-fade.
   useEffect(() => {
     if (cardOpacity.value === 0) {
+      // Grow-forward duration bumped 260 → 420ms so the new card
+      // clearly reads as "coming forward and getting larger"
+      // instead of flashing in. Fade + scale run in lockstep.
       cardOpacity.value = withTiming(
         1,
         {
-          duration: 260,
+          duration: 420,
           easing: Easing.out(Easing.cubic),
         },
         (finished) => {
@@ -225,6 +234,10 @@ export function VehicleMaintenanceCard({
           }
         },
       );
+      cardScale.value = withTiming(1, {
+        duration: 420,
+        easing: Easing.out(Easing.cubic),
+      });
     }
   }, [currentIndex]);
 
@@ -258,10 +271,16 @@ export function VehicleMaintenanceCard({
           easing: Easing.out(Easing.cubic),
         }, (finished) => {
           if (finished) {
-            // Card is off-screen — hide it, reset position, then let JS advance index
+            // Card is off-screen — hide it, reset position, drop
+            // scale to 0.96 so the new content mounts at the
+            // "back card" size, then let JS advance index. The
+            // fade-in useEffect below then animates scale back
+            // up to 1 alongside the opacity ramp, giving the
+            // "coming forward and getting larger" motion.
             cardOpacity.value = 0;
             translateX.value = 0;
             rotation.value = 0;
+            cardScale.value = 0.96;
             runOnJS(advanceIndex)();
           }
         });
@@ -293,6 +312,7 @@ export function VehicleMaintenanceCard({
     transform: [
       { translateX: translateX.value },
       { rotate: `${rotation.value}deg` },
+      { scale: cardScale.value },
     ],
   }));
 
