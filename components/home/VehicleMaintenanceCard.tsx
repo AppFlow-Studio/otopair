@@ -225,13 +225,13 @@ export function VehicleMaintenanceCard({
   // shifted to a different vehicle mid-fade.
   useEffect(() => {
     if (cardOpacity.value === 0) {
-      // Grow-forward duration bumped 260 → 420ms so the new card
-      // clearly reads as "coming forward and getting larger"
-      // instead of flashing in. Fade + scale run in lockstep.
+      // 280ms grow-forward — long enough to read as coming
+      // forward and scaling up, short enough to not lag before
+      // the bottom section's drop-down. Fade + scale in lockstep.
       cardOpacity.value = withTiming(
         1,
         {
-          duration: 420,
+          duration: 280,
           easing: Easing.out(Easing.cubic),
         },
         (finished) => {
@@ -241,7 +241,7 @@ export function VehicleMaintenanceCard({
         },
       );
       cardScale.value = withTiming(1, {
-        duration: 420,
+        duration: 280,
         easing: Easing.out(Easing.cubic),
       });
     }
