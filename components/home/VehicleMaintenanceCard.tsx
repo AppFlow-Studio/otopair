@@ -198,19 +198,32 @@ export function VehicleMaintenanceCard({
     onSwipeEnd?.();
   };
 
-  // After React commits the new front card content, fade it in
-  // instead of hard-flipping to opacity 1 (which read as a snap).
-  // The back card only updates AFTER the fade-in has started so it's
-  // safely hidden behind the front card during the transition.
+  // After React commits the new front card content, fade it in.
+  // Because the back card renders the same full content (see
+  // render), the fade is essentially a no-op visually — front
+  // and back overlap identically. Then, ONLY after the fade
+  // completes and the front card is fully opaque, we advance the
+  // back card index so its content change is 100% hidden by the
+  // opaque front card.
+  //
+  // Previously the back index bumped on the next rAF (~16ms into
+  // the fade), when the front card was still ~95% transparent —
+  // that's when Ahmad's eye caught the "pop" as the back card
+  // shifted to a different vehicle mid-fade.
   useEffect(() => {
     if (cardOpacity.value === 0) {
-      cardOpacity.value = withTiming(1, {
-        duration: 260,
-        easing: Easing.out(Easing.cubic),
-      });
-      requestAnimationFrame(() => {
-        setBackIndex((currentIndex + 1) % vehicles.length);
-      });
+      cardOpacity.value = withTiming(
+        1,
+        {
+          duration: 260,
+          easing: Easing.out(Easing.cubic),
+        },
+        (finished) => {
+          if (finished) {
+            runOnJS(setBackIndex)((currentIndex + 1) % vehicles.length);
+          }
+        },
+      );
     }
   }, [currentIndex]);
 
@@ -516,10 +529,16 @@ export function VehicleMaintenanceCard({
 
         {/* Card area */}
         <Animated.View style={[styles.swiperContainer, resolvedCardHeight != null && containerHeightStyle]}>
-          {/* Back card preview */}
+          {/* Back card — renders the SAME full content as the
+              front card about to arrive. Previously rendered as a
+              1-item "preview" which caused a visible pop when the
+              front card faded in with the real content. Full-render
+              here means the back card is identical to what the
+              incoming front card will show, so the fade-in is
+              actually seamless. */}
           {canSwipe && (
             <View style={styles.backCard}>
-              {renderCardContent(vehicles[backIndex], 1)}
+              {renderCardContent(vehicles[backIndex])}
             </View>
           )}
 
