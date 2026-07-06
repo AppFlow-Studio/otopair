@@ -314,7 +314,7 @@ export function VehicleMaintenanceCard({
     ],
   }));
 
-  const renderCardContent = (vehicle: Vehicle, maxItems?: number) => {
+  const renderCardContent = (vehicle: Vehicle, maxItems?: number, hideBottom?: boolean) => {
     const items = maxItems ? vehicle.maintenanceItems.slice(0, maxItems) : vehicle.maintenanceItems;
     const isPreview = maxItems != null;
     return (
@@ -373,9 +373,13 @@ export function VehicleMaintenanceCard({
           than N staggered per-row appearances.
           Keyed on vehicle.id so React unmounts + remounts this
           block on every vehicle swap — that's what makes the
-          `entering` animation replay per card. Without the key
-          React reconciles the same Animated.View instance across
-          renders and the entrance only fires on first mount. */}
+          `entering` animation replay per card.
+          Skipped entirely when `hideBottom` is set (the back card
+          case) — otherwise the back card shows the bottom section
+          at full opacity while the incoming front card fades in
+          with its own entering animation on top, and the user
+          sees a visible "already there then appears again" flash. */}
+      {hideBottom ? null : (
       <Animated.View
         key={vehicle.id}
         style={styles.bottomSection}
@@ -435,6 +439,7 @@ export function VehicleMaintenanceCard({
           ))}
         </View>
       </Animated.View>
+      )}
     </View>
     );
   };
@@ -574,7 +579,14 @@ export function VehicleMaintenanceCard({
               actually seamless. */}
           {canSwipe && (
             <View style={styles.backCard}>
-              {renderCardContent(vehicles[backIndex])}
+              {/* Back card renders TOP ONLY (image + name + VIN).
+                  Bottom section is deliberately hidden so it doesn't
+                  render at full opacity while the incoming front
+                  card's bottom-section entering animation is
+                  running on top — otherwise the user sees the same
+                  content twice: once from the back card, then
+                  again as the front card's bottom slides in. */}
+              {renderCardContent(vehicles[backIndex], undefined, true)}
             </View>
           )}
 
