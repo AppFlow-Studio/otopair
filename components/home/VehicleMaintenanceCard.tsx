@@ -225,18 +225,21 @@ export function VehicleMaintenanceCard({
   // shifted to a different vehicle mid-fade.
   useEffect(() => {
     if (cardOpacity.value === 0) {
-      // Spring-based grow-forward — physics-driven acceleration
-      // and deceleration reads more organic than a fixed-curve
-      // easing. `damping: 22 / stiffness: 90 / mass: 0.9` settles
-      // in ~500ms with no visible overshoot. Fade + scale share
-      // the same spring so they land in lockstep.
-      const springConfig = { damping: 22, stiffness: 90, mass: 0.9 };
-      cardOpacity.value = withSpring(1, springConfig, (finished) => {
+      // Symmetric ease-in-out grow-forward. Motion is even
+      // throughout — accelerates through the middle, decelerates
+      // into the final value. Reads as more considered than
+      // ease-out (which starts fast then coasts) and more
+      // predictable than a spring (no physics quirks).
+      const growConfig = {
+        duration: 520,
+        easing: Easing.inOut(Easing.cubic),
+      };
+      cardOpacity.value = withTiming(1, growConfig, (finished) => {
         if (finished) {
           runOnJS(setBackIndex)((currentIndex + 1) % vehicles.length);
         }
       });
-      cardScale.value = withSpring(1, springConfig);
+      cardScale.value = withTiming(1, growConfig);
     }
     // Bottom section: reset ABOVE its final position (translateY
     // -40, opacity 0), then slide DOWN into place after a 400ms
