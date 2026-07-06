@@ -16,6 +16,7 @@ import { create } from "zustand";
 import { ImageSourcePropType } from "react-native";
 
 import { formatMake } from "@/utils/formatMake";
+import { useBookingStore } from "./useBookingStore";
 
 // ─────────────────────────────────────────────────────────────
 // TYPES
@@ -96,7 +97,11 @@ export const useVehicleStore = create<VehicleState>()((set, get) => ({
 
   // ═══════════════ ACTIONS ═══════════════
   selectVehicle: (vehicleId) => {
+    const previousVehicleId = get().selectedVehicleId;
     set({ selectedVehicleId: vehicleId });
+    if (previousVehicleId !== vehicleId) {
+      useBookingStore.getState().clearSelectedServices();
+    }
   },
 
   getVehicleById: (id) => {

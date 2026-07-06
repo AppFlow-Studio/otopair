@@ -539,6 +539,9 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
     set({
       selectedServiceIds: [],
       selectedVehicleVin: null,
+      selectedServiceOptions: {},
+      selectedDiagnosticSystem: null,
+      customerNotes: "",
     }),
 
   setSelectedVehicleVin: (vin) => set({ selectedVehicleVin: vin }),
