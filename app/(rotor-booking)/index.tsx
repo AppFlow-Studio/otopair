@@ -40,7 +40,11 @@ import {
   quantityForAxle,
   type RotorAxle,
 } from "@/constants/rotorFlow";
+import { SLUG_ROTOR_REPLACEMENT } from "@/constants/serviceTaxonomy";
+import { useBookableServices } from "@/hooks/useBookableServices";
 import { useBrakeSystemTypeFromConvex } from "@/hooks/useBrakeSystemTypeFromConvex";
+import { canSelectVehicleForService } from "@/lib/serviceBookability";
+import { useBookingStore } from "@/stores/useBookingStore";
 import { useRotorBookingStore } from "@/stores/useRotorBookingStore";
 import { useVehicleStore, type Vehicle } from "@/stores/useVehicleStore";
 
@@ -72,6 +76,9 @@ export default function RotorBookingScreen({ onClose, onConfirmed }: RotorBookin
   const vehicleLabel = selectedVehicle
     ? `${selectedVehicle.year} ${selectedVehicle.make} ${selectedVehicle.model}`
     : "your vehicle";
+  const availableServices = useBookingStore((s) => s.availableServices);
+  const rotorServiceId =
+    availableServices.find((service) => service.slug === SLUG_ROTOR_REPLACEMENT)?.id ?? null;
 
   // ── Rotor store ────────────────────────────────────────────────────────────
   const brakeSystemType = useRotorBookingStore((s) => s.brakeSystemType);
@@ -329,11 +336,18 @@ export default function RotorBookingScreen({ onClose, onConfirmed }: RotorBookin
             {vehicles.map((v) => {
               const active = v.id === selectedVehicleId;
               return (
+                <RotorVehicleGate key={v.id} vehicle={v} serviceId={rotorServiceId}>
+                  {(isSelectable) => (
                 <TouchableOpacity
-                  key={v.id}
-                  style={[styles.vehicleRow, active && styles.vehicleRowActive]}
+                  style={[
+                    styles.vehicleRow,
+                    active && styles.vehicleRowActive,
+                    !isSelectable && styles.vehicleRowDisabled,
+                  ]}
                   onPress={() => handlePickVehicle(v.id)}
-                  activeOpacity={0.85}
+                  disabled={!isSelectable}
+                  activeOpacity={isSelectable ? 0.85 : 1}
+                  accessibilityState={{ selected: active, disabled: !isSelectable }}
                 >
                   <View style={styles.vehicleRowSide}>
                     {v.imageSource ? (
@@ -362,6 +376,8 @@ export default function RotorBookingScreen({ onClose, onConfirmed }: RotorBookin
                     </View>
                   ) : null}
                 </TouchableOpacity>
+                  )}
+                </RotorVehicleGate>
               );
             })}
           </ScrollView>
@@ -369,6 +385,24 @@ export default function RotorBookingScreen({ onClose, onConfirmed }: RotorBookin
       </FloatingSheet>
     </View>
   );
+}
+
+interface RotorVehicleGateProps {
+  vehicle: Vehicle;
+  serviceId: string | null;
+  children: (isSelectable: boolean) => React.ReactNode;
+}
+
+function RotorVehicleGate({ vehicle, serviceId, children }: RotorVehicleGateProps) {
+  const { bookableIds, isLoading } = useBookableServices(vehicle.ownershipId);
+  const isSelectable = canSelectVehicleForService({
+    ownershipId: vehicle.ownershipId,
+    serviceId,
+    bookableIds,
+    isLoading,
+  });
+
+  return <>{children(isSelectable)}</>;
 }
 
 const styles = StyleSheet.create({
@@ -507,6 +541,9 @@ const styles = StyleSheet.create({
   },
   vehicleRowActive: {
     backgroundColor: "#EAF2FF",
+  },
+  vehicleRowDisabled: {
+    opacity: 0.45,
   },
   vehicleRowSide: {
     width: 56,

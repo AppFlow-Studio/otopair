@@ -17,6 +17,13 @@ interface FilterSelectableServicesForVehicleArgs {
   bookableIds: Set<string> | null | undefined;
 }
 
+interface CanSelectVehicleForServiceArgs {
+  ownershipId: string | null | undefined;
+  serviceId: string | null | undefined;
+  bookableIds: Set<string> | null | undefined;
+  isLoading?: boolean;
+}
+
 export function canSelectServiceForVehicle({
   ownershipId,
   serviceId,
@@ -42,4 +49,16 @@ export function filterSelectableServicesForVehicle<T extends ServiceLike>(
       bookableIds,
     }),
   );
+}
+
+export function canSelectVehicleForService({
+  ownershipId,
+  serviceId,
+  bookableIds,
+  isLoading = false,
+}: CanSelectVehicleForServiceArgs): boolean {
+  if (!ownershipId) return true;
+  if (!serviceId) return false;
+  if (isLoading || !bookableIds) return false;
+  return bookableIds.has(serviceId);
 }
