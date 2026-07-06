@@ -225,14 +225,13 @@ export function VehicleMaintenanceCard({
   // shifted to a different vehicle mid-fade.
   useEffect(() => {
     if (cardOpacity.value === 0) {
-      // Symmetric ease-in-out grow-forward. Motion is even
-      // throughout — accelerates through the middle, decelerates
-      // into the final value. Reads as more considered than
-      // ease-out (which starts fast then coasts) and more
-      // predictable than a spring (no physics quirks).
+      // Ease-in-out-sine grow-forward. Even gentler S-curve than
+      // ease-in-out-cubic — a smoother sinusoidal ramp with less
+      // acceleration change through the middle. Reads as very
+      // considered / no jolts.
       const growConfig = {
         duration: 520,
-        easing: Easing.inOut(Easing.cubic),
+        easing: Easing.inOut(Easing.sin),
       };
       cardOpacity.value = withTiming(1, growConfig, (finished) => {
         if (finished) {
