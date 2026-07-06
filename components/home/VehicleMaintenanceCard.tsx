@@ -370,8 +370,14 @@ export function VehicleMaintenanceCard({
           drops in as one unit after a beat. The card's top (image
           + title) is present immediately; then the maintenance
           list slides down together. Feels like one gesture rather
-          than N staggered per-row appearances. */}
+          than N staggered per-row appearances.
+          Keyed on vehicle.id so React unmounts + remounts this
+          block on every vehicle swap — that's what makes the
+          `entering` animation replay per card. Without the key
+          React reconciles the same Animated.View instance across
+          renders and the entrance only fires on first mount. */}
       <Animated.View
+        key={vehicle.id}
         style={styles.bottomSection}
         entering={FadeInDown.delay(400).duration(600).easing(Easing.out(Easing.cubic))}
       >
