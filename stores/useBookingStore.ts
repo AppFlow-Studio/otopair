@@ -16,6 +16,7 @@
 
 import { create } from "zustand";
 import { SERVICE_CATEGORIES, type ServiceCategoryItem } from "@/constants/services";
+import { filterSelectableServicesForVehicle } from "@/lib/serviceBookability";
 import { useVehicleStore } from "./useVehicleStore";
 import type { DiagnosticSystem } from "@/lib/diagnostic-checklist-templates";
 import type {
@@ -194,6 +195,11 @@ interface BookingState {
   // ═══════════════ SERVICE SELECTION ACTIONS ═══════════════
   /** Toggle a service selection (add/remove) */
   toggleServiceSelection: (serviceId: string) => void;
+  /** Replace the cart with services allowed for the current vehicle context. */
+  replaceSelectedServicesForVehicle: (
+    services: Service[],
+    options?: { ownershipId?: string | null; bookableIds?: Set<string> | null },
+  ) => void;
   /** Clear all selected services */
   clearSelectedServices: () => void;
   /** Explicitly set the in-flight booking's vehicle VIN (call sites that
@@ -513,6 +519,19 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
       return {
         selectedServiceIds: nextIds,
         selectedVehicleVin: nextVin,
+      };
+    }),
+
+  replaceSelectedServicesForVehicle: (services, options) =>
+    set(() => {
+      const nextIds = filterSelectableServicesForVehicle(services, {
+        ownershipId: options?.ownershipId,
+        bookableIds: options?.bookableIds,
+      }).map((service) => service.id);
+
+      return {
+        selectedServiceIds: nextIds,
+        selectedVehicleVin: nextIds.length > 0 ? useVehicleStore.getState().selectedVehicleId ?? null : null,
       };
     }),
 
