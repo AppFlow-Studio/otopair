@@ -198,12 +198,16 @@ export function VehicleMaintenanceCard({
     onSwipeEnd?.();
   };
 
-  // After React commits the new front card content, make it visible
-  // then update the back card (safely hidden behind the front)
+  // After React commits the new front card content, fade it in
+  // instead of hard-flipping to opacity 1 (which read as a snap).
+  // The back card only updates AFTER the fade-in has started so it's
+  // safely hidden behind the front card during the transition.
   useEffect(() => {
     if (cardOpacity.value === 0) {
-      cardOpacity.value = 1;
-      // Back card updates after front is visible and covering it
+      cardOpacity.value = withTiming(1, {
+        duration: 260,
+        easing: Easing.out(Easing.cubic),
+      });
       requestAnimationFrame(() => {
         setBackIndex((currentIndex + 1) % vehicles.length);
       });
@@ -442,10 +446,17 @@ export function VehicleMaintenanceCard({
   // front card (no layout change). When the swipe settles and the active
   // card changes, we animate the container height so the downstream
   // sections slide smoothly instead of snapping.
+  // Bumped 280ms → 340ms with an ease-out-cubic curve — the previous
+  // default easing (inOut quad) started slow, which made the reflow read
+  // as slightly delayed then abrupt. Ease-out starts fast and settles,
+  // which pairs cleanly with the fade-in on the new front card.
   const animatedCardHeight = useSharedValue<number>(resolvedCardHeight ?? 0);
   useEffect(() => {
     if (resolvedCardHeight == null) return;
-    animatedCardHeight.value = withTiming(resolvedCardHeight, { duration: 280 });
+    animatedCardHeight.value = withTiming(resolvedCardHeight, {
+      duration: 340,
+      easing: Easing.out(Easing.cubic),
+    });
   }, [resolvedCardHeight, animatedCardHeight]);
   const containerHeightStyle = useAnimatedStyle(() => ({
     height: animatedCardHeight.value,
