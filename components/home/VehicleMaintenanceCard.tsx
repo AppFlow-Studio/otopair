@@ -265,7 +265,7 @@ export function VehicleMaintenanceCard({
         // ease-out-cubic lets the card visibly slide across the
         // screen, matching the 420ms grow-forward on the incoming
         // card so the two motions overlap as one continuous handoff.
-        const exitDuration = 460;
+        const exitDuration = 640;
         translateX.value = withTiming(targetX, {
           duration: exitDuration,
           easing: Easing.out(Easing.cubic),
