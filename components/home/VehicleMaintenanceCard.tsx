@@ -347,22 +347,19 @@ export function VehicleMaintenanceCard({
         </View>
       </View>
 
-      {/* Bottom Section - Maintenance List */}
-      <View style={styles.bottomSection}>
+      {/* Bottom Section - Maintenance List.
+          Wrapped in an Animated.View so the WHOLE bottom section
+          drops in as one unit after a beat. The card's top (image
+          + title) is present immediately; then the maintenance
+          list slides down together. Feels like one gesture rather
+          than N staggered per-row appearances. */}
+      <Animated.View
+        style={styles.bottomSection}
+        entering={FadeInDown.delay(220).duration(360).easing(Easing.out(Easing.cubic))}
+      >
         <View style={styles.maintenanceList}>
           {items.map((item, index) => (
-            <Animated.View
-              // Cascade each row down as the card mounts. Reanimated
-              // remounts these when `item.id` changes (i.e. on every
-              // vehicle swipe), so the entrance replays per card.
-              //
-              // 250ms base delay before the first row falls, so the
-              // card's top area (image + title) has time to settle
-              // and the list feels like a second-beat gesture rather
-              // than everything moving at once. Then 60ms per-index
-              // stagger + 340ms fall gives a clear top-to-bottom
-              // flow without dragging on for long lists.
-              entering={FadeInDown.delay(250 + index * 60).duration(340).easing(Easing.out(Easing.cubic))}
+            <View
               key={item.id}
               style={[
                 styles.maintenanceItem,
@@ -410,10 +407,10 @@ export function VehicleMaintenanceCard({
                   {item.id === 'healthy' ? 'View' : 'Book Now'}
                 </Text>
               </Pressable>
-            </Animated.View>
+            </View>
           ))}
         </View>
-      </View>
+      </Animated.View>
     </View>
     );
   };
