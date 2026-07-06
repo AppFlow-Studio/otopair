@@ -39,6 +39,7 @@ import {
   MAINTENANCE_LABELS,
   type MaintenanceType,
 } from "@/utils/maintenanceStatus";
+import { canonicalWarningLights } from "@/lib/warningLightVocab";
 import { scale, moderateScale } from '@/utils/responsive';
 
 if (
@@ -206,7 +207,13 @@ export function MaintenanceInputModal({
       setTireOriginal(null);
       setBatteryReplaced(null);
     }
-    setWarningLightOn(relevantLight ? (knownIssues?.includes(relevantLight) ?? false) : false);
+    // Canonicalize first so the toggle reflects a light logged in the symptom
+    // vocabulary (brake_warning/battery/tire_issue), not just the canonical ids.
+    setWarningLightOn(
+      relevantLight
+        ? (canonicalWarningLights(knownIssues) as readonly string[]).includes(relevantLight)
+        : false,
+    );
   }, [existingRecord, visible, maintenanceType, knownIssues, relevantLight]);
 
   // ── Validation ────────────────────────────────────────────

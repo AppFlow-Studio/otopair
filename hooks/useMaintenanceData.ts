@@ -22,26 +22,14 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { MaintenanceItem } from "@/components/cars/MaintenanceTracker";
 import {
-  ALL_MAINTENANCE_TYPES,
-  MAINTENANCE_LABELS,
   type MaintenanceType,
   type OemServiceIntervalsInput,
 } from "@/utils/maintenanceStatus";
-import { buildMaintenanceItems, enrichUrgentItem } from "@/utils/maintenanceEnrichment";
-import { buildWarningLightItem } from "@/lib/warningLightItems";
-
-/** Paired maintenance type → light id that should escalate it to Now
- *  tier. Mirrors WARNING_LIGHT_FOR_TYPE inside the merge loop below;
- *  exposed at module scope so the post-process pass can hoist any
- *  paired item (record-based or fallback) up to `overdue` status when
- *  the light is on. Lets paired-light prompts surface on Home alongside
- *  the consolidated unpaired card. */
-const PAIRED_LIGHT_BY_TYPE: Partial<Record<MaintenanceType, string>> = {
-  oil: "oil_pressure",
-  battery: "battery_charging",
-  brakes: "abs",
-  tires: "tpms",
-};
+import { buildMaintenanceItems } from "@/utils/maintenanceEnrichment";
+import {
+  buildMergedMaintenanceItems,
+  type DriverRecommendationLike,
+} from "@/utils/mergedMaintenance";
 
 // ============================================================================
 // TYPES
@@ -120,38 +108,6 @@ export function useMaintenanceRecords(
  * @param make - Vehicle make (e.g. "Volkswagen") for per-make interval overrides
  * @param drivingConditions - "city" | "highway" | "mixed" — adjusts intervals
  */
-/** Minimal shape of a driver-visible mechanic recommendation, mirrored from
- *  api.jobRecommendations.getDriverVisibleRecsForVehicle. Kept local to
- *  avoid a circular import with useDriverRecommendationsFromConvex. */
-interface DriverRecommendationLike {
-  _id: string;
-  service_id: string | null;
-  service_name: string;
-  urgency: "next_visit" | "within_3_months" | "soon";
-  reason: string | null;
-  shop_name: string | null;
-  mechanic_name: string | null;
-  target_mileage?: number | null;
-  scheduled_at?: number | null;
-  scheduled_mechanic_name?: string | null;
-}
-
-function recUrgencyToStatus(
-  urgency: DriverRecommendationLike["urgency"],
-): MaintenanceItem["status"] {
-  if (urgency === "soon") return "overdue";
-  if (urgency === "next_visit") return "due_soon";
-  return "needs_attention";
-}
-
-function recUrgencyDetail(
-  urgency: DriverRecommendationLike["urgency"],
-): string {
-  if (urgency === "soon") return "Service soon";
-  if (urgency === "next_visit") return "Next visit";
-  return "Within 3 months";
-}
-
 export function useMergedMaintenance(
   vehicleOwnerId: Id<"vehicle_owners"> | undefined,
   currentOdometer: number | null,
@@ -169,163 +125,21 @@ export function useMergedMaintenance(
 ) {
   const { records, items: userItems } = useMaintenanceRecords(vehicleOwnerId, currentOdometer, make, drivingConditions, avgMonthlyDriving, knownIssues, vehicleYear, oemIntervals);
 
-  // Merge: user record > unknown.
-  const mergedItems = useMemo(() => {
-    const result: MaintenanceItem[] = [];
-
-    for (const type of ALL_MAINTENANCE_TYPES) {
-      const userItem = userItems.get(type);
-
-      // If user recently reported service or confirmed healthy, force
-      // on_time so a stale calculated status doesn't override their
-      // direct input.
-      const userRecord = records?.find((r: MaintenanceRecord) => r.type === type);
-      const userConfirmedHealthy =
-        userRecord?.confirmedHealthyAt &&
-        Date.now() - userRecord.confirmedHealthyAt < 90 * 24 * 60 * 60 * 1000;
-
-      if (userConfirmedHealthy && userItem) {
-        if (userItem.status !== "on_time") {
-          result.push({
-            ...userItem,
-            status: "on_time",
-            description: "Confirmed in good shape",
-            detail: "On time",
-          });
-        } else {
-          result.push(userItem);
-        }
-        continue;
-      }
-
-      // User-provided record
-      if (userItem) {
-        result.push(userItem);
-        continue;
-      }
-
-      // Priority 3: No record — check for warning lights that should escalate
-      const WARNING_LIGHT_FOR_TYPE: Partial<Record<MaintenanceType, { lightId: string; label: string }>> = {
-        oil: { lightId: "oil_pressure", label: "Oil pressure warning light active — service urgently needed" },
-        battery: { lightId: "battery_charging", label: "Battery/charging warning light active — have it tested soon" },
-        brakes: { lightId: "abs", label: "ABS / brake warning light active — have brakes inspected soon" },
-        tires: { lightId: "tpms", label: "Tire pressure (TPMS) warning light active — check tires soon" },
-      };
-
-      const lightInfo = WARNING_LIGHT_FOR_TYPE[type];
-      if (lightInfo && knownIssues?.includes(lightInfo.lightId)) {
-        // Paired-light fallback (no maintenance record yet, but the
-        // light is on). Status is `overdue` so the urgency model puts
-        // this in the Now tier — surfaces on Home + the Cars tracker
-        // exactly like every other now-tier item. Bumped from the
-        // legacy `needs_attention` because that previously landed at
-        // "soon" tier and Ahmad's gripe was warning lights never
-        // showed up on Home.
-        result.push({
-          id: `unknown-${type}`,
-          serviceName: MAINTENANCE_LABELS[type] || type,
-          description: lightInfo.label,
-          detail: "Warning light",
-          status: "overdue",
-          percentUsed: 100,
-        });
-        continue;
-      }
-
-      // Battery: infer healthy status for young vehicles
-      if (type === "battery") {
-        const vehicleAge = vehicleYear ? new Date().getFullYear() - vehicleYear : 0;
-        if (vehicleAge < 3) {
-          result.push({
-            id: `unknown-${type}`,
-            serviceName: MAINTENANCE_LABELS[type] || type,
-            description: `Battery is ~${vehicleAge || "<1"} year${vehicleAge !== 1 ? "s" : ""} old — healthy`,
-            detail: "On time",
-            status: "on_time",
-          });
-          continue;
-        }
-      }
-
-      const fallback: Record<string, { status: MaintenanceItem["status"]; description: string; detail: string }> = {
-        oil:    { status: "due_soon",  description: "No oil change data — service recommended", detail: "Check soon" },
-        brakes: { status: "on_time",   description: "No brake concerns reported",              detail: "On time" },
-        tires:  { status: "on_time",   description: "No tire concerns reported",               detail: "On time" },
-        battery:{ status: "on_time",   description: "No battery concerns reported",            detail: "On time" },
-      };
-      const fb = fallback[type] ?? { status: "on_time" as const, description: "No concerns reported", detail: "On time" };
-      result.push({
-        id: `unknown-${type}`,
-        serviceName: MAINTENANCE_LABELS[type] || type,
-        description: fb.description,
-        detail: fb.detail,
-        status: fb.status,
-      });
-    }
-
-    // Append inspection records when they exist (inspection is excluded from the
-    // default loop since the stepper doesn't ask about it)
-    const inspectionItem = userItems.get("inspection");
-    if (inspectionItem) {
-      result.push(inspectionItem);
-    }
-
-    // Append mechanic-submitted job recommendations as urgent cards. Each
-    // rec carries its source id so the tracker shows the "Take Action" CTA
-    // and routes to /recommendation/[recId].
-    if (driverRecommendations && driverRecommendations.length > 0) {
-      for (const rec of driverRecommendations) {
-        result.push({
-          id: `rec-${rec._id}`,
-          serviceName: rec.service_name,
-          description: rec.reason ?? "Recommended by your mechanic",
-          detail: recUrgencyDetail(rec.urgency),
-          status: recUrgencyToStatus(rec.urgency),
-          sourceRecommendationId: rec._id,
-          mechanicProvenance: {
-            shopName: rec.shop_name,
-            mechanicName: rec.mechanic_name,
-          },
-          recUrgency: rec.urgency,
-          scheduledAt: rec.scheduled_at ?? null,
-          scheduledMechanicName: rec.scheduled_mechanic_name ?? null,
-          serviceId: rec.service_id ?? null,
-        });
-      }
-    }
-
-    // Post-process: when a paired warning light is active, force the
-    // matching item up to `overdue` regardless of record state. The
-    // computeMaintenanceStatus pipeline only escalates to
-    // `needs_attention` (lands at "soon" tier in utils/urgency.ts),
-    // which is why warning lights weren't surfacing on Home before
-    // — they need `overdue` to clear the Now-tier cutoff.
-    const escalated = result.map((item) => {
-      const itemType = item.id.replace(/^(unknown-|user-|smartcar-)/, "");
-      const lightId = PAIRED_LIGHT_BY_TYPE[itemType as MaintenanceType];
-      if (!lightId || !knownIssues?.includes(lightId)) return item;
-      if (item.status === "overdue") return item; // already there
-      return { ...item, status: "overdue" as const, percentUsed: 100 };
-    });
-
-    const enriched = escalated.map(enrichUrgentItem);
-
-    // Consolidated unpaired-light item — appended AFTER enrichment so
-    // its hand-tuned description/urgency copy doesn't get clobbered by
-    // the generic URGENT_DETAILS fallback in enrichUrgentItem. Scope
-    // the id to `vehicleOwnerId` so multiple vehicles aggregated on
-    // Home produce distinct items. Returns null when no unpaired
-    // light is on — see `lib/warningLightItems.ts` for the rules.
-    if (vehicleOwnerId) {
-      const warningItem = buildWarningLightItem({
+  // Merge via the single shared builder — the SAME function Oto's
+  // get_vehicle_health uses to compute the score it quotes, so the number Oto
+  // states matches this ring with zero drift (utils/mergedMaintenance.ts).
+  const mergedItems = useMemo(
+    () =>
+      buildMergedMaintenanceItems({
+        userItems,
+        records: records ?? undefined,
         knownIssues,
-        scopeId: String(vehicleOwnerId),
-      });
-      if (warningItem) enriched.push(warningItem);
-    }
-
-    return enriched;
-  }, [userItems, records, knownIssues, vehicleYear, driverRecommendations, vehicleOwnerId]);
+        vehicleYear,
+        driverRecommendations,
+        scopeId: vehicleOwnerId ? String(vehicleOwnerId) : undefined,
+      }),
+    [userItems, records, knownIssues, vehicleYear, driverRecommendations, vehicleOwnerId],
+  );
 
   // Expose raw records so the modal can pre-fill from existing data
   const recordsByType = useMemo(() => {

@@ -6,9 +6,18 @@ describe("serviceSymptoms", () => {
     expect(symptomForServiceSlug("brake_pad_replacement")).toBe("brake_warning");
     expect(symptomForServiceSlug("spark_plugs")).toBe(null);
   });
+  it("covers every light-clearing service (tpms / temperature / transmission)", () => {
+    expect(symptomForServiceSlug("coolant_flush")).toBe("temperature");
+    expect(symptomForServiceSlug("transmission_service")).toBe("transmission");
+    expect(symptomForServiceSlug("tire_rotation")).toBe("tpms");
+    expect(symptomForServiceSlug("tire_balance")).toBe("tpms");
+    expect(symptomForServiceSlug("wheel_alignment")).toBe("tpms");
+    expect(symptomForServiceSlug("brake_fluid_flush")).toBe("brake_warning");
+  });
   it("maps record types to the same codes (for clearing)", () => {
     expect(symptomForRecordType("oil")).toBe("oil_pressure");
     expect(symptomForRecordType("diagnostics")).toBe("check_engine");
+    expect(symptomForRecordType("tires")).toBe("tpms");
     expect(symptomForRecordType("fluids")).toBe(null);
   });
 });
