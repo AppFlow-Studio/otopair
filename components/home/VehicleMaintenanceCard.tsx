@@ -354,10 +354,15 @@ export function VehicleMaintenanceCard({
             <Animated.View
               // Cascade each row down as the card mounts. Reanimated
               // remounts these when `item.id` changes (i.e. on every
-              // vehicle swipe), so the entrance replays per card. 60ms
-              // stagger + 340ms fall gives a clear top-to-bottom flow
-              // without dragging on for long lists.
-              entering={FadeInDown.delay(index * 60).duration(340).easing(Easing.out(Easing.cubic))}
+              // vehicle swipe), so the entrance replays per card.
+              //
+              // 250ms base delay before the first row falls, so the
+              // card's top area (image + title) has time to settle
+              // and the list feels like a second-beat gesture rather
+              // than everything moving at once. Then 60ms per-index
+              // stagger + 340ms fall gives a clear top-to-bottom
+              // flow without dragging on for long lists.
+              entering={FadeInDown.delay(250 + index * 60).duration(340).easing(Easing.out(Easing.cubic))}
               key={item.id}
               style={[
                 styles.maintenanceItem,
