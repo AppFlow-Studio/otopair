@@ -226,11 +226,10 @@ export function VehicleMaintenanceCard({
   useEffect(() => {
     if (cardOpacity.value === 0) {
       // Ease-in-out-sine grow-forward. Even gentler S-curve than
-      // ease-in-out-cubic — a smoother sinusoidal ramp with less
-      // acceleration change through the middle. Reads as very
-      // considered / no jolts.
+      // ease-in-out-cubic. 340ms — long enough to read as a smooth
+      // handoff, short enough not to feel overproduced.
       const growConfig = {
-        duration: 520,
+        duration: 340,
         easing: Easing.inOut(Easing.sin),
       };
       cardOpacity.value = withTiming(1, growConfig, (finished) => {
