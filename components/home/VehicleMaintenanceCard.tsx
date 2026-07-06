@@ -300,7 +300,7 @@ export function VehicleMaintenanceCard({
             cardOpacity.value = 0;
             translateX.value = 0;
             rotation.value = 0;
-            cardScale.value = 0.96;
+            cardScale.value = 0.98;
             runOnJS(advanceIndex)();
           }
         });
