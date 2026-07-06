@@ -194,8 +194,18 @@ function BundleCard({
 }) {
   return (
     <View style={styles.card}>
-      {/* Editorial serif headline — package name. */}
-      <Text style={styles.title}>{bundle.name}</Text>
+      {/* Package name — break the last word ("Package") onto its
+          own line so the headline reads as a two-line stack
+          (e.g. "Summer Care" / "Package"). */}
+      <Text style={styles.title}>
+        {(() => {
+          const parts = bundle.name.split(' ');
+          if (parts.length < 2) return bundle.name;
+          const last = parts[parts.length - 1];
+          const rest = parts.slice(0, -1).join(' ');
+          return `${rest}\n${last}`;
+        })()}
+      </Text>
 
       {/* Spec sheet — enumerated services with hairline separators. */}
       <View style={styles.specSheet}>
