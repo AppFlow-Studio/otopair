@@ -667,21 +667,27 @@ const styles = StyleSheet.create({
     right: 0,
   },
   stackedCard: {
+    // Deepest peek in the 3-card stack — sits behind the back
+    // card so the visual reads as "one more card underneath."
+    // Bumped left/right inset from 17 → 30 so this peek is
+    // visibly NARROWER than the back card (inset 12) and the
+    // front card (inset 0). Also dropped opacity via a paler
+    // border + lower shadow, so it recedes visually.
     position: 'absolute',
     top: -4,
-    left: 17,
-    right: 17,
-    height: 50,
+    left: 30,
+    right: 30,
+    height: 44,
     borderRadius: 12,
     zIndex: 0,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: 'rgba(220, 225, 235, 0.6)',
+    borderColor: 'rgba(220, 225, 235, 0.45)',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
+    shadowOpacity: 0.03,
     shadowRadius: 4,
-    elevation: 2,
+    elevation: 1,
   },
   stackedCardHighlight: {
     position: 'absolute',
