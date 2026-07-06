@@ -225,26 +225,18 @@ export function VehicleMaintenanceCard({
   // shifted to a different vehicle mid-fade.
   useEffect(() => {
     if (cardOpacity.value === 0) {
-      // 520ms grow-forward — long enough to really SEE the card
-      // coming toward and getting larger. Fade + scale in lockstep
-      // with ease-out-cubic so the motion decelerates cleanly into
-      // its final scale.
-      cardOpacity.value = withTiming(
-        1,
-        {
-          duration: 520,
-          easing: Easing.out(Easing.cubic),
-        },
-        (finished) => {
-          if (finished) {
-            runOnJS(setBackIndex)((currentIndex + 1) % vehicles.length);
-          }
-        },
-      );
-      cardScale.value = withTiming(1, {
-        duration: 520,
-        easing: Easing.out(Easing.cubic),
+      // Spring-based grow-forward — physics-driven acceleration
+      // and deceleration reads more organic than a fixed-curve
+      // easing. `damping: 22 / stiffness: 90 / mass: 0.9` settles
+      // in ~500ms with no visible overshoot. Fade + scale share
+      // the same spring so they land in lockstep.
+      const springConfig = { damping: 22, stiffness: 90, mass: 0.9 };
+      cardOpacity.value = withSpring(1, springConfig, (finished) => {
+        if (finished) {
+          runOnJS(setBackIndex)((currentIndex + 1) % vehicles.length);
+        }
       });
+      cardScale.value = withSpring(1, springConfig);
     }
     // Bottom section: reset ABOVE its final position (translateY
     // -40, opacity 0), then slide DOWN into place after a 400ms
