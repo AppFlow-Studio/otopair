@@ -259,15 +259,15 @@ export function VehicleMaintenanceCard({
       if (Math.abs(event.translationX) > SWIPE_THRESHOLD) {
         const direction = event.translationX > 0 ? 'right' : 'left';
         const targetX = direction === 'right' ? SCREEN_WIDTH * 1.4 : -SCREEN_WIDTH * 1.4;
-        // Velocity-aware exit — a fast flick throws off-screen quicker,
-        // a slow drag-past-threshold takes the full duration. Baseline
-        // 260ms so even the slow case feels snappy. Clamp to [140, 260]
-        // so a wild flick doesn't blur to zero and a lazy drag doesn't
-        // drag on.
-        const absVel = Math.abs(event.velocityX);
-        const dynamicDuration = Math.max(140, Math.min(260, 260 - absVel * 0.06));
+        // Fixed 460ms exit, no velocity awareness. The previous
+        // clamp(140, 260ms) made fast flicks feel abrupt — the card
+        // was gone before the eye could track it. 460ms with
+        // ease-out-cubic lets the card visibly slide across the
+        // screen, matching the 420ms grow-forward on the incoming
+        // card so the two motions overlap as one continuous handoff.
+        const exitDuration = 460;
         translateX.value = withTiming(targetX, {
-          duration: dynamicDuration,
+          duration: exitDuration,
           easing: Easing.out(Easing.cubic),
         }, (finished) => {
           if (finished) {
@@ -285,7 +285,7 @@ export function VehicleMaintenanceCard({
         });
         // Rotation lean matches the fly-off motion — 10° exit tilt.
         rotation.value = withTiming(direction === 'right' ? 10 : -10, {
-          duration: dynamicDuration,
+          duration: exitDuration,
         });
       } else {
         // Snap-back tightened: damping 15 → 22, stiffness 150 → 220 so
