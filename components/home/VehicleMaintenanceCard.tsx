@@ -38,10 +38,10 @@ import { useGuardedRouter as useRouter } from '@/hooks/useGuardedRouter';
 import { useVehicleStore } from '@/stores/useVehicleStore';
 import Animated, {
   Easing,
-  FadeInDown,
   runOnJS,
   useAnimatedStyle,
   useSharedValue,
+  withDelay,
   withSpring,
   withTiming,
 } from 'react-native-reanimated';
@@ -173,6 +173,12 @@ export function VehicleMaintenanceCard({
   // together make the transition read as a real hand-off rather
   // than a pop.
   const cardScale = useSharedValue(1);
+  // Bottom section slide-down animation. Driven manually via
+  // useEffect below (instead of Reanimated's `entering` prop) so
+  // the direction is unambiguous: starts ABOVE final position
+  // (translateY = -40) and slides DOWN to translateY = 0.
+  const bottomTranslateY = useSharedValue(0);
+  const bottomOpacity = useSharedValue(1);
   // Inner-press flag — set to 1 while the touch lives inside an
   // interactive child Pressable (e.g. the Book Now button), so the
   // parent's Gesture.Tap onEnd skips its "open the Cars tab" route.
@@ -239,7 +245,27 @@ export function VehicleMaintenanceCard({
         easing: Easing.out(Easing.cubic),
       });
     }
+    // Bottom section: reset ABOVE its final position (translateY
+    // -40, opacity 0), then slide DOWN into place after a 400ms
+    // beat. This runs on EVERY vehicle change so the drop-down
+    // replays per card. Direction is unambiguous: starts above,
+    // ends at 0 — a clear top-to-bottom curtain drop.
+    bottomTranslateY.value = -40;
+    bottomOpacity.value = 0;
+    bottomTranslateY.value = withDelay(
+      400,
+      withTiming(0, { duration: 600, easing: Easing.out(Easing.cubic) }),
+    );
+    bottomOpacity.value = withDelay(
+      400,
+      withTiming(1, { duration: 600, easing: Easing.out(Easing.cubic) }),
+    );
   }, [currentIndex]);
+
+  const bottomAnimStyle = useAnimatedStyle(() => ({
+    opacity: bottomOpacity.value,
+    transform: [{ translateY: bottomTranslateY.value }],
+  }));
 
   const panGesture = Gesture.Pan()
     .activeOffsetX([-15, 15])
@@ -366,24 +392,21 @@ export function VehicleMaintenanceCard({
       </View>
 
       {/* Bottom Section - Maintenance List.
-          Wrapped in an Animated.View so the WHOLE bottom section
-          drops in as one unit after a beat. The card's top (image
-          + title) is present immediately; then the maintenance
-          list slides down together. Feels like one gesture rather
-          than N staggered per-row appearances.
-          Keyed on vehicle.id so React unmounts + remounts this
-          block on every vehicle swap — that's what makes the
-          `entering` animation replay per card.
-          Skipped entirely when `hideBottom` is set (the back card
-          case) — otherwise the back card shows the bottom section
-          at full opacity while the incoming front card fades in
-          with its own entering animation on top, and the user
-          sees a visible "already there then appears again" flash. */}
+          Slides down from ABOVE its final position (translateY -40
+          → 0) with a 400ms delay after the card mounts. Driven by
+          `bottomAnimStyle` — a shared-value pair reset + animated
+          per vehicle change in a useEffect. Reanimated's built-in
+          `entering` FadeInDown was too subtle (25pt travel) and
+          the perceived direction wasn't clear enough; controlling
+          it explicitly makes the top-to-bottom curtain drop
+          unambiguous.
+          Skipped entirely when `hideBottom` is set (back card) —
+          otherwise the back card's bottom would sit at full opacity
+          under the front card's drop-down and the user would see
+          the same content twice. */}
       {hideBottom ? null : (
       <Animated.View
-        key={vehicle.id}
-        style={styles.bottomSection}
-        entering={FadeInDown.delay(400).duration(600).easing(Easing.out(Easing.cubic))}
+        style={[styles.bottomSection, bottomAnimStyle]}
       >
         <View style={styles.maintenanceList}>
           {items.map((item, index) => (
