@@ -14,4 +14,12 @@ describe("vehicle switch clears booking service state", () => {
   test("selectVehicle clears booking services only when the vehicle changes", () => {
     expect(vehicleStore).toMatch(/if\s*\(previousVehicleId !== vehicleId\)\s*\{\s*useBookingStore\.getState\(\)\.clearSelectedServices\(\);\s*\}/s);
   });
+
+  test("clearSelectedServices also clears quoteAcceptContext", () => {
+    expect(bookingStore).toMatch(/clearSelectedServices:\s*\(\)\s*=>\s*\n\s*set\(\{[\s\S]*?quoteAcceptContext:\s*null,?\s*\n\s*\}\)/);
+  });
+
+  test("resetBookingFlow also clears quoteAcceptContext", () => {
+    expect(bookingStore).toMatch(/resetBookingFlow:\s*\(\)\s*=>\s*\n\s*set\(\{[\s\S]*?quoteAcceptContext:\s*null,?\s*\n[\s\S]*?\}\)/);
+  });
 });

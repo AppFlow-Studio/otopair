@@ -6,10 +6,11 @@
  *          a quotes_ready PendingQuoteCard in the Quotes tab.
  *
  *          Reads responses live from Convex (`tire_quote_responses.listForBookingWithShops`).
- *          The Book button calls `bookings.acceptTireQuote`, which fills in
- *          the chosen shop on the booking and flips it to "confirmed" — the
- *          card then leaves the Quotes tab and the booking shows up in the
- *          shop's portal as a real confirmed job.
+ *          "Choose time" stashes a `QuoteAcceptContext` on `useBookingStore`
+ *          and routes into `(booking-flow)/pick-datetime` so the customer
+ *          picks their own slot (no earlier than the shop's quoted
+ *          `availability`) — `bookings.acceptTireQuote` only fires once they
+ *          confirm on Review & Pay.
  *
  * USED IN: app/(main-tabs)/bookings/index.tsx
  *
@@ -20,7 +21,7 @@ import React, { forwardRef, useImperativeHandle, useMemo, useState } from "react
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
 
 import { X } from "lucide-react-native";
-import { useMutation, useQuery } from "convex/react";
+import { useQuery } from "convex/react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Text } from "@/components/shared-ui";
@@ -29,6 +30,32 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { TireQuote } from "@/constants/tireFlow";
 import { hhmmToDisplayTime } from "@/utils/timeSlotUtils";
+import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
+import { useBookingStore } from "@/stores/useBookingStore";
+
+/** Raw shape of a `tire_quote_responses.listForBookingWithShops` row —
+ *  carries the fields the adapted `TireQuote` display shape drops
+ *  (raw `availability`, `mechanic_id`, `estimated_duration_minutes`). */
+interface RawTireQuoteResponse {
+  _id: string;
+  shop_id: string;
+  mechanic_id?: string;
+  tire_brand: string;
+  tire_model?: string;
+  per_tire_price: number;
+  quantity: number;
+  labor_cost: number;
+  total: number;
+  availability: { date: string; time: string };
+  estimated_duration_minutes?: number;
+  shop: {
+    _id: string;
+    name: string;
+    rating: number;
+    distance_mi: number | null;
+    verified: boolean;
+  } | null;
+}
 
 /** Format a structured availability ({date, time}) into a single display
  *  string for `TireQuoteCard`. e.g. {date: "2026-05-15", time: "14:00"}
@@ -61,11 +88,13 @@ export const QuoteListSheet = forwardRef<QuoteListSheetRef, Props>(
     const [visible, setVisible] = useState(false);
     const [bookingId, setBookingId] = useState<string | null>(null);
 
+    const router = useRouter();
+    const setQuoteAcceptContext = useBookingStore((s) => s.setQuoteAcceptContext);
+
     const responses = useQuery(
       api.tire_quote_responses.listForBookingWithShops,
       bookingId ? { booking_id: bookingId as Id<"bookings"> } : "skip",
     );
-    const acceptQuote = useMutation(api.bookings.acceptTireQuote);
 
     useImperativeHandle(ref, () => ({
       open: (id) => {
@@ -87,24 +116,7 @@ export const QuoteListSheet = forwardRef<QuoteListSheetRef, Props>(
     // "Best match" picks the lowest total — heuristic until ranking lands.
     const adapted = useMemo<TireQuote[]>(() => {
       if (!responses || responses.length === 0) return [];
-      const list = responses as Array<{
-        _id: string;
-        shop_id: string;
-        tire_brand: string;
-        tire_model?: string;
-        per_tire_price: number;
-        quantity: number;
-        labor_cost: number;
-        total: number;
-        availability: { date: string; time: string };
-        shop: {
-          _id: string;
-          name: string;
-          rating: number;
-          distance_mi: number | null;
-          verified: boolean;
-        } | null;
-      }>;
+      const list = responses as RawTireQuoteResponse[];
       const lowestTotal = list.reduce(
         (min, r) => (r.total < min ? r.total : min),
         list[0].total,
@@ -139,22 +151,39 @@ export const QuoteListSheet = forwardRef<QuoteListSheetRef, Props>(
       return { best: b, others: rest };
     }, [adapted]);
 
-    const handleAccept = async (responseId: string) => {
-      if (!bookingId) return;
-      try {
-        await acceptQuote({
-          booking_id: bookingId as Id<"bookings">,
-          response_id: responseId as Id<"tire_quote_responses">,
-        });
-        // Booking is now `confirmed`; close the sheet — the card leaves the
-        // Quotes tab and the user will see it under Upcoming/Live Tracker.
-        setVisible(false);
-        onClose?.();
-      } catch (err) {
-        // Surface the error in dev; productionize later.
-        // eslint-disable-next-line no-console
-        console.warn("[QuoteListSheet] acceptTireQuote failed", err);
-      }
+    const handleChooseTime = (responseId: string) => {
+      if (!bookingId || !responses) return;
+      const response = (responses as RawTireQuoteResponse[]).find((r) => r._id === responseId);
+      if (!response) return;
+
+      const partsCost = response.per_tire_price * response.quantity;
+      const tireLabel = response.tire_model
+        ? `${response.tire_brand} ${response.tire_model}`
+        : response.tire_brand;
+      setQuoteAcceptContext({
+        bookingId: bookingId as Id<"bookings">,
+        quoteType: "tire",
+        responseId: response._id,
+        shopId: response.shop?._id ?? response.shop_id,
+        shopName: response.shop?.name ?? "Unknown shop",
+        mechanicId: response.mechanic_id ?? null,
+        minDate: response.availability.date,
+        minTime: response.availability.time,
+        estimatedDurationMinutes: response.estimated_duration_minutes,
+        laborCost: response.labor_cost,
+        partsCost,
+        lineItems: [
+          { label: `Tires (${tireLabel}, $${response.per_tire_price} × ${response.quantity})`, amount: partsCost },
+          { label: "Installation & labor", amount: response.labor_cost },
+        ],
+        quoteTotal: response.total,
+      });
+
+      // Booking stays in its current status until the customer confirms a
+      // slot + pays on Review & Pay — see (booking-flow)/pick-datetime.
+      setVisible(false);
+      onClose?.();
+      router.push("/(booking-flow)/pick-datetime");
     };
 
     const isLoading = bookingId != null && responses === undefined;
@@ -202,7 +231,7 @@ export const QuoteListSheet = forwardRef<QuoteListSheetRef, Props>(
                   <TireQuoteCard
                     quote={best}
                     variant="primary"
-                    onBook={() => handleAccept(best.id)}
+                    onBook={() => handleChooseTime(best.id)}
                   />
                 ) : null}
 
@@ -221,7 +250,7 @@ export const QuoteListSheet = forwardRef<QuoteListSheetRef, Props>(
                         key={q.id}
                         quote={q}
                         variant="secondary"
-                        onBook={() => handleAccept(q.id)}
+                        onBook={() => handleChooseTime(q.id)}
                       />
                     ))}
                   </>
