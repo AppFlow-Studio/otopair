@@ -14,7 +14,7 @@ import React from "react";
 import { StyleSheet, TouchableOpacity, View } from "react-native";
 
 import { Text } from "@/components/shared-ui";
-import type { RotorQuote } from "@/constants/rotorFlow";
+import { formatPadTypeLabel, type RotorQuote } from "@/constants/rotorFlow";
 import { useDistanceUnit } from "@/hooks/useDistanceUnit";
 import { formatProximityDistanceFromMiles } from "@/utils/geo";
 
@@ -39,6 +39,7 @@ export function RotorQuoteCard({ quote, variant, onBook }: Props) {
   const padQuantity = quote.padQuantity ?? quote.quantity;
   const padSubtotal =
     quote.padPrice != null ? quote.padPrice * padQuantity : null;
+  const padLabel = quote.padBrand?.trim() || formatPadTypeLabel(quote.padType);
 
   return (
     <View style={[styles.card, isPrimary ? styles.cardPrimary : styles.cardSecondary]}>
@@ -75,9 +76,9 @@ export function RotorQuoteCard({ quote, variant, onBook }: Props) {
 
       <View style={styles.itemBlock}>
         <ItemRow label={`Rotors (${perRotorLabel})`} value={formatMoney(rotorsSubtotal)} />
-        {quote.padBrand && padSubtotal != null ? (
+        {padSubtotal != null ? (
           <ItemRow
-            label={`Pads (${quote.padBrand})`}
+            label={padLabel ? `Pads (${padLabel})` : "Pads"}
             value={formatMoney(padSubtotal)}
           />
         ) : null}

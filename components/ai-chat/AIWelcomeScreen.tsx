@@ -23,6 +23,7 @@ import Animated, {
   FadeIn,
   FadeInUp,
   FadeInDown,
+  SlideInDown,
 } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -130,6 +131,15 @@ export function AIWelcomeScreen({ onContinue }: AIWelcomeScreenProps) {
     ? Math.max(insets.top - 16, 0)
     : insets.top + (useTightLayout ? 8 : 16);
   const contentMinHeight = Math.max(0, windowHeight - topPadding - effectiveBottomPadding);
+  const footerEntering = Platform.OS === 'android'
+    ? undefined
+    : FadeInDown.delay(700).duration(400);
+  const androidTermsEntering = Platform.OS === 'android'
+    ? FadeInDown.delay(700).duration(320)
+    : undefined;
+  const androidButtonEntering = Platform.OS === 'android'
+    ? SlideInDown.delay(760).duration(320)
+    : undefined;
 
   return (
     <View style={styles.container}>
@@ -198,31 +208,35 @@ export function AIWelcomeScreen({ onContinue }: AIWelcomeScreenProps) {
           {/* Footer inside content so the whole onboarding block centers together */}
           <Animated.View 
             style={[styles.footer, useTightLayout && styles.footerCompact]}
-            entering={FadeInDown.delay(700).duration(400)}
+            entering={footerEntering}
           >
-            <Text style={[styles.termsText, useTightLayout && styles.termsTextCompact]} size="sm">
-              By continuing, you agree to our{' '}
-              <Text style={styles.termsLink} size="sm" weight="semiBold">
-                Terms of Service
+            <Animated.View entering={androidTermsEntering}>
+              <Text style={[styles.termsText, useTightLayout && styles.termsTextCompact]} size="sm">
+                By continuing, you agree to our{' '}
+                <Text style={styles.termsLink} size="sm" weight="semiBold">
+                  Terms of Service
+                </Text>
+                {' '}and{' '}
+                <Text style={styles.termsLink} size="sm" weight="semiBold">
+                  Privacy Policy
+                </Text>
               </Text>
-              {' '}and{' '}
-              <Text style={styles.termsLink} size="sm" weight="semiBold">
-                Privacy Policy
-              </Text>
-            </Text>
+            </Animated.View>
 
-            <Pressable
-              onPress={onContinue}
-              style={({ pressed }) => [
-                styles.continueButton,
-                useTightLayout && styles.continueButtonCompact,
-                pressed && styles.continueButtonPressed,
-              ]}
-            >
-              <Text style={styles.continueButtonText} weight="semiBold">
-                Continue
-              </Text>
-            </Pressable>
+            <Animated.View entering={androidButtonEntering}>
+              <Pressable
+                onPress={onContinue}
+                style={({ pressed }) => [
+                  styles.continueButton,
+                  useTightLayout && styles.continueButtonCompact,
+                  pressed && styles.continueButtonPressed,
+                ]}
+              >
+                <Text style={styles.continueButtonText} weight="semiBold">
+                  Continue
+                </Text>
+              </Pressable>
+            </Animated.View>
           </Animated.View>
         </View>
       </ScrollView>

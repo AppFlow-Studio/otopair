@@ -18,10 +18,10 @@
  * OWNER: Ahmad Hamoudeh
  */
 
-import React, { useEffect, useState } from "react";
-import { Alert, Image, Pressable, StyleSheet, View } from "react-native";
+import React, { useEffect, useMemo, useState } from "react";
+import { Alert, Image, PixelRatio, Pressable, StyleSheet, View } from "react-native";
 
-import { ArrowRight, Car } from "lucide-react-native";
+import { ArrowRight } from "lucide-react-native";
 import Animated, { FadeOut, LinearTransition, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 
 import { Text } from "@/components/shared-ui";
@@ -87,6 +87,29 @@ function titleCase(str: string): string {
   return str.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+const ACTION_BUTTON_GAP = 10;
+const ACTION_BUTTON_HORIZONTAL_PADDING = 32;
+const ACTION_BUTTON_LABEL_MAX_SIZE = 14;
+const ACTION_BUTTON_LABEL_MIN_SIZE = 12;
+const ACTION_BUTTON_LONGEST_LABEL = "Cancel Request";
+const ACTION_BUTTON_LABEL_WIDTH_RATIO = 0.66;
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
+}
+
+function getActionButtonLabelSize(rowWidth: number, fontScale: number): number {
+  if (rowWidth <= 0) return ACTION_BUTTON_LABEL_MAX_SIZE;
+
+  const buttonWidth = (rowWidth - ACTION_BUTTON_GAP) / 2;
+  const availableLabelWidth = buttonWidth - ACTION_BUTTON_HORIZONTAL_PADDING;
+  const fittedSize =
+    availableLabelWidth /
+    (ACTION_BUTTON_LONGEST_LABEL.length * ACTION_BUTTON_LABEL_WIDTH_RATIO * fontScale);
+
+  return clamp(fittedSize, ACTION_BUTTON_LABEL_MIN_SIZE, ACTION_BUTTON_LABEL_MAX_SIZE);
+}
+
 // ============================================================================
 // COMPONENT
 // ============================================================================
@@ -114,6 +137,12 @@ export function PendingQuoteCard({
   const rotorSpecs = isRotor ? parseRotorSpecs(booking.notes) : null;
   const isReady = booking.status === "quotes_ready";
   const stageView = getBookingStageView(booking.status, booking.liveStage);
+  const [actionsRowWidth, setActionsRowWidth] = useState(0);
+  const fontScale = PixelRatio.getFontScale();
+  const actionButtonLabelSize = useMemo(
+    () => getActionButtonLabelSize(actionsRowWidth, fontScale),
+    [actionsRowWidth, fontScale],
+  );
 
   // Local "just cancelled" state. Mirrors BookingCard — see that file's
   // pattern for the rationale.
@@ -222,7 +251,10 @@ export function PendingQuoteCard({
 
       {/* Mode-specific footer/action */}
       {isReady ? (
-        <View style={styles.actionRow}>
+        <View
+          style={styles.actionRow}
+          onLayout={(event) => setActionsRowWidth(event.nativeEvent.layout.width)}
+        >
           <Pressable
             onPress={(e) => {
               e.stopPropagation?.();
@@ -230,7 +262,16 @@ export function PendingQuoteCard({
             }}
             style={({ pressed }) => [styles.viewButton, pressed && styles.viewButtonPressed]}
           >
-            <Text size="sm" weight="semiBold" color="#FFFFFF">
+            <Text
+              size={actionButtonLabelSize}
+              weight="semiBold"
+              color="#FFFFFF"
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.86}
+              lineHeight={1.2}
+              style={styles.actionButtonLabel}
+            >
               View quotes
             </Text>
             <ArrowRight size={16} color="#FFFFFF" strokeWidth={2.4} />
@@ -244,14 +285,26 @@ export function PendingQuoteCard({
               disabled={isCancelling}
               style={({ pressed }) => [styles.cancelOutlineButton, pressed && styles.viewButtonPressed]}
             >
-              <Text size="sm" weight="semiBold" color="#DC2626">
+              <Text
+                size={actionButtonLabelSize}
+                weight="semiBold"
+                color="#DC2626"
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.86}
+                lineHeight={1.2}
+                style={styles.actionButtonLabel}
+              >
                 Cancel Request
               </Text>
             </Pressable>
           ) : null}
         </View>
       ) : (
-        <View style={styles.actionRow}>
+        <View
+          style={styles.actionRow}
+          onLayout={(event) => setActionsRowWidth(event.nativeEvent.layout.width)}
+        >
           <Pressable
             onPress={(e) => {
               e.stopPropagation?.();
@@ -261,7 +314,16 @@ export function PendingQuoteCard({
             disabled={isCancelling}
             style={({ pressed }) => [styles.viewButton, pressed && styles.viewButtonPressed]}
           >
-            <Text size="sm" weight="semiBold" color="#FFFFFF">
+            <Text
+              size={actionButtonLabelSize}
+              weight="semiBold"
+              color="#FFFFFF"
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.86}
+              lineHeight={1.2}
+              style={styles.actionButtonLabel}
+            >
               View Details
             </Text>
           </Pressable>
@@ -274,7 +336,16 @@ export function PendingQuoteCard({
               disabled={isCancelling}
               style={({ pressed }) => [styles.cancelOutlineButton, pressed && styles.viewButtonPressed]}
             >
-              <Text size="sm" weight="semiBold" color="#DC2626">
+              <Text
+                size={actionButtonLabelSize}
+                weight="semiBold"
+                color="#DC2626"
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.86}
+                lineHeight={1.2}
+                style={styles.actionButtonLabel}
+              >
                 Cancel Request
               </Text>
             </Pressable>
@@ -414,8 +485,13 @@ const styles = StyleSheet.create({
   actionRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: ACTION_BUTTON_GAP,
     marginTop: 14,
+  },
+  actionButtonLabel: {
+    minWidth: 0,
+    flexShrink: 1,
+    textAlign: "center",
   },
   pendingFooter: {
     flex: 1,

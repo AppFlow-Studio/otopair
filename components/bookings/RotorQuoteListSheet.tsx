@@ -22,7 +22,7 @@ import { Text } from "@/components/shared-ui";
 import { RotorQuoteCard } from "@/components/rotor-booking/RotorQuoteCard";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import type { RotorQuote } from "@/constants/rotorFlow";
+import { formatPadTypeLabel, type RotorQuote } from "@/constants/rotorFlow";
 import { hhmmToDisplayTime } from "@/utils/timeSlotUtils";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { useBookingStore } from "@/stores/useBookingStore";
@@ -41,6 +41,7 @@ interface RawRotorQuoteResponse {
   labor_cost: number;
   total: number;
   pad_brand?: string;
+  pad_type?: RotorQuote["padType"];
   pad_price?: number;
   pad_quantity?: number;
   availability: { date: string; time: string };
@@ -133,6 +134,10 @@ export const RotorQuoteListSheet = forwardRef<RotorQuoteListSheetRef, Props>(
           total: r.total,
           availability: formatAvailability(r.availability.date, r.availability.time),
           isBestMatch,
+          padBrand: r.pad_brand,
+          padType: r.pad_type,
+          padPrice: r.pad_price,
+          padQuantity: r.pad_quantity,
         };
       });
     }, [responses]);
@@ -152,13 +157,14 @@ export const RotorQuoteListSheet = forwardRef<RotorQuoteListSheetRef, Props>(
       const rotorsSubtotal = response.per_rotor_price * response.quantity;
       const padQuantity = response.pad_quantity ?? response.quantity;
       const padSubtotal = response.pad_price != null ? response.pad_price * padQuantity : null;
+      const padLabel = response.pad_brand?.trim() || formatPadTypeLabel(response.pad_type);
       const rotorLabel = response.rotor_model
         ? `${response.rotor_brand} ${response.rotor_model}`
         : response.rotor_brand;
       const lineItems = [
         { label: `Rotors (${rotorLabel}, $${response.per_rotor_price} × ${response.quantity})`, amount: rotorsSubtotal },
-        ...(response.pad_brand && padSubtotal != null
-          ? [{ label: `Pads (${response.pad_brand})`, amount: padSubtotal }]
+        ...(padSubtotal != null
+          ? [{ label: padLabel ? `Pads (${padLabel})` : "Pads", amount: padSubtotal }]
           : []),
         { label: "Installation & labor", amount: response.labor_cost },
       ];

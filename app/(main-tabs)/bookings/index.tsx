@@ -45,7 +45,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Image, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
 import Animated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import SegmentedControl from "@react-native-segmented-control/segmented-control";
 
 // ============================================================================
 // TYPES
@@ -53,6 +52,11 @@ import SegmentedControl from "@react-native-segmented-control/segmented-control"
 
 type TabType = "bookings" | "quotes" | "recommended";
 const TAB_ORDER: TabType[] = ["bookings", "quotes", "recommended"];
+const TAB_LABELS: Record<TabType, string> = {
+  bookings: "Bookings",
+  quotes: "Quotes",
+  recommended: "Recommended",
+};
 const BOTTOM_NAV_SCROLL_CLEARANCE = 96;
 
 // ============================================================================
@@ -326,14 +330,37 @@ export default function BookingsScreen() {
 
             {/* Tab Switcher */}
             <View style={styles.segmentedWrapper}>
-              <SegmentedControl
-                values={["Bookings", "Quotes", "Recommended"]}
-                selectedIndex={TAB_ORDER.indexOf(activeTab)}
-                onChange={(event) => {
-                  setActiveTab(TAB_ORDER[event.nativeEvent.selectedSegmentIndex]);
-                }}
-                style={styles.segmentedControl}
-              />
+              <View style={styles.segmentedControl} accessibilityRole="tablist">
+                {TAB_ORDER.map((tab) => {
+                  const isSelected = activeTab === tab;
+                  return (
+                    <Pressable
+                      key={tab}
+                      onPress={() => setActiveTab(tab)}
+                      accessibilityRole="tab"
+                      accessibilityState={{ selected: isSelected }}
+                      style={({ pressed }) => [
+                        styles.segmentButton,
+                        isSelected && styles.segmentButtonActive,
+                        pressed && !isSelected && styles.segmentButtonPressed,
+                      ]}
+                    >
+                      <Text
+                        size="sm"
+                        weight="semiBold"
+                        color="#FFFFFF"
+                        numberOfLines={1}
+                        adjustsFontSizeToFit
+                        minimumFontScale={0.72}
+                        lineHeight={1.05}
+                        style={styles.segmentLabel}
+                      >
+                        {TAB_LABELS[tab]}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
             </View>
 
             {/* Vehicle picker + pending-review shortcut. */}
@@ -596,6 +623,32 @@ const styles = StyleSheet.create({
   },
   segmentedControl: {
     height: 44,
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 3,
+    borderRadius: 8,
+    backgroundColor: "#111111",
+    overflow: "hidden",
+  },
+  segmentButton: {
+    flex: 1,
+    minWidth: 0,
+    height: 38,
+    borderRadius: 6,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 5,
+  },
+  segmentButtonActive: {
+    backgroundColor: "#5F6063",
+  },
+  segmentButtonPressed: {
+    backgroundColor: "rgba(255,255,255,0.10)",
+  },
+  segmentLabel: {
+    width: "100%",
+    textAlign: "center",
+    includeFontPadding: false,
   },
   // Vehicle picker button + sheet
   pickerRow: {

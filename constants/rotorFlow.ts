@@ -98,11 +98,18 @@ export const PAD_TYPE_OPTIONS: PadTypeOption[] = [
   { id: "semi_metallic", label: "Semi-metallic" },
 ];
 
+export function formatPadTypeLabel(padType: PadType | string | null | undefined): string | null {
+  if (!padType) return null;
+  const option = PAD_TYPE_OPTIONS.find((o) => o.id === padType);
+  if (option) return option.label;
+  return padType.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 // ============================================================================
 // MOCK SHOP RESPONSE GENERATOR — dev fixture
 // ============================================================================
 
-const BRAND_POOL: Record<BrakeSystemType, Array<{ brand: string; model: string }>> = {
+const BRAND_POOL: Record<BrakeSystemType, { brand: string; model: string }[]> = {
   standard: [
     { brand: "Bosch", model: "QuietCast Premium" },
     { brand: "Akebono", model: "Pro-ACT Disc" },
@@ -123,7 +130,7 @@ const BRAND_POOL: Record<BrakeSystemType, Array<{ brand: string; model: string }
   ],
 };
 
-const PAD_BRAND_POOL: Record<PadType, Array<{ brand: string; label: string }>> = {
+const PAD_BRAND_POOL: Record<PadType, { brand: string; label: string }[]> = {
   oem_recommended: [
     { brand: "Akebono", label: "OEM-equivalent" },
     { brand: "Bosch", label: "OEM Spec" },
