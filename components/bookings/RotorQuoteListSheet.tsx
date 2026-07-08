@@ -181,9 +181,15 @@ export const RotorQuoteListSheet = forwardRef<RotorQuoteListSheetRef, Props>(
 
       // Booking stays in its current status until the customer confirms a
       // slot + pays on Review & Pay — see (booking-flow)/pick-datetime.
+      // shopId also rides along as a URL param (not just quoteAcceptContext)
+      // so pick-datetime's "bounce if shopId is missing" guard doesn't fire
+      // once quoteAcceptContext is cleared after a successful confirm —
+      // pick-datetime stays mounted in the background under payment/
+      // confirming/confirmation, so it still re-renders on that clear.
+      const shopId = response.shop?._id ?? response.shop_id;
       setVisible(false);
       onClose?.();
-      router.push("/(booking-flow)/pick-datetime");
+      router.push({ pathname: "/(booking-flow)/pick-datetime", params: { shopId } });
     };
 
     const isLoading = bookingId != null && responses === undefined;
