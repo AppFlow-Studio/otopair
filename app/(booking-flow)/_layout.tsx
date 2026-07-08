@@ -3,10 +3,13 @@ import React, { useCallback, useEffect, useRef } from "react";
 import { StyleSheet, View } from "react-native";
 
 import { BookingFlowMapProvider } from "@/components/booking-flow/BookingFlowMap";
+import { EnrichmentStatusPill } from "@/components/booking-flow/EnrichmentStatusPill";
 import { AddVehicleRequiredSheet } from "@/components/home/AddVehicleRequiredSheet";
 import type { FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
 import { BrandColors } from "@/constants/theme";
 import { useVehicleOwnershipFromConvex } from "@/hooks/useVehicleOwnershipFromConvex";
+import { useBookingStore } from "@/stores/useBookingStore";
+import { useVehicleStore } from "@/stores/useVehicleStore";
 
 /**
  * Booking-flow Stack — the 4-screen linear flow that replaces the
@@ -26,6 +29,27 @@ import { useVehicleOwnershipFromConvex } from "@/hooks/useVehicleOwnershipFromCo
  */
 export default function BookingFlowLayout() {
   const { hasVehicles, isLoading } = useVehicleOwnershipFromConvex();
+
+  // Cart-vehicle guard. The cart (`selectedServiceIds`) is snapshotted to
+  // the vehicle it was started for (`selectedVehicleVin`); nothing else
+  // evicts it when the active car changes. Without this, a cart built for
+  // car A survives switching to car B — including an ENRICHING car whose
+  // services aren't even selectable — and the stale "Continue · N services"
+  // pill lets the user check out services that don't apply. Runs on flow
+  // entry and again on any mid-flow switch via the VehiclePuck sheet (this
+  // layout stays mounted for the whole flow). Options are keyed by the old
+  // car's service ids, so they go too. The Resume Booking card on Home
+  // re-selects its snapshot vehicle before navigating here, so resuming
+  // never trips this.
+  const selectedVehicleId = useVehicleStore((s) => s.selectedVehicleId);
+  useEffect(() => {
+    const { selectedServiceIds, selectedVehicleVin, clearSelectedServices, clearSelectedServiceOptions } =
+      useBookingStore.getState();
+    if (selectedServiceIds.length > 0 && selectedVehicleVin && selectedVehicleVin !== selectedVehicleId) {
+      clearSelectedServices();
+      clearSelectedServiceOptions();
+    }
+  }, [selectedVehicleId]);
 
   if (isLoading) {
     return <View style={styles.gateRoot} />;
@@ -59,6 +83,11 @@ export default function BookingFlowLayout() {
         <Stack.Screen name="pick-datetime" />
         <Stack.Screen name="search" />
       </Stack>
+      {/* Persistent "Connecting to your car · ~N min" pill. Lives at the
+          layout level (not per-screen) so it stays up across the whole
+          flow for as long as the active vehicle is enriching, instead of
+          the old one-shot toast that faded out while the block remained. */}
+      <EnrichmentStatusPill />
     </BookingFlowMapProvider>
   );
 }
