@@ -1456,7 +1456,6 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
     paddingLeft: 0,
-    paddingRight: 8,
   },
   locationText: {
     flex: 1,
@@ -1467,6 +1466,7 @@ const styles = StyleSheet.create({
   },
   locationName: {
     flexShrink: 1,
+    width: "100%",
   },
   headerRight: {
     flexDirection: "row",
