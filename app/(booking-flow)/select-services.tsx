@@ -525,7 +525,7 @@ export default function SelectServicesScreen() {
           styling. */}
       {!isPeekExpanded && region ? (
         <View
-          style={[styles.peekRail, { top: insets.top + 280 }]}
+          style={[styles.peekRail, { top: insets.top + 380 }]}
           pointerEvents="box-none"
         >
           <Pressable
