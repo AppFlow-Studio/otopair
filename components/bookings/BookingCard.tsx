@@ -26,7 +26,7 @@
 
 // 1. React & React Native
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Image, Pressable, StyleSheet, View } from 'react-native';
+import { Alert, Image, Platform, Pressable, StyleSheet, View } from 'react-native';
 import type { View as RNView } from 'react-native';
 
 // 2. Expo & Third-party
@@ -41,6 +41,8 @@ import { ApprovalBanner } from '@/components/booking/ApprovalBanner';
 import { getBookingStageView } from '@/utils/bookingStages';
 import { useRescheduleDecisionOverlayStore } from '@/stores/useRescheduleDecisionOverlayStore';
 import type { Id } from '@/convex/_generated/dataModel';
+
+const CARD_EXIT_ANIMATION = Platform.OS === 'android' ? undefined : FadeOut.duration(220);
 
 // ============================================================================
 // TYPES
@@ -306,7 +308,7 @@ export function BookingCard({
   return (
     <Animated.View
       style={[styles.card, dimStyle]}
-      exiting={FadeOut.duration(220)}
+      exiting={CARD_EXIT_ANIMATION}
       layout={LinearTransition.duration(260)}
     >
       {/* Lifecycle progress bar — see utils/bookingStages.ts. The status

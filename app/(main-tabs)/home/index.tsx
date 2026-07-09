@@ -982,7 +982,13 @@ export default function HomeScreen() {
                   <Text size="xl" color="#FFFFFF" weight="bold">
                     Otopair
                   </Text>
-                  <Text weight="semiBold" size="sm" color="#FFFFFF">
+                  <Text
+                    weight="semiBold"
+                    size="sm"
+                    color="#FFFFFF"
+                    numberOfLines={3}
+                    style={styles.locationName}
+                  >
                     {locationName}
                   </Text>
                 </View>
@@ -1448,16 +1454,24 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 2,
     flex: 1,
+    minWidth: 0,
     paddingLeft: 0,
+    paddingRight: 8,
   },
   locationText: {
+    flex: 1,
+    minWidth: 0,
     gap: 0,
     marginTop: -7,
     marginLeft: 12,
   },
+  locationName: {
+    flexShrink: 1,
+  },
   headerRight: {
     flexDirection: "row",
     alignItems: "center",
+    flexShrink: 0,
     gap: 8,
   },
   goldTierBadge: {

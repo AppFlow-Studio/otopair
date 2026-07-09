@@ -19,7 +19,7 @@
  */
 
 import React, { useEffect, useState } from "react";
-import { Alert, Image, Pressable, StyleSheet, View } from "react-native";
+import { Alert, Image, Platform, Pressable, StyleSheet, View } from "react-native";
 
 import Animated, { FadeOut, LinearTransition, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 
@@ -27,6 +27,8 @@ import { Text } from "@/components/shared-ui";
 import { type Booking } from "@/components/bookings/BookingCard";
 import { BookingProgressBar } from "@/components/bookings/BookingProgressBar";
 import { getBookingStageView } from "@/utils/bookingStages";
+
+const CARD_EXIT_ANIMATION = Platform.OS === "android" ? undefined : FadeOut.duration(220);
 
 // ============================================================================
 // HELPERS
@@ -131,7 +133,7 @@ export function PendingQuoteCard({
   return (
     <Animated.View
       style={dimStyle}
-      exiting={FadeOut.duration(220)}
+      exiting={CARD_EXIT_ANIMATION}
       layout={LinearTransition.duration(260)}
     >
     <Pressable
