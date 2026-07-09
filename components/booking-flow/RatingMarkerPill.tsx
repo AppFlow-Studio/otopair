@@ -62,7 +62,7 @@ function RatingMarkerPillComponent({
           />
           <Text
             weight="bold"
-            color={isSelected ? "#FFFFFF" : "#0F172A"}
+            color="#0F172A"
             style={styles.ratingText}
           >
             {rating.toFixed(1)}
@@ -101,11 +101,13 @@ const styles = StyleSheet.create({
     borderRadius: 999,
   },
   pillSelected: {
-    // Brand blue selected state — matches every other primary CTA
-    // in the app (Book Service, Continue, etc.) so the pin's "this
-    // is the active shop" cue reads as consistent with the app's
-    // primary action color.
-    backgroundColor: "#5299FE",
+    // Selected state stays WHITE per Ahmad — differentiated from
+    // the resting state by a brand-blue border ring + a bigger
+    // brand-blue glow shadow so it reads as "active" without
+    // changing the pill's fill color.
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1.5,
+    borderColor: "#5299FE",
     shadowColor: "#5299FE",
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.35,
