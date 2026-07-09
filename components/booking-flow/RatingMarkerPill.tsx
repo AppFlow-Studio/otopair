@@ -1,14 +1,19 @@
 /**
- * RatingMarkerPill — ChatGPT-style map pin for booking-flow shop pins.
+ * RatingMarkerPill — Otopair-themed map pin for booking-flow shop pins.
  *
  * Rendered as the child of a react-native-maps `<Marker>` (the same
  * custom-child pattern proven by `components/booking/ShopMarker.tsx`).
  * Two rows stacked:
- *  1. Small pill: ★ icon + rating to 1 decimal. Selected → black bg
- *     with white fg; unselected → white bg with black fg and a soft
- *     drop shadow so it pops on map tiles.
+ *  1. Pill: mini Otopair pin logo + amber star icon + rating to 1
+ *     decimal. Selected → brand-blue bg with white fg; unselected →
+ *     white bg with dark fg and a soft drop shadow so it pops on
+ *     map tiles.
  *  2. Shop name in bold below the pill, white text-shadow halo so
  *     it stays legible over any map tile color.
+ *
+ * The Otopair logo makes the pin unmistakably ours vs. a generic
+ * map marker. Star stays amber in both selected/unselected states
+ * for brand consistency with the rest of the app's star treatments.
  *
  * Consumer is responsible for wrapping in `<Marker>` with
  * `anchor={{ x: 0.5, y: 0.5 }}` and `tracksViewChanges={false}` (with
@@ -17,10 +22,12 @@
  */
 
 import React, { memo } from "react";
-import { StyleSheet, View } from "react-native";
+import { Image, StyleSheet, View } from "react-native";
 import { Star } from "lucide-react-native";
 
 import { Text } from "@/components/shared-ui";
+
+const OTOPAIR_LOGO = require("@/assets/images/pin-logo-3d.png");
 
 /** How long the host should keep `tracksViewChanges={true}` after the
  *  `isSelected` style flips, before going back to false. Long enough
@@ -46,10 +53,11 @@ function RatingMarkerPillComponent({
     <View style={styles.container} pointerEvents="none">
       {rating != null ? (
         <View style={[styles.pill, isSelected ? styles.pillSelected : styles.pillUnselected]}>
+          <Image source={OTOPAIR_LOGO} style={styles.logo} resizeMode="contain" />
           <Star
             size={11}
-            color={isSelected ? "#FFFFFF" : "#0F172A"}
-            fill={isSelected ? "#FFFFFF" : "#0F172A"}
+            color="#F59E0B"
+            fill="#F59E0B"
             strokeWidth={2}
           />
           <Text
@@ -87,25 +95,37 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingLeft: 4,
+    paddingRight: 10,
+    paddingVertical: 3,
     borderRadius: 999,
   },
   pillSelected: {
-    backgroundColor: "#0F172A",
-    shadowColor: "#0F172A",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-    elevation: 4,
+    // Brand blue selected state — matches every other primary CTA
+    // in the app (Book Service, Continue, etc.) so the pin's "this
+    // is the active shop" cue reads as consistent with the app's
+    // primary action color.
+    backgroundColor: "#5299FE",
+    shadowColor: "#5299FE",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.35,
+    shadowRadius: 6,
+    elevation: 5,
   },
   pillUnselected: {
     backgroundColor: "#FFFFFF",
-    shadowColor: "#000000",
+    shadowColor: "#0F172A",
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.18,
     shadowRadius: 3,
     elevation: 3,
+  },
+  logo: {
+    // Small Otopair pin logo tucked at the left edge of the pill.
+    // Sized to match the star icon so the row reads as a balanced
+    // triplet: logo · star · rating.
+    width: 18,
+    height: 18,
   },
   ratingText: {
     fontSize: 12,
