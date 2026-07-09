@@ -23,7 +23,6 @@ import Animated, {
   FadeIn,
   FadeInUp,
   FadeInDown,
-  SlideInDown,
 } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -138,7 +137,7 @@ export function AIWelcomeScreen({ onContinue }: AIWelcomeScreenProps) {
     ? FadeInDown.delay(700).duration(320)
     : undefined;
   const androidButtonEntering = Platform.OS === 'android'
-    ? SlideInDown.delay(760).duration(320)
+    ? FadeIn.delay(760).duration(320)
     : undefined;
 
   return (
@@ -223,7 +222,11 @@ export function AIWelcomeScreen({ onContinue }: AIWelcomeScreenProps) {
               </Text>
             </Animated.View>
 
-            <Animated.View entering={androidButtonEntering}>
+            <Animated.View
+              entering={androidButtonEntering}
+              needsOffscreenAlphaCompositing={Platform.OS === 'android'}
+              renderToHardwareTextureAndroid={Platform.OS === 'android'}
+            >
               <Pressable
                 onPress={onContinue}
                 style={({ pressed }) => [
