@@ -15,6 +15,7 @@ import React from "react";
 import { Image, Pressable, StyleSheet, View } from "react-native";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { Star } from "lucide-react-native";
+import Animated from "react-native-reanimated";
 
 import { Text } from "@/components/shared-ui";
 
@@ -69,15 +70,25 @@ export function MapBrowseShopCard({
       </View>
 
       <View style={styles.body}>
-        <Text
-          size="md"
-          weight="bold"
-          color="#0F172A"
-          numberOfLines={1}
-          style={styles.name}
+        {/* Wrapped in an Animated.View with `sharedTransitionTag`
+            so Reanimated can morph this text into the matching
+            title on the shop detail page (see components/shop/
+            ShopHeroCard.tsx). Tag is scoped by shopId so multiple
+            pins on the same map don't collide. */}
+        <Animated.View
+          sharedTransitionTag={`shop-${shopId}-name`}
+          style={styles.nameSharedWrap}
         >
-          {shopName}
-        </Text>
+          <Text
+            size="md"
+            weight="bold"
+            color="#0F172A"
+            numberOfLines={1}
+            style={styles.name}
+          >
+            {shopName}
+          </Text>
+        </Animated.View>
 
         <View style={styles.metaRow}>
           {rating != null ? (
@@ -130,6 +141,13 @@ const styles = StyleSheet.create({
   },
   cardPressed: {
     opacity: 0.92,
+  },
+  nameSharedWrap: {
+    // Wrapper for the shared-element transition target. No
+    // visual — just a positioned Animated.View so Reanimated
+    // has a stable node to interpolate to the shop detail's
+    // hero title.
+    alignSelf: "flex-start",
   },
   image: {
     width: 80,

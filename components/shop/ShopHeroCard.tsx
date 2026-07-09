@@ -11,6 +11,7 @@
 
 import React, { useMemo, useState } from "react";
 import { Linking, PixelRatio, Pressable, StyleSheet, View } from "react-native";
+import Animated from "react-native-reanimated";
 
 import { Bookmark, Calendar, Navigation, Phone, Star } from "lucide-react-native";
 
@@ -94,9 +95,15 @@ export function ShopHeroCard({
 
   return (
     <View style={styles.card}>
-      <Text size="2xl" weight="bold" color={BrandColors.primary} numberOfLines={2}>
-        {shop.name}
-      </Text>
+      {/* Shared-element transition target — matches the tag on
+          MapBrowseShopCard so Reanimated morphs the name text
+          from the peek-mode browse card into this hero title
+          when the user taps the card. */}
+      <Animated.View sharedTransitionTag={`shop-${shop.id}-name`}>
+        <Text size="2xl" weight="bold" color={BrandColors.primary} numberOfLines={2}>
+          {shop.name}
+        </Text>
+      </Animated.View>
 
       <View style={styles.metaRow}>
         {rating !== null ? (
