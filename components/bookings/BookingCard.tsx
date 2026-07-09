@@ -26,7 +26,7 @@
 
 // 1. React & React Native
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Image, PixelRatio, Pressable, StyleSheet, View } from 'react-native';
+import { Alert, Image, Pressable, StyleSheet, View } from 'react-native';
 import type { View as RNView } from 'react-native';
 
 // 2. Expo & Third-party
@@ -120,33 +120,7 @@ function titleCase(str: string): string {
 }
 
 const ACTION_BUTTON_GAP = 10;
-const ACTION_BUTTON_HORIZONTAL_PADDING = 32;
-const ACTION_BUTTON_LABEL_MAX_SIZE = 14;
-const ACTION_BUTTON_LABEL_MIN_SIZE = 12;
-const ACTION_BUTTON_LONGEST_LABEL = 'Cancel Booking';
-const ACTION_BUTTON_LABEL_WIDTH_RATIO = 0.66;
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(Math.max(value, min), max);
-}
-
-function getActionButtonLabelSize(rowWidth: number, fontScale: number): number {
-  if (rowWidth <= 0) {
-    return ACTION_BUTTON_LABEL_MAX_SIZE;
-  }
-
-  const buttonWidth = (rowWidth - ACTION_BUTTON_GAP) / 2;
-  const availableLabelWidth = buttonWidth - ACTION_BUTTON_HORIZONTAL_PADDING;
-  const fittedSize =
-    availableLabelWidth /
-    (ACTION_BUTTON_LONGEST_LABEL.length * ACTION_BUTTON_LABEL_WIDTH_RATIO * fontScale);
-
-  return clamp(
-    fittedSize,
-    ACTION_BUTTON_LABEL_MIN_SIZE,
-    ACTION_BUTTON_LABEL_MAX_SIZE,
-  );
-}
+const ACTION_BUTTON_LABEL_SIZE = 15;
 
 // ============================================================================
 // STATUS CONFIG
@@ -226,7 +200,6 @@ export function BookingCard({
   const router = useRouter();
   const openRescheduleDecision = useRescheduleDecisionOverlayStore((s) => s.open);
   const primaryBtnRef = useRef<RNView | null>(null);
-  const [actionsRowWidth, setActionsRowWidth] = useState(0);
   // Local "just cancelled" state. The card swaps the badge + dims for ~450ms
   // before we actually call onCancelBooking; the parent's data-source change
   // then triggers the FadeOut exit, and `layout` shifts siblings up.
@@ -249,11 +222,6 @@ export function BookingCard({
   const dimStyle = useAnimatedStyle(() => ({ opacity: dim.value }));
   const [carImageError, setCarImageError] = useState(false);
   const showCarPlaceholder = !booking.makeLogoUrl?.trim() || carImageError;
-  const fontScale = PixelRatio.getFontScale();
-  const actionButtonLabelSize = useMemo(
-    () => getActionButtonLabelSize(actionsRowWidth, fontScale),
-    [actionsRowWidth, fontScale],
-  );
   
   // Invoice number wins when the mechanic has attached one; otherwise
   // fall back to the last-6 of the convex booking id so the customer
@@ -542,7 +510,6 @@ export function BookingCard({
       {variant === 'upcoming' ? (
         <View
           style={styles.actionsStack}
-          onLayout={(event) => setActionsRowWidth(event.nativeEvent.layout.width)}
           pointerEvents={isCancelling ? 'none' : 'auto'}
         >
           <Pressable
@@ -557,7 +524,7 @@ export function BookingCard({
           >
             <Text
               weight="semiBold"
-              size={actionButtonLabelSize}
+              size={ACTION_BUTTON_LABEL_SIZE}
               color="#FFFFFF"
               numberOfLines={1}
               lineHeight={1.2}
@@ -581,7 +548,7 @@ export function BookingCard({
               >
                 <Text
                   weight="semiBold"
-                  size={actionButtonLabelSize}
+                  size={ACTION_BUTTON_LABEL_SIZE}
                   color="#DC2626"
                   numberOfLines={1}
                   lineHeight={1.2}
@@ -601,7 +568,7 @@ export function BookingCard({
               >
                 <Text
                   weight="semiBold"
-                  size={actionButtonLabelSize}
+                  size={ACTION_BUTTON_LABEL_SIZE}
                   color="#1F2937"
                   numberOfLines={1}
                   lineHeight={1.2}
@@ -803,7 +770,7 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     minWidth: 0,
     height: 48,
-    paddingHorizontal: 16,
+    paddingHorizontal: 8,
     borderRadius: 12,
     backgroundColor: '#5299FE',
     alignItems: 'center',
@@ -820,7 +787,7 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     minWidth: 0,
     height: 48,
-    paddingHorizontal: 16,
+    paddingHorizontal: 8,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: '#E5E7EB',
@@ -834,7 +801,7 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     minWidth: 0,
     height: 48,
-    paddingHorizontal: 16,
+    paddingHorizontal: 8,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: '#FECACA',

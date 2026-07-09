@@ -18,10 +18,9 @@
  * OWNER: Ahmad Hamoudeh
  */
 
-import React, { useEffect, useMemo, useState } from "react";
-import { Alert, Image, PixelRatio, Pressable, StyleSheet, View } from "react-native";
+import React, { useEffect, useState } from "react";
+import { Alert, Image, Pressable, StyleSheet, View } from "react-native";
 
-import { ArrowRight } from "lucide-react-native";
 import Animated, { FadeOut, LinearTransition, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 
 import { Text } from "@/components/shared-ui";
@@ -88,27 +87,7 @@ function titleCase(str: string): string {
 }
 
 const ACTION_BUTTON_GAP = 10;
-const ACTION_BUTTON_HORIZONTAL_PADDING = 32;
-const ACTION_BUTTON_LABEL_MAX_SIZE = 14;
-const ACTION_BUTTON_LABEL_MIN_SIZE = 12;
-const ACTION_BUTTON_LONGEST_LABEL = "Cancel Request";
-const ACTION_BUTTON_LABEL_WIDTH_RATIO = 0.66;
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(Math.max(value, min), max);
-}
-
-function getActionButtonLabelSize(rowWidth: number, fontScale: number): number {
-  if (rowWidth <= 0) return ACTION_BUTTON_LABEL_MAX_SIZE;
-
-  const buttonWidth = (rowWidth - ACTION_BUTTON_GAP) / 2;
-  const availableLabelWidth = buttonWidth - ACTION_BUTTON_HORIZONTAL_PADDING;
-  const fittedSize =
-    availableLabelWidth /
-    (ACTION_BUTTON_LONGEST_LABEL.length * ACTION_BUTTON_LABEL_WIDTH_RATIO * fontScale);
-
-  return clamp(fittedSize, ACTION_BUTTON_LABEL_MIN_SIZE, ACTION_BUTTON_LABEL_MAX_SIZE);
-}
+const ACTION_BUTTON_LABEL_SIZE = 15;
 
 // ============================================================================
 // COMPONENT
@@ -137,12 +116,6 @@ export function PendingQuoteCard({
   const rotorSpecs = isRotor ? parseRotorSpecs(booking.notes) : null;
   const isReady = booking.status === "quotes_ready";
   const stageView = getBookingStageView(booking.status, booking.liveStage);
-  const [actionsRowWidth, setActionsRowWidth] = useState(0);
-  const fontScale = PixelRatio.getFontScale();
-  const actionButtonLabelSize = useMemo(
-    () => getActionButtonLabelSize(actionsRowWidth, fontScale),
-    [actionsRowWidth, fontScale],
-  );
 
   // Local "just cancelled" state. Mirrors BookingCard — see that file's
   // pattern for the rationale.
@@ -251,10 +224,7 @@ export function PendingQuoteCard({
 
       {/* Mode-specific footer/action */}
       {isReady ? (
-        <View
-          style={styles.actionRow}
-          onLayout={(event) => setActionsRowWidth(event.nativeEvent.layout.width)}
-        >
+        <View style={styles.actionRow}>
           <Pressable
             onPress={(e) => {
               e.stopPropagation?.();
@@ -263,18 +233,15 @@ export function PendingQuoteCard({
             style={({ pressed }) => [styles.viewButton, pressed && styles.viewButtonPressed]}
           >
             <Text
-              size={actionButtonLabelSize}
+              size={ACTION_BUTTON_LABEL_SIZE}
               weight="semiBold"
               color="#FFFFFF"
               numberOfLines={1}
-              adjustsFontSizeToFit
-              minimumFontScale={0.86}
               lineHeight={1.2}
               style={styles.actionButtonLabel}
             >
-              View quotes
+              View Quotes
             </Text>
-            <ArrowRight size={16} color="#FFFFFF" strokeWidth={2.4} />
           </Pressable>
           {onCancel && booking.status !== "cancelled" ? (
             <Pressable
@@ -286,12 +253,10 @@ export function PendingQuoteCard({
               style={({ pressed }) => [styles.cancelOutlineButton, pressed && styles.viewButtonPressed]}
             >
               <Text
-                size={actionButtonLabelSize}
+                size={ACTION_BUTTON_LABEL_SIZE}
                 weight="semiBold"
                 color="#DC2626"
                 numberOfLines={1}
-                adjustsFontSizeToFit
-                minimumFontScale={0.86}
                 lineHeight={1.2}
                 style={styles.actionButtonLabel}
               >
@@ -301,10 +266,7 @@ export function PendingQuoteCard({
           ) : null}
         </View>
       ) : (
-        <View
-          style={styles.actionRow}
-          onLayout={(event) => setActionsRowWidth(event.nativeEvent.layout.width)}
-        >
+        <View style={styles.actionRow}>
           <Pressable
             onPress={(e) => {
               e.stopPropagation?.();
@@ -315,12 +277,10 @@ export function PendingQuoteCard({
             style={({ pressed }) => [styles.viewButton, pressed && styles.viewButtonPressed]}
           >
             <Text
-              size={actionButtonLabelSize}
+              size={ACTION_BUTTON_LABEL_SIZE}
               weight="semiBold"
               color="#FFFFFF"
               numberOfLines={1}
-              adjustsFontSizeToFit
-              minimumFontScale={0.86}
               lineHeight={1.2}
               style={styles.actionButtonLabel}
             >
@@ -337,12 +297,10 @@ export function PendingQuoteCard({
               style={({ pressed }) => [styles.cancelOutlineButton, pressed && styles.viewButtonPressed]}
             >
               <Text
-                size={actionButtonLabelSize}
+                size={ACTION_BUTTON_LABEL_SIZE}
                 weight="semiBold"
                 color="#DC2626"
                 numberOfLines={1}
-                adjustsFontSizeToFit
-                minimumFontScale={0.86}
                 lineHeight={1.2}
                 style={styles.actionButtonLabel}
               >
@@ -502,13 +460,11 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     minWidth: 0,
     height: 48,
-    paddingHorizontal: 16,
+    paddingHorizontal: 8,
     borderRadius: 12,
     backgroundColor: "#5299FE",
-    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 8,
   },
   cancelOutlineButton: {
     flexBasis: 0,
@@ -516,7 +472,7 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     minWidth: 0,
     height: 48,
-    paddingHorizontal: 16,
+    paddingHorizontal: 8,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: "#FECACA",
