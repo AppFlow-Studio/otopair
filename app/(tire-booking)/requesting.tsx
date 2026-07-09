@@ -13,8 +13,8 @@
  * outer Modal first.
  */
 
-import React, { useCallback, useEffect, useRef } from "react";
-import { Dimensions, StyleSheet, View } from "react-native";
+import React, { useCallback, useEffect, useMemo, useRef } from "react";
+import { type DimensionValue, StyleSheet, useWindowDimensions, View } from "react-native";
 
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import LottieView from "lottie-react-native";
@@ -34,10 +34,8 @@ import { QuoteRequestStatus } from "@/components/tire-booking/QuoteRequestStatus
 import { Text } from "@/components/shared-ui";
 import { TIRE_TIERS, TIRE_TYPES } from "@/constants/tireFlow";
 import { useCreateTireQuoteRequest } from "@/hooks/useCreateTireQuoteRequest";
+import { calculateBookingConfirmLayout } from "@/lib/bookingConfirmSheet";
 import { useTireBookingStore } from "@/stores/useTireBookingStore";
-
-const { height: SCREEN_HEIGHT } = Dimensions.get("window");
-const SHEET_HEIGHT = Math.round(SCREEN_HEIGHT * 0.52);
 
 interface TireRequestingScreenProps {
   /** Modal-mode close — when set, "Go back" closes the outer modal entirely. */
@@ -50,9 +48,16 @@ interface TireRequestingScreenProps {
 
 export default function TireRequestingScreen({ onClose, onConfirmed }: TireRequestingScreenProps = {}) {
   const router = useRouter();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const statusSheetRef = useRef<FloatingSheetRef>(null);
   const confirmSheetRef = useRef<QuoteRequestConfirmationSheetRef>(null);
   const confirmedRef = useRef(false);
+  const isCompactLayout = windowHeight < 860;
+  const isVeryCompactLayout = windowHeight < 760;
+  const confirmLayout = useMemo(
+    () => calculateBookingConfirmLayout({ width: windowWidth, height: windowHeight }),
+    [windowWidth, windowHeight],
+  );
 
   const createTireQuoteRequest = useCreateTireQuoteRequest();
   const tireSize = useTireBookingStore((s) => s.tireSize);
@@ -146,11 +151,26 @@ export default function TireRequestingScreen({ onClose, onConfirmed }: TireReque
         autoPlay
         loop={false}
         resizeMode="cover"
-        style={styles.lottie}
+        style={[
+          styles.lottie,
+          {
+            width: windowWidth,
+            height: windowHeight,
+            transform: [{ translateY: confirmLayout.lottieTranslateY }],
+          },
+        ]}
       />
 
-      <Animated.View style={[styles.copyOverlay, copyAnimStyle]} pointerEvents="none">
-        <Text size="md" weight="bold" color="#000000" center>
+      <Animated.View
+        style={[
+          styles.copyOverlay,
+          isCompactLayout && styles.copyOverlayCompact,
+          { top: confirmLayout.copyTopPercent as DimensionValue },
+          copyAnimStyle,
+        ]}
+        pointerEvents="none"
+      >
+        <Text size={isVeryCompactLayout ? "sm" : "md"} weight="bold" color="#000000" center>
           Searching for nearby tire shops
         </Text>
         <Text size="xs" weight="regular" color="#000000" center style={styles.copySub}>
@@ -160,7 +180,7 @@ export default function TireRequestingScreen({ onClose, onConfirmed }: TireReque
 
       <FloatingSheet
         ref={statusSheetRef}
-        snapHeights={[SHEET_HEIGHT]}
+        snapHeights={[confirmLayout.sheetHeight]}
         onClose={handleStatusSheetClosed}
         cornerRadius={24}
       >
@@ -197,6 +217,11 @@ const styles = StyleSheet.create({
     right: 24,
     alignItems: "center",
     gap: 8,
+  },
+  copyOverlayCompact: {
+    left: 20,
+    right: 20,
+    gap: 6,
   },
   copySub: {
     marginTop: 2,

@@ -42,7 +42,7 @@ import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { Calendar, Check, ListFilter, Star } from "lucide-react-native";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Image, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
+import { Image, PixelRatio, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
 import Animated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -57,7 +57,20 @@ const TAB_LABELS: Record<TabType, string> = {
   quotes: "Quotes",
   recommended: "Recommended",
 };
+const TAB_LABEL_MAX_SIZE = 14;
+const TAB_LABEL_MIN_SIZE = 11;
+const TAB_LABEL_LONGEST = "Recommended";
+const TAB_LABEL_WIDTH_RATIO = 0.62;
 const BOTTOM_NAV_SCROLL_CLEARANCE = 96;
+
+function getTabLabelSize(width: number, fontScale: number): number {
+  if (width <= 0) return TAB_LABEL_MAX_SIZE;
+  const segmentWidth = (width - 6) / TAB_ORDER.length;
+  const availableWidth = segmentWidth - 4;
+  const fittedSize =
+    availableWidth / (TAB_LABEL_LONGEST.length * TAB_LABEL_WIDTH_RATIO * fontScale);
+  return Math.min(Math.max(fittedSize, TAB_LABEL_MIN_SIZE), TAB_LABEL_MAX_SIZE);
+}
 
 // ============================================================================
 // COMPONENT
@@ -90,6 +103,12 @@ export default function BookingsScreen() {
     ? (tabParam as TabType)
     : "bookings";
   const [activeTab, setActiveTab] = useState<TabType>(initialTab);
+  const [segmentedWidth, setSegmentedWidth] = useState(0);
+  const fontScale = PixelRatio.getFontScale();
+  const tabLabelSize = useMemo(
+    () => getTabLabelSize(segmentedWidth, fontScale),
+    [segmentedWidth, fontScale],
+  );
   // If we land on the screen again with a new `tab` param (e.g. from the
   // tire flow completing), switch to the requested tab.
   useEffect(() => {
@@ -330,7 +349,11 @@ export default function BookingsScreen() {
 
             {/* Tab Switcher */}
             <View style={styles.segmentedWrapper}>
-              <View style={styles.segmentedControl} accessibilityRole="tablist">
+              <View
+                style={styles.segmentedControl}
+                accessibilityRole="tablist"
+                onLayout={(event) => setSegmentedWidth(event.nativeEvent.layout.width)}
+              >
                 {TAB_ORDER.map((tab) => {
                   const isSelected = activeTab === tab;
                   return (
@@ -346,12 +369,11 @@ export default function BookingsScreen() {
                       ]}
                     >
                       <Text
-                        size="sm"
+                        size={tabLabelSize}
                         weight="semiBold"
                         color="#FFFFFF"
                         numberOfLines={1}
-                        adjustsFontSizeToFit
-                        minimumFontScale={0.72}
+                        allowFontScaling={false}
                         lineHeight={1.05}
                         style={styles.segmentLabel}
                       >
@@ -637,7 +659,7 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 5,
+    paddingHorizontal: 2,
   },
   segmentButtonActive: {
     backgroundColor: "#5F6063",
