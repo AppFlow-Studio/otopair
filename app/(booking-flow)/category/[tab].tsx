@@ -40,7 +40,6 @@ import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 
 import { Text } from "@/components/shared-ui";
 import { useBookingFlowMap } from "@/components/booking-flow/BookingFlowMap";
-import { GlassSheetHandle } from "@/components/booking-flow/GlassSheet";
 import { PinnedShopChip } from "@/components/booking-flow/PinnedShopChip";
 import { ServiceInfoSheet } from "@/components/booking-flow/ServiceInfoSheet";
 import { SelectedServicesFab } from "@/components/booking-flow/SelectedServicesFab";
@@ -344,7 +343,10 @@ export default function CategoryDetailScreen() {
               pointerEvents="none"
             />
           )}
-          <GlassSheetHandle />
+          {/* Handle removed — Screen 2's sheet is fixed height, not
+              swipeable. Handle stays on Screen 1 (select-services)
+              where the user CAN swipe the sheet down to reveal the
+              map behind it. */}
 
           <ScrollView
             contentContainerStyle={{
