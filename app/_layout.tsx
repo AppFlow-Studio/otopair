@@ -25,6 +25,7 @@ import { ErrorBoundary as AppErrorBoundary, ErrorModalHost, errorBus } from "@/l
 import { ErrorOccurredModal } from "@/components/shared-ui";
 import { StripePaymentMethodsSync } from "@/components/payments/StripePaymentMethodsSync";
 import { ConnectionPillHost } from "@/components/connection/ConnectionPillHost";
+import { CantLoadModalHost } from "@/lib/connection-ui";
 import { ToastProvider } from "@/components/toast";
 import { useEnrichmentCompletionWatcher } from "@/hooks/useEnrichmentCompletionWatcher";
 import { api } from "@/convex/_generated/api";
@@ -269,6 +270,7 @@ export default function RootLayout() {
             <PendingDeletionSessionGuard />
             <ErrorModalHost />
             <ConnectionPillHost />
+            <CantLoadModalHost />
             <KeyboardProvider>
             <GestureHandlerRootView style={{ flex: 1 }}>
               <BottomSheetModalProvider>
