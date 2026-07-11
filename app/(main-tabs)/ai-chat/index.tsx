@@ -34,7 +34,8 @@ import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { haptics } from "@/lib/haptics";
 import { useToast } from "@/hooks/useToast";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
-import { AlignLeft, SquarePen, Ellipsis, Sparkles, History, CarFront, Zap, ChevronDown } from "lucide-react-native";
+import { useCanWrite } from "@/hooks/useConnection";
+import { AlignLeft, SquarePen, Ellipsis, Sparkles, History, CarFront, Zap, ChevronDown, WifiOff } from "lucide-react-native";
 import { MenuView } from "@react-native-menu/menu";
 
 // Liquid Glass (iOS 26+)
@@ -611,6 +612,8 @@ export default function AIChatScreen() {
       sendToOtoAI(transcription);
     }
   }, [stopRecording, sendToOtoAI]);
+
+  const canWrite = useCanWrite();
 
   // Handle sending a message
   const handleSend = useCallback(() => {
@@ -1483,6 +1486,14 @@ export default function AIChatScreen() {
             images={selectedImages}
             onRemove={handleRemoveImage}
           />
+          {!canWrite ? (
+            <View style={styles.otoOfflineNote}>
+              <WifiOff size={14} color="#6B7280" />
+              <Text size="xs" weight="regular" color="#6B7280">
+                Oto needs a connection to reply
+              </Text>
+            </View>
+          ) : null}
           <AIInputBox
             value={inputValue}
             onChangeText={setInputValue}
@@ -1498,6 +1509,8 @@ export default function AIChatScreen() {
             isAttachmentOpen={isAttachmentOpen}
             onToggleAttachment={handleToggleAttachment}
             hasImages={selectedImages.length > 0}
+            disabled={!canWrite}
+            placeholder={canWrite ? "Ask Oto" : "Reconnect to chat with Oto"}
           />
           {isAttachmentOpen && (
             <AIAttachmentPanel
@@ -1731,5 +1744,12 @@ const styles = StyleSheet.create({
     color: "#000000",
     textAlign: "center",
     marginBottom: Spacing.xs,
+  },
+  otoOfflineNote: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingBottom: 6,
   },
 });
