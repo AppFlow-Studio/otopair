@@ -15,6 +15,7 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import "react-native-reanimated";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { BackHandler, LogBox } from "react-native";
+import { SafeAreaProvider, initialWindowMetrics } from "react-native-safe-area-context";
 
 // Suppress the dev-mode red LogBox overlay for Convex mutation/query
 // errors. We always catch these in app code and surface them via the
@@ -23,6 +24,7 @@ import { BackHandler, LogBox } from "react-native";
 import { ErrorBoundary as AppErrorBoundary, ErrorModalHost, errorBus } from "@/lib/error-ui";
 import { ErrorOccurredModal } from "@/components/shared-ui";
 import { StripePaymentMethodsSync } from "@/components/payments/StripePaymentMethodsSync";
+import { ConnectionPillHost } from "@/components/connection/ConnectionPillHost";
 import { ToastProvider } from "@/components/toast";
 import { useEnrichmentCompletionWatcher } from "@/hooks/useEnrichmentCompletionWatcher";
 import { api } from "@/convex/_generated/api";
@@ -259,12 +261,14 @@ export default function RootLayout() {
     <ClerkProvider publishableKey={process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY!} tokenCache={tokenCache}>
       <StartupSplashGate fontsReady={fontsReady}>
         <ConvexClerkProvider>
+          <SafeAreaProvider initialMetrics={initialWindowMetrics}>
           <AppErrorBoundary>
             <EnsureConvexUserRecord />
             <SyncAuthStoreWithClerk />
             <StripePaymentMethodsSync />
             <PendingDeletionSessionGuard />
             <ErrorModalHost />
+            <ConnectionPillHost />
             <KeyboardProvider>
             <GestureHandlerRootView style={{ flex: 1 }}>
               <BottomSheetModalProvider>
@@ -365,6 +369,7 @@ export default function RootLayout() {
             </GestureHandlerRootView>
             </KeyboardProvider>
           </AppErrorBoundary>
+          </SafeAreaProvider>
           {/* <EnsureConvexUserRecord />
         <SyncAuthStoreWithClerk />
         <GestureHandlerRootView style={{ flex: 1 }}>
