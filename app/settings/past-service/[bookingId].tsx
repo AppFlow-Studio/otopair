@@ -39,6 +39,7 @@ import { CardShadow, SurfaceColors } from "@/constants/theme";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useMyBookingsWithDetails } from "@/hooks/useMyBookingsWithDetails";
+import { useOfflineGuard } from "@/hooks/useOfflineGuard";
 import { useUserFromConvex } from "@/hooks/useUserFromConvex";
 import { getServiceIcon } from "@/utils/serviceIcons";
 
@@ -88,6 +89,7 @@ export default function PastServiceDetailScreen() {
     api.bookings.getReceipt,
     bookingId ? { bookingId: bookingId as Id<"bookings"> } : "skip",
   );
+  useOfflineGuard(receiptData);
   const servicePriceMap = useMemo(() => {
     const map = new Map<string, number>();
     if (receiptData) {
