@@ -16,7 +16,7 @@ import Animated, {
 } from "react-native-reanimated";
 
 import { Text } from "@/components/shared-ui";
-import { SemanticColors } from "@/constants/theme";
+import { BrandColors, SemanticColors } from "@/constants/theme";
 
 export type PillVariant = "reconnecting" | "offline" | "recovering";
 
@@ -71,7 +71,7 @@ export function ConnectionPill({ variant, onRetry }: ConnectionPillProps) {
         <View style={styles.sheen} pointerEvents="none" />
         <View style={styles.row}>
           <PulsingDot color={DOT_COLOR[variant]} pulse={variant === "reconnecting"} />
-          <Text size="sm" weight="semiBold" color="#141C24">
+          <Text size="sm" weight="semiBold" color={BrandColors.primary}>
             {LABEL[variant]}
           </Text>
           {variant === "offline" && onRetry ? (
