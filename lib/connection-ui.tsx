@@ -43,7 +43,6 @@ export function CantLoadModalHost() {
 
   const handleRetry = () => {
     nudgeReconnect();
-    cantLoadBus.set({ visible: false });
   };
 
   return <CantLoadModal visible={state.visible} onRetry={handleRetry} onDismiss={handleDismiss} />;
