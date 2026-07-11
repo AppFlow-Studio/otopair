@@ -25,6 +25,7 @@ import { ErrorBoundary as AppErrorBoundary, ErrorModalHost, errorBus } from "@/l
 import { ErrorOccurredModal } from "@/components/shared-ui";
 import { StripePaymentMethodsSync } from "@/components/payments/StripePaymentMethodsSync";
 import { ConnectionPillHost } from "@/components/connection/ConnectionPillHost";
+import { OfflineBootGate } from "@/components/connection/OfflineBootGate";
 import { CantLoadModalHost } from "@/lib/connection-ui";
 import { ToastProvider } from "@/components/toast";
 import { useEnrichmentCompletionWatcher } from "@/hooks/useEnrichmentCompletionWatcher";
@@ -286,6 +287,7 @@ export default function RootLayout() {
                   urlScheme="otopair"
                 >
                 <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
+                  <OfflineBootGate>
                   <Stack
                     screenOptions={{
                       headerShown: false,
@@ -363,6 +365,7 @@ export default function RootLayout() {
                         inside the overlay (Saved Addresses, Payment
                         Methods, etc.) use the normal slide_from_right. */}
                   </Stack>
+                  </OfflineBootGate>
                   <StatusBar style="auto" />
                 </ThemeProvider>
                 </StripeProvider>
