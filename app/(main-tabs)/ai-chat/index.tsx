@@ -392,6 +392,10 @@ export default function AIChatScreen() {
     await startRecording();
   }, [isProcessing, startRecording]);
 
+  // Write-gate primitive — declared above the send funnel so `sendToOtoAI`
+  // (and every surface that calls it) can hard-stop offline sends.
+  const canWrite = useCanWrite();
+
   // ──────────────────────────────────────────────────────────────────────
   // sendToOtoAI — single funnel for every user-input surface
   //
@@ -408,6 +412,7 @@ export default function AIChatScreen() {
   // ──────────────────────────────────────────────────────────────────────
   const sendToOtoAI = useCallback(
     async (messageText: string, attachedImages?: string[]) => {
+      if (!canWrite) return;
       if (isProcessing) return;
       const hasText = messageText.trim().length > 0;
       const hasImages = !!attachedImages && attachedImages.length > 0;
@@ -601,6 +606,7 @@ export default function AIChatScreen() {
       selectedVehicleVin,
       rawVehicles,
       showToast,
+      canWrite,
     ]
   );
 
@@ -612,8 +618,6 @@ export default function AIChatScreen() {
       sendToOtoAI(transcription);
     }
   }, [stopRecording, sendToOtoAI]);
-
-  const canWrite = useCanWrite();
 
   // Handle sending a message
   const handleSend = useCallback(() => {

@@ -546,6 +546,7 @@ export default function PaymentScreen() {
   const canWrite = useCanWrite();
 
   const handleConfirmPayment = useCallback(() => {
+    if (!canWrite) return;
     if (!selectedMechanicId && !selectedMechanicSlot?.shopId) return;
     if (!hasPayment || !selectedPaymentMethod) {
       setErrorMessage("Add a payment method to confirm this booking.");
@@ -556,7 +557,7 @@ export default function PaymentScreen() {
     // a minimum-display timer for the Lottie loading animation, then
     // routes forward to /confirmation (or back here with an error param).
     router.push(`/booking/mechanic/${id}/confirming`);
-  }, [router, id, selectedMechanicId, selectedMechanicSlot?.shopId, hasPayment, selectedPaymentMethod]);
+  }, [router, id, selectedMechanicId, selectedMechanicSlot?.shopId, hasPayment, selectedPaymentMethod, canWrite]);
 
   // Apple Pay / Google Pay handlers. The wallet sheet shows the $20 hold
   // (matches the "$20 hold placed today" disclosure on the screen). The
