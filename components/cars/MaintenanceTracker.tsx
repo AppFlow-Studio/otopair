@@ -138,6 +138,10 @@ interface MaintenanceTrackerProps {
    *  Home's NowTierCallout route a tap straight into the detail view
    *  for the urgent item, instead of just landing on the cars page. */
   openItemId?: string;
+  /** True while the vehicle's enrichment pipeline is still running. Booking
+   *  CTAs are disabled until parts data exists — same coverage gate as the
+   *  service selector (see ServiceSelectionContent). */
+  isEnriching?: boolean;
 }
 
 // ============================================================================
@@ -436,15 +440,22 @@ interface UrgentCardProps {
   onTakeAction?: (item: MaintenanceItem) => void;
   onAddInfo?: (id: string) => void;
   onCardPress?: (item: MaintenanceItem) => void;
+  /** When true, the "Book Service" CTA is disabled — the vehicle is still
+   *  enriching so we don't yet know the parts to book. */
+  isEnriching?: boolean;
 }
 
-function UrgentCard({ item, entryDelay, vehicleCondition, healthScoreInput, onBookNow, onTakeAction, onCardPress }: UrgentCardProps) {
+function UrgentCard({ item, entryDelay, vehicleCondition, healthScoreInput, onBookNow, onTakeAction, onCardPress, isEnriching = false }: UrgentCardProps) {
   // Mechanic-recommended items get the new single "Take Action" CTA that
   // routes to the detail screen. Algorithmic items keep the legacy two-button
   // layout (Book Service + View Details).
   const isMechanicRec = !!item.sourceRecommendationId;
   const primaryLabel = isMechanicRec ? 'Take Action' : 'Book Service';
+  // Only the algorithmic Book Service CTA is coverage-gated — mechanic "Take
+  // Action" routes to its own rec flow with the parts the shop already picked.
+  const bookDisabled = isEnriching && !isMechanicRec;
   const handlePrimary = () => {
+    if (bookDisabled) return;
     if (isMechanicRec && onTakeAction) onTakeAction(item);
     else onBookNow?.(item.id);
   };
@@ -480,7 +491,7 @@ function UrgentCard({ item, entryDelay, vehicleCondition, healthScoreInput, onBo
       onPress={() => {
         if (isMechanicRec && onTakeAction) onTakeAction(item);
         else if (onCardPress) onCardPress(item);
-        else onBookNow?.(item.id);
+        else if (!bookDisabled) onBookNow?.(item.id);
       }}
     >
       <Animated.View style={[cardStyles.container, entryStyle]}>
@@ -509,10 +520,20 @@ function UrgentCard({ item, entryDelay, vehicleCondition, healthScoreInput, onBo
         </View>
         <View style={cardStyles.buttonRow}>
           <Pressable
-            style={({ pressed }) => [cardStyles.bookServiceBtn, pressed && { opacity: 0.85 }]}
+            style={({ pressed }) => [
+              cardStyles.bookServiceBtn,
+              bookDisabled && cardStyles.bookServiceBtnDisabled,
+              pressed && !bookDisabled && { opacity: 0.85 },
+            ]}
             onPress={handlePrimary}
+            disabled={bookDisabled}
           >
-            <Text weight="semiBold" style={cardStyles.bookServiceText}>{primaryLabel}</Text>
+            <Text
+              weight="semiBold"
+              style={[cardStyles.bookServiceText, bookDisabled && cardStyles.bookServiceTextDisabled]}
+            >
+              {bookDisabled ? 'Setting up…' : primaryLabel}
+            </Text>
           </Pressable>
           {!isMechanicRec && (
             <Pressable
@@ -695,7 +716,7 @@ function HealthySection({
 // COMPONENT
 // ============================================================================
 
-export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, onBookNow, onTakeAction, onAddInfo, onEditPressed, isDarkBg = false, tieredItems, openItemId }: MaintenanceTrackerProps) {
+export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, onBookNow, onTakeAction, onAddInfo, onEditPressed, isDarkBg = false, tieredItems, openItemId, isEnriching = false }: MaintenanceTrackerProps) {
   const [selectedItem, setSelectedItem] = useState<MaintenanceItem | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
 
@@ -857,6 +878,7 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
                     onTakeAction={onTakeAction}
                     onAddInfo={onAddInfo}
                     onCardPress={handleCardPress}
+                    isEnriching={isEnriching}
                   />
                 ))}
               </View>
@@ -881,6 +903,7 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
                     onTakeAction={onTakeAction}
                     onAddInfo={onAddInfo}
                     onCardPress={handleCardPress}
+                    isEnriching={isEnriching}
                   />
                 ))}
               </View>
@@ -931,6 +954,7 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
                     onTakeAction={onTakeAction}
                     onAddInfo={onAddInfo}
                     onCardPress={handleCardPress}
+                    isEnriching={isEnriching}
                   />
                 ))}
               </View>
@@ -955,6 +979,7 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
                     onTakeAction={onTakeAction}
                     onAddInfo={onAddInfo}
                     onCardPress={handleCardPress}
+                    isEnriching={isEnriching}
                   />
                 ))}
               </View>
@@ -984,7 +1009,9 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
               : (vehicleCondition ?? 0) + 8
           }
           onClose={handleModalClosed}
+          bookingDisabled={isEnriching && !selectedItem.sourceRecommendationId}
           onBookService={() => {
+            if (isEnriching && !selectedItem.sourceRecommendationId) return;
             handleModalClosed();
             onBookNow?.(selectedItem.id);
           }}
@@ -1147,9 +1174,15 @@ const cardStyles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  bookServiceBtnDisabled: {
+    backgroundColor: '#E4E9EA',
+  },
   bookServiceText: {
     fontSize: moderateScale(14),
     color: '#FFFFFF',
+  },
+  bookServiceTextDisabled: {
+    color: '#9CA3AF',
   },
   viewDetailsBtn: {
     paddingVertical: scale(12),
