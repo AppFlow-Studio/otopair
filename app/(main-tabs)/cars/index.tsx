@@ -69,6 +69,7 @@ const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 
 // 5. Flow-specific components
 import CarCarousel, { Vehicle } from "@/components/cars/CarCarousel";
+import { DataAccuracyDisclaimer } from "@/components/cars/DataAccuracyDisclaimer";
 import { VehicleRoleSheet } from "@/components/cars/VehicleRoleSheet";
 import { ProfileInitialsButton } from "@/components/home/ProfileInitialsButton";
 // MVP-DISABLED: loyalty/rewards — re-enable post-launch
@@ -1684,6 +1685,13 @@ export default function CarsHomeScreen() {
             completedBookings={completedBookingsForVehicle}
           />
         </View>
+
+        {/* Reduced-accuracy notice for 2012-or-older vehicles (self-hides otherwise) */}
+        <DataAccuracyDisclaimer
+          year={activeVehicle?.year ?? 0}
+          make={activeVehicle?.make}
+          model={activeVehicle?.model}
+        />
 
         {/* Quick Read intro card — shown when pre-onboarding done but onboarding not yet complete */}
         {isPreOnboardingComplete && !isOnboardingComplete && !isNewVehicle && (() => {
