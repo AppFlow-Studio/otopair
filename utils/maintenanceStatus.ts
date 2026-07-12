@@ -20,6 +20,7 @@
  */
 
 import type { MaintenanceStatus } from "@/components/cars/MaintenanceTracker";
+import { canonicalWarningLights } from "@/lib/warningLightVocab";
 
 // ============================================================================
 // TYPES
@@ -411,7 +412,7 @@ function computeOilStatus(
     return { status: "on_time", percentUsed: 0, description: "Confirmed in good shape", detail: "On time" };
   }
 
-  if (knownIssues?.includes("oil_pressure")) {
+  if (canonicalWarningLights(knownIssues).includes("oil_pressure")) {
     return escalateForWarningLight(result, "Oil pressure warning light active — service urgently needed");
   }
 
@@ -548,7 +549,7 @@ function computeTireStatus(
 
   const result = computeTireStatusCore(record, currentOdometer, make, now, drivingConditions, avgMonthlyDriving, vehicleYear, oemIntervals);
 
-  if (knownIssues?.includes("tpms")) {
+  if (canonicalWarningLights(knownIssues).includes("tpms")) {
     return escalateForWarningLight(result, "Tire pressure (TPMS) warning light active — check tires soon");
   }
 
@@ -747,7 +748,7 @@ function computeBrakeStatus(
 
   const result = computeBrakeStatusCore(record, currentOdometer, make, now, drivingConditions, avgMonthlyDriving, oemIntervals);
 
-  if (knownIssues?.includes("abs")) {
+  if (canonicalWarningLights(knownIssues).includes("abs")) {
     return escalateForWarningLight(result, "ABS / brake warning light active — have brakes inspected soon");
   }
 
@@ -862,7 +863,7 @@ function computeBatteryStatus(
     return { status: "on_time", percentUsed: 0, description: "Confirmed in good shape", detail: "On time" };
   }
 
-  const hasWarningLight = knownIssues?.includes("battery_charging") === true;
+  const hasWarningLight = canonicalWarningLights(knownIssues).includes("battery_charging");
 
   if (!record.lastServiceDate) {
     if (hasWarningLight) {

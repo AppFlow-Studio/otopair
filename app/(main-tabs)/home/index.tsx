@@ -38,6 +38,7 @@ import {
   findServiceFromDescription,
 } from '@/lib/maintenanceServiceMapping';
 import { buildWarningLightItem } from "@/lib/warningLightItems";
+import { canonicalWarningLights } from "@/lib/warningLightVocab";
 import { usePendingNavigationStore } from "@/stores/usePendingNavigationStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 import { useNotificationsSheetStore } from "@/stores/useNotificationsSheetStore";
@@ -481,6 +482,11 @@ export default function HomeScreen() {
         const isOnboardingComplete = o?.onboardingComplete === true;
         const odometer: number | null = isOnboardingComplete ? (o?.mileage ?? null) : null;
         const knownIssues = o?.knownIssues as string[] | undefined;
+        // Canonical dashboard lights (folds both knownIssues shapes + the
+        // symptom-code vocabulary) so the Now-tier paired-light check below fires
+        // for a light logged via Oto/check-in in any vocabulary — matching the
+        // Cars page instead of leaving Home silent.
+        const canonicalLights = canonicalWarningLights(knownIssues) as readonly string[];
         // Per-vehicle OEM intervals from the batch query above. Empty
         // map when the v3 pipeline hasn't enriched this config yet —
         // computeMaintenanceStatus → getInterval falls back through
@@ -594,7 +600,7 @@ export default function HomeScreen() {
             },
           };
           for (const [type, info] of Object.entries(PAIRED_LIGHT_BY_TYPE_HOME)) {
-            if (!knownIssues.includes(info.lightId)) continue;
+            if (!canonicalLights.includes(info.lightId)) continue;
             if (trackedTypes.has(type)) continue; // record loop already handled it
             const itemId = `${type}-${ownershipId}`;
             const matched = findServiceFromDescription(info.label, availableServices);
