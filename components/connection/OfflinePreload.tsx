@@ -23,7 +23,10 @@
  *    warmer must never trigger (N times, on every capped vehicle). We
  *    subscribe to the raw `api.*` queries directly instead.
  *  - Deduped by construction: every query below uses the exact `api.*`
- *    function + arg shape the live pages use.
+ *    function + arg shape the live pages use. Per vehicle that's THREE light
+ *    reads — maintenance records, driver-visible recommendations, and OEM
+ *    service intervals via the SINGULAR `useOemServiceIntervals` hook (the
+ *    same per-active-car read the Cars page issues, so it dedupes; no batch).
  *  - Capped + primary-first: at most `MAX_PRELOADED_VEHICLES` vehicles get
  *    their per-vehicle queries warmed, primary vehicle first. Overflow is
  *    logged, never silently dropped.
@@ -34,7 +37,7 @@ import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useUserFromConvex } from "@/hooks/useUserFromConvex";
-import { useOemServiceIntervalsBatch } from "@/hooks/useOemServiceIntervals";
+import { useOemServiceIntervals } from "@/hooks/useOemServiceIntervals";
 
 /** Hard cap on how many vehicles' per-vehicle queries this preloads. */
 const MAX_PRELOADED_VEHICLES = 15;
@@ -103,30 +106,20 @@ export function OfflinePreload() {
     }
   }, [skippedCount]);
 
-  // ONE subscription covering every capped vehicle's OEM intervals, via the
-  // same batch query Home uses (api.service_intervals_queries.
-  // getServiceIntervalsForVehicleConfigs). NOTE: this does not dedupe with
-  // the Cars page, which reads OEM intervals per-vehicle via the singular
-  // useOemServiceIntervals(activeVehicleConfigId) hook for whichever
-  // vehicle is active — a different Convex function entirely. It also
-  // won't reliably dedupe with Home's own batch call, since Home's id list
-  // is uncapped/unsorted while this one is capped + primary-first. Missing
-  // entries fall back to MAKE_OVERRIDES/DEFAULT_INTERVALS (see
-  // useOemServiceIntervals.ts), so this is a best-effort warm, not a
-  // requirement for Cars/Bookings to stay viewable offline.
-  const vehicleConfigIds = useMemo(
-    () =>
-      preloadVehicles
-        .map((v) => v.vehicleConfigId)
-        .filter((id): id is Id<"vehicle_configs"> => id != null),
-    [preloadVehicles],
-  );
-  useOemServiceIntervalsBatch(vehicleConfigIds);
+  // OEM intervals are warmed per-vehicle inside VehiclePreloadRow via the
+  // SINGULAR useOemServiceIntervals hook — the same (query + args) the Cars
+  // page uses for its active car — so each car's OEM read dedupes with the
+  // page instead of a batch query the page never issues. See the row below.
 
   return (
     <>
       {preloadVehicles.map((v) => (
-        <VehiclePreloadRow key={v.vin} vehicleOwnerId={v.vehicleOwnerId} vin={v.vin} />
+        <VehiclePreloadRow
+          key={v.vin}
+          vehicleOwnerId={v.vehicleOwnerId}
+          vin={v.vin}
+          vehicleConfigId={v.vehicleConfigId}
+        />
       ))}
     </>
   );
@@ -135,15 +128,26 @@ export function OfflinePreload() {
 interface VehiclePreloadRowProps {
   vehicleOwnerId: Id<"vehicle_owners"> | undefined;
   vin: string | undefined;
+  vehicleConfigId: Id<"vehicle_configs"> | undefined;
 }
 
 /**
  * One instance per preloaded vehicle. Fanning the per-vehicle queries out
  * to a child component (rather than looping useQuery calls in the parent)
  * is what keeps this Rules-of-Hooks-safe for a variable-length vehicle list.
+ *
+ * Three light read-only subscriptions per vehicle — records, driver-visible
+ * recommendations, and OEM service intervals — each a byte-for-byte match
+ * with the Cars page's real call sites, so Convex shares one subscription
+ * per (query + args) rather than double-fetching.
  */
-function VehiclePreloadRow({ vehicleOwnerId, vin }: VehiclePreloadRowProps) {
+function VehiclePreloadRow({ vehicleOwnerId, vin, vehicleConfigId }: VehiclePreloadRowProps) {
   useQuery(api.maintenance.getRecordsByVehicle, vehicleOwnerId ? { vehicleOwnerId } : "skip");
   useQuery(api.jobRecommendations.getDriverVisibleRecsForVehicle, vin ? { vin } : "skip");
+  // Singular OEM-intervals read — same (query + args) the Cars page issues
+  // for its ACTIVE car, so this dedupes with the page and warms every car's
+  // OEM intervals for offline. Read-only hook; the return value is ignored
+  // on purpose — the point is the live subscription, not the map.
+  useOemServiceIntervals(vehicleConfigId ?? null);
   return null;
 }
