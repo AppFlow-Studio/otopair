@@ -103,8 +103,17 @@ export function OfflinePreload() {
     }
   }, [skippedCount]);
 
-  // ONE subscription covering every capped vehicle's OEM intervals — same
-  // query + arg shape as the Cars page's useOemServiceIntervalsBatch caller.
+  // ONE subscription covering every capped vehicle's OEM intervals, via the
+  // same batch query Home uses (api.service_intervals_queries.
+  // getServiceIntervalsForVehicleConfigs). NOTE: this does not dedupe with
+  // the Cars page, which reads OEM intervals per-vehicle via the singular
+  // useOemServiceIntervals(activeVehicleConfigId) hook for whichever
+  // vehicle is active — a different Convex function entirely. It also
+  // won't reliably dedupe with Home's own batch call, since Home's id list
+  // is uncapped/unsorted while this one is capped + primary-first. Missing
+  // entries fall back to MAKE_OVERRIDES/DEFAULT_INTERVALS (see
+  // useOemServiceIntervals.ts), so this is a best-effort warm, not a
+  // requirement for Cars/Bookings to stay viewable offline.
   const vehicleConfigIds = useMemo(
     () =>
       preloadVehicles
