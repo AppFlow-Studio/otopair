@@ -496,8 +496,15 @@ export default function AIChatScreen() {
           rawVehicles?.find((r: any) => r.vin === selectedVehicleVin)?.vehicle
             ?._id ??
           rawVehicles?.find((r: any) => r.ownership?.is_primary)?.vehicle?._id;
+        // Suppress the card entirely when the dispatcher sanitized every field
+        // away (e.g. Haiku sent only a malformed mileage:"") — otherwise it
+        // renders a dead, actionless "Vehicle update" card with Confirm disabled
+        // (rows.length === 0). Require at least one surviving payload field.
+        const vehicleUpdateHasContent =
+          !!showVehicleUpdate &&
+          Object.keys(showVehicleUpdate as object).length > 0;
         const vehicleUpdateEnvelope =
-          showVehicleUpdate && activeVehicleId
+          showVehicleUpdate && activeVehicleId && vehicleUpdateHasContent
             ? ({
                 ...(showVehicleUpdate as object),
                 vehicle_id: activeVehicleId as string,
@@ -738,12 +745,16 @@ export default function AIChatScreen() {
   // let me adjust the brake recommendation."
   const handleRecordDecision = useCallback(
     (decision: RecordConfirmationDecision) => {
-      if (isProcessing) return;
-      let echoText: string;
+      // Push ONLY the canonical established_fact — NO synthetic "Confirmed /
+      // Updated / Not now" chat message. Oto reads the outcome from
+      // <conversation_state> on its next turn; a user-role echo made Oto misread
+      // its OWN confirmation ("that's not something I can do on my own…"). The
+      // card's success chip is the user-facing feedback.
       let factText: string;
       if (decision.kind === "confirmed") {
-        echoText = `Confirmed — ${decision.type} record is correct as-is.`;
         factText = `confirmed ${decision.type} record current as of now`;
+      } else if (decision.kind === "declined") {
+        factText = `record_confirmation_declined: ${decision.type} — user did not confirm the on-file record`;
       } else {
         const dateStr = new Date(decision.lastServiceDate).toLocaleDateString(
           undefined,
@@ -752,28 +763,21 @@ export default function AIChatScreen() {
         const mileagePart = decision.lastServiceMileage
           ? ` at ${decision.lastServiceMileage.toLocaleString()} mi`
           : "";
-        echoText = `Updated — last ${decision.type} service was actually in ${dateStr}${mileagePart}.`;
         factText = `corrected ${decision.type} last_service to ${dateStr}${mileagePart}`;
       }
-      // Decision D: write to established_facts so Oto reads the trust-protocol
-      // outcome from <conversation_state>, not from echo-message text. The
-      // synthetic echoText still goes through sendToOtoAI for chat-history
-      // continuity, but the fact is the canonical state signal.
       pushFact(factText);
-      sendToOtoAI(echoText);
     },
-    [isProcessing, pushFact, sendToOtoAI],
+    [pushFact],
   );
 
-  // Handle a successful apply from AIVehicleUpdate. The component has already
-  // written via vehicleTruth.applyVehicleTruth (mileage guard + pipeline). We
-  // send a synthetic user message so Oto sees the outcome on the next turn and
-  // can react (e.g. "Thanks — with 100k on it, you're due for…").
+  // Handle a successful apply from AIVehicleUpdate. The component already wrote
+  // via vehicleTruth.applyVehicleTruth. Push ONLY the canonical fact — NO
+  // "Done — …" chat message (Oto misread its own echo). Oto sees the outcome
+  // from <conversation_state> next turn; the card's success chip is the feedback.
   const handleVehicleUpdateDecision = useCallback(
     (outcome: VehicleUpdateOutcome) => {
-      if (isProcessing) return;
       const parts: string[] = [];
-      if (outcome.mileageUpdated) parts.push("updated my mileage");
+      if (outcome.mileageUpdated) parts.push("updated mileage");
       if (outcome.servicesCompleted.length)
         parts.push(`logged ${outcome.servicesCompleted.join(", ")} as done`);
       if (outcome.servicesFlagged.length)
@@ -781,12 +785,18 @@ export default function AIChatScreen() {
       if (outcome.faultLightsAdded.length)
         parts.push(`logged the ${outcome.faultLightsAdded.join(", ")} light`);
       if (parts.length === 0) return;
-      const echoText = `Done — ${parts.join(", ")}.`;
       pushFact(`vehicle_truth_applied: ${parts.join("; ")}`);
-      sendToOtoAI(echoText);
     },
-    [isProcessing, pushFact, sendToOtoAI],
+    [pushFact],
   );
+
+  // Handle a DECLINE of the AIVehicleUpdate card ("Not now" / "Cancel"). Nothing
+  // was written — push ONLY the canonical decline fact (no "Not now" chat
+  // message) so Oto stops treating its earlier "I'll log that…" as done, without
+  // polluting the conversation.
+  const handleVehicleUpdateDismiss = useCallback(() => {
+    pushFact("vehicle_truth_declined: user tapped Not now — nothing was written");
+  }, [pushFact]);
 
   // Handle copy message
   const handleCopy = useCallback(async (content: string) => {
@@ -1403,6 +1413,7 @@ export default function AIChatScreen() {
                         <AIVehicleUpdate
                           payload={message.showVehicleUpdate}
                           onDecision={handleVehicleUpdateDecision}
+                          onDismiss={handleVehicleUpdateDismiss}
                           disabled={isProcessing}
                         />
                       </View>
