@@ -741,6 +741,8 @@ export default function AddVehicleReviewScreen() {
       <FloatingSheet
         ref={trimSheetRef}
         snapHeights={[Math.min(400, 80 + vdbVariants.length * 56)]}
+        showBackdrop
+        backdropMode="blur"
         onClose={() => setShowTrimSheet(false)}
       >
         <ScrollView
