@@ -175,6 +175,24 @@ describe("applyVehicleTruth", () => {
     expect((owner.knownIssues ?? []).includes("check_engine")).toBe(true);
   });
 
+  it("canonicalizes a non-canonical fault-light id before writing (tire_pressure -> tpms)", async () => {
+    const t = makeT(); const s = await seed(t);
+    const res = await t.withIdentity(ident).mutation(api.vehicleTruth.applyVehicleTruth, { vehicle_id: s.vehicleId, fault_lights: ["tire_pressure"] });
+    const owner: any = await t.run((ctx: any) => ctx.db.get(s.ownerId));
+    expect((owner.knownIssues ?? []).includes("tpms")).toBe(true);
+    expect((owner.knownIssues ?? []).includes("tire_pressure")).toBe(false);
+    expect(res.faultLightsAdded).toContain("tpms");
+  });
+
+  it("strips a stale no_all_clear sentinel when a light is logged (the corruption fix)", async () => {
+    const t = makeT(); const s = await seed(t);
+    await t.run((ctx: any) => ctx.db.patch(s.ownerId, { knownIssues: ["no_all_clear"] }));
+    await t.withIdentity(ident).mutation(api.vehicleTruth.applyVehicleTruth, { vehicle_id: s.vehicleId, fault_lights: ["oil_pressure"] });
+    const owner: any = await t.run((ctx: any) => ctx.db.get(s.ownerId));
+    expect((owner.knownIssues ?? []).includes("oil_pressure")).toBe(true);
+    expect((owner.knownIssues ?? []).includes("no_all_clear")).toBe(false);
+  });
+
   // Director-path: the no-auth internal writer the Oto-Sim card-confirm goes
   // through (resolves user by id + vehicle by vin instead of Clerk identity).
   describe("applyVehicleTruthForDirectorMutation (sim card-confirm path)", () => {

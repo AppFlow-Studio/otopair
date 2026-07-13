@@ -87,6 +87,11 @@ interface AIVehicleUpdateProps {
   /** Called once the user successfully applies the update. Parent should send a
    *  follow-up turn to Oto so the next assistant message reacts to the outcome. */
   onDecision?: (outcome: VehicleUpdateOutcome) => void;
+  /** Called when the user DECLINES the card ("Not now" / "Cancel"). Nothing is
+   *  written; the parent tells Oto the user declined so it doesn't keep claiming
+   *  the update was logged. Without this, a dismiss died at local state and Oto's
+   *  prior "I'll log that…" narrative read as a soft confirmation. */
+  onDismiss?: () => void;
   disabled?: boolean;
 }
 
@@ -132,7 +137,10 @@ function describeAge(ageDays?: number, dateMs?: number): string | null {
 /** The one-line rows the card shows for the present payload fields (schematic §3). */
 function buildRows(payload: VehicleUpdatePayload): string[] {
   const rows: string[] = [];
-  if (payload.mileage != null) {
+  // Guard against a malformed mileage (Haiku can emit "" / NaN). `!= null` let a
+  // non-number through and rendered a blank "Update odometer to  mi" row; require
+  // a finite number so the row only shows a real reading.
+  if (typeof payload.mileage === "number" && Number.isFinite(payload.mileage)) {
     rows.push(`Update odometer to ${num(payload.mileage)} mi`);
   }
   for (const claim of payload.service_claims ?? []) {
@@ -193,6 +201,7 @@ function appliedMessage(res: TruthResult): string {
 export function AIVehicleUpdate({
   payload,
   onDecision,
+  onDismiss,
   disabled,
 }: AIVehicleUpdateProps) {
   const applyVehicleTruth = useMutation(api.vehicleTruth.applyVehicleTruth);
@@ -215,7 +224,9 @@ export function AIVehicleUpdate({
       try {
         const res = (await applyVehicleTruth({
           vehicle_id: payload.vehicle_id,
-          ...(payload.mileage !== undefined ? { mileage: payload.mileage } : {}),
+          ...(typeof payload.mileage === "number" && Number.isFinite(payload.mileage)
+            ? { mileage: payload.mileage }
+            : {}),
           ...(payload.service_claims !== undefined
             ? { service_claims: payload.service_claims }
             : {}),
@@ -252,6 +263,15 @@ export function AIVehicleUpdate({
     },
     [applyVehicleTruth, onDecision, payload, resolved, submitting],
   );
+
+  // Decline path — "Not now" / "Cancel". Writes nothing; reports the dismissal
+  // up so the parent can tell Oto the user declined (guarded against double-fire
+  // the same way submit() is).
+  const handleDismiss = useCallback(() => {
+    if (submitting || resolved) return;
+    setResolved("dismissed");
+    onDismiss?.();
+  }, [submitting, resolved, onDismiss]);
 
   // ---------------------------------------------------------------------------
   // Render
@@ -326,7 +346,7 @@ export function AIVehicleUpdate({
               </Text>
             </Pressable>
             <Pressable
-              onPress={() => setResolved("dismissed")}
+              onPress={handleDismiss}
               disabled={submitting}
               style={({ pressed }) => [
                 styles.btn,
@@ -358,7 +378,7 @@ export function AIVehicleUpdate({
             </Text>
           </Pressable>
           <Pressable
-            onPress={() => setResolved("dismissed")}
+            onPress={handleDismiss}
             disabled={submitting}
             style={({ pressed }) => [
               styles.btn,

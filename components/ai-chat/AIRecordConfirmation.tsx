@@ -63,7 +63,11 @@ export type RecordConfirmationDecision =
       type: MaintenanceType;
       lastServiceDate: number; // ms epoch
       lastServiceMileage?: number;
-    };
+    }
+  // "declined" — user dismissed without confirming or correcting. Writes
+  // NOTHING (Suggest-don't-mutate); only tells Oto the record was NOT confirmed
+  // so it doesn't treat it as validated on the next turn.
+  | { kind: "declined"; type: MaintenanceType };
 
 interface AIRecordConfirmationProps {
   vehicleId: string; // vehicles._id from envelope
@@ -166,6 +170,15 @@ export function AIRecordConfirmation({
     }
   }, [data, maintenanceType, onDecision, resolved, submitting, upsertRecord]);
 
+  // Decline path — user dismissed without confirming or correcting. Writes
+  // nothing; only reports the decline so Oto stops treating the record as
+  // validated. Guarded against double-fire like the confirm path.
+  const handleDecline = useCallback(() => {
+    if (submitting || resolved) return;
+    setResolved(true);
+    onDecision({ kind: "declined", type: maintenanceType });
+  }, [maintenanceType, onDecision, resolved, submitting]);
+
   // ---------------------------------------------------------------------------
   // Update path — user said the record is wrong. Switch to inline form.
   // ---------------------------------------------------------------------------
@@ -256,38 +269,51 @@ export function AIRecordConfirmation({
       <Text style={styles.summary}>{summaryLine}</Text>
 
       {step === "prompt" && data && (
-        <View style={styles.buttonRow}>
+        <>
+          <View style={styles.buttonRow}>
+            <Pressable
+              onPress={handleConfirm}
+              disabled={disabled || submitting || !data.record}
+              style={({ pressed }) => [
+                styles.btn,
+                styles.btnConfirm,
+                (disabled || !data.record) && styles.btnDisabled,
+                pressed && styles.btnPressed,
+              ]}
+            >
+              <Check size={14} color={BrandColors.white} strokeWidth={3} />
+              <Text style={styles.btnConfirmText} weight="semiBold">
+                Yes, that's right
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={handleStartUpdate}
+              disabled={disabled || submitting}
+              style={({ pressed }) => [
+                styles.btn,
+                styles.btnUpdate,
+                disabled && styles.btnDisabled,
+                pressed && styles.btnPressed,
+              ]}
+            >
+              <Pencil size={14} color={BrandColors.primary} strokeWidth={2.5} />
+              <Text style={styles.btnUpdateText} weight="semiBold">
+                {data.record ? "No, update it" : "Add a record"}
+              </Text>
+            </Pressable>
+          </View>
+          {/* Explicit decline — writes nothing, but tells Oto the record was
+              NOT confirmed so it stops treating it as validated. */}
           <Pressable
-            onPress={handleConfirm}
-            disabled={disabled || submitting || !data.record}
-            style={({ pressed }) => [
-              styles.btn,
-              styles.btnConfirm,
-              (disabled || !data.record) && styles.btnDisabled,
-              pressed && styles.btnPressed,
-            ]}
-          >
-            <Check size={14} color={BrandColors.white} strokeWidth={3} />
-            <Text style={styles.btnConfirmText} weight="semiBold">
-              Yes, that's right
-            </Text>
-          </Pressable>
-          <Pressable
-            onPress={handleStartUpdate}
+            onPress={handleDecline}
             disabled={disabled || submitting}
-            style={({ pressed }) => [
-              styles.btn,
-              styles.btnUpdate,
-              disabled && styles.btnDisabled,
-              pressed && styles.btnPressed,
-            ]}
+            style={({ pressed }) => [styles.declineBtn, pressed && styles.btnPressed]}
           >
-            <Pencil size={14} color={BrandColors.primary} strokeWidth={2.5} />
-            <Text style={styles.btnUpdateText} weight="semiBold">
-              {data.record ? "No, update it" : "Add a record"}
+            <Text style={styles.declineText} weight="medium">
+              Not now
             </Text>
           </Pressable>
-        </View>
+        </>
       )}
 
       {errorMessage && (
@@ -408,6 +434,16 @@ const styles = StyleSheet.create({
   },
   btnPressed: {
     opacity: 0.85,
+  },
+  declineBtn: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: Spacing.xs,
+    marginTop: Spacing.xs,
+  },
+  declineText: {
+    fontSize: 12,
+    color: NEUTRAL_TEXT_DIM,
   },
   btnDisabled: {
     opacity: 0.4,
