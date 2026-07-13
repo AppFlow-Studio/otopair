@@ -84,11 +84,6 @@ async function resolveMechanicPhotoUrl(ctx: any, photo?: string | null) {
   }
 }
 
-async function resolveShopLogoUrl(ctx: any, shop: any): Promise<string | null> {
-  if (!shop?.logo_storage_id) return null;
-  return await ctx.storage.getUrl(shop.logo_storage_id);
-}
-
 async function getBlockingBookings(ctx: any, mechanicId: any, shopId: any) {
   const bookings = await ctx.db
     .query("bookings")
@@ -211,7 +206,6 @@ export const list = query({
         if (!bookableShopIds.has(mechanic.shop_id)) return null;
         const shop = await ctx.db.get(mechanic.shop_id);
         const photoUrl = await resolveMechanicPhotoUrl(ctx, mechanic.photo);
-        const shopLogoUrl = await resolveShopLogoUrl(ctx, shop);
         // Surface the parent shop's aggregate rating/review-count on
         // each mechanic row so the booking sheet's per-shop grouping
         // (MechanicSelectionContent → groupMechanicsByShop) can read
@@ -221,7 +215,6 @@ export const list = query({
           ...mechanic,
           shop,
           photoUrl,
-          shopLogoUrl,
           shopRating: shop?.rating ?? 0,
           shopReviewCount: shop?.review_count ?? 0,
         };
@@ -259,8 +252,7 @@ export const getById = query({
     }
     const shop = await ctx.db.get(mechanic.shop_id);
     const photoUrl = await resolveMechanicPhotoUrl(ctx, mechanic.photo);
-    const shopLogoUrl = await resolveShopLogoUrl(ctx, shop);
-    return { ...mechanic, shop, photoUrl, shopLogoUrl };
+    return { ...mechanic, shop, photoUrl };
   },
 });
 
@@ -284,12 +276,10 @@ export const getByShopId = query({
       .query("mechanics")
       .filter((q) => q.and(q.eq(q.field("shop_id"), args.shopId), q.eq(q.field("is_active"), true)))
       .collect();
-    const shop = await ctx.db.get(args.shopId);
-    const shopLogoUrl = await resolveShopLogoUrl(ctx, shop);
     return await Promise.all(
       mechanics.map(async (mechanic) => {
         const photoUrl = await resolveMechanicPhotoUrl(ctx, mechanic.photo);
-        return { ...mechanic, photoUrl, shopLogoUrl };
+        return { ...mechanic, photoUrl };
       }),
     );
   },

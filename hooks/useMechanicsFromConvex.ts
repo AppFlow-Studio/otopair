@@ -18,7 +18,6 @@ type ConvexMechanicListRow = Doc<"mechanics"> & {
   shop?: { name: string } | null;
   shopRating?: number;
   shopReviewCount?: number;
-  shopLogoUrl?: string | null;
 };
 
 function mapConvexMechanicToStore(mechanic: ConvexMechanicListRow): Mechanic {
@@ -31,7 +30,6 @@ function mapConvexMechanicToStore(mechanic: ConvexMechanicListRow): Mechanic {
     title: mechanic.title,
     shopName,
     photoUrl: null,
-    shopLogoUrl: mechanic.shopLogoUrl ?? null,
     rating: mechanic.rating ?? 0,
     reviewCount: mechanic.review_count != null ? Math.round(Number(mechanic.review_count)) : undefined,
     shopRating: mechanic.shopRating ?? 0,
