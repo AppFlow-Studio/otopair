@@ -785,26 +785,10 @@ export default function HomeScreen() {
     }, [clearPreSelections]),
   );
 
-  // Enrichment-toast deferred from add-vehicle-review. Per Ahmad: don't
-  // fire the toast right after confirm (would overlap the /vehicle-added
-  // celebration). Surface it the next time the user lands on home so the
-  // background pipeline feels deliberate. The label is the user-visible
-  // "2024 Volkswagen Tiguan" so the toast can call out the specific car.
-  // One-shot: cleared as soon as it's read.
-  const pendingEnrichmentToast = usePendingNavigationStore((s) => s.pendingEnrichmentToast);
-  const setPendingEnrichmentToast = usePendingNavigationStore((s) => s.setPendingEnrichmentToast);
-  useFocusEffect(
-    useCallback(() => {
-      if (pendingEnrichmentToast) {
-        const carLabel = pendingEnrichmentToast;
-        setPendingEnrichmentToast(null);
-        // Universal-language pass per Ahmad: most users won't know
-        // what "enriching" means. "Connecting to your <car>" reads
-        // as a familiar tech action (like pairing) and stays short.
-        toast.trust(`Connecting to your ${carLabel}`);
-      }
-    }, [pendingEnrichmentToast, setPendingEnrichmentToast, toast])
-  );
+  // The deferred "Connecting to your <car>" one-shot toast that used to
+  // fire here (stashed by add-vehicle-review) is gone — the persistent
+  // EnrichmentStatusPill mounted in the (main-tabs) layout now shows the
+  // same message for as long as any garage vehicle is enriching.
 
   const handleAppointmentPress = () => {
     console.log("Appointment pressed");
@@ -1150,7 +1134,18 @@ export default function HomeScreen() {
                   resumeServicesPreview={resumeServicesPreview}
                   resumeVehicleName={resumeVehicleName}
                   resumeVehicleImage={resumeVehicleImage}
-                  onResumePress={() => router.push('/(booking-flow)/select-services')}
+                  onResumePress={() => {
+                    // Re-activate the vehicle the cart was started for before
+                    // entering the flow — the booking-flow layout evicts any
+                    // cart whose snapshot VIN doesn't match the active car,
+                    // so resuming with a different car selected (e.g. after
+                    // tapping another car's maintenance card) would otherwise
+                    // wipe the very booking this card promises to resume.
+                    if (resumeVehicleVin) {
+                      useVehicleStore.getState().selectVehicle(resumeVehicleVin);
+                    }
+                    router.push('/(booking-flow)/select-services');
+                  }}
                   // Account Setup
                   showAccountSetup={showAccountSetup}
                   onAccountSetupDismiss={() => setAccountSetupDismissed(true)}

@@ -8,7 +8,8 @@
  * Reactive — when the v3 pipeline writes a new enrichment_status, this
  * hook re-fires automatically (standard Convex `useQuery` semantics).
  *
- * USED IN: app/(booking-flow)/select-services.tsx (in-progress toast)
+ * USED IN: components/booking-flow/EnrichmentStatusPill.tsx (persistent
+ * in-progress pill mounted in the (booking-flow) layout)
  */
 
 import { useQuery } from "convex/react";
