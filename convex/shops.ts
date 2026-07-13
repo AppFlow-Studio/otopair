@@ -628,21 +628,28 @@ export const generateShopLogoUploadUrl = mutation({
 });
 
 /**
- * Point a shop at a newly-uploaded logo file. Deletes the previously
- * stored file (if any and if different) so replacing a logo never
- * leaks storage.
+ * Point a shop at a newly-uploaded logo file.
+ *
+ * We deliberately do NOT hard-delete the previously-stored file here. A
+ * client-supplied storageId can't be proven to belong to this shop, and
+ * `ctx.storage.delete` is a global hard-delete with no refcount — deleting
+ * a "previous" id an attacker planted could destroy another feature's file
+ * (e.g. a user's profile photo). Orphaned replaced logos are an accepted,
+ * low-severity tradeoff, reclaimable later by a background job that deletes
+ * only `_storage` ids not referenced by any live `logo_storage_id` (and
+ * cross-checked against other `_storage`-referencing tables). A
+ * `{shopId, storageId}` pending-upload record at generateShopLogoUploadUrl
+ * time would enable safe synchronous reclamation — deferred.
  */
 export const setShopLogo = mutation({
   args: { shopId: v.id("shops"), storageId: v.id("_storage") },
   handler: async (ctx, args) => {
-    const { shop } = await requireShopOwner(ctx, args.shopId);
-    const previous = shop?.logo_storage_id;
+    await requireShopOwner(ctx, args.shopId);
 
     // Security: reject a storageId already used as another shop's logo. Without
     // this, an owner of any shop could adopt a victim's file id (leaked via
-    // shops.list) and then delete it. This guarantees a shop's logo_storage_id
-    // is only ever a file uniquely uploaded for that shop, so the delete-previous
-    // below can never destroy another tenant's file.
+    // shops.list). This guarantees a shop's logo_storage_id is only ever a
+    // file uniquely uploaded for that shop.
     const conflict = await ctx.db
       .query("shops")
       .withIndex("by_logo_storage_id", (q) => q.eq("logo_storage_id", args.storageId))
@@ -654,27 +661,27 @@ export const setShopLogo = mutation({
 
     await ctx.db.patch(args.shopId, { logo_storage_id: args.storageId });
 
-    if (previous && previous !== args.storageId) {
-      await ctx.storage.delete(previous);
-    }
-
     return args.shopId;
   },
 });
 
 /**
- * Remove a shop's logo — deletes the stored file (if any) and unsets
- * the field so the card falls back to the placeholder.
+ * Remove a shop's logo — unsets the field so the card falls back to the
+ * placeholder.
+ *
+ * As with setShopLogo, we deliberately do NOT hard-delete the stored file:
+ * a client-supplied storageId can't be proven to belong to this shop and
+ * `ctx.storage.delete` is a global hard-delete with no refcount, so deleting
+ * it could destroy another feature's file. Orphaned files are an accepted,
+ * low-severity tradeoff, reclaimable later by a background job that deletes
+ * only `_storage` ids not referenced by any live `logo_storage_id` (and
+ * cross-checked against other `_storage`-referencing tables).
  */
 export const clearShopLogo = mutation({
   args: { shopId: v.id("shops") },
   handler: async (ctx, args) => {
-    const { shop } = await requireShopOwner(ctx, args.shopId);
-    const previous = shop?.logo_storage_id;
+    await requireShopOwner(ctx, args.shopId);
 
-    if (previous) {
-      await ctx.storage.delete(previous);
-    }
     await ctx.db.patch(args.shopId, { logo_storage_id: undefined });
 
     return args.shopId;
