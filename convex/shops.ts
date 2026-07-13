@@ -638,6 +638,20 @@ export const setShopLogo = mutation({
     const { shop } = await requireShopOwner(ctx, args.shopId);
     const previous = shop?.logo_storage_id;
 
+    // Security: reject a storageId already used as another shop's logo. Without
+    // this, an owner of any shop could adopt a victim's file id (leaked via
+    // shops.list) and then delete it. This guarantees a shop's logo_storage_id
+    // is only ever a file uniquely uploaded for that shop, so the delete-previous
+    // below can never destroy another tenant's file.
+    const conflict = await ctx.db
+      .query("shops")
+      .withIndex("by_logo_storage_id", (q) => q.eq("logo_storage_id", args.storageId))
+      .filter((q) => q.neq(q.field("_id"), args.shopId))
+      .first();
+    if (conflict) {
+      throw new Error("That image is already in use by another shop.");
+    }
+
     await ctx.db.patch(args.shopId, { logo_storage_id: args.storageId });
 
     if (previous && previous !== args.storageId) {

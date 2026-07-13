@@ -1783,7 +1783,8 @@ export default defineSchema({
   })
     .index("by_slug", ["slug"])
     .index("by_owner_user_id", ["owner_user_id"])
-    .index("by_stripe_connect_account_id", ["stripe_connect_account_id"]),
+    .index("by_stripe_connect_account_id", ["stripe_connect_account_id"])
+    .index("by_logo_storage_id", ["logo_storage_id"]),
 
   // [I]
   shops_hours: defineTable({
