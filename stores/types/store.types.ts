@@ -134,6 +134,8 @@ export interface Mechanic {
   shopName: string;
   /** Profile photo URL */
   photoUrl: string | null;
+  /** Shop's official image URL (from shops.logo_storage_id), null when unset. */
+  shopLogoUrl: string | null;
   /** Average rating (0-5) from Convex reviews */
   rating: number;
   /** Number of reviews (from Convex) for display */

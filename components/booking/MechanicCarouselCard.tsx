@@ -107,7 +107,11 @@ function MechanicCarouselCardComponent({
         {/* Shop Image/Icon */}
         <View style={styles.shopImageContainer}>
           <View style={styles.shopIcon}>
-            <Text size="2xl">🏠</Text>
+            {mechanic.shopLogoUrl ? (
+              <Image source={{ uri: mechanic.shopLogoUrl }} style={styles.shopImage} resizeMode="cover" />
+            ) : (
+              <Text size="2xl">🏠</Text>
+            )}
           </View>
         </View>
       </View>
@@ -221,6 +225,12 @@ const styles = StyleSheet.create({
     backgroundColor: "#F3F4F6",
     justifyContent: "center",
     alignItems: "center",
+    overflow: "hidden",
+  },
+  shopImage: {
+    width: 56,
+    height: 56,
+    borderRadius: BorderRadius.lg,
   },
   sinceText: {
     marginBottom: Spacing.md,
