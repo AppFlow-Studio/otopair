@@ -287,7 +287,10 @@ export default function RootLayout() {
                   urlScheme="otopair"
                 >
                 <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
-                  <OfflineBootGate>
+                  {/* fontsReady prevents the offline page from taking its first
+                      text measurement against the fallback font (clipped labels
+                      on slow cold starts). */}
+                  <OfflineBootGate fontsReady={fontsReady}>
                   <Stack
                     screenOptions={{
                       headerShown: false,

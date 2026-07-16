@@ -5,23 +5,28 @@
  * cold-start reconnect/offline is owned by OfflineBootGate (the full-screen
  * OfflineScreen), so the pill must not double up on it.
  */
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useConvex } from "convex/react";
 
-import { useConnection, nudgeReconnect } from "@/hooks/useConnection";
+import { useConnection, useHasEverConnected, nudgeReconnect } from "@/hooks/useConnection";
 import type { ConnState } from "@/lib/connection/deriveConnState";
-import { ConnectionPill, type PillVariant } from "./ConnectionPill";
+import { computePillVariant } from "@/lib/connection/pillVariant";
+import { ConnectionPill } from "./ConnectionPill";
 
 const RECOVERY_MS = 2000;
+// How long a tapped Retry shows "Reconnecting…" before falling back to
+// "No connection" if the socket didn't come back. Roughly matches the
+// OfflineScreen's "Connecting…" feedback window.
+const RETRY_FEEDBACK_MS = 2500;
 
 export function ConnectionPillHost() {
   const conn = useConnection();
-  const convex = useConvex();
-  const hasEverConnected = convex.connectionState().hasEverConnected;
+  // Convex 1.42 removed connectionState().hasEverConnected — use our tracker.
+  const hasEverConnected = useHasEverConnected();
   const insets = useSafeAreaInsets();
   const [showRecovery, setShowRecovery] = useState(false);
+  const [retrying, setRetrying] = useState(false);
   const prevConn = useRef<ConnState | null>(null);
 
   useEffect(() => {
@@ -44,15 +49,31 @@ export function ConnectionPillHost() {
     if (conn !== "online") setShowRecovery(false);
   }, [conn, hasEverConnected]);
 
+  // Clear the transient "Reconnecting…" feedback: immediately once we're online,
+  // otherwise after a bounded window so a retry that didn't restore the socket
+  // falls back to "No connection" instead of spinning forever.
+  useEffect(() => {
+    if (!retrying) return;
+    if (conn === "online") {
+      setRetrying(false);
+      return;
+    }
+    const t = setTimeout(() => setRetrying(false), RETRY_FEEDBACK_MS);
+    return () => clearTimeout(t);
+  }, [retrying, conn]);
+
+  // Retry: actually re-probe the network AND show "Reconnecting…" right away so
+  // the tap has visible feedback even when we're still offline.
+  const handleRetry = useCallback(() => {
+    nudgeReconnect();
+    setRetrying(true);
+  }, []);
+
   // Cold-start phase: the full-screen OfflineScreen covers this; the pill stays
   // out of the way until we've connected at least once.
   if (!hasEverConnected) return null;
 
-  let variant: PillVariant | null = null;
-  if (conn === "reconnecting") variant = "reconnecting";
-  else if (conn === "offline") variant = "offline";
-  else if (conn === "online" && showRecovery) variant = "recovering";
-
+  const variant = computePillVariant({ conn, showRecovery, retrying });
   if (!variant) return null;
 
   return (
@@ -60,7 +81,7 @@ export function ConnectionPillHost() {
       style={[styles.anchor, { top: insets.top + 8 }]}
       pointerEvents="box-none"
     >
-      <ConnectionPill variant={variant} onRetry={nudgeReconnect} />
+      <ConnectionPill variant={variant} onRetry={handleRetry} />
     </View>
   );
 }

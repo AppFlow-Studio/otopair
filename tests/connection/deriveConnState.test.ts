@@ -9,10 +9,20 @@ describe("deriveConnState", () => {
     ).toBe("online");
   });
 
-  it("stays online even if NetInfo reports no network (socket wins)", () => {
+  it("stays online while NetInfo is unresolved if the socket is connected", () => {
+    expect(
+      deriveConnState({ isWebSocketConnected: true, connectionRetries: 0, netReachable: null }),
+    ).toBe("online");
+  });
+
+  it("is offline when the device has no network, even if the socket still claims connected", () => {
+    // A silently-dead link (elevator, parking garage, emulator airplane mode)
+    // can leave a stale-"connected" websocket for minutes. The device's own
+    // no-network verdict must win, or every mid-session offline surface stays
+    // suppressed exactly when it's needed.
     expect(
       deriveConnState({ isWebSocketConnected: true, connectionRetries: 9, netReachable: false }),
-    ).toBe("online");
+    ).toBe("offline");
   });
 
   it("is reconnecting on a healthy startup (socket down, no retries, NetInfo unresolved)", () => {

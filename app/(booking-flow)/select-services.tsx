@@ -56,6 +56,7 @@ import { PinnedShopChip } from "@/components/booking-flow/PinnedShopChip";
 import { QuickBookRow } from "@/components/booking-flow/QuickBookRow";
 import { RatingMarkerPill } from "@/components/booking-flow/RatingMarkerPill";
 import { useNearbyBookingShops } from "@/hooks/useNearbyBookingShops";
+import { useOfflineGuard } from "@/hooks/useOfflineGuard";
 import { SelectedServicesFab } from "@/components/booking-flow/SelectedServicesFab";
 import {
   SelectedServicesSheet,
@@ -188,7 +189,12 @@ export default function SelectServicesScreen() {
   // mounted above the peek sheet. Pin tap → setSelectedShopId →
   // useEffect scrolls the carousel; carousel swipe → setSelectedShopId
   // → marker `tracksViewChanges` flips the pill to selected.
-  const { results: nearbyShops } = useNearbyBookingShops(5);
+  const { results: nearbyShops, isLoading: nearbyShopsLoading } = useNearbyBookingShops(5);
+  // Never-cached guard (concept 4a): the map is store-driven, and
+  // `isLoading` from useNearbyBookingShops means the shop store has never
+  // hydrated this session. Offline + never-hydrated → "Can't load this right
+  // now" modal; once shops are cached the map stays view-only per the spec.
+  useOfflineGuard(nearbyShopsLoading ? undefined : nearbyShops);
   const [selectedShopId, setSelectedShopId] = useState<string | null>(null);
   const browseScrollRef = useRef<ScrollView | null>(null);
   // Local map ref so the camera can pan to the selected shop as
