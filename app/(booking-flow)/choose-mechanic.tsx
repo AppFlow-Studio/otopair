@@ -600,6 +600,7 @@ export default function ChooseMechanicScreen() {
           <MapShopCard
             shopId={activeShop.id}
             shopName={activeShop.name}
+            imageUrl={activeShop.imageUrl}
             rating={activeShop.rating}
             distanceMi={activeDistanceMi}
             priceRange={activePriceLabel.text}
