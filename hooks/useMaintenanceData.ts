@@ -20,15 +20,109 @@ import { useQuery } from "convex/react";
 import { useMemo } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import type { MaintenanceItem } from "@/components/cars/MaintenanceTracker";
+import type {
+  MaintenanceItem,
+  MaintenanceTriggerAxis,
+} from "@/components/cars/MaintenanceTracker";
 import {
   ALL_MAINTENANCE_TYPES,
   MAINTENANCE_LABELS,
+  computeFromOdometerStatus,
   type MaintenanceType,
   type OemServiceIntervalsInput,
 } from "@/utils/maintenanceStatus";
 import { buildMaintenanceItems, enrichUrgentItem } from "@/utils/maintenanceEnrichment";
 import { buildWarningLightItem } from "@/lib/warningLightItems";
+import { safeInterval } from "@/utils/serviceIntervalGuardrails";
+import { TAXONOMY } from "@/constants/serviceTaxonomy";
+import { formatMileage } from "@/lib/vehicle-passport";
+
+/** Catalog slugs whose cadence is already covered by one of the five
+ *  anchored `maintenance_records` types. Everything else falls into
+ *  the from-odometer inference path (proposal Behavior #7). */
+const CATALOG_SLUGS_TO_SKIP: ReadonlySet<string> = new Set([
+  "oil_change",
+  "brake_pad_replacement",
+  "tire_rotation",
+  "tire_balance",
+  "tire_replacement",
+  "wheel_alignment",
+  "battery_replacement",
+  "battery_test",
+  "state_inspection",
+  "emissions_test",
+  "check_engine_light",
+  "diagnostic_scan",
+  "pre_purchase_inspection",
+]);
+
+/** Anchored type → the taxonomy slug whose OEM interval represents
+ *  its cadence. Kept separate from `lib/maintenanceServiceMapping.
+ *  MAINTENANCE_TYPE_TO_SLUG` which resolves to booking-flow variants
+ *  (`brake_system_inspection`, `battery_test`, etc.) — this map is
+ *  for the interval-lookup on the tracker's signal-pill row. */
+const ANCHOR_TYPE_TO_SLUG: Partial<Record<MaintenanceType, string>> = {
+  oil: "oil_change",
+  brakes: "brake_pad_replacement",
+  tires: "tire_rotation",
+  battery: "battery_replacement",
+  inspection: "state_inspection",
+};
+
+const MS_PER_MONTH = 30.44 * 24 * 60 * 60 * 1000;
+
+interface DerivedSignals {
+  signals: { time?: string; mileage?: string; interval?: string };
+  triggeredBy: MaintenanceTriggerAxis;
+}
+
+function pickAnchorAxis(hasDate: boolean, hasMileage: boolean): MaintenanceTriggerAxis {
+  if (hasDate && hasMileage) return "both";
+  if (hasDate) return "time";
+  if (hasMileage) return "mileage";
+  return "none";
+}
+
+/** Derive signal-pill copy for an anchored record. Callers should
+ *  skip invocation when the record is missing — the "none" result is
+ *  reserved for records that exist but carry neither anchor. */
+function deriveAnchoredSignals(
+  record: MaintenanceRecord,
+  type: MaintenanceType,
+  currentOdometer: number | null,
+  oemIntervals: OemServiceIntervalsInput | undefined,
+  now: number,
+): DerivedSignals {
+  const signals: DerivedSignals["signals"] = {};
+  const hasDate = record.lastServiceDate != null;
+  const hasMileage = record.lastServiceMileage != null;
+
+  if (record.lastServiceDate != null) {
+    const months = Math.max(0, Math.round((now - record.lastServiceDate) / MS_PER_MONTH));
+    signals.time = `${months} mo since last service`;
+  }
+  if (record.lastServiceMileage != null && currentOdometer != null && currentOdometer > 0) {
+    const miles = Math.max(0, currentOdometer - record.lastServiceMileage);
+    signals.mileage = `${formatMileage(miles)} since last service`;
+  }
+
+  const slug = ANCHOR_TYPE_TO_SLUG[type];
+  const interval = slug ? oemIntervals?.[slug] : undefined;
+  if (interval) {
+    const parts: string[] = [];
+    if (interval.interval_months) parts.push(`${interval.interval_months} mo`);
+    if (interval.interval_miles) parts.push(formatMileage(interval.interval_miles));
+    if (parts.length > 0) signals.interval = parts.join(" / ");
+  }
+
+  return { signals, triggeredBy: pickAnchorAxis(hasDate, hasMileage) };
+}
+
+/** Non-mutating merge — attach signals to an anchored item without
+ *  spreading the same three keys at every push site. */
+function withSignals(item: MaintenanceItem, derived: DerivedSignals): MaintenanceItem {
+  return { ...item, signals: derived.signals, triggeredBy: derived.triggeredBy };
+}
 
 /** Paired maintenance type → light id that should escalate it to Now
  *  tier. Mirrors WARNING_LIGHT_FOR_TYPE inside the merge loop below;
@@ -184,21 +278,28 @@ export function useMergedMaintenance(
         userRecord?.confirmedHealthyAt &&
         Date.now() - userRecord.confirmedHealthyAt < 90 * 24 * 60 * 60 * 1000;
 
-      if (userConfirmedHealthy && userItem) {
-        if (userItem.status !== "on_time") {
-          result.push({
-            ...userItem,
-            status: "on_time",
-            description: "Confirmed in good shape",
-            detail: "On time",
-          });
-        } else {
-          result.push(userItem);
-        }
+      if (userItem && userRecord) {
+        const derived = deriveAnchoredSignals(
+          userRecord,
+          type,
+          currentOdometer,
+          oemIntervals,
+          Date.now(),
+        );
+        const base: MaintenanceItem =
+          userConfirmedHealthy && userItem.status !== "on_time"
+            ? {
+                ...userItem,
+                status: "on_time",
+                description: "Confirmed in good shape",
+                detail: "On time",
+              }
+            : userItem;
+        result.push(withSignals(base, derived));
         continue;
       }
 
-      // User-provided record
+      // Fallback: no record but the anchored slot expects an entry
       if (userItem) {
         result.push(userItem);
         continue;
@@ -270,6 +371,65 @@ export function useMergedMaintenance(
       result.push(inspectionItem);
     }
 
+    // ── Catalog coverage via from-odometer inference (Behavior #7) ──
+    if (oemIntervals && currentOdometer != null && currentOdometer > 0) {
+      for (const [slug, interval] of Object.entries(oemIntervals)) {
+        if (CATALOG_SLUGS_TO_SKIP.has(slug)) continue;
+        const entry = TAXONOMY[slug];
+        if (!entry) continue;
+
+        // Runtime data from `useOemServiceIntervals` carries the guardrail
+        // fields (`confidence`, `mechanic_verified`) beyond what the narrow
+        // `OemServiceIntervalsInput` type surfaces; cast for the guardrail
+        // call rather than leaking those fields into the general type.
+        const enriched = interval as OemServiceIntervalsInput[string] & {
+          confidence?: number | null;
+          mechanic_verified?: boolean;
+        };
+        const bounded = safeInterval({
+          slug,
+          interval_miles: enriched.interval_miles,
+          confidence: enriched.confidence,
+          mechanic_verified: enriched.mechanic_verified,
+        });
+
+        // Anchorless — no stored interval AND no conservative default.
+        // Row surfaces soft with the diagnostic-scan CTA (Behavior #6).
+        if (bounded == null) {
+          result.push({
+            id: `catalog-${slug}`,
+            serviceName: entry.label,
+            description:
+              "Not enough info to say — book a diagnostic scan to firm this up.",
+            detail: "No data",
+            status: "on_time",
+            triggeredBy: "none",
+          });
+          continue;
+        }
+
+        const status = computeFromOdometerStatus({
+          interval_miles: bounded,
+          currentOdometer,
+          serviceName: entry.label,
+        });
+
+        result.push({
+          id: `catalog-${slug}`,
+          serviceName: entry.label,
+          description: status.description,
+          detail: status.detail,
+          status: status.status,
+          percentUsed: status.percentUsed,
+          triggeredBy: "inference",
+          signals: {
+            mileage: `${formatMileage(currentOdometer)} (current)`,
+            interval: `${formatMileage(bounded)} (OEM)`,
+          },
+        });
+      }
+    }
+
     // Append mechanic-submitted job recommendations as urgent cards. Each
     // rec carries its source id so the tracker shows the "Take Action" CTA
     // and routes to /recommendation/[recId].
@@ -325,7 +485,7 @@ export function useMergedMaintenance(
     }
 
     return enriched;
-  }, [userItems, records, knownIssues, vehicleYear, driverRecommendations, vehicleOwnerId]);
+  }, [userItems, records, knownIssues, vehicleYear, driverRecommendations, vehicleOwnerId, oemIntervals, currentOdometer]);
 
   // Expose raw records so the modal can pre-fill from existing data
   const recordsByType = useMemo(() => {

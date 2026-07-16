@@ -40,10 +40,20 @@ import { extractMaintenanceType } from "@/lib/maintenanceServiceMapping";
 export const CATEGORY_WEIGHTS = {
   brakes: 25,
   warning: 25,
+  timing_belt: 22,          // catastrophic if it snaps
+  brake_fluid_flush: 18,    // touches the braking system
+  transmission_service: 18, // wrong or skipped fluid → kills the box
   tires: 20,
   oil: 20,
+  spark_plugs: 15,
+  coolant_flush: 15,        // overheating chain-reaction on the engine
+  serpentine_belt: 15,      // fails → immediate stranded breakdown
+  differential_service: 12,
   battery: 13,
   inspection: 12,
+  filter_replacement: 8,
+  power_steering_flush: 8,
+  fuel_system_cleaning: 8,
   other: 10,
 } as const;
 

@@ -1,8 +1,15 @@
 /**
- * Per-variant visual tokens. Authoritative source for hex values is
- * docs/notifications/PLAN.md §B.3 — keep in lockstep.
+ * Per-variant visual tokens for the unified Airbnb-style toast.
+ *
+ * Every variant is a solid fill-color card with white text and a
+ * white icon inside a translucent-white 40pt chip. Colors vary by
+ * variant (green success, red error, blue info, amber warning, navy
+ * trust) but the shape and motion are identical.
+ *
+ * Light/dark values are the same — the fill card reads on either
+ * theme, unlike the previous white-card light-mode design which
+ * disappeared into a light background.
  */
-import { SemanticColors } from "@/constants/theme";
 
 import type { ToastVariant } from "./types";
 
@@ -15,112 +22,42 @@ export const DEFAULT_DURATION_MS: Record<ToastVariant, number> = {
 };
 
 export interface ToastPalette {
+  /** Solid card fill. */
   bg: string;
+  /** Border color — matches bg since the card is a solid fill. */
   border: string;
+  /** White. Icon rendered on top of the translucent chip. */
   iconColor: string;
+  /** 16% white so the chip separates from the card. */
   iconContainerBg: string;
   iconContainerBorder?: string;
 }
 
-export interface ToastVariantTokens {
-  light: ToastPalette;
-  dark: ToastPalette;
+const WHITE = "#FFFFFF";
+const CHIP_BG = "rgba(255, 255, 255, 0.16)";
+
+function fill(bg: string): ToastPalette {
+  return {
+    bg,
+    border: bg,
+    iconColor: WHITE,
+    iconContainerBg: CHIP_BG,
+    iconContainerBorder: undefined,
+  };
 }
 
-// Per Ahmad: every toast wears a flat white card on light mode, with
-// the icon naked (no chip background) in its variant color. Dark mode
-// keeps its tinted look so the toast stays readable against dark
-// surfaces — flat white there would be harsh.
-const LIGHT_CARD_BG = "#FFFFFF";
-const LIGHT_CARD_BORDER = "rgba(15, 23, 42, 0.08)";
-// `iconContainerBg: "transparent"` + `iconContainerBorder: undefined`
-// (when also `borderWidth: 0`) gives ToastIcon a no-chip naked icon.
-const NO_CHIP = {
-  iconContainerBg: "transparent",
-  iconContainerBorder: undefined,
-} as const;
-
-export const VARIANT_TOKENS: Record<ToastVariant, ToastVariantTokens> = {
-  success: {
-    light: {
-      bg: LIGHT_CARD_BG,
-      border: LIGHT_CARD_BORDER,
-      iconColor: SemanticColors.successGreen,
-      ...NO_CHIP,
-    },
-    dark: {
-      bg: SemanticColors.successGreenDarkBg,
-      border: `${SemanticColors.successGreen}66`,
-      iconColor: SemanticColors.successGreenLightOnDark,
-      iconContainerBg: SemanticColors.successGreenDarkBg,
-      iconContainerBorder: `${SemanticColors.successGreen}66`,
-    },
-  },
-  info: {
-    light: {
-      bg: LIGHT_CARD_BG,
-      border: LIGHT_CARD_BORDER,
-      iconColor: SemanticColors.primaryBlue,
-      ...NO_CHIP,
-    },
-    dark: {
-      bg: SemanticColors.primaryBlueDarkBg,
-      border: `${SemanticColors.primaryBlue}66`,
-      iconColor: SemanticColors.primaryBlueLightOnDark,
-      iconContainerBg: SemanticColors.primaryBlueDarkBg,
-      iconContainerBorder: `${SemanticColors.primaryBlue}66`,
-    },
-  },
-  warning: {
-    light: {
-      bg: LIGHT_CARD_BG,
-      border: LIGHT_CARD_BORDER,
-      iconColor: SemanticColors.warningAmber,
-      ...NO_CHIP,
-    },
-    dark: {
-      bg: SemanticColors.warningAmberDarkBg,
-      border: `${SemanticColors.warningAmber}66`,
-      iconColor: SemanticColors.warningAmberLightOnDark,
-      iconContainerBg: SemanticColors.warningAmberDarkBg,
-      iconContainerBorder: `${SemanticColors.warningAmber}66`,
-    },
-  },
-  error: {
-    light: {
-      bg: LIGHT_CARD_BG,
-      border: LIGHT_CARD_BORDER,
-      iconColor: SemanticColors.errorRed,
-      ...NO_CHIP,
-    },
-    dark: {
-      bg: SemanticColors.errorRedDarkBg,
-      border: `${SemanticColors.errorRed}66`,
-      iconColor: SemanticColors.errorRedLightOnDark,
-      iconContainerBg: SemanticColors.errorRedDarkBg,
-      iconContainerBorder: `${SemanticColors.errorRed}66`,
-    },
-  },
-  trust: {
-    light: {
-      bg: LIGHT_CARD_BG,
-      border: LIGHT_CARD_BORDER,
-      iconColor: SemanticColors.primaryBlue,
-      ...NO_CHIP,
-    },
-    dark: {
-      bg: SemanticColors.primaryBlueDarkBg,
-      border: `${SemanticColors.primaryBlue}99`,
-      iconColor: SemanticColors.primaryBlueLightOnDark,
-      iconContainerBg: SemanticColors.primaryBlueDarkBg,
-      iconContainerBorder: `${SemanticColors.primaryBlue}66`,
-    },
-  },
-};
-
-export const TRUST_GRADIENT = {
-  light: [SemanticColors.primaryBlueLight, SemanticColors.primaryBlueLightAlt] as [string, string],
-  dark: [SemanticColors.primaryBlueDarkBg, SemanticColors.primaryBlueDarkBgAlt] as [string, string],
+/**
+ * Per-variant fill colors. Success green matches the PM spec; the
+ * others follow the same "solid color, white content" grammar so any
+ * trigger (role change, mileage update, booking cancelled, errors)
+ * reads as the same UI system.
+ */
+export const VARIANT_TOKENS: Record<ToastVariant, ToastPalette> = {
+  success: fill("#059669"), // emerald-600
+  info: fill("#2563EB"),    // blue-600
+  warning: fill("#B45309"), // amber-700 — matches SOON chip tone
+  error: fill("#DC2626"),   // red-600 — matches NOW chip tone family
+  trust: fill("#0F172A"),   // slate-900 — premium / high-attention
 };
 
 export const TOAST_SHADOW = {
@@ -140,33 +77,9 @@ export const TOAST_SHADOW = {
   },
 } as const;
 
-/** Trust-Moment overrides the default shadow with a blue-tinted glow. */
-export const TRUST_SHADOW = {
-  light: {
-    shadowColor: SemanticColors.primaryBlue,
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.18,
-    shadowRadius: 32,
-    elevation: 14,
-  },
-  dark: {
-    shadowColor: SemanticColors.primaryBlue,
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.32,
-    shadowRadius: 32,
-    elevation: 14,
-  },
-} as const;
-
 export const TOAST_TEXT = {
-  light: {
-    title: SemanticColors.textPrimary,
-    body: SemanticColors.textSecondary,
-  },
-  dark: {
-    title: SemanticColors.textPrimaryDark,
-    body: SemanticColors.textSecondaryDark,
-  },
+  title: WHITE,
+  body: "rgba(255, 255, 255, 0.85)",
 } as const;
 
 export const MAX_QUEUE_SIZE = 3;

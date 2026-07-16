@@ -26,8 +26,9 @@ interface Props {
 export function ToastIcon({ variant, palette }: Props) {
   const Icon = ICON_MAP[variant];
   // `naked` = no chip background, no border — the icon sits directly
-  // on the toast card. Triggered when the palette opts out via a
-  // transparent iconContainerBg (the light-mode redesign).
+  // on the toast card. Triggered by the brand-blue override which
+  // sets iconContainerBg="transparent" so the white icon reads
+  // straight on the blue gradient.
   const naked =
     palette.iconContainerBg === "transparent" && !palette.iconContainerBorder;
 
@@ -64,8 +65,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   naked: {
-    // Same size envelope as the chipped version so the row layout
-    // doesn't shift between variants — just no fill/border.
     width: 32,
     height: 32,
     alignItems: "center",

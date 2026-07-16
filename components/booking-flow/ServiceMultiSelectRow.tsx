@@ -39,6 +39,10 @@ interface ServiceMultiSelectRowProps {
   state: "bookable" | "needs_specs" | "blocked";
   onPress: () => void;
   onInfoPress: () => void;
+  /** Handle to the outer Pressable so the parent can
+   *  `measureInWindow` — needed for the fly-to-cart animation
+   *  endpoint. Optional so consumers that don't animate can skip. */
+  viewRef?: React.Ref<View>;
 }
 
 export function ServiceMultiSelectRow({
@@ -49,6 +53,7 @@ export function ServiceMultiSelectRow({
   state,
   onPress,
   onInfoPress,
+  viewRef,
 }: ServiceMultiSelectRowProps) {
   const Icon = getServiceIcon(slug);
   const isQuote = entry.variant === "quote";
@@ -57,6 +62,7 @@ export function ServiceMultiSelectRow({
 
   return (
     <Pressable
+      ref={viewRef}
       style={[
         styles.row,
         isSelected && styles.rowSelected,

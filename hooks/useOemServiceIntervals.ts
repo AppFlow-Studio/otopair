@@ -22,15 +22,93 @@
  *    of one query per vehicle.
  */
 
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { useQuery } from "convex/react";
 
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { OemServiceIntervalMap } from "@/convex/service_intervals_queries";
+import {
+  CONSERVATIVE_DEFAULTS_MI,
+  SERVICE_INTERVAL_BOUNDS_MI,
+  safeInterval,
+} from "@/utils/serviceIntervalGuardrails";
 
 const EMPTY_MAP: OemServiceIntervalMap = {};
 const EMPTY_BATCH: Record<string, OemServiceIntervalMap> = {};
+
+// Dev-only: dedupe enrichment logs so we print each vehicle_config once.
+const LOGGED_CONFIGS = new Set<string>();
+
+function logEnrichmentIntervals(
+  vehicleConfigId: string,
+  intervals: OemServiceIntervalMap,
+) {
+  if (!__DEV__) return;
+  if (LOGGED_CONFIGS.has(vehicleConfigId)) return;
+  const slugs = Object.keys(intervals);
+  if (slugs.length === 0) {
+    // Log once so we can distinguish "hook never mounted" from
+    // "hook mounted, query returned empty (config-id mismatch or
+    // enrichment hasn't written rows yet)". Don't add to dedupe set
+    // so a later populated result still fires the full table.
+    console.log(
+      `[maintenance-enrichment] vehicle_config=${vehicleConfigId} — query returned EMPTY (no service_intervals rows for this config yet)`,
+    );
+    return;
+  }
+  LOGGED_CONFIGS.add(vehicleConfigId);
+
+  const rows = slugs.sort().map((slug) => {
+    const iv = intervals[slug] as {
+      interval_miles?: number | null;
+      interval_months?: number | null;
+      confidence?: number | null;
+      mechanic_verified?: boolean;
+    };
+    const bounds = SERVICE_INTERVAL_BOUNDS_MI[slug];
+    const bounded = safeInterval({
+      slug,
+      interval_miles: iv.interval_miles ?? null,
+      confidence: iv.confidence,
+      mechanic_verified: iv.mechanic_verified,
+    });
+    let action = "pass-through";
+    if (iv.interval_miles == null || iv.interval_miles <= 0) {
+      action = CONSERVATIVE_DEFAULTS_MI[slug] != null
+        ? `default-${CONSERVATIVE_DEFAULTS_MI[slug]}`
+        : "anchorless";
+    } else {
+      const trusted =
+        iv.mechanic_verified === true || (iv.confidence ?? 0) >= 0.75;
+      if (!trusted) {
+        action = bounds ? `low-conf → floor ${bounds[0]}` : "low-conf pass";
+      } else if (bounds) {
+        if (iv.interval_miles < bounds[0]) action = `clamp → floor ${bounds[0]}`;
+        else if (iv.interval_miles > bounds[1]) action = `clamp → ceiling ${bounds[1]}`;
+      }
+    }
+    return {
+      slug,
+      miles: iv.interval_miles ?? null,
+      months: iv.interval_months ?? null,
+      conf: iv.confidence ?? null,
+      verified: iv.mechanic_verified ?? false,
+      bounded,
+      action,
+    };
+  });
+
+  console.log(
+    `[maintenance-enrichment] vehicle_config=${vehicleConfigId} — ${rows.length} service(s):`,
+  );
+  // Metro strips `console.table` — print each row as a plain string so it survives.
+  for (const r of rows) {
+    console.log(
+      `  ${r.slug.padEnd(28)} miles=${String(r.miles).padEnd(8)} months=${String(r.months).padEnd(6)} conf=${String(r.conf).padEnd(5)} verified=${String(r.verified).padEnd(6)} bounded=${String(r.bounded).padEnd(8)} action=${r.action}`,
+    );
+  }
+}
 
 export function useOemServiceIntervals(
   vehicleConfigId: Id<"vehicle_configs"> | null | undefined,
@@ -39,11 +117,30 @@ export function useOemServiceIntervals(
     api.service_intervals_queries.getServiceIntervalsForVehicleConfig,
     vehicleConfigId ? { vehicle_config_id: vehicleConfigId } : "skip",
   );
+  const intervals = result ?? EMPTY_MAP;
+
+  useEffect(() => {
+    if (!__DEV__) return;
+    if (!vehicleConfigId) {
+      console.log(
+        "[maintenance-enrichment] hook mounted with NULL vehicleConfigId — active vehicle has no resolved vehicle_configs row yet (enrichment scheduled but pipeline hasn't landed).",
+      );
+      return;
+    }
+    if (result === undefined) {
+      console.log(
+        `[maintenance-enrichment] vehicle_config=${vehicleConfigId} — query LOADING…`,
+      );
+      return;
+    }
+    logEnrichmentIntervals(String(vehicleConfigId), intervals);
+  }, [vehicleConfigId, result, intervals]);
+
   // `undefined` while loading; treat the same as "no enrichment yet"
   // so the maintenance calc falls back instead of flickering. The
   // Convex reactivity will re-run computeMaintenanceStatus once the
   // map lands.
-  return result ?? EMPTY_MAP;
+  return intervals;
 }
 
 export function useOemServiceIntervalsBatch(
@@ -66,5 +163,13 @@ export function useOemServiceIntervalsBatch(
     api.service_intervals_queries.getServiceIntervalsForVehicleConfigs,
     stableIds.length > 0 ? { vehicle_config_ids: stableIds } : "skip",
   );
-  return result ?? EMPTY_BATCH;
+  const batch = result ?? EMPTY_BATCH;
+
+  useEffect(() => {
+    for (const configId of Object.keys(batch)) {
+      logEnrichmentIntervals(configId, batch[configId]);
+    }
+  }, [batch]);
+
+  return batch;
 }

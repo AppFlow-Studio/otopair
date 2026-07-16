@@ -35,6 +35,7 @@ import {
 } from "lucide-react-native";
 
 import { categoryTitleTransition } from "@/components/booking-flow/CategoryListRow";
+import { FlyToCartGhost } from "@/components/booking-flow/FlyToCartGhost";
 import { useFocusEffect, useLocalSearchParams, useNavigation } from "expo-router";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 
@@ -78,8 +79,17 @@ import { useShopStore } from "@/stores/useShopStore";
 // free-drag Pan gesture resized the sheet on vertical swipe, but
 // users found the whole-sheet movement distracting next to a normal
 // scrollable list.
-const { height: SCREEN_HEIGHT } = Dimensions.get("window");
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 const SHEET_H = SCREEN_HEIGHT * 0.92;
+
+// FAB layout constants — kept in sync with SelectedServicesFab.tsx
+// (56×56) and the fabHost positioning below (`right: 16`,
+// `bottom: insets.bottom + 96`). Duplicated as numbers so the fly-to-
+// cart target is deterministic even on the FIRST tap, when the FAB
+// component is still returning null and hasn't attached its ref yet.
+const FAB_SIZE = 56;
+const FAB_RIGHT_INSET = 16;
+const FAB_BOTTOM_ABOVE_INSETS = 96;
 
 // Same icon mapping as CategoryListRow so the shared-element
 // morph between Screen 1's row and Screen 2's header lands on a
@@ -168,8 +178,12 @@ export default function CategoryDetailScreen() {
 
   // v5 coverage filter
   const readiness = useVehicleReadiness(ownershipId);
-  const { applicableIds, bookableIds, needsSpecsIds, isLoading: isBookableLoading } =
-    useBookableServices(ownershipId);
+  const {
+    applicableIds,
+    bookableIds,
+    needsSpecsIds,
+    isLoading: isBookableLoading,
+  } = useBookableServices(ownershipId);
 
   // Shared persistent map (lives in the layout) — locked backdrop,
   // same as Screen 1. Re-assert locked mode + recenter on focus.
@@ -185,14 +199,104 @@ export default function CategoryDetailScreen() {
   const [specsCheckServiceId, setSpecsCheckServiceId] = useState<string | null>(null);
   const [infoSheetSlug, setInfoSheetSlug] = useState<string | null>(null);
 
+  // Fly-to-cart overlay state. `rowRefs` holds a handle per row so we
+  // can measureInWindow when the user taps; `fabRef` is the endpoint.
+  // Each spawned ghost lives in `flying` until its animation reports
+  // done, then the parent retires it and bumps `pulseKey` so the FAB
+  // pops.
+  interface FlyingGhost {
+    key: string;
+    slug: string;
+    label: string;
+    from: { x: number; y: number; w: number; h: number };
+    to: { x: number; y: number };
+    /** Runs when the ghost lands on the FAB. This is where the store
+     *  toggle happens so the cart count only ticks up after the
+     *  animation completes. */
+    onCommit?: () => void;
+  }
+  const rowRefs = useRef<Map<string, View | null>>(new Map());
+  const flightCounter = useRef(0);
+  const [flying, setFlying] = useState<FlyingGhost[]>([]);
+  const [pulseKey, setPulseKey] = useState(0);
+
+  // FAB target center in window coords, computed from the fixed layout
+  // constants. Deterministic — works on the very first tap when the
+  // FAB is still returning null (count === 0) and hasn't attached its
+  // ref yet, which was killing the animation on the initial add.
+  const fabCenter = useMemo(
+    () => ({
+      x: SCREEN_WIDTH - FAB_RIGHT_INSET - FAB_SIZE / 2,
+      y:
+        SCREEN_HEIGHT -
+        insets.bottom -
+        FAB_BOTTOM_ABOVE_INSETS -
+        FAB_SIZE / 2,
+    }),
+    [insets.bottom],
+  );
+
+  const flyToCart = useCallback(
+    (serviceId: string, slug: string, label: string, onCommit?: () => void) => {
+      const rowNode = rowRefs.current.get(serviceId);
+      // No row → skip the animation and commit immediately so the
+      // cart still updates (belt-and-suspenders for the caller).
+      if (!rowNode) {
+        onCommit?.();
+        return;
+      }
+      rowNode.measureInWindow((rx, ry, rw, rh) => {
+        const key = `fly-${flightCounter.current++}`;
+        setFlying((prev) => [
+          ...prev,
+          {
+            key,
+            slug,
+            label,
+            from: { x: rx, y: ry, w: rw, h: rh },
+            to: fabCenter,
+            onCommit,
+          },
+        ]);
+      });
+    },
+    [fabCenter],
+  );
+
+  // Fly-to-cart from a service that was added via an options / diagnostic
+  // / spec sheet. The sheet blocks the row while it's open, so we defer
+  // the ghost spawn until the sheet has finished dismissing — otherwise
+  // the animation plays behind the sheet and the user misses it.
+  // Delay tuned to the standard iOS modal slide-down (~300ms) plus a
+  // small safety margin. The store toggle is deferred until the ghost
+  // lands so the cart count doesn't jump ahead of the animation.
+  const flyToCartAfterSheet = useCallback(
+    (serviceId: string, onCommit?: () => void) => {
+      const svc = availableServices.find((s) => s.id === serviceId);
+      if (!svc?.slug) {
+        onCommit?.();
+        return;
+      }
+      const entry = TAXONOMY[svc.slug];
+      if (!entry) {
+        onCommit?.();
+        return;
+      }
+      setTimeout(
+        () => flyToCart(svc.id, svc.slug!, entry.label, onCommit),
+        380,
+      );
+    },
+    [availableServices, flyToCart],
+  );
+
   const tab = useMemo(() => TABS.find((t) => t.key === tabKey), [tabKey]);
 
-  // Filter + sort services in this tab. Mirrors v5 grid logic:
-  // tab match → slug present → taxonomy entry exists → applicable
-  // (year + engine flag) → intersect with applicableIds from the
-  // coverage filter (which already drops missing_data).
-  const filteredServices = useMemo(() => {
-    if (!tabKey) return [];
+  // Pre-coverage-gate list: everything in this tab that's slugged,
+  // has a taxonomy entry, passes applicability, and (if the user
+  // came from a shop-detail Book CTA) is offered by that shop.
+  const baseList = useMemo(() => {
+    if (!tabKey) return [] as Service[];
     let list = availableServices
       .filter((service) => {
         if (service.tab !== tabKey) return false;
@@ -212,19 +316,18 @@ export default function CategoryDetailScreen() {
     if (shopServiceIdSet && shopServiceIdSet.size > 0) {
       list = list.filter((s) => shopServiceIdSet.has(s.id));
     }
-    if (!ownershipId) return list;
+    return list;
+  }, [tabKey, availableServices, selectedVehicle, engineSpecs, shopServiceIdSet]);
+
+  // Bookable list — what renders in the main list. Intersects the
+  // base with `applicableIds` from the coverage query (which already
+  // excludes missing_data). Without a vehicle → no gate, show the
+  // whole base.
+  const filteredServices = useMemo(() => {
+    if (!ownershipId) return baseList;
     if (isBookableLoading) return [];
-    return list.filter((s) => applicableIds.has(s.id));
-  }, [
-    tabKey,
-    availableServices,
-    selectedVehicle,
-    engineSpecs,
-    ownershipId,
-    isBookableLoading,
-    applicableIds,
-    shopServiceIdSet,
-  ]);
+    return baseList.filter((s) => applicableIds.has(s.id));
+  }, [baseList, ownershipId, isBookableLoading, applicableIds]);
 
   // Tap handler — slug routing matches the v5 grid + Screen 1 entries
   const handleServicePress = useCallback(
@@ -272,9 +375,26 @@ export default function CategoryDetailScreen() {
         return;
       }
 
-      toggleServiceSelection(service.id);
+      // Direct-add path. If already selected, this is a remove — flip
+      // the store immediately, no animation. If adding, defer the
+      // store toggle until the ghost lands on the FAB so the cart
+      // count ticks up in sync with the visual, not ahead of it.
+      if (isSelected) {
+        toggleServiceSelection(service.id);
+        return;
+      }
+      const entry = TAXONOMY[service.slug];
+      if (entry) {
+        flyToCart(service.id, service.slug, entry.label, () =>
+          toggleServiceSelection(service.id),
+        );
+      } else {
+        // No taxonomy entry (shouldn't happen post-hydration) — fall
+        // back to an instant toggle so the row still adds to the cart.
+        toggleServiceSelection(service.id);
+      }
     },
-    [router, selectedServiceIds, needsSpecsIds, toggleServiceSelection],
+    [router, selectedServiceIds, needsSpecsIds, toggleServiceSelection, flyToCart],
   );
 
   // The questions list the inline PackageQuestionsSheet should ask
@@ -437,6 +557,9 @@ export default function CategoryDetailScreen() {
                     state={state}
                     onPress={() => handleServicePress(svc)}
                     onInfoPress={() => setInfoSheetSlug(slug)}
+                    viewRef={(node: View | null) => {
+                      rowRefs.current.set(svc.id, node);
+                    }}
                   />
                 );
               })}
@@ -475,7 +598,32 @@ export default function CategoryDetailScreen() {
         <SelectedServicesFab
           count={selectedServiceIds.length}
           onPress={() => reviewSheetRef.current?.open()}
+          pulseKey={pulseKey}
         />
+      </View>
+
+      {/* Fly-to-cart overlay. Sits above the sheet contents but below
+          the FAB so a landing ghost tucks under the button as it
+          shrinks. `pointerEvents="none"` — never blocks taps. */}
+      <View style={StyleSheet.absoluteFillObject} pointerEvents="none">
+        {flying.map((g) => (
+          <FlyToCartGhost
+            key={g.key}
+            slug={g.slug}
+            label={g.label}
+            from={g.from}
+            to={g.to}
+            onDone={() => {
+              // Commit the store change (adds the service to the cart)
+              // ONLY now that the ghost has landed, so the FAB count
+              // and the row's check flip in sync with the animation
+              // completing — not the moment of tap.
+              g.onCommit?.();
+              setFlying((prev) => prev.filter((x) => x.key !== g.key));
+              setPulseKey((k) => k + 1);
+            }}
+          />
+        ))}
       </View>
 
       <SelectedServicesSheet ref={reviewSheetRef} />
@@ -521,6 +669,7 @@ export default function CategoryDetailScreen() {
           const id = optionsServiceId;
           if (!id) return;
           const store = useBookingStore.getState();
+          const wasSelected = store.selectedServiceIds.includes(id);
           store.setSelectedServiceOption(id, {
             optionId: option._id,
             labor_hours: option.labor_hours,
@@ -529,8 +678,10 @@ export default function CategoryDetailScreen() {
             option_label: option.option_label,
             option_type: option.option_type,
           });
-          if (!store.selectedServiceIds.includes(id)) {
-            store.toggleServiceSelection(id);
+          if (!wasSelected) {
+            // Defer the toggle to the ghost's landing so the cart count
+            // ticks up in sync with the visual, not on sheet dismiss.
+            flyToCartAfterSheet(id, () => store.toggleServiceSelection(id));
           }
           setOptionsServiceId(null);
         }}
@@ -551,7 +702,8 @@ export default function CategoryDetailScreen() {
             diagnosticServiceId &&
             !store.selectedServiceIds.includes(diagnosticServiceId)
           ) {
-            store.toggleServiceSelection(diagnosticServiceId);
+            const id = diagnosticServiceId;
+            flyToCartAfterSheet(id, () => store.toggleServiceSelection(id));
           }
           setShowDiagnosticSheet(false);
         }}

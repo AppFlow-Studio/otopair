@@ -91,11 +91,29 @@ import { ChevronRight, Wrench } from "lucide-react-native";
 // HELPERS
 // ============================================================================
 
+// Brand acronyms that should stay fully uppercase even after title-casing
+// (e.g. "BMW 740" was reading as "Bmw 740" before this list). Add new
+// acronyms here rather than special-casing at call sites.
+const BRAND_ACRONYMS = new Set([
+  "BMW",
+  "GMC",
+  "MG",
+  "RAM",
+  "FIAT",
+  "SRT",
+  "BYD",
+  "AMG",
+]);
+
 function titleCase(str: string): string {
   return str
-    .toLowerCase()
     .split(' ')
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .map((w) => {
+      const upper = w.toUpperCase();
+      if (BRAND_ACRONYMS.has(upper)) return upper;
+      const lower = w.toLowerCase();
+      return lower.charAt(0).toUpperCase() + lower.slice(1);
+    })
     .join(' ');
 }
 
@@ -156,6 +174,67 @@ function darkRgbFromHex(hex: string): string {
 /** rgba string from a hex base + alpha — convenience wrapper around `darkRgbFromHex`. */
 function shadowTintFromHex(hex: string, alpha: number): string {
   return `rgba(${darkRgbFromHex(hex)}, ${alpha})`;
+}
+
+/**
+ * Desaturate + lighten a hex color to the "hero tint" band. Original
+ * PM spec called for sat ≤ 0.25 and lightness ≥ 0.92, but that made
+ * every car's hero look near-white on the compressed 360pt band —
+ * you couldn't tell a green Tiguan from a red BMW. Relaxed to
+ * sat ≤ 0.45 / lightness ≥ 0.85 so each vehicle keeps a visible
+ * per-color identity while still reading as a soft wash, not a
+ * saturated block.
+ */
+function desaturateForHeroTint(
+  hex: string,
+  satTarget = 0.45,
+  lumMin = 0.85,
+): string {
+  const clean = hex.startsWith("#") ? hex.slice(1) : hex;
+  if (clean.length !== 6) return hex;
+  const r = parseInt(clean.slice(0, 2), 16) / 255;
+  const g = parseInt(clean.slice(2, 4), 16) / 255;
+  const b = parseInt(clean.slice(4, 6), 16) / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const l0 = (max + min) / 2;
+  let h = 0;
+  let s = 0;
+  if (max !== min) {
+    const d = max - min;
+    s = l0 > 0.5 ? d / (2 - max - min) : d / (max + min);
+    switch (max) {
+      case r:
+        h = (g - b) / d + (g < b ? 6 : 0);
+        break;
+      case g:
+        h = (b - r) / d + 2;
+        break;
+      default:
+        h = (r - g) / d + 4;
+    }
+    h *= 60;
+  }
+  const s2 = Math.min(s, satTarget);
+  const l2 = Math.max(l0, lumMin);
+  const c = (1 - Math.abs(2 * l2 - 1)) * s2;
+  const hp = h / 60;
+  const x = c * (1 - Math.abs((hp % 2) - 1));
+  let r2 = 0;
+  let g2 = 0;
+  let b2 = 0;
+  if (hp >= 0 && hp < 1) [r2, g2, b2] = [c, x, 0];
+  else if (hp < 2) [r2, g2, b2] = [x, c, 0];
+  else if (hp < 3) [r2, g2, b2] = [0, c, x];
+  else if (hp < 4) [r2, g2, b2] = [0, x, c];
+  else if (hp < 5) [r2, g2, b2] = [x, 0, c];
+  else [r2, g2, b2] = [c, 0, x];
+  const m = l2 - c / 2;
+  const to2 = (v: number) =>
+    Math.round((v + m) * 255)
+      .toString(16)
+      .padStart(2, "0");
+  return `#${to2(r2)}${to2(g2)}${to2(b2)}`;
 }
 
 
@@ -938,6 +1017,45 @@ export default function CarsHomeScreen() {
   const vehicleReadiness = useVehicleReadiness(activeOwnershipId);
   const [showPackageQuestionsSheet, setShowPackageQuestionsSheet] = useState(false);
 
+  // Completion toast — fires when readiness transitions from
+  // "enriching" → "ready" for a given VIN. Reuses the unified toast
+  // (`toast.success`) so it wears the same shape and motion as every
+  // other toast in the app. Deduped so we don't re-fire on tab
+  // returns while the vehicle stays ready.
+  const prevReadinessStatusRef = useRef<string | null>(null);
+  const dedupeRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const status = vehicleReadiness.status ?? null;
+    const vin = activeVehicle?.vin ?? null;
+    const prev = prevReadinessStatusRef.current;
+    prevReadinessStatusRef.current = status;
+    if (!vin) return;
+    if (
+      prev === "enriching" &&
+      status === "ready" &&
+      !dedupeRef.current.has(vin)
+    ) {
+      dedupeRef.current.add(vin);
+      const yr = activeVehicle?.year ? `${activeVehicle.year} ` : "";
+      const mk = activeVehicle?.make
+        ? `${titleCase(activeVehicle.make)} `
+        : "";
+      const md = activeVehicle?.model ? titleCase(activeVehicle.model) : "";
+      const label = `${yr}${mk}${md}`.trim();
+      toast.success(
+        label ? `${label} connected` : "Vehicle connected",
+        "Maintenance plan updated",
+      );
+    }
+  }, [
+    vehicleReadiness.status,
+    activeVehicle?.vin,
+    activeVehicle?.year,
+    activeVehicle?.make,
+    activeVehicle?.model,
+    toast,
+  ]);
+
   const handleSelectRole = useCallback(
     (role: string | null) => {
       const vin = activeVehicle?.vin;
@@ -1516,13 +1634,24 @@ export default function CarsHomeScreen() {
             visible page reads as a clean top→bottom fade, identical
             to home's `[0, 0.5, 1]` on its absoluteFill gradient. */}
         <View style={styles.scrollingGradientContainer} pointerEvents="none">
-          {/* Bottom — always opaque. Shows the last-settled gradient
-              so the white page background never bleeds through during
-              transitions. Gets updated to match the incoming gradient
-              only after the overlay fade completes. */}
+          {/* Per PM: the extracted vehicle tint is a HERO TINT, not a
+              page background. Compress the 3 vehicle-tint stops into
+              the top ~360pt of the visible screen, then resolve into
+              #F8FAFC so every card below (Confirm specs, checkin
+              banner, tracker) sits on a solid neutral surface. This
+              is what fixes the contrast issues across the whole page.
+
+              Fraction math: container = 5× SCREEN_HEIGHT starting at
+              -0.5× SCREEN_HEIGHT. Screen y=0 → 0.10; screen y=360 →
+              (360/(5·SCREEN_HEIGHT)) + 0.10 ≈ 0.177. */}
           <LinearGradient
-            colors={settledGradient as [string, string, ...string[]]}
-            locations={[0.10, 0.20, 0.30]}
+            colors={
+              [
+                ...settledGradient.map((c) => desaturateForHeroTint(c)),
+                "#F8FAFC",
+              ] as unknown as [string, string, ...string[]]
+            }
+            locations={[0.10, 0.135, 0.16, 0.177]}
             start={{ x: 0.5, y: 0 }}
             end={{ x: 0.5, y: 1 }}
             style={StyleSheet.absoluteFill}
@@ -1532,8 +1661,13 @@ export default function CarsHomeScreen() {
               fade settles and the bottom adopts the new colors. */}
           <ReAnimated.View style={[StyleSheet.absoluteFill, overlayStyle]}>
             <LinearGradient
-              colors={incomingGradient as [string, string, ...string[]]}
-              locations={[0.10, 0.20, 0.30]}
+              colors={
+                [
+                  ...incomingGradient.map((c) => desaturateForHeroTint(c)),
+                  "#F8FAFC",
+                ] as unknown as [string, string, ...string[]]
+              }
+              locations={[0.10, 0.135, 0.16, 0.177]}
               start={{ x: 0.5, y: 0 }}
               end={{ x: 0.5, y: 1 }}
               style={StyleSheet.absoluteFill}
@@ -1657,6 +1791,18 @@ export default function CarsHomeScreen() {
             TOP SECTION: Vehicle Carousel
         ═══════════════════════════════════════════════════════════════════ */}
         <View style={styles.topSection} className="">
+        {/* 120pt bottom scrim per PM spec — softens the transition
+            from the hero image into the surface color below so the
+            car doesn't have a hard edge floating over the next
+            section. Positioned inside topSection so it clips to the
+            hero rather than overlapping content. */}
+        <LinearGradient
+          colors={["rgba(248,250,252,0)", "#F8FAFC"]}
+          start={{ x: 0.5, y: 0 }}
+          end={{ x: 0.5, y: 1 }}
+          style={styles.heroBottomScrim}
+          pointerEvents="none"
+        />
           <CarCarousel
             vehicles={vehicles}
             activeVehicleId={activeVehicleVin ?? undefined}
@@ -1825,14 +1971,15 @@ export default function CarsHomeScreen() {
           {activeOwnershipId && vehicleReadiness.status === "enriching" && (
             <View style={readinessStyles.pill}>
               <View style={readinessStyles.pillIcon}>
-                <Wrench size={14} color="#6B7280" strokeWidth={2} />
+                <Wrench size={20} color="#475569" strokeWidth={2} />
               </View>
               <View style={readinessStyles.pillBody}>
-                <Text size="sm" weight="semiBold" color="#374151">
+                <Text size="md" weight="semiBold" color="#1A1A1A">
                   Setting up your car…
                 </Text>
-                <Text size="xs" weight="regular" color="#6B7280">
-                  Building your vehicle profile. Services will appear when ready.
+                <Text size="sm" weight="regular" color="#64748B">
+                  Building your vehicle profile. Services will appear when
+                  ready.
                 </Text>
               </View>
             </View>
@@ -1848,13 +1995,13 @@ export default function CarsHomeScreen() {
                 ]}
               >
                 <View style={readinessStyles.ctaIcon}>
-                  <Wrench size={14} color="#5299FE" strokeWidth={2} />
+                  <Wrench size={20} color="#2563EB" strokeWidth={2} />
                 </View>
                 <View style={readinessStyles.pillBody}>
-                  <Text size="sm" weight="semiBold" color="#141C24">
+                  <Text size="md" weight="semiBold" color="#1A1A1A">
                     Confirm your car&apos;s specs
                   </Text>
-                  <Text size="xs" weight="regular" color="#5299FE">
+                  <Text size="sm" weight="regular" color="#2563EB">
                     {vehicleReadiness.pendingPackages.length}{" "}
                     {vehicleReadiness.pendingPackages.length === 1
                       ? "question"
@@ -1862,7 +2009,7 @@ export default function CarsHomeScreen() {
                     to make booking accurate
                   </Text>
                 </View>
-                <ChevronRight size={18} color="#5299FE" strokeWidth={2} />
+                <ChevronRight size={20} color="#94A3B8" strokeWidth={2} />
               </Pressable>
             )}
 
@@ -2038,6 +2185,20 @@ export default function CarsHomeScreen() {
           )}
         </View>
       </ScrollView>
+
+      {/* Status-bar scrim — 80pt dark fade behind the status bar so
+          the clock / Dynamic Island stay readable when the vehicle
+          hero image drifts up under it. Overlay above the ScrollView
+          (fixed to the screen top), pointer-events none so it doesn't
+          eat touches meant for the header pills right below it. */}
+      <LinearGradient
+        colors={["rgba(0,0,0,0.25)", "rgba(0,0,0,0)"]}
+        start={{ x: 0.5, y: 0 }}
+        end={{ x: 0.5, y: 1 }}
+        style={styles.statusBarScrim}
+        pointerEvents="none"
+      />
+
       </Animated.View>
 
       {/* Maintenance Input Modal */}
@@ -2681,45 +2842,59 @@ const readinessStyles = StyleSheet.create({
   pill: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 12,
     marginHorizontal: scale(16),
     marginTop: scale(8),
-    paddingVertical: scale(10),
-    paddingHorizontal: scale(12),
-    backgroundColor: "#F3F4F6",
-    borderRadius: moderateScale(12),
+    paddingVertical: scale(12),
+    paddingHorizontal: scale(14),
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: "#E5E7EB",
+    borderColor: "#E2E8F0",
+    shadowColor: "#0F172A",
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
   },
+  // Per PM: solid #FFFFFF, 1pt #E2E8F0 border, 16pt radius,
+  // shadow 0/2/8/rgba(15,23,42,0.06). Wrench in a 40pt #EFF6FF
+  // circle, icon #2563EB. No more translucent gray that read as
+  // disabled in iOS grammar.
   cta: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 12,
     marginHorizontal: scale(16),
     marginTop: scale(8),
-    paddingVertical: scale(10),
-    paddingHorizontal: scale(12),
-    backgroundColor: "rgba(82, 153, 254, 0.08)",
-    borderRadius: moderateScale(12),
+    paddingVertical: scale(12),
+    paddingHorizontal: scale(14),
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: "rgba(82, 153, 254, 0.25)",
+    borderColor: "#E2E8F0",
+    shadowColor: "#0F172A",
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
   },
   ctaPressed: {
-    opacity: 0.7,
+    opacity: 0.85,
   },
   pillIcon: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: "#E5E7EB",
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#F1F5F9",
     alignItems: "center",
     justifyContent: "center",
   },
   ctaIcon: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: "rgba(82, 153, 254, 0.15)",
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#EFF6FF",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -3101,6 +3276,27 @@ const styles = StyleSheet.create({
     // extending the container is safe.
     height: SCREEN_HEIGHT * 5,
     zIndex: 0,
+  },
+  statusBarScrim: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 80,
+    zIndex: 5,
+  },
+  heroBottomScrim: {
+    // Sits at the bottom of the hero (topSection) so the car photo
+    // fades cleanly into the F8FAFC surface below. Absolute so it
+    // overlays without pushing content, height 120pt per PM spec.
+    // NO zIndex — the switcher pills + health ring (rendered later
+    // in tree via CarCarousel) need to draw on top, otherwise the
+    // fade veils them and they become unreadable.
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: 120,
   },
   header: {
     paddingHorizontal: scale(16),
