@@ -417,7 +417,9 @@ export const getMyShops = query({
     const shops = await Promise.all(
       shopUsers.map(async (su: any) => {
         const shop = await ctx.db.get(su.shop_id);
-        return shop ? { ...shop, memberRole: su.role } : null;
+        return shop
+          ? { ...shop, memberRole: su.role, logoUrl: await resolveShopLogoUrl(ctx, shop) }
+          : null;
       })
     );
 
