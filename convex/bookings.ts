@@ -397,6 +397,14 @@ export const getByUserIdWithDetails = query({
         const mechanic = booking.mechanic_id ? await ctx.db.get(booking.mechanic_id) : null;
         const shopName = shop?.name ?? "Awaiting shop quotes";
         const shopPhone = shop?.phone ?? "";
+        // Joined street address rides the list payload so Directions still
+        // works offline (the details sheet's live shop query can't resolve
+        // without a connection). Same field order as the sheet's fallback.
+        const shopAddress = shop
+          ? [shop.address, shop.city, shop.state, shop.zip]
+              .filter((p) => typeof p === "string" && p.trim().length > 0)
+              .join(", ")
+          : "";
         const mechanicName = mechanic ? `${mechanic.first_name} ${mechanic.last_name}` : shopName;
         const mechanicImageUrl = (await resolveMechanicPhotoUrl(ctx, mechanic)) ?? undefined;
 
@@ -481,6 +489,7 @@ export const getByUserIdWithDetails = query({
           vin: booking.vin,
           shopName,
           shopPhone,
+          shopAddress,
           mechanicName,
           mechanicImageUrl,
           vehicleDisplay,
