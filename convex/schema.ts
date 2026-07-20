@@ -399,6 +399,41 @@ export default defineSchema({
     .index("by_make_category", ["make_id", "category"])
     .index("by_brand", ["brand"]),
 
+  // Web-portal: RepairPal endpoint estimates cached per config × service.
+  // Feeds director's "compare our price to RepairPal's" panel.
+  repairpal_endpoint_estimates: defineTable({
+    vehicle_config_id: v.id("vehicle_configs"),
+    service_id: v.id("services"),
+    base_vehicle_id: v.number(),
+    variant_label: v.optional(v.string()),
+    labor_minutes: v.optional(v.number()),
+    labor_hours: v.optional(v.number()),
+    labor_low: v.optional(v.number()),
+    labor_high: v.optional(v.number()),
+    total_independent_low: v.optional(v.number()),
+    total_independent_high: v.optional(v.number()),
+    total_dealer_low: v.optional(v.number()),
+    total_dealer_high: v.optional(v.number()),
+    parts: v.optional(
+      v.array(
+        v.object({
+          role: v.optional(v.string()),
+          name: v.string(),
+          quantity: v.optional(v.number()),
+          price_low: v.optional(v.number()),
+          price_high: v.optional(v.number()),
+          position: v.optional(v.string()),
+        }),
+      ),
+    ),
+    zip: v.optional(v.string()),
+    match_quality: v.optional(v.string()),
+    matched_via: v.optional(v.string()),
+    fetched_at: v.number(),
+  })
+    .index("by_config_service", ["vehicle_config_id", "service_id"])
+    .index("by_config", ["vehicle_config_id"]),
+
   // [U-W] Unified part-to-vehicle-config fitment
   part_fitments: defineTable({
     part_id: v.id("oem_parts"),
@@ -713,6 +748,37 @@ export default defineSchema({
     batch_ids: v.optional(v.array(v.string())),
     scrape_cache_hit: v.optional(v.boolean()),
     created_at: v.optional(v.number()),
+    // Web-portal director run detail — per-field gap enumeration for
+    // low-coverage rows so directors can jump straight to what's
+    // missing without re-diving the enrichment.
+    field_gaps: v.optional(
+      v.array(
+        v.object({
+          field: v.string(),
+          reason: v.string(),
+        }),
+      ),
+    ),
+    // Parts-side quotability snapshot: per applicable parts-bearing
+    // service, do all CORE roles have a fitment AND a trusted price?
+    // Complements fill_rate — a 93% run can still carry an
+    // unquotable oil change.
+    quotability: v.optional(
+      v.object({
+        pct: v.number(),
+        services: v.array(
+          v.object({
+            slug: v.string(),
+            core_total: v.number(),
+            core_with_fitment: v.number(),
+            core_with_price: v.number(),
+          }),
+        ),
+      }),
+    ),
+    // Stamped when the post-run price backfill / nightly cron
+    // reconciles the quotability snapshot after healing prices.
+    quotability_updated_at: v.optional(v.number()),
   })
     .index("by_vehicle_config", ["vehicle_config_id"])
     .index("by_status", ["status"])
@@ -1029,6 +1095,24 @@ export default defineSchema({
   })
     .index("by_vehicle_config", ["vehicle_config_id"])
     .index("by_config_service", ["vehicle_config_id", "service_id"]),
+
+  // Web-portal: mechanic-authored assertions that a parts-requiring
+  // service does NOT apply to a given vehicle config (e.g. sealed
+  // transmission → no transmission filter). Lets the pre-job
+  // "fill in missing parts" gate stop demanding a part the car
+  // will never need, without inventing a fitment. One row per
+  // (config, service, role); presence means "excluded".
+  config_service_exclusions: defineTable({
+    vehicle_config_id: v.id("vehicle_configs"),
+    service_slug: v.string(),
+    role_key: v.optional(v.string()),
+    reason: v.optional(v.string()),
+    marked_by_mechanic_id: v.optional(v.id("mechanics")),
+    booking_id: v.optional(v.id("bookings")),
+    created_at: v.number(),
+  })
+    .index("by_config", ["vehicle_config_id"])
+    .index("by_config_service", ["vehicle_config_id", "service_slug"]),
 
   // [U-W] Book hours and empirical labor data
   labor_times: defineTable({
@@ -2969,6 +3053,16 @@ export default defineSchema({
   })
     .index("by_token", ["token"])
     .index("by_user_id", ["user_id"]),
+
+  // Web-portal: cheap key/value store for computed dashboard stats
+  // (top-of-panel counters, cached rollups) so the director UI
+  // doesn't recompute expensive aggregates on every load.
+  portal_stats: defineTable({
+    key: v.string(),
+    value: v.number(),
+    meta: v.optional(v.any()),
+    computed_at: v.number(),
+  }).index("by_key", ["key"]),
 
   // Singleton row of director-controlled global feature flags. Keyed
   // `"global"` so the row is fetched by a stable lookup; future booleans get
