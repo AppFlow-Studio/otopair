@@ -453,6 +453,10 @@ export default defineSchema({
     service_role: v.optional(v.string()),
     confidence: v.optional(v.number()),
     source_count: v.optional(v.number()),
+    // Distinct domains that independently attested this fitment (corroboration
+    // signal — ≥2 distinct domains means cross-source agreement, not re-runs
+    // of the same page). Appended on each upsert re-confirmation.
+    source_domains: v.optional(v.array(v.string())),
     first_confirmed_at: v.optional(v.number()),
     last_confirmed_at: v.optional(v.number()),
     mechanic_verified: v.optional(v.boolean()),
