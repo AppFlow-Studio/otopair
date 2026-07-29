@@ -49,6 +49,7 @@ import {
   CardShadow,
 } from "@/constants/theme";
 import { useOpenApprovalForBooking } from "@/hooks/useOpenApprovalForBooking";
+import { useOfflineGuard } from "@/hooks/useOfflineGuard";
 import { useToast } from "@/hooks/useToast";
 import { usePaymentStore } from "@/stores/usePaymentStore";
 import { useBookingStore } from "@/stores/useBookingStore";
@@ -89,6 +90,7 @@ export default function ApproveEstimateScreen() {
   const params = useLocalSearchParams<{ id: string; mode?: string }>();
   const bookingId = params.id as Id<"bookings">;
   const booking = useQuery(api.bookings.getById, { id: bookingId });
+  useOfflineGuard(booking);
   const liveState = (
     booking as { payment_approval_state?: string } | null | undefined
   )?.payment_approval_state;

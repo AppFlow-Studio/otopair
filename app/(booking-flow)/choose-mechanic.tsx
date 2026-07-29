@@ -53,6 +53,7 @@ import { useMechanicStore } from "@/stores/useMechanicStore";
 import { useShopStore } from "@/stores/useShopStore";
 import { distanceBetween } from "@/utils/geo";
 import { useNearbyBookingShops } from "@/hooks/useNearbyBookingShops";
+import { useOfflineGuard } from "@/hooks/useOfflineGuard";
 import { useNextAvailabilityForShop } from "@/hooks/useNextAvailabilityForShop";
 import { useBookingLaborHoursMap } from "@/hooks/useBookingLaborHoursMap";
 import { useBookingPartsBreakdown } from "@/hooks/useBookingPartsBreakdown";
@@ -131,6 +132,10 @@ export default function ChooseMechanicScreen() {
   );
 
   const { results: nearbyResults, isLoading: shopsLoading } = useNearbyBookingShops(5);
+  // Map-screen offline rule (same wiring as select-services): entering
+  // fresh while offline with no hydrated shops → CantLoadModal sends the
+  // user back; if shops are already cached, the pill alone is enough.
+  useOfflineGuard(shopsLoading ? undefined : nearbyResults);
   const getShopById = useShopStore((s) => s.getShopById);
   const userLocationForDistance = useBookingStore((s) => s.userLocation);
 
@@ -595,6 +600,7 @@ export default function ChooseMechanicScreen() {
           <MapShopCard
             shopId={activeShop.id}
             shopName={activeShop.name}
+            imageUrl={activeShop.imageUrl}
             rating={activeShop.rating}
             distanceMi={activeDistanceMi}
             priceRange={activePriceLabel.text}

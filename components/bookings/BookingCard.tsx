@@ -39,6 +39,9 @@ import { FixedPriceBadge, Text } from '@/components/shared-ui';
 import { BookingProgressBar } from '@/components/bookings/BookingProgressBar';
 import { ApprovalBanner } from '@/components/booking/ApprovalBanner';
 import { getBookingStageView } from '@/utils/bookingStages';
+import { useConnection } from '@/hooks/useConnection';
+import { isBookingActionAllowed } from '@/lib/connection/offlineBookingActions';
+import { OfflineActionsNotice } from '@/components/connection/OfflineActionsNotice';
 import { useRescheduleDecisionOverlayStore } from '@/stores/useRescheduleDecisionOverlayStore';
 import type { Id } from '@/convex/_generated/dataModel';
 
@@ -85,6 +88,12 @@ export interface Booking {
   shopId?: string;
   /** Convex mechanic_id — optional review association. */
   mechanicId?: string;
+  /** Shop phone from the cached list payload — keeps the details sheet's
+   *  Contact handoff working offline (live shop query can't resolve). */
+  shopPhone?: string;
+  /** Shop street address from the cached list payload — same offline
+   *  fallback for the Directions handoff. */
+  shopAddress?: string;
   /** Pre-Job Approval flow: customer-facing range snapshotted at create. */
   disclosedRangeLowCents?: number;
   disclosedRangeHighCents?: number;
@@ -225,6 +234,13 @@ export function BookingCard({
 }: BookingCardProps) {
   const router = useRouter();
   const openRescheduleDecision = useRescheduleDecisionOverlayStore((s) => s.open);
+  // Offline gate: Cancel/Reschedule are backend writes — while offline the
+  // whole row is replaced by the "last synced info" strip; View Details
+  // stays live (the sheet reads cached data). Keyed on hard `offline` (not
+  // useCanWrite) so a 1–2s socket "reconnecting" blip doesn't flash the
+  // strip in and out.
+  const conn = useConnection();
+  const writeActionsAllowed = isBookingActionAllowed('cancelBooking', conn !== 'offline');
   const primaryBtnRef = useRef<RNView | null>(null);
   const [actionsRowWidth, setActionsRowWidth] = useState(0);
   // Local "just cancelled" state. The card swaps the badge + dims for ~450ms
@@ -570,47 +586,51 @@ export function BookingCard({
           </Pressable>
 
           {booking.status !== 'in_progress' && (
-            <View style={styles.actionsRow}>
-              <Pressable
-                onPress={handleCancelBooking}
-                disabled={isCancelling}
-                style={({ pressed }) => [
-                  styles.cancelButton,
-                  pressed && styles.buttonPressed,
-                ]}
-              >
-                <Text
-                  weight="semiBold"
-                  size={actionButtonLabelSize}
-                  color="#DC2626"
-                  numberOfLines={1}
-                  lineHeight={1.2}
-                  style={styles.actionButtonLabel}
+            writeActionsAllowed ? (
+              <View style={styles.actionsRow}>
+                <Pressable
+                  onPress={handleCancelBooking}
+                  disabled={isCancelling}
+                  style={({ pressed }) => [
+                    styles.cancelButton,
+                    pressed && styles.buttonPressed,
+                  ]}
                 >
-                  Cancel Booking
-                </Text>
-              </Pressable>
+                  <Text
+                    weight="semiBold"
+                    size={actionButtonLabelSize}
+                    color="#DC2626"
+                    numberOfLines={1}
+                    lineHeight={1.2}
+                    style={styles.actionButtonLabel}
+                  >
+                    Cancel Booking
+                  </Text>
+                </Pressable>
 
-              <Pressable
-                onPress={handleReschedule}
-                disabled={isCancelling}
-                style={({ pressed }) => [
-                  styles.secondaryButton,
-                  pressed && styles.buttonPressed,
-                ]}
-              >
-                <Text
-                  weight="semiBold"
-                  size={actionButtonLabelSize}
-                  color="#1F2937"
-                  numberOfLines={1}
-                  lineHeight={1.2}
-                  style={styles.actionButtonLabel}
+                <Pressable
+                  onPress={handleReschedule}
+                  disabled={isCancelling}
+                  style={({ pressed }) => [
+                    styles.secondaryButton,
+                    pressed && styles.buttonPressed,
+                  ]}
                 >
-                  Reschedule
-                </Text>
-              </Pressable>
-            </View>
+                  <Text
+                    weight="semiBold"
+                    size={actionButtonLabelSize}
+                    color="#1F2937"
+                    numberOfLines={1}
+                    lineHeight={1.2}
+                    style={styles.actionButtonLabel}
+                  >
+                    Reschedule
+                  </Text>
+                </Pressable>
+              </View>
+            ) : (
+              <OfflineActionsNotice />
+            )
           )}
         </View>
       ) : (
