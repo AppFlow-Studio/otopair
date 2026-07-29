@@ -7,10 +7,13 @@ import React, {
 } from "react";
 import {
   ActivityIndicator,
+  Animated,
+  BackHandler,
   FlatList,
   Image,
   Keyboard,
   KeyboardAvoidingView,
+  type LayoutChangeEvent,
   Modal,
   Platform,
   Pressable,
@@ -20,9 +23,10 @@ import {
   TouchableOpacity,
   TouchableWithoutFeedback,
   View,
+  useWindowDimensions,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useLocalSearchParams } from "expo-router";
+import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { useShallow } from "zustand/react/shallow";
 import { Country } from "react-native-country-picker-modal";
@@ -30,11 +34,14 @@ import { Country } from "react-native-country-picker-modal";
 import * as ImagePicker from "expo-image-picker";
 import { useQuery } from "convex/react";
 import { useUser } from "@clerk/clerk-expo";
+import { X } from "lucide-react-native";
 
 import {
   BlurHeaderOverlay,
   BrandColors,
   Button,
+  FontFamily,
+  FontSize,
   Spacing,
   Text,
 } from "@/components/shared-ui";
@@ -42,6 +49,20 @@ import { api } from "@/convex/_generated/api";
 import { useOnboardingStore } from "@/stores/useOnboardingStore";
 import { useOnboardingPersistence } from "@/hooks/useOnboardingPersistence";
 import { useToast } from "@/hooks/useToast";
+import { OnboardingSurfaceColors } from "@/components/onboarding/onboardingColors";
+import {
+  cleanupStaleUnverifiedPhoneNumbers,
+  findPhoneNumberByNormalizedValue,
+  isIdentifierAlreadyTakenError,
+  isPhoneNumberVerified,
+  normalizePhoneForComparison,
+} from "@/lib/clerk-phone-numbers";
+import {
+  isValidEmailAddress,
+  isValidPhoneNumber,
+  normalizeContactEmail,
+  normalizePhoneDigits,
+} from "@/lib/contact-validation";
 
 // Try to import getAllCountries from the country picker module.
 let getAllCountries: ((locale?: string) => Promise<Country[]>) | undefined;
@@ -52,8 +73,11 @@ try {
   console.log("getAllCountries not available in library");
 }
 
+type EditableProfileField = "firstName" | "lastName" | "phone" | "email";
+
 export default function EditProfileScreen() {
   const insets = useSafeAreaInsets();
+  const { height } = useWindowDimensions();
   const toast = useToast();
   const router = useRouter();
   const params = useLocalSearchParams<{ showPhotos?: string }>();
@@ -68,6 +92,11 @@ export default function EditProfileScreen() {
       updateData: state.updateData,
     })),
   );
+
+  const scrollViewRef = useRef<ScrollView | null>(null);
+  const focusedFieldRef = useRef<EditableProfileField | null>(null);
+  const fieldYOffsetsRef = useRef<Partial<Record<EditableProfileField, number>>>({});
+  const fieldFocusTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -85,7 +114,64 @@ export default function EditProfileScreen() {
   const [phoneCountry, setPhoneCountry] = useState<Country | null>(null);
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [showContactErrorSheet, setShowContactErrorSheet] = useState(false);
+  const [contactErrorTitle, setContactErrorTitle] = useState("Unable to update phone");
+  const [contactErrorMessage, setContactErrorMessage] = useState<string | null>(null);
+  const [hasHydratedProfile, setHasHydratedProfile] = useState(false);
   const hasHydratedRef = useRef(false);
+  const contactErrorSlideAnim = useRef(new Animated.Value(height)).current;
+
+  const handleBack = useCallback(() => {
+    router.back();
+  }, [router]);
+
+  useEffect(() => {
+    const backHandler = BackHandler.addEventListener("hardwareBackPress", () => {
+      handleBack();
+      return true;
+    });
+
+    return () => backHandler.remove();
+  }, [handleBack]);
+
+  useEffect(() => {
+    return () => {
+      if (fieldFocusTimeoutRef.current) {
+        clearTimeout(fieldFocusTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  const handleFieldLayout = useCallback(
+    (field: EditableProfileField) => (event: LayoutChangeEvent) => {
+      fieldYOffsetsRef.current[field] = event.nativeEvent.layout.y;
+    },
+    [],
+  );
+
+  const scrollFocusedFieldIntoView = useCallback((field: EditableProfileField) => {
+    if (fieldFocusTimeoutRef.current) {
+      clearTimeout(fieldFocusTimeoutRef.current);
+    }
+
+    fieldFocusTimeoutRef.current = setTimeout(() => {
+      const fieldOffset = fieldYOffsetsRef.current[field];
+      if (typeof fieldOffset !== "number") return;
+
+      scrollViewRef.current?.scrollTo({
+        y: Math.max(fieldOffset - Spacing["2xl"], 0),
+        animated: true,
+      });
+    }, Platform.OS === "ios" ? 280 : 140);
+  }, []);
+
+  const handleFieldFocus = useCallback(
+    (field: EditableProfileField) => {
+      focusedFieldRef.current = field;
+      scrollFocusedFieldIntoView(field);
+    },
+    [scrollFocusedFieldIntoView],
+  );
 
   useEffect(() => {
     const show = Keyboard.addListener(
@@ -93,6 +179,11 @@ export default function EditProfileScreen() {
       (event) => {
         setIsKeyboardVisible(true);
         setKeyboardHeight(event.endCoordinates?.height ?? 0);
+
+        const focusedField = focusedFieldRef.current;
+        if (focusedField) {
+          scrollFocusedFieldIntoView(focusedField);
+        }
       },
     );
     const hide = Keyboard.addListener(
@@ -106,7 +197,7 @@ export default function EditProfileScreen() {
       show.remove();
       hide.remove();
     };
-  }, []);
+  }, [scrollFocusedFieldIntoView]);
 
   const profilePhotoUri = useMemo(() => {
     if (me?.profile_photo_url) return me.profile_photo_url;
@@ -177,76 +268,104 @@ export default function EditProfileScreen() {
     loadCountries();
   }, []);
 
-  useEffect(() => {
-    if (hasHydratedRef.current || allCountries.length === 0) return;
+  const syncProfileFieldsFromCurrentData = useCallback(
+    (options?: { openPhotoOptions?: boolean }) => {
+      if (allCountries.length === 0 || me === undefined) return false;
 
-    const fromConvexFirst = (me?.first_name ?? "").toString().trim();
-    const fromConvexLast = (me?.last_name ?? "").toString().trim();
-    const fromStoreFirst = (data.firstName ?? "").toString().trim();
-    const fromStoreLast = (data.lastName ?? "").toString().trim();
-    const nextFirst =
-      fromConvexFirst.length > 0 ? fromConvexFirst : fromStoreFirst;
-    const nextLast = fromConvexLast.length > 0 ? fromConvexLast : fromStoreLast;
+      const fromConvexFirst = (me?.first_name ?? "").toString().trim();
+      const fromConvexLast = (me?.last_name ?? "").toString().trim();
+      const fromStoreFirst = (data.firstName ?? "").toString().trim();
+      const fromStoreLast = (data.lastName ?? "").toString().trim();
+      const nextFirst =
+        fromConvexFirst.length > 0 ? fromConvexFirst : fromStoreFirst;
+      const nextLast = fromConvexLast.length > 0 ? fromConvexLast : fromStoreLast;
 
-    const nextEmail = (me?.email ?? data.email ?? "")
-      .toString()
-      .toLowerCase()
-      .trim();
-    const rawPhone = (me?.phone ?? data.phoneNumber ?? "").toString();
-    const digitsOnlyPhone = rawPhone.replace(/\D/g, "");
-    let nationalPhone = digitsOnlyPhone;
-    let selectedCountryCode = "US";
-    let selectedCountry: Country | null =
-      allCountries.find((c) => c.cca2 === "US") ?? null;
+      const nextEmail = (me?.email ?? data.email ?? "")
+        .toString()
+        .toLowerCase()
+        .trim();
+      const rawPhone = (me?.phone ?? data.phoneNumber ?? "").toString();
+      const digitsOnlyPhone = rawPhone.replace(/\D/g, "");
+      let nationalPhone = digitsOnlyPhone;
+      let selectedCountryCode = "US";
+      let selectedCountry: Country | null =
+        allCountries.find((c) => c.cca2 === "US") ?? null;
 
-    if (rawPhone.trim().startsWith("+")) {
-      const matches = allCountries
-        .filter(
-          (c) =>
-            c.callingCode?.[0] && rawPhone.startsWith(`+${c.callingCode[0]}`),
-        )
-        .sort(
-          (a, b) =>
-            (b.callingCode?.[0]?.length ?? 0) -
-            (a.callingCode?.[0]?.length ?? 0),
-        );
+      if (rawPhone.trim().startsWith("+")) {
+        const matches = allCountries
+          .filter(
+            (c) =>
+              c.callingCode?.[0] && rawPhone.startsWith(`+${c.callingCode[0]}`),
+          )
+          .sort(
+            (a, b) =>
+              (b.callingCode?.[0]?.length ?? 0) -
+              (a.callingCode?.[0]?.length ?? 0),
+          );
 
-      if (matches.length > 0) {
-        const usPlusOneMatch = matches.find(
-          (c) => c.cca2 === "US" && c.callingCode?.[0] === "1",
-        );
-        const bestMatch = usPlusOneMatch ?? matches[0];
-        const callingPrefix = bestMatch.callingCode?.[0] ?? "";
-        selectedCountryCode = bestMatch.cca2;
-        selectedCountry = bestMatch;
-        nationalPhone = rawPhone
-          .replace(`+${callingPrefix}`, "")
-          .replace(/\D/g, "");
+        if (matches.length > 0) {
+          const usPlusOneMatch = matches.find(
+            (c) => c.cca2 === "US" && c.callingCode?.[0] === "1",
+          );
+          const bestMatch = usPlusOneMatch ?? matches[0];
+          const callingPrefix = bestMatch.callingCode?.[0] ?? "";
+          selectedCountryCode = bestMatch.cca2;
+          selectedCountry = bestMatch;
+          nationalPhone = rawPhone
+            .replace(`+${callingPrefix}`, "")
+            .replace(/\D/g, "");
+        }
       }
-    }
 
-    setFirstName(nextFirst);
-    setLastName(nextLast);
-    setEmail(nextEmail);
-    setPhone(nationalPhone);
-    setPhoneCountryCode(selectedCountryCode);
-    setPhoneCountry(selectedCountry);
-    setEditPhotoUri(profilePhotoUri);
-    setShowPhotoOptions(params.showPhotos === "1");
-    hasHydratedRef.current = true;
-  }, [
-    allCountries,
-    data.email,
-    data.firstName,
-    data.lastName,
-    data.phoneNumber,
-    me?.email,
-    me?.first_name,
-    me?.last_name,
-    me?.phone,
-    params.showPhotos,
-    profilePhotoUri,
-  ]);
+      setFirstName(nextFirst);
+      setLastName(nextLast);
+      setEmail(nextEmail);
+      setPhone(nationalPhone);
+      setPhoneCountryCode(selectedCountryCode);
+      setPhoneCountry(selectedCountry);
+      setEditPhotoUri(profilePhotoUri);
+      if (options?.openPhotoOptions) {
+        setShowPhotoOptions(params.showPhotos === "1");
+      }
+      setHasHydratedProfile(true);
+      return true;
+    },
+    [
+      allCountries,
+      data.email,
+      data.firstName,
+      data.lastName,
+      data.phoneNumber,
+      me,
+      params.showPhotos,
+      profilePhotoUri,
+    ],
+  );
+  const syncProfileFieldsRef = useRef(syncProfileFieldsFromCurrentData);
+  const hasHydratedProfileRef = useRef(hasHydratedProfile);
+
+  useEffect(() => {
+    syncProfileFieldsRef.current = syncProfileFieldsFromCurrentData;
+  }, [syncProfileFieldsFromCurrentData]);
+
+  useEffect(() => {
+    hasHydratedProfileRef.current = hasHydratedProfile;
+  }, [hasHydratedProfile]);
+
+  useEffect(() => {
+    if (hasHydratedRef.current) return;
+    if (syncProfileFieldsFromCurrentData({ openPhotoOptions: true })) {
+      hasHydratedRef.current = true;
+    }
+  }, [syncProfileFieldsFromCurrentData]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (hasHydratedProfileRef.current) {
+        syncProfileFieldsRef.current();
+      }
+    }, []),
+  );
 
   const getFlagEmoji = useCallback((code: string) => {
     if (code && code.length === 2) {
@@ -299,6 +418,140 @@ export default function EditProfileScreen() {
     setShowCountryPicker(false);
     setCountrySearchQuery("");
   }, []);
+
+  useEffect(() => {
+    if (showContactErrorSheet) {
+      contactErrorSlideAnim.setValue(height);
+      requestAnimationFrame(() => {
+        Animated.spring(contactErrorSlideAnim, {
+          toValue: 0,
+          useNativeDriver: true,
+          tension: 40,
+          friction: 8,
+        }).start();
+      });
+    } else {
+      Animated.timing(contactErrorSlideAnim, {
+        toValue: height,
+        duration: 300,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [contactErrorSlideAnim, height, showContactErrorSheet]);
+
+  const handleCloseContactErrorSheet = useCallback(() => {
+    setShowContactErrorSheet(false);
+    setContactErrorMessage(null);
+  }, []);
+
+  const showPhoneTakenSheet = useCallback(() => {
+    setContactErrorTitle("Phone number already in use");
+    setContactErrorMessage("That phone number is already associated with another account.");
+    setShowContactErrorSheet(true);
+  }, []);
+
+  const showEmailTakenSheet = useCallback(() => {
+    setContactErrorTitle("Email already in use");
+    setContactErrorMessage("That email address is already associated with another account.");
+    setShowContactErrorSheet(true);
+  }, []);
+
+  const prepareProfilePhoneVerification = useCallback(
+    async (nextPhoneNumber: string) => {
+      if (!clerkUser) {
+        throw new Error("User session not ready. Please try again.");
+      }
+
+      const normalizedPendingPhone = normalizePhoneForComparison(nextPhoneNumber);
+
+      try {
+        await cleanupStaleUnverifiedPhoneNumbers(clerkUser, normalizedPendingPhone);
+        const existingPhone = findPhoneNumberByNormalizedValue(
+          clerkUser,
+          normalizedPendingPhone,
+        );
+
+        if (existingPhone) {
+          if (!isPhoneNumberVerified(existingPhone)) {
+            await existingPhone.prepareVerification?.();
+          }
+          return existingPhone.id;
+        }
+
+        const phoneNumberResource = await clerkUser.createPhoneNumber({
+          phoneNumber: nextPhoneNumber,
+        });
+        await phoneNumberResource.prepareVerification();
+        return phoneNumberResource.id;
+      } catch (error) {
+        if (!isIdentifierAlreadyTakenError(error)) {
+          throw error;
+        }
+
+        await clerkUser.reload();
+        const existingPhone = findPhoneNumberByNormalizedValue(
+          clerkUser,
+          normalizedPendingPhone,
+        );
+        if (existingPhone) {
+          if (!isPhoneNumberVerified(existingPhone)) {
+            await existingPhone.prepareVerification?.();
+          }
+          return existingPhone.id;
+        }
+
+        throw error;
+      }
+    },
+    [clerkUser],
+  );
+
+  const prepareProfileEmailVerification = useCallback(
+    async (nextEmail: string) => {
+      if (!clerkUser) {
+        throw new Error("User session not ready. Please try again.");
+      }
+
+      const normalizedPendingEmail = normalizeContactEmail(nextEmail);
+      const findExistingEmail = () =>
+        clerkUser.emailAddresses.find(
+          (emailAddress) =>
+            normalizeContactEmail(emailAddress.emailAddress) === normalizedPendingEmail,
+        );
+
+      try {
+        const existingEmail = findExistingEmail();
+        if (existingEmail) {
+          if (existingEmail.verification?.status !== "verified") {
+            await existingEmail.prepareVerification?.({ strategy: "email_code" });
+          }
+          return existingEmail.id;
+        }
+
+        const emailAddressResource = await clerkUser.createEmailAddress({
+          email: normalizedPendingEmail,
+        });
+        await emailAddressResource.prepareVerification({ strategy: "email_code" });
+        return emailAddressResource.id;
+      } catch (error) {
+        if (!isIdentifierAlreadyTakenError(error)) {
+          throw error;
+        }
+
+        await clerkUser.reload();
+        const existingEmail = findExistingEmail();
+        if (existingEmail) {
+          if (existingEmail.verification?.status !== "verified") {
+            await existingEmail.prepareVerification?.({ strategy: "email_code" });
+          }
+          return existingEmail.id;
+        }
+
+        throw error;
+      }
+    },
+    [clerkUser],
+  );
 
   const requestLibraryPermission = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -360,8 +613,8 @@ export default function EditProfileScreen() {
     try {
       const normalizedFirstName = firstName.trim();
       const normalizedLastName = lastName.trim();
-      const normalizedEmail = email.trim().toLowerCase();
-      const normalizedPhoneDigits = phone.replace(/\D/g, "");
+      const normalizedEmail = normalizeContactEmail(email);
+      const normalizedPhoneDigits = normalizePhoneDigits(phone);
 
       const nextEmail = normalizedEmail.length > 0 ? normalizedEmail : null;
       const nextPhoneNumber =
@@ -377,9 +630,51 @@ export default function EditProfileScreen() {
         .toString()
         .replace(/\D/g, "");
       const nextPhoneDigits = (nextPhoneNumber ?? "").replace(/\D/g, "");
-      const emailChanged = nextEmail != null && nextEmail !== currentEmail;
-      const phoneChanged =
-        nextPhoneNumber != null && nextPhoneDigits !== currentPhoneDigits;
+      const emailChanged = nextEmail !== currentEmail;
+      const phoneChanged = nextPhoneDigits !== currentPhoneDigits;
+
+      let pendingPhoneVerificationId = "";
+      if (phoneChanged && nextPhoneNumber != null) {
+        try {
+          pendingPhoneVerificationId =
+            nextPhoneNumber != null
+              ? await prepareProfilePhoneVerification(nextPhoneNumber)
+              : "";
+        } catch (error) {
+          if (isIdentifierAlreadyTakenError(error)) {
+            showPhoneTakenSheet();
+          } else {
+            const message =
+              error instanceof Error
+                ? error.message
+                : "Unable to send verification code.";
+            setContactErrorTitle("Unable to send code");
+            setContactErrorMessage(message);
+            setShowContactErrorSheet(true);
+          }
+          return;
+        }
+      }
+
+      let pendingEmailVerificationId = "";
+      if (emailChanged && nextEmail != null) {
+        try {
+          pendingEmailVerificationId = await prepareProfileEmailVerification(nextEmail);
+        } catch (error) {
+          if (isIdentifierAlreadyTakenError(error)) {
+            showEmailTakenSheet();
+          } else {
+            const message =
+              error instanceof Error
+                ? error.message
+                : "Unable to send verification code.";
+            setContactErrorTitle("Unable to send code");
+            setContactErrorMessage(message);
+            setShowContactErrorSheet(true);
+          }
+          return;
+        }
+      }
 
       if (editPhotoUri !== profilePhotoUri) {
         updateData({ profilePhotoUri: editPhotoUri });
@@ -413,6 +708,8 @@ export default function EditProfileScreen() {
             verifyEmail: emailChanged ? "1" : "0",
             pendingPhone: nextPhoneNumber ?? "",
             pendingEmail: nextEmail ?? "",
+            pendingPhoneVerificationId,
+            pendingEmailVerificationId,
           },
         });
         return;
@@ -451,11 +748,16 @@ export default function EditProfileScreen() {
     lastName,
     me?.email,
     me?.phone,
+    prepareProfileEmailVerification,
     persistProfileField,
     persistProfilePhoto,
     phone,
+    prepareProfilePhoneVerification,
     profilePhotoUri,
     router,
+    showEmailTakenSheet,
+    showPhoneTakenSheet,
+    toast,
     updateData,
   ]);
 
@@ -488,20 +790,62 @@ export default function EditProfileScreen() {
     [getFlagEmoji, handleCountrySelect, phoneCountryCode],
   );
 
-  const canSave = !isSaving;
+  const currentFirstName = (me?.first_name ?? data.firstName ?? "").toString().trim();
+  const currentLastName = (me?.last_name ?? data.lastName ?? "").toString().trim();
+  const currentEmail = normalizeContactEmail(me?.email ?? data.email);
+  const currentPhoneDigits = normalizePhoneDigits(me?.phone ?? data.phoneNumber);
+  const normalizedFirstName = firstName.trim();
+  const normalizedLastName = lastName.trim();
+  const normalizedEmail = normalizeContactEmail(email);
+  const normalizedPhoneDigits = normalizePhoneDigits(phone);
+  const nextPhoneNumber =
+    normalizedPhoneDigits.length > 0
+      ? `+${getCallingCode()}${normalizedPhoneDigits}`
+      : null;
+  const nextPhoneDigits = normalizePhoneDigits(nextPhoneNumber);
+  const emailChanged = normalizedEmail !== currentEmail;
+  const phoneChanged = nextPhoneDigits !== currentPhoneDigits;
+  const isTextFieldChanged =
+    normalizedFirstName !== currentFirstName ||
+    normalizedLastName !== currentLastName ||
+    emailChanged ||
+    phoneChanged;
+  const isPhoneValidForSave = !phoneChanged || isValidPhoneNumber(phone, getCallingCode());
+  const isEmailValidForSave = !emailChanged || isValidEmailAddress(email);
+  const canSave = !isSaving && isTextFieldChanged && isPhoneValidForSave && isEmailValidForSave;
   const isIOS26Plus =
     Platform.OS === "ios" && parseInt(String(Platform.Version), 10) >= 26;
   const bottomActionPadding = insets.bottom + (isIOS26Plus ? 80 : 100);
 
+  if (!hasHydratedProfile) {
+    return (
+      <View style={styles.screen}>
+        <BlurHeaderOverlay title="Edit Profile" onBack={handleBack} />
+        <View
+          style={[
+            styles.loadingContainer,
+            {
+              paddingTop: insets.top + 80,
+              paddingBottom: insets.bottom + 100,
+            },
+          ]}
+        >
+          <ActivityIndicator size="large" color={BrandColors.secondary} />
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.screen}>
-      <BlurHeaderOverlay title="Edit Profile" onBack={() => router.back()} />
+      <BlurHeaderOverlay title="Edit Profile" onBack={handleBack} />
 
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         style={{ flex: 1 }}
       >
         <ScrollView
+          ref={scrollViewRef}
           style={{ flex: 1 }}
           contentContainerStyle={[
             styles.scrollContent,
@@ -561,7 +905,7 @@ export default function EditProfileScreen() {
           ) : null}
 
           <View style={styles.glassCard}>
-            <View style={styles.formRow}>
+            <View style={styles.formRow} onLayout={handleFieldLayout("firstName")}>
               <Text
                 weight="medium"
                 size="xs"
@@ -577,11 +921,12 @@ export default function EditProfileScreen() {
                 placeholderTextColor="#AEAEB2"
                 style={styles.rowInput}
                 autoCapitalize="words"
+                onFocus={() => handleFieldFocus("firstName")}
               />
             </View>
             <View style={styles.separator} />
 
-            <View style={styles.formRow}>
+            <View style={styles.formRow} onLayout={handleFieldLayout("lastName")}>
               <Text
                 weight="medium"
                 size="xs"
@@ -597,11 +942,12 @@ export default function EditProfileScreen() {
                 placeholderTextColor="#AEAEB2"
                 style={styles.rowInput}
                 autoCapitalize="words"
+                onFocus={() => handleFieldFocus("lastName")}
               />
             </View>
             <View style={styles.separator} />
 
-            <View style={styles.formRow}>
+            <View style={styles.formRow} onLayout={handleFieldLayout("phone")}>
               <Text
                 weight="medium"
                 size="xs"
@@ -627,12 +973,13 @@ export default function EditProfileScreen() {
                   placeholderTextColor="#AEAEB2"
                   style={styles.phoneInput}
                   keyboardType="phone-pad"
+                  onFocus={() => handleFieldFocus("phone")}
                 />
               </View>
             </View>
             <View style={styles.separator} />
 
-            <View style={styles.formRow}>
+            <View style={styles.formRow} onLayout={handleFieldLayout("email")}>
               <Text
                 weight="medium"
                 size="xs"
@@ -649,6 +996,7 @@ export default function EditProfileScreen() {
                 style={styles.rowInput}
                 keyboardType="email-address"
                 autoCapitalize="none"
+                onFocus={() => handleFieldFocus("email")}
               />
             </View>
           </View>
@@ -800,6 +1148,45 @@ export default function EditProfileScreen() {
           </Pressable>
         </Pressable>
       </Modal>
+
+      <Modal
+        visible={showContactErrorSheet}
+        transparent
+        animationType="none"
+        statusBarTranslucent
+        navigationBarTranslucent
+        onRequestClose={handleCloseContactErrorSheet}
+      >
+        <Pressable
+          style={styles.errorModalBackdrop}
+          onPress={handleCloseContactErrorSheet}
+        >
+          <Animated.View
+            style={[
+              styles.errorModal,
+              {
+                transform: [{ translateY: contactErrorSlideAnim }],
+              },
+            ]}
+            onStartShouldSetResponder={() => true}
+          >
+            <View style={styles.errorModalHandle} />
+            <View style={styles.errorIconContainer}>
+              <X size={48} color="#EF4444" strokeWidth={3} />
+            </View>
+            <Text style={styles.errorTitle}>{contactErrorTitle}</Text>
+            <Text style={styles.errorMessage}>
+              {contactErrorMessage || "Please try again."}
+            </Text>
+            <TouchableOpacity
+              style={styles.errorButton}
+              onPress={handleCloseContactErrorSheet}
+            >
+              <Text style={styles.errorButtonText}>Got it</Text>
+            </TouchableOpacity>
+          </Animated.View>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -812,6 +1199,11 @@ const styles = StyleSheet.create({
   scrollContent: {
     flexGrow: 1,
     paddingHorizontal: 16,
+  },
+  loadingContainer: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
   },
   avatarSection: {
     alignItems: "center",
@@ -1088,5 +1480,61 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 15,
     color: "#111827",
+  },
+  errorModalBackdrop: {
+    flex: 1,
+    backgroundColor: OnboardingSurfaceColors.backdrop,
+    justifyContent: "flex-end",
+    alignItems: "center",
+  },
+  errorModal: {
+    backgroundColor: OnboardingSurfaceColors.card,
+    borderRadius: 28,
+    padding: Spacing["2xl"],
+    paddingBottom: Spacing["3xl"],
+    alignItems: "center",
+    width: "95%",
+    alignSelf: "center",
+    marginBottom: Spacing.lg,
+    borderWidth: 1,
+    borderColor: OnboardingSurfaceColors.border,
+  },
+  errorModalHandle: {
+    width: 40,
+    height: 4,
+    backgroundColor: OnboardingSurfaceColors.handle,
+    borderRadius: 2,
+    marginBottom: Spacing.xs,
+  },
+  errorIconContainer: {
+    marginBottom: Spacing.lg,
+  },
+  errorTitle: {
+    fontSize: FontSize["2xl"],
+    fontFamily: FontFamily.bold,
+    color: OnboardingSurfaceColors.text,
+    textAlign: "center",
+    marginBottom: Spacing.md,
+  },
+  errorMessage: {
+    fontSize: FontSize.md,
+    fontFamily: FontFamily.regular,
+    color: OnboardingSurfaceColors.mutedText,
+    textAlign: "center",
+    marginBottom: Spacing["2xl"],
+    lineHeight: 22,
+  },
+  errorButton: {
+    backgroundColor: OnboardingSurfaceColors.primaryButton,
+    borderRadius: 12,
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing["2xl"],
+    width: "100%",
+    alignItems: "center",
+  },
+  errorButtonText: {
+    fontSize: FontSize.lg,
+    fontFamily: FontFamily.semiBold,
+    color: OnboardingSurfaceColors.primaryButtonText,
   },
 });

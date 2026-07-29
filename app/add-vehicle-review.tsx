@@ -40,12 +40,12 @@ import { Text } from '@/components/shared-ui';
 import { Spacing } from '@/constants/theme';
 import { api } from '@/convex/_generated/api';
 import { Id } from '@/convex/_generated/dataModel';
-import { usePendingNavigationStore } from '@/stores/usePendingNavigationStore';
 import { scale, verticalScale, moderateScale } from '@/utils/responsive';
 import { classifyColorFamily, fetchVehicleImageUrl, pickBestVdbTrim, pickSilhouetteVariant, useVdbColorsForVin, useVdbVariants, type VdbVariant } from '@/utils/vehicleImage';
 import { COLOR_GRADIENTS } from '@/constants/colorGradients';
 import { ColorSwatchSkeletonRow, VehicleImageSkeleton } from '@/components/shared-ui/ColorSwatchSkeleton';
 import { FloatingSheet, type FloatingSheetRef } from '@/components/shared-ui/FloatingSheet';
+import { formatEngineLiters } from '@/utils/vehicleDisplay';
 
 // ============================================================================
 // COMPONENT
@@ -111,9 +111,6 @@ function ColorSwatchItem({
 export default function AddVehicleReviewScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const setPendingEnrichmentToast = usePendingNavigationStore(
-    (s) => s.setPendingEnrichmentToast,
-  );
   const params = useLocalSearchParams<{
     vin: string;
     make: string;
@@ -377,21 +374,10 @@ export default function AddVehicleReviewScreen() {
           });
         }
 
-        // Queue an enrichment toast for the NEXT time the user lands
-        // on home. Per Ahmad: firing right after confirm overlaps the
-        // /vehicle-added celebration; let the user enjoy that, then
-        // gently surface what's happening in the background the next
-        // time they come back to the dashboard. Home's useFocusEffect
-        // reads this field, fires the toast, and clears it. The label
-        // is the user-visible "2024 VW Tiguan" so the toast can call
-        // out the specific car.
-        const yearStr = (params.year ?? '').trim();
-        const makeStr = (params.make ?? '').trim();
-        const modelStr = (effectiveModel || params.model || '').trim();
-        const carLabel = [yearStr, makeStr, modelStr].filter(Boolean).join(' ').trim();
-        if (carLabel) {
-          setPendingEnrichmentToast(carLabel);
-        }
+        // No enrichment toast queued anymore — the persistent
+        // EnrichmentStatusPill in the (main-tabs) layout picks the new
+        // car up from getMyVehiclesEnrichmentStatus and shows
+        // "Connecting to your <car>" until the pipeline finishes.
 
         router.replace({
           pathname: '/vehicle-added',
@@ -448,6 +434,8 @@ export default function AddVehicleReviewScreen() {
   // liters) when the new specs-specific field is blank — keeps older
   // decode paths working.
   const liters = litersFromSpecs ?? parseOptionalNum(params.displacement);
+  const litersDisplay = formatEngineLiters(liters);
+  const vehicleCardLitersDisplay = formatEngineLiters(params.displacement);
   const cylConfig = params.cylindersConfiguration || '';
   const transType = params.transType || '';
   const transSpeeds = parseOptionalNum(params.transSpeeds);
@@ -464,8 +452,8 @@ export default function AddVehicleReviewScreen() {
 
   // Engine tile: "2.0L I-4" primary, "272 hp" secondary.
   const engineLine1 =
-    liters || cylConfig
-      ? `${liters ? `${liters}L` : ''}${liters && cylConfig ? ' ' : ''}${cylConfig}`.trim()
+    litersDisplay || cylConfig
+      ? `${litersDisplay ? `${litersDisplay}L` : ''}${litersDisplay && cylConfig ? ' ' : ''}${cylConfig}`.trim()
       : DASH;
   const engineLine2 = hp ? `${hp} hp` : DASH;
 
@@ -615,7 +603,7 @@ export default function AddVehicleReviewScreen() {
           </Pressable>
           {(params.displacement || params.fuelType) && (
             <Text size="xs" color="#888888" style={styles.vehicleTrim}>
-              {params.displacement ? `${params.displacement}L ` : ''}{params.fuelType}
+              {vehicleCardLitersDisplay ? `${vehicleCardLitersDisplay}L ` : ''}{params.fuelType}
             </Text>
           )}
           <View style={styles.vinBadge}>
@@ -633,7 +621,7 @@ export default function AddVehicleReviewScreen() {
           <View style={styles.colorCard}>
             <View style={styles.colorHeaderRow}>
               <Text weight="semiBold" size="md" color="#1F2937">
-                Choose your {params.make}'s color
+                Choose your {params.make}{"'"}s color
               </Text>
               <Text size="xs" color="#9CA3AF" numberOfLines={1} style={styles.colorHeaderRight}>
                 {selectedSwatch
@@ -753,6 +741,8 @@ export default function AddVehicleReviewScreen() {
       <FloatingSheet
         ref={trimSheetRef}
         snapHeights={[Math.min(500, 140 + vdbVariants.length * 72)]}
+        showBackdrop
+        backdropMode="blur"
         onClose={() => setShowTrimSheet(false)}
       >
         <View style={styles.trimSheetHeader}>

@@ -25,6 +25,7 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import {
+  customerInspectionSnapshotValidator,
   postjobPartValidator,
   postjobPhotoValidator,
   postjobReportValidator,
@@ -33,6 +34,7 @@ import {
   vehiclePassportFluidsValidator,
   vehiclePassportInspectionValidator,
   vehiclePassportModificationsValidator,
+  legacyModificationsShapeValidator,
   vehiclePassportTiresValidator,
   vehicleUpdateValuesValidator,
 } from "./lib/vehicle_passports";
@@ -374,6 +376,10 @@ export default defineSchema({
   // compatibility but new rows should default to "oem".
   oem_parts: defineTable({
     oem_part_number: v.string(),
+    // normalizeOemNumber(oem_part_number) — uppercase, alphanumeric only.
+    // Canonical identity for upserts so "5Q0 698 451 A" and "5Q0698451A"
+    // resolve to one row. Legacy rows lack it; upsert lazily backfills.
+    oem_part_number_normalized: v.optional(v.string()),
     name: v.string(),
     brand: v.optional(v.string()),
     // "oem" | "aftermarket" | "performance" | "economy" | "unknown".
@@ -394,45 +400,11 @@ export default defineSchema({
     data_quality: v.optional(v.string()),
   })
     .index("by_part_number", ["oem_part_number"])
+    .index("by_part_number_normalized", ["oem_part_number_normalized"])
     .index("by_category", ["category"])
     .index("by_subcategory", ["subcategory"])
     .index("by_make_category", ["make_id", "category"])
     .index("by_brand", ["brand"]),
-
-  // Web-portal: RepairPal endpoint estimates cached per config × service.
-  // Feeds director's "compare our price to RepairPal's" panel.
-  repairpal_endpoint_estimates: defineTable({
-    vehicle_config_id: v.id("vehicle_configs"),
-    service_id: v.id("services"),
-    base_vehicle_id: v.number(),
-    variant_label: v.optional(v.string()),
-    labor_minutes: v.optional(v.number()),
-    labor_hours: v.optional(v.number()),
-    labor_low: v.optional(v.number()),
-    labor_high: v.optional(v.number()),
-    total_independent_low: v.optional(v.number()),
-    total_independent_high: v.optional(v.number()),
-    total_dealer_low: v.optional(v.number()),
-    total_dealer_high: v.optional(v.number()),
-    parts: v.optional(
-      v.array(
-        v.object({
-          role: v.optional(v.string()),
-          name: v.string(),
-          quantity: v.optional(v.number()),
-          price_low: v.optional(v.number()),
-          price_high: v.optional(v.number()),
-          position: v.optional(v.string()),
-        }),
-      ),
-    ),
-    zip: v.optional(v.string()),
-    match_quality: v.optional(v.string()),
-    matched_via: v.optional(v.string()),
-    fetched_at: v.number(),
-  })
-    .index("by_config_service", ["vehicle_config_id", "service_id"])
-    .index("by_config", ["vehicle_config_id"]),
 
   // [U-W] Unified part-to-vehicle-config fitment
   part_fitments: defineTable({
@@ -475,11 +447,57 @@ export default defineSchema({
     price_type: v.optional(v.string()),
     source_url: v.optional(v.string()),
     source_domain: v.optional(v.string()),
+    msrp: v.optional(v.number()),
+    discount: v.optional(v.number()),
     refreshed_at: v.optional(v.number()),
     created_at: v.optional(v.number()),
   })
     .index("by_part", ["part_id"])
     .index("by_part_source", ["part_id", "source_domain"]),
+
+  // Raw per-config RepairPal estimate-endpoint cache — one row per (config,
+  // service), storing the whole endpoint response at its natural granularity so
+  // `part_prices` stays SKU-only. Labor is ALSO projected into labor_observations
+  // (source repairpal_endpoint, weight 0.9).
+  // Parts: each endpoint part's averaged per-unit price (total_price avg ÷
+  // quantity) is ALSO projected into part_prices as a fallback POINT
+  // (source_domain="repairpal_endpoint", a price_type excluded from the pooled
+  // SKU aggregate). resolvePartsCost (flag PARTS_SOURCE_REAL_PRIMARY) pools SKU
+  // prices WITH this endpoint point per role, falling back to it when a part has
+  // no SKU price, then to Camry×multiplier. See
+  // docs/superpowers/plans/2026-06-23-parts-real-primary-endpoint-point.md.
+  repairpal_endpoint_estimates: defineTable({
+    vehicle_config_id: v.id("vehicle_configs"),
+    service_id: v.id("services"),
+    base_vehicle_id: v.number(),               // resolved RepairPal baseVehicleId
+    variant_label: v.optional(v.string()),     // matched engine/position variant
+    labor_minutes: v.optional(v.number()),
+    labor_hours: v.optional(v.number()),
+    labor_low: v.optional(v.number()),         // labor $ band (unrounded)
+    labor_high: v.optional(v.number()),
+    total_independent_low: v.optional(v.number()),
+    total_independent_high: v.optional(v.number()),
+    total_dealer_low: v.optional(v.number()),
+    total_dealer_high: v.optional(v.number()),
+    parts: v.optional(
+      v.array(
+        v.object({
+          role: v.optional(v.string()),        // oem_parts.subcategory (+position) via endpointPartCategory
+          name: v.string(),                    // RepairPal part name (verbatim)
+          quantity: v.optional(v.number()),
+          price_low: v.optional(v.number()),
+          price_high: v.optional(v.number()),
+          position: v.optional(v.string()),    // "front" | "rear" for brakes
+        }),
+      ),
+    ),
+    zip: v.optional(v.string()),
+    match_quality: v.optional(v.string()),   // "exact" | "engine_sibling"
+    matched_via: v.optional(v.string()),     // RP modelName substituted when engine_sibling
+    fetched_at: v.number(),
+  })
+    .index("by_config_service", ["vehicle_config_id", "service_id"])
+    .index("by_config", ["vehicle_config_id"]),
 
   // Materialized view of "which part does this shop reach for on this
   // service+vehicle_config?" Built from observation: every shop-supplied
@@ -746,15 +764,33 @@ export default defineSchema({
     duration_ms: v.optional(v.number()),
     fields_filled: v.optional(v.number()),
     fields_total: v.optional(v.number()),
+    // Applicable-fill headline: fields the applicability rules stamped
+    // not_applicable drop out of the denominator (a RWD sedan isn't
+    // penalized for lacking a transfer case). fill_rate keeps the legacy
+    // all-fields semantics for comparability.
+    fields_not_applicable: v.optional(v.number()),
+    applicable_fill_rate: v.optional(v.number()),
     fill_rate: v.optional(v.number()),
     fields_changed: v.optional(v.array(v.string())),
     errors: v.optional(v.array(v.string())),
-    batch_ids: v.optional(v.array(v.string())),
-    scrape_cache_hit: v.optional(v.boolean()),
-    created_at: v.optional(v.number()),
-    // Web-portal director run detail — per-field gap enumeration for
-    // low-coverage rows so directors can jump straight to what's
-    // missing without re-diving the enrichment.
+    // Structured sanity/OEM-validation flags from the finalize pass. Unlike
+    // the free-string `errors` above (kept for back-compat), these are
+    // queryable — manual_review_queue.list surfaces runs that carry any.
+    sanity_flags: v.optional(
+      v.array(
+        v.object({
+          field: v.string(),
+          severity: v.string(), // "reject" | "flag"
+          reason: v.string(),
+          value: v.optional(v.string()),
+        }),
+      ),
+    ),
+    // Per-field ledger of WHY each V4 field ended the run empty — the
+    // completion counterpart to sanity_flags (which only covers fields that
+    // HAD a value). Reasons: never_asked | llm_null | not_applicable |
+    // validation_dropped:<flag_reason>. Feeds the gap-fill pass and the
+    // director run detail.
     field_gaps: v.optional(
       v.array(
         v.object({
@@ -763,10 +799,9 @@ export default defineSchema({
         }),
       ),
     ),
-    // Parts-side quotability snapshot: per applicable parts-bearing
-    // service, do all CORE roles have a fitment AND a trusted price?
-    // Complements fill_rate — a 93% run can still carry an
-    // unquotable oil change.
+    // Parts-side quotability: per applicable parts-bearing service, do all
+    // CORE roles have a fitment AND a trusted price? fill_rate's blind spot —
+    // a 93% run can still carry an unquotable oil change (Jul 2026 A4).
     quotability: v.optional(
       v.object({
         pct: v.number(),
@@ -780,9 +815,13 @@ export default defineSchema({
         ),
       }),
     ),
-    // Stamped when the post-run price backfill / nightly cron
-    // reconciles the quotability snapshot after healing prices.
+    // Stamped when the post-run price backfill / nightly cron reconciles the
+    // quotability snapshot + part_price gaps after healing prices — without
+    // it a healed config read its finalize-time quotability forever.
     quotability_updated_at: v.optional(v.number()),
+    batch_ids: v.optional(v.array(v.string())),
+    scrape_cache_hit: v.optional(v.boolean()),
+    created_at: v.optional(v.number()),
   })
     .index("by_vehicle_config", ["vehicle_config_id"])
     .index("by_status", ["status"])
@@ -839,6 +878,9 @@ export default defineSchema({
     // scrape action to the price-write step. `format_version` lets the price
     // path treat older markdown-only rows as a miss so they re-fetch HTML.
     part_prices_json: v.optional(v.string()),
+    // Part replacement chains parsed from the same raw HTML ("replaced by",
+    // "supersedes"), serialized as ParsedSupersession[].
+    supersessions_json: v.optional(v.string()),
     format_version: v.optional(v.number()),
   })
     .index("by_cache_key", ["cache_key"])
@@ -1131,6 +1173,13 @@ export default defineSchema({
     source: v.optional(v.string()),
     confidence: v.optional(v.number()),
     data_quality: v.optional(v.string()),
+    // [Phase 1] Multi-source guardrail flags (spec 2026-06-13). book_hours is
+    // > 15 min from the Pricing-v2 tier fallback (suspicious single source):
+    labor_outside_fallback_band: v.optional(v.boolean()),
+    // ≥2 strong sources disagreed beyond the agreement band before MAD:
+    labor_sources_disagree: v.optional(v.boolean()),
+    // |book_hours − fallback| in whole minutes (for the director panel):
+    fallback_gap_minutes: v.optional(v.number()),
     created_at: v.optional(v.number()),
   })
     .index("by_vehicle_config", ["vehicle_config_id"])
@@ -1192,6 +1241,8 @@ export default defineSchema({
     nickname: v.optional(v.string()),
     is_primary: v.optional(v.boolean()),
     mileage: v.optional(v.number()),
+    mileage_source: v.optional(v.string()),      // e.g. "chat_self_reported" | "onboarding" | "verified"
+    mileage_updated_at: v.optional(v.number()),  // ms epoch of the last mileage write
     added_at: v.optional(v.number()),
     removed_at: v.optional(v.number()),
     ownershipType: v.optional(v.string()),
@@ -1324,7 +1375,8 @@ export default defineSchema({
     fluids: v.optional(vehiclePassportFluidsValidator),
     brakes: v.optional(vehiclePassportBrakesValidator),
     inspection: v.optional(vehiclePassportInspectionValidator),
-    modifications: v.optional(vehiclePassportModificationsValidator),
+    // TODO: remove legacy branch after running fixLegacyPassportModifications migration
+    modifications: v.optional(v.union(vehiclePassportModificationsValidator, legacyModificationsShapeValidator)),
     created_at: v.optional(v.number()),
     updated_at: v.optional(v.number()),
     first_shop_confirmed_at: v.optional(v.number()),
@@ -1332,6 +1384,46 @@ export default defineSchema({
   })
     .index("by_vin", ["vin"])
     .index("by_updated_at", ["updated_at"]),
+
+  // Gamified multi-point inspection record — the new pre-job flow. One row per
+  // booking (upserted as the mechanic fills zones). Stores the full zone-by-zone
+  // state so the inspection can be resumed and rendered to a downloadable PDF.
+  // The derived PreJobSurveyPayload still drives prejob_report + passport, so
+  // this table is additive and never the source of truth for pricing.
+  vehicle_inspections: defineTable({
+    booking_id: v.id("bookings"),
+    job_actual_id: v.optional(v.id("job_actuals")),
+    vin: v.string(),
+    shop_id: v.optional(v.id("shops")),
+    mechanic_id: v.optional(v.id("mechanics")),
+    template_version: v.string(),
+    zones: v.array(
+      v.object({
+        zone_id: v.string(),
+        done: v.boolean(),
+        // Free-form per-field maps keyed by the template field keys. `v.any()`
+        // because the template owns the shape and it evolves with the template
+        // version (recorded above) rather than the schema.
+        measures: v.optional(v.any()),
+        tri: v.optional(v.any()),
+        descriptors: v.optional(v.any()),
+        text: v.optional(v.any()),
+        select: v.optional(v.any()),
+        photo_ids: v.optional(v.array(v.id("_storage"))),
+      }),
+    ),
+    findings_attention: v.array(
+      v.object({ label: v.string(), zone: v.string() }),
+    ),
+    findings_monitor: v.array(
+      v.object({ label: v.string(), zone: v.string() }),
+    ),
+    pdf_storage_id: v.optional(v.id("_storage")),
+    created_at: v.float64(),
+    updated_at: v.float64(),
+  })
+    .index("by_booking", ["booking_id"])
+    .index("by_vin", ["vin"]),
 
   // [I] Daniel/Waleed
   vehicle_tiers: defineTable({
@@ -1722,6 +1814,7 @@ export default defineSchema({
     owner_user_id: v.optional(v.id("users")),
     description: v.optional(v.string()),
     logo: v.optional(v.string()),
+    logo_storage_id: v.optional(v.id("_storage")),
     stripe_connect_account_id: v.optional(v.string()),
     stripe_charges_enabled: v.optional(v.boolean()),
     stripe_payouts_enabled: v.optional(v.boolean()),
@@ -1762,7 +1855,8 @@ export default defineSchema({
   })
     .index("by_slug", ["slug"])
     .index("by_owner_user_id", ["owner_user_id"])
-    .index("by_stripe_connect_account_id", ["stripe_connect_account_id"]),
+    .index("by_stripe_connect_account_id", ["stripe_connect_account_id"])
+    .index("by_logo_storage_id", ["logo_storage_id"]),
 
   // [I]
   shops_hours: defineTable({
@@ -2168,6 +2262,17 @@ export default defineSchema({
           // priced at the mechanic's post-job confirmation. Pairs with
           // bookings.low_confidence_parts. (Jun-9 review, item 10.)
           price_unknown: v.optional(v.boolean()),
+          // TRUE when the winner's freshest price row was older than
+          // PARTS_PRICE_MAX_AGE_DAYS at quote time — price still used, line
+          // renders as an estimate.
+          price_stale: v.optional(v.boolean()),
+          // Stamped by the snapshotRevalidation sweep when the frozen row
+          // fails the I1 make guard / brand-signature check ("cross_make" |
+          // "foreign_signature"). The row is KEPT — the frozen price is the
+          // customer's contract — but display/itemization surfaces filter on
+          // it. Reversible + auditable, mirroring fitmentQuarantine's
+          // data_quality stamp.
+          integrity_flag: v.optional(v.string()),
         })
       )
     ),
@@ -3356,6 +3461,14 @@ export default defineSchema({
     ),
     // Backlink to the scheduled reminder we created for this rec.
     followup_id: v.optional(v.id("follow_ups")),
+    // Where this recommendation originated: "post_job" (default/legacy, mechanic
+    // entered it in the post-job survey), "inspection" (auto-derived from a
+    // multi-point inspection's measurements), or "diagnostic".
+    source: v.optional(v.string()),
+    // Denormalized attribution shown to the driver, e.g.
+    // "Based on last inspection @ Temur Auto & Motor". Set at creation so every
+    // consumer can render it without re-joining shop/source.
+    author_label: v.optional(v.string()),
     created_at: v.number(),
     updated_at: v.optional(v.number()),
   })
@@ -4416,6 +4529,7 @@ export default defineSchema({
     labor_hours: v.optional(v.number()),
     labor_rate_cents: v.optional(v.number()),
     notes: v.optional(v.string()),
+    inspection_snapshot: v.optional(customerInspectionSnapshotValidator),
 
     // Gating context: the ceiling the submission was evaluated against.
     // For pre_job this is disclosed_range_high_cents; for mid/post it's

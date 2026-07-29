@@ -57,6 +57,7 @@ interface SettingsOverlayState {
   setRevealHomeAvatar: (reveal: boolean) => void;
   open: (rect: SettingsOverlayRect) => void;
   close: () => void;
+  reset: () => void;
   requestClose: (after?: () => void) => void;
   consumePendingAfterClose: () => (() => void) | null;
 }
@@ -71,6 +72,14 @@ export const useSettingsOverlayStore = create<SettingsOverlayState>((set, get) =
   setRevealHomeAvatar: (reveal) => set({ revealHomeAvatar: reveal }),
   open: (rect) => set({ fromRect: rect, isOpen: true, revealHomeAvatar: false }),
   close: () => set({ isOpen: false }),
+  reset: () =>
+    set({
+      fromRect: null,
+      revealHomeAvatar: false,
+      isOpen: false,
+      closeRequestId: 0,
+      pendingAfterClose: null,
+    }),
   requestClose: (after) =>
     set((s) => ({
       closeRequestId: s.closeRequestId + 1,

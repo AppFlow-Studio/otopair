@@ -34,7 +34,8 @@ import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { haptics } from "@/lib/haptics";
 import { useToast } from "@/hooks/useToast";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
-import { AlignLeft, SquarePen, Ellipsis, Sparkles, History, CarFront, Zap, ChevronDown } from "lucide-react-native";
+import { useCanWrite } from "@/hooks/useConnection";
+import { AlignLeft, SquarePen, Ellipsis, Sparkles, History, CarFront, Zap, ChevronDown, WifiOff } from "lucide-react-native";
 import { MenuView } from "@react-native-menu/menu";
 
 // Liquid Glass (iOS 26+)
@@ -64,6 +65,8 @@ import {
   AIWelcomeScreen,
   AIRecordConfirmation,
   type RecordConfirmationDecision,
+  AIVehicleUpdate,
+  type VehicleUpdateOutcome,
   BookServiceComponent,
   LinkButton,
   BookingCard,
@@ -389,6 +392,10 @@ export default function AIChatScreen() {
     await startRecording();
   }, [isProcessing, startRecording]);
 
+  // Write-gate primitive — declared above the send funnel so `sendToOtoAI`
+  // (and every surface that calls it) can hard-stop offline sends.
+  const canWrite = useCanWrite();
+
   // ──────────────────────────────────────────────────────────────────────
   // sendToOtoAI — single funnel for every user-input surface
   //
@@ -405,6 +412,7 @@ export default function AIChatScreen() {
   // ──────────────────────────────────────────────────────────────────────
   const sendToOtoAI = useCallback(
     async (messageText: string, attachedImages?: string[]) => {
+      if (!canWrite) return;
       if (isProcessing) return;
       const hasText = messageText.trim().length > 0;
       const hasImages = !!attachedImages && attachedImages.length > 0;
@@ -448,10 +456,13 @@ export default function AIChatScreen() {
           text,
           quickReplies,
           showRecordConfirmation,
+          showVehicleUpdate,
           bookService,
           linkButton,
           bookingCard,
           bookingsList,
+          reasoning,
+          sources,
         } = await sendMessageAction({
           conversationId,
           message: messageText,
@@ -483,6 +494,50 @@ export default function AIChatScreen() {
         const bookingsListEnvelope = bookingsList as
           | { booking_ids: string[] }
           | undefined;
+        // render_vehicle_update — the backend payload carries only the captured
+        // truth (mileage / service_claims / fault_lights); resolve the active
+        // vehicle's Convex id here from the picker selection (primary fallback)
+        // so the card can call applyVehicleTruth(vehicle_id, …).
+        const activeVehicleId =
+          rawVehicles?.find((r: any) => r.vin === selectedVehicleVin)?.vehicle
+            ?._id ??
+          rawVehicles?.find((r: any) => r.ownership?.is_primary)?.vehicle?._id;
+        // Suppress the card entirely when the dispatcher sanitized every field
+        // away (e.g. Haiku sent only a malformed mileage:"") — otherwise it
+        // renders a dead, actionless "Vehicle update" card with Confirm disabled
+        // (rows.length === 0). Require at least one surviving payload field.
+        const vehicleUpdateHasContent =
+          !!showVehicleUpdate &&
+          Object.keys(showVehicleUpdate as object).length > 0;
+        const vehicleUpdateEnvelope =
+          showVehicleUpdate && activeVehicleId && vehicleUpdateHasContent
+            ? ({
+                ...(showVehicleUpdate as object),
+                vehicle_id: activeVehicleId as string,
+              } as import("@/services/ai/types").VehicleUpdatePayload)
+            : undefined;
+
+        // render_reasoning — map Oto's { title, detail } steps onto the
+        // AIReasoning shape ({ id, text, completed }). Without this, a fired
+        // render_reasoning produced no visible trace on the mobile bubble.
+        const reasoningSteps = Array.isArray(reasoning)
+          ? (reasoning as Array<{ title?: string; detail?: string }>).map((s, i) => ({
+              id: `oto_reason_${i}`,
+              text: s?.detail ? `${s.title ?? ""} — ${s.detail}` : (s?.title ?? ""),
+              completed: true,
+            }))
+          : undefined;
+        // render_sources — map Oto's free-form { title, details, url } citations
+        // onto a generic "reference" source pill (url surfaces in the tooltip).
+        const sourceList = Array.isArray(sources)
+          ? (sources as Array<{ title?: string; details?: string; url?: string }>).map((s) => ({
+              type: "reference" as const,
+              label: s?.title ?? "Source",
+              icon: "🔗",
+              description: s?.details ?? "Cited reference",
+              details: s?.url ?? s?.details,
+            }))
+          : undefined;
 
         const nextStage: ChatMessage["stage"] = bookServiceEnvelope
           ? "confirmation"
@@ -496,10 +551,13 @@ export default function AIChatScreen() {
           isStreaming: true,
           quickReplies: quickReplies as QuickReply[] | undefined,
           showRecordConfirmation: recordConfirmEnvelope,
+          showVehicleUpdate: vehicleUpdateEnvelope,
           bookService: bookServiceEnvelope,
           linkButton: linkButtonEnvelope,
           bookingCard: bookingCardEnvelope,
           bookingsList: bookingsListEnvelope,
+          reasoning: reasoningSteps,
+          sources: sourceList,
           stage: nextStage,
         };
         setState((prev) => ({
@@ -546,7 +604,9 @@ export default function AIChatScreen() {
       createConversation,
       sendMessageAction,
       selectedVehicleVin,
+      rawVehicles,
       showToast,
+      canWrite,
     ]
   );
 
@@ -692,12 +752,16 @@ export default function AIChatScreen() {
   // let me adjust the brake recommendation."
   const handleRecordDecision = useCallback(
     (decision: RecordConfirmationDecision) => {
-      if (isProcessing) return;
-      let echoText: string;
+      // Push ONLY the canonical established_fact — NO synthetic "Confirmed /
+      // Updated / Not now" chat message. Oto reads the outcome from
+      // <conversation_state> on its next turn; a user-role echo made Oto misread
+      // its OWN confirmation ("that's not something I can do on my own…"). The
+      // card's success chip is the user-facing feedback.
       let factText: string;
       if (decision.kind === "confirmed") {
-        echoText = `Confirmed — ${decision.type} record is correct as-is.`;
         factText = `confirmed ${decision.type} record current as of now`;
+      } else if (decision.kind === "declined") {
+        factText = `record_confirmation_declined: ${decision.type} — user did not confirm the on-file record`;
       } else {
         const dateStr = new Date(decision.lastServiceDate).toLocaleDateString(
           undefined,
@@ -706,18 +770,40 @@ export default function AIChatScreen() {
         const mileagePart = decision.lastServiceMileage
           ? ` at ${decision.lastServiceMileage.toLocaleString()} mi`
           : "";
-        echoText = `Updated — last ${decision.type} service was actually in ${dateStr}${mileagePart}.`;
         factText = `corrected ${decision.type} last_service to ${dateStr}${mileagePart}`;
       }
-      // Decision D: write to established_facts so Oto reads the trust-protocol
-      // outcome from <conversation_state>, not from echo-message text. The
-      // synthetic echoText still goes through sendToOtoAI for chat-history
-      // continuity, but the fact is the canonical state signal.
       pushFact(factText);
-      sendToOtoAI(echoText);
     },
-    [isProcessing, pushFact, sendToOtoAI],
+    [pushFact],
   );
+
+  // Handle a successful apply from AIVehicleUpdate. The component already wrote
+  // via vehicleTruth.applyVehicleTruth. Push ONLY the canonical fact — NO
+  // "Done — …" chat message (Oto misread its own echo). Oto sees the outcome
+  // from <conversation_state> next turn; the card's success chip is the feedback.
+  const handleVehicleUpdateDecision = useCallback(
+    (outcome: VehicleUpdateOutcome) => {
+      const parts: string[] = [];
+      if (outcome.mileageUpdated) parts.push("updated mileage");
+      if (outcome.servicesCompleted.length)
+        parts.push(`logged ${outcome.servicesCompleted.join(", ")} as done`);
+      if (outcome.servicesFlagged.length)
+        parts.push(`flagged ${outcome.servicesFlagged.join(", ")} as due`);
+      if (outcome.faultLightsAdded.length)
+        parts.push(`logged the ${outcome.faultLightsAdded.join(", ")} light`);
+      if (parts.length === 0) return;
+      pushFact(`vehicle_truth_applied: ${parts.join("; ")}`);
+    },
+    [pushFact],
+  );
+
+  // Handle a DECLINE of the AIVehicleUpdate card ("Not now" / "Cancel"). Nothing
+  // was written — push ONLY the canonical decline fact (no "Not now" chat
+  // message) so Oto stops treating its earlier "I'll log that…" as done, without
+  // polluting the conversation.
+  const handleVehicleUpdateDismiss = useCallback(() => {
+    pushFact("vehicle_truth_declined: user tapped Not now — nothing was written");
+  }, [pushFact]);
 
   // Handle copy message
   const handleCopy = useCallback(async (content: string) => {
@@ -1276,19 +1362,21 @@ export default function AIChatScreen() {
                 // also drop quickReplies from the bubble so a confused
                 // payload can't double-render a tap surface.
                 const isAssistant = message.role === "assistant";
-                const terminalKind: "bookService" | "recordConfirm" | "bookingCard" | "bookingsList" | "linkButton" | null =
+                const terminalKind: "bookService" | "recordConfirm" | "vehicleUpdate" | "bookingCard" | "bookingsList" | "linkButton" | null =
                   isAssistant
                     ? message.bookService
                       ? "bookService"
                       : message.showRecordConfirmation
                         ? "recordConfirm"
-                        : message.bookingCard
-                          ? "bookingCard"
-                          : message.bookingsList
-                            ? "bookingsList"
-                            : message.linkButton
-                              ? "linkButton"
-                              : null
+                        : message.showVehicleUpdate
+                          ? "vehicleUpdate"
+                          : message.bookingCard
+                            ? "bookingCard"
+                            : message.bookingsList
+                              ? "bookingsList"
+                              : message.linkButton
+                                ? "linkButton"
+                                : null
                     : null;
                 const messageForBubble = terminalKind
                   ? { ...message, quickReplies: undefined }
@@ -1323,6 +1411,16 @@ export default function AIChatScreen() {
                           vehicleId={message.showRecordConfirmation.vehicle_id}
                           maintenanceType={message.showRecordConfirmation.maintenance_type}
                           onDecision={handleRecordDecision}
+                          disabled={isProcessing}
+                        />
+                      </View>
+                    )}
+                    {terminalKind === "vehicleUpdate" && message.showVehicleUpdate && (
+                      <View style={styles.servicePickerContainer}>
+                        <AIVehicleUpdate
+                          payload={message.showVehicleUpdate}
+                          onDecision={handleVehicleUpdateDecision}
+                          onDismiss={handleVehicleUpdateDismiss}
                           disabled={isProcessing}
                         />
                       </View>
@@ -1392,6 +1490,14 @@ export default function AIChatScreen() {
             images={selectedImages}
             onRemove={handleRemoveImage}
           />
+          {!canWrite ? (
+            <View style={styles.otoOfflineNote}>
+              <WifiOff size={14} color="#6B7280" />
+              <Text size="xs" weight="regular" color="#6B7280">
+                Oto needs a connection to reply
+              </Text>
+            </View>
+          ) : null}
           <AIInputBox
             value={inputValue}
             onChangeText={setInputValue}
@@ -1407,6 +1513,8 @@ export default function AIChatScreen() {
             isAttachmentOpen={isAttachmentOpen}
             onToggleAttachment={handleToggleAttachment}
             hasImages={selectedImages.length > 0}
+            disabled={!canWrite}
+            placeholder={canWrite ? "Ask Oto" : "Reconnect to chat with Oto"}
           />
           {isAttachmentOpen && (
             <AIAttachmentPanel
@@ -1640,5 +1748,12 @@ const styles = StyleSheet.create({
     color: "#000000",
     textAlign: "center",
     marginBottom: Spacing.xs,
+  },
+  otoOfflineNote: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingBottom: 6,
   },
 });

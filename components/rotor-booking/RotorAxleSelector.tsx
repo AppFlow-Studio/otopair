@@ -22,6 +22,7 @@ import Svg, { Path } from "react-native-svg";
 
 import { BrandColors } from "@/constants/theme";
 import type { RotorAxle } from "@/constants/rotorFlow";
+import { ROTOR_AXLE_CENTER_PCTS, ROTOR_AXLE_ICON_SIZE } from "./rotorAxleLayout";
 
 // ============================================================================
 // ROTOR DISC ICON — multi-color brake-disc artwork from ~/Downloads/Brake Icon.svg.
@@ -82,9 +83,6 @@ const AXLE_ROWS: Record<"front" | "rear", { topPct: number }> = {
   front: { topPct: 22 },
   rear: { topPct: 78 },
 };
-
-// Per-side rotor offsets (flank the car at the wheel positions).
-const ROTOR_OFFSETS = { leftPct: -30, rightPct: 130 };
 
 // ============================================================================
 // COMPONENT
@@ -157,21 +155,29 @@ function AxleRow({
   const animStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
   }));
+  const accessibilityLabel = axle === "front" ? "Front axle pair" : "Rear axle pair";
 
   return (
     <View
       style={[styles.axleRow, { top: `${topPct}%` }]}
       pointerEvents="box-none"
     >
-      <Pressable hitSlop={12} onPress={onPress} style={styles.axleHit}>
+      <Pressable
+        accessibilityLabel={accessibilityLabel}
+        accessibilityRole="button"
+        accessibilityState={{ selected: isActive }}
+        hitSlop={12}
+        onPress={onPress}
+        style={styles.axleHit}
+      >
         {/* Left rotor */}
-        <View style={[styles.rotorSlot, { left: `${ROTOR_OFFSETS.leftPct}%` }]}>
+        <View style={[styles.rotorSlot, { left: `${ROTOR_AXLE_CENTER_PCTS.left}%` }]}>
           <Animated.View style={animStyle}>
             <RotorIcon isSelected={isActive} size={ROTOR_SIZE} />
           </Animated.View>
         </View>
         {/* Right rotor */}
-        <View style={[styles.rotorSlot, { left: `${ROTOR_OFFSETS.rightPct}%` }]}>
+        <View style={[styles.rotorSlot, { left: `${ROTOR_AXLE_CENTER_PCTS.right}%` }]}>
           <Animated.View style={animStyle}>
             <RotorIcon isSelected={isActive} size={ROTOR_SIZE} />
           </Animated.View>
@@ -185,20 +191,20 @@ function AxleRow({
 // STYLES
 // ============================================================================
 
-const ROTOR_SIZE = 64;
+const ROTOR_SIZE = ROTOR_AXLE_ICON_SIZE;
 const AXLE_HIT_HEIGHT = 84;
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: BrandColors.white,
     borderRadius: 20,
     overflow: "hidden",
     alignItems: "center",
     justifyContent: "center",
   },
   carFrame: {
-    width: 160,
+    width: "100%",
     height: 240,
     position: "relative",
   },
@@ -207,7 +213,8 @@ const styles = StyleSheet.create({
     height: 240,
     position: "absolute",
     top: 0,
-    left: 0,
+    left: "50%",
+    marginLeft: -80,
   },
   axleRow: {
     position: "absolute",

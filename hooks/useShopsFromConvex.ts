@@ -28,7 +28,7 @@ function shopNeedsCoords(s: Shop): boolean {
   );
 }
 
-function mapConvexShopToStore(shop: Doc<"shops">, serviceIds: string[]): Shop {
+function mapConvexShopToStore(shop: Doc<"shops"> & { logoUrl?: string | null }, serviceIds: string[]): Shop {
   const address = [shop.address, shop.city, shop.state, shop.zip].filter(Boolean).join(", ");
   return {
     id: shop._id,
@@ -42,7 +42,7 @@ function mapConvexShopToStore(shop: Doc<"shops">, serviceIds: string[]): Shop {
     distanceKm: null,
     rating: shop.rating ?? null,
     reviewCount: shop.review_count != null ? Math.round(Number(shop.review_count)) : undefined,
-    imageUrl: null,
+    imageUrl: shop.logoUrl ?? null,
     availability: shop.is_active ? 7 : 0,
     hasAvailableSlots: shop.is_active ?? false,
     nextAvailableSlot: shop.is_active ? null : null,
@@ -62,7 +62,7 @@ export function useShopsFromConvex() {
   const [geocoded, setGeocoded] = useState<Record<string, Coords>>({});
 
   const shops: Shop[] = useMemo(() => {
-    if (!convexShops || !shopServicesList) return [];
+    if (convexShops === undefined || shopServicesList === undefined) return [];
 
     const serviceIdsByShop: Record<string, string[]> = {};
     for (const ss of shopServicesList) {
@@ -72,7 +72,7 @@ export function useShopsFromConvex() {
       serviceIdsByShop[shopKey].push(ss.service_id as string);
     }
 
-    return (convexShops as Doc<"shops">[]).map((shop) => {
+    return (convexShops as (Doc<"shops"> & { logoUrl?: string | null })[]).map((shop) => {
       const mapped = mapConvexShopToStore(shop, serviceIdsByShop[shop._id as string] ?? []);
       const fallback = geocoded[mapped.id];
       if (fallback && mapped.latitude === 0 && mapped.longitude === 0) {
@@ -83,10 +83,10 @@ export function useShopsFromConvex() {
   }, [convexShops, shopServicesList, geocoded]);
 
   useEffect(() => {
-    if (shops.length > 0) {
+    if (convexShops !== undefined && shopServicesList !== undefined) {
       setShops(shops);
     }
-  }, [shops, setShops]);
+  }, [convexShops, shopServicesList, shops, setShops]);
 
   // Fire forward-geocoding for any shop missing lat/lng. Resolves are
   // batched into state so a single render hydrates them all.

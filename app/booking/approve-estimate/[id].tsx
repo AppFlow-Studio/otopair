@@ -49,9 +49,11 @@ import {
   CardShadow,
 } from "@/constants/theme";
 import { useOpenApprovalForBooking } from "@/hooks/useOpenApprovalForBooking";
+import { useOfflineGuard } from "@/hooks/useOfflineGuard";
 import { useToast } from "@/hooks/useToast";
 import { usePaymentStore } from "@/stores/usePaymentStore";
 import { useBookingStore } from "@/stores/useBookingStore";
+import { buildInspectionFindingRows } from "@/lib/inspection-findings";
 
 function formatUsd(cents: number | undefined | null): string {
   const v = ((cents ?? 0) / 100).toFixed(2);
@@ -88,6 +90,7 @@ export default function ApproveEstimateScreen() {
   const params = useLocalSearchParams<{ id: string; mode?: string }>();
   const bookingId = params.id as Id<"bookings">;
   const booking = useQuery(api.bookings.getById, { id: bookingId });
+  useOfflineGuard(booking);
   const liveState = (
     booking as { payment_approval_state?: string } | null | undefined
   )?.payment_approval_state;
@@ -128,6 +131,10 @@ function ApprovalDecisionView({ bookingId }: { bookingId: Id<"bookings"> }) {
     const remainder = Math.max(0, total - partsCents - laborCents);
     return { parts, partsCents, laborCents, laborHours, total, remainder };
   }, [approval]);
+  const inspectionFindings = useMemo(
+    () => buildInspectionFindingRows(approval?.inspection_snapshot),
+    [approval?.inspection_snapshot],
+  );
 
   const handleApprove = async () => {
     if (submitting) return;
@@ -249,6 +256,40 @@ function ApprovalDecisionView({ bookingId }: { bookingId: Id<"bookings"> }) {
           )}
         </View>
 
+        {inspectionFindings.length > 0 ? (
+          <View style={styles.card}>
+            <Text weight="semiBold" style={styles.sectionLabel}>
+              Inspection findings
+            </Text>
+            <Text style={styles.inspectionIntro}>
+              Measurements recorded before work began.
+            </Text>
+            {inspectionFindings.map((section, sectionIndex) => (
+              <View
+                key={section.title}
+                style={[
+                  styles.inspectionGroup,
+                  sectionIndex > 0 && styles.inspectionGroupBorder,
+                ]}
+              >
+                <Text weight="semiBold" style={styles.inspectionGroupTitle}>
+                  {section.title}
+                </Text>
+                <View style={styles.inspectionGrid}>
+                  {section.values.map((row) => (
+                    <View key={row.label} style={styles.inspectionCell}>
+                      <Text style={styles.inspectionLabel}>{row.label}</Text>
+                      <Text weight="semiBold" style={styles.inspectionValue}>
+                        {row.value}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              </View>
+            ))}
+          </View>
+        ) : null}
+
         <View style={styles.card}>
           <Text weight="semiBold" style={styles.sectionLabel}>
             What changed
@@ -353,7 +394,7 @@ function ApprovalDecisionView({ bookingId }: { bookingId: Id<"bookings"> }) {
           />
           <Text style={styles.infoText}>
             Approving raises the hold on your card to{" "}
-            {formatUsd(approval.mechanic_set_price_cents)}. You're only charged
+            {formatUsd(approval.mechanic_set_price_cents)}. You&apos;re only charged
             when the work is complete.
           </Text>
         </View>
@@ -398,6 +439,34 @@ function ApprovalDecisionView({ bookingId }: { bookingId: Id<"bookings"> }) {
       </View>
     </View>
   );
+}
+
+/**
+ * Itemized breakdown behind the hold amount, returned by
+ * `getReauthBreakdownForBooking`. Typed locally because the vendored mobile
+ * Convex client surfaces query returns as `any` (same reason the sibling
+ * `booking` prop is `any`).
+ */
+interface ReauthBreakdownPart {
+  part_name: string;
+  oem_number?: string;
+  brand?: string;
+  quantity: number;
+  unit_price_cents: number;
+  line_total_cents: number;
+  justification_text?: string;
+}
+interface ReauthBreakdown {
+  source: "approved" | "quote";
+  cycle: string | null;
+  totalCents: number;
+  partsCents: number;
+  laborCents: number;
+  taxCents: number;
+  feeCents: number;
+  laborHours: number | null;
+  notes: string | null;
+  parts: ReauthBreakdownPart[];
 }
 
 /**
@@ -452,6 +521,13 @@ function ReauthView({
   );
   const isWalletOrigin =
     paymentOrigin === "apple_pay" || paymentOrigin === "google_pay";
+  // Itemized breakdown of what makes up the hold — the approved estimate
+  // that set the ceiling, or the booking's original quote as fallback.
+  // `undefined` = loading, `null` = no source (legacy booking).
+  const breakdown: ReauthBreakdown | null | undefined = useQuery(
+    api.booking_approvals.getReauthBreakdownForBooking,
+    { bookingId },
+  );
   const [submitting, setSubmitting] = useState(false);
 
   const isBookingLoading = booking === undefined;
@@ -709,6 +785,101 @@ function ReauthView({
             </Text>
           </View>
         </View>
+
+        {breakdown ? (
+          <View style={styles.card}>
+            <Text weight="semiBold" style={styles.sectionLabel}>
+              What&apos;s included
+            </Text>
+            {breakdown.parts.map((p, idx) => (
+              <View key={idx} style={styles.partRow}>
+                <View style={{ flex: 1 }}>
+                  <Text weight="semiBold" style={styles.partName}>
+                    {p.part_name}
+                  </Text>
+                  {p.oem_number ? (
+                    <Text style={styles.partOem}>
+                      {p.brand ? `${p.brand} · ` : ""}
+                      {p.oem_number}
+                    </Text>
+                  ) : null}
+                  <Text style={styles.partOem}>
+                    Qty {p.quantity} · {formatUsd(p.unit_price_cents)} ea
+                  </Text>
+                  {p.justification_text ? (
+                    <Text style={styles.partJustification}>
+                      “{p.justification_text}”
+                    </Text>
+                  ) : null}
+                </View>
+                <Text weight="semiBold" style={styles.partTotal}>
+                  {formatUsd(p.line_total_cents)}
+                </Text>
+              </View>
+            ))}
+
+            {breakdown.notes ? (
+              <View style={styles.noteBlock}>
+                <Text weight="semiBold" style={styles.noteLabel}>
+                  Why the change
+                </Text>
+                <Text style={styles.noteText}>“{breakdown.notes}”</Text>
+              </View>
+            ) : null}
+
+            <View style={styles.cardDivider} />
+
+            <View style={styles.totalsBlock}>
+              <View style={styles.totalRow}>
+                <Text style={styles.totalLabel}>Parts</Text>
+                <Text style={styles.totalValue}>
+                  {formatUsd(breakdown.partsCents)}
+                </Text>
+              </View>
+              {breakdown.laborCents > 0 && (
+                <View style={styles.totalRow}>
+                  <Text style={styles.totalLabel}>
+                    Labor
+                    {breakdown.laborHours
+                      ? ` (${breakdown.laborHours} hrs)`
+                      : ""}
+                  </Text>
+                  <Text style={styles.totalValue}>
+                    {formatUsd(breakdown.laborCents)}
+                  </Text>
+                </View>
+              )}
+              {breakdown.taxCents + breakdown.feeCents > 0 && (
+                <View style={styles.totalRow}>
+                  <Text style={styles.totalLabel}>Tax + service fee</Text>
+                  <Text style={styles.totalValue}>
+                    {formatUsd(breakdown.taxCents + breakdown.feeCents)}
+                  </Text>
+                </View>
+              )}
+              <View style={[styles.totalRow, { marginTop: Spacing.sm }]}>
+                <Text
+                  weight="semiBold"
+                  style={styles.totalLabelBold}
+                  numberOfLines={1}
+                >
+                  {breakdown.totalCents === newHoldCents
+                    ? "Total"
+                    : "Estimated total"}
+                </Text>
+                <Text
+                  weight="semiBold"
+                  style={[styles.totalLabelBold, styles.totalValueRight]}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.75}
+                >
+                  {formatUsd(breakdown.totalCents)}
+                </Text>
+              </View>
+            </View>
+          </View>
+        ) : null}
       </ScrollView>
 
       <View
@@ -916,6 +1087,44 @@ const styles = StyleSheet.create({
   },
 
   // ── Totals ────────────────────────────────────────────────────────────
+  inspectionIntro: {
+    color: SemanticColors.textMuted,
+    fontSize: 13,
+    lineHeight: 18,
+    marginTop: -2,
+  },
+  inspectionGroup: {
+    paddingTop: Spacing.md,
+  },
+  inspectionGroupBorder: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: SemanticColors.border,
+    marginTop: Spacing.md,
+  },
+  inspectionGroupTitle: {
+    color: BrandColors.primary,
+    fontSize: 14,
+    marginBottom: Spacing.sm,
+  },
+  inspectionGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    marginHorizontal: -4,
+    rowGap: Spacing.sm,
+  },
+  inspectionCell: {
+    width: "50%",
+    paddingHorizontal: 4,
+  },
+  inspectionLabel: {
+    color: SemanticColors.textMuted,
+    fontSize: 12,
+  },
+  inspectionValue: {
+    color: BrandColors.primary,
+    fontSize: 15,
+    marginTop: 2,
+  },
   totalsBlock: { gap: Spacing.sm },
   totalRow: { flexDirection: "row", justifyContent: "space-between" },
   totalLabel: { color: SemanticColors.textSecondary },

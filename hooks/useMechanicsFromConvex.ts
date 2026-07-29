@@ -58,10 +58,10 @@ export function useMechanicsFromConvex() {
   }, [convexMechanics]);
 
   useEffect(() => {
-    if (mechanics.length > 0) {
+    if (convexMechanics !== undefined) {
       setMechanics(mechanics);
     }
-  }, [mechanics, setMechanics]);
+  }, [convexMechanics, mechanics, setMechanics]);
 
   return {
     mechanics,

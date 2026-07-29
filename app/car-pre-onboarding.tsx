@@ -286,7 +286,9 @@ export default function CarPreOnboardingScreen() {
     setKeyboardTop(null);
     ctaLiftAnim.value = withTiming(0, { duration: 250 });
     if (stepIndex === 0) {
-      router.back();
+      // Vehicle is already added by this point; go to the Cars tab
+      // instead of popping back to the VIN decode screen.
+      router.replace("/(main-tabs)/cars");
       return;
     }
     animateTransition(stepIndex - 1, 'back');

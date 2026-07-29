@@ -104,6 +104,7 @@
           "calendarPermission": "Allow Otopair to add your service appointments to your calendar."
         }
       ],
+      "./plugins/with-root-back-task-behavior",
       [
         "@stripe/stripe-react-native",
         {

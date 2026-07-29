@@ -10,9 +10,9 @@
  */
 
 import React, { useMemo, useState } from "react";
-import { Linking, PixelRatio, Pressable, StyleSheet, View } from "react-native";
+import { Image, Linking, PixelRatio, Pressable, StyleSheet, View } from "react-native";
 
-import { Bookmark, Calendar, Navigation, Phone, Star } from "lucide-react-native";
+import { Bookmark, Calendar, Navigation, Phone, Star, Store } from "lucide-react-native";
 
 import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 import { BorderRadius, Shadows } from "@/constants/theme";
@@ -94,30 +94,49 @@ export function ShopHeroCard({
 
   return (
     <View style={styles.card}>
-      <Text size="2xl" weight="bold" color={BrandColors.primary} numberOfLines={2}>
-        {shop.name}
-      </Text>
+      {/* Identity row — shop logo (uploaded from the mechanic dashboard,
+          resolved by shops.list) beside the name; storefront icon when
+          the shop hasn't set one. */}
+      <View style={styles.identityRow}>
+        <View style={styles.logoBox}>
+          {shop.imageUrl ? (
+            <Image
+              source={{ uri: shop.imageUrl }}
+              style={StyleSheet.absoluteFill}
+              resizeMode="cover"
+            />
+          ) : (
+            <Store size={24} color="#9CA3AF" strokeWidth={1.5} />
+          )}
+        </View>
 
-      <View style={styles.metaRow}>
-        {rating !== null ? (
-          <View style={styles.metaItem}>
-            <Star size={14} color={BrandColors.secondary} fill={BrandColors.secondary} />
-            <Text size="sm" weight="semiBold" color={BrandColors.primary}>
-              {rating.toFixed(1)}
-            </Text>
-            <Text size="xs" weight="regular" color="#6B7280">
-              ({reviewCount})
-            </Text>
+        <View style={styles.identityText}>
+          <Text size="2xl" weight="bold" color={BrandColors.primary} numberOfLines={2}>
+            {shop.name}
+          </Text>
+
+          <View style={styles.metaRow}>
+            {rating !== null ? (
+              <View style={styles.metaItem}>
+                <Star size={14} color={BrandColors.secondary} fill={BrandColors.secondary} />
+                <Text size="sm" weight="semiBold" color={BrandColors.primary}>
+                  {rating.toFixed(1)}
+                </Text>
+                <Text size="xs" weight="regular" color="#6B7280">
+                  ({reviewCount})
+                </Text>
+              </View>
+            ) : null}
+            {distanceLabel ? (
+              <>
+                <View style={styles.dot} />
+                <Text size="sm" weight="medium" color="#475569">
+                  {distanceLabel}
+                </Text>
+              </>
+            ) : null}
           </View>
-        ) : null}
-        {distanceLabel ? (
-          <>
-            <View style={styles.dot} />
-            <Text size="sm" weight="medium" color="#475569">
-              {distanceLabel}
-            </Text>
-          </>
-        ) : null}
+        </View>
       </View>
 
       {shop.address ? (
@@ -239,6 +258,25 @@ const styles = StyleSheet.create({
     marginTop: -Spacing.xl,
     gap: Spacing.sm,
     ...Shadows.md,
+  },
+  identityRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.md,
+  },
+  logoBox: {
+    width: 56,
+    height: 56,
+    borderRadius: BorderRadius.lg,
+    backgroundColor: "#F1F5F9",
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+  },
+  identityText: {
+    flex: 1,
+    minWidth: 0,
+    gap: 4,
   },
   metaRow: {
     flexDirection: "row",

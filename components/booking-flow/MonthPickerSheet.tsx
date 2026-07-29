@@ -8,10 +8,20 @@
  */
 
 import React, { useMemo } from "react";
-import { Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import {
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  useWindowDimensions,
+  View,
+} from "react-native";
 import { Check } from "lucide-react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { moderateVerticalScale } from "react-native-size-matters";
 
 import { Text } from "@/components/shared-ui";
+import { getCappedSheetHeight } from "@/components/booking-flow/responsiveSheetLayout";
 
 const MONTH_LABELS_LONG = [
   "January", "February", "March", "April", "May", "June",
@@ -45,6 +55,15 @@ export function MonthPickerSheet({
   onSelect,
   onClose,
 }: MonthPickerSheetProps) {
+  const { height: viewportHeight } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const maximumHeight = getCappedSheetHeight({
+    viewportHeight,
+    desiredHeight: viewportHeight,
+    minimumHeight: 320,
+    maximumRatio: 0.7,
+    absoluteMaximum: Number.POSITIVE_INFINITY,
+  });
   // Build the list starting from the current calendar month forward.
   const options = useMemo<MonthOption[]>(() => {
     const now = new Date();
@@ -67,7 +86,17 @@ export function MonthPickerSheet({
     >
       <Pressable style={styles.backdrop} onPress={onClose}>
         {/* Stop propagation so taps inside the card don't dismiss. */}
-        <Pressable style={styles.card} onPress={() => {}}>
+        <Pressable
+          style={[
+            styles.card,
+            {
+              maxHeight: maximumHeight,
+              paddingBottom:
+                insets.bottom + moderateVerticalScale(20, 0.3),
+            },
+          ]}
+          onPress={() => {}}
+        >
           <View style={styles.handle} />
           <Text size="lg" weight="bold" color="#0F172A" style={styles.title}>
             Select a month
@@ -122,7 +151,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 12,
     paddingBottom: 28,
-    maxHeight: "70%",
   },
   handle: {
     alignSelf: "center",

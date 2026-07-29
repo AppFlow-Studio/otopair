@@ -76,6 +76,7 @@ export interface ServiceBundle {
 interface ServiceBundlesSectionProps {
   bundles?: ServiceBundle[];
   onViewPackage?: (bundleId: string) => void;
+  onBeforeOpenBookingFlow?: () => boolean;
 }
 
 
@@ -121,11 +122,15 @@ const SAMPLE_BUNDLES: ServiceBundle[] = [
 export function ServiceBundlesSection({
   bundles = SAMPLE_BUNDLES,
   onViewPackage,
+  onBeforeOpenBookingFlow,
 }: ServiceBundlesSectionProps) {
   const router = useRouter();
   const availableServices = useBookingStore((s) => s.availableServices);
 
   const handleBookPackage = (bundle: ServiceBundle) => {
+    if (onBeforeOpenBookingFlow?.() === false) {
+      return;
+    }
     if (onViewPackage) {
       onViewPackage(bundle.id);
       return;

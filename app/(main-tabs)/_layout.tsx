@@ -8,11 +8,12 @@ import { NativeTabs } from "expo-router/unstable-native-tabs";
 const Label = NativeTabs.Trigger.Label;
 const Icon = NativeTabs.Trigger.Icon;
 const Badge = NativeTabs.Trigger.Badge;
-import { Tabs, useRootNavigationState } from "expo-router";
+import { Tabs, usePathname, useRootNavigationState } from "expo-router";
 import { guardedRouter as router } from "@/lib/navigationLock";
 import React, { useEffect } from "react";
 import { Platform } from "react-native";
 import { useAuth } from "@clerk/clerk-expo";
+import { EnrichmentStatusPill } from "@/components/booking-flow/EnrichmentStatusPill";
 import { TabBar } from "@/components/navigation/TabBar";
 import { useBookingsFromConvex } from "@/hooks/useBookingsFromConvex";
 import { useUnseenBookingsCount } from "@/hooks/useUnseenBookingsCount";
@@ -21,6 +22,7 @@ import { NotificationsSheet } from "@/components/notifications/NotificationsShee
 import { RescheduleDecisionOverlay } from "@/components/notifications/RescheduleDecisionOverlay";
 import { shouldRedirectSignedOutFromMainTabs } from "@/lib/auth-routing";
 import { SettingsOverlay } from "@/components/settings/SettingsOverlay";
+import { OfflinePreload } from "@/components/connection/OfflinePreload";
 // OTA update banner only matters in EAS builds. In a local dev build
 // expo-updates' native module isn't linked, and the static import chain
 // (UpdateAvailableBanner → useEasUpdate → expo-updates) throws "Cannot
@@ -47,6 +49,24 @@ function HydrateBookingData() {
   return null;
 }
 
+/** Tab pages that show the persistent "Connecting to your car" pill while
+ *  any garage vehicle is enriching. Add a path prefix here to toggle the
+ *  pill on for another page. Oto (ai-chat) is deliberately left off — the
+ *  chat has its own vehicle context UI and the pill would fight it.
+ *  Settings is covered for free: it's an overlay above these tab routes
+ *  (pathname doesn't change), and the pill renders above it. */
+const ENRICHMENT_PILL_PATHS = ["/home", "/bookings", "/cars"];
+
+function MainTabsEnrichmentPill() {
+  const pathname = usePathname();
+  const show = ENRICHMENT_PILL_PATHS.some((p) => pathname.startsWith(p));
+  if (!show) return null;
+  // scope "any": a just-added enriching car is usually not the selected
+  // one, so the tabs watch the whole garage. Bottom placement hovers the
+  // pill above the tab bar, Airbnb-style.
+  return <EnrichmentStatusPill placement="bottom" scope="any" />;
+}
+
 export default function TabLayout() {
   return (
     <SignedOutMainTabsGuard>
@@ -57,18 +77,12 @@ export default function TabLayout() {
 
 function SignedOutMainTabsGuard({ children }: { children: React.ReactNode }) {
   const { isLoaded, isSignedIn } = useAuth();
-  const rootNavigationState = useRootNavigationState();
   const shouldRedirect = shouldRedirectSignedOutFromMainTabs(isLoaded, isSignedIn);
-  const rootNavigationReady = Boolean(rootNavigationState?.key);
 
-  useEffect(() => {
-    if (!shouldRedirect || !rootNavigationReady) return;
-    router.replace({
-      pathname: "/(onboarding)",
-      params: { initialStep: "signup" },
-    });
-  }, [rootNavigationReady, shouldRedirect]);
-
+  // Render null to protect main-tabs content when signed out. Navigation to
+  // onboarding is handled exclusively by app/index.tsx (cold start) and
+  // SettingsContent.tsx (runtime logout) to prevent competing router.replace
+  // calls that cause double-screen and "navigate before mounting" errors.
   if (!isLoaded || shouldRedirect) {
     return null;
   }
@@ -91,6 +105,7 @@ function ProtectedTabLayout() {
     return (
       <>
         <HydrateBookingData />
+        <OfflinePreload />
         <Tabs
           tabBar={(props) => <TabBar {...props} />}
           screenOptions={{
@@ -133,6 +148,7 @@ function ProtectedTabLayout() {
         <RescheduleDecisionOverlay />
         <SettingsOverlay />
         <UpdateAvailableBanner />
+        <MainTabsEnrichmentPill />
       </>
     );
   }
@@ -140,6 +156,7 @@ function ProtectedTabLayout() {
   return (
     <>
       <HydrateBookingData />
+      <OfflinePreload />
       <NativeTabs>
         <NativeTabs.Trigger name="home">
           <Label>{"Home"}</Label>
@@ -164,6 +181,7 @@ function ProtectedTabLayout() {
       <RescheduleDecisionOverlay />
       <SettingsOverlay />
       <UpdateAvailableBanner />
+      <MainTabsEnrichmentPill />
     </>
   );
 }

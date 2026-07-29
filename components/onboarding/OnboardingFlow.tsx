@@ -200,6 +200,19 @@ export function OnboardingFlow({
     return () => subscription.remove();
   }, [backDisabledForCurrentStep]);
 
+  // At entry steps (signup/welcome) there is nothing useful behind this screen in
+  // the navigation stack — pressing back should exit the app rather than reveal the
+  // null-rendered (main-tabs) that anchor: "(main-tabs)" keeps underneath.
+  const isEntryStep = currentStep === 'signup' || currentStep === 'welcome';
+  useEffect(() => {
+    if (!isEntryStep) return;
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      BackHandler.exitApp();
+      return true;
+    });
+    return () => subscription.remove();
+  }, [isEntryStep]);
+
   // Persist current step so the app can resume from exactly here if closed mid-flow.
   useEffect(() => {
     if (currentStep === 'complete') {
