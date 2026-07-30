@@ -1142,6 +1142,24 @@ export default defineSchema({
     .index("by_vehicle_config", ["vehicle_config_id"])
     .index("by_config_service", ["vehicle_config_id", "service_id"]),
 
+  // Web-portal: mechanic-authored assertions that a parts-requiring
+  // service does NOT apply to a given vehicle config (e.g. sealed
+  // transmission → no transmission filter). Lets the pre-job
+  // "fill in missing parts" gate stop demanding a part the car
+  // will never need, without inventing a fitment. One row per
+  // (config, service, role); presence means "excluded".
+  config_service_exclusions: defineTable({
+    vehicle_config_id: v.id("vehicle_configs"),
+    service_slug: v.string(),
+    role_key: v.optional(v.string()),
+    reason: v.optional(v.string()),
+    marked_by_mechanic_id: v.optional(v.id("mechanics")),
+    booking_id: v.optional(v.id("bookings")),
+    created_at: v.number(),
+  })
+    .index("by_config", ["vehicle_config_id"])
+    .index("by_config_service", ["vehicle_config_id", "service_slug"]),
+
   // [U-W] Book hours and empirical labor data
   labor_times: defineTable({
     vehicle_config_id: v.optional(v.id("vehicle_configs")),
@@ -1796,6 +1814,7 @@ export default defineSchema({
     owner_user_id: v.optional(v.id("users")),
     description: v.optional(v.string()),
     logo: v.optional(v.string()),
+    logo_storage_id: v.optional(v.id("_storage")),
     stripe_connect_account_id: v.optional(v.string()),
     stripe_charges_enabled: v.optional(v.boolean()),
     stripe_payouts_enabled: v.optional(v.boolean()),
@@ -1836,7 +1855,8 @@ export default defineSchema({
   })
     .index("by_slug", ["slug"])
     .index("by_owner_user_id", ["owner_user_id"])
-    .index("by_stripe_connect_account_id", ["stripe_connect_account_id"]),
+    .index("by_stripe_connect_account_id", ["stripe_connect_account_id"])
+    .index("by_logo_storage_id", ["logo_storage_id"]),
 
   // [I]
   shops_hours: defineTable({
@@ -3142,6 +3162,16 @@ export default defineSchema({
   })
     .index("by_token", ["token"])
     .index("by_user_id", ["user_id"]),
+
+  // Web-portal: cheap key/value store for computed dashboard stats
+  // (top-of-panel counters, cached rollups) so the director UI
+  // doesn't recompute expensive aggregates on every load.
+  portal_stats: defineTable({
+    key: v.string(),
+    value: v.number(),
+    meta: v.optional(v.any()),
+    computed_at: v.number(),
+  }).index("by_key", ["key"]),
 
   // Singleton row of director-controlled global feature flags. Keyed
   // `"global"` so the row is fetched by a stable lookup; future booleans get

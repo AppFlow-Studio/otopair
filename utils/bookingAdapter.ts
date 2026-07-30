@@ -50,6 +50,9 @@ export interface ConvexBookingWithDetails {
   mechanic_id?: string;
   shopName: string;
   shopPhone: string;
+  /** Joined street address ("addr, city, state, zip"); "" when unknown.
+   *  Optional for back-compat with server code predating the field. */
+  shopAddress?: string;
   mechanicName: string;
   mechanicImageUrl?: string;
   vehicleDisplay: string;
@@ -262,6 +265,10 @@ export function adaptConvexBookingWithDetailsToCard(row: ConvexBookingWithDetail
     makeLogoUrl: row.vehicleImageUrl ?? row.makeLogoUrl,
     mechanicName: row.mechanicName,
     shopName: row.shopName,
+    // Normalize "" → undefined so the sheet's missing-data disables
+    // (Directions/Contact grey out when there's nothing to open) hold.
+    shopPhone: row.shopPhone?.trim() ? row.shopPhone : undefined,
+    shopAddress: row.shopAddress?.trim() ? row.shopAddress : undefined,
     mechanicImage: row.mechanicImageUrl,
     date: formatBookingDate(row.scheduled_date),
     time: formatBookingTime(row.scheduled_time),

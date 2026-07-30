@@ -14,6 +14,9 @@ import { Image, Pressable, StyleSheet, View } from "react-native";
 import { CheckCircle2, X, Star } from "lucide-react-native";
 
 import { Text } from "@/components/shared-ui";
+import { OfflineActionsNotice } from "@/components/connection/OfflineActionsNotice";
+import { useConnection } from "@/hooks/useConnection";
+import { isBookingActionAllowed } from "@/lib/connection/offlineBookingActions";
 import type { Booking } from "@/components/bookings/BookingCard";
 
 interface Props {
@@ -30,6 +33,11 @@ interface Props {
 export function CompletedBookingReviewCard({ booking, onLeaveReview, onDismiss }: Props) {
   const [imgError, setImgError] = useState(false);
   const showShopImage = !!booking.mechanicImage && !imgError;
+  // Offline gate: submitting a review is a backend write (Convex would
+  // silently queue it), so the CTA is replaced by the offline caption.
+  // Keyed on hard `offline` so a brief socket blip doesn't flash the swap.
+  const conn = useConnection();
+  const reviewAllowed = isBookingActionAllowed("leaveReview", conn !== "offline");
 
   return (
     <View style={styles.card}>
@@ -82,15 +90,22 @@ export function CompletedBookingReviewCard({ booking, onLeaveReview, onDismiss }
         ) : null}
       </View>
 
-      <Pressable
-        onPress={() => onLeaveReview(booking.id)}
-        style={({ pressed }) => [styles.cta, pressed && styles.ctaPressed]}
-      >
-        <Star size={16} color="#FFFFFF" fill="#FFFFFF" />
-        <Text size="sm" weight="semiBold" color="#FFFFFF">
-          Leave a Review
-        </Text>
-      </Pressable>
+      {reviewAllowed ? (
+        <Pressable
+          onPress={() => onLeaveReview(booking.id)}
+          style={({ pressed }) => [styles.cta, pressed && styles.ctaPressed]}
+        >
+          <Star size={16} color="#FFFFFF" fill="#FFFFFF" />
+          <Text size="sm" weight="semiBold" color="#FFFFFF">
+            Leave a Review
+          </Text>
+        </Pressable>
+      ) : (
+        <OfflineActionsNotice
+          label="You'll need a connection to review"
+          style={styles.offlineNotice}
+        />
+      )}
     </View>
   );
 }
@@ -179,5 +194,8 @@ const styles = StyleSheet.create({
   },
   ctaPressed: {
     opacity: 0.9,
+  },
+  offlineNotice: {
+    marginTop: 14,
   },
 });

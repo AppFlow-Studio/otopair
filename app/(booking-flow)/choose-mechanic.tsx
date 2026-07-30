@@ -53,6 +53,7 @@ import { useMechanicStore } from "@/stores/useMechanicStore";
 import { useShopStore } from "@/stores/useShopStore";
 import { distanceBetween } from "@/utils/geo";
 import { useNearbyBookingShops } from "@/hooks/useNearbyBookingShops";
+import { useOfflineGuard } from "@/hooks/useOfflineGuard";
 import { useNextAvailabilityForShop } from "@/hooks/useNextAvailabilityForShop";
 import { useBookingLaborHoursMap } from "@/hooks/useBookingLaborHoursMap";
 import { useBookingPartsBreakdown } from "@/hooks/useBookingPartsBreakdown";
@@ -62,14 +63,16 @@ import { useVehicleStore } from "@/stores/useVehicleStore";
 import { buildShopPriceLabel } from "@/lib/shopPriceLabel";
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
-// Two snap points: standard (~53%, the default that fits the
-// active shop card + mechanic strip) and expanded (~82% for
-// scrolling reviews etc). With `enablePanDownToClose`, the user
-// can also drag the sheet OUT of view entirely — at which point
-// `sheetIndex === -1` and the screen swaps to the browse-card
-// carousel (ChatGPT-style "shops on a map" mode). Tap a card to
-// bring the sheet back to index 0.
-const SNAP_POINTS = ["53%", "82%"] as const;
+// Two snap points: standard (~56%, tall enough that the
+// horizontal-carousel page-indicator dots land above the
+// Continue bar — the old 53% pushed them below the fold) and
+// expanded (~82% for scrolling reviews etc). With
+// `enablePanDownToClose`, the user can also drag the sheet OUT
+// of view entirely — at which point `sheetIndex === -1` and
+// the screen swaps to the browse-card carousel (ChatGPT-style
+// "shops on a map" mode). Tap a card to bring the sheet back
+// to index 0.
+const SNAP_POINTS = ["56%", "82%"] as const;
 
 export default function ChooseMechanicScreen() {
   const router = useRouter();
@@ -131,6 +134,10 @@ export default function ChooseMechanicScreen() {
   );
 
   const { results: nearbyResults, isLoading: shopsLoading } = useNearbyBookingShops(5);
+  // Map-screen offline rule (same wiring as select-services): entering
+  // fresh while offline with no hydrated shops → CantLoadModal sends the
+  // user back; if shops are already cached, the pill alone is enough.
+  useOfflineGuard(shopsLoading ? undefined : nearbyResults);
   const getShopById = useShopStore((s) => s.getShopById);
   const userLocationForDistance = useBookingStore((s) => s.userLocation);
 
@@ -595,6 +602,7 @@ export default function ChooseMechanicScreen() {
           <MapShopCard
             shopId={activeShop.id}
             shopName={activeShop.name}
+            imageUrl={activeShop.imageUrl}
             rating={activeShop.rating}
             distanceMi={activeDistanceMi}
             priceRange={activePriceLabel.text}
@@ -640,7 +648,7 @@ export default function ChooseMechanicScreen() {
       </Animated.View>
 
       {/* Floating right rail — visual only for Phase 3 */}
-      <View style={[styles.rightRail, { top: insets.top + 200 }]} pointerEvents="box-none">
+      <View style={[styles.rightRail, { top: insets.top + 190 }]} pointerEvents="box-none">
         <Pressable
           style={styles.railBtn}
           onPress={onZoomIn}
@@ -810,7 +818,7 @@ const styles = StyleSheet.create({
   },
   shopCardWrap: {
     position: "absolute",
-    top: "30%",
+    top: "26%",
     left: 16,
     right: 16,
     alignItems: "center",
