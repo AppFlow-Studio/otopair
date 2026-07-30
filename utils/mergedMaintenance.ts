@@ -16,15 +16,23 @@
  * merge is used only to compute the score that must match the ring.
  */
 
-import type { MaintenanceItem } from "@/components/cars/MaintenanceTracker";
+import type {
+  MaintenanceItem,
+  MaintenanceTriggerAxis,
+} from "@/components/cars/MaintenanceTracker";
 import {
   ALL_MAINTENANCE_TYPES,
   MAINTENANCE_LABELS,
+  computeFromOdometerStatus,
   type MaintenanceType,
+  type OemServiceIntervalsInput,
 } from "@/utils/maintenanceStatus";
 import { enrichUrgentItem } from "@/utils/maintenanceEnrichment";
 import { buildWarningLightItem } from "@/lib/warningLightItems";
 import { canonicalWarningLights } from "@/lib/warningLightVocab";
+import { safeInterval } from "@/utils/serviceIntervalGuardrails";
+import { TAXONOMY } from "@/constants/serviceTaxonomy";
+import { formatMileage } from "@/lib/vehicle-passport";
 
 /** Minimal shape of a driver-visible mechanic recommendation, mirrored from
  *  api.jobRecommendations.getDriverVisibleRecsForVehicle. */
@@ -65,11 +73,101 @@ const PAIRED_LIGHT_BY_TYPE: Partial<Record<MaintenanceType, string>> = {
   tires: "tpms",
 };
 
-/** Minimal record shape the merge reads — type (to match a user item) plus the
- *  confirmed-healthy timestamp (the 90-day on_time override). */
+/** Catalog slugs whose cadence is already covered by one of the five
+ *  anchored `maintenance_records` types. Everything else falls into
+ *  the from-odometer inference path (proposal Behavior #7). */
+const CATALOG_SLUGS_TO_SKIP: ReadonlySet<string> = new Set([
+  "oil_change",
+  "brake_pad_replacement",
+  "tire_rotation",
+  "tire_balance",
+  "tire_replacement",
+  "wheel_alignment",
+  "battery_replacement",
+  "battery_test",
+  "state_inspection",
+  "emissions_test",
+  "check_engine_light",
+  "diagnostic_scan",
+  "pre_purchase_inspection",
+]);
+
+/** Anchored type → the taxonomy slug whose OEM interval represents
+ *  its cadence. Kept separate from `lib/maintenanceServiceMapping.
+ *  MAINTENANCE_TYPE_TO_SLUG` which resolves to booking-flow variants
+ *  (`brake_system_inspection`, `battery_test`, etc.) — this map is
+ *  for the interval-lookup on the tracker's signal-pill row. */
+const ANCHOR_TYPE_TO_SLUG: Partial<Record<MaintenanceType, string>> = {
+  oil: "oil_change",
+  brakes: "brake_pad_replacement",
+  tires: "tire_rotation",
+  battery: "battery_replacement",
+  inspection: "state_inspection",
+};
+
+const MS_PER_MONTH = 30.44 * 24 * 60 * 60 * 1000;
+
+interface DerivedSignals {
+  signals: { time?: string; mileage?: string; interval?: string };
+  triggeredBy: MaintenanceTriggerAxis;
+}
+
+function pickAnchorAxis(hasDate: boolean, hasMileage: boolean): MaintenanceTriggerAxis {
+  if (hasDate && hasMileage) return "both";
+  if (hasDate) return "time";
+  if (hasMileage) return "mileage";
+  return "none";
+}
+
+/** Derive signal-pill copy for an anchored record. Callers should
+ *  skip invocation when the record is missing — the "none" result is
+ *  reserved for records that exist but carry neither anchor. */
+function deriveAnchoredSignals(
+  record: MergeRecordLike,
+  type: MaintenanceType,
+  currentOdometer: number | null | undefined,
+  oemIntervals: OemServiceIntervalsInput | undefined,
+  now: number,
+): DerivedSignals {
+  const signals: DerivedSignals["signals"] = {};
+  const hasDate = record.lastServiceDate != null;
+  const hasMileage = record.lastServiceMileage != null;
+
+  if (record.lastServiceDate != null) {
+    const months = Math.max(0, Math.round((now - record.lastServiceDate) / MS_PER_MONTH));
+    signals.time = `${months} mo since last service`;
+  }
+  if (record.lastServiceMileage != null && currentOdometer != null && currentOdometer > 0) {
+    const miles = Math.max(0, currentOdometer - record.lastServiceMileage);
+    signals.mileage = `${formatMileage(miles)} since last service`;
+  }
+
+  const slug = ANCHOR_TYPE_TO_SLUG[type];
+  const interval = slug ? oemIntervals?.[slug] : undefined;
+  if (interval) {
+    const parts: string[] = [];
+    if (interval.interval_months) parts.push(`${interval.interval_months} mo`);
+    if (interval.interval_miles) parts.push(formatMileage(interval.interval_miles));
+    if (parts.length > 0) signals.interval = parts.join(" / ");
+  }
+
+  return { signals, triggeredBy: pickAnchorAxis(hasDate, hasMileage) };
+}
+
+/** Non-mutating merge — attach signals to an anchored item without
+ *  spreading the same three keys at every push site. */
+function withSignals(item: MaintenanceItem, derived: DerivedSignals): MaintenanceItem {
+  return { ...item, signals: derived.signals, triggeredBy: derived.triggeredBy };
+}
+
+/** Minimal record shape the merge reads — type (to match a user item), the
+ *  confirmed-healthy timestamp (the 90-day on_time override), and the two
+ *  service anchors that drive the signal pills. */
 export interface MergeRecordLike {
   type: string;
   confirmedHealthyAt?: number;
+  lastServiceDate?: number;
+  lastServiceMileage?: number;
 }
 
 export interface BuildMergedMaintenanceInput {
@@ -87,6 +185,13 @@ export interface BuildMergedMaintenanceInput {
   scopeId?: string;
   /** Injectable clock for the confirmed-healthy TTL; defaults to Date.now(). */
   now?: number;
+  /** Current odometer in miles. Enables the anchored mileage signal pill and,
+   *  together with `oemIntervals`, the from-odometer catalog coverage pass.
+   *  Omit (as Oto's server-side score does) to keep the anchored-only merge. */
+  currentOdometer?: number | null;
+  /** Slug-keyed OEM intervals from the v3 enrichment pipeline. Drives the
+   *  interval signal pill and the catalog coverage pass (Behaviors #6/#7). */
+  oemIntervals?: OemServiceIntervalsInput;
 }
 
 /**
@@ -100,6 +205,7 @@ export function buildMergedMaintenanceItems(
   input: BuildMergedMaintenanceInput,
 ): MaintenanceItem[] {
   const { userItems, records, knownIssues, vehicleYear, driverRecommendations, scopeId } = input;
+  const { currentOdometer, oemIntervals } = input;
   const now = input.now ?? Date.now();
   const result: MaintenanceItem[] = [];
 
@@ -117,20 +223,28 @@ export function buildMergedMaintenanceItems(
       userRecord?.confirmedHealthyAt &&
       now - userRecord.confirmedHealthyAt < 90 * 24 * 60 * 60 * 1000;
 
-    if (userConfirmedHealthy && userItem) {
-      if (userItem.status !== "on_time") {
-        result.push({
-          ...userItem,
-          status: "on_time",
-          description: "Confirmed in good shape",
-          detail: "On time",
-        });
-      } else {
-        result.push(userItem);
-      }
+    if (userItem && userRecord) {
+      const derived = deriveAnchoredSignals(
+        userRecord,
+        type,
+        currentOdometer,
+        oemIntervals,
+        now,
+      );
+      const base: MaintenanceItem =
+        userConfirmedHealthy && userItem.status !== "on_time"
+          ? {
+              ...userItem,
+              status: "on_time",
+              description: "Confirmed in good shape",
+              detail: "On time",
+            }
+          : userItem;
+      result.push(withSignals(base, derived));
       continue;
     }
 
+    // Fallback: no record but the anchored slot expects an entry.
     if (userItem) {
       result.push(userItem);
       continue;
@@ -190,6 +304,67 @@ export function buildMergedMaintenanceItems(
   // Inspection record (excluded from the default loop).
   const inspectionItem = userItems.get("inspection");
   if (inspectionItem) result.push(inspectionItem);
+
+  // ── Catalog coverage via from-odometer inference (Behavior #7) ──
+  // Only runs for callers that supply both an odometer and OEM intervals;
+  // Oto's server-side score passes neither and keeps the anchored-only set.
+  if (oemIntervals && currentOdometer != null && currentOdometer > 0) {
+    for (const [slug, interval] of Object.entries(oemIntervals)) {
+      if (CATALOG_SLUGS_TO_SKIP.has(slug)) continue;
+      const entry = TAXONOMY[slug];
+      if (!entry) continue;
+
+      // Runtime data from `useOemServiceIntervals` carries the guardrail
+      // fields (`confidence`, `mechanic_verified`) beyond what the narrow
+      // `OemServiceIntervalsInput` type surfaces; cast for the guardrail
+      // call rather than leaking those fields into the general type.
+      const enrichedInterval = interval as OemServiceIntervalsInput[string] & {
+        confidence?: number | null;
+        mechanic_verified?: boolean;
+      };
+      const bounded = safeInterval({
+        slug,
+        interval_miles: enrichedInterval.interval_miles,
+        confidence: enrichedInterval.confidence,
+        mechanic_verified: enrichedInterval.mechanic_verified,
+      });
+
+      // Anchorless — no stored interval AND no conservative default.
+      // Row surfaces soft with the diagnostic-scan CTA (Behavior #6).
+      if (bounded == null) {
+        result.push({
+          id: `catalog-${slug}`,
+          serviceName: entry.label,
+          description:
+            "Not enough info to say — book a diagnostic scan to firm this up.",
+          detail: "No data",
+          status: "on_time",
+          triggeredBy: "none",
+        });
+        continue;
+      }
+
+      const status = computeFromOdometerStatus({
+        interval_miles: bounded,
+        currentOdometer,
+        serviceName: entry.label,
+      });
+
+      result.push({
+        id: `catalog-${slug}`,
+        serviceName: entry.label,
+        description: status.description,
+        detail: status.detail,
+        status: status.status,
+        percentUsed: status.percentUsed,
+        triggeredBy: "inference",
+        signals: {
+          mileage: `${formatMileage(currentOdometer)} (current)`,
+          interval: `${formatMileage(bounded)} (OEM)`,
+        },
+      });
+    }
+  }
 
   // Mechanic-submitted job recommendations as urgent cards.
   if (driverRecommendations && driverRecommendations.length > 0) {

@@ -164,6 +164,14 @@ export const _logFailedLogin = internalMutation({
 export const _insertUser = internalMutation({
   args: {
     name: v.string(),
+    // MERGE NOTE (origin/temur-dev): temur-dev pinned this validator to the
+    // legacy 3-value enum (superadmin/admin/viewer) because Convex's push-time
+    // check may reject the 6-role model against Ahmad's existing bootstrap row
+    // on adamant-guineapig-82. That pin is NOT carried forward: this branch's
+    // schema.ts defines director_users.role as the 6-role union, so a legacy
+    // validator would accept values the schema then rejects at insert time.
+    // BEFORE PUSHING: confirm the director_users bootstrap row has been
+    // migrated to a 6-role value (Temur + Ahmad coordination item).
     role: v.union(
       v.literal("super_admin"),
       v.literal("ops_admin"),

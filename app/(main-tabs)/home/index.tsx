@@ -682,26 +682,41 @@ export default function HomeScreen() {
   );
 
   // Aggregate Now-tier items across all vehicles for the Home callout
-  // (Yassin v1.1 §3.2 "Assertive card at top of Home"). Flattens
-  // per-vehicle nowItems with vehicle context, sorted urgency-desc so
-  // the most urgent item leads. The Cars-page hook is the authoritative
-  // emitter for `urgency_tier_events`; this aggregation does not log to
-  // avoid double-counting.
-  const allNowItems = useMemo(() => {
+  // (Yassin v1.1 §3.2 "Assertive card at top of Home"). Grouped by
+  // vehicle so a car with N due-now items renders as ONE pager card
+  // with N checkable rows (locked decision) instead of N cards. Items
+  // inside each group sort by urgency-desc; groups sort by their top
+  // item's urgency so the most urgent vehicle leads.
+  const allNowGroups = useMemo(() => {
+    type BaseVehicle = (typeof vehicleBaseData)[number];
+    type BaseNowItem = BaseVehicle["nowItems"][number];
     return vehicleBaseData
-      .flatMap((v: (typeof vehicleBaseData)[number]) =>
-        v.nowItems.map((n: (typeof v.nowItems)[number]) => ({
-          ...n,
+      .filter((v: BaseVehicle) => v.nowItems.length > 0)
+      .map((v: BaseVehicle) => {
+        const vehicleName = v.name.replace(/\n/g, " ");
+        const vehicleImageUrl = vehicleImageUrls[v.vin] || undefined;
+        const items = v.nowItems
+          .map((n: BaseNowItem) => ({
+            ...n,
+            vehicleVin: v.vin,
+            vehicleName,
+            vehicleImageUrl,
+          }))
+          .sort(
+            (a: { urgencyScore: number }, b: { urgencyScore: number }) =>
+              b.urgencyScore - a.urgencyScore,
+          );
+        return {
           vehicleVin: v.vin,
-          vehicleName: v.name.replace(/\n/g, " "),
-          vehicleImageUrl: vehicleImageUrls[v.vin] || undefined,
-        })),
-      )
+          vehicleName,
+          vehicleImageUrl,
+          items,
+          topUrgency: items[0]?.urgencyScore ?? 0,
+        };
+      })
       .sort(
-        (
-          a: { urgencyScore: number },
-          b: { urgencyScore: number },
-        ) => b.urgencyScore - a.urgencyScore,
+        (a: { topUrgency: number }, b: { topUrgency: number }) =>
+          b.topUrgency - a.topUrgency,
       );
   }, [vehicleBaseData, vehicleImageUrls]);
 
@@ -1189,41 +1204,59 @@ export default function HomeScreen() {
                   vehicle carousel so the most urgent action is the
                   first thing a returning user sees. */}
               <NowTierCallout
-                items={allNowItems}
-                onCardPress={(item) => {
-                  // Route to the cars tab for this vehicle and have
-                  // MaintenanceTracker open its detail modal for this
-                  // exact item on mount (see openItemDetail param).
-                  useVehicleStore.getState().selectVehicle(item.vehicleVin);
+                groups={allNowGroups}
+                onCardPress={(group, item) => {
+                  // Single card: route with the item's detail modal open.
+                  // Multi card (no item): route to the vehicle without a
+                  // specific detail (the multi-card header should feel
+                  // like "open this car" not "open service X").
+                  useVehicleStore.getState().selectVehicle(group.vehicleVin);
                   router.push({
                     pathname: '/(main-tabs)/cars',
-                    params: { openItemDetail: item.itemId },
+                    params: item ? { openItemDetail: item.itemId } : {},
                   });
                 }}
-                onBookNow={(item) => {
-                  // Each card in the pager carries its OWN vehicle +
-                  // service ids, so we always book the visible item —
-                  // no more "+N more" → wrong-vehicle drift.
-                  useVehicleStore.getState().selectVehicle(item.vehicleVin);
-                  const itemType = extractMaintenanceType(item.itemId);
+                onBookNow={(group, selectedItems) => {
+                  // Group carries the vehicle; selectedItems is the
+                  // checked subset (single-card path passes an array
+                  // of one, so behavior collapses to the old handler).
+                  useVehicleStore.getState().selectVehicle(group.vehicleVin);
                   const store = useBookingStore.getState();
-                  const explicit = item.suggestedServiceId
-                    ? store.availableServices.find((s) => s.id === item.suggestedServiceId)
-                    : undefined;
-                  const matched = explicit ?? findServiceForMaintenanceType(itemType, store.availableServices);
-                  store.setInitialServiceCategory(
-                    matched?.category ?? MAINTENANCE_TYPE_TO_CATEGORY[itemType] ?? 'basic_maintenance',
-                  );
                   store.clearSelectedServices();
-                  if (matched) store.toggleServiceSelection(matched.id);
-                  // When we successfully pre-selected the service (the
-                  // common case for a NOW-tier callout), skip the
-                  // service picker and jump straight to Choose
-                  // Mechanic — the user knows what they want. Falls
-                  // back to select-services when the maintenance type
-                  // doesn't resolve to a catalog service (rare).
+
+                  type MatchedService = NonNullable<
+                    ReturnType<typeof findServiceForMaintenanceType>
+                  >;
+                  const matched: MatchedService[] = [];
+                  for (const item of selectedItems) {
+                    const itemType = extractMaintenanceType(item.itemId);
+                    const explicit = item.suggestedServiceId
+                      ? store.availableServices.find((s) => s.id === item.suggestedServiceId)
+                      : undefined;
+                    const svc = explicit ?? findServiceForMaintenanceType(itemType, store.availableServices);
+                    if (svc) matched.push(svc);
+                  }
+
+                  // Seed the initial tab off the first matched service
+                  // (falls back to the type→category map, then a hard
+                  // default) so if we do land on select-services, the
+                  // correct tab opens.
+                  const firstType = selectedItems[0]
+                    ? extractMaintenanceType(selectedItems[0].itemId)
+                    : null;
+                  store.setInitialServiceCategory(
+                    matched[0]?.category ??
+                      (firstType ? MAINTENANCE_TYPE_TO_CATEGORY[firstType] : null) ??
+                      'basic_maintenance',
+                  );
+
+                  for (const svc of matched) store.toggleServiceSelection(svc.id);
+
+                  // Skip Screen 1 only when every checked item resolved
+                  // to a catalog service — otherwise land on
+                  // select-services so the user can see what's missing.
                   router.push(
-                    matched
+                    matched.length === selectedItems.length && matched.length > 0
                       ? '/(booking-flow)/choose-mechanic'
                       : '/(booking-flow)/select-services',
                   );

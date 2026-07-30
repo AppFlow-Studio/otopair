@@ -7,11 +7,13 @@
  * VehicleMaintenanceCard so the user sees the most urgent action
  * before browsing the carousel.
  *
- * Multi-item state: horizontal pager with one card per Now item +
- * pagination dots. Each card's "Book Service" CTA routes the user to
- * THAT item's vehicle/service — fixes the prior "+N more" UX where
- * the secondary affordance dropped you on the active vehicle, not the
- * one the +N referred to.
+ * Grouped-by-vehicle pager. Each pager page is one CAR (not one item):
+ *   - Cars with a single NOW item render `NowCard` — the original
+ *     single-service layout (car photo, service name, description,
+ *     Book Service CTA).
+ *   - Cars with 2+ items render `NowMultiCard` — car name + a list
+ *     of checkable service rows, all checked by default, with a
+ *     "Book (N)" CTA that seeds every checked service into the flow.
  *
  * Tier-change events are NOT emitted here — the Cars-page
  * useUrgencyRankedItems hook is the authoritative emitter for the
@@ -20,7 +22,7 @@
 
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Dimensions,
   NativeScrollEvent,
@@ -30,7 +32,12 @@ import {
   StyleSheet,
   View,
 } from "react-native";
-import Animated, { FadeInUp } from "react-native-reanimated";
+import Animated, {
+  FadeInUp,
+  useAnimatedScrollHandler,
+  useAnimatedStyle,
+  useSharedValue,
+} from "react-native-reanimated";
 
 import { Text } from "@/components/shared-ui";
 import { moderateScale, scale } from "@/utils/responsive";
@@ -48,45 +55,54 @@ export interface NowCalloutItem {
   vehicleImageUrl?: string;
 }
 
-interface NowTierCalloutProps {
-  items: readonly NowCalloutItem[];
-  /** Routes to the booking flow with the item's service pre-attached. */
-  onBookNow: (item: NowCalloutItem) => void;
-  /** Routes to the cars tab for the item's vehicle and opens the
-   *  maintenance detail modal for that exact item. Fired when the user
-   *  taps anywhere on the card body except the Book Service CTA. */
-  onCardPress: (item: NowCalloutItem) => void;
+/** One pager page = one vehicle. Items are that vehicle's NOW-tier
+ *  maintenance items, sorted by urgencyScore desc. */
+export interface NowCalloutGroup {
+  vehicleVin: string;
+  vehicleName: string;
+  vehicleImageUrl?: string;
+  items: NowCalloutItem[];
+  /** Max urgencyScore across items — used at the caller so the most
+   *  urgent vehicle's card lands first in the pager. */
+  topUrgency: number;
 }
 
-// Each pager page is the full screen width — the outer container uses
-// negative marginHorizontal to escape Home's paddingHorizontal: 16 so
-// the ScrollView spans edge to edge. Cards inside each page apply their
-// own marginHorizontal for breathing room. This matches the Resume
-// Booking Service / Vehicle Setup carousel above: cards slide cleanly
-// off the screen edge, the next card peeks from the opposite edge.
+interface NowTierCalloutProps {
+  groups: readonly NowCalloutGroup[];
+  /** Routes to the booking flow with the checked services pre-attached. */
+  onBookNow: (group: NowCalloutGroup, selectedItems: NowCalloutItem[]) => void;
+  /** Single-card path: tap card body → cars tab with the single item's
+   *  detail modal open. Multi-card path: tap header only → cars tab for
+   *  the vehicle (no per-item detail). */
+  onCardPress: (group: NowCalloutGroup, item?: NowCalloutItem) => void;
+}
+
 const PAGE_WIDTH = Dimensions.get("window").width;
 
 function NowCard({
-  item,
+  group,
   onBookNow,
   onCardPress,
+  onHeight,
 }: {
-  item: NowCalloutItem;
-  onBookNow: (item: NowCalloutItem) => void;
-  onCardPress: (item: NowCalloutItem) => void;
+  group: NowCalloutGroup;
+  onBookNow: (group: NowCalloutGroup, selectedItems: NowCalloutItem[]) => void;
+  onCardPress: (group: NowCalloutGroup, item?: NowCalloutItem) => void;
+  onHeight?: (h: number) => void;
 }) {
+  const item = group.items[0];
   return (
-    <View style={[styles.page, { width: PAGE_WIDTH }]}>
-      {/* Whole card is pressable → opens the maintenance detail view
-          for this item on the cars tab. The inner Book Service
-          Pressable handles its own touches separately. */}
+    <View
+      style={[styles.page, { width: PAGE_WIDTH, alignSelf: "flex-start" }]}
+      onLayout={(e) => onHeight?.(e.nativeEvent.layout.height)}
+    >
       <Pressable
         style={({ pressed }) => [styles.card, pressed && { opacity: 0.9 }]}
-        onPress={() => onCardPress(item)}
+        onPress={() => onCardPress(group, item)}
       >
-        {item.vehicleImageUrl ? (
+        {group.vehicleImageUrl ? (
           <Image
-            source={{ uri: item.vehicleImageUrl }}
+            source={{ uri: group.vehicleImageUrl }}
             style={styles.carImage}
             contentFit="contain"
             transition={150}
@@ -103,7 +119,7 @@ function NowCard({
         <Text weight="bold" style={styles.title}>
           {item.serviceName}
         </Text>
-        <Text style={styles.subtitle}>{item.vehicleName}</Text>
+        <Text style={styles.subtitle}>{group.vehicleName}</Text>
         {item.description ? (
           <Text style={styles.description}>{item.description}</Text>
         ) : null}
@@ -111,7 +127,7 @@ function NowCard({
         <View style={styles.actions}>
           <Pressable
             style={({ pressed }) => [styles.cta, pressed && { opacity: 0.85 }]}
-            onPress={() => onBookNow(item)}
+            onPress={() => onBookNow(group, [item])}
           >
             <Text weight="semiBold" style={styles.ctaText}>
               Book Service
@@ -124,11 +140,158 @@ function NowCard({
   );
 }
 
-export function NowTierCallout({ items, onBookNow, onCardPress }: NowTierCalloutProps) {
+function NowMultiCard({
+  group,
+  onBookNow,
+  onCardPress,
+  onHeight,
+}: {
+  group: NowCalloutGroup;
+  onBookNow: (group: NowCalloutGroup, selectedItems: NowCalloutItem[]) => void;
+  onCardPress: (group: NowCalloutGroup, item?: NowCalloutItem) => void;
+  onHeight?: (h: number) => void;
+}) {
+  // All rows checked by default (locked decision — user opts OUT of items
+  // they don't want rather than opting in). Re-seed if the group's items
+  // change identity (rare — usually only after a booking mutation).
+  const initial = useMemo(
+    () => new Set(group.items.map((i) => i.itemId)),
+    [group.items],
+  );
+  const [checkedIds, setCheckedIds] = useState<Set<string>>(initial);
+  useEffect(() => setCheckedIds(initial), [initial]);
+
+  const toggle = (itemId: string) => {
+    setCheckedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(itemId)) next.delete(itemId);
+      else next.add(itemId);
+      return next;
+    });
+  };
+
+  const checkedCount = checkedIds.size;
+  const canBook = checkedCount > 0;
+
+  return (
+    <View
+      style={[styles.page, { width: PAGE_WIDTH, alignSelf: "flex-start" }]}
+      onLayout={(e) => onHeight?.(e.nativeEvent.layout.height)}
+    >
+      <View style={styles.card}>
+        {group.vehicleImageUrl ? (
+          <Image
+            source={{ uri: group.vehicleImageUrl }}
+            style={styles.carImage}
+            contentFit="contain"
+            transition={150}
+          />
+        ) : null}
+
+        <Pressable
+          onPress={() => onCardPress(group)}
+          style={({ pressed }) => [styles.multiHeader, pressed && { opacity: 0.9 }]}
+        >
+          <View style={styles.dotRow}>
+            <View style={styles.dot} />
+            <Text weight="bold" style={styles.eyebrow}>
+              NOW
+            </Text>
+          </View>
+
+          <Text weight="bold" style={styles.title}>
+            {group.vehicleName}
+          </Text>
+          <Text style={styles.subtitle}>
+            {group.items.length} services due now
+          </Text>
+        </Pressable>
+
+        <View style={styles.multiList}>
+          {group.items.map((item) => {
+            const isChecked = checkedIds.has(item.itemId);
+            return (
+              <Pressable
+                key={item.itemId}
+                onPress={() => toggle(item.itemId)}
+                style={({ pressed }) => [
+                  styles.multiRow,
+                  pressed && { opacity: 0.75 },
+                ]}
+              >
+                <View
+                  style={[
+                    styles.check,
+                    isChecked ? styles.checkOn : styles.checkOff,
+                  ]}
+                >
+                  {isChecked ? (
+                    <Ionicons name="checkmark" size={scale(14)} color="#FFFFFF" />
+                  ) : null}
+                </View>
+                <View style={styles.multiRowText}>
+                  <Text weight="semiBold" style={styles.multiRowTitle}>
+                    {item.serviceName}
+                  </Text>
+                  {item.description ? (
+                    <Text style={styles.multiRowDesc} numberOfLines={2}>
+                      {item.description}
+                    </Text>
+                  ) : null}
+                </View>
+              </Pressable>
+            );
+          })}
+        </View>
+
+        <View style={styles.actions}>
+          <Pressable
+            disabled={!canBook}
+            style={({ pressed }) => [
+              styles.cta,
+              !canBook && styles.ctaDisabled,
+              pressed && canBook && { opacity: 0.85 },
+            ]}
+            onPress={() => {
+              if (!canBook) return;
+              const selected = group.items.filter((i) =>
+                checkedIds.has(i.itemId),
+              );
+              onBookNow(group, selected);
+            }}
+          >
+            <Text weight="semiBold" style={styles.ctaText}>
+              {canBook ? `Book (${checkedCount})` : "Book"}
+            </Text>
+            <Ionicons name="arrow-forward" size={scale(16)} color="#FFFFFF" />
+          </Pressable>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+// Small gap between the bottom of the active card and the dots row.
+// Kept tight — Ahmad wants the indicator hugging the card so it feels
+// like part of the group, not a floating footer.
+const DOTS_GAP = 8;
+
+const AnimatedScrollView = Animated.createAnimatedComponent(ScrollView);
+
+export function NowTierCallout({ groups, onBookNow, onCardPress }: NowTierCalloutProps) {
   const [activeIndex, setActiveIndex] = useState(0);
   const scrollRef = useRef<ScrollView>(null);
+  // Per-page card height (populated via each page slot's onLayout).
+  // Drives the pager container height so it snugly wraps the active
+  // card, no matter which variant is showing (single card is short;
+  // multi card grows with the row count).
+  const [heights, setHeights] = useState<Record<number, number>>({});
+  // Same data, mirrored to a shared value so the animated height style
+  // (which runs on the UI thread) can read it without hopping to JS.
+  const heightsSV = useSharedValue<Record<number, number>>({});
+  const scrollX = useSharedValue(0);
 
-  // Clamp + realign the scroll position whenever the items array shifts.
+  // Clamp + realign the scroll position whenever the groups array shifts.
   // When a booking gets made the urgency list often shrinks (the just-
   // booked item drops out) and the ScrollView's stale contentOffset
   // lands the viewport between two pages — the bug Ahmad caught where
@@ -136,18 +299,50 @@ export function NowTierCallout({ items, onBookNow, onCardPress }: NowTierCallout
   // through." Re-clamp the activeIndex to the new valid range and
   // imperatively scroll to it.
   useEffect(() => {
-    if (items.length === 0) return;
-    const clamped = Math.min(activeIndex, items.length - 1);
+    if (groups.length === 0) return;
+    const clamped = Math.min(activeIndex, groups.length - 1);
     if (clamped !== activeIndex) setActiveIndex(clamped);
-    // Re-snap without animation so the realignment is invisible.
     scrollRef.current?.scrollTo({
       x: clamped * PAGE_WIDTH,
       y: 0,
       animated: false,
     });
-  }, [items.length]);
+  }, [groups.length]);
 
-  if (items.length === 0) return null;
+  const reportHeight = (index: number, h: number) => {
+    setHeights((prev) => {
+      if (prev[index] === h) return prev;
+      const next = { ...prev, [index]: h };
+      // Mirror to the shared value so useAnimatedStyle picks up the
+      // new measurement without a JS→UI round trip.
+      heightsSV.value = next;
+      return next;
+    });
+  };
+
+  const scrollHandler = useAnimatedScrollHandler({
+    onScroll: (e) => {
+      scrollX.value = e.contentOffset.x;
+    },
+  });
+
+  // Pager container height = active card height, interpolated during
+  // a swipe so the container smoothly grows / shrinks between two
+  // cards of different heights. Falls back to `auto` (no explicit
+  // height) until we have at least one measurement.
+  const containerHeightStyle = useAnimatedStyle(() => {
+    const arr = heightsSV.value;
+    const idxFloat = PAGE_WIDTH > 0 ? scrollX.value / PAGE_WIDTH : 0;
+    const lower = Math.max(0, Math.floor(idxFloat));
+    const upper = lower + 1;
+    const lowerH = arr[lower];
+    const upperH = arr[upper] ?? lowerH;
+    if (lowerH == null) return {};
+    const t = Math.max(0, Math.min(1, idxFloat - lower));
+    return { height: lowerH + ((upperH ?? lowerH) - lowerH) * t };
+  });
+
+  if (groups.length === 0) return null;
 
   const onMomentumScrollEnd = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const idx = Math.round(e.nativeEvent.contentOffset.x / PAGE_WIDTH);
@@ -156,33 +351,46 @@ export function NowTierCallout({ items, onBookNow, onCardPress }: NowTierCallout
 
   return (
     <Animated.View entering={FadeInUp.duration(450)} style={styles.outer}>
-      <ScrollView
-        ref={scrollRef}
-        horizontal
-        pagingEnabled
-        showsHorizontalScrollIndicator={false}
-        onMomentumScrollEnd={onMomentumScrollEnd}
-        decelerationRate="fast"
-        // Explicit snap reinforces pagingEnabled when the parent layout
-        // recomputes mid-scroll (e.g. after a booking mutation re-renders
-        // siblings). Without this, the viewport can settle on a half-page.
-        snapToInterval={PAGE_WIDTH}
-        snapToAlignment="start"
-        disableIntervalMomentum
-      >
-        {items.map((item) => (
-          <NowCard
-            key={item.itemId}
-            item={item}
-            onBookNow={onBookNow}
-            onCardPress={onCardPress}
-          />
-        ))}
-      </ScrollView>
+      <Animated.View style={[styles.pagerHost, containerHeightStyle]}>
+        <AnimatedScrollView
+          ref={scrollRef as React.Ref<ScrollView>}
+          horizontal
+          pagingEnabled
+          showsHorizontalScrollIndicator={false}
+          onScroll={scrollHandler}
+          scrollEventThrottle={1}
+          onMomentumScrollEnd={onMomentumScrollEnd}
+          decelerationRate="fast"
+          snapToInterval={PAGE_WIDTH}
+          snapToAlignment="start"
+          disableIntervalMomentum
+          style={styles.pagerScroll}
+        >
+          {groups.map((group, i) =>
+            group.items.length === 1 ? (
+              <NowCard
+                key={group.vehicleVin}
+                group={group}
+                onBookNow={onBookNow}
+                onCardPress={onCardPress}
+                onHeight={(h) => reportHeight(i, h)}
+              />
+            ) : (
+              <NowMultiCard
+                key={group.vehicleVin}
+                group={group}
+                onBookNow={onBookNow}
+                onCardPress={onCardPress}
+                onHeight={(h) => reportHeight(i, h)}
+              />
+            ),
+          )}
+        </AnimatedScrollView>
+      </Animated.View>
 
-      {items.length > 1 ? (
+      {groups.length > 1 ? (
         <View style={styles.dots}>
-          {items.map((_, i) => (
+          {groups.map((_, i) => (
             <View
               key={i}
               style={[styles.pageDot, i === activeIndex && styles.pageDotActive]}
@@ -196,22 +404,12 @@ export function NowTierCallout({ items, onBookNow, onCardPress }: NowTierCallout
 
 const styles = StyleSheet.create({
   outer: {
-    // Negative marginHorizontal escapes the parent's paddingHorizontal:
-    // 16 so the ScrollView spans the full screen width. Pages then
-    // snap edge-to-edge (matches Resume Booking / Vehicle Setup
-    // pager). Each card re-introduces a 16px inset for visual margin.
     marginTop: scale(20),
     marginBottom: scale(4),
     marginHorizontal: -16,
-    // Drop the visible card down without nudging the
-    // VehicleMaintenanceCard and everything below it — translate
-    // doesn't affect layout flow, only paint position.
     transform: [{ translateY: scale(24) }],
   },
   page: {
-    // Full-screen-wide slot that pagingEnabled snaps to. The card
-    // inside applies its own marginHorizontal so the visible white
-    // card stays inset from the screen edges.
     paddingHorizontal: 16,
   },
   card: {
@@ -248,8 +446,6 @@ const styles = StyleSheet.create({
   title: {
     fontSize: moderateScale(18),
     color: "#0F172A",
-    // Reserve room for the absolute-positioned car image (top-right).
-    // Wraps the title before it would collide with the artwork.
     paddingRight: scale(96),
   },
   subtitle: {
@@ -272,8 +468,6 @@ const styles = StyleSheet.create({
     height: scale(60),
   },
   actions: {
-    // Full-width Book Service button — matches the "Book Package" CTA
-    // in the Service Bundles card. Single child, no row gap needed.
     marginTop: scale(14),
   },
   cta: {
@@ -285,16 +479,32 @@ const styles = StyleSheet.create({
     paddingVertical: scale(14),
     borderRadius: moderateScale(999),
   },
+  ctaDisabled: {
+    opacity: 0.4,
+  },
   ctaText: {
     fontSize: moderateScale(14),
     color: "#FFFFFF",
   },
+  pagerHost: {
+    // Wraps the ScrollView with an animated height so the container
+    // snugly matches the active card (short single-card cards get a
+    // short container; multi-service cards get a taller one). Height
+    // interpolates during swipes for a smooth transition.
+    overflow: "hidden",
+  },
+  pagerScroll: {
+    flex: 1,
+  },
   dots: {
+    // Sits in flow layout right below the pager host — since the host
+    // grows/shrinks with the active card, the dots always land ~8pt
+    // below whichever card is showing.
     flexDirection: "row",
     justifyContent: "center",
     alignItems: "center",
     gap: scale(6),
-    marginTop: scale(10),
+    marginTop: DOTS_GAP,
   },
   pageDot: {
     width: scale(6),
@@ -305,6 +515,53 @@ const styles = StyleSheet.create({
   pageDotActive: {
     backgroundColor: "#5299FE",
     width: scale(18),
+  },
+  // Multi-card only ───────────────────────────────────────────────
+  multiHeader: {
+    // Space reserved to the right so the car image (absolute top-right
+    // of the card) doesn't collide with the title.
+    paddingRight: scale(96),
+  },
+  multiList: {
+    marginTop: scale(14),
+    gap: scale(4),
+  },
+  multiRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: scale(12),
+    paddingVertical: scale(8),
+  },
+  check: {
+    width: scale(22),
+    height: scale(22),
+    borderRadius: moderateScale(11),
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: scale(1),
+  },
+  checkOn: {
+    backgroundColor: "#5299FE",
+    borderWidth: 0,
+  },
+  checkOff: {
+    backgroundColor: "transparent",
+    borderWidth: 1.5,
+    borderColor: "#CBD5E1",
+  },
+  multiRowText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  multiRowTitle: {
+    fontSize: moderateScale(15),
+    color: "#0F172A",
+  },
+  multiRowDesc: {
+    fontSize: moderateScale(12),
+    color: "#64748B",
+    marginTop: scale(2),
+    lineHeight: scale(16),
   },
 });
 

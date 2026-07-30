@@ -340,10 +340,46 @@ const ENTRIES: TaxonomyEntry[] = [
   },
 ];
 
+/** Hyphen-slug aliases for legacy DB rows. The spec keys services with
+ *  underscored slugs (`oil_change`) but Convex was seeded with hyphenated
+ *  slugs (`oil-change`, plus a few historical variants like
+ *  `ny-state-inspection` and split filter rows). Until the DB catches up,
+ *  we accept both forms in the TAXONOMY lookup and normalize to the
+ *  canonical underscore slug at the store boundary
+ *  (`useServicesFromConvex.mapConvexServiceToStore`). */
+const HYPHEN_ALIASES: Record<string, string[]> = {
+  oil_change: ["oil-change"],
+  filter_replacement: ["filter-replacement", "engine-air-filter", "cabin-air-filter"],
+  battery_test: ["battery-test"],
+  battery_replacement: ["battery-replacement"],
+  state_inspection: ["ny-state-inspection", "state-inspection"],
+  emissions_test: ["emissions-test"],
+  check_engine_light: ["check-engine-light", "check-engine-diagnostic"],
+  diagnostic_scan: ["general-diagnostic", "diagnostic-scan"],
+  tire_rotation: ["tire-rotation"],
+  tire_balance: ["wheel-balancing", "tire-balance"],
+  wheel_alignment: ["wheel-alignment"],
+  tire_replacement: ["tire-replacement"],
+  brake_pad_replacement: ["brake-pad-replacement", "brake-pads"],
+  rotor_replacement: ["brake-rotor-replacement", "brake-rotors"],
+  brake_fluid_flush: ["brake-fluid-flush"],
+  spark_plugs: ["spark-plug-replacement", "spark-plugs"],
+  coolant_flush: ["coolant-flush"],
+  transmission_service: ["transmission-fluid-service", "transmission-fluid"],
+  power_steering_flush: ["power-steering-flush"],
+};
+
 /** Lookup by slug — the only legitimate way to find an entry. */
-export const TAXONOMY: Record<string, TaxonomyEntry> = Object.fromEntries(
-  ENTRIES.map((e) => [e.slug, e]),
-);
+export const TAXONOMY: Record<string, TaxonomyEntry> = (() => {
+  const map: Record<string, TaxonomyEntry> = {};
+  for (const e of ENTRIES) {
+    map[e.slug] = e;
+    for (const alias of HYPHEN_ALIASES[e.slug] ?? []) {
+      map[alias] = e;
+    }
+  }
+  return map;
+})();
 
 /** Flat list, useful for iteration / search-alias matching. */
 export const TAXONOMY_LIST: ReadonlyArray<TaxonomyEntry> = ENTRIES;

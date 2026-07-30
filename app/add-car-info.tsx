@@ -475,101 +475,86 @@ export default function AddVehicleDetailsScreen() {
   }, [trimDraft]);
 
   // Render picker item (used by ScrollView map below)
+  // Common row wrapper — Otopair card treatment (icon slot on the
+  // left, label, black check pill on the right when selected).
+  // Renamed from renderRow to avoid collision with an existing
+  // renderRow helper further down for the vehicle-form rows.
+  const renderPickerRow = (
+    key: string,
+    label: string,
+    isSelected: boolean,
+    onPress: () => void,
+    leadingSlot?: React.ReactNode,
+  ) => (
+    <Pressable
+      key={key}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.pickerItem,
+        isSelected && styles.pickerItemSelected,
+        pressed && !isSelected && styles.pickerItemPressed,
+      ]}
+      accessibilityRole="button"
+      accessibilityState={{ selected: isSelected }}
+    >
+      <View style={styles.pickerItemLeft}>
+        {leadingSlot}
+        <Text
+          size="md"
+          weight="semiBold"
+          color={BrandColors.primary}
+          numberOfLines={1}
+          style={styles.pickerItemLabel}
+        >
+          {label}
+        </Text>
+      </View>
+      {isSelected ? (
+        <View style={styles.pickerCheckPill}>
+          <Check size={16} color="#FFFFFF" strokeWidth={2.5} />
+        </View>
+      ) : null}
+    </Pressable>
+  );
+
   const renderPickerItem = (item: any) => {
     switch (sheetMode) {
       case "brand":
-        return (
-          <Pressable
-            key={item}
-            onPress={() => handleSelectBrand(item)}
-            style={({ pressed }) => [styles.pickerItem, pressed && styles.pickerItemPressed]}
-          >
-            <Text size="md" color={BrandColors.primary}>{item}</Text>
-            {brand === item && <Check size={20} color={BrandColors.secondary} strokeWidth={3} />}
-          </Pressable>
-        );
+        return renderPickerRow(item, item, brand === item, () => handleSelectBrand(item));
       case "model":
-        return (
-          <Pressable
-            key={item}
-            onPress={() => handleSelectModel(item)}
-            style={({ pressed }) => [styles.pickerItem, pressed && styles.pickerItemPressed]}
-          >
-            <Text size="md" color={BrandColors.primary}>{item}</Text>
-            {model === item && <Check size={20} color={BrandColors.secondary} strokeWidth={3} />}
-          </Pressable>
-        );
+        return renderPickerRow(item, item, model === item, () => handleSelectModel(item));
       case "year":
-        return (
-          <Pressable
-            key={item}
-            onPress={() => handleSelectYear(item)}
-            style={({ pressed }) => [styles.pickerItem, pressed && styles.pickerItemPressed]}
-          >
-            <Text size="md" color={BrandColors.primary}>{item}</Text>
-            {year === item && <Check size={20} color={BrandColors.secondary} strokeWidth={3} />}
-          </Pressable>
-        );
+        return renderPickerRow(item, item, year === item, () => handleSelectYear(item));
       case "color":
-        return (
-          <Pressable
-            key={item.id}
-            onPress={() => handleSelectColor(item.id)}
-            style={({ pressed }) => [styles.pickerItem, pressed && styles.pickerItemPressed]}
-          >
-            <View style={styles.pickerItemLeft}>
-              <View
-                style={[
-                  styles.pickerColorDot,
-                  { backgroundColor: item.color },
-                  item.id === "white" && styles.pickerColorDotBorder,
-                ]}
-              />
-              <Text size="md" color={BrandColors.primary}>{item.label}</Text>
-            </View>
-            {selectedColor === item.id && <Check size={20} color={BrandColors.secondary} strokeWidth={3} />}
-          </Pressable>
+        return renderPickerRow(
+          item.id,
+          item.label,
+          selectedColor === item.id,
+          () => handleSelectColor(item.id),
+          <View
+            style={[
+              styles.pickerColorDot,
+              { backgroundColor: item.color },
+              item.id === "white" && styles.pickerColorDotBorder,
+            ]}
+          />,
         );
       case "bodyStyle": {
         const IconComponent = item.Icon;
-        return (
-          <Pressable
-            key={item.id}
-            onPress={() => handleSelectBodyStyle(item.id)}
-            style={({ pressed }) => [styles.pickerItem, pressed && styles.pickerItemPressed]}
-          >
-            <View style={styles.pickerItemLeft}>
-              <View style={styles.pickerIconContainer}>
-                <IconComponent size={20} color="#6B7280" />
-              </View>
-              <Text size="md" color={BrandColors.primary}>{item.label}</Text>
-            </View>
-            {bodyStyle === item.id && <Check size={20} color={BrandColors.secondary} strokeWidth={3} />}
-          </Pressable>
+        return renderPickerRow(
+          item.id,
+          item.label,
+          bodyStyle === item.id,
+          () => handleSelectBodyStyle(item.id),
+          <View style={styles.pickerIconContainer}>
+            <IconComponent size={20} color="#4B5563" />
+          </View>,
         );
       }
       case "trim":
-        return (
-          <Pressable
-            key={item}
-            onPress={() => handleSelectTrim(item)}
-            style={({ pressed }) => [styles.pickerItem, pressed && styles.pickerItemPressed]}
-          >
-            <Text size="md" color={BrandColors.primary}>{item}</Text>
-            {trim === item && <Check size={20} color={BrandColors.secondary} strokeWidth={3} />}
-          </Pressable>
-        );
+        return renderPickerRow(item, item, trim === item, () => handleSelectTrim(item));
       case "drivetrain":
-        return (
-          <Pressable
-            key={item}
-            onPress={() => handleSelectDrivetrain(item)}
-            style={({ pressed }) => [styles.pickerItem, pressed && styles.pickerItemPressed]}
-          >
-            <Text size="md" color={BrandColors.primary}>{item}</Text>
-            {drivetrain === item && <Check size={20} color={BrandColors.secondary} strokeWidth={3} />}
-          </Pressable>
-        );
+        return renderPickerRow(item, item, drivetrain === item, () => handleSelectDrivetrain(item));
       default:
         return null;
     }
@@ -815,16 +800,16 @@ export default function AddVehicleDetailsScreen() {
       >
         <View style={styles.sheetWrapper}>
           <View style={styles.sheetHeader}>
-            <View style={styles.headerButton} />
             <Text weight="bold" size="lg" color={BrandColors.primary}>
               {getSheetTitle()}
             </Text>
             <Pressable
               onPress={() => pickerSheetRef.current?.close()}
-              style={({ pressed }) => [styles.headerButton, pressed && styles.buttonPressed]}
-              hitSlop={12}
+              style={styles.sheetCloseBtn}
+              hitSlop={8}
+              accessibilityLabel="Close"
             >
-              <X size={22} color={BrandColors.primary} />
+              <X size={16} color={BrandColors.primary} strokeWidth={2.4} />
             </Pressable>
           </View>
 
@@ -1078,49 +1063,91 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   sheetHeader: {
+    // Roomier header — matches the sheet header pattern used on
+    // Screen 2 category rows and the cart sheet. Title on the left,
+    // soft-circle close on the right.
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: Spacing.md,
-    paddingTop: Spacing.sm,
-    paddingBottom: Spacing.sm,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "rgba(20,28,36,0.08)",
+    paddingHorizontal: 20,
+    paddingTop: 10,
+    paddingBottom: 14,
+  },
+  sheetCloseBtn: {
+    // Soft-tinted circle for the close X — mirrors the close chip
+    // pattern on Cart sheet + Service Info sheet.
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "rgba(15, 23, 42, 0.06)",
+    alignItems: "center",
+    justifyContent: "center",
   },
   sheetContent: {
-    paddingVertical: Spacing.sm,
-    paddingHorizontal: Spacing.lg,
+    paddingHorizontal: 20,
+    paddingTop: 4,
+    paddingBottom: 16,
+    gap: 8,
   },
   pickerItem: {
+    // Otopair row card treatment — matches ServiceMultiSelectRow's
+    // unselected state on Screen 2. Icon/color dot on the left,
+    // label in the middle, check pill on the right when active.
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    paddingVertical: Spacing.md,
+    gap: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    borderRadius: 16,
+    backgroundColor: "rgba(255, 255, 255, 0.55)",
+    borderWidth: 1,
+    borderColor: "rgba(15, 23, 42, 0.06)",
   },
   pickerItemPressed: {
-    opacity: 0.6,
+    backgroundColor: "rgba(15, 23, 42, 0.04)",
+  },
+  pickerItemSelected: {
+    // Same blue-tinted "selected" treatment as the Screen 2 rows.
+    backgroundColor: "rgba(82, 153, 254, 0.14)",
+    borderColor: "rgba(82, 153, 254, 0.45)",
   },
   pickerItemLeft: {
     flexDirection: "row",
     alignItems: "center",
-    gap: Spacing.md,
+    gap: 12,
+    flex: 1,
+    minWidth: 0,
+  },
+  pickerItemLabel: {
+    flex: 1,
+    minWidth: 0,
   },
   pickerColorDot: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
   },
   pickerColorDotBorder: {
     borderWidth: 1,
     borderColor: "rgba(20,28,36,0.15)",
   },
   pickerIconContainer: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    backgroundColor: "rgba(82,153,254,0.08)",
+    // Same 40×40 icon tile as ServiceMultiSelectRow.
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: "rgba(255, 255, 255, 0.85)",
     justifyContent: "center",
     alignItems: "center",
+  },
+  pickerCheckPill: {
+    // Same black check pill as ServiceMultiSelectRow's stateCheck.
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: "#0F172A",
+    alignItems: "center",
+    justifyContent: "center",
   },
   emptyState: {
     paddingVertical: Spacing.xl,

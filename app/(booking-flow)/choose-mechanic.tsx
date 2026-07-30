@@ -63,14 +63,16 @@ import { useVehicleStore } from "@/stores/useVehicleStore";
 import { buildShopPriceLabel } from "@/lib/shopPriceLabel";
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
-// Two snap points: standard (~53%, the default that fits the
-// active shop card + mechanic strip) and expanded (~82% for
-// scrolling reviews etc). With `enablePanDownToClose`, the user
-// can also drag the sheet OUT of view entirely — at which point
-// `sheetIndex === -1` and the screen swaps to the browse-card
-// carousel (ChatGPT-style "shops on a map" mode). Tap a card to
-// bring the sheet back to index 0.
-const SNAP_POINTS = ["53%", "82%"] as const;
+// Two snap points: standard (~56%, tall enough that the
+// horizontal-carousel page-indicator dots land above the
+// Continue bar — the old 53% pushed them below the fold) and
+// expanded (~82% for scrolling reviews etc). With
+// `enablePanDownToClose`, the user can also drag the sheet OUT
+// of view entirely — at which point `sheetIndex === -1` and
+// the screen swaps to the browse-card carousel (ChatGPT-style
+// "shops on a map" mode). Tap a card to bring the sheet back
+// to index 0.
+const SNAP_POINTS = ["56%", "82%"] as const;
 
 export default function ChooseMechanicScreen() {
   const router = useRouter();
@@ -646,7 +648,7 @@ export default function ChooseMechanicScreen() {
       </Animated.View>
 
       {/* Floating right rail — visual only for Phase 3 */}
-      <View style={[styles.rightRail, { top: insets.top + 200 }]} pointerEvents="box-none">
+      <View style={[styles.rightRail, { top: insets.top + 190 }]} pointerEvents="box-none">
         <Pressable
           style={styles.railBtn}
           onPress={onZoomIn}
@@ -816,7 +818,7 @@ const styles = StyleSheet.create({
   },
   shopCardWrap: {
     position: "absolute",
-    top: "30%",
+    top: "26%",
     left: 16,
     right: 16,
     alignItems: "center",

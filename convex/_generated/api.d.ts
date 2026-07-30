@@ -60,6 +60,7 @@ import type * as director from "../director.js";
 import type * as directorCars from "../directorCars.js";
 import type * as directorConfigActions from "../directorConfigActions.js";
 import type * as directorConfigBackfills from "../directorConfigBackfills.js";
+import type * as directorData from "../directorData.js";
 import type * as directorGate from "../directorGate.js";
 import type * as directorOverview from "../directorOverview.js";
 import type * as directorPricing from "../directorPricing.js";
@@ -434,6 +435,7 @@ declare const fullApi: ApiFromModules<{
   directorCars: typeof directorCars;
   directorConfigActions: typeof directorConfigActions;
   directorConfigBackfills: typeof directorConfigBackfills;
+  directorData: typeof directorData;
   directorGate: typeof directorGate;
   directorOverview: typeof directorOverview;
   directorPricing: typeof directorPricing;

@@ -21,7 +21,10 @@ import { useMemo } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useSessionCachedQuery } from "@/lib/offlineSessionCache";
-import type { MaintenanceItem } from "@/components/cars/MaintenanceTracker";
+import type {
+  MaintenanceItem,
+  MaintenanceTriggerAxis,
+} from "@/components/cars/MaintenanceTracker";
 import {
   type MaintenanceType,
   type OemServiceIntervalsInput,
@@ -31,6 +34,7 @@ import {
   buildMergedMaintenanceItems,
   type DriverRecommendationLike,
 } from "@/utils/mergedMaintenance";
+
 
 // ============================================================================
 // TYPES
@@ -146,8 +150,22 @@ export function useMergedMaintenance(
         vehicleYear,
         driverRecommendations,
         scopeId: vehicleOwnerId ? String(vehicleOwnerId) : undefined,
+        // Proposal Behaviors #6/#7 — anchored signal pills plus the
+        // from-odometer catalog coverage pass. Oto's server-side score
+        // omits both and keeps the anchored-only item set.
+        currentOdometer,
+        oemIntervals,
       }),
-    [userItems, records, knownIssues, vehicleYear, driverRecommendations, vehicleOwnerId],
+    [
+      userItems,
+      records,
+      knownIssues,
+      vehicleYear,
+      driverRecommendations,
+      vehicleOwnerId,
+      currentOdometer,
+      oemIntervals,
+    ],
   );
 
   // Expose raw records so the modal can pre-fill from existing data

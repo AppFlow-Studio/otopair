@@ -41,6 +41,10 @@ export interface UseBookableServicesResult {
   bookableIds: Set<string>;
   /** Subset of applicableIds blocked by an unanswered package question. */
   needsSpecsIds: Set<string>;
+  /** Backend said parts/spec data couldn't be produced for this
+   *  vehicle. Not in `applicableIds` — surfaced separately so the UI
+   *  can render a "Not available yet" section explaining why. */
+  missingDataIds: Set<string>;
   /** True while the underlying query is in flight or skipped. */
   isLoading: boolean;
 }
@@ -55,27 +59,35 @@ export function useBookableServices(
       : "skip",
   );
 
-  const { applicableIds, bookableIds, needsSpecsIds } = useMemo<{
+  const { applicableIds, bookableIds, needsSpecsIds, missingDataIds } = useMemo<{
     applicableIds: Set<string>;
     bookableIds: Set<string>;
     needsSpecsIds: Set<string>;
+    missingDataIds: Set<string>;
   }>(() => {
     const applicable = new Set<string>();
     const bookable = new Set<string>();
     const needsSpecs = new Set<string>();
+    const missingData = new Set<string>();
     if (!data) {
       return {
         applicableIds: applicable,
         bookableIds: bookable,
         needsSpecsIds: needsSpecs,
+        missingDataIds: missingData,
       };
     }
     // Defensive iteration — Convex codegen typing may lag the query until
     // `npx convex dev` regenerates api.d.ts, so don't rely on inferred row shape.
     for (const row of data as Array<{ service_id: string; state: BookableState }>) {
       if (!row || typeof row.service_id !== "string") continue;
-      // missing_data is hidden — never renderable, so don't add it to any set
-      if (row.state === "missing_data") continue;
+      // missing_data isn't renderable in the bookable list, but we
+      // still surface the ids so the UI can show a "Not available yet"
+      // section next to the bookable rows.
+      if (row.state === "missing_data") {
+        missingData.add(row.service_id);
+        continue;
+      }
       applicable.add(row.service_id);
       if (row.state === "bookable") bookable.add(row.service_id);
       else if (row.state === "blocked_by_specs") needsSpecs.add(row.service_id);
@@ -84,6 +96,7 @@ export function useBookableServices(
       applicableIds: applicable,
       bookableIds: bookable,
       needsSpecsIds: needsSpecs,
+      missingDataIds: missingData,
     };
   }, [data]);
 
@@ -91,6 +104,7 @@ export function useBookableServices(
     applicableIds,
     bookableIds,
     needsSpecsIds,
+    missingDataIds,
     isLoading: data === undefined,
   };
 }

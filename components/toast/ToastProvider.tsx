@@ -142,25 +142,36 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 
   const ctx = useMemo<InternalContext>(() => ({ show, dismissAll }), [show, dismissAll]);
 
+  // Host height depends on route: tabbed screens clip the host at
+  // the tab bar's top edge so the toast literally emerges from
+  // BEHIND the tab bar (anything the animation puts below the clip
+  // line disappears — visually reads as "the tab bar produced this").
+  // Non-tabbed screens don't need the clip; host spans the screen.
+  //
+  // `Layout.tabBarHeight = 30` in the design tokens is a legacy
+  // Android-first value that undercounts iOS 26 NativeTabs by a lot
+  // — a rest position calculated off it lands the toast mid-tab-bar
+  // instead of above it. NATIVE_TAB_BAR_HEIGHT is what NativeTabs
+  // actually paints (translucent material chrome, no home indicator).
+  const NATIVE_TAB_BAR_HEIGHT = 56;
+  const tabBarTopFromScreenBottom = insets.bottom + NATIVE_TAB_BAR_HEIGHT;
+  const hostStyle = isTabbedRoute
+    ? [styles.host, { bottom: tabBarTopFromScreenBottom }]
+    : styles.host;
+  // Toast's own bottom offset within the host. On tabbed screens the
+  // host's bottom edge sits at the tab bar top, so 12pt above that is
+  // just an inline 12. On non-tabbed screens we still need to clear
+  // the home indicator via safe-area insets.
+  const toastBottomOffset = isTabbedRoute ? 12 : insets.bottom + 12;
+
   return (
     <ToastContext.Provider value={ctx}>
       {children}
-      <View style={styles.host} pointerEvents="box-none">
+      <View style={hostStyle} pointerEvents="box-none">
         {current ? (
           <Toast
             item={current}
-            // Bottom-anchored (Airbnb-style). On tabbed screens we lift
-            // above the tab bar (tabBarHeight + 28pt breathing room).
-            // On tab-bar-less screens (booking flow, mechanic confirm,
-            // approve estimate, modals, onboarding) we sit just above
-            // the home indicator with a small 12pt lift — keeps the
-            // toast close to the bottom edge where the user expects
-            // confirmation feedback instead of floating mid-screen.
-            bottomOffset={
-              isTabbedRoute
-                ? insets.bottom + Layout.tabBarHeight + 28
-                : insets.bottom + 12
-            }
+            bottomOffset={toastBottomOffset}
             onRequestDismiss={handleDismissed}
           />
         ) : null}
@@ -171,7 +182,16 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 
 const styles = StyleSheet.create({
   host: {
-    ...StyleSheet.absoluteFillObject,
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    // Clip anything the toast animation puts below this host's
+    // bottom edge. On tabbed screens the bottom is inset upward to
+    // the tab bar top so mid-flight positions inside the tab-bar
+    // zone are hidden — the toast reads as emerging from behind it.
+    overflow: "hidden",
     zIndex: 9999,
     elevation: 9999,
   },
