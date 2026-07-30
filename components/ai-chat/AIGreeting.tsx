@@ -66,10 +66,10 @@ interface AIGreetingProps {
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
-const MOCK_VEHICLES: VehicleCard[] = [
-  { vin: 'mock_1', year: 2025, make: 'Lexus', model: 'ES', imageUrl: null, localImage: require('@/assets/images/lexus.png') },
-  { vin: 'mock_2', year: 2021, make: 'Ford', model: 'Explorer', imageUrl: null, localImage: require('@/assets/images/explorer.png') },
-];
+// Demo cars (Lexus ES, Ford Explorer) previously appended so the
+// greeting had something to show pre-onboarding. Removed per Ahmad —
+// the pager should surface only vehicles the user actually owns.
+const MOCK_VEHICLES: VehicleCard[] = [];
 
 // ============================================================================
 // VEHICLE CARD (image + shadow only — text is rendered separately for crossfade)

@@ -19,7 +19,6 @@ import { Platform, Pressable, StyleSheet, View } from "react-native";
 import { BlurView } from "expo-blur";
 import {
   Check,
-  ChevronRight,
   Clock,
   HelpCircle,
 } from "lucide-react-native";
@@ -40,6 +39,10 @@ interface ServiceMultiSelectRowProps {
   state: "bookable" | "needs_specs" | "blocked";
   onPress: () => void;
   onInfoPress: () => void;
+  /** Handle to the outer Pressable so the parent can
+   *  `measureInWindow` — needed for the fly-to-cart animation
+   *  endpoint. Optional so consumers that don't animate can skip. */
+  viewRef?: React.Ref<View>;
 }
 
 export function ServiceMultiSelectRow({
@@ -50,6 +53,7 @@ export function ServiceMultiSelectRow({
   state,
   onPress,
   onInfoPress,
+  viewRef,
 }: ServiceMultiSelectRowProps) {
   const Icon = getServiceIcon(slug);
   const isQuote = entry.variant === "quote";
@@ -58,6 +62,7 @@ export function ServiceMultiSelectRow({
 
   return (
     <Pressable
+      ref={viewRef}
       style={[
         styles.row,
         isSelected && styles.rowSelected,
@@ -76,9 +81,10 @@ export function ServiceMultiSelectRow({
         <Icon size={22} color="#4B5563" strokeWidth={2} />
       </View>
 
-      {/* Text column — title / subtitle / clock + estimated time.
+      {/* Text column — title / clock + estimated time.
           `paddingRight` leaves headroom for the absolute `?`
-          button in the top-right so the title never runs under it. */}
+          button in the top-right so the title never runs under it.
+          Subtitle removed per Ahmad — tap the ? for the full copy. */}
       <View style={styles.text}>
         <Text
           size="md"
@@ -88,15 +94,6 @@ export function ServiceMultiSelectRow({
           style={styles.title}
         >
           {entry.label}
-        </Text>
-        <Text
-          size="sm"
-          weight="regular"
-          color="#6B7280"
-          numberOfLines={2}
-          style={styles.subtitle}
-        >
-          {entry.subtitle}
         </Text>
         {isNeedsSpecs ? (
           <Text size="xs" weight="semiBold" color="#2563EB" style={styles.needsSpecsHint}>
@@ -114,15 +111,16 @@ export function ServiceMultiSelectRow({
       {/* Trailing state indicator — check when selected, chevron
           otherwise. Centered vertically on the row instead of
           stacked under the time (which now lives in the text col). */}
-      <View style={styles.trailing}>
-        {isSelected ? (
+      {/* Trailing state — check pill when selected, nothing when
+          not. Chevron dropped per Ahmad since the whole row is
+          already a tappable target. */}
+      {isSelected ? (
+        <View style={styles.trailing}>
           <View style={styles.stateCheck}>
             <Check size={18} color="#FFFFFF" strokeWidth={2.5} />
           </View>
-        ) : (
-          <ChevronRight size={20} color="#9CA3AF" strokeWidth={2} />
-        )}
-      </View>
+        </View>
+      ) : null}
 
       {/* Info button — top-right corner of the card, bumped from
           15 → 20 pt. Positioned absolutely so it sits above the
@@ -184,9 +182,6 @@ const styles = StyleSheet.create({
   title: {
     flexShrink: 1,
   },
-  subtitle: {
-    marginTop: 4,
-  },
   needsSpecsHint: {
     marginTop: 6,
   },
@@ -200,10 +195,13 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   trailing: {
-    // Just the state indicator (check / chevron) now — the time
-    // moved into the text column above.
-    alignItems: "flex-end",
-    justifyContent: "center",
+    // Absolute-positioned at the row's bottom-right so it sits
+    // as far as possible from the top-right `?` (previously they
+    // stacked / overlapped). Bottom-anchored with a small inset
+    // matching the `?`'s top inset (12) for visual symmetry.
+    position: "absolute",
+    bottom: 12,
+    right: 12,
   },
   stateCheck: {
     width: 28,

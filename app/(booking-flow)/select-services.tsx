@@ -41,7 +41,7 @@ import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Search, X } from "lucide-react-native";
+import { Crosshair, Minus, Plus, Search, X } from "lucide-react-native";
 
 import { Text } from "@/components/shared-ui";
 import { CardShadow } from "@/constants/theme";
@@ -197,6 +197,11 @@ export default function SelectServicesScreen() {
   useOfflineGuard(nearbyShopsLoading ? undefined : nearbyShops);
   const [selectedShopId, setSelectedShopId] = useState<string | null>(null);
   const browseScrollRef = useRef<ScrollView | null>(null);
+  // Booking-flow map context — destructured here (rather than the
+  // later mapShouldBeInteractive block) so the peek-mode zoom /
+  // recenter callbacks below can reference `region` for their
+  // fallback center.
+  const { setInteractive, setMarkers, mapRef, region } = useBookingFlowMap();
   // Local map ref so the camera can pan to the selected shop as
   // the user swipes the carousel. Same pattern choose-mechanic
   // uses for its sheet's internal pager.
@@ -248,6 +253,71 @@ export default function SelectServicesScreen() {
     }, 80);
     return () => clearTimeout(t);
   }, [isPeekExpanded, selectedIndex, nearbyShops]);
+  // Peek-mode map zoom + recenter controls. Mirror the pattern
+  // choose-mechanic uses — a `zoomDeltaRef` tracks the current
+  // zoom span, +/- buttons halve or double it, and the crosshair
+  // recenters on the active shop (or the user's coords when
+  // no shop is selected).
+  const PEEK_MAP_DEFAULT_DELTA = 0.035;
+  const PEEK_MAP_MIN_DELTA = 0.002;
+  const PEEK_MAP_MAX_DELTA = 1.0;
+  const peekZoomDeltaRef = useRef(PEEK_MAP_DEFAULT_DELTA);
+  const animatePeekZoom = useCallback(
+    (factor: number) => {
+      if (!localMapRef.current) return;
+      const activeShop = nearbyShops[selectedIndex]?.shop;
+      const next = Math.min(
+        PEEK_MAP_MAX_DELTA,
+        Math.max(PEEK_MAP_MIN_DELTA, peekZoomDeltaRef.current * factor),
+      );
+      peekZoomDeltaRef.current = next;
+      const latitude =
+        activeShop && activeShop.latitude !== 0
+          ? activeShop.latitude
+          : region?.latitude;
+      const longitude =
+        activeShop && activeShop.longitude !== 0
+          ? activeShop.longitude
+          : region?.longitude;
+      if (latitude == null || longitude == null) return;
+      localMapRef.current.animateToRegion(
+        { latitude, longitude, latitudeDelta: next, longitudeDelta: next },
+        220,
+      );
+    },
+    [nearbyShops, selectedIndex, region],
+  );
+  const onPeekZoomIn = useCallback(() => animatePeekZoom(0.5), [animatePeekZoom]);
+  const onPeekZoomOut = useCallback(() => animatePeekZoom(2), [animatePeekZoom]);
+  const onPeekRecenter = useCallback(() => {
+    if (!localMapRef.current) return;
+    peekZoomDeltaRef.current = PEEK_MAP_DEFAULT_DELTA;
+    const activeShop = nearbyShops[selectedIndex]?.shop;
+    if (activeShop && activeShop.latitude !== 0) {
+      localMapRef.current.animateToRegion(
+        {
+          latitude: activeShop.latitude,
+          longitude: activeShop.longitude,
+          latitudeDelta: PEEK_MAP_DEFAULT_DELTA,
+          longitudeDelta: PEEK_MAP_DEFAULT_DELTA,
+        },
+        320,
+      );
+      return;
+    }
+    if (region) {
+      localMapRef.current.animateToRegion(
+        {
+          latitude: region.latitude,
+          longitude: region.longitude,
+          latitudeDelta: PEEK_MAP_DEFAULT_DELTA,
+          longitudeDelta: PEEK_MAP_DEFAULT_DELTA,
+        },
+        320,
+      );
+    }
+  }, [nearbyShops, selectedIndex, region]);
+
   const onBrowsePageChange = useCallback(
     (e: NativeSyntheticEvent<NativeScrollEvent>) => {
       const idx = Math.round(e.nativeEvent.contentOffset.x / SCREEN_WIDTH);
@@ -299,8 +369,9 @@ export default function SelectServicesScreen() {
   // unlocks while the sheet is still low so the user can pan/zoom
   // around looking for shops. Once they tap the peek and the sheet
   // expands, we re-lock so the map doesn't intercept gestures meant
-  // for the now-full sheet.
-  const { setInteractive, setMarkers, mapRef, region } = useBookingFlowMap();
+  // for the now-full sheet. (Destructure moved up above the
+  // peek-zoom callbacks — see the earlier `useBookingFlowMap()`
+  // call.)
   // Peek mode is entry-agnostic: whether the user reached it by
   // entering via Home → Map OR by entering via Search and then
   // swiping the sheet down, the experience underneath is the
@@ -415,6 +486,39 @@ export default function SelectServicesScreen() {
               </Marker>
             ))}
         </MapView>
+      ) : null}
+
+      {/* Peek-mode right rail — +/−/recenter buttons over the map.
+          Only rendered in peek mode since the full sheet covers
+          the map area anyway. Mirrors the Choose Mechanic rail
+          styling. */}
+      {!isPeekExpanded && region ? (
+        <View
+          style={[styles.peekRail, { top: insets.top + 380 }]}
+          pointerEvents="box-none"
+        >
+          <Pressable
+            style={styles.peekRailBtn}
+            onPress={onPeekZoomIn}
+            accessibilityLabel="Zoom in"
+          >
+            <Plus size={18} color="#1F2937" strokeWidth={2} />
+          </Pressable>
+          <Pressable
+            style={styles.peekRailBtn}
+            onPress={onPeekZoomOut}
+            accessibilityLabel="Zoom out"
+          >
+            <Minus size={18} color="#1F2937" strokeWidth={2} />
+          </Pressable>
+          <Pressable
+            style={styles.peekRailBtn}
+            onPress={onPeekRecenter}
+            accessibilityLabel="Recenter"
+          >
+            <Crosshair size={18} color="#1F2937" strokeWidth={2} />
+          </Pressable>
+        </View>
       ) : null}
 
       {/* Browse-card carousel — peek mode only. Sits just above the
@@ -711,5 +815,26 @@ const styles = StyleSheet.create({
   },
   quickBookWrap: {
     marginBottom: 8,
+  },
+  peekRail: {
+    // Floating +/−/recenter column on the right edge of the peek
+    // map. `top` is set inline from safe area. Same visual as the
+    // choose-mechanic rail so both surfaces feel consistent.
+    position: "absolute",
+    right: 14,
+    gap: 8,
+  },
+  peekRailBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(255, 255, 255, 0.95)",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
   },
 });

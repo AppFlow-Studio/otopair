@@ -30,12 +30,19 @@ import MapView, { Marker, PROVIDER_DEFAULT } from 'react-native-maps';
 // 2. Expo & Third-party
 import { BlurView } from 'expo-blur';
 import * as Location from 'expo-location';
+import { ArrowRight, MapPin } from 'lucide-react-native';
+import Animated, {
+  Easing,
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withTiming,
+} from 'react-native-reanimated';
 
 // 3. Shared UI
 import { Text } from '@/components/shared-ui';
 
 // 4. Utils
-import { calculateDistanceKm } from '@/utils/geo';
 import { openMapsForAddress, openMapsForCoordinates } from '@/utils/linking';
 
 // ============================================================================
@@ -44,19 +51,19 @@ import { openMapsForAddress, openMapsForCoordinates } from '@/utils/linking';
 
 interface NavigationETABarProps {
   /**
-   * Pre-computed ETA in minutes. When omitted, the component computes
-   * a rough estimate from straight-line distance × a road factor at
-   * an average urban driving speed. The real navigation app shows the
-   * authoritative time once the user taps Navigate.
+   * Historically a caller-supplied ETA in minutes. The card no
+   * longer surfaces a numeric ETA — Apple Maps shows the routed
+   * time on tap — so this prop is accepted but ignored. Kept in
+   * the interface for backward compat with existing call sites.
    */
   etaMinutes?: number;
   destinationLatitude?: number;
   destinationLongitude?: number;
   destinationName?: string;
   /**
-   * Postal address fallback for the destination. Used when lat/lng
-   * are missing or invalid (e.g., the shop record hasn't been
-   * geocoded yet) — the maps app will geocode the string itself.
+   * Postal address fallback for the destination. Used by the tap
+   * handler when lat/lng are missing or invalid (0, 0) — the maps
+   * app will geocode the string itself.
    */
   destinationAddress?: string;
 }
@@ -76,24 +83,11 @@ const DEFAULT_LOCATION = {
   longitude: -122.4194,
 };
 
-// Rough drive-time estimate: scale straight-line distance to account
-// for roads (~1.3×) at a typical urban average speed (~40 km/h).
-// Good enough for a glanceable home-screen pill; the user's map app
-// shows the precise routed time on Navigate.
-const ROAD_DISTANCE_FACTOR = 1.3;
-const AVG_DRIVING_KMH = 40;
-
-function estimateDriveMinutes(distanceKm: number): number {
-  const hours = (distanceKm * ROAD_DISTANCE_FACTOR) / AVG_DRIVING_KMH;
-  return Math.max(1, Math.round(hours * 60));
-}
-
 // ============================================================================
 // COMPONENT
 // ============================================================================
 
 export function NavigationETABar({
-  etaMinutes,
   destinationLatitude,
   destinationLongitude,
   destinationName = 'Premium Auto Care',
@@ -104,35 +98,14 @@ export function NavigationETABar({
     latitude: number;
     longitude: number;
   } | null>(null);
-  // When the shop record lacks coords but has a postal address, geocode
-  // the address once so the ETA can still compute. The maps app handles
-  // the address itself on Navigate; this lookup is purely for the ETA
-  // estimate.
-  const [geocodedDest, setGeocodedDest] = useState<{
-    latitude: number;
-    longitude: number;
-  } | null>(null);
-
-  // Map preview centers on the user's location; the destination only
-  // affects ETA + the Navigate target. Prefer explicit coords; otherwise
-  // use the geocoded address result if we have one.
-  const destLat = coordsValid
-    ? (destinationLatitude as number)
-    : geocodedDest?.latitude ?? null;
-  const destLng = coordsValid
-    ? (destinationLongitude as number)
-    : geocodedDest?.longitude ?? null;
 
   useEffect(() => {
     (async () => {
-      // Request location permission
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
         console.log('Location permission denied');
         return;
       }
-
-      // Get current location
       const location = await Location.getCurrentPositionAsync({});
       setUserLocation({
         latitude: location.coords.latitude,
@@ -141,70 +114,69 @@ export function NavigationETABar({
     })();
   }, []);
 
-  useEffect(() => {
-    // Skip when we already have real coords, or when there's no
-    // address to resolve. Re-run if the address changes (e.g., the
-    // upcoming booking switches to a different shop).
-    if (coordsValid) {
-      setGeocodedDest(null);
-      return;
-    }
-    const address = destinationAddress?.trim();
-    if (!address) {
-      setGeocodedDest(null);
-      return;
-    }
-    let cancelled = false;
-    (async () => {
-      try {
-        const results = await Location.geocodeAsync(address);
-        if (cancelled) return;
-        const first = results[0];
-        if (first) {
-          setGeocodedDest({ latitude: first.latitude, longitude: first.longitude });
-        }
-      } catch {
-        // Geocoding can fail offline / rate-limited — leave ETA as "—".
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [coordsValid, destinationAddress]);
-
   // Use user location if available, otherwise use default
   const currentLatitude = userLocation?.latitude ?? DEFAULT_LOCATION.latitude;
   const currentLongitude = userLocation?.longitude ?? DEFAULT_LOCATION.longitude;
 
-  // Prefer a caller-supplied ETA; otherwise estimate from haversine
-  // distance once we have a real user fix AND a real destination.
-  // While either is missing we render a dash rather than a
-  // misleading number.
-  const computedEtaMinutes =
-    userLocation && destLat !== null && destLng !== null
-      ? estimateDriveMinutes(
-          calculateDistanceKm(
-            userLocation.latitude,
-            userLocation.longitude,
-            destLat,
-            destLng,
-          ),
-        )
-      : null;
-  const displayEta = etaMinutes ?? computedEtaMinutes;
-  const etaLabel = displayEta !== null ? `${displayEta} min` : '—';
-  const buttonLabel =
-    displayEta !== null ? `Navigate-${displayEta} Min` : 'Navigate';
-
   const canNavigate = coordsValid || !!destinationAddress?.trim();
 
+  // Subtle "alive" pulse on the Go Now button. Scales 1.0 → 1.05 →
+  // 1.0 in a slow 1.2s ease-in-out loop so the CTA gently breathes
+  // — enough to catch the eye without being annoying. Runs only
+  // when the button is actually navigable; disabled state stays
+  // static.
+  const pulseScale = useSharedValue(1);
+  useEffect(() => {
+    if (!canNavigate) {
+      pulseScale.value = 1;
+      return;
+    }
+    pulseScale.value = withRepeat(
+      withTiming(1.05, {
+        duration: 1200,
+        easing: Easing.inOut(Easing.quad),
+      }),
+      -1,
+      true, // reverse
+    );
+  }, [canNavigate, pulseScale]);
+  const pulseStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: pulseScale.value }],
+  }));
+
+  // Nudge the arrow to the right in sync with the pulse for a
+  // "let's go" feel. Slightly smaller amplitude so it reads as a
+  // subtle push rather than a fidget.
+  const arrowShift = useSharedValue(0);
+  useEffect(() => {
+    if (!canNavigate) {
+      arrowShift.value = 0;
+      return;
+    }
+    arrowShift.value = withRepeat(
+      withTiming(3, {
+        duration: 1200,
+        easing: Easing.inOut(Easing.quad),
+      }),
+      -1,
+      true,
+    );
+  }, [canNavigate, arrowShift]);
+  const arrowStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: arrowShift.value }],
+  }));
+
   const handleNavigate = () => {
-    // Prefer coordinates when present (no geocoding needed); fall back
-    // to the address string so the maps app can resolve it itself.
-    // Without either, do nothing — opening 0,0 strands the user in
-    // the middle of the ocean.
-    if (destLat !== null && destLng !== null) {
-      void openMapsForCoordinates(destLat, destLng, destinationName);
+    // Prefer coordinates when present; fall back to the address string
+    // so the maps app can resolve it itself. Without either, do
+    // nothing — opening 0,0 strands the user in the middle of the
+    // ocean.
+    if (coordsValid) {
+      void openMapsForCoordinates(
+        destinationLatitude as number,
+        destinationLongitude as number,
+        destinationName,
+      );
       return;
     }
     if (destinationAddress?.trim()) {
@@ -213,14 +185,39 @@ export function NavigationETABar({
   };
 
   return (
-    <View style={styles.container}>
-      {/* Full Map Background - centered on user location, shifted right so pin shows on left */}
+    // Whole card is tappable — anywhere on the map preview opens
+    // Apple Maps to the shop's destination, same as the Navigate
+    // pill inside. The inner Pressable stays as a separate affordance
+    // for the button-style visual but both routes hit handleNavigate.
+    <Pressable
+      style={({ pressed }) => [
+        styles.container,
+        pressed && canNavigate ? styles.containerPressed : null,
+      ]}
+      onPress={handleNavigate}
+      disabled={!canNavigate}
+      accessibilityRole="button"
+      accessibilityLabel={`Navigate to ${destinationName}`}
+    >
+      {/* Map background — centered on the SHOP'S coordinates (not
+          the user's) so the preview reads as "here's where you're
+          going." Falls back to the user's location only when the
+          shop record has no valid coords yet. Region longitude
+          shifted so the destination pin sits left-of-center,
+          leaving room on the right for the Navigate CTA overlay.
+          scrollEnabled/zoomEnabled/etc all false — the MapView is
+          decorative, taps bubble up to the outer Pressable. */}
       <MapView
         style={styles.map}
         provider={PROVIDER_DEFAULT}
         region={{
-          latitude: currentLatitude,
-          longitude: currentLongitude + 0.035,
+          latitude: coordsValid
+            ? (destinationLatitude as number)
+            : currentLatitude,
+          longitude:
+            (coordsValid
+              ? (destinationLongitude as number)
+              : currentLongitude) + 0.008,
           latitudeDelta: 0.02,
           longitudeDelta: 0.02,
         }}
@@ -229,34 +226,58 @@ export function NavigationETABar({
         rotateEnabled={false}
         pitchEnabled={false}
         showsUserLocation={false}
+        pointerEvents="none"
       >
-        {/* Current Location Pin - shows user's actual location */}
-        <Marker
-          coordinate={{
-            latitude: currentLatitude,
-            longitude: currentLongitude - 0.002,
-          }}
-          anchor={{ x: 0.5, y: 0.5 }}
-        >
-          <View style={styles.locationPinContainer}>
-            <View style={styles.locationPinOuter} />
-            <View style={styles.locationPinInner} />
-          </View>
-        </Marker>
+        {/* Destination pin — shows where the SHOP is on the map,
+            not where the user is. Uses the brand-blue treatment
+            we already had for the previous user-location pin. */}
+        {coordsValid ? (
+          <Marker
+            coordinate={{
+              latitude: destinationLatitude as number,
+              longitude: destinationLongitude as number,
+            }}
+            anchor={{ x: 0.5, y: 0.5 }}
+          >
+            <View style={styles.locationPinContainer}>
+              <View style={styles.locationPinOuter} />
+              <View style={styles.locationPinInner} />
+            </View>
+          </Marker>
+        ) : null}
       </MapView>
 
-      {/* Overlay - ETA Pill with Glass Effect */}
-      <View style={styles.overlay}>
-        <BlurView
-          intensity={80}
-          tint="light"
-          style={styles.etaPill}
+      {/* Destination chip — anchors the map to a specific shop so
+          it's obvious the card is "your active booking's shop,"
+          not a generic map. Sits at the top-left with a glassy
+          backing so the map still reads through. */}
+      <BlurView
+        intensity={90}
+        tint="light"
+        style={styles.destChip}
+      >
+        <MapPin size={12} color="#1F2937" strokeWidth={2.4} />
+        <Text
+          size="xs"
+          weight="bold"
+          color="#141C24"
+          numberOfLines={1}
+          style={styles.destChipText}
         >
-          <View style={styles.etaContainer}>
-            <Text size="sm" color="#6B7280">ETA: </Text>
-            <Text weight="bold" size="md" color="#141C24">{etaLabel}</Text>
-          </View>
+          {destinationName}
+        </Text>
+      </BlurView>
 
+      {/* Overlay — Navigate CTA only. The numeric ETA (both the
+          "ETA: N min" text and the "-N Min" suffix on the button)
+          used to live here but was a Haversine × road-factor
+          heuristic, not a routed drive time, so it could be
+          materially off from what Apple Maps actually shows.
+          Rather than lie or apologize with a tilde, drop the
+          number entirely — the button just says "Navigate" and
+          Apple Maps shows the real ETA on tap. */}
+      <View style={styles.overlay}>
+        <Animated.View style={pulseStyle}>
           <Pressable
             onPress={handleNavigate}
             disabled={!canNavigate}
@@ -266,13 +287,16 @@ export function NavigationETABar({
               !canNavigate && styles.navigateButtonDisabled,
             ]}
           >
-            <Text weight="semiBold" size="sm" color="#FFFFFF">
-              {buttonLabel}
+            <Text weight="bold" size="md" color="#FFFFFF">
+              Go Now
             </Text>
+            <Animated.View style={[styles.arrowSlot, arrowStyle]}>
+              <ArrowRight size={16} color="#FFFFFF" strokeWidth={2.5} />
+            </Animated.View>
           </Pressable>
-        </BlurView>
+        </Animated.View>
       </View>
-    </View>
+    </Pressable>
   );
 }
 
@@ -290,6 +314,37 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.15,
     shadowRadius: 12,
     elevation: 5,
+  },
+  containerPressed: {
+    opacity: 0.85,
+  },
+  destChip: {
+    // Top-left liquid-glass pill — Apple iOS 26 style. Heavy
+    // BlurView + very translucent white fill + subtle bright
+    // border. Tucked flush into the card's rounded top-left
+    // corner: only the bottom-right corner stays rounded so the
+    // chip's outer edge blends into the container's arc.
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    zIndex: 2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderTopLeftRadius: 10,
+    borderTopRightRadius: 0,
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.32)',
+    borderWidth: 0.5,
+    borderColor: 'rgba(255, 255, 255, 0.7)',
+    overflow: 'hidden',
+    maxWidth: '55%',
+  },
+  destChipText: {
+    flexShrink: 1,
   },
   map: {
     ...StyleSheet.absoluteFillObject,
@@ -327,26 +382,28 @@ const styles = StyleSheet.create({
     paddingRight: 12,
     paddingLeft: 80,
   },
-  etaPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderRadius: 8,
-    paddingLeft: 16,
-    paddingRight: 4,
-    paddingVertical: 8,
-    overflow: 'hidden',
-    backgroundColor: 'rgba(255, 255, 255, 0.85)',
-  },
-  etaContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginRight: 8,
-  },
   navigateButton: {
-    backgroundColor: '#1F2937',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 4,
+    // Row so the "Go Now" label sits alongside the animated arrow.
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#5299FE',
+    paddingHorizontal: 24,
+    paddingVertical: 14,
+    borderRadius: 10,
+    // Soft brand-blue glow so the button feels lit-up rather than
+    // flat — reinforces the "alive" pulse.
+    shadowColor: '#5299FE',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.45,
+    shadowRadius: 12,
+    elevation: 6,
+  },
+  arrowSlot: {
+    // Wrapper so the arrow can translate independently of the
+    // label. No sizing — the icon inside supplies its own bounds.
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   navigateButtonPressed: {
     opacity: 0.8,

@@ -199,8 +199,18 @@ function BundleCard({
 }) {
   return (
     <View style={styles.card}>
-      {/* Editorial serif headline — package name. */}
-      <Text style={styles.title}>{bundle.name}</Text>
+      {/* Package name — break the last word ("Package") onto its
+          own line so the headline reads as a two-line stack
+          (e.g. "Summer Care" / "Package"). */}
+      <Text style={styles.title}>
+        {(() => {
+          const parts = bundle.name.split(' ');
+          if (parts.length < 2) return bundle.name;
+          const last = parts[parts.length - 1];
+          const rest = parts.slice(0, -1).join(' ');
+          return `${rest}\n${last}`;
+        })()}
+      </Text>
 
       {/* Spec sheet — enumerated services with hairline separators. */}
       <View style={styles.specSheet}>
@@ -285,9 +295,9 @@ const styles = StyleSheet.create({
     ...Shadows.md,
   },
 
-  // ── Editorial serif headline ─────────────────────────────────────────
+  // ── Bundle title — Urbanist Bold to match the rest of the app ────────
   title: {
-    fontFamily: FontFamily.serifBold,
+    fontFamily: FontFamily.bold,
     fontSize: 26,
     lineHeight: 30,
     color: "#0F172A",
@@ -317,14 +327,14 @@ const styles = StyleSheet.create({
     color: SemanticColors.textMuted,
   },
   statValueTime: {
-    fontFamily: FontFamily.serifBold,
+    fontFamily: FontFamily.bold,
     fontSize: 22,
     lineHeight: 26,
     color: "#0F172A",
     fontVariant: ["tabular-nums"],
   },
   statValueSavings: {
-    fontFamily: FontFamily.serifBold,
+    fontFamily: FontFamily.bold,
     fontSize: 22,
     lineHeight: 26,
     color: BrandColors.secondary,

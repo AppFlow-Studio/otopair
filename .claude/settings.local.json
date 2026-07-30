@@ -35,8 +35,7 @@
       "Bash(cp /Users/temurbeksayfutdinov/Documents/AppFlowStudios/otopair/ai_feedback.ts /Users/temurbeksayfutdinov/Documents/AppFlowStudios/otopair-web/convex/ai_feedback.ts)",
       "Bash(cp /Users/temurbeksayfutdinov/Documents/AppFlowStudios/otopair/oto/bookings.ts /Users/temurbeksayfutdinov/Documents/AppFlowStudios/otopair-web/convex/oto/bookings.ts)",
       "Bash(awk '/^export const|^export async function|^async function|^function/ {last=NR\" \"$0} NR==8067 {print last; exit}' convex/bookings.ts)",
-      "Bash(git ls-tree *)",
-      "PowerShell(Get-Command *)"
+      "Bash(git ls-tree *)"
     ]
   }
 }

@@ -41,6 +41,7 @@ import Animated, {
   runOnJS,
   useAnimatedStyle,
   useSharedValue,
+  withDelay,
   withSpring,
   withTiming,
 } from 'react-native-reanimated';
@@ -159,6 +160,10 @@ export function VehicleMaintenanceCard({
   const router = useRouter();
   const [currentIndex, setCurrentIndex] = useState(0);
   const [backIndex, setBackIndex] = useState(vehicles.length > 1 ? 1 : 0);
+  // Which vehicle is currently "promoting" from the back stack up
+  // into the front slot. Null when no promotion is in flight — the
+  // back card renders in its resting position instead.
+  const [promotingIndex, setPromotingIndex] = useState<number | null>(null);
   const [fetchedImageUrls, setFetchedImageUrls] = useState<Record<string, string>>({});
   const [measuredHeights, setMeasuredHeights] = useState<Record<string, number>>({});
 
@@ -166,6 +171,19 @@ export function VehicleMaintenanceCard({
   const translateX = useSharedValue(0);
   const rotation = useSharedValue(0);
   const cardOpacity = useSharedValue(1);
+  // 0 → 1 drives Daniel's slide-in promotion: the back card
+  // physically moves from its resting stack offset (top -8, inset 12,
+  // scale .98) up to the front slot (top 0, inset 0, scale 1). This
+  // replaces the old cross-fade with a real hand-off motion — the
+  // card you saw peeking behind is literally the same card that's
+  // now under your finger. See Daniel's commit b799c2e for source.
+  const promotionProgress = useSharedValue(0);
+  // Bottom section slide-down animation. Driven manually via
+  // useEffect below (instead of Reanimated's `entering` prop) so
+  // the direction is unambiguous: starts ABOVE final position
+  // (translateY = -40) and slides DOWN to translateY = 0.
+  const bottomTranslateY = useSharedValue(0);
+  const bottomOpacity = useSharedValue(1);
   // Inner-press flag — set to 1 while the touch lives inside an
   // interactive child Pressable (e.g. the Book Now button), so the
   // parent's Gesture.Tap onEnd skips its "open the Cars tab" route.
@@ -193,22 +211,82 @@ export function VehicleMaintenanceCard({
     }
   };
 
-  const advanceIndex = () => {
-    setCurrentIndex((prev) => (prev + 1) % vehicles.length);
+  const finishPromotion = (nextIndex: number) => {
+    // Order matters here. We reset the front card's transform +
+    // opacity BEFORE we bump currentIndex so the moment React
+    // re-renders with the new vehicle content, the front card is
+    // already at (0, 0, 0, scale 1) and fully opaque — the promoting
+    // card was visually at exactly that spot on the previous frame,
+    // so the swap is seamless.
+    translateX.value = 0;
+    rotation.value = 0;
+    cardOpacity.value = 1;
+    // Pre-hide the bottom section BEFORE setCurrentIndex triggers a
+    // re-render. Otherwise the shared values still read from the
+    // previous curtain drop (opacity 1, translateY 0), the new front
+    // card paints with the bottom visible for one frame, and only
+    // then does the useEffect below hide it — a flash right at the
+    // swap. Setting the values synchronously here means the very
+    // first paint of the new front card already has the bottom
+    // parked above at opacity 0.
+    bottomTranslateY.value = -40;
+    bottomOpacity.value = 0;
+    setCurrentIndex(nextIndex);
+    setBackIndex((nextIndex + 1) % vehicles.length);
+    // Retire the promoting card on the next frame so it and the
+    // front card don't both mount at the same visual position for a
+    // rendered tick. Deliberately DON'T reset promotionProgress
+    // here — the promoting card would visually snap back to its
+    // pre-animation offset for one frame before unmounting. Next
+    // promoteNextCard() resets it to 0 before mounting a fresh
+    // promoting card, so leaving it at 1 between cycles is harmless.
+    requestAnimationFrame(() => {
+      setPromotingIndex(null);
+    });
     onSwipeEnd?.();
   };
 
-  // After React commits the new front card content, make it visible
-  // then update the back card (safely hidden behind the front)
+  const promoteNextCard = () => {
+    const nextIndex = (currentIndex + 1) % vehicles.length;
+    // Hide the outgoing front card immediately — it's already
+    // flown off screen via translateX; opacity 0 protects against
+    // any layout dust settling on top of the promoting card.
+    cardOpacity.value = 0;
+    promotionProgress.value = 0;
+    setPromotingIndex(nextIndex);
+    promotionProgress.value = withTiming(
+      1,
+      { duration: 260, easing: Easing.out(Easing.cubic) },
+      (finished) => {
+        if (finished) runOnJS(finishPromotion)(nextIndex);
+      },
+    );
+  };
+
+  // Bottom curtain drop — Ahmad's signature. Fires on every vehicle
+  // change: bottom section resets ABOVE its final position (translateY
+  // -40, opacity 0), sits for a short beat while the top of the
+  // promoted card settles, then slides DOWN into place. Direction is
+  // unambiguous: starts above, ends at 0 — clear top-to-bottom
+  // curtain. Delay tightened from 400 → 200ms since we no longer wait
+  // for a fade-in grow-forward on the top half.
   useEffect(() => {
-    if (cardOpacity.value === 0) {
-      cardOpacity.value = 1;
-      // Back card updates after front is visible and covering it
-      requestAnimationFrame(() => {
-        setBackIndex((currentIndex + 1) % vehicles.length);
-      });
-    }
+    bottomTranslateY.value = -40;
+    bottomOpacity.value = 0;
+    bottomTranslateY.value = withDelay(
+      200,
+      withTiming(0, { duration: 600, easing: Easing.out(Easing.cubic) }),
+    );
+    bottomOpacity.value = withDelay(
+      200,
+      withTiming(1, { duration: 600, easing: Easing.out(Easing.cubic) }),
+    );
   }, [currentIndex]);
+
+  const bottomAnimStyle = useAnimatedStyle(() => ({
+    opacity: bottomOpacity.value,
+    transform: [{ translateY: bottomTranslateY.value }],
+  }));
 
   const panGesture = Gesture.Pan()
     .activeOffsetX([-15, 15])
@@ -218,28 +296,46 @@ export function VehicleMaintenanceCard({
     })
     .onUpdate((event) => {
       translateX.value = event.translationX;
-      rotation.value = (event.translationX / SCREEN_WIDTH) * 10;
+      // Rotation trimmed from 10° → 6° across the full sweep for a
+      // "carousel" feel rather than the previous "Tinder" feel — it's a
+      // car card, not a person. Uses a viewport-relative denominator
+      // so bigger phones don't get a stronger rotation curve.
+      rotation.value = (event.translationX / SCREEN_WIDTH) * 6;
     })
     .onEnd((event) => {
       if (Math.abs(event.translationX) > SWIPE_THRESHOLD) {
         const direction = event.translationX > 0 ? 'right' : 'left';
-        const targetX = direction === 'right' ? SCREEN_WIDTH * 1.5 : -SCREEN_WIDTH * 1.5;
+        const targetX = direction === 'right' ? SCREEN_WIDTH * 1.4 : -SCREEN_WIDTH * 1.4;
+        // Fixed 460ms exit, no velocity awareness. The previous
+        // clamp(140, 260ms) made fast flicks feel abrupt — the card
+        // was gone before the eye could track it. 460ms with
+        // ease-out-cubic lets the card visibly slide across the
+        // screen, matching the 420ms grow-forward on the incoming
+        // card so the two motions overlap as one continuous handoff.
+        const exitDuration = 400;
         translateX.value = withTiming(targetX, {
-          duration: 300,
+          duration: exitDuration,
           easing: Easing.out(Easing.cubic),
         }, (finished) => {
           if (finished) {
-            // Card is off-screen — hide it, reset position, then let JS advance index
-            cardOpacity.value = 0;
-            translateX.value = 0;
-            rotation.value = 0;
-            runOnJS(advanceIndex)();
+            // Card is off-screen. Kick off Daniel's slide-in promotion
+            // — the back card physically moves from its resting stack
+            // offset into the front slot, replacing the old cross-fade
+            // hand-off with a "the peek IS the next card" motion.
+            runOnJS(promoteNextCard)();
           }
         });
-        rotation.value = withTiming(direction === 'right' ? 15 : -15, { duration: 300 });
+        // Rotation lean matches the fly-off motion — 10° exit tilt.
+        rotation.value = withTiming(direction === 'right' ? 10 : -10, {
+          duration: exitDuration,
+        });
       } else {
-        translateX.value = withSpring(0, { damping: 15, stiffness: 150 });
-        rotation.value = withSpring(0, { damping: 15, stiffness: 150 });
+        // Snap-back tightened: damping 15 → 22, stiffness 150 → 220 so
+        // the card returns to center in ~one bounce instead of the
+        // previous mushy oscillation. Same spring on rotation keeps the
+        // two axes in lockstep.
+        translateX.value = withSpring(0, { damping: 22, stiffness: 220, mass: 0.6 });
+        rotation.value = withSpring(0, { damping: 22, stiffness: 220, mass: 0.6 });
       }
     })
     // Re-enable the parent ScrollView whenever the gesture ends —
@@ -259,7 +355,35 @@ export function VehicleMaintenanceCard({
     ],
   }));
 
-  const renderCardContent = (vehicle: Vehicle, maxItems?: number) => {
+  // Promotion animated style — drives the back card up into the
+  // front slot as `promotionProgress` climbs 0 → 1. Daniel's exact
+  // math from the source commit: layout the card at the back stack
+  // offset (top -8, inset 12, scale 0.98) and interpolate every
+  // property to the front slot (top 0, inset 0, scale 1). The
+  // vehicle-name re-layout that this used to cause is handled at
+  // the renderer instead (see `flatName` param) rather than by
+  // switching the motion to a transform-only version that doesn't
+  // match the back card's rest shape.
+  const promotingCardStyle = useAnimatedStyle(() => {
+    const p = promotionProgress.value;
+    return {
+      top: -8 + 8 * p,
+      left: 12 - 12 * p,
+      right: 12 - 12 * p,
+      transform: [{ scale: 0.98 + 0.02 * p }],
+    };
+  });
+
+  const renderCardContent = (
+    vehicle: Vehicle,
+    maxItems?: number,
+    hideBottom?: boolean,
+    // `flatName`: skip `adjustsFontSizeToFit` on the vehicle name.
+    // Passed by the promoting card during its slide-in — otherwise
+    // the name's font size recomputes every animation frame as the
+    // card's layout width changes, which reads as a text glitch.
+    flatName?: boolean,
+  ) => {
     const items = maxItems ? vehicle.maintenanceItems.slice(0, maxItems) : vehicle.maintenanceItems;
     const isPreview = maxItems != null;
     return (
@@ -281,7 +405,7 @@ export function VehicleMaintenanceCard({
                 color="#1F2937"
                 lineHeight={1.25}
                 numberOfLines={2}
-                adjustsFontSizeToFit
+                adjustsFontSizeToFit={!flatName}
                 minimumFontScale={0.82}
                 ellipsizeMode="clip"
                 style={styles.vehicleName}
@@ -293,7 +417,7 @@ export function VehicleMaintenanceCard({
                 color="#9CA3AF"
                 lineHeight={1.25}
                 numberOfLines={1}
-                adjustsFontSizeToFit
+                adjustsFontSizeToFit={!flatName}
                 minimumFontScale={0.68}
                 ellipsizeMode="clip"
                 style={styles.vin}
@@ -310,8 +434,23 @@ export function VehicleMaintenanceCard({
         </View>
       </View>
 
-      {/* Bottom Section - Maintenance List */}
-      <View style={styles.bottomSection}>
+      {/* Bottom Section - Maintenance List.
+          Slides down from ABOVE its final position (translateY -40
+          → 0) with a 400ms delay after the card mounts. Driven by
+          `bottomAnimStyle` — a shared-value pair reset + animated
+          per vehicle change in a useEffect. Reanimated's built-in
+          `entering` FadeInDown was too subtle (25pt travel) and
+          the perceived direction wasn't clear enough; controlling
+          it explicitly makes the top-to-bottom curtain drop
+          unambiguous.
+          Skipped entirely when `hideBottom` is set (back card) —
+          otherwise the back card's bottom would sit at full opacity
+          under the front card's drop-down and the user would see
+          the same content twice. */}
+      {hideBottom ? null : (
+      <Animated.View
+        style={[styles.bottomSection, bottomAnimStyle]}
+      >
         <View style={styles.maintenanceList}>
           {items.map((item, index) => (
             <View
@@ -365,7 +504,8 @@ export function VehicleMaintenanceCard({
             </View>
           ))}
         </View>
-      </View>
+      </Animated.View>
+      )}
     </View>
     );
   };
@@ -423,10 +563,20 @@ export function VehicleMaintenanceCard({
   // front card (no layout change). When the swipe settles and the active
   // card changes, we animate the container height so the downstream
   // sections slide smoothly instead of snapping.
+  // Bumped 280ms → 340ms with an ease-out-cubic curve — the previous
+  // default easing (inOut quad) started slow, which made the reflow read
+  // as slightly delayed then abrupt. Ease-out starts fast and settles,
+  // which pairs cleanly with the fade-in on the new front card.
   const animatedCardHeight = useSharedValue<number>(resolvedCardHeight ?? 0);
   useEffect(() => {
     if (resolvedCardHeight == null) return;
-    animatedCardHeight.value = withTiming(resolvedCardHeight, { duration: 280 });
+    // 420ms + ease-out-cubic — long enough that the staggered
+    // FadeInDown cascade on the maintenance items has room to
+    // finish underneath it, so height + items settle together.
+    animatedCardHeight.value = withTiming(resolvedCardHeight, {
+      duration: 420,
+      easing: Easing.out(Easing.cubic),
+    });
   }, [resolvedCardHeight, animatedCardHeight]);
   const containerHeightStyle = useAnimatedStyle(() => ({
     height: animatedCardHeight.value,
@@ -486,11 +636,38 @@ export function VehicleMaintenanceCard({
 
         {/* Card area */}
         <Animated.View style={[styles.swiperContainer, resolvedCardHeight != null && containerHeightStyle]}>
-          {/* Back card preview */}
-          {canSwipe && (
+          {/* Back card — renders the SAME full content as the
+              front card about to arrive. Previously rendered as a
+              1-item "preview" which caused a visible pop when the
+              front card faded in with the real content. Full-render
+              here means the back card is identical to what the
+              incoming front card will show, so the fade-in is
+              actually seamless. */}
+          {canSwipe && promotingIndex === null && (
             <View style={styles.backCard}>
-              {renderCardContent(vehicles[backIndex], 1)}
+              {/* Back card renders TOP ONLY (image + name + VIN).
+                  Bottom section is deliberately hidden so it doesn't
+                  render at full opacity while the incoming front
+                  card's bottom-section entering animation is
+                  running on top — otherwise the user sees the same
+                  content twice: once from the back card, then
+                  again as the front card's bottom slides in. */}
+              {renderCardContent(vehicles[backIndex], undefined, true)}
             </View>
+          )}
+
+          {/* Promoting card — Daniel's slide-in. Sits between back and
+              front while `promotingIndex` is set: starts at back-card
+              offsets and animates up into the front slot as
+              `promotionProgress` climbs to 1. Top-only content so the
+              bottom-curtain drop on the incoming front card doesn't
+              double up under the promotion. */}
+          {canSwipe && promotingIndex !== null && (
+            <Animated.View
+              style={[styles.backCard, styles.promotingCard, promotingCardStyle]}
+            >
+              {renderCardContent(vehicles[promotingIndex], undefined, true, true)}
+            </Animated.View>
           )}
 
           {/* Front card */}
@@ -552,21 +729,27 @@ const styles = StyleSheet.create({
     right: 0,
   },
   stackedCard: {
+    // Deepest peek in the 3-card stack — sits behind the back
+    // card so the visual reads as "one more card underneath."
+    // Bumped left/right inset from 17 → 30 so this peek is
+    // visibly NARROWER than the back card (inset 12) and the
+    // front card (inset 0). Also dropped opacity via a paler
+    // border + lower shadow, so it recedes visually.
     position: 'absolute',
     top: -4,
-    left: 17,
-    right: 17,
-    height: 50,
+    left: 30,
+    right: 30,
+    height: 44,
     borderRadius: 12,
     zIndex: 0,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: 'rgba(220, 225, 235, 0.6)',
+    borderColor: 'rgba(220, 225, 235, 0.45)',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
+    shadowOpacity: 0.03,
     shadowRadius: 4,
-    elevation: 2,
+    elevation: 1,
   },
   stackedCardHighlight: {
     position: 'absolute',
@@ -604,6 +787,22 @@ const styles = StyleSheet.create({
     // the front card's footprint.
     overflow: 'hidden',
     borderRadius: 12,
+  },
+  // Promoting card sits above the resting back card and just below
+  // the front so its slide from the stack into the front slot is
+  // uninterrupted by either. Animated top / left / right (not
+  // bottom) is what actually drives the motion — the style below
+  // just fixes the z-order and reveals full opacity for the ride.
+  promotingCard: {
+    zIndex: 1,
+    opacity: 1,
+  },
+  // Front card z-order + relative positioning so translateX flies
+  // clean across the stack. Referenced from the JSX; without this
+  // the style prop resolves to `undefined` at runtime.
+  frontCard: {
+    position: 'relative',
+    zIndex: 2,
   },
   card: {
     borderRadius: 12,
