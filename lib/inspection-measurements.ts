@@ -6,7 +6,19 @@ export const TIRE_POSITIONS = [
 ] as const;
 
 export type TirePosition = (typeof TIRE_POSITIONS)[number];
+export type TireCornerPosition = "FL" | "FR" | "RL" | "RR";
 export type RotorUnit = "in" | "mm";
+
+export function areTireReplacementPositionsValid(
+  quantity: number,
+  positions?: readonly TireCornerPosition[] | null,
+): boolean {
+  return (
+    !!positions?.length &&
+    positions.length === quantity &&
+    new Set(positions).size === positions.length
+  );
+}
 
 export type TireTreadReading = {
   reported_min_32nds?: number | null;

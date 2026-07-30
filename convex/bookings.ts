@@ -118,7 +118,10 @@ import {
   vehiclePassportUpdateValidator,
 } from "./lib/vehicle_passports";
 import { getBookingServiceFlags } from "../lib/vehicle-service-relevance";
-import { validateInspectionMeasurements } from "../lib/inspection-measurements";
+import {
+  areTireReplacementPositionsValid,
+  validateInspectionMeasurements,
+} from "../lib/inspection-measurements";
 import { insertSnapshotImpl } from "./part_snapshots";
 import {
   closeRecForCompletedBooking,
@@ -9071,6 +9074,7 @@ export const getJobDetail = query({
       vehicle: vehicleLabels.full,
       vehicleShort: vehicleLabels.short,
       serviceNames,
+      tireSpecs: booking.tire_specs ?? null,
       mechanicName: mechanic
         ? `${mechanic.first_name} ${mechanic.last_name}`.trim()
         : null,
@@ -13661,10 +13665,26 @@ export const createTireQuoteRequest = mutation({
       type: v.string(),
       tier: v.string(),
       quantity: v.number(),
+      positions: v.array(
+        v.union(
+          v.literal("FL"),
+          v.literal("FR"),
+          v.literal("RL"),
+          v.literal("RR"),
+        ),
+      ),
     }),
     service_ids: v.optional(v.array(v.id("services"))),
   },
   handler: async (ctx, args) => {
+    if (
+      !areTireReplacementPositionsValid(
+        args.tire_specs.quantity,
+        args.tire_specs.positions,
+      )
+    ) {
+      throw new Error("Selected tire positions must match the tire quantity.");
+    }
     const normalizedVin = args.vin.toUpperCase().trim();
     const now = Date.now();
 

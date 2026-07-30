@@ -119,6 +119,7 @@ export default function TireRequestingScreen({ onClose, onConfirmed }: TireReque
         type: typeLabel,
         tier: tierLabel,
         quantity: count,
+        positions: selectedTirePositions,
       },
     });
 
@@ -128,7 +129,7 @@ export default function TireRequestingScreen({ onClose, onConfirmed }: TireReque
     setTimeout(() => {
       confirmSheetRef.current?.open();
     }, 250);
-  }, [createTireQuoteRequest, selectedTirePositions.length, tier, tireSize, tireType]);
+  }, [createTireQuoteRequest, selectedTirePositions, tier, tireSize, tireType]);
 
   const handleBackToBooking = useCallback(() => {
     confirmSheetRef.current?.close();
