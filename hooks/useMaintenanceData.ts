@@ -20,6 +20,7 @@ import { useQuery } from "convex/react";
 import { useMemo } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { useSessionCachedQuery } from "@/lib/offlineSessionCache";
 import type { MaintenanceItem } from "@/components/cars/MaintenanceTracker";
 import {
   type MaintenanceType,
@@ -66,9 +67,17 @@ export function useMaintenanceRecords(
   // over the hardcoded fallback chain.
   oemIntervals?: OemServiceIntervalsInput,
 ) {
-  const records = useQuery(
+  const liveRecords = useQuery(
     api.maintenance.getRecordsByVehicle,
     vehicleOwnerId ? { vehicleOwnerId } : "skip"
+  );
+
+  // Session-scoped offline cache, keyed per vehicle — lets the car
+  // health ring render on an offline cold start while the saved Clerk
+  // session is still valid (see lib/offlineSessionCache.ts).
+  const { value: records } = useSessionCachedQuery(
+    vehicleOwnerId ? `maintenance_records:${String(vehicleOwnerId)}` : null,
+    liveRecords,
   );
 
   const items = useMemo(() => {

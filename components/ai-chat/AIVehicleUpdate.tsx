@@ -277,31 +277,26 @@ export function AIVehicleUpdate({
   // Render
   // ---------------------------------------------------------------------------
 
-  // Resolved — small banner, stop accepting input.
+  // Resolved — keep the card's anatomy (eyebrow + row) so this reads as the
+  // same component that just settled, not a different floating pill. The row
+  // dot grows into a status badge; text stays in the body typography.
   if (resolved) {
+    const applied = resolved === "applied";
     return (
       <Animated.View entering={FadeInUp.duration(150)} style={styles.container}>
-        <View
-          style={[
-            styles.resolvedBanner,
-            resolved === "dismissed" && styles.resolvedBannerMuted,
-          ]}
-        >
-          {resolved === "applied" ? (
-            <Check size={14} color={BrandColors.white} strokeWidth={3} />
-          ) : (
-            <X size={14} color={NEUTRAL_TEXT} strokeWidth={3} />
-          )}
-          <Text
-            style={[
-              styles.resolvedText,
-              resolved === "dismissed" && styles.resolvedTextMuted,
-            ]}
-            weight="medium"
-          >
-            {resolved === "applied"
-              ? successText ?? "Got it — updated."
-              : "Dismissed."}
+        <Text style={styles.label} weight="semiBold">
+          Vehicle update
+        </Text>
+        <View style={styles.row}>
+          <View style={[styles.resolvedBadge, !applied && styles.resolvedBadgeMuted]}>
+            {applied ? (
+              <Check size={12} color={BrandColors.white} strokeWidth={3} />
+            ) : (
+              <X size={12} color={NEUTRAL_TEXT} strokeWidth={3} />
+            )}
+          </View>
+          <Text style={[styles.rowText, !applied && styles.rowTextMuted]}>
+            {applied ? successText ?? "Got it — updated." : "Dismissed."}
           </Text>
         </View>
       </Animated.View>
@@ -497,25 +492,18 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     fontFamily: FontFamily.medium,
   },
-  resolvedBanner: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingVertical: Spacing.xs,
-    paddingHorizontal: Spacing.sm,
+  resolvedBadge: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
     backgroundColor: BrandColors.secondary,
-    borderRadius: BorderRadius.md,
-    alignSelf: "flex-start",
+    alignItems: "center",
+    justifyContent: "center",
   },
-  resolvedBannerMuted: {
-    backgroundColor: "rgba(0,0,0,0.05)",
+  resolvedBadgeMuted: {
+    backgroundColor: "rgba(0, 0, 0, 0.06)",
   },
-  resolvedText: {
-    fontSize: 12,
-    color: BrandColors.white,
-    fontFamily: FontFamily.medium,
-  },
-  resolvedTextMuted: {
+  rowTextMuted: {
     color: NEUTRAL_TEXT,
   },
   errorBanner: {

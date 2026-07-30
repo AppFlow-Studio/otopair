@@ -299,27 +299,28 @@ const styles = StyleSheet.create({
     gap: Spacing.xs,
     flexDirection: 'row',
   },
-  // Pill styles
+  // Pill styles — family glass surface + neutral hairline (matches the
+  // LinkButton/booking cards) instead of the old flat-grey full-radius pills.
   pill: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F9FAFB',
-    borderRadius: BorderRadius.full,
+    backgroundColor: 'rgba(255, 255, 255, 0.65)',
+    borderRadius: BorderRadius.md,
     paddingVertical: Spacing.xs,
     paddingHorizontal: Spacing.sm,
     gap: 4,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: 'rgba(0, 0, 0, 0.05)',
   },
   pillPressed: {
-    backgroundColor: '#F3F4F6',
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
     borderColor: BrandColors.secondary + '40',
   },
   pillIcon: {
     fontSize: 12,
   },
   pillLabel: {
-    color: '#6B7280',
+    color: '#4A5568',
     fontFamily: FontFamily.medium,
   },
   // Modal styles

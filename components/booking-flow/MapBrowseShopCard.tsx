@@ -18,6 +18,9 @@ import { Star } from "lucide-react-native";
 
 import { Text } from "@/components/shared-ui";
 
+// OtoPair pin mark — placeholder for shops that haven't uploaded a logo.
+const SHOP_LOGO_PLACEHOLDER = require("@/assets/images/pin-logo-3d.png");
+
 interface MapBrowseShopCardProps {
   shopId: string;
   shopName: string;
@@ -61,11 +64,13 @@ export function MapBrowseShopCard({
       accessibilityLabel={`${shopName} details`}
     >
       <View style={styles.image}>
-        {imageUrl ? (
-          <Image source={{ uri: imageUrl }} style={StyleSheet.absoluteFill} />
-        ) : (
-          <View style={[StyleSheet.absoluteFill, styles.imageFallback]} />
-        )}
+        {/* Explicit dims, not absoluteFill — drawable-backed sources render
+            blank with inset-only absolute sizing on this RN version. */}
+        <Image
+          source={imageUrl ? { uri: imageUrl } : SHOP_LOGO_PLACEHOLDER}
+          style={styles.imageInner}
+          resizeMode={imageUrl ? "cover" : "contain"}
+        />
       </View>
 
       <View style={styles.body}>
@@ -138,8 +143,9 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     backgroundColor: "#E5E7EB",
   },
-  imageFallback: {
-    backgroundColor: "#E5E7EB",
+  imageInner: {
+    width: 80,
+    height: 80,
   },
   body: {
     flex: 1,

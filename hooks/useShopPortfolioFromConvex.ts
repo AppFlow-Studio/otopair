@@ -1,7 +1,11 @@
 /**
  * useShopPortfolioFromConvex
  *
- * Fetches portfolio items (images) for a shop from Convex (cdn_assets + shop_portfolio).
+ * Fetches portfolio items (images) for a shop from Convex. Rows resolve from
+ * two sources server-side: owner uploads in Convex storage and legacy
+ * cdn_assets seed references. The server returns them pre-sorted by
+ * display_order (tie-broken by creation time) — that order is canonical, so
+ * no client-side re-sort.
  *
  * USED IN: ShopPortfolioSection
  */
@@ -15,7 +19,6 @@ export interface PortfolioItem {
   id: string;
   url: string;
   caption: string | null;
-  display_order: number;
 }
 
 export function useShopPortfolioFromConvex(shopId: string | null) {
@@ -23,14 +26,13 @@ export function useShopPortfolioFromConvex(shopId: string | null) {
 
   const portfolio = useMemo((): PortfolioItem[] => {
     if (!items) return [];
-    return items
-      .filter((x): x is typeof x & { url: string } => x.url != null)
-      .map((x) => ({
-        id: x._id,
-        url: x.url,
-        caption: x.caption ?? null,
-        display_order: x.display_order,
-      }));
+    const rows: PortfolioItem[] = [];
+    for (const item of items) {
+      if (item.url != null) {
+        rows.push({ id: item._id, url: item.url, caption: item.caption ?? null });
+      }
+    }
+    return rows;
   }, [items]);
 
   return {

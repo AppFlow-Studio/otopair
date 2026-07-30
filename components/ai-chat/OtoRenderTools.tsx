@@ -291,32 +291,34 @@ const styles = StyleSheet.create({
     marginHorizontal: Spacing.md,
     marginBottom: Spacing.md,
   },
-  // LinkButton
+  // LinkButton — same card language as the booking rows below: radius-lg
+  // glass with a neutral hairline; blue lives in the icon chip + arrow, the
+  // label reads as body text like bookingTitle.
   linkButton: {
     flexDirection: "row",
     alignItems: "center",
     gap: Spacing.sm,
-    backgroundColor: "rgba(255, 255, 255, 0.7)",
-    borderRadius: BorderRadius.full,
+    backgroundColor: "rgba(255, 255, 255, 0.65)",
+    borderRadius: BorderRadius.lg,
     paddingVertical: Spacing.md - 2,
     paddingHorizontal: Spacing.md,
     borderWidth: 1,
-    borderColor: BrandColors.secondary + "33",
+    borderColor: "rgba(0, 0, 0, 0.05)",
   },
   linkButtonPressed: {
     opacity: 0.85,
   },
   linkIconWrap: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
     backgroundColor: BrandColors.secondary + "1A",
     alignItems: "center",
     justifyContent: "center",
   },
   linkLabel: {
     flex: 1,
-    color: BrandColors.secondary,
+    color: "#2D3748",
     fontSize: 14,
   },
   // Bookings (card + list)

@@ -12,13 +12,16 @@
 import React, { useMemo, useState } from "react";
 import { Image, Linking, PixelRatio, Pressable, StyleSheet, View } from "react-native";
 
-import { Bookmark, Calendar, Navigation, Phone, Star, Store } from "lucide-react-native";
+import { Bookmark, Calendar, Navigation, Phone, Star } from "lucide-react-native";
 
 import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 import { BorderRadius, Shadows } from "@/constants/theme";
 import { useDistanceUnit } from "@/hooks/useDistanceUnit";
 import type { Shop } from "@/stores/types/store.types";
 import { formatProximityDistanceFromKm } from "@/utils/geo";
+
+// OtoPair pin mark — placeholder for shops that haven't uploaded a logo.
+const SHOP_LOGO_PLACEHOLDER = require("@/assets/images/pin-logo-3d.png");
 
 interface ShopHeroCardProps {
   shop: Shop;
@@ -95,19 +98,17 @@ export function ShopHeroCard({
   return (
     <View style={styles.card}>
       {/* Identity row — shop logo (uploaded from the mechanic dashboard,
-          resolved by shops.list) beside the name; storefront icon when
-          the shop hasn't set one. */}
+          resolved by shops.list) beside the name; OtoPair pin placeholder
+          when the shop hasn't set one. */}
       <View style={styles.identityRow}>
         <View style={styles.logoBox}>
-          {shop.imageUrl ? (
-            <Image
-              source={{ uri: shop.imageUrl }}
-              style={StyleSheet.absoluteFill}
-              resizeMode="cover"
-            />
-          ) : (
-            <Store size={24} color="#9CA3AF" strokeWidth={1.5} />
-          )}
+          {/* Explicit dims, not absoluteFill — drawable-backed sources render
+              blank with inset-only absolute sizing on this RN version. */}
+          <Image
+            source={shop.imageUrl ? { uri: shop.imageUrl } : SHOP_LOGO_PLACEHOLDER}
+            style={styles.logoImage}
+            resizeMode={shop.imageUrl ? "cover" : "contain"}
+          />
         </View>
 
         <View style={styles.identityText}>
@@ -272,6 +273,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     overflow: "hidden",
+  },
+  logoImage: {
+    width: 56,
+    height: 56,
   },
   identityText: {
     flex: 1,

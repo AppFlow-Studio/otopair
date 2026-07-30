@@ -1015,7 +1015,10 @@ export default function PaymentScreen() {
 
         {hasPayment && selectedPaymentMethod ? (
           <TouchableOpacity
-            style={styles.footerCardRow}
+            style={[
+              styles.footerCardRow,
+              (isSubmitting || !canWrite) && styles.confirmButtonDisabled,
+            ]}
             onPress={handleConfirmPayment}
             activeOpacity={0.85}
             disabled={isSubmitting || !canWrite}
@@ -1057,9 +1060,10 @@ export default function PaymentScreen() {
           </TouchableOpacity>
         ) : (
           <TouchableOpacity
-            style={styles.footerCardRow}
+            style={[styles.footerCardRow, !canWrite && styles.confirmButtonDisabled]}
             onPress={() => router.push("/add-payment")}
             activeOpacity={0.85}
+            disabled={!canWrite}
           >
             <View style={styles.cardBrandIcon}>
               <Text size="xs" weight="bold" color="#9CA3AF">

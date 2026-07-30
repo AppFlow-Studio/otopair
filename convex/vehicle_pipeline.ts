@@ -971,7 +971,7 @@ export const enrichVehicleSpecs = internalAction({
           - Publicly visible labor-time references (if available)
 
           NOT ALLOWED
-          - RepairPal
+          - Estimator
           - Forums as a primary source (forums may only sanity-check; never "verify")
 
           CRITICAL RULES

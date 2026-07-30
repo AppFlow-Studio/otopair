@@ -42,6 +42,13 @@ import {
   RatingMarkerPill,
   RATING_MARKER_REPAINT_MS,
 } from "@/components/booking-flow/RatingMarkerPill";
+import { MapSkeleton } from "@/components/booking-flow/MapSkeleton";
+
+/** Hard stop on the skeleton. `onMapLoaded` is not guaranteed to fire —
+ *  a misconfigured Google Maps key, for one, leaves it silent — and a
+ *  surface that shimmers forever reads worse than a static one. Past
+ *  this we drop the skeleton and show whatever the map managed. */
+const MAP_READY_TIMEOUT_MS = 6000;
 
 const FALLBACK_REGION: Region = {
   latitude: 41.1959,
@@ -120,6 +127,13 @@ export function BookingFlowMapProvider({
   const [interactive, setInteractive] = useState(false);
   const [markers, setMarkers] = useState<BookingFlowMarker[]>([]);
   const [shopPins, setShopPins] = useState<BookingFlowShopPin[]>([]);
+  // Skeleton covers two distinct waits: `region === null` (permission
+  // check + location fix still in flight) and the gap between MapView
+  // mounting and the provider painting its first tiles. Dismissal is
+  // keyed to `onMapLoaded` (tiles rendered), NOT `onMapReady` — ready
+  // fires when the map object initialises, seconds before anything is
+  // drawn, which left the user staring at Google's blank beige canvas.
+  const [mapReady, setMapReady] = useState(false);
 
   // Resolve location once for the whole flow (each screen used to do
   // this independently). Falls back to a NY-metro region.
@@ -155,6 +169,15 @@ export function BookingFlowMapProvider({
       cancelled = true;
     };
   }, [setBookingUserLocation]);
+
+  // Start the fallback timer only once the MapView is actually mounted
+  // (`region` resolved) — otherwise a slow permission prompt burns the
+  // window before the map ever gets a chance to report in.
+  useEffect(() => {
+    if (!region || mapReady) return;
+    const t = setTimeout(() => setMapReady(true), MAP_READY_TIMEOUT_MS);
+    return () => clearTimeout(t);
+  }, [region, mapReady]);
 
   const setInteractiveCb = useCallback(
     (next: boolean) => setInteractive(next),
@@ -199,6 +222,7 @@ export function BookingFlowMapProvider({
               style={StyleSheet.absoluteFill}
               provider={PROVIDER_DEFAULT}
               initialRegion={region}
+              onMapLoaded={() => setMapReady(true)}
               showsUserLocation
               scrollEnabled
               zoomEnabled
@@ -219,10 +243,13 @@ export function BookingFlowMapProvider({
                 />
               ))}
             </MapView>
-          ) : (
-            <View style={[StyleSheet.absoluteFill, styles.fallback]} />
-          )}
+          ) : null}
         </View>
+
+        {/* Above the map, below the screens. `pointerEvents="none"`
+            inside `MapSkeleton` keeps it out of the touch path, so a
+            late `onMapReady` can't strand gestures behind it. */}
+        {region && mapReady ? null : <MapSkeleton />}
 
         {/* Children (the booking-flow Stack) wrapped in a controlled
             pointerEvents layer. When the map is interactive, this
@@ -281,9 +308,6 @@ function BookingFlowShopPinMarker({ pin }: { pin: BookingFlowShopPin }) {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: "#C8D7DE",
-  },
-  fallback: {
     backgroundColor: "#C8D7DE",
   },
 });

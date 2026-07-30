@@ -29,7 +29,7 @@ import { View, Pressable, StyleSheet, TextInput } from "react-native";
 
 // 2. Expo & Third-party
 import Animated, { FadeInUp } from "react-native-reanimated";
-import { Check, Pencil } from "lucide-react-native";
+import { Check, Pencil, X } from "lucide-react-native";
 import { useQuery, useMutation } from "convex/react";
 
 // 3. Convex
@@ -107,7 +107,9 @@ export function AIRecordConfirmation({
   // Two-step state machine: "prompt" (initial confirm/deny) → "form" (date+mileage input).
   const [step, setStep] = useState<"prompt" | "form">("prompt");
   const [submitting, setSubmitting] = useState(false);
-  const [resolved, setResolved] = useState(false);
+  // Which way the card settled — drives the resolved row's badge, copy, and
+  // muted treatment (declined confirms nothing, so it must not read as a "✓").
+  const [resolved, setResolved] = useState<null | "confirmed" | "updated" | "declined">(null);
   // Inline failure surface — fires when upsertRecord throws. Console warns
   // are kept for telemetry; this string drives a small banner so the user
   // can retry instead of seeing a silent no-op tap.
@@ -159,7 +161,7 @@ export function AIRecordConfirmation({
         // Don't touch confidence/serviceSource — user only attested it's still
         // correct, didn't add new evidence. Preserve whatever's there.
       });
-      setResolved(true);
+      setResolved("confirmed");
       onDecision({ kind: "confirmed", type: maintenanceType });
     } catch (err) {
       // Surface failure but don't block the user from retrying.
@@ -175,7 +177,7 @@ export function AIRecordConfirmation({
   // validated. Guarded against double-fire like the confirm path.
   const handleDecline = useCallback(() => {
     if (submitting || resolved) return;
-    setResolved(true);
+    setResolved("declined");
     onDecision({ kind: "declined", type: maintenanceType });
   }, [maintenanceType, onDecision, resolved, submitting]);
 
@@ -217,7 +219,7 @@ export function AIRecordConfirmation({
         serviceSource: "ai_chat_correction",
         confidence: "self_reported",
       });
-      setResolved(true);
+      setResolved("updated");
       onDecision({
         kind: "updated",
         type: maintenanceType,
@@ -247,14 +249,30 @@ export function AIRecordConfirmation({
   // Render
   // ---------------------------------------------------------------------------
 
-  // Resolved state — show a small confirmation banner and stop accepting input.
+  // Resolved — keep the card's anatomy (eyebrow + row) so this reads as the
+  // same component that just settled, not a different floating pill. Declined
+  // gets the muted treatment: nothing was confirmed, so no blue "✓".
   if (resolved) {
+    const declined = resolved === "declined";
     return (
       <Animated.View entering={FadeInUp.duration(150)} style={styles.container}>
-        <View style={styles.resolvedBanner}>
-          <Check size={14} color={BrandColors.white} strokeWidth={3} />
-          <Text style={styles.resolvedText} weight="medium">
-            Got it — thanks for confirming.
+        <Text style={styles.label} weight="semiBold">
+          {label}
+        </Text>
+        <View style={styles.resolvedRow}>
+          <View style={[styles.resolvedBadge, declined && styles.resolvedBadgeMuted]}>
+            {declined ? (
+              <X size={12} color={NEUTRAL_TEXT} strokeWidth={3} />
+            ) : (
+              <Check size={12} color={BrandColors.white} strokeWidth={3} />
+            )}
+          </View>
+          <Text style={[styles.resolvedRowText, declined && styles.resolvedRowTextMuted]}>
+            {resolved === "confirmed"
+              ? "Got it — thanks for confirming."
+              : resolved === "updated"
+                ? "Record updated."
+                : "Not confirmed — left as is."}
           </Text>
         </View>
       </Animated.View>
@@ -486,20 +504,31 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.md,
     alignItems: "center",
   },
-  resolvedBanner: {
+  resolvedRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    paddingVertical: Spacing.xs,
-    paddingHorizontal: Spacing.sm,
-    backgroundColor: BrandColors.secondary,
-    borderRadius: BorderRadius.md,
-    alignSelf: "flex-start",
+    gap: Spacing.sm,
   },
-  resolvedText: {
-    fontSize: 12,
-    color: BrandColors.white,
-    fontFamily: FontFamily.medium,
+  resolvedBadge: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: BrandColors.secondary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  resolvedBadgeMuted: {
+    backgroundColor: "rgba(0, 0, 0, 0.06)",
+  },
+  resolvedRowText: {
+    flex: 1,
+    fontSize: 14,
+    color: BrandColors.primary,
+    lineHeight: 20,
+    fontFamily: FontFamily.regular,
+  },
+  resolvedRowTextMuted: {
+    color: NEUTRAL_TEXT,
   },
   errorBanner: {
     marginTop: Spacing.xs,

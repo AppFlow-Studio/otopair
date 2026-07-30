@@ -1,3 +1,4 @@
+import { ESTIMATOR_ENDPOINT_SOURCES } from "./sourceNames";
 // convex/lib/laborBands.ts
 /**
  * laborBands.ts — Tolerance bands and source classification for the
@@ -21,12 +22,13 @@ export const AGREEMENT_BAND_PCT = 0.1;
 /**
  * Web/portal-extracted labor sources eligible to anchor a quote-grade value.
  * VDB (too generic) and LLM (guesswork) are NOT strong; the retired
- * `repairpal_motor` / `repairpal_labor` ($→hr hacks) are NOT strong. `web_labor`
+ * `estimator_book` / `estimator_labor` ($→hr hacks) are NOT strong. `web_labor`
  * and `oem_labor` are added by later phases but classified now so the agreement
  * rule is forward-compatible.
  */
 export const STRONG_LABOR_SOURCES: ReadonlySet<string> = new Set([
-  "repairpal_endpoint", // exact MOTOR flat-rate minutes — authoritative; drives book_hours when present
+  // exact flat-rate minutes — authoritative; drives book_hours when present
+  ...ESTIMATOR_ENDPOINT_SOURCES,
   "olp_labor",
   "web_labor",
   "oem_labor",
