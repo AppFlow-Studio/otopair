@@ -120,7 +120,10 @@ import {
 import { getBookingServiceFlags } from "../lib/vehicle-service-relevance";
 import {
   areTireReplacementPositionsValid,
+  getBookedTireReplacementPositions,
   validateInspectionMeasurements,
+  type TireCornerPosition,
+  type TirePosition,
 } from "../lib/inspection-measurements";
 import { insertSnapshotImpl } from "./part_snapshots";
 import {
@@ -4460,6 +4463,7 @@ function buildPassportPatchFromPrejob(prejob: any, existingPassport: any) {
         : undefined,
     tires: {
       brand: prejob.tire_brand ?? undefined,
+      model: prejob.tire_model ?? undefined,
       size_front: prejob.tire_size_front ?? undefined,
       size_rear: prejob.tire_size_rear ?? undefined,
       tread_depths: prejob.tire_tread ?? undefined,
@@ -4932,29 +4936,75 @@ async function buildVehiclePassportForBooking(ctx: any, booking: any) {
   };
 }
 
+function getTireReplacementPositions(booking: {
+  tire_specs?: {
+    quantity?: number;
+    positions?: TireCornerPosition[];
+  } | null;
+}): TirePosition[] {
+  const positions: Record<string, TirePosition> = {
+    FL: "front_left",
+    FR: "front_right",
+    RL: "rear_left",
+    RR: "rear_right",
+  };
+  return getBookedTireReplacementPositions(booking.tire_specs)
+    .map((position: string) => positions[position])
+    .filter((position: TirePosition | undefined): position is TirePosition => !!position);
+}
+
 function validatePrejobReport(
   prejob: any,
   baselineMileage: number | null,
   serviceFlags: ReturnType<typeof getBookingServiceFlags>,
   brakeScope: BrakeScope,
+  tireReplacementPositions: TirePosition[],
 ) {
+  const tireInspectionRequired =
+    serviceFlags.hasTireWork || serviceFlags.hasBrakeWork;
+  const replaced = new Set(
+    serviceFlags.hasTireReplacement ? tireReplacementPositions : [],
+  );
   if (typeof prejob.mileage !== "number" || !Number.isFinite(prejob.mileage)) {
     throw new Error("Mileage is required before starting this booking.");
   }
-  if (!hasText(prejob.tire_brand)) {
-    throw new Error("Tire brand is required before starting this booking.");
-  }
-  if (!hasText(prejob.tire_size_front)) {
-    throw new Error("Front tire size is required before starting this booking.");
-  }
-  if (!hasText(prejob.tire_size_rear)) {
-    throw new Error("Rear tire size is required before starting this booking.");
-  }
-  if (!hasText(prejob.front_tire_condition)) {
-    throw new Error("Front tire condition is required before starting this booking.");
-  }
-  if (!hasText(prejob.rear_tire_condition)) {
-    throw new Error("Rear tire condition is required before starting this booking.");
+  if (tireInspectionRequired) {
+    const tireDetails = prejob.tire_details ?? {};
+    const tireLabels: Record<TirePosition, string> = {
+      front_left: "Front-left",
+      front_right: "Front-right",
+      rear_left: "Rear-left",
+      rear_right: "Rear-right",
+    };
+    for (const position of Object.keys(tireLabels) as TirePosition[]) {
+      if (
+        !replaced.has(position) &&
+        !hasText(tireDetails[position]?.brand) &&
+        !hasText(prejob.tire_brand)
+      ) {
+        throw new Error(
+          `${tireLabels[position]} tire brand is required before starting this booking.`,
+        );
+      }
+    }
+    if (!hasText(prejob.tire_size_front)) {
+      throw new Error("Front tire size is required before starting this booking.");
+    }
+    if (!hasText(prejob.tire_size_rear)) {
+      throw new Error("Rear tire size is required before starting this booking.");
+    }
+    if (
+      (!replaced.has("front_left") || !replaced.has("front_right")) &&
+      !hasText(prejob.front_tire_condition)
+    ) {
+      throw new Error("Front tire condition is required before starting this booking.");
+    }
+    if (
+      (!replaced.has("rear_left") || !replaced.has("rear_right")) &&
+      !hasText(prejob.rear_tire_condition)
+    ) {
+      throw new Error("Rear tire condition is required before starting this booking.");
+    }
   }
   if (
     typeof baselineMileage === "number" &&
@@ -4985,6 +5035,8 @@ function validatePrejobReport(
   }
   const measurementResult = validateInspectionMeasurements({
     tire_tread: prejob.tire_tread,
+    tire_replacement_positions: [...replaced],
+    require_tire_tread: tireInspectionRequired,
     brakes: prejob.brakes,
     brake_scope: brakeScope,
   });
@@ -4998,6 +5050,20 @@ function validatePrejobReport(
     if (!hasText(prejob.fluid_overrides?.oil_type)) {
       throw new Error("Oil type is required for an oil change.");
     }
+  }
+  if (
+    serviceFlags.hasCoolantFlush &&
+    !hasText(prejob.fluid_overrides?.coolant_type)
+  ) {
+    throw new Error("Coolant type is required for a coolant flush.");
+  }
+  if (
+    serviceFlags.hasTransmissionFluidService &&
+    !hasText(prejob.fluid_overrides?.transmission_fluid_type)
+  ) {
+    throw new Error(
+      "Transmission fluid type is required for a transmission fluid service.",
+    );
   }
 }
 
@@ -9074,7 +9140,12 @@ export const getJobDetail = query({
       vehicle: vehicleLabels.full,
       vehicleShort: vehicleLabels.short,
       serviceNames,
-      tireSpecs: booking.tire_specs ?? null,
+      tireSpecs: booking.tire_specs
+        ? {
+            ...booking.tire_specs,
+            positions: getBookedTireReplacementPositions(booking.tire_specs),
+          }
+        : null,
       mechanicName: mechanic
         ? `${mechanic.first_name} ${mechanic.last_name}`.trim()
         : null,
@@ -9276,6 +9347,7 @@ export const startWithPrejob = mutation({
       passportView.passport.mileage ?? null,
       serviceFlags,
       await resolveBrakeScopeForBooking(ctx, booking),
+      getTireReplacementPositions(booking),
     );
 
     const now = Date.now();
@@ -9379,6 +9451,7 @@ export const commitInspectionAndAwaitEstimate = mutation({
       passportView.passport.mileage ?? null,
       serviceFlags,
       await resolveBrakeScopeForBooking(ctx, booking),
+      getTireReplacementPositions(booking),
     );
 
     const now = Date.now();
@@ -10321,6 +10394,16 @@ export const createByShop = mutation({
         type: v.string(),
         tier: v.string(),
         quantity: v.number(),
+        positions: v.optional(
+          v.array(
+            v.union(
+              v.literal("FL"),
+              v.literal("FR"),
+              v.literal("RL"),
+              v.literal("RR"),
+            ),
+          ),
+        ),
       })
     ),
     // Walk-in / external customer data capture. Defaults to "mechanic_walk_in"
@@ -10925,6 +11008,16 @@ export const backfillCompletedBooking = mutation({
         type: v.string(),
         tier: v.string(),
         quantity: v.number(),
+        positions: v.optional(
+          v.array(
+            v.union(
+              v.literal("FL"),
+              v.literal("FR"),
+              v.literal("RL"),
+              v.literal("RR"),
+            ),
+          ),
+        ),
       }),
     ),
     actualDurationMinutes: v.float64(),
