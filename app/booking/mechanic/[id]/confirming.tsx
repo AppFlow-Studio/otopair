@@ -84,6 +84,8 @@ export default function BookingConfirmingScreen() {
   const selectedMechanicSlot = useBookingStore((s) => s.selectedMechanicSlot);
   const scheduledAppointment = useBookingStore((s) => s.scheduledAppointment);
   const bookingType = useBookingStore((s) => s.bookingType);
+  const quoteAcceptContext = useBookingStore((s) => s.quoteAcceptContext);
+  const setQuoteAcceptContext = useBookingStore((s) => s.setQuoteAcceptContext);
   const getMechanicById = useMechanicStore((s) => s.getMechanicById);
   const selectedPaymentMethodId = usePaymentStore((s) => s.selectedPaymentMethodId);
   const selectedWalletPm = usePaymentStore((s) => s.selectedWalletPm);
@@ -93,6 +95,8 @@ export default function BookingConfirmingScreen() {
   const cancelPreauthorizedPayment = useAction(api.payments_stripe.cancelPreauthorizedPaymentIntent);
   const customerRequestReschedule = useMutation(api.bookings.customerRequestReschedule);
   const rollbackFailedBookingCreation = useMutation(api.bookings.rollbackFailedBookingCreation);
+  const acceptTireQuote = useMutation(api.bookings.acceptTireQuote);
+  const acceptRotorQuote = useMutation(api.bookings.acceptRotorQuote);
   const toast = useToast();
   // The PaymentIntent is created + confirmed server-side. If 3DS is needed,
   // Stripe returns requires_action and the client *finishes* the challenge
@@ -265,26 +269,60 @@ export default function BookingConfirmingScreen() {
         throw new Error(`Card authorization failed (status: ${preauth.status}).`);
       }
 
-      const bookingIds = await createBookingConvex(
-        selectedMechanicId,
-        bookingType || "book_now",
-        {
-          stripePaymentIntentId: preauth.paymentIntentId,
-          idempotencyKey: preauth.idempotencyKey,
-          holdAmountCents: preauth.holdAmountCents,
-          ...(paymentOrigin ? { paymentOrigin } : {}),
-        },
-      );
-      const newBookingId = bookingIds[0];
-      if (typeof newBookingId === "string" && newBookingId.length > 10) {
-        createdBookingId = newBookingId as Id<"bookings">;
+      let resultBookingId: Id<"bookings"> | null = null;
+      if (quoteAcceptContext) {
+        // Accepting an existing tire/rotor quote: the booking row already
+        // exists (created when the customer requested the quote), so this
+        // patches it in place instead of creating a new one — no rollback
+        // path needed on failure, it just stays as it was.
+        if (!scheduledAppointment) {
+          throw new Error("Pick a date and time first.");
+        }
+        const scheduledTime =
+          selectedMechanicSlot?.scheduledTime ?? displayTimeToHHMM(scheduledAppointment.time);
+        const mechanicIdArg = selectedMechanicSlot?.mechanicId
+          ? (selectedMechanicSlot.mechanicId as Id<"mechanics">)
+          : undefined;
+        resultBookingId =
+          quoteAcceptContext.quoteType === "rotor"
+            ? await acceptRotorQuote({
+                booking_id: quoteAcceptContext.bookingId,
+                response_id: quoteAcceptContext.responseId as Id<"rotor_quote_responses">,
+                scheduled_date: scheduledAppointment.date,
+                scheduled_time: scheduledTime,
+                mechanic_id: mechanicIdArg,
+              })
+            : await acceptTireQuote({
+                booking_id: quoteAcceptContext.bookingId,
+                response_id: quoteAcceptContext.responseId as Id<"tire_quote_responses">,
+                scheduled_date: scheduledAppointment.date,
+                scheduled_time: scheduledTime,
+                mechanic_id: mechanicIdArg,
+              });
+      } else {
+        const bookingIds = await createBookingConvex(
+          selectedMechanicId,
+          bookingType || "book_now",
+          {
+            stripePaymentIntentId: preauth.paymentIntentId,
+            idempotencyKey: preauth.idempotencyKey,
+            holdAmountCents: preauth.holdAmountCents,
+            ...(paymentOrigin ? { paymentOrigin } : {}),
+          },
+        );
+        const newBookingId = bookingIds[0];
+        if (typeof newBookingId === "string" && newBookingId.length > 10) {
+          createdBookingId = newBookingId as Id<"bookings">;
+          resultBookingId = createdBookingId;
+        }
       }
 
       if (navigatedRef.current) return;
       navigatedRef.current = true;
+      if (quoteAcceptContext) setQuoteAcceptContext(null);
       router.replace({
         pathname: "/booking/mechanic/[id]/confirmation",
-        params: newBookingId ? { id, bookingDbId: newBookingId } : { id },
+        params: resultBookingId ? { id, bookingDbId: resultBookingId } : { id },
       });
     } catch (err) {
       if (preauthorizedPaymentIntentId) {
@@ -334,6 +372,10 @@ export default function BookingConfirmingScreen() {
     cancelPreauthorizedPayment,
     rollbackFailedBookingCreation,
     customerRequestReschedule,
+    quoteAcceptContext,
+    setQuoteAcceptContext,
+    acceptTireQuote,
+    acceptRotorQuote,
     handleNextAction,
     router,
     id,

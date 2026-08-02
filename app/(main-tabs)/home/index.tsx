@@ -7,7 +7,6 @@ import Animated from 'react-native-reanimated';
 // 2. Expo & Third-party
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
-import * as Location from 'expo-location';
 import { useFocusEffect } from 'expo-router';
 import { useGuardedRouter as useRouter } from '@/hooks/useGuardedRouter';
 import {
@@ -55,6 +54,7 @@ import { LeaveReviewSheet, type LeaveReviewSheetRef } from '@/components/booking
 import { ReceiptSheet } from '@/components/receipts/ReceiptSheet';
 import { useMyBookingsWithDetails } from '@/hooks/useMyBookingsWithDetails';
 import { useUserFromConvex } from '@/hooks/useUserFromConvex';
+import { useStagedLocation } from '@/hooks/useStagedLocation';
 import * as SecureStore from 'expo-secure-store';
 
 // Persists the set of booking IDs that have already triggered the
@@ -187,7 +187,10 @@ export default function HomeScreen() {
   const { vehicles: listVehicles, hasVehicles, isLoading: vehiclesLoading } = useVehicleOwnershipFromConvex();
   const [showWelcome, setShowWelcome] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
-  const [locationName, setLocationName] = useState('Loading...');
+  const { location: stagedLocation, stage: locationStage } = useStagedLocation();
+  const locationName =
+    stagedLocation?.label ??
+    (locationStage === "unavailable" ? "Location unavailable" : "Finding location...");
   const [vehicleImageUrls, setVehicleImageUrls] = useState<Record<string, string>>({});
   const fetchedVinsRef = useRef<Set<string>>(new Set());
   const saveVehicleImageUrl = useMutation(api.vehicles.saveVehicleImageUrl);
@@ -388,33 +391,6 @@ export default function HomeScreen() {
     const vin = carSetupVehicle.vin;
     return vin ? `VIN ${vin.slice(-6)}` : undefined;
   }, [carSetupVehicle]);
-
-  useEffect(() => {
-    (async () => {
-      // Request location permission
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== "granted") {
-        setLocationName("Location unavailable");
-        return;
-      }
-
-      // Get current location
-      const location = await Location.getCurrentPositionAsync({});
-
-      // Get location name (reverse geocoding)
-      try {
-        const [address] = await Location.reverseGeocodeAsync({
-          latitude: location.coords.latitude,
-          longitude: location.coords.longitude,
-        });
-        if (address) {
-          setLocationName(`${address.city || address.subregion || "Unknown"}, ${address.region || ""}`);
-        }
-      } catch (error) {
-        setLocationName("Unknown location");
-      }
-    })();
-  }, []);
 
   useEffect(() => {
     if (!listVehicles?.length) return;
@@ -1027,7 +1003,13 @@ export default function HomeScreen() {
                   <Text size="xl" color="#FFFFFF" weight="bold">
                     Otopair
                   </Text>
-                  <Text weight="semiBold" size="sm" color="#FFFFFF">
+                  <Text
+                    weight="semiBold"
+                    size="sm"
+                    color="#FFFFFF"
+                    numberOfLines={3}
+                    style={styles.locationName}
+                  >
                     {locationName}
                   </Text>
                 </View>
@@ -1511,16 +1493,24 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 2,
     flex: 1,
+    minWidth: 0,
     paddingLeft: 0,
   },
   locationText: {
+    flex: 1,
+    minWidth: 0,
     gap: 0,
     marginTop: -7,
     marginLeft: 12,
   },
+  locationName: {
+    flexShrink: 1,
+    width: "100%",
+  },
   headerRight: {
     flexDirection: "row",
     alignItems: "center",
+    flexShrink: 0,
     gap: 8,
   },
   goldTierBadge: {

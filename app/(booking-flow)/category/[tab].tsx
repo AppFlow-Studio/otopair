@@ -484,7 +484,7 @@ export default function CategoryDetailScreen() {
                 <ArrowLeft size={20} color="#1F2937" strokeWidth={2} />
               </Pressable>
               <View style={{ flex: 1 }} />
-              <VehiclePuck />
+              <VehiclePuck interactive />
             </View>
 
             {tab && tabKey ? (

@@ -23,10 +23,9 @@ interface VehiclePuckProps {
   /** Overrides the default tap behavior (open the switcher sheet).
    *  Ignored unless `interactive` is true. */
   onPress?: () => void;
-  /** Whether the puck is tappable. Only Screen 1 of the booking
-   *  flow passes `true`; Screens 2-4 carry the puck purely as a
-   *  context indicator (the active car never changes once the user
-   *  is past the service-selection step). */
+  /** Whether the puck is tappable. Screens that let the user switch
+   *  vehicles pass `true`; other screens carry the puck purely as a
+   *  context indicator. */
   interactive?: boolean;
 }
 

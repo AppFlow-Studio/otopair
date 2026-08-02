@@ -79,6 +79,8 @@ export default function PaymentScreen() {
   const selectedServiceOptions = useBookingStore((state) => state.selectedServiceOptions);
   const selectedMechanicId = useBookingStore((state) => state.selectedMechanicId);
   const selectedMechanicSlot = useBookingStore((state) => state.selectedMechanicSlot);
+  const quoteAcceptContext = useBookingStore((state) => state.quoteAcceptContext);
+  const isQuoteAccept = quoteAcceptContext != null;
   const getFormattedAppointmentDate = useBookingStore((state) => state.getFormattedAppointmentDate);
   const getFormattedAppointmentTime = useBookingStore((state) => state.getFormattedAppointmentTime);
   const customerNotes = useBookingStore((state) => state.customerNotes);
@@ -431,6 +433,29 @@ export default function PaymentScreen() {
     [breakdown.laborHours, laborRate],
   );
 
+  // Tire/rotor quote acceptance: the shop already quoted a firm labor/parts
+  // split (`quoteAcceptContext.laborCost`/`.partsCost`), so there's no live
+  // engine estimate to compute — just the same Taxes/Service Fee math every
+  // other booking gets, applied to the quote's real numbers. Fixed values,
+  // not ranges: this is a firm shop quote, not a Pre-Job Approval estimate.
+  const quoteBreakdown = useMemo(() => {
+    if (!quoteAcceptContext) return null;
+    const taxDollars = computeBookingTax({
+      laborDollars: quoteAcceptContext.laborCost,
+      partsDollars: quoteAcceptContext.partsCost,
+      state: shop?.state,
+      zip: shop?.zip,
+    }).taxDollars;
+    const serviceFeeDollars = computePlatformFeeDollars(
+      quoteAcceptContext.laborCost + quoteAcceptContext.partsCost,
+    );
+    return {
+      taxDollars,
+      serviceFeeDollars,
+      total: quoteAcceptContext.quoteTotal + taxDollars + serviceFeeDollars,
+    };
+  }, [quoteAcceptContext, shop?.state, shop?.zip]);
+
   // Stash the customer-facing range + fixed-price flag so BookingConfirmStatus
   // can re-quote the same band the customer just agreed to and decide
   // whether to render the "Fixed price" / "Estimate" pills alongside it.
@@ -460,14 +485,19 @@ export default function PaymentScreen() {
     hasLaborFallback ||
     (!isPricedPartsLoading && !hasRealPartsData);
   useEffect(() => {
+    if (isQuoteAccept) {
+      if (quoteBreakdown) setDisclosedRangeFormatted(`$${quoteBreakdown.total.toFixed(2)}`);
+      return;
+    }
     setDisclosedRangeFormatted(breakdown.rangeFormatted);
-  }, [breakdown.rangeFormatted, setDisclosedRangeFormatted]);
+  }, [isQuoteAccept, quoteBreakdown, breakdown.rangeFormatted, setDisclosedRangeFormatted]);
   useEffect(() => {
-    setDisclosedRangeIsFixedPrice(hasAnyFixedPrice);
-  }, [hasAnyFixedPrice, setDisclosedRangeIsFixedPrice]);
+    // A shop quote is always a firm price, never an estimate band.
+    setDisclosedRangeIsFixedPrice(isQuoteAccept ? true : hasAnyFixedPrice);
+  }, [isQuoteAccept, hasAnyFixedPrice, setDisclosedRangeIsFixedPrice]);
   useEffect(() => {
-    setDisclosedRangeIsEstimate(isEstimateBadgeActive);
-  }, [isEstimateBadgeActive, setDisclosedRangeIsEstimate]);
+    setDisclosedRangeIsEstimate(isQuoteAccept ? false : isEstimateBadgeActive);
+  }, [isQuoteAccept, isEstimateBadgeActive, setDisclosedRangeIsEstimate]);
 
   // Per-service line range (labor + parts ±8%) so summary rows show the
   // same band as the aggregate. The 8% cap matches the disclosed-range
@@ -695,6 +725,85 @@ export default function PaymentScreen() {
             <FileText size={20} color="#9CA3AF" />
           </View>
 
+          {isQuoteAccept && quoteBreakdown ? (
+            <>
+              {/* Tire/rotor quote acceptance: these are the shop's actual
+                  agreed-upon line items, not a live-computed estimate — no
+                  ranges, no FixedPriceBadge (the whole card is a fixed
+                  price). */}
+              {quoteAcceptContext.lineItems.map((item, idx) => (
+                <View key={`quote-line-${idx}`} style={styles.serviceRow}>
+                  <Text size="sm" weight="medium" color={BrandColors.primary}>
+                    {item.label}
+                  </Text>
+                  <Text size="sm" weight="semiBold" color={BrandColors.primary}>
+                    ${item.amount.toFixed(2)}
+                  </Text>
+                </View>
+              ))}
+
+              <View style={styles.breakdownSection}>
+                <View style={styles.breakdownRow}>
+                  <Text size="sm" weight="regular" color="#6B7280">
+                    Taxes
+                  </Text>
+                  <Text size="sm" weight="medium" color="#6B7280">
+                    ${quoteBreakdown.taxDollars.toFixed(2)}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.serviceRow}>
+                <View style={styles.feeRow}>
+                  <Text size="sm" weight="regular" color="#6B7280">
+                    Service Fee — 7%
+                  </Text>
+                  <TouchableOpacity style={styles.infoButton} activeOpacity={0.7}>
+                    <Info size={14} color="#9CA3AF" />
+                  </TouchableOpacity>
+                </View>
+                <Text size="sm" weight="medium" color="#6B7280">
+                  ${quoteBreakdown.serviceFeeDollars.toFixed(2)}
+                </Text>
+              </View>
+
+              <View style={styles.serviceDivider} />
+
+              <View style={styles.totalSection}>
+                <View style={styles.totalHeader}>
+                  <Text size="md" weight="bold" color={BrandColors.primary}>
+                    Total
+                  </Text>
+                  <View style={styles.totalHeaderBadges}>
+                    <FixedPriceBadge size="sm" />
+                  </View>
+                </View>
+                <Text
+                  size="2xl"
+                  weight="bold"
+                  color={BrandColors.secondary}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.6}
+                >
+                  ${quoteBreakdown.total.toFixed(2)}
+                </Text>
+              </View>
+
+              <View style={styles.holdInfoBlock}>
+                <Info size={14} color={BrandColors.secondary} style={{ marginTop: 2 }} />
+                <View style={{ flex: 1, marginLeft: 8 }}>
+                  <Text size="sm" weight="semiBold" color={BrandColors.primary}>
+                    A $20 hold will be placed on your card today.
+                  </Text>
+                  <Text size="xs" weight="regular" color="#6B7280" style={styles.holdInfoBody}>
+                    The total above is only charged once the shop completes the work — a $20 hold is placed on your card today.
+                  </Text>
+                </View>
+              </View>
+            </>
+          ) : (
+            <>
           {/* Service names with line range (labor + parts ±25%) so the
               summary row shows the same band as the aggregate total.
               Flat-price lines surface the labor duration inline with the
@@ -946,6 +1055,8 @@ export default function PaymentScreen() {
               </Text>
             </View>
           </View>
+            </>
+          )}
         </View>
 
         {/* Notes for the mechanic — read on the schedule card before

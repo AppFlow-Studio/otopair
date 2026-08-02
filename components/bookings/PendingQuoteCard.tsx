@@ -19,15 +19,16 @@
  */
 
 import React, { useEffect, useState } from "react";
-import { Alert, Image, Pressable, StyleSheet, View } from "react-native";
+import { Alert, Image, Platform, Pressable, StyleSheet, View } from "react-native";
 
-import { ArrowRight, Car } from "lucide-react-native";
 import Animated, { FadeOut, LinearTransition, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 
 import { Text } from "@/components/shared-ui";
 import { type Booking } from "@/components/bookings/BookingCard";
 import { BookingProgressBar } from "@/components/bookings/BookingProgressBar";
 import { getBookingStageView } from "@/utils/bookingStages";
+
+const CARD_EXIT_ANIMATION = Platform.OS === "android" ? undefined : FadeOut.duration(220);
 
 // ============================================================================
 // HELPERS
@@ -87,6 +88,9 @@ function titleCase(str: string): string {
   return str.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+const ACTION_BUTTON_GAP = 10;
+const ACTION_BUTTON_LABEL_SIZE = 15;
+
 // ============================================================================
 // COMPONENT
 // ============================================================================
@@ -129,7 +133,7 @@ export function PendingQuoteCard({
   return (
     <Animated.View
       style={dimStyle}
-      exiting={FadeOut.duration(220)}
+      exiting={CARD_EXIT_ANIMATION}
       layout={LinearTransition.duration(260)}
     >
     <Pressable
@@ -230,10 +234,16 @@ export function PendingQuoteCard({
             }}
             style={({ pressed }) => [styles.viewButton, pressed && styles.viewButtonPressed]}
           >
-            <Text size="sm" weight="semiBold" color="#FFFFFF">
-              View quotes
+            <Text
+              size={ACTION_BUTTON_LABEL_SIZE}
+              weight="semiBold"
+              color="#FFFFFF"
+              numberOfLines={1}
+              lineHeight={1.2}
+              style={styles.actionButtonLabel}
+            >
+              View Quotes
             </Text>
-            <ArrowRight size={16} color="#FFFFFF" strokeWidth={2.4} />
           </Pressable>
           {onCancel && booking.status !== "cancelled" ? (
             <Pressable
@@ -244,7 +254,14 @@ export function PendingQuoteCard({
               disabled={isCancelling}
               style={({ pressed }) => [styles.cancelOutlineButton, pressed && styles.viewButtonPressed]}
             >
-              <Text size="sm" weight="semiBold" color="#DC2626">
+              <Text
+                size={ACTION_BUTTON_LABEL_SIZE}
+                weight="semiBold"
+                color="#DC2626"
+                numberOfLines={1}
+                lineHeight={1.2}
+                style={styles.actionButtonLabel}
+              >
                 Cancel Request
               </Text>
             </Pressable>
@@ -261,7 +278,14 @@ export function PendingQuoteCard({
             disabled={isCancelling}
             style={({ pressed }) => [styles.viewButton, pressed && styles.viewButtonPressed]}
           >
-            <Text size="sm" weight="semiBold" color="#FFFFFF">
+            <Text
+              size={ACTION_BUTTON_LABEL_SIZE}
+              weight="semiBold"
+              color="#FFFFFF"
+              numberOfLines={1}
+              lineHeight={1.2}
+              style={styles.actionButtonLabel}
+            >
               View Details
             </Text>
           </Pressable>
@@ -274,7 +298,14 @@ export function PendingQuoteCard({
               disabled={isCancelling}
               style={({ pressed }) => [styles.cancelOutlineButton, pressed && styles.viewButtonPressed]}
             >
-              <Text size="sm" weight="semiBold" color="#DC2626">
+              <Text
+                size={ACTION_BUTTON_LABEL_SIZE}
+                weight="semiBold"
+                color="#DC2626"
+                numberOfLines={1}
+                lineHeight={1.2}
+                style={styles.actionButtonLabel}
+              >
                 Cancel Request
               </Text>
             </Pressable>
@@ -414,8 +445,13 @@ const styles = StyleSheet.create({
   actionRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: ACTION_BUTTON_GAP,
     marginTop: 14,
+  },
+  actionButtonLabel: {
+    minWidth: 0,
+    flexShrink: 1,
+    textAlign: "center",
   },
   pendingFooter: {
     flex: 1,
@@ -426,13 +462,11 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     minWidth: 0,
     height: 48,
-    paddingHorizontal: 16,
+    paddingHorizontal: 8,
     borderRadius: 12,
     backgroundColor: "#5299FE",
-    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 8,
   },
   cancelOutlineButton: {
     flexBasis: 0,
@@ -440,7 +474,7 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     minWidth: 0,
     height: 48,
-    paddingHorizontal: 16,
+    paddingHorizontal: 8,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: "#FECACA",

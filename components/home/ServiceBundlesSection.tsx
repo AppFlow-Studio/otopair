@@ -37,6 +37,8 @@ import {
   Spacing,
 } from "@/constants/theme";
 import { useBookingStore } from "@/stores/useBookingStore";
+import { useVehicleStore } from "@/stores/useVehicleStore";
+import { useBookableServices } from "@/hooks/useBookableServices";
 import type { Service } from "@/stores/types/store.types";
 
 // Match either hyphenated ("brake-system-inspection") or underscored
@@ -126,6 +128,10 @@ export function ServiceBundlesSection({
 }: ServiceBundlesSectionProps) {
   const router = useRouter();
   const availableServices = useBookingStore((s) => s.availableServices);
+  const replaceSelectedServicesForVehicle = useBookingStore((s) => s.replaceSelectedServicesForVehicle);
+  const selectedVehicle = useVehicleStore((s) => s.getSelectedVehicle());
+  const { bookableIds, isLoading: isBookableLoading } =
+    useBookableServices(selectedVehicle?.ownershipId);
 
   const handleBookPackage = (bundle: ServiceBundle) => {
     if (onBeforeOpenBookingFlow?.() === false) {
@@ -150,8 +156,10 @@ export function ServiceBundlesSection({
         seen.add(m.id);
       }
     }
-    store.clearSelectedServices();
-    for (const m of matched) store.toggleServiceSelection(m.id);
+    replaceSelectedServicesForVehicle(matched, {
+      ownershipId: selectedVehicle?.ownershipId,
+      bookableIds: selectedVehicle?.ownershipId && isBookableLoading ? null : bookableIds,
+    });
     // Land on the first matched service's category; the auto-scroll
     // effect in ServiceSelectionContent will snap to the first selected
     // row so the user sees the populated cart immediately.

@@ -53,6 +53,10 @@ import {
   type TireTierOption,
   type TireTypeId,
 } from "@/constants/tireFlow";
+import { SLUG_TIRE_REPLACEMENT } from "@/constants/serviceTaxonomy";
+import { useBookableServices } from "@/hooks/useBookableServices";
+import { canSelectVehicleForService } from "@/lib/serviceBookability";
+import { useBookingStore } from "@/stores/useBookingStore";
 import { useTireBookingStore, type TirePosition } from "@/stores/useTireBookingStore";
 import { useVehicleStore, type Vehicle } from "@/stores/useVehicleStore";
 
@@ -100,6 +104,9 @@ export default function TireBookingScreen({ onClose, onConfirmed }: TireBookingS
     [vehicles, selectedVehicleId],
   );
   const canSwitch = vehicles.length > 1;
+  const availableServices = useBookingStore((s) => s.availableServices);
+  const tireServiceId =
+    availableServices.find((service) => service.slug === SLUG_TIRE_REPLACEMENT)?.id ?? null;
 
   // ── Tire store ─────────────────────────────────────────────────────────────
   const tireSize = useTireBookingStore((s) => s.tireSize);
@@ -428,11 +435,18 @@ export default function TireBookingScreen({ onClose, onConfirmed }: TireBookingS
             {vehicles.map((v) => {
               const active = v.id === selectedVehicleId;
               return (
+                <TireVehicleGate key={v.id} vehicle={v} serviceId={tireServiceId}>
+                  {(isSelectable) => (
                 <TouchableOpacity
-                  key={v.id}
-                  style={[styles.vehicleRow, active && styles.vehicleRowActive]}
+                  style={[
+                    styles.vehicleRow,
+                    active && styles.vehicleRowActive,
+                    !isSelectable && styles.vehicleRowDisabled,
+                  ]}
                   onPress={() => handlePickVehicle(v.id)}
-                  activeOpacity={0.85}
+                  disabled={!isSelectable}
+                  activeOpacity={isSelectable ? 0.85 : 1}
+                  accessibilityState={{ selected: active, disabled: !isSelectable }}
                 >
                   <View style={styles.vehicleRowSide}>
                     {v.imageSource ? (
@@ -457,6 +471,8 @@ export default function TireBookingScreen({ onClose, onConfirmed }: TireBookingS
                     </View>
                   ) : null}
                 </TouchableOpacity>
+                  )}
+                </TireVehicleGate>
               );
             })}
           </ScrollView>
@@ -472,6 +488,24 @@ export default function TireBookingScreen({ onClose, onConfirmed }: TireBookingS
       <TierInfoSheet ref={tierInfoRef} />
     </View>
   );
+}
+
+interface TireVehicleGateProps {
+  vehicle: Vehicle;
+  serviceId: string | null;
+  children: (isSelectable: boolean) => React.ReactNode;
+}
+
+function TireVehicleGate({ vehicle, serviceId, children }: TireVehicleGateProps) {
+  const { bookableIds, isLoading } = useBookableServices(vehicle.ownershipId);
+  const isSelectable = canSelectVehicleForService({
+    ownershipId: vehicle.ownershipId,
+    serviceId,
+    bookableIds,
+    isLoading,
+  });
+
+  return <>{children(isSelectable)}</>;
 }
 
 // ============================================================================
@@ -736,6 +770,9 @@ const styles = StyleSheet.create({
     borderColor: "#5299FE",
     borderWidth: 2,
     backgroundColor: "#F5F9FF",
+  },
+  vehicleRowDisabled: {
+    opacity: 0.45,
   },
   vehicleRowSide: {
     width: 56,
