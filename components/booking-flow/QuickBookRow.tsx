@@ -111,8 +111,6 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     // No drop shadow: a row of shadowed pills casts an aligned shadow
     // that reads as a horizontal "shelf" line the pills sit on.
-    // (Merge note: origin re-added CardShadow.default here — kept dropped
-    // per Ahmad's earlier "no shelf line" call; reconcile if design changed.)
   },
   chipPressed: {
     opacity: 0.8,
