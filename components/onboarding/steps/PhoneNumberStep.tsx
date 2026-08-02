@@ -60,6 +60,7 @@ import {
   isPhoneNumberVerified,
   normalizePhoneForComparison,
 } from "@/lib/clerk-phone-numbers";
+import { isValidPhoneNumber } from "@/lib/contact-validation";
 // Try to import getAllCountries from the library
 let getAllCountries: ((locale?: string) => Promise<Country[]>) | undefined;
 try {
@@ -565,7 +566,7 @@ export function PhoneNumberStep({ onNext, onBack, progress, allowBack = false }:
     return "1";
   };
 
-  const canCreateAccount = phoneNumber.trim().length > 0;
+  const canCreateAccount = isValidPhoneNumber(phoneNumber, getCallingCode());
 
   return (
     <KeyboardAvoidingView

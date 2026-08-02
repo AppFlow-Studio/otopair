@@ -113,7 +113,6 @@ export function ProfilePhotoStep({ onNext, onBack, progress }: ProfilePhotoStepP
       const uri = result.assets[0].uri;
       setImageUri(uri);
       setHasSelectedNewPhoto(true);
-      updateData({ profilePhotoUri: uri });
     }
   };
 
@@ -135,7 +134,6 @@ export function ProfilePhotoStep({ onNext, onBack, progress }: ProfilePhotoStepP
       const uri = result.assets[0].uri;
       setImageUri(uri);
       setHasSelectedNewPhoto(true);
-      updateData({ profilePhotoUri: uri });
     }
   };
 
@@ -150,11 +148,11 @@ export function ProfilePhotoStep({ onNext, onBack, progress }: ProfilePhotoStepP
   const handleContinue = async () => {
     if (imageUri && hasSelectedNewPhoto) {
       setIsUploading(true);
+      updateData({ profilePhotoUri: imageUri });
       try {
         await persistProfilePhoto(imageUri);
       } catch (error) {
         console.error("Profile photo upload failed during onboarding:", error);
-        // We still continue even if upload fails, as the local URI is saved in Zustand
       } finally {
         setIsUploading(false);
       }

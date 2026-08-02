@@ -3,7 +3,7 @@ import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { guardedRouter as router } from '@/lib/navigationLock';
 import { useAuth } from '@clerk/clerk-expo';
-import { useQuery } from 'convex/react';
+import { useConvexAuth, useQuery } from 'convex/react';
 import { OnboardingFlow, OnboardingStep } from '@/components/onboarding/OnboardingFlow';
 import { api } from '@/convex/_generated/api';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
@@ -27,12 +27,20 @@ export default function OnboardingScreen() {
         isResumeMode?: string;
         resumeSource?: string;
     }>();
+    // useConvexAuth().isAuthenticated flips true only after the Clerk JWT has
+    // actually propagated to Convex. Until then, getMe's ctx.auth.getUserIdentity()
+    // is null and the query returns null even for an existing, fully-onboarded
+    // user — which must NOT be mistaken for "no user record exists" (that would
+    // make every resume-data field look empty and resolve auto-resume to "phone").
+    const { isAuthenticated: convexAuthenticated } = useConvexAuth();
     const rawMe = useQuery(api.users.getMe, isLoaded && isSignedIn ? undefined : 'skip');
     const me =
         rawMe === undefined
             ? undefined
             : rawMe === null
-                ? null
+                ? isSignedIn === true && !convexAuthenticated
+                    ? undefined
+                    : null
                 : rawMe.clerkUserId === clerkUserId
                     ? rawMe
                     : undefined;
@@ -56,19 +64,6 @@ export default function OnboardingScreen() {
     const isResumeMode = params.isResumeMode === 'true';
     const isCreateAccountResume = params.resumeSource === 'createAccount';
     const hasExplicitResumeTarget = !!params.initialStep || !!params.filteredSteps;
-    // When the user explicitly tapped "Resume onboarding" from the
-    // home-page Finish Setup card, honor that intent even if the
-    // `onboardingDeferred` flag is still set from a previous
-    // Finish-later. Without this override, the onboarding screen
-    // immediately bounces them back to home — infinite spinner loop.
-    const shouldRedirectHome = isCreateAccountResume
-        ? false
-        : shouldRedirectCompletedOnboardingToHome({
-            isSignedIn: isSignedIn === true,
-            onboardingCompleted: me?.onboardingCompleted,
-            essentialOnboardingCompleted: me?.essentialOnboardingCompleted,
-            onboardingDeferred: (me as { onboardingDeferred?: boolean } | null | undefined)?.onboardingDeferred,
-        });
     const shouldAutoResumeSignedInEntryRef = useRef<boolean | null>(null);
     if (isLoaded && shouldAutoResumeSignedInEntryRef.current === null) {
         shouldAutoResumeSignedInEntryRef.current = !hasExplicitResumeTarget && isSignedIn === true;
@@ -80,6 +75,19 @@ export default function OnboardingScreen() {
     const isAutoResume =
         !hasExplicitResumeTarget &&
         (isResumeMode || shouldAutoResumeSignedInEntryRef.current === true);
+    // When the user explicitly tapped "Resume onboarding" from the home
+    // Finish Setup card, honor that intent — never bounce them back home
+    // (which would infinite-loop the spinner) even if the redirect
+    // condition otherwise matches.
+    const shouldRedirectHome =
+        !hasExplicitResumeTarget &&
+        !isCreateAccountResume &&
+        shouldRedirectCompletedOnboardingToHome({
+            isSignedIn: isSignedIn === true,
+            onboardingCompleted: me?.onboardingCompleted,
+            essentialOnboardingCompleted: me?.essentialOnboardingCompleted,
+            isAutoResume,
+        });
 
     const [autoResumeStep, setAutoResumeStep] = useState<OnboardingStep | null>(null);
     const [autoResumeFiltered, setAutoResumeFiltered] = useState<OnboardingStep[] | undefined>(undefined);

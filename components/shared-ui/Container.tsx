@@ -1,4 +1,5 @@
 import { Colors, Spacing, type SpacingKey } from '@/constants/theme';
+import { resolveThemeColorScheme } from '@/constants/themeColorScheme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import React from 'react';
 import {
@@ -70,7 +71,7 @@ export function Container({
     children,
     ...viewProps
 }: ContainerProps) {
-    const colorScheme = useColorScheme() ?? 'light';
+    const colorScheme = resolveThemeColorScheme(useColorScheme());
 
     // Determine background color
     let bgColor = backgroundColor;
@@ -129,7 +130,7 @@ export function Card({
     style,
     ...props
 }: Omit<ContainerProps, 'padding'> & { padding?: SpacingKey | number }) {
-    const colorScheme = useColorScheme() ?? 'light';
+    const colorScheme = resolveThemeColorScheme(useColorScheme());
 
     return (
         <Container
@@ -168,7 +169,7 @@ export function Divider({
     thickness?: number;
     marginVertical?: SpacingKey | number;
 }) {
-    const colorScheme = useColorScheme() ?? 'light';
+    const colorScheme = resolveThemeColorScheme(useColorScheme());
     const dividerColor = color ?? (colorScheme === 'dark' ? '#2D3339' : '#E5E7EB');
     const margin = resolveSpacing(marginVertical);
 

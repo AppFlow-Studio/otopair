@@ -69,7 +69,15 @@ const TOAST_MAX_WIDTH = 320;
 // regardless of variant. Variant still drives icon choice.
 const TOAST_BG = "#5299FE";
 const TOAST_FG = "#FFFFFF";
-const TOAST_GRADIENT = ["#7BB1FF", "#3D7AC8"] as const;
+// Diagonal gradient (top-left light → bottom-right deep) painted
+// over the flat brand-blue card. Two tints sampled from the base
+// #5299FE — lighter for the top edge, deeper for the bottom edge
+// — so the toast reads as a soft glassy pill instead of a flat
+// rectangle. Direction is TL→BR to suggest a highlight running
+// across the top-left, the same trick the Book Service CTA uses.
+// Exported for EnrichmentStatusPill, which wears the same brand-blue
+// glass so the persistent status pill and the toasts read as one family.
+export const TOAST_GRADIENT = ["#7BB1FF", "#3D7AC8"] as const;
 const TOAST_BG_OVERRIDE = {
   bg: TOAST_BG,
   border: TOAST_BG,

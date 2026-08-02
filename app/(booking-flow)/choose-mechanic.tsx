@@ -18,12 +18,15 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   Dimensions,
   Pressable,
-  ScrollView,
   StyleSheet,
   View,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from "react-native";
+// gesture-handler ScrollView so the nested mechanic-carousel swipe
+// composes with the shop pager on Android (see the android-gestures
+// source test).
+import { ScrollView } from "react-native-gesture-handler";
 import { useFocusEffect, useNavigation } from "expo-router";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -50,6 +53,7 @@ import { useMechanicStore } from "@/stores/useMechanicStore";
 import { useShopStore } from "@/stores/useShopStore";
 import { distanceBetween } from "@/utils/geo";
 import { useNearbyBookingShops } from "@/hooks/useNearbyBookingShops";
+import { useOfflineGuard } from "@/hooks/useOfflineGuard";
 import { useNextAvailabilityForShop } from "@/hooks/useNextAvailabilityForShop";
 import { useBookingLaborHoursMap } from "@/hooks/useBookingLaborHoursMap";
 import { useBookingPartsBreakdown } from "@/hooks/useBookingPartsBreakdown";
@@ -130,6 +134,10 @@ export default function ChooseMechanicScreen() {
   );
 
   const { results: nearbyResults, isLoading: shopsLoading } = useNearbyBookingShops(5);
+  // Map-screen offline rule (same wiring as select-services): entering
+  // fresh while offline with no hydrated shops → CantLoadModal sends the
+  // user back; if shops are already cached, the pill alone is enough.
+  useOfflineGuard(shopsLoading ? undefined : nearbyResults);
   const getShopById = useShopStore((s) => s.getShopById);
   const userLocationForDistance = useBookingStore((s) => s.userLocation);
 
@@ -179,6 +187,11 @@ export default function ChooseMechanicScreen() {
   // Active page index = which shop the user is currently viewing.
   const [activeIndex, setActiveIndex] = useState(0);
   const activeShop = nearbyShops[activeIndex]?.shop ?? null;
+
+  // Android gesture fix: while the user is touching the mechanic
+  // carousel inside a ShopPage, disable the outer shop pager so the
+  // horizontal swipe isn't hijacked by the parent ScrollView.
+  const [isMechanicCarouselInteracting, setIsMechanicCarouselInteracting] = useState(false);
 
   // Bottom-sheet snap index. Drives the chrome swap when the user
   // swipes the sheet fully closed (`sheetIndex === -1`): hide the
@@ -609,6 +622,7 @@ export default function ChooseMechanicScreen() {
           <MapShopCard
             shopId={activeShop.id}
             shopName={activeShop.name}
+            imageUrl={activeShop.imageUrl}
             rating={activeShop.rating}
             distanceMi={activeDistanceMi}
             priceRange={activePriceLabel.text}
@@ -721,6 +735,7 @@ export default function ChooseMechanicScreen() {
               showsHorizontalScrollIndicator={false}
               onMomentumScrollEnd={onPageChange}
               decelerationRate="fast"
+              scrollEnabled={!isMechanicCarouselInteracting}
             >
               {nearbyShops.map((r) => (
                 <ShopPage
@@ -741,6 +756,7 @@ export default function ChooseMechanicScreen() {
                       [r.shop.id]: mId,
                     }))
                   }
+                  onMechanicCarouselInteractionChange={setIsMechanicCarouselInteracting}
                 />
               ))}
             </ScrollView>

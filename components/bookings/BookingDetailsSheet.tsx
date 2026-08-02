@@ -51,6 +51,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Text } from "@/components/shared-ui";
 import { BorderRadius } from "@/constants/theme";
+import { useConnection } from "@/hooks/useConnection";
+import { isBookingActionAllowed } from "@/lib/connection/offlineBookingActions";
+import { OfflineActionsNotice } from "@/components/connection/OfflineActionsNotice";
 import { useToast } from "@/hooks/useToast";
 import { buildBookingCalendarEvent, formatBookingReference } from "@/lib/booking-calendar";
 import { useBookingStore } from "@/stores/useBookingStore";
@@ -329,18 +332,24 @@ export const BookingDetailsSheet = forwardRef<BookingDetailsSheetRef, BookingDet
     }, [bookingDetail?.statusHistory]);
 
     const liveMonitor = bookingDetail?.lateMonitor ?? null;
+    // Precedence: explicit prop → live shop doc → the address/phone cached
+    // on the booking row itself (rides the list payload, so Directions and
+    // Contact keep working offline when the live query can't resolve).
     const resolvedShopAddress = useMemo(() => {
       if (shopAddress) return shopAddress;
-      if (!shopDoc) return undefined;
-      const parts = [
-        (shopDoc as any).address,
-        (shopDoc as any).city,
-        (shopDoc as any).state,
-        (shopDoc as any).zip,
-      ].filter((p) => typeof p === "string" && p.trim().length > 0);
-      return parts.length > 0 ? parts.join(", ") : undefined;
-    }, [shopAddress, shopDoc]);
-    const resolvedShopPhone = shopPhone ?? ((shopDoc as any)?.phone ?? undefined);
+      if (shopDoc) {
+        const parts = [
+          (shopDoc as any).address,
+          (shopDoc as any).city,
+          (shopDoc as any).state,
+          (shopDoc as any).zip,
+        ].filter((p) => typeof p === "string" && p.trim().length > 0);
+        if (parts.length > 0) return parts.join(", ");
+      }
+      return booking?.shopAddress;
+    }, [shopAddress, shopDoc, booking?.shopAddress]);
+    const resolvedShopPhone =
+      shopPhone ?? ((shopDoc as any)?.phone || undefined) ?? booking?.shopPhone;
 
     // Crossfade opacities for the two content layers (mid + full).
     const midOpacity = useSharedValue(1);
@@ -639,6 +648,14 @@ function MidContent({
 }: MidContentProps) {
   const primaryActionLabel = "Message Mechanic";
 
+  // Offline gate: in-app chat needs the backend, so while offline the
+  // Message Mechanic button is replaced by the "last synced info" strip.
+  // Directions/Contact stay live — they hand off to the device's maps/phone
+  // apps using data already cached on the booking. Keyed on hard `offline`
+  // so a brief socket "reconnecting" blip doesn't flash the swap.
+  const conn = useConnection();
+  const messageAllowed = isBookingActionAllowed("messageMechanic", conn !== "offline");
+
   const handlePrimary = useCallback(() => {
     onOpenChat();
   }, [onOpenChat]);
@@ -677,7 +694,12 @@ function MidContent({
           </View>
         </View>
 
-        <MechanicCard booking={booking} mechanicRating={mechanicRating} onMessage={onOpenChat} />
+        <MechanicCard
+          booking={booking}
+          mechanicRating={mechanicRating}
+          onMessage={onOpenChat}
+          messageDisabled={!messageAllowed}
+        />
 
         {/* Details card — Service + Vehicle at a glance */}
         <View style={styles.detailsCard}>
@@ -757,11 +779,15 @@ function MidContent({
           </TouchableOpacity>
         </View>
 
-        <TouchableOpacity style={styles.primaryButton} onPress={handlePrimary} activeOpacity={0.85}>
-          <Text size="md" weight="semiBold" color="#FFFFFF">
-            {primaryActionLabel}
-          </Text>
-        </TouchableOpacity>
+        {messageAllowed ? (
+          <TouchableOpacity style={styles.primaryButton} onPress={handlePrimary} activeOpacity={0.85}>
+            <Text size="md" weight="semiBold" color="#FFFFFF">
+              {primaryActionLabel}
+            </Text>
+          </TouchableOpacity>
+        ) : (
+          <OfflineActionsNotice style={styles.offlineNoticeMid} />
+        )}
 
         <Text size="xs" weight="regular" color="#8E8E93" center style={styles.midHint}>
           Swipe up for full details
@@ -775,10 +801,13 @@ function MechanicCard({
   booking,
   mechanicRating,
   onMessage,
+  messageDisabled,
 }: {
   booking: Booking;
   mechanicRating?: number;
   onMessage: () => void;
+  /** Greys out the chat icon while offline (same gate as Message Mechanic). */
+  messageDisabled?: boolean;
 }) {
   const handleCall = useCallback(() => {
     // TODO: call shop when phone number is exposed on Booking
@@ -822,6 +851,7 @@ function MechanicCard({
           <IconCircleButton onPress={handleCall} icon={<Phone size={16} color="#1A1A1A" />} />
           <IconCircleButton
             onPress={onMessage}
+            disabled={messageDisabled}
             icon={<MessageCircle size={16} color="#1A1A1A" />}
           />
         </View>
@@ -833,12 +863,19 @@ function MechanicCard({
 function IconCircleButton({
   icon,
   onPress,
+  disabled,
 }: {
   icon: React.ReactNode;
   onPress: () => void;
+  disabled?: boolean;
 }) {
   return (
-    <TouchableOpacity style={styles.iconCircle} onPress={onPress} activeOpacity={0.7}>
+    <TouchableOpacity
+      style={[styles.iconCircle, disabled && styles.offlineDisabledAction]}
+      onPress={onPress}
+      disabled={disabled}
+      activeOpacity={0.7}
+    >
       {icon}
     </TouchableOpacity>
   );
@@ -879,6 +916,11 @@ function FullContent({
 }: FullContentProps) {
   const disputeSheetRef = useRef<FileDisputeSheetRef>(null);
   const toast = useToast();
+  // Offline gate: Reschedule/Cancel are the same backend writes the booking
+  // card gates, one swipe away — while offline both are replaced by the
+  // "last synced info" strip. Add to Calendar stays live (device-local).
+  const conn = useConnection();
+  const writeActionsAllowed = isBookingActionAllowed("reschedule", conn !== "offline");
   const handleCancel = useCallback(() => {
     Alert.alert(
       "Cancel booking?",
@@ -1213,11 +1255,19 @@ function FullContent({
 
         {/* SECONDARY ACTIONS */}
         <View style={styles.secondaryActions}>
-          <TouchableOpacity style={styles.rescheduleButton} onPress={handleReschedule} activeOpacity={0.85}>
-            <Text size="md" weight="semiBold" color="#FFFFFF">
-              Reschedule
-            </Text>
-          </TouchableOpacity>
+          {writeActionsAllowed ? (
+            <TouchableOpacity
+              style={styles.rescheduleButton}
+              onPress={handleReschedule}
+              activeOpacity={0.85}
+            >
+              <Text size="md" weight="semiBold" color="#FFFFFF">
+                Reschedule
+              </Text>
+            </TouchableOpacity>
+          ) : (
+            <OfflineActionsNotice />
+          )}
           <TouchableOpacity
             style={styles.outlineButton}
             onPress={handleAddToCalendar}
@@ -1229,14 +1279,16 @@ function FullContent({
           </TouchableOpacity>
         </View>
 
-        {/* CANCEL */}
-        <View style={styles.cancelWrapper}>
-          <TouchableOpacity style={styles.cancelButton} onPress={handleCancel} activeOpacity={0.7}>
-            <Text size="md" weight="medium" color="#FF3B30">
-              Cancel Booking
-            </Text>
-          </TouchableOpacity>
-        </View>
+        {/* CANCEL — hidden offline; the strip above explains why. */}
+        {writeActionsAllowed ? (
+          <View style={styles.cancelWrapper}>
+            <TouchableOpacity style={styles.cancelButton} onPress={handleCancel} activeOpacity={0.7}>
+              <Text size="md" weight="medium" color="#FF3B30">
+                Cancel Booking
+              </Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
       </ScrollView>
     </View>
   );
@@ -1805,6 +1857,16 @@ const styles = StyleSheet.create({
   },
   midActionButtonDisabled: {
     backgroundColor: "#F9FAFB",
+  },
+  // Chat icon dim while offline (buttons are replaced by the notice strip
+  // instead — see OfflineActionsNotice).
+  offlineDisabledAction: {
+    opacity: 0.45,
+  },
+  // Caption standing in for the sheet buttons it replaces; keeps the
+  // replaced primary button's top rhythm in the mid view.
+  offlineNoticeMid: {
+    marginTop: 24,
   },
   midStatusBlock: {
     marginTop: 5,

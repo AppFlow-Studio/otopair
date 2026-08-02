@@ -19,7 +19,7 @@ import { ActivityIndicator, BackHandler, Image, Platform, StyleSheet, TextInput,
 // 2. Expo & Third-party
 import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
-import { Calendar, Car, ChevronRight, FileText, Info, Star } from "lucide-react-native";
+import { Calendar, Car, ChevronRight, FileText, Info, Star, WifiOff } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 
@@ -39,6 +39,7 @@ import { BorderRadius, Shadows } from "@/constants/theme";
 import { useBookingLaborHours } from "@/hooks/useBookingLaborHours";
 import { useBookingPartsBreakdown } from "@/hooks/useBookingPartsBreakdown";
 import { useBookingQuoteFallback } from "@/hooks/useBookingQuoteFallback";
+import { useCanWrite } from "@/hooks/useConnection";
 import { useCreateBookingConvex } from "@/hooks/useCreateBookingConvex";
 import { useShopFixedPricesForServices } from "@/hooks/useShopFixedPricesForServices";
 import { positionFromOption } from "@/constants/serviceVariants";
@@ -543,7 +544,10 @@ export default function PaymentScreen() {
     router.back();
   }, [router, skippedBookingDetails, setBookingStage]);
 
+  const canWrite = useCanWrite();
+
   const handleConfirmPayment = useCallback(() => {
+    if (!canWrite) return;
     if (!selectedMechanicId && !selectedMechanicSlot?.shopId) return;
     if (!hasPayment || !selectedPaymentMethod) {
       setErrorMessage("Add a payment method to confirm this booking.");
@@ -554,14 +558,14 @@ export default function PaymentScreen() {
     // a minimum-display timer for the Lottie loading animation, then
     // routes forward to /confirmation (or back here with an error param).
     router.push(`/booking/mechanic/${id}/confirming`);
-  }, [router, id, selectedMechanicId, selectedMechanicSlot?.shopId, hasPayment, selectedPaymentMethod]);
+  }, [router, id, selectedMechanicId, selectedMechanicSlot?.shopId, hasPayment, selectedPaymentMethod, canWrite]);
 
   // Apple Pay / Google Pay handlers. The wallet sheet shows the $20 hold
   // (matches the "$20 hold placed today" disclosure on the screen). The
   // hook mints a one-time PM via PlatformPay, stashes it in
   // usePaymentStore.selectedWalletPm, and routes to /confirming with
-  // paymentMode=wallet — the confirming screen then runs the same booking
-  // creation + createPaymentIntentForBooking flow as a saved card.
+  // paymentMode=wallet. The confirming screen preauthorizes the hold before
+  // creating the booking, same as a saved card.
   const {
     handleApplePay,
     handleGooglePay,
@@ -986,15 +990,24 @@ export default function PaymentScreen() {
           without Google Play Services) instead of just disabled, so the
           surface doesn't suggest a path the user can't take. */}
       <View style={[styles.footer, { paddingBottom: insets.bottom + Spacing.xs }]}>
+        {!canWrite ? (
+          <View style={styles.offlineNote}>
+            <WifiOff size={16} color="#92400E" />
+            <Text size="sm" weight="medium" color="#92400E">
+              You&apos;ll need a connection to book
+            </Text>
+          </View>
+        ) : null}
+
         {(Platform.OS === "ios" ? applePaySupported : googlePaySupported) ? (
           <TouchableOpacity
             style={[
               styles.walletButton,
-              (isSubmitting || walletPending) && styles.confirmButtonDisabled,
+              (isSubmitting || walletPending || !canWrite) && styles.confirmButtonDisabled,
             ]}
             onPress={Platform.OS === "android" ? handleGooglePay : handleApplePay}
             activeOpacity={0.85}
-            disabled={isSubmitting || walletPending}
+            disabled={isSubmitting || walletPending || !canWrite}
           >
             {isSubmitting || walletPending ? (
               <ActivityIndicator color={BrandColors.white} size="small" />
@@ -1011,7 +1024,7 @@ export default function PaymentScreen() {
             style={styles.footerCardRow}
             onPress={handleConfirmPayment}
             activeOpacity={0.85}
-            disabled={isSubmitting}
+            disabled={isSubmitting || !canWrite}
           >
             <View style={styles.cardBrandIcon}>
               {(() => {
@@ -1341,6 +1354,13 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: "#E5E7EB",
     ...Shadows.lg,
+  },
+  offlineNote: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    justifyContent: "center",
+    paddingBottom: Spacing.sm,
   },
   walletButton: {
     // Full-width CTA. The SVG holds ONLY the wallet mark (Apple/Google

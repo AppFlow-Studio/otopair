@@ -2040,7 +2040,11 @@ export default function CarsHomeScreen() {
               healthScoreInput={healthScoreInput}
               vehicleLabel={activeVehicle?.model ?? undefined}
               isDarkBg={isDarkBg}
+              isEnriching={vehicleReadiness.status === "enriching"}
               onBookNow={(id) => {
+                // Backstop for the disabled CTAs above — never open the booking
+                // flow while the vehicle is still enriching (no parts data yet).
+                if (vehicleReadiness.status === "enriching") return;
                 const vin = activeVehicle?.vin;
                 if (vin) useVehicleStore.getState().selectVehicle(vin.toUpperCase().trim());
                 // If this item was sourced from a mechanic recommendation,

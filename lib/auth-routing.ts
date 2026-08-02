@@ -33,19 +33,16 @@ export function shouldRedirectCompletedOnboardingToHome({
   isSignedIn,
   onboardingCompleted,
   essentialOnboardingCompleted,
-  onboardingDeferred,
+  isAutoResume = true,
 }: {
   isSignedIn: boolean;
   onboardingCompleted?: boolean;
   essentialOnboardingCompleted?: boolean;
-  onboardingDeferred?: boolean;
+  isAutoResume?: boolean;
 }): boolean {
-  return (
-    isSignedIn &&
-    (onboardingCompleted === true ||
-      essentialOnboardingCompleted === true ||
-      onboardingDeferred === true)
-  );
+  if (!isSignedIn) return false;
+  if (onboardingCompleted === true) return true;
+  return essentialOnboardingCompleted === true && isAutoResume;
 }
 
 export function getTrustedSavedOnboardingStep<T extends string>(

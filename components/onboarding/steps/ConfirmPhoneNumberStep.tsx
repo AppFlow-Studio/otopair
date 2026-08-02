@@ -404,7 +404,11 @@ export function ConfirmPhoneNumberStep({ onNext, onBack, progress }: ConfirmPhon
                 ? "Verification not started"
                 : "Incorrect code entered"}
             </Text>
-            <Text style={styles.errorMessage}>{errorMessage || "Please check the code and try again"}</Text>
+            <Text style={styles.errorMessage}>
+              {errorMessage && isVerificationNotStartedError(errorMessage)
+                ? errorMessage
+                : "Please try again."}
+            </Text>
             {errorMessage && isVerificationNotStartedError(errorMessage) ? (
               <TouchableOpacity style={styles.errorButton} onPress={handleGoBackFromError}>
                 <Text style={styles.errorButtonText}>Go back</Text>

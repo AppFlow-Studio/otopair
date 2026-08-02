@@ -35,6 +35,9 @@ interface MaintenanceDetailViewProps {
   vehicleLabel?: string;
   onClose: () => void;
   onBookService: () => void;
+  /** When true, the vehicle is still enriching — the Book Service CTA is
+   *  disabled until parts data exists. */
+  bookingDisabled?: boolean;
 }
 
 // ============================================================================
@@ -202,6 +205,7 @@ export default function MaintenanceDetailView({
   vehicleLabel,
   onClose,
   onBookService,
+  bookingDisabled = false,
 }: MaintenanceDetailViewProps) {
   const [showModal, setShowModal] = useState(false);
   const isAnimatingOut = useRef(false);
@@ -471,22 +475,24 @@ export default function MaintenanceDetailView({
             </View>
           </ScrollView>
 
-          {/* Book Service button — fixed at bottom */}
+          {/* Book Service button — fixed at bottom. Disabled while the vehicle
+              is still enriching (no parts data yet to book against). */}
           <Animated.View style={[styles.bookBtnFixed, btnAnimStyle]}>
             <Pressable
-              onPressIn={() => { btnPressScale.value = withSpring(0.97, { damping: 20, stiffness: 300 }); }}
-              onPressOut={() => { btnPressScale.value = withSpring(1, { damping: 20, stiffness: 300 }); }}
+              onPressIn={() => { if (!bookingDisabled) btnPressScale.value = withSpring(0.97, { damping: 20, stiffness: 300 }); }}
+              onPressOut={() => { if (!bookingDisabled) btnPressScale.value = withSpring(1, { damping: 20, stiffness: 300 }); }}
               onPress={onBookService}
+              disabled={bookingDisabled}
             >
-              <View style={[styles.bookBtnShadow, { shadowColor: config.color }]}>
+              <View style={[styles.bookBtnShadow, !bookingDisabled && { shadowColor: config.color }]}>
                 <LinearGradient
-                  colors={config.buttonGradient}
+                  colors={bookingDisabled ? ['#E4E9EA', '#E4E9EA'] : config.buttonGradient}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 0 }}
                   style={styles.bookBtnInner}
                 >
-                  <Text weight="bold" style={styles.bookBtnText}>
-                    Book Service Now
+                  <Text weight="bold" style={[styles.bookBtnText, bookingDisabled && { color: '#9CA3AF' }]}>
+                    {bookingDisabled ? 'Setting up your car…' : 'Book Service Now'}
                   </Text>
                 </LinearGradient>
               </View>

@@ -35,6 +35,9 @@ import { ChevronDown, ChevronUp, Star } from "lucide-react-native";
 
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
 import { Text } from "@/components/shared-ui";
+import { OfflineActionsNotice } from "@/components/connection/OfflineActionsNotice";
+import { useConnection } from "@/hooks/useConnection";
+import { isBookingActionAllowed } from "@/lib/connection/offlineBookingActions";
 import { useToast } from "@/hooks/useToast";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -107,6 +110,12 @@ export const LeaveReviewSheet = forwardRef<LeaveReviewSheetRef, Props>(
 
     const submitReview = useMutation(api.reviews.submit);
     const toast = useToast();
+    // Offline gate: the sheet is often already open when the connection
+    // drops. Convex would queue the mutation silently and post it on
+    // reconnect — the user must never think a review landed while offline,
+    // so Submit is replaced by the offline caption until we're back.
+    const conn = useConnection();
+    const reviewAllowed = isBookingActionAllowed("leaveReview", conn !== "offline");
 
     // One Animated.Value per star for the pop-on-tap micro-interaction.
     const starScales = useRef<Animated.Value[]>(
@@ -518,23 +527,27 @@ export const LeaveReviewSheet = forwardRef<LeaveReviewSheetRef, Props>(
             </Text>
           ) : null}
 
-          <Pressable
-            onPress={handleSubmit}
-            disabled={submitDisabled}
-            style={({ pressed }) => [
-              styles.submitButton,
-              submitDisabled && styles.submitButtonDisabled,
-              pressed && !submitDisabled && styles.submitButtonPressed,
-            ]}
-          >
-            {submitting ? (
-              <ActivityIndicator color="#FFFFFF" />
-            ) : (
-              <Text size="md" weight="semiBold" color="#FFFFFF">
-                Submit Review
-              </Text>
-            )}
-          </Pressable>
+          {reviewAllowed ? (
+            <Pressable
+              onPress={handleSubmit}
+              disabled={submitDisabled}
+              style={({ pressed }) => [
+                styles.submitButton,
+                submitDisabled && styles.submitButtonDisabled,
+                pressed && !submitDisabled && styles.submitButtonPressed,
+              ]}
+            >
+              {submitting ? (
+                <ActivityIndicator color="#FFFFFF" />
+              ) : (
+                <Text size="md" weight="semiBold" color="#FFFFFF">
+                  Submit Review
+                </Text>
+              )}
+            </Pressable>
+          ) : (
+            <OfflineActionsNotice label="You'll need a connection to review" />
+          )}
 
           <Pressable
             onPress={() => sheetRef.current?.close()}

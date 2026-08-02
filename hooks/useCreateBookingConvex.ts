@@ -11,7 +11,7 @@
  * USED IN: Payment screen, confirmation flow
  */
 
-import { useMutation, useQuery } from "convex/react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import { useCallback, useMemo } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -32,8 +32,16 @@ import { displayTimeToHHMM } from "@/utils/timeSlotUtils";
 const isLegacyTimeSlotId = (value: string | null | undefined): value is Id<"time_slots"> =>
   Boolean(value && !value.startsWith("computed:"));
 
+type PreauthorizedPayment = {
+  stripePaymentIntentId: string;
+  idempotencyKey: string;
+  holdAmountCents: number;
+  paymentOrigin?: "card" | "apple_pay" | "google_pay";
+};
+
 export function useCreateBookingConvex() {
   const createBatch = useMutation(api.bookings.createBatch);
+  const confirmPreauthorizedBatch = useAction(api.bookings.confirmPreauthorizedBatch);
   const toast = useToast();
   const { userId } = useUserFromConvex();
   const { primaryVin } = useVehicleOwnershipFromConvex();
@@ -132,7 +140,11 @@ export function useCreateBookingConvex() {
   }, [pricedPartsByService]);
 
   const createBookingConvex = useCallback(
-    async (mechanicId: string | null | undefined, bookingType: "book_now" | "schedule_later"): Promise<string[]> => {
+    async (
+      mechanicId: string | null | undefined,
+      bookingType: "book_now" | "schedule_later",
+      preauthorizedPayment?: PreauthorizedPayment,
+    ): Promise<string[]> => {
       const shopId = effectiveShopId;
       const legacyTimeSlotId = resolveLegacyTimeSlotId(mechanicId);
       // Prefer the user's currently selected vehicle in the booking flow.
@@ -279,9 +291,19 @@ export function useCreateBookingConvex() {
           selected_service_options:
             selectedOptionsPayload.length > 0 ? selectedOptionsPayload : undefined,
           service_variants: serviceVariantsPayload.length > 0 ? serviceVariantsPayload : undefined,
+          preauthorized_payment: preauthorizedPayment
+            ? {
+                stripe_payment_intent_id: preauthorizedPayment.stripePaymentIntentId,
+                idempotency_key: preauthorizedPayment.idempotencyKey,
+                hold_amount_cents: preauthorizedPayment.holdAmountCents,
+                payment_origin: preauthorizedPayment.paymentOrigin,
+              }
+            : undefined,
         };
 
-        bookingIds = await createBatch(createBatchPayload);
+        bookingIds = await (preauthorizedPayment
+          ? confirmPreauthorizedBatch(createBatchPayload)
+          : createBatch(createBatchPayload));
       } catch (err) {
         toast.error(
           "Couldn't submit booking.",
@@ -308,6 +330,7 @@ export function useCreateBookingConvex() {
       scheduledAppointment,
       getShopById,
       createBatch,
+      confirmPreauthorizedBatch,
       sourceRecommendationId,
       setSourceRecommendationId,
       selectedServiceOptions,

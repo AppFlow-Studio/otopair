@@ -29,20 +29,17 @@ import { Text } from '@/components/shared-ui';
 // 4. Constants
 import { Spacing, BorderRadius } from '@/constants/theme';
 
-// 5. Constants
-import type { TaxonomyTab } from '@/constants/serviceTaxonomy';
+// 5. Stores
+import { useBookingStore } from '@/stores/useBookingStore';
+import type { ServiceCategory } from '@/stores/types/store.types';
 
-// Maps each card to the v5 taxonomy tab it belongs to AND the exact
-// service slug to land on. Tapping a card deep-links straight to that
-// service in the category list (screen 2) — scrolled into view and
-// briefly highlighted — instead of the generic services landing.
-const CARD_TO_DESTINATION: Record<string, { tab: TaxonomyTab; focus: string }> = {
-  diagnostics: { tab: 'inspections', focus: 'diagnostic_scan' },
-  'oil-change': { tab: 'routine_upkeep', focus: 'oil_change' },
-  brakes: { tab: 'tires_brakes', focus: 'brake_pad_replacement' },
-  battery: { tab: 'routine_upkeep', focus: 'battery_test' },
-  tires: { tab: 'tires_brakes', focus: 'tire_rotation' },
-  inspection: { tab: 'inspections', focus: 'state_inspection' },
+// Maps each card id to the service category tab the booking sheet
+// should open on. Cards not listed here fall back to basic_maintenance
+// (the default "Maintenance" tab) — i.e. Oil Change, Battery, Inspection.
+const CARD_TO_CATEGORY: Record<string, ServiceCategory> = {
+  diagnostics: 'system_diagnostics',
+  brakes: 'brakes_suspension',
+  tires: 'tires_wheels',
 };
 
 // ============================================================================
@@ -60,6 +57,10 @@ interface ServiceCard {
    *  changing the source PNG (e.g. brakes art has more whitespace
    *  around it than the others, so we scale it up to compensate). */
   imageScale?: number;
+}
+
+interface MoreServicesSectionProps {
+  onBeforeOpenBookingFlow?: () => boolean;
 }
 
 // ============================================================================
@@ -125,22 +126,21 @@ const SERVICE_CARDS: ServiceCard[] = [
 // COMPONENT
 // ============================================================================
 
-export function MoreServicesSection() {
+export function MoreServicesSection({ onBeforeOpenBookingFlow }: MoreServicesSectionProps) {
   const router = useRouter();
+  const setInitialServiceCategory = useBookingStore(
+    (state) => state.setInitialServiceCategory,
+  );
 
   const handleCardPress = (serviceId: string) => {
-    const dest = CARD_TO_DESTINATION[serviceId];
-    // Fallback: unmapped card → generic services landing.
-    if (!dest) {
-      router.push('/(booking-flow)/select-services');
+    if (onBeforeOpenBookingFlow?.() === false) {
       return;
     }
-    // Deep-link to the exact service in the category list (screen 2). The
-    // `focus` param scrolls it into view and briefly highlights it.
-    router.push({
-      pathname: '/(booking-flow)/category/[tab]',
-      params: { tab: dest.tab, focus: dest.focus },
-    });
+    // Seed the booking-store one-shot category signal so the service
+    // selector mounts on the right tab. Cards not in the map default
+    // to `basic_maintenance` (Maintenance tab).
+    setInitialServiceCategory(CARD_TO_CATEGORY[serviceId] ?? 'basic_maintenance');
+    router.push('/(booking-flow)/select-services');
   };
 
   return (

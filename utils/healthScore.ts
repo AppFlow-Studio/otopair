@@ -14,6 +14,7 @@
 
 import type { MaintenanceItem, MaintenanceStatus } from "@/components/cars/MaintenanceTracker";
 import { extractMaintenanceType } from "@/lib/maintenanceServiceMapping";
+import { canonicalWarningLights } from "@/lib/warningLightVocab";
 
 // ============================================================================
 // v1 SPEC CONSTANTS (Yassin Otopair_Core_Systems_Spec_v1_1)
@@ -148,22 +149,22 @@ const LIGHT_PENALTY: Record<string, number> = {
 };
 
 /**
- * Compute penalty from knownIssues array.
- * knownIssues[0] = top-level answer (no_all_clear | check_engine | different_light | not_sure)
- * knownIssues[1..n] = specific light type ids (when answer was "different_light")
+ * Compute the warning-light penalty from a knownIssues array.
+ *
+ * Reads via `canonicalWarningLights`, so it is agnostic to the array's SHAPE
+ * (legacy sentinel-prefixed `["other", ...lights]` OR the flat code-set
+ * `["oil_pressure", "check_engine"]` written by Oto / the check-in) and to its
+ * VOCABULARY (symptom aliases like `brake_warning` fold to `abs`). The previous
+ * implementation keyed off `knownIssues[0]` as a status sentinel and summed
+ * penalties from index 1, so a light written in the flat shape (or appended
+ * after a stale `no_all_clear`) scored zero — the exact bug where an Oto-logged
+ * light never dented the score. Penalty is summed per canonical light, capped
+ * at 25 (the reserve floors at 0 regardless).
  */
 function warningLightPenalty(knownIssues?: string[]): number {
-  if (!knownIssues || knownIssues.length === 0) return 0;
-
-  const status = knownIssues[0];
-  if (status === "no_all_clear") return 0;
-  if (status === "not_sure") return 5;
-  if (status === "check_engine") return LIGHT_PENALTY.check_engine;
-
-  // "different_light" — sum individual penalties (capped)
   let penalty = 0;
-  for (let i = 1; i < knownIssues.length; i++) {
-    penalty += LIGHT_PENALTY[knownIssues[i]] ?? 6;
+  for (const light of canonicalWarningLights(knownIssues)) {
+    penalty += LIGHT_PENALTY[light] ?? 6;
   }
   return Math.min(penalty, 25);
 }
@@ -407,20 +408,17 @@ export function computeHealthScoreFactors(input: HealthScoreInput): {
   }
 
   // ── Warning lights (15% reserve, minus penalty) ────────────────
-  const status = knownIssues?.[0];
-  if (!status || status === "no_all_clear") {
+  // Same canonical, format-agnostic read as warningLightPenalty so the
+  // breakdown always reconciles with the score: one negative per active
+  // canonical light, sharing the 25-pt running cap. (Previously switched on
+  // knownIssues[0] as a sentinel, so a flat/symptom-vocab array silently
+  // emitted neither the "No warning lights" positive nor any negative.)
+  const activeLights = canonicalWarningLights(knownIssues);
+  if (activeLights.length === 0) {
     positives.push({ label: "No warning lights", pts: 15 });
-  } else if (status === "check_engine") {
-    negatives.push({
-      label: LIGHT_LABELS.check_engine,
-      pts: LIGHT_PENALTY.check_engine,
-    });
-  } else if (status === "not_sure") {
-    negatives.push({ label: "Unsure about dashboard lights", pts: 5 });
-  } else if (status === "different_light") {
+  } else {
     let remaining = 25; // matches the cap inside warningLightPenalty
-    for (let i = 1; i < (knownIssues?.length ?? 0); i++) {
-      const id = knownIssues![i];
+    for (const id of activeLights) {
       const penalty = Math.min(LIGHT_PENALTY[id] ?? 6, remaining);
       if (penalty <= 0) break;
       remaining -= penalty;
