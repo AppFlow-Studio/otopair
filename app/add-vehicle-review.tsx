@@ -32,7 +32,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
 import { useLocalSearchParams } from 'expo-router';
 import { useGuardedRouter as useRouter } from '@/hooks/useGuardedRouter';
-import { ArrowLeft, Bell, Car, Check, ChevronDown, CircleDot, Cog, Fuel, Gauge, History, MapPin, Plus, Wrench, X } from 'lucide-react-native';
+import { ArrowLeft, Bell, Car, Check, ChevronDown, CircleDot, Cog, Fuel, Gauge, History, MapPin, Wrench, X } from 'lucide-react-native';
 import { useAction, useMutation, useQuery } from 'convex/react';
 
 // 3. App imports
@@ -586,7 +586,7 @@ export default function AddVehicleReviewScreen() {
             disabled={vdbVariants.length === 0}
           >
             <View style={styles.trimPillIcon}>
-              <Cog size={scale(13)} color="#5299FE" strokeWidth={2.2} />
+              <Car size={scale(13)} color="#5299FE" strokeWidth={2.2} />
             </View>
             <Text
               weight="semiBold"
@@ -724,12 +724,9 @@ export default function AddVehicleReviewScreen() {
             {isConfirming ? (
               <ActivityIndicator size="small" color="#5299FE" />
             ) : (
-              <>
-                <Plus size={scale(20)} color="#5299FE" strokeWidth={2} />
-                <Text weight="bold" size="md" color="#5299FE">
-                  Add Vehicle
-                </Text>
-              </>
+              <Text weight="bold" size="md" color="#5299FE">
+                Continue
+              </Text>
             )}
           </Pressable>
         </View>

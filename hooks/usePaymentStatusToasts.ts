@@ -1,5 +1,11 @@
 import { useEffect, useRef } from "react";
 import { useQuery } from "convex/react";
+import {
+  CreditCard,
+  RotateCcw,
+  Unlock,
+  type LucideIcon,
+} from "lucide-react-native";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 
 import { api } from "@/convex/_generated/api";
@@ -23,6 +29,8 @@ interface PaymentConfig {
   title: string;
   body?: string;
   href?: "booking-details" | "payments";
+  /** Action-matching icon override; falls back to the variant icon. */
+  icon?: LucideIcon;
 }
 
 const STATUS_TO_TOAST: Record<string, PaymentConfig> = {
@@ -31,23 +39,27 @@ const STATUS_TO_TOAST: Record<string, PaymentConfig> = {
     title: "Card held",
     body: "You're only charged after service.",
     href: "booking-details",
+    icon: CreditCard,
   },
   captured: {
     variant: "success",
     title: "Payment captured",
     body: "Charged to your saved card.",
     href: "booking-details",
+    icon: CreditCard,
   },
   refunded: {
     variant: "success",
     title: "Refund issued",
     body: "Funds will appear on your statement within 7 days.",
     href: "booking-details",
+    icon: RotateCcw,
   },
   partial_refund: {
     variant: "info",
     title: "Partial refund issued",
     href: "booking-details",
+    icon: RotateCcw,
   },
   failed: {
     variant: "error",
@@ -69,6 +81,7 @@ const STATUS_TO_TOAST: Record<string, PaymentConfig> = {
     variant: "trust",
     title: "Payment hold released",
     body: "Funds will return to your card within 7 days.",
+    icon: Unlock,
   },
 };
 
@@ -113,7 +126,10 @@ export function usePaymentStatusToasts(bookingId: Id<"bookings"> | undefined) {
           }
         }
       : undefined;
-    const opts = onPress ? { onPress } : undefined;
+    const opts = {
+      ...(onPress ? { onPress } : {}),
+      ...(config.icon ? { icon: config.icon } : {}),
+    };
 
     switch (config.variant) {
       case "success":

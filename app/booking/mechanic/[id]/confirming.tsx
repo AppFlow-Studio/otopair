@@ -37,6 +37,7 @@ import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/Flo
 import { BookingConfirmStatus } from "@/components/booking/BookingConfirmStatus";
 import { useCreateBookingConvex } from "@/hooks/useCreateBookingConvex";
 import { useToast } from "@/hooks/useToast";
+import { CalendarClock } from "lucide-react-native";
 import { calculateBookingConfirmLayout } from "@/lib/bookingConfirmSheet";
 import { getBookingConfirmingCopy, isBookingRescheduleMode } from "@/lib/reschedule-flow";
 import { useBookingStore } from "@/stores/useBookingStore";
@@ -194,7 +195,7 @@ export default function BookingConfirmingScreen() {
         });
         if (navigatedRef.current) return;
         navigatedRef.current = true;
-        toast.success("Appointment rescheduled");
+        toast.success("Appointment rescheduled", undefined, { icon: CalendarClock });
         router.replace({
           pathname: "/booking/mechanic/[id]/confirmation",
           params: {

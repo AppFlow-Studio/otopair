@@ -22,7 +22,7 @@ import * as Linking from "expo-linking";
 import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 // MVP-DISABLED: loyalty/rewards — re-enable post-launch (drop Gift)
-import { Check, Navigation, Phone, Star } from "lucide-react-native";
+import { Check, Navigation, Phone, Star, CalendarCheck, CalendarX } from "lucide-react-native";
 import Animated, {
   Easing,
   useAnimatedStyle,
@@ -403,7 +403,7 @@ export default function ConfirmationScreen() {
       // Fire after the modal dismissal animation so Android does not drop the
       // toast during the route transition.
       setTimeout(() => {
-        toast.info(completionCopy.toastTitle, completionCopy.toastBody);
+        toast.info(completionCopy.toastTitle, completionCopy.toastBody, { icon: CalendarCheck });
       }, 350);
     };
 
@@ -463,7 +463,7 @@ export default function ConfirmationScreen() {
     } catch (e) {
       // PLAN §B.7: never interpolate raw OS error strings into user-facing toasts.
       console.error("[confirmation] add-to-calendar failed", e);
-      toast.error("Couldn't add to your calendar.");
+      toast.error("Couldn't add to your calendar.", undefined, { icon: CalendarX });
     }
   }, [
     shop?.name,

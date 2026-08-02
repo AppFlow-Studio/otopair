@@ -43,6 +43,10 @@ interface ServiceMultiSelectRowProps {
    *  `measureInWindow` — needed for the fly-to-cart animation
    *  endpoint. Optional so consumers that don't animate can skip. */
   viewRef?: React.Ref<View>;
+  /** Briefly emphasizes this row (blue glow) — used when the user
+   *  deep-links to a specific service from the home "More Services"
+   *  grid so they can spot it immediately. */
+  highlight?: boolean;
 }
 
 export function ServiceMultiSelectRow({
@@ -54,6 +58,7 @@ export function ServiceMultiSelectRow({
   onPress,
   onInfoPress,
   viewRef,
+  highlight = false,
 }: ServiceMultiSelectRowProps) {
   const Icon = getServiceIcon(slug);
   const isQuote = entry.variant === "quote";
@@ -66,6 +71,7 @@ export function ServiceMultiSelectRow({
       style={[
         styles.row,
         isSelected && styles.rowSelected,
+        highlight && styles.rowHighlight,
         isBlocked && styles.rowBlocked,
       ]}
       onPress={onPress}
@@ -160,6 +166,15 @@ const styles = StyleSheet.create({
   rowSelected: {
     backgroundColor: "rgba(82, 153, 254, 0.18)",
     borderColor: "rgba(82, 153, 254, 0.55)",
+  },
+  rowHighlight: {
+    borderColor: "#5299FE",
+    borderWidth: 2,
+    shadowColor: "#5299FE",
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.5,
+    shadowRadius: 12,
+    elevation: 8,
   },
   rowBlocked: {
     opacity: 0.45,

@@ -94,7 +94,7 @@ export function VisitReasonStep({ onNext, onBack, progress }: VisitReasonStepPro
           filled={progress.filled}
           leftElement={<BackButton onBack={onBack} alwaysShow />}
         />
-        <FinishLater />
+        <FinishLater currentStep="visitReason" />
 
         <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
           <View style={styles.headerContent}>
@@ -117,8 +117,9 @@ export function VisitReasonStep({ onNext, onBack, progress }: VisitReasonStepPro
                   ]}
                 >
                   <Icon
-                    size={24}
-                    color={isSelected ? BrandColors.secondary : BrandColors.white}
+                    size={22}
+                    color={isSelected ? BrandColors.secondary : '#0F172A'}
+                    strokeWidth={1.8}
                   />
                   <Text style={[styles.optionText, isSelected && styles.optionTextSelected]}>{option.label}</Text>
                 </Pressable>

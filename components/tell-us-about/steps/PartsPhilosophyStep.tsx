@@ -206,7 +206,12 @@ const styles = StyleSheet.create({
         borderColor: '#5299FE',
     },
     optionButtonPressed: { opacity: 0.7 },
-    optionEmoji: { fontSize: FontSize['2xl'] },
+    optionEmoji: {
+        fontSize: FontSize['2xl'],
+        width: 36,
+        lineHeight: 34,
+        textAlign: 'center',
+    },
     optionText: {
         fontSize: FontSize.lg,
         fontFamily: FontFamily.regular,

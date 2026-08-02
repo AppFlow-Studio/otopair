@@ -41,7 +41,7 @@ import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Crosshair, Minus, Plus, Search, X } from "lucide-react-native";
+import { ArrowLeft, Car, Crosshair, Minus, Plus, Search, X } from "lucide-react-native";
 
 import { Text } from "@/components/shared-ui";
 import { CardShadow } from "@/constants/theme";
@@ -488,6 +488,26 @@ export default function SelectServicesScreen() {
         </MapView>
       ) : null}
 
+      {/* Peek-mode back button — top-left over the map. In peek mode the
+          sheet is collapsed to a strip, so there's no header X; this gives
+          the user a way back to Home. Matches the rail button styling. */}
+      {!isPeekExpanded && region ? (
+        <View
+          style={[styles.peekBack, { top: insets.top + 8 }]}
+          pointerEvents="box-none"
+        >
+          <Pressable
+            style={styles.peekRailBtn}
+            onPress={onClose}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Back"
+          >
+            <ArrowLeft size={20} color="#1F2937" strokeWidth={2} />
+          </Pressable>
+        </View>
+      ) : null}
+
       {/* Peek-mode right rail — +/−/recenter buttons over the map.
           Only rendered in peek mode since the full sheet covers
           the map area anyway. Mirrors the Choose Mechanic rail
@@ -823,6 +843,12 @@ const styles = StyleSheet.create({
     position: "absolute",
     right: 14,
     gap: 8,
+  },
+  peekBack: {
+    // Floating back button, top-left of the peek map. `top` set inline
+    // from safe area.
+    position: "absolute",
+    left: 14,
   },
   peekRailBtn: {
     width: 36,

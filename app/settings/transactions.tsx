@@ -32,7 +32,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Link } from "expo-router";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
-import { Calendar, ChevronLeft, Wrench } from "lucide-react-native";
+import { ArrowLeft, Calendar, Wrench } from "lucide-react-native";
 
 import { Text } from "@/components/shared-ui";
 import { BrandColors, SurfaceColors } from "@/constants/theme";
@@ -235,6 +235,9 @@ export default function PastServicesScreen() {
     <View style={styles.screen}>
       <ScrollView
         showsVerticalScrollIndicator={false}
+        // Nothing to scroll to when the list is empty — the empty state
+        // fits on screen, so disable scroll/bounce until there are services.
+        scrollEnabled={visibleBookings.length > 0}
         contentContainerStyle={[
           styles.scrollContent,
           { paddingTop: insets.top, paddingBottom: insets.bottom + 32 },
@@ -242,7 +245,7 @@ export default function PastServicesScreen() {
       >
         <View style={styles.topBar}>
           <Pressable onPress={handleBack} hitSlop={12} style={styles.backBtn}>
-            <ChevronLeft size={26} color={INK} />
+            <ArrowLeft size={20} color={INK} />
           </Pressable>
           <View style={{ flex: 1 }} />
         </View>
@@ -251,13 +254,14 @@ export default function PastServicesScreen() {
           <Text weight="bold" color={INK} style={styles.heroTitle}>
             Past Services
           </Text>
-          <Text size="md" color={MUTED} style={styles.heroSubtitle} center>
-            {visibleBookings.length === 0
-              ? filter === "all"
-                ? "No services yet"
-                : "No services for this car"
-              : `${visibleBookings.length} completed service${visibleBookings.length === 1 ? "" : "s"}`}
-          </Text>
+          {/* Only show the count subtitle when there are services — when
+              empty, the centered EmptyState below already says so, so a
+              top "No services yet" line would just be redundant. */}
+          {visibleBookings.length > 0 && (
+            <Text size="md" color={MUTED} style={styles.heroSubtitle} center>
+              {`${visibleBookings.length} completed service${visibleBookings.length === 1 ? "" : "s"}`}
+            </Text>
+          )}
         </View>
 
         {showFilterRow && (
@@ -443,14 +447,20 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 12,
-    height: 32,
+    height: 44,
   },
   backBtn: {
     width: 40,
     height: 40,
-    marginLeft: -16,
+    borderRadius: 20,
     alignItems: "center",
     justifyContent: "center",
+    backgroundColor: "#FFFFFF",
+    shadowColor: "#0F172A",
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
   },
   scrollContent: {
     paddingHorizontal: 20,

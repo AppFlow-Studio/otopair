@@ -191,14 +191,26 @@ export function FinishAccountSetupCard({
 
   // Persisted Convex completion flags — these never reflect partial
   // in-memory progress, so "Finish later" doesn't paint a tile complete.
+  // `has_saved_payment_method` is stamped by the setup_intent.succeeded
+  // webhook (see convex/http.ts) so this tile is fully reactive: the
+  // moment Stripe confirms a saved card, the flag flips and the tile
+  // becomes complete without a remount.
+  //
+  // "Create Account" is the post-signup onboarding flow (phone → name
+  // → photo → intent → …), completed when AnalyzingScreen finishes
+  // and stamps `onboardingCompleted`.
+  // "About You" is the branching TellUsAboutFlow (5–8 questions
+  // depending on carKnowledgeLevel), completed when it finishes and
+  // stamps `tellUsAboutCompleted`.
   const isCreateAccountComplete = me?.onboardingCompleted === true;
   const isTellUsAboutYourselfComplete = me?.tellUsAboutCompleted === true;
+  const isPaymentComplete = me?.has_saved_payment_method === true;
 
   const completed = [
     isCreateAccountComplete,
     isTellUsAboutYourselfComplete,
     hasCarRegistered,
-    true, // payment hardcoded until the payments flow ships
+    isPaymentComplete,
   ];
   const firstIncompleteIdx = completed.findIndex((c) => !c);
   const stateFor = (idx: number): TileState => {
@@ -208,11 +220,6 @@ export function FinishAccountSetupCard({
   };
 
   const handlePress = async (stepId?: string) => {
-    if (stepId === "personalize") {
-      router.push("/flow");
-      return;
-    }
-
     if (stepId === "payment") {
       router.push("/payments");
       return;
@@ -226,20 +233,56 @@ export function FinishAccountSetupCard({
       return;
     }
 
-    // Create Account — resume onboarding at first incomplete step.
+    // About You — routes into the branching TellUsAboutFlow.
+    if (stepId === "personalize") {
+      router.push("/flow");
+      return;
+    }
+
+    // Create Account — resume the post-signup onboarding at the first
+    // incomplete step.
     if (stepId === "account") {
       const permissions = await getDevicePermissionState();
       const resumeData = buildOnboardingResumeData(me, onboardingQa);
-      const remaining = getIncompleteOnboardingStepsFromResumeData(
+      const rawRemaining = getIncompleteOnboardingStepsFromResumeData(
         resumeData,
         permissions,
       );
-      const savedStep = await getSavedOnboardingCurrentStep(clerkUserId, remaining);
-      const resumeSteps = savedStep
-        ? remaining.includes(savedStep)
-          ? remaining
-          : [savedStep, ...remaining]
-        : remaining;
+      // Only filter `phone` when the Convex record actually confirms
+      // the number is verified — Clerk phone auth guarantees this,
+      // but OAuth users (Google/Apple) sign in with zero phone data,
+      // so unconditionally dropping `phone` would let an OAuth user
+      // skip the phone step entirely.
+      // `name` filters when a name is on the record (same defensive
+      // handling for silent persistProfileField failures).
+      const hasName = !!(me?.first_name && me?.last_name);
+      const isPhoneVerified = me?.phoneVerified === true && !!me?.phone;
+      const remaining = rawRemaining.filter((s) => {
+        if (s === "phone" && isPhoneVerified) return false;
+        // OAuth auto-populates first/last name from the provider, so
+        // `hasName` alone isn't proof the user saw NameStep. Require
+        // phoneVerified as the "walked through onboarding" signal.
+        if (s === "name" && hasName && isPhoneVerified) return false;
+        return true;
+      });
+
+      // Prefer step sources in this priority:
+      //   1. `me.onboardingDeferredStep` — server-persisted step from
+      //      the last "Finish later" tap; survives sign-outs.
+      //   2. `getSavedOnboardingCurrentStep` — SecureStore fallback
+      //      (in-session mid-flow closes).
+      // Both take precedence over the earliest missing field.
+      const deferredStep = (me as { onboardingDeferredStep?: string } | null | undefined)?.onboardingDeferredStep;
+      const savedStep = deferredStep ?? await getSavedOnboardingCurrentStep(clerkUserId, remaining);
+      let resumeSteps: typeof remaining;
+      if (savedStep) {
+        const savedIdx = remaining.indexOf(savedStep as (typeof remaining)[number]);
+        resumeSteps = savedIdx >= 0
+          ? remaining.slice(savedIdx)                                        // drop steps before saved
+          : [savedStep as (typeof remaining)[number], ...remaining];         // savedStep not in remaining — prepend it
+      } else {
+        resumeSteps = remaining;
+      }
 
       if (resumeSteps.length === 0) {
         return;

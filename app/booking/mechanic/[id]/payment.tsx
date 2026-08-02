@@ -14,13 +14,14 @@
 
 // 1. React & React Native
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, BackHandler, Image, Platform, ScrollView, StyleSheet, TextInput, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, BackHandler, Image, Platform, StyleSheet, TextInput, TouchableOpacity, View } from "react-native";
 
 // 2. Expo & Third-party
 import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { Calendar, Car, ChevronRight, FileText, Info, Star, WifiOff } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 
 // 3. Shared UI (design system)
 import { BrandColors, ErrorOccurredModal, FixedPriceBadge, Spacing, Text } from "@/components/shared-ui";
@@ -644,11 +645,16 @@ export default function PaymentScreen() {
       {/* Header */}
       <BookingPageHeader title="Review & Pay" onBack={handleBack} />
 
-      {/* Scrollable Content */}
-      <ScrollView
+      {/* Scrollable Content — KeyboardAwareScrollView so the "Notes for the
+          mechanic" field scrolls above the keyboard instead of hiding behind
+          it. bottomOffset keeps the focused field clear of the keyboard top. */}
+      <KeyboardAwareScrollView
         style={styles.scrollView}
         contentContainerStyle={[styles.scrollContent, { paddingBottom: 120 + insets.bottom }]}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+        bottomOffset={24}
       >
         {/* Mechanic Card with Appointment Details */}
         <View style={styles.mechanicCard}>
@@ -1087,7 +1093,7 @@ export default function PaymentScreen() {
           </Text>
         </View>
 
-      </ScrollView>
+      </KeyboardAwareScrollView>
 
       {/* Footer CTA — wallet button on top (Apple Pay on iOS, Google Pay
           on Android), saved card row below. The wallet button is hidden

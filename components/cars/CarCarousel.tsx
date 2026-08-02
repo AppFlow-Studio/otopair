@@ -2401,13 +2401,20 @@ export function CarCarousel({
       {!useCompactSelector && (
         <View style={[
           styles.separatorContainer,
-          { width: (sortedVehicles.length * scale(48)) + ((sortedVehicles.length - 1) * Spacing.sm) }
+          // Match the thumbnail rail's exact geometry (segmentWidth per car,
+          // no gaps) so the underline shares the rail's coordinate space.
+          { width: segmentWidth * sortedVehicles.length }
         ]}>
           <View style={styles.separator} />
           <View
             style={[
               styles.separatorIndicator,
-              { left: activeIndex * (scale(48) + Spacing.sm) }
+              // Underline is as wide as the car image and centered under the
+              // active thumbnail, so it always sits directly beneath it.
+              {
+                width: thumbnailSize,
+                left: activeIndex * segmentWidth + (segmentWidth - thumbnailSize) / 2,
+              }
             ]}
           />
         </View>
@@ -2730,6 +2737,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: Spacing.sm,
     marginHorizontal: Spacing.lg,
+    // Match the health-ring height so the row stays the same size whether or
+    // not the ring is shown (it's hidden until onboarding completes). Without
+    // this the row collapses to the thumbnail height pre-onboarding and the
+    // separator line ends up touching the car thumbnails.
+    minHeight: scale(72),
   },
   // Wraps the SegmentedControl rail + the "+" add-vehicle button so
   // they stay grouped on the left side of the row, with the
@@ -2835,9 +2847,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#C4C9D4',
   },
   separatorIndicator: {
+    // width + left are set inline so the underline tracks the active
+    // thumbnail's real position (see the JSX above).
     position: 'absolute',
     top: -1,
-    width: scale(48),
     height: 3,
     backgroundColor: BrandColors.secondary,
     borderRadius: 1.5,

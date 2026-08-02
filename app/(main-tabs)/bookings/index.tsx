@@ -40,7 +40,7 @@ import { useToast } from "@/hooks/useToast";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
-import { Calendar, Check, ListFilter, Star } from "lucide-react-native";
+import { Calendar, CalendarX, Check, ListFilter, Star } from "lucide-react-native";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Image, PixelRatio, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
 import Animated from "react-native-reanimated";
@@ -188,6 +188,7 @@ export default function BookingsScreen() {
   const toast = useToast();
   const cancelConvexBooking = useMutationWithToast(api.bookings.cancelBooking, {
     success: "Booking cancelled.",
+    successIcon: CalendarX,
     error: "Couldn't cancel this booking. Try again.",
   });
   useEffect(() => {
@@ -200,7 +201,7 @@ export default function BookingsScreen() {
       const isLocalId = bookingId.startsWith("tire_quote_") || bookingId.startsWith("booking_");
       if (isLocalId) {
         cancelLocalBooking(bookingId);
-        toast.success("Booking cancelled.");
+        toast.success("Booking cancelled.", undefined, { icon: CalendarX });
       } else {
         void cancelConvexBooking({ bookingId: bookingId as Id<"bookings"> });
       }

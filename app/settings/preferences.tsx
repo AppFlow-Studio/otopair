@@ -28,8 +28,8 @@ import {
   Animated,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useGuardedRouter as useRouter } from '@/hooks/useGuardedRouter';
-import { ChevronRight, Check } from 'lucide-react-native';
+import { useToast } from '@/hooks/useToast';
+import { ChevronRight, Check, SlidersHorizontal } from 'lucide-react-native';
 import { useQuery } from "convex/react";
 import { BlurView } from 'expo-blur';
 
@@ -53,12 +53,12 @@ const SHOW_LANGUAGE_OPTION = false;
 
 export default function PreferencesScreen() {
   const insets = useSafeAreaInsets();
-  const router = useRouter();
 
   // Convex & Zustand
   const preferences = useQuery(api.preferences.getMyPreferences);
   const { persistGeneralPreferences } = usePreferencesPersistence();
   const { data, updateData } = useOnboardingStore();
+  const toast = useToast();
 
   // Local state for the form
   const [language, setLanguage] = useState(data.language || 'English');
@@ -79,7 +79,7 @@ export default function PreferencesScreen() {
   }, [preferences, updateData]);
 
   const [isSaving, setIsSaving] = useState(false);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [justSaved, setJustSaved] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [visibleSheet, setVisibleSheet] = useState<'language' | 'units' | null>(null);
   const [tempValue, setTempValue] = useState<string>('');
@@ -135,7 +135,7 @@ export default function PreferencesScreen() {
   const handleSave = useCallback(async () => {
     console.log('Saving preferences...', { language, units });
     setIsSaving(true);
-    setSuccessMessage(null);
+    setJustSaved(false);
     setErrorMessage(null);
 
     // 1. Update Zustand store for immediate UI update
@@ -149,18 +149,21 @@ export default function PreferencesScreen() {
         units 
       });
       console.log('Successfully updated Convex database (user_settings_preferences)');
-      setSuccessMessage('Preferences updated.');
-      
-      // Give a small delay to show the success state/loading before navigating back
-      setTimeout(() => {
-        router.back();
-      }, 500);
+
+      // Emotional confirmation: success haptic + toast (fires the haptic
+      // itself) and a brief "Saved!" button state before we leave.
+      setIsSaving(false);
+      setJustSaved(true);
+      toast.success('Preferences saved', "Otopair's tailored to you.", { icon: SlidersHorizontal });
+
+      // Stay on the page — just revert the button after the "Saved!" moment.
+      setTimeout(() => setJustSaved(false), 1600);
     } catch (error) {
       console.error("Error saving preferences:", error);
       setErrorMessage('Unable to save changes. Please try again.');
       setIsSaving(false);
     }
-  }, [language, units, updateData, persistGeneralPreferences, router]);
+  }, [language, units, updateData, persistGeneralPreferences, toast]);
 
   const renderSheet = () => {
     if (!visibleSheet) return null;
@@ -330,13 +333,6 @@ export default function PreferencesScreen() {
           </View>
         ) : null}
 
-        {successMessage ? (
-          <View style={[styles.messageBox, styles.successBox]}>
-            <Text size="sm" color="#10B981" style={styles.messageText}>
-              {successMessage}
-            </Text>
-          </View>
-        ) : null}
       </ScrollView>
 
       {/* Submit Area */}
@@ -347,10 +343,17 @@ export default function PreferencesScreen() {
             (pressed || isSaving) && { opacity: 0.7 }
           ]}
           onPress={handleSave}
-          disabled={isSaving}
+          disabled={isSaving || justSaved}
         >
           {isSaving ? (
             <ActivityIndicator color="#FFF" />
+          ) : justSaved ? (
+            <View style={styles.savedRow}>
+              <Check size={18} color="#FFF" strokeWidth={3} />
+              <Text weight="semiBold" size="md" color="#FFF">
+                Saved!
+              </Text>
+            </View>
           ) : (
             <Text weight="semiBold" size="md" color="#FFF">
               Update Preferences
@@ -491,14 +494,16 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 4,
   },
+  savedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
   messageBox: {
     marginTop: Spacing.lg,
     backgroundColor: 'rgba(239, 68, 68, 0.12)',
     borderRadius: 12,
     padding: Spacing.md,
-  },
-  successBox: {
-    backgroundColor: 'rgba(16, 185, 129, 0.12)',
   },
   messageText: {
     textAlign: 'center',

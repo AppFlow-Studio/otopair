@@ -12,6 +12,13 @@ import {
   getOnboardingFinishedLaterKey,
 } from '@/lib/onboarding-resume';
 
+interface FinishLaterProps {
+  /** Onboarding step the user is currently on. Persisted to Convex
+   *  so the home-page "Finish setup" card can resume from the exact
+   *  spot, even across sign-outs. */
+  currentStep?: string;
+}
+
 /**
  * FinishLater
  *
@@ -20,15 +27,28 @@ import {
  *
  * USED IN: Onboarding steps (ProfilePhotoStep, UserIntentStep, etc.)
  */
-export function FinishLater() {
+export function FinishLater({ currentStep }: FinishLaterProps = {}) {
   const router = useRouter();
   const { userId: clerkUserId } = useAuth();
+  // Best-effort: mark essential onboarding complete if all six fields
+  // are filled (email/emailConfirmed/phone/phoneVerified/name). For
+  // most OAuth users mid-flow this throws — that's fine, the
+  // unconditional `deferOnboarding` below is the real re-login gate.
   const completeEssentialOnboarding = useMutation(api.users.completeEssentialOnboarding);
+  // Always succeeds — flips `users.onboardingDeferred = true` so the
+  // startup redirect at `app/index.tsx` sends the user home instead
+  // of restarting onboarding at the phone step.
+  const deferOnboarding = useMutation(api.users.deferOnboarding);
 
   const handlePress = async () => {
     await Promise.all([
-      completeEssentialOnboarding().catch((error) => {
-        console.error('Failed to mark essential onboarding complete:', error);
+      deferOnboarding(currentStep ? { step: currentStep } : {}).catch((error) => {
+        console.error('Failed to defer onboarding:', error);
+      }),
+      completeEssentialOnboarding().catch(() => {
+        // Expected to fail for users whose email/name isn't fully in
+        // Convex yet — `deferOnboarding` above is the source of truth
+        // for re-login routing, so this is best-effort only.
       }),
       SecureStore.setItemAsync(getOnboardingFinishedLaterKey(clerkUserId), 'true').catch(() => {
         // Do not block navigation on local storage failure.

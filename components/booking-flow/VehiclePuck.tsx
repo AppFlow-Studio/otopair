@@ -31,7 +31,14 @@ interface VehiclePuckProps {
 
 export function VehiclePuck({ size = 44, onPress, interactive = false }: VehiclePuckProps) {
   const vehicle = useVehicleStore((s) => s.getSelectedVehicle());
+  const vehicleCount = useVehicleStore((s) => s.vehicleIds.length);
   const [switcherOpen, setSwitcherOpen] = useState(false);
+
+  // Opening the "Choose a vehicle" sheet only makes sense with 2+ cars —
+  // there's nothing to switch to otherwise. A custom `onPress` still runs
+  // (the caller opted into its own behavior); only the default switcher is
+  // gated on car count.
+  const canInteract = interactive && (onPress != null || vehicleCount > 1);
 
   const radius = size / 2;
   const body = (
@@ -51,8 +58,9 @@ export function VehiclePuck({ size = 44, onPress, interactive = false }: Vehicle
     </View>
   );
 
-  if (!interactive) {
-    // Display-only puck — no Pressable, no hit slop, no switcher.
+  if (!canInteract) {
+    // Display-only puck — no Pressable, no hit slop, no switcher. Used on
+    // Screens 2-4, and on Screen 1 when the user has only one car.
     return <View accessibilityLabel="Active vehicle">{body}</View>;
   }
 

@@ -13,6 +13,7 @@
       "infoPlist": {
         "NSSpeechRecognitionUsageDescription": "Allow Otopair to use speech recognition to transcribe your voice.",
         "NSMicrophoneUsageDescription": "Allow Otopair to use the microphone for voice input.",
+        "NSFaceIDUsageDescription": "Otopair uses Face ID to securely sign you in and protect your account.",
         "ITSAppUsesNonExemptEncryption": false
       }
     },
