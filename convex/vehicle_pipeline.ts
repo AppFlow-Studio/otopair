@@ -23,6 +23,13 @@ import { findHaloVariant } from "./lib/haloVariantRules";
 import { canonicalizeTransmissionType } from "./lib/transmissionTypeInference";
 import { buildEngineKey, buildNhtsaVinKey } from "./vehicleEnrichment/types";
 import { isSyntheticEngineCode } from "./vehicleEnrichment/utils/engineLookup";
+import { reconcileDrivetrain } from "./vehicleEnrichment/drivetrainReconcile";
+import { acceptNormalizedTrim } from "./vehicleEnrichment/identityResolution";
+import { parseGvwrUpperLbs } from "./vehicleEnrichment/validation/sanityChecks";
+import { assembleVariantFingerprint, type TransmissionFamily } from "./vehicleEnrichment/variantFingerprint";
+import { resolveFuelClass } from "./vehicleEnrichment/fuelTypeResolver";
+import { resolveBuildSource } from "./vehicleEnrichment/buildSourceResolver";
+import { reconcilePerformanceVariant } from "./vehicleEnrichment/variantDecodeReconcile";
 
 const NHTSA_API = "https://vpic.nhtsa.dot.gov/api/vehicles/decodevinvaluesextended/";
 
@@ -49,6 +56,9 @@ type ProcessVinResult = {
   displacement: string;
   fuelType: string;
   drivetrain: string;
+  /** Variant fingerprint (P0/P1) — consolidated, confidence-scored identity.
+   *  Observe-only for now (logged; not yet anchoring extraction). */
+  variantFingerprint?: import("./vehicleEnrichment/variantFingerprint").VariantFingerprintV1;
   /** Merged body class (NHTSA "BodyClass" preferred, VDB bodyType fallback).
    *  Surfaced to the review screen so the loading-state silhouette can
    *  pick SUV vs sedan. */
@@ -116,14 +126,28 @@ export const processVin = internalAction({
       // ════════════════════════════════════════════════════════════
       // SOURCE 2: NHTSA vPIC (fallback — free, always available)
       // ════════════════════════════════════════════════════════════
-      const nhtsaResp = await fetch(`${NHTSA_API}/${args.vin}?format=json`);
+      // 15s cap: vPIC normally answers in ~1s; a hung socket otherwise eats
+      // the whole decode action. The enclosing try/catch fails open (null →
+      // caller reports decode_failed) — no retry, NHTSA is free to re-hit.
+      const nhtsaResp = await fetch(`${NHTSA_API}/${args.vin}?format=json`, {
+        signal: AbortSignal.timeout(15_000),
+      });
       const nhtsaData = await nhtsaResp.json();
 
       const errorCode = getValue(nhtsaData, "ErrorCode");
       const errorCodes = errorCode.split(",").map((c: string) => c.trim());
       if (!errorCodes.includes("0")) {
-        console.error("NHTSA decode error:", errorCode, getValue(nhtsaData, "ErrorText"));
-        if (!vdb) return null; // both sources failed
+        console.warn("NHTSA decode non-zero error:", errorCode, getValue(nhtsaData, "ErrorText"));
+        // Batch-6 fix: a non-zero error code is NOT automatically fatal. Codes
+        // like 4 (VIN auto-corrected one position), 5/14 (incomplete manufacturer
+        // submission), and 8 (no detailed data) still yield Make/Year/Engine —
+        // the 2009 Escalade returns "4,14" with a blank Model but valid make/year/
+        // engine. Bail ONLY when the decode is truly unusable (no Make AND no VDB);
+        // otherwise proceed and let the model fallback + the make/model/year gate
+        // below recover it. (Previously any non-zero code with VDB down hard-failed
+        // a real vehicle.)
+        const nhtsaMake = getValue(nhtsaData, "Make");
+        if (!nhtsaMake && !vdb) return null; // both sources genuinely dead
       }
 
       const nhtsa = {
@@ -150,6 +174,8 @@ export const processVin = internalAction({
         transStyle: getValue(nhtsaData, "TransmissionStyle"),
         transSpeeds: getValue(nhtsaData, "TransmissionSpeeds"),
         driveType: getValue(nhtsaData, "DriveType"),
+        gvwr: getValue(nhtsaData, "GVWR"),
+        engineManufacturer: getValue(nhtsaData, "EngineManufacturer"),
       };
 
       // ════════════════════════════════════════════════════════════
@@ -225,15 +251,41 @@ export const processVin = internalAction({
         year: trustVdbYmmt
           ? (vdb?.year || parseInt(nhtsa.year || "0"))
           : (parseInt(nhtsa.year || "0") || vdb?.year || 0),
-        trim: trustVdbYmmt
-          ? (vdb?.trim || nhtsa.trim || "Base")
-          : (nhtsa.trim || "Base"),
+        // Round 10 (batch-11 F-150, 2nd recurrence): the round-8 trim guard
+        // only gated the LLM-normalizer branch — a wrong trim arriving from
+        // the DECODE MERGE itself ("FX4 SuperCrew" from VDB while NHTSA's
+        // series positively says Lariat) flowed through unchecked. Apply the
+        // same token-overlap philosophy here: when VDB's trim shares no
+        // token with NHTSA's trim/series evidence AND NHTSA positively named
+        // one, prefer NHTSA's (the regulatory decode over the aggregator).
+        trim: (() => {
+          const vdbTrim = vdb?.trim ?? "";
+          const nhtsaEvidence = [nhtsa.trim, nhtsa.series, nhtsa.trim2, nhtsa.series2]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase();
+          if (trustVdbYmmt && vdbTrim && nhtsaEvidence) {
+            const vdbTokens = vdbTrim.toLowerCase().split(/[\s/_-]+/).filter((t: string) => t.length >= 2);
+            const overlaps = vdbTokens.some((t: string) => nhtsaEvidence.includes(t));
+            if (!overlaps && (nhtsa.trim || nhtsa.series)) {
+              const preferred = nhtsa.trim || nhtsa.series;
+              console.warn(
+                `[decode] TRIM PRECEDENCE — VDB trim "${vdbTrim}" shares no token with NHTSA evidence "${nhtsaEvidence}"; using NHTSA "${preferred}"`,
+              );
+              return preferred;
+            }
+          }
+          return trustVdbYmmt ? (vdbTrim || nhtsa.trim || "Base") : (nhtsa.trim || "Base");
+        })(),
         trim2: nhtsa.trim2 || "",
         series: nhtsa.series || "",
         series2: nhtsa.series2 || "",
         bodyClass: nhtsa.bodyClass || vdb?.bodyType || "",
         doors: vdb?.doors || (parseInt(nhtsa.doors || "0") || null),
         vehicleType: nhtsa.vehicleType || "",
+        // NHTSA-only, regulatory: GVWR class + engine manufacturer (batch-5).
+        gvwr: nhtsa.gvwr || "",
+        engineManufacturer: nhtsa.engineManufacturer || "",
 
         // Engine — VDB wins, NHTSA fills gaps
         // Cylinders is the exception: NHTSA's EngineCylinders is the
@@ -278,9 +330,117 @@ export const processVin = internalAction({
         steeringType: vdb?.steeringType || null,
       };
 
+      // Round 10 (batch-11 Grand Highlander): the substring YMMT agreement
+      // lets the SHORTER nameplate win the merge — vPIC's "Highlander"
+      // collapsed VDB's "Grand Highlander", and because both models share the
+      // A25A-FXS every model-divergent field then resolved to the wrong
+      // sibling at high confidence with no catchable contradiction. When both
+      // decoders name a model and one is a whole-word extension of the other,
+      // the LONGER (more specific) name wins: decoders drop tokens, they
+      // don't invent them. The performance-halo reconcile below still demotes
+      // over-claimed halo tokens (WRX/SS/…) after this.
+      {
+        const normM = (s: string) => s.toLowerCase().replace(/[\s_-]+/g, " ").trim();
+        const a = normM(vdb?.model ?? "");
+        const b = normM(nhtsa.model ?? "");
+        if (a && b && a !== b && merged.model) {
+          const longerRaw = a.length >= b.length ? (vdb?.model ?? "") : (nhtsa.model ?? "");
+          const longerN = normM(longerRaw);
+          const shorterN = a.length >= b.length ? b : a;
+          const wholeWordExtension =
+            longerN.startsWith(shorterN + " ") ||
+            longerN.endsWith(" " + shorterN) ||
+            longerN.includes(" " + shorterN + " ");
+          if (wholeWordExtension && normM(merged.model) === shorterN) {
+            console.warn(
+              `[decode] MODEL SPECIFICITY — "${merged.model}" → "${longerRaw}" (longer decoder nameplate wins over prefix collapse)`,
+            );
+            merged.model = longerRaw;
+          }
+        }
+      }
+
+      // Variant mis-decode reconciliation (batch-9): VDB occasionally decodes a
+      // non-performance vehicle as its performance halo — a 2003 Impreza Outback
+      // (2.5 NA) read as an "Impreza WRX" (2.0T) — and the fuzzy YMMT match lets
+      // it win because "Impreza WRX" ⊇ "Impreza". That wrong model then misleads
+      // the engine-code resolver to the turbo engine + wrong parts. When VDB
+      // adds a performance-halo token NHTSA lacks AND NHTSA positively decoded a
+      // different variant, prefer NHTSA's base model.
+      if (trustVdbYmmt && (vdb?.model || vdb?.trim) && nhtsa.model) {
+        // VDB records the halo in either the model ("Impreza WRX") or the TRIM
+        // ("Impreza" + trim "WRX") — scan both.
+        const vdbFull = `${vdb?.model ?? ""} ${vdb?.trim ?? ""}`.trim();
+        const nhtsaVariantText = [nhtsa.series, nhtsa.trim, nhtsa.series2, nhtsa.trim2]
+          .filter(Boolean)
+          .join(" ");
+        const vr = reconcilePerformanceVariant(vdbFull, nhtsa.model, nhtsaVariantText);
+        if (vr.demote) {
+          const demotedTrim = nhtsa.trim || nhtsa.series || "Base";
+          console.warn(
+            `[decode] VARIANT RECONCILE — ${vr.reason}; "${merged.model} ${merged.trim}" → NHTSA "${nhtsa.model} ${demotedTrim}"`,
+          );
+          merged.model = nhtsa.model;
+          merged.trim = demotedTrim;
+        }
+      }
+
+      // Batch-6 fix: NHTSA sometimes omits the Model for a VALID VIN (the 2009
+      // Escalade: ErrorCode 4,14 "manufacturer did not submit some fields")
+      // while Make + Year + Engine decode fine — and VDB may also be down/blank.
+      // Rather than hard-fail a real vehicle, resolve the model from the VIN via
+      // web search before giving up. Only fires when make+year are known but
+      // model is missing (rare), so it adds no cost to the normal path.
+      if (merged.make && merged.year && !merged.model) {
+        console.log(`[decode] Model blank for ${merged.year} ${merged.make} — attempting VIN web lookup fallback`);
+        const recovered = await resolveModelFromVin(
+          args.vin, merged.make, merged.year, nhtsa.series, nhtsa.bodyClass,
+          {
+            code: nhtsa.engineModel,
+            displacement: merged.displacement,
+            cylinders: merged.cylinders,
+            hp: nhtsa.engineHP,
+          },
+        );
+        console.log(`[decode] Model VIN lookup returned: ${recovered ? `"${recovered}"` : "null"}`);
+        if (recovered) {
+          console.log(`[decode] Model recovered via VIN web lookup: "${recovered}" (NHTSA+VDB were blank)`);
+          merged.model = recovered;
+        }
+      }
+
       if (!merged.make || !merged.model || !merged.year) {
         console.error("Decode: Missing critical fields", { make: merged.make, model: merged.model, year: merged.year });
         return null;
+      }
+
+      // ── Identity consistency: trim vs engine (batch-2 audit, Jul 2026) ──
+      // The cross-source merge can build a chimera: VDB's trim string embeds
+      // an engine qualifier that contradicts the engine NHTSA won (a real
+      // 3.6L Atlas decoded as trim "2.0T SE" + engine 3.6 FSI, and the
+      // contradiction then poisoned the config key, the trim label users
+      // see, and the engine-code verifier's input). When the trim's embedded
+      // displacement or cylinder token disagrees with the merged engine,
+      // strip the token — the rest of the trim ("SE") is still right.
+      {
+        const dispNum = parseFloat(merged.displacement || "");
+        const cyl = merged.cylinders || 0;
+        let trim = merged.trim;
+        const dispTok = trim.match(/(\d\.\d)\s*T?(?:SI|FSI|DI)?L?\b/i);
+        if (dispTok && dispNum && Math.abs(parseFloat(dispTok[1]) - dispNum) > 0.15) {
+          trim = trim.replace(dispTok[0], "").replace(/\s{2,}/g, " ").trim();
+          console.warn(
+            `[decode] Trim/engine contradiction — trim "${merged.trim}" embeds ${dispTok[1]}L but engine is ${dispNum}L; using trim "${trim || "Base"}"`,
+          );
+        }
+        const cylTok = trim.match(/\b[VvIiHh](\d{1,2})\b/);
+        if (cylTok && cyl && parseInt(cylTok[1]) !== cyl) {
+          trim = trim.replace(cylTok[0], "").replace(/\s{2,}/g, " ").trim();
+          console.warn(
+            `[decode] Trim/engine contradiction — trim "${merged.trim}" says ${cylTok[0]} but engine has ${cyl} cylinders; using trim "${trim || "Base"}"`,
+          );
+        }
+        merged.trim = trim || "Base";
       }
 
       // ════════════════════════════════════════════════════════════
@@ -338,7 +498,25 @@ export const processVin = internalAction({
         });
         if (normalized) {
           if (normalized.model) finalModel = normalized.model;
-          if (normalized.trim) finalTrim = normalized.trim;
+          // Round 8 (batch-10): accept the LLM's trim only when it overlaps the
+          // decode evidence — the unconditional override stored a Lariat F-150
+          // as "FX4 SuperCrew" and a 745Li as "745i" (trims no decoder produced).
+          if (normalized.trim) {
+            if (
+              acceptNormalizedTrim(normalized.trim, [
+                merged.trim,
+                merged.trim2,
+                merged.series,
+                merged.series2,
+              ])
+            ) {
+              finalTrim = normalized.trim;
+            } else {
+              console.log(
+                `[decode] Normalizer trim "${normalized.trim}" rejected — no token overlap with decode evidence (kept "${finalTrim}")`,
+              );
+            }
+          }
           if (normalized.engine_code && !vdbCode && !isSyntheticEngineCode(normalized.engine_code)) {
             finalEngineCode = normalized.engine_code;
           }
@@ -397,9 +575,26 @@ export const processVin = internalAction({
             });
             const code = (resp.content[0]?.type === "text" ? resp.content[0].text.trim() : "")
               .replace(/[^a-zA-Z0-9\-_.]/g, "");
-            if (code && code.toLowerCase() !== "null" && code.length >= 2 && code.length <= 20) {
+            // Round 10 (batch-11 Crosstrek): "NA" (naturally aspirated) passed
+            // the length filter and was keyed as the engine code. Reject
+            // aspiration/architecture descriptors — they are answers to a
+            // different question, never codes.
+            const DESCRIPTOR_ANSWERS = new Set([
+              "na", "n-a", "turbo", "turbocharged", "supercharged", "dohc",
+              "sohc", "ohv", "vtec", "gdi", "mpi", "diesel", "hybrid", "ev",
+              "i4", "v6", "v8", "h4", "boxer",
+            ]);
+            if (
+              code &&
+              code.toLowerCase() !== "null" &&
+              !DESCRIPTOR_ANSWERS.has(code.toLowerCase()) &&
+              code.length >= 2 &&
+              code.length <= 20
+            ) {
               console.log(`[decode] Search + Haiku resolved engine code: ${code} (was "${finalEngineCode}")`);
               finalEngineCode = code;
+            } else if (code && DESCRIPTOR_ANSWERS.has(code.toLowerCase())) {
+              console.log(`[decode] Search + Haiku returned descriptor "${code}", not an engine code — ignored`);
             }
           }
         } catch (err) {
@@ -422,11 +617,16 @@ export const processVin = internalAction({
         modelId, name: finalTrim, year: merged.year,
       });
 
-      // Drivetrain: AI normalized > NHTSA mapped > VDB > unknown
-      const nhtsaDrivetrain = mapNhtsaDriveType(merged.driveType);
-      const canonicalDrivetrain = drivetrainType
+      // Drivetrain: NHTSA VIN-decoded axle count is authoritative (2WD vs 4WD);
+      // the AI only refines within that class. Prevents the batch-3 failure
+      // where a "4x2" VIN (dropped by the old mapNhtsaDriveType) let the LLM's
+      // AWD guess win and phantom transfer-case/diff services shipped.
+      const aiCanonicalDrivetrain = drivetrainType
         ? toCanonicalDrivetrain(drivetrainType)
-        : nhtsaDrivetrain;
+        : undefined;
+      const canonicalDrivetrain =
+        reconcileDrivetrain(merged.driveType, aiCanonicalDrivetrain, merged.bodyClass) ??
+        mapNhtsaDriveType(merged.driveType);
       if (canonicalDrivetrain && canonicalDrivetrain !== "unknown") {
         await ctx.runMutation(api.chassis_variants.upsertChassisVariant, {
           trim_id: trimId,
@@ -444,6 +644,11 @@ export const processVin = internalAction({
 
       // Engine extras
       const enginePatch: Record<string, unknown> = { make_id: makeId };
+      // GVWR (upper-bound lbs, drives duty-class sanity bands) + engine
+      // manufacturer (engine-maker fluid specs in the fitment verifier). Batch-5.
+      const gvwrLbs = parseGvwrUpperLbs(merged.gvwr);
+      if (gvwrLbs != null) enginePatch.gvwr_lbs = gvwrLbs;
+      if (merged.engineManufacturer) enginePatch.engine_manufacturer = merged.engineManufacturer;
       const cfg = merged.engineConfiguration?.toLowerCase() ?? "";
       if (cfg.includes("v")) enginePatch.configuration = "V";
       else if (cfg.includes("in-line") || cfg.includes("inline")) enginePatch.configuration = "inline";
@@ -517,10 +722,79 @@ export const processVin = internalAction({
           (nhtsa.transSpeeds ? parseInt(nhtsa.transSpeeds) : null),
       };
 
+      // ── Variant fingerprint (P0/P1) ──────────────────────────────
+      // Consolidate the decode signals just resolved above (engine code,
+      // reconciled drivetrain, canonicalized transmission, GVWR duty class) plus
+      // an AUTHORITATIVE fuel-class resolution (P1: cross-checks the fuel field
+      // against the engine — a Cummins/EcoDiesel/TDI engine is diesel no matter
+      // what the fuel field says) into one confidence-scored record. Currently
+      // OBSERVE-ONLY: produced + logged + returned, not yet anchoring extraction
+      // (that's P5). Fail-open — a null facet changes nothing downstream.
+      const fuelResolution = resolveFuelClass({
+        nhtsa_fuel_type: nhtsa.fuelType || null,
+        vdb_fuel_type: vdb?.fuelType ?? null,
+        engine_code: finalEngineCode,
+        engine_manufacturer: merged.engineManufacturer || null,
+        engine_description: vdb?.engineDescription ?? null,
+      });
+      const canonTransRaw = (await canonicalizeTransmissionType(transType))?.toLowerCase();
+      const canonTransFamily: TransmissionFamily | null =
+        canonTransRaw === "automatic" || canonTransRaw === "cvt" ||
+        canonTransRaw === "dct" || canonTransRaw === "manual"
+          ? (canonTransRaw as TransmissionFamily)
+          : null;
+      const buildSource = resolveBuildSource({
+        make: merged.make,
+        model: finalModel,
+        model_year: merged.year,
+        engine_manufacturer: merged.engineManufacturer || null,
+      });
+      const variantFingerprint = assembleVariantFingerprint({
+        make: merged.make,
+        model: finalModel,
+        model_year: merged.year,
+        engine_code:
+          finalEngineCode && !finalEngineCode.includes("_") ? finalEngineCode : null,
+        raw_fuel_type: merged.fuelType || null,
+        aspiration: merged.turbo ? "turbo" : null,
+        displacement_l: merged.displacement ? parseFloat(merged.displacement) || null : null,
+        cylinders: merged.cylinders ?? null,
+        engine_manufacturer: merged.engineManufacturer || null,
+        transmission_family: canonTransFamily,
+        speeds: merged.transSpeeds ?? null,
+        drivetrain:
+          canonicalDrivetrain && canonicalDrivetrain !== "unknown"
+            ? (canonicalDrivetrain as "FWD" | "RWD" | "AWD" | "4WD")
+            : null,
+        gvwr_lbs: gvwrLbs,
+        resolved_fuel: {
+          fuel_class: fuelResolution.fuel_class,
+          confidence: fuelResolution.confidence,
+          source: fuelResolution.source,
+        },
+        resolved_build_source: {
+          build_source_make: buildSource.build_source_make,
+          confidence: buildSource.confidence,
+          source: buildSource.source,
+        },
+      });
+      console.log(
+        `[fingerprint] ${merged.year} ${merged.make} ${finalModel} | ` +
+          `fuel=${variantFingerprint.fuel_class.value ?? "?"}(${fuelResolution.source}` +
+          `${fuelResolution.conflict ? ",CONFLICT" : ""}) | ` +
+          `engine=${variantFingerprint.engine_code.value ?? "?"} | ` +
+          `trans=${variantFingerprint.transmission_family.value ?? "?"} | ` +
+          `drive=${variantFingerprint.drivetrain.value ?? "?"} | ` +
+          `duty=${variantFingerprint.duty_class.value ?? "?"} | ` +
+          `buildSrc=${variantFingerprint.build_source_make.value ?? "-"} | ` +
+          `idConf=${variantFingerprint.overall_identity_confidence.toFixed(2)}`,
+      );
+
       return {
         makeId, modelId, trimId, engineId, transmissionId,
         make: merged.make, model: finalModel, year: merged.year, trim: finalTrim,
         engineCode: finalEngineCode,
+        variantFingerprint,
         cylinders: merged.cylinders, displacement: merged.displacement,
         fuelType: merged.fuelType,
         drivetrain: canonicalDrivetrain ?? "unknown",
@@ -612,7 +886,7 @@ export const enrichVehicleSpecs = internalAction({
     let effectiveEngineCode = args.engineCode?.trim() ?? "";
     if (!effectiveEngineCode) {
       const engine = await ctx.runQuery(internal.vehicle_mutations.getEngine, { engineId: args.engineId });
-      if (engine) {
+      if (engine?.trim_id) {
         const trimEngines = await ctx.runQuery(internal.vehicle_mutations.getEnginesByTrim, {
           trimId: engine.trim_id,
         });
@@ -710,7 +984,7 @@ export const enrichVehicleSpecs = internalAction({
               internal.vehicle_mutations.getEngine,
               { engineId: args.engineId }
             );
-            if (engine) {
+            if (engine?.trim_id) {
               await ctx.runMutation(internal.vehicle_mutations.patchTrim, {
                 trimId: engine.trim_id,
                 steeringType,
@@ -792,7 +1066,7 @@ export const enrichVehicleSpecs = internalAction({
           if (specs.trim_specs) {
             const { flat: trimFlat } = flattenPerFieldSpecs(specs.trim_specs);
             const engine = await ctx.runQuery(internal.vehicle_mutations.getEngine, { engineId: args.engineId });
-            if (engine) {
+            if (engine?.trim_id) {
               await ctx.runMutation(internal.vehicle_mutations.storeTrimSpecs, {
                 trimId: engine.trim_id,
                 specs: trimFlat,
@@ -881,14 +1155,22 @@ export const enrichVehicleSpecs = internalAction({
       // Base specs already exist — pull values for pricing prompt context
       oilViscosity = existingSpecs.oil_viscosity || "N/A";
       oilCapacityQts = existingSpecs.oil_capacity_qts || 0;
-      confidenceScore = existingSpecs.confidence_score || 0.75;
+      // engines docs don't store a confidence score — use the same default the
+      // fresh-enrichment path falls back to.
+      confidenceScore = 0.75;
+      // Reverse of updateEngineAttributes' column mapping: has_turbocharger is
+      // persisted as `aspiration`, fuel_injection_type as `fuel_injection`;
+      // power_steering / transmission / drivetrain are not stored on engines.
       vehicleAttributes = {
-        power_steering_type: existingSpecs.power_steering_type ?? null,
+        power_steering_type: null,
         timing_system: existingSpecs.timing_system ?? null,
-        has_turbocharger: existingSpecs.has_turbocharger ?? null,
-        fuel_injection_type: existingSpecs.fuel_injection_type ?? null,
-        transmission_type: existingSpecs.transmission_type ?? null,
-        drivetrain_type: existingSpecs.drivetrain_type ?? null,
+        has_turbocharger:
+          existingSpecs.aspiration != null
+            ? existingSpecs.aspiration === "turbocharged"
+            : null,
+        fuel_injection_type: existingSpecs.fuel_injection ?? null,
+        transmission_type: null,
+        drivetrain_type: null,
       };
       const existingVehicleSpecs = await ctx.runQuery(internal.vehicle_mutations.getVehicleSpecs, {
         engineId: args.engineId,
@@ -971,7 +1253,7 @@ export const enrichVehicleSpecs = internalAction({
           - Publicly visible labor-time references (if available)
 
           NOT ALLOWED
-          - RepairPal
+          - Estimator
           - Forums as a primary source (forums may only sanity-check; never "verify")
 
           CRITICAL RULES
@@ -1059,7 +1341,7 @@ export const enrichVehicleSpecs = internalAction({
         // Build slug → service ID map
         const slugToService = new Map<string, any>();
         for (const svc of services) {
-          slugToService.set(svc.slug, svc);
+          if (svc.slug) slugToService.set(svc.slug, svc);
         }
 
         // Loop through results and upsert
@@ -1459,6 +1741,10 @@ async function fetchAnthropicWithRetry(
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify(body),
+      // Dead-socket bound only — web_search generations legitimately run
+      // minutes, so this must sit above any plausible completion time. The
+      // abort throws into each caller's existing fail-open try/catch.
+      signal: AbortSignal.timeout(300_000),
     });
     lastResponse = response;
     if (response.status === 429) {
@@ -1501,6 +1787,65 @@ function mapNhtsaDriveType(driveType: string): string | undefined {
 // Transmission style canonicalization moved to lib/transmissionTypeInference.ts
 // (Haiku-based with in-memory cache). No hardcoded marketing-term whitelist —
 // new transmission marketing names land automatically without code changes.
+
+/**
+ * Batch-6 fallback: when NHTSA (and VDB) can't supply the Model for an
+ * otherwise-valid VIN, resolve it from the VIN via a web-search Haiku call.
+ * The VIN's VDS uniquely encodes the model, so a search on "VIN <vin>" plus
+ * make/year/series reliably recovers it (e.g. the 2009 Escalade ESV whose
+ * NHTSA decode returned a blank Model). Returns null when it can't confirm one.
+ */
+async function resolveModelFromVin(
+  vin: string,
+  make: string,
+  year: number,
+  series?: string,
+  bodyClass?: string,
+  engine?: { code?: string; displacement?: string; cylinders?: number | string; hp?: string },
+): Promise<string | null> {
+  const key = process.env.ANTHROPIC_API_KEY;
+  if (!key) return null;
+  try {
+    const haiku = new Anthropic({ apiKey: key });
+    const ctx = [
+      series ? `series "${series}"` : null,
+      bodyClass ? `body "${bodyClass}"` : null,
+      engine?.code ? `engine code ${engine.code}` : null,
+      engine?.displacement ? `${engine.displacement}L` : null,
+      engine?.cylinders ? `${engine.cylinders}-cyl` : null,
+      engine?.hp ? `${engine.hp} hp` : null,
+    ].filter(Boolean).join(", ");
+    const resp = await haiku.messages.create({
+      model: "claude-haiku-4-5-20251001",
+      max_tokens: 512,
+      temperature: 0,
+      tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 3 } as any],
+      messages: [{
+        role: "user",
+        content: `NHTSA could not decode the MODEL for VIN ${vin} — a ${year} ${make}${ctx ? ` (${ctx})` : ""}. Identify the exact model line. Two approaches: (1) search VIN decoders/dealer listings for this VIN; (2) if that fails, INFER it from the make + year + engine — the engine code and displacement often uniquely identify one model line (e.g. the GM "L9H" 6.2L V8 in a 2009 Cadillac is the Escalade). Include any body sub-designation if known (e.g. "Escalade ESV", "Silverado 1500"). Respond with ONLY a JSON object on one line: {"model": "<model line>"} — use {"model": "unknown"} only if make+year+engine still don't identify a model.`,
+      }],
+    });
+    const text = resp.content
+      .filter((b) => b.type === "text")
+      .map((b) => (b as any).text)
+      .join("")
+      .trim();
+    console.log(`[decode] model VIN-lookup raw: ${text.slice(0, 200)}`);
+    // Prefer JSON; fall back to a bare-line if the model didn't wrap it.
+    let model = "";
+    const j = text.match(/\{[\s\S]*?\}/);
+    if (j) {
+      try { model = String(JSON.parse(j[0]).model ?? "").trim(); } catch { /* fall through */ }
+    }
+    if (!model) model = text.replace(/^["']+|["']+$/g, "").split("\n").pop()!.trim();
+    if (model && model.toLowerCase() !== "unknown" && model.length >= 2 && model.length <= 40) {
+      return model;
+    }
+  } catch (e) {
+    console.warn("[decode] model VIN-lookup failed (non-fatal):", e);
+  }
+  return null;
+}
 
 /**
  * Call Claude to normalize NHTSA model/trim/drivetrain/engine_code into canonical OEM naming.
