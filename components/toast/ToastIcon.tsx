@@ -5,6 +5,7 @@ import {
   Info,
   ShieldCheck,
   XCircle,
+  type LucideIcon,
 } from "lucide-react-native";
 
 import type { ToastVariant } from "./types";
@@ -21,10 +22,12 @@ const ICON_MAP = {
 interface Props {
   variant: ToastVariant;
   palette: ToastPalette;
+  /** Action-specific icon override; falls back to the variant icon. */
+  icon?: LucideIcon;
 }
 
-export function ToastIcon({ variant, palette }: Props) {
-  const Icon = ICON_MAP[variant];
+export function ToastIcon({ variant, palette, icon }: Props) {
+  const Icon = icon ?? ICON_MAP[variant];
   // `naked` = no chip background, no border — the icon sits directly
   // on the toast card. Triggered by the brand-blue override which
   // sets iconContainerBg="transparent" so the white icon reads

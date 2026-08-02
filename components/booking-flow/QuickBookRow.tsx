@@ -15,7 +15,6 @@ import { BlurView } from "expo-blur";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 
 import { Text } from "@/components/shared-ui";
-import { CardShadow } from "@/constants/theme";
 import {
   SLUG_DIAGNOSTIC_SCAN,
   SLUG_ROTOR_REPLACEMENT,
@@ -110,7 +109,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(255, 255, 255, 0.8)",
     overflow: "hidden",
-    boxShadow: CardShadow.default,
+    // No drop shadow: a row of shadowed pills casts an aligned shadow
+    // that reads as a horizontal "shelf" line the pills sit on.
   },
   chipPressed: {
     opacity: 0.8,

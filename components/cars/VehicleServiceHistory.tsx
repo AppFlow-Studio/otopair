@@ -14,24 +14,16 @@
  * ParsedDocumentSheet on tap (built in a follow-up).
  */
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
-  Alert,
+  ActivityIndicator,
   Pressable,
   StyleSheet,
   View,
 } from "react-native";
-import Animated, {
-  useAnimatedStyle,
-  useSharedValue,
-  withSequence,
-  withSpring,
-  withTiming,
-} from "react-native-reanimated";
 import {
   ChevronDown,
   ChevronRight,
-  FileText,
   Plus,
   Receipt as ReceiptIcon,
 } from "lucide-react-native";
@@ -40,6 +32,7 @@ import { useMutation } from "convex/react";
 import { Image } from "expo-image";
 
 import { Text } from "@/components/shared-ui";
+import { useToast } from "@/hooks/useToast";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useMyBookingsWithDetails } from "@/hooks/useMyBookingsWithDetails";
@@ -81,10 +74,8 @@ interface DocRow {
   /** Signed storage URL — used as the row icon for image uploads. */
   thumbnailUrl: string | null;
   /** True when the original upload was an image; otherwise (PDF / docx) the
-   *  row falls back to a colored tile + shop initial. */
+   *  row falls back to a clean receipt tile. */
   isImage: boolean;
-  /** First letter of the shop name (or filename) for the PDF tile fallback. */
-  fallbackInitial: string;
 }
 
 type UnifiedRow = BookingRow | DocRow;
@@ -173,91 +164,20 @@ function projectExtraction(row: VehicleDocumentRow): ExtractionView {
   };
 }
 
-function statusLabel(status: DocumentParseStatus): { label: string; color: string } {
-  switch (status) {
-    case "queued":
-    case "parsing":
-      return { label: "Parsing…", color: "#9CA3AF" };
-    case "needs_review":
-      return { label: "Needs review", color: "#D97706" };
-    case "failed":
-      return { label: "Parse failed", color: "#DC2626" };
-    case "parsed":
-    default:
-      return { label: "Imported", color: "#16A34A" };
-  }
-}
-
-function isPending(s: DocumentParseStatus): boolean {
-  return s === "queued" || s === "parsing";
-}
-
-/** Status pill that pops + flashes when the row transitions from a
- *  pending state (queued/parsing) to a terminal state (parsed/needs_review/
- *  failed). On first mount with a non-pending status it renders statically. */
-function AnimatedStatusBadge({ status }: { status: DocumentParseStatus }) {
-  const badge = statusLabel(status);
-  const scale = useSharedValue(1);
-  const flash = useSharedValue(0);
-  const prevStatus = useRef<DocumentParseStatus>(status);
-
-  useEffect(() => {
-    const wasPending = isPending(prevStatus.current);
-    const nowTerminal = !isPending(status);
-    if (wasPending && nowTerminal) {
-      scale.value = withSequence(
-        withSpring(1.15, { damping: 8, stiffness: 220 }),
-        withSpring(1, { damping: 10, stiffness: 200 }),
-      );
-      flash.value = withSequence(
-        withTiming(1, { duration: 180 }),
-        withTiming(0, { duration: 420 }),
-      );
-    }
-    prevStatus.current = status;
-  }, [status, scale, flash]);
-
-  const animatedStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value }],
-  }));
-  const flashStyle = useAnimatedStyle(() => ({
-    opacity: flash.value,
-  }));
-
-  return (
-    <Animated.View
-      style={[
-        styles.statusPill,
-        { backgroundColor: `${badge.color}1A` },
-        animatedStyle,
-      ]}
-    >
-      <Animated.View
-        pointerEvents="none"
-        style={[
-          StyleSheet.absoluteFillObject,
-          { backgroundColor: badge.color, borderRadius: moderateScale(8) },
-          flashStyle,
-        ]}
-      />
-      <Text weight="semiBold" size="xs" color={badge.color}>
-        {badge.label}
-      </Text>
-    </Animated.View>
-  );
-}
+// Human-friendly, on-brand status copy. The finished ("parsed") state
+// shows NO pill — the receipt data itself is the confirmation, so a
+// green "Imported" tag just added visual noise.
 
 /** Row leading icon. Image uploads render as a true thumbnail; PDFs /
- *  other docs render a tinted tile with the shop initial + a small PDF
- *  glyph overlay so it still reads as "a document, not a photo." */
+ *  other docs render the same clean brand-blue receipt tile the Otopair
+ *  booking rows use, so the whole list reads as one system (no odd
+ *  purple tile or shop-initial letter). */
 function DocRowIcon({
   thumbnailUrl,
   isImage,
-  fallbackInitial,
 }: {
   thumbnailUrl: string | null;
   isImage: boolean;
-  fallbackInitial: string;
 }) {
   if (isImage && thumbnailUrl) {
     return (
@@ -270,13 +190,8 @@ function DocRowIcon({
     );
   }
   return (
-    <View style={[styles.rowIcon, styles.docRowIcon, styles.docTileIcon]}>
-      <Text weight="bold" size="md" color="#7C3AED">
-        {fallbackInitial}
-      </Text>
-      <View style={styles.docTileBadge}>
-        <FileText size={scale(10)} color="#FFFFFF" />
-      </View>
+    <View style={styles.rowIcon}>
+      <ReceiptIcon size={scale(18)} color="#5299FE" />
     </View>
   );
 }
@@ -290,6 +205,7 @@ export function VehicleServiceHistory({
   vehicleOwnerId,
   isDarkBg = false,
 }: Props) {
+  const toast = useToast();
   const { historyBookings, isLoading: bookingsLoading } = useMyBookingsWithDetails();
   const { rows: docRows, isLoading: docsLoading } = useVehicleDocumentsFromConvex(vin);
 
@@ -341,9 +257,15 @@ export function VehicleServiceHistory({
         const dateMs = view.serviceDateMs ?? r.doc.uploaded_at ?? r.doc._creationTime;
 
         // Title prefers the shop name — most "carfax-y" thing to lead with.
-        // Falls back to the services summary if we haven't extracted a shop
-        // yet (parsing, or schema didn't find one).
-        const title = view.shopName ?? view.servicesSummary ?? r.doc.original_filename;
+        // Falls back to the services summary, then the cleaned-up filename
+        // (extension stripped). Uses `||` not `??` so an empty extraction
+        // (parse failed → shopName null, summary "") still lands on the
+        // filename instead of rendering a blank title.
+        const cleanName = (r.doc.original_filename ?? "Uploaded receipt").replace(
+          /\.[^./]+$/,
+          "",
+        );
+        const title = view.shopName || view.servicesSummary || cleanName;
         // Subtitle stacks date + the services summary (when we have one and
         // it's not redundant with the title).
         const subtitleParts: string[] = [fmtDateFromMs(dateMs)];
@@ -352,8 +274,6 @@ export function VehicleServiceHistory({
         }
 
         const isImage = r.doc.mime_type.startsWith("image/");
-        const initialSeed = view.shopName ?? r.doc.original_filename ?? "?";
-        const fallbackInitial = (initialSeed.trim()[0] ?? "?").toUpperCase();
 
         return {
           kind: "doc" as const,
@@ -367,7 +287,6 @@ export function VehicleServiceHistory({
           totalCents: view.totalCents ?? undefined,
           thumbnailUrl: isImage ? r.storage_url : null,
           isImage,
-          fallbackInitial,
         };
       });
   }, [docRows]);
@@ -429,10 +348,13 @@ export function VehicleServiceHistory({
         filename: asset.name,
         sizeBytes: asset.size ?? 0,
       });
+      // Expand so the new row is visible, and confirm receipt in plain
+      // language — the row itself then shows "Reading receipt…" while it
+      // extracts, so the user is never left wondering what happened.
       setExpanded(true);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      Alert.alert("Upload failed", message);
+      toast.success("Receipt added", "We're pulling out the details now.", { icon: ReceiptIcon });
+    } catch {
+      toast.error("Upload failed", "Something went wrong — please try again.");
     } finally {
       setUploading(false);
     }
@@ -485,21 +407,15 @@ export function VehicleServiceHistory({
         >
           <Plus size={scale(18)} color="#5299FE" />
           <Text weight="semiBold" size="sm" color="#5299FE">
-            {uploading ? "Uploading…" : "Add Service History"}
+            {uploading ? "Uploading…" : "Upload Service History"}
           </Text>
         </Pressable>
       )}
 
-      {!hasRows ? (
-        <View style={styles.emptyCard}>
-          <View style={styles.emptyIconWrap}>
-            <ReceiptIcon size={scale(20)} color="#5299FE" />
-          </View>
-          <Text size="sm" color="#6B7280" center>
-            No service history yet — your Otopair receipts will live here.
-          </Text>
-        </View>
-      ) : expanded ? (
+      {/* Empty-state card removed per Ahmad — no point showing a "receipts
+          will live here" placeholder when there's nothing yet. The list
+          only appears once there's actual history to show. */}
+      {hasRows && expanded ? (
         <View style={styles.list}>
           {rows.map((row) => {
             if (row.kind === "booking") {
@@ -552,25 +468,34 @@ export function VehicleServiceHistory({
                 <DocRowIcon
                   thumbnailUrl={row.thumbnailUrl}
                   isImage={row.isImage}
-                  fallbackInitial={row.fallbackInitial}
                 />
 
                 <View style={{ flex: 1 }}>
                   <Text weight="semiBold" size="sm" color="#0F172A" numberOfLines={1}>
                     {row.title}
                   </Text>
-                  <View style={styles.docSubtitleRow}>
-                    <Text size="xs" color="#9CA3AF" numberOfLines={1} style={{ flexShrink: 1 }}>
-                      {row.subtitle}
-                    </Text>
-                    <AnimatedStatusBadge status={row.parseStatus} />
-                  </View>
+                  <Text size="xs" color="#9CA3AF" numberOfLines={1} style={{ marginTop: 2 }}>
+                    {row.subtitle}
+                  </Text>
                 </View>
-                {total && (
+                {/* Right side, no pill/tag chrome: a spinner while it reads,
+                    a plain blue action label when it needs input, otherwise
+                    the total. */}
+                {row.parseStatus === "parsing" || row.parseStatus === "queued" ? (
+                  <ActivityIndicator size="small" color="#5299FE" />
+                ) : row.parseStatus === "needs_review" ? (
+                  <Text weight="semiBold" size="sm" color="#5299FE">
+                    Confirm
+                  </Text>
+                ) : row.parseStatus === "failed" ? (
+                  <Text weight="semiBold" size="sm" color="#5299FE">
+                    Add details
+                  </Text>
+                ) : total ? (
                   <Text weight="bold" size="sm" color="#0F172A">
                     {total}
                   </Text>
-                )}
+                ) : null}
                 <ChevronRight size={scale(16)} color="#C7C7CC" />
               </Pressable>
             );
@@ -641,24 +566,6 @@ const styles = StyleSheet.create({
   addButtonDisabled: {
     opacity: 0.5,
   },
-  emptyCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: moderateScale(16),
-    paddingVertical: scale(22),
-    paddingHorizontal: scale(20),
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(0,0,0,0.05)",
-    alignItems: "center",
-    gap: scale(10),
-  },
-  emptyIconWrap: {
-    width: scale(40),
-    height: scale(40),
-    borderRadius: moderateScale(12),
-    backgroundColor: "rgba(82,153,254,0.10)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
   list: {
     backgroundColor: "#FFFFFF",
     borderRadius: moderateScale(16),
@@ -683,42 +590,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  docRowIcon: {
-    backgroundColor: "rgba(124, 58, 237, 0.10)",
-  },
-  docTileIcon: {
-    position: "relative",
-  },
-  docTileBadge: {
-    position: "absolute",
-    right: -scale(2),
-    bottom: -scale(2),
-    width: scale(16),
-    height: scale(16),
-    borderRadius: moderateScale(8),
-    backgroundColor: "#7C3AED",
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1.5,
-    borderColor: "#FFFFFF",
-  },
   thumbnailImage: {
     width: scale(36),
     height: scale(36),
     borderRadius: moderateScale(10),
     backgroundColor: "#F1F5F9",
-  },
-  docSubtitleRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: scale(6),
-    marginTop: 2,
-  },
-  statusPill: {
-    paddingHorizontal: scale(6),
-    paddingVertical: scale(2),
-    borderRadius: moderateScale(8),
-    overflow: "hidden",
   },
 });
 

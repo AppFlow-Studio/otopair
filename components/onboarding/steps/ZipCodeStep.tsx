@@ -74,7 +74,7 @@ export function ZipCodeStep({ onNext, onBack, progress }: ZipCodeStepProps) {
           filled={progress.filled}
           leftElement={<BackButton onBack={onBack} alwaysShow />}
         />
-        <FinishLater />
+        <FinishLater currentStep="zipCode" />
 
         <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
           <View style={styles.headerContent}>

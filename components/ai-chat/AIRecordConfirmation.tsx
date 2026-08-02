@@ -24,11 +24,19 @@
  */
 
 // 1. React & React Native
-import React, { useState, useCallback, useMemo } from "react";
+import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { View, Pressable, StyleSheet, TextInput } from "react-native";
 
 // 2. Expo & Third-party
-import Animated, { FadeInUp } from "react-native-reanimated";
+import Animated, {
+  FadeInUp,
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withDelay,
+  withSpring,
+  withTiming,
+} from "react-native-reanimated";
 import { Check, Pencil } from "lucide-react-native";
 import { useQuery, useMutation } from "convex/react";
 
@@ -104,6 +112,8 @@ export function AIRecordConfirmation({
   const [step, setStep] = useState<"prompt" | "form">("prompt");
   const [submitting, setSubmitting] = useState(false);
   const [resolved, setResolved] = useState(false);
+  // Label shown in the auto-dismissing confirmation pill.
+  const [resolvedText, setResolvedText] = useState("Updated");
   // Inline failure surface — fires when upsertRecord throws. Console warns
   // are kept for telemetry; this string drives a small banner so the user
   // can retry instead of seeing a silent no-op tap.
@@ -155,6 +165,7 @@ export function AIRecordConfirmation({
         // Don't touch confidence/serviceSource — user only attested it's still
         // correct, didn't add new evidence. Preserve whatever's there.
       });
+      setResolvedText("Confirmed");
       setResolved(true);
       onDecision({ kind: "confirmed", type: maintenanceType });
     } catch (err) {
@@ -204,6 +215,9 @@ export function AIRecordConfirmation({
         serviceSource: "ai_chat_correction",
         confidence: "self_reported",
       });
+      setResolvedText(
+        Number.isFinite(parsedMileage as number) ? "Mileage updated" : "Updated",
+      );
       setResolved(true);
       onDecision({
         kind: "updated",
@@ -234,18 +248,11 @@ export function AIRecordConfirmation({
   // Render
   // ---------------------------------------------------------------------------
 
-  // Resolved state — show a small confirmation banner and stop accepting input.
+  // Resolved state — a clean confirmation pill that pops in, then fades out
+  // and unmounts so it doesn't linger in the transcript (the follow-up chat
+  // message from the parent already carries the outcome).
   if (resolved) {
-    return (
-      <Animated.View entering={FadeInUp.duration(150)} style={styles.container}>
-        <View style={styles.resolvedBanner}>
-          <Check size={14} color={BrandColors.white} strokeWidth={3} />
-          <Text style={styles.resolvedText} weight="medium">
-            Got it — thanks for confirming.
-          </Text>
-        </View>
-      </Animated.View>
-    );
+    return <ResolvedConfirmation text={resolvedText} />;
   }
 
   return (
@@ -351,6 +358,62 @@ function capitalize(s: string): string {
 }
 
 // ============================================================================
+// RESOLVED CONFIRMATION — pops in with a spring check, holds briefly, then
+// fades up and unmounts. Replaces the old banner that stayed pinned in the
+// transcript forever.
+// ============================================================================
+
+const HOLD_MS = 1400;
+
+function ResolvedConfirmation({ text }: { text: string }) {
+  const [gone, setGone] = useState(false);
+
+  const checkScale = useSharedValue(0.4);
+  const checkOpacity = useSharedValue(0);
+  const wrapOpacity = useSharedValue(1);
+  const wrapTranslateY = useSharedValue(0);
+
+  useEffect(() => {
+    // Pop the check + pill in.
+    checkOpacity.value = withTiming(1, { duration: 160 });
+    checkScale.value = withSpring(1, { damping: 11, stiffness: 220, mass: 0.6 });
+    // Hold, then fade the whole pill up and out, unmounting when done so the
+    // space it took collapses cleanly.
+    wrapOpacity.value = withDelay(HOLD_MS, withTiming(0, { duration: 300 }));
+    wrapTranslateY.value = withDelay(
+      HOLD_MS,
+      withTiming(-6, { duration: 300 }, (finished) => {
+        if (finished) runOnJS(setGone)(true);
+      }),
+    );
+  }, [checkOpacity, checkScale, wrapOpacity, wrapTranslateY]);
+
+  const badgeStyle = useAnimatedStyle(() => ({
+    opacity: checkOpacity.value,
+    transform: [{ scale: checkScale.value }],
+  }));
+  const wrapStyle = useAnimatedStyle(() => ({
+    opacity: wrapOpacity.value,
+    transform: [{ translateY: wrapTranslateY.value }],
+  }));
+
+  if (gone) return null;
+
+  return (
+    <Animated.View style={[styles.resolvedWrap, wrapStyle]}>
+      <View style={styles.resolvedBanner}>
+        <Animated.View style={badgeStyle}>
+          <Check size={14} color={BrandColors.white} strokeWidth={3} />
+        </Animated.View>
+        <Text style={styles.resolvedText} weight="medium">
+          {text}
+        </Text>
+      </View>
+    </Animated.View>
+  );
+}
+
+// ============================================================================
 // STYLES — modeled after AIDiagnosticForm's glass-light language. BrandColors
 // only has primary/secondary/white/black/background, so neutral grays come
 // from raw hex values matching the rest of the AI chat surface.
@@ -449,6 +512,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.md,
     borderRadius: BorderRadius.md,
     alignItems: "center",
+  },
+  resolvedWrap: {
+    marginVertical: Spacing.xs,
+    alignSelf: "flex-start",
   },
   resolvedBanner: {
     flexDirection: "row",

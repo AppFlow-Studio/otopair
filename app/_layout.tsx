@@ -54,10 +54,16 @@ if (typeof global !== "undefined") {
   }
 }
 
-export const unstable_settings = {
-  anchor: "(main-tabs)",
-  initialRouteName: "index",
-};
+// NOTE: no `anchor` and no `initialRouteName`.
+//  - `anchor: "(main-tabs)"` rendered the tabs as the stack anchor (home
+//    instance A) while `app/index`'s `replace("/(main-tabs)/home")` stacked a
+//    SECOND `(main-tabs)` (home instance B) on top → back-swipe on home
+//    revealed a duplicate home.
+//  - `initialRouteName: "index"` prepended the `/` loading screen beneath the
+//    restored home on reload → back-swipe revealed the spinner.
+// Letting the auth redirect in `app/index` build the stack keeps home as the
+// sole root, with nothing underneath.
+export const unstable_settings = {};
 
 const convex = new ConvexReactClient(process.env.EXPO_PUBLIC_CONVEX_URL!, {
   unsavedChangesWarning: false,
@@ -274,7 +280,10 @@ export default function RootLayout() {
                     }}
                   >
                     <Stack.Screen name="index" options={{ headerShown: false }} />
-                    <Stack.Screen name="(onboarding)" options={{ headerShown: false }} />
+                    <Stack.Screen
+                      name="(onboarding)"
+                      options={{ headerShown: false, gestureEnabled: false }}
+                    />
                     <Stack.Screen name="(main-tabs)" options={{ headerShown: false }} />
                     <Stack.Screen name="(tell-us-about)" options={{ headerShown: false }} />
                     <Stack.Screen name="(tire-booking)" options={{ headerShown: false }} />

@@ -14,7 +14,9 @@ import Animated, {
 
 import { Text } from '@/components/shared-ui';
 import { OilIcon, BrakesIcon, TireIcon, BatteryIcon, WarningIcon } from '@/components/cars/ServiceIcons';
+import { MaintenanceSignalPills } from '@/components/cars/MaintenanceSignalPills';
 import type { MaintenanceItem } from '@/components/cars/MaintenanceTracker';
+import { explainMaintenanceItem } from '@/utils/maintenanceExplanation';
 import { scale, verticalScale, moderateScale } from '@/utils/responsive';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -28,6 +30,9 @@ interface MaintenanceDetailViewProps {
   visible: boolean;
   currentHealthScore: number;
   projectedHealthScore: number;
+  /** Vehicle model (e.g. "Mustang") used in plain-English copy. Falls
+   *  back to "Your car" when absent. */
+  vehicleLabel?: string;
   onClose: () => void;
   onBookService: () => void;
 }
@@ -194,6 +199,7 @@ export default function MaintenanceDetailView({
   visible,
   currentHealthScore,
   projectedHealthScore,
+  vehicleLabel,
   onClose,
   onBookService,
 }: MaintenanceDetailViewProps) {
@@ -202,6 +208,7 @@ export default function MaintenanceDetailView({
 
   const config = STATUS_CONFIG[item.status as keyof typeof STATUS_CONFIG] ?? STATUS_CONFIG.due_soon;
   const delta = projectedHealthScore - currentHealthScore;
+  const explanation = explainMaintenanceItem(item, vehicleLabel);
 
   // Shared animation values
   const overlayOpacity = useSharedValue(0);
@@ -213,8 +220,8 @@ export default function MaintenanceDetailView({
   const deltaOpacity = useSharedValue(0);
   const descOpacity = useSharedValue(0);
   const descTranslateY = useSharedValue(14);
-  const metaOpacity = useSharedValue(0);
-  const metaTranslateY = useSharedValue(14);
+  const signalsOpacity = useSharedValue(0);
+  const signalsTranslateY = useSharedValue(14);
   const btnOpacity = useSharedValue(0);
   const btnTranslateY = useSharedValue(14);
   const btnPressScale = useSharedValue(1);
@@ -229,8 +236,8 @@ export default function MaintenanceDetailView({
     deltaOpacity.value = 0;
     descOpacity.value = 0;
     descTranslateY.value = 14;
-    metaOpacity.value = 0;
-    metaTranslateY.value = 14;
+    signalsOpacity.value = 0;
+    signalsTranslateY.value = 14;
     btnOpacity.value = 0;
     btnTranslateY.value = 14;
   };
@@ -243,12 +250,14 @@ export default function MaintenanceDetailView({
     ringsTranslateY.value = withDelay(250, withTiming(0, { duration: 700, easing: BEZIER }));
     deltaOpacity.value = withDelay(400, withTiming(1, { duration: 600, easing: BEZIER }));
     deltaScale.value = withDelay(400, withTiming(1, { duration: 600, easing: BEZIER }));
-    descOpacity.value = withDelay(450, withTiming(1, { duration: 600, easing: BEZIER }));
-    descTranslateY.value = withDelay(450, withTiming(0, { duration: 600, easing: BEZIER }));
-    metaOpacity.value = withDelay(500, withTiming(1, { duration: 600, easing: BEZIER }));
-    metaTranslateY.value = withDelay(500, withTiming(0, { duration: 600, easing: BEZIER }));
-    btnOpacity.value = withDelay(550, withTiming(1, { duration: 600, easing: BEZIER }));
-    btnTranslateY.value = withDelay(550, withTiming(0, { duration: 600, easing: BEZIER }));
+    // Signals appear just before the description so the pills anchor
+    // the mileage numbers the prose is about to cite.
+    signalsOpacity.value = withDelay(400, withTiming(1, { duration: 600, easing: BEZIER }));
+    signalsTranslateY.value = withDelay(400, withTiming(0, { duration: 600, easing: BEZIER }));
+    descOpacity.value = withDelay(500, withTiming(1, { duration: 600, easing: BEZIER }));
+    descTranslateY.value = withDelay(500, withTiming(0, { duration: 600, easing: BEZIER }));
+    btnOpacity.value = withDelay(600, withTiming(1, { duration: 600, easing: BEZIER }));
+    btnTranslateY.value = withDelay(600, withTiming(0, { duration: 600, easing: BEZIER }));
   };
 
   useEffect(() => {
@@ -303,9 +312,9 @@ export default function MaintenanceDetailView({
     opacity: descOpacity.value,
     transform: [{ translateY: descTranslateY.value }],
   }));
-  const metaAnimStyle = useAnimatedStyle(() => ({
-    opacity: metaOpacity.value,
-    transform: [{ translateY: metaTranslateY.value }],
+  const signalsAnimStyle = useAnimatedStyle(() => ({
+    opacity: signalsOpacity.value,
+    transform: [{ translateY: signalsTranslateY.value }],
   }));
   const btnAnimStyle = useAnimatedStyle(() => ({
     opacity: btnOpacity.value,
@@ -435,22 +444,27 @@ export default function MaintenanceDetailView({
               {/* Divider */}
               <View style={styles.divider} />
 
-              {/* Description */}
+              {/* Signal pills sit above the prose so the mileage
+                  numbers anchor the explanation. Meta line ("Last
+                  serviced…") intentionally dropped per PM — the
+                  urgency badge at the top already conveys the tier. */}
+              {item.signals && (item.signals.time || item.signals.mileage || item.signals.interval) ? (
+                <Animated.View style={[styles.signalsWrap, signalsAnimStyle]}>
+                  <MaintenanceSignalPills
+                    signals={item.signals}
+                    triggeredBy={item.triggeredBy}
+                  />
+                </Animated.View>
+              ) : null}
+
+              {/* Description — plain-English fact + consequence
+                  from utils/maintenanceExplanation.ts. */}
               <Animated.View style={descAnimStyle}>
                 <Text style={styles.description}>
-                  {item.recommendation || item.description}
+                  {explanation.fact}
                 </Text>
-              </Animated.View>
-
-              {/* Meta line */}
-              <Animated.View style={[styles.metaLine, metaAnimStyle]}>
-                <Text style={styles.metaText}>
-                  Last serviced {item.lastService ?? 'unknown'}
-                  {' · '}
-                  Urgency:{' '}
-                </Text>
-                <Text weight="semiBold" style={[styles.metaText, { color: config.color }]}>
-                  {item.urgency ?? 'Unknown'}
+                <Text style={[styles.description, styles.descriptionConsequence]}>
+                  {explanation.consequence}
                 </Text>
               </Animated.View>
 
@@ -523,8 +537,8 @@ const styles = StyleSheet.create({
 
   // Header content
   headerContent: {
-    paddingTop: verticalScale(72),
-    paddingBottom: verticalScale(58),
+    paddingTop: verticalScale(64),
+    paddingBottom: verticalScale(48),
     paddingHorizontal: scale(24),
     alignItems: 'center',
     justifyContent: 'center',
@@ -598,7 +612,7 @@ const styles = StyleSheet.create({
 
   // Content area
   contentArea: {
-    paddingTop: scale(28),
+    paddingTop: scale(18),
     paddingHorizontal: scale(28),
     paddingBottom: scale(28),
     alignItems: 'center',
@@ -638,7 +652,7 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: 'rgba(0,0,0,0.06)',
     marginTop: scale(4),
-    marginBottom: scale(20),
+    marginBottom: scale(12),
   },
 
   // Description
@@ -648,18 +662,17 @@ const styles = StyleSheet.create({
     lineHeight: moderateScale(15) * 1.6,
     textAlign: 'center',
     maxWidth: scale(300),
+    alignSelf: 'center',
+  },
+  descriptionConsequence: {
+    marginTop: scale(8),
+    color: '#8AA0B0',
   },
 
-  // Meta line
-  metaLine: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
-    marginTop: scale(8),
-  },
-  metaText: {
-    fontSize: moderateScale(12),
-    color: '#B0BEC5',
+  // Signals (sit above the description prose)
+  signalsWrap: {
+    alignItems: 'center',
+    marginBottom: scale(16),
   },
 
   // Book button

@@ -307,7 +307,10 @@ export default function AddVehicleScreen() {
             placeholderTextColor="#999999"
             value={vinNumber}
             onChangeText={(text) => {
-              setVinNumber(text);
+              // VINs are always uppercase. Force it here so typing, paste,
+              // and AutoFill all land uppercase (autoCapitalize only hints
+              // the keyboard and misses paste/autofill).
+              setVinNumber(text.toUpperCase());
               if (decodeError) setDecodeError(null);
             }}
             autoCapitalize="characters"

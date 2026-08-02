@@ -221,7 +221,11 @@ export function getIncompleteOnboardingStepsFromResumeData(
 ): OnboardingStep[] {
   const stepChecks: { step: OnboardingStep; isComplete: boolean }[] = [
     { step: "phone", isComplete: !!data.phoneNumber && data.phoneVerified },
-    { step: "name", isComplete: !!(data.firstName && data.lastName) },
+    // Name is only "done" if phone was verified through onboarding.
+    // OAuth (Google/Apple) auto-populates firstName/lastName from the
+    // provider without the user ever seeing NameStep, so we use
+    // phoneVerified as proxy for "actually walked through the flow."
+    { step: "name", isComplete: !!(data.firstName && data.lastName) && data.phoneVerified },
     { step: "profilePhoto", isComplete: !!data.profilePhotoUri },
     {
       step: "userIntent",
@@ -232,11 +236,19 @@ export function getIncompleteOnboardingStepsFromResumeData(
     { step: "zipCode", isComplete: !!data.zipCode },
     {
       step: "pushNotifications",
-      isComplete: permissions.pushNotificationStatus !== null,
+      // "undetermined" means the OS never prompted the user — treat
+      // as incomplete so the onboarding push-permission step still
+      // surfaces. Only granted / provisional / denied count as done.
+      isComplete:
+        permissions.pushNotificationStatus === "granted" ||
+        permissions.pushNotificationStatus === "provisional" ||
+        permissions.pushNotificationStatus === "denied",
     },
     {
       step: "locationServices",
-      isComplete: permissions.locationPermissionStatus !== null,
+      isComplete:
+        permissions.locationPermissionStatus === "granted" ||
+        permissions.locationPermissionStatus === "denied",
     },
   ];
 

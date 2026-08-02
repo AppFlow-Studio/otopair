@@ -27,6 +27,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useGuardedRouter as useRouter } from '@/hooks/useGuardedRouter';
+import * as ImagePicker from 'expo-image-picker';
 import {
   ChevronRight,
   Paperclip,
@@ -41,6 +42,9 @@ import {
 } from 'lucide-react-native';
 import { BottomSheetModal } from '@gorhom/bottom-sheet';
 
+import { useAction } from 'convex/react';
+import { api } from '@/convex/_generated/api';
+import { useToast } from '@/hooks/useToast';
 import { BrandColors, Spacing, Text, AppBottomSheetModal, BlurHeaderOverlay } from '@/components/shared-ui';
 import { getSheetContentPadding } from '@/constants/theme';
 
@@ -74,22 +78,54 @@ export default function ContactUsScreen() {
   const [description, setDescription] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
+  const [attachments, setAttachments] = useState<ImagePicker.ImagePickerAsset[]>([]);
 
-  const selectedTopic = useMemo(() => 
+  const handleAttach = useCallback(async () => {
+    // iOS uses PHPicker (no library permission needed); launch directly.
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images', 'videos'],
+        allowsMultipleSelection: true,
+        selectionLimit: 10,
+        quality: 0.8,
+      });
+      if (!result.canceled && result.assets?.length) {
+        setAttachments(result.assets.slice(0, 10));
+      }
+    } catch (err) {
+      console.error('Attachment picker failed:', err);
+    }
+  }, []);
+
+  const selectedTopic = useMemo(() =>
     TOPICS.find(t => t.id === selectedTopicId), 
   [selectedTopicId]);
 
   const canSubmit = selectedTopicId && subject.trim() && description.trim() && !isSubmitting;
 
+  const submitContact = useAction(api.support_requests_node.submitContactRequest);
+  const toast = useToast();
+
   const handleSubmit = async () => {
-    if (!canSubmit) return;
+    if (!canSubmit || !selectedTopic) return;
     setIsSubmitting(true);
-    
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    
-    setIsSubmitting(false);
-    setIsSuccess(true);
+    try {
+      const result = await submitContact({
+        topic: selectedTopic.label,
+        subject: subject.trim(),
+        description: description.trim(),
+        attachmentCount: attachments.length || undefined,
+      });
+      if (result.ok) {
+        setIsSuccess(true);
+      } else {
+        toast.error("Couldn't send your message", result.error);
+      }
+    } catch (err) {
+      toast.error("Couldn't send your message", 'Please try again in a moment.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleTopicSelect = (id: TopicKey) => {
@@ -135,12 +171,13 @@ export default function ContactUsScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'} 
         style={{ flex: 1 }}
       >
-        <ScrollView 
+        <ScrollView
+          scrollEnabled={false}
           contentContainerStyle={[
-            styles.scrollContent, 
-            { 
-              paddingTop: insets.top + 80, 
-              paddingBottom: getSheetContentPadding(true, insets.bottom) 
+            styles.scrollContent,
+            {
+              paddingTop: insets.top + 80,
+              paddingBottom: getSheetContentPadding(true, insets.bottom)
             }
           ]}
           showsVerticalScrollIndicator={false}
@@ -202,16 +239,20 @@ export default function ContactUsScreen() {
           </View>
 
           {/* Attachment Card */}
-          <Pressable style={styles.glassCard}>
+          <Pressable style={styles.glassCard} onPress={handleAttach}>
             <View style={styles.attachmentRow}>
               <View style={styles.attachmentIconBox}>
                 <Paperclip size={20} color={BrandColors.secondary} style={{ transform: [{ rotate: '135deg' }] }} />
               </View>
               <View style={{ flex: 1 }}>
                 <Text weight="medium" size="md" color={BrandColors.secondary}>
-                  Attach screenshot or video
+                  {attachments.length > 0 ? 'Attach more' : 'Attach screenshot or video'}
                 </Text>
-                <Text size="xs" color="#8E8E93">Up to 10 • Max 32MB</Text>
+                <Text size="xs" color="#8E8E93">
+                  {attachments.length > 0
+                    ? `${attachments.length} attached • Max 32MB`
+                    : 'Up to 10 • Max 32MB'}
+                </Text>
               </View>
             </View>
           </Pressable>
@@ -240,7 +281,10 @@ export default function ContactUsScreen() {
       <AppBottomSheetModal
         ref={topicSheetRef}
         title="Select a topic"
-        snapPoints={['65%']}
+        snapPoints={['72%']}
+        scrollEnabled={false}
+        enableOverDrag={false}
+        extraBottomGap={150}
         footer={
           <Pressable 
             style={styles.submitButton} 

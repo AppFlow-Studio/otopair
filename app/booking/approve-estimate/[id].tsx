@@ -31,6 +31,8 @@ import {
   ShieldCheck,
   Wrench,
   CreditCard,
+  FileCheck,
+  FileX,
 } from "lucide-react-native";
 import {
   PlatformPay,
@@ -134,7 +136,7 @@ function ApprovalDecisionView({ bookingId }: { bookingId: Id<"bookings"> }) {
     setSubmitting("approved");
     try {
       await applyDecision({ bookingId, decision: "approved" });
-      toast.success("Estimate approved");
+      toast.success("Estimate approved", undefined, { icon: FileCheck });
       router.back();
     } catch (err: any) {
       Alert.alert("Could not approve", err?.message ?? "Try again in a moment.");
@@ -157,7 +159,7 @@ function ApprovalDecisionView({ bookingId }: { bookingId: Id<"bookings"> }) {
             setSubmitting("declined");
             try {
               await applyDecision({ bookingId, decision: "declined" });
-              toast.info("Estimate declined");
+              toast.info("Estimate declined", undefined, { icon: FileX });
               router.back();
             } catch (err: any) {
               Alert.alert(

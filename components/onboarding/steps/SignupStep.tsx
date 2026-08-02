@@ -19,6 +19,13 @@ import * as Clipboard from "expo-clipboard";
 import { useConvex } from "convex/react";
 import { BrandColors, FontFamily, FontSize, Spacing, Text } from "@/components/shared-ui";
 import { Image } from "expo-image";
+import Animated, {
+  Easing as REasing,
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withTiming,
+} from "react-native-reanimated";
 import {
   KeyboardAvoidingView,
   Platform,
@@ -32,6 +39,37 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useOnboardingStore } from "@/stores/useOnboardingStore";
 import { useEnsureConvexUser } from "@/hooks/useEnsureConvexUser";
 import { Mail } from "lucide-react-native";
+import { FontAwesome } from "@expo/vector-icons";
+import Svg, { Path } from "react-native-svg";
+
+// OAuth users skip the email steps entirely — pass this into the
+// onboarding route params so the filtered flow drops them straight
+// on `phone`. Kept in sync with `app/oauth-callback.tsx`.
+const OAUTH_SIGNUP_STEPS = [
+  "phone",
+  "confirm",
+  "name",
+  "profilePhoto",
+  "userIntent",
+  "heardAbout",
+  "visitReason",
+  "zipCode",
+  "pushNotifications",
+  "locationServices",
+] as const;
+
+/** Official Google G — 4-color mark from Google's brand guidelines.
+ *  Kept inline (only consumer) so we don't add another asset file. */
+function GoogleG({ size = 20 }: { size?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 48 48">
+      <Path fill="#4285F4" d="M45.12 24.5c0-1.56-.14-3.06-.4-4.5H24v8.51h11.84c-.51 2.75-2.06 5.08-4.39 6.64v5.52h7.11c4.16-3.83 6.56-9.47 6.56-16.17z" />
+      <Path fill="#34A853" d="M24 46c5.94 0 10.92-1.97 14.56-5.33l-7.11-5.52c-1.97 1.32-4.49 2.1-7.45 2.1-5.73 0-10.58-3.87-12.31-9.07H4.34v5.7C7.96 41.07 15.4 46 24 46z" />
+      <Path fill="#FBBC05" d="M11.69 28.18c-.44-1.32-.69-2.73-.69-4.18s.25-2.86.69-4.18v-5.7H4.34C2.85 17.09 2 20.45 2 24c0 3.55.85 6.91 2.34 9.88l7.35-5.7z" />
+      <Path fill="#EA4335" d="M24 10.75c3.23 0 6.13 1.11 8.41 3.29l6.31-6.31C34.91 4.18 29.93 2 24 2 15.4 2 7.96 6.93 4.34 14.12l7.35 5.7c1.73-5.2 6.58-9.07 12.31-9.07z" />
+    </Svg>
+  );
+}
 import { useAuthStore } from "@/stores/useAuthStore";
 import { guardedRouter as router } from "@/lib/navigationLock";
 import { api } from "@/convex/_generated/api";
@@ -59,6 +97,24 @@ export function SignupStep({ onBack, onEmailSignup, onLogin }: SignupStepProps) 
   const [smsHash, setSmsHash] = useState<string | null>(null);
   const [smsHashLoading, setSmsHashLoading] = useState(false);
   const [ssoNavigationPending, setSsoNavigationPending] = useState(false);
+
+  // Floating "teardrop" bob for the pin logo — matches the map-pin
+  // hover motion. `reverse: true` on withRepeat ping-pongs between
+  // the two values with a matching curve at each end so the top of
+  // the bob and the bottom both ease-out cleanly. No visual seam
+  // between iterations (the seq-based version was giving a "jump
+  // back to top" because it ended one cycle before starting the next).
+  const logoBob = useSharedValue(0);
+  useEffect(() => {
+    logoBob.value = withRepeat(
+      withTiming(-8, { duration: 1600, easing: REasing.inOut(REasing.sin) }),
+      -1,
+      true,
+    );
+  }, [logoBob]);
+  const logoBobStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: logoBob.value }],
+  }));
 
   const { startSSOFlow: startGoogleSSO } = useSSO();
   const { startSSOFlow: startAppleSSO } = useSSO();
@@ -158,9 +214,26 @@ export function SignupStep({ onBack, onEmailSignup, onLogin }: SignupStepProps) 
         } catch (e) {
           console.error("Failed to ensure Convex user", e);
         }
-        // signIn = existing account (email matched); signUp = new account
+        // Release the useEffect navigation gate + navigate inline.
+        // The `otopair://oauth-callback` deep link route may or may
+        // not fire depending on the SSO strategy — inline nav here
+        // guarantees the user leaves the signup screen either way.
+        // (If the callback route also fires, it router.replaces to
+        // the same destination — a benign remount, not a loop.)
+        setSsoNavigationPending(false);
         if (signIn) {
           setIsNewUser(false);
+          await navigateAfterExistingAccountAuth();
+        } else {
+          // New OAuth user: skip email steps, drop them onto phone
+          // step (mirrors oauth-callback route's new-user branch).
+          router.replace({
+            pathname: "/(onboarding)",
+            params: {
+              initialStep: "phone",
+              filteredSteps: JSON.stringify(OAUTH_SIGNUP_STEPS),
+            },
+          });
         }
       } else if (signUp && signUp.status === "missing_requirements") {
         // OAuth succeeded but Clerk requires phone before completing sign-up (e.g. instance config)
@@ -209,23 +282,17 @@ export function SignupStep({ onBack, onEmailSignup, onLogin }: SignupStepProps) 
   return (
     <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.keyboardView}>
       <View style={[styles.container, dynamicStyles.container]}>
-        {/* Header Content */}
+        {/* Brand — pin logo bobs like a teardrop hovering over the
+            surface. Same asset as map pins / search screen. */}
         <View style={[styles.content, isCompact && styles.contentCompact]}>
-          <View style={styles.logoFrame}>
+          <Animated.View style={logoBobStyle}>
             <Image
-              source={require("@/assets/images/homelogo.png")}
+              source={require("@/assets/images/pin-logo-3d.png")}
               style={styles.logo}
               contentFit="contain"
               accessibilityLabel="Otopair"
             />
-          </View>
-
-          <View style={styles.headerContent}>
-            <Text style={styles.title}>Welcome to Otopair</Text>
-            <Text style={styles.subtitle}>
-              Your smart assistant for car health, repair tips, and maintenance reminders.
-            </Text>
-          </View>
+          </Animated.View>
         </View>
 
         {/* Auth Buttons */}
@@ -240,7 +307,7 @@ export function SignupStep({ onBack, onEmailSignup, onLogin }: SignupStepProps) 
               <ActivityIndicator size="small" color="#000" />
             ) : (
               <>
-                <Text style={styles.googleIcon}>G</Text>
+                <GoogleG size={20} />
                 <Text style={styles.googleText}>Continue with Google</Text>
               </>
             )}
@@ -255,7 +322,10 @@ export function SignupStep({ onBack, onEmailSignup, onLogin }: SignupStepProps) 
             {loading === "apple" ? (
               <ActivityIndicator size="small" color="#fff" />
             ) : (
-              <Text style={styles.appleText}>Continue with Apple</Text>
+              <>
+                <FontAwesome name="apple" size={22} color={BrandColors.white} style={{ marginBottom: 2 }} />
+                <Text style={styles.appleText}>Continue with Apple</Text>
+              </>
             )}
           </Pressable>
 
@@ -322,46 +392,10 @@ const styles = StyleSheet.create({
   contentCompact: {
     gap: Spacing.xl,
   },
-  headerContent: {
-    alignItems: "center",
-  },
-  title: {
-    fontSize: FontSize["4xl"],
-    fontFamily: FontFamily.bold,
-    color: '#0F172A',
-    marginBottom: Spacing.sm,
-    lineHeight: Spacing["5xl"],
-    textAlign: "center",
-  },
-  subtitle: {
-    fontSize: FontSize.lg,
-    fontFamily: FontFamily.regular,
-    color: '#0F172A',
-    opacity: 0.9,
-    lineHeight: Spacing["2xl"],
-    textAlign: "center",
-    maxWidth: 320,
-  },
-  logoFrame: {
-  width: 175,
-  height: 175,
-  alignSelf: "center",
-  alignItems: "center",
-  justifyContent: "center",
-  borderRadius: 90,
-  backgroundColor: "rgba(255, 255, 255, 0.72)",
-  borderWidth: 1.5,
-  borderColor: "rgba(255, 255, 255, 1)",
-  shadowColor: "#1E40AF",
-  shadowOffset: { width: 0, height: 8 },
-  shadowOpacity: 0.10,
-  shadowRadius: 20,
-  elevation: 6,
-},
   logo: {
-    width: 226,
-    height: 226,
-    transform: [{ translateX: -11 }, { translateY: -14 }],
+    width: 220,
+    height: 220,
+    alignSelf: "center",
   },
   buttonsContainer: {
     paddingHorizontal: Spacing["2xl"],
@@ -381,11 +415,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(15, 23, 42, 0.10)",
   },
-  googleIcon: {
-    fontSize: FontSize.xl,
-    fontFamily: FontFamily.bold,
-    color: "#4285F4",
-  },
   googleText: {
     fontSize: FontSize.md,
     fontFamily: FontFamily.semiBold,
@@ -393,10 +422,6 @@ const styles = StyleSheet.create({
   },
   appleButton: {
     backgroundColor: "#000000",
-  },
-  appleIcon: {
-    fontSize: FontSize.xl,
-    color: BrandColors.white,
   },
   appleText: {
     fontSize: FontSize.md,

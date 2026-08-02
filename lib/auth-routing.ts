@@ -33,14 +33,18 @@ export function shouldRedirectCompletedOnboardingToHome({
   isSignedIn,
   onboardingCompleted,
   essentialOnboardingCompleted,
+  onboardingDeferred,
 }: {
   isSignedIn: boolean;
   onboardingCompleted?: boolean;
   essentialOnboardingCompleted?: boolean;
+  onboardingDeferred?: boolean;
 }): boolean {
   return (
     isSignedIn &&
-    (onboardingCompleted === true || essentialOnboardingCompleted === true)
+    (onboardingCompleted === true ||
+      essentialOnboardingCompleted === true ||
+      onboardingDeferred === true)
   );
 }
 

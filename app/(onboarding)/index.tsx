@@ -56,11 +56,19 @@ export default function OnboardingScreen() {
     const isResumeMode = params.isResumeMode === 'true';
     const isCreateAccountResume = params.resumeSource === 'createAccount';
     const hasExplicitResumeTarget = !!params.initialStep || !!params.filteredSteps;
-    const shouldRedirectHome = shouldRedirectCompletedOnboardingToHome({
-        isSignedIn: isSignedIn === true,
-        onboardingCompleted: me?.onboardingCompleted,
-        essentialOnboardingCompleted: me?.essentialOnboardingCompleted,
-    });
+    // When the user explicitly tapped "Resume onboarding" from the
+    // home-page Finish Setup card, honor that intent even if the
+    // `onboardingDeferred` flag is still set from a previous
+    // Finish-later. Without this override, the onboarding screen
+    // immediately bounces them back to home — infinite spinner loop.
+    const shouldRedirectHome = isCreateAccountResume
+        ? false
+        : shouldRedirectCompletedOnboardingToHome({
+            isSignedIn: isSignedIn === true,
+            onboardingCompleted: me?.onboardingCompleted,
+            essentialOnboardingCompleted: me?.essentialOnboardingCompleted,
+            onboardingDeferred: (me as { onboardingDeferred?: boolean } | null | undefined)?.onboardingDeferred,
+        });
     const shouldAutoResumeSignedInEntryRef = useRef<boolean | null>(null);
     if (isLoaded && shouldAutoResumeSignedInEntryRef.current === null) {
         shouldAutoResumeSignedInEntryRef.current = !hasExplicitResumeTarget && isSignedIn === true;

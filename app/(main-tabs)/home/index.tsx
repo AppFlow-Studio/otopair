@@ -17,7 +17,7 @@ import {
 import { BlurBackdrop } from "@/components/shared-ui/BlurBackdrop";
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
 // MVP-DISABLED: loyalty/rewards — re-enable post-launch (drop Trophy)
-import { Bell, MoveRight, Star } from 'lucide-react-native';
+import { Bell, MoveRight, Star, Car, CalendarX } from 'lucide-react-native';
 import { useMutation, useQuery } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { useMutationWithToast } from '@/hooks/useMutationWithToast';
@@ -168,7 +168,6 @@ export default function HomeScreen() {
   const [showLoyaltyCard, setShowLoyaltyCard] = useState(false);
   const [isCardSwiping, setIsCardSwiping] = useState(false);
   const [activeCardIndex, setActiveCardIndex] = useState(0);
-  const [accountSetupDismissed, setAccountSetupDismissed] = useState(false);
   const [carSetupDismissed, setCarSetupDismissed] = useState(false);
   const [rescheduleBooking, setRescheduleBooking] = useState<BookingCardBooking | null>(null);
   const toast = useToast();
@@ -278,11 +277,24 @@ export default function HomeScreen() {
   //     that skip the full onboarding flow)
   //   - About You: tellUsAboutCompleted flag
   //   - Add Car: at least one registered vehicle
-  //   - Payment Method: always considered complete
+  //   - Payment Method: has_saved_payment_method flag
+  //
+  // Override: if the user tapped "Finish later" mid-onboarding
+  // (`onboardingDeferred`) AND full onboarding isn't actually
+  // complete, keep the card visible so they have a path back to the
+  // steps they skipped — otherwise a partial signup with a car looks
+  // "done" here even though profile photo / intent / zip are missing.
   const hasCreateAccount = !!(me?.first_name && me?.last_name) || me?.onboardingCompleted === true;
   const hasAboutYou = me?.tellUsAboutCompleted === true;
-  const isAccountSetupComplete = hasCreateAccount && hasAboutYou && hasVehicles;
-  const showAccountSetup = !isAccountSetupComplete && !accountSetupDismissed;
+  const hasPaymentMethod = me?.has_saved_payment_method === true;
+  const isAccountSetupComplete = hasCreateAccount && hasAboutYou && hasVehicles && hasPaymentMethod;
+  const onboardingDeferred = (me as { onboardingDeferred?: boolean } | null | undefined)?.onboardingDeferred === true;
+  const onboardingFullyComplete = me?.onboardingCompleted === true;
+  const shouldForceShowForDeferred = onboardingDeferred && !onboardingFullyComplete;
+  // The Finish Setup card persists until ALL FOUR steps are complete — it
+  // is not dismissable, so `isAccountSetupComplete` is the only thing that
+  // hides it (deferred just keeps it shown longer, never hides it early).
+  const showAccountSetup = !isAccountSetupComplete || shouldForceShowForDeferred;
 
   // Car setup: prefer incomplete vehicles, then completed-but-not-acknowledged.
   // `incompleteVehicles` is the full list of not-yet-onboarded cars so we can
@@ -766,7 +778,7 @@ export default function HomeScreen() {
         // Universal-language pass per Ahmad: most users won't know
         // what "enriching" means. "Connecting to your <car>" reads
         // as a familiar tech action (like pairing) and stays short.
-        toast.trust(`Connecting to your ${carLabel}`);
+        toast.trust(`Connecting to your ${carLabel}`, undefined, { icon: Car });
       }
     }, [pendingEnrichmentToast, setPendingEnrichmentToast, toast])
   );
@@ -811,6 +823,7 @@ export default function HomeScreen() {
   // out of scope here (those don't surface as upcoming on home).
   const cancelConvexBooking = useMutationWithToast(api.bookings.cancelBooking, {
     success: "Booking cancelled.",
+    successIcon: CalendarX,
     error: "Couldn't cancel this booking. Try again.",
   });
   const handleAppointmentCancel = useCallback(
@@ -970,7 +983,7 @@ export default function HomeScreen() {
           {/* Full Page Scroll */}
           <Animated.ScrollView
             style={styles.scrollView}
-            contentContainerStyle={[styles.scrollContent, { paddingTop: stableInsetTop + 12 }]}
+            contentContainerStyle={[styles.scrollContent, { paddingTop: stableInsetTop + 19 }]}
             showsVerticalScrollIndicator={false}
             scrollEnabled={!isCardSwiping}
             // Prevent iOS from re-adjusting the scroll content when a
@@ -986,7 +999,7 @@ export default function HomeScreen() {
             <View style={styles.header}>
               {/* Location */}
               <View style={styles.locationSection}>
-                <View style={{ marginLeft: 12, marginTop: -8 }}>
+                <View style={{ marginLeft: 20, marginTop: -8 }}>
                   <ProfileInitialsButton />
                 </View>
                 <View style={styles.locationText}>
@@ -1116,9 +1129,9 @@ export default function HomeScreen() {
                   resumeVehicleName={resumeVehicleName}
                   resumeVehicleImage={resumeVehicleImage}
                   onResumePress={() => router.push('/(booking-flow)/select-services')}
-                  // Account Setup
+                  // Account Setup — intentionally NOT dismissable: the card
+                  // must stay until all four steps are complete.
                   showAccountSetup={showAccountSetup}
-                  onAccountSetupDismiss={() => setAccountSetupDismissed(true)}
                   // Car Setup
                   showCarSetup={showCarSetup}
                   carSetupChecklist={carSetupChecklist}
@@ -1273,11 +1286,17 @@ export default function HomeScreen() {
               {/* More Services Section (6-card service-type grid) */}
               <MoreServicesSection />
 
-              {/* Service Bundles Section */}
-              <ServiceBundlesSection />
+              {/* Service Bundles + Provider Types ("More") only make sense
+                  once the user has a car — hide both until one is added. */}
+              {hasVehicles && (
+                <>
+                  {/* Service Bundles Section */}
+                  <ServiceBundlesSection />
 
-              {/* Provider Types Section ("More" — 3 provider cards) */}
-              <ProviderTypesSection />
+                  {/* Provider Types Section ("More" — 3 provider cards) */}
+                  <ProviderTypesSection />
+                </>
+              )}
             </View>
           </Animated.ScrollView>
 

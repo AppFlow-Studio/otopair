@@ -239,7 +239,7 @@ export function Toast({ item, bottomOffset, onRequestDismiss }: Props) {
             pointerEvents="none"
           />
           <View style={styles.row}>
-            <ToastIcon variant={item.variant} palette={palette} />
+            <ToastIcon variant={item.variant} palette={palette} icon={item.icon} />
             <View style={styles.textCol}>
               <Animated.Text
                 numberOfLines={2}

@@ -41,7 +41,7 @@ import Animated, {
 import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
 
-import { ArrowRight, Bell, Car, Check, ChevronDown, ChevronRight, FileText, MessageCircle, Navigation, Phone, ReceiptText, User, Wrench, X } from "lucide-react-native";
+import { ArrowRight, Bell, CalendarX, Car, Check, ChevronDown, ChevronRight, FileText, MessageCircle, Navigation, Phone, ReceiptText, User, Wrench, X } from "lucide-react-native";
 
 import { openMapsForAddress, openPhone } from "@/utils/linking";
 import { useQuery } from "convex/react";
@@ -891,7 +891,7 @@ function FullContent({
           onPress: () => {
             useBookingStore.getState().cancelBooking(booking.id);
             onClose();
-            toast.success("Booking cancelled.");
+            toast.success("Booking cancelled.", undefined, { icon: CalendarX });
           },
         },
       ],

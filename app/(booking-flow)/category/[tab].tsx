@@ -112,8 +112,17 @@ export default function CategoryDetailScreen() {
   const router = useRouter();
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
-  const params = useLocalSearchParams<{ tab: string }>();
+  const params = useLocalSearchParams<{ tab: string; focus?: string }>();
   const reviewSheetRef = useRef<SelectedServicesSheetRef>(null);
+  // When the user deep-links to a specific service (home "More Services"
+  // grid → `?focus=<slug>`), scroll that row into view and briefly glow it.
+  const focusSlug = params.focus;
+  const scrollRef = useRef<ScrollView>(null);
+  // Inner content wrapper — used as the ancestor for row.measureLayout
+  // (New Arch requires a host-component ref, not a findNodeHandle number).
+  const scrollContentRef = useRef<View>(null);
+  const [highlightedSlug, setHighlightedSlug] = useState<string | null>(null);
+  const didFocusScrollRef = useRef(false);
 
   const tabKey = useMemo<TaxonomyTab | null>(() => {
     if (!params.tab) return null;
@@ -329,6 +338,48 @@ export default function CategoryDetailScreen() {
     return baseList.filter((s) => applicableIds.has(s.id));
   }, [baseList, ownershipId, isBookableLoading, applicableIds]);
 
+  // Deep-link focus: when the user tapped a specific service on the home
+  // "More Services" grid, scroll that row into view and glow it once the
+  // list has rendered. Retries briefly because the list depends on async
+  // store hydration + coverage gating, so the row may not exist on mount.
+  useEffect(() => {
+    if (!focusSlug || didFocusScrollRef.current) return;
+    const target = filteredServices.find((s) => s.slug === focusSlug);
+    if (!target) return;
+
+    let attempts = 0;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let clearHighlight: ReturnType<typeof setTimeout> | null = null;
+
+    const tryScroll = () => {
+      attempts += 1;
+      const node = rowRefs.current.get(target.id);
+      const ancestor = scrollContentRef.current;
+      if (node && ancestor) {
+        node.measureLayout(
+          ancestor,
+          (_x, y) => {
+            didFocusScrollRef.current = true;
+            scrollRef.current?.scrollTo({ y: Math.max(0, y - 90), animated: true });
+            setHighlightedSlug(focusSlug);
+            clearHighlight = setTimeout(() => setHighlightedSlug(null), 2000);
+          },
+          () => {
+            if (attempts < 12) timer = setTimeout(tryScroll, 150);
+          },
+        );
+      } else if (attempts < 12) {
+        timer = setTimeout(tryScroll, 150);
+      }
+    };
+    timer = setTimeout(tryScroll, 200);
+
+    return () => {
+      if (timer) clearTimeout(timer);
+      if (clearHighlight) clearTimeout(clearHighlight);
+    };
+  }, [focusSlug, filteredServices]);
+
   // Tap handler — slug routing matches the v5 grid + Screen 1 entries
   const handleServicePress = useCallback(
     (service: Service) => {
@@ -469,11 +520,13 @@ export default function CategoryDetailScreen() {
               map behind it. */}
 
           <ScrollView
+            ref={scrollRef}
             contentContainerStyle={{
               paddingBottom: insets.bottom + 120,
             }}
             showsVerticalScrollIndicator={false}
           >
+            <View ref={scrollContentRef} collapsable={false}>
             <View style={styles.topRow}>
               <Pressable
                 style={styles.iconBtn}
@@ -555,6 +608,7 @@ export default function CategoryDetailScreen() {
                     durationText={durationText}
                     isSelected={isSelected}
                     state={state}
+                    highlight={highlightedSlug === slug}
                     onPress={() => handleServicePress(svc)}
                     onInfoPress={() => setInfoSheetSlug(slug)}
                     viewRef={(node: View | null) => {
@@ -571,6 +625,7 @@ export default function CategoryDetailScreen() {
                   </Text>
                 </View>
               ) : null}
+            </View>
             </View>
           </ScrollView>
       </View>

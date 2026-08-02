@@ -193,9 +193,21 @@ export function ActionCardsCarousel({
   // with a 280 ms `withTiming` so the sections below (Vehicle Maintenance,
   // etc.) glide in lockstep. Mirrors VehicleMaintenanceCard.tsx:375-414.
   const animatedCardHeight = useSharedValue<number>(containerHeight ?? 0);
+  const hasMeasuredHeight = useRef(false);
   useEffect(() => {
-    if (containerHeight == null) return;
-    animatedCardHeight.value = withTiming(containerHeight, { duration: 280 });
+    // Ignore null/zero heights. A transient 0 — the card measured before
+    // its own queries hydrate — must never clamp the container: with
+    // `overflow: hidden` a 0-height container starves the inner ScrollView
+    // so every later onLayout also reports 0, and the card stays invisible
+    // until a full reload.
+    if (!containerHeight) return;
+    if (!hasMeasuredHeight.current) {
+      // First real height: apply instantly so the card doesn't grow in from 0.
+      hasMeasuredHeight.current = true;
+      animatedCardHeight.value = containerHeight;
+    } else {
+      animatedCardHeight.value = withTiming(containerHeight, { duration: 280 });
+    }
   }, [containerHeight, animatedCardHeight]);
   const containerHeightStyle = useAnimatedStyle(() => ({
     height: animatedCardHeight.value,
@@ -212,6 +224,9 @@ export function ActionCardsCarousel({
   };
 
   const handleCardLayout = (cardId: string, height: number) => {
+    // Never record a 0 height — a transient 0 (measured before the card's
+    // content settled) would otherwise clamp the carousel to nothing.
+    if (height <= 0) return;
     setCardHeights((prev) => {
       if (prev[cardId] === height) return prev;
       return { ...prev, [cardId]: height };
@@ -309,7 +324,10 @@ export function ActionCardsCarousel({
     <Animated.View
       style={[
         styles.container,
-        containerHeight != null && containerHeightStyle,
+        // Only clamp to the animated height once we actually have a
+        // positive measurement — otherwise stay auto-height so the card
+        // is always visible (never collapsed to 0).
+        !!containerHeight && containerHeightStyle,
       ]}
     >
       <ScrollView

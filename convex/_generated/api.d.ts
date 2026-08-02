@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as _seedDemo from "../_seedDemo.js";
 import type * as adminCleanupMechanics from "../adminCleanupMechanics.js";
 import type * as ai_conversations from "../ai_conversations.js";
 import type * as ai_enrichment_logs from "../ai_enrichment_logs.js";
@@ -253,6 +254,7 @@ import type * as spec_confirmations from "../spec_confirmations.js";
 import type * as spec_variances from "../spec_variances.js";
 import type * as specs from "../specs.js";
 import type * as stripe_webhook_events from "../stripe_webhook_events.js";
+import type * as support_requests_node from "../support_requests_node.js";
 import type * as telnyx from "../telnyx.js";
 import type * as test_helpers from "../test_helpers.js";
 import type * as time_slots from "../time_slots.js";
@@ -263,6 +265,8 @@ import type * as tires_catalog from "../tires_catalog.js";
 import type * as transactions from "../transactions.js";
 import type * as transmissions from "../transmissions.js";
 import type * as trims from "../trims.js";
+import type * as two_factor from "../two_factor.js";
+import type * as two_factor_node from "../two_factor_node.js";
 import type * as undoMechanicVerification from "../undoMechanicVerification.js";
 import type * as urgency from "../urgency.js";
 import type * as userAddresses from "../userAddresses.js";
@@ -340,6 +344,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  _seedDemo: typeof _seedDemo;
   adminCleanupMechanics: typeof adminCleanupMechanics;
   ai_conversations: typeof ai_conversations;
   ai_enrichment_logs: typeof ai_enrichment_logs;
@@ -585,6 +590,7 @@ declare const fullApi: ApiFromModules<{
   spec_variances: typeof spec_variances;
   specs: typeof specs;
   stripe_webhook_events: typeof stripe_webhook_events;
+  support_requests_node: typeof support_requests_node;
   telnyx: typeof telnyx;
   test_helpers: typeof test_helpers;
   time_slots: typeof time_slots;
@@ -595,6 +601,8 @@ declare const fullApi: ApiFromModules<{
   transactions: typeof transactions;
   transmissions: typeof transmissions;
   trims: typeof trims;
+  two_factor: typeof two_factor;
+  two_factor_node: typeof two_factor_node;
   undoMechanicVerification: typeof undoMechanicVerification;
   urgency: typeof urgency;
   userAddresses: typeof userAddresses;

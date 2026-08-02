@@ -28,6 +28,7 @@
 
 import { useEffect, useRef } from "react";
 import { useQuery } from "convex/react";
+import { Car } from "lucide-react-native";
 
 import { api } from "@/convex/_generated/api";
 import { useToast } from "@/hooks/useToast";
@@ -78,6 +79,7 @@ export function useEnrichmentCompletionWatcher() {
           `Connected to your ${v.label}`,
           "Tap to book a service.",
           {
+            icon: Car,
             persistent: true,
             onPress: () => {
               // Best-effort: pick the matching vehicle in the local

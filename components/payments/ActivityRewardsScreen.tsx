@@ -22,7 +22,6 @@ import React, {
 } from "react";
 import {
   Dimensions,
-  Image,
   StyleSheet,
   TouchableOpacity,
   View,
@@ -48,6 +47,7 @@ import {
   Star,
   Trash2,
   Clock,
+  CreditCard,
 } from "lucide-react-native";
 import Animated, {
   useSharedValue,
@@ -569,11 +569,16 @@ export function ActivityRewardsScreen() {
                   </>
                 ) : (
                   <View style={styles.emptyStateContainer}>
-                    <Image
-                      source={require("@/assets/images/payments/empty-wallet.png")}
-                      style={styles.emptyWalletImage}
-                      resizeMode="contain"
-                    />
+                    {/* On-brand empty state — a card icon in a frosted circle,
+                        matching the icon-in-circle empty states used across
+                        the rest of the app. */}
+                    <View style={styles.emptyIconCircle}>
+                      <CreditCard
+                        size={52}
+                        color={BrandColors.secondary}
+                        strokeWidth={1.75}
+                      />
+                    </View>
                     <Text
                       weight="bold"
                       size="xl"
@@ -599,7 +604,10 @@ export function ActivityRewardsScreen() {
                 )}
               </View>
 
-              {/* Recent Activity */}
+              {/* Recent Activity — only once a card exists. With no payment
+                  method there's nothing to transact, so a "No recent
+                  transactions" row would be pointless noise. */}
+              {hasCards && (
               <Animated.View style={[styles.section, animatedActivityStyle]}>
                 <Text
                   weight="bold"
@@ -675,6 +683,7 @@ export function ActivityRewardsScreen() {
                   )}
                 </View>
               </Animated.View>
+              )}
 
               {/* MVP-DISABLED: loyalty/rewards — re-enable post-launch */}
               {/*
@@ -812,10 +821,16 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingHorizontal: 40,
   },
-  emptyWalletImage: {
-    width: 280,
-    height: 200,
-    marginBottom: 20,
+  emptyIconCircle: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: "rgba(255,255,255,0.55)",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.6)",
   },
   emptyTitle: {
     textAlign: "center",

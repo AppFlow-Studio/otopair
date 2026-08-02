@@ -162,7 +162,10 @@ export function ProfilePhotoStep({ onNext, onBack, progress }: ProfilePhotoStepP
     onNext();
   };
 
-  const canContinue = imageUri !== null;
+  // TEMP: bypass gate so Ahmad can walk through the remaining
+  // onboarding screens without picking a photo. Revert to
+  // `imageUri !== null` before shipping.
+  const canContinue = __DEV__ ? true : imageUri !== null;
 
   return (
     <View style={[styles.container, dynamicStyles.container]}>
@@ -171,7 +174,7 @@ export function ProfilePhotoStep({ onNext, onBack, progress }: ProfilePhotoStepP
         filled={progress.filled}
         leftElement={<BackButton onBack={onBack} alwaysShow />}
       />
-      <FinishLater />
+      <FinishLater currentStep="profilePhoto" />
 
       <View style={styles.content}>
         <View style={styles.photoContainer}>

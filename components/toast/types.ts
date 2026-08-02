@@ -1,3 +1,5 @@
+import type { LucideIcon } from "lucide-react-native";
+
 export type ToastVariant = "success" | "info" | "warning" | "error" | "trust";
 
 export interface ToastOptions {
@@ -11,6 +13,10 @@ export interface ToastOptions {
    *  taps it or swipes it away. Use for high-value notifications the
    *  user is expected to act on (e.g. "your car is ready — book now"). */
   persistent?: boolean;
+  /** Override the variant's default status icon with an action-specific
+   *  one (e.g. `Copy` for "Message copied", `Trash2` for a delete). Falls
+   *  back to the variant icon when omitted. */
+  icon?: LucideIcon;
 }
 
 export interface ToastQueueItem extends ToastOptions {
