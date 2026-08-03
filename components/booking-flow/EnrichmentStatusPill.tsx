@@ -295,26 +295,33 @@ export function EnrichmentStatusPill({
         onClose={() => setSheetOpen(false)}
       >
         <View style={[styles.sheetBody, { paddingBottom: insets.bottom + 20 }]}>
-          {/* Hero: real car render when we have one, sparkle chip otherwise. */}
-          {carImage.url ? (
-            <View style={styles.heroWrap}>
-              <Image
-                source={{ uri: carImage.url }}
-                style={styles.heroImage}
-                resizeMode="contain"
-              />
+          {/* Header: car name on the left, circular car render on the right. */}
+          <View style={styles.headerRow}>
+            <View style={styles.headerText}>
+              <Text
+                size="xs"
+                weight="bold"
+                color={SemanticColors.primaryBlue}
+                style={styles.eyebrow}
+              >
+                {allReady ? "READY" : "PERSONALIZING"}
+              </Text>
+              <Text size="2xl" weight="bold" color={BrandColors.primary}>
+                {detail?.label ?? subject}
+              </Text>
             </View>
-          ) : (
-            <View style={styles.sheetIconChip}>
-              <Sparkles size={22} color={SemanticColors.primaryBlue} />
+            <View style={styles.avatarCircle}>
+              {carImage.url ? (
+                <Image
+                  source={{ uri: carImage.url }}
+                  style={styles.avatarImage}
+                  resizeMode="contain"
+                />
+              ) : (
+                <Sparkles size={22} color={SemanticColors.primaryBlue} />
+              )}
             </View>
-          )}
-
-          <Text size="2xl" weight="bold" color={BrandColors.primary} style={styles.sheetTitle}>
-            {allReady
-              ? `${detail?.label ?? subject} is ready`
-              : `Personalizing ${subjectPhrase}`}
-          </Text>
+          </View>
           <Text size="md" color={SemanticColors.textSecondary} style={styles.sheetSubtitle}>
             {allReady
               ? "Everything below is pulled from your car's real specs — not a generic estimate."
@@ -547,27 +554,32 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingTop: 8,
   },
-  sheetIconChip: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+  headerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 14,
+    marginBottom: 14,
+  },
+  headerText: {
+    flex: 1,
+    gap: 3,
+  },
+  eyebrow: {
+    letterSpacing: 0.8,
+  },
+  avatarCircle: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    overflow: "hidden",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "rgba(37, 99, 235, 0.10)",
-    marginBottom: 20,
+    backgroundColor: "rgba(37, 99, 235, 0.08)",
   },
-  heroWrap: {
-    height: 132,
-    marginBottom: 16,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  heroImage: {
-    width: "100%",
-    height: 132,
-  },
-  sheetTitle: {
-    marginBottom: 12,
+  avatarImage: {
+    width: 72,
+    height: 72,
   },
   sheetSubtitle: {
     lineHeight: 24,
