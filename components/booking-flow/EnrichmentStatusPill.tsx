@@ -49,14 +49,12 @@ import Animated, {
   withSequence,
   withTiming,
 } from "react-native-reanimated";
-import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQuery } from "convex/react";
 import { Sparkles } from "lucide-react-native";
 
 import { Button, Text } from "@/components/shared-ui";
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
-import { TOAST_GRADIENT } from "@/components/toast/Toast";
 import { TOAST_SHADOW } from "@/components/toast/tokens";
 import { BrandColors, SemanticColors } from "@/constants/theme";
 import { api } from "@/convex/_generated/api";
@@ -222,28 +220,30 @@ export function EnrichmentStatusPill({
             accessibilityLabel={message}
             accessibilityHint="Shows what we're still setting up for your car"
           >
-            <LinearGradient
-              colors={TOAST_GRADIENT as unknown as readonly [string, string]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={StyleSheet.absoluteFill}
-              pointerEvents="none"
-            />
             {compact ? (
               // Sparkle = brand/AI signal on the compact pill; the live
-              // spinners live inside the sheet's per-step checklist.
+              // spinners live inside the sheet's detail ticker.
               <Animated.View style={sparkleStyle}>
-                <Sparkles size={16} color="#FFFFFF" fill="#FFFFFF" strokeWidth={0} />
+                <Sparkles
+                  size={16}
+                  color={SemanticColors.primaryBlue}
+                  fill={SemanticColors.primaryBlue}
+                  strokeWidth={0}
+                />
               </Animated.View>
             ) : (
               // Live spinner instead of a static glyph — the top pill's
               // whole job is to say "work is happening right now".
-              <ActivityIndicator size="small" color="#FFFFFF" style={styles.spinner} />
+              <ActivityIndicator
+                size="small"
+                color={SemanticColors.primaryBlue}
+                style={styles.spinner}
+              />
             )}
             <Text
               size="sm"
               weight="semiBold"
-              color="#FFFFFF"
+              color={BrandColors.primary}
               numberOfLines={1}
               style={styles.label}
             >
@@ -423,13 +423,15 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 8,
     maxWidth: "100%",
-    borderRadius: 999,
+    borderRadius: 10,
     paddingVertical: 12,
     paddingHorizontal: 14,
     overflow: "hidden",
-    // Fallback bg matching the gradient's deep stop in case the
-    // gradient races a hot reload, same trick as Toast.tsx.
-    backgroundColor: "#5299FE",
+    // Airbnb-style white card: clean white with a hairline border; the soft
+    // TOAST_SHADOW lifts it off the screen.
+    backgroundColor: "#FFFFFF",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(20, 28, 36, 0.10)",
   },
   pillPressed: {
     opacity: 0.9,
