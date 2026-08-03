@@ -289,7 +289,7 @@ export default function RootLayout() {
                 <EnrichmentCompletionMount />
                 <StripeProvider
                   publishableKey={process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? ""}
-                  merchantIdentifier={process.env.EXPO_PUBLIC_STRIPE_MERCHANT_ID ?? "merchant.com.otopair.app"}
+                  merchantIdentifier={process.env.EXPO_PUBLIC_STRIPE_MERCHANT_ID ?? "merchant.com.otopair"}
                   urlScheme="otopair"
                 >
                 <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>

@@ -2,7 +2,7 @@
   "expo": {
     "name": "otopair",
     "slug": "otopair",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "orientation": "portrait",
     "icon": "./assets/images/repairconnectglasslogo.png",
     "scheme": "otopair",
@@ -17,7 +17,7 @@
         "ITSAppUsesNonExemptEncryption": false
       },
       "entitlements": {
-        "com.apple.developer.in-app-payments": ["merchant.com.otopair.app"]
+        "com.apple.developer.in-app-payments": ["merchant.com.otopair"]
       }
     },
     "android": {
@@ -104,7 +104,7 @@
       [
         "@stripe/stripe-react-native",
         {
-          "merchantIdentifier": "merchant.com.otopair.app",
+          "merchantIdentifier": "merchant.com.otopair",
           "enableGooglePay": true
         }
       ]
