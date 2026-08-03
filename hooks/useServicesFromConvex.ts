@@ -59,7 +59,12 @@ function mapConvexServiceToStore(doc: ConvexServiceDoc, entry: TaxonomyEntry): S
   const default_parts_estimate = doc.default_parts_estimate;
   return {
     id: doc._id,
-    slug: doc.slug,
+    // Normalize to the taxonomy's canonical (underscored) slug so downstream
+    // comparisons like `service.slug === SLUG_TIRE_REPLACEMENT` and
+    // `HANDOFF_SLUGS.has(service.slug)` work even when Convex still has the
+    // hyphenated legacy slug. TAXONOMY accepts either form (see HYPHEN_ALIASES
+    // in constants/serviceTaxonomy.ts); the store always stores the canonical form.
+    slug: entry.slug,
     name: doc.name,
     description: doc.description,
     price: default_parts_estimate ?? 0,
@@ -89,6 +94,12 @@ export function useServicesFromConvex() {
   const services: Service[] = useMemo(() => {
     if (!convexServices || !Array.isArray(convexServices)) return [];
     const out: Service[] = [];
+    // Dedupe by canonical taxonomy slug. The DB has multiple legacy
+    // rows that all map to the same v5 entry (e.g. `engine-air-filter`
+    // and `cabin-air-filter` both alias to `filter_replacement`), so
+    // without this the grid showed the same card twice. First DB row
+    // wins — its id is what downstream toggles / booking store use.
+    const seen = new Set<string>();
     for (const raw of convexServices) {
       const doc = raw as ConvexServiceDoc;
       const slug = doc.slug;
@@ -103,6 +114,8 @@ export function useServicesFromConvex() {
         }
         continue;
       }
+      if (seen.has(entry.slug)) continue;
+      seen.add(entry.slug);
       out.push(mapConvexServiceToStore(doc, entry));
     }
     return out;

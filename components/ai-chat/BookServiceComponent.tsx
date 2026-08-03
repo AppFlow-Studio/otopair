@@ -32,7 +32,6 @@ import Animated, {
 import {
   AlertTriangle,
   ArrowLeft,
-  Calendar,
   Check,
   Circle,
   Clock,
@@ -45,7 +44,6 @@ import {
   Star,
   Wind,
   Wrench,
-  X,
 } from "lucide-react-native";
 
 // Per-service icon mapping for Stage 1. Falls back to Wrench for any
@@ -192,6 +190,45 @@ const MONTH_LABELS = [
   "Dec",
 ];
 
+const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const FULL_WEEKDAY_LABELS = [
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+];
+
+// First + last initial for the mechanic avatar (e.g. "David Park" → "DP").
+function initialsFrom(name: string | null): string {
+  if (!name) return "?";
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  const first = parts[0][0] ?? "";
+  const last = parts.length > 1 ? parts[parts.length - 1][0] : "";
+  return (first + last).toUpperCase() || "?";
+}
+
+// Turns an ISO date ("YYYY-MM-DD") into the pieces a day pill shows:
+// a top line (weekday, or "Today"/"Tomorrow"), the day number, and the month.
+function formatDayPill(date: string): { top: string; num: string; month: string } {
+  const [yyyy, mm, dd] = date.split("-").map((s) => parseInt(s, 10));
+  const d = new Date(yyyy, mm - 1, dd);
+  const today = new Date();
+  const tomorrow = new Date(today);
+  tomorrow.setDate(today.getDate() + 1);
+  const sameDay = (a: Date, b: Date) =>
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate();
+  let top = WEEKDAY_LABELS[d.getDay()];
+  if (sameDay(d, today)) top = "Today";
+  else if (sameDay(d, tomorrow)) top = "Tomorrow";
+  return { top, num: String(dd), month: MONTH_LABELS[mm - 1] };
+}
+
 // ============================================================================
 // TYPES
 // ============================================================================
@@ -224,7 +261,6 @@ type Stage = 1 | 2 | 3 | 4 | 5 | 6;
 
 export function BookServiceComponent({
   payload,
-  onDismiss,
   onBookAndPay,
   disabled = false,
 }: BookServiceComponentProps) {
@@ -330,7 +366,10 @@ export function BookServiceComponent({
       ? {
           shopId: selectedShopId as Id<"shops">,
           mechanicId: selectedMechanicId as Id<"mechanics">,
-          limit: 12,
+          // Fetch a wide window so the picker spans multiple days — a single
+          // day already has ~12 slots, so a small limit collapsed the whole
+          // picker onto one date with no way to choose another.
+          limit: 200,
         }
       : "skip",
   );
@@ -377,12 +416,15 @@ export function BookServiceComponent({
   // Navigation helpers
   // ──────────────────────────────────────────────────────────────────────
 
-  // Sub-stage 3 (diagnostic notes) is conditional: skip it if no diagnostic
-  // scan is selected. advanceStage / retreatStage walk over the skipped step.
+  // Stage 2 (service options) is always skipped — parts/labor are standard
+  // by default and confirmed at drop-off, so the extra screen adds nothing.
+  // Stage 3 (diagnostic notes) is conditional: skip it when no diagnostic
+  // scan is selected. advanceStage / retreatStage walk over both skips.
   const advanceStage = useCallback(() => {
     setStage((cur) => {
-      const next = (cur + 1) as Stage;
-      if (next === 3 && !hasDiagnostic) return 4;
+      let next = (cur + 1) as Stage;
+      if (next === 2) next = 3 as Stage;
+      if (next === 3 && !hasDiagnostic) next = 4 as Stage;
       if (next > 6) return 6;
       return next;
     });
@@ -391,14 +433,16 @@ export function BookServiceComponent({
   const retreatStage = useCallback(() => {
     setStage((cur) => {
       if (cur <= 1) return 1;
-      const prev = (cur - 1) as Stage;
-      if (prev === 3 && !hasDiagnostic) return 2;
+      let prev = (cur - 1) as Stage;
+      if (prev === 3 && !hasDiagnostic) prev = 2 as Stage;
+      if (prev === 2) prev = 1 as Stage;
       return prev;
     });
   }, [hasDiagnostic]);
 
   const jumpToStage = useCallback(
     (target: Stage) => {
+      if (target === 2) return;
       if (target === 3 && !hasDiagnostic) return;
       setStage(target);
     },
@@ -628,14 +672,9 @@ export function BookServiceComponent({
             </Text>
           ) : null}
         </View>
-        <Pressable
-          onPress={onDismiss}
-          disabled={disabled}
-          hitSlop={8}
-          style={styles.headerIconButton}
-        >
-          <X size={18} color="#6B7280" strokeWidth={2} />
-        </Pressable>
+        {/* Spacer keeps the title centered now that the close (X) button
+            is gone — dismissal is via the back arrow / completing the flow. */}
+        <View style={styles.headerIconButton} />
       </View>
 
       {/* Stepper */}
@@ -762,9 +801,11 @@ function Stepper({
   // Kept on the prop list for API stability; the new stepper is read-only.
   onJump?: (s: Stage) => void;
 }) {
-  // Skipping stage 3 when there's no diagnostic keeps the user's mental
-  // count honest — they see "Step 4 of 5" instead of jumping 2→4 of 6.
-  const stages: Stage[] = hasDiagnostic ? [1, 2, 3, 4, 5, 6] : [1, 2, 4, 5, 6];
+  // Stage 2 (service options) is always skipped; stage 3 (diagnostic notes)
+  // only shows when a diagnostic scan is selected. Excluding skipped stages
+  // keeps the user's mental count honest — they see "Step 2 of 4" instead of
+  // jumping 1→3 of 6.
+  const stages: Stage[] = hasDiagnostic ? [1, 3, 4, 5, 6] : [1, 4, 5, 6];
   const totalSteps = stages.length;
   const currentIndex = Math.max(0, stages.indexOf(currentStage));
   // Always fill at least a sliver so step 1 doesn't look empty.
@@ -1198,6 +1239,30 @@ function Stage5Time({
   onSelect: (id: string) => void;
   disabled: boolean;
 }) {
+  // Group by date so we can offer a day picker (hooks run every render, so
+  // they sit above the early returns below).
+  const byDate = useMemo(() => {
+    const m = new Map<string, typeof slots>();
+    for (const s of slots) {
+      const arr = m.get(s.date) ?? [];
+      arr.push(s);
+      m.set(s.date, arr);
+    }
+    return m;
+  }, [slots]);
+  const dates = useMemo(() => Array.from(byDate.keys()), [byDate]);
+
+  const [activeDate, setActiveDate] = useState<string | null>(null);
+  // Keep the active day valid as availability loads / changes; default to the
+  // first available day.
+  useEffect(() => {
+    if (dates.length === 0) {
+      if (activeDate !== null) setActiveDate(null);
+    } else if (activeDate === null || !byDate.has(activeDate)) {
+      setActiveDate(dates[0]);
+    }
+  }, [dates, activeDate, byDate]);
+
   if (!mechanicSelected) {
     return (
       <View style={styles.stageBody}>
@@ -1226,56 +1291,86 @@ function Stage5Time({
     );
   }
 
-  // Group by date so the user can scan days.
-  const byDate = new Map<string, typeof slots>();
-  for (const s of slots) {
-    const arr = byDate.get(s.date) ?? [];
-    arr.push(s);
-    byDate.set(s.date, arr);
-  }
+  const currentDate = activeDate && byDate.has(activeDate) ? activeDate : dates[0];
+  const daySlots = byDate.get(currentDate) ?? [];
 
   return (
     <View style={styles.stageBody}>
       <Text style={styles.helperText} size="sm">
-        Tap a time to reserve it. Shorter slots come up first.
+        Pick a day, then a time that works for you.
       </Text>
-      {Array.from(byDate.entries()).map(([date, daySlots]) => {
-        const [yyyy, mm, dd] = date.split("-");
-        const label = `${parseInt(dd, 10)} ${MONTH_LABELS[parseInt(mm, 10) - 1]} ${yyyy}`;
-        return (
-          <View key={date} style={styles.dayBlock}>
-            <Text style={styles.dayLabel} size="xs" weight="semiBold">
-              {label}
-            </Text>
-            <View style={styles.slotRow}>
-              {daySlots.map((s) => {
-                const active = s._id === selectedSlotId;
-                return (
-                  <Pressable
-                    key={s._id}
-                    onPress={() => onSelect(s._id)}
-                    disabled={disabled}
-                    style={({ pressed }) => [
-                      styles.slotChip,
-                      active && styles.slotChipActive,
-                      pressed && !disabled && styles.slotChipPressed,
-                    ]}
-                  >
-                    <Clock size={11} color={active ? BrandColors.secondary : "#6B7280"} />
-                    <Text
-                      style={[styles.slotChipText, active && styles.slotChipTextActive]}
-                      size="xs"
-                      weight={active ? "semiBold" : "medium"}
-                    >
-                      {displayHHMM(s.start_time)}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-          </View>
-        );
-      })}
+
+      {/* Day picker — horizontal pills, one per available day. */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.dayPickerRow}
+      >
+        {dates.map((date) => {
+          const pill = formatDayPill(date);
+          const active = date === currentDate;
+          return (
+            <Pressable
+              key={date}
+              onPress={() => setActiveDate(date)}
+              disabled={disabled}
+              style={({ pressed }) => [
+                styles.dayPill,
+                active && styles.dayPillActive,
+                pressed && !disabled && !active && styles.slotChipPressed,
+              ]}
+            >
+              <Text
+                style={[styles.dayPillWeekday, active && styles.dayPillTextActive]}
+                size="xs"
+                weight="semiBold"
+              >
+                {pill.top}
+              </Text>
+              <Text
+                style={[styles.dayPillNum, active && styles.dayPillTextActive]}
+                weight="bold"
+              >
+                {pill.num}
+              </Text>
+              <Text
+                style={[styles.dayPillMonth, active && styles.dayPillTextActive]}
+                size="xs"
+              >
+                {pill.month}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+
+      {/* Time grid for the selected day. */}
+      <View style={styles.slotRow}>
+        {daySlots.map((s) => {
+          const active = s._id === selectedSlotId;
+          return (
+            <Pressable
+              key={s._id}
+              onPress={() => onSelect(s._id)}
+              disabled={disabled}
+              style={({ pressed }) => [
+                styles.slotChip,
+                active && styles.slotChipActive,
+                pressed && !disabled && styles.slotChipPressed,
+              ]}
+            >
+              <Clock size={11} color={active ? BrandColors.secondary : "#6B7280"} />
+              <Text
+                style={[styles.slotChipText, active && styles.slotChipTextActive]}
+                size="xs"
+                weight={active ? "semiBold" : "medium"}
+              >
+                {displayHHMM(s.start_time)}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
     </View>
   );
 }
@@ -1307,77 +1402,157 @@ function Stage6Confirm({
   slotStartTime: string | null;
   onJump: (s: Stage) => void;
 }) {
-  const slotLabel = useMemo(() => {
-    if (!slotIsoDate || !slotStartTime) return "—";
-    const [yyyy, mm, dd] = slotIsoDate.split("-");
-    return `${parseInt(dd, 10)} ${MONTH_LABELS[parseInt(mm, 10) - 1]} ${yyyy} at ${displayHHMM(slotStartTime)}`;
+  const cal = useMemo(() => {
+    if (!slotIsoDate || !slotStartTime) return null;
+    const [yyyy, mm, dd] = slotIsoDate.split("-").map((n) => parseInt(n, 10));
+    const dt = new Date(yyyy, mm - 1, dd);
+    return {
+      month: MONTH_LABELS[mm - 1].toUpperCase(),
+      day: String(dd),
+      weekday: FULL_WEEKDAY_LABELS[dt.getDay()],
+      time: displayHHMM(slotStartTime),
+    };
   }, [slotIsoDate, slotStartTime]);
 
   const systemLabel = SYSTEMS.find((s) => s.value === diagnosticSystem)?.label ?? "—";
+  const initials = initialsFrom(mechanicName);
 
   return (
     <View style={styles.stageBody}>
-      <Text style={styles.helperText} size="sm">
-        Final review. Tap any row to edit. Payment confirms on the next screen.
-      </Text>
+      {/* Emotional header — a warm "you're almost there" moment. */}
+      <View style={styles.reviewIntro}>
+        <View style={styles.reviewBadge}>
+          <Check size={22} color={BrandColors.white} strokeWidth={2.8} />
+        </View>
+        <Text style={styles.reviewTitle} weight="bold">
+          You're almost there!
+        </Text>
+        <Text style={styles.reviewSubtitle} size="sm">
+          Here's your appointment — confirm and you're booked.
+        </Text>
+      </View>
 
-      {/* Hero card — shop + mechanic + appointment all at-a-glance. */}
-      <View style={styles.reviewHero}>
-        <View style={styles.reviewHeroHeader}>
-          <View style={styles.reviewHeroIconWrap}>
-            <Wrench size={18} color={BrandColors.secondary} strokeWidth={2} />
-          </View>
-          <View style={styles.reviewHeroText}>
-            <Text style={styles.reviewHeroShop} weight="semiBold" numberOfLines={1}>
-              {shopName ?? "Service center"}
+      {/* Appointment hero — calendar tile + time, mechanic below. */}
+      <View style={styles.apptCard}>
+        <Pressable
+          onPress={() => onJump(5)}
+          hitSlop={8}
+          style={styles.apptEditBtn}
+        >
+          <Pencil size={13} color={BrandColors.secondary} strokeWidth={2.2} />
+        </Pressable>
+
+        <View style={styles.apptTop}>
+          <View style={styles.calTile}>
+            <Text style={styles.calMonth} weight="bold">
+              {cal?.month ?? "—"}
             </Text>
-            {mechanicName ? (
-              <Text style={styles.reviewHeroMechanic} size="sm">
-                with {mechanicName}
+            <Text style={styles.calDay} weight="bold">
+              {cal?.day ?? "—"}
+            </Text>
+          </View>
+          <View style={styles.apptWhen}>
+            <Text style={styles.apptWeekday} weight="semiBold" numberOfLines={1}>
+              {cal?.weekday ?? "Pick a time"}
+            </Text>
+            <View style={styles.apptTimeRow}>
+              <Clock size={13} color={BrandColors.secondary} strokeWidth={2.4} />
+              <Text style={styles.apptTime} weight="bold">
+                {cal?.time ?? "—"}
               </Text>
+            </View>
+          </View>
+        </View>
+
+        <View style={styles.apptDivider} />
+
+        <View style={styles.apptMech}>
+          <View style={styles.mechAvatar}>
+            <Text style={styles.mechAvatarText} weight="bold">
+              {initials}
+            </Text>
+          </View>
+          <View style={styles.apptMechText}>
+            <Text style={styles.mechName} weight="semiBold" numberOfLines={1}>
+              {mechanicName ?? "Any available pro"}
+            </Text>
+            {shopName ? (
+              <View style={styles.mechShopRow}>
+                <MapPin size={11} color="#9CA3AF" strokeWidth={2} />
+                <Text style={styles.mechShop} size="xs" numberOfLines={1}>
+                  {shopName}
+                </Text>
+              </View>
             ) : null}
           </View>
         </View>
-        <View style={styles.reviewHeroDivider} />
-        <View style={styles.reviewHeroFooter}>
-          <Calendar size={14} color="#6B7280" strokeWidth={2} />
-          <Text style={styles.reviewHeroDate} size="sm" weight="medium">
-            {slotLabel}
-          </Text>
-        </View>
       </View>
 
-      {/* Unified summary card — internal dividers between rows. */}
-      <View style={styles.reviewSummaryCard}>
-        <ReviewSummaryRow
-          label="Services"
-          value={services.map((s) => s.name).join(" · ") || "—"}
-          onEdit={() => onJump(1)}
-        />
-        {hasDiagnostic && (
-          <ReviewSummaryRow
-            label="Diagnostic system"
-            value={systemLabel}
-            onEdit={() => onJump(3)}
-            divider
-          />
+      {/* Services — visual list with per-item icons. */}
+      <View style={styles.svcCard}>
+        <View style={styles.svcHeader}>
+          <Text style={styles.svcHeaderLabel} size="xs" weight="semiBold">
+            WHAT WE'LL DO
+          </Text>
+          <Pressable onPress={() => onJump(1)} hitSlop={8}>
+            <Text style={styles.editText} size="xs" weight="semiBold">
+              Edit
+            </Text>
+          </Pressable>
+        </View>
+        {services.length > 0 ? (
+          services.map((s, i) => (
+            <View
+              key={s.id ?? i}
+              style={[styles.svcItem, i > 0 && styles.svcItemBordered]}
+            >
+              <View style={styles.svcItemIcon}>
+                <Wrench size={13} color={BrandColors.secondary} strokeWidth={2.2} />
+              </View>
+              <Text style={styles.svcItemName} weight="medium" numberOfLines={1}>
+                {s.name}
+              </Text>
+              {s.duration ? (
+                <Text style={styles.svcItemDur} size="xs">
+                  {s.duration}
+                </Text>
+              ) : null}
+            </View>
+          ))
+        ) : (
+          <Text style={styles.svcEmpty} size="sm">
+            No services selected
+          </Text>
         )}
-        {hasDiagnostic && customerNotes.trim() && (
-          <ReviewSummaryRow
-            label="Notes"
-            value={customerNotes.trim()}
-            onEdit={() => onJump(3)}
-            divider
-          />
-        )}
-        <ReviewSummaryRow
-          label="Labor rate"
-          value={
-            laborRate !== null ? `$${laborRate.toFixed(0)}/hr (shop posted)` : "—"
-          }
-          divider
-        />
       </View>
+
+      {/* Diagnostic details + labor rate — secondary, still editable. */}
+      {(hasDiagnostic || laborRate !== null) && (
+        <View style={styles.reviewSummaryCard}>
+          {hasDiagnostic && (
+            <ReviewSummaryRow
+              label="Diagnostic system"
+              value={systemLabel}
+              onEdit={() => onJump(3)}
+            />
+          )}
+          {hasDiagnostic && customerNotes.trim() && (
+            <ReviewSummaryRow
+              label="Notes"
+              value={customerNotes.trim()}
+              onEdit={() => onJump(3)}
+              divider
+            />
+          )}
+          <ReviewSummaryRow
+            label="Labor rate"
+            value={
+              laborRate !== null ? `$${laborRate.toFixed(0)}/hr (shop posted)` : "—"
+            }
+            divider={hasDiagnostic}
+          />
+        </View>
+      )}
 
       <Text style={styles.disclaimer} size="xs">
         {"Final total is calculated on the payment screen from the shop's posted labor rate and parts estimate."}
@@ -1813,7 +1988,233 @@ const styles = StyleSheet.create({
   slotChipTextActive: {
     color: BrandColors.secondary,
   },
-  // Review (stage 6)
+  // Day picker (stage 5)
+  dayPickerRow: {
+    flexDirection: "row",
+    gap: Spacing.xs,
+    paddingVertical: Spacing.xs,
+    paddingRight: Spacing.md,
+  },
+  dayPill: {
+    alignItems: "center",
+    justifyContent: "center",
+    minWidth: 58,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.sm,
+    borderRadius: BorderRadius.lg,
+    backgroundColor: BrandColors.white,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    gap: 1,
+  },
+  dayPillActive: {
+    backgroundColor: BrandColors.secondary + "15",
+    borderColor: BrandColors.secondary,
+  },
+  dayPillWeekday: {
+    color: "#6B7280",
+  },
+  dayPillNum: {
+    color: BrandColors.primary,
+    fontSize: 18,
+    lineHeight: 22,
+  },
+  dayPillMonth: {
+    color: "#9CA3AF",
+  },
+  dayPillTextActive: {
+    color: BrandColors.secondary,
+  },
+  // Review (stage 6) — emotional / Booksy-style redesign
+  reviewIntro: {
+    alignItems: "center",
+    gap: Spacing.xs,
+    paddingBottom: Spacing.xs,
+  },
+  reviewBadge: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: BrandColors.secondary,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 2,
+    shadowColor: BrandColors.secondary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 10,
+    elevation: 4,
+  },
+  reviewTitle: {
+    fontSize: 20,
+    lineHeight: 24,
+    color: BrandColors.primary,
+    textAlign: "center",
+  },
+  reviewSubtitle: {
+    color: "#6B7280",
+    textAlign: "center",
+    lineHeight: 18,
+    paddingHorizontal: Spacing.md,
+  },
+  apptCard: {
+    backgroundColor: BrandColors.white,
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.md,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.06,
+    shadowRadius: 14,
+    elevation: 2,
+  },
+  apptEditBtn: {
+    position: "absolute",
+    top: Spacing.sm,
+    right: Spacing.sm,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: BrandColors.secondary + "15",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 1,
+  },
+  apptTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm + 2,
+  },
+  calTile: {
+    width: 54,
+    height: 58,
+    borderRadius: BorderRadius.lg,
+    backgroundColor: BrandColors.secondary,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: Spacing.xs,
+  },
+  calMonth: {
+    color: BrandColors.white,
+    fontSize: 11,
+    letterSpacing: 1,
+    opacity: 0.9,
+  },
+  calDay: {
+    color: BrandColors.white,
+    fontSize: 24,
+    lineHeight: 28,
+  },
+  apptWhen: {
+    flex: 1,
+    gap: 3,
+  },
+  apptWeekday: {
+    color: BrandColors.primary,
+    fontSize: 17,
+    lineHeight: 21,
+  },
+  apptTimeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.xs,
+  },
+  apptTime: {
+    color: BrandColors.secondary,
+    fontSize: 15,
+  },
+  apptDivider: {
+    height: 1,
+    backgroundColor: "#F3F4F6",
+    marginVertical: Spacing.sm + 2,
+  },
+  apptMech: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm + 2,
+  },
+  mechAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: BrandColors.secondary + "15",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  mechAvatarText: {
+    color: BrandColors.secondary,
+    fontSize: 14,
+  },
+  apptMechText: {
+    flex: 1,
+    gap: 2,
+  },
+  mechName: {
+    color: BrandColors.primary,
+    fontSize: 15,
+    lineHeight: 18,
+  },
+  mechShopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+  },
+  mechShop: {
+    color: "#9CA3AF",
+    flexShrink: 1,
+  },
+  svcCard: {
+    backgroundColor: BrandColors.white,
+    borderRadius: BorderRadius.xl,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm + 2,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+  },
+  svcHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingBottom: Spacing.xs,
+  },
+  svcHeaderLabel: {
+    color: "#9CA3AF",
+    letterSpacing: 0.6,
+  },
+  editText: {
+    color: BrandColors.secondary,
+  },
+  svcItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+    paddingVertical: Spacing.sm,
+  },
+  svcItemBordered: {
+    borderTopWidth: 1,
+    borderTopColor: "#F3F4F6",
+  },
+  svcItemIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: BrandColors.secondary + "12",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  svcItemName: {
+    flex: 1,
+    color: BrandColors.primary,
+    fontSize: 14,
+  },
+  svcItemDur: {
+    color: "#9CA3AF",
+  },
+  svcEmpty: {
+    color: "#9CA3AF",
+    paddingVertical: Spacing.xs,
+  },
   reviewHero: {
     backgroundColor: BrandColors.white,
     borderRadius: BorderRadius.xl,

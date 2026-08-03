@@ -7,8 +7,8 @@
  * `createRotorQuoteRequest` and slides up the confirmation Modal.
  */
 
-import React, { useCallback, useEffect, useRef } from "react";
-import { Dimensions, StyleSheet, View } from "react-native";
+import React, { useCallback, useEffect, useMemo, useRef } from "react";
+import { type DimensionValue, StyleSheet, useWindowDimensions, View } from "react-native";
 
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import LottieView from "lottie-react-native";
@@ -28,10 +28,8 @@ import { RotorQuoteRequestStatus } from "@/components/rotor-booking/RotorQuoteRe
 import { Text } from "@/components/shared-ui";
 import { formatRotorsLabel } from "@/constants/rotorFlow";
 import { useCreateRotorQuoteRequest } from "@/hooks/useCreateRotorQuoteRequest";
+import { calculateBookingConfirmLayout } from "@/lib/bookingConfirmSheet";
 import { useRotorBookingStore } from "@/stores/useRotorBookingStore";
-
-const { height: SCREEN_HEIGHT } = Dimensions.get("window");
-const SHEET_HEIGHT = Math.round(SCREEN_HEIGHT * 0.52);
 
 interface RotorRequestingScreenProps {
   onClose?: () => void;
@@ -43,9 +41,16 @@ export default function RotorRequestingScreen({
   onConfirmed,
 }: RotorRequestingScreenProps = {}) {
   const router = useRouter();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const statusSheetRef = useRef<FloatingSheetRef>(null);
   const confirmSheetRef = useRef<QuoteRequestConfirmationSheetRef>(null);
   const confirmedRef = useRef(false);
+  const isCompactLayout = windowHeight < 860;
+  const isVeryCompactLayout = windowHeight < 760;
+  const confirmLayout = useMemo(
+    () => calculateBookingConfirmLayout({ width: windowWidth, height: windowHeight }),
+    [windowWidth, windowHeight],
+  );
 
   const createRotorQuoteRequest = useCreateRotorQuoteRequest();
   const brakeSystemType = useRotorBookingStore((s) => s.brakeSystemType);
@@ -119,21 +124,42 @@ export default function RotorRequestingScreen({
         autoPlay
         loop={false}
         resizeMode="cover"
-        style={styles.lottie}
+        style={[
+          styles.lottie,
+          {
+            width: windowWidth,
+            height: windowHeight,
+            transform: [{ translateY: confirmLayout.lottieTranslateY }],
+          },
+        ]}
       />
 
-      <Animated.View style={[styles.copyOverlay, copyAnimStyle]} pointerEvents="none">
-        <Text size="md" weight="bold" color="#000000" center>
+      <Animated.View
+        style={[
+          styles.copyOverlay,
+          isCompactLayout && styles.copyOverlayCompact,
+          { top: confirmLayout.copyTopPercent as DimensionValue },
+          copyAnimStyle,
+        ]}
+        pointerEvents="none"
+      >
+        <Text size={isVeryCompactLayout ? "sm" : "md"} weight="bold" color="#000000" center>
           Searching for nearby brake shops
         </Text>
-        <Text size="xs" weight="regular" color="#000000" center style={styles.copySub}>
+        <Text
+          size="xs"
+          weight="regular"
+          color="#000000"
+          center
+          style={styles.copySub}
+        >
           Reaching out to local mechanics for the best rotor quotes
         </Text>
       </Animated.View>
 
       <FloatingSheet
         ref={statusSheetRef}
-        snapHeights={[SHEET_HEIGHT]}
+        snapHeights={[confirmLayout.sheetHeight]}
         onClose={handleStatusSheetClosed}
         cornerRadius={24}
       >
@@ -170,6 +196,11 @@ const styles = StyleSheet.create({
     right: 24,
     alignItems: "center",
     gap: 8,
+  },
+  copyOverlayCompact: {
+    left: 20,
+    right: 20,
+    gap: 6,
   },
   copySub: {
     marginTop: 2,

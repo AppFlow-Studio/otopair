@@ -22,7 +22,7 @@ import * as Linking from "expo-linking";
 import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 // MVP-DISABLED: loyalty/rewards — re-enable post-launch (drop Gift)
-import { Check, Navigation, Phone, Star } from "lucide-react-native";
+import { Check, Navigation, Phone, Star, CalendarCheck, CalendarX } from "lucide-react-native";
 import Animated, {
   Easing,
   useAnimatedStyle,
@@ -49,6 +49,7 @@ import { buildBookingCalendarEvent, formatBookingReference } from "@/lib/booking
 import { getBookingCompletionCopy, isBookingRescheduleMode } from "@/lib/reschedule-flow";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
+import { useSettingsOverlayStore } from "@/stores/useSettingsOverlayStore";
 import { useShopStore } from "@/stores/useShopStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 import { openMapsForAddress, openPhone } from "@/utils/linking";
@@ -249,6 +250,8 @@ export default function ConfirmationScreen() {
   const getMechanicsByShopId = useMechanicStore((state) => state.getMechanicsByShopId);
   const getSelectedVehicle = useVehicleStore((state) => state.getSelectedVehicle);
   const getShopById = useShopStore((state) => state.getShopById);
+  const settingsOverlayOpen = useSettingsOverlayStore((s) => s.isOpen);
+  const requestCloseSettingsOverlay = useSettingsOverlayStore((s) => s.requestClose);
 
   // Look up local booking by route param (fallback when booking flow is reset)
   const localBooking = useMemo(() => {
@@ -389,26 +392,36 @@ export default function ConfirmationScreen() {
   );
 
   // ═══════════════ HANDLERS ═══════════════
-  // If we're viewing a past booking (local booking exists, flow already reset), just go back
-  const isViewingPastBooking = !!localBooking && !selectedMechanicId;
-
   const handleBackToHome = useCallback(() => {
-    if (isViewingPastBooking) {
-      router.back();
+    resetBookingFlow();
+    const finishBackToHome = () => {
+      // Single navigation: dismissTo pops the booking fullScreenModal AND
+      // lands on the home tab in one transition. Previously we called
+      // dismissAll() + replace("/home") back-to-back, which produced a
+      // visible double home-screen animation.
+      router.dismissTo("/(main-tabs)/home");
+      // Fire after the modal dismissal animation so Android does not drop the
+      // toast during the route transition.
+      setTimeout(() => {
+        toast.info(completionCopy.toastTitle, completionCopy.toastBody, { icon: CalendarCheck });
+      }, 350);
+    };
+
+    if (settingsOverlayOpen) {
+      requestCloseSettingsOverlay(finishBackToHome);
       return;
     }
-    resetBookingFlow();
-    // Single navigation: dismissTo pops the booking fullScreenModal AND
-    // lands on the home tab in one transition. Previously we called
-    // dismissAll() + replace("/home") back-to-back, which produced a
-    // visible double home-screen animation.
-    router.dismissTo("/(main-tabs)/home");
-    // Fire after the modal dismissal animation so Android does not drop the
-    // toast during the route transition.
-    setTimeout(() => {
-      toast.info(completionCopy.toastTitle, completionCopy.toastBody);
-    }, 350);
-  }, [completionCopy.toastBody, completionCopy.toastTitle, isViewingPastBooking, resetBookingFlow, router, toast]);
+
+    finishBackToHome();
+  }, [
+    completionCopy.toastBody,
+    completionCopy.toastTitle,
+    requestCloseSettingsOverlay,
+    resetBookingFlow,
+    router,
+    settingsOverlayOpen,
+    toast,
+  ]);
 
   const handleDirections = useCallback(() => {
     if (fullAddress) openMapsForAddress(fullAddress);
@@ -450,7 +463,7 @@ export default function ConfirmationScreen() {
     } catch (e) {
       // PLAN §B.7: never interpolate raw OS error strings into user-facing toasts.
       console.error("[confirmation] add-to-calendar failed", e);
-      toast.error("Couldn't add to your calendar.");
+      toast.error("Couldn't add to your calendar.", undefined, { icon: CalendarX });
     }
   }, [
     shop?.name,

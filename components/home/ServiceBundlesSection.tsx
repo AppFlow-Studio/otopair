@@ -37,6 +37,8 @@ import {
   Spacing,
 } from "@/constants/theme";
 import { useBookingStore } from "@/stores/useBookingStore";
+import { useVehicleStore } from "@/stores/useVehicleStore";
+import { useBookableServices } from "@/hooks/useBookableServices";
 import type { Service } from "@/stores/types/store.types";
 
 // Match either hyphenated ("brake-system-inspection") or underscored
@@ -126,6 +128,10 @@ export function ServiceBundlesSection({
 }: ServiceBundlesSectionProps) {
   const router = useRouter();
   const availableServices = useBookingStore((s) => s.availableServices);
+  const replaceSelectedServicesForVehicle = useBookingStore((s) => s.replaceSelectedServicesForVehicle);
+  const selectedVehicle = useVehicleStore((s) => s.getSelectedVehicle());
+  const { bookableIds, isLoading: isBookableLoading } =
+    useBookableServices(selectedVehicle?.ownershipId);
 
   const handleBookPackage = (bundle: ServiceBundle) => {
     if (onBeforeOpenBookingFlow?.() === false) {
@@ -150,8 +156,10 @@ export function ServiceBundlesSection({
         seen.add(m.id);
       }
     }
-    store.clearSelectedServices();
-    for (const m of matched) store.toggleServiceSelection(m.id);
+    replaceSelectedServicesForVehicle(matched, {
+      ownershipId: selectedVehicle?.ownershipId,
+      bookableIds: selectedVehicle?.ownershipId && isBookableLoading ? null : bookableIds,
+    });
     // Land on the first matched service's category; the auto-scroll
     // effect in ServiceSelectionContent will snap to the first selected
     // row so the user sees the populated cart immediately.
@@ -199,8 +207,18 @@ function BundleCard({
 }) {
   return (
     <View style={styles.card}>
-      {/* Editorial serif headline — package name. */}
-      <Text style={styles.title}>{bundle.name}</Text>
+      {/* Package name — break the last word ("Package") onto its
+          own line so the headline reads as a two-line stack
+          (e.g. "Summer Care" / "Package"). */}
+      <Text style={styles.title}>
+        {(() => {
+          const parts = bundle.name.split(' ');
+          if (parts.length < 2) return bundle.name;
+          const last = parts[parts.length - 1];
+          const rest = parts.slice(0, -1).join(' ');
+          return `${rest}\n${last}`;
+        })()}
+      </Text>
 
       {/* Spec sheet — enumerated services with hairline separators. */}
       <View style={styles.specSheet}>
@@ -285,9 +303,9 @@ const styles = StyleSheet.create({
     ...Shadows.md,
   },
 
-  // ── Editorial serif headline ─────────────────────────────────────────
+  // ── Bundle title — Urbanist Bold to match the rest of the app ────────
   title: {
-    fontFamily: FontFamily.serifBold,
+    fontFamily: FontFamily.bold,
     fontSize: 26,
     lineHeight: 30,
     color: "#0F172A",
@@ -317,14 +335,14 @@ const styles = StyleSheet.create({
     color: SemanticColors.textMuted,
   },
   statValueTime: {
-    fontFamily: FontFamily.serifBold,
+    fontFamily: FontFamily.bold,
     fontSize: 22,
     lineHeight: 26,
     color: "#0F172A",
     fontVariant: ["tabular-nums"],
   },
   statValueSavings: {
-    fontFamily: FontFamily.serifBold,
+    fontFamily: FontFamily.bold,
     fontSize: 22,
     lineHeight: 26,
     color: BrandColors.secondary,

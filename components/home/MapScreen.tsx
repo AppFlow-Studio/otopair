@@ -16,19 +16,19 @@
  */
 
 // 1. React & React Native
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import MapView, { Marker, PROVIDER_DEFAULT, Region } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // 2. Expo & Third-party
 import { BlurView } from 'expo-blur';
-import * as Location from 'expo-location';
 import { useGuardedRouter as useRouter } from '@/hooks/useGuardedRouter';
 import { ArrowLeft, BriefcaseBusiness, List } from 'lucide-react-native';
 
 // 3. Shared UI
 import { Text } from '@/components/shared-ui';
+import { useStagedLocation } from '@/hooks/useStagedLocation';
 
 // ============================================================================
 // SAMPLE DATA & CONSTANTS
@@ -62,14 +62,6 @@ const SAMPLE_MECHANICS = [
   },
 ];
 
-// Default region (San Francisco) - used as fallback
-const DEFAULT_REGION: Region = {
-  latitude: 37.7749,
-  longitude: -122.4194,
-  latitudeDelta: 0.05,
-  longitudeDelta: 0.05,
-};
-
 // ============================================================================
 // COMPONENT
 // ============================================================================
@@ -77,43 +69,18 @@ const DEFAULT_REGION: Region = {
 export default function MapScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const [region, setRegion] = useState<Region>(DEFAULT_REGION);
-  const [locationName, setLocationName] = useState('San Francisco, CA');
-
-  useEffect(() => {
-    (async () => {
-      // Request location permission
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        console.log('Location permission denied');
-        return;
-      }
-
-      // Get current location
-      const location = await Location.getCurrentPositionAsync({});
-      setRegion({
-        latitude: location.coords.latitude,
-        longitude: location.coords.longitude,
+  const { location, stage } = useStagedLocation();
+  const region: Region | null = location
+    ? {
+        latitude: location.latitude,
+        longitude: location.longitude,
         latitudeDelta: 0.05,
         longitudeDelta: 0.05,
-      });
-
-      // Get location name (reverse geocoding)
-      try {
-        const [address] = await Location.reverseGeocodeAsync({
-          latitude: location.coords.latitude,
-          longitude: location.coords.longitude,
-        });
-        if (address) {
-          setLocationName(
-            `${address.city || address.subregion || 'Unknown'}, ${address.region || ''}`,
-          );
-        }
-      } catch (error) {
-        console.log('Reverse geocoding error:', error);
       }
-    })();
-  }, []);
+    : null;
+  const locationName =
+    location?.label ??
+    (stage === 'unavailable' ? 'Location unavailable' : 'Finding location...');
 
   const handleBackToList = () => {
     router.back();
@@ -122,22 +89,30 @@ export default function MapScreen() {
   return (
     <View style={styles.container}>
       {/* Map */}
-      <MapView
-        style={styles.map}
-        provider={PROVIDER_DEFAULT}
-        region={region}
-        showsUserLocation
-        showsMyLocationButton
-      >
-        {SAMPLE_MECHANICS.map((mechanic) => (
-          <Marker
-            key={mechanic.id}
-            coordinate={mechanic.coordinate}
-            title={mechanic.name}
-            description={`⭐ ${mechanic.rating}`}
-          />
-        ))}
-      </MapView>
+      {region ? (
+        <MapView
+          style={styles.map}
+          provider={PROVIDER_DEFAULT}
+          region={region}
+          showsUserLocation
+          showsMyLocationButton
+        >
+          {SAMPLE_MECHANICS.map((mechanic) => (
+            <Marker
+              key={mechanic.id}
+              coordinate={mechanic.coordinate}
+              title={mechanic.name}
+              description={`⭐ ${mechanic.rating}`}
+            />
+          ))}
+        </MapView>
+      ) : (
+        <View style={[styles.map, styles.mapFallback]}>
+          <Text size="sm" weight="semiBold" color="#6B7280">
+            {stage === 'unavailable' ? 'Enable location to see nearby shops' : 'Finding your location...'}
+          </Text>
+        </View>
+      )}
 
       {/* Header Overlay */}
       <View style={[styles.headerOverlay, { paddingTop: insets.top }]}>
@@ -234,6 +209,11 @@ const styles = StyleSheet.create({
   },
   map: {
     flex: 1,
+  },
+  mapFallback: {
+    alignItems: 'center',
+    backgroundColor: '#C8D7DE',
+    justifyContent: 'center',
   },
   headerOverlay: {
     position: 'absolute',

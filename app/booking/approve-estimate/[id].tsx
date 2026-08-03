@@ -31,6 +31,8 @@ import {
   ShieldCheck,
   Wrench,
   CreditCard,
+  FileCheck,
+  FileX,
 } from "lucide-react-native";
 import {
   PlatformPay,
@@ -49,6 +51,7 @@ import {
   CardShadow,
 } from "@/constants/theme";
 import { useOpenApprovalForBooking } from "@/hooks/useOpenApprovalForBooking";
+import { useOfflineGuard } from "@/hooks/useOfflineGuard";
 import { useToast } from "@/hooks/useToast";
 import { usePaymentStore } from "@/stores/usePaymentStore";
 import { useBookingStore } from "@/stores/useBookingStore";
@@ -89,6 +92,7 @@ export default function ApproveEstimateScreen() {
   const params = useLocalSearchParams<{ id: string; mode?: string }>();
   const bookingId = params.id as Id<"bookings">;
   const booking = useQuery(api.bookings.getById, { id: bookingId });
+  useOfflineGuard(booking);
   const liveState = (
     booking as { payment_approval_state?: string } | null | undefined
   )?.payment_approval_state;
@@ -139,7 +143,7 @@ function ApprovalDecisionView({ bookingId }: { bookingId: Id<"bookings"> }) {
     setSubmitting("approved");
     try {
       await applyDecision({ bookingId, decision: "approved" });
-      toast.success("Estimate approved");
+      toast.success("Estimate approved", undefined, { icon: FileCheck });
       router.back();
     } catch (err: any) {
       Alert.alert("Could not approve", err?.message ?? "Try again in a moment.");
@@ -162,7 +166,7 @@ function ApprovalDecisionView({ bookingId }: { bookingId: Id<"bookings"> }) {
             setSubmitting("declined");
             try {
               await applyDecision({ bookingId, decision: "declined" });
-              toast.info("Estimate declined");
+              toast.info("Estimate declined", undefined, { icon: FileX });
               router.back();
             } catch (err: any) {
               Alert.alert(

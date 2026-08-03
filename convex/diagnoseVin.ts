@@ -328,11 +328,10 @@ export const repairVin = internalAction({
     const { PACKAGE_RULES, TRIM_INFERENCE_RULES } = await import("./lib/packageRules");
     const halo = findHaloVariant(labels.make, labels.model, labels.trim ?? "");
 
-    const config = await ctx.runQuery(internal.vehicleEnrichment.v3queries.getVehicleConfig, {
+    const config = await ctx.runQuery(internal.vehicleEnrichment.v3queries.getVehicleConfigById, {
       vehicleConfigId: configId,
     });
-    const packagesNow: Array<{ code: string; [k: string]: any }> =
-      (config as any)?.packages_available ?? [];
+    const packagesNow = config?.packages_available ?? [];
 
     const removed: string[] = [];
     let remaining = packagesNow;
@@ -342,7 +341,7 @@ export const repairVin = internalAction({
           .filter(r => r.redundant_when_halo)
           .map(r => r.code),
       );
-      remaining = packagesNow.filter(p => {
+      remaining = packagesNow.filter((p: any) => {
         if (redundantCodes.has(p.code)) {
           removed.push(p.code);
           return false;
@@ -367,7 +366,7 @@ export const repairVin = internalAction({
         source: wheelResult.sourceUrl,
       },
       packages_removed: removed,
-      packages_remaining: remaining.map(p => p.code),
+      packages_remaining: remaining.map((p: any) => p.code),
     };
   },
 });
@@ -613,7 +612,7 @@ export const backfillEngineOilForVin = internalAction({
     const configId = (vehicle as any).vehicle_config_id;
     if (!configId) return { status: "no_config" as const, vin: normalized };
 
-    const config = await ctx.runQuery(internal.vehicleEnrichment.v3queries.getVehicleConfig, {
+    const config = await ctx.runQuery(internal.vehicleEnrichment.v3queries.getVehicleConfigById, {
       vehicleConfigId: configId,
     });
     if (!config) return { status: "no_config" as const, vin: normalized };
@@ -1150,7 +1149,7 @@ export const _listPartsMissingPrices = internalQuery({
         .query("part_prices")
         .withIndex("by_part", q => q.eq("part_id", p._id))
         .collect();
-      // A non-pooled fallback row (repairpal_endpoint) is NOT a real SKU price,
+      // A non-pooled fallback row (estimator_endpoint) is NOT a real SKU price,
       // so it must not make skipExisting skip real LLM pricing for the part.
       const hasPrice = prices.some((r) => !isNonPooledPriceType((r as any).price_type));
       if (skipExisting && hasPrice) continue;

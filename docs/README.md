@@ -4,13 +4,9 @@
 
 **Vehicle Pipeline:** [VEHICLE_PIPELINE_GUIDE.md](./VEHICLE_PIPELINE_GUIDE.md) — NHTSA decode, AI enrichment, schema, gap fill, validation, and all pipeline details in one doc.
 
-<<<<<<< HEAD
 **Checklist:** [CHECKLIST.md](./CHECKLIST.md) — what's done, half-implemented, and not implemented (backend, add vehicle, booking flow, rewards).
 
 **Rewards:** [REWARDS.md](./REWARDS.md) — OTOPAIR Rewards Program: two-lane model, tiers, Ownership Credit, booking→credit flow, spend thresholds, contribution hooks, API reference.
-=======
-**Checklist:** [CHECKLIST.md](./CHECKLIST.md) — what's done, half-implemented, and not implemented (backend, add vehicle, booking flow).
->>>>>>> origin/daniel-dev
 
 **Booking Integration:** [BOOKING_INTEGRATION.md](./BOOKING_INTEGRATION.md) — Convex + store integration for booking flow, search, shop details, time slots. **§4 My Bookings & Live Tracker** — useMyBookingsWithDetails, live_stage, updateLiveStage, adapter stagesFromLiveStage, seed for John Doe.
 

@@ -40,12 +40,11 @@ import { useToast } from "@/hooks/useToast";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
-import { Calendar, Check, ListFilter, Star } from "lucide-react-native";
+import { Calendar, CalendarX, Check, ListFilter, Star } from "lucide-react-native";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Image, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
+import { Image, PixelRatio, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
 import Animated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import SegmentedControl from "@react-native-segmented-control/segmented-control";
 
 // ============================================================================
 // TYPES
@@ -53,7 +52,25 @@ import SegmentedControl from "@react-native-segmented-control/segmented-control"
 
 type TabType = "bookings" | "quotes" | "recommended";
 const TAB_ORDER: TabType[] = ["bookings", "quotes", "recommended"];
+const TAB_LABELS: Record<TabType, string> = {
+  bookings: "Bookings",
+  quotes: "Quotes",
+  recommended: "Recommended",
+};
+const TAB_LABEL_MAX_SIZE = 14;
+const TAB_LABEL_MIN_SIZE = 11;
+const TAB_LABEL_LONGEST = "Recommended";
+const TAB_LABEL_WIDTH_RATIO = 0.62;
 const BOTTOM_NAV_SCROLL_CLEARANCE = 96;
+
+function getTabLabelSize(width: number, fontScale: number): number {
+  if (width <= 0) return TAB_LABEL_MAX_SIZE;
+  const segmentWidth = (width - 6) / TAB_ORDER.length;
+  const availableWidth = segmentWidth - 4;
+  const fittedSize =
+    availableWidth / (TAB_LABEL_LONGEST.length * TAB_LABEL_WIDTH_RATIO * fontScale);
+  return Math.min(Math.max(fittedSize, TAB_LABEL_MIN_SIZE), TAB_LABEL_MAX_SIZE);
+}
 
 // ============================================================================
 // COMPONENT
@@ -86,6 +103,12 @@ export default function BookingsScreen() {
     ? (tabParam as TabType)
     : "bookings";
   const [activeTab, setActiveTab] = useState<TabType>(initialTab);
+  const [segmentedWidth, setSegmentedWidth] = useState(0);
+  const fontScale = PixelRatio.getFontScale();
+  const tabLabelSize = useMemo(
+    () => getTabLabelSize(segmentedWidth, fontScale),
+    [segmentedWidth, fontScale],
+  );
   // If we land on the screen again with a new `tab` param (e.g. from the
   // tire flow completing), switch to the requested tab.
   useEffect(() => {
@@ -165,6 +188,7 @@ export default function BookingsScreen() {
   const toast = useToast();
   const cancelConvexBooking = useMutationWithToast(api.bookings.cancelBooking, {
     success: "Booking cancelled.",
+    successIcon: CalendarX,
     error: "Couldn't cancel this booking. Try again.",
   });
   useEffect(() => {
@@ -177,7 +201,7 @@ export default function BookingsScreen() {
       const isLocalId = bookingId.startsWith("tire_quote_") || bookingId.startsWith("booking_");
       if (isLocalId) {
         cancelLocalBooking(bookingId);
-        toast.success("Booking cancelled.");
+        toast.success("Booking cancelled.", undefined, { icon: CalendarX });
       } else {
         void cancelConvexBooking({ bookingId: bookingId as Id<"bookings"> });
       }
@@ -235,13 +259,14 @@ export default function BookingsScreen() {
   };
 
   // Count of completed bookings still awaiting a review (scoped to the
-  // active vehicle filter). Drives the circular Star button next to the
-  // "Recommended services" pill — the actual list + LeaveReviewSheet
-  // live on /bookings/pending-reviews.
+  // active vehicle filter). Drives the circular Star button beside the
+  // vehicle picker; the actual list + LeaveReviewSheet live on
+  // /bookings/pending-reviews.
   const pendingReviewCount = useMemo(
     () => pendingReviewBookings.filter(matchesListFilter).length,
     [pendingReviewBookings, matchesListFilter],
   );
+  const showPendingReviewsButton = activeTab === "bookings" && pendingReviewCount > 0;
 
   const handleReschedule = useCallback(
     (bookingId?: string) => {
@@ -325,88 +350,107 @@ export default function BookingsScreen() {
 
             {/* Tab Switcher */}
             <View style={styles.segmentedWrapper}>
-              <SegmentedControl
-                values={["Bookings", "Quotes", "Recommended"]}
-                selectedIndex={TAB_ORDER.indexOf(activeTab)}
-                onChange={(event) => {
-                  setActiveTab(TAB_ORDER[event.nativeEvent.selectedSegmentIndex]);
-                }}
+              <View
                 style={styles.segmentedControl}
-              />
+                accessibilityRole="tablist"
+                onLayout={(event) => setSegmentedWidth(event.nativeEvent.layout.width)}
+              >
+                {TAB_ORDER.map((tab) => {
+                  const isSelected = activeTab === tab;
+                  return (
+                    <Pressable
+                      key={tab}
+                      onPress={() => setActiveTab(tab)}
+                      accessibilityRole="tab"
+                      accessibilityState={{ selected: isSelected }}
+                      style={({ pressed }) => [
+                        styles.segmentButton,
+                        isSelected && styles.segmentButtonActive,
+                        pressed && !isSelected && styles.segmentButtonPressed,
+                      ]}
+                    >
+                      <Text
+                        size={tabLabelSize}
+                        weight="semiBold"
+                        color="#FFFFFF"
+                        numberOfLines={1}
+                        allowFontScaling={false}
+                        lineHeight={1.05}
+                        style={styles.segmentLabel}
+                      >
+                        {TAB_LABELS[tab]}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
             </View>
 
-            {/* Vehicle picker button — opens a bottom sheet with the
-                user's cars. Only shown with 2+ cars. */}
-            {allVehicles.length > 1 ? (
+            {/* Vehicle picker + pending-review shortcut. */}
+            {allVehicles.length > 1 || showPendingReviewsButton ? (
               <View style={styles.pickerRow}>
-                <Pressable
-                  onPress={() => {
-                    vehiclePickerRef.current?.open();
-                  }}
-                  style={({ pressed }) => [
-                    styles.pickerButton,
-                    pressed && styles.pickerButtonPressed,
-                  ]}
-                >
-                  <View style={styles.pickerSide}>
-                    {filterVehicle?.imageSource ? (
-                      <Image
-                        source={filterVehicle.imageSource}
-                        style={styles.pickerThumb}
-                        resizeMode="contain"
-                      />
-                    ) : (
-                      <Image
-                        source={require("@/assets/images/covered-car.png")}
-                        style={styles.pickerCoveredCar}
-                        resizeMode="contain"
-                      />
-                    )}
-                  </View>
-                  <Text
-                    size="md"
-                    weight="semiBold"
-                    color="#1F2937"
-                    style={styles.pickerLabel}
-                    numberOfLines={1}
+                {allVehicles.length > 1 ? (
+                  <Pressable
+                    onPress={() => {
+                      vehiclePickerRef.current?.open();
+                    }}
+                    style={({ pressed }) => [
+                      styles.pickerButton,
+                      pressed && styles.pickerButtonPressed,
+                    ]}
                   >
-                    {filterVehicle
-                      ? `${filterVehicle.year} ${filterVehicle.model}`
-                      : "All Vehicles"}
-                  </Text>
-                  <View style={styles.pickerSide}>
-                    <ListFilter size={16} color="#8E8E93" />
-                  </View>
-                </Pressable>
-              </View>
-            ) : null}
-
-            {/* Pending-review prompt — surfaces completed bookings still
-                awaiting a star rating. The Recommended-services entry
-                point used to live here as a separate card, but it now
-                lives as a third segment in the tab pill above (see
-                TAB_ORDER), so only the review button remains. */}
-            {activeTab === "bookings" && pendingReviewCount > 0 ? (
-              <View style={styles.recRow}>
-                <Pressable
-                  onPress={() => router.push("/bookings/pending-reviews")}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Pending reviews, ${pendingReviewCount}`}
-                  style={({ pressed }) => [
-                    styles.pendingReviewsButton,
-                    pressed && { opacity: 0.85 },
-                  ]}
-                >
-                  <Star size={20} color="#141C24" />
-                  <View style={styles.pendingReviewsBadge}>
+                    <View style={styles.pickerSide}>
+                      {filterVehicle?.imageSource ? (
+                        <Image
+                          source={filterVehicle.imageSource}
+                          style={styles.pickerThumb}
+                          resizeMode="contain"
+                        />
+                      ) : (
+                        <Image
+                          source={require("@/assets/images/covered-car.png")}
+                          style={styles.pickerCoveredCar}
+                          resizeMode="contain"
+                        />
+                      )}
+                    </View>
                     <Text
+                      size="md"
                       weight="semiBold"
-                      style={styles.pendingReviewsBadgeText}
+                      color="#1F2937"
+                      style={styles.pickerLabel}
+                      numberOfLines={1}
                     >
-                      {pendingReviewCount}
+                      {filterVehicle
+                        ? `${filterVehicle.year} ${filterVehicle.model}`
+                        : "All Vehicles"}
                     </Text>
-                  </View>
-                </Pressable>
+                    <View style={styles.pickerSide}>
+                      <ListFilter size={16} color="#8E8E93" />
+                    </View>
+                  </Pressable>
+                ) : null}
+                {showPendingReviewsButton ? (
+                  <Pressable
+                    onPress={() => router.push("/bookings/pending-reviews")}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Pending reviews, ${pendingReviewCount}`}
+                    style={({ pressed }) => [
+                      styles.pendingReviewsButton,
+                      pressed && { opacity: 0.85 },
+                    ]}
+                  >
+                    <Star size={20} color="#141C24" />
+                    <View style={styles.pendingReviewsBadge}>
+                      <Text
+                        weight="semiBold"
+                        style={styles.pendingReviewsBadgeText}
+                      >
+                        {pendingReviewCount}
+                      </Text>
+                    </View>
+                  </Pressable>
+                ) : null}
               </View>
             ) : null}
 
@@ -602,13 +646,43 @@ const styles = StyleSheet.create({
   },
   segmentedControl: {
     height: 44,
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 3,
+    borderRadius: 8,
+    backgroundColor: "#111111",
+    overflow: "hidden",
+  },
+  segmentButton: {
+    flex: 1,
+    minWidth: 0,
+    height: 38,
+    borderRadius: 6,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 2,
+  },
+  segmentButtonActive: {
+    backgroundColor: "#5F6063",
+  },
+  segmentButtonPressed: {
+    backgroundColor: "rgba(255,255,255,0.10)",
+  },
+  segmentLabel: {
+    width: "100%",
+    textAlign: "center",
+    includeFontPadding: false,
   },
   // Vehicle picker button + sheet
   pickerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
     paddingHorizontal: 20,
     paddingTop: 14,
   },
   pickerButton: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "#FFFFFF",
@@ -697,13 +771,6 @@ const styles = StyleSheet.create({
   content: {
     paddingHorizontal: 20,
     paddingTop: 16,
-  },
-  recRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginHorizontal: 20,
-    marginTop: 12,
   },
   pendingReviewsButton: {
     width: 44,

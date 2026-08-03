@@ -38,6 +38,7 @@ import { Calendar, Check, ChevronDown, ChevronLeft, ChevronRight, Info, Plus, X,
 import { CarSelectionContent } from '@/components/booking/sheets/CarSelectionContent';
 import { FloatingSheet, type FloatingSheetRef } from '@/components/shared-ui/FloatingSheet';
 import { useVehicleStore } from '@/stores/useVehicleStore';
+import { useRecentVehiclesStore } from '@/stores/useRecentVehiclesStore';
 import Svg, { Circle, Defs, Ellipse, LinearGradient as SvgLinearGradient, RadialGradient, Stop } from 'react-native-svg';
 import { Easing } from 'react-native';
 import ReAnimated, {
@@ -1431,7 +1432,22 @@ const ActivityRings = ({
   const ringColor = getColor();
 
   const content = (
-    <View style={{ position: 'relative' }}>
+    <View
+      style={{
+        position: 'relative',
+        // Per PM: circular white backing behind the ring so it reads
+        // as a gauge instead of a floating decorative arc.
+        width: size,
+        height: size,
+        borderRadius: size / 2,
+        backgroundColor: '#FFFFFF',
+        shadowColor: '#0F172A',
+        shadowOpacity: 0.06,
+        shadowRadius: 8,
+        shadowOffset: { width: 0, height: 2 },
+        elevation: 2,
+      }}
+    >
       <Svg width={size} height={size}>
         <Defs>
           <SvgLinearGradient id="ringGradient" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -1441,15 +1457,16 @@ const ActivityRings = ({
           </SvgLinearGradient>
         </Defs>
 
-        {/* Background track */}
+        {/* Background track — neutral #E2E8F0 gray so the gauge reads
+            like a proper meter. Was tinted with the ring color at 15%
+            which made the empty portion look faintly-colored. */}
         <Circle
           cx={center}
           cy={center}
           r={radius}
-          stroke={ringColor}
+          stroke="#E2E8F0"
           strokeWidth={strokeWidth}
           fill="none"
-          opacity={0.15}
         />
         {/* Progress ring */}
         <Circle
@@ -1676,17 +1693,55 @@ export function CarCarousel({
     if (showCarSheet) carSheetRef.current?.open();
   }, [showCarSheet]);
 
-  // The 3 vehicle indices visible in compact mode are FIXED — always
-  // the first three cars in `sortedVehicles`. They never reshuffle
-  // as the user swipes. The active-car highlight on the segmented
-  // control follows `activeIndex` when it's one of the visible three;
-  // for cars 4+ the strip stays unhighlighted and the dropdown pill
-  // (which shows the current car's name) is the active-state cue.
+  // Compact strip = the 3 vehicles the user was most recently on.
+  // Active vehicle is pinned to slot 0; slots 1–2 come from the MRU
+  // list (`useRecentVehiclesStore`) minus the active. If the user has
+  // fewer than 3 activations recorded (e.g. first launch), we backfill
+  // in garage order so the strip always shows the max available.
+  const hydrateRecentVehicles = useRecentVehiclesStore((s) => s.hydrate);
+  const recordRecentView = useRecentVehiclesStore((s) => s.recordView);
+  const recentVins = useRecentVehiclesStore((s) => s.recentVins);
+  useEffect(() => {
+    hydrateRecentVehicles();
+  }, [hydrateRecentVehicles]);
+  useEffect(() => {
+    const current = sortedVehicles[activeIndex];
+    if (current) recordRecentView(current.id);
+  }, [activeIndex, sortedVehicles, recordRecentView]);
+
   const compactVisibleIndices = useMemo(() => {
     const total = sortedVehicles.length;
-    const count = Math.min(3, total);
-    return Array.from({ length: count }, (_, i) => i);
-  }, [sortedVehicles.length]);
+    if (total === 0) return [];
+    const takeCount = Math.min(3, total);
+    const result: number[] = [];
+    const seen = new Set<number>();
+    // 1) Active always at slot 0 so the ring stays leftmost —
+    //    matches the design Ahmad approved on screenshot.
+    if (activeIndex >= 0 && activeIndex < total) {
+      result.push(activeIndex);
+      seen.add(activeIndex);
+    }
+    // 2) Fill from MRU order (skip active + missing / removed VINs).
+    for (const vin of recentVins) {
+      if (result.length >= takeCount) break;
+      const idx = sortedVehicles.findIndex(
+        (v) => v.id.toUpperCase().trim() === vin,
+      );
+      if (idx >= 0 && !seen.has(idx)) {
+        result.push(idx);
+        seen.add(idx);
+      }
+    }
+    // 3) Backfill in garage order so we always show `takeCount` slots
+    //    even if the user has only activated 1 or 2 cars so far.
+    for (let i = 0; i < total && result.length < takeCount; i++) {
+      if (!seen.has(i)) {
+        result.push(i);
+        seen.add(i);
+      }
+    }
+    return result;
+  }, [sortedVehicles, recentVins, activeIndex]);
 
   // Relative position of the active car within the visible 3, or -1
   // if the active car is car #4 or later (and therefore not on the
@@ -2181,7 +2236,7 @@ export function CarCarousel({
                       values={[' ', ' ', ' ']}
                       selectedIndex={compactRelativeActive >= 0 ? compactRelativeActive : -1}
                       appearance="light"
-                      tintColor={isDarkBg ? "rgba(255,255,255,0.22)" : "rgba(255,255,255,0.55)"}
+                      tintColor="#FFFFFF"
                       onChange={(e) => {
                         const relIdx = e.nativeEvent.selectedSegmentIndex;
                         const absIdx = compactVisibleIndices[relIdx];
@@ -2275,7 +2330,7 @@ export function CarCarousel({
                 // frosted glass over whatever paint gradient is behind it
                 // — a stark opaque white pill clashed on saturated bgs
                 // like the green Tiguan.
-                tintColor={isDarkBg ? "rgba(255,255,255,0.22)" : "rgba(255,255,255,0.55)"}
+                tintColor="#FFFFFF"
                 onChange={(e) => rotateToIndex(e.nativeEvent.selectedSegmentIndex)}
                   style={[styles.segmentedRail, { width: segmentWidth * sortedVehicles.length }]}
                 />
@@ -2346,13 +2401,20 @@ export function CarCarousel({
       {!useCompactSelector && (
         <View style={[
           styles.separatorContainer,
-          { width: (sortedVehicles.length * scale(48)) + ((sortedVehicles.length - 1) * Spacing.sm) }
+          // Match the thumbnail rail's exact geometry (segmentWidth per car,
+          // no gaps) so the underline shares the rail's coordinate space.
+          { width: segmentWidth * sortedVehicles.length }
         ]}>
           <View style={styles.separator} />
           <View
             style={[
               styles.separatorIndicator,
-              { left: activeIndex * (scale(48) + Spacing.sm) }
+              // Underline is as wide as the car image and centered under the
+              // active thumbnail, so it always sits directly beneath it.
+              {
+                width: thumbnailSize,
+                left: activeIndex * segmentWidth + (segmentWidth - thumbnailSize) / 2,
+              }
             ]}
           />
         </View>
@@ -2675,6 +2737,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: Spacing.sm,
     marginHorizontal: Spacing.lg,
+    // Match the health-ring height so the row stays the same size whether or
+    // not the ring is shown (it's hidden until onboarding completes). Without
+    // this the row collapses to the thumbnail height pre-onboarding and the
+    // separator line ends up touching the car thumbnails.
+    minHeight: scale(72),
   },
   // Wraps the SegmentedControl rail + the "+" add-vehicle button so
   // they stay grouped on the left side of the row, with the
@@ -2697,33 +2764,32 @@ const styles = StyleSheet.create({
     height: scale(48),
   },
   androidThumbnailRail: {
+    // Solid white + neutral border so the vehicle switcher reads on
+    // any background tint (per PM spec: no more cream-on-tan).
     height: scale(46),
     borderRadius: scale(23),
-    backgroundColor: 'rgba(255,255,255,0.54)',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255,255,255,0.66)',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
     overflow: 'hidden',
     flexDirection: 'row',
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 5 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 3,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 2,
   },
   androidThumbnailThumb: {
+    // Active-vehicle ring: 2pt #2563EB per PM spec so the selection
+    // reads even on a low-contrast background.
     position: 'absolute',
     top: scale(3),
     bottom: scale(3),
     borderRadius: scale(20),
-    backgroundColor: 'rgba(255,255,255,0.72)',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255,255,255,0.95)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.12,
-    shadowRadius: 6,
-    elevation: 4,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 2,
+    borderColor: '#2563EB',
   },
   androidThumbnailSegment: {
     height: '100%',
@@ -2744,11 +2810,11 @@ const styles = StyleSheet.create({
     width: scale(36),
     height: scale(36),
     borderRadius: scale(18),
-    backgroundColor: 'transparent',
+    backgroundColor: '#FFFFFF',
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#000000',
+    borderColor: '#E2E8F0',
   },
 
   // Compact-mode (5+ cars) overflow pill — sits next to the 3-thumb
@@ -2761,9 +2827,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: scale(10),
     paddingVertical: scale(8),
     borderRadius: scale(20),
-    backgroundColor: 'rgba(255,255,255,0.55)',
+    backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.08)',
+    borderColor: '#E2E8F0',
     // Tightened so a long model name (e.g. "Silverado 2500HD") truncates
     // earlier and stops bunching the thumbnails / +-button / health-ring
     // row on the same line.
@@ -2781,9 +2847,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#C4C9D4',
   },
   separatorIndicator: {
+    // width + left are set inline so the underline tracks the active
+    // thumbnail's real position (see the JSX above).
     position: 'absolute',
     top: -1,
-    width: scale(48),
     height: 3,
     backgroundColor: BrandColors.secondary,
     borderRadius: 1.5,

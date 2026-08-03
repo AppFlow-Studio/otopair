@@ -42,9 +42,8 @@ import {
   BlurHeaderOverlay
 } from '@/components/shared-ui';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
-
-// TODO: Replace with actual code verification logic
-const CORRECT_CODE = "676767";
+import { useAction, useMutation } from 'convex/react';
+import { api } from '@/convex/_generated/api';
 
 export default function TwoFactorAuthScreen() {
   const insets = useSafeAreaInsets();
@@ -52,6 +51,8 @@ export default function TwoFactorAuthScreen() {
   const router = useRouter();
   const { data, updateData } = useOnboardingStore();
   const { method } = useLocalSearchParams<{ method?: 'sms' | 'email' }>();
+  const verifyTwoFactorCode = useMutation(api.two_factor.verifyCode);
+  const sendCode = useAction(api.two_factor_node.sendCode);
 
   const [code, setCode] = useState(['', '', '', '', '', '']);
   const [focusedIndex, setFocusedIndex] = useState(0);
@@ -114,54 +115,56 @@ export default function TwoFactorAuthScreen() {
     }
   };
 
-  const handleResendCode = () => {
+  const handleResendCode = async () => {
     setTimeRemaining(60);
     setCodeExpiresAt(Date.now() + 5 * 60 * 1000);
     setCode(['', '', '', '', '', '']);
     setFocusedIndex(0);
     setErrorMessage(null);
     inputRefs.current[0]?.focus();
-    console.log('Resending 2FA code...');
+    try {
+      await sendCode({ method: method ?? 'email' });
+    } catch {
+      setErrorMessage("Couldn't resend the code. Please try again.");
+    }
   };
 
   // Auto-submit effect when code is complete
   useEffect(() => {
     const fullCode = code.join('');
     if (fullCode.length === 6 && !isLoading) {
-      const verifyCode = async () => {
+      const runVerify = async () => {
         Keyboard.dismiss();
         setIsLoading(true);
         setErrorMessage(null);
 
-        // Simulate API call
-        await new Promise(resolve => setTimeout(resolve, 1500));
-
-        if (Date.now() >= codeExpiresAt) {
-          setErrorMessage('Code has expired. Please request a new one.');
-          setIsLoading(false);
-          return;
-        }
-
-        if (fullCode === CORRECT_CODE) {
-          console.log('2FA verified successfully');
-          if (method === 'sms') {
-            updateData({ twoFactorSmsEnabled: true });
-          } else if (method === 'email') {
-            updateData({ twoFactorEmailEnabled: true });
+        try {
+          const result = await verifyTwoFactorCode({
+            method: method ?? 'email',
+            code: fullCode,
+          });
+          if (result.ok) {
+            if (method === 'sms') {
+              updateData({ twoFactorSmsEnabled: true });
+            } else {
+              updateData({ twoFactorEmailEnabled: true });
+            }
+            router.replace({ pathname: '/settings/success', params: { type: '2fa' } } as any);
+            return;
           }
-          router.replace({ pathname: '/settings/success', params: { type: '2fa' } } as any);
-        } else {
-          setErrorMessage('Incorrect code entered. Please check and try again.');
-          setCode(['', '', '', '', '', '']);
-          setFocusedIndex(0);
-          inputRefs.current[0]?.focus();
-          setIsLoading(false);
+          setErrorMessage(result.error ?? 'Incorrect code. Please check and try again.');
+        } catch {
+          setErrorMessage('Something went wrong. Please try again.');
         }
+        setCode(['', '', '', '', '', '']);
+        setFocusedIndex(0);
+        inputRefs.current[0]?.focus();
+        setIsLoading(false);
       };
 
-      verifyCode();
+      runVerify();
     }
-  }, [code, codeExpiresAt, method, router, updateData]);
+  }, [code, codeExpiresAt, method, router, updateData, verifyTwoFactorCode]);
 
   const formatTimer = (seconds: number) => {
     const mins = Math.floor(seconds / 60);

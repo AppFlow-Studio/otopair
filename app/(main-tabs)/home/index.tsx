@@ -7,7 +7,6 @@ import Animated from 'react-native-reanimated';
 // 2. Expo & Third-party
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
-import * as Location from 'expo-location';
 import { useFocusEffect } from 'expo-router';
 import { useGuardedRouter as useRouter } from '@/hooks/useGuardedRouter';
 import {
@@ -17,7 +16,7 @@ import {
 import { BlurBackdrop } from "@/components/shared-ui/BlurBackdrop";
 import type { FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
 // MVP-DISABLED: loyalty/rewards — re-enable post-launch (drop Trophy)
-import { Bell, MoveRight, Star } from 'lucide-react-native';
+import { Bell, MoveRight, Star, Car, CalendarX } from 'lucide-react-native';
 import { useMutation, useQuery } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { useMutationWithToast } from '@/hooks/useMutationWithToast';
@@ -55,6 +54,7 @@ import { LeaveReviewSheet, type LeaveReviewSheetRef } from '@/components/booking
 import { ReceiptSheet } from '@/components/receipts/ReceiptSheet';
 import { useMyBookingsWithDetails } from '@/hooks/useMyBookingsWithDetails';
 import { useUserFromConvex } from '@/hooks/useUserFromConvex';
+import { useStagedLocation } from '@/hooks/useStagedLocation';
 import * as SecureStore from 'expo-secure-store';
 
 // Persists the set of booking IDs that have already triggered the
@@ -187,7 +187,10 @@ export default function HomeScreen() {
   const { vehicles: listVehicles, hasVehicles, isLoading: vehiclesLoading } = useVehicleOwnershipFromConvex();
   const [showWelcome, setShowWelcome] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
-  const [locationName, setLocationName] = useState('Loading...');
+  const { location: stagedLocation, stage: locationStage } = useStagedLocation();
+  const locationName =
+    stagedLocation?.label ??
+    (locationStage === "unavailable" ? "Location unavailable" : "Finding location...");
   const [vehicleImageUrls, setVehicleImageUrls] = useState<Record<string, string>>({});
   const fetchedVinsRef = useRef<Set<string>>(new Set());
   const saveVehicleImageUrl = useMutation(api.vehicles.saveVehicleImageUrl);
@@ -195,7 +198,6 @@ export default function HomeScreen() {
   const [showLoyaltyCard, setShowLoyaltyCard] = useState(false);
   const [isCardSwiping, setIsCardSwiping] = useState(false);
   const [activeCardIndex, setActiveCardIndex] = useState(0);
-  const [accountSetupDismissed, setAccountSetupDismissed] = useState(false);
   const [carSetupDismissed, setCarSetupDismissed] = useState(false);
   const [rescheduleBooking, setRescheduleBooking] = useState<BookingCardBooking | null>(null);
   const toast = useToast();
@@ -325,11 +327,24 @@ export default function HomeScreen() {
   //     that skip the full onboarding flow)
   //   - About You: tellUsAboutCompleted flag
   //   - Add Car: at least one registered vehicle
-  //   - Payment Method: always considered complete
+  //   - Payment Method: has_saved_payment_method flag
+  //
+  // Override: if the user tapped "Finish later" mid-onboarding
+  // (`onboardingDeferred`) AND full onboarding isn't actually
+  // complete, keep the card visible so they have a path back to the
+  // steps they skipped — otherwise a partial signup with a car looks
+  // "done" here even though profile photo / intent / zip are missing.
   const hasCreateAccount = !!(me?.first_name && me?.last_name) || me?.onboardingCompleted === true;
   const hasAboutYou = me?.tellUsAboutCompleted === true;
-  const isAccountSetupComplete = hasCreateAccount && hasAboutYou && hasVehicles;
-  const showAccountSetup = !isAccountSetupComplete && !accountSetupDismissed;
+  const hasPaymentMethod = me?.has_saved_payment_method === true;
+  const isAccountSetupComplete = hasCreateAccount && hasAboutYou && hasVehicles && hasPaymentMethod;
+  const onboardingDeferred = (me as { onboardingDeferred?: boolean } | null | undefined)?.onboardingDeferred === true;
+  const onboardingFullyComplete = me?.onboardingCompleted === true;
+  const shouldForceShowForDeferred = onboardingDeferred && !onboardingFullyComplete;
+  // The Finish Setup card persists until ALL FOUR steps are complete — it
+  // is not dismissable, so `isAccountSetupComplete` is the only thing that
+  // hides it (deferred just keeps it shown longer, never hides it early).
+  const showAccountSetup = !isAccountSetupComplete || shouldForceShowForDeferred;
 
   // Car setup: prefer incomplete vehicles, then completed-but-not-acknowledged.
   // `incompleteVehicles` is the full list of not-yet-onboarded cars so we can
@@ -388,33 +403,6 @@ export default function HomeScreen() {
     const vin = carSetupVehicle.vin;
     return vin ? `VIN ${vin.slice(-6)}` : undefined;
   }, [carSetupVehicle]);
-
-  useEffect(() => {
-    (async () => {
-      // Request location permission
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== "granted") {
-        setLocationName("Location unavailable");
-        return;
-      }
-
-      // Get current location
-      const location = await Location.getCurrentPositionAsync({});
-
-      // Get location name (reverse geocoding)
-      try {
-        const [address] = await Location.reverseGeocodeAsync({
-          latitude: location.coords.latitude,
-          longitude: location.coords.longitude,
-        });
-        if (address) {
-          setLocationName(`${address.city || address.subregion || "Unknown"}, ${address.region || ""}`);
-        }
-      } catch (error) {
-        setLocationName("Unknown location");
-      }
-    })();
-  }, []);
 
   useEffect(() => {
     if (!listVehicles?.length) return;
@@ -682,26 +670,41 @@ export default function HomeScreen() {
   );
 
   // Aggregate Now-tier items across all vehicles for the Home callout
-  // (Yassin v1.1 §3.2 "Assertive card at top of Home"). Flattens
-  // per-vehicle nowItems with vehicle context, sorted urgency-desc so
-  // the most urgent item leads. The Cars-page hook is the authoritative
-  // emitter for `urgency_tier_events`; this aggregation does not log to
-  // avoid double-counting.
-  const allNowItems = useMemo(() => {
+  // (Yassin v1.1 §3.2 "Assertive card at top of Home"). Grouped by
+  // vehicle so a car with N due-now items renders as ONE pager card
+  // with N checkable rows (locked decision) instead of N cards. Items
+  // inside each group sort by urgency-desc; groups sort by their top
+  // item's urgency so the most urgent vehicle leads.
+  const allNowGroups = useMemo(() => {
+    type BaseVehicle = (typeof vehicleBaseData)[number];
+    type BaseNowItem = BaseVehicle["nowItems"][number];
     return vehicleBaseData
-      .flatMap((v: (typeof vehicleBaseData)[number]) =>
-        v.nowItems.map((n: (typeof v.nowItems)[number]) => ({
-          ...n,
+      .filter((v: BaseVehicle) => v.nowItems.length > 0)
+      .map((v: BaseVehicle) => {
+        const vehicleName = v.name.replace(/\n/g, " ");
+        const vehicleImageUrl = vehicleImageUrls[v.vin] || undefined;
+        const items = v.nowItems
+          .map((n: BaseNowItem) => ({
+            ...n,
+            vehicleVin: v.vin,
+            vehicleName,
+            vehicleImageUrl,
+          }))
+          .sort(
+            (a: { urgencyScore: number }, b: { urgencyScore: number }) =>
+              b.urgencyScore - a.urgencyScore,
+          );
+        return {
           vehicleVin: v.vin,
-          vehicleName: v.name.replace(/\n/g, " "),
-          vehicleImageUrl: vehicleImageUrls[v.vin] || undefined,
-        })),
-      )
+          vehicleName,
+          vehicleImageUrl,
+          items,
+          topUrgency: items[0]?.urgencyScore ?? 0,
+        };
+      })
       .sort(
-        (
-          a: { urgencyScore: number },
-          b: { urgencyScore: number },
-        ) => b.urgencyScore - a.urgencyScore,
+        (a: { topUrgency: number }, b: { topUrgency: number }) =>
+          b.topUrgency - a.topUrgency,
       );
   }, [vehicleBaseData, vehicleImageUrls]);
 
@@ -830,6 +833,7 @@ export default function HomeScreen() {
   // out of scope here (those don't surface as upcoming on home).
   const cancelConvexBooking = useMutationWithToast(api.bookings.cancelBooking, {
     success: "Booking cancelled.",
+    successIcon: CalendarX,
     error: "Couldn't cancel this booking. Try again.",
   });
   const handleAppointmentCancel = useCallback(
@@ -989,7 +993,7 @@ export default function HomeScreen() {
           {/* Full Page Scroll */}
           <Animated.ScrollView
             style={styles.scrollView}
-            contentContainerStyle={[styles.scrollContent, { paddingTop: stableInsetTop + 12 }]}
+            contentContainerStyle={[styles.scrollContent, { paddingTop: stableInsetTop + 19 }]}
             showsVerticalScrollIndicator={false}
             scrollEnabled={!isCardSwiping}
             // Prevent iOS from re-adjusting the scroll content when a
@@ -1005,14 +1009,20 @@ export default function HomeScreen() {
             <View style={styles.header}>
               {/* Location */}
               <View style={styles.locationSection}>
-                <View style={{ marginLeft: 12, marginTop: -8 }}>
+                <View style={{ marginLeft: 20, marginTop: -8 }}>
                   <ProfileInitialsButton />
                 </View>
                 <View style={styles.locationText}>
                   <Text size="xl" color="#FFFFFF" weight="bold">
                     Otopair
                   </Text>
-                  <Text weight="semiBold" size="sm" color="#FFFFFF">
+                  <Text
+                    weight="semiBold"
+                    size="sm"
+                    color="#FFFFFF"
+                    numberOfLines={3}
+                    style={styles.locationName}
+                  >
                     {locationName}
                   </Text>
                 </View>
@@ -1146,9 +1156,9 @@ export default function HomeScreen() {
                     }
                     router.push('/(booking-flow)/select-services');
                   }}
-                  // Account Setup
+                  // Account Setup — intentionally NOT dismissable: the card
+                  // must stay until all four steps are complete.
                   showAccountSetup={showAccountSetup}
-                  onAccountSetupDismiss={() => setAccountSetupDismissed(true)}
                   // Car Setup
                   showCarSetup={showCarSetup}
                   carSetupChecklist={carSetupChecklist}
@@ -1189,41 +1199,59 @@ export default function HomeScreen() {
                   vehicle carousel so the most urgent action is the
                   first thing a returning user sees. */}
               <NowTierCallout
-                items={allNowItems}
-                onCardPress={(item) => {
-                  // Route to the cars tab for this vehicle and have
-                  // MaintenanceTracker open its detail modal for this
-                  // exact item on mount (see openItemDetail param).
-                  useVehicleStore.getState().selectVehicle(item.vehicleVin);
+                groups={allNowGroups}
+                onCardPress={(group, item) => {
+                  // Single card: route with the item's detail modal open.
+                  // Multi card (no item): route to the vehicle without a
+                  // specific detail (the multi-card header should feel
+                  // like "open this car" not "open service X").
+                  useVehicleStore.getState().selectVehicle(group.vehicleVin);
                   router.push({
                     pathname: '/(main-tabs)/cars',
-                    params: { openItemDetail: item.itemId },
+                    params: item ? { openItemDetail: item.itemId } : {},
                   });
                 }}
-                onBookNow={(item) => {
-                  // Each card in the pager carries its OWN vehicle +
-                  // service ids, so we always book the visible item —
-                  // no more "+N more" → wrong-vehicle drift.
-                  useVehicleStore.getState().selectVehicle(item.vehicleVin);
-                  const itemType = extractMaintenanceType(item.itemId);
+                onBookNow={(group, selectedItems) => {
+                  // Group carries the vehicle; selectedItems is the
+                  // checked subset (single-card path passes an array
+                  // of one, so behavior collapses to the old handler).
+                  useVehicleStore.getState().selectVehicle(group.vehicleVin);
                   const store = useBookingStore.getState();
-                  const explicit = item.suggestedServiceId
-                    ? store.availableServices.find((s) => s.id === item.suggestedServiceId)
-                    : undefined;
-                  const matched = explicit ?? findServiceForMaintenanceType(itemType, store.availableServices);
-                  store.setInitialServiceCategory(
-                    matched?.category ?? MAINTENANCE_TYPE_TO_CATEGORY[itemType] ?? 'basic_maintenance',
-                  );
                   store.clearSelectedServices();
-                  if (matched) store.toggleServiceSelection(matched.id);
-                  // When we successfully pre-selected the service (the
-                  // common case for a NOW-tier callout), skip the
-                  // service picker and jump straight to Choose
-                  // Mechanic — the user knows what they want. Falls
-                  // back to select-services when the maintenance type
-                  // doesn't resolve to a catalog service (rare).
+
+                  type MatchedService = NonNullable<
+                    ReturnType<typeof findServiceForMaintenanceType>
+                  >;
+                  const matched: MatchedService[] = [];
+                  for (const item of selectedItems) {
+                    const itemType = extractMaintenanceType(item.itemId);
+                    const explicit = item.suggestedServiceId
+                      ? store.availableServices.find((s) => s.id === item.suggestedServiceId)
+                      : undefined;
+                    const svc = explicit ?? findServiceForMaintenanceType(itemType, store.availableServices);
+                    if (svc) matched.push(svc);
+                  }
+
+                  // Seed the initial tab off the first matched service
+                  // (falls back to the type→category map, then a hard
+                  // default) so if we do land on select-services, the
+                  // correct tab opens.
+                  const firstType = selectedItems[0]
+                    ? extractMaintenanceType(selectedItems[0].itemId)
+                    : null;
+                  store.setInitialServiceCategory(
+                    matched[0]?.category ??
+                      (firstType ? MAINTENANCE_TYPE_TO_CATEGORY[firstType] : null) ??
+                      'basic_maintenance',
+                  );
+
+                  for (const svc of matched) store.toggleServiceSelection(svc.id);
+
+                  // Skip Screen 1 only when every checked item resolved
+                  // to a catalog service — otherwise land on
+                  // select-services so the user can see what's missing.
                   router.push(
-                    matched
+                    matched.length === selectedItems.length && matched.length > 0
                       ? '/(booking-flow)/choose-mechanic'
                       : '/(booking-flow)/select-services',
                   );
@@ -1285,11 +1313,17 @@ export default function HomeScreen() {
               {/* More Services Section (6-card service-type grid) */}
               <MoreServicesSection onBeforeOpenBookingFlow={openBookingFlow} />
 
-              {/* Service Bundles Section */}
-              <ServiceBundlesSection onBeforeOpenBookingFlow={openBookingFlow} />
+              {/* Service Bundles + Provider Types ("More") only make sense
+                  once the user has a car — hide both until one is added. */}
+              {hasVehicles && (
+                <>
+                  {/* Service Bundles Section */}
+                  <ServiceBundlesSection onBeforeOpenBookingFlow={openBookingFlow} />
 
-              {/* Provider Types Section ("More" — 3 provider cards) */}
-              <ProviderTypesSection onBeforeOpenBookingFlow={openBookingFlow} />
+                  {/* Provider Types Section ("More" — 3 provider cards) */}
+                  <ProviderTypesSection onBeforeOpenBookingFlow={openBookingFlow} />
+                </>
+              )}
             </View>
           </Animated.ScrollView>
 
@@ -1478,16 +1512,24 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 2,
     flex: 1,
+    minWidth: 0,
     paddingLeft: 0,
   },
   locationText: {
+    flex: 1,
+    minWidth: 0,
     gap: 0,
     marginTop: -7,
     marginLeft: 12,
   },
+  locationName: {
+    flexShrink: 1,
+    width: "100%",
+  },
   headerRight: {
     flexDirection: "row",
     alignItems: "center",
+    flexShrink: 0,
     gap: 8,
   },
   goldTierBadge: {

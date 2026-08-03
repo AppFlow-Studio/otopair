@@ -2,9 +2,11 @@
  * RotorQuoteListSheet
  *
  * Parallel of QuoteListSheet for the rotor flow. Full-screen modal listing
- * all live shop responses to a rotor-quote booking. Tapping Book calls
- * `bookings.acceptRotorQuote`, fills the chosen shop into the booking,
- * and flips it to `confirmed` — the card leaves the Quotes tab.
+ * all live shop responses to a rotor-quote booking. "Choose time" stashes a
+ * `QuoteAcceptContext` on `useBookingStore` and routes into
+ * `(booking-flow)/pick-datetime` so the customer picks their own slot (no
+ * earlier than the shop's quoted `availability`) — `bookings.acceptRotorQuote`
+ * only fires once they confirm on Review & Pay.
  *
  * USED IN: app/(main-tabs)/bookings/index.tsx
  */
@@ -13,15 +15,45 @@ import React, { forwardRef, useImperativeHandle, useMemo, useState } from "react
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
 
 import { X } from "lucide-react-native";
-import { useMutation, useQuery } from "convex/react";
+import { useQuery } from "convex/react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Text } from "@/components/shared-ui";
 import { RotorQuoteCard } from "@/components/rotor-booking/RotorQuoteCard";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import type { RotorQuote } from "@/constants/rotorFlow";
+import { formatPadTypeLabel, type RotorQuote } from "@/constants/rotorFlow";
 import { hhmmToDisplayTime } from "@/utils/timeSlotUtils";
+import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
+import { useBookingStore } from "@/stores/useBookingStore";
+
+/** Raw shape of a `rotor_quote_responses.listForBookingWithShops` row —
+ *  carries the fields the adapted `RotorQuote` display shape drops (raw
+ *  `availability`, `mechanic_id`, `estimated_duration_minutes`). */
+interface RawRotorQuoteResponse {
+  _id: string;
+  shop_id: string;
+  mechanic_id?: string;
+  rotor_brand: string;
+  rotor_model?: string;
+  per_rotor_price: number;
+  quantity: number;
+  labor_cost: number;
+  total: number;
+  pad_brand?: string;
+  pad_type?: RotorQuote["padType"];
+  pad_price?: number;
+  pad_quantity?: number;
+  availability: { date: string; time: string };
+  estimated_duration_minutes?: number;
+  shop: {
+    _id: string;
+    name: string;
+    rating: number;
+    distance_mi: number | null;
+    verified: boolean;
+  } | null;
+}
 
 function formatAvailability(date: string, time: string): string {
   const [y, m, d] = date.split("-").map(Number);
@@ -52,11 +84,13 @@ export const RotorQuoteListSheet = forwardRef<RotorQuoteListSheetRef, Props>(
     const [visible, setVisible] = useState(false);
     const [bookingId, setBookingId] = useState<string | null>(null);
 
+    const router = useRouter();
+    const setQuoteAcceptContext = useBookingStore((s) => s.setQuoteAcceptContext);
+
     const responses = useQuery(
       api.rotor_quote_responses.listForBookingWithShops,
       bookingId ? { booking_id: bookingId as Id<"bookings"> } : "skip",
     );
-    const acceptQuote = useMutation(api.bookings.acceptRotorQuote);
 
     useImperativeHandle(ref, () => ({
       open: (id) => {
@@ -76,24 +110,7 @@ export const RotorQuoteListSheet = forwardRef<RotorQuoteListSheetRef, Props>(
 
     const adapted = useMemo<RotorQuote[]>(() => {
       if (!responses || responses.length === 0) return [];
-      const list = responses as Array<{
-        _id: string;
-        shop_id: string;
-        rotor_brand: string;
-        rotor_model?: string;
-        per_rotor_price: number;
-        quantity: number;
-        labor_cost: number;
-        total: number;
-        availability: { date: string; time: string };
-        shop: {
-          _id: string;
-          name: string;
-          rating: number;
-          distance_mi: number | null;
-          verified: boolean;
-        } | null;
-      }>;
+      const list = responses as RawRotorQuoteResponse[];
       const lowestTotal = list.reduce(
         (min, r) => (r.total < min ? r.total : min),
         list[0].total,
@@ -117,6 +134,10 @@ export const RotorQuoteListSheet = forwardRef<RotorQuoteListSheetRef, Props>(
           total: r.total,
           availability: formatAvailability(r.availability.date, r.availability.time),
           isBestMatch,
+          padBrand: r.pad_brand,
+          padType: r.pad_type,
+          padPrice: r.pad_price,
+          padQuantity: r.pad_quantity,
         };
       });
     }, [responses]);
@@ -128,19 +149,53 @@ export const RotorQuoteListSheet = forwardRef<RotorQuoteListSheetRef, Props>(
       return { best: b, others: rest };
     }, [adapted]);
 
-    const handleAccept = async (responseId: string) => {
-      if (!bookingId) return;
-      try {
-        await acceptQuote({
-          booking_id: bookingId as Id<"bookings">,
-          response_id: responseId as Id<"rotor_quote_responses">,
-        });
-        setVisible(false);
-        onClose?.();
-      } catch (err) {
-        // eslint-disable-next-line no-console
-        console.warn("[RotorQuoteListSheet] acceptRotorQuote failed", err);
-      }
+    const handleChooseTime = (responseId: string) => {
+      if (!bookingId || !responses) return;
+      const response = (responses as RawRotorQuoteResponse[]).find((r) => r._id === responseId);
+      if (!response) return;
+
+      const rotorsSubtotal = response.per_rotor_price * response.quantity;
+      const padQuantity = response.pad_quantity ?? response.quantity;
+      const padSubtotal = response.pad_price != null ? response.pad_price * padQuantity : null;
+      const padLabel = response.pad_brand?.trim() || formatPadTypeLabel(response.pad_type);
+      const rotorLabel = response.rotor_model
+        ? `${response.rotor_brand} ${response.rotor_model}`
+        : response.rotor_brand;
+      const lineItems = [
+        { label: `Rotors (${rotorLabel}, $${response.per_rotor_price} × ${response.quantity})`, amount: rotorsSubtotal },
+        ...(padSubtotal != null
+          ? [{ label: padLabel ? `Pads (${padLabel})` : "Pads", amount: padSubtotal }]
+          : []),
+        { label: "Installation & labor", amount: response.labor_cost },
+      ];
+
+      setQuoteAcceptContext({
+        bookingId: bookingId as Id<"bookings">,
+        quoteType: "rotor",
+        responseId: response._id,
+        shopId: response.shop?._id ?? response.shop_id,
+        shopName: response.shop?.name ?? "Unknown shop",
+        mechanicId: response.mechanic_id ?? null,
+        minDate: response.availability.date,
+        minTime: response.availability.time,
+        estimatedDurationMinutes: response.estimated_duration_minutes,
+        laborCost: response.labor_cost,
+        partsCost: rotorsSubtotal + (padSubtotal ?? 0),
+        lineItems,
+        quoteTotal: response.total,
+      });
+
+      // Booking stays in its current status until the customer confirms a
+      // slot + pays on Review & Pay — see (booking-flow)/pick-datetime.
+      // shopId also rides along as a URL param (not just quoteAcceptContext)
+      // so pick-datetime's "bounce if shopId is missing" guard doesn't fire
+      // once quoteAcceptContext is cleared after a successful confirm —
+      // pick-datetime stays mounted in the background under payment/
+      // confirming/confirmation, so it still re-renders on that clear.
+      const shopId = response.shop?._id ?? response.shop_id;
+      setVisible(false);
+      onClose?.();
+      router.push({ pathname: "/(booking-flow)/pick-datetime", params: { shopId } });
     };
 
     const isLoading = bookingId != null && responses === undefined;
@@ -187,7 +242,7 @@ export const RotorQuoteListSheet = forwardRef<RotorQuoteListSheetRef, Props>(
                   <RotorQuoteCard
                     quote={best}
                     variant="primary"
-                    onBook={() => handleAccept(best.id)}
+                    onBook={() => handleChooseTime(best.id)}
                   />
                 ) : null}
 
@@ -206,7 +261,7 @@ export const RotorQuoteListSheet = forwardRef<RotorQuoteListSheetRef, Props>(
                         key={q.id}
                         quote={q}
                         variant="secondary"
-                        onBook={() => handleAccept(q.id)}
+                        onBook={() => handleChooseTime(q.id)}
                       />
                     ))}
                   </>

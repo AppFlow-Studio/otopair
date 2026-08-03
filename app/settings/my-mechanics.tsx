@@ -25,6 +25,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import {
   Search,
+  Wrench,
   MoreHorizontal,
   Plus,
   Users,
@@ -73,7 +74,7 @@ interface Mechanic {
   lastVisit?: string;
 }
 
-const FILTERS = ["All Mechanics", "Favorites", "Hidden"];
+const FILTERS = ["All Mechanics", "Favorites"];
 
 interface MechanicListItemProps {
   mechanic: Mechanic;
@@ -172,7 +173,26 @@ export default function MyMechanicsScreen() {
 
   const favorites = (data?.favorites ?? []) as Mechanic[];
   const recentlyBooked = (data?.recentlyBooked ?? []) as Mechanic[];
-  const hiddenMechanics = (data?.hidden ?? []) as Mechanic[];
+
+  // Whether any mechanic is visible under the current filter + search, so
+  // we can show an empty state instead of a blank screen.
+  const normalizedQuery = query.trim().toLowerCase();
+  const favMatchCount = favorites.filter((m) =>
+    m.name.toLowerCase().includes(normalizedQuery),
+  ).length;
+  const recentMatchCount = recentlyBooked.filter((m) =>
+    m.name.toLowerCase().includes(normalizedQuery),
+  ).length;
+  const visibleCount =
+    activeFilter === "Favorites"
+      ? favMatchCount
+      : favMatchCount + recentMatchCount;
+  const showEmptyState = visibleCount === 0;
+  const emptyCopy = normalizedQuery
+    ? { title: "No matches", subtitle: `No mechanics match “${query.trim()}”.` }
+    : activeFilter === "Favorites"
+      ? { title: "No favorites yet", subtitle: "Tap the heart on a mechanic to save them here." }
+      : { title: "No mechanics yet", subtitle: "Mechanics you book or favorite will show up here." };
 
   // Menu state
   const [isMenuVisible, setIsMenuVisible] = useState(false);
@@ -434,91 +454,28 @@ export default function MyMechanicsScreen() {
             </View>
           )}
 
-          {/* Hidden Section */}
-          {activeFilter === "Hidden" && (
-            <View style={styles.section}>
-              <View style={styles.sectionHeader}>
-                <Text weight="semiBold" size="lg" color="#111318">
-                  Hidden Mechanics
-                </Text>
+          {/* Empty state — shown when nothing matches the current
+              filter + search, so the screen is never blank. */}
+          {showEmptyState && (
+            <Animated.View
+              entering={FadeInUp.duration(300)}
+              style={styles.emptyContainer}
+            >
+              <View style={styles.emptyIconCircle}>
+                <Wrench size={40} color="#9CA3AF" strokeWidth={1.5} />
               </View>
-              <Animated.View
-                layout={LinearTransition.duration(400)}
-                style={styles.glassCard}
+              <Text
+                weight="semiBold"
+                size="lg"
+                color="#111318"
+                style={styles.emptyTitle}
               >
-                {hiddenMechanics.length > 0 ? (
-                  hiddenMechanics.map((m) => (
-                    <Animated.View
-                      key={m.id}
-                      layout={LinearTransition.duration(400)}
-                      entering={FadeInUp.duration(300)}
-                      exiting={ZoomOut.duration(200)}
-                      style={styles.mechanicRow}
-                    >
-                      <View style={styles.mechanicLeft}>
-                        <View style={styles.avatarContainer}>
-                          {m.image ? (
-                            <Image
-                              source={{ uri: m.image }}
-                              style={styles.avatar}
-                            />
-                          ) : (
-                            <LinearGradient
-                              colors={["#6366F1", BrandColors.primary]}
-                              style={styles.avatarPlaceholder}
-                            >
-                              <Text weight="bold" size="lg" color="#FFF">
-                                {m.initials ?? m.name[0]}
-                              </Text>
-                            </LinearGradient>
-                          )}
-                        </View>
-                        <View style={styles.mechanicInfo}>
-                          <Text weight="bold" size="md" color="#111318">
-                            {m.name}
-                          </Text>
-                          {m.lastVisit ? (
-                            <View style={styles.lastVisitRow}>
-                              <Clock size={12} color="#86868B" />
-                              <Text size="sm" color="#86868B" weight="medium">
-                                {m.lastVisit === "Upcoming"
-                                  ? "Upcoming"
-                                  : `Last visit: ${m.lastVisit}`}
-                              </Text>
-                            </View>
-                          ) : null}
-                        </View>
-                      </View>
-                      <Pressable
-                        onPress={async () => {
-                          if (!userId) return;
-                          await setHiddenForUser({
-                            userId,
-                            mechanicId: m.id as Id<"mechanics">,
-                            isHidden: false,
-                          });
-                        }}
-                        style={styles.unhideButton}
-                      >
-                        <Text
-                          weight="bold"
-                          size="xs"
-                          color={BrandColors.primary}
-                        >
-                          UNHIDE
-                        </Text>
-                      </Pressable>
-                    </Animated.View>
-                  ))
-                ) : (
-                  <View style={styles.emptyState}>
-                    <Text size="sm" color="#86868B">
-                      No hidden mechanics
-                    </Text>
-                  </View>
-                )}
-              </Animated.View>
-            </View>
+                {emptyCopy.title}
+              </Text>
+              <Text size="sm" color="#86868B" style={styles.emptySubtitle}>
+                {emptyCopy.subtitle}
+              </Text>
+            </Animated.View>
           )}
         </Animated.View>
       </ScrollView>
@@ -843,5 +800,27 @@ const styles = StyleSheet.create({
     padding: 32,
     alignItems: "center",
     justifyContent: "center",
+  },
+  emptyContainer: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingTop: 96,
+    paddingHorizontal: 40,
+  },
+  emptyIconCircle: {
+    width: 96,
+    height: 96,
+    borderRadius: 48,
+    backgroundColor: "#EEF1F5",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 20,
+  },
+  emptyTitle: {
+    marginBottom: 6,
+  },
+  emptySubtitle: {
+    textAlign: "center",
+    lineHeight: 20,
   },
 });

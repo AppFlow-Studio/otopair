@@ -19,11 +19,10 @@ import React, { useCallback, useMemo, useState } from "react";
 import { BackHandler, Platform, Pressable, StyleSheet, View } from "react-native";
 
 // 2. Expo & Third-party
-import { BlurView } from "expo-blur";
 import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { ArrowLeft, Store } from "lucide-react-native";
-import Animated, { interpolate, useAnimatedRef, useAnimatedStyle, useScrollOffset } from "react-native-reanimated";
+import Animated, { useAnimatedRef } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // 3. Shared UI (design system)
@@ -43,14 +42,6 @@ import { ShopHeroCard } from "@/components/shop/ShopHeroCard";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useSearchStore } from "@/stores/useSearchStore";
 import { useShopStore } from "@/stores/useShopStore";
-
-// ============================================================================
-// CONSTANTS
-// ============================================================================
-
-/** Height of the header section (excluding safe area).
- *  Matches HEADER_CONTENT_HEIGHT in MechanicDetailHeader. */
-const HEADER_CONTENT_HEIGHT = 240;
 
 // ============================================================================
 // COMPONENT
@@ -84,35 +75,10 @@ export default function ShopDetailScreen() {
   }, [shopId, getShopById]);
 
   // ═══════════════ ANIMATED VALUES ═══════════════
+  // The header (map + shop card + tabs) is now fixed and only the tab
+  // list scrolls, so the old scroll-driven sticky title is gone. The ref
+  // is kept purely so we can programmatically control the list if needed.
   const scrollRef = useAnimatedRef<Animated.ScrollView>();
-  const scrollOffset = useScrollOffset(scrollRef);
-
-  // Calculate total header height including safe area
-  const totalHeaderHeight = HEADER_CONTENT_HEIGHT + insets.top;
-
-  // Threshold where shop name scrolls out of view (header height minus some padding)
-  const scrollThreshold = totalHeaderHeight - 100;
-
-  // ═══════════════ ANIMATED STYLES ═══════════════
-  // Animated style for sticky header title
-  const stickyHeaderStyle = useAnimatedStyle(() => {
-    const opacity = interpolate(scrollOffset.value, [scrollThreshold - 20, scrollThreshold], [0, 1], "clamp");
-    const translateY = interpolate(scrollOffset.value, [scrollThreshold - 20, scrollThreshold], [-10, 0], "clamp");
-
-    return {
-      opacity,
-      transform: [{ translateY }],
-    };
-  });
-
-  // Animated style for blur overlay (native iOS-like effect)
-  const blurOverlayStyle = useAnimatedStyle(() => {
-    const opacity = interpolate(scrollOffset.value, [scrollThreshold - 20, scrollThreshold], [0, 0.95], "clamp");
-
-    return {
-      opacity,
-    };
-  });
 
   // ═══════════════ HANDLERS ═══════════════
   const handleBack = useCallback(() => {
@@ -229,38 +195,21 @@ export default function ShopDetailScreen() {
 
   return (
     <FullScreenContainer style={styles.container}>
-      {/* Sticky Header Title - Appears when scrolling past shop name */}
-      <Animated.View
-        style={[
-          styles.stickyHeader,
-          { paddingTop: insets.top + Spacing.sm, paddingBottom: Spacing.sm },
-          stickyHeaderStyle,
-        ]}
-      >
-        {/* Blur Overlay for native iOS-like effect */}
-        <Animated.View style={[styles.blurOverlay, blurOverlayStyle]} pointerEvents="none">
-          <BlurView intensity={80} tint="light" style={styles.blurViewFill} />
-        </Animated.View>
+      {/* Fixed top block — map, shop info card, and tabs stay pinned
+          so only the tab list below scrolls (per Ahmad). */}
+      {/* Hero map */}
+      <MechanicDetailHeader shop={shop} onBack={handleBack} />
 
-        <View style={styles.stickyHeaderContent}>
-          <Pressable onPress={handleBack} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-            <View style={styles.backButton}>
-              <ArrowLeft size={24} color={BrandColors.primary} />
-            </View>
-          </Pressable>
+      {/* Floating shop info card — overlaps the map bottom edge.
+          Pass the same Book handler the sticky CTA uses so the
+          top-of-card "Book" pill routes through the new
+          (booking-flow) stack instead of the legacy modal. */}
+      <ShopHeroCard shop={shop} onSchedulePress={handleSchedulePress} />
 
-          <View style={styles.titleContainer}>
-            <Text size="lg" weight="bold" color={BrandColors.primary} numberOfLines={1}>
-              {shop.name}
-            </Text>
-          </View>
+      {/* Tab Navigation */}
+      <MechanicDetailTabs activeTab={activeTab} onTabChange={handleTabChange} />
 
-          {/* Spacer to balance the back button */}
-          <View style={styles.spacer} />
-        </View>
-      </Animated.View>
-
-      {/* Scrollable Content */}
+      {/* Scrollable tab content ONLY — the header above is fixed. */}
       <Animated.ScrollView
         ref={scrollRef}
         style={styles.scrollView}
@@ -268,18 +217,6 @@ export default function ShopDetailScreen() {
         showsVerticalScrollIndicator={false}
         scrollEventThrottle={16}
       >
-        {/* Hero map */}
-        <MechanicDetailHeader shop={shop} onBack={handleBack} />
-
-        {/* Floating shop info card — overlaps the map bottom edge.
-            Pass the same Book handler the sticky CTA uses so the
-            top-of-card "Book" pill routes through the new
-            (booking-flow) stack instead of the legacy modal. */}
-        <ShopHeroCard shop={shop} onSchedulePress={handleSchedulePress} />
-
-        {/* Tab Navigation */}
-        <MechanicDetailTabs activeTab={activeTab} onTabChange={handleTabChange} />
-
         {/* Tab Content — sits on the off-white page surface */}
         <View style={styles.tabContentContainer}>{renderTabContent()}</View>
       </Animated.ScrollView>

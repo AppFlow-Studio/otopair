@@ -23,16 +23,22 @@ interface VehiclePuckProps {
   /** Overrides the default tap behavior (open the switcher sheet).
    *  Ignored unless `interactive` is true. */
   onPress?: () => void;
-  /** Whether the puck is tappable. Only Screen 1 of the booking
-   *  flow passes `true`; Screens 2-4 carry the puck purely as a
-   *  context indicator (the active car never changes once the user
-   *  is past the service-selection step). */
+  /** Whether the puck is tappable. Screens that let the user switch
+   *  vehicles pass `true`; other screens carry the puck purely as a
+   *  context indicator. */
   interactive?: boolean;
 }
 
 export function VehiclePuck({ size = 44, onPress, interactive = false }: VehiclePuckProps) {
   const vehicle = useVehicleStore((s) => s.getSelectedVehicle());
+  const vehicleCount = useVehicleStore((s) => s.vehicleIds.length);
   const [switcherOpen, setSwitcherOpen] = useState(false);
+
+  // Opening the "Choose a vehicle" sheet only makes sense with 2+ cars —
+  // there's nothing to switch to otherwise. A custom `onPress` still runs
+  // (the caller opted into its own behavior); only the default switcher is
+  // gated on car count.
+  const canInteract = interactive && (onPress != null || vehicleCount > 1);
 
   const radius = size / 2;
   const body = (
@@ -52,8 +58,9 @@ export function VehiclePuck({ size = 44, onPress, interactive = false }: Vehicle
     </View>
   );
 
-  if (!interactive) {
-    // Display-only puck — no Pressable, no hit slop, no switcher.
+  if (!canInteract) {
+    // Display-only puck — no Pressable, no hit slop, no switcher. Used on
+    // Screens 2-4, and on Screen 1 when the user has only one car.
     return <View accessibilityLabel="Active vehicle">{body}</View>;
   }
 

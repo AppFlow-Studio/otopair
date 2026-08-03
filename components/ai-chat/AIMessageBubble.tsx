@@ -25,7 +25,7 @@
 
 // 1. React & React Native
 import React, { useEffect, useState } from 'react';
-import { View, StyleSheet, Pressable } from 'react-native';
+import { View, StyleSheet, Pressable, ActionSheetIOS, Platform, Alert } from 'react-native';
 
 // 2. Expo & Third-party
 import Animated, {
@@ -83,6 +83,8 @@ interface AIMessageBubbleProps {
   onLike?: () => void;
   onDislike?: () => void;
   onQuickReplySelect?: (reply: QuickReply) => void;
+  /** Long-press a user message → Edit (prefill the composer with its text). */
+  onEdit?: () => void;
 }
 
 // ============================================================================
@@ -174,7 +176,6 @@ function ActionButton({
   onPress?: () => void;
 }) {
   const scale = useSharedValue(1);
-  const bgOpacity = useSharedValue(0);
 
   // Animate when active state changes
   useEffect(() => {
@@ -184,9 +185,6 @@ function ActionButton({
         withTiming(1.15, { duration: 100 }),
         withTiming(1, { duration: 100 })
       );
-      bgOpacity.value = withTiming(1, { duration: 150 });
-    } else {
-      bgOpacity.value = withTiming(0, { duration: 100 });
     }
   }, [isActive]);
 
@@ -207,17 +205,13 @@ function ActionButton({
     opacity: pressOpacity.value,
   }));
 
-  const bgStyle = useAnimatedStyle(() => ({
-    backgroundColor: `rgba(59, 130, 246, ${bgOpacity.value * 0.12})`,
-  }));
-
   return (
     <Pressable
       onPress={onPress}
       onPressIn={handlePressIn}
       onPressOut={handlePressOut}
     >
-      <Animated.View style={[styles.actionBtn, animatedStyle, bgStyle]}>
+      <Animated.View style={[styles.actionBtn, animatedStyle]}>
         {isActive && activeIcon ? activeIcon : icon}
       </Animated.View>
     </Pressable>
@@ -258,9 +252,35 @@ export function AIMessageBubble({
   onLike,
   onDislike,
   onQuickReplySelect,
+  onEdit,
 }: AIMessageBubbleProps) {
   const isUser = message.role === 'user';
   const isStreaming = message.isStreaming;
+
+  // Long-press a user message → native action sheet with Copy / Edit.
+  const showUserActions = () => {
+    const doCopy = () => handleCopy();
+    const doEdit = () => onEdit?.();
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options: onEdit ? ['Copy', 'Edit', 'Cancel'] : ['Copy', 'Cancel'],
+          cancelButtonIndex: onEdit ? 2 : 1,
+        },
+        (index) => {
+          if (index === 0) doCopy();
+          else if (onEdit && index === 1) doEdit();
+        },
+      );
+    } else {
+      const buttons: Parameters<typeof Alert.alert>[2] = [
+        { text: 'Copy', onPress: doCopy },
+      ];
+      if (onEdit) buttons.push({ text: 'Edit', onPress: doEdit });
+      buttons.push({ text: 'Cancel', style: 'cancel' });
+      Alert.alert('Message', undefined, buttons);
+    }
+  };
   const hasReasoning = !isUser && message.reasoning && message.reasoning.length > 0;
   
   // State to track if we should show the main content
@@ -348,13 +368,18 @@ export function AIMessageBubble({
           </View>
         )}
         
-        {/* Message Text (only if there's content beyond the default) */}
+        {/* Message Text (only if there's content beyond the default).
+            Long-press → Copy / Edit action sheet. */}
         {message.content && message.content !== "Here's an image for you to analyze" && (
-          <View style={styles.userBubble}>
+          <Pressable
+            style={({ pressed }) => [styles.userBubble, pressed && styles.userBubblePressed]}
+            onLongPress={showUserActions}
+            delayLongPress={300}
+          >
             <Text style={styles.userMessageText}>
               {message.content}
             </Text>
-          </View>
+          </Pressable>
         )}
       </Animated.View>
     );
@@ -440,13 +465,13 @@ export function AIMessageBubble({
               />
               <ActionButton
                 icon={<ThumbsUp size={18} color="rgba(0,0,0,0.25)" />}
-                activeIcon={<ThumbsUp size={20} color={BrandColors.secondary} fill={BrandColors.secondary} />}
+                activeIcon={<ThumbsUp size={18} color={BrandColors.secondary} />}
                 isActive={feedback === 'like'}
                 onPress={handleLike}
               />
               <ActionButton
                 icon={<ThumbsDown size={18} color="rgba(0,0,0,0.25)" />}
-                activeIcon={<ThumbsDown size={20} color={BrandColors.secondary} fill={BrandColors.secondary} />}
+                activeIcon={<ThumbsDown size={18} color={BrandColors.secondary} />}
                 isActive={feedback === 'dislike'}
                 onPress={handleDislike}
               />
@@ -492,6 +517,9 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.sm + 2,
     paddingHorizontal: Spacing.lg,
     maxWidth: '80%',
+  },
+  userBubblePressed: {
+    opacity: 0.85,
   },
   // User attached images
   userImagesContainer: {
@@ -576,6 +604,6 @@ const styles = StyleSheet.create({
     height: 32,
     justifyContent: 'center',
     alignItems: 'center',
-    borderRadius: BorderRadius.sm,
+    borderRadius: BorderRadius.full,
   },
 });

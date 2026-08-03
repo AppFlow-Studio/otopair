@@ -1,5 +1,16 @@
 import { useEffect, useRef } from "react";
 import { useQuery } from "convex/react";
+import {
+  CalendarCheck,
+  CalendarClock,
+  CalendarX,
+  Car,
+  Clock,
+  FileText,
+  Stethoscope,
+  Wrench,
+  type LucideIcon,
+} from "lucide-react-native";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 
 import { api } from "@/convex/_generated/api";
@@ -33,6 +44,8 @@ interface TransitionConfig {
   body?: string;
   /** Optional tap route. Most are deferred — see ROUTE-GAPS.md. */
   href?: string;
+  /** Action-matching icon override; falls back to the variant icon. */
+  icon?: LucideIcon;
 }
 
 const TRANSITION_TO_TOAST: Record<string, TransitionConfig> = {
@@ -41,29 +54,34 @@ const TRANSITION_TO_TOAST: Record<string, TransitionConfig> = {
     title: "Booking confirmed",
     body: "Your shop accepted this appointment.",
     href: "booking-details",
+    icon: CalendarCheck,
   },
   pending_shop_acceptance: {
     variant: "info",
     title: "Waiting on the shop to accept",
     href: "booking-details",
+    icon: Clock,
   },
   declined_by_shop: {
     variant: "warning",
     title: "Shop can't take this booking",
     body: "Tap to see alternatives.",
     href: "home",
+    icon: CalendarX,
   },
   vehicle_at_shop: {
     variant: "info",
     title: "Vehicle checked in",
     body: "Your mechanic will review shortly.",
     href: "booking-details",
+    icon: Car,
   },
   in_progress: {
     variant: "info",
     title: "Work started",
     body: "Your mechanic is on it.",
     href: "booking-details",
+    icon: Wrench,
   },
   completed: {
     variant: "success",
@@ -75,11 +93,13 @@ const TRANSITION_TO_TOAST: Record<string, TransitionConfig> = {
     title: "Shop cancelled this booking",
     body: "Tap to rebook.",
     href: "home",
+    icon: CalendarX,
   },
   rescheduled: {
     variant: "info",
     title: "Booking rescheduled",
     href: "booking-details",
+    icon: CalendarClock,
   },
   no_show: {
     variant: "warning",
@@ -92,17 +112,20 @@ const TRANSITION_TO_TOAST: Record<string, TransitionConfig> = {
     title: "Quote revised",
     body: "Review the change before approving.",
     href: "booking-details",
+    icon: FileText,
   },
   eta_updated: {
     variant: "info",
     title: "Mechanic ETA updated",
     href: "booking-details",
+    icon: Clock,
   },
   diagnostic_resolved: {
     variant: "trust",
     title: "Diagnostic complete",
     body: "No additional work needed.",
     href: "booking-details",
+    icon: Stethoscope,
   },
   // cancelled_by_user intentionally NOT mapped — the mutation wrapper
   // handles its toast; subscription would double-fire.
@@ -181,7 +204,10 @@ export function useBookingStatusToasts(bookingId: Id<"bookings"> | undefined) {
             }
           }
         : undefined;
-      const opts = onPress ? { onPress } : undefined;
+      const opts = {
+        ...(onPress ? { onPress } : {}),
+        ...(config.icon ? { icon: config.icon } : {}),
+      };
       switch (config.variant) {
         case "success":
           toast.success(config.title, config.body, opts);

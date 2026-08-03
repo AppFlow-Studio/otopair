@@ -26,29 +26,26 @@ import React, {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
 import { StyleSheet, View } from "react-native";
-import * as Location from "expo-location";
 import MapView, {
+  Circle,
   Marker,
   PROVIDER_DEFAULT,
   type Region,
 } from "react-native-maps";
+import { Text } from "@/components/shared-ui";
+import { BrandColors, SemanticColors } from "@/constants/theme";
+import { useStagedLocation } from "@/hooks/useStagedLocation";
 import { useBookingStore } from "@/stores/useBookingStore";
-
 import {
   RatingMarkerPill,
   RATING_MARKER_REPAINT_MS,
 } from "@/components/booking-flow/RatingMarkerPill";
-
-const FALLBACK_REGION: Region = {
-  latitude: 41.1959,
-  longitude: -73.4365,
-  latitudeDelta: 0.05,
-  longitudeDelta: 0.05,
-};
+import type { UserLocation } from "@/stores/types/store.types";
 
 export interface BookingFlowMarker {
   id: string;
@@ -81,7 +78,7 @@ interface BookingFlowMapContextValue {
   /** Resolved user (or fallback) region — the default camera target. */
   region: Region | null;
   /** User coordinates when permission is granted; null otherwise. */
-  userLocation: { latitude: number; longitude: number } | null;
+  userLocation: UserLocation | null;
   /** Toggle pan/zoom/rotate gestures (off = locked backdrop). */
   setInteractive: (interactive: boolean) => void;
   /** Replace the rendered markers (default pins, title-only). */
@@ -111,50 +108,41 @@ export function BookingFlowMapProvider({
   children: React.ReactNode;
 }) {
   const mapRef = useRef<MapView | null>(null);
-  const [region, setRegion] = useState<Region | null>(null);
-  const [userLocation, setMapUserLocation] = useState<{
-    latitude: number;
-    longitude: number;
-  } | null>(null);
+  const { location: resolvedLocation, stage, isResolving } = useStagedLocation();
+  const region = useMemo<Region | null>(
+    () =>
+      resolvedLocation
+        ? {
+            latitude: resolvedLocation.latitude,
+            longitude: resolvedLocation.longitude,
+            latitudeDelta: 0.05,
+            longitudeDelta: 0.05,
+          }
+        : null,
+    [resolvedLocation],
+  );
   const setBookingUserLocation = useBookingStore((s) => s.setUserLocation);
+  const clearBookingUserLocation = useBookingStore((s) => s.clearUserLocation);
+  const setLocationLoading = useBookingStore((s) => s.setLocationLoading);
   const [interactive, setInteractive] = useState(false);
   const [markers, setMarkers] = useState<BookingFlowMarker[]>([]);
   const [shopPins, setShopPins] = useState<BookingFlowShopPin[]>([]);
 
-  // Resolve location once for the whole flow (each screen used to do
-  // this independently). Falls back to a NY-metro region.
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const { status } = await Location.getForegroundPermissionsAsync();
-        if (cancelled) return;
-        if (status !== "granted") {
-          setRegion(FALLBACK_REGION);
-          return;
-        }
-        const loc = await Location.getCurrentPositionAsync({});
-        if (cancelled) return;
-        const coords = {
-          latitude: loc.coords.latitude,
-          longitude: loc.coords.longitude,
-        };
-        setMapUserLocation(coords);
-        setBookingUserLocation({
-          label: "Current Location",
-          ...coords,
-          city: "",
-          state: "",
-        });
-        setRegion({ ...coords, latitudeDelta: 0.05, longitudeDelta: 0.05 });
-      } catch {
-        if (!cancelled) setRegion(FALLBACK_REGION);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [setBookingUserLocation]);
+    setLocationLoading(isResolving);
+  }, [isResolving, setLocationLoading]);
+
+  useEffect(() => {
+    if (resolvedLocation) {
+      setBookingUserLocation(resolvedLocation);
+    } else if (!isResolving) {
+      clearBookingUserLocation();
+    }
+  }, [clearBookingUserLocation, isResolving, resolvedLocation, setBookingUserLocation]);
+
+  useEffect(() => {
+    if (region) mapRef.current?.animateToRegion(region, 450);
+  }, [region]);
 
   const setInteractiveCb = useCallback(
     (next: boolean) => setInteractive(next),
@@ -174,7 +162,7 @@ export function BookingFlowMapProvider({
       value={{
         mapRef,
         region,
-        userLocation,
+        userLocation: resolvedLocation,
         setInteractive: setInteractiveCb,
         setMarkers: setMarkersCb,
         setShopPins: setShopPinsCb,
@@ -205,6 +193,18 @@ export function BookingFlowMapProvider({
               pitchEnabled={false}
               rotateEnabled
             >
+              {resolvedLocation?.accuracyMeters && resolvedLocation.source !== "precise" ? (
+                <Circle
+                  center={{
+                    latitude: resolvedLocation.latitude,
+                    longitude: resolvedLocation.longitude,
+                  }}
+                  radius={Math.max(resolvedLocation.accuracyMeters, 250)}
+                  fillColor="rgba(82, 153, 254, 0.16)"
+                  strokeColor="rgba(82, 153, 254, 0.35)"
+                  strokeWidth={1}
+                />
+              ) : null}
               {markers.map((m) => (
                 <Marker
                   key={m.id}
@@ -220,7 +220,13 @@ export function BookingFlowMapProvider({
               ))}
             </MapView>
           ) : (
-            <View style={[StyleSheet.absoluteFill, styles.fallback]} />
+            <View style={[StyleSheet.absoluteFill, styles.fallback]}>
+              <Text size="sm" weight="semiBold" color={SemanticColors.textMuted}>
+                {stage === "unavailable"
+                  ? "Enable location to see nearby shops"
+                  : "Finding your location..."}
+              </Text>
+            </View>
           )}
         </View>
 
@@ -281,9 +287,11 @@ function BookingFlowShopPinMarker({ pin }: { pin: BookingFlowShopPin }) {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: "#C8D7DE",
+    backgroundColor: BrandColors.background,
   },
   fallback: {
+    alignItems: "center",
     backgroundColor: "#C8D7DE",
+    justifyContent: "center",
   },
 });

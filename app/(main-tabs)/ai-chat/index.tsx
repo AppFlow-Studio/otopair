@@ -24,17 +24,19 @@
 
 // 1. React & React Native
 import React, { useEffect, useState, useRef, useCallback } from "react";
-import { View, ScrollView, StyleSheet, Pressable, Alert, Platform, Keyboard, useWindowDimensions, Dimensions, UIManager } from "react-native";
+import { View, ScrollView, StyleSheet, Pressable, Alert, Platform, Keyboard, useWindowDimensions, Dimensions, UIManager, type NativeSyntheticEvent, type NativeScrollEvent } from "react-native";
 
 // 2. Expo & Third-party
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
+import * as SecureStore from "expo-secure-store";
 import Animated, { useAnimatedStyle, useSharedValue, withTiming, withSpring, Easing, interpolate, runOnJS } from "react-native-reanimated";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { haptics } from "@/lib/haptics";
 import { useToast } from "@/hooks/useToast";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
-import { AlignLeft, SquarePen, Ellipsis, Sparkles, History, CarFront, Zap, ChevronDown } from "lucide-react-native";
+import { useCanWrite } from "@/hooks/useConnection";
+import { AlignLeft, SquarePen, Ellipsis, Sparkles, History, CarFront, Zap, ChevronDown, Copy, Volume2, Clock, ImageOff, AlertCircle, WifiOff, type LucideIcon } from "lucide-react-native";
 import { MenuView } from "@react-native-menu/menu";
 
 // Liquid Glass (iOS 26+)
@@ -73,7 +75,6 @@ import {
   AIFeedbackModal,
   type FeedbackRating,
   AIAttachmentPanel,
-  AISelectedImages,
   type AIMessage,
   type Suggestion,
   type QuickReply,
@@ -113,10 +114,48 @@ const TAB_BAR_HEIGHT =
 
 const isMenuViewAvailable = !!UIManager.getViewManagerConfig?.("MenuView");
 
+// Persisted flag for the one-time Oto AI welcome/disclaimer. Once the user
+// taps Continue, we never show it again — the zustand flag only survives the
+// session, so we back it with SecureStore for across-launch memory.
+const OTO_WELCOME_SEEN_KEY = "oto_ai_welcome_seen_v1";
+
 // Drawer sidebar constants
 const DRAWER_TRANSLATE = Dimensions.get('window').width * 0.78;
 const DRAWER_SCALE = 0.92;
 const DRAWER_RADIUS = 40;
+
+// Map a thrown Oto/Convex/Anthropic error to a short, human line. The raw
+// message carries a full stack trace + provider JSON (credit balance, request
+// ids) which must never land in the transcript — we log that for debugging
+// and show the user one of these instead.
+function friendlyOtoError(err: unknown): string {
+  const raw = (err instanceof Error ? err.message : String(err)).toLowerCase();
+  if (
+    raw.includes("credit balance") ||
+    raw.includes("billing") ||
+    raw.includes("quota") ||
+    raw.includes("insufficient")
+  ) {
+    return "Oto's temporarily unavailable. Please try again a little later.";
+  }
+  if (
+    raw.includes("rate limit") ||
+    raw.includes("429") ||
+    raw.includes("overloaded") ||
+    raw.includes("529")
+  ) {
+    return "Oto's a bit busy right now — give it a moment and try again.";
+  }
+  if (
+    raw.includes("network") ||
+    raw.includes("failed to fetch") ||
+    raw.includes("timeout") ||
+    raw.includes("timed out")
+  ) {
+    return "Connection hiccup — check your signal and try again.";
+  }
+  return "Oto ran into a problem. Please try again in a moment.";
+}
 
 // ============================================================================
 // MAIN COMPONENT
@@ -135,6 +174,24 @@ export default function AIChatScreen() {
   // Welcome screen state (from Zustand store)
   const hasSeenWelcome = useAIChatStore((state) => state.hasSeenWelcome);
   const setHasSeenWelcome = useAIChatStore((state) => state.setHasSeenWelcome);
+  // Gate the welcome decision on the persisted flag so a returning user
+  // doesn't flash the disclaimer while SecureStore resolves on a cold launch.
+  const [welcomeChecked, setWelcomeChecked] = useState(false);
+  useEffect(() => {
+    let active = true;
+    SecureStore.getItemAsync(OTO_WELCOME_SEEN_KEY)
+      .then((v) => {
+        if (!active) return;
+        if (v === "1") setHasSeenWelcome(true);
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (active) setWelcomeChecked(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, [setHasSeenWelcome]);
 
   // Chat history state — sidebar list now sourced from Convex so Oto-AI-path
   // conversations show up across mounts. saveCurrentConversation/loadConversation
@@ -146,30 +203,46 @@ export default function AIChatScreen() {
   const convex = useConvex();
   const convexConversationsRaw = useQuery(api.ai_conversations.getByUserId);
   const conversations = React.useMemo(() => {
-    const rows = convexConversationsRaw ?? [];
+    // Hide empty conversations from the sidebar. A row is created on first
+    // send, but `message_count` only bumps after a successful turn — so a
+    // chat where nothing was said (or the send failed) sits at 0 and is
+    // just noise ("New conversation") in history. Keep anything with a real
+    // message, a user-set title, or an AI summary; drop the rest.
+    const rows = (convexConversationsRaw ?? []).filter(
+      (row: Doc<"ai_conversations">) =>
+        (row.message_count ?? 0) > 0 ||
+        !!(row.custom_title && row.custom_title.trim()) ||
+        !!(row.arc_summary && row.arc_summary.trim()),
+    );
     return rows.map((row: Doc<"ai_conversations">) => {
-      // Build a compact, topic-y title from Oto's running summary.
-      // Sequence: strip the "User …" prefix Oto narrates with → take
-      // just the first sentence → cap at 32 chars so the sidebar row
-      // never gets cut off mid-word by numberOfLines.
-      const raw = (row.arc_summary ?? row.scenario_detected ?? "").trim();
+      // A user-set (renamed) title always wins. Otherwise build a compact,
+      // topic-y title from Oto's running summary: strip the "User …" prefix
+      // Oto narrates with → take just the first sentence → cap at 32 chars
+      // so the sidebar row never gets cut off mid-word by numberOfLines.
+      const custom = (row.custom_title ?? "").trim();
       let title = "New conversation";
-      if (raw.length > 0) {
-        let cleaned = raw
-          .replace(/^(the\s+user|user)\s+/i, "")
-          .replace(/\s+/g, " ")
-          .trim();
-        // First sentence only — Oto's summaries often stack 2-3 sentences.
-        const firstSentence = cleaned.split(/(?<=[.!?])\s+/)[0] ?? cleaned;
-        cleaned = firstSentence.replace(/[.!?]+$/, "").trim();
-        if (cleaned.length > 0) {
-          cleaned = cleaned[0].toUpperCase() + cleaned.slice(1);
-          title = cleaned.length > 32 ? `${cleaned.slice(0, 32).trim()}…` : cleaned;
+      if (custom.length > 0) {
+        title = custom.length > 32 ? `${custom.slice(0, 32).trim()}…` : custom;
+      } else {
+        const raw = (row.arc_summary ?? row.scenario_detected ?? "").trim();
+        if (raw.length > 0) {
+          let cleaned = raw
+            .replace(/^(the\s+user|user)\s+/i, "")
+            .replace(/\s+/g, " ")
+            .trim();
+          // First sentence only — Oto's summaries often stack 2-3 sentences.
+          const firstSentence = cleaned.split(/(?<=[.!?])\s+/)[0] ?? cleaned;
+          cleaned = firstSentence.replace(/[.!?]+$/, "").trim();
+          if (cleaned.length > 0) {
+            cleaned = cleaned[0].toUpperCase() + cleaned.slice(1);
+            title = cleaned.length > 32 ? `${cleaned.slice(0, 32).trim()}…` : cleaned;
+          }
         }
       }
       return {
         id: row._id as string,
         title,
+        pinned: !!row.pinned_at,
       };
     });
   }, [convexConversationsRaw]);
@@ -184,6 +257,9 @@ export default function AIChatScreen() {
   // Oto AI action wiring — feature-flagged.
   const sendMessageAction = useAction(api.oto.chat.sendMessage);
   const createConversation = useMutation(api.ai_conversations.create);
+  const deleteConversation = useMutation(api.ai_conversations.remove);
+  const renameConversation = useMutation(api.ai_conversations.rename);
+  const setConversationPinned = useMutation(api.ai_conversations.setPinned);
   const [convexConversationId, setConvexConversationId] =
     useState<Id<"ai_conversations"> | null>(null);
   // appendEstablishedFact — mobile-side write into ai_conversations.established_facts
@@ -283,8 +359,8 @@ export default function AIChatScreen() {
   // Unified toast surface (migrated from AIToast — see docs/notifications).
   const toast = useToast();
   const showToast = useCallback(
-    (message: string) => {
-      toast.info(message);
+    (message: string, icon?: LucideIcon) => {
+      toast.info(message, undefined, icon ? { icon } : undefined);
     },
     [toast],
   );
@@ -327,6 +403,9 @@ export default function AIChatScreen() {
 
   const handleWelcomeContinue = () => {
     setHasSeenWelcome(true);
+    // Persist so it never shows again across launches. Non-fatal on failure —
+    // worst case the disclaimer reappears next cold launch.
+    SecureStore.setItemAsync(OTO_WELCOME_SEEN_KEY, "1").catch(() => {});
   };
 
   // Scroll to bottom when new messages arrive
@@ -337,6 +416,27 @@ export default function AIChatScreen() {
       }, 100);
     }
   }, [state.messages, isProcessing]);
+
+  // Pin-to-bottom, ChatGPT/Claude style. `scrollToEnd` on message changes
+  // alone misses content that grows AFTER the array settles — streaming
+  // tokens, the inline booking wizard expanding, images finishing layout.
+  // Tracking whether the user is near the bottom lets us auto-follow that
+  // growth without yanking them down when they've scrolled up to read.
+  const isNearBottomRef = useRef(true);
+  const handleChatScroll = useCallback(
+    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const { layoutMeasurement, contentOffset, contentSize } = e.nativeEvent;
+      const distanceFromBottom =
+        contentSize.height - (contentOffset.y + layoutMeasurement.height);
+      isNearBottomRef.current = distanceFromBottom < 140;
+    },
+    [],
+  );
+  const handleChatContentSizeChange = useCallback(() => {
+    if (isNearBottomRef.current) {
+      scrollViewRef.current?.scrollToEnd({ animated: true });
+    }
+  }, []);
 
   // Smooth scroll to bottom when input is focused
   const handleInputFocus = useCallback(() => {
@@ -373,7 +473,7 @@ export default function AIChatScreen() {
         return prev.filter(u => u !== uri);
       }
       if (prev.length >= 10) {
-        showToast("Maximum 10 images allowed");
+        showToast("Maximum 10 images allowed", ImageOff);
         return prev;
       }
       return [...prev, uri];
@@ -391,6 +491,10 @@ export default function AIChatScreen() {
     await startRecording();
   }, [isProcessing, startRecording]);
 
+  // Write-gate primitive — declared above the send funnel so `sendToOtoAI`
+  // (and every surface that calls it) can hard-stop offline sends.
+  const canWrite = useCanWrite();
+
   // ──────────────────────────────────────────────────────────────────────
   // sendToOtoAI — single funnel for every user-input surface
   //
@@ -407,6 +511,7 @@ export default function AIChatScreen() {
   // ──────────────────────────────────────────────────────────────────────
   const sendToOtoAI = useCallback(
     async (messageText: string, attachedImages?: string[]) => {
+      if (!canWrite) return;
       if (isProcessing) return;
       const hasText = messageText.trim().length > 0;
       const hasImages = !!attachedImages && attachedImages.length > 0;
@@ -414,7 +519,7 @@ export default function AIChatScreen() {
 
       if (!convexUser?._id) {
         // Auth not ready yet — bail out gracefully.
-        showToast("Still signing you in — try again in a sec.");
+        showToast("Still signing you in — try again in a sec.", Clock);
         return;
       }
 
@@ -572,10 +677,9 @@ export default function AIChatScreen() {
           setIsProcessing(false);
         }, Math.min(text.length * 30, 3000));
       } catch (err) {
-        // Surface the error in-chat so the loop is debuggable without
-        // having to open the inspector. Refine before launch.
-        const errorMessage =
-          err instanceof Error ? err.message : "Something went wrong.";
+        // Log the raw error (stack + provider JSON) for debugging, but NEVER
+        // put it in the transcript — the user gets a short, friendly line.
+        console.warn("[Oto] sendMessage failed:", err);
         setState((prev) => ({
           ...prev,
           messages: [
@@ -583,7 +687,7 @@ export default function AIChatScreen() {
             {
               id: `err_${Date.now()}`,
               role: "assistant",
-              content: `(Oto error: ${errorMessage})`,
+              content: friendlyOtoError(err),
               timestamp: new Date().toISOString(),
             },
           ],
@@ -600,6 +704,7 @@ export default function AIChatScreen() {
       selectedVehicleVin,
       rawVehicles,
       showToast,
+      canWrite,
     ]
   );
 
@@ -802,11 +907,17 @@ export default function AIChatScreen() {
   const handleCopy = useCallback(async (content: string) => {
     try {
       await Clipboard.setStringAsync(content);
-      showToast("Message copied");
+      showToast("Message copied", Copy);
     } catch (error) {
       console.error("Copy error:", error);
     }
   }, [showToast]);
+
+  // Edit a sent user message → drop its text back into the composer so the
+  // user can tweak and re-send it.
+  const handleEditUserMessage = useCallback((content: string) => {
+    setInputValue(content);
+  }, []);
 
   // Handle speak message
   const handleSpeak = useCallback((content: string) => {
@@ -814,7 +925,7 @@ export default function AIChatScreen() {
       language: "en-US",
       rate: 1.0,
     });
-    showToast("Playing audio...");
+    showToast("Playing audio...", Volume2);
   }, [showToast]);
 
   // Sprint 4 — thumbs up / down open the feedback modal so the user can add
@@ -849,7 +960,7 @@ export default function AIChatScreen() {
   // active sendToOtoAI closure.
   const startNewChat = useCallback(() => {
     if (isProcessing) {
-      showToast("Wait for the current response to finish before starting a new chat.");
+      showToast("Wait for the current response to finish before starting a new chat.", Clock);
       return;
     }
     startNewConversation(); // Reset in store (clears currentConversationId)
@@ -887,21 +998,111 @@ export default function AIChatScreen() {
         const messages: ChatMessage[] = (rows ?? [])
           .slice()
           .sort((a: any, b: any) => a.timestamp - b.timestamp)
-          .map((row: any) => ({
-            id: row._id as string,
-            role: row.role === "user" ? "user" : "assistant",
-            content: row.content,
-            timestamp: new Date(row.timestamp).toISOString(),
-          }));
+          .map((row: any) => {
+            // Rebuild the persisted render envelope so inline components
+            // (booking flow, quick replies, cards, …) come back instead of a
+            // text-only transcript.
+            const r = (row.render ?? {}) as Partial<ChatMessage>;
+            return {
+              id: row._id as string,
+              role: row.role === "user" ? "user" : "assistant",
+              content: row.content,
+              timestamp: new Date(row.timestamp).toISOString(),
+              quickReplies: r.quickReplies,
+              showRecordConfirmation: r.showRecordConfirmation,
+              bookService: r.bookService,
+              linkButton: r.linkButton,
+              bookingCard: r.bookingCard,
+              bookingsList: r.bookingsList,
+              reasoning: r.reasoning,
+              sources: r.sources,
+              stage: r.bookService ? "confirmation" : undefined,
+            } as ChatMessage;
+          });
         setState((prev) => ({ ...prev, messages }));
         setConvexConversationId(conversationId as Id<"ai_conversations">);
         setInputValue("");
         setIsProcessing(false);
       } catch (err) {
-        showToast("Couldn't load that conversation.");
+        showToast("Couldn't load that conversation.", AlertCircle);
       }
     },
     [loadConversation, convex, showToast]
+  );
+
+  const handleDeleteConversation = useCallback(
+    (conversationId: string) => {
+      Alert.alert(
+        "Delete conversation?",
+        "This permanently removes it and its messages.",
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Delete",
+            style: "destructive",
+            onPress: async () => {
+              try {
+                await deleteConversation({
+                  id: conversationId as Id<"ai_conversations">,
+                });
+                // If it's the one we're currently viewing, drop back to a
+                // fresh chat so we're not showing a deleted conversation.
+                if (convexConversationId === conversationId) {
+                  startNewChat();
+                }
+              } catch {
+                showToast("Couldn't delete that conversation.", AlertCircle);
+              }
+            },
+          },
+        ],
+      );
+    },
+    [deleteConversation, convexConversationId, startNewChat, showToast],
+  );
+
+  const handleRenameConversation = useCallback(
+    (conversationId: string, currentTitle: string) => {
+      Alert.prompt(
+        "Rename conversation",
+        undefined,
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Save",
+            onPress: async (value?: string) => {
+              const next = (value ?? "").trim();
+              if (!next) return;
+              try {
+                await renameConversation({
+                  id: conversationId as Id<"ai_conversations">,
+                  title: next,
+                });
+              } catch {
+                showToast("Couldn't rename that conversation.", AlertCircle);
+              }
+            },
+          },
+        ],
+        "plain-text",
+        currentTitle,
+      );
+    },
+    [renameConversation, showToast],
+  );
+
+  const handleTogglePin = useCallback(
+    async (conversationId: string, pinned: boolean) => {
+      try {
+        await setConversationPinned({
+          id: conversationId as Id<"ai_conversations">,
+          pinned,
+        });
+      } catch {
+        showToast("Couldn't update that conversation.", AlertCircle);
+      }
+    },
+    [setConversationPinned, showToast],
   );
 
   // Model selector
@@ -1007,17 +1208,31 @@ export default function AIChatScreen() {
       if (shouldClose) runOnJS(handleDrawerClose)();
     });
 
+  // Outer card: translate + shadow ONLY. Must NOT clip (overflow:hidden
+  // masks the shadow away — the reason the swiped page was invisible). The
+  // shadow is what makes the page read as a floating layer over the drawer,
+  // like Claude/ChatGPT.
   const chatCardStyle = useAnimatedStyle(() => {
     const translateX = interpolate(drawerProgress.value, [0, 1], [0, DRAWER_TRANSLATE]);
     const borderRadius = interpolate(drawerProgress.value, [0, 1], [0, DRAWER_RADIUS]);
     return {
       transform: [{ translateX }],
       borderRadius,
-      overflow: drawerProgress.value > 0 ? 'hidden' as const : 'visible' as const,
       shadowColor: '#000',
-      shadowOffset: { width: -5, height: 0 },
-      shadowRadius: 15,
-      shadowOpacity: interpolate(drawerProgress.value, [0, 1], [0, 0.25]),
+      shadowOffset: { width: -8, height: 0 },
+      shadowRadius: 24,
+      shadowOpacity: interpolate(drawerProgress.value, [0, 1], [0, 0.18]),
+      elevation: interpolate(drawerProgress.value, [0, 1], [0, 16]),
+    };
+  });
+
+  // Inner layer clips the content to the rounded corners while the shadow
+  // lives on the (unclipped) outer view above.
+  const chatCardClipStyle = useAnimatedStyle(() => {
+    const borderRadius = interpolate(drawerProgress.value, [0, 1], [0, DRAWER_RADIUS]);
+    return {
+      borderRadius,
+      overflow: drawerProgress.value > 0 ? 'hidden' as const : 'visible' as const,
     };
   });
 
@@ -1040,17 +1255,24 @@ export default function AIChatScreen() {
   // or sent at least one message.
   const showChatGreeting = state.messages.length === 0 && !isCarConfirmed;
 
-  // Show welcome screen if not seen
+  // Show the welcome/disclaimer only the very first time. While the persisted
+  // flag is still loading, render nothing (not the welcome) so a returning
+  // user never sees a flash of the disclaimer on a cold launch.
   if (!hasSeenWelcome) {
+    if (!welcomeChecked) {
+      return <View style={[styles.drawerRoot, { backgroundColor: '#F7F8FA' }]} />;
+    }
     return <AIWelcomeScreen onContinue={handleWelcomeContinue} />;
   }
 
   return (
     <View style={styles.drawerRoot}>
-      {/* Sidebar background — solid white so the AIChatHistory list
-          reads as a clean panel instead of a gray drawer. */}
+      {/* Sidebar background — a subtle off-white so the (white) chat card
+          reads as a distinct floating layer when swiped over it. Pure white
+          made the two surfaces blend into one; this is the ChatGPT/Claude
+          pattern where the drawer sits a shade behind the page. */}
       <LinearGradient
-        colors={['#FFFFFF', '#FFFFFF']}
+        colors={['#F7F8FA', '#F7F8FA']}
         locations={[0, 1]}
         style={StyleSheet.absoluteFillObject}
       />
@@ -1064,13 +1286,18 @@ export default function AIChatScreen() {
             handleSelectConversation(id);
             closeDrawer();
           }}
+          onDeleteConversation={handleDeleteConversation}
+          onRenameConversation={handleRenameConversation}
+          onTogglePinConversation={handleTogglePin}
           paddingTop={insets.top}
         />
       </View>
 
-      {/* Chat card — slides right to reveal sidebar */}
+      {/* Chat card — slides right to reveal sidebar. Outer view carries the
+          shadow (unclipped); inner clip rounds the corners. */}
       <GestureDetector gesture={showHistory ? closeGesture : openGesture}>
         <Animated.View style={[styles.container, chatCardStyle]}>
+        <Animated.View style={[styles.cardClip, chatCardClipStyle]}>
 
       {/* Tap overlay to close drawer when open */}
       {showHistory && (
@@ -1087,7 +1314,7 @@ export default function AIChatScreen() {
       <Animated.View style={[StyleSheet.absoluteFillObject, gradientFadeStyle]} pointerEvents="none">
         <LinearGradient
           colors={['#A5CDFF', '#D6E8FF', '#FFFFFF']}
-          locations={[0, 0.55, 1]}
+          locations={[0, 0.1, 0.2]}
           start={{ x: 0, y: 0 }}
           end={{ x: 0, y: 1 }}
           style={StyleSheet.absoluteFillObject}
@@ -1096,6 +1323,18 @@ export default function AIChatScreen() {
 
       {/* Content wrapper — fades when drawer opens, background stays full opacity */}
       <Animated.View style={[{ flex: 1 }, contentFadeStyle]}>
+
+      {/* Header scrim — a soft gradient that masks the message list scrolling
+          behind the translucent floating header, so the top reads clean
+          instead of showing chat content bleeding up through the icons. */}
+      {!showChatGreeting && (
+        <LinearGradient
+          pointerEvents="none"
+          colors={['#A5CDFF', '#D6E8FF', 'rgba(255,255,255,0)']}
+          locations={[0, 0.5, 1]}
+          style={[styles.headerScrim, { height: HEADER_HEIGHT + 20 }]}
+        />
+      )}
 
       {/* Header — absolutely positioned, floats above scroll */}
       {(showOtoMenu || showRightMenu) && <Pressable style={styles.otoMenuOverlay} onPress={closeOtoMenu} />}
@@ -1311,6 +1550,9 @@ export default function AIChatScreen() {
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
           scrollEnabled={!showChatGreeting}
+          onScroll={handleChatScroll}
+          scrollEventThrottle={16}
+          onContentSizeChange={handleChatContentSizeChange}
         >
           {showChatGreeting ? (
             <AIGreeting
@@ -1383,6 +1625,11 @@ export default function AIChatScreen() {
                       onLike={() => openFeedbackModal("thumbs_up", message)}
                       onDislike={() => openFeedbackModal("thumbs_down", message)}
                       onQuickReplySelect={handleQuickReplySelect}
+                      onEdit={
+                        message.role === "user"
+                          ? () => handleEditUserMessage(message.content)
+                          : undefined
+                      }
                     />
                     {terminalKind === "bookService" && message.bookService && (
                       <View style={styles.servicePickerContainer}>
@@ -1441,7 +1688,11 @@ export default function AIChatScreen() {
                 const isWaitingForReply = !lastMsg || lastMsg.role !== "assistant";
                 return isProcessing && isWaitingForReply ? (
                   <View style={styles.typingIndicatorWrapper}>
-                    <AITypingIndicator />
+                    <AITypingIndicator
+                      userMessage={
+                        lastMsg?.role === "user" ? lastMsg.content : undefined
+                      }
+                    />
                   </View>
                 ) : null;
               })()}
@@ -1479,10 +1730,17 @@ export default function AIChatScreen() {
           right: 0,
           bottom: keyboardHeight > 0 ? keyboardHeight + 8 : bottomPadding + 8,
         }}>
-          <AISelectedImages
-            images={selectedImages}
-            onRemove={handleRemoveImage}
-          />
+          {/* Selected images render inside the composer (AIInputBox) now,
+              ChatGPT-style — the standalone AISelectedImages strip was
+              dropped in favor of that. Offline note stays. */}
+          {!canWrite ? (
+            <View style={styles.otoOfflineNote}>
+              <WifiOff size={14} color="#6B7280" />
+              <Text size="xs" weight="regular" color="#6B7280">
+                Oto needs a connection to reply
+              </Text>
+            </View>
+          ) : null}
           <AIInputBox
             value={inputValue}
             onChangeText={setInputValue}
@@ -1498,6 +1756,10 @@ export default function AIChatScreen() {
             isAttachmentOpen={isAttachmentOpen}
             onToggleAttachment={handleToggleAttachment}
             hasImages={selectedImages.length > 0}
+            selectedImages={selectedImages}
+            onRemoveImage={handleRemoveImage}
+            disabled={!canWrite}
+            placeholder={canWrite ? "Ask Oto" : "Reconnect to chat with Oto"}
           />
           {isAttachmentOpen && (
             <AIAttachmentPanel
@@ -1527,6 +1789,7 @@ export default function AIChatScreen() {
 
       </Animated.View>
         </Animated.View>
+        </Animated.View>
       </GestureDetector>
     </View>
   );
@@ -1543,7 +1806,13 @@ const styles = StyleSheet.create({
   },
   container: {
     flex: 1,
-    // transparent so the LinearGradient layer underneath shows through
+    // White so the outer card casts a clean rounded shadow when swiped
+    // (the gradient/content sits on top in the clip layer). When the drawer
+    // is closed this is fully covered, so it's invisible at rest.
+    backgroundColor: '#FFFFFF',
+  },
+  cardClip: {
+    flex: 1,
     backgroundColor: 'transparent',
   },
   header: {
@@ -1564,6 +1833,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.lg,
     paddingVertical: Spacing.md,
     zIndex: 10,
+  },
+  // Sits behind the floating header (zIndex 10) but above the scrolling
+  // message list, so content fades out under the header instead of
+  // colliding with the icons.
+  headerScrim: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 5,
   },
   // Left + right zones share the same width so the centered "Oto" pill
   // stays optically centered. 40 (hamburger) + 10 (gap) + 40 (avatar) =
@@ -1731,5 +2010,12 @@ const styles = StyleSheet.create({
     color: "#000000",
     textAlign: "center",
     marginBottom: Spacing.xs,
+  },
+  otoOfflineNote: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingBottom: 6,
   },
 });

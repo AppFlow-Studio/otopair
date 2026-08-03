@@ -53,6 +53,7 @@ import { useMechanicStore } from "@/stores/useMechanicStore";
 import { useShopStore } from "@/stores/useShopStore";
 import { distanceBetween } from "@/utils/geo";
 import { useNearbyBookingShops } from "@/hooks/useNearbyBookingShops";
+import { useOfflineGuard } from "@/hooks/useOfflineGuard";
 import { useNextAvailabilityForShop } from "@/hooks/useNextAvailabilityForShop";
 import { useBookingLaborHoursMap } from "@/hooks/useBookingLaborHoursMap";
 import { useBookingPartsBreakdown } from "@/hooks/useBookingPartsBreakdown";
@@ -62,14 +63,16 @@ import { useVehicleStore } from "@/stores/useVehicleStore";
 import { buildShopPriceLabel } from "@/lib/shopPriceLabel";
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
-// Two snap points: standard (~53%, the default that fits the
-// active shop card + mechanic strip) and expanded (~82% for
-// scrolling reviews etc). With `enablePanDownToClose`, the user
-// can also drag the sheet OUT of view entirely — at which point
-// `sheetIndex === -1` and the screen swaps to the browse-card
-// carousel (ChatGPT-style "shops on a map" mode). Tap a card to
-// bring the sheet back to index 0.
-const SNAP_POINTS = ["53%", "82%"] as const;
+// Single snap point (~56%, tall enough that the horizontal-carousel
+// page-indicator dots land above the Continue bar). The content here is
+// fixed-height (summary card + a horizontal-paged mechanic carousel), so
+// the old second "expanded" snap (82%) just opened a wall of empty white
+// space above it — removed. With `enablePanDownToClose`, the user can
+// still drag the sheet OUT of view entirely — at which point
+// `sheetIndex === -1` and the screen swaps to the browse-card carousel
+// (ChatGPT-style "shops on a map" mode). Tap a card to bring the sheet
+// back to index 0.
+const SNAP_POINTS = ["56%"] as const;
 
 export default function ChooseMechanicScreen() {
   const router = useRouter();
@@ -131,6 +134,10 @@ export default function ChooseMechanicScreen() {
   );
 
   const { results: nearbyResults, isLoading: shopsLoading } = useNearbyBookingShops(5);
+  // Map-screen offline rule (same wiring as select-services): entering
+  // fresh while offline with no hydrated shops → CantLoadModal sends the
+  // user back; if shops are already cached, the pill alone is enough.
+  useOfflineGuard(shopsLoading ? undefined : nearbyResults);
   const getShopById = useShopStore((s) => s.getShopById);
   const userLocationForDistance = useBookingStore((s) => s.userLocation);
 
@@ -285,6 +292,20 @@ export default function ChooseMechanicScreen() {
       sheetAnimatedIndex.value,
       [-1, 0],
       [1, 0],
+      Extrapolation.CLAMP,
+    ),
+  }));
+  // Floating MapShopCard fades WITH the sheet (visible when open,
+  // gone when closed). Driven off the same drag value so it
+  // cross-fades continuously as the user slides the sheet down/up —
+  // previously it was mount-gated on `isSheetHidden`, which only
+  // flips after the sheet fully settles, so the card popped out
+  // abruptly at the end of the drag instead of fading.
+  const mapShopCardStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(
+      sheetAnimatedIndex.value,
+      [-1, 0],
+      [0, 1],
       Extrapolation.CLAMP,
     ),
   }));
@@ -590,18 +611,25 @@ export default function ChooseMechanicScreen() {
             status), ChatGPT-style. Swiping the pager changes
             the active shop; tapping a card brings the sheet
             back. */}
-      {activeShop && !isSheetHidden ? (
-        <View style={styles.shopCardWrap} pointerEvents="box-none">
+      {activeShop ? (
+        <Animated.View
+          style={[styles.shopCardWrap, mapShopCardStyle]}
+          // Only interactive while the sheet is open; once it fades out
+          // (sheet closed → browse mode), let taps fall through to the
+          // browse carousel / map beneath.
+          pointerEvents={isSheetHidden ? "none" : "box-none"}
+        >
           <MapShopCard
             shopId={activeShop.id}
             shopName={activeShop.name}
+            imageUrl={activeShop.imageUrl}
             rating={activeShop.rating}
             distanceMi={activeDistanceMi}
             priceRange={activePriceLabel.text}
             isFixed={activePriceLabel.isFixed}
             nextSlotLabel={activeNextSlotLabel}
           />
-        </View>
+        </Animated.View>
       ) : null}
       {/* Browse-card carousel. Always mounted so the ScrollView
           keeps its position across open/close transitions, but
@@ -640,7 +668,7 @@ export default function ChooseMechanicScreen() {
       </Animated.View>
 
       {/* Floating right rail — visual only for Phase 3 */}
-      <View style={[styles.rightRail, { top: insets.top + 200 }]} pointerEvents="box-none">
+      <View style={[styles.rightRail, { top: insets.top + 190 }]} pointerEvents="box-none">
         <Pressable
           style={styles.railBtn}
           onPress={onZoomIn}
@@ -810,7 +838,7 @@ const styles = StyleSheet.create({
   },
   shopCardWrap: {
     position: "absolute",
-    top: "30%",
+    top: "26%",
     left: 16,
     right: 16,
     alignItems: "center",

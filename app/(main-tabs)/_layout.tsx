@@ -22,6 +22,7 @@ import { NotificationsSheet } from "@/components/notifications/NotificationsShee
 import { RescheduleDecisionOverlay } from "@/components/notifications/RescheduleDecisionOverlay";
 import { shouldRedirectSignedOutFromMainTabs } from "@/lib/auth-routing";
 import { SettingsOverlay } from "@/components/settings/SettingsOverlay";
+import { OfflinePreload } from "@/components/connection/OfflinePreload";
 // OTA update banner only matters in EAS builds. In a local dev build
 // expo-updates' native module isn't linked, and the static import chain
 // (UpdateAvailableBanner → useEasUpdate → expo-updates) throws "Cannot
@@ -104,6 +105,7 @@ function ProtectedTabLayout() {
     return (
       <>
         <HydrateBookingData />
+        <OfflinePreload />
         <Tabs
           tabBar={(props) => <TabBar {...props} />}
           screenOptions={{
@@ -154,6 +156,7 @@ function ProtectedTabLayout() {
   return (
     <>
       <HydrateBookingData />
+      <OfflinePreload />
       <NativeTabs>
         <NativeTabs.Trigger name="home">
           <Label>{"Home"}</Label>

@@ -28,7 +28,7 @@ function shopNeedsCoords(s: Shop): boolean {
   );
 }
 
-function mapConvexShopToStore(shop: Doc<"shops">, serviceIds: string[]): Shop {
+function mapConvexShopToStore(shop: Doc<"shops"> & { logoUrl?: string | null }, serviceIds: string[]): Shop {
   const address = [shop.address, shop.city, shop.state, shop.zip].filter(Boolean).join(", ");
   return {
     id: shop._id,
@@ -42,7 +42,7 @@ function mapConvexShopToStore(shop: Doc<"shops">, serviceIds: string[]): Shop {
     distanceKm: null,
     rating: shop.rating ?? null,
     reviewCount: shop.review_count != null ? Math.round(Number(shop.review_count)) : undefined,
-    imageUrl: null,
+    imageUrl: shop.logoUrl ?? null,
     availability: shop.is_active ? 7 : 0,
     hasAvailableSlots: shop.is_active ?? false,
     nextAvailableSlot: shop.is_active ? null : null,
@@ -72,7 +72,7 @@ export function useShopsFromConvex() {
       serviceIdsByShop[shopKey].push(ss.service_id as string);
     }
 
-    return (convexShops as Doc<"shops">[]).map((shop) => {
+    return (convexShops as (Doc<"shops"> & { logoUrl?: string | null })[]).map((shop) => {
       const mapped = mapConvexShopToStore(shop, serviceIdsByShop[shop._id as string] ?? []);
       const fallback = geocoded[mapped.id];
       if (fallback && mapped.latitude === 0 && mapped.longitude === 0) {

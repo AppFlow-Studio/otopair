@@ -32,7 +32,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
 import { useLocalSearchParams } from 'expo-router';
 import { useGuardedRouter as useRouter } from '@/hooks/useGuardedRouter';
-import { ArrowLeft, Bell, Car, ChevronDown, CircleDot, Cog, Fuel, Gauge, History, MapPin, Plus, Wrench } from 'lucide-react-native';
+import { ArrowLeft, Bell, Car, Check, ChevronDown, CircleDot, Cog, Fuel, Gauge, History, MapPin, Wrench, X } from 'lucide-react-native';
 import { useAction, useMutation, useQuery } from 'convex/react';
 
 // 3. App imports
@@ -586,7 +586,7 @@ export default function AddVehicleReviewScreen() {
             disabled={vdbVariants.length === 0}
           >
             <View style={styles.trimPillIcon}>
-              <Cog size={scale(13)} color="#5299FE" strokeWidth={2.2} />
+              <Car size={scale(13)} color="#5299FE" strokeWidth={2.2} />
             </View>
             <Text
               weight="semiBold"
@@ -724,12 +724,9 @@ export default function AddVehicleReviewScreen() {
             {isConfirming ? (
               <ActivityIndicator size="small" color="#5299FE" />
             ) : (
-              <>
-                <Plus size={scale(20)} color="#5299FE" strokeWidth={2} />
-                <Text weight="bold" size="md" color="#5299FE">
-                  Add Vehicle
-                </Text>
-              </>
+              <Text weight="bold" size="md" color="#5299FE">
+                Continue
+              </Text>
             )}
           </Pressable>
         </View>
@@ -740,21 +737,38 @@ export default function AddVehicleReviewScreen() {
           `selectedTrim` which re-keys the colors/image fetch. */}
       <FloatingSheet
         ref={trimSheetRef}
-        snapHeights={[Math.min(400, 80 + vdbVariants.length * 56)]}
+        snapHeights={[Math.min(500, 140 + vdbVariants.length * 72)]}
         showBackdrop
         backdropMode="blur"
         onClose={() => setShowTrimSheet(false)}
       >
+        <View style={styles.trimSheetHeader}>
+          <View style={styles.trimSheetTitleCol}>
+            <Text weight="bold" size="lg" color="#0F172A">
+              Pick your trim
+            </Text>
+            <Text
+              size="sm"
+              weight="medium"
+              color="#6B7280"
+              style={styles.trimSheetSubtitle}
+            >
+              {params.year} {params.make} {params.model}
+            </Text>
+          </View>
+          <Pressable
+            onPress={() => trimSheetRef.current?.close()}
+            style={styles.trimSheetCloseBtn}
+            hitSlop={8}
+            accessibilityLabel="Close"
+          >
+            <X size={16} color="#0F172A" strokeWidth={2.4} />
+          </Pressable>
+        </View>
         <ScrollView
           contentContainerStyle={styles.trimSheetBody}
           showsVerticalScrollIndicator={false}
         >
-          <Text weight="bold" size="xl" color="#111827">
-            Pick your trim
-          </Text>
-          <Text size="sm" color="#6B7280" style={{ marginTop: scale(4), marginBottom: scale(12) }}>
-            {params.year} {params.make} {params.model}
-          </Text>
           {vdbVariants.map((variant) => {
             const isSelected =
               !!selectedVariant &&
@@ -767,16 +781,28 @@ export default function AddVehicleReviewScreen() {
                   setSelectedVariant(variant);
                   trimSheetRef.current?.close();
                 }}
-                style={[styles.trimRow, isSelected && styles.trimRowSelected]}
+                style={({ pressed }) => [
+                  styles.trimRow,
+                  isSelected && styles.trimRowSelected,
+                  pressed && !isSelected && styles.trimRowPressed,
+                ]}
+                accessibilityRole="button"
+                accessibilityState={{ selected: isSelected }}
               >
                 <Text
-                  weight={isSelected ? 'semiBold' : 'regular'}
+                  weight="semiBold"
                   size="md"
-                  color={isSelected ? '#5299FE' : '#1F2937'}
+                  color="#0F172A"
                   numberOfLines={2}
+                  style={styles.trimRowLabel}
                 >
                   {variant.trim}
                 </Text>
+                {isSelected ? (
+                  <View style={styles.trimRowCheckPill}>
+                    <Check size={16} color="#FFFFFF" strokeWidth={2.5} />
+                  </View>
+                ) : null}
               </Pressable>
             );
           })}
@@ -896,19 +922,70 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     letterSpacing: 0.1,
   },
+  trimSheetHeader: {
+    // Otopair sheet header — title + optional subtitle on the
+    // left, soft-tinted close X on the right. Matches the
+    // pattern used on the add-car-info picker sheets.
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingTop: 10,
+    paddingBottom: 14,
+    gap: 12,
+  },
+  trimSheetTitleCol: {
+    flexShrink: 1,
+    minWidth: 0,
+  },
+  trimSheetSubtitle: {
+    marginTop: 2,
+  },
+  trimSheetCloseBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(15, 23, 42, 0.06)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   trimSheetBody: {
-    paddingHorizontal: scale(20),
-    paddingTop: scale(8),
-    paddingBottom: scale(24),
+    paddingHorizontal: 20,
+    paddingTop: 4,
+    paddingBottom: 24,
+    gap: 8,
   },
   trimRow: {
-    paddingVertical: scale(14),
-    paddingHorizontal: scale(12),
-    borderRadius: moderateScale(8),
-    marginBottom: scale(4),
+    // Card treatment matching the add-car-info picker rows and
+    // Screen 2 ServiceMultiSelectRow.
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.55)',
+    borderWidth: 1,
+    borderColor: 'rgba(15, 23, 42, 0.06)',
+  },
+  trimRowPressed: {
+    backgroundColor: 'rgba(15, 23, 42, 0.04)',
   },
   trimRowSelected: {
-    backgroundColor: '#EEF4FF',
+    backgroundColor: 'rgba(82, 153, 254, 0.14)',
+    borderColor: 'rgba(82, 153, 254, 0.45)',
+  },
+  trimRowLabel: {
+    flex: 1,
+    minWidth: 0,
+  },
+  trimRowCheckPill: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#0F172A',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   vinBadge: {
     backgroundColor: '#1a1a1a',

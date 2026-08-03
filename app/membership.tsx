@@ -884,6 +884,8 @@ export default function MembershipPage() {
                         await redeemSelected({ userId, option: "giftcard" });
                         toast.success(
                           "Gift card on its way — arrives within 3 business days.",
+                          undefined,
+                          { icon: Gift },
                         );
                       }
                       closeRedeemSheet();

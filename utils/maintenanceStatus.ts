@@ -20,6 +20,7 @@
  */
 
 import type { MaintenanceStatus } from "@/components/cars/MaintenanceTracker";
+import { formatMileage } from "@/lib/vehicle-passport";
 import { canonicalWarningLights } from "@/lib/warningLightVocab";
 
 // ============================================================================
@@ -391,6 +392,62 @@ export function computeMaintenanceStatus(
 }
 
 // ============================================================================
+// FROM-ODOMETER INFERENCE (catalog services without a user record)
+// ============================================================================
+
+interface FromOdometerInput {
+  /** OEM interval in miles, pre-clamped by `safeInterval()` in
+   *  `serviceIntervalGuardrails.ts`. */
+  interval_miles: number;
+  currentOdometer: number;
+  /** Miles at last known service; `undefined` measures from new. */
+  lastServiceMileage?: number;
+  serviceName?: string;
+}
+
+/**
+ * From-odometer inference — the primitive that unblocks catalog
+ * coverage (Maintenance Proposal Behavior #7). Same `StatusResult`
+ * shape as the anchored per-type functions so downstream (health
+ * score, urgency tiers, tracker render) doesn't branch on the
+ * item's origin. No time-derived fields — inference has no time
+ * anchor until a user record lands.
+ */
+export function computeFromOdometerStatus(input: FromOdometerInput): StatusResult {
+  const { interval_miles, currentOdometer, lastServiceMileage, serviceName } = input;
+  const baseline = lastServiceMileage ?? 0;
+  const used = Math.max(0, currentOdometer - baseline);
+  const percentUsed = Math.min(100, Math.max(0, (used / interval_miles) * 100));
+  const remaining = Math.max(0, interval_miles - used);
+
+  const label = serviceName ?? "This service";
+  let status: MaintenanceStatus;
+  let description: string;
+
+  if (percentUsed >= 100) {
+    status = "overdue";
+    description = `${formatMileage(used - interval_miles)} past interval — ${label} overdue`;
+  } else if (percentUsed >= 90) {
+    status = "due_soon";
+    description = `About ${formatMileage(remaining)} until due`;
+  } else if (percentUsed >= 70) {
+    status = "needs_attention";
+    description = `About ${formatMileage(remaining)} until due`;
+  } else {
+    status = "on_time";
+    description = `${formatMileage(remaining)} of interval remaining`;
+  }
+
+  // Detail feeds the signal-pill row (Behavior #1: cite the axis).
+  const detail =
+    lastServiceMileage != null
+      ? `${formatMileage(used)} since last service`
+      : `${formatMileage(currentOdometer)} vs ${formatMileage(interval_miles)} interval`;
+
+  return { status, percentUsed, description, detail, milesRemaining: remaining };
+}
+
+// ============================================================================
 // OIL STATUS (hybrid + warning light escalation)
 // ============================================================================
 
@@ -433,12 +490,20 @@ function computeOilStatus(
 }
 
 function escalateForWarningLight(result: StatusResult, description: string): StatusResult {
+  // Warning lights are assertive "act-now" signals per Yassin v1.1 §3.2.
+  // Escalate straight to `overdue` with percentUsed=100 so items with a
+  // paired light land in urgency tier "now" (for weight ≥20 categories:
+  // oil / tires / brakes / warning). A base-status already at overdue
+  // stays overdue but gets the warning-light copy prepended.
   const SEVERITY_ORDER: MaintenanceStatus[] = ["on_time", "unknown", "due_soon", "needs_attention", "overdue"];
   const currentIdx = SEVERITY_ORDER.indexOf(result.status);
-  const targetIdx = SEVERITY_ORDER.indexOf("needs_attention");
+  const targetIdx = SEVERITY_ORDER.indexOf("overdue");
   if (currentIdx < targetIdx) {
-    return { ...result, status: "needs_attention", description, percentUsed: Math.max(result.percentUsed, 75) };
+    return { ...result, status: "overdue", description, percentUsed: 100 };
   }
+  // Already at overdue — preserve the original percentUsed. Clamping to 100
+  // would collapse "wildly overdue" (e.g. 130%) into "just crossed," and
+  // downstream urgency sort ranks by percentUsed.
   return { ...result, description: `${description} · ${result.description}` };
 }
 
@@ -898,12 +963,13 @@ function computeBatteryStatus(
 
   // Pure age-based
   if (monthsSince >= BATTERY_URGENT_MONTHS) {
-    // 4.5+ years → overdue
-    const yearsOld = (monthsSince / 12).toFixed(1);
+    // 4.5+ years → overdue. Round the age so copy reads human, not
+    // machine-generated ("Battery is about 25 years old" vs 25.5).
+    const yearsOld = Math.round(monthsSince / 12);
     return {
       status: "overdue",
       percentUsed: 100,
-      description: `Battery is ${yearsOld} years old — replacement recommended`,
+      description: `Battery is about ${yearsOld} years old — replacement recommended`,
       detail: formatRelativeTime(record.lastServiceDate, now),
     };
   }

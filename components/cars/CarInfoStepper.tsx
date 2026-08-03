@@ -14,7 +14,7 @@
  * OWNER: Ahmad Hamoudeh
  */
 
-import React, { useCallback, useEffect, useImperativeHandle, useRef, useState, forwardRef } from "react";
+import React, { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, forwardRef } from "react";
 import {
   Animated,
   Dimensions,
@@ -98,6 +98,20 @@ interface CarInfoStepperProps {
   onFinishForNow?: () => void;
   skipIntro?: boolean;
   onBack?: () => void;
+  /** Fires whenever the "all 5 answered" state changes. Lets the parent
+   *  header hide its back button on the "You're all set!" screen. */
+  onAllDoneChange?: (allDone: boolean) => void;
+  /** Previously saved (via "Finish for now") Service History answers, so the
+   *  grid rehydrates already-answered cards as complete. See
+   *  `vehicle_owners.serviceHistoryDraft`. */
+  initialDraft?: ServiceHistoryDraft | null;
+}
+
+interface ServiceHistoryDraft {
+  answers?: Partial<Record<ServiceCardId, Record<string, string | number | string[]>>>;
+  questionIndex?: Partial<Record<ServiceCardId, number>>;
+  progress?: Partial<Record<ServiceCardId, number>>;
+  completed?: ServiceCardId[];
 }
 
 type Phase = "intro" | "stepping";
@@ -322,6 +336,21 @@ function CardGridItem({ cardId, isDone, isJustCompleted, progress, onPress, isWi
     checkRotation.value = withDelay(400, withSpring(0, { damping: 12, stiffness: 180 }));
   }, [isJustCompleted]);
 
+  // Snap the completed visuals on when a card is already done but ISN'T
+  // mid-pop-animation — e.g. a draft rehydrated from "Finish for now",
+  // where `isDone` flips true after mount. The shared values were seeded
+  // from the initial `isDone`, so a later flip needs to push them here or
+  // the blue fill / check / glow never appear. No animation on purpose:
+  // this is a restore, not a fresh completion.
+  useEffect(() => {
+    if (!isDone || isJustCompleted) return;
+    completionAnim.value = 1;
+    glowShadowOpacity.value = 0.32;
+    glowShadowRadius.value = 18;
+    checkScale.value = 1;
+    checkRotation.value = 0;
+  }, [isDone, isJustCompleted]);
+
   const pressStyle = useAnimatedStyle(() => ({
     transform: [{ scale: pressScale.value }],
   }));
@@ -508,10 +537,13 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
   onFinishForNow,
   skipIntro = false,
   onBack,
+  initialDraft,
+  onAllDoneChange,
 }: CarInfoStepperProps, ref) {
   console.log('[CarInfoStepper] rendering — vehicleOwnerId:', vehicleOwnerId);
   const insets = useSafeAreaInsets();
   const saveField = useMutation(api.vehicles.saveOnboardingField);
+  const saveServiceHistoryDraft = useMutation(api.vehicle_owners.saveServiceHistoryDraft);
   const markComplete = useMutation(api.vehicle_owners.markOnboardingComplete);
 
   // ── Phase & step state ──────────────────────────────────────
@@ -588,6 +620,20 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
     Partial<Record<ServiceCardId, number>>
   >({});
 
+  // ── Rehydrate a saved "Finish for now" draft ───────────────
+  // Restores the answers, per-card progress, and completed set so a
+  // returning user sees the cards they already answered marked complete.
+  // Runs once, when the draft first becomes available.
+  const hydratedDraftRef = useRef(false);
+  useEffect(() => {
+    if (hydratedDraftRef.current || !initialDraft) return;
+    hydratedDraftRef.current = true;
+    if (initialDraft.answers) setServiceAnswers(initialDraft.answers);
+    if (initialDraft.questionIndex) setServiceQuestionIndex(initialDraft.questionIndex);
+    if (initialDraft.progress) setServiceProgress(initialDraft.progress);
+    if (initialDraft.completed?.length) setCompletedCards(new Set(initialDraft.completed));
+  }, [initialDraft]);
+
   // ── Finalize completion after animation ─────────────────────
   useEffect(() => {
     if (!justCompletedId) return;
@@ -597,6 +643,18 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
     }, 900);
     return () => clearTimeout(timer);
   }, [justCompletedId]);
+
+  // The footer counter + dots should reflect a card the instant it's
+  // completed — not wait out the 900ms settle animation above (which
+  // only exists so the card's checkmark can finish popping). Fold the
+  // just-completed card into a display set so "X of 5" and the dots
+  // update in sync with the checkmark.
+  const displayedCompleted = useMemo(() => {
+    if (justCompletedId && !completedCards.has(justCompletedId)) {
+      return new Set(completedCards).add(justCompletedId);
+    }
+    return completedCards;
+  }, [completedCards, justCompletedId]);
 
   // ── Steps (no branching) ────────────────────────────────────
   const steps: StepId[] = ["serviceGrid"];
@@ -739,6 +797,18 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
           await saveField({ vehicleOwnerId, field: cardId, value: answers });
         }
       }
+      // Persist the raw draft so re-opening the sheet rehydrates the
+      // already-answered cards as complete. `displayedCompleted` folds in
+      // any card mid-settle so nothing is dropped if the user exits fast.
+      await saveServiceHistoryDraft({
+        vehicleOwnerId,
+        draft: {
+          answers: serviceAnswers,
+          questionIndex: serviceQuestionIndex,
+          progress: serviceProgress,
+          completed: [...displayedCompleted],
+        },
+      });
       (onFinishForNow ?? onComplete)();
     } catch (err) {
       console.error("[CarInfoStepper] Finish-for-now save failed:", err);
@@ -746,7 +816,7 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
     } finally {
       setSaving(false);
     }
-  }, [vehicleOwnerId, serviceAnswers, saveField, onFinishForNow, onComplete]);
+  }, [vehicleOwnerId, serviceAnswers, serviceQuestionIndex, serviceProgress, displayedCompleted, saveField, saveServiceHistoryDraft, onFinishForNow, onComplete]);
 
   // ── All-done state ──────────────────────────────────────────
   const allDone = completedCards.size === ALL_CARD_IDS.length;
@@ -765,6 +835,13 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
       lottieTranslateY.value = withDelay(300, withTiming(0, { duration: 500, easing: REasing.out(REasing.ease) }));
     }
   }, [allDone]);
+
+  // Let the parent header hide its back button on the "You're all set!"
+  // screen (all 5 answered). Fires on mount too, so a rehydrated all-done
+  // draft opens with the back button already hidden.
+  useEffect(() => {
+    onAllDoneChange?.(allDone);
+  }, [allDone, onAllDoneChange]);
 
   const lottieStyle = useAnimatedStyle(() => ({
     opacity: lottieOpacity.value,
@@ -909,10 +986,10 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
             {/* Progress dots */}
             <View style={s.dotsRow}>
               {ALL_CARD_IDS.map((id) => (
-                <FooterDot key={id} isDone={completedCards.has(id)} />
+                <FooterDot key={id} isDone={displayedCompleted.has(id)} />
               ))}
               <Text weight="semiBold" size="xs" color="#829BAD" style={s.dotsCounter}>
-                {completedCards.size} of 5
+                {displayedCompleted.size} of 5
               </Text>
             </View>
 

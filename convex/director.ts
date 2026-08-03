@@ -1,17 +1,25 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
+import { requireDirector } from "./directorGate";
+import { metaMakeModel } from "./lib/bookingEnrichment";
 
-// All queries for the director panel. No auth — access-controlled at middleware level.
+// All queries for the director panel. Token-gated server-side via requireDirector.
 
 export const sidebarCounts = query({
-  args: {},
-  handler: async (ctx) => {
-    const [bugs, feedback, otoFeedback, refunds, pendingVerifications] = await Promise.all([
+  args: { token: v.string() },
+  handler: async (ctx, { token }) => {
+    await requireDirector(ctx, token);
+    const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    const [bugs, feedback, otoFeedback, refunds, pendingVerifications, pendingDeletions, reviews, errorLogs] = await Promise.all([
       ctx.db.query("bugs").collect(),
       ctx.db.query("app_feedback").collect(),
       ctx.db.query("ai_feedback").collect(),
       ctx.db.query("bookings").withIndex("by_status", (q) => q.eq("status", "refunded")).collect(),
       ctx.db.query("mechanic_verifications").withIndex("by_status", (q) => q.eq("status", "pending")).collect(),
+      // Ops surfaces folded in: deletion-queue SLA, reviews needs-eyes, client errors.
+      ctx.db.query("users").withIndex("by_isPendingDeletion", (q) => q.eq("isPendingDeletion", true)).collect(),
+      ctx.db.query("reviews").take(500),
+      ctx.db.query("client_logs").withIndex("by_level", (q) => q.eq("level", "error")).order("desc").take(200),
     ]);
     const openBugStatuses   = new Set(["new", "triaged", "assigned", "in_progress"]);
     const openFbStatuses    = new Set(["new", "reviewed", "triaged"]);
@@ -22,13 +30,18 @@ export const sidebarCounts = query({
       otoFeedback:   otoFeedback.filter((f) => !f.archived && openOtoFbStatuses.has(f.review_status ?? "new")).length,
       stripe:        refunds.length,
       mechanicEdits: pendingVerifications.length,
+      deletionQueue: pendingDeletions.length,
+      // "Needs eyes": visible low-rating reviews awaiting moderation.
+      reviews:       reviews.filter((r) => r.hidden_at == null && r.rating <= 3).length,
+      systemHealth:  errorLogs.filter((l) => l.timestamp >= sevenDaysAgo).length,
     };
   },
 });
 
 export const overviewCounters = query({
-  args: { period: v.optional(v.union(v.literal("today"), v.literal("7d"), v.literal("30d"))) },
-  handler: async (ctx, { period = "today" }) => {
+  args: { token: v.string(), period: v.optional(v.union(v.literal("today"), v.literal("7d"), v.literal("30d"))) },
+  handler: async (ctx, { token, period = "today" }) => {
+    await requireDirector(ctx, token);
     const todayStr = new Date().toISOString().split("T")[0];
     const periodMs = period === "30d" ? 30 * 24 * 60 * 60 * 1000 : period === "7d" ? 7 * 24 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
     const sinceStr = new Date(Date.now() - periodMs).toISOString().split("T")[0];
@@ -65,8 +78,9 @@ export const overviewCounters = query({
 });
 
 export const todaysBookingsList = query({
-  args: { period: v.optional(v.union(v.literal("today"), v.literal("7d"), v.literal("30d"))) },
-  handler: async (ctx, { period = "today" }) => {
+  args: { token: v.string(), period: v.optional(v.union(v.literal("today"), v.literal("7d"), v.literal("30d"))) },
+  handler: async (ctx, { token, period = "today" }) => {
+    await requireDirector(ctx, token);
     const todayStr = new Date().toISOString().split("T")[0];
     let bookings;
     if (period === "today") {
@@ -107,8 +121,9 @@ export const todaysBookingsList = query({
 });
 
 export const shopsList = query({
-  args: {},
-  handler: async (ctx) => {
+  args: { token: v.string() },
+  handler: async (ctx, { token }) => {
+    await requireDirector(ctx, token);
     const shops = await ctx.db.query("shops").collect();
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
@@ -151,8 +166,9 @@ export const shopsList = query({
 });
 
 export const shopDetail = query({
-  args: { id: v.id("shops") },
-  handler: async (ctx, { id }) => {
+  args: { token: v.string(), id: v.id("shops") },
+  handler: async (ctx, { token, id }) => {
+    await requireDirector(ctx, token);
     const shop = await ctx.db.get(id);
     if (!shop) return null;
 
@@ -286,8 +302,9 @@ export const shopDetail = query({
 });
 
 export const userDetail = query({
-  args: { id: v.id("users") },
-  handler: async (ctx, { id }) => {
+  args: { token: v.string(), id: v.id("users") },
+  handler: async (ctx, { token, id }) => {
+    await requireDirector(ctx, token);
     const user = await ctx.db.get(id);
     if (!user) return null;
 
@@ -305,19 +322,27 @@ export const userDetail = query({
         .first();
       if (!vehicle) return { vehicleId: null, vin: o.vin, ymm: o.vin, nickname: o.nickname };
 
-      let ymm = o.vin;
+      let make = "";
+      let model = "";
       if (vehicle.trim_id) {
         const trim = await ctx.db.get(vehicle.trim_id);
         if (trim) {
-          const model = await ctx.db.get(trim.model_id);
-          if (model) {
-            const make = await ctx.db.get(model.make_id);
-            ymm = [vehicle.year, make?.name, model.name].filter(Boolean).join(" ");
+          const m = await ctx.db.get(trim.model_id);
+          if (m) {
+            model = m.name ?? "";
+            const mk = await ctx.db.get(m.make_id);
+            if (mk) make = mk.name ?? "";
           }
         }
-      } else if (vehicle.year) {
-        ymm = String(vehicle.year);
       }
+      // Manually-input vehicles carry make/model on metadata, not a trim_id chain.
+      if (!make || !model) {
+        const meta = metaMakeModel(vehicle.metadata);
+        if (!make) make = meta.make;
+        if (!model) model = meta.model;
+      }
+      const ymm =
+        [vehicle.year, make, model].filter(Boolean).join(" ") || o.vin;
 
       return { vehicleId: vehicle._id, vin: o.vin, ymm, nickname: o.nickname, mileage: o.mileage };
     }));
@@ -392,8 +417,9 @@ export const softDeleteUser = mutation({
 });
 
 export const usersList = query({
-  args: {},
-  handler: async (ctx) => {
+  args: { token: v.string() },
+  handler: async (ctx, { token }) => {
+    await requireDirector(ctx, token);
     const users = await ctx.db.query("users").order("desc").take(100);
     return Promise.all(users.map(async (u) => {
       const [bookings, vehicles] = await Promise.all([
@@ -423,8 +449,9 @@ export const usersList = query({
 });
 
 export const recentBookingsList = query({
-  args: {},
-  handler: async (ctx) => {
+  args: { token: v.string() },
+  handler: async (ctx, { token }) => {
+    await requireDirector(ctx, token);
     const bookings = await ctx.db
       .query("bookings")
       .withIndex("by_created_at")
@@ -494,8 +521,9 @@ export const recentBookingsList = query({
 });
 
 export const bookingDetail = query({
-  args: { id: v.id("bookings") },
-  handler: async (ctx, { id }) => {
+  args: { token: v.string(), id: v.id("bookings") },
+  handler: async (ctx, { token, id }) => {
+    await requireDirector(ctx, token);
     const booking = await ctx.db.get(id);
     if (!booking) return null;
 
@@ -594,6 +622,12 @@ export const bookingDetail = query({
               if (mk) make = mk.name ?? "";
             }
           }
+        }
+        // Manually-input vehicles carry make/model on metadata, not a trim_id chain.
+        if (!make || !model) {
+          const meta = metaMakeModel(veh.metadata);
+          if (!make) make = meta.make;
+          if (!model) model = meta.model;
         }
         vehicleYmm = [veh.year, make, model].filter(Boolean).join(" ") || veh.vin;
       }
@@ -696,8 +730,9 @@ export const bookingDetail = query({
 });
 
 export const refundedBookingsList = query({
-  args: {},
-  handler: async (ctx) => {
+  args: { token: v.string() },
+  handler: async (ctx, { token }) => {
+    await requireDirector(ctx, token);
     const bookings = await ctx.db
       .query("bookings")
       .withIndex("by_status", (q) => q.eq("status", "refunded"))

@@ -9,7 +9,7 @@
  */
 
 import React from "react";
-import { Platform, Pressable, StyleSheet, View } from "react-native";
+import { Image, Platform, Pressable, StyleSheet, View } from "react-native";
 import { BlurView } from "expo-blur";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { ChevronRight, Star } from "lucide-react-native";
@@ -19,6 +19,9 @@ import { Text } from "@/components/shared-ui";
 interface MapShopCardProps {
   shopId: string;
   shopName: string;
+  /** Shop logo (shops.logo_storage_id resolved by shops.list). Renders a
+   *  small avatar before the name when set; layout is unchanged when null. */
+  imageUrl?: string | null;
   rating: number | null;
   distanceMi: number;
   priceRange: string | null; // e.g. "~$92 – $108" or "$120" (fixed); null while loading
@@ -31,6 +34,7 @@ interface MapShopCardProps {
 export function MapShopCard({
   shopId,
   shopName,
+  imageUrl,
   rating,
   distanceMi,
   priceRange,
@@ -57,6 +61,9 @@ export function MapShopCard({
         />
       ) : null}
       <View style={styles.topRow}>
+        {imageUrl ? (
+          <Image source={{ uri: imageUrl }} style={styles.logo} resizeMode="cover" />
+        ) : null}
         <Text size="md" weight="bold" color="#0F172A" numberOfLines={1} style={styles.name}>
           {shopName}
         </Text>
@@ -129,6 +136,13 @@ const styles = StyleSheet.create({
   },
   name: {
     flexShrink: 1,
+    flexGrow: 1,
+  },
+  logo: {
+    width: 30,
+    height: 30,
+    borderRadius: 8,
+    backgroundColor: "#F1F5F9",
   },
   metaRow: {
     flexDirection: "row",

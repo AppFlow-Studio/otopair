@@ -16,8 +16,10 @@
 
 import { create } from "zustand";
 import { SERVICE_CATEGORIES, type ServiceCategoryItem } from "@/constants/services";
+import { filterSelectableServicesForVehicle } from "@/lib/serviceBookability";
 import { useVehicleStore } from "./useVehicleStore";
 import type { DiagnosticSystem } from "@/lib/diagnostic-checklist-templates";
+import type { Id } from "@/convex/_generated/dataModel";
 import type {
   Booking,
   BookingStage,
@@ -47,6 +49,34 @@ export interface SelectedMechanicSlot {
   scheduledDate?: string;
   /** Scheduled time (e.g. "09:00") */
   scheduledTime?: string;
+}
+
+// ─────────────────────────────────────────────────────────────
+// QUOTE ACCEPTANCE CONTEXT TYPE
+// ─────────────────────────────────────────────────────────────
+
+/** Set when the customer is picking their own date/time for a shop's
+ *  tire/rotor quote, instead of a normal service-selection booking. Read by
+ *  pick-datetime/payment/confirming to source the shop, floor, and display
+ *  pricing without a normal `selectedServiceIds` cart. `laborCost`/`partsCost`/
+ *  `lineItems`/`quoteTotal` are DISPLAY ONLY — the actual price is always
+ *  re-read server-side from the quote response row at accept time. */
+export interface QuoteAcceptContext {
+  bookingId: Id<"bookings">;
+  quoteType: "tire" | "rotor";
+  responseId: string;
+  shopId: string;
+  shopName: string;
+  mechanicId: string | null; // null = "Any"
+  /** response.availability.date — inclusive floor */
+  minDate: string;
+  /** response.availability.time — inclusive floor */
+  minTime: string;
+  estimatedDurationMinutes?: number;
+  laborCost: number;
+  partsCost: number;
+  lineItems: { label: string; amount: number }[];
+  quoteTotal: number;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -133,6 +163,9 @@ interface BookingState {
   skippedBookingDetails: boolean;
   /** Selected slot in mechanic selection screen (before booking) */
   selectedMechanicSlot: SelectedMechanicSlot | null;
+  /** Set while the customer is picking a date/time for a tire/rotor quote
+   *  instead of a normal service-selection booking. Null otherwise. */
+  quoteAcceptContext: QuoteAcceptContext | null;
   /** Selected service option per service (maps service_id → option selection with pricing) */
   selectedServiceOptions: Record<string, ServiceOptionSelection>;
   /** When the driver starts this booking from a mechanic recommendation card,
@@ -194,6 +227,11 @@ interface BookingState {
   // ═══════════════ SERVICE SELECTION ACTIONS ═══════════════
   /** Toggle a service selection (add/remove) */
   toggleServiceSelection: (serviceId: string) => void;
+  /** Replace the cart with services allowed for the current vehicle context. */
+  replaceSelectedServicesForVehicle: (
+    services: Service[],
+    options?: { ownershipId?: string | null; bookableIds?: Set<string> | null },
+  ) => void;
   /** Clear all selected services */
   clearSelectedServices: () => void;
   /** Explicitly set the in-flight booking's vehicle VIN (call sites that
@@ -229,6 +267,8 @@ interface BookingState {
   setSelectedMechanicSlot: (slot: SelectedMechanicSlot | null) => void;
   /** Clear selected mechanic slot */
   clearSelectedMechanicSlot: () => void;
+  /** Set/clear the tire/rotor quote-acceptance context (null clears it) */
+  setQuoteAcceptContext: (context: QuoteAcceptContext | null) => void;
   /** Set selected service option for a service (with pricing details) */
   setSelectedServiceOption: (serviceId: string, option: ServiceOptionSelection) => void;
   /** Clear all selected service options */
@@ -292,14 +332,6 @@ interface BookingState {
 // ─────────────────────────────────────────────────────────────
 // DEFAULT VALUES
 // ─────────────────────────────────────────────────────────────
-
-const DEFAULT_LOCATION: UserLocation = {
-  label: "San Francisco, CA",
-  latitude: 37.7749,
-  longitude: -122.4194,
-  city: "San Francisco",
-  state: "CA",
-};
 
 // ─────────────────────────────────────────────────────────────
 // MOCK SERVICES DATA
@@ -410,8 +442,8 @@ const MOCK_SERVICES: Service[] = [
 
 export const useBookingStore = create<BookingState>()((set, get) => ({
   // ═══════════════ INITIAL STATE ═══════════════
-  userLocation: DEFAULT_LOCATION,
-  isLoadingLocation: false,
+  userLocation: null,
+  isLoadingLocation: true,
   preSelectedShopId: null,
   preSelectedServiceIds: [],
   selectedServiceCategory: null, // No service category selected by default
@@ -432,6 +464,7 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
   disclosedRangeIsEstimate: false,
   skippedBookingDetails: false,
   selectedMechanicSlot: null,
+  quoteAcceptContext: null,
   selectedServiceOptions: {},
   sourceRecommendationId: null,
   prefilledScheduledAt: null,
@@ -524,10 +557,27 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
       };
     }),
 
+  replaceSelectedServicesForVehicle: (services, options) =>
+    set(() => {
+      const nextIds = filterSelectableServicesForVehicle(services, {
+        ownershipId: options?.ownershipId,
+        bookableIds: options?.bookableIds,
+      }).map((service) => service.id);
+
+      return {
+        selectedServiceIds: nextIds,
+        selectedVehicleVin: nextIds.length > 0 ? useVehicleStore.getState().selectedVehicleId ?? null : null,
+      };
+    }),
+
   clearSelectedServices: () =>
     set({
       selectedServiceIds: [],
       selectedVehicleVin: null,
+      selectedServiceOptions: {},
+      selectedDiagnosticSystem: null,
+      customerNotes: "",
+      quoteAcceptContext: null,
     }),
 
   setSelectedVehicleVin: (vin) => set({ selectedVehicleVin: vin }),
@@ -646,6 +696,11 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
       selectedMechanicSlot: null,
     }),
 
+  setQuoteAcceptContext: (context) =>
+    set({
+      quoteAcceptContext: context,
+    }),
+
   setSelectedServiceOption: (serviceId, option) =>
     set((state) => ({
       selectedServiceOptions: {
@@ -687,6 +742,7 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
       disclosedRangeIsEstimate: false,
       skippedBookingDetails: false,
       selectedMechanicSlot: null,
+      quoteAcceptContext: null,
       selectedServiceOptions: {},
       sourceRecommendationId: null,
       prefilledScheduledAt: null,
@@ -712,8 +768,9 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
 
   // ═══════════════ GETTERS ═══════════════
   getLocationLabel: () => {
-    const { userLocation } = get();
-    return userLocation?.label ?? "Set Location";
+    const { isLoadingLocation, userLocation } = get();
+    if (userLocation) return userLocation.label;
+    return isLoadingLocation ? "Finding location..." : "Set Location";
   },
 
   getSelectedServicesTotal: () => {
@@ -852,7 +909,7 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
       return {
         bookings: {
           ...state.bookings,
-          [id]: { ...target, status: nextStatus as const, updatedAt: now },
+          [id]: { ...target, status: nextStatus, updatedAt: now },
         },
       };
     });

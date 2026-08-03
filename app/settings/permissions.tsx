@@ -10,11 +10,11 @@ import React, { useState, useCallback, useEffect } from 'react';
 import {
   ScrollView,
   StyleSheet,
+  Switch,
   View,
   Pressable,
   Platform,
   Linking,
-  Alert,
   AppState,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -30,55 +30,24 @@ import {
   Image as ImageIcon,
   Bell,
 } from 'lucide-react-native';
-import Animated, {
-  interpolateColor,
-  useAnimatedStyle,
-  useSharedValue,
-  withTiming,
-} from 'react-native-reanimated';
 
 import { BlurHeaderOverlay, BrandColors, Spacing, Text } from '@/components/shared-ui';
 import { getSheetContentPadding } from '@/constants/theme';
 
 type PermissionStatus = 'granted' | 'denied' | 'undetermined' | 'limited';
+type PermissionKey = 'location' | 'camera' | 'photos' | 'notifications';
 
 interface PermissionRowProps {
   icon: React.ReactNode;
   label: string;
   description: string;
   status: PermissionStatus;
+  permKey: PermissionKey;
+  onToggle: (key: PermissionKey, status: PermissionStatus) => void;
   isLast?: boolean;
 }
 
-const PermissionDisplaySwitch = ({ value }: { value: boolean }) => {
-  const progress = useSharedValue(value ? 1 : 0);
-
-  useEffect(() => {
-    progress.value = withTiming(value ? 1 : 0, { duration: 180 });
-  }, [progress, value]);
-
-  const trackStyle = useAnimatedStyle(() => ({
-    backgroundColor: interpolateColor(
-      progress.value,
-      [0, 1],
-      ['#D1D5DB', BrandColors.secondary]
-    ),
-  }));
-
-  const thumbStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: progress.value * 20 }],
-  }));
-
-  return (
-    <View style={styles.switchHit} pointerEvents="none" accessibilityState={{ disabled: true }}>
-      <Animated.View style={[styles.switchTrack, trackStyle]}>
-        <Animated.View style={[styles.switchThumb, thumbStyle]} />
-      </Animated.View>
-    </View>
-  );
-};
-
-const PermissionRow = ({ icon, label, description, status, isLast }: PermissionRowProps) => {
+const PermissionRow = ({ icon, label, description, status, permKey, onToggle, isLast }: PermissionRowProps) => {
   const isEnabled = status === 'granted' || status === 'limited';
 
   return (
@@ -96,7 +65,14 @@ const PermissionRow = ({ icon, label, description, status, isLast }: PermissionR
           </Text>
         </View>
         <View style={styles.rowRight}>
-          <PermissionDisplaySwitch value={isEnabled} />
+          {/* Native iOS toggle. iOS only lets us prompt when the status is
+              still undetermined; after that a tap deep-links to Settings. */}
+          <Switch
+            value={isEnabled}
+            onValueChange={() => onToggle(permKey, status)}
+            trackColor={{ false: '#D1D5DB', true: BrandColors.secondary }}
+            ios_backgroundColor="#D1D5DB"
+          />
         </View>
       </View>
       {!isLast && <View style={styles.separator} />}
@@ -176,6 +152,35 @@ export default function PermissionsHubScreen() {
     await Linking.openSettings();
   };
 
+  // Tapping a toggle: if the permission was never asked (undetermined), show
+  // the native prompt. Otherwise iOS won't re-prompt or let us revoke, so we
+  // deep-link to Settings. Statuses re-read on focus / app-resume afterward.
+  const handleToggle = useCallback(async (key: PermissionKey, status: PermissionStatus) => {
+    if (status !== 'undetermined') {
+      await Linking.openSettings();
+      return;
+    }
+    try {
+      switch (key) {
+        case 'location':
+          await Location.requestForegroundPermissionsAsync();
+          break;
+        case 'camera':
+          await Camera.requestCameraPermissionsAsync();
+          break;
+        case 'photos':
+          await ImagePicker.requestMediaLibraryPermissionsAsync();
+          break;
+        case 'notifications':
+          await Notifications.requestPermissionsAsync();
+          break;
+      }
+    } catch (error) {
+      console.error('Permission request failed:', error);
+    }
+    fetchStatuses();
+  }, []);
+
   return (
     <View style={styles.screen}>
       <BlurHeaderOverlay title="Permissions" onBack={() => router.back()} />
@@ -201,12 +206,16 @@ export default function PermissionsHubScreen() {
             label="Location"
             description="Find nearby mechanics and availability"
             status={statuses.location}
+            permKey="location"
+            onToggle={handleToggle}
           />
           <PermissionRow
             icon={<CameraIcon size={20} color={BrandColors.secondary} />}
             label="Camera"
             description="Take photos of your vehicle"
             status={statuses.camera}
+            permKey="camera"
+            onToggle={handleToggle}
           />
           {Platform.OS === 'ios' && (
             <PermissionRow
@@ -214,6 +223,8 @@ export default function PermissionsHubScreen() {
               label="Photos"
               description="Upload vehicle and profile images"
               status={statuses.photos}
+              permKey="photos"
+              onToggle={handleToggle}
             />
           )}
           <PermissionRow
@@ -221,6 +232,8 @@ export default function PermissionsHubScreen() {
             label="Notifications"
             description="Service updates and offers"
             status={statuses.notifications}
+            permKey="notifications"
+            onToggle={handleToggle}
             isLast
           />
         </View>
@@ -295,28 +308,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'flex-end',
-  },
-  switchHit: {
-    paddingLeft: Spacing.sm,
-    paddingVertical: Spacing.xs,
-  },
-  switchTrack: {
-    width: 44,
-    height: 24,
-    borderRadius: 12,
-    padding: 2,
-    justifyContent: 'center',
-  },
-  switchThumb: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: '#FFFFFF',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.12,
-    shadowRadius: 2,
-    elevation: 2,
   },
   separator: {
     height: 1,

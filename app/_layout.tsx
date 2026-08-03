@@ -15,6 +15,7 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import "react-native-reanimated";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { BackHandler, LogBox } from "react-native";
+import { SafeAreaProvider, initialWindowMetrics } from "react-native-safe-area-context";
 
 // Suppress the dev-mode red LogBox overlay for Convex mutation/query
 // errors. We always catch these in app code and surface them via the
@@ -23,6 +24,9 @@ import { BackHandler, LogBox } from "react-native";
 import { ErrorBoundary as AppErrorBoundary, ErrorModalHost, errorBus } from "@/lib/error-ui";
 import { ErrorOccurredModal } from "@/components/shared-ui";
 import { StripePaymentMethodsSync } from "@/components/payments/StripePaymentMethodsSync";
+import { ConnectionPillHost } from "@/components/connection/ConnectionPillHost";
+import { OfflineBootGate } from "@/components/connection/OfflineBootGate";
+import { CantLoadModalHost } from "@/lib/connection-ui";
 import { ToastProvider } from "@/components/toast";
 import { useEnrichmentCompletionWatcher } from "@/hooks/useEnrichmentCompletionWatcher";
 import { api } from "@/convex/_generated/api";
@@ -55,10 +59,16 @@ if (typeof global !== "undefined") {
   }
 }
 
-export const unstable_settings = {
-  anchor: "(main-tabs)",
-  initialRouteName: "index",
-};
+// NOTE: no `anchor` and no `initialRouteName`.
+//  - `anchor: "(main-tabs)"` rendered the tabs as the stack anchor (home
+//    instance A) while `app/index`'s `replace("/(main-tabs)/home")` stacked a
+//    SECOND `(main-tabs)` (home instance B) on top → back-swipe on home
+//    revealed a duplicate home.
+//  - `initialRouteName: "index"` prepended the `/` loading screen beneath the
+//    restored home on reload → back-swipe revealed the spinner.
+// Letting the auth redirect in `app/index` build the stack keeps home as the
+// sole root, with nothing underneath.
+export const unstable_settings = {};
 
 const convex = new ConvexReactClient(process.env.EXPO_PUBLIC_CONVEX_URL!, {
   unsavedChangesWarning: false,
@@ -259,12 +269,15 @@ export default function RootLayout() {
     <ClerkProvider publishableKey={process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY!} tokenCache={tokenCache}>
       <StartupSplashGate fontsReady={fontsReady}>
         <ConvexClerkProvider>
+          <SafeAreaProvider initialMetrics={initialWindowMetrics}>
           <AppErrorBoundary>
             <EnsureConvexUserRecord />
             <SyncAuthStoreWithClerk />
             <StripePaymentMethodsSync />
             <PendingDeletionSessionGuard />
             <ErrorModalHost />
+            <ConnectionPillHost />
+            <CantLoadModalHost />
             <KeyboardProvider>
             <GestureHandlerRootView style={{ flex: 1 }}>
               <BottomSheetModalProvider>
@@ -280,6 +293,10 @@ export default function RootLayout() {
                   urlScheme="otopair"
                 >
                 <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
+                  {/* fontsReady prevents the offline page from taking its first
+                      text measurement against the fallback font (clipped labels
+                      on slow cold starts). */}
+                  <OfflineBootGate fontsReady={fontsReady}>
                   <Stack
                     screenOptions={{
                       headerShown: false,
@@ -290,7 +307,10 @@ export default function RootLayout() {
                     }}
                   >
                     <Stack.Screen name="index" options={{ headerShown: false }} />
-                    <Stack.Screen name="(onboarding)" options={{ headerShown: false }} />
+                    <Stack.Screen
+                      name="(onboarding)"
+                      options={{ headerShown: false, gestureEnabled: false }}
+                    />
                     <Stack.Screen name="(main-tabs)" options={{ headerShown: false }} />
                     <Stack.Screen name="(tell-us-about)" options={{ headerShown: false }} />
                     <Stack.Screen name="(tire-booking)" options={{ headerShown: false }} />
@@ -357,6 +377,7 @@ export default function RootLayout() {
                         inside the overlay (Saved Addresses, Payment
                         Methods, etc.) use the normal slide_from_right. */}
                   </Stack>
+                  </OfflineBootGate>
                   <StatusBar style="auto" />
                 </ThemeProvider>
                 </StripeProvider>
@@ -365,6 +386,7 @@ export default function RootLayout() {
             </GestureHandlerRootView>
             </KeyboardProvider>
           </AppErrorBoundary>
+          </SafeAreaProvider>
           {/* <EnsureConvexUserRecord />
         <SyncAuthStoreWithClerk />
         <GestureHandlerRootView style={{ flex: 1 }}>

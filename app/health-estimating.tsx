@@ -33,22 +33,22 @@ const AnimatedPath = Animated.createAnimatedComponent(Path);
 const CHECK_PATH_LENGTH = 24;
 
 // ============================================================================
-// FACTS
+// WHAT OTOPAIR DOES
 // ============================================================================
 
 const ALL_FACTS = [
-  "Regular oil changes can extend engine life by 50%",
-  "Underinflated tires reduce fuel efficiency by 3% per PSI",
-  "The average car has about 30,000 parts",
-  "Brake pads need inspection every 25,000 miles",
-  "Well-maintained cars retain 50% more resale value",
-  "Car batteries typically last 3–5 years",
-  "Rotate tires every 5,000–7,500 miles for even wear",
-  "The check engine light covers 1,000+ possible issues",
-  "Dirty air filters cut fuel economy by up to 10%",
-  "80% of car breakdowns are preventable with maintenance",
-  "Coolant should be flushed every 30,000 miles",
-  "Worn spark plugs can reduce fuel efficiency by 30%",
+  "Track your maintenance and service intervals",
+  "Log every service in one place",
+  "Get reminders before things go wrong",
+  "Book trusted local mechanics near you",
+  "Get an instant health score for your car",
+  "Ask Oto AI about any noise or warning light",
+  "Add your car in seconds with your VIN",
+  "Compare quotes from nearby shops",
+  "Follow every booking from request to done",
+  "See exactly what your car needs next",
+  "Catch small issues before they get costly",
+  "Stay on top of recalls and upcoming service",
 ];
 
 const TOTAL_DURATION = 14000;
