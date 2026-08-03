@@ -45,16 +45,14 @@ import Animated, {
   FadeOut,
   useAnimatedStyle,
   useSharedValue,
-  withDelay,
   withRepeat,
   withSequence,
-  withSpring,
   withTiming,
 } from "react-native-reanimated";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQuery } from "convex/react";
-import { Check, Sparkles } from "lucide-react-native";
+import { Sparkles } from "lucide-react-native";
 
 import { Button, Text } from "@/components/shared-ui";
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
@@ -72,22 +70,11 @@ import { useVehicleStore } from "@/stores/useVehicleStore";
 const TAB_BAR_CLEARANCE = 60;
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
-// One-detent sheet: hero car photo + copy + 3-step checklist (each step can
-// carry a second "typing fact" line) + button. FloatingSheet caps to full height.
-const SHEET_HEIGHT = Math.min(660, SCREEN_HEIGHT * 0.82);
+// Compact one-detent sheet: header + copy + a single "thinking" ticker + button.
+const SHEET_HEIGHT = Math.min(440, SCREEN_HEIGHT * 0.6);
 
-// A checklist step backed by REAL data (api.vehicles.getEnrichmentDetail),
-// never a heuristic: `ready` is true only when that category's rows actually
-// exist in the DB. `facts` are short real strings the row types out (empty
-// until the category lands). `staticFact` steps (parts) show their fact
-// plainly, without the typewriter effect.
-interface SheetStep {
-  key: string;
-  label: string;
-  ready: boolean;
-  facts: string[];
-  staticFact?: boolean;
-}
+// OtoPair AI mark — pulses Claude-style beside the streaming facts.
+const OTOPAIR_AI_LOGO = require("@/assets/images/otopair-ai-logo.png");
 
 interface EnrichmentStatusPillProps {
   /** "top" hangs under the status bar (booking flow); "bottom" hovers
@@ -127,6 +114,11 @@ export function EnrichmentStatusPill({
   const sparkleStyle = useAnimatedStyle(() => ({
     transform: [{ scale: 1 + pulse.value * 0.12 }],
     opacity: 0.8 + pulse.value * 0.2,
+  }));
+  // Bigger breathing pulse for the sheet's "thinking" logo (Claude-style).
+  const thinkingPulseStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: 1 + pulse.value * 0.16 }],
+    opacity: 0.72 + pulse.value * 0.28,
   }));
 
   // Garage-wide sweep (same query the completion watcher uses). Skipped
@@ -203,34 +195,9 @@ export function EnrichmentStatusPill({
         paddingHorizontal: 32,
       };
 
-  // Real per-category checklist. A step is ✓ ONLY when its data actually
-  // exists (detail.*.ready) — while `detail` loads (undefined) every step
-  // reads not-ready, so nothing shows a false check.
-  const detailSteps: SheetStep[] = [
-    {
-      key: "specs",
-      label: "Vehicle specs",
-      ready: detail?.specs.ready ?? false,
-      facts: detail?.specs.facts ?? [],
-    },
-    {
-      key: "intervals",
-      label: "Service intervals",
-      ready: detail?.intervals.ready ?? false,
-      facts: detail?.intervals.facts ?? [],
-    },
-    {
-      key: "parts",
-      label: "Part catalog",
-      ready: detail?.parts.ready ?? false,
-      facts:
-        detail?.parts.count && detail.parts.count > 0
-          ? [`${detail.parts.count.toLocaleString()} parts catalogued`]
-          : [],
-      staticFact: true,
-    },
-  ];
   const allReady = detail?.phase === "ready";
+  // Every REAL fact gathered so far — the "thinking" ticker cycles them.
+  const facts = detail?.facts ?? [];
   const etaLine = pastBaseline
     ? "Almost there — finishing up."
     : eta != null
@@ -294,7 +261,7 @@ export function EnrichmentStatusPill({
         cornerRadius={32}
         onClose={() => setSheetOpen(false)}
       >
-        <View style={[styles.sheetBody, { paddingBottom: insets.bottom + 20 }]}>
+        <View style={[styles.sheetBody, { paddingBottom: insets.bottom + 10 }]}>
           {/* Header: car name on the left, circular car render on the right. */}
           <View style={styles.headerRow}>
             <View style={styles.headerText}>
@@ -328,10 +295,23 @@ export function EnrichmentStatusPill({
               : `Pulling the exact specs, service intervals, and part details for ${subjectPhrase} — so every recommendation is built for your car, not a generic estimate.`}
           </Text>
 
-          <View style={styles.checklistCard}>
-            {detailSteps.map((step, i) => (
-              <StepRow key={step.key} step={step} index={i} open={sheetOpen} />
-            ))}
+          {/* Claude-style "thinking": the OtoPair mark pulses while the real
+              facts we've gathered stream past, one after another. */}
+          <View style={styles.thinkingCard}>
+            <Animated.Image
+              source={OTOPAIR_AI_LOGO}
+              style={[styles.thinkingLogo, thinkingPulseStyle]}
+              resizeMode="contain"
+            />
+            <View style={styles.thinkingTextWrap}>
+              {facts.length > 0 ? (
+                <TypingFact facts={facts} active={sheetOpen} />
+              ) : (
+                <Text size="sm" weight="medium" color={SemanticColors.textMuted}>
+                  Gathering your car&apos;s details…
+                </Text>
+              )}
+            </View>
           </View>
 
           {etaLine ? (
@@ -354,90 +334,6 @@ export function EnrichmentStatusPill({
         </View>
       </FloatingSheet>
     </>
-  );
-}
-
-// Stagger between each step's ring pop-in on open — reads as "checking off
-// one category at a time".
-const STEP_STAGGER_MS = 320;
-
-/**
- * One checklist row backed by REAL data. On open its ✓ ring pops in with a
- * staggered spring, then (once popped) the fact line starts its typewriter.
- * A not-yet-ready category keeps a live spinner — never a fake check.
- */
-function StepRow({
-  step,
-  index,
-  open,
-}: {
-  step: SheetStep;
-  index: number;
-  open: boolean;
-}) {
-  const pop = useSharedValue(0);
-  const [factActive, setFactActive] = useState(false);
-
-  useEffect(() => {
-    if (!open) {
-      pop.value = 0;
-      setFactActive(false);
-      return;
-    }
-    pop.value = withDelay(
-      index * STEP_STAGGER_MS,
-      withSpring(1, { damping: 13, stiffness: 150 }),
-    );
-    const t = setTimeout(() => setFactActive(true), index * STEP_STAGGER_MS + 280);
-    return () => clearTimeout(t);
-  }, [open, index, pop]);
-
-  const iconStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: 0.3 + pop.value * 0.7 }],
-    opacity: pop.value,
-  }));
-
-  const showFact = step.ready && step.facts.length > 0;
-
-  return (
-    <View style={styles.stepRow}>
-      <View style={styles.stepIcon}>
-        {step.ready ? (
-          <Animated.View style={[styles.checkRing, iconStyle]}>
-            <Check size={13} color="#FFFFFF" strokeWidth={3} />
-          </Animated.View>
-        ) : (
-          <ActivityIndicator
-            size="small"
-            color={SemanticColors.primaryBlue}
-            style={styles.stepSpinner}
-          />
-        )}
-      </View>
-      <View style={styles.stepTextWrap}>
-        <Text
-          size="md"
-          weight="medium"
-          color={step.ready ? BrandColors.primary : SemanticColors.textMuted}
-        >
-          {step.label}
-        </Text>
-        {showFact ? (
-          step.staticFact ? (
-            <Text
-              size="sm"
-              weight="semiBold"
-              color={SemanticColors.primaryBlue}
-              style={styles.factText}
-            >
-              {step.facts[0]}
-            </Text>
-          ) : (
-            <TypingFact facts={step.facts} active={factActive} />
-          )
-        ) : null}
-      </View>
-    </View>
   );
 }
 
@@ -504,7 +400,7 @@ function TypingFact({ facts, active }: { facts: string[]; active: boolean }) {
       size="sm"
       weight="semiBold"
       color={SemanticColors.primaryBlue}
-      numberOfLines={1}
+      numberOfLines={2}
       style={styles.factText}
     >
       {text}
@@ -583,52 +479,36 @@ const styles = StyleSheet.create({
   },
   sheetSubtitle: {
     lineHeight: 24,
-    marginBottom: 24,
+    marginBottom: 18,
   },
-  checklistCard: {
+  thinkingCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
     backgroundColor: "#F3F4F6",
     borderRadius: 16,
-    paddingVertical: 16,
+    paddingVertical: 14,
     paddingHorizontal: 16,
-    gap: 14,
   },
-  stepRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 12,
+  thinkingLogo: {
+    width: 32,
+    height: 32,
   },
-  stepIcon: {
-    width: 20,
-    height: 20,
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: 1,
-  },
-  stepSpinner: {
-    transform: [{ scale: 0.7 }],
-  },
-  checkRing: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: SemanticColors.successGreen,
-  },
-  stepTextWrap: {
+  thinkingTextWrap: {
     flex: 1,
-    gap: 2,
+    // Reserve two lines so the card doesn't jump as facts type in/out.
+    minHeight: 38,
+    justifyContent: "center",
   },
   factText: {
-    marginTop: 1,
     // Real enriched fact typed out char-by-char (TypingFact). Tabular figures
-    // keep the row width from jittering as digits stream in.
+    // keep the width from jittering as digits stream in.
     fontVariant: ["tabular-nums"],
   },
   etaLine: {
-    marginTop: 16,
+    marginTop: 12,
   },
   gotItButton: {
-    marginTop: 24,
+    marginTop: 14,
   },
 });
