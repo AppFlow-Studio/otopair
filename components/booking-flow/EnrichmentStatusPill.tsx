@@ -179,7 +179,7 @@ export function EnrichmentStatusPill({
   const compact = placement === "bottom";
   const compactLabel =
     subject && subject !== "your car"
-      ? `${subject} · Personalizing…`
+      ? `${subject}`
       : "Personalizing…";
   const pillLabel = compact ? compactLabel : message;
 
@@ -424,7 +424,7 @@ const styles = StyleSheet.create({
     gap: 8,
     maxWidth: "100%",
     borderRadius: 999,
-    paddingVertical: 7,
+    paddingVertical: 12,
     paddingHorizontal: 14,
     overflow: "hidden",
     // Fallback bg matching the gradient's deep stop in case the
