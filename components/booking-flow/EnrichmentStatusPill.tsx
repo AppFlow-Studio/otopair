@@ -292,7 +292,7 @@ export function EnrichmentStatusPill({
           <Text size="md" color={SemanticColors.textSecondary} style={styles.sheetSubtitle}>
             {allReady
               ? "Everything below is pulled from your car's real specs — not a generic estimate."
-              : `Pulling the exact specs, service intervals, and part details for ${subjectPhrase} — so every recommendation is built for your car, not a generic estimate.`}
+              : `Pulling the exact specs, service intervals, and part details for ${subjectPhrase}.`}
           </Text>
 
           {/* Claude-style "thinking": the OtoPair mark pulses while the real
