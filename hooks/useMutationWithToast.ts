@@ -5,6 +5,7 @@ import type {
   FunctionReference,
   FunctionReturnType,
 } from "convex/server";
+import type { LucideIcon } from "lucide-react-native";
 
 import type { ToastOptions } from "@/components/toast/types";
 
@@ -18,6 +19,8 @@ type ToastSpec<T> =
 export interface MutationToastConfig<TArgs, TResult> {
   success?: ToastSpec<{ result: TResult; args: TArgs }>;
   error?: ToastSpec<{ error: Error; args: TArgs }>;
+  /** Action-matching icon for the success toast; falls back to the ✓. */
+  successIcon?: LucideIcon;
   /** Currently unused — toast haptic fires on appear. Kept for forward-compat. */
   haptic?: boolean;
   /** Suppress the error toast (still rethrows). */
@@ -63,7 +66,9 @@ export function useMutationWithToast<
         const result = (await run(args)) as FunctionReturnType<Mutation>;
         const success = resolveToast(config.success, { result, args });
         if (success) {
-          const opts: Omit<ToastOptions, "title" | "body"> = {};
+          const opts: Omit<ToastOptions, "title" | "body"> = config.successIcon
+            ? { icon: config.successIcon }
+            : {};
           toast.success(success.title, success.body, opts);
         }
         return result;
@@ -79,6 +84,6 @@ export function useMutationWithToast<
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [run, toast, config.success, config.error, config.suppressError],
+    [run, toast, config.success, config.error, config.successIcon, config.suppressError],
   );
 }

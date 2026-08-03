@@ -58,6 +58,9 @@ Otopair Developer Guide_files/
 # Claude local worktrees
 .claude/worktrees/
 
+# Claude Code runtime lock (regenerated per session, not project state)
+.claude/scheduled_tasks.lock
+
 # NOTE: package-lock.json must be committed AND not ignored.
 # EAS Build respects .gitignore when uploading the project, so ignoring the
 # lockfile means EAS never receives it -> it falls back to yarn / `npm ci` fails.
@@ -77,3 +80,4 @@ scripts/eval/runs/.jwt-env.sh
 
 # Superpowers for Claude
 .superpowers/
+.claude/scheduled_tasks.lock

@@ -9,7 +9,6 @@ const source = readFileSync(join(currentDir, "./BookingFlowMap.tsx"), "utf8");
 
 test("booking flow syncs resolved device location into booking store", () => {
   assert.match(source, /useBookingStore/);
-  assert.match(source, /setBookingUserLocation\(\{/);
-  assert.match(source, /latitude:\s*loc\.coords\.latitude/);
-  assert.match(source, /longitude:\s*loc\.coords\.longitude/);
+  assert.match(source, /useStagedLocation/);
+  assert.match(source, /setBookingUserLocation\(resolvedLocation\)/);
 });

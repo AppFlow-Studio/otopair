@@ -92,12 +92,7 @@ export async function requireDirector(
     if (s && s.expires_at >= Date.now()) {
       const u = await ctx.db.get(s.user_id);
       if (u) {
-        // `director_users.role` still stores the legacy names (schema admits
-        // only superadmin/admin/viewer), while CAPABILITIES is keyed by the
-        // portal roles. Normalize through LEGACY_ROLE_MAP or every gated
-        // write fails closed for accounts that predate the portal roles.
-        const raw = u.role as string;
-        const role = (LEGACY_ROLE_MAP[raw] ?? raw) as DirectorRole;
+        const role = u.role as DirectorRole;
         if (capability && !roleHasCapability(role, capability)) {
           throw new Error(`forbidden: role '${role}' lacks capability '${capability}'`);
         }

@@ -103,7 +103,7 @@ export function TireQuoteCard({ quote, variant, onBook }: Props) {
       {/* CTA */}
       <TouchableOpacity style={styles.bookButton} onPress={onBook} activeOpacity={0.85}>
         <Text size="md" weight="semiBold" color="#FFFFFF">
-          Book
+          Choose time
         </Text>
       </TouchableOpacity>
     </View>

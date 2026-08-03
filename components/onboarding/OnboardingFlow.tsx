@@ -56,6 +56,7 @@ import { ZipCodeStep } from './steps/ZipCodeStep';
 import { PushNotificationsStep } from './steps/PushNotificationsStep';
 import { LocationServicesStep } from './steps/LocationServicesStep';
 import { WelcomeStep } from './steps/WelcomeStep';
+import { AnalyzingScreen } from './AnalyzingScreen';
 
 // Define the steps in the flow
 export type OnboardingStep =
@@ -75,6 +76,7 @@ export type OnboardingStep =
     | 'zipCode'
     | 'pushNotifications'
     | 'locationServices'
+    | 'personalizing'
     | 'complete';
 
 // Light palette: white at the top, gentle mid-blue, blue-300 at the
@@ -101,6 +103,7 @@ const STEP_INDICES: Record<OnboardingStep, number> = {
     zipCode: 9,
     pushNotifications: 10,
     locationServices: 11,
+    personalizing: 12,
     complete: 12,
 };
 
@@ -113,12 +116,24 @@ interface OnboardingFlowProps {
 }
 
 // Steps that show in the progress bar (excludes signup/login screens and complete)
+// Progress bar covers *profile* onboarding steps only. Email signup +
+// verification are auth steps that happen BEFORE onboarding starts —
+// counting them made `phone` read as step 3 of 12 for email users and
+// step 1 of 10 for OAuth users, which was inconsistent and confusing.
+//
+// User mental model (locked with PM 2026-07-22):
+//   1. Number  → phone (with `confirm` and `name` as sub-steps that
+//                sit AT position 1 — the bar doesn't advance through
+//                them, so photo lands cleanly at position 2)
+//   2. Photo   → profilePhoto
+//   3. Intent  → userIntent
+//   4. Heard about → heardAbout
+//   5. Visit reason → visitReason
+//   6. Zip     → zipCode
+//   7. Push    → pushNotifications
+//   8. Location → locationServices
 const PROGRESS_STEPS: OnboardingStep[] = [
-    'emailSignup',
-    'emailVerify',
     'phone',
-    'confirm',
-    'name',
     'profilePhoto',
     'userIntent',
     'heardAbout',
@@ -127,6 +142,14 @@ const PROGRESS_STEPS: OnboardingStep[] = [
     'pushNotifications',
     'locationServices',
 ];
+
+// Sub-steps that should collapse to their parent step's position on
+// the progress bar. Keeps `phone` visually as "step 1" while the user
+// works through confirm-code and name entry, so photo stays as "2".
+const PROGRESS_STEP_ALIASES: Partial<Record<OnboardingStep, OnboardingStep>> = {
+    confirm: 'phone',
+    name: 'phone',
+};
 
 const HIDDEN_STEP_REDIRECTS: Partial<Record<OnboardingStep, OnboardingStep>> = {
   emailConfirm: 'profilePhoto',
@@ -233,17 +256,21 @@ export function OnboardingFlow({
     }
   }, [clerkUserId, currentStep]);
 
-  // Progress should always represent the full onboarding sequence. filteredSteps
-  // only controls navigation for explicit "finish account setup" flows.
+  // Progress always uses the full 8-step user-visible sequence
+  // (PROGRESS_STEPS) as denominator — resume flows and fresh signups
+  // look identical to the user so photo always reads as "2 of 8".
   const navigationSteps = filteredSteps ? getVisibleSteps(filteredSteps) : undefined;
-  // Get progress info for the current step
   const getProgressInfo = () => {
-    const stepIndex = PROGRESS_STEPS.indexOf(currentStep);
+    const effectiveStep = PROGRESS_STEP_ALIASES[currentStep] ?? currentStep;
+    const stepIndex = PROGRESS_STEPS.indexOf(effectiveStep);
     if (stepIndex === -1) {
-      // Signup/login/complete step - no progress bar
+      // Auth / complete step — no progress dashes.
       return { total: PROGRESS_STEPS.length, filled: 0 };
     }
-    return { total: PROGRESS_STEPS.length, filled: stepIndex };
+    // 1-indexed fill so step 1 shows 1 dash filled (not 0), and the
+    // last step shows all N filled. Matches user intuition of "I'm on
+    // step X of Y" rather than "X steps done, on step X+1."
+    return { total: PROGRESS_STEPS.length, filled: stepIndex + 1 };
   };
 
   const progressInfo = getProgressInfo();
@@ -396,7 +423,7 @@ export function OnboardingFlow({
     }
     const hasLocation = await checkLocationPermissions();
     if (hasLocation) {
-      return "complete";
+      return "personalizing";
     }
     return "locationServices";
   };
@@ -405,7 +432,7 @@ export function OnboardingFlow({
   const getNextStepAfterPushNotifications = async (): Promise<OnboardingStep> => {
     const hasLocation = await checkLocationPermissions();
     if (hasLocation) {
-      return "complete";
+      return "personalizing";
     }
     return "locationServices";
   };
@@ -417,7 +444,7 @@ export function OnboardingFlow({
       const currentIndex = navigationSteps.indexOf(currentStep);
       if (currentIndex !== -1) {
         if (currentIndex >= navigationSteps.length - 1) {
-          goToStep("complete");
+          goToStep("personalizing");
           return;
         }
 
@@ -485,29 +512,31 @@ export function OnboardingFlow({
         break;
       }
       case "locationServices":
-        goToStep("complete");
+        goToStep("personalizing");
         break;
       default:
         break;
     }
   };
 
-  // Navigate to home screen when onboarding is complete
-  useEffect(() => {
-    if (currentStep !== "complete") return;
-    // Wait until Clerk reflects a signed-in session to avoid bouncing back to signup/login.
-    if (!isSignedIn) return;
-
-    completeOnboarding()
-      .then(() => console.log("Onboarding marked complete"))
-      .catch((err) => console.error("Failed to mark onboarding complete:", err));
-
+  const handleEnterApp = () => {
+    // Mark onboarding complete only when the user actually taps Enter
+    // Otopair. Doing it earlier (on `personalizing` mount) flipped
+    // `me.onboardingCompleted` in Convex mid-loader, which caused
+    // `app/(onboarding)/index.tsx`'s `shouldRedirectHome` effect to
+    // reactively bounce the user to home before they finished the
+    // AnalyzingScreen.
+    if (isSignedIn) {
+      completeOnboarding()
+        .then(() => console.log("Onboarding marked complete"))
+        .catch((err) => console.error("Failed to mark onboarding complete:", err));
+    }
     if (isResumeMode) {
       router.back();
     } else {
       router.replace("/(main-tabs)/home");
     }
-  }, [completeOnboarding, currentStep, isResumeMode, isSignedIn]);
+  };
     // Render the current step component
     const renderStep = () => {
         switch (currentStep) {
@@ -548,8 +577,13 @@ export function OnboardingFlow({
                 return <LocationServicesStep onNext={goNext} onBack={effectiveGoBack} progress={progressInfo} />;
             case 'welcome':
                 return <WelcomeStep onNext={goNext} onBack={effectiveGoBack} />;
+            case 'personalizing':
+                return <AnalyzingScreen onEnter={handleEnterApp} />;
             case 'complete':
-                return null;
+                // Legacy step — AnalyzingScreen now handles completion
+                // in-place, so this case is unreachable but kept in
+                // the type/routing for safety during a soft cutover.
+                return <AnalyzingScreen onEnter={handleEnterApp} />;
             default:
                 return null;
         }

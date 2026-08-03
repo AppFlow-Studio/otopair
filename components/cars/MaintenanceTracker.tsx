@@ -58,7 +58,6 @@ import Animated, {
 
 // 3. Shared UI
 import { Text } from '@/components/shared-ui';
-import { MaintenanceSignalPills } from '@/components/cars/MaintenanceSignalPills';
 import { OilIcon, BrakesIcon, TireIcon, BatteryIcon, WarningIcon } from '@/components/cars/ServiceIcons';
 
 // 4. Local components
@@ -129,6 +128,9 @@ interface MaintenanceTrackerProps {
   items: MaintenanceItem[];
   vehicleCondition?: number;
   healthScoreInput?: HealthScoreInput;
+  /** Active vehicle model label (e.g. "Mustang") — piped into the
+   *  Service Detail sheet for plain-English copy. */
+  vehicleLabel?: string;
   onBookNow?: (id: string) => void;
   /** Fired when the driver taps "Take Action" on a mechanic-recommended urgent
    *  card. Routes to the recommendation detail screen. When omitted, the card
@@ -404,6 +406,29 @@ function SoonLabel() {
   );
 }
 
+/** "Show N more" / "Show less" pressable rendered at the bottom of
+ *  NOW / SOON tiers when the ranked list exceeds CAP_PER_URGENT_TIER.
+ *  Text-only, right-aligned, tier-colored. */
+function ShowMoreButton({
+  hidden,
+  expanded,
+  color,
+  onPress,
+}: {
+  hidden: number;
+  expanded: boolean;
+  color: string;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable onPress={onPress} style={showMoreStyles.wrap} hitSlop={12}>
+      <Text weight="semiBold" style={[showMoreStyles.text, { color }]}>
+        {expanded ? "Show less" : `Show ${hidden} more`}
+      </Text>
+    </Pressable>
+  );
+}
+
 /** Action Engine "Soon-ish" tier label — static blue dot, no pulse.
  *  Spec §3.2: "Visible on Home, never pings" — calmer visual cue. */
 function OnTheHorizonLabel() {
@@ -532,10 +557,6 @@ function UrgentCard({ item, entryDelay, vehicleCondition, healthScoreInput, onBo
           <View style={cardStyles.textColumn}>
             <Text weight="bold" style={cardStyles.title}>{item.serviceName}</Text>
             <Text style={cardStyles.subtitle}>{item.description}</Text>
-            <MaintenanceSignalPills
-              signals={item.signals}
-              triggeredBy={item.triggeredBy}
-            />
             {item.mechanicProvenance && (item.mechanicProvenance.mechanicName || item.mechanicProvenance.shopName) && (
               <Text style={cardStyles.provenance}>
                 Suggested by {item.mechanicProvenance.mechanicName ?? 'your mechanic'}
@@ -692,8 +713,8 @@ function HealthySection({
    *  horizon" for Action Engine Soon-ish tier items. */
   variant?: 'resting' | 'soonish';
 }) {
-  // Always default to expanded — items are shown by default and the
-  // user can collapse with the chevron if they want.
+  // Expanded by default — Ahmad prefers HORIZON / HEALTHY visible on
+  // first paint. Chevron still lets users collapse if they want.
   const [expanded, setExpanded] = useState(true);
   const chevronRotation = useSharedValue(1);
 
@@ -710,37 +731,37 @@ function HealthySection({
 
   const isSoonish = variant === 'soonish';
 
-  // "On the horizon" already has the blue uppercase tier section
-  // label above (line ~391), so the soonish variant skips this
-  // header to avoid the duplicate. "Healthy" has no such uppercase
-  // label, so resting keeps it.
-  const showHeader = !isSoonish;
-
   return (
     <View>
-      {showHeader ? (
-        <Animated.View entering={FadeInUp.duration(450).delay(cascadeStartDelay)}>
-          <Pressable onPress={toggle} style={({ pressed }) => pressed && { opacity: 0.7 }}>
-            {/* Visual treatment matches the NOW / SOON / ON THE HORIZON
-                tier labels above: tiny dot + bold uppercase text in the
-                tier's color, fontSize 11, letterSpacing 0.8. Healthy
-                green for both the dot and the text. The chevron stays
-                so the user can still collapse the list. */}
-            <View style={summaryStyles.headerRow}>
+      <Animated.View entering={FadeInUp.duration(450).delay(cascadeStartDelay)}>
+        <Pressable onPress={toggle} style={({ pressed }) => pressed && { opacity: 0.7 }}>
+          {/* Header treatment matches the NOW / SOON labels above:
+              tiny dot + bold uppercase text + count in the tier's
+              color. Soonish = blue "ON THE HORIZON", resting = green
+              "HEALTHY". Chevron reveals/hides the list. */}
+          <View style={summaryStyles.headerRow}>
+            {isSoonish ? (
+              <View style={[groupLabelStyles.chip, groupLabelStyles.chipHorizon]}>
+                <View style={groupLabelStyles.onTheHorizonDot} />
+                <Text weight="bold" style={groupLabelStyles.chipTextHorizon}>
+                  {`ON THE HORIZON · ${items.length}`}
+                </Text>
+              </View>
+            ) : (
               <View style={summaryStyles.chip}>
                 <View style={summaryStyles.dot} />
                 <Text weight="bold" style={summaryStyles.chipText}>
-                  HEALTHY
+                  {`HEALTHY · ${items.length}`}
                 </Text>
               </View>
-              <View style={{ flex: 1 }} />
-              <Animated.View style={chevronStyle}>
-                <Ionicons name="chevron-forward" size={16} color="#C7C7CC" />
-              </Animated.View>
-            </View>
-          </Pressable>
-        </Animated.View>
-      ) : null}
+            )}
+            <View style={{ flex: 1 }} />
+            <Animated.View style={chevronStyle}>
+              <Ionicons name="chevron-forward" size={16} color="#C7C7CC" />
+            </Animated.View>
+          </View>
+        </Pressable>
+      </Animated.View>
 
       {expanded && (
         <HealthyItemsCard items={items} cascadeStartDelay={cascadeStartDelay} />
@@ -753,9 +774,16 @@ function HealthySection({
 // COMPONENT
 // ============================================================================
 
-export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, onBookNow, onTakeAction, onAddInfo, onEditPressed, isDarkBg = false, tieredItems, openItemId, isEnriching = false }: MaintenanceTrackerProps) {
+// Cap visible items in NOW / SOON to keep the initial paint focused
+// on the top-of-mind repairs. Extra items reveal via "Show N more".
+// Resets naturally on car swap (tracker keyed by VIN in cars/index.tsx).
+const CAP_PER_URGENT_TIER = 3;
+
+export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, vehicleLabel, onBookNow, onTakeAction, onAddInfo, onEditPressed, isDarkBg = false, tieredItems, openItemId, isEnriching = false }: MaintenanceTrackerProps) {
   const [selectedItem, setSelectedItem] = useState<MaintenanceItem | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
+  const [showAllNow, setShowAllNow] = useState(false);
+  const [showAllSoon, setShowAllSoon] = useState(false);
 
   const handleCardPress = (item: MaintenanceItem) => {
     setSelectedItem(item);
@@ -893,7 +921,7 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
                 <NowLabel />
               </Animated.View>
               <View style={styles.urgentGroup}>
-                {tieredItems.now.map((r, index) => (
+                {(showAllNow ? tieredItems.now : tieredItems.now.slice(0, CAP_PER_URGENT_TIER)).map((r, index) => (
                   <UrgentCard
                     key={r.item.id}
                     item={r.item}
@@ -907,6 +935,14 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
                     isEnriching={isEnriching}
                   />
                 ))}
+                {nowCount > CAP_PER_URGENT_TIER && (
+                  <ShowMoreButton
+                    hidden={nowCount - CAP_PER_URGENT_TIER}
+                    expanded={showAllNow}
+                    color="#C0392B"
+                    onPress={() => setShowAllNow((v) => !v)}
+                  />
+                )}
               </View>
             </>
           )}
@@ -918,7 +954,7 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
                 <SoonLabel />
               </Animated.View>
               <View style={styles.urgentGroup}>
-                {tieredItems.soon.map((r, index) => (
+                {(showAllSoon ? tieredItems.soon : tieredItems.soon.slice(0, CAP_PER_URGENT_TIER)).map((r, index) => (
                   <UrgentCard
                     key={r.item.id}
                     item={r.item}
@@ -932,24 +968,27 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
                     isEnriching={isEnriching}
                   />
                 ))}
+                {soonCount > CAP_PER_URGENT_TIER && (
+                  <ShowMoreButton
+                    hidden={soonCount - CAP_PER_URGENT_TIER}
+                    expanded={showAllSoon}
+                    color="#B45309"
+                    onPress={() => setShowAllSoon((v) => !v)}
+                  />
+                )}
               </View>
             </>
           )}
 
-          {/* Soon-ish — visible, no ping. Reuses HealthySection with the
-              blue 'soonish' variant and a custom collapsible header. */}
+          {/* Soon-ish — HealthySection renders its own horizon
+              header + chevron (collapsed by default). */}
           {soonishCount > 0 && (
-            <>
-              <Animated.View entering={FadeInUp.duration(ENTRY_DURATION).delay(soonishDelay)}>
-                <OnTheHorizonLabel />
-              </Animated.View>
-              <HealthySection
-                items={tieredItems.soonish.map((r) => r.item)}
-                isDarkBg={isDarkBg}
-                cascadeStartDelay={soonishDelay}
-                variant="soonish"
-              />
-            </>
+            <HealthySection
+              items={tieredItems.soonish.map((r) => r.item)}
+              isDarkBg={isDarkBg}
+              cascadeStartDelay={soonishDelay}
+              variant="soonish"
+            />
           )}
 
           {/* Resting — silent green. Always renders (returns null if empty). */}
@@ -1034,6 +1073,7 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
               ? computeProjectedHealthScore(healthScoreInput, selectedItem.id)
               : (vehicleCondition ?? 0) + 8
           }
+          vehicleLabel={vehicleLabel}
           onClose={handleModalClosed}
           bookingDisabled={isEnriching && !selectedItem.sourceRecommendationId}
           onBookService={() => {
@@ -1319,6 +1359,23 @@ const groupLabelStyles = StyleSheet.create({
     color: '#1D4ED8',
     letterSpacing: 0.66,
     textTransform: 'uppercase',
+  },
+});
+
+// ============================================================================
+// "SHOW N MORE" BUTTON STYLES
+// ============================================================================
+
+const showMoreStyles = StyleSheet.create({
+  wrap: {
+    alignSelf: 'flex-end',
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+    marginTop: -4, // pull tight to the last card
+  },
+  text: {
+    fontSize: 12,
+    letterSpacing: 0.2,
   },
 });
 

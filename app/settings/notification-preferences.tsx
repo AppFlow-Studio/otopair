@@ -15,11 +15,10 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, View, ActivityIndicator } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Switch, View, ActivityIndicator } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useGuardedRouter as useRouter } from '@/hooks/useGuardedRouter';
-import Animated, { interpolateColor, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
-import { Tag, Gift, CreditCard, Bell, Calendar } from 'lucide-react-native';
+import { Tag, Gift, CreditCard, Bell, Calendar, Check } from 'lucide-react-native';
 import { useQuery } from 'convex/react';
 
 import { BrandColors, Spacing, Text, BlurHeaderOverlay } from '@/components/shared-ui';
@@ -43,7 +42,9 @@ const ToggleRow = ({
   onValueChange: (next: boolean) => void;
   icon: any;
 }) => (
-  <Pressable onPress={() => onValueChange(!value)} style={styles.toggleRow}>
+  // Plain row — the native Switch is the only toggle control (tapping the
+  // row too would double-fire and cancel the switch out).
+  <View style={styles.toggleRow}>
     <View style={styles.iconContainer}>
       <Icon size={22} color="#4B5563" />
     </View>
@@ -55,43 +56,15 @@ const ToggleRow = ({
         {description}
       </Text>
     </View>
-    <ToggleSwitch value={value} onValueChange={onValueChange} />
-  </Pressable>
+    {/* Native iOS toggle. */}
+    <Switch
+      value={value}
+      onValueChange={onValueChange}
+      trackColor={{ false: '#D1D5DB', true: BrandColors.secondary }}
+      ios_backgroundColor="#D1D5DB"
+    />
+  </View>
 );
-
-const ToggleSwitch = ({
-  value,
-  onValueChange,
-}: {
-  value: boolean;
-  onValueChange: (next: boolean) => void;
-}) => {
-  const progress = useSharedValue(value ? 1 : 0);
-
-  useEffect(() => {
-    progress.value = withTiming(value ? 1 : 0, { duration: 180 });
-  }, [progress, value]);
-
-  const trackStyle = useAnimatedStyle(() => ({
-    backgroundColor: interpolateColor(
-      progress.value,
-      [0, 1],
-      ['#D1D5DB', BrandColors.secondary]
-    ),
-  }));
-
-  const thumbStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: progress.value * 20 }],
-  }));
-
-  return (
-    <Pressable onPress={() => onValueChange(!value)} style={styles.switchHit}>
-      <Animated.View style={[styles.switchTrack, trackStyle]}>
-        <Animated.View style={[styles.switchThumb, thumbStyle]} />
-      </Animated.View>
-    </Pressable>
-  );
-};
 
 export default function NotificationPreferencesScreen() {
   const insets = useSafeAreaInsets();
@@ -129,7 +102,7 @@ export default function NotificationPreferencesScreen() {
   }, [preferences, updateData]);
 
   const [isSaving, setIsSaving] = useState(false);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [justSaved, setJustSaved] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const handleToggle = useCallback((key: NotificationKey, next: boolean) => {
@@ -139,7 +112,7 @@ export default function NotificationPreferencesScreen() {
   const handleSave = useCallback(async () => {
     console.log('Saving notification preferences...', values);
     setIsSaving(true);
-    setSuccessMessage(null);
+    setJustSaved(false);
     setErrorMessage(null);
 
     try {
@@ -162,20 +135,22 @@ export default function NotificationPreferencesScreen() {
         bookings: values.bookings,
       });
       console.log('Successfully updated Convex database');
-      
-      setSuccessMessage('Preferences updated.');
-      
-      // Give a small delay to show the success state/loading before navigating back
-      setTimeout(() => {
-        router.back();
-      }, 500);
+
+      // Emotional confirmation: success haptic + toast (fires the haptic
+      // itself) and a brief "Saved!" button state before we leave.
+      setIsSaving(false);
+      setJustSaved(true);
+      toast.success('Preferences saved', 'Your notification settings are up to date.', { icon: Bell });
+
+      // Stay on the page — just revert the button after the "Saved!" moment.
+      setTimeout(() => setJustSaved(false), 1600);
     } catch (error) {
       console.error('Error saving notification preferences:', error);
       toast.error("Couldn't save your notification settings.");
       setErrorMessage('Unable to save changes. Please try again.');
       setIsSaving(false);
     }
-  }, [updateData, values, router, persistNotificationPreferences]);
+  }, [updateData, values, persistNotificationPreferences, toast]);
 
   const toggleRows = useMemo(
     () => [
@@ -244,13 +219,6 @@ export default function NotificationPreferencesScreen() {
           </View>
         ) : null}
 
-        {successMessage ? (
-          <View style={[styles.messageBox, styles.successBox]}>
-            <Text size="sm" color="#10B981" style={styles.messageText}>
-              {successMessage}
-            </Text>
-          </View>
-        ) : null}
       </ScrollView>
 
       <View style={[styles.footer, { paddingBottom: insets.bottom + 100 }]}>
@@ -260,10 +228,17 @@ export default function NotificationPreferencesScreen() {
             (pressed || isSaving) && { opacity: 0.7 }
           ]}
           onPress={handleSave}
-          disabled={isSaving}
+          disabled={isSaving || justSaved}
         >
           {isSaving ? (
             <ActivityIndicator color="#FFF" />
+          ) : justSaved ? (
+            <View style={styles.savedRow}>
+              <Check size={18} color="#FFF" strokeWidth={3} />
+              <Text weight="semiBold" size="md" color="#FFF">
+                Saved!
+              </Text>
+            </View>
           ) : (
             <Text weight="semiBold" size="md" color="#FFF">
               Update Preferences
@@ -309,28 +284,6 @@ const styles = StyleSheet.create({
     marginTop: 4,
     lineHeight: 18,
   },
-  switchHit: {
-    paddingLeft: Spacing.sm,
-    paddingVertical: Spacing.xs,
-  },
-  switchTrack: {
-    width: 44,
-    height: 24,
-    borderRadius: 12,
-    padding: 2,
-    justifyContent: 'center',
-  },
-  switchThumb: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: '#FFFFFF',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.12,
-    shadowRadius: 2,
-    elevation: 2,
-  },
   footer: {
     paddingTop: Spacing.lg,
   },
@@ -346,14 +299,16 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 4,
   },
+  savedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
   messageBox: {
     marginTop: Spacing.lg,
     backgroundColor: 'rgba(239, 68, 68, 0.12)',
     borderRadius: 12,
     padding: Spacing.md,
-  },
-  successBox: {
-    backgroundColor: 'rgba(16, 185, 129, 0.12)',
   },
   messageText: {
     textAlign: 'center',

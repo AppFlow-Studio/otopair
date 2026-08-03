@@ -129,19 +129,28 @@ export function ProfileInitialsButton() {
     <GestureDetector gesture={tap}>
     <View ref={viewRef} style={styles.button}>
       <Animated.View style={[StyleSheet.absoluteFill, contentStyle]}>
-        {photoUri ? (
-          <Image source={{ uri: photoUri }} style={styles.image} />
-        ) : (
-          <LinearGradient
-            colors={["#5299FE", "#C5DAFF"]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.placeholder}
-          >
-            <AvatarSlider
-              size={BUTTON_SIZE}
-              paused={overlayLifecycleActive}
-              panels={[
+        {/* Always slide — the first panel is the user's photo when they
+            have one, otherwise their initials. The second panel is the
+            OtoPair logo. So the avatar keeps rotating photo↔logo (or
+            initials↔logo) instead of freezing once a photo is set. */}
+        <LinearGradient
+          colors={["#5299FE", "#C5DAFF"]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.placeholder}
+        >
+          <AvatarSlider
+            size={BUTTON_SIZE}
+            paused={overlayLifecycleActive}
+            panels={[
+              photoUri ? (
+                <Image
+                  key="photo"
+                  source={{ uri: photoUri }}
+                  style={styles.image}
+                  resizeMode="cover"
+                />
+              ) : (
                 <Text
                   key="initials"
                   weight="semiBold"
@@ -150,17 +159,17 @@ export function ProfileInitialsButton() {
                   style={styles.text}
                 >
                   {initials}
-                </Text>,
-                <Image
-                  key="logo"
-                  source={OTO_LOGO_3D}
-                  style={{ width: 38, height: 38 }}
-                  resizeMode="contain"
-                />,
-              ]}
-            />
-          </LinearGradient>
-        )}
+                </Text>
+              ),
+              <Image
+                key="logo"
+                source={OTO_LOGO_3D}
+                style={{ width: 38, height: 38 }}
+                resizeMode="contain"
+              />,
+            ]}
+          />
+        </LinearGradient>
       </Animated.View>
     </View>
     </GestureDetector>

@@ -31,7 +31,7 @@
  * TICKET: OTO-XXX
  */
 
-import React, { forwardRef, useCallback, useImperativeHandle, useMemo, useRef } from 'react';
+import React, { forwardRef, useCallback, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { Dimensions, Pressable, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -52,6 +52,12 @@ export interface AppBottomSheetModalProps {
   onClose?: () => void;
   footer?: React.ReactNode;
   contentContainerStyle?: StyleProp<ViewStyle>;
+  /** When false, the content list is fixed (no scroll/bounce). Use for
+   *  short pickers whose content already fits the sheet. */
+  scrollEnabled?: boolean;
+  /** Extra gap (px) between the sheet's bottom and the screen bottom —
+   *  raises the whole detached sheet higher without changing its height. */
+  extraBottomGap?: number;
   /** Disables the rubber-band overshoot when the user drags past the
    *  top snap point. With a single snap point + this set to false, the
    *  sheet refuses any upward gesture — pan-down-to-close still works. */
@@ -64,10 +70,14 @@ export interface AppBottomSheetModalProps {
 }
 
 export const AppBottomSheetModal = forwardRef<BottomSheetModal, AppBottomSheetModalProps>(
-  ({ title, children, snapPoints, initialIndex = 0, onClose, footer, contentContainerStyle, enableOverDrag, enablePanning = true }, ref) => {
+  ({ title, children, snapPoints, initialIndex = 0, onClose, footer, contentContainerStyle, scrollEnabled = true, extraBottomGap = 0, enableOverDrag, enablePanning = true }, ref) => {
     const insets = useSafeAreaInsets();
     const internalRef = useRef<BottomSheetModal>(null);
     const { width } = Dimensions.get('window');
+    // The footer floats over the bottom of the scroll content, so the
+    // content needs bottom padding equal to the footer's height or its
+    // last rows sit hidden underneath it. Measure it rather than guess.
+    const [footerHeight, setFooterHeight] = useState(0);
 
     useImperativeHandle(ref, () => internalRef.current as BottomSheetModal);
 
@@ -86,7 +96,7 @@ export const AppBottomSheetModal = forwardRef<BottomSheetModal, AppBottomSheetMo
       []
     );
 
-    const bottomGap = insets.bottom + Spacing.lg;
+    const bottomGap = insets.bottom + Spacing.lg + extraBottomGap;
 
     return (
       <BottomSheetModal
@@ -106,10 +116,11 @@ export const AppBottomSheetModal = forwardRef<BottomSheetModal, AppBottomSheetMo
         bottomInset={bottomGap}
       >
         <BottomSheetScrollView
+          scrollEnabled={scrollEnabled}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={[
             styles.scrollContent,
-            { paddingBottom: footer ? Spacing.lg : insets.bottom + Spacing['2xl'] },
+            { paddingBottom: footer ? footerHeight + Spacing.md : insets.bottom + Spacing['2xl'] },
             contentContainerStyle,
           ]}
         >
@@ -126,7 +137,10 @@ export const AppBottomSheetModal = forwardRef<BottomSheetModal, AppBottomSheetMo
           {children}
         </BottomSheetScrollView>
         {footer && (
-          <View style={[styles.footer, { paddingBottom: insets.bottom + Spacing.lg }]}>
+          <View
+            style={[styles.footer, { paddingBottom: insets.bottom + Spacing.lg }]}
+            onLayout={(e) => setFooterHeight(Math.round(e.nativeEvent.layout.height))}
+          >
             {footer}
           </View>
         )}
@@ -175,5 +189,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing['2xl'],
     paddingTop: Spacing.md,
     backgroundColor: '#E8ECF0',
+    // Match the sheet's rounded bottom — the footer is the bottom-most
+    // opaque layer, so without this it squares off the sheet's corners.
+    borderBottomLeftRadius: 50,
+    borderBottomRightRadius: 50,
   },
 });

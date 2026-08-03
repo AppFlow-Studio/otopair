@@ -75,8 +75,13 @@ export default function OnboardingScreen() {
     const isAutoResume =
         !hasExplicitResumeTarget &&
         (isResumeMode || shouldAutoResumeSignedInEntryRef.current === true);
+    // When the user explicitly tapped "Resume onboarding" from the home
+    // Finish Setup card, honor that intent — never bounce them back home
+    // (which would infinite-loop the spinner) even if the redirect
+    // condition otherwise matches.
     const shouldRedirectHome =
         !hasExplicitResumeTarget &&
+        !isCreateAccountResume &&
         shouldRedirectCompletedOnboardingToHome({
             isSignedIn: isSignedIn === true,
             onboardingCompleted: me?.onboardingCompleted,

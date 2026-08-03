@@ -35,6 +35,7 @@ export default function OAuthCallbackScreen() {
     isSignedIn: isSignedIn === true,
     onboardingCompleted: me?.onboardingCompleted,
     essentialOnboardingCompleted: me?.essentialOnboardingCompleted,
+    onboardingDeferred: (me as { onboardingDeferred?: boolean } | null | undefined)?.onboardingDeferred,
   });
 
   useEffect(() => {

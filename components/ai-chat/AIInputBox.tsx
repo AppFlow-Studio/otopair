@@ -30,9 +30,11 @@ import {
   Pressable,
   StyleSheet,
   Keyboard,
+  ScrollView,
 } from 'react-native';
 
 // 2. Expo & Third-party
+import { Image } from 'expo-image';
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
@@ -44,7 +46,7 @@ import Animated, {
   Extrapolate,
   Easing,
 } from 'react-native-reanimated';
-import { Plus, Mic, ArrowUp, X } from 'lucide-react-native';
+import { ImagePlus, Mic, ArrowUp, X } from 'lucide-react-native';
 
 // Native iOS 26 liquid glass (optional)
 let LiquidGlassView: React.ComponentType<any> | null = null;
@@ -86,6 +88,11 @@ interface AIInputBoxProps {
   onToggleAttachment?: () => void;
   /** Whether there are images selected (enables send without text) */
   hasImages?: boolean;
+  /** Selected image URIs — rendered as thumbnails INSIDE the composer
+   *  (ChatGPT-style), so the box grows to hold them. */
+  selectedImages?: string[];
+  /** Remove a selected image by URI. */
+  onRemoveImage?: (uri: string) => void;
   /** InputAccessoryView ID for keyboard docking */
   inputAccessoryViewID?: string;
 }
@@ -95,10 +102,10 @@ interface AIInputBoxProps {
 // ============================================================================
 
 // TextInput height constants. Keep VERTICAL_PADDING in sync with the
-// textInput style's actual paddingVertical (6 top + 6 bottom = 12).
-const LINE_HEIGHT = 26;
-const VERTICAL_PADDING = 12;
-const MIN_HEIGHT = LINE_HEIGHT + VERTICAL_PADDING; // 1 line, ~38px
+// textInput style's actual paddingVertical (4 top + 4 bottom = 8).
+const LINE_HEIGHT = 22;
+const VERTICAL_PADDING = 8;
+const MIN_HEIGHT = LINE_HEIGHT + VERTICAL_PADDING; // 1 line, ~30px
 const MAX_HEIGHT = LINE_HEIGHT * 8 + VERTICAL_PADDING; // 8 lines, then scroll
 
 const SPRING_CONFIG = { damping: 20, stiffness: 300, mass: 0.8 };
@@ -282,6 +289,8 @@ export function AIInputBox({
   isAttachmentOpen = false,
   onToggleAttachment,
   hasImages = false,
+  selectedImages = [],
+  onRemoveImage,
   inputAccessoryViewID,
 }: AIInputBoxProps) {
   const showRecordingUI = isRecording || isTranscribing;
@@ -377,6 +386,30 @@ export function AIInputBox({
       styles.inputCardInner,
       showRecordingUI && styles.inputCardRecording,
     ]}>
+      {/* Selected image thumbnails INSIDE the composer (ChatGPT-style) —
+          the box grows to hold them, above the text row. */}
+      {selectedImages.length > 0 && !showRecordingUI && (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          contentContainerStyle={styles.attachedRowContent}
+          style={styles.attachedRow}
+        >
+          {selectedImages.map((uri) => (
+            <View key={uri} style={styles.attachedThumbWrap}>
+              <Image source={{ uri }} style={styles.attachedThumb} contentFit="cover" transition={120} />
+              <Pressable
+                style={styles.attachedRemove}
+                onPress={() => onRemoveImage?.(uri)}
+                hitSlop={8}
+              >
+                <X size={11} color="#FFF" strokeWidth={3} />
+              </Pressable>
+            </View>
+          ))}
+        </ScrollView>
+      )}
       <View style={[styles.inputRow, isFocused && !showRecordingUI && styles.inputRowFocused]}>
         {/* Recording indicator (replaces input when recording) */}
         {showRecordingUI ? (
@@ -423,7 +456,7 @@ export function AIInputBox({
               onPress={onToggleAttachment}
             >
               <Animated.View style={plusButtonAnimatedStyle}>
-                <Plus size={20} color={isAttachmentOpen ? BrandColors.secondary : (hasText ? "rgba(0,0,0,0.6)" : "rgba(0,0,0,0.4)")} strokeWidth={2} />
+                <ImagePlus size={20} color={isAttachmentOpen ? BrandColors.secondary : (hasText ? "rgba(0,0,0,0.6)" : "rgba(0,0,0,0.4)")} strokeWidth={2} />
               </Animated.View>
             </Pressable>
           )}
@@ -535,6 +568,39 @@ const styles = StyleSheet.create({
   },
   inputCardInner: {
   },
+  attachedRow: {
+    maxHeight: 78,
+  },
+  attachedRowContent: {
+    gap: 8,
+    paddingTop: 12,
+    paddingHorizontal: 14,
+    paddingBottom: 2,
+  },
+  attachedThumbWrap: {
+    position: 'relative',
+    paddingTop: 6,
+    paddingRight: 6,
+  },
+  attachedThumb: {
+    width: 58,
+    height: 58,
+    borderRadius: 12,
+    backgroundColor: 'rgba(0,0,0,0.05)',
+  },
+  attachedRemove: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: 'rgba(0,0,0,0.72)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: '#FFF',
+  },
   inputCardRecording: {
     backgroundColor: '#EEF2FF',
     borderColor: BrandColors.secondary,
@@ -544,9 +610,9 @@ const styles = StyleSheet.create({
   inputRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
+    paddingVertical: 8,
     paddingHorizontal: 10,
-    minHeight: 48,
+    minHeight: 40,
   },
   inputRowFocused: {
   },
@@ -563,11 +629,11 @@ const styles = StyleSheet.create({
   },
   textInput: {
     flex: 1,
-    fontSize: 18,
+    fontSize: 16,
     fontFamily: FontFamily.regular,
     color: '#000000',
     lineHeight: LINE_HEIGHT,
-    paddingVertical: 6,
+    paddingVertical: 4,
     paddingHorizontal: 8,
     // Vertical-center the placeholder/single-line text; on iOS multiline
     // TextInputs ignore this and flow top-down naturally, so it doesn't

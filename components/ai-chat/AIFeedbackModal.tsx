@@ -2,42 +2,30 @@
  * AIFeedbackModal
  *
  * PURPOSE: Sprint 4 — opened by the thumbs-up / thumbs-down buttons on each
- * AI message bubble. Collects an optional comment plus optional category tags
- * and submits to `api.ai_feedback.submit`. Each submission is tied to the
+ * AI message bubble. Collects optional category tags ("What stood out?") and
+ * submits to `api.ai_feedback.submit`. Each submission is tied to the
  * conversation row so the owner can review the full thread when troubleshooting.
  *
- * UX: Mirrors the chrome of `components/shared-ui/FeedbackModal` (card on
- * dim+blurred backdrop, handle bar, close-on-left header, Cancel + Submit
- * footer, light gray surface) so the two feedback surfaces feel unified.
- * Adds AI-specific content: rating chip, "About this response" excerpt, and
- * the tag-chip vocabulary that varies per rating.
+ * UX: A @gorhom/bottom-sheet that slides up from the bottom (dim+blur backdrop
+ * via BlurBackdrop, drag handle, pan-down-to-close, light gray surface). Sized
+ * dynamically to its content. Header carries a rating chip; the tag-chip
+ * vocabulary varies per rating.
  *
  * USED IN: app/(main-tabs)/ai-chat/index.tsx
  *
  * OWNER: Waleed Mansour
  */
 
-import React, { useCallback, useEffect, useRef, useState } from "react";
-import {
-  ActivityIndicator,
-  Keyboard,
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  Pressable,
-  StyleSheet,
-  TextInput,
-  TouchableWithoutFeedback,
-  View,
-} from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { BlurView } from "expo-blur";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ActivityIndicator, Dimensions, Pressable, StyleSheet, View } from "react-native";
+import { BottomSheetModal, BottomSheetView } from "@gorhom/bottom-sheet";
 
 import { useMutation } from "convex/react";
 import { ThumbsDown, ThumbsUp, X } from "lucide-react-native";
 
 import { Button, Text } from "@/components/shared-ui";
-import { BorderRadius, BrandColors, FontFamily, Spacing } from "@/constants/theme";
+import { BlurBackdrop } from "@/components/shared-ui/BlurBackdrop";
+import { BorderRadius, BrandColors, Spacing } from "@/constants/theme";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 
@@ -94,10 +82,18 @@ export function AIFeedbackModal({
   messageId,
   messageContent,
 }: AIFeedbackModalProps) {
-  const insets = useSafeAreaInsets();
   const submit = useMutation(api.ai_feedback.submit);
+  const sheetRef = useRef<BottomSheetModal>(null);
 
-  const [comment, setComment] = useState("");
+  // Detached/floating chrome to match the app's shared AppBottomSheetModal:
+  // 95% width (2.5% inset each side), rounded all round, sitting low near the
+  // bottom edge.
+  const { width } = Dimensions.get("window");
+  const modalContainerStyle = useMemo(
+    () => ({ marginHorizontal: width * 0.025 }),
+    [width],
+  );
+
   const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [didSubmit, setDidSubmit] = useState(false);
@@ -105,42 +101,18 @@ export function AIFeedbackModal({
   const isPositive = rating === "thumbs_up";
   const tagOptions = isPositive ? POSITIVE_TAGS : NEGATIVE_TAGS;
 
-  // Force KAV remount on Android when keyboard hides to fix height not resetting.
-  // Mirrors the trick used in FeedbackModal — debounce against the hide event
-  // caused by the remount itself.
-  const [kavKey, setKavKey] = useState(0);
-  const remountTimer = useRef<any>(null);
+  // Drive the imperative sheet from the declarative `visible` prop so the
+  // parent keeps its existing render-when-open API. The parent unmounts us
+  // on close, so state resets naturally on the next open.
   useEffect(() => {
-    if (Platform.OS !== "android" || !visible) return;
-    const sub = Keyboard.addListener("keyboardDidHide", () => {
-      if (remountTimer.current) clearTimeout(remountTimer.current);
-      remountTimer.current = setTimeout(() => {
-        setKavKey((k) => k + 1);
-      }, 100);
-    });
-    const showSub = Keyboard.addListener("keyboardDidShow", () => {
-      if (remountTimer.current) {
-        clearTimeout(remountTimer.current);
-        remountTimer.current = null;
-      }
-    });
-    return () => {
-      sub.remove();
-      showSub.remove();
-      if (remountTimer.current) clearTimeout(remountTimer.current);
-    };
+    if (visible) sheetRef.current?.present();
+    else sheetRef.current?.dismiss();
   }, [visible]);
 
-  // Reset state when the modal hides so reopening starts clean.
-  useEffect(() => {
-    if (!visible) {
-      setComment("");
-      setSelectedTags(new Set());
-      setIsSubmitting(false);
-      setDidSubmit(false);
-      setKavKey(0);
-    }
-  }, [visible]);
+  // Animate the sheet down; `onDismiss` then propagates to `onClose`.
+  const handleClose = useCallback(() => {
+    sheetRef.current?.dismiss();
+  }, []);
 
   const toggleTag = useCallback((tag: string) => {
     setSelectedTags((prev) => {
@@ -159,15 +131,14 @@ export function AIFeedbackModal({
         conversation_id: conversationId,
         ...(messageId ? { message_id: messageId } : {}),
         rating,
-        ...(comment.trim() ? { comment: comment.trim() } : {}),
         ...(selectedTags.size > 0 ? { tags: Array.from(selectedTags) } : {}),
         message_content_snapshot: messageContent,
       });
       setDidSubmit(true);
       // Auto-close after a beat so the success state isn't sticky.
-      setTimeout(onClose, 1200);
+      setTimeout(() => sheetRef.current?.dismiss(), 1200);
     } catch (err) {
-      // Surface failure by re-enabling submit. User can retry; modal stays open.
+      // Surface failure by re-enabling submit. User can retry; sheet stays open.
       console.warn("[AIFeedbackModal] submit failed:", err);
       setIsSubmitting(false);
     }
@@ -176,7 +147,6 @@ export function AIFeedbackModal({
     conversationId,
     messageId,
     rating,
-    comment,
     selectedTags,
     messageContent,
     isSubmitting,
@@ -184,183 +154,124 @@ export function AIFeedbackModal({
   ]);
 
   return (
-    <Modal
-      transparent
-      visible={visible}
-      animationType="fade"
-      statusBarTranslucent
-      navigationBarTranslucent
-      onRequestClose={onClose}
+    <BottomSheetModal
+      ref={sheetRef}
+      enableDynamicSizing
+      enablePanDownToClose
+      detached
+      bottomInset={Spacing.sm}
+      style={modalContainerStyle}
+      backdropComponent={BlurBackdrop}
+      handleIndicatorStyle={styles.handleIndicator}
+      backgroundStyle={styles.sheetBackground}
+      onDismiss={onClose}
     >
-      <View style={styles.fullScreenBackdrop} pointerEvents="none" />
-
-      <KeyboardAvoidingView
-        key={kavKey}
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        style={styles.keyboardView}
-      >
-        <BlurView
-          intensity={28}
-          tint="dark"
-          style={StyleSheet.absoluteFill}
-          pointerEvents="none"
-        />
-        <TouchableWithoutFeedback onPress={onClose}>
-          <View style={styles.backdrop} />
-        </TouchableWithoutFeedback>
-
-        {/* Modal Card */}
-        <View style={[styles.card, { marginBottom: insets.bottom + 8 }]}>
-          {/* Handle */}
-          <View style={styles.handleRow}>
-            <View style={styles.handle} />
-          </View>
-
-          {/* Header — close on left, title centered, rating pill on right */}
-          <View style={styles.header}>
-            <Pressable
-              onPress={onClose}
-              style={styles.closeButton}
-              hitSlop={10}
-              disabled={isSubmitting}
-            >
-              <X size={20} color="#111827" />
-            </Pressable>
-            <Text
-              weight="bold"
-              size="lg"
-              color="#111827"
-              style={styles.headerTitle}
-            >
-              Share feedback
-            </Text>
-            <View style={styles.headerRatingChip}>
-              {isPositive ? (
-                <ThumbsUp size={12} color={BrandColors.secondary} strokeWidth={2.2} />
-              ) : (
-                <ThumbsDown size={12} color={BrandColors.secondary} strokeWidth={2.2} />
-              )}
-              <Text style={styles.headerRatingText} size="xs" weight="semiBold">
-                {isPositive ? "Helpful" : "Not helpful"}
-              </Text>
-            </View>
-          </View>
-
-          {/* Content */}
-          <View style={styles.content}>
-            {didSubmit ? (
-              <View style={styles.successBody}>
-                <Text style={styles.successTitle} weight="semiBold">
-                  Thanks for the feedback.
-                </Text>
-                <Text style={styles.successSubtitle} size="sm">
-                  Your note is in. We use it to make Oto better.
-                </Text>
-              </View>
+      <BottomSheetView style={[styles.content, { paddingBottom: Spacing.lg }]}>
+        {/* Header — close on left, title centered, rating pill on right */}
+        <View style={styles.header}>
+          <Pressable
+            onPress={handleClose}
+            style={styles.closeButton}
+            hitSlop={10}
+            disabled={isSubmitting}
+          >
+            <X size={20} color="#111827" />
+          </Pressable>
+          <Text weight="bold" size="lg" color="#111827" style={styles.headerTitle}>
+            Share feedback
+          </Text>
+          <View style={styles.headerRatingChip}>
+            {isPositive ? (
+              <ThumbsUp size={12} color={BrandColors.secondary} strokeWidth={2.2} />
             ) : (
-              <>
-                {/* Excerpt */}
-                <View style={styles.excerptBlock}>
-                  <Text style={styles.excerptLabel} size="xs" weight="semiBold">
-                    About this response
-                  </Text>
-                  <Text style={styles.excerptText} size="sm" numberOfLines={4}>
-                    {messageContent || "—"}
-                  </Text>
-                </View>
-
-                {/* Tags */}
-                <View style={styles.section}>
-                  <Text style={styles.sectionLabel} size="xs" weight="semiBold">
-                    What stood out? (optional)
-                  </Text>
-                  <View style={styles.tagRow}>
-                    {tagOptions.map((tag) => {
-                      const active = selectedTags.has(tag);
-                      return (
-                        <Pressable
-                          key={tag}
-                          onPress={() => toggleTag(tag)}
-                          disabled={isSubmitting}
-                          style={({ pressed }) => [
-                            styles.tagChip,
-                            active && styles.tagChipActive,
-                            pressed && !isSubmitting && styles.tagChipPressed,
-                          ]}
-                        >
-                          <Text
-                            style={[
-                              styles.tagChipText,
-                              active && styles.tagChipTextActive,
-                            ]}
-                            size="sm"
-                            weight={active ? "semiBold" : "medium"}
-                          >
-                            {tag}
-                          </Text>
-                        </Pressable>
-                      );
-                    })}
-                  </View>
-                </View>
-
-                {/* Comment */}
-                <View style={styles.section}>
-                  <Text style={styles.sectionLabel} size="xs" weight="semiBold">
-                    Anything else? (optional)
-                  </Text>
-                  <TextInput
-                    value={comment}
-                    onChangeText={setComment}
-                    editable={!isSubmitting}
-                    placeholder={
-                      isPositive
-                        ? "What worked well?"
-                        : "What went wrong, or what would have helped?"
-                    }
-                    placeholderTextColor="#9CA3AF"
-                    multiline
-                    style={styles.commentInput}
-                    textAlignVertical="top"
-                  />
-                </View>
-
-                {/* Footer — Cancel + Submit, mirrors FeedbackModal */}
-                <View style={styles.actionsRow}>
-                  <Button
-                    variant="ghost"
-                    fullWidth
-                    style={[styles.actionButton, styles.cancelButton]}
-                    textColor="#111827"
-                    onPress={onClose}
-                    disabled={isSubmitting}
-                  >
-                    Cancel
-                  </Button>
-
-                  <Pressable
-                    style={[
-                      styles.submitWrap,
-                      isSubmitting && styles.submitWrapDisabled,
-                    ]}
-                    onPress={handleSubmit}
-                    disabled={isSubmitting}
-                  >
-                    {isSubmitting ? (
-                      <ActivityIndicator color="#FFF" />
-                    ) : (
-                      <Text weight="semiBold" size="md" color="#FFF">
-                        Send feedback
-                      </Text>
-                    )}
-                  </Pressable>
-                </View>
-              </>
+              <ThumbsDown size={12} color={BrandColors.secondary} strokeWidth={2.2} />
             )}
+            <Text style={styles.headerRatingText} size="xs" weight="semiBold">
+              {isPositive ? "Helpful" : "Not helpful"}
+            </Text>
           </View>
         </View>
-      </KeyboardAvoidingView>
-    </Modal>
+
+        {didSubmit ? (
+          <View style={styles.successBody}>
+            <Text style={styles.successTitle} weight="semiBold">
+              Thanks for the feedback.
+            </Text>
+            <Text style={styles.successSubtitle} size="sm">
+              Your note is in. We use it to make Oto better.
+            </Text>
+          </View>
+        ) : (
+          <>
+            {/* Tags */}
+            <View style={styles.section}>
+              <Text style={styles.sectionLabel} size="xs" weight="semiBold">
+                What stood out? (optional)
+              </Text>
+              <View style={styles.tagRow}>
+                {tagOptions.map((tag) => {
+                  const active = selectedTags.has(tag);
+                  return (
+                    <Pressable
+                      key={tag}
+                      onPress={() => toggleTag(tag)}
+                      disabled={isSubmitting}
+                      style={({ pressed }) => [
+                        styles.tagChip,
+                        active && styles.tagChipActive,
+                        pressed && !isSubmitting && styles.tagChipPressed,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.tagChipText,
+                          active && styles.tagChipTextActive,
+                        ]}
+                        size="sm"
+                        weight={active ? "semiBold" : "medium"}
+                      >
+                        {tag}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+
+            {/* Footer — Cancel + Submit, mirrors FeedbackModal */}
+            <View style={styles.actionsRow}>
+              <Button
+                variant="ghost"
+                fullWidth
+                style={[styles.actionButton, styles.cancelButton]}
+                textColor="#111827"
+                onPress={handleClose}
+                disabled={isSubmitting}
+              >
+                Cancel
+              </Button>
+
+              <Pressable
+                style={[
+                  styles.submitWrap,
+                  isSubmitting && styles.submitWrapDisabled,
+                ]}
+                onPress={handleSubmit}
+                disabled={isSubmitting}
+              >
+                {isSubmitting ? (
+                  <ActivityIndicator color="#FFF" />
+                ) : (
+                  <Text weight="semiBold" size="md" color="#FFF">
+                    Send feedback
+                  </Text>
+                )}
+              </Pressable>
+            </View>
+          </>
+        )}
+      </BottomSheetView>
+    </BottomSheetModal>
   );
 }
 
@@ -369,29 +280,12 @@ export function AIFeedbackModal({
 // ============================================================================
 
 const styles = StyleSheet.create({
-  keyboardView: {
-    flex: 1,
-    justifyContent: "flex-end",
-  },
-  fullScreenBackdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0, 0, 0, 0.18)",
-  },
-  backdrop: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  card: {
-    marginHorizontal: 10,
+  sheetBackground: {
     backgroundColor: "#E8ECF0",
-    borderRadius: 28,
+    borderRadius: 50,
     overflow: "hidden",
   },
-  handleRow: {
-    alignItems: "center",
-    paddingTop: 10,
-    paddingBottom: 6,
-  },
-  handle: {
+  handleIndicator: {
     width: 40,
     height: 4,
     backgroundColor: "#6B7280",
@@ -433,25 +327,8 @@ const styles = StyleSheet.create({
   // Content
   content: {
     paddingHorizontal: 24,
-    paddingBottom: 24,
+    paddingTop: Spacing.xs,
     gap: 16,
-  },
-  excerptBlock: {
-    backgroundColor: BrandColors.white,
-    borderRadius: 14,
-    padding: Spacing.md,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    gap: 4,
-  },
-  excerptLabel: {
-    color: "#9CA3AF",
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-  },
-  excerptText: {
-    color: BrandColors.primary,
-    lineHeight: 18,
   },
   section: {
     gap: Spacing.xs,
@@ -485,16 +362,6 @@ const styles = StyleSheet.create({
   },
   tagChipTextActive: {
     color: BrandColors.secondary,
-  },
-  commentInput: {
-    backgroundColor: "#F3F4F6",
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    minHeight: 120,
-    fontSize: 16,
-    color: "#111827",
-    fontFamily: FontFamily.regular,
   },
   actionsRow: {
     flexDirection: "row",

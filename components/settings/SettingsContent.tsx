@@ -326,6 +326,11 @@ export function SettingsContent({
 
   const handleConfirmLogout = useCallback(async () => {
     setIsLogoutVisible(false);
+    // Force-close the settings overlay BEFORE sign-out. Zustand isn't
+    // persisted so the store is cleared on app restart, but the flag
+    // survives an in-session sign-out → sign-back-in → and paints
+    // over Home on the next mount (PM bug 2026-07-22).
+    useSettingsOverlayStore.getState().close();
     try {
       await signOut();
     } catch (e) {
@@ -413,31 +418,38 @@ export function SettingsContent({
   // The default avatar render — used unless `avatarOverride` is set.
   const defaultAvatar = (
     <Pressable onPress={openEditProfile} hitSlop={8}>
-      {profilePhotoUri ? (
-        <Image source={{ uri: profilePhotoUri }} style={styles.avatarImage} />
-      ) : (
-        <LinearGradient
-          colors={["#5299FE", "#C5DAFF"]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.avatarPlaceholder}
-        >
-          <AvatarSlider
-            size={72}
-            panels={[
+      {/* Photo (or initials) ↔ logo slider — stays in sync with the Home
+          profile button so the two surfaces never disagree. */}
+      <LinearGradient
+        colors={["#5299FE", "#C5DAFF"]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.avatarPlaceholder}
+      >
+        <AvatarSlider
+          size={72}
+          panels={[
+            profilePhotoUri ? (
+              <Image
+                key="photo"
+                source={{ uri: profilePhotoUri }}
+                style={styles.avatarImage}
+                resizeMode="cover"
+              />
+            ) : (
               <Text key="initials" weight="semiBold" size="2xl" color="#FFFFFF">
                 {initials}
-              </Text>,
-              <Image
-                key="logo"
-                source={OTO_LOGO_3D}
-                style={{ width: 68, height: 68 }}
-                resizeMode="contain"
-              />,
-            ]}
-          />
-        </LinearGradient>
-      )}
+              </Text>
+            ),
+            <Image
+              key="logo"
+              source={OTO_LOGO_3D}
+              style={{ width: 68, height: 68 }}
+              resizeMode="contain"
+            />,
+          ]}
+        />
+      </LinearGradient>
     </Pressable>
   );
 

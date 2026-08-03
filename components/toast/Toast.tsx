@@ -89,6 +89,19 @@ const TOAST_TEXT_OVERRIDE = {
   title: TOAST_FG,
   body: "rgba(255, 255, 255, 0.92)",
 } as const;
+// Plain (opt-in) — a clean white card with a hairline border, dark text,
+// no gradient. Same white/soft-shadow family as the EnrichmentStatusPill.
+const PLAIN_BG_OVERRIDE = {
+  bg: "#FFFFFF",
+  border: "rgba(20, 28, 36, 0.10)",
+  iconColor: TOAST_BG,
+  iconContainerBg: "transparent",
+  iconContainerBorder: undefined,
+} as const;
+const PLAIN_TEXT_OVERRIDE = {
+  title: "#141C24",
+  body: "rgba(20, 28, 36, 0.6)",
+} as const;
 
 const POLITE_VARIANTS = new Set<ToastVariant>(["info", "trust", "success"]);
 
@@ -109,8 +122,11 @@ interface Props {
 
 export function Toast({ item, bottomOffset, onRequestDismiss }: Props) {
   const scheme = useColorScheme() ?? "light";
-  const palette = TOAST_BG_OVERRIDE;
-  const textColors = TOAST_TEXT_OVERRIDE;
+  // Plain toasts opt out of the brand-blue gradient: white card, dark text,
+  // no icon unless one is explicitly passed.
+  const plain = item.plain === true;
+  const palette = plain ? PLAIN_BG_OVERRIDE : TOAST_BG_OVERRIDE;
+  const textColors = plain ? PLAIN_TEXT_OVERRIDE : TOAST_TEXT_OVERRIDE;
   const reduceMotion = useReducedMotion();
 
   const translateY = useSharedValue(reduceMotion ? 0 : HIDDEN_TRANSLATE);
@@ -233,21 +249,25 @@ export function Toast({ item, bottomOffset, onRequestDismiss }: Props) {
             styles.container,
             {
               backgroundColor: palette.bg,
-              borderColor: TOAST_GRADIENT[1],
+              borderColor: plain ? palette.border : TOAST_GRADIENT[1],
               maxHeight,
             },
             shadow,
           ]}
         >
-          <LinearGradient
-            colors={TOAST_GRADIENT as unknown as readonly [string, string]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={StyleSheet.absoluteFill}
-            pointerEvents="none"
-          />
+          {plain ? null : (
+            <LinearGradient
+              colors={TOAST_GRADIENT as unknown as readonly [string, string]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={StyleSheet.absoluteFill}
+              pointerEvents="none"
+            />
+          )}
           <View style={styles.row}>
-            <ToastIcon variant={item.variant} palette={palette} />
+            {!plain || item.icon ? (
+              <ToastIcon variant={item.variant} palette={palette} icon={item.icon} />
+            ) : null}
             <View style={styles.textCol}>
               <Animated.Text
                 numberOfLines={2}

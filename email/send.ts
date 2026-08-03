@@ -740,6 +740,132 @@ export async function sendInvoiceEmail({
   }
 }
 
+interface ShopApplicationData {
+  ownerFullName: string;
+  shopLegalName: string;
+  businessEmail: string;
+  phone: string;
+  streetAddress: string;
+}
+
+/**
+ * Confirmation receipt to a shop that applied to partner with Otopair (Step 1
+ * of the invite-based onboarding flow). Carries NO claim token / CTA — it only
+ * sets the expectation that the application is under review and, if approved, a
+ * private invite follows. Uses the verified `info@otopair.com` sender.
+ */
+export async function sendShopApplicationReceiptEmail(data: ShopApplicationData) {
+  try {
+    const first = escapeHtml(data.ownerFullName.trim().split(/\s+/)[0] || "there");
+    const body = `
+      <p style="margin:0 0 8px;">Hi ${first},</p>
+      <p style="margin:0 0 20px;">Thanks for applying to join Otopair as a partner shop.
+      We've received your application for <strong>${escapeHtml(data.shopLegalName)}</strong>
+      and our team is reviewing it now.</p>
+      <table role="presentation" style="width:100%;border-collapse:collapse;margin:0 0 20px;background:#f9fafb;border-radius:8px;border:1px solid #e5e7eb;">
+        <tr><td style="padding:16px 20px;">
+          <p style="margin:0 0 4px;color:#6b7280;font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;">Application summary</p>
+          <p style="margin:8px 0 0;color:#111827;font-size:14px;font-weight:600;">${escapeHtml(data.shopLegalName)}</p>
+          <p style="margin:2px 0 0;color:#6b7280;font-size:13px;">${escapeHtml(data.streetAddress)}</p>
+        </td></tr>
+      </table>
+      <p style="margin:0 0 8px;color:#6b7280;font-size:14px;">
+        No action needed right now — if approved, we'll email you a private invite to set up your shop.</p>`;
+    const result = await resend.emails.send({
+      from: "Otopair <info@otopair.com>",
+      to: data.businessEmail,
+      subject: "We received your Otopair partner application",
+      html: brandedShell("Application received", body),
+    });
+    return { success: true, data: result };
+  } catch (error) {
+    console.error("Error sending shop application receipt email:", error);
+    return { success: false, error };
+  }
+}
+
+/**
+ * Internal alert to the Otopair team when a new partner application lands.
+ * Best-effort (mirrors the waitlist notification); never blocks the applicant
+ * response. Goes to COMPANY_EMAIL (defaults to team@otopair.com).
+ */
+export async function sendShopApplicationNotificationEmail(data: ShopApplicationData) {
+  try {
+    const companyEmail = process.env.COMPANY_EMAIL || "team@otopair.com";
+    const body = `
+      <p style="margin:0 0 16px;">New partner-shop application submitted.</p>
+      <table role="presentation" style="width:100%;border-collapse:collapse;background:#f9fafb;border-radius:8px;border:1px solid #e5e7eb;">
+        <tr><td style="padding:20px;">
+          <p style="margin:0 0 6px;font-size:13px;color:#111827;"><strong>Shop:</strong> ${escapeHtml(data.shopLegalName)}</p>
+          <p style="margin:0 0 6px;font-size:13px;color:#111827;"><strong>Owner:</strong> ${escapeHtml(data.ownerFullName)}</p>
+          <p style="margin:0 0 6px;font-size:13px;color:#111827;"><strong>Email:</strong> ${escapeHtml(data.businessEmail)}</p>
+          <p style="margin:0 0 6px;font-size:13px;color:#111827;"><strong>Phone:</strong> ${escapeHtml(data.phone)}</p>
+          <p style="margin:0;font-size:13px;color:#111827;"><strong>Address:</strong> ${escapeHtml(data.streetAddress)}</p>
+        </td></tr>
+      </table>`;
+    const result = await resend.emails.send({
+      from: "Otopair <info@otopair.com>",
+      to: companyEmail,
+      subject: `New partner application: ${data.shopLegalName}`,
+      html: brandedShell("New partner application", body),
+    });
+    return { success: true, data: result };
+  } catch (error) {
+    console.error("Error sending shop application notification email:", error);
+    return { success: false, error };
+  }
+}
+
+/**
+ * Branded invite to a shop owner whose application was approved (Step 2 of the
+ * invite-based onboarding). The link carries a one-time 32-byte token (only its
+ * hash is stored server-side) and expires in 7 days.
+ */
+export async function sendShopOwnerInviteEmail({
+  email,
+  inviteUrl,
+  shopName,
+  ownerName,
+}: {
+  email: string;
+  inviteUrl: string;
+  shopName: string;
+  ownerName?: string;
+}) {
+  try {
+    const hi = ownerName ? `Hi ${escapeHtml(ownerName.trim().split(/\s+/)[0])},` : "Hi there,";
+    const body = `
+      <p style="margin:0 0 8px;">${hi}</p>
+      <p style="margin:0 0 24px;">Good news — your application to partner with Otopair has been
+      approved. You can now claim <strong>${escapeHtml(shopName)}</strong> and set up your shop as
+      the <strong>Shop Owner</strong>.</p>
+      <table role="presentation" style="width:100%;border-collapse:collapse;margin:0 0 8px;">
+        <tr><td align="center">
+          <a href="${escapeHtml(inviteUrl)}"
+             style="display:inline-block;padding:14px 32px;background:${BRAND_GRADIENT};color:#fff;text-decoration:none;border-radius:8px;font-weight:600;font-size:16px;box-shadow:0 4px 14px rgba(13,114,255,0.3);">
+            Claim your shop
+          </a>
+        </td></tr>
+      </table>
+      <p style="margin:16px 0 0;color:#6b7280;font-size:13px;text-align:center;">
+        This link is unique to you and expires in 7 days.</p>
+      <p style="margin:20px 0 0;color:#6b7280;font-size:14px;line-height:1.6;">
+        If the button doesn't work, copy and paste this link into your browser:<br/>
+        <a href="${escapeHtml(inviteUrl)}" style="color:#0d72ff;word-break:break-all;">${escapeHtml(inviteUrl)}</a>
+      </p>`;
+    const result = await resend.emails.send({
+      from: "Otopair <info@otopair.com>",
+      to: email,
+      subject: `You're approved — claim ${shopName} on Otopair`,
+      html: brandedShellWithLogo("You're approved", body),
+    });
+    return { success: true, data: result };
+  } catch (error) {
+    console.error("Error sending shop owner invite email:", error);
+    return { success: false, error };
+  }
+}
+
 /**
  * Send notification email to company when someone joins waitlist
  */
@@ -1000,6 +1126,192 @@ export async function sendSupportRequestEmail(data: SupportRequestEmailData) {
     return { success: true, data: result };
   } catch (error) {
     console.error("Error sending support request email:", error);
+    return { success: false, error };
+  }
+}
+
+// ----------------------------------------------------------------------------
+// Contact Support form (Settings → Contact Us). No booking context — just a
+// topic, subject and description. Lands in support@otopair.com (overridable
+// via SUPPORT_EMAIL), reply-to set to the customer so ops can hit Reply.
+// ----------------------------------------------------------------------------
+export interface ContactSupportEmailData {
+  /** Topic label chosen in the sheet (e.g. "Bookings & services"). */
+  topic: string;
+  subject: string;
+  description: string;
+  /** Customer's email — used as reply-to. */
+  customerEmail: string;
+  customerName?: string;
+  /** How many screenshots/videos the user attached (not uploaded here). */
+  attachmentCount?: number;
+}
+
+export async function sendContactSupportEmail(data: ContactSupportEmailData) {
+  const supportInbox = process.env.SUPPORT_EMAIL || "support@otopair.com";
+  const { topic, subject, description, customerEmail, customerName, attachmentCount } = data;
+  const esc = (s: string) => (s || "").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+  const lineCss = "margin:0 0 6px;color:#1f2937;font-size:14px;line-height:1.5;";
+  const labelCss = "color:#6b7280;font-weight:600;";
+
+  const html = `
+    <!DOCTYPE html>
+    <html lang="en">
+    <head><meta charset="UTF-8"/><title>Otopair — contact support</title></head>
+    <body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background-color:#f9fafb;">
+      <table role="presentation" style="width:100%;border-collapse:collapse;background-color:#f9fafb;">
+        <tr><td align="center" style="padding:32px 16px;">
+          <table role="presentation" style="max-width:560px;width:100%;border-collapse:collapse;background-color:#ffffff;border-radius:12px;box-shadow:0 4px 6px rgba(0,0,0,0.08);">
+            <tr><td style="padding:24px 28px 8px;border-bottom:1px solid #e5e7eb;">
+              <h1 style="margin:0;color:#0f172a;font-size:20px;font-weight:700;">New contact request</h1>
+              <p style="margin:4px 0 0;color:#6b7280;font-size:13px;">Sent from Settings → Contact Us.</p>
+            </td></tr>
+            <tr><td style="padding:20px 28px 4px;">
+              <p style="${lineCss}"><span style="${labelCss}">Topic:</span> ${esc(topic)}</p>
+              <p style="${lineCss}"><span style="${labelCss}">Subject:</span> ${esc(subject)}</p>
+              <p style="${lineCss}"><span style="${labelCss}">From:</span> ${customerName ? `${esc(customerName)} ` : ""}&lt;${esc(customerEmail)}&gt;</p>
+              ${attachmentCount ? `<p style="${lineCss}"><span style="${labelCss}">Attachments:</span> ${attachmentCount} (ask the customer to resend if needed)</p>` : ""}
+            </td></tr>
+            <tr><td style="padding:8px 28px 24px;">
+              <h2 style="margin:18px 0 8px;color:#0f172a;font-size:14px;text-transform:uppercase;letter-spacing:0.4px;">Message</h2>
+              <div style="background-color:#f3f4f6;border-radius:8px;padding:12px 14px;color:#1f2937;font-size:14px;line-height:1.55;white-space:pre-wrap;">${esc(description) || "(no message provided)"}</div>
+            </td></tr>
+            <tr><td style="padding:0 28px 24px;color:#9ca3af;font-size:12px;line-height:1.4;">
+              Reply to this email to respond to the customer directly.
+            </td></tr>
+          </table>
+        </td></tr>
+      </table>
+    </body>
+    </html>
+  `;
+
+  try {
+    const result = await resend.emails.send({
+      from: "Otopair Support <support@otopair.com>",
+      to: supportInbox,
+      replyTo: customerEmail,
+      subject: `Contact · ${topic} · ${subject}`,
+      html,
+    });
+    return { success: true, data: result };
+  } catch (error) {
+    console.error("Error sending contact support email:", error);
+    return { success: false, error };
+  }
+}
+
+// ----------------------------------------------------------------------------
+// App feedback ("Give Us Feedback" modal). Emails the note to
+// support@otopair.com; reply-to the user's email when we have it.
+// ----------------------------------------------------------------------------
+export interface FeedbackEmailData {
+  text: string;
+  source?: string;
+  customerEmail?: string;
+  customerName?: string;
+}
+
+export async function sendFeedbackEmail(data: FeedbackEmailData) {
+  const supportInbox = process.env.SUPPORT_EMAIL || "support@otopair.com";
+  const { text, source, customerEmail, customerName } = data;
+  const esc = (s: string) => (s || "").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const lineCss = "margin:0 0 6px;color:#1f2937;font-size:14px;line-height:1.5;";
+  const labelCss = "color:#6b7280;font-weight:600;";
+  const fromLine =
+    customerEmail || customerName
+      ? `<p style="${lineCss}"><span style="${labelCss}">From:</span> ${customerName ? `${esc(customerName)} ` : ""}${customerEmail ? `&lt;${esc(customerEmail)}&gt;` : ""}</p>`
+      : "";
+  const sourceLine = source
+    ? `<p style="${lineCss}"><span style="${labelCss}">Source:</span> ${esc(source)}</p>`
+    : "";
+
+  const html = `
+    <!DOCTYPE html>
+    <html lang="en">
+    <head><meta charset="UTF-8"/><title>Otopair — app feedback</title></head>
+    <body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background-color:#f9fafb;">
+      <table role="presentation" style="width:100%;border-collapse:collapse;background-color:#f9fafb;">
+        <tr><td align="center" style="padding:32px 16px;">
+          <table role="presentation" style="max-width:560px;width:100%;border-collapse:collapse;background-color:#ffffff;border-radius:12px;box-shadow:0 4px 6px rgba(0,0,0,0.08);">
+            <tr><td style="padding:24px 28px 8px;border-bottom:1px solid #e5e7eb;">
+              <h1 style="margin:0;color:#0f172a;font-size:20px;font-weight:700;">New app feedback</h1>
+              <p style="margin:4px 0 0;color:#6b7280;font-size:13px;">Sent from the “Give Us Feedback” form.</p>
+            </td></tr>
+            ${fromLine || sourceLine ? `<tr><td style="padding:20px 28px 4px;">${fromLine}${sourceLine}</td></tr>` : ""}
+            <tr><td style="padding:8px 28px 24px;">
+              <h2 style="margin:18px 0 8px;color:#0f172a;font-size:14px;text-transform:uppercase;letter-spacing:0.4px;">Feedback</h2>
+              <div style="background-color:#f3f4f6;border-radius:8px;padding:12px 14px;color:#1f2937;font-size:14px;line-height:1.55;white-space:pre-wrap;">${esc(text) || "(empty)"}</div>
+            </td></tr>
+          </table>
+        </td></tr>
+      </table>
+    </body>
+    </html>
+  `;
+
+  try {
+    const result = await resend.emails.send({
+      from: "Otopair Support <support@otopair.com>",
+      to: supportInbox,
+      ...(customerEmail ? { replyTo: customerEmail } : {}),
+      subject: `App feedback${source ? ` · ${source}` : ""}`,
+      html,
+    });
+    return { success: true, data: result };
+  } catch (error) {
+    console.error("Error sending feedback email:", error);
+    return { success: false, error };
+  }
+}
+
+// ----------------------------------------------------------------------------
+// Two-factor verification code. Sent to the user's own email; short-lived.
+// ----------------------------------------------------------------------------
+export async function sendTwoFactorEmail(data: { to: string; code: string; name?: string }) {
+  const { to, code, name } = data;
+  const greeting = name ? `Hi ${name.replace(/</g, "&lt;")},` : "Hi,";
+  const spaced = String(code).split("").join(" ");
+
+  const html = `
+    <!DOCTYPE html>
+    <html lang="en">
+    <head><meta charset="UTF-8"/><title>Your Otopair verification code</title></head>
+    <body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background-color:#f9fafb;">
+      <table role="presentation" style="width:100%;border-collapse:collapse;background-color:#f9fafb;">
+        <tr><td align="center" style="padding:32px 16px;">
+          <table role="presentation" style="max-width:480px;width:100%;border-collapse:collapse;background-color:#ffffff;border-radius:16px;box-shadow:0 4px 6px rgba(0,0,0,0.08);">
+            <tr><td style="padding:32px 32px 8px;">
+              <h1 style="margin:0;color:#0f172a;font-size:20px;font-weight:700;">Verification code</h1>
+              <p style="margin:12px 0 0;color:#374151;font-size:14px;line-height:1.5;">${greeting}</p>
+              <p style="margin:6px 0 0;color:#374151;font-size:14px;line-height:1.5;">Use this code to finish setting up two-factor authentication on your Otopair account.</p>
+            </td></tr>
+            <tr><td style="padding:24px 32px;">
+              <div style="background-color:#eff6ff;border:1px solid #dbeafe;border-radius:12px;padding:20px;text-align:center;">
+                <span style="color:#1d4ed8;font-size:34px;font-weight:800;letter-spacing:8px;">${spaced}</span>
+              </div>
+            </td></tr>
+            <tr><td style="padding:0 32px 28px;color:#6b7280;font-size:13px;line-height:1.5;">
+              This code expires in 5 minutes. If you didn't request it, you can safely ignore this email.
+            </td></tr>
+          </table>
+        </td></tr>
+      </table>
+    </body>
+    </html>
+  `;
+
+  try {
+    const result = await resend.emails.send({
+      from: "Otopair <info@otopair.com>",
+      to,
+      subject: `Your Otopair verification code: ${code}`,
+      html,
+    });
+    return { success: true, data: result };
+  } catch (error) {
+    console.error("Error sending 2FA email:", error);
     return { success: false, error };
   }
 }

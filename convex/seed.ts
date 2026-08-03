@@ -792,7 +792,7 @@ export const seed = mutation({
       description: "Engine oil and filter replacement",
       service_category_id: maintenanceId,
       default_labor_hours: 0.4,
-      is_labor_only: true,
+      is_labor_only: false,
       has_options: false,
       display_order: 1,
     });
@@ -803,7 +803,7 @@ export const seed = mutation({
       description: "Engine and/or cabin air filter replacement",
       service_category_id: maintenanceId,
       default_labor_hours: 0.25,
-      is_labor_only: true,
+      is_labor_only: false,
       has_options: true,
       display_order: 2,
     });
@@ -814,7 +814,7 @@ export const seed = mutation({
       description: "Windshield wiper blade replacement",
       service_category_id: maintenanceId,
       default_labor_hours: 0.15,
-      is_labor_only: true,
+      is_labor_only: false,
       has_options: false,
       display_order: 3,
     });
@@ -847,7 +847,7 @@ export const seed = mutation({
       description: "Replace battery with OEM battery",
       service_category_id: maintenanceId,
       default_labor_hours: 0.3,
-      is_labor_only: true,
+      is_labor_only: false,
       has_options: false,
       display_order: 1,
     });
@@ -903,7 +903,7 @@ export const seed = mutation({
       description: "Balance wheels to eliminate vibration",
       service_category_id: tiresWheelsId,
       default_labor_hours: 0.6,
-      is_labor_only: true,
+      is_labor_only: false,
       has_options: true,
       display_order: 2,
     });
@@ -936,7 +936,7 @@ export const seed = mutation({
       description: "Mount and balance customer-provided tires",
       service_category_id: tiresWheelsId,
       default_labor_hours: 1,
-      is_labor_only: true,
+      is_labor_only: false,
       has_options: false,
       display_order: 5,
     });
@@ -959,7 +959,7 @@ export const seed = mutation({
       description: "Replace brake pads with OEM parts",
       service_category_id: brakesId,
       default_labor_hours: 0.8,
-      is_labor_only: true,
+      is_labor_only: false,
       has_options: true,
       display_order: 1,
     });
@@ -970,7 +970,7 @@ export const seed = mutation({
       description: "Replace brake rotors and pads with OEM parts",
       service_category_id: brakesId,
       default_labor_hours: 1.2,
-      is_labor_only: true,
+      is_labor_only: false,
       has_options: true,
       display_order: 2,
     });
@@ -981,7 +981,7 @@ export const seed = mutation({
       description: "Flush and replace brake fluid",
       service_category_id: brakesId,
       default_labor_hours: 0.5,
-      is_labor_only: true,
+      is_labor_only: false,
       has_options: false,
       display_order: 3,
     });

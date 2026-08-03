@@ -343,6 +343,9 @@ export default function CarsHomeScreen() {
   const pageSlideX = useRef(new Animated.Value(0)).current;
   const pageFade = useRef(new Animated.Value(1)).current;
   const stepperRef = useRef<CarInfoStepperHandle>(null);
+  // True on the stepper's "You're all set!" screen (all 5 answered) — hides
+  // the health-sheet back button there.
+  const [stepperAllDone, setStepperAllDone] = useState(false);
   const stepperGradientProgress = useSharedValue(1);
   // Mirrors healthSheetMode for use inside closeHealthSheet's stale closure
   const healthSheetModeRef = useRef<'estimated' | 'confirmed'>('confirmed');
@@ -626,6 +629,7 @@ export default function CarsHomeScreen() {
 
   const closeHealthSheet = useCallback(() => {
     if (scoreCountRef.current) clearInterval(scoreCountRef.current);
+    setStepperAllDone(false);
 
     if (healthSheetModeRef.current === 'estimated') {
       // Reset main page to normal position behind the modal
@@ -1046,6 +1050,7 @@ export default function CarsHomeScreen() {
       toast.success(
         label ? `${label} connected` : "Vehicle connected",
         "Maintenance plan updated",
+        { icon: Car },
       );
     }
   }, [
@@ -1065,7 +1070,7 @@ export default function CarsHomeScreen() {
       // default car (handled server-side in setVehicleRole).
       setVehicleRole({ vin, userId, role })
         .then(() => {
-          toast.success(role ? "Role saved" : "Role cleared");
+          toast.success(role ? "Role saved" : "Role cleared", undefined, { icon: Users });
         })
         .catch(() => {
           toast.error("Couldn't save role. Try again.");
@@ -1545,7 +1550,7 @@ export default function CarsHomeScreen() {
       if (!userId) return;
       try {
         await updateOwnershipPrimary({ vin: vehicleId, userId, is_primary: isDefault });
-        toast.success(isDefault ? "Primary vehicle updated" : "No primary vehicle");
+        toast.success(isDefault ? "Primary vehicle updated" : "No primary vehicle", undefined, { icon: Star });
       } catch (e) {
         console.warn("Failed to set primary vehicle", e);
         toast.error("Couldn't set as primary. Try again.");
@@ -1589,7 +1594,8 @@ export default function CarsHomeScreen() {
   if (!isLoading && vehicles.length === 0) {
     return (
       <View style={[styles.container, styles.emptyContainer]}>
-        <LinearGradient colors={["#9a9cc0", "#e7e3fd", "#e0dcf4", "#f1ecfe"]} style={StyleSheet.absoluteFill} />
+        {/* Brand-blue background, matching the Home tab's gradient. */}
+        <LinearGradient colors={["#5BA3D9", "#8FC4E8", "#d9e8f5"]} style={StyleSheet.absoluteFill} />
         <View style={styles.emptyContent}>
           <Text weight="semiBold" size="xl" style={styles.emptyTitle}>
             My Cars
@@ -1677,7 +1683,7 @@ export default function CarsHomeScreen() {
         </View>
 
         {/* Profile button (far left) + dev pills + VIN info button (right) */}
-        <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: scale(16), marginBottom: scale(4), zIndex: 10, position: "relative" }}>
+        <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 20, marginTop: 20, marginBottom: scale(4), zIndex: 10, position: "relative" }}>
           <ProfileInitialsButton />
           <View style={{ flex: 1, flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: scale(6), marginLeft: scale(12) }}>
             {!!activeVehicle?.vin && (() => {
@@ -1769,21 +1775,31 @@ export default function CarsHomeScreen() {
           {!!activeVehicle?.vin && (
             <Pressable
               accessibilityLabel="Show VIN"
+              accessibilityRole="button"
               hitSlop={10}
               onPress={() => setVinModalVisible(true)}
-              style={({ pressed }) => [
-                {
-                  width: scale(28),
-                  height: scale(28),
-                  borderRadius: scale(14),
-                  alignItems: "center",
-                  justifyContent: "center",
-                  backgroundColor: "rgba(15,23,42,0.06)",
-                },
-                pressed && { opacity: 0.6 },
-              ]}
+              style={({ pressed }) => [styles.infoGlassButton, pressed && styles.infoGlassButtonPressed]}
             >
-              <Info size={scale(16)} color="#475569" strokeWidth={2.2} />
+              {/* Matches the Home notification bell: iOS 26 native liquid
+                  glass when supported, frosted BlurView fallback otherwise. */}
+              {isLiquidGlassEnabled && LiquidGlassView ? (
+                <LiquidGlassView interactive effect="clear" style={styles.infoGlassIcon}>
+                  <Info size={24} color="#FFFFFF" strokeWidth={2} />
+                </LiquidGlassView>
+              ) : (
+                <View style={styles.infoGlassContainer}>
+                  <BlurView intensity={10} tint="dark" style={styles.infoGlassBlur}>
+                    <View style={styles.infoGlassOverlay} />
+                    <LinearGradient
+                      colors={['rgba(255,255,255,0.25)', 'rgba(255,255,255,0.05)']}
+                      start={{ x: 0.5, y: 0 }}
+                      end={{ x: 0.5, y: 0.5 }}
+                      style={StyleSheet.absoluteFillObject}
+                    />
+                    <Info size={24} color="#FFFFFF" strokeWidth={2} />
+                  </BlurView>
+                </View>
+              )}
             </Pressable>
           )}
         </View>
@@ -2030,6 +2046,7 @@ export default function CarsHomeScreen() {
               openItemId={params.openItemDetail}
               vehicleCondition={computedHealthScore}
               healthScoreInput={healthScoreInput}
+              vehicleLabel={activeVehicle?.model ?? undefined}
               isDarkBg={isDarkBg}
               isEnriching={vehicleReadiness.status === "enriching"}
               onBookNow={(id) => {
@@ -2400,15 +2417,21 @@ export default function CarsHomeScreen() {
           {healthSheetMode === 'estimated' ? (
             estimatedPage === 'checkin' ? (
               <View style={healthSheetStyles.fullPageHeader}>
-                <Pressable onPress={() => {
-                  if (stepperRef.current?.isExpanded()) {
-                    stepperRef.current.goBack();
-                  } else {
-                    closeHealthSheet();
-                  }
-                }} hitSlop={12} style={({ pressed }) => [healthSheetStyles.fullPageBackBtn, pressed && { opacity: 0.6 }]}>
-                  <ArrowLeft size={scale(24)} color="#141C24" strokeWidth={2} />
-                </Pressable>
+                {/* Hidden on the "You're all set!" screen — nothing to go
+                    back to once every item is answered. */}
+                {stepperAllDone ? (
+                  <View style={healthSheetStyles.fullPageBackBtn} />
+                ) : (
+                  <Pressable onPress={() => {
+                    if (stepperRef.current?.isExpanded()) {
+                      stepperRef.current.goBack();
+                    } else {
+                      closeHealthSheet();
+                    }
+                  }} hitSlop={12} style={({ pressed }) => [healthSheetStyles.fullPageBackBtn, pressed && { opacity: 0.6 }]}>
+                    <ArrowLeft size={scale(24)} color="#141C24" strokeWidth={2} />
+                  </Pressable>
+                )}
                 <View style={{ width: scale(40) }} />
               </View>
             ) : (
@@ -2429,6 +2452,8 @@ export default function CarsHomeScreen() {
                   vehicleMake={activeVehicle?.make ?? ''}
                   vehicleModel={activeVehicle?.model ?? ''}
                   vehicleYear={activeVehicle?.year ?? 0}
+                  initialDraft={activeOwnership?.serviceHistoryDraft ?? null}
+                  onAllDoneChange={setStepperAllDone}
                   skipIntro
                   onBack={closeHealthSheet}
                   onFinishForNow={closeHealthSheet}
@@ -3229,6 +3254,38 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#FFFFFF",
+  },
+  // VIN info button — same liquid-glass treatment as the Home
+  // notification bell (see app/(main-tabs)/home/index.tsx).
+  infoGlassButton: {
+    padding: 4,
+  },
+  infoGlassButtonPressed: {
+    opacity: 0.7,
+  },
+  infoGlassIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  infoGlassContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.5)",
+  },
+  infoGlassBlur: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  infoGlassOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(255,255,255,0.12)",
   },
   removeVehicleButton: {
     borderRadius: 16,

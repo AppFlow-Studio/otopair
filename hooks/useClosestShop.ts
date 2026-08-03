@@ -31,10 +31,11 @@ export function useClosestShop(): {
   const shopIds = useShopStore((s) => s.shopIds);
   const shops = useShopStore((s) => s.shops);
   const userLocation = useBookingStore((s) => s.userLocation);
+  const isLoadingLocation = useBookingStore((s) => s.isLoadingLocation);
 
   return useMemo(() => {
     if (shopIds.length === 0) return { result: null, isLoading: true };
-    if (!userLocation) return { result: null, isLoading: false };
+    if (!userLocation) return { result: null, isLoading: isLoadingLocation };
 
     let closest: Shop | null = null;
     let closestKm = Number.POSITIVE_INFINITY;
@@ -60,5 +61,5 @@ export function useClosestShop(): {
       },
       isLoading: false,
     };
-  }, [shopIds, shops, userLocation]);
+  }, [shopIds, shops, userLocation, isLoadingLocation]);
 }

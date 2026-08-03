@@ -30,6 +30,7 @@ import { BackButton } from "@/components/shared-ui/BackButton";
 import { useState, useEffect, useMemo, useRef } from "react";
 import {
   BackHandler,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -40,6 +41,7 @@ import {
   Modal,
   FlatList,
   Animated,
+  Easing,
   TouchableOpacity,
   ScrollView,
 } from "react-native";
@@ -47,6 +49,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { GestureHandlerRootView, PanGestureHandler, State } from "react-native-gesture-handler";
 import { Country } from "react-native-country-picker-modal";
 import { useOnboardingStore } from "@/stores/useOnboardingStore";
+import { useOnboardingPersistence } from "@/hooks/useOnboardingPersistence";
 import { useUser, useSignUp } from "@clerk/clerk-expo";
 import { Search } from "lucide-react-native";
 import { OnboardingSurfaceColors } from "../onboardingColors";
@@ -78,15 +81,27 @@ export function PhoneNumberStep({ onNext, onBack, progress, allowBack = false }:
   const insets = useSafeAreaInsets();
   const { height, width } = useWindowDimensions();
   const { updateData, data } = useOnboardingStore();
+  const { persistProfileField } = useOnboardingPersistence();
   const [phoneNumber, setPhoneNumber] = useState("");
   const [countryCode, setCountryCode] = useState<string>(data.phoneCountryCode || "US");
   const [country, setCountry] = useState<Country | null>(null);
   const [showCountryPicker, setShowCountryPicker] = useState(false);
+  // Refocus the phone input as the country modal closes so the
+  // keyboard comes back up in parallel with the modal-close animation
+  // instead of after it. Removes the perceived lag PM flagged.
+  const phoneInputRef = useRef<TextInput | null>(null);
   const [showConfirmationModal, setShowConfirmationModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [allCountries, setAllCountries] = useState<Country[]>([]);
   const slideAnim = useRef(new Animated.Value(height)).current;
   const panY = useRef(new Animated.Value(0)).current;
+  // Confirm-modal slide animation. Mirrors the country picker so
+  // both sheets share the same "calm ease-out" motion vocabulary.
+  const confirmSlideAnim = useRef(new Animated.Value(height)).current;
+  // Error-message bottom sheet — surfaces prepError in the same
+  // floating-card visual as the confirm sheet instead of an inline
+  // red text block.
+  const errorSlideAnim = useRef(new Animated.Value(height)).current;
   const currentSlidePosition = useRef(height);
 
   // Block Android hardware back — user cannot go back after email verification
@@ -220,27 +235,56 @@ export function PhoneNumberStep({ onNext, onBack, progress, allowBack = false }:
     });
   }, [searchQuery, allCountries]);
 
-  // Bottom sheet animation
+  // Bottom sheet animation. Slide-in uses a slow cubic ease-out
+  // instead of a spring — the spring's snappy start read as jank
+  // while the FlatList was doing initial render work in parallel.
+  // Predictable ease + slightly longer duration gives the list a
+  // beat to paint before the eye follows the sheet up.
   useEffect(() => {
     if (showCountryPicker) {
       slideAnim.setValue(height);
       panY.setValue(0);
       requestAnimationFrame(() => {
-        Animated.spring(slideAnim, {
+        Animated.timing(slideAnim, {
           toValue: COLLAPSED_POSITION,
+          duration: 450,
+          easing: Easing.out(Easing.cubic),
           useNativeDriver: true,
-          tension: 40,
-          friction: 8,
         }).start();
       });
     } else {
       Animated.timing(slideAnim, {
         toValue: height,
         duration: 300,
+        easing: Easing.in(Easing.cubic),
         useNativeDriver: true,
       }).start();
     }
   }, [showCountryPicker, slideAnim, height, COLLAPSED_POSITION]);
+
+  // Confirm-number bottom-sheet slide. Same ease + duration as the
+  // country picker for consistency.
+  useEffect(() => {
+    if (showConfirmationModal) {
+      confirmSlideAnim.setValue(height);
+      requestAnimationFrame(() => {
+        Animated.timing(confirmSlideAnim, {
+          toValue: 0,
+          duration: 450,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }).start();
+      });
+    } else {
+      Animated.timing(confirmSlideAnim, {
+        toValue: height,
+        duration: 300,
+        easing: Easing.in(Easing.cubic),
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [showConfirmationModal, confirmSlideAnim, height]);
+
 
   // Only track downward gestures for dismissal
   const handleGestureEvent = (event: any) => {
@@ -287,6 +331,10 @@ export function PhoneNumberStep({ onNext, onBack, progress, allowBack = false }:
   const buttonPaddingVertical = isCompact ? Spacing.sm : Spacing.lg;
 
   const handleCreateAccount = () => {
+    // Prime slide off-screen synchronously so the Modal mounts with
+    // the sheet already hidden (same flash-fix pattern as the country
+    // picker).
+    confirmSlideAnim.setValue(height);
     setShowConfirmationModal(true);
   };
 
@@ -294,6 +342,38 @@ export function PhoneNumberStep({ onNext, onBack, progress, allowBack = false }:
   const { signUp } = useSignUp();
   const [prepError, setPrepError] = useState<string | null>(null);
   const [prepLoading, setPrepLoading] = useState(false);
+
+  // Wrapper that primes the sheet's slide value off-screen BEFORE
+  // the Modal mounts. Without this, the eye catches one frame of
+  // the sheet at its layout position (bottom of screen) before the
+  // useEffect fires — reads as a flash-then-glide.
+  const showPrepError = (message: string) => {
+    errorSlideAnim.setValue(height);
+    setPrepError(message);
+  };
+
+  // Error bottom-sheet slide — mirrors the confirm sheet's motion.
+  // Runs whenever `prepError` toggles between null/set.
+  useEffect(() => {
+    if (prepError) {
+      errorSlideAnim.setValue(height);
+      requestAnimationFrame(() => {
+        Animated.timing(errorSlideAnim, {
+          toValue: 0,
+          duration: 450,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }).start();
+      });
+    } else {
+      Animated.timing(errorSlideAnim, {
+        toValue: height,
+        duration: 300,
+        easing: Easing.in(Easing.cubic),
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [prepError, errorSlideAnim, height]);
 
   const handleConfirmPhoneNumber = async () => {
     const fullPhoneNumber = `+${getCallingCode()}${phoneNumber.replace(/\D/g, "")}`;
@@ -352,15 +432,15 @@ export function PhoneNumberStep({ onNext, onBack, progress, allowBack = false }:
               console.log("Phone verification resumed after Clerk duplicate response for:", fullPhoneNumber);
               prepared = true;
             } else {
-              setPrepError("That phone number is already associated with another account.");
+              showPrepError("That phone number is already associated with another account.");
             }
           } catch (retryErr) {
             console.error("Failed to resume existing phone verification:", retryErr);
-            setPrepError("Couldn't send verification code. Please try again.");
+            showPrepError("Couldn't send verification code. Please try again.");
           }
         } else {
           console.error("Failed to prepare phone verification via user:", err);
-          setPrepError(err instanceof Error ? err.message : "Couldn't send verification code. Please try again.");
+          showPrepError(err instanceof Error ? err.message : "Couldn't send verification code. Please try again.");
         }
       }
     } else if (signUp) {
@@ -372,10 +452,10 @@ export function PhoneNumberStep({ onNext, onBack, progress, allowBack = false }:
         prepared = true;
       } catch (err) {
         console.error("Failed to prepare phone verification via signUp:", err);
-        setPrepError(err instanceof Error ? err.message : "Couldn't send verification code. Please try again.");
+        showPrepError(err instanceof Error ? err.message : "Couldn't send verification code. Please try again.");
       }
     } else {
-      setPrepError("Sign-in session not ready. Please go back and try signing in again.");
+      showPrepError("Sign-in session not ready. Please go back and try signing in again.");
     }
 
     setPrepLoading(false);
@@ -400,16 +480,50 @@ export function PhoneNumberStep({ onNext, onBack, progress, allowBack = false }:
     return `+${callingCode} ${formatted}`;
   };
 
+  // Sequence keyboard-dismiss → country picker open. When the phone
+  // input has the keypad up, opening the sheet immediately reads as
+  // jank because both animations play at once. Dismiss first, wait
+  // for `keyboardDidHide`, then open the sheet on a clean stage.
+  //
+  // `primeAndOpen` also resets `slideAnim` to off-screen BEFORE
+  // flipping `showCountryPicker` on. Without this, the Modal mounts
+  // with slideAnim at its last-known value (often the previous
+  // COLLAPSED_POSITION or a mid-animation frame from close), which
+  // reads as a one-frame flash of the sheet at the wrong position
+  // before the useEffect snaps it off-screen and animates it back.
+  const primeAndOpen = () => {
+    slideAnim.setValue(height);
+    panY.setValue(0);
+    setShowCountryPicker(true);
+  };
+  const handleOpenCountryPicker = () => {
+    if (!Keyboard.isVisible()) {
+      primeAndOpen();
+      return;
+    }
+    // Belt-and-suspenders: subscribe first (so we don't miss the
+    // event if dismissal is instant on Android), then fire dismiss.
+    const sub = Keyboard.addListener("keyboardDidHide", () => {
+      sub.remove();
+      primeAndOpen();
+    });
+    Keyboard.dismiss();
+  };
+
   const handleCountrySelect = (selectedCountry: Country) => {
     setCountryCode(selectedCountry.cca2);
     setCountry(selectedCountry);
     setShowCountryPicker(false);
     setSearchQuery("");
+    // Kick focus back to the phone field so the keypad reanimates in
+    // over the modal-close instead of after it.
+    requestAnimationFrame(() => phoneInputRef.current?.focus());
   };
 
   const handleClosePicker = () => {
     setShowCountryPicker(false);
     setSearchQuery("");
+    requestAnimationFrame(() => phoneInputRef.current?.focus());
   };
 
   const renderCountryItem = ({ item }: { item: Country }) => {
@@ -481,13 +595,14 @@ export function PhoneNumberStep({ onNext, onBack, progress, allowBack = false }:
 
           <View style={styles.formStack}>
             <View style={styles.inputContainer}>
-              <Pressable onPress={() => setShowCountryPicker(true)} style={styles.countryCodeContainer}>
+              <Pressable onPress={handleOpenCountryPicker} style={styles.countryCodeContainer}>
                 <View style={styles.flagContainer}>
                   <Text style={styles.countryCodeText}>{getFlagEmoji(countryCode)}</Text>
                 </View>
                 <Text style={styles.countryCodeNumber}>+{getCallingCode()}</Text>
               </Pressable>
               <TextInput
+                ref={phoneInputRef}
                 style={styles.phoneInput}
                 placeholder="Enter your phone"
                 placeholderTextColor="#9CA3AF"
@@ -499,12 +614,6 @@ export function PhoneNumberStep({ onNext, onBack, progress, allowBack = false }:
                 textContentType="none"
               />
             </View>
-
-            {prepError ? (
-              <Text style={styles.prepError} accessibilityRole="alert">
-                {prepError}
-              </Text>
-            ) : null}
 
             <View style={styles.continueButtonContainer}>
               <FooterButton
@@ -518,16 +627,59 @@ export function PhoneNumberStep({ onNext, onBack, progress, allowBack = false }:
                 textColor={canCreateAccount ? undefined : BrandColors.white}
               />
             </View>
+
+            {/* TEMP (dev-only): skip the Clerk phone verification
+                entirely so Ahmad can walk the flow with the same
+                phone number across multiple test accounts. Sets
+                `phoneVerified: true` in both Convex and the store,
+                then advances — the confirm step auto-skips forward
+                on mount when phoneVerified is already true. */}
+            {__DEV__ && (
+              <TouchableOpacity
+                onPress={async () => {
+                  const placeholder =
+                    phoneNumber.trim().length > 0
+                      ? `+${getCallingCode()}${phoneNumber.replace(/\D/g, "")}`
+                      : "+15550100000";
+                  updateData({
+                    phoneNumber: placeholder,
+                    phoneCountryCode: countryCode,
+                    phoneVerified: true,
+                    phoneNumberId: "dev_bypass",
+                  });
+                  try {
+                    await persistProfileField({
+                      phone: placeholder,
+                      phoneVerified: true,
+                    });
+                  } catch (e) {
+                    console.warn("dev bypass: persistProfileField failed", e);
+                  }
+                  onNext();
+                }}
+                style={styles.devSkipButton}
+              >
+                <Text style={styles.devSkipText}>
+                  DEV: skip phone verification
+                </Text>
+              </TouchableOpacity>
+            )}
           </View>
         </ScrollView>
 
-        {/* Country Picker Bottom Sheet */}
+        {/* Country Picker Bottom Sheet.
+            `presentationStyle="overFullScreen"` keeps the phone
+            input's keyboard up when the sheet opens — the default
+            iOS modal presentation controller steals focus and
+            dismisses the keyboard, which then races the sheet's
+            slide-up animation and reads as jank. */}
         <Modal
           visible={showCountryPicker}
           transparent
           animationType="none"
           statusBarTranslucent
           navigationBarTranslucent
+          presentationStyle="overFullScreen"
           onRequestClose={handleClosePicker}
         >
           <GestureHandlerRootView style={{ flex: 1 }}>
@@ -598,30 +750,92 @@ export function PhoneNumberStep({ onNext, onBack, progress, allowBack = false }:
           </GestureHandlerRootView>
         </Modal>
 
-        {/* Confirmation Modal */}
+        {/* Confirmation bottom sheet — slides up calmly instead of
+            appearing as a centered floating card. Same slide/ease as
+            the country picker for visual consistency. */}
         <Modal
           visible={showConfirmationModal}
           transparent
-          animationType="fade"
+          animationType="none"
           statusBarTranslucent
           navigationBarTranslucent
+          presentationStyle="overFullScreen"
           onRequestClose={handleGoBack}
         >
           <Pressable style={styles.confirmationModalBackdrop} onPress={handleGoBack}>
-            <Pressable style={styles.confirmationModal} onPress={(e) => e.stopPropagation()}>
-              <Text style={styles.confirmationPhoneNumber}>
-                {getFlagEmoji(countryCode)} {formatPhoneNumberForDisplay()}
-              </Text>
-              <Text style={styles.confirmationQuestion}>Is this number correct?</Text>
-              <View style={styles.confirmationButtons}>
-                <TouchableOpacity style={styles.confirmButton} onPress={handleConfirmPhoneNumber}>
-                  <Text style={styles.confirmButtonText}>Confirm</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.goBackButton} onPress={handleGoBack}>
-                  <Text style={styles.goBackButtonText}>Go back</Text>
-                </TouchableOpacity>
-              </View>
-            </Pressable>
+            <Animated.View
+              style={[
+                styles.confirmationSheet,
+                {
+                  // Sit right above the home indicator (~8pt gap
+                  // from the screen bottom). Matches the reference
+                  // "Edit Maintenance Info" sheet.
+                  marginBottom: 8,
+                  transform: [{ translateY: confirmSlideAnim }],
+                },
+              ]}
+            >
+              <Pressable onPress={(e) => e.stopPropagation()}>
+                <View style={styles.confirmationHandleContainer}>
+                  <View style={styles.confirmationHandle} />
+                </View>
+                <Text style={styles.confirmationPhoneNumber}>
+                  {getFlagEmoji(countryCode)} {formatPhoneNumberForDisplay()}
+                </Text>
+                <Text style={styles.confirmationQuestion}>Is this number correct?</Text>
+                <View style={styles.confirmationButtons}>
+                  <TouchableOpacity style={styles.confirmButton} onPress={handleConfirmPhoneNumber}>
+                    <Text style={styles.confirmButtonText}>Confirm</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.goBackButton} onPress={handleGoBack}>
+                    <Text style={styles.goBackButtonText}>Go back</Text>
+                  </TouchableOpacity>
+                </View>
+              </Pressable>
+            </Animated.View>
+          </Pressable>
+        </Modal>
+
+        {/* Error bottom sheet — same floating-card visual as the
+            confirm sheet. Surfaces prepError (e.g. "phone already
+            associated with another account") in a dismissible sheet
+            instead of an inline red text block. */}
+        <Modal
+          visible={prepError != null}
+          transparent
+          animationType="none"
+          statusBarTranslucent
+          navigationBarTranslucent
+          presentationStyle="overFullScreen"
+          onRequestClose={() => setPrepError(null)}
+        >
+          <Pressable style={styles.confirmationModalBackdrop} onPress={() => setPrepError(null)}>
+            <Animated.View
+              style={[
+                styles.confirmationSheet,
+                {
+                  marginBottom: 8,
+                  transform: [{ translateY: errorSlideAnim }],
+                },
+              ]}
+            >
+              <Pressable onPress={(e) => e.stopPropagation()}>
+                <View style={styles.confirmationHandleContainer}>
+                  <View style={styles.confirmationHandle} />
+                </View>
+                <Text style={styles.confirmationPhoneNumber}>
+                  {getFlagEmoji(countryCode)} {formatPhoneNumberForDisplay()}
+                </Text>
+                <Text style={styles.confirmationQuestion}>
+                  {prepError}
+                </Text>
+                <View style={styles.confirmationButtons}>
+                  <TouchableOpacity style={styles.confirmButton} onPress={() => setPrepError(null)}>
+                    <Text style={styles.confirmButtonText}>Got it</Text>
+                  </TouchableOpacity>
+                </View>
+              </Pressable>
+            </Animated.View>
           </Pressable>
         </Modal>
 
@@ -646,7 +860,7 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: FontSize["4xl"],
-    fontFamily: FontFamily.bold,
+    fontFamily: FontFamily.semiBold,
     color: '#0F172A',
     marginBottom: Spacing.md,
     lineHeight: Spacing["5xl"],
@@ -684,18 +898,25 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   flagContainer: {
+    // Room for the emoji glyph without vertical clipping. Height ~28
+    // matches the emoji's natural glyph box so it centers on the
+    // "+1" text baseline instead of hugging the top of the row.
     width: 28,
-    height: 20,
+    height: 28,
     justifyContent: "center",
     alignItems: "center",
     marginRight: Spacing.xs,
-    overflow: "hidden",
   },
   countryCodeText: {
-    fontSize: FontSize.lg,
-    includeFontPadding: false,
-    textAlignVertical: "center",
-    lineHeight: FontSize.lg,
+    fontSize: 22,
+    // iOS flag emojis sit ~2-3pt above the font baseline; nudge down
+    // so the flag optically centers with the "+1" text next to it.
+    // Transform keeps the layout box the same size.
+    transform: [{ translateY: 2 }],
+    ...Platform.select({
+      android: { includeFontPadding: false },
+      default: {},
+    }),
   },
   countryCodeNumber: {
     fontSize: FontSize.lg,
@@ -718,6 +939,17 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   continueButtonContainer: { marginTop: 0 },
+  devSkipButton: {
+    marginTop: 12,
+    paddingVertical: 8,
+    alignItems: "center",
+  },
+  devSkipText: {
+    fontSize: 12,
+    color: "#9CA3AF",
+    letterSpacing: 0.4,
+    textDecorationLine: "underline",
+  },
   bottomSheetBackdrop: {
     flex: 1,
     backgroundColor: OnboardingSurfaceColors.backdrop,
@@ -819,25 +1051,40 @@ const styles = StyleSheet.create({
   confirmationModalBackdrop: {
     flex: 1,
     backgroundColor: OnboardingSurfaceColors.backdrop,
-    justifyContent: "center",
-    alignItems: "center",
-    paddingHorizontal: Spacing.lg,
+    // Floating / detached bottom-sheet pattern used across the app:
+    // sheet sits above the home indicator with equal horizontal
+    // margins so it reads as a card floating above the base surface.
+    justifyContent: "flex-end",
+    paddingHorizontal: Spacing.sm,
   },
-  confirmationModal: {
+  confirmationSheet: {
     backgroundColor: OnboardingSurfaceColors.card,
-    borderRadius: 20,
-    padding: Spacing["2xl"],
-    width: "100%",
-    maxWidth: 400,
-    borderWidth: 1,
-    borderColor: OnboardingSurfaceColors.border,
+    // Concentric corner radius — modern iPhone displays curve at
+    // ~55pt; with the sheet inset by Spacing.sm on each side, ~44
+    // makes the sheet's outer curve visually parallel the screen's
+    // curve at the bottom corners. Same iOS system-sheet aesthetic.
+    borderRadius: 44,
+    paddingTop: Spacing.md,
+    paddingBottom: Spacing.xl,
+    paddingHorizontal: Spacing["2xl"],
+  },
+  confirmationHandleContainer: {
+    alignItems: "center",
+    paddingBottom: Spacing.lg,
+  },
+  confirmationHandle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "rgba(15, 23, 42, 0.15)",
   },
   confirmationPhoneNumber: {
     fontSize: FontSize["2xl"],
     fontFamily: FontFamily.bold,
     color: OnboardingSurfaceColors.text,
     textAlign: "center",
-    marginBottom: Spacing.lg,
+    marginTop: Spacing.md,
+    marginBottom: Spacing.sm,
   },
   confirmationQuestion: {
     fontSize: FontSize.md,
@@ -849,8 +1096,8 @@ const styles = StyleSheet.create({
   },
   confirmationButtons: { gap: Spacing.md },
   confirmButton: {
-    backgroundColor: OnboardingSurfaceColors.primaryButton,
-    borderRadius: 12,
+    backgroundColor: "#5299FE",
+    borderRadius: 14,
     paddingVertical: Spacing.md,
     paddingHorizontal: Spacing.lg,
     alignItems: "center",
@@ -858,20 +1105,18 @@ const styles = StyleSheet.create({
   confirmButtonText: {
     fontSize: FontSize.lg,
     fontFamily: FontFamily.semiBold,
-    color: OnboardingSurfaceColors.primaryButtonText,
+    color: "#FFFFFF",
   },
   goBackButton: {
-    backgroundColor: OnboardingSurfaceColors.secondaryButton,
-    borderRadius: 12,
+    backgroundColor: "transparent",
+    borderRadius: 14,
     paddingVertical: Spacing.md,
     paddingHorizontal: Spacing.lg,
     alignItems: "center",
-    borderWidth: 1,
-    borderColor: OnboardingSurfaceColors.borderStrong,
   },
   goBackButtonText: {
-    fontSize: FontSize.lg,
-    fontFamily: FontFamily.semiBold,
-    color: OnboardingSurfaceColors.secondaryButtonText,
+    fontSize: FontSize.md,
+    fontFamily: FontFamily.medium,
+    color: OnboardingSurfaceColors.mutedText,
   },
 });

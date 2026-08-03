@@ -130,6 +130,28 @@ export const _setUserStripeCustomerId = internalMutation({
 });
 
 /**
+ * Flip `users.has_saved_payment_method` — flag consumed by the home-page
+ * "Finish setup" card to reactively mark the payment-method tile as
+ * complete without a Stripe round-trip on every home visit. Called by
+ * the setup_intent.succeeded webhook (attach) and payment_method.detached
+ * cleanup path.
+ */
+export const _setUserHasSavedPaymentMethodByCustomerId = internalMutation({
+  args: { stripeCustomerId: v.string(), value: v.boolean() },
+  handler: async (ctx, args) => {
+    const user = await ctx.db
+      .query("users")
+      .filter((q) =>
+        q.eq(q.field("stripe_customer_id"), args.stripeCustomerId),
+      )
+      .first();
+    if (!user) return;
+    if (user.has_saved_payment_method === args.value) return;
+    await ctx.db.patch(user._id, { has_saved_payment_method: args.value });
+  },
+});
+
+/**
  * Pre-creates a payments row in `pending` BEFORE the Stripe API call so the
  * downstream FSM hooks (capture / void) can always find a row to act on
  * even if the Stripe call or the post-PI patch fails. Idempotent by
@@ -318,6 +340,10 @@ export const handlePaymentIntentEvent = internalMutation({
     // reflects reality even if the action-side _patchBookingCaptured didn't
     // run (e.g. capture call retried, webhook landed first).
     amountReceived: v.optional(v.number()),
+    // Card network + last-4 pulled from the charge's payment_method_details
+    // on payment_intent.succeeded — persisted so ops can show "Visa ···· 4242".
+    cardBrand: v.optional(v.string()),
+    cardLast4: v.optional(v.string()),
     livemode: v.optional(v.boolean()),
     stripeAccountId: v.optional(v.string()),
   },
@@ -357,6 +383,22 @@ export const handlePaymentIntentEvent = internalMutation({
         .unique();
     }
     if (!payment) return { matched: false };
+
+    // Persist card brand/last4 as soon as we have it (payment_intent.succeeded),
+    // independent of the status transition below — the action-side capture may
+    // have already moved the row to `completed`, which would short-circuit the
+    // no-op guard before we ever stamp the card. Only write when missing so
+    // replays and later events don't churn the row.
+    if (
+      (args.cardBrand != null || args.cardLast4 != null) &&
+      payment.card_last4 == null &&
+      payment.card_brand == null
+    ) {
+      await ctx.db.patch(payment._id, {
+        ...(args.cardBrand != null ? { card_brand: args.cardBrand } : {}),
+        ...(args.cardLast4 != null ? { card_last4: args.cardLast4 } : {}),
+      });
+    }
 
     // Idempotent no-op on same-state.
     if (payment.status === args.newStatus) return { matched: true, noop: true };
@@ -1811,8 +1853,8 @@ export const finalizeAndChargeForBooking = internalAction({
       const tax = computeBookingTax({
         laborDollars: laborCents / 100,
         partsDollars: partsSubtotalCents / 100,
-        state: (shop?.address_state as string | undefined) ?? null,
-        zip: (shop?.address_zip as string | undefined) ?? null,
+        state: shop?.state ?? null,
+        zip: shop?.zip ?? null,
       });
       const taxCents = Math.round((tax.taxDollars ?? 0) * 100);
       const feeCents = Math.round(
@@ -1853,8 +1895,8 @@ export const finalizeAndChargeForBooking = internalAction({
     const tax = computeBookingTax({
       laborDollars: laborCents / 100,
       partsDollars: partsSubtotalCents / 100,
-      state: (shop?.address_state as string | undefined) ?? null,
-      zip: (shop?.address_zip as string | undefined) ?? null,
+      state: shop?.state ?? null,
+      zip: shop?.zip ?? null,
     });
     const taxCents = Math.round((tax.taxDollars ?? 0) * 100);
     const feeCents = Math.round(
@@ -1919,8 +1961,11 @@ export const finalizeAndChargeForBooking = internalAction({
 
 /** When reauthFlow voids the original PI and creates a replacement, the live
  *  hold lives on payment.reauth_payment_intent_id. Capture/refund must target
- *  that PI — the original is cancelled and capturing it would 400. */
-function resolveActivePaymentIntentId(payment: any): string | undefined {
+ *  that PI — the original is cancelled and capturing it would 400.
+ *
+ *  Exported for convex/shopPaymentRefunds.ts (the shop-owner refund path) —
+ *  plain helper, not a registered Convex function. */
+export function resolveActivePaymentIntentId(payment: any): string | undefined {
   return payment?.reauth_payment_intent_id ?? payment?.stripe_payment_intent_id;
 }
 

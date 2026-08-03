@@ -253,7 +253,7 @@ export const LeaveReviewSheet = forwardRef<LeaveReviewSheetRef, Props>(
         });
         onSubmitted?.(booking.id);
         sheetRef.current?.close();
-        toast.success("Thanks for the review");
+        toast.success("Thanks for the review", undefined, { icon: Star });
       } catch (err) {
         setError(err instanceof Error ? err.message : "Couldn't submit review.");
       } finally {
