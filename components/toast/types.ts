@@ -17,6 +17,10 @@ export interface ToastOptions {
    *  one (e.g. `Copy` for "Message copied", `Trash2` for a delete). Falls
    *  back to the variant icon when omitted. */
   icon?: LucideIcon;
+  /** Render a plain white card instead of the brand-blue gradient — no
+   *  gradient, dark text, and no icon (unless one is explicitly passed).
+   *  For quiet, simple notifications. */
+  plain?: boolean;
 }
 
 export interface ToastQueueItem extends ToastOptions {
