@@ -911,6 +911,8 @@ export async function sendMessageHandlerCore(
     // Wave 7.2 DEGRADED state: strip T3 web_search from the cascade for this
     // turn. Falls back to `false` (production default) on FULL.
     noWebSearchOverride,
+    // Raw user message — question_text for the retrieval-miss acquisition hook.
+    message,
   );
 
   // ── 6. Tool-use loop ─────────────────────────────────────────────────
@@ -2139,6 +2141,12 @@ function buildCallables(
   // buildCallables; MINIMAL/DOWN short-circuit before the callable map is
   // built). See docs/SPRINT_2/WAVE_7_2_DEGRADATION_LADDER.md §4.2.
   noWebSearchOverride: boolean,
+  // The user's raw message for THIS turn. Needed by the retrieval-miss
+  // acquisition hook: `lookup_vehicle_spec` only receives a car name
+  // ("Audi RS5"), never the question that motivated it ("what's the oil
+  // capacity of an Audi RS5?"), and you cannot acquire a specific fact from
+  // the car name alone. Read-only — nothing mutates it.
+  userMessage: string,
 ): ToolCallables {
   // Wave 7.3 Option B: counter-bump helper for action-context moat reads.
   // Invoked AFTER each ctx.runQuery into a moat-reading query function
@@ -2365,6 +2373,43 @@ function buildCallables(
         "vehicle_configs+models+makes",
         cands + matched,
       );
+
+      // ── Retrieval-miss acquisition hook ───────────────────────────────
+      // A TOTAL miss (no match AND no candidates) is the one moment we know
+      // for certain the catalog cannot answer this. Before this hook that was
+      // a dead end: Oto answered from training knowledge and the answer was
+      // discarded, so the next user paid for the same unsourced guess and the
+      // KB never grew.
+      //
+      // The prompt's own acquisition path (retrieve -> catalog -> web_search
+      // -> record) does not run in practice: its web_search step is gated on
+      // "`retrieve_vehicle_facts` returned empty", but the model often skips
+      // that call entirely, so the precondition is never established. Rather
+      // than instruct harder, we trigger on the miss, which is deterministic.
+      //
+      // scheduler.runAfter(0) — fire-and-forget. THIS turn does not wait; the
+      // user still gets their answer at normal latency. The acquired fact
+      // serves the NEXT person, cited, from Tier 2. Scheduling failures are
+      // swallowed: a background nicety must never break a turn that already
+      // has an answer for the user.
+      if (!result?.matched && cands === 0) {
+        try {
+          await ctx.scheduler.runAfter(
+            0,
+            internal.oto.factAcquisition.acquireFactViaWebSearch,
+            {
+              question_text: userMessage,
+              asked_by_user_id: userId,
+            },
+          );
+        } catch (e) {
+          console.warn(
+            "[oto/chat] fact-acquisition schedule failed (non-fatal):",
+            e instanceof Error ? e.message : String(e),
+          );
+        }
+      }
+
       return result;
     },
 
