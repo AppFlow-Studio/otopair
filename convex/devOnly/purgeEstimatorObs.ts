@@ -12,6 +12,8 @@ export const run = internalMutation({
   args: {},
   handler: async (ctx) => {
     const rows = (await ctx.db.query("labor_observations").collect()).filter(
+      // DUAL-READ: canonical names AND their pre-migration aliases, so this
+      // purge still finds retired rows on an un-migrated deployment.
       (o: any) => isEstimatorRetiredSource(o.source),
     );
     const affected = new Map<string, { c: any; s: any }>();

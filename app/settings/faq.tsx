@@ -19,7 +19,6 @@ import { Pressable, StyleSheet, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useGuardedRouter as useRouter } from '@/hooks/useGuardedRouter';
 import {
-  Award,
   BadgeCheck,
   CalendarDays,
   Car,
@@ -31,7 +30,7 @@ import {
 } from 'lucide-react-native';
 import Animated from 'react-native-reanimated';
 
-import { BlurHeaderOverlay, BrandColors, Spacing, Text } from '@/components/shared-ui';
+import { BlurHeaderOverlay, BrandColors, FontFamily, Spacing, Text } from '@/components/shared-ui';
 import { getSheetContentPadding } from '@/constants/theme';
 import { CATEGORY_CONTENT, CategoryKey } from '@/constants/faq';
 
@@ -43,12 +42,6 @@ const HEADER_FADE_COLORS: [string, string, string, string] = [
 ];
 
 const POPULAR_ITEMS = [
-  {
-    id: 'popular-1',
-    title: 'How do I earn Points?',
-    subtitle: 'Loyalty & rewards',
-    category: 'loyalty',
-  },
   {
     id: 'popular-2',
     title: 'How to book a mobile service?',
@@ -68,7 +61,6 @@ const CATEGORIES = [
   { id: 'bookings', label: 'Bookings & services', icon: CalendarDays },
   { id: 'vehicles', label: 'Vehicles', icon: Car },
   { id: 'payments', label: 'Payments & billing', icon: CreditCard },
-  { id: 'loyalty', label: 'Loyalty & rewards', icon: Award },
   { id: 'pass', label: 'Otopair Pass', icon: BadgeCheck },
 ];
 
@@ -126,6 +118,11 @@ export default function FAQRootScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[styles.container, { paddingTop: insets.top + 80, paddingBottom: getSheetContentPadding(true, insets.bottom) }]}
       >
+        <View style={styles.heroArea}>
+          <Text weight="bold" style={styles.heroTitle}>How can we help?</Text>
+          <Text size="md" color="#6B7280">Search or browse the topics below.</Text>
+        </View>
+
         <View style={styles.searchWrapper}>
           <Search size={18} color="#86868B" style={styles.searchIcon} />
           <TextInput
@@ -247,7 +244,7 @@ export default function FAQRootScreen() {
         )}
 
         <View style={styles.supportSection}>
-          <View style={styles.card}>
+          <View style={[styles.card, styles.supportCard]}>
             <View style={styles.supportIcon}>
               <Headset size={22} color={BrandColors.secondary} />
             </View>
@@ -257,7 +254,10 @@ export default function FAQRootScreen() {
             <Text size="sm" color="#6B7280" style={styles.supportBody}>
               Submit a support ticket and we’ll get back to you.
             </Text>
-            <Pressable style={styles.supportButton} onPress={() => console.log('Submit ticket')}>
+            <Pressable
+              style={({ pressed }) => [styles.supportButton, pressed && { opacity: 0.85 }]}
+              onPress={() => router.push('/settings/contact-us')}
+            >
               <Text weight="bold" size="md" color={BrandColors.white}>
                 Submit a ticket
               </Text>
@@ -279,17 +279,26 @@ const styles = StyleSheet.create({
   container: {
     paddingHorizontal: 20,
   },
+  heroArea: {
+    marginBottom: 24,
+  },
+  heroTitle: {
+    fontSize: 34,
+    lineHeight: 40,
+    color: '#111318',
+    marginBottom: 8,
+  },
   searchWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#E5E7EB',
-    borderRadius: 10,
+    backgroundColor: 'rgba(255, 255, 255, 0.72)',
+    borderRadius: 16,
     paddingHorizontal: 16,
     height: 48,
     marginTop: 6,
     marginBottom: 18,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
+    borderColor: 'rgba(255, 255, 255, 0.2)',
   },
   searchIcon: {
     marginRight: 8,
@@ -299,7 +308,8 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#111827',
     padding: 0,
-    fontWeight: '700',
+    // Use the Otopair brand font (Urbanist) instead of the system default.
+    fontFamily: FontFamily.semiBold,
   },
   section: {
     marginBottom: 24,
@@ -308,13 +318,13 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
     marginBottom: 10,
     marginLeft: 4,
-    color: '#000',
+    color: '#6B7280',
   },
   card: {
-    backgroundColor: '#E5E7EB',
+    backgroundColor: 'rgba(255, 255, 255, 0.72)',
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
+    borderColor: 'rgba(255, 255, 255, 0.2)',
     alignItems: 'center',
     paddingVertical: 4,
   },
@@ -347,10 +357,10 @@ const styles = StyleSheet.create({
   },
   listRowDivider: {
     borderTopWidth: 1,
-    borderTopColor: '#D1D5DB',
+    borderTopColor: 'rgba(60, 60, 67, 0.12)',
   },
   rowPressed: {
-    backgroundColor: '#D1D5DB',
+    backgroundColor: 'rgba(0, 0, 0, 0.05)',
   },
   supportSection: {
     paddingBottom: Spacing['2xl'],
@@ -368,12 +378,24 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 4,
   },
-  supportButton: {
-    marginTop: 16,
-    backgroundColor: BrandColors.secondary,
-    borderRadius: 12,
-    paddingVertical: 12,
+  supportCard: {
     alignItems: 'center',
+    paddingVertical: 24,
+    paddingHorizontal: 20,
+  },
+  supportButton: {
+    marginTop: 20,
+    alignSelf: 'stretch',
+    backgroundColor: BrandColors.secondary,
+    height: 52,
+    borderRadius: 26,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: BrandColors.secondary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
   },
   emptyState: {
     paddingVertical: 32,

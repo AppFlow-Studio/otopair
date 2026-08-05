@@ -80,12 +80,14 @@ export function VehicleRoleSheet({
       snapHeights={[SHEET_HEIGHT]}
       showBackdrop
       liftWithKeyboard
+      floatBottomInset={12}
       onClose={onClose}
     >
       <ScrollView
         contentContainerStyle={styles.body}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
+        scrollEnabled={false}
       >
         {/* Header */}
         <Text weight="bold" size="xl" color={TEXT_PRIMARY}>
@@ -204,22 +206,15 @@ export function VehicleRoleSheet({
         </View>
 
         {/* Footer */}
-        <View style={styles.footer}>
-          {currentRole ? (
+        {currentRole ? (
+          <View style={styles.footer}>
             <Pressable onPress={() => pick(null)} hitSlop={8}>
               <Text weight="semiBold" size="sm" color="#EF4444">
                 Clear role
               </Text>
             </Pressable>
-          ) : (
-            <View />
-          )}
-          <Pressable onPress={() => sheetRef.current?.close()} hitSlop={8}>
-            <Text weight="semiBold" size="sm" color={TEXT_SECONDARY}>
-              Skip
-            </Text>
-          </Pressable>
-        </View>
+          </View>
+        ) : null}
       </ScrollView>
     </FloatingSheet>
   );

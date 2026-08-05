@@ -38,11 +38,12 @@ export function useDefaultBookingShop(): {
   const shopIds = useShopStore((s) => s.shopIds);
   const shops = useShopStore((s) => s.shops);
   const userLocation = useBookingStore((s) => s.userLocation);
+  const isLoadingLocation = useBookingStore((s) => s.isLoadingLocation);
   const selectedServiceIds = useBookingStore((s) => s.selectedServiceIds);
 
   return useMemo(() => {
     if (shopIds.length === 0) return { result: null, isLoading: true };
-    if (!userLocation) return { result: null, isLoading: false };
+    if (!userLocation) return { result: null, isLoading: isLoadingLocation };
 
     const candidates: { shop: Shop; km: number; coversAll: boolean }[] = [];
     for (const id of shopIds) {
@@ -77,5 +78,5 @@ export function useDefaultBookingShop(): {
       },
       isLoading: false,
     };
-  }, [shopIds, shops, userLocation, selectedServiceIds]);
+  }, [shopIds, shops, userLocation, isLoadingLocation, selectedServiceIds]);
 }

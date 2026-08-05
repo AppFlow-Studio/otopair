@@ -36,11 +36,12 @@ export function useNearbyBookingShops(limit = 5): {
   const shopIds = useShopStore((s) => s.shopIds);
   const shops = useShopStore((s) => s.shops);
   const userLocation = useBookingStore((s) => s.userLocation);
+  const isLoadingLocation = useBookingStore((s) => s.isLoadingLocation);
   const selectedServiceIds = useBookingStore((s) => s.selectedServiceIds);
 
   return useMemo(() => {
     if (shopIds.length === 0) return { results: [], isLoading: true };
-    if (!userLocation) return { results: [], isLoading: false };
+    if (!userLocation) return { results: [], isLoading: isLoadingLocation };
 
     const candidates: { shop: Shop; km: number; coversAll: boolean }[] = [];
     for (const id of shopIds) {
@@ -83,5 +84,5 @@ export function useNearbyBookingShops(limit = 5): {
       coversAll: c.coversAll,
     }));
     return { results: top, isLoading: false };
-  }, [shopIds, shops, userLocation, selectedServiceIds, limit]);
+  }, [shopIds, shops, userLocation, isLoadingLocation, selectedServiceIds, limit]);
 }

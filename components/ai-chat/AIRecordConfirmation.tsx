@@ -24,11 +24,19 @@
  */
 
 // 1. React & React Native
-import React, { useState, useCallback, useMemo } from "react";
+import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { View, Pressable, StyleSheet, TextInput } from "react-native";
 
 // 2. Expo & Third-party
-import Animated, { FadeInUp } from "react-native-reanimated";
+import Animated, {
+  FadeInUp,
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withDelay,
+  withSpring,
+  withTiming,
+} from "react-native-reanimated";
 import { Check, Pencil, X } from "lucide-react-native";
 import { useQuery, useMutation } from "convex/react";
 
@@ -107,9 +115,11 @@ export function AIRecordConfirmation({
   // Two-step state machine: "prompt" (initial confirm/deny) → "form" (date+mileage input).
   const [step, setStep] = useState<"prompt" | "form">("prompt");
   const [submitting, setSubmitting] = useState(false);
-  // Which way the card settled — drives the resolved row's badge, copy, and
-  // muted treatment (declined confirms nothing, so it must not read as a "✓").
+  // Which way the card settled. Three-valued rather than a boolean because
+  // declining confirms nothing — it must not render as a blue "✓".
   const [resolved, setResolved] = useState<null | "confirmed" | "updated" | "declined">(null);
+  // Label shown in the auto-dismissing confirmation pill.
+  const [resolvedText, setResolvedText] = useState("Updated");
   // Inline failure surface — fires when upsertRecord throws. Console warns
   // are kept for telemetry; this string drives a small banner so the user
   // can retry instead of seeing a silent no-op tap.
@@ -161,6 +171,7 @@ export function AIRecordConfirmation({
         // Don't touch confidence/serviceSource — user only attested it's still
         // correct, didn't add new evidence. Preserve whatever's there.
       });
+      setResolvedText("Confirmed");
       setResolved("confirmed");
       onDecision({ kind: "confirmed", type: maintenanceType });
     } catch (err) {
@@ -219,6 +230,9 @@ export function AIRecordConfirmation({
         serviceSource: "ai_chat_correction",
         confidence: "self_reported",
       });
+      setResolvedText(
+        Number.isFinite(parsedMileage as number) ? "Mileage updated" : "Updated",
+      );
       setResolved("updated");
       onDecision({
         kind: "updated",
@@ -249,33 +263,20 @@ export function AIRecordConfirmation({
   // Render
   // ---------------------------------------------------------------------------
 
-  // Resolved — keep the card's anatomy (eyebrow + row) so this reads as the
-  // same component that just settled, not a different floating pill. Declined
-  // gets the muted treatment: nothing was confirmed, so no blue "✓".
+  // Resolved state — a clean confirmation pill that pops in, then fades out
+  // and unmounts so it doesn't linger in the transcript (the follow-up chat
+  // message from the parent already carries the outcome).
+  //
+  // Declined takes the muted variant. It is a real outcome the pill design
+  // did not originally cover, and it must not read as a blue "✓" — the user
+  // dismissed the record, so nothing was confirmed and nothing was written.
   if (resolved) {
     const declined = resolved === "declined";
     return (
-      <Animated.View entering={FadeInUp.duration(150)} style={styles.container}>
-        <Text style={styles.label} weight="semiBold">
-          {label}
-        </Text>
-        <View style={styles.resolvedRow}>
-          <View style={[styles.resolvedBadge, declined && styles.resolvedBadgeMuted]}>
-            {declined ? (
-              <X size={12} color={NEUTRAL_TEXT} strokeWidth={3} />
-            ) : (
-              <Check size={12} color={BrandColors.white} strokeWidth={3} />
-            )}
-          </View>
-          <Text style={[styles.resolvedRowText, declined && styles.resolvedRowTextMuted]}>
-            {resolved === "confirmed"
-              ? "Got it — thanks for confirming."
-              : resolved === "updated"
-                ? "Record updated."
-                : "Not confirmed — left as is."}
-          </Text>
-        </View>
-      </Animated.View>
+      <ResolvedConfirmation
+        text={declined ? "Left as is" : resolvedText}
+        declined={declined}
+      />
     );
   }
 
@@ -395,6 +396,75 @@ function capitalize(s: string): string {
 }
 
 // ============================================================================
+// RESOLVED CONFIRMATION — pops in with a spring check, holds briefly, then
+// fades up and unmounts. Replaces the old banner that stayed pinned in the
+// transcript forever.
+// ============================================================================
+
+const HOLD_MS = 1400;
+
+function ResolvedConfirmation({
+  text,
+  declined = false,
+}: {
+  text: string;
+  declined?: boolean;
+}) {
+  const [gone, setGone] = useState(false);
+
+  const checkScale = useSharedValue(0.4);
+  const checkOpacity = useSharedValue(0);
+  const wrapOpacity = useSharedValue(1);
+  const wrapTranslateY = useSharedValue(0);
+
+  useEffect(() => {
+    // Pop the check + pill in.
+    checkOpacity.value = withTiming(1, { duration: 160 });
+    checkScale.value = withSpring(1, { damping: 11, stiffness: 220, mass: 0.6 });
+    // Hold, then fade the whole pill up and out, unmounting when done so the
+    // space it took collapses cleanly.
+    wrapOpacity.value = withDelay(HOLD_MS, withTiming(0, { duration: 300 }));
+    wrapTranslateY.value = withDelay(
+      HOLD_MS,
+      withTiming(-6, { duration: 300 }, (finished) => {
+        if (finished) runOnJS(setGone)(true);
+      }),
+    );
+  }, [checkOpacity, checkScale, wrapOpacity, wrapTranslateY]);
+
+  const badgeStyle = useAnimatedStyle(() => ({
+    opacity: checkOpacity.value,
+    transform: [{ scale: checkScale.value }],
+  }));
+  const wrapStyle = useAnimatedStyle(() => ({
+    opacity: wrapOpacity.value,
+    transform: [{ translateY: wrapTranslateY.value }],
+  }));
+
+  if (gone) return null;
+
+  return (
+    <Animated.View style={[styles.resolvedWrap, wrapStyle]}>
+      <View style={[styles.resolvedBanner, declined && styles.resolvedBannerMuted]}>
+        <Animated.View style={badgeStyle}>
+          {declined ? (
+            <X size={14} color={NEUTRAL_TEXT} strokeWidth={3} />
+          ) : (
+            <Check size={14} color={BrandColors.white} strokeWidth={3} />
+          )}
+        </Animated.View>
+        <Text
+          style={[styles.resolvedText, declined && styles.resolvedTextMuted]}
+          weight="medium"
+        >
+          {text}
+        </Text>
+      </View>
+    </Animated.View>
+  );
+}
+
+// ============================================================================
 // STYLES — modeled after AIDiagnosticForm's glass-light language. BrandColors
 // only has primary/secondary/white/black/background, so neutral grays come
 // from raw hex values matching the rest of the AI chat surface.
@@ -504,30 +574,31 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.md,
     alignItems: "center",
   },
-  resolvedRow: {
+  resolvedWrap: {
+    marginVertical: Spacing.xs,
+    alignSelf: "flex-start",
+  },
+  resolvedBanner: {
     flexDirection: "row",
     alignItems: "center",
-    gap: Spacing.sm,
-  },
-  resolvedBadge: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
+    gap: 6,
+    paddingVertical: Spacing.xs,
+    paddingHorizontal: Spacing.sm,
     backgroundColor: BrandColors.secondary,
-    alignItems: "center",
-    justifyContent: "center",
+    borderRadius: BorderRadius.md,
+    alignSelf: "flex-start",
   },
-  resolvedBadgeMuted: {
+  // Declined: nothing was confirmed, so drop the brand fill entirely rather
+  // than tinting it — a washed-out blue still reads as an affirmative.
+  resolvedBannerMuted: {
     backgroundColor: "rgba(0, 0, 0, 0.06)",
   },
-  resolvedRowText: {
-    flex: 1,
-    fontSize: 14,
-    color: BrandColors.primary,
-    lineHeight: 20,
-    fontFamily: FontFamily.regular,
+  resolvedText: {
+    fontSize: 12,
+    color: BrandColors.white,
+    fontFamily: FontFamily.medium,
   },
-  resolvedRowTextMuted: {
+  resolvedTextMuted: {
     color: NEUTRAL_TEXT,
   },
   errorBanner: {

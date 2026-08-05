@@ -38,10 +38,9 @@ import Animated, {
 } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { Image } from 'expo-image';
-import { Camera, Check } from 'lucide-react-native';
+import { Camera, Check, ArrowLeft } from 'lucide-react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as MediaLibrary from 'expo-media-library';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // 3. Shared UI
 import { Text } from '@/components/shared-ui';
@@ -73,8 +72,15 @@ interface PhotoItem {
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const SCREEN_HEIGHT = Dimensions.get('window').height;
-const PANEL_HEIGHT = 180;
-const IMAGE_SIZE = (SCREEN_WIDTH - Spacing.md * 2 - Spacing.sm * 2) / 3;
+// Peek panel shows a 4-column grid of ~2 rows so recent photos fill the
+// space instead of a single row with empty gray below. Drag up / tap to open
+// the full gallery.
+const PEEK_COLUMNS = 4;
+const PEEK_GAP = Spacing.xs;
+const IMAGE_SIZE =
+  (SCREEN_WIDTH - Spacing.md * 2 - PEEK_GAP * (PEEK_COLUMNS - 1)) / PEEK_COLUMNS;
+// Two rows of tiles + row gap + the drag handle + top padding.
+const PANEL_HEIGHT = IMAGE_SIZE * 2 + PEEK_GAP + 34;
 const GRID_IMAGE_SIZE = (SCREEN_WIDTH - Spacing.md * 2 - Spacing.xs * 2) / 3;
 const SPRING_CONFIG = { damping: 18, stiffness: 180, mass: 0.8 };
 
@@ -137,17 +143,18 @@ interface FullGalleryProps {
   photos: PhotoItem[];
   selectedImages: string[];
   onToggleImage: (uri: string) => void;
-  onOpenAlbums: () => void;
+  /** Confirm the current selection and return to the chat. */
+  onDone: () => void;
   onTakePhoto: () => void;
 }
 
-function FullGallery({ 
-  visible, 
-  onClose, 
-  photos, 
-  selectedImages, 
+function FullGallery({
+  visible,
+  onClose,
+  photos,
+  selectedImages,
   onToggleImage,
-  onOpenAlbums,
+  onDone,
   onTakePhoto,
 }: FullGalleryProps) {
   const renderGridItem = useCallback(({ item }: { item: PhotoItem }) => {
@@ -203,17 +210,23 @@ function FullGallery({
       <View style={styles.modalContainer}>
         {/* Header */}
         <View style={styles.modalHeader}>
-          <Pressable onPress={onClose} style={styles.modalHeaderButton}>
-            <Text style={styles.modalHeaderButtonText}>Back</Text>
+          <Pressable onPress={onClose} style={styles.modalHeaderButton} hitSlop={8}>
+            <ArrowLeft size={24} color={BrandColors.secondary} strokeWidth={2.2} />
           </Pressable>
-          
+
           <View style={styles.modalHeaderCenter}>
             <Text style={styles.modalTitle}>Recents</Text>
             <Text style={styles.modalSubtitle}>Select up to 10</Text>
           </View>
-          
-          <Pressable onPress={onOpenAlbums} style={styles.modalHeaderButton}>
-            <Text style={styles.modalHeaderButtonText}>All Albums</Text>
+
+          <Pressable
+            onPress={onDone}
+            style={[styles.modalHeaderButton, styles.modalDoneButton]}
+            hitSlop={8}
+          >
+            <Text style={styles.modalDoneText}>
+              {selectedImages.length > 0 ? `Add ${selectedImages.length}` : 'Done'}
+            </Text>
           </Pressable>
         </View>
 
@@ -242,10 +255,6 @@ export function AIAttachmentPanel({
   selectedImages,
   onToggleImage,
 }: AIAttachmentPanelProps) {
-  const insets = useSafeAreaInsets();
-  const TAB_BAR_HEIGHT = 60;
-  const bottomPadding = insets.bottom + TAB_BAR_HEIGHT;
-  
   const [photos, setPhotos] = useState<PhotoItem[]>([
     { id: 'camera', type: 'camera' },
   ]);
@@ -262,13 +271,16 @@ export function AIAttachmentPanel({
   useEffect(() => {
     if (visible) {
       loadPhotos();
-      panelHeight.value = withSpring(PANEL_HEIGHT + bottomPadding, SPRING_CONFIG);
+      // The wrapper in ai-chat/index already sits above the tab bar, so the
+      // panel itself needs no extra bottom clearance — adding it just left a
+      // band of empty gray below the photos.
+      panelHeight.value = withSpring(PANEL_HEIGHT, SPRING_CONFIG);
       opacity.value = withTiming(1, { duration: 200 });
     } else {
       panelHeight.value = withSpring(0, SPRING_CONFIG);
       opacity.value = withTiming(0, { duration: 150 });
     }
-  }, [visible, bottomPadding]);
+  }, [visible]);
 
   const loadPhotos = async () => {
     try {
@@ -328,24 +340,6 @@ export function AIAttachmentPanel({
     }
   }, [onToggleImage]);
 
-  const handleOpenAlbums = useCallback(async () => {
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      allowsMultipleSelection: true,
-      quality: 0.8,
-      selectionLimit: 10,
-    });
-    
-    if (!result.canceled && result.assets) {
-      result.assets.forEach(asset => {
-        if (!selectedImages.includes(asset.uri)) {
-          onToggleImage(asset.uri);
-        }
-      });
-      setShowFullGallery(false);
-    }
-  }, [selectedImages, onToggleImage]);
-
   const handleItemPress = useCallback((item: PhotoItem) => {
     if (item.type === 'camera') {
       handleTakePhoto();
@@ -395,20 +389,21 @@ export function AIAttachmentPanel({
     <>
       <Animated.View style={[styles.container, panelAnimatedStyle]}>
         <GestureDetector gesture={panGesture}>
-          <Animated.View style={[styles.panel, { paddingBottom: bottomPadding }, handleAnimatedStyle]}>
+          <Animated.View style={[styles.panel, handleAnimatedStyle]}>
             {/* Handle indicator - drag up to expand */}
             <View style={styles.handleContainer}>
               <View style={styles.handle} />
             </View>
 
-            {/* Photos grid */}
+            {/* Photos grid — 4-col, ~2 rows visible, scrolls for more. */}
             <FlatList
               data={photos}
               renderItem={renderPhoto}
               keyExtractor={(item) => item.id}
-              horizontal
-              showsHorizontalScrollIndicator={false}
+              numColumns={PEEK_COLUMNS}
+              showsVerticalScrollIndicator={false}
               contentContainerStyle={styles.photosContent}
+              columnWrapperStyle={styles.photosRow}
               style={styles.photosList}
             />
           </Animated.View>
@@ -422,7 +417,12 @@ export function AIAttachmentPanel({
         photos={photos}
         selectedImages={selectedImages}
         onToggleImage={onToggleImage}
-        onOpenAlbums={handleOpenAlbums}
+        onDone={() => {
+          // Confirm the selection: close the gallery AND the whole panel,
+          // returning to the chat with the picked images in the composer.
+          setShowFullGallery(false);
+          onClose();
+        }}
         onTakePhoto={handleTakePhoto}
       />
     </>
@@ -465,8 +465,10 @@ const styles = StyleSheet.create({
   },
   photosContent: {
     paddingHorizontal: Spacing.md,
-    gap: Spacing.sm,
-    alignItems: 'center',
+    gap: PEEK_GAP,
+  },
+  photosRow: {
+    gap: PEEK_GAP,
   },
   cameraButton: {
     width: IMAGE_SIZE,
@@ -525,9 +527,12 @@ const styles = StyleSheet.create({
   modalHeaderButton: {
     minWidth: 80,
   },
-  modalHeaderButtonText: {
+  modalDoneButton: {
+    alignItems: 'flex-end',
+  },
+  modalDoneText: {
     fontSize: 16,
-    fontFamily: FontFamily.medium,
+    fontFamily: FontFamily.semiBold,
     color: BrandColors.secondary,
   },
   modalHeaderCenter: {

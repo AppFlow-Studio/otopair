@@ -63,16 +63,16 @@ import { useVehicleStore } from "@/stores/useVehicleStore";
 import { buildShopPriceLabel } from "@/lib/shopPriceLabel";
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
-// Two snap points: standard (~56%, tall enough that the
-// horizontal-carousel page-indicator dots land above the
-// Continue bar — the old 53% pushed them below the fold) and
-// expanded (~82% for scrolling reviews etc). With
-// `enablePanDownToClose`, the user can also drag the sheet OUT
-// of view entirely — at which point `sheetIndex === -1` and
-// the screen swaps to the browse-card carousel (ChatGPT-style
-// "shops on a map" mode). Tap a card to bring the sheet back
-// to index 0.
-const SNAP_POINTS = ["56%", "82%"] as const;
+// Single snap point (~56%, tall enough that the horizontal-carousel
+// page-indicator dots land above the Continue bar). The content here is
+// fixed-height (summary card + a horizontal-paged mechanic carousel), so
+// the old second "expanded" snap (82%) just opened a wall of empty white
+// space above it — removed. With `enablePanDownToClose`, the user can
+// still drag the sheet OUT of view entirely — at which point
+// `sheetIndex === -1` and the screen swaps to the browse-card carousel
+// (ChatGPT-style "shops on a map" mode). Tap a card to bring the sheet
+// back to index 0.
+const SNAP_POINTS = ["56%"] as const;
 
 export default function ChooseMechanicScreen() {
   const router = useRouter();
@@ -292,6 +292,20 @@ export default function ChooseMechanicScreen() {
       sheetAnimatedIndex.value,
       [-1, 0],
       [1, 0],
+      Extrapolation.CLAMP,
+    ),
+  }));
+  // Floating MapShopCard fades WITH the sheet (visible when open,
+  // gone when closed). Driven off the same drag value so it
+  // cross-fades continuously as the user slides the sheet down/up —
+  // previously it was mount-gated on `isSheetHidden`, which only
+  // flips after the sheet fully settles, so the card popped out
+  // abruptly at the end of the drag instead of fading.
+  const mapShopCardStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(
+      sheetAnimatedIndex.value,
+      [-1, 0],
+      [0, 1],
       Extrapolation.CLAMP,
     ),
   }));
@@ -597,8 +611,14 @@ export default function ChooseMechanicScreen() {
             status), ChatGPT-style. Swiping the pager changes
             the active shop; tapping a card brings the sheet
             back. */}
-      {activeShop && !isSheetHidden ? (
-        <View style={styles.shopCardWrap} pointerEvents="box-none">
+      {activeShop ? (
+        <Animated.View
+          style={[styles.shopCardWrap, mapShopCardStyle]}
+          // Only interactive while the sheet is open; once it fades out
+          // (sheet closed → browse mode), let taps fall through to the
+          // browse carousel / map beneath.
+          pointerEvents={isSheetHidden ? "none" : "box-none"}
+        >
           <MapShopCard
             shopId={activeShop.id}
             shopName={activeShop.name}
@@ -609,7 +629,7 @@ export default function ChooseMechanicScreen() {
             isFixed={activePriceLabel.isFixed}
             nextSlotLabel={activeNextSlotLabel}
           />
-        </View>
+        </Animated.View>
       ) : null}
       {/* Browse-card carousel. Always mounted so the ScrollView
           keeps its position across open/close transitions, but

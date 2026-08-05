@@ -16,7 +16,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { guardedRouter as router } from "@/lib/navigationLock";
-import { ChevronDown, ChevronRight } from "lucide-react-native";
+import { Calendar, ChevronDown, ChevronRight } from "lucide-react-native";
 
 import { Text } from "@/components/shared-ui";
 import {
@@ -175,6 +175,9 @@ export function RecommendedServicesContent({ withScrollPadding = false }: Props)
   if (history.length === 0) {
     return (
       <View style={styles.centerFill}>
+        <View style={styles.emptyIconCircle}>
+          <Calendar size={48} color="#9CA3AF" strokeWidth={1.5} />
+        </View>
         <Text style={styles.emptyTitle}>Nothing here yet</Text>
         <Text style={styles.emptyBody}>
           Recommendations from your mechanic will show up here once they file
@@ -260,6 +263,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: scale(40),
     paddingVertical: scale(48),
     gap: scale(8),
+  },
+  // Matches the Bookings / Quotes empty-state icon circle.
+  emptyIconCircle: {
+    width: scale(100),
+    height: scale(100),
+    borderRadius: scale(50),
+    backgroundColor: "#F3F4F6",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: scale(12),
   },
   emptyTitle: {
     fontSize: moderateScale(15),

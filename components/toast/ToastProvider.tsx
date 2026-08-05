@@ -109,6 +109,19 @@ export function ToastProvider({ children }: { children: ReactNode }) {
           return item;
         }
         if (prev) {
+          // Identical message already visible (e.g. tapping through roles
+          // fires "Role saved" repeatedly) → refresh the current toast
+          // instead of queueing a duplicate that lingers behind it. Swapping
+          // in the new id resets the Toast's dismiss timer (keyed on item.id)
+          // without a visible re-entry animation (translateY/opacity are
+          // already at rest, so the reset springs are no-ops).
+          if (
+            prev.variant === variant &&
+            prev.title === options.title &&
+            prev.body === options.body
+          ) {
+            return item;
+          }
           queueRef.current.push(item);
           while (queueRef.current.length > MAX_QUEUE_SIZE) {
             queueRef.current.shift();

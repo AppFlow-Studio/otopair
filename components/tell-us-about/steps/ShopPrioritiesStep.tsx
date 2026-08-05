@@ -273,7 +273,8 @@ const styles = StyleSheet.create({
     },
     optionEmoji: {
         fontSize: FontSize['2xl'],
-        width: 28,
+        width: 36,
+        lineHeight: 34,
         textAlign: 'center',
     },
     optionText: {

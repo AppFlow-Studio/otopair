@@ -77,7 +77,8 @@ export function AddPaymentScreen() {
 
         await initStripe({
           publishableKey,
-          merchantIdentifier: process.env.EXPO_PUBLIC_STRIPE_MERCHANT_ID,
+          merchantIdentifier:
+            process.env.EXPO_PUBLIC_STRIPE_MERCHANT_ID ?? "merchant.com.otopair",
           urlScheme: "otopair",
         });
         if (cancelled) return;

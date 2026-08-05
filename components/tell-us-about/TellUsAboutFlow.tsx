@@ -45,6 +45,7 @@ import { MaintenanceApproachStepLevel1 } from "./steps/MaintenanceApproachStepLe
 import { ShopPrioritiesStep } from "./steps/ShopPrioritiesStep";
 import { HouseholdRoleStep } from "./steps/HouseholdRoleStep";
 import { DecisionStyleStep } from "./steps/DecisionStyleStep";
+import { AboutYouCompleteStep } from "./steps/AboutYouCompleteStep";
 
 // Define the steps in the flow
 export type TellUsAboutStep =
@@ -305,7 +306,9 @@ export function TellUsAboutFlow({ initialStep = 'experience' }: TellUsAboutFlowP
     }
   };
 
-    // Navigate back to home screen when flow is complete
+    // Mark the flow complete when we reach the `complete` step. Navigation
+    // back to home is deferred to the AboutYouCompleteStep CTA so the user
+    // gets the completion payoff instead of being bounced straight home.
     useEffect(() => {
         if (currentStep === 'complete') {
             updateData({ isTellUsAboutYourselfComplete: true });
@@ -314,7 +317,6 @@ export function TellUsAboutFlow({ initialStep = 'experience' }: TellUsAboutFlowP
                     .then(() => console.log('Tell Us About marked complete'))
                     .catch((err) => console.error('Failed to mark Tell Us About complete:', err));
             }
-            router.back();
         }
     }, [currentStep, updateData]);
 
@@ -478,7 +480,7 @@ export function TellUsAboutFlow({ initialStep = 'experience' }: TellUsAboutFlowP
           />
         );
       case "complete":
-        return null;
+        return <AboutYouCompleteStep onDone={() => router.back()} />;
       default:
         return null;
     }

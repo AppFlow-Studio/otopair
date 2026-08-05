@@ -156,9 +156,9 @@ const styles = StyleSheet.create({
     elevation: 0,
   },
   chipSelected: {
-    backgroundColor: "rgba(82, 153, 254, 0.22)",
+    backgroundColor: "#BFD8FA",
     borderColor: "rgba(82, 153, 254, 0.55)",
-    elevation: 12,
+    elevation: 0,
   },
   chipDisabled: {
     opacity: 0.45,

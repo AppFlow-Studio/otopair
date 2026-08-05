@@ -2,7 +2,7 @@
   "expo": {
     "name": "otopair",
     "slug": "otopair",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "orientation": "portrait",
     "icon": "./assets/images/repairconnectglasslogo.png",
     "scheme": "otopair",
@@ -13,7 +13,11 @@
       "infoPlist": {
         "NSSpeechRecognitionUsageDescription": "Allow Otopair to use speech recognition to transcribe your voice.",
         "NSMicrophoneUsageDescription": "Allow Otopair to use the microphone for voice input.",
+        "NSFaceIDUsageDescription": "Otopair uses Face ID to securely sign you in and protect your account.",
         "ITSAppUsesNonExemptEncryption": false
+      },
+      "entitlements": {
+        "com.apple.developer.in-app-payments": ["merchant.com.otopair"]
       }
     },
     "android": {
@@ -27,14 +31,6 @@
       "predictiveBackGestureEnabled": false,
       "package": "com.otopair.app",
       "permissions": [
-        "android.permission.CAMERA",
-        "android.permission.ACCESS_COARSE_LOCATION",
-        "android.permission.ACCESS_FINE_LOCATION",
-        "android.permission.RECORD_AUDIO",
-        "android.permission.READ_CALENDAR",
-        "android.permission.WRITE_CALENDAR",
-        "android.permission.POST_NOTIFICATIONS",
-        "android.permission.VIBRATE",
         "android.permission.CAMERA",
         "android.permission.ACCESS_COARSE_LOCATION",
         "android.permission.ACCESS_FINE_LOCATION",
@@ -108,7 +104,7 @@
       [
         "@stripe/stripe-react-native",
         {
-          "merchantIdentifier": "merchant.com.otopair.app",
+          "merchantIdentifier": "merchant.com.otopair",
           "enableGooglePay": true
         }
       ]

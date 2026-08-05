@@ -26,7 +26,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Notifications from 'expo-notifications';
 import { useLocalSearchParams } from 'expo-router';
 import { useGuardedRouter as useRouter } from '@/hooks/useGuardedRouter';
-import { ArrowLeft, Bell, Check } from 'lucide-react-native';
+import { ArrowLeft, Bell, BellOff, Check } from 'lucide-react-native';
 
 // 3. Shared UI
 import { Text } from '@/components/shared-ui';
@@ -65,6 +65,8 @@ export default function ComingSoonScreen() {
       if (finalStatus !== 'granted') {
         toast.info(
           'Notifications stay off — change anytime in Settings.',
+          undefined,
+          { icon: BellOff },
         );
         return;
       }
@@ -76,6 +78,7 @@ export default function ComingSoonScreen() {
       toast.success(
         'You\'re on the list.',
         `We'll let you know when ${serviceName} launches.`,
+        { icon: Bell },
       );
     } catch (error) {
       console.error('Error requesting notification permission:', error);

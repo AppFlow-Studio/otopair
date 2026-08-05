@@ -14,6 +14,7 @@ import { useCallback } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useUserFromConvex } from "@/hooks/useUserFromConvex";
+import type { TirePosition } from "@/stores/useTireBookingStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 
 interface CreateArgs {
@@ -24,6 +25,7 @@ interface CreateArgs {
     type: string;
     tier: string;
     quantity: number;
+    positions: TirePosition[];
   };
 }
 

@@ -85,7 +85,7 @@ export default function DeleteAccountScreen() {
   const shouldExitAfterSheetDismiss = useRef(false);
   const sheetRef = useRef<BottomSheetModal>(null);
   const sheetScrollRef = useRef<BottomSheetScrollView>(null);
-  const snapPoints = useMemo(() => ["88%"], []);
+  const snapPoints = useMemo(() => ["70%"], []);
   const isCodeComplete = useMemo(() => code.join("").length === 6, [code]);
 
   useEffect(() => {
@@ -588,11 +588,21 @@ export default function DeleteAccountScreen() {
         ref={sheetRef}
         snapPoints={snapPoints}
         backdropComponent={BlurBackdrop}
-        enableDynamicSizing={false}
+        // Dynamic sizing so the sheet hugs its content — combined
+        // with `bottomInset` below, that makes it read as a compact
+        // floating card in the lower portion of the screen (matches
+        // PM reference).
+        enableDynamicSizing
         enableContentPanningGesture={false}
         keyboardBehavior="interactive"
         keyboardBlurBehavior="restore"
         android_keyboardInputMode="adjustResize"
+        // Floating look: inset from screen edges, gap above the home
+        // indicator so all four rounded corners of the sheet are
+        // visible against the background.
+        detached
+        bottomInset={insets.bottom + 12}
+        style={styles.sheetFloatingContainer}
         onDismiss={handleSheetDismiss}
         handleIndicatorStyle={styles.sheetHandle}
         backgroundStyle={styles.sheetBackground}
@@ -601,11 +611,15 @@ export default function DeleteAccountScreen() {
           ref={sheetScrollRef}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
+          scrollEnabled={false}
+          bounces={false}
           contentContainerStyle={[
             styles.sheetContentContainer,
             {
+              // Sheet's `bottomInset` prop already accounts for the
+              // home-indicator safe area; here we only add a comfy
+              // internal gap + a keyboard-aware bump on the survey.
               paddingBottom:
-                insets.bottom +
                 24 +
                 (isSurveyStep
                   ? Math.max(sheetKeyboardInset - insets.bottom, 0) * 0.32 + 8
@@ -975,8 +989,15 @@ const styles = StyleSheet.create({
   },
   sheetBackground: {
     backgroundColor: "#FFFFFF",
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
+    // All four corners rounded — sheet floats above the bottom via
+    // `detached` + `bottomInset`, so both top and bottom curves show.
+    // Radius chosen to visually parallel the modern iPhone display curve.
+    borderRadius: 44,
+  },
+  sheetFloatingContainer: {
+    // Small horizontal inset — matches the "Edit Maintenance Info"
+    // pattern used elsewhere in the app.
+    marginHorizontal: 8,
   },
   sheetHandle: {
     backgroundColor: "#E5E5EA",

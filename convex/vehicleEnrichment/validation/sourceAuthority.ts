@@ -95,6 +95,8 @@ export const HIGH_AUTHORITY_SPEC_DOMAINS: readonly string[] = [
   // NOTE: the estimator provider's own spec domains are NOT listed here — they
   // are supplied per deployment via ESTIMATOR_SPEC_DOMAINS and merged in by
   // isHighAuthorityDomain below, so the repository never names the vendor.
+  // Unset → those hosts simply lose single-source accept (they still gather and
+  // still corroborate); nothing errors.
   // ── Fluid-capacity spec references ──
   "engineoilcapacity.com", "oilcapacity.net", "fluidcapacity.com",
   "capacity.report", "oilspecifications.org",
@@ -113,7 +115,8 @@ export function isHighAuthorityDomain(urlOrDomain: string | null | undefined): b
   if (!host) return false;
   if (HIGH_AUTHORITY_SET.has(host)) return true;
   if (HIGH_AUTHORITY_SPEC_DOMAINS.some((d) => host.endsWith(`.${d}`))) return true;
-  // Env-supplied provider domains (ESTIMATOR_SPEC_DOMAINS).
+  // Env-supplied provider domains (ESTIMATOR_SPEC_DOMAINS) — read per call so a
+  // deployment can add them without a code change.
   const envDomains = estimatorSpecDomains();
   return envDomains.some((d) => host === d || host.endsWith(`.${d}`));
 }

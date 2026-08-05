@@ -13,7 +13,7 @@
 
 import { useEffect, useRef } from "react";
 import { View, ActivityIndicator, StyleSheet } from "react-native";
-import { useRootNavigationState } from "expo-router";
+import { useRootNavigationState, useSegments } from "expo-router";
 import { guardedRouter as router } from "@/lib/navigationLock";
 import { useAuth } from "@clerk/clerk-expo";
 import { useConvexAuth, useQuery } from "convex/react";
@@ -31,6 +31,14 @@ export default function Index() {
   // already exists, so we must wait until stale flips to false before navigating.
   const rootNavigationReady =
     Boolean(rootNavigationState?.key) && rootNavigationState?.stale !== true;
+  // On reload, Expo Router restores the previous route (e.g. home). This
+  // `/` entry screen still re-mounts and its redirect would fire again —
+  // stacking a SECOND copy of the destination (the "two home pages"
+  // back-swipe bug). If we've already restored into a real in-app group,
+  // the destination layouts own auth correction, so skip the redirect.
+  const segments = useSegments();
+  const alreadyInApp =
+    segments[0] === "(main-tabs)" || segments[0] === "(onboarding)";
   // useConvexAuth().isAuthenticated flips true only after the Clerk JWT has
   // actually propagated to Convex. Until then, getMe's ctx.auth.getUserIdentity()
   // is null and the query returns null even for an existing, fully-onboarded
@@ -74,6 +82,13 @@ export default function Index() {
         rootNavigationReady,
       })
     ) {
+      return;
+    }
+
+    // Already restored into the app (reload case) — don't re-navigate, or
+    // we stack a duplicate of the current screen.
+    if (alreadyInApp) {
+      hasNavigated.current = true;
       return;
     }
 
@@ -130,6 +145,20 @@ export default function Index() {
         return;
       }
 
+      // User explicitly tapped "Finish later" mid-onboarding — respect
+      // that on re-login instead of restarting them at the phone step.
+      // This is the OAuth-friendly path: it doesn't require all
+      // `essentialOnboardingCompleted` field gates to have passed.
+      if ((me as { onboardingDeferred?: boolean })?.onboardingDeferred === true) {
+        console.log("[onboarding-resume:index] navigating home: onboarding deferred", {
+          convexUserId: me._id,
+          clerkUserId,
+        });
+        router.replace("/(main-tabs)/home");
+        hasNavigated.current = true;
+        return;
+      }
+
       const finishedLaterKey = getOnboardingFinishedLaterKey(clerkUserId);
       const finishedLater = await SecureStore.getItemAsync(finishedLaterKey);
       if (hasNavigated.current) return;
@@ -153,7 +182,7 @@ export default function Index() {
         }
       }
     })();
-  }, [clerkUserId, isLoaded, isSignedIn, me, rawMe, rootNavigationReady]);
+  }, [clerkUserId, isLoaded, isSignedIn, me, rawMe, rootNavigationReady, alreadyInApp]);
 
   return (
     <View style={styles.loading}>

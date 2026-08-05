@@ -188,7 +188,7 @@ export function UserIntentStep({ onNext, onBack, progress }: UserIntentStepProps
                     filled={progress.filled}
                     leftElement={<BackButton onBack={onBack} alwaysShow />}
                 />
-                <FinishLater />
+                <FinishLater currentStep="userIntent" />
 
                 <ScrollView
                     style={styles.scrollView}
@@ -202,6 +202,9 @@ export function UserIntentStep({ onNext, onBack, progress }: UserIntentStepProps
                         </Text>
                         <Text style={styles.subtitle}>
                             We want to know this so we can tailor the app to your needs. Also, we're curious!
+                        </Text>
+                        <Text style={styles.multiHint}>
+                            Select all that apply
                         </Text>
                     </View>
 
@@ -283,6 +286,12 @@ const styles = StyleSheet.create({
         color: '#0F172A',
         opacity: 0.9,
         lineHeight: Spacing['2xl'],
+    },
+    multiHint: {
+        fontSize: FontSize.sm,
+        fontFamily: FontFamily.medium,
+        color: '#5299FE',
+        marginTop: Spacing.md,
     },
     optionsContainer: {
         paddingHorizontal: Spacing['2xl'],

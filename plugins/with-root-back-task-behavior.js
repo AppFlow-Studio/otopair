@@ -1,7 +1,14 @@
 const { withMainActivity } = require("@expo/config-plugins");
 
+// Match ONLY the `invokeDefaultOnBackPressed` KDoc + method. The `(?!override fun)`
+// tempered token stops the leading `/**` from greedily starting at an earlier
+// method's doc comment — without it the match spans from `getMainComponentName`'s
+// comment through `invokeDefaultOnBackPressed`, and the replacement then DELETES
+// `getMainComponentName()` and `createReactActivityDelegate()`. Losing the Expo
+// `ReactActivityDelegateWrapper` unwires expo-dev-client so the app never loads
+// JS from Metro -> blank white screen (and breaks release/EAS renders too).
 const BACK_HANDLER_PATTERN =
-  /  \/\*\*[\s\S]*?override fun invokeDefaultOnBackPressed\(\) \{[\s\S]*?\n  \}/;
+  /  \/\*\*(?:(?!override fun)[\s\S])*?override fun invokeDefaultOnBackPressed\(\) \{[\s\S]*?\n  \}/;
 
 const BACK_HANDLER_REPLACEMENT = `  /**
     * Keep the root task alive when Android back is used from app roots.

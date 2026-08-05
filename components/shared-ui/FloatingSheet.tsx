@@ -30,6 +30,7 @@ import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo
 import { Dimensions, Modal, Pressable, StyleSheet, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
+  Easing,
   Extrapolation,
   interpolate,
   runOnJS,
@@ -157,6 +158,12 @@ export const FloatingSheet = forwardRef<FloatingSheetRef, FloatingSheetProps>(
 
     const sheetHeight = useSharedValue(0);
     const startHeight = useSharedValue(0);
+    // Entrance/exit slide: the sheet sits at its full resting height and
+    // slides up from below the screen as a rigid unit (native feel), instead
+    // of growing its height from 0 (which read as "unfolding from a line").
+    // `translateY` is 0 at rest, positive = pushed down off-screen.
+    const translateY = useSharedValue(0);
+    const entranceDistance = useSharedValue(0);
 
     // Phase ref distinguishes "just opened, animate up from 0" from
     // "already open, snap-points changed because content grew" from
@@ -174,12 +181,16 @@ export const FloatingSheet = forwardRef<FloatingSheetRef, FloatingSheetProps>(
 
     const close = useCallback(() => {
       phaseRef.current = "closing";
-      sheetHeight.value = withTiming(0, { duration: 260 });
+      // Slide the whole sheet back down off-screen (rigid), rather than
+      // collapsing its height to 0. Base the distance on the CURRENT height
+      // so a sheet dragged up to a taller snap still fully clears the screen.
+      const offscreen = sheetHeight.value + Math.max(insets.bottom, 40) + 48;
+      translateY.value = withTiming(offscreen, { duration: 260, easing: Easing.in(Easing.cubic) });
       setTimeout(() => {
         phaseRef.current = "closed";
         unmount();
       }, 280);
-    }, [sheetHeight, unmount]);
+    }, [translateY, sheetHeight, insets.bottom, unmount]);
 
     const open = useCallback(() => {
       phaseRef.current = "opening";
@@ -192,9 +203,19 @@ export const FloatingSheet = forwardRef<FloatingSheetRef, FloatingSheetProps>(
       if (!mounted || phaseRef.current === "closing") return;
       const target = snaps[Math.max(0, Math.min(initialSnapIndex, snaps.length - 1))];
       if (phaseRef.current === "opening") {
-        sheetHeight.value = 0;
+        // Full resting height immediately, then slide the sheet up from
+        // fully below the screen — a rigid translate, so the content never
+        // reflows and there's no "growing from a line" seam.
+        const singleSnap = snaps.length === 1;
+        const restingBottom = singleSnap
+          ? (floatBottomInset ?? Math.max(insets.bottom / 2, 4))
+          : (floatBottomInset ?? FLOAT_BOTTOM);
+        const offscreen = target + restingBottom + 48;
+        entranceDistance.value = offscreen;
+        sheetHeight.value = target;
+        translateY.value = offscreen;
         const id = requestAnimationFrame(() => {
-          sheetHeight.value = withTiming(target, { duration: 420 });
+          translateY.value = withTiming(0, { duration: 400, easing: Easing.out(Easing.cubic) });
           phaseRef.current = "open";
         });
         return () => cancelAnimationFrame(id);
@@ -202,7 +223,7 @@ export const FloatingSheet = forwardRef<FloatingSheetRef, FloatingSheetProps>(
       // Already open — snap-points changed (e.g. content grew). Resize
       // smoothly without resetting to 0 first.
       sheetHeight.value = withTiming(target, { duration: 240 });
-    }, [mounted, initialSnapIndex, snaps, sheetHeight]);
+    }, [mounted, initialSnapIndex, snaps, sheetHeight, translateY, entranceDistance, insets.bottom, floatBottomInset]);
 
     // Pan gesture: drag up to grow, drag down to shrink or dismiss.
     const dragGesture = useMemo(
@@ -271,7 +292,9 @@ export const FloatingSheet = forwardRef<FloatingSheetRef, FloatingSheetProps>(
     // sheet tucks close to the bottom edge. Full `insets.bottom` felt too
     // lifted on the requesting sheet; half gives a tight tuck while still
     // floating visibly above the edge.
-    const singleSnapBottomInset = Math.max(insets.bottom / 2, 4);
+    // Defaults to a half-home-indicator tuck; callers can pass
+    // `floatBottomInset` to sit the sheet lower (closer to the edge).
+    const singleSnapBottomInset = floatBottomInset ?? Math.max(insets.bottom / 2, 4);
 
     const sheetAnimStyle = useAnimatedStyle(() => {
       if (isSingleSnap) {
@@ -281,6 +304,7 @@ export const FloatingSheet = forwardRef<FloatingSheetRef, FloatingSheetProps>(
           right: singleSide,
           bottom: singleSnapBottomInset + (liftWithKeyboard ? Math.abs(keyboardHeight.value) : 0),
           height: sheetHeight.value,
+          transform: [{ translateY: translateY.value }],
           borderBottomLeftRadius: resolvedBottomRadius,
           borderBottomRightRadius: resolvedBottomRadius,
         };
@@ -310,6 +334,7 @@ export const FloatingSheet = forwardRef<FloatingSheetRef, FloatingSheetProps>(
         right: sideInset,
         bottom: bottomInset + (liftWithKeyboard ? Math.abs(keyboardHeight.value) : 0),
         height: sheetHeight.value,
+        transform: [{ translateY: translateY.value }],
         borderBottomLeftRadius: bottomRadius,
         borderBottomRightRadius: bottomRadius,
       };
@@ -341,9 +366,12 @@ export const FloatingSheet = forwardRef<FloatingSheetRef, FloatingSheetProps>(
     });
 
     const backdropAnimStyle = useAnimatedStyle(() => {
+      // Fade the backdrop with the slide: fully dim when the sheet is resting
+      // (translateY 0), transparent when it's fully off-screen.
+      const distance = entranceDistance.value || H_MIN;
       const opacity = interpolate(
-        sheetHeight.value,
-        [0, H_MIN],
+        translateY.value,
+        [distance, 0],
         [0, 1],
         Extrapolation.CLAMP,
       );

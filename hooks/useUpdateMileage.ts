@@ -37,6 +37,7 @@
 
 import { useCallback, useState } from "react";
 import { useMutation } from "convex/react";
+import { Gauge } from "lucide-react-native";
 
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -88,7 +89,7 @@ export function useUpdateMileage(): UseUpdateMileageResult {
       setIsUpdating(true);
       try {
         await updateMileageMutation({ vin, userId, mileage });
-        toast.success("Mileage updated");
+        toast.success("Mileage updated", undefined, { icon: Gauge });
         return { ok: true };
       } catch (e) {
         const message =

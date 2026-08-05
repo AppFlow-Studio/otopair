@@ -14,7 +14,7 @@
  * Filter rules (locked with Ahmad):
  *  - `mechanic_verified === true` rows are ALWAYS usable, regardless
  *    of `confidence` (verification means a human signed off).
- *  - Otherwise, `confidence ?? 0` must be `>= CONFIDENCE_FLOOR`.
+ *  - Otherwise, `confidence ?? 0` must be `>= 0.75`.
  *
  * Both queries return slug-keyed maps so the client never has to
  * know about service_id Convex IDs. Empty map = no usable OEM data;
@@ -27,13 +27,7 @@ import { v } from "convex/values";
 import { query } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 
-// Lowered from 0.75 to 0.50 so `ensureAllServiceIntervals` fallback rows
-// (written at confidence 0.50 when Claude batch1b returns no intervals)
-// surface in the tracker. Safe because `utils/serviceIntervalGuardrails.ts`
-// snaps low-confidence values to conservative per-service floors before
-// they reach compute — noisy scrapes can't nag or ignore. Revisit when
-// the enrichment intervals prompt starts returning real OEM values.
-const CONFIDENCE_FLOOR = 0.50;
+const CONFIDENCE_FLOOR = 0.75;
 
 /** Public per-slug payload — kept narrow so the client doesn't see
  *  Convex IDs or any field it shouldn't use for tracker math. */

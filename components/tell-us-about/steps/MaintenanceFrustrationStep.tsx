@@ -219,6 +219,9 @@ const styles = StyleSheet.create({
     },
     optionEmoji: {
         fontSize: FontSize['2xl'],
+        width: 36,
+        lineHeight: 34,
+        textAlign: 'center',
     },
     optionText: {
         fontSize: FontSize.lg,

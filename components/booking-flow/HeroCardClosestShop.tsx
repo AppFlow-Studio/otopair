@@ -53,13 +53,17 @@ export function HeroCardClosestShop() {
         style={styles.title}
         numberOfLines={2}
       >
-        {result?.shop.name ?? (isLoading ? "Finding nearest…" : "No shop nearby")}
+        {result?.shop.name ?? (isLoading ? "Finding nearby shops..." : "Location needed")}
       </Text>
       {result ? (
         <Text size="sm" weight="regular" color="#6B7280" style={styles.subtitle}>
           {formatMiles(result.distanceMi)} miles away
         </Text>
-      ) : null}
+      ) : (
+        <Text size="sm" weight="regular" color="#6B7280" style={styles.subtitle}>
+          {isLoading ? "Updating distance..." : "Enable location"}
+        </Text>
+      )}
     </Pressable>
   );
 }

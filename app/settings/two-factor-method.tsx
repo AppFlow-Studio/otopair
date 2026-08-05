@@ -23,6 +23,9 @@ import { Check, Mail, MessageSquareText } from 'lucide-react-native';
 import { BrandColors, Button, FontFamily, FontSize, Shadows, Spacing, Text, BlurHeaderOverlay } from '@/components/shared-ui';
 import { Layout } from '@/constants/theme';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
+import { useQuery, useAction } from 'convex/react';
+import { api } from '@/convex/_generated/api';
+import { useUser } from '@clerk/clerk-expo';
 
 type VerificationMethod = 'sms' | 'email';
 
@@ -31,13 +34,39 @@ export default function TwoFactorMethodScreen() {
   const router = useRouter();
   const { height } = useWindowDimensions();
   const { data, updateData } = useOnboardingStore();
+  // The phone/email are captured during Create Account and live on the
+  // Clerk user (verified there) and the Convex profile — NOT the onboarding
+  // store, which is empty after onboarding/app restart. Resolve from those
+  // sources and hydrate the store so both the "already have it?" checks here
+  // and the verify screen's "sent to …" display use the real values.
+  const me = useQuery(api.users.getMe);
+  const { user: clerkUser } = useUser();
+  const clerkPhone =
+    clerkUser?.primaryPhoneNumber?.phoneNumber || clerkUser?.phoneNumbers?.[0]?.phoneNumber;
+  const clerkEmail = clerkUser?.primaryEmailAddress?.emailAddress;
+
+  const effectivePhone = me?.phone || data.phoneNumber || clerkPhone;
+  const effectiveEmail = me?.email || data.email || clerkEmail;
+
+  useEffect(() => {
+    const phone = me?.phone || clerkPhone;
+    const email = me?.email || clerkEmail;
+    const updates: { phoneNumber?: string; email?: string } = {};
+    if (phone && !data.phoneNumber) updates.phoneNumber = phone;
+    if (email && !data.email) updates.email = email;
+    if (Object.keys(updates).length) updateData(updates);
+  }, [me, clerkPhone, clerkEmail, data.phoneNumber, data.email, updateData]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [removeMethod, setRemoveMethod] = useState<VerificationMethod | null>(null);
   const [showRemoveModal, setShowRemoveModal] = useState(false);
+  const [sendingMethod, setSendingMethod] = useState<VerificationMethod | null>(null);
   const slideAnim = useRef(new Animated.Value(height)).current;
 
-  const handleSelectMethod = (method: VerificationMethod) => {
+  const sendCode = useAction(api.two_factor_node.sendCode);
+
+  const handleSelectMethod = async (method: VerificationMethod) => {
     setErrorMessage(null);
+    if (sendingMethod) return;
 
     const isEnabled =
       method === 'email' ? data.twoFactorEmailEnabled : data.twoFactorSmsEnabled;
@@ -47,16 +76,35 @@ export default function TwoFactorMethodScreen() {
       return;
     }
 
-    if (method === 'email' && !data.email) {
-      setErrorMessage('No email added yet. Please add an email to your profile first.');
-      return;
-    }
-    if (method === 'sms' && !data.phoneNumber) {
-      setErrorMessage('No phone number added yet. Please add a phone number to your profile first.');
+    // SMS is deferred until a paid provider (Telnyx) is set up.
+    if (method === 'sms') {
+      setErrorMessage(
+        effectivePhone
+          ? 'Text-message codes are coming soon — please verify with email for now.'
+          : 'No phone number added yet. Please add a phone number to your profile first.',
+      );
       return;
     }
 
-    router.push({ pathname: '/settings/two-factor-verify', params: { method } });
+    if (!effectiveEmail) {
+      setErrorMessage('No email added yet. Please add an email to your profile first.');
+      return;
+    }
+
+    // Actually send a code, then move to the verify screen.
+    setSendingMethod(method);
+    try {
+      const result = await sendCode({ method });
+      if (result.ok) {
+        router.push({ pathname: '/settings/two-factor-verify', params: { method } });
+      } else {
+        setErrorMessage(result.error ?? "Couldn't send a code. Please try again.");
+      }
+    } catch {
+      setErrorMessage("Couldn't send a code. Please try again.");
+    } finally {
+      setSendingMethod(null);
+    }
   };
 
   useEffect(() => {

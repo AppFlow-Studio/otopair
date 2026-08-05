@@ -14,8 +14,8 @@
  *     were already ready when the app booted (cache hits, second-session
  *     opens, etc.).
  *   - On every subsequent tick, any vehicle whose phase changed from
- *     "in_progress" → "ready" gets a persistent trust toast titled
- *     "<label> is ready" with body "Tap to book a service."
+ *     "in_progress" → "ready" gets a persistent PLAIN toast (white card,
+ *     no icon, no body) titled "Connected to your <label>".
  *   - Tap → selects that vehicle in the local store + pushes the booking
  *     flow's Select Services screen. Vehicle store lookup is best-effort
  *     by VIN; if the local cache doesn't have the vehicle yet, we still
@@ -76,8 +76,9 @@ export function useEnrichmentCompletionWatcher() {
       if (prev === "in_progress" && curr === "ready") {
         toast.trust(
           `Connected to your ${v.label}`,
-          "Tap to book a service.",
+          undefined,
           {
+            plain: true,
             persistent: true,
             onPress: () => {
               // Best-effort: pick the matching vehicle in the local

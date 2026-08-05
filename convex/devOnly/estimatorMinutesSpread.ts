@@ -18,7 +18,9 @@ import { estimatorApiBase } from "../lib/estimatorApi";
 
 // ───────────────────────── constants ─────────────────────────
 
-/** Provider host comes from the deployment env, never from source. */
+/** Provider host comes from the deployment env, never from source. This is a
+ *  manually-run devOnly probe, so an unset var should fail loudly rather than
+ *  silently produce malformed URLs. */
 function estimatorBase(): string {
   const base = estimatorApiBase();
   if (!base) {
@@ -28,6 +30,7 @@ function estimatorBase(): string {
   }
   return base;
 }
+
 const FIRECRAWL_BASE = "https://api.firecrawl.dev/v2";
 
 /** Static service-slug → Estimator global serviceId map (resolved 2026-06-15 from the

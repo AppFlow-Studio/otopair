@@ -72,6 +72,8 @@ export const estimatorLaborOverview = query({
     // (flag-gated) has written estimator_endpoint observations. The backfill
     // fills the endpoint table but NOT labor_observations, so this is 0 until
     // LABOR_SOURCE_ESTIMATOR_ENDPOINT is flipped on.
+    // DUAL-READ: matches the canonical name OR its pre-migration alias, so the
+    // panel doesn't report "not live" on a deployment that hasn't migrated yet.
     const endpointObs = await ctx.db
       .query("labor_observations")
       .filter((q) =>

@@ -31,14 +31,16 @@ export function isPoisonPriceType(priceType: string | null | undefined): boolean
 }
 
 /** Valid market signals that are RESERVED as per-part fallbacks (not poison),
- *  excluded from the pooled SKU aggregate. The Estimator endpoint averaged
+ *  excluded from the pooled SKU aggregate. The estimator endpoint averaged
  *  per-unit point is the first member — only resolvePartsCost's gated real-band
  *  block reads it; summarizePriceRows (booking_quotes/serviceParts/job_actuals)
  *  must not. */
 export { ESTIMATOR_ENDPOINT_PRICE_TYPE } from "./sourceNames";
 
 /** price_type values that are valid but reserved as per-part fallbacks —
- *  excluded from the pooled SKU aggregate (mirrors POISON_PRICE_TYPES' shape). */
+ *  excluded from the pooled SKU aggregate (mirrors POISON_PRICE_TYPES' shape).
+ *  Includes the legacy provider-named value for the dual-read window, so a
+ *  pre-migration row is still correctly held out of the pooled aggregate. */
 export const NON_POOLED_PRICE_TYPES = new Set<string>(ESTIMATOR_ENDPOINT_SOURCES);
 
 /** True when a row is valid but must NOT enter the pooled per-part aggregate. */
