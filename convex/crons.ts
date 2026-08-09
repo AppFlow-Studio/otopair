@@ -113,6 +113,16 @@ crons.interval(
   internal.bookings.autoDropUnconfirmedBookings,
 );
 
+// Expire unanswered booking REQUESTS: a shop-pending request (pending /
+// pending_shop_acceptance) auto-cancels at the earlier of a 48h response SLA
+// or 2h past the requested appointment time, after nudging the shop. Distinct
+// from auto-drop above, which no-shows already-CONFIRMED bookings.
+crons.interval(
+  "auto-cancel-unconfirmed-requests",
+  { minutes: 10 },
+  internal.bookings.autoCancelUnconfirmedRequests,
+);
+
 crons.interval(
   "process-customer-late-monitors",
   { minutes: 1 },
@@ -159,6 +169,31 @@ crons.interval(
   "dispatch-pending-push",
   { minutes: 1 },
   (internal as any).lib.push_dispatcher.dispatchPendingPush,
+);
+
+// Determinism sentinel (Wave 4): weekly probe of ONE operator-supplied VIN
+// (DETERMINISM_SENTINEL_VINS="label:VIN,…" — unset = free no-op). Sunday
+// 03:00 UTC so the ~1h probe chain finishes well before the repair/price
+// crons. Variance routes to the review queue; the same VIN enriched twice
+// must produce the same core signature, or that's a tracked defect.
+crons.weekly(
+  "determinism-sentinel-probe",
+  { dayOfWeek: "sunday", hourUTC: 3, minuteUTC: 0 },
+  internal.vehicleEnrichment.determinismProbe.runScheduledProbe,
+  {},
+);
+
+// Fleet role repair (Wave 2): nightly census of configs whose latest run
+// shows missing binding core roles, scheduling the batch repair over the
+// worst under PARTS_ROLE_REPAIR_FLEET_BUDGET (0 = census-only, no spend).
+// Runs 45 min before the price refresh so healed parts get priced same
+// night. The logged fleetResidual is the metric that decides when the
+// core-role/axle completion gates can flip from "log" to "enforce".
+crons.daily(
+  "repair-fleet-missing-roles",
+  { hourUTC: 8, minuteUTC: 15 },
+  internal.vehicleEnrichment.resourceRoles.repairFleetSweep,
+  {},
 );
 
 // Part prices: nightly re-verification of parts whose newest price row is

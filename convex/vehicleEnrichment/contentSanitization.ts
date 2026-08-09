@@ -18,6 +18,7 @@
  *   - Quotes: smart quotes, backticks wrapping values
  *   - List artifacts: "- 0W-20" or "* 0W-20"
  */
+import { makeKeyOf } from "../lib/makeKey";
 
 // ─── HTML / Markdown Stripping ───────────────────────────────────
 
@@ -313,7 +314,7 @@ const CORPORATE_FAMILIES: Array<Set<string>> = [
   new Set(["jaguar", "landrover", "rangerover"]),
 ];
 
-const makeKeyOf = (name: string) => name.toLowerCase().replace(/[-\s]/g, "");
+// Single-source identity key — see lib/makeKey.ts (imported at top).
 
 /** True when two make NAMES belong to the same corporate part-sharing family
  *  (or are the same make). */
@@ -398,7 +399,7 @@ export function matchesForeignBrandSignature(
   makeName: string | null | undefined,
 ): string | null {
   if (!makeName) return null;
-  const makeKey = makeName.toLowerCase().replace(/[-\s]/g, "");
+  const makeKey = makeKeyOf(makeName);
   for (const sig of BRAND_SIGNATURES) {
     if (!sig.makes.has(makeKey) && sig.pattern.test(partNumber.trim())) {
       // Foreign signature — but if the number ALSO satisfies the target
@@ -481,7 +482,7 @@ export function sanitizePartNumber(value: string, makeName?: string): string | n
     // deliberately fell through (the BMW pattern was too strict), which let
     // wrong-make and hallucinated numbers into oem_parts; the patterns above
     // have been widened to cover real formats, so a miss now rejects.
-    const makeKey = makeName.toLowerCase().replace(/[-\s]/g, "");
+    const makeKey = makeKeyOf(makeName);
     const pattern = OEM_PART_PATTERNS[makeKey];
     if (pattern && !pattern.test(cleaned)) {
       // Leading-zero salvage: digit-only value 1-2 chars short of the make's
@@ -507,6 +508,13 @@ export function sanitizePartNumber(value: string, makeName?: string): string | n
       );
       return null;
     }
+    // The make's own format matched — that is the FINAL verdict. The generic
+    // plausibility check below exists (per its own doc) for makes WITHOUT a
+    // pattern; applying it on top of a pattern match rejected real numbers:
+    // Mercedes display format with a variant suffix ("000 989 79 02 11") is
+    // FIVE space groups, and the generic gate caps at four (found Aug 2026 —
+    // the oil-product rung's text-mined genuine 0W-40 SKU died here).
+    if (pattern) return cleaned;
   }
 
   // Generic plausibility check

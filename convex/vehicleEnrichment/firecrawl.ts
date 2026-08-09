@@ -34,6 +34,11 @@ export async function searchAndFetch(
   query: string,
   numResults: number = 5,
   includeHtml: boolean = false,
+  // Lenient by default: HTTP/network failures collapse to [] so the dozen
+  // best-effort callers keep working through outages. Callers that must
+  // DISTINGUISH "channel down" from "search ran, zero results" — anything
+  // recording a durable negative verdict — pass throwOnError and catch.
+  opts?: { throwOnError?: boolean },
 ): Promise<FirecrawlResult[]> {
   try {
     const response = await fetch(`${FIRECRAWL_BASE}/search`, {
@@ -62,6 +67,9 @@ export async function searchAndFetch(
       console.error(
         `Firecrawl search failed: ${response.status} ${response.statusText}`,
       );
+      if (opts?.throwOnError) {
+        throw new Error(`firecrawl_search_http_${response.status}`);
+      }
       return [];
     }
 
@@ -103,6 +111,7 @@ export async function searchAndFetch(
     return results;
   } catch (error) {
     console.error("Firecrawl search error:", error);
+    if (opts?.throwOnError) throw error;
     return [];
   }
 }
@@ -155,9 +164,14 @@ export async function fetchUrlWithHtml(
   // save credits; any miss falls through to Firecrawl, so behavior is unchanged
   // when the flag/service is absent.
   if (process.env.PARTS_SCRAPLING === "on" && scraplingEnabled()) {
+    // A miss is `null` — that covers an upstream 4xx/5xx and an anti-bot
+    // interstitial, not just an empty body. The earlier `if (s.html)` accepted
+    // a Cloudflare challenge page as a success (it is several KB of real HTML)
+    // and so skipped the stealth-proxy retry below, which is the tier most
+    // likely to have actually gotten past the wall.
     const s = await scraplingFetchUrlWithHtml(url, { timeoutMs });
-    if (s.html || s.markdown) return s;
-    console.warn(`[scrapling] empty for ${url} — falling back to Firecrawl`);
+    if (s) return s;
+    console.warn(`[scrapling] miss for ${url} — falling back to Firecrawl`);
   }
 
   const attempt = async (stealth: boolean) => {
@@ -215,6 +229,14 @@ export async function fetchUrlWithHtml(
  * the target source is already known.
  */
 export async function fetchUrl(url: string): Promise<string | null> {
+  // Same opt-in Scrapling tier as fetchUrlWithHtml. This path (cacheValidation,
+  // sourceDiscovery gap fill) was left on Firecrawl-only when the service landed.
+  if (process.env.PARTS_SCRAPLING === "on" && scraplingEnabled()) {
+    const s = await scraplingFetchUrlWithHtml(url, { timeoutMs: 45_000 });
+    if (s?.markdown) return s.markdown;
+    console.warn(`[scrapling] miss for ${url} — falling back to Firecrawl`);
+  }
+
   try {
     const response = await fetch(`${FIRECRAWL_BASE}/scrape`, {
       method: "POST",
