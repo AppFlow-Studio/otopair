@@ -268,6 +268,16 @@ export function useCreateBookingConvex() {
       // The booking is in `pending_shop_acceptance` after this resolves,
       // NOT `confirmed` — the Trust-Moment "Booking confirmed" toast fires
       // separately via `useBookingStatusToasts` when the shop accepts.
+      // Slot hold acquired on the pick-datetime screen for this checkout. The
+      // server verifies it (active, unexpired, session + slot match), reuses
+      // its pinned mechanic, and deletes it in the SAME mutation as the booking
+      // insert. A missing/expired hold silently falls back to normal resolution
+      // (the availability check is the backstop), so a stale id never blocks a
+      // legitimate booking. Always send session_id alongside hold_id so the
+      // server excludes this checkout's own hold from the availability check.
+      const holdId = useBookingStore.getState().holdId;
+      const holdSessionId = useBookingStore.getState().holdSessionId;
+
       let bookingIds: string[];
       try {
         const createBatchPayload = {
@@ -279,6 +289,8 @@ export function useCreateBookingConvex() {
           scheduled_date: scheduledDateVal,
           scheduled_time: scheduledTimeVal,
           services,
+          hold_id: holdId ? (holdId as Id<"slot_holds">) : undefined,
+          session_id: holdSessionId ?? undefined,
           taxes_and_fees: TAXES_AND_FEES,
           platform_fee: PLATFORM_FEE,
           displayed_labor_minutes:
@@ -314,6 +326,10 @@ export function useCreateBookingConvex() {
 
       // Clear the rec link so subsequent (unrelated) bookings don't reuse it.
       if (sourceRecommendationId) setSourceRecommendationId(null);
+
+      // The server already deleted the slot hold in the booking mutation; drop
+      // the client-side copy so the countdown/resume logic stops tracking it.
+      useBookingStore.getState().clearSlotHold();
 
       // One appointment = one booking ID
       return bookingIds;

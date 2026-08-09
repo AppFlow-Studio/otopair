@@ -14,14 +14,18 @@
 
 // 1. React & React Native
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, BackHandler, Image, Platform, StyleSheet, TextInput, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, AppState, BackHandler, Image, Platform, StyleSheet, TextInput, TouchableOpacity, View } from "react-native";
 
 // 2. Expo & Third-party
 import { useFocusEffect, useLocalSearchParams } from "expo-router";
+import { useMutation, useQuery } from "convex/react";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
-import { Calendar, Car, ChevronRight, FileText, Info, Star, WifiOff } from "lucide-react-native";
+import { Calendar, Car, ChevronRight, Clock, FileText, Info, Star, WifiOff } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
+
+import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 
 // 3. Shared UI (design system)
 import { BrandColors, ErrorOccurredModal, FixedPriceBadge, Spacing, Text } from "@/components/shared-ui";
@@ -103,6 +107,34 @@ export default function PaymentScreen() {
   }, [confirmError, router]);
   const setBookingStage = useBookingStore((state) => state.setBookingStage);
   const skippedBookingDetails = useBookingStore((state) => state.skippedBookingDetails);
+
+  // ═══════════════ SLOT HOLD ═══════════════
+  const holdId = useBookingStore((state) => state.holdId);
+  const holdExpiresAt = useBookingStore((state) => state.holdExpiresAt);
+  const holdSessionId = useBookingStore((state) => state.holdSessionId);
+  const setSlotHold = useBookingStore((state) => state.setSlotHold);
+  const releaseSlotHold = useMutation(api.slotHolds.releaseSlotHold);
+  // Reactive view of the hold row — flips `isExpired` / returns null when the
+  // hold lapses, is released, or another session's booking consumes the slot.
+  const holdState = useQuery(
+    api.slotHolds.getSlotHold,
+    holdId ? { holdId: holdId as Id<"slot_holds"> } : "skip",
+  );
+  const [sessionExpiredVisible, setSessionExpiredVisible] = useState(false);
+
+  // 1s tick off the absolute expiry timestamp — timezone-safe (never derived
+  // from the date/time strings, only from `expiresAt - Date.now()`).
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    if (!holdExpiresAt) return;
+    const t = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [holdExpiresAt]);
+  const remainingMs = holdExpiresAt ? Math.max(0, holdExpiresAt - nowMs) : 0;
+  const holdExpired = holdExpiresAt != null && remainingMs <= 0;
+  const countdown = holdExpiresAt
+    ? `${Math.floor(remainingMs / 60000)}:${String(Math.floor((remainingMs % 60000) / 1000)).padStart(2, "0")}`
+    : null;
 
   // ═══════════════ MECHANIC STORE ═══════════════
   const getMechanicById = useMechanicStore((state) => state.getMechanicById);
@@ -566,13 +598,45 @@ export default function PaymentScreen() {
 
   // ═══════════════ HANDLERS ═══════════════
   const handleBack = useCallback(() => {
+    // Free the held slot the instant the customer abandons checkout so another
+    // customer can grab it immediately (the server also reclaims it on TTL).
+    if (holdId && holdSessionId) {
+      releaseSlotHold({ holdId: holdId as Id<"slot_holds">, session_id: holdSessionId }).catch(() => {});
+      setSlotHold(null);
+    }
     if (skippedBookingDetails) {
       setBookingStage("mechanic_selection", "backward");
     } else {
       setBookingStage("booking_details", "backward");
     }
     router.back();
-  }, [router, skippedBookingDetails, setBookingStage]);
+  }, [router, skippedBookingDetails, setBookingStage, holdId, holdSessionId, releaseSlotHold, setSlotHold]);
+
+  // CRITICAL — expiry re-check on resume. If the customer backgrounds the app
+  // mid-checkout and the 15-min hold lapses (or another session takes the
+  // slot), bounce them back to slot selection with a "session expired" prompt.
+  // Runs on foreground + screen-focus. `holdState === undefined` means the
+  // query is still loading — don't bounce yet.
+  const recheckHold = useCallback(() => {
+    if (!holdId) return;
+    const locallyExpired = holdExpiresAt != null && Date.now() >= holdExpiresAt;
+    const serverGone = holdState === null || holdState?.isExpired === true;
+    if (locallyExpired || (holdState !== undefined && serverGone)) {
+      setSlotHold(null);
+      setSessionExpiredVisible(true);
+    }
+  }, [holdId, holdExpiresAt, holdState, setSlotHold]);
+
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (s) => {
+      if (s === "active") recheckHold();
+    });
+    return () => sub.remove();
+  }, [recheckHold]);
+
+  useFocusEffect(useCallback(() => {
+    recheckHold();
+  }, [recheckHold]));
 
   const canWrite = useCanWrite();
 
@@ -642,8 +706,26 @@ export default function PaymentScreen() {
   // ═══════════════ RENDER ═══════════════
   return (
     <View style={styles.container}>
-      {/* Header */}
-      <BookingPageHeader title="Review & Pay" onBack={handleBack} />
+      {/* Header — the slot-hold countdown sits in the right action slot so the
+          customer sees how long their time is reserved. Turns red on expiry. */}
+      <BookingPageHeader
+        title="Review & Pay"
+        onBack={handleBack}
+        rightAction={
+          holdExpiresAt != null ? (
+            <View style={[styles.holdBadge, holdExpired && styles.holdBadgeExpired]}>
+              <Clock size={12} color={holdExpired ? "#B91C1C" : BrandColors.secondary} />
+              <Text
+                size="xs"
+                weight="bold"
+                color={holdExpired ? "#B91C1C" : BrandColors.secondary}
+              >
+                {holdExpired ? "Hold expired" : `Held ${countdown}`}
+              </Text>
+            </View>
+          ) : undefined
+        }
+      />
 
       {/* Scrollable Content — KeyboardAwareScrollView so the "Notes for the
           mechanic" field scrolls above the keyboard instead of hiding behind
@@ -1203,6 +1285,25 @@ export default function PaymentScreen() {
           handleConfirmPayment();
         }}
       />
+
+      {/* Held-slot expired: no retry-in-place — the slot may be gone, so send
+          the customer back to pick a fresh time. Keeps the checkout session id
+          so re-picking just re-holds via the idempotent holdSlot path. */}
+      <ErrorOccurredModal
+        visible={sessionExpiredVisible}
+        title="Session expired"
+        message="Your held time expired — please pick a new time."
+        onClose={() => {
+          setSessionExpiredVisible(false);
+          router.replace({
+            pathname: "/(booking-flow)/pick-datetime",
+            params: {
+              shopId: resolvedShopId ?? "",
+              ...(selectedMechanicId ? { mechanicId: selectedMechanicId } : {}),
+            },
+          });
+        }}
+      />
     </View>
   );
 }
@@ -1228,6 +1329,20 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
+  },
+
+  // Slot-hold countdown pill (header right action)
+  holdBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 4,
+    borderRadius: BorderRadius.full,
+    backgroundColor: "#EFF6FF",
+  },
+  holdBadgeExpired: {
+    backgroundColor: "#FEE2E2",
   },
 
   // Mechanic Card
