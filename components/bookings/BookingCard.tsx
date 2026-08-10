@@ -43,6 +43,8 @@ import { useConnection } from '@/hooks/useConnection';
 import { isBookingActionAllowed } from '@/lib/connection/offlineBookingActions';
 import { OfflineActionsNotice } from '@/components/connection/OfflineActionsNotice';
 import { useRescheduleDecisionOverlayStore } from '@/stores/useRescheduleDecisionOverlayStore';
+import { useBookingActions } from '@/hooks/useBookingActions';
+import { buildCancelCopy } from '@/constants/bookingActionPolicy';
 import type { Id } from '@/convex/_generated/dataModel';
 
 // Android's Reanimated FadeOut exit on this card janks/crashes during the
@@ -54,7 +56,7 @@ const CARD_EXIT_ANIMATION = Platform.OS === 'android' ? undefined : FadeOut.dura
 // TYPES
 // ============================================================================
 
-export type BookingStatus = 'pending_shop_acceptance' | 'pending' | 'pending_quote' | 'quotes_ready' | 'pending_customer_acceptance' | 'confirmed' | 'in_progress' | 'completed' | 'cancelled' | 'delayed' | 'no_show';
+export type BookingStatus = 'pending_shop_acceptance' | 'pending' | 'pending_quote' | 'quotes_ready' | 'pending_customer_acceptance' | 'confirmed' | 'vehicle_at_shop' | 'in_progress' | 'completed' | 'cancelled' | 'delayed' | 'no_show';
 
 export interface Booking {
   id: string;
@@ -119,8 +121,13 @@ interface BookingCardProps {
   booking: Booking;
   variant: 'upcoming' | 'history';
   onViewDetails?: (bookingId: string) => void;
-  onCancelBooking?: (bookingId: string) => void;
+  /** feeAcknowledgedCents = the late-cancel fee shown to the customer, if any. */
+  onCancelBooking?: (bookingId: string, feeAcknowledgedCents?: number) => void;
   onReschedule?: (bookingId: string) => void;
+  /** vehicle_at_shop "Request to cancel & pick up car" — notifies the shop. */
+  onRequestPickup?: (bookingId: string) => void;
+  /** Opens a conversation with the shop (in_progress / contact-shop paths). */
+  onMessageShop?: (bookingId: string) => void;
   onDownloadPdf?: (bookingId: string) => void;
   onToggleFavorite?: (bookingId: string) => void;
 }
@@ -197,6 +204,11 @@ export const STATUS_CONFIG: Record<BookingStatus, { label: string; bgColor: stri
     bgColor: '#e8f5e9',
     textColor: '#4CAF50',
   },
+  vehicle_at_shop: {
+    label: 'Checked In',
+    bgColor: '#ECFEFF',
+    textColor: '#0E7490',
+  },
   in_progress: {
     label: 'In Progress',
     bgColor: '#E0E7FF',
@@ -234,6 +246,8 @@ export function BookingCard({
   onViewDetails,
   onCancelBooking,
   onReschedule,
+  onRequestPickup,
+  onMessageShop,
   onDownloadPdf,
   onToggleFavorite,
 }: BookingCardProps) {
@@ -246,6 +260,10 @@ export function BookingCard({
   // strip in and out.
   const conn = useConnection();
   const writeActionsAllowed = isBookingActionAllowed('cancelBooking', conn !== 'offline');
+  // Phase policy — the single source of truth for which actions are allowed
+  // and what a cancellation costs. Shared with BookingDetailsSheet so gating
+  // is identical everywhere.
+  const actions = useBookingActions(booking.id, booking.status);
   const primaryBtnRef = useRef<RNView | null>(null);
   const [actionsRowWidth, setActionsRowWidth] = useState(0);
   // Local "just cancelled" state. The card swaps the badge + dims for ~450ms
@@ -321,28 +339,51 @@ export function BookingCard({
 
   const handleCancelBooking = () => {
     if (isCancelling) return;
-    Alert.alert(
-      "Cancel Appointment",
-      "Are you sure you want to cancel this appointment?",
-      [
-        { text: "Keep It", style: "cancel" },
-        {
-          text: "Cancel Appointment",
-          style: "destructive",
-          onPress: () => {
-            // Show the in-card "cancelled" visual first, THEN fire the
-            // mutation. The data-source removal triggers FadeOut, and
-            // sibling cards shift smoothly via layout transition.
-            setIsCancelling(true);
-            setTimeout(() => onCancelBooking?.(booking.id), 450);
-          },
+    const copy = buildCancelCopy(actions);
+
+    // vehicle_at_shop: not a self-cancel — request pickup and notify the shop.
+    // No strikethrough animation; the row stays until the shop acts.
+    if (actions.cancelKind === 'request_shop') {
+      Alert.alert(copy.title, copy.body, [
+        { text: 'Not now', style: 'cancel' },
+        { text: copy.confirmLabel, onPress: () => onRequestPickup?.(booking.id) },
+      ]);
+      return;
+    }
+
+    // Free or late-fee cancel. The fee (when any) is disclosed in the body +
+    // confirm label so it's unmissable before we charge.
+    Alert.alert(copy.title, copy.body, [
+      { text: 'Keep It', style: 'cancel' },
+      {
+        text: copy.confirmLabel,
+        style: 'destructive',
+        onPress: () => {
+          // Show the in-card "cancelled" visual first, THEN fire the
+          // mutation. The data-source removal triggers FadeOut, and
+          // sibling cards shift smoothly via layout transition.
+          setIsCancelling(true);
+          setTimeout(
+            () => onCancelBooking?.(booking.id, actions.feeCentsIfCancelledNow),
+            450,
+          );
         },
-      ],
-    );
+      },
+    ]);
   };
 
   const handleReschedule = () => {
+    // Over the free limit / inside cutoff / car already at shop → the customer
+    // can't self-reschedule; route them to the shop instead.
+    if (actions.rescheduleKind !== 'free') {
+      onMessageShop?.(booking.id);
+      return;
+    }
     onReschedule?.(booking.id);
+  };
+
+  const handleMessageShop = () => {
+    onMessageShop?.(booking.id);
   };
 
   const handleDownloadPdf = () => {
@@ -590,53 +631,85 @@ export function BookingCard({
             </Text>
           </Pressable>
 
-          {booking.status !== 'in_progress' && (
+          {/* Cancel / Reschedule are governed by the phase policy (actions):
+              in_progress → Message shop; terminal → nothing; vehicle_at_shop →
+              Request pickup + Contact shop; otherwise Cancel + Reschedule. */}
+          {actions.blockedReason === 'work_in_progress' ? (
+            <View style={styles.actionsRow}>
+              <Pressable
+                onPress={handleMessageShop}
+                style={({ pressed }) => [
+                  styles.secondaryButton,
+                  pressed && styles.buttonPressed,
+                ]}
+              >
+                <Text
+                  weight="semiBold"
+                  size={actionButtonLabelSize}
+                  color="#1F2937"
+                  numberOfLines={1}
+                  lineHeight={1.2}
+                  style={styles.actionButtonLabel}
+                >
+                  Message shop
+                </Text>
+              </Pressable>
+            </View>
+          ) : (actions.canCancel || actions.canReschedule) ? (
             writeActionsAllowed ? (
               <View style={styles.actionsRow}>
-                <Pressable
-                  onPress={handleCancelBooking}
-                  disabled={isCancelling}
-                  style={({ pressed }) => [
-                    styles.cancelButton,
-                    pressed && styles.buttonPressed,
-                  ]}
-                >
-                  <Text
-                    weight="semiBold"
-                    size={actionButtonLabelSize}
-                    color="#DC2626"
-                    numberOfLines={1}
-                    lineHeight={1.2}
-                    style={styles.actionButtonLabel}
+                {actions.canCancel && (
+                  <Pressable
+                    onPress={handleCancelBooking}
+                    disabled={isCancelling}
+                    style={({ pressed }) => [
+                      styles.cancelButton,
+                      pressed && styles.buttonPressed,
+                    ]}
                   >
-                    Cancel Booking
-                  </Text>
-                </Pressable>
+                    <Text
+                      weight="semiBold"
+                      size={actionButtonLabelSize}
+                      color="#DC2626"
+                      numberOfLines={1}
+                      lineHeight={1.2}
+                      style={styles.actionButtonLabel}
+                    >
+                      {actions.cancelKind === 'request_shop'
+                        ? 'Request pickup'
+                        : 'Cancel Booking'}
+                    </Text>
+                  </Pressable>
+                )}
 
-                <Pressable
-                  onPress={handleReschedule}
-                  disabled={isCancelling}
-                  style={({ pressed }) => [
-                    styles.secondaryButton,
-                    pressed && styles.buttonPressed,
-                  ]}
-                >
-                  <Text
-                    weight="semiBold"
-                    size={actionButtonLabelSize}
-                    color="#1F2937"
-                    numberOfLines={1}
-                    lineHeight={1.2}
-                    style={styles.actionButtonLabel}
+                {actions.canReschedule && (
+                  <Pressable
+                    onPress={handleReschedule}
+                    disabled={isCancelling}
+                    style={({ pressed }) => [
+                      styles.secondaryButton,
+                      pressed && styles.buttonPressed,
+                    ]}
                   >
-                    Reschedule
-                  </Text>
-                </Pressable>
+                    <Text
+                      weight="semiBold"
+                      size={actionButtonLabelSize}
+                      color="#1F2937"
+                      numberOfLines={1}
+                      lineHeight={1.2}
+                      style={styles.actionButtonLabel}
+                    >
+                      {actions.rescheduleKind === 'free'
+                        ? 'Reschedule'
+                        : 'Contact shop'}
+                    </Text>
+                  </Pressable>
+                )}
               </View>
             ) : (
               <OfflineActionsNotice />
             )
-          )}
+          ) : null}
         </View>
       ) : (
         <View style={styles.actionsRow}>

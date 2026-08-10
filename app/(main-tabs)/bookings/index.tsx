@@ -36,6 +36,7 @@ import { useBookingsBadgeStore } from "@/stores/useBookingsBadgeStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 import { api } from "@/convex/_generated/api";
 import { useMutationWithToast } from "@/hooks/useMutationWithToast";
+import { formatFeeCents } from "@/constants/bookingActionPolicy";
 import { useToast } from "@/hooks/useToast";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useFocusEffect, useLocalSearchParams } from "expo-router";
@@ -187,26 +188,54 @@ export default function BookingsScreen() {
   const cancelLocalBooking = useBookingStore((s) => s.cancelBooking);
   const toast = useToast();
   const cancelConvexBooking = useMutationWithToast(api.bookings.cancelBooking, {
-    success: "Booking cancelled.",
+    success: ({ result }) => ({
+      title:
+        result && result.feeCents > 0
+          ? `Booking cancelled — ${formatFeeCents(result.feeCents)} fee charged.`
+          : "Booking cancelled.",
+    }),
     successIcon: CalendarX,
-    error: "Couldn't cancel this booking. Try again.",
+    error: (ctx) => ({
+      title: ctx.error.message || "Couldn't cancel this booking. Try again.",
+    }),
   });
+  const requestPickupConvex = useMutationWithToast(
+    api.bookings.requestCancellationAtShop,
+    {
+      success: "Pickup request sent. The shop will confirm.",
+      error: (ctx) => ({
+        title: ctx.error.message || "Couldn't send your request. Try again.",
+      }),
+    },
+  );
   useEffect(() => {
     if (typeof rescheduleError === "string" && rescheduleError.length > 0) {
       toast.error("Couldn't request reschedule.", rescheduleError);
     }
   }, [rescheduleError, toast]);
   const handleCancelBooking = useCallback(
-    (bookingId: string) => {
+    (bookingId: string, feeAcknowledgedCents?: number) => {
       const isLocalId = bookingId.startsWith("tire_quote_") || bookingId.startsWith("booking_");
       if (isLocalId) {
         cancelLocalBooking(bookingId);
         toast.success("Booking cancelled.", undefined, { icon: CalendarX });
       } else {
-        void cancelConvexBooking({ bookingId: bookingId as Id<"bookings"> });
+        void cancelConvexBooking({
+          bookingId: bookingId as Id<"bookings">,
+          feeAcknowledgedCents,
+        });
       }
     },
     [cancelConvexBooking, cancelLocalBooking, toast],
+  );
+  const handleRequestPickup = useCallback(
+    (bookingId: string) => {
+      if (bookingId.startsWith("tire_quote_") || bookingId.startsWith("booking_")) {
+        return;
+      }
+      void requestPickupConvex({ bookingId: bookingId as Id<"bookings"> });
+    },
+    [requestPickupConvex],
   );
 
   const bookings = (
@@ -232,6 +261,16 @@ export default function BookingsScreen() {
       detailsSheetRef.current?.open(booking);
     }
   };
+
+  // "Message shop" (in_progress / contact-shop paths) opens the details sheet,
+  // which owns the mechanic chat entry — one hop to the conversation.
+  const handleMessageShop = useCallback(
+    (bookingId: string) => {
+      const booking = allBookings.find((b) => b.id === bookingId);
+      if (booking) detailsSheetRef.current?.open(booking);
+    },
+    [allBookings],
+  );
 
   // Deep-link from AI chat's BookingCard: `/bookings?bookingId=<id>` opens
   // the detail sheet for the matching booking. The ref guard prevents the
@@ -486,6 +525,8 @@ export default function BookingsScreen() {
                           onViewDetails={handleViewDetails}
                           onCancelBooking={handleCancelBooking}
                           onReschedule={handleReschedule}
+                          onRequestPickup={handleRequestPickup}
+                          onMessageShop={handleMessageShop}
                           onDownloadPdf={handleDownloadPdf}
                           onToggleFavorite={handleToggleFavorite}
                         />

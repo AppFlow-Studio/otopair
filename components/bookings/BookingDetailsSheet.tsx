@@ -55,6 +55,9 @@ import { useConnection } from "@/hooks/useConnection";
 import { isBookingActionAllowed } from "@/lib/connection/offlineBookingActions";
 import { OfflineActionsNotice } from "@/components/connection/OfflineActionsNotice";
 import { useToast } from "@/hooks/useToast";
+import { useMutationWithToast } from "@/hooks/useMutationWithToast";
+import { useBookingActions } from "@/hooks/useBookingActions";
+import { buildCancelCopy, isLocalBookingId } from "@/constants/bookingActionPolicy";
 import { buildBookingCalendarEvent, formatBookingReference } from "@/lib/booking-calendar";
 import { useBookingStore } from "@/stores/useBookingStore";
 import type { Booking } from "./BookingCard";
@@ -91,6 +94,7 @@ const STATUS_CONFIG: Record<BookingStatus, { label: string; bgColor: string; tex
   quotes_ready: { label: "Quotes Ready", bgColor: "#E3F0FF", textColor: "#2F6DCC" },
   pending_customer_acceptance: { label: "Action needed", bgColor: "#FFF6E5", textColor: "#C8972E" },
   confirmed: { label: "Confirmed", bgColor: "#e8f5e9", textColor: "#4CAF50" },
+  vehicle_at_shop: { label: "Checked In", bgColor: "#ECFEFF", textColor: "#0E7490" },
   in_progress: { label: "In Progress", bgColor: "#E0E7FF", textColor: "#4F46E5" },
   completed: { label: "Completed", bgColor: "#f0fcf5", textColor: "#60d17e" },
   cancelled: { label: "Cancelled", bgColor: "#FEE2E2", textColor: "#DC2626" },
@@ -369,13 +373,33 @@ export const BookingDetailsSheet = forwardRef<BookingDetailsSheetRef, BookingDet
       }, 280);
     }, [sheetHeight, onClose]);
 
+    // Customer reschedule → a request the shop confirms (booking moves to
+    // pending_shop_acceptance). Local-only bookings keep the store path.
+    const requestReschedule = useMutationWithToast(
+      api.bookings.customerRequestReschedule,
+      {
+        success: "Reschedule requested — awaiting shop.",
+        error: (ctx) => ({
+          title: ctx.error.message || "Couldn't request a reschedule. Try again.",
+        }),
+      },
+    );
+
     const handleConfirmReschedule = useCallback(
       (bookingId: string, newDate: string, newTime: string) => {
-        useBookingStore.getState().rescheduleBooking(bookingId, newDate, newTime);
+        if (isLocalBookingId(bookingId)) {
+          useBookingStore.getState().rescheduleBooking(bookingId, newDate, newTime);
+        } else {
+          void requestReschedule({
+            bookingId: bookingId as Id<"bookings">,
+            newScheduledDate: newDate,
+            newScheduledTime: newTime,
+          });
+        }
         // Close the detail sheet so the updated booking is immediately visible in the list.
         close();
       },
-      [close],
+      [close, requestReschedule],
     );
 
     useImperativeHandle(ref, () => ({ open, close }));
@@ -590,6 +614,7 @@ export const BookingDetailsSheet = forwardRef<BookingDetailsSheetRef, BookingDet
                   activityLog={activityLog}
                   onClose={close}
                   onRequestReschedule={handleRequestReschedule}
+                  onOpenChat={handleOpenChat}
                   bottomPadding={insets.bottom + 60}
                 />
               </Animated.View>
@@ -895,6 +920,7 @@ interface FullContentProps {
   bookingDetail?: any;
   onClose: () => void;
   onRequestReschedule: (bookingId: string, date: string, time: string) => void;
+  onOpenChat: () => void;
   bottomPadding: number;
 }
 
@@ -912,41 +938,101 @@ function FullContent({
   activityLog,
   onClose,
   onRequestReschedule,
+  onOpenChat,
   bottomPadding,
 }: FullContentProps) {
   const disputeSheetRef = useRef<FileDisputeSheetRef>(null);
   const toast = useToast();
+  // Phase policy — same source of truth as BookingCard, so the sheet and the
+  // card allow exactly the same actions and disclose the same fee.
+  const actions = useBookingActions(booking.id, booking.status);
+  const cancelBooking = useMutationWithToast(api.bookings.cancelBooking, {
+    success: "Booking cancelled.",
+    successIcon: CalendarX,
+    error: (ctx) => ({
+      title: ctx.error.message || "Couldn't cancel this booking. Try again.",
+    }),
+  });
+  const requestPickup = useMutationWithToast(
+    api.bookings.requestCancellationAtShop,
+    {
+      success: "Pickup request sent. The shop will confirm.",
+      error: (ctx) => ({
+        title: ctx.error.message || "Couldn't send your request. Try again.",
+      }),
+    },
+  );
   // Offline gate: Reschedule/Cancel are the same backend writes the booking
   // card gates, one swipe away — while offline both are replaced by the
   // "last synced info" strip. Add to Calendar stays live (device-local).
   const conn = useConnection();
   const writeActionsAllowed = isBookingActionAllowed("reschedule", conn !== "offline");
   const handleCancel = useCallback(() => {
-    Alert.alert(
-      "Cancel booking?",
-      "This action cannot be undone.",
-      [
-        { text: "Keep booking", style: "cancel" },
+    const copy = buildCancelCopy(actions);
+
+    // vehicle_at_shop: not a self-cancel — request pickup, notify the shop.
+    if (actions.cancelKind === "request_shop") {
+      Alert.alert(copy.title, copy.body, [
+        { text: "Not now", style: "cancel" },
         {
-          text: "Cancel booking",
-          style: "destructive",
+          text: copy.confirmLabel,
           onPress: () => {
-            useBookingStore.getState().cancelBooking(booking.id);
+            if (!isLocalBookingId(booking.id)) {
+              void requestPickup({ bookingId: booking.id as Id<"bookings"> });
+            }
             onClose();
-            toast.success("Booking cancelled.", undefined, { icon: CalendarX });
           },
         },
-      ],
-      { cancelable: true },
-    );
-  }, [booking.id, onClose, toast]);
+      ]);
+      return;
+    }
+
+    // Free or late-fee cancel. The fee (when any) is disclosed in the body +
+    // confirm label so it's unmissable before we charge.
+    Alert.alert(copy.title, copy.body, [
+      { text: "Keep booking", style: "cancel" },
+      {
+        text: copy.confirmLabel,
+        style: "destructive",
+        onPress: () => {
+          if (isLocalBookingId(booking.id)) {
+            useBookingStore.getState().cancelBooking(booking.id);
+            toast.success("Booking cancelled.", undefined, { icon: CalendarX });
+          } else {
+            void cancelBooking({
+              bookingId: booking.id as Id<"bookings">,
+              feeAcknowledgedCents: actions.feeCentsIfCancelledNow,
+            });
+          }
+          onClose();
+        },
+      },
+    ]);
+  }, [actions, booking.id, cancelBooking, requestPickup, onClose, toast]);
 
   const handleReschedule = useCallback(() => {
-    // Pull the raw scheduledDate/scheduledTime from the local store so the
-    // picker initializes on the booking's current slot.
+    // Over the free limit / inside cutoff / car at shop → contact the shop.
+    if (actions.rescheduleKind !== "free") {
+      onOpenChat();
+      return;
+    }
+    // Init the picker on the booking's current slot. Prefer the live detail
+    // (works for Convex bookings not held in the local store).
     const local = useBookingStore.getState().getBookingById(booking.id);
-    onRequestReschedule(booking.id, local?.scheduledDate ?? "", local?.scheduledTime ?? "");
-  }, [booking.id, onRequestReschedule]);
+    const date = bookingDetail?.scheduledDate ?? local?.scheduledDate ?? "";
+    const time = bookingDetail?.scheduledTime ?? local?.scheduledTime ?? "";
+    onRequestReschedule(booking.id, date, time);
+  }, [
+    actions.rescheduleKind,
+    booking.id,
+    bookingDetail,
+    onOpenChat,
+    onRequestReschedule,
+  ]);
+
+  const handleMessageShop = useCallback(() => {
+    onOpenChat();
+  }, [onOpenChat]);
 
   const handleAddToCalendar = useCallback(async () => {
     const date = bookingDetail?.scheduledDate;
@@ -1253,21 +1339,33 @@ function FullContent({
             from PaymentBreakdown's "Something wrong with this charge?" CTA. */}
         <FileDisputeSheet ref={disputeSheetRef} />
 
-        {/* SECONDARY ACTIONS */}
+        {/* SECONDARY ACTIONS — Reschedule/Message shop are governed by the
+            phase policy. in_progress → Message shop; over-limit / at-shop →
+            Contact shop; otherwise Reschedule. Offline hides them. */}
         <View style={styles.secondaryActions}>
-          {writeActionsAllowed ? (
+          {!writeActionsAllowed ? (
+            <OfflineActionsNotice />
+          ) : actions.blockedReason === "work_in_progress" ? (
+            <TouchableOpacity
+              style={styles.rescheduleButton}
+              onPress={handleMessageShop}
+              activeOpacity={0.85}
+            >
+              <Text size="md" weight="semiBold" color="#FFFFFF">
+                Message shop
+              </Text>
+            </TouchableOpacity>
+          ) : actions.canReschedule ? (
             <TouchableOpacity
               style={styles.rescheduleButton}
               onPress={handleReschedule}
               activeOpacity={0.85}
             >
               <Text size="md" weight="semiBold" color="#FFFFFF">
-                Reschedule
+                {actions.rescheduleKind === "free" ? "Reschedule" : "Contact shop"}
               </Text>
             </TouchableOpacity>
-          ) : (
-            <OfflineActionsNotice />
-          )}
+          ) : null}
           <TouchableOpacity
             style={styles.outlineButton}
             onPress={handleAddToCalendar}
@@ -1279,12 +1377,15 @@ function FullContent({
           </TouchableOpacity>
         </View>
 
-        {/* CANCEL — hidden offline; the strip above explains why. */}
-        {writeActionsAllowed ? (
+        {/* CANCEL — hidden offline and when the phase blocks it (in_progress /
+            terminal). vehicle_at_shop swaps in the request-pickup label. */}
+        {writeActionsAllowed && actions.canCancel ? (
           <View style={styles.cancelWrapper}>
             <TouchableOpacity style={styles.cancelButton} onPress={handleCancel} activeOpacity={0.7}>
               <Text size="md" weight="medium" color="#FF3B30">
-                Cancel Booking
+                {actions.cancelKind === "request_shop"
+                  ? "Request to cancel & pick up car"
+                  : "Cancel Booking"}
               </Text>
             </TouchableOpacity>
           </View>

@@ -19,6 +19,7 @@ import type { BookingStatus } from "@/components/bookings/BookingCard";
 export const SERVICE_STAGES = [
   "Booked",
   "Confirmed",
+  "Checked In",
   "Servicing",
   "Vehicle Ready",
   "Completed",
@@ -58,18 +59,22 @@ export function getBookingStageView(
   if (status === "confirmed") {
     return { stages: SERVICE_STAGES, currentIndex: 1 };
   }
+  if (status === "vehicle_at_shop") {
+    // Car has physically arrived at the shop but work hasn't started.
+    return { stages: SERVICE_STAGES, currentIndex: 2 };
+  }
   if (status === "in_progress") {
     // The convex side stamps `live_stage` on the booking when the
     // mechanic moves through the job. `vehicle_ready` is the last
     // pre-completion sub-stage; treat anything else (or missing) as
     // mid-service.
     if (liveStage === "vehicle_ready") {
-      return { stages: SERVICE_STAGES, currentIndex: 3 };
+      return { stages: SERVICE_STAGES, currentIndex: 4 };
     }
-    return { stages: SERVICE_STAGES, currentIndex: 2 };
+    return { stages: SERVICE_STAGES, currentIndex: 3 };
   }
   if (status === "completed") {
-    return { stages: SERVICE_STAGES, currentIndex: 4 };
+    return { stages: SERVICE_STAGES, currentIndex: 5 };
   }
 
   // Cancelled / delayed — render the bar grayed out so the card still
