@@ -837,10 +837,15 @@ export default function HomeScreen() {
     error: "Couldn't cancel this booking. Try again.",
   });
   const handleAppointmentCancel = useCallback(
-    (bookingId: string) => {
+    (bookingId: string, feeAcknowledgedCents?: number) => {
       const isLocalId = bookingId.startsWith("tire_quote_") || bookingId.startsWith("booking_");
       if (!isLocalId) {
-        void cancelConvexBooking({ bookingId: bookingId as Id<"bookings"> });
+        // Forward the late-cancel fee BookingCard disclosed so the server's
+        // stale-fee guard can reject if the fee rose past what was shown.
+        void cancelConvexBooking({
+          bookingId: bookingId as Id<"bookings">,
+          feeAcknowledgedCents,
+        });
       }
     },
     [cancelConvexBooking],
@@ -1139,6 +1144,10 @@ export default function HomeScreen() {
                   onAppointmentViewDetails={handleAppointmentViewDetails}
                   onAppointmentCancel={handleAppointmentCancel}
                   onAppointmentReschedule={handleReschedule}
+                  // Limited reschedule ("Contact shop") opens the detail sheet,
+                  // where the phase-aware contact/reschedule flow lives — same
+                  // target the bookings tab uses for onMessageShop.
+                  onAppointmentMessageShop={handleAppointmentViewDetails}
                   // Resume Booking
                   showResumeBooking={hasResumeBooking}
                   resumeServicesPreview={resumeServicesPreview}
