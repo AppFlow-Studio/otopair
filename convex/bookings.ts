@@ -2267,16 +2267,36 @@ export const updateStatus = mutation({
     reason: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    // Auth: this generic setter drives operational lifecycle transitions only
+    // (confirm / start work / at-shop). It must NOT be a back door around the
+    // phase→action policy — previously it had NO auth at all, so any caller
+    // could push a booking to any status (incl. cancelled/completed) and skip
+    // the fee, capture, and gating enforced by the dedicated mutations.
+    const user = await getCurrentUser(ctx);
     const booking = await ctx.db.get(args.bookingId);
     if (!booking) throw new Error("We couldn't find that booking. It may have been cancelled or removed.");
-    if (args.newStatus === "no_show") {
-      throw new Error("Use markPostThresholdNoShow to mark a booking no-show.");
+    await requireShopStaff(ctx, user._id, booking.shop_id);
+
+    // Money-moving / terminal states must go through the policy-gated mutations
+    // (cancelBooking/cancel, completeWithPostjob, markNoShow/markPostThresholdNoShow)
+    // so cancellation fees, final capture, and phase gating always run.
+    const POLICY_GATED_STATUSES = new Set([
+      "cancelled",
+      "declined",
+      "no_show",
+      "completed",
+    ]);
+    if (POLICY_GATED_STATUSES.has(args.newStatus)) {
+      throw new Error(
+        `updateStatus can't set "${args.newStatus}" — use the dedicated action so fees and capture are enforced.`,
+      );
     }
 
     return await applyBookingStatusTransition(ctx, {
       booking,
       newStatus: args.newStatus,
-      changedBy: args.changed_by,
+      // Actor is the authenticated staff member — never a caller-supplied id.
+      changedBy: user._id,
       reason: args.reason,
     });
   },
@@ -8499,6 +8519,7 @@ async function mapMechanicDashboardJob(ctx: any, booking: any) {
     hasDisclosedRange: booking.disclosed_range_high_cents != null,
     paymentApprovalState:
       (booking.payment_approval_state as string | undefined) ?? null,
+    settlementState: (booking.settlement_state as string | undefined) ?? null,
     mechanicSetPriceCents: booking.mechanic_set_price_cents ?? null,
     // Single-point quote (no range) shown to the mechanic. Falls back to
     // total_cost dollars for pre-feature bookings without a quote snapshot.
@@ -9666,6 +9687,8 @@ export const getJobDetail = query({
       isFixedPrice: (booking as any).is_fixed_price === true,
       paymentApprovalState:
         ((booking as any).payment_approval_state as string | undefined) ?? null,
+      settlementState:
+        ((booking as any).settlement_state as string | undefined) ?? null,
       mechanicSetPriceCents:
         ((booking as any).mechanic_set_price_cents as number | undefined) ??
         null,
