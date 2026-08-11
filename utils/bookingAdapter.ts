@@ -217,8 +217,13 @@ function parseVehicleDisplay(vehicleDisplay: string): { carModel: string; carYea
  */
 export function adaptConvexBookingWithDetailsToCard(row: ConvexBookingWithDetails): BookingCardBooking {
   const { carModel, carYear } = parseVehicleDisplay(row.vehicleDisplay);
+  // Booking status is taken straight from the backend. We deliberately do
+  // NOT derive a "delayed" state from elapsed time: an in-progress job reads
+  // "In Progress" (with its live progress bar) for its whole run. The old
+  // derivation compared now vs the scheduled *start*, so any started job
+  // flipped to "Delayed" within minutes — see delayMinutes in
+  // getByUserIdWithDetails, which is now unused by the client.
   const status = row.status as BookingCardBooking["status"];
-  const displayStatus = status === "in_progress" && (row.delayMinutes ?? 0) > 0 ? "delayed" : status;
 
   // For tire-quote bookings, synthesize the same notes string the local
   // PendingQuoteCard parser expects ("4 Premium All-Season · 225/45R18").
@@ -272,7 +277,7 @@ export function adaptConvexBookingWithDetailsToCard(row: ConvexBookingWithDetail
     mechanicImage: row.mechanicImageUrl,
     date: formatBookingDate(row.scheduled_date),
     time: formatBookingTime(row.scheduled_time),
-    status: displayStatus as BookingCardBooking["status"],
+    status,
     totalCost: row.total_cost,
     notes,
     createdAt: row._creationTime,
