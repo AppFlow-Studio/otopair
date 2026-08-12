@@ -11,14 +11,32 @@
 import { v } from "convex/values";
 import { internalAction, internalMutation, internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
+import type { Doc, Id } from "./_generated/dataModel";
 
 const SEED_FILENAME = "SEED_DEMO_receipt.pdf";
 
+/**
+ * Return shape of `listOwners`, declared explicitly rather than inferred.
+ * `seedForVin` calls `internal._seedDemo.listOwners` from inside this same
+ * module, so leaving the type to inference makes it self-referential and
+ * TypeScript bails out with TS7022/TS7023 — which in turn blocks
+ * `convex dev` from deploying at all.
+ */
+type SeedOwner = {
+  ownerId: Id<"vehicle_owners">;
+  userId: Doc<"vehicle_owners">["user_id"];
+  vin: string;
+  status: Doc<"vehicle_owners">["status"];
+  make: string | null;
+  model: string | null;
+  year: number | null;
+};
+
 export const listOwners = internalQuery({
   args: {},
-  handler: async (ctx) => {
+  handler: async (ctx): Promise<SeedOwner[]> => {
     const owners = await ctx.db.query("vehicle_owners").collect();
-    const out = [];
+    const out: SeedOwner[] = [];
     for (const o of owners) {
       const vehicle = await ctx.db
         .query("vehicles")
@@ -122,8 +140,12 @@ export const insertSeeded = internalMutation({
 
 export const seedForVin = internalAction({
   args: { vin: v.string(), now: v.number() },
-  handler: async (ctx, { vin, now }) => {
-    const owners = await ctx.runQuery(internal._seedDemo.listOwners, {});
+  // Explicit return type + explicit `owners` type: both calls below reach
+  // back into this same module through `internal._seedDemo`, so without these
+  // TypeScript can't close the loop (TS7022/TS7023) and `convex dev` refuses
+  // to deploy.
+  handler: async (ctx, { vin, now }): Promise<{ docId: Id<"vehicle_documents"> }> => {
+    const owners: SeedOwner[] = await ctx.runQuery(internal._seedDemo.listOwners, {});
     const owner = owners.find((o) => o.vin === vin);
     if (!owner) throw new Error(`No vehicle_owner for vin ${vin}`);
 

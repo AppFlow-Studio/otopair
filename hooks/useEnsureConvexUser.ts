@@ -45,14 +45,20 @@ export function useEnsureConvexUser() {
         // Allow extra time to mint a Convex JWT; better to wait than to sign out and loop.
         await waitForConvexToken(getToken, { attempts: 10, initialDelayMs: 300, maxDelayMs: 5000 });
         try {
-          return await ensureUser();
+          // Both attribution args are optional and web-only for now: the shop
+          // portal supplies them at signup. Mobile passes neither, so existing
+          // behaviour is unchanged.
+          return await ensureUser({});
         } catch (err: any) {
           // Rare race: Convex may still reject immediately after token becomes available.
           // Give it one brief retry before surfacing the error.
           const message = err?.message ?? "";
           if (message.includes("Not authenticated")) {
             await sleep(500);
-            return await ensureUser();
+            // Both attribution args are optional and web-only for now: the shop
+          // portal supplies them at signup. Mobile passes neither, so existing
+          // behaviour is unchanged.
+          return await ensureUser({});
           }
           throw err;
         }

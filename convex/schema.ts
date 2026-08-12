@@ -1677,6 +1677,9 @@ export default defineSchema({
     profile_photo_url: v.optional(v.string()),
     profile_photo_storage_id: v.optional(v.string()),
     auth_provider: v.optional(v.string()),
+    // First-touch entry surface, supplied by the client on the first
+    // getOrCreateMe after signup (e.g. "shop_portal_web").
+    acquisition_source: v.optional(v.string()),
     onboardingCompleted: v.optional(v.boolean()),
     essentialOnboardingCompleted: v.optional(v.boolean()),
     // User explicitly tapped "Finish later" during the optional
@@ -2434,7 +2437,10 @@ export default defineSchema({
     .index("by_created_at", ["created_at"])
     .index("by_source_recommendation", ["source_recommendation_id"])
     .index("by_payment_approval_state", ["payment_approval_state"])
-    .index("by_sla_expires_at", ["sla_expires_at_ms"]),
+    .index("by_sla_expires_at", ["sla_expires_at_ms"])
+    // Shop-owner dashboard: per-mechanic revenue attribution
+    // (convex/shopPayments.ts).
+    .index("by_shop_and_mechanic", ["shop_id", "mechanic_id"]),
 
   // Tire quote responses — one row per shop response to a quote-stage
   // booking (status === "pending_quote"). The user picks one to accept,
@@ -2560,6 +2566,12 @@ export default defineSchema({
     hold_amount_cents: v.optional(v.number()),
     incremented_total_cents: v.optional(v.number()),
     captured_amount_cents: v.optional(v.number()),
+    // Card display metadata + refund tally, written by the web refund flow and
+    // read by convex/shopPayments.ts. payment_refunds is the authority for
+    // refund amounts; this is a denormalised convenience tally.
+    card_brand: v.optional(v.string()),
+    card_last4: v.optional(v.string()),
+    refunded_amount_cents: v.optional(v.number()),
     reauth_payment_intent_id: v.optional(v.string()),
 
     // How the customer originated this payment. Drives the reauth UX:
@@ -2604,7 +2616,11 @@ export default defineSchema({
     .index("by_idempotency_key", ["idempotency_key"])
     .index("by_stripe_payment_intent_id", ["stripe_payment_intent_id"])
     .index("by_created_at", ["created_at"])
-    .index("by_receipt_token", ["receipt_token"]),
+    .index("by_receipt_token", ["receipt_token"])
+    // Shop-scoped payment reads for the owner dashboard (convex/shopPayments.ts).
+    .index("by_shop_and_created_at", ["shop_id", "created_at"])
+    .index("by_shop_status_created_at", ["shop_id", "status", "created_at"])
+    .index("by_shop_user_created_at", ["shop_id", "user_id", "created_at"]),
 
   // Single-row-per-year counter for sequential invoice numbering
   // (INV-<YYYY>-<6-digit zero-padded>). Allocated transactionally inside
@@ -2637,6 +2653,49 @@ export default defineSchema({
     .index("by_event_id", ["event_id"])
     .index("by_event_type", ["event_type"])
     .index("by_received_at", ["received_at"]),
+
+  // One row per Stripe refund. Ported from otopair-web alongside
+  // convex/shopPayments.ts, which reads it for the owner-facing money surface.
+  // Mobile does not write to this table yet — the refund flow lives on web.
+  payment_refunds: defineTable({
+    payment_id: v.id("payments"),
+    booking_id: v.id("bookings"),
+    shop_id: v.id("shops"),
+    amount_cents: v.number(),
+    // payments has no currency field; PI creation hardcodes usd.
+    currency: v.optional(v.string()),
+    // Our taxonomy is a superset of Stripe's 3-value enum. Values outside
+    // Stripe's set go to refund metadata instead of the `reason` param:
+    // "requested_by_customer" | "duplicate" | "fraudulent" | "goodwill"
+    // | "service_issue" | "shop_error" | "dispute_resolution" | "stripe_dashboard"
+    reason: v.optional(v.string()),
+    // Owner's free-text justification, surfaced in the payment audit trail.
+    note: v.optional(v.string()),
+    // "pending" | "succeeded" | "failed" | "canceled" (mirrors Stripe's refund
+    // status). Only "pending" and "succeeded" count toward the ceiling.
+    status: v.string(),
+    stripe_refund_id: v.optional(v.string()),
+    stripe_payment_intent_id: v.optional(v.string()),
+    stripe_charge_id: v.optional(v.string()),
+    failure_reason: v.optional(v.string()),
+    // Stripe prorates both of these on a partial refund. Recorded rather than
+    // recomputed so the net-to-shop math matches what actually moved.
+    application_fee_refunded_cents: v.optional(v.number()),
+    transfer_reversal_cents: v.optional(v.number()),
+    requested_by_user_id: v.optional(v.id("users")),
+    requested_at_ms: v.number(),
+    settled_at_ms: v.optional(v.number()),
+    // Key handed to Stripe. Derived from a client-generated requestId minted
+    // once per refund dialog, so a timeout-then-retry cannot refund twice.
+    idempotency_key: v.string(),
+    created_at: v.number(),
+    updated_at: v.number(),
+  })
+    .index("by_payment_id", ["payment_id"])
+    .index("by_booking_id", ["booking_id"])
+    .index("by_shop_and_created_at", ["shop_id", "created_at"])
+    .index("by_stripe_refund_id", ["stripe_refund_id"])
+    .index("by_idempotency_key", ["idempotency_key"]),
 
   // One row per Stripe dispute (`charge.dispute.created` → `charge.dispute.closed`).
   // payments.status flips to "disputed" on open and "won"/"lost" on close — this
@@ -2720,6 +2779,12 @@ export default defineSchema({
     rating: v.number(),
     comment: v.optional(v.string()),
     created_at: v.optional(v.number()),
+    // Moderation, set from the shop-owner portal. A visible review has
+    // hidden_at == undefined, so any "public reviews" read must filter on it.
+    // Read by convex/lib/bookingEnrichment.ts.
+    hidden_at: v.optional(v.number()),
+    hidden_reason: v.optional(v.string()),
+    hidden_by: v.optional(v.string()),
   })
     .index("by_booking_id", ["booking_id"])
     .index("by_shop_id", ["shop_id"])
