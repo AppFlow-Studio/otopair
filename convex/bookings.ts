@@ -4449,6 +4449,25 @@ function buildPassportPatchFromPrejob(prejob: any, existingPassport: any) {
   const frontCondition = prejob.front_tire_condition ?? undefined;
   const rearCondition = prejob.rear_tire_condition ?? undefined;
   const fluidOverrides = prejob.fluid_overrides ?? undefined;
+  // Multi-point inspections record tire identity per corner in `tire_details`
+  // and leave the flat `tire_brand`/`tire_model` null. Fall back to the first
+  // corner that reported a brand/model so completing an inspection actually
+  // fills the passport's required `tires.brand` — otherwise `is_complete` can
+  // never flip true for a car that only ever gets non-tire jobs.
+  const tireDetailCorners = [
+    prejob.tire_details?.front_left,
+    prejob.tire_details?.front_right,
+    prejob.tire_details?.rear_left,
+    prejob.tire_details?.rear_right,
+  ];
+  const firstCornerBrand =
+    tireDetailCorners
+      .map((corner: any) => (hasText(corner?.brand) ? corner.brand.trim() : null))
+      .find(Boolean) ?? undefined;
+  const firstCornerModel =
+    tireDetailCorners
+      .map((corner: any) => (hasText(corner?.model) ? corner.model.trim() : null))
+      .find(Boolean) ?? undefined;
   const hasFluidOverride =
     fluidOverrides &&
     Object.values(fluidOverrides).some(
@@ -4464,7 +4483,8 @@ function buildPassportPatchFromPrejob(prejob: any, existingPassport: any) {
         ? prejob.mileage
         : undefined,
     tires: {
-      brand: prejob.tire_brand ?? undefined,
+      brand: prejob.tire_brand ?? firstCornerBrand ?? undefined,
+      model: prejob.tire_model ?? firstCornerModel ?? undefined,
       size_front: prejob.tire_size_front ?? undefined,
       size_rear: prejob.tire_size_rear ?? undefined,
       tread_depths: prejob.tire_tread ?? undefined,
