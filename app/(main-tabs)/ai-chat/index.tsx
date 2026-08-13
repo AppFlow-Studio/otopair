@@ -1010,6 +1010,11 @@ export default function AIChatScreen() {
               timestamp: new Date(row.timestamp).toISOString(),
               quickReplies: r.quickReplies,
               showRecordConfirmation: r.showRecordConfirmation,
+              // W0.4 (formerly mislabeled W3.3): the persisted payload already carries vehicle_id, stamped
+              // server-side from the vehicle this turn was actually about. Do
+              // NOT re-stamp it from the live picker here — that would rebind an
+              // old thread's card to whatever car happens to be selected now.
+              showVehicleUpdate: r.showVehicleUpdate,
               bookService: r.bookService,
               linkButton: r.linkButton,
               bookingCard: r.bookingCard,
@@ -1593,9 +1598,30 @@ export default function AIChatScreen() {
                 // insurance against a malformed envelope ever reaching the
                 // client. Priority order matches the handoff doc:
                 // bookService → showRecordConfirmation → bookingCard /
-                // bookingsList → linkButton. When any terminal is set, we
-                // also drop quickReplies from the bubble so a confused
-                // payload can't double-render a tap surface.
+                // bookingsList → linkButton.
+                //
+                // W3.1 (2026-08-13): this block USED to also strip quickReplies
+                // whenever a terminal was set — `{ ...message, quickReplies:
+                // undefined }` — on the reasoning that two tap surfaces in one
+                // message was a malformed payload. That was the actual cause of
+                // the chips inversion (D-6, D-33, I2, L2, the 7-light case):
+                // chips disappeared exactly when Oto was ALSO logging a fault or
+                // offering a booking, i.e. when the user was deepest in a
+                // problem and least able to type. The backend was never the
+                // problem — mergeRenderDirectives writes every render field
+                // unconditionally, renderToPersist uses independent ifs, and
+                // ai_messages.render holds several at once — so no prompt change
+                // could ever have fixed it.
+                //
+                // Two tap surfaces is now the intended shape, not a malformed
+                // one. Layout is chips-above-card, which needs no new layout
+                // code: the bubble (which owns the chip row) already renders
+                // ahead of the card below. Precedent that a bubble can carry
+                // several renders at once: `reasoning` and `sources` have always
+                // co-existed with chips, because they sit outside this chain.
+                //
+                // The cards themselves stay mutually exclusive — `terminalKind`
+                // still picks exactly one.
                 const isAssistant = message.role === "assistant";
                 const terminalKind: "bookService" | "recordConfirm" | "vehicleUpdate" | "bookingCard" | "bookingsList" | "linkButton" | null =
                   isAssistant
@@ -1613,9 +1639,14 @@ export default function AIChatScreen() {
                                 ? "linkButton"
                                 : null
                     : null;
-                const messageForBubble = terminalKind
-                  ? { ...message, quickReplies: undefined }
-                  : message;
+                // Chips ride along with whatever card fires. Applied to every
+                // terminal kind, including `bookService` — see the note in the
+                // handoff: the booking flow is a 4-step wizard that already
+                // gives the user plenty to tap, so it is the one case where a
+                // chip row may be redundant rather than helpful. Reverting just
+                // that case is a one-line exemption here, deliberately not taken
+                // pre-emptively.
+                const messageForBubble = message;
                 return (
                   <View key={message.id}>
                     <AIMessageBubble

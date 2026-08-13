@@ -91,6 +91,13 @@ interface AIRecordConfirmationProps {
 // FORMATTERS
 // ============================================================================
 
+/** Maintenance types whose display label is a plural noun ("Brakes", "Tires").
+ *  They take "were"/"them"; every other type takes "was"/"it". */
+const PLURAL_TYPES: ReadonlySet<MaintenanceType> = new Set<MaintenanceType>([
+  "brakes",
+  "tires",
+]);
+
 function formatRecordDate(ms?: number): string {
   if (ms == null) return "Unknown date";
   const d = new Date(ms);
@@ -143,14 +150,17 @@ export function AIRecordConfirmation({
 
   const summaryLine = useMemo(() => {
     if (!data) return "Loading record…";
+    const plural = PLURAL_TYPES.has(maintenanceType);
     if (!data.record) {
-      return `We don't have a record on file for ${label.toLowerCase()}. When did you last service it?`;
+      return `We don't have a record on file for ${label.toLowerCase()}. When did you last service ${plural ? "them" : "it"}?`;
     }
-    const parts: string[] = [`our records show your ${label.toLowerCase()} was serviced`];
+    const parts: string[] = [
+      `our records show your ${label.toLowerCase()} ${plural ? "were" : "was"} serviced`,
+    ];
     if (data.record.lastServiceDate != null) parts.push(`in ${dateText}`);
     if (mileageText) parts.push(`at ${mileageText}`);
     return capitalize(parts.join(" ")) + ". Is that still right?";
-  }, [data, label, dateText, mileageText]);
+  }, [data, label, dateText, mileageText, maintenanceType]);
 
   // ---------------------------------------------------------------------------
   // Confirm path — record is correct as-is. Stamp confirmedHealthyAt to lock
@@ -346,7 +356,9 @@ export function AIRecordConfirmation({
       {step === "form" && (
         <View style={styles.formBlock}>
           <Text style={styles.formLabel} weight="medium">
-            When was it last serviced?
+            {PLURAL_TYPES.has(maintenanceType)
+              ? "When were they last serviced?"
+              : "When was it last serviced?"}
           </Text>
           <DatePickerMonthYear
             value={newDate}
