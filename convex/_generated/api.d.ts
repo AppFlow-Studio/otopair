@@ -270,6 +270,7 @@ import type * as shop_portfolio from "../shop_portfolio.js";
 import type * as shop_services from "../shop_services.js";
 import type * as shops from "../shops.js";
 import type * as shops_hours from "../shops_hours.js";
+import type * as slotHolds from "../slotHolds.js";
 import type * as smartcar from "../smartcar.js";
 import type * as sms_dispatcher from "../sms_dispatcher.js";
 import type * as snapshotRevalidation from "../snapshotRevalidation.js";
@@ -651,6 +652,7 @@ declare const fullApi: ApiFromModules<{
   shop_services: typeof shop_services;
   shops: typeof shops;
   shops_hours: typeof shops_hours;
+  slotHolds: typeof slotHolds;
   smartcar: typeof smartcar;
   sms_dispatcher: typeof sms_dispatcher;
   snapshotRevalidation: typeof snapshotRevalidation;
