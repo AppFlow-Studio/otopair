@@ -55,6 +55,7 @@ import type * as dataTires from "../dataTires.js";
 import type * as dataVehicleResolve from "../dataVehicleResolve.js";
 import type * as dataVerification from "../dataVerification.js";
 import type * as dataVins from "../dataVins.js";
+import type * as devOnly_ageOilRecord from "../devOnly/ageOilRecord.js";
 import type * as devOnly_auditConfigs from "../devOnly/auditConfigs.js";
 import type * as devOnly_auditCoreRoles from "../devOnly/auditCoreRoles.js";
 import type * as devOnly_auditPartRejections from "../devOnly/auditPartRejections.js";
@@ -76,6 +77,7 @@ import type * as devOnly_purgeEstimatorObs from "../devOnly/purgeEstimatorObs.js
 import type * as devOnly_reassignShopLogins from "../devOnly/reassignShopLogins.js";
 import type * as devOnly_repriceJsonProbe from "../devOnly/repriceJsonProbe.js";
 import type * as devOnly_seedChelalaCopy from "../devOnly/seedChelalaCopy.js";
+import type * as devOnly_trimGarageToOneCar from "../devOnly/trimGarageToOneCar.js";
 import type * as devOnly_validateQuoteEngine from "../devOnly/validateQuoteEngine.js";
 import type * as devOnly_vdbProbe from "../devOnly/vdbProbe.js";
 import type * as devOnly_verifyLabor from "../devOnly/verifyLabor.js";
@@ -242,6 +244,7 @@ import type * as oto_queryMoat from "../oto/queryMoat.js";
 import type * as oto_recordConfirmation from "../oto/recordConfirmation.js";
 import type * as oto_reliability from "../oto/reliability.js";
 import type * as oto_resolveVehicle from "../oto/resolveVehicle.js";
+import type * as oto_safety from "../oto/safety.js";
 import type * as oto_searchedFacts from "../oto/searchedFacts.js";
 import type * as oto_simulate from "../oto/simulate.js";
 import type * as oto_system_prompt from "../oto/system_prompt.js";
@@ -411,6 +414,7 @@ import type * as vehicleEnrichment_laborRelabor from "../vehicleEnrichment/labor
 import type * as vehicleEnrichment_laborResearch from "../vehicleEnrichment/laborResearch.js";
 import type * as vehicleEnrichment_laborSibling from "../vehicleEnrichment/laborSibling.js";
 import type * as vehicleEnrichment_laborWebSearch from "../vehicleEnrichment/laborWebSearch.js";
+import type * as vehicleEnrichment_lemonManuals from "../vehicleEnrichment/lemonManuals.js";
 import type * as vehicleEnrichment_manualLibrary from "../vehicleEnrichment/manualLibrary.js";
 import type * as vehicleEnrichment_marketplaceScraper from "../vehicleEnrichment/marketplaceScraper.js";
 import type * as vehicleEnrichment_mutations from "../vehicleEnrichment/mutations.js";
@@ -555,6 +559,7 @@ declare const fullApi: ApiFromModules<{
   dataVehicleResolve: typeof dataVehicleResolve;
   dataVerification: typeof dataVerification;
   dataVins: typeof dataVins;
+  "devOnly/ageOilRecord": typeof devOnly_ageOilRecord;
   "devOnly/auditConfigs": typeof devOnly_auditConfigs;
   "devOnly/auditCoreRoles": typeof devOnly_auditCoreRoles;
   "devOnly/auditPartRejections": typeof devOnly_auditPartRejections;
@@ -576,6 +581,7 @@ declare const fullApi: ApiFromModules<{
   "devOnly/reassignShopLogins": typeof devOnly_reassignShopLogins;
   "devOnly/repriceJsonProbe": typeof devOnly_repriceJsonProbe;
   "devOnly/seedChelalaCopy": typeof devOnly_seedChelalaCopy;
+  "devOnly/trimGarageToOneCar": typeof devOnly_trimGarageToOneCar;
   "devOnly/validateQuoteEngine": typeof devOnly_validateQuoteEngine;
   "devOnly/vdbProbe": typeof devOnly_vdbProbe;
   "devOnly/verifyLabor": typeof devOnly_verifyLabor;
@@ -742,6 +748,7 @@ declare const fullApi: ApiFromModules<{
   "oto/recordConfirmation": typeof oto_recordConfirmation;
   "oto/reliability": typeof oto_reliability;
   "oto/resolveVehicle": typeof oto_resolveVehicle;
+  "oto/safety": typeof oto_safety;
   "oto/searchedFacts": typeof oto_searchedFacts;
   "oto/simulate": typeof oto_simulate;
   "oto/system_prompt": typeof oto_system_prompt;
@@ -911,6 +918,7 @@ declare const fullApi: ApiFromModules<{
   "vehicleEnrichment/laborResearch": typeof vehicleEnrichment_laborResearch;
   "vehicleEnrichment/laborSibling": typeof vehicleEnrichment_laborSibling;
   "vehicleEnrichment/laborWebSearch": typeof vehicleEnrichment_laborWebSearch;
+  "vehicleEnrichment/lemonManuals": typeof vehicleEnrichment_lemonManuals;
   "vehicleEnrichment/manualLibrary": typeof vehicleEnrichment_manualLibrary;
   "vehicleEnrichment/marketplaceScraper": typeof vehicleEnrichment_marketplaceScraper;
   "vehicleEnrichment/mutations": typeof vehicleEnrichment_mutations;

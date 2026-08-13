@@ -50,6 +50,7 @@ import {
   type OwnedVehicleRow,
   type ResolvedVehicle,
 } from "./envelope";
+import { classifyTurnSafety, renderSafetyOverrideBlock } from "./safety";
 import { OTO_TOOL_CATEGORY, OTO_TOOLS, OTOPAIR_SERVICE_SLUGS } from "./tools";
 import {
   executeTool,
@@ -830,6 +831,25 @@ export async function sendMessageHandlerCore(
     api.onboarding_questions_answers.getCarKnowledgeLevelForUser,
     { user_id: user._id },
   );
+  // ── Wave 2.2: pre-routing safety classifier ──────────────────────────────
+  // Runs BEFORE the model call, on the raw user message, tone-blind. This is
+  // the gate the intent ladder never had — stable.ts routes on intent
+  // (wants-a-service / reports-a-light / mileage / vague-symptom), and anything
+  // that matched no branch previously met no safety check at all. See
+  // convex/oto/safety.ts for the defect inventory this closes.
+  const safetyFindings = classifyTurnSafety(message);
+  const safetyOverride = renderSafetyOverrideBlock(safetyFindings);
+  if (safetyFindings.length > 0) {
+    // Log the classification, never the user's message (PII). Category +
+    // severity is enough to audit false positives from telemetry.
+    console.warn(
+      "[oto/chat] safety override active: " +
+        safetyFindings
+          .map((f) => `${f.category}/${f.severity}`)
+          .join(" "),
+    );
+  }
+
   const envelope = buildEnvelope({
     userFirstName: user.first_name ?? null,
     vehicle: activeVehicle,
@@ -839,6 +859,7 @@ export async function sendMessageHandlerCore(
     diagnosticTurnCount,
     priorConversationFacts: envelopePriorFacts,
     knowledgeLevel: knowledgeLabel(rawKnowledgeLevel),
+    safetyOverride,
   });
   // B-P4: the envelope carries raw user PII (vehicle, history, message,
   // established facts) — only log it on debug/harness runs, not every
@@ -1429,9 +1450,46 @@ export async function sendMessageHandlerCore(
 
   // ── 7. Merge render directives ───────────────────────────────────────
   const renderEnvelope = mergeRenderDirectives(accumulatedResults);
-  const quickReplies = Array.isArray(renderEnvelope.quickReplies)
+  let quickReplies = Array.isArray(renderEnvelope.quickReplies)
     ? (renderEnvelope.quickReplies as unknown[])
     : undefined;
+
+  // ── 7b. W3.1 deterministic chip fallback ─────────────────────────────
+  // Conditions belong in code, absolutes in prompts: the prompt (stable
+  // v0.43 "What terminal means" carve-out + tool descriptions + volatile
+  // v0.20 Example 14) ASKS Haiku to pair render_quick_replies with a
+  // vehicle-update card, but exemplar-following is probabilistic — this
+  // guarantees the pairing. Scoped to render_vehicle_update ONLY for now;
+  // extending it to the other card renders is a product call.
+  // Never fires on a stop_now safety turn: a stop-driving instruction must
+  // stand alone (stable.ts safety rule 5 already tells Haiku not to render
+  // the card at all on stop_now — if the card slips through anyway, this
+  // fallback must not compound the violation by resurrecting chips).
+  // The console.warn makes the fallback's fire rate observable in Convex
+  // logs; if it fires on most turns, the prompt pairing isn't landing.
+  {
+    const stopNowActive = safetyFindings.some(
+      (f) => f.severity === "stop_now",
+    );
+    if (
+      !quickReplies &&
+      renderEnvelope.showVehicleUpdate !== undefined &&
+      !stopNowActive
+    ) {
+      console.warn(
+        "[oto/chat] W3.1 fallback: render_vehicle_update fired without " +
+          "render_quick_replies — attaching default chip set",
+      );
+      // Shape matches render_quick_replies input (AIQuickReplies QuickReply:
+      // { id, text, value?, variant? }); tapping sends `text` as the user
+      // message, so the labels are written in the USER's voice.
+      quickReplies = [
+        { id: "w31_log_more", text: "Log another one" },
+        { id: "w31_whats_due", text: "What's due next?" },
+        { id: "w31_done", text: "That's everything" },
+      ];
+    }
+  }
   const showRecordConfirmation =
     renderEnvelope.showRecordConfirmation &&
     typeof renderEnvelope.showRecordConfirmation === "object"
@@ -1467,6 +1525,22 @@ export async function sendMessageHandlerCore(
       "I'm having trouble pulling that one together — can you rephrase or break it into a smaller question?";
   }
 
+  // W3.1 companion fallback — same conditions-in-code/absolutes-in-prompts
+  // rationale as the chip fallback above. The prompt asks for a brief framing
+  // sentence with every render_vehicle_update, but Haiku sometimes spends the
+  // whole turn on tool_use blocks and emits no text block at all (observed
+  // v0.42/v0.43 on-device: bare card, empty bubble). Guarantee one neutral
+  // sentence so the card never ships without prose. Scoped to
+  // showVehicleUpdate only — the other renders' framing is a product call.
+  if (!finalText.trim() && renderEnvelope.showVehicleUpdate !== undefined) {
+    console.warn(
+      "[oto/chat] W3.1 fallback: empty assistant text on a vehicle-update " +
+        "render turn — injecting default framing sentence",
+    );
+    finalText =
+      "Here's what I captured — give it a look and tap confirm to save it to your car's record.";
+  }
+
   // Voice-rail post-process: the prompt bans markdown bold for data points
   // and headers, but Haiku falls back to them under pressure (especially in
   // shorter responses or when emphasizing service names). Strip them
@@ -1474,6 +1548,33 @@ export async function sendMessageHandlerCore(
   // ever needed in v0.8+, swap this for a directive that the chat UI
   // renders specially.
   finalText = stripVoiceMarkup(finalText);
+
+  // Wave 1 output guards: drop sentences carrying banned claims (fabricated
+  // prices, warranty promises, internal-architecture nouns). Currency is
+  // permitted only when get_rewards_summary actually fired this turn —
+  // tool-sourced credit values are the one legitimate dollar figure.
+  const guarded = stripBannedClaims(finalText, {
+    allowCurrency: accumulatedToolCalls.some(
+      (t) => t.name === "get_rewards_summary",
+    ),
+  });
+  if (guarded.dropped.length > 0) {
+    console.warn(
+      "[oto/chat] output guard dropped " +
+        guarded.dropped.length +
+        " sentence(s): " +
+        Array.from(new Set(guarded.dropped)).join(","),
+    );
+    finalText = guarded.text;
+    // Guard emptied the whole message and no render carries the turn: give
+    // the price-shaped case its correct one-liner (the W1.5 target shape)
+    // rather than dead air; anything else gets the generic recovery line.
+    if (!finalText && !hasAnyRender) {
+      finalText = guarded.dropped.includes("currency")
+        ? "The exact number depends on which shop you pick — you'll see the real quote in the booking flow before you pay. Want to book it?"
+        : "Let me put that differently — what would you like to do next?";
+    }
+  }
 
   // ── 8. Persist both turns ────────────────────────────────────────────
   // Harness runs (debug + debug_skip_persist) skip persistence so iteration
@@ -1520,6 +1621,27 @@ export async function sendMessageHandlerCore(
       renderToPersist.reasoning = renderEnvelope.reasoning;
     if (renderEnvelope.sources !== undefined)
       renderToPersist.sources = renderEnvelope.sources;
+    // W0.4 (2026-08-13, formerly mislabeled W3.3): showVehicleUpdate was the one live render missing from
+    // this list, so a vehicle-update card vanished on conversation reload while
+    // every other terminal render came back. Two deliberate choices here:
+    //   1. Stamp vehicle_id SERVER-side from activeVehicle rather than letting
+    //      the client re-derive it on rehydration. The client stamps from the
+    //      CURRENT picker selection; re-opening an old thread with a different
+    //      car selected would bind the card — and therefore applyVehicleTruth —
+    //      to the wrong vehicle. activeVehicle is the car this turn was about.
+    //   2. Mirror the client's two suppression guards (non-empty payload +
+    //      resolvable vehicle) so we never persist a dead, actionless card.
+    {
+      const vu = renderEnvelope.showVehicleUpdate as
+        | Record<string, unknown>
+        | undefined;
+      if (vu && Object.keys(vu).length > 0 && activeVehicle?.id) {
+        renderToPersist.showVehicleUpdate = {
+          ...vu,
+          vehicle_id: activeVehicle.id as string,
+        };
+      }
+    }
     await ctx.runMutation(internal.ai_messages.create, {
       conversation_id: conversationId,
       role: "assistant",
@@ -1916,8 +2038,103 @@ function stripVoiceMarkup(s: string): string {
     // Bold **text** and __text__ → text
     .replace(/\*\*([^*]+?)\*\*/g, "$1")
     .replace(/__([^_]+?)__/g, "$1")
+    // Italic *text* and _text_ → text. Wave 0.2 (2026-08-09): the bold pass
+    // above ran without this one, so single-asterisk emphasis survived to the
+    // client and rendered as literal asterisks ("What I *can* help with") —
+    // D-21 in the Aug-08 QA report. Runs AFTER the bold pass so `**x**` is
+    // already reduced and can't be mis-split here.
+    // The inner class excludes whitespace at both edges so arithmetic and
+    // globs ("2 * 3", "a * b") aren't swallowed; markdown emphasis never has
+    // a space just inside its delimiters.
+    .replace(/\*(?!\s)([^*\n]*[^*\s])?\*/g, "$1")
+    .replace(/(^|[^\w_])_(?!\s)([^_\n]*[^_\s])?_(?![\w_])/g, "$1$2")
     // ATX headers at line start: ## Title → Title
     .replace(/^#{1,6}\s+/gm, "");
+}
+
+// =============================================================================
+// Wave 1 output guards (2026-08-10) — banned-claim sentence stripping
+// =============================================================================
+//
+// Same belt-and-suspenders philosophy as stripVoiceMarkup, one level up: the
+// prompt bans these CLAIMS ("You do NOT quote full-service prices. Anywhere.",
+// the no-system-narration rule, no warranty promises) and the Aug-08 QA report
+// documents the model violating every one of them under pressure (D-25/D-26/
+// D-28/D-41/D-44 prices ×5, D-46 "the KB is empty", D-19/K5 warranty terms).
+// A rule that emphatic being violated anyway cannot be fixed with more prompt
+// language — it needs a deterministic output-side check.
+//
+// Granularity is the SENTENCE, not the token. Stripping just the figure leaves
+// mangled copy ("a diagnostic runs around  to  depending on the shop"); any
+// sentence containing a banned claim is itself a banned claim, so the whole
+// sentence goes. W1.5 (prompt) gives the model the correct replacement
+// behavior — decline in one line + render_book_service — so in the steady
+// state this guard should almost never fire; it exists for the pressure cases.
+//
+// The deny-list is deliberately conservative: only nouns that are unambiguous
+// in an automotive chat. "system"/"database"/"tool" stay prompt-enforced —
+// cars have cooling systems and charging systems, and sentence-dropping those
+// would eat legitimate answers. Case-sensitive entries (Convex, KB, Claude,
+// Haiku, Sonnet) rely on the capital letter to disambiguate from legitimate
+// lowercase uses ("convex mirror", poetry).
+
+type GuardCategory = "currency" | "warranty" | "internal_noun";
+
+const OUTPUT_GUARD_PATTERNS: { category: GuardCategory; re: RegExp }[] = [
+  // W1.2 — currency. $N in any form, or spelled-out "N dollars/bucks".
+  { category: "currency", re: /\$\s*\d|\b\d[\d,]*(?:\.\d+)?\s*(?:dollars|bucks)\b/i },
+  // W1.4 — warranty-shaped durability promises: "N years ... N miles" either
+  // order within one clause (D-19, K5's "10 years / 100,000 miles"). Plain
+  // mileage-interval advice ("rotate every 5,000 miles") has no year pair and
+  // never matches.
+  { category: "warranty", re: /\b\d+\s*(?:-|–|to\s+)?\s*years?\b[^.!?\n]{0,40}?\b\d[\d,]*\s*miles\b/i },
+  { category: "warranty", re: /\b\d[\d,]*\s*miles\b[^.!?\n]{0,40}?\b\d+\s*(?:-|–|to\s+)?\s*years?\b/i },
+  // W1.3 — internal architecture nouns (D-46). Case-insensitive multiword
+  // terms first, then case-sensitive proper nouns.
+  { category: "internal_noun", re: /\bknowledge\s*base\b|\bsearch\s+index\b|\bsystem\s+prompt\b|\bfuzzy\s+match(?:er|ing)?\b|\bpipeline\b|\bFireCrawl\b|\bvPIC\b|\bAnthropic\b/i },
+  { category: "internal_noun", re: /\bKB\b|\bConvex\b|\bClaude\b|\bHaiku\b|\bSonnet\b/ },
+];
+
+/**
+ * Drop any sentence containing a banned claim. Returns the cleaned text plus
+ * the categories that fired (for the console breadcrumb — this guard firing
+ * means the prompt lost, which ops should be able to see).
+ *
+ * `allowCurrency`: rewards-credit dollar values are legitimate when (and only
+ * when) `get_rewards_summary` actually returned them this turn (stable.ts
+ * rewards rule). The caller passes whether that tool fired — a deterministic
+ * condition, unlike asking the model to hold "quote only sourced figures"
+ * mid-sentence, which is exactly the conditional rule Q1 rejected.
+ */
+function stripBannedClaims(
+  s: string,
+  opts: { allowCurrency: boolean },
+): { text: string; dropped: GuardCategory[] } {
+  if (!s) return { text: s, dropped: [] };
+  const active = OUTPUT_GUARD_PATTERNS.filter(
+    (p) => !(p.category === "currency" && opts.allowCurrency),
+  );
+  // Fast path: nothing banned anywhere in the message.
+  if (!active.some((p) => p.re.test(s))) return { text: s, dropped: [] };
+
+  const dropped: GuardCategory[] = [];
+  const lines = s.split("\n").map((line) => {
+    // Sentence boundary: ., !, ? followed by whitespace. Keeps list bullets
+    // and short lines intact (no terminator → the whole line is one sentence).
+    const sentences = line.split(/(?<=[.!?])\s+/);
+    const kept = sentences.filter((sent) => {
+      const hit = active.find((p) => p.re.test(sent));
+      if (hit) dropped.push(hit.category);
+      return !hit;
+    });
+    return kept.join(" ");
+  });
+  const text = lines
+    .join("\n")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  return { text, dropped };
 }
 
 // =============================================================================
