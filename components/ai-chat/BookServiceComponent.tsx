@@ -80,6 +80,7 @@ import type { BookServicePayload } from "@/services/ai/types";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
 import { useShopStore } from "@/stores/useShopStore";
+import { useBookingWizardStore } from "@/stores/useBookingWizardStore";
 import { formatProximityDistanceFromMiles } from "@/utils/geo";
 import { displayTimeToHHMM } from "@/utils/timeSlotUtils";
 
@@ -236,6 +237,12 @@ function formatDayPill(date: string): { top: string; num: string; month: string 
 interface BookServiceComponentProps {
   payload: BookServicePayload;
   /**
+   * Stable key (the conversation id) under which the wizard's step + selections
+   * are stashed, so leaving and returning to this chat resumes where the user
+   * left off instead of restarting at Step 1. Omit to disable resume.
+   */
+  persistKey?: string;
+  /**
    * Called when the user dismisses the component mid-flow. The parent should
    * mark the booking as abandoned in conversation state so Oto's next turn
    * sees the user backed out.
@@ -261,10 +268,24 @@ type Stage = 1 | 2 | 3 | 4 | 5 | 6;
 
 export function BookServiceComponent({
   payload,
+  persistKey,
   onBookAndPay,
   disabled = false,
 }: BookServiceComponentProps) {
   const router = useRouter();
+
+  // Resume support: read any stashed progress for this conversation ONCE (on
+  // mount) so the useState initializers below can restore the step/selections.
+  // Reading via getState avoids subscribing (we don't want to re-init on write).
+  const saveWizardProgress = useBookingWizardStore((s) => s.saveProgress);
+  const clearWizardProgress = useBookingWizardStore((s) => s.clearProgress);
+  const savedProgress = useMemo(
+    () =>
+      persistKey
+        ? useBookingWizardStore.getState().getProgress(persistKey)
+        : undefined,
+    [persistKey],
+  );
 
   // Hydrate mechanic + shop + services stores in the background (these
   // queries are also used by other surfaces, so they're already warm if the
@@ -312,24 +333,40 @@ export function BookServiceComponent({
     return ids;
   }, [payload.service_slugs]);
 
-  const [stage, setStage] = useState<Stage>(1);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(initialSelectedIds);
+  const [stage, setStage] = useState<Stage>(
+    () => (savedProgress?.stage as Stage) ?? 1,
+  );
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() =>
+    savedProgress ? new Set(savedProgress.selectedIds) : initialSelectedIds,
+  );
 
   // Sub-stage 3: diagnostic notes (only relevant if diagnostic_scan selected).
   const [diagnosticSystem, setDiagnosticSystem] = useState<DiagnosticSystem>(
-    payload.diagnostic_system ?? "not_sure",
+    () =>
+      (savedProgress?.diagnosticSystem as DiagnosticSystem) ??
+      payload.diagnostic_system ??
+      "not_sure",
   );
-  const [customerNotes, setCustomerNotes] = useState<string>(payload.customer_notes ?? "");
+  const [customerNotes, setCustomerNotes] = useState<string>(
+    () => savedProgress?.customerNotes ?? payload.customer_notes ?? "",
+  );
 
   // Sub-stage 4: mechanic selection.
-  const [priority, setPriority] = useState<Priority>(payload.recommended_priority ?? "best_rated");
+  const [priority, setPriority] = useState<Priority>(
+    () =>
+      (savedProgress?.priority as Priority) ??
+      payload.recommended_priority ??
+      "best_rated",
+  );
   const [selectedMechanicId, setSelectedMechanicId] = useState<string | null>(
-    payload.recommended_mechanic_id ?? null,
+    () => savedProgress?.selectedMechanicId ?? payload.recommended_mechanic_id ?? null,
   );
 
   // Sub-stage 5: time slot — key is `${slotId}` since we read the canonical
   // slot row out of Convex.
-  const [selectedSlotId, setSelectedSlotId] = useState<string | null>(null);
+  const [selectedSlotId, setSelectedSlotId] = useState<string | null>(
+    () => savedProgress?.selectedSlotId ?? null,
+  );
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   // Inline failure surface — fires when the Book & Pay handoff can't
@@ -340,6 +377,32 @@ export function BookServiceComponent({
   const [bookHandoffError, setBookHandoffError] = useState<string | null>(null);
 
   const hasDiagnostic = selectedIds.has("svc_diagnostic_scan");
+
+  // Stash progress on every change so returning to this conversation resumes
+  // the wizard at the same step + selections (cleared on Book & Pay handoff).
+  useEffect(() => {
+    if (!persistKey) return;
+    saveWizardProgress(persistKey, {
+      stage,
+      selectedIds: Array.from(selectedIds),
+      diagnosticSystem,
+      customerNotes,
+      priority,
+      selectedMechanicId,
+      selectedSlotId,
+    });
+  }, [
+    persistKey,
+    saveWizardProgress,
+    stage,
+    selectedIds,
+    diagnosticSystem,
+    customerNotes,
+    priority,
+    selectedMechanicId,
+    selectedSlotId,
+  ]);
+
   const selectedServiceOptions: ServiceOption[] = useMemo(
     () => DEFAULT_SERVICES.filter((s) => selectedIds.has(s.id)),
     [selectedIds],
@@ -545,6 +608,10 @@ export function BookServiceComponent({
     // 4) Tell the chat surface so it can record a fact for the next Oto turn.
     onBookAndPay?.(selectedMechanicId);
 
+    // 4b) Flow is complete — clear the resume snapshot so a future visit to
+    //     this conversation doesn't restore a stale mid-flow wizard.
+    if (persistKey) clearWizardProgress(persistKey);
+
     // 5) Navigate. The pay-screen reads the booking store + creates the
     //    booking row via useCreateBookingConvex. Reset isSubmitting in a
     //    finally block — without this, the chat-message-mounted form
@@ -569,6 +636,8 @@ export function BookServiceComponent({
     setBookingStage,
     onBookAndPay,
     router,
+    persistKey,
+    clearWizardProgress,
   ]);
 
   // ──────────────────────────────────────────────────────────────────────

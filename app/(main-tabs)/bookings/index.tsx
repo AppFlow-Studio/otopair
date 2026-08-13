@@ -27,7 +27,6 @@ import {
 import { BookingDetailsSheet, type BookingDetailsSheetRef } from "@/components/bookings/BookingDetailsSheet";
 import { AvailabilityModal } from "@/components/booking/modals/AvailabilityModal";
 import { ScrollDrivenGradientBackground, Text } from "@/components/shared-ui";
-import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
 import { useMyBookingsWithDetails } from "@/hooks/useMyBookingsWithDetails";
 import { CustomerLateBanner } from "@/components/bookings/CustomerLateBanner";
 import { RecommendedServicesContent } from "@/components/bookings/RecommendedServicesContent";
@@ -40,9 +39,9 @@ import { useToast } from "@/hooks/useToast";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
-import { Calendar, CalendarX, Check, ListFilter, Star } from "lucide-react-native";
+import { Calendar, CalendarX, Star } from "lucide-react-native";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Image, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
+import { Pressable, RefreshControl, StyleSheet, View } from "react-native";
 import Animated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import SegmentedControl from "@react-native-segmented-control/segmented-control";
@@ -106,47 +105,9 @@ export default function BookingsScreen() {
   );
   const [refreshing, setRefreshing] = useState(false);
   const detailsSheetRef = useRef<BookingDetailsSheetRef>(null);
-  const vehiclePickerRef = useRef<FloatingSheetRef>(null);
   const [rescheduleBooking, setRescheduleBooking] = useState<Booking | null>(null);
   const selectVehicle = useVehicleStore((s) => s.selectVehicle);
 
-
-  // ── Vehicle filter ───────────────────────────────────────────────────────
-  // Lets users scope the upcoming/quotes lists to a single car when their
-  // garage gets noisy. `null` means "All Vehicles".
-  const vehiclesRecord = useVehicleStore((s) => s.vehicles);
-  const vehicleIds = useVehicleStore((s) => s.vehicleIds);
-  const allVehicles = useMemo(
-    () => vehicleIds.map((id) => vehiclesRecord[id]).filter(Boolean),
-    [vehicleIds, vehiclesRecord],
-  );
-  const [filterVehicleId, setListFilterVehicleId] = useState<string | null>(null);
-  const filterVehicle = filterVehicleId
-    ? allVehicles.find((v) => v.id === filterVehicleId)
-    : null;
-
-  const matchesListFilter = useCallback(
-    (b: Booking) => {
-      if (!filterVehicle) return true;
-      // Prefer VIN match — unambiguous, no name parsing. Both Convex and
-      // Convex-backed bookings carry the originating VIN, so this
-      // is the authoritative comparison whenever both sides have one.
-      if (filterVehicle.vin && b.vin) {
-        return b.vin.toUpperCase() === filterVehicle.vin.toUpperCase();
-      }
-      // Fallback: name+year. Used only when the chip's vehicle has no
-      // VIN (rare — pre-Convex local vehicles). Prefix match because
-      // Convex's `vehicleDisplay` includes trim while the chip vehicle
-      // does not.
-      const target = `${filterVehicle.make} ${filterVehicle.model}`.toLowerCase();
-      const targetYear = String(filterVehicle.year);
-      const carModelLower = b.carModel.toLowerCase();
-      const modelMatches =
-        carModelLower === target || carModelLower.startsWith(`${target} `);
-      return modelMatches && b.carYear === targetYear;
-    },
-    [filterVehicle],
-  );
 
   // Cancel: soft-deletes by flipping `status` to "cancelled". Convex
   // mutation handles server-backed bookings (idempotent —
@@ -188,7 +149,7 @@ export default function BookingsScreen() {
 
   const bookings = (
     activeTab === "bookings" ? upcomingBookings : quoteBookings
-  ).filter(matchesListFilter);
+  );
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -240,8 +201,8 @@ export default function BookingsScreen() {
   // "Recommended services" pill — the actual list + LeaveReviewSheet
   // live on /bookings/pending-reviews.
   const pendingReviewCount = useMemo(
-    () => pendingReviewBookings.filter(matchesListFilter).length,
-    [pendingReviewBookings, matchesListFilter],
+    () => pendingReviewBookings.length,
+    [pendingReviewBookings],
   );
 
   const handleReschedule = useCallback(
@@ -336,51 +297,6 @@ export default function BookingsScreen() {
               />
             </View>
 
-            {/* Vehicle picker button — opens a bottom sheet with the
-                user's cars. Only shown with 2+ cars. */}
-            {allVehicles.length > 1 ? (
-              <View style={styles.pickerRow}>
-                <Pressable
-                  onPress={() => {
-                    vehiclePickerRef.current?.open();
-                  }}
-                  style={({ pressed }) => [
-                    styles.pickerButton,
-                    pressed && styles.pickerButtonPressed,
-                  ]}
-                >
-                  <View style={styles.pickerSide}>
-                    {filterVehicle?.imageSource ? (
-                      <Image
-                        source={filterVehicle.imageSource}
-                        style={styles.pickerThumb}
-                        resizeMode="contain"
-                      />
-                    ) : (
-                      <Image
-                        source={require("@/assets/images/covered-car.png")}
-                        style={styles.pickerCoveredCar}
-                        resizeMode="contain"
-                      />
-                    )}
-                  </View>
-                  <Text
-                    size="md"
-                    weight="semiBold"
-                    color="#1F2937"
-                    style={styles.pickerLabel}
-                    numberOfLines={1}
-                  >
-                    {filterVehicle
-                      ? `${filterVehicle.year} ${filterVehicle.model}`
-                      : "All Vehicles"}
-                  </Text>
-                  <View style={styles.pickerSide}>
-                    <ListFilter size={16} color="#8E8E93" />
-                  </View>
-                </Pressable>
-              </View>
-            ) : null}
 
             {/* Pending-review prompt — surfaces completed bookings still
                 awaiting a star rating. The Recommended-services entry
@@ -486,91 +402,6 @@ export default function BookingsScreen() {
 
     <RotorQuoteListSheet ref={rotorQuoteListSheetRef} />
 
-    {/* Vehicle picker sheet — drives the filter button above.
-        showBackdrop dims + blurs the page behind it. */}
-    <FloatingSheet
-      ref={vehiclePickerRef}
-      snapHeights={[Math.min(540, 200 + (allVehicles.length + 1) * 78)]}
-      showBackdrop
-    >
-      <View style={styles.sheetContent}>
-        <Text size="lg" weight="bold" color="#1A1A1A" style={styles.sheetTitle}>
-          Choose a vehicle
-        </Text>
-        <ScrollView showsVerticalScrollIndicator={false}>
-          <Pressable
-            style={[styles.vehicleRow, filterVehicleId === null && styles.vehicleRowActive]}
-            onPress={() => {
-              setListFilterVehicleId(null);
-              vehiclePickerRef.current?.close();
-            }}
-          >
-            <View style={styles.vehicleRowSide}>
-              <Image
-                source={require("@/assets/images/covered-car.png")}
-                style={styles.vehicleRowCoveredCar}
-                resizeMode="contain"
-              />
-            </View>
-            <View style={styles.vehicleRowText}>
-              <Text size="md" weight="semiBold" color="#1F2937">
-                All Vehicles
-              </Text>
-            </View>
-            {filterVehicleId === null ? (
-              <View style={styles.checkCircle}>
-                <Check size={14} color="#FFFFFF" />
-              </View>
-            ) : null}
-          </Pressable>
-
-          {allVehicles.map((v) => {
-            const active = v.id === filterVehicleId;
-            return (
-              <Pressable
-                key={v.id}
-                style={[styles.vehicleRow, active && styles.vehicleRowActive]}
-                onPress={() => {
-                  setListFilterVehicleId(v.id);
-                  vehiclePickerRef.current?.close();
-                }}
-              >
-                <View style={styles.vehicleRowSide}>
-                  {v.imageSource ? (
-                    <Image
-                      source={v.imageSource}
-                      style={styles.vehicleRowImage}
-                      resizeMode="contain"
-                    />
-                  ) : (
-                    <Image
-                      source={require("@/assets/images/covered-car.png")}
-                      style={styles.vehicleRowCoveredCar}
-                      resizeMode="contain"
-                    />
-                  )}
-                </View>
-                <View style={styles.vehicleRowText}>
-                  <Text size="md" weight="semiBold" color="#1F2937">
-                    {v.year} {v.make} {v.model}
-                  </Text>
-                  {v.vin ? (
-                    <Text size="xs" weight="regular" color="#8E8E93">
-                      VIN · {v.vin}
-                    </Text>
-                  ) : null}
-                </View>
-                {active ? (
-                  <View style={styles.checkCircle}>
-                    <Check size={14} color="#FFFFFF" />
-                  </View>
-                ) : null}
-              </Pressable>
-            );
-          })}
-        </ScrollView>
-      </View>
-    </FloatingSheet>
   </>
   );
 }
@@ -603,94 +434,6 @@ const styles = StyleSheet.create({
   },
   segmentedControl: {
     height: 44,
-  },
-  // Vehicle picker button + sheet
-  pickerRow: {
-    paddingHorizontal: 20,
-    paddingTop: 14,
-  },
-  pickerButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#FFFFFF",
-    borderRadius: 12,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    shadowColor: "#0F172A",
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 1,
-  },
-  pickerButtonPressed: {
-    opacity: 0.92,
-  },
-  pickerSide: {
-    width: 44,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  pickerThumb: {
-    width: 38,
-    height: 28,
-  },
-  pickerCoveredCar: {
-    width: 40,
-    height: 28,
-  },
-  pickerLabel: {
-    flex: 1,
-    textAlign: "center",
-  },
-  sheetContent: {
-    flex: 1,
-    paddingHorizontal: 20,
-    paddingBottom: 8,
-  },
-  sheetTitle: {
-    marginBottom: 14,
-    textAlign: "center",
-  },
-  vehicleRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    padding: 14,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "#E8E8E8",
-    marginBottom: 10,
-  },
-  vehicleRowActive: {
-    borderColor: "#5299FE",
-    borderWidth: 2,
-    backgroundColor: "#F5F9FF",
-  },
-  vehicleRowSide: {
-    width: 56,
-    height: 40,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  vehicleRowImage: {
-    width: 52,
-    height: 40,
-  },
-  vehicleRowCoveredCar: {
-    width: 56,
-    height: 40,
-  },
-  vehicleRowText: {
-    flex: 1,
-    gap: 2,
-  },
-  checkCircle: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    backgroundColor: "#5299FE",
-    alignItems: "center",
-    justifyContent: "center",
   },
   scrollView: {
     flex: 1,

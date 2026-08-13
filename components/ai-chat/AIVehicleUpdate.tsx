@@ -30,11 +30,19 @@
  */
 
 // 1. React & React Native
-import React, { useState, useCallback, useMemo } from "react";
+import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { View, Pressable, StyleSheet } from "react-native";
 
 // 2. Expo & Third-party
-import Animated, { FadeInUp } from "react-native-reanimated";
+import Animated, {
+  FadeInUp,
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withDelay,
+  withSpring,
+  withTiming,
+} from "react-native-reanimated";
 import { Check, X } from "lucide-react-native";
 import { useMutation } from "convex/react";
 
@@ -195,6 +203,77 @@ function appliedMessage(res: TruthResult): string {
 }
 
 // ============================================================================
+// RESOLVED BANNER — pops in with a spring check, holds briefly, then fades up
+// and unmounts. Replaces the banner that used to stay pinned in the chat.
+// ============================================================================
+
+const HOLD_MS = 1400;
+
+function ResolvedBanner({
+  kind,
+  text,
+}: {
+  kind: "applied" | "dismissed";
+  text: string;
+}) {
+  const [gone, setGone] = useState(false);
+
+  const iconScale = useSharedValue(0.4);
+  const iconOpacity = useSharedValue(0);
+  const wrapOpacity = useSharedValue(1);
+
+  useEffect(() => {
+    iconOpacity.value = withTiming(1, { duration: 160 });
+    iconScale.value = withSpring(1, { damping: 11, stiffness: 220, mass: 0.6 });
+    // Hold, then a clean fade-out (no movement) before unmounting.
+    wrapOpacity.value = withDelay(
+      HOLD_MS,
+      withTiming(0, { duration: 420 }, (finished) => {
+        if (finished) runOnJS(setGone)(true);
+      }),
+    );
+  }, [iconOpacity, iconScale, wrapOpacity]);
+
+  const iconStyle = useAnimatedStyle(() => ({
+    opacity: iconOpacity.value,
+    transform: [{ scale: iconScale.value }],
+  }));
+  const wrapStyle = useAnimatedStyle(() => ({
+    opacity: wrapOpacity.value,
+  }));
+
+  if (gone) return null;
+
+  return (
+    <Animated.View style={[styles.resolvedWrap, wrapStyle]}>
+      <View
+        style={[
+          styles.resolvedBanner,
+          kind === "dismissed" && styles.resolvedBannerMuted,
+        ]}
+      >
+        <Animated.View style={iconStyle}>
+          {kind === "applied" ? (
+            <Check size={14} color={BrandColors.white} strokeWidth={3} />
+          ) : (
+            <X size={14} color={NEUTRAL_TEXT} strokeWidth={3} />
+          )}
+        </Animated.View>
+        <Text
+          style={[
+            styles.resolvedText,
+            kind === "dismissed" && styles.resolvedTextMuted,
+          ]}
+          weight="medium"
+        >
+          {text}
+        </Text>
+      </View>
+    </Animated.View>
+  );
+}
+
+// ============================================================================
 // COMPONENT
 // ============================================================================
 
@@ -277,34 +356,19 @@ export function AIVehicleUpdate({
   // Render
   // ---------------------------------------------------------------------------
 
-  // Resolved — small banner, stop accepting input.
+  // Resolved — a clean confirmation pill that pops in, holds, then fades out
+  // and unmounts (the follow-up chat message already carries the outcome, so
+  // a lingering banner is just clutter).
   if (resolved) {
     return (
-      <Animated.View entering={FadeInUp.duration(150)} style={styles.container}>
-        <View
-          style={[
-            styles.resolvedBanner,
-            resolved === "dismissed" && styles.resolvedBannerMuted,
-          ]}
-        >
-          {resolved === "applied" ? (
-            <Check size={14} color={BrandColors.white} strokeWidth={3} />
-          ) : (
-            <X size={14} color={NEUTRAL_TEXT} strokeWidth={3} />
-          )}
-          <Text
-            style={[
-              styles.resolvedText,
-              resolved === "dismissed" && styles.resolvedTextMuted,
-            ]}
-            weight="medium"
-          >
-            {resolved === "applied"
-              ? successText ?? "Got it — updated."
-              : "Dismissed."}
-          </Text>
-        </View>
-      </Animated.View>
+      <ResolvedBanner
+        kind={resolved}
+        text={
+          resolved === "applied"
+            ? successText ?? "Got it — updated."
+            : "Dismissed."
+        }
+      />
     );
   }
 
@@ -496,6 +560,10 @@ const styles = StyleSheet.create({
     color: "#C2410C",
     lineHeight: 19,
     fontFamily: FontFamily.medium,
+  },
+  resolvedWrap: {
+    marginVertical: Spacing.xs,
+    alignSelf: "flex-start",
   },
   resolvedBanner: {
     flexDirection: "row",

@@ -29,6 +29,7 @@ import { View, ScrollView, StyleSheet, Pressable, Alert, Platform, Keyboard, use
 // 2. Expo & Third-party
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
+import { Image } from "expo-image";
 import * as SecureStore from "expo-secure-store";
 import Animated, { useAnimatedStyle, useSharedValue, withTiming, withSpring, Easing, interpolate, runOnJS } from "react-native-reanimated";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
@@ -52,12 +53,10 @@ import * as Speech from "expo-speech";
 
 // 3. Shared UI (design system)
 import { Text } from "@/components/shared-ui";
-import { ProfileInitialsButton } from "@/components/home/ProfileInitialsButton";
 
 // 4. Flow-specific components
 import {
   AIGreeting,
-  AIContextBar,
   AIMessageBubble,
   AIInputBox,
   AITypingIndicator,
@@ -1339,7 +1338,7 @@ export default function AIChatScreen() {
       {/* Header — absolutely positioned, floats above scroll */}
       {(showOtoMenu || showRightMenu) && <Pressable style={styles.otoMenuOverlay} onPress={closeOtoMenu} />}
       <Animated.View style={[styles.headerFloating, { paddingTop: insets.top }, (showOtoMenu || showRightMenu) && { zIndex: 100 }]}>
-        {/* Left: Hamburger + Profile avatar */}
+        {/* Left: Hamburger */}
         <View style={styles.headerSide}>
           {isLiquidGlassEnabled && LiquidGlassView ? (
             <Pressable onPress={toggleDrawer}>
@@ -1355,107 +1354,23 @@ export default function AIChatScreen() {
               <AlignLeft size={22} color="#000000" />
             </Pressable>
           )}
-          <ProfileInitialsButton />
         </View>
 
-        {/* Center: Oto model selector */}
+        {/* Center: image of the car in discussion (replaces the Oto model
+            selector). Falls back to nothing until a vehicle is chosen. */}
         <View style={styles.headerCenter}>
-          {isLiquidGlassEnabled && LiquidGlassView ? (
-            <Pressable onPress={toggleOtoMenu}>
-              <LiquidGlassView interactive effect="regular" style={styles.glassCenterPill}>
-                <View style={styles.glassExpandableRow}>
-                  <Text style={styles.glassTitleText} size="md" weight="semiBold">
-                    {selectedModel === 'pro' ? 'Oto Pro' : 'Oto'}
-                  </Text>
-                </View>
-                <Animated.View style={expandedMenuStyle}>
-                  <View style={styles.otoExpandedDivider} />
-                  <Pressable
-                    onPress={() => { setSelectedModel('pro'); closeOtoMenu(); }}
-                    style={({ pressed }) => [styles.modelOptionItem, pressed && { opacity: 0.6 }]}
-                  >
-                    <View style={styles.modelOptionRow}>
-                      <Sparkles size={18} color="#000000" style={{ marginTop: 2 }} />
-                      <View style={styles.modelOptionTextContainer}>
-                        <View style={styles.modelOptionTitleRow}>
-                          <Text size="sm" weight="semiBold" style={styles.otoMenuItemText}>Oto Pro</Text>
-                          {selectedModel === 'pro' && <View style={styles.modelSelectedDot} />}
-                        </View>
-                        <Text size="xs" weight="regular" style={styles.modelOptionDescription}>
-                          Maximum quality and reasoning. Prioritizes depth over speed.
-                        </Text>
-                      </View>
-                    </View>
-                  </Pressable>
-                  <Pressable
-                    onPress={() => { setSelectedModel('flash'); closeOtoMenu(); }}
-                    style={({ pressed }) => [styles.modelOptionItem, pressed && { opacity: 0.6 }]}
-                  >
-                    <View style={styles.modelOptionRow}>
-                      <Zap size={18} color="#000000" style={{ marginTop: 2 }} />
-                      <View style={styles.modelOptionTextContainer}>
-                        <View style={styles.modelOptionTitleRow}>
-                          <Text size="sm" weight="semiBold" style={styles.otoMenuItemText}>Oto Flash</Text>
-                          {selectedModel === 'flash' && <View style={styles.modelSelectedDot} />}
-                        </View>
-                        <Text size="xs" weight="regular" style={styles.modelOptionDescription}>
-                          Fast, everyday responses. Great for quick questions and tasks.
-                        </Text>
-                      </View>
-                    </View>
-                  </Pressable>
-                </Animated.View>
-              </LiquidGlassView>
-            </Pressable>
-          ) : isMenuViewAvailable ? (
-            <MenuView
-              onPressAction={({ nativeEvent }) => {
-                haptics.selection();
-                if (nativeEvent.event === 'pro') setSelectedModel('pro');
-                else if (nativeEvent.event === 'flash') setSelectedModel('flash');
-              }}
-              actions={[
-                {
-                  id: 'pro',
-                  title: 'Oto Pro',
-                  subtitle: 'Maximum quality and reasoning. Prioritizes depth over speed.',
-                  image: 'sparkles',
-                  state: selectedModel === 'pro' ? 'on' : 'off',
-                },
-                {
-                  id: 'flash',
-                  title: 'Oto Flash',
-                  subtitle: 'Fast, everyday responses. Great for quick questions and tasks.',
-                  image: 'bolt.fill',
-                  state: selectedModel === 'flash' ? 'on' : 'off',
-                },
-              ]}
-            >
-              <View style={styles.modelSelectorButton}>
-                <View style={styles.pillContent}>
-                  <Text style={styles.glassTitleText} size="md" weight="semiBold">
-                    {selectedModel === 'pro' ? 'Oto Pro' : 'Oto'}
-                  </Text>
-                  <ChevronDown size={12} color="rgba(0,0,0,0.3)" />
-                </View>
-              </View>
-            </MenuView>
-          ) : (
-            <Pressable
-              onPress={() => {
-                haptics.selection();
-                setSelectedModel((prev) => (prev === 'pro' ? 'flash' : 'pro'));
-              }}
-              style={({ pressed }) => [styles.modelSelectorButton, pressed && styles.headerIconPressed]}
-            >
-              <View style={styles.pillContent}>
-                <Text style={styles.glassTitleText} size="md" weight="semiBold">
-                  {selectedModel === 'pro' ? 'Oto Pro' : 'Oto'}
-                </Text>
-                <ChevronDown size={12} color="rgba(0,0,0,0.3)" />
-              </View>
-            </Pressable>
-          )}
+          {selectedVehicle && (selectedVehicle.localImage || selectedVehicle.imageUrl) ? (
+            <Image
+              source={
+                selectedVehicle.localImage
+                  ? selectedVehicle.localImage
+                  : { uri: selectedVehicle.imageUrl as string }
+              }
+              style={styles.headerVehicleImage}
+              contentFit="contain"
+              transition={0}
+            />
+          ) : null}
         </View>
 
         {/* Right: Compose pill */}
@@ -1523,15 +1438,6 @@ export default function AIChatScreen() {
         </View>
       </Animated.View>
 
-      {/* Context bar — shows selected vehicle during chat */}
-      {!showChatGreeting && selectedVehicle && (
-        <AIContextBar
-          vehicle={selectedVehicle}
-          onChangeVehicle={startNewChat}
-          top={HEADER_HEIGHT + 8}
-        />
-      )}
-
       {/* Main Content */}
       <View
         style={[
@@ -1545,7 +1451,7 @@ export default function AIChatScreen() {
           style={[styles.chatContainer, showChatGreeting && styles.chatContainerGreeting]}
           contentContainerStyle={[
             styles.chatContent,
-            showChatGreeting ? styles.chatContentCentered : { paddingTop: HEADER_HEIGHT + 16 + (selectedVehicle ? 52 : 0), paddingBottom: (keyboardHeight > 0 ? keyboardHeight + 8 : bottomPadding + 8) + 70 },
+            showChatGreeting ? styles.chatContentCentered : { paddingTop: HEADER_HEIGHT + 16, paddingBottom: (keyboardHeight > 0 ? keyboardHeight + 8 : bottomPadding + 8) + 70 },
           ]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
@@ -1636,6 +1542,10 @@ export default function AIChatScreen() {
                         <BookServiceComponent
                           payload={message.bookService}
                           disabled={isProcessing}
+                          // Persist step + selections per conversation so
+                          // returning to this chat resumes the wizard where
+                          // the user left off (not back at Step 1).
+                          persistKey={convexConversationId ?? undefined}
                           onBookAndPay={(mechanicId) => {
                             pushFact(`selected mechanic_id: ${mechanicId}`);
                           }}
@@ -1861,6 +1771,11 @@ const styles = StyleSheet.create({
   headerCenter: {
     flex: 1,
     alignItems: "center",
+  },
+  headerVehicleImage: {
+    width: 72,
+    height: 40,
+    marginTop: 6,
   },
   headerIcon: {
     width: 40,

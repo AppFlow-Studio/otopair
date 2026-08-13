@@ -397,22 +397,20 @@ function ResolvedConfirmation({ text }: { text: string }) {
   const checkScale = useSharedValue(0.4);
   const checkOpacity = useSharedValue(0);
   const wrapOpacity = useSharedValue(1);
-  const wrapTranslateY = useSharedValue(0);
 
   useEffect(() => {
     // Pop the check + pill in.
     checkOpacity.value = withTiming(1, { duration: 160 });
     checkScale.value = withSpring(1, { damping: 11, stiffness: 220, mass: 0.6 });
-    // Hold, then fade the whole pill up and out, unmounting when done so the
-    // space it took collapses cleanly.
-    wrapOpacity.value = withDelay(HOLD_MS, withTiming(0, { duration: 300 }));
-    wrapTranslateY.value = withDelay(
+    // Hold, then a clean fade-out (no movement) before unmounting so the space
+    // it took collapses cleanly.
+    wrapOpacity.value = withDelay(
       HOLD_MS,
-      withTiming(-6, { duration: 300 }, (finished) => {
+      withTiming(0, { duration: 420 }, (finished) => {
         if (finished) runOnJS(setGone)(true);
       }),
     );
-  }, [checkOpacity, checkScale, wrapOpacity, wrapTranslateY]);
+  }, [checkOpacity, checkScale, wrapOpacity]);
 
   const badgeStyle = useAnimatedStyle(() => ({
     opacity: checkOpacity.value,
@@ -420,7 +418,6 @@ function ResolvedConfirmation({ text }: { text: string }) {
   }));
   const wrapStyle = useAnimatedStyle(() => ({
     opacity: wrapOpacity.value,
-    transform: [{ translateY: wrapTranslateY.value }],
   }));
 
   if (gone) return null;

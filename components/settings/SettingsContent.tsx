@@ -676,7 +676,7 @@ export function SettingsContent({
           />
           <SettingsRow
             icon={<FileText size={18} color="#FFFFFF" />}
-            label="Terms and Conditions"
+            label="Terms of Use"
             onPress={() => router.push("/settings/terms-and-conditions")}
             isLast
           />

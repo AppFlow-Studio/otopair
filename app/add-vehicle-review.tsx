@@ -53,6 +53,19 @@ import { formatEngineLiters } from '@/utils/vehicleDisplay';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
+// True when a hex color is dark enough that dark text on top of it would read
+// poorly — used to flip the header text/back-arrow to light on dark car-color
+// gradients (e.g. a grey/black vehicle whose gradient top is a dark slate).
+function isDarkColor(hex: string): boolean {
+  const h = hex.replace('#', '');
+  if (h.length < 6) return false;
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return luminance < 0.6;
+}
+
 // One swatch in the color picker — owns its own scale animation so the
 // parent doesn't need to manage N shared values. Springs to 1.08 on
 // select, back to 1.0 on deselect.
@@ -297,6 +310,15 @@ export default function AddVehicleReviewScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedColor, vdbColors]);
 
+  // The header sits over the gradient's top color — flip its text + back arrow
+  // to light when that color is dark so a grey/black car doesn't bury the title.
+  const headerOnDark = useMemo(
+    () => isDarkColor(activeGradient[0] ?? '#FFFFFF'),
+    [activeGradient],
+  );
+  const headerTitleColor = headerOnDark ? '#FFFFFF' : '#333333';
+  const headerSubtitleColor = headerOnDark ? 'rgba(255,255,255,0.85)' : '#666666';
+
   // Two-layer crossfade — bottom always opaque (last settled), top fades
   // 0 → 1 with the incoming colors, then commits as settled.
   const [settledGradient, setSettledGradient] = useState<readonly string[]>(activeGradient);
@@ -527,7 +549,7 @@ export default function AddVehicleReviewScreen() {
         ]}
         hitSlop={12}
       >
-        <ArrowLeft size={scale(24)} color="#000000" strokeWidth={2} />
+        <ArrowLeft size={scale(24)} color={headerOnDark ? '#FFFFFF' : '#000000'} strokeWidth={2} />
       </Pressable>
 
       <ScrollView
@@ -539,10 +561,10 @@ export default function AddVehicleReviewScreen() {
       >
         {/* Title */}
         <View style={styles.titleContainer}>
-          <Text weight="bold" size="2xl" color="#333333" style={styles.title}>
+          <Text weight="bold" size="2xl" style={[styles.title, { color: headerTitleColor }]}>
             VEHICLE DETECTED
           </Text>
-          <Text size="sm" color="#666666" style={styles.subtitle}>
+          <Text size="sm" style={[styles.subtitle, { color: headerSubtitleColor }]}>
             We found your vehicle from the VIN
           </Text>
         </View>

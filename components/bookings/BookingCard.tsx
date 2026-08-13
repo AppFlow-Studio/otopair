@@ -31,12 +31,16 @@ import type { View as RNView } from 'react-native';
 
 // 2. Expo & Third-party
 import { useGuardedRouter as useRouter } from '@/hooks/useGuardedRouter';
-import { Car, FileText, Star, User } from 'lucide-react-native';
+import { CalendarClock, Car, ChevronRight, FileText, Star, User } from 'lucide-react-native';
 import Animated, { FadeOut, LinearTransition, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 
 // 3. Shared UI
 import { FixedPriceBadge, Text } from '@/components/shared-ui';
 import { BookingProgressBar } from '@/components/bookings/BookingProgressBar';
+import { LinearGradient } from 'expo-linear-gradient';
+// Same navy the Home banner and the booking sheet lead with — an upcoming card
+// is the same object at a smaller size, so it carries the same header.
+import { HERO_SURFACE, HERO_SURFACE_DEEP } from '@/components/home/UpcomingAppointmentHero';
 import { ApprovalBanner } from '@/components/booking/ApprovalBanner';
 import { getBookingStageView } from '@/utils/bookingStages';
 import { useConnection } from '@/hooks/useConnection';
@@ -67,6 +71,10 @@ export interface Booking {
   mechanicImage?: string;
   // Scheduling
   date: string;
+  /** Raw "YYYY-MM-DD" service date. `date` is formatted for display
+   *  ("Tuesday, May 26") and carries no year, so it can't be sorted or grouped
+   *  on — this is the only field that can. */
+  scheduledDate?: string;
   time: string;
   status: BookingStatus;
   // History-specific
@@ -128,6 +136,8 @@ function titleCase(str: string): string {
   return str.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+const CARD_PADDING = 16;
+const CARD_RADIUS = 16;
 const ACTION_BUTTON_GAP = 10;
 const ACTION_BUTTON_HORIZONTAL_PADDING = 32;
 const ACTION_BUTTON_LABEL_MAX_SIZE = 14;
@@ -350,6 +360,7 @@ export function BookingCard({
 
 
   const stageView = getBookingStageView(booking.status, booking.liveStage);
+  const isUpcoming = variant === 'upcoming';
 
   return (
     <Animated.View
@@ -357,49 +368,67 @@ export function BookingCard({
       exiting={FadeOut.duration(220)}
       layout={LinearTransition.duration(260)}
     >
-      {/* Lifecycle progress bar — see utils/bookingStages.ts. The status
-          badge in the title row below carries the same info textually so
-          the bar reads as visual reinforcement. */}
-      <BookingProgressBar
-        stages={stageView.stages}
-        currentIndex={stageView.currentIndex}
-      />
+      {/* The card body IS the tap target — that's what replaced the old
+          full-width "View Details" button. Actions stay outside the Pressable
+          so there's no nested-press ambiguity. */}
+      <Pressable
+        onPress={handleViewDetails}
+        disabled={isCancelling}
+        accessibilityRole="button"
+        accessibilityLabel={`${mainService} at ${booking.shopName}. ${statusConfig.label}. Open booking details`}
+      >
+      {/* Navy header band — mirrors the Home banner and the details sheet, so
+          the three read as one object at three sizes. Upcoming only; history
+          rows are an archive and stay plain white. The gradient bleeds past the
+          card's padding to reach its edges and carries its own top radii, so
+          the card keeps the shadow it would lose to `overflow: hidden`. It has
+          to enclose the title row too — the title inverts to white inside it. */}
+      <View style={styles.headerBlock}>
+        {isUpcoming ? (
+          <LinearGradient
+            colors={[HERO_SURFACE, HERO_SURFACE_DEEP]}
+            start={{ x: 0.5, y: 0 }}
+            end={{ x: 0.5, y: 1 }}
+            style={styles.navyBand}
+            pointerEvents="none"
+          />
+        ) : null}
 
-      {/* Pending-approval or reauth-required CTA. Returns null when the
-          booking isn't in one of those states, so no extra guard needed. */}
-      <ApprovalBanner
-        bookingId={booking.id}
-        paymentApprovalState={booking.paymentApprovalState}
-      />
+        {/* Lifecycle progress bar — see utils/bookingStages.ts. Segments only:
+            the status badge beside the title already names the state, and the
+            bar's own stage label worded it differently ("Booked" under a
+            "Pending Shop" pill), which read as a contradiction. */}
+        <BookingProgressBar
+          stages={stageView.stages}
+          currentIndex={stageView.currentIndex}
+          showStageLabel={false}
+          onDark={isUpcoming}
+        />
 
-      {/* Booking identifier — invoice number if the mechanic attached one,
-          else the last-6 of the convex booking id. Tiny gray line above the
-          service title so customers can quote it on a support ticket. */}
-      {idLine ? (
-        <Text
-          weight="semiBold"
-          size="xs"
-          color="#9CA3AF"
-          style={styles.idLine}
-        >
-          {idLine}
-        </Text>
-      ) : null}
-
+        {idLine ? (
+          <Text
+            weight="semiBold"
+            size="xs"
+            color={isUpcoming ? 'rgba(255,255,255,0.55)' : '#9CA3AF'}
+            style={styles.idLine}
+          >
+            {idLine}
+          </Text>
+        ) : null}
       {/* Title Row */}
       <View style={styles.titleRow}>
         <View style={styles.servicesContainer}>
           <Text
             weight="bold"
             size="xl"
-            color="#1F2937"
+            color={isUpcoming ? '#FFFFFF' : '#1F2937'}
             style={isCancelling ? styles.strikethrough : undefined}
           >
             {mainService}
           </Text>
           {additionalCount > 0 && (
             <>
-              <Text weight="bold" size="xl" color="#1F2937">, </Text>
+              <Text weight="bold" size="xl" color={isUpcoming ? '#FFFFFF' : '#1F2937'}>, </Text>
               <Text
                 weight="semiBold"
                 size="xl"
@@ -411,12 +440,32 @@ export function BookingCard({
             </>
           )}
         </View>
-        <View style={[styles.statusBadge, { backgroundColor: statusConfig.bgColor }]}>
-          <Text weight="semiBold" size="sm" color={statusConfig.textColor}>
+        {/* STATUS_CONFIG's bgColors are near-white pastels meant for a white
+            card; on the navy band they read as a bright blob, so the chip goes
+            translucent and the status colour survives as the dot. */}
+        <View
+          style={[
+            styles.statusBadge,
+            isUpcoming
+              ? styles.statusBadgeOnDark
+              : { backgroundColor: statusConfig.bgColor },
+          ]}
+        >
+          <View style={[styles.statusDot, { backgroundColor: statusConfig.textColor }]} />
+          <Text weight="semiBold" size="sm" color={isUpcoming ? '#FFFFFF' : statusConfig.textColor}>
             {statusConfig.label}
           </Text>
         </View>
       </View>
+      </View>
+
+      {/* Pending-approval or reauth-required CTA. Returns null when the
+          booking isn't in one of those states, so no extra guard needed. Sits
+          below the navy band, on the white body. */}
+      <ApprovalBanner
+        bookingId={booking.id}
+        paymentApprovalState={booking.paymentApprovalState}
+      />
 
       {/* Car and Mechanic Info Row */}
       <View style={styles.infoRow}>
@@ -477,22 +526,22 @@ export function BookingCard({
       {/* Date/Time or Completion Info */}
       {variant === 'upcoming' ? (
         booking.status === 'pending_quote' ? (
-          <View style={styles.dateTimeContainer}>
+          <View style={styles.whenRow}>
+            <CalendarClock size={15} color="#C8972E" strokeWidth={2} />
             <Text weight="semiBold" size="sm" color="#C8972E">
-              Awaiting quote
+              Awaiting quote · Time TBD
             </Text>
-            <Text weight="regular" size="sm" color="#6B7280">
-              Time TBD
-            </Text>
+            <View style={styles.whenSpacer} />
+            <ChevronRight size={18} color="#C3CBD6" strokeWidth={2} />
           </View>
         ) : (
-          <View style={styles.dateTimeContainer}>
-            <Text weight="semiBold" size="sm" color="#5299FE">
-              {booking.date}
+          <View style={styles.whenRow}>
+            <CalendarClock size={15} color="#6B7280" strokeWidth={2} />
+            <Text weight="semiBold" size="sm" color="#1F2937" numberOfLines={1}>
+              {[booking.date, booking.time].filter(Boolean).join(' · ')}
             </Text>
-            <Text weight="semiBold" size="sm" color="#5299FE">
-              {booking.time}
-            </Text>
+            <View style={styles.whenSpacer} />
+            <ChevronRight size={18} color="#C3CBD6" strokeWidth={2} />
           </View>
         )
       ) : (
@@ -553,6 +602,8 @@ export function BookingCard({
         </View>
       )}
 
+      </Pressable>
+
       {/* Actions Row. Once a booking is in service the user can no
           longer cancel or reschedule because service is in flight at the shop. */}
       {variant === 'upcoming' ? (
@@ -561,29 +612,33 @@ export function BookingCard({
           onLayout={(event) => setActionsRowWidth(event.nativeEvent.layout.width)}
           pointerEvents={isCancelling ? 'none' : 'auto'}
         >
-          <Pressable
-            ref={primaryBtnRef}
-            onPress={handleViewDetails}
-            disabled={isCancelling}
-            style={({ pressed }) => [
-              styles.primaryButton,
-              styles.primaryButtonFull,
-              pressed && styles.buttonPressed,
-            ]}
-          >
-            <Text
-              weight="semiBold"
-              size={actionButtonLabelSize}
-              color="#FFFFFF"
-              numberOfLines={1}
-              lineHeight={1.2}
-              style={styles.actionButtonLabel}
+          {/* Only rendered when the booking needs a decision. `primaryBtnRef`
+              is measured to morph the Accept/Decline overlay out of this
+              button, and that is the one status that opens it — so the ref is
+              never missing on the path that reads it. */}
+          {booking.status === 'pending_customer_acceptance' ? (
+            <Pressable
+              ref={primaryBtnRef}
+              onPress={handleViewDetails}
+              disabled={isCancelling}
+              style={({ pressed }) => [
+                styles.primaryButton,
+                styles.primaryButtonFull,
+                pressed && styles.buttonPressed,
+              ]}
             >
-              {booking.status === 'pending_customer_acceptance'
-                ? 'Review change'
-                : 'View Details'}
-            </Text>
-          </Pressable>
+              <Text
+                weight="semiBold"
+                size={actionButtonLabelSize}
+                color="#FFFFFF"
+                numberOfLines={1}
+                lineHeight={1.2}
+                style={styles.actionButtonLabel}
+              >
+                Review change
+              </Text>
+            </Pressable>
+          ) : null}
 
           {booking.status !== 'in_progress' && (
             writeActionsAllowed ? (
@@ -681,8 +736,8 @@ export function BookingCard({
 const styles = StyleSheet.create({
   card: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 16,
+    borderRadius: CARD_RADIUS,
+    padding: CARD_PADDING,
     marginBottom: 12,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -707,9 +762,35 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   statusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
     paddingVertical: 6,
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
     borderRadius: 20,
+  },
+  statusBadgeOnDark: {
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.14)',
+  },
+  statusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  // Gives the band a positioning context and pushes the white body clear of it.
+  headerBlock: {
+    marginBottom: 4,
+  },
+  navyBand: {
+    position: 'absolute',
+    top: -CARD_PADDING,
+    left: -CARD_PADDING,
+    right: -CARD_PADDING,
+    bottom: 0,
+    borderTopLeftRadius: CARD_RADIUS,
+    borderTopRightRadius: CARD_RADIUS,
   },
   strikethrough: {
     textDecorationLine: 'line-through',
@@ -770,17 +851,16 @@ const styles = StyleSheet.create({
     minWidth: 0,
     gap: 2,
   },
-  dateTimeContainer: {
+  // Was a bordered box holding two blue strings at opposite ends. A card
+  // inside a card, for one line of text.
+  whenRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 10,
+    gap: 8,
     marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
+  },
+  whenSpacer: {
+    flex: 1,
   },
   historyInfoContainer: {
     marginBottom: 16,

@@ -18,7 +18,7 @@
  * of the page sits well below the threshold; biasing toward "treat
  * it as dark" keeps text consistently readable across all palettes.
  */
-export function isDarkColor(hex: string): boolean {
+export function isDarkColor(hex: string, threshold = 0.72): boolean {
   const cleaned = hex.replace("#", "");
   const expanded =
     cleaned.length === 3
@@ -33,5 +33,5 @@ export function isDarkColor(hex: string): boolean {
   const g = parseInt(expanded.slice(2, 4), 16) / 255;
   const b = parseInt(expanded.slice(4, 6), 16) / 255;
   const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-  return luminance < 0.72;
+  return luminance < threshold;
 }

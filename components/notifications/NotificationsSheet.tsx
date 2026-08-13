@@ -21,6 +21,7 @@ import {
 } from "react-native";
 import type { View as RNView } from "react-native";
 import Animated, {
+  Easing,
   Extrapolation,
   interpolate,
   runOnJS,
@@ -29,6 +30,11 @@ import Animated, {
   withSpring,
   withTiming,
 } from "react-native-reanimated";
+import {
+  Gesture,
+  GestureDetector,
+  GestureHandlerRootView,
+} from "react-native-gesture-handler";
 import { BlurView } from "expo-blur";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
@@ -85,44 +91,44 @@ export function NotificationsSheet() {
   const { notifications, markRead, isLoading } = useNotificationsFromConvex();
 
   const [mounted, setMounted] = useState(false);
-  const progress = useSharedValue(0);
+  // translateY is the single source of truth for the sheet's vertical
+  // position: 0 = fully open, SHEET_HEIGHT = off-screen. Drag + open/close
+  // animations all write to it so the gesture and the X/backdrop dismiss
+  // feel continuous.
+  const translateY = useSharedValue(SHEET_HEIGHT);
   const rowRefs = useRef<Map<string, RNView | null>>(new Map());
 
   useEffect(() => {
     if (isOpen) {
       setMounted(true);
-      progress.value = 0;
+      translateY.value = SHEET_HEIGHT;
       requestAnimationFrame(() => {
-        progress.value = withSpring(1, SPRING_CONFIG);
+        translateY.value = withSpring(0, SPRING_CONFIG);
       });
     } else if (mounted) {
-      progress.value = withTiming(0, { duration: 220 }, (finished) => {
-        if (finished) {
-          runOnJS(setMounted)(false);
-        }
-      });
+      // Eased slide-off (was a flat linear 220ms, which read as abrupt).
+      translateY.value = withTiming(
+        SHEET_HEIGHT,
+        { duration: 300, easing: Easing.inOut(Easing.cubic) },
+        (finished) => {
+          if (finished) {
+            runOnJS(setMounted)(false);
+          }
+        },
+      );
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
   const sheetStyle = useAnimatedStyle(() => ({
-    transform: [
-      {
-        translateY: interpolate(
-          progress.value,
-          [0, 1],
-          [SHEET_HEIGHT, 0],
-          Extrapolation.CLAMP,
-        ),
-      },
-    ],
+    transform: [{ translateY: translateY.value }],
   }));
 
   const backdropStyle = useAnimatedStyle(() => ({
     opacity: interpolate(
-      progress.value,
-      [0, 1],
-      [0, 1],
+      translateY.value,
+      [0, SHEET_HEIGHT],
+      [1, 0],
       Extrapolation.CLAMP,
     ),
   }));
@@ -130,6 +136,20 @@ export function NotificationsSheet() {
   const handleClose = () => {
     closeStore();
   };
+
+  // Drag-to-dismiss: pull the sheet down, release past ~20% (or a fast
+  // flick) to close, otherwise spring back up.
+  const panGesture = Gesture.Pan()
+    .onUpdate((e) => {
+      translateY.value = Math.max(0, e.translationY);
+    })
+    .onEnd((e) => {
+      if (e.translationY > SHEET_HEIGHT * 0.2 || e.velocityY > 700) {
+        runOnJS(closeStore)();
+      } else {
+        translateY.value = withSpring(0, SPRING_CONFIG);
+      }
+    });
 
   const handleRowPress = (row: NotificationRow) => {
     if (RESCHEDULE_CATEGORIES.has(row.category) && row.booking_id) {
@@ -210,6 +230,7 @@ export function NotificationsSheet() {
       statusBarTranslucent
       onRequestClose={handleClose}
     >
+      <GestureHandlerRootView style={StyleSheet.absoluteFill}>
       <Animated.View style={[StyleSheet.absoluteFill, backdropStyle]}>
         <Pressable style={StyleSheet.absoluteFill} onPress={handleClose}>
           <BlurView
@@ -227,19 +248,23 @@ export function NotificationsSheet() {
           sheetStyle,
         ]}
       >
-        <View style={styles.handle} />
-        <View style={styles.header}>
-          <Text size="xl" weight="bold" color={BrandColors.primary}>
-            Notifications
-          </Text>
-          <Pressable
-            onPress={handleClose}
-            hitSlop={12}
-            style={styles.closeButton}
-          >
-            <X size={20} color={BrandColors.primary} strokeWidth={2.4} />
-          </Pressable>
-        </View>
+        <GestureDetector gesture={panGesture}>
+          <View style={styles.dragArea}>
+            <View style={styles.handle} />
+            <View style={styles.header}>
+              <Text size="xl" weight="bold" color={BrandColors.primary}>
+                Notifications
+              </Text>
+              <Pressable
+                onPress={handleClose}
+                hitSlop={12}
+                style={styles.closeButton}
+              >
+                <X size={20} color={BrandColors.primary} strokeWidth={2.4} />
+              </Pressable>
+            </View>
+          </View>
+        </GestureDetector>
 
         <ScrollView
           style={styles.list}
@@ -338,6 +363,7 @@ export function NotificationsSheet() {
           })}
         </ScrollView>
       </Animated.View>
+      </GestureHandlerRootView>
     </Modal>
   );
 }
@@ -352,6 +378,11 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: BorderRadius["2xl"] ?? 24,
     borderTopRightRadius: BorderRadius["2xl"] ?? 24,
     overflow: "hidden",
+  },
+  dragArea: {
+    // The grabbable top region for drag-to-dismiss (handle + header).
+    // The list below stays outside the gesture so it scrolls normally.
+    paddingBottom: 4,
   },
   handle: {
     alignSelf: "center",

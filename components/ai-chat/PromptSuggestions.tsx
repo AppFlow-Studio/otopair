@@ -110,32 +110,10 @@ function SuggestionCard({
     ? `${suggestion.text} ${suggestion.subtitle}`
     : suggestion.text;
 
-  if (isLiquidGlassEnabled && LiquidGlassView) {
-    return (
-      <Animated.View style={animatedStyle}>
-        <Pressable
-          onPress={handlePress}
-          onPressIn={handlePressIn}
-          onPressOut={handlePressOut}
-          disabled={disabled}
-        >
-          <LiquidGlassView
-            interactive
-            effect="regular"
-            style={[
-              styles.glassCard,
-              disabled && styles.cardDisabled,
-            ]}
-          >
-            <Text style={styles.cardText} weight="medium">
-              {label}
-            </Text>
-          </LiquidGlassView>
-        </Pressable>
-      </Animated.View>
-    );
-  }
-
+  // Always the solid card (translucent white + subtle border) so every
+  // shortcut shows the same white rectangle. The iOS 26 liquid-glass variant
+  // rendered its material inconsistently across the staggered fade-in — only
+  // the first card showed a border — so we use the solid style uniformly.
   return (
     <Animated.View style={animatedStyle}>
       <Pressable

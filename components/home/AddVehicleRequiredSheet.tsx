@@ -1,5 +1,6 @@
 import React, { forwardRef } from "react";
-import { Pressable, StyleSheet, Text as RNText, View, useWindowDimensions } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
+import { Car } from "lucide-react-native";
 
 import { Text } from "@/components/shared-ui";
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
@@ -13,19 +14,22 @@ interface AddVehicleRequiredSheetProps {
 
 export const AddVehicleRequiredSheet = forwardRef<FloatingSheetRef, AddVehicleRequiredSheetProps>(
   function AddVehicleRequiredSheet({ onAddVehicle, onMaybeLater, onClose }, ref) {
-    const { height: screenHeight } = useWindowDimensions();
-
     return (
       <FloatingSheet
         ref={ref}
-        snapHeights={[screenHeight * 0.5]}
+        // Fixed, content-fit height — the previous 50%-of-screen snap left a
+        // big empty gap under "Maybe later" and pushed the sheet up high.
+        // This sizes to the actual content so it sits lower + hugs it.
+        snapHeights={[380]}
+        // Sit closer to the bottom edge (default floats ~insets.bottom/2 up).
+        floatBottomInset={8}
         showBackdrop
         onClose={onClose}
       >
         <View style={[styles.sheetContentContainer, styles.noVehicleContent]}>
           <View style={styles.sheetTitleWrap}>
             <View style={styles.noVehicleIconWrap}>
-              <RNText style={styles.noVehicleIcon}>🚗</RNText>
+              <Car size={28} color={BrandColors.secondary} strokeWidth={2} />
             </View>
             <Text style={styles.sheetTitle}>Add a vehicle first</Text>
           </View>
@@ -124,14 +128,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 16,
-  },
-  noVehicleIcon: {
-    fontSize: 26,
-    lineHeight: 28,
-    textAlign: "center",
-    textAlignVertical: "center",
-    includeFontPadding: false,
-    transform: [{ translateY: -2 }],
   },
   noVehicleSecondaryAction: {
     alignItems: "center",

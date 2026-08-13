@@ -160,10 +160,13 @@ function ProtectedTabLayout() {
       <NativeTabs>
         <NativeTabs.Trigger name="home">
           <Label>{"Home"}</Label>
-          <Icon sf="house.fill" drawable="custom_android_drawable" />
+          {/* Least-detailed house SF offers — outline instead of the
+              heavier `house.fill`. */}
+          <Icon sf="house" drawable="custom_android_drawable" />
         </NativeTabs.Trigger>
 
         <NativeTabs.Trigger name="bookings">
+          {/* `calendar` is the simplest calendar in SF Symbols. */}
           <Icon sf="calendar" drawable="custom_settings_drawable" />
           <Label>{"Bookings"}</Label>
           {showBookingsBadge ? <Badge>{" "}</Badge> : null}

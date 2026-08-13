@@ -35,13 +35,12 @@ import Animated, {
   useAnimatedStyle,
   useSharedValue,
   withDelay,
-  withRepeat,
   withTiming,
 } from "react-native-reanimated";
 import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
 
-import { ArrowRight, Bell, CalendarX, Car, Check, ChevronDown, ChevronRight, FileText, MessageCircle, Navigation, Phone, ReceiptText, User, Wrench, X } from "lucide-react-native";
+import { ArrowRight, Bell, CalendarClock, CalendarDays, CalendarX, Car, Check, ChevronDown, ChevronRight, ChevronUp, FileText, MessageCircle, Navigation, Phone, ReceiptText, Store, Wrench, X } from "lucide-react-native";
 
 import { openMapsForAddress, openPhone } from "@/utils/linking";
 import { useQuery } from "convex/react";
@@ -58,6 +57,10 @@ import { useToast } from "@/hooks/useToast";
 import { buildBookingCalendarEvent, formatBookingReference } from "@/lib/booking-calendar";
 import { useBookingStore } from "@/stores/useBookingStore";
 import type { Booking } from "./BookingCard";
+// Same navy the Home appointment banner uses. The collapsed sheet opens from
+// that banner, so it leads with the identical surface — the tap reads as the
+// banner expanding rather than a different screen appearing.
+import { HERO_SURFACE, HERO_SURFACE_DEEP } from "@/components/home/UpcomingAppointmentHero";
 import { MechanicChatSheet, type MechanicChatSheetRef } from "./MechanicChatSheet";
 import { RescheduleSheet, type RescheduleSheetRef } from "./RescheduleSheet";
 import { ApprovalBanner } from "@/components/booking/ApprovalBanner";
@@ -77,7 +80,17 @@ const { height: FALLBACK_SCREEN_HEIGHT } = Dimensions.get("window");
 
 const SIDE_INSET_MAX = 10;
 const CORNER_RADIUS = 46;
+/** Intrinsic height of the floating grabber row (handle 5 + 8 margin each
+ *  side). Content views pad by this to clear it. */
+const DRAG_REGION_HEIGHT = 21;
 const FLOAT_BOTTOM = 12;
+/** Gutter under the expanded view's last action. Deliberately a constant, not
+ *  `insets.bottom`: inside this `<Modal statusBarTranslucent>` the safe-area
+ *  inset over-reports (measured ~83pt on an iPhone 17 Pro vs the real ~34pt),
+ *  and the old `insets.bottom + 60` compounded that into a dead band of white
+ *  below the content. The sheet already floats ~17pt clear of the screen
+ *  bottom, so this only has to clear the home indicator. */
+const FULL_SCROLL_BOTTOM_GUTTER = 24;
 
 const FLING_VELOCITY = 550;
 const DISMISS_OVERSHOOT = 80;
@@ -548,10 +561,21 @@ export const BookingDetailsSheet = forwardRef<BookingDetailsSheetRef, BookingDet
 
         <Animated.View style={[styles.sheetShadow, sheetAnimStyle]}>
           <Animated.View style={[styles.sheetInner, innerAnimStyle]}>
-            {/* Grabber always at top, drag-to-resize */}
+            {/* Grabber always at top, drag-to-resize. Absolutely positioned
+                (not in flow) so the collapsed view's navy header can run all
+                the way to the sheet's rounded top edge and the grabber floats
+                on top of it. Both content views add DRAG_REGION_HEIGHT of top
+                padding to clear it. */}
             <GestureDetector gesture={dragGesture}>
               <View style={styles.dragRegion}>
-                <View style={styles.handle} />
+                <View
+                  style={[
+                    styles.handle,
+                    // Light on the collapsed view's navy, grey on the expanded
+                    // view's white.
+                    detentJs === 0 && styles.handleOnDark,
+                  ]}
+                />
               </View>
             </GestureDetector>
 
@@ -569,6 +593,7 @@ export const BookingDetailsSheet = forwardRef<BookingDetailsSheetRef, BookingDet
                   shopPhone={resolvedShopPhone}
                   onClose={close}
                   onOpenChat={handleOpenChat}
+                  onRequestReschedule={handleRequestReschedule}
                 />
               </Animated.View>
 
@@ -578,6 +603,7 @@ export const BookingDetailsSheet = forwardRef<BookingDetailsSheetRef, BookingDet
               >
                 <FullContent
                   booking={booking}
+                  statusConfig={statusConfig}
                   bookingDetail={bookingDetail}
                   serviceDescription={serviceDescription}
                   serviceDurationMinutes={serviceDurationMinutes}
@@ -590,7 +616,7 @@ export const BookingDetailsSheet = forwardRef<BookingDetailsSheetRef, BookingDet
                   activityLog={activityLog}
                   onClose={close}
                   onRequestReschedule={handleRequestReschedule}
-                  bottomPadding={insets.bottom + 60}
+                  bottomPadding={FULL_SCROLL_BOTTOM_GUTTER}
                 />
               </Animated.View>
             </View>
@@ -614,18 +640,6 @@ BookingDetailsSheet.displayName = "BookingDetailsSheet";
 // SUB-COMPONENTS
 // ============================================================================
 
-function SheetHeader({ onClose }: { onClose: () => void }) {
-  return (
-    <View style={styles.headerRow}>
-      <Text size="2xl" weight="bold" color="#1A1A1A">
-        Booking Details
-      </Text>
-      <TouchableOpacity onPress={onClose} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-        <X size={22} color="#8E8E93" />
-      </TouchableOpacity>
-    </View>
-  );
-}
 
 interface MidContentProps {
   booking: Booking;
@@ -635,6 +649,7 @@ interface MidContentProps {
   shopPhone?: string;
   onClose: () => void;
   onOpenChat: () => void;
+  onRequestReschedule: (bookingId: string, date: string, time: string) => void;
 }
 
 function MidContent({
@@ -645,12 +660,13 @@ function MidContent({
   shopPhone,
   onClose,
   onOpenChat,
+  onRequestReschedule,
 }: MidContentProps) {
   const primaryActionLabel = "Message Mechanic";
 
   // Offline gate: in-app chat needs the backend, so while offline the
   // Message Mechanic button is replaced by the "last synced info" strip.
-  // Directions/Contact stay live — they hand off to the device's maps/phone
+  // Call/Directions stay live — they hand off to the device's phone/maps
   // apps using data already cached on the booking. Keyed on hard `offline`
   // so a brief socket "reconnecting" blip doesn't flash the swap.
   const conn = useConnection();
@@ -664,123 +680,91 @@ function MidContent({
     if (shopAddress) openMapsForAddress(shopAddress);
   }, [shopAddress]);
 
-  const handleContact = useCallback(() => {
+  const handleCall = useCallback(() => {
     if (shopPhone) openPhone(shopPhone);
   }, [shopPhone]);
 
-  const directionsDisabled = !shopAddress;
-  const contactDisabled = !shopPhone;
+  const handleReschedule = useCallback(() => {
+    // Same as FullContent's: seed the picker from the booking's current slot.
+    const local = useBookingStore.getState().getBookingById(booking.id);
+    onRequestReschedule(booking.id, local?.scheduledDate ?? "", local?.scheduledTime ?? "");
+  }, [booking.id, onRequestReschedule]);
+
+  const mechanicLine =
+    booking.mechanicName && booking.mechanicName !== booking.shopName
+      ? `${booking.mechanicName}${mechanicRating != null ? ` · ⭐ ${mechanicRating.toFixed(1)}` : ""}`
+      : mechanicRating != null
+        ? `⭐ ${mechanicRating.toFixed(1)}`
+        : undefined;
 
   return (
     <ScrollView
       style={styles.midScroll}
       contentContainerStyle={styles.midContainer}
       showsVerticalScrollIndicator={false}
+      // No rubber-band: the navy header scrolls with this content, so bouncing
+      // it down uncovered the sheet's white background above it — and the
+      // grabber, tinted light for the navy, vanished against that white. Real
+      // scrolling still works if the content ever overflows.
+      bounces={false}
+      overScrollMode="never"
     >
-      {/* Top block — pushed to top */}
       <View>
-        <SheetHeader onClose={onClose} />
-
-        <View style={styles.midStatusBlock}>
-          <Text size="xl" weight="semiBold" color="#1A1A1A" style={styles.midStatusLeft}>
-            {booking.date && booking.time
-              ? `${booking.date} · ${booking.time}`
-              : booking.date || booking.time || "Time TBD"}
-          </Text>
-          <View style={[styles.statusPill, { backgroundColor: statusConfig.bgColor }]}>
-            <Text weight="semiBold" size="sm" color={statusConfig.textColor}>
-              {statusConfig.label}
-            </Text>
-          </View>
-        </View>
-
-        <MechanicCard
+        <BookingHeroHeader
           booking={booking}
-          mechanicRating={mechanicRating}
-          onMessage={onOpenChat}
-          messageDisabled={!messageAllowed}
+          statusConfig={statusConfig}
+          onClose={onClose}
         />
 
-        {/* Details card — Service + Vehicle at a glance */}
-        <View style={styles.detailsCard}>
-          <View style={styles.detailsRow}>
-            <View style={styles.detailsIconBox}>
-              <Wrench size={18} color="#5299FE" />
-            </View>
-            <View style={styles.detailsText}>
-              <Text size="xs" weight="medium" color="#8E8E93">
-                SERVICE
-              </Text>
-              <Text size="md" weight="semiBold" color="#1A1A1A">
-                {(booking.services ?? []).join(" · ") || "Service"}
-              </Text>
-            </View>
-          </View>
+        {/* One row for every secondary action. Call and Message each used to
+            appear twice on this view (icon buttons on the mechanic card, then
+            Contact / Message Mechanic below); each now has exactly one home —
+            Message stays the primary CTA, the rest live here. */}
+        <View style={styles.quickRow}>
+          <QuickAction
+            icon={<Phone size={20} color={shopPhone ? "#0F172A" : "#B6C0CC"} strokeWidth={2} />}
+            label="Call"
+            onPress={handleCall}
+            disabled={!shopPhone}
+          />
+          <QuickAction
+            icon={
+              <Navigation size={20} color={shopAddress ? "#0F172A" : "#B6C0CC"} strokeWidth={2} />
+            }
+            label="Directions"
+            onPress={handleDirections}
+            disabled={!shopAddress}
+          />
+          <QuickAction
+            icon={<CalendarDays size={20} color="#0F172A" strokeWidth={2} />}
+            label="Reschedule"
+            onPress={handleReschedule}
+          />
+        </View>
 
-          <View style={styles.detailsDivider} />
-
-          <View style={styles.detailsRow}>
-            <View style={styles.detailsIconBox}>
-              <Car size={18} color="#5299FE" />
-            </View>
-            <View style={styles.detailsText}>
-              <Text size="xs" weight="medium" color="#8E8E93">
-                VEHICLE
-              </Text>
-              <Text size="md" weight="semiBold" color="#1A1A1A" numberOfLines={1}>
-                {titleCase(booking.carModel)}
-                {booking.carYear ? ` · ${booking.carYear}` : ""}
-              </Text>
-            </View>
-          </View>
+        {/* Flat rows on the sheet surface rather than nested grey cards — the
+            sheet is already a container, so a card inside it just adds edges. */}
+        <View style={styles.infoList}>
+          <InfoRow
+            icon={<Store size={18} color="#5299FE" strokeWidth={2} />}
+            label="SHOP"
+            value={booking.shopName}
+            sub={mechanicLine}
+          />
+          <View style={styles.infoDivider} />
+          <InfoRow
+            icon={<Car size={18} color="#5299FE" strokeWidth={2} />}
+            label="VEHICLE"
+            value={`${titleCase(booking.carModel)}${booking.carYear ? ` · ${booking.carYear}` : ""}`}
+          />
         </View>
       </View>
 
       {/* Bottom block — pushed to bottom */}
       <View style={styles.midBottomBlock}>
-        {/* Directions + Contact — mirrors the Order Confirmation card */}
-        <View style={styles.midActionRow}>
-          <TouchableOpacity
-            style={[styles.midActionButton, directionsDisabled && styles.midActionButtonDisabled]}
-            onPress={handleDirections}
-            disabled={directionsDisabled}
-            activeOpacity={0.7}
-          >
-            <Navigation
-              size={16}
-              color={directionsDisabled ? "#9CA3AF" : "#1A1A1A"}
-            />
-            <Text
-              size="sm"
-              weight="medium"
-              color={directionsDisabled ? "#9CA3AF" : "#1A1A1A"}
-            >
-              Directions
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.midActionButton, contactDisabled && styles.midActionButtonDisabled]}
-            onPress={handleContact}
-            disabled={contactDisabled}
-            activeOpacity={0.7}
-          >
-            <Phone
-              size={16}
-              color={contactDisabled ? "#9CA3AF" : "#1A1A1A"}
-            />
-            <Text
-              size="sm"
-              weight="medium"
-              color={contactDisabled ? "#9CA3AF" : "#1A1A1A"}
-            >
-              Contact
-            </Text>
-          </TouchableOpacity>
-        </View>
-
         {messageAllowed ? (
           <TouchableOpacity style={styles.primaryButton} onPress={handlePrimary} activeOpacity={0.85}>
+            <MessageCircle size={18} color="#FFFFFF" strokeWidth={2} />
             <Text size="md" weight="semiBold" color="#FFFFFF">
               {primaryActionLabel}
             </Text>
@@ -789,100 +773,175 @@ function MidContent({
           <OfflineActionsNotice style={styles.offlineNoticeMid} />
         )}
 
-        <Text size="xs" weight="regular" color="#8E8E93" center style={styles.midHint}>
-          Swipe up for full details
-        </Text>
+        <View style={styles.midHintRow}>
+          <ChevronUp size={14} color="#A7B2BF" strokeWidth={2.5} />
+          <Text size="xs" weight="medium" color="#8E8E93">
+            Swipe up for full details
+          </Text>
+        </View>
       </View>
     </ScrollView>
   );
 }
 
-function MechanicCard({
+/**
+ * The navy header both detents lead with. Rendered identically in the collapsed
+ * and expanded views so the cross-fade between them leaves the top of the sheet
+ * visually anchored — the content beneath changes, the header appears not to.
+ * `compact` drops the car render and clamps the title to one line, so the
+ * expanded view keeps its room for content.
+ *
+ * Continues the surface of the Home appointment banner, which is what opens
+ * this sheet.
+ */
+function BookingHeroHeader({
   booking,
-  mechanicRating,
-  onMessage,
-  messageDisabled,
+  statusConfig,
+  onClose,
+  compact = false,
 }: {
   booking: Booking;
-  mechanicRating?: number;
-  onMessage: () => void;
-  /** Greys out the chat icon while offline (same gate as Message Mechanic). */
-  messageDisabled?: boolean;
+  statusConfig: { label: string; bgColor: string; textColor: string };
+  onClose: () => void;
+  compact?: boolean;
 }) {
-  const handleCall = useCallback(() => {
-    // TODO: call shop when phone number is exposed on Booking
-    console.log("TODO: call shop", booking.id); // eslint-disable-line no-console
-  }, [booking.id]);
+  const serviceLabel = (booking.services ?? []).filter(Boolean).join(" · ") || "Service";
+  const when =
+    booking.date && booking.time
+      ? `${booking.date} · ${booking.time}`
+      : booking.date || booking.time || "Time TBD";
+  const showCar = !compact && !!booking.makeLogoUrl?.trim();
 
   return (
-    <View style={styles.mechanicCard}>
-      <BlurView intensity={40} tint="light" style={StyleSheet.absoluteFill} />
+    <View style={styles.midHero}>
       <LinearGradient
-        colors={["rgba(255,255,255,0.7)", "rgba(255,255,255,0.55)"]}
+        colors={[HERO_SURFACE, HERO_SURFACE_DEEP]}
+        start={{ x: 0.5, y: 0 }}
+        end={{ x: 0.5, y: 1 }}
         style={StyleSheet.absoluteFill}
       />
-      <View style={styles.mechanicCardInner}>
-        <View style={styles.mechanicAvatar}>
-          {booking.mechanicImage ? (
-            <Image source={{ uri: booking.mechanicImage }} style={styles.mechanicAvatarImage} />
-          ) : (
-            <User size={22} color="#9CA3AF" />
-          )}
-        </View>
-        <View style={styles.mechanicBody}>
-          <Text size="md" weight="semiBold" color="#1A1A1A">
-            {booking.shopName}
-          </Text>
-          {/* Server falls back to shopName for `mechanicName` when no
-              mechanic is assigned (e.g. accepted tire quotes). Only render
-              the second line when it's actually a separate person. */}
-          {booking.mechanicName && booking.mechanicName !== booking.shopName ? (
-            <Text size="xs" weight="regular" color="#8E8E93">
-              {booking.mechanicName}
-              {mechanicRating != null ? ` · ⭐ ${mechanicRating.toFixed(1)}` : ""}
-            </Text>
-          ) : mechanicRating != null ? (
-            <Text size="xs" weight="regular" color="#8E8E93">
-              ⭐ {mechanicRating.toFixed(1)}
-            </Text>
-          ) : null}
-        </View>
-        <View style={styles.mechanicActions}>
-          <IconCircleButton onPress={handleCall} icon={<Phone size={16} color="#1A1A1A" />} />
-          <IconCircleButton
-            onPress={onMessage}
-            disabled={messageDisabled}
-            icon={<MessageCircle size={16} color="#1A1A1A" />}
+
+      {/* Car render, bleeding off the right edge. Decorative — never takes
+          touch or a11y focus. */}
+      {showCar ? (
+        <View style={styles.midHeroCar} pointerEvents="none">
+          <Image
+            source={{ uri: booking.makeLogoUrl }}
+            style={styles.midHeroCarImage}
+            resizeMode="contain"
           />
         </View>
+      ) : null}
+
+      <View style={styles.midHeroTopRow}>
+        {/* On-dark variant of the status pill. STATUS_CONFIG's bgColors are
+            near-white pastels built for a white card and read as a bright blob
+            on navy, so here the chip is a translucent white capsule and the
+            status colour survives as the dot. */}
+        <View style={styles.midHeroStatus}>
+          <View style={[styles.midHeroStatusDot, { backgroundColor: statusConfig.textColor }]} />
+          <Text weight="semiBold" size="sm" color="#FFFFFF">
+            {statusConfig.label}
+          </Text>
+        </View>
+        <TouchableOpacity
+          onPress={onClose}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          style={styles.midHeroClose}
+          accessibilityRole="button"
+          accessibilityLabel="Close booking details"
+        >
+          <X size={18} color="#FFFFFF" />
+        </TouchableOpacity>
+      </View>
+
+      <Text
+        size={compact ? "xl" : "2xl"}
+        weight="bold"
+        color="#FFFFFF"
+        numberOfLines={compact ? 1 : 2}
+        style={[styles.midHeroTitle, compact && styles.midHeroTitleCompact]}
+      >
+        {serviceLabel}
+      </Text>
+
+      <View style={styles.midHeroWhenRow}>
+        <CalendarClock size={15} color="rgba(255,255,255,0.62)" strokeWidth={2} />
+        <Text size="sm" weight="semiBold" color="rgba(255,255,255,0.86)" numberOfLines={1}>
+          {when}
+        </Text>
       </View>
     </View>
   );
 }
 
-function IconCircleButton({
+/** Circular icon button with a label beneath — the collapsed sheet's secondary
+ *  actions. */
+function QuickAction({
   icon,
+  label,
   onPress,
   disabled,
 }: {
   icon: React.ReactNode;
+  label: string;
   onPress: () => void;
   disabled?: boolean;
 }) {
   return (
     <TouchableOpacity
-      style={[styles.iconCircle, disabled && styles.offlineDisabledAction]}
+      style={styles.quickAction}
       onPress={onPress}
       disabled={disabled}
       activeOpacity={0.7}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled: !!disabled }}
     >
-      {icon}
+      <View style={[styles.quickActionCircle, disabled && styles.quickActionCircleDisabled]}>
+        {icon}
+      </View>
+      <Text size="xs" weight="medium" color={disabled ? "#B6C0CC" : "#4A5763"}>
+        {label}
+      </Text>
     </TouchableOpacity>
   );
 }
 
+/** Tinted icon tile + eyebrow + value, used for the at-a-glance rows. */
+function InfoRow({
+  icon,
+  label,
+  value,
+  sub,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  sub?: string;
+}) {
+  return (
+    <View style={styles.infoRow}>
+      <View style={styles.infoIconTile}>{icon}</View>
+      <View style={styles.infoRowText}>
+        <Text size="xs" weight="semiBold" color="#8E8E93" style={styles.infoEyebrow}>
+          {label}
+        </Text>
+        <Text size="md" weight="semiBold" color="#1A1A1A" numberOfLines={2}>
+          {value}
+        </Text>
+        {sub ? (
+          <Text size="xs" weight="regular" color="#8E8E93" numberOfLines={1}>
+            {sub}
+          </Text>
+        ) : null}
+      </View>
+    </View>
+  );
+}
 interface FullContentProps {
   booking: Booking;
+  statusConfig: { label: string; bgColor: string; textColor: string };
   serviceDescription?: string;
   serviceDurationMinutes?: number;
   vehicleMileage?: number;
@@ -895,11 +954,13 @@ interface FullContentProps {
   bookingDetail?: any;
   onClose: () => void;
   onRequestReschedule: (bookingId: string, date: string, time: string) => void;
+  /** Bottom gutter for the scroll content. See FULL_SCROLL_BOTTOM_GUTTER. */
   bottomPadding: number;
 }
 
 function FullContent({
   booking,
+  statusConfig,
   bookingDetail,
   serviceDescription,
   serviceDurationMinutes,
@@ -1001,10 +1062,20 @@ function FullContent({
 
   return (
     <View style={styles.fullContainer}>
-      <SheetHeader onClose={onClose} />
+      <BookingHeroHeader
+        booking={booking}
+        statusConfig={statusConfig}
+        onClose={onClose}
+        compact
+      />
       <ScrollView
         contentContainerStyle={[styles.fullScroll, { paddingBottom: bottomPadding }]}
         showsVerticalScrollIndicator={false}
+        // No rubber-band past the last action — the sheet is a white surface,
+        // so over-scrolling just opened a band of empty white under the
+        // content. Matches the collapsed view.
+        bounces={false}
+        overScrollMode="never"
       >
         {/* APPROVAL BANNER — surfaces when an out-of-range estimate is
             waiting on the customer's decision. */}
@@ -1344,7 +1415,7 @@ function ArrivalTrackingTimeline({ monitor }: { monitor: LateMonitor }) {
               </View>
               {!isLast ? <View style={styles.timelineLine} /> : null}
             </View>
-            <View style={styles.timelineBody}>
+            <View style={[styles.timelineBody, isLast && styles.timelineBodyLast]}>
               <Text size="sm" weight="semiBold" color="#1A1A1A">
                 {event.label}
               </Text>
@@ -1677,12 +1748,6 @@ function StatusTimeline({
   currentStatus: BookingStatus;
   history?: Array<{ stage: BookingStatus; timestamp: number }>;
 }) {
-  const pulseOpacity = useSharedValue(0.35);
-  useEffect(() => {
-    pulseOpacity.value = withRepeat(withTiming(1, { duration: 900 }), -1, true);
-  }, [pulseOpacity]);
-  const pulseAnimStyle = useAnimatedStyle(() => ({ opacity: pulseOpacity.value }));
-
   const stages: BookingStatus[] = ["pending", "confirmed", "in_progress", "completed"];
   const stageLabels: Partial<Record<BookingStatus, string>> = {
     pending_shop_acceptance: "Awaiting shop",
@@ -1729,15 +1794,13 @@ function StatusTimeline({
                   isCurrent && styles.timelineDotCurrent,
                 ]}
               >
-                {isCurrent ? (
-                  <Animated.View style={[styles.timelinePulse, pulseAnimStyle]} />
-                ) : null}
+                {isCompleted ? <Check size={11} color="#FFFFFF" strokeWidth={3.5} /> : null}
               </View>
               {!isLast ? (
                 <View style={[styles.timelineLine, isCompleted && styles.timelineLineCompleted]} />
               ) : null}
             </View>
-            <View style={styles.timelineBody}>
+            <View style={[styles.timelineBody, isLast && styles.timelineBodyLast]}>
               <Text
                 size="sm"
                 weight={isCurrent ? "semiBold" : "medium"}
@@ -1788,6 +1851,12 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   dragRegion: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 3,
+    elevation: 3,
     paddingHorizontal: 20,
   },
   handle: {
@@ -1799,10 +1868,8 @@ const styles = StyleSheet.create({
     marginTop: 8,
     marginBottom: 8,
   },
-  statusPill: {
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: BorderRadius.full,
+  handleOnDark: {
+    backgroundColor: "rgba(255,255,255,0.45)",
   },
 
   // Content stack + layers
@@ -1815,14 +1882,6 @@ const styles = StyleSheet.create({
   },
 
   // Shared header
-  headerRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingHorizontal: 20,
-    paddingTop: 8,
-    paddingBottom: 8,
-  },
 
   // Mid content
   midScroll: {
@@ -1830,136 +1889,156 @@ const styles = StyleSheet.create({
   },
   midContainer: {
     flexGrow: 1,
-    paddingHorizontal: 20,
+    // No paddingHorizontal — the navy header is full-bleed to the sheet's
+    // rounded edges. Sections below apply their own inset.
     paddingBottom: 24,
     justifyContent: "space-between",
   },
   midBottomBlock: {
     marginTop: 8,
+    paddingHorizontal: 20,
     gap: 0,
   },
-  midActionRow: {
-    flexDirection: "row",
-    gap: 12,
-    marginBottom: 12,
+  // --- Collapsed view -------------------------------------------------------
+  // Navy header, continuing the Home banner's surface into the sheet.
+  midHero: {
+    paddingHorizontal: 20,
+    paddingTop: DRAG_REGION_HEIGHT + 14,
+    paddingBottom: 20,
+    // Match the sheet's own rounded top and clip the gradient + car to it.
+    borderTopLeftRadius: CORNER_RADIUS,
+    borderTopRightRadius: CORNER_RADIUS,
+    overflow: "hidden",
   },
-  midActionButton: {
+  midHeroStatus: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: BorderRadius.full,
+    backgroundColor: "rgba(255,255,255,0.12)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.14)",
+  },
+  midHeroStatusDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+  },
+  midHeroTopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  midHeroClose: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.12)",
+  },
+  midHeroTitleCompact: {
+    marginTop: 12,
+    marginRight: 44,
+  },
+  midHeroTitle: {
+    marginTop: 16,
+    // Clear the car render.
+    marginRight: 116,
+  },
+  midHeroWhenRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    marginTop: 10,
+  },
+  midHeroCar: {
+    position: "absolute",
+    right: 8,
+    top: DRAG_REGION_HEIGHT + 44,
+    width: 132,
+    height: 84,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  midHeroCarImage: {
+    width: 132,
+    height: 84,
+  },
+  // Secondary actions — one circular button each, labelled.
+  quickRow: {
+    flexDirection: "row",
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    gap: 12,
+  },
+  quickAction: {
     flex: 1,
+    alignItems: "center",
+    gap: 7,
+  },
+  quickActionCircle: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#F1F5F9",
+    borderWidth: 1,
+    borderColor: "#E6EDF5",
+  },
+  quickActionCircleDisabled: {
+    backgroundColor: "#F7F9FB",
+    borderColor: "#EEF2F6",
+  },
+  // At-a-glance rows.
+  infoList: {
+    marginTop: 24,
+    paddingHorizontal: 20,
+  },
+  infoRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    paddingVertical: 12,
+  },
+  infoIconTile: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#EDF4FE",
+  },
+  infoRowText: {
+    flex: 1,
+  },
+  infoEyebrow: {
+    letterSpacing: 0.8,
+    marginBottom: 2,
+  },
+  infoDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: "#E6EDF5",
+    marginLeft: 54,
+  },
+  midHintRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 8,
-    paddingVertical: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    backgroundColor: "#FFFFFF",
+    gap: 6,
+    marginTop: 14,
   },
-  midActionButtonDisabled: {
-    backgroundColor: "#F9FAFB",
-  },
-  // Chat icon dim while offline (buttons are replaced by the notice strip
-  // instead — see OfflineActionsNotice).
-  offlineDisabledAction: {
-    opacity: 0.45,
-  },
+
   // Caption standing in for the sheet buttons it replaces; keeps the
   // replaced primary button's top rhythm in the mid view.
   offlineNoticeMid: {
     marginTop: 24,
   },
-  midStatusBlock: {
-    marginTop: 5,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    gap: 12,
-  },
-  midStatusLeft: {
-    flex: 1,
-    gap: 4,
-  },
 
-  // Mechanic card (frosted)
-  mechanicCard: {
-    marginTop: 8,
-    borderRadius: 16,
-    overflow: "hidden",
-    borderWidth: 1,
-    borderColor: "rgba(0,0,0,0.06)",
-  },
-  mechanicCardInner: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    gap: 14,
-  },
-  mechanicAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "#E5E7EB",
-    alignItems: "center",
-    justifyContent: "center",
-    overflow: "hidden",
-  },
-  mechanicAvatarImage: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-  },
-  mechanicBody: {
-    flex: 1,
-    minWidth: 0,
-    gap: 2,
-  },
-  mechanicActions: {
-    flexDirection: "row",
-    gap: 8,
-  },
-  iconCircle: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: "#F2F2F7",
-    alignItems: "center",
-    justifyContent: "center",
-  },
 
-  // Details card (between mechanic card and primary button)
-  detailsCard: {
-    marginTop: 5,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: "rgba(0,0,0,0.06)",
-    backgroundColor: "#F9FAFB",
-    paddingVertical: 8,
-  },
-  detailsRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    gap: 14,
-  },
-  detailsIconBox: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: "rgba(82,153,254,0.12)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  detailsText: {
-    flex: 1,
-    gap: 2,
-  },
-  detailsDivider: {
-    height: 1,
-    backgroundColor: "rgba(0,0,0,0.06)",
-    marginHorizontal: 16,
-  },
 
   // Primary button + hint
   primaryButton: {
@@ -1967,11 +2046,10 @@ const styles = StyleSheet.create({
     height: 52,
     borderRadius: 14,
     backgroundColor: "#5299FE",
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-  },
-  midHint: {
-    marginTop: 12,
+    gap: 8,
   },
 
   // Full content
@@ -2007,10 +2085,10 @@ const styles = StyleSheet.create({
   },
   timelineRow: {
     flexDirection: "row",
-    minHeight: 46,
+    minHeight: 42,
   },
   timelineDotColumn: {
-    width: 20,
+    width: 22,
     alignItems: "center",
     paddingTop: 4,
   },
@@ -2022,10 +2100,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   timelineDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: "#E5E5EA",
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#EDF0F4",
     borderWidth: 2,
     borderColor: "#E5E5EA",
   },
@@ -2037,18 +2117,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#5299FE",
     borderColor: "rgba(82,153,254,0.3)",
     borderWidth: 4,
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-  },
-  timelinePulse: {
-    position: "absolute",
-    top: -6,
-    left: -6,
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: "rgba(82,153,254,0.3)",
   },
   timelineLine: {
     width: 2,
@@ -2064,6 +2132,9 @@ const styles = StyleSheet.create({
     paddingLeft: 12,
     paddingBottom: 14,
     gap: 2,
+  },
+  timelineBodyLast: {
+    paddingBottom: 0,
   },
 
   // Activity timeline (expandable rows)
@@ -2100,18 +2171,17 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 12,
   },
+  // No circle behind the render — the transparent-background car reads better
+  // straight on the sheet, and a 48pt circle cropped it.
   vehicleThumb: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: "#F2F2F7",
+    width: 64,
+    height: 44,
     alignItems: "center",
     justifyContent: "center",
-    overflow: "hidden",
   },
   vehicleThumbImage: {
-    width: 48,
-    height: 48,
+    width: 64,
+    height: 44,
   },
   vehicleInfo: {
     flex: 1,
@@ -2157,7 +2227,7 @@ const styles = StyleSheet.create({
 
   // Cancel
   cancelWrapper: {
-    marginTop: 24,
+    marginTop: 16,
   },
   cancelButton: {
     height: 52,

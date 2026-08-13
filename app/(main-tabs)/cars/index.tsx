@@ -1413,19 +1413,26 @@ export default function CarsHomeScreen() {
   const editPickerBackdrop = useRef(new Animated.Value(0)).current;
 
   const openEditPicker = useCallback(() => {
-    setEditPickerModal(true);
-    setShowEditPicker(true);
+    // Pin the sheet off-screen BEFORE mounting, then start the slide on the
+    // NEXT frame — otherwise the spring runs in the same tick as the Modal
+    // mount and the sheet renders wherever the animation already progressed
+    // to (the intermittent "glitchy" flash on open). Native driver keeps the
+    // slide off the JS thread so it never janks.
     editPickerY.setValue(SCREEN_HEIGHT);
     editPickerBackdrop.setValue(0);
-    Animated.parallel([
-      Animated.spring(editPickerY, { toValue: 0, tension: 50, friction: 12, useNativeDriver: false }),
-      Animated.timing(editPickerBackdrop, { toValue: 1, duration: 300, useNativeDriver: true }),
-    ]).start();
+    setEditPickerModal(true);
+    setShowEditPicker(true);
+    requestAnimationFrame(() => {
+      Animated.parallel([
+        Animated.spring(editPickerY, { toValue: 0, tension: 50, friction: 12, useNativeDriver: true }),
+        Animated.timing(editPickerBackdrop, { toValue: 1, duration: 300, useNativeDriver: true }),
+      ]).start();
+    });
   }, [editPickerY, editPickerBackdrop]);
 
   const closeEditPicker = useCallback((cb?: () => void) => {
     Animated.parallel([
-      Animated.timing(editPickerY, { toValue: SCREEN_HEIGHT, duration: 250, easing: Easing.in(Easing.ease), useNativeDriver: false }),
+      Animated.timing(editPickerY, { toValue: SCREEN_HEIGHT, duration: 250, easing: Easing.in(Easing.ease), useNativeDriver: true }),
       Animated.timing(editPickerBackdrop, { toValue: 0, duration: 250, useNativeDriver: true }),
     ]).start(() => {
       setShowEditPicker(false);
@@ -1532,6 +1539,16 @@ export default function CarsHomeScreen() {
   // that only looks right on warm palettes.
   const groundShadowTintRgb = useMemo(
     () => darkRgbFromHex(activeGradient[0]),
+    [activeGradient]
+  );
+  // The info icon sits over the gradient's TOP stop as it's ACTUALLY painted —
+  // which is the hero-tinted (desaturated + lightened, lumMin 0.85) color, not
+  // the raw car-color. Deciding off the raw color got it wrong (e.g. the grey
+  // Land Rover's raw slate is dark → white icon, but the painted top is light
+  // grey → invisible). Judge the rendered color so the icon is dark on the
+  // light hero tint (and would flip to white only if a top ever renders dark).
+  const headerIconColor = useMemo(
+    () => (isDarkColor(desaturateForHeroTint(activeGradient[0])) ? "#FFFFFF" : "#0F172A"),
     [activeGradient]
   );
   const groundLineTint = useMemo(
@@ -1783,7 +1800,7 @@ export default function CarsHomeScreen() {
                   glass when supported, frosted BlurView fallback otherwise. */}
               {isLiquidGlassEnabled && LiquidGlassView ? (
                 <LiquidGlassView interactive effect="clear" style={styles.infoGlassIcon}>
-                  <Info size={24} color="#FFFFFF" strokeWidth={2} />
+                  <Info size={24} color={headerIconColor} strokeWidth={2} />
                 </LiquidGlassView>
               ) : (
                 <View style={styles.infoGlassContainer}>
@@ -1795,7 +1812,7 @@ export default function CarsHomeScreen() {
                       end={{ x: 0.5, y: 0.5 }}
                       style={StyleSheet.absoluteFillObject}
                     />
-                    <Info size={24} color="#FFFFFF" strokeWidth={2} />
+                    <Info size={24} color={headerIconColor} strokeWidth={2} />
                   </BlurView>
                 </View>
               )}
@@ -1856,6 +1873,23 @@ export default function CarsHomeScreen() {
           const circumference = 2 * Math.PI * radius;
           const strokeDashoffset = circumference * (1 - estScore / 100);
           const center = ringSize / 2;
+          // Service-history progress: which of the 5 checks the user has
+          // already filled in (saved via "Finish for now"). Drives the
+          // progress bar + the per-item check state so returning here shows
+          // how far along they are instead of a static all-checked list.
+          const QUICK_READ_CHECKS: { id: string; label: string }[] = [
+            { id: "brakes", label: "Brake health assessment" },
+            { id: "tires", label: "Tire life estimation" },
+            { id: "oil", label: "Oil service status" },
+            { id: "battery", label: "Battery condition check" },
+            { id: "warningLights", label: "Warning light detection" },
+          ];
+          const completedChecks = new Set(
+            ((activeOwnership?.serviceHistoryDraft?.completed as string[] | undefined) ?? []),
+          );
+          const completedCount = QUICK_READ_CHECKS.filter((c) =>
+            completedChecks.has(c.id),
+          ).length;
           return (
           // key on vin so swiping between two no-tracker cars
           // remounts the card — pulse rings + content arrive fresh
@@ -1890,13 +1924,39 @@ export default function CarsHomeScreen() {
             <Text weight="medium" size="sm" color="#829BAD" style={{ textAlign: "center", marginTop: scale(6) }}>
               Five quick checks to understand your vehicle&apos;s current condition.
             </Text>
+
+            {/* Progress bar — reflects how many of the 5 checks the user has
+                already filled in, so returning here shows their progress. */}
+            <View style={styles.quickReadProgressWrap}>
+              <View style={styles.quickReadProgressTrack}>
+                <View
+                  style={[
+                    styles.quickReadProgressFill,
+                    { width: `${(completedCount / QUICK_READ_CHECKS.length) * 100}%` },
+                  ]}
+                />
+              </View>
+              <Text weight="semiBold" size="xs" color="#5299FE" style={styles.quickReadProgressLabel}>
+                {completedCount} of {QUICK_READ_CHECKS.length} completed
+              </Text>
+            </View>
+
             <View style={styles.quickReadBenefits}>
-              {["Brake health assessment", "Tire life estimation", "Oil service status", "Battery condition check", "Warning light detection"].map((b) => (
-                <View key={b} style={styles.quickReadBenefitRow}>
-                  <Ionicons name="checkmark-circle" size={scale(16)} color="#5299FE" />
-                  <Text weight="medium" size="sm" color="#0F172A">{b}</Text>
-                </View>
-              ))}
+              {QUICK_READ_CHECKS.map((c) => {
+                const done = completedChecks.has(c.id);
+                return (
+                  <View key={c.id} style={styles.quickReadBenefitRow}>
+                    <Ionicons
+                      name={done ? "checkmark-circle" : "ellipse-outline"}
+                      size={scale(16)}
+                      color={done ? "#5299FE" : "#CBD5E1"}
+                    />
+                    <Text weight="medium" size="sm" color={done ? "#0F172A" : "#64748B"}>
+                      {c.label}
+                    </Text>
+                  </View>
+                );
+              })}
             </View>
             <Pressable
               style={({ pressed }) => [styles.quickReadCta, pressed && { opacity: 0.85 }]}
@@ -1921,9 +1981,8 @@ export default function CarsHomeScreen() {
                     weight="bold"
                     size="md"
                     color="#FFFFFF"
-                    numberOfLines={1}
-                    adjustsFontSizeToFit
-                    minimumFontScale={0.75}
+                    numberOfLines={2}
+                    ellipsizeMode="tail"
                     style={styles.quickReadCtaTitle}
                   >
                     Your {activeVehicle?.make && activeVehicle?.model ? `${activeVehicle.make} ${activeVehicle.model}` : "Vehicle"}
@@ -3411,6 +3470,25 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(82,153,254,0.1)",
     alignItems: "center",
     justifyContent: "center",
+  },
+  quickReadProgressWrap: {
+    alignSelf: "stretch",
+    marginTop: scale(16),
+    gap: scale(6),
+  },
+  quickReadProgressTrack: {
+    height: scale(6),
+    borderRadius: scale(3),
+    backgroundColor: "rgba(15,23,42,0.08)",
+    overflow: "hidden",
+  },
+  quickReadProgressFill: {
+    height: "100%",
+    borderRadius: scale(3),
+    backgroundColor: "#5299FE",
+  },
+  quickReadProgressLabel: {
+    alignSelf: "flex-end",
   },
   quickReadBenefits: {
     alignSelf: "stretch",

@@ -163,6 +163,7 @@ export const FloatingSheet = forwardRef<FloatingSheetRef, FloatingSheetProps>(
     // of growing its height from 0 (which read as "unfolding from a line").
     // `translateY` is 0 at rest, positive = pushed down off-screen.
     const translateY = useSharedValue(0);
+    const startTranslate = useSharedValue(0);
     const entranceDistance = useSharedValue(0);
 
     // Phase ref distinguishes "just opened, animate up from 0" from
@@ -231,12 +232,36 @@ export const FloatingSheet = forwardRef<FloatingSheetRef, FloatingSheetProps>(
         Gesture.Pan()
           .onBegin(() => {
             startHeight.value = sheetHeight.value;
+            startTranslate.value = translateY.value;
           })
           .onUpdate((e) => {
+            // Single-snap sheets have no "pull up to a taller snap" — so a
+            // down-drag should slide the WHOLE sheet down (translateY) toward
+            // dismissal, not fold its height in place. Clamp at 0 so it can't
+            // be dragged above its resting position.
+            if (snaps.length === 1) {
+              translateY.value = Math.max(0, startTranslate.value + e.translationY);
+              return;
+            }
             const next = startHeight.value - e.translationY;
             sheetHeight.value = Math.max(0, Math.min(H_MAX + 20, next));
           })
           .onEnd((e) => {
+            // Single-snap: dismiss if dragged past ~28% of its height or
+            // flung down; otherwise spring the slide back up.
+            if (snaps.length === 1) {
+              const draggedDown = translateY.value;
+              if (e.velocityY > FLING_VELOCITY || draggedDown > snaps[0] * 0.28) {
+                runOnJS(close)();
+              } else {
+                translateY.value = withTiming(0, {
+                  duration: 220,
+                  easing: Easing.out(Easing.cubic),
+                });
+              }
+              return;
+            }
+
             const h = sheetHeight.value;
             const vUp = -e.velocityY;
 
@@ -272,7 +297,7 @@ export const FloatingSheet = forwardRef<FloatingSheetRef, FloatingSheetProps>(
 
             sheetHeight.value = withTiming(target, { duration: 280 });
           }),
-      [H_MIN, H_MAX, snaps, close, sheetHeight, startHeight],
+      [H_MIN, H_MAX, snaps, close, sheetHeight, startHeight, translateY, startTranslate],
     );
 
     // With a single snap, there's no "pull up to full" transition to
