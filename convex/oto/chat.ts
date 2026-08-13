@@ -1654,7 +1654,7 @@ export async function sendMessageHandlerCore(
     // rather than dead air; anything else gets the generic recovery line.
     if (!finalText && !hasAnyRender) {
       finalText = guarded.dropped.includes("currency")
-        ? "The exact number depends on which shop you pick — you'll see the real quote in the booking flow before you pay. Want to book it?"
+        ? "The exact number depends on which shop you pick — you'll see the real quote before you pay. Want to book it?"
         : "Let me put that differently — what would you like to do next?";
     }
   }
@@ -2182,7 +2182,18 @@ const OUTPUT_GUARD_PATTERNS: { category: GuardCategory; re: RegExp }[] = [
   // message turn). The underscore forms are code identifiers that never occur
   // in natural prose, so this can't false-positive on legitimate sentences
   // like "that's self-reported" (hyphen/space forms stay allowed).
-  { category: "internal_noun", re: /\bself_reported\b|\bconversation_state\b|\brecord_provenance\b|\bestablished_facts\b|\bopen_symptoms\b|\bsafety_override\b/ },
+  { category: "internal_noun", re: /\bself_reported\b|\bconversation_state\b|\brecord_provenance\b|\bestablished_facts\b|\bopen_symptoms\b|\bsafety_override\b|\bcustomer_notes\b|\bservice_claims\b|\bfault_lights\b|\bdiagnostic_scan\b/ },
+  // Shareholder vocabulary — team language for features the customer just
+  // USES (Waleed, 2026-08-13: "booking flow ... is just internal language
+  // between shareholders"). A history scan of 340 assistant messages found
+  // "booking flow" x10 (every price decline parroted the prompt's own
+  // exemplar), "trust gate" x2, and a raw render_* tool name x1. Terms here
+  // must be ones with no legitimate customer-facing reading — "chip" is NOT
+  // guarded (windshield chip), "terminal" is NOT guarded (battery terminal),
+  // "dispatcher" is NOT guarded (tow dispatcher).
+  // "quick replies"/"quick-reply" only — singular unhyphenated "a quick reply
+  // to your question" is legitimate prose and stays allowed.
+  { category: "internal_noun", re: /\bbooking flow\b|\bquick replies\b|\bquick-repl(?:y|ies)\b|\btrust[- ]gat(?:e|ing)\b|\bintent ladder\b|\bstate tool\b|\bterminal render\b|\bdiagnostic domain\b|\brender_[a-z_]+\b|\bservice[- ]slugs?\b/i },
 ];
 
 /**

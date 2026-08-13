@@ -264,6 +264,39 @@ v0.45-stable+v0.20-volatile.
 KB — blocked on domain content, AAA-class sources don't cover it) + Q5b (brake_warning/abs split,
 product call) + the "other owners" list (camera/vision, voice, behaviour-profiling removal, chat UX).
 
+---
+
+## 0g. Shareholder-vocabulary leak sweep (deployed 2026-08-13 09:44, probed clean)
+
+Waleed's catch: Oto said "booking flow" to customers — team language for a feature the customer
+just *uses*. Third leak class after mechanism narration and code identifiers.
+
+**Empirical, not guessed**: new `devOnly/scanMessageLeaks.ts` swept the last 340 real assistant
+messages. Findings: "booking flow" x10 (EVERY price decline — pricing rules 4/6 quoted the exemplar
+sentence "...in the booking flow before you pay" and the model reproduced its own template; the W1
+currency-guard FALLBACK STRING had the same phrase, so even the deterministic path leaked),
+"trust gate"/render_record_confirmation/record_provenance x3 (the deliberation-spill turns),
+self_reported/conversation_state x2 (already caught live). "prefilled" x1 left alone — ordinary
+consumer-software language.
+
+**Fixed at three layers:**
+1. Sources — the three answer-template phrasings in pricing rules now read "when you book, before
+   you pay"; the chat.ts currency fallback fixed. 11 instructional occurrences remain (fine to read,
+   banned to repeat).
+2. Prompt v0.46 — "Shareholder vocabulary is internal too" subsection of the no-system-narration
+   rule, with a never-say/say table.
+3. Guard row — booking flow / quick replies / trust gate / intent ladder / terminal render /
+   render_* / service slug. Deliberately NOT guarded (real automotive false positives, each with a
+   harness assertion): "chip" (windshield), "terminal" (battery), "dispatcher" (tow), singular
+   "a quick reply". Guards 37/37.
+
+**Probe**: the exact x10 question ("how much does a state inspection cost") now returns "set by New
+York State — you'll see the exact amount when you book, before you pay" with the guard NOT firing —
+model-clean, both layers verified independently.
+
+**Recurring audit**: `npx convex run devOnly/scanMessageLeaks:scan '{"limit": 6000}'` — historical
+rows keep their leaks (already delivered); the metric is new-leak count after prompt changes → 0.
+
 ### Still open after this session
 - **S5 / D-43** unresolved safety symptom dropped on subject change — needs typed
   `open_symptoms` on `ai_conversations` (schema migration).
