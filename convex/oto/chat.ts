@@ -714,12 +714,30 @@ export async function sendMessageHandlerCore(
   // ── 4. Build the uncached-zone envelope ──────────────────────────────
   // conversation state (mood, arc, established facts, intent) — read back so
   // Haiku has cross-turn memory without re-deriving from raw history.
+  // W3.2 — open-symptom ledger read. Only rows still `open` reach the
+  // envelope; addressed/dismissed history stays in the table for audit. The
+  // snapshot is also reused below by the W3.3 booking-notes bundler.
+  const openSymptomRows = (
+    ((conversation as any).open_symptoms ?? []) as {
+      text: string;
+      category: string;
+      safety_relevant: boolean;
+      status: "open" | "addressed" | "dismissed";
+      opened_at: number;
+    }[]
+  ).filter((s) => s.status === "open");
+
   const convoState = {
     mood: (conversation as any).mood ?? null,
     arc_summary: (conversation as any).arc_summary ?? null,
     established_facts: ((conversation as any).established_facts ?? []) as string[],
     last_user_intent: (conversation as any).last_user_intent ?? null,
     updated_at: (conversation as any).state_updated_at ?? null,
+    open_symptoms: openSymptomRows.map((s) => ({
+      text: s.text,
+      category: s.category,
+      safety_relevant: s.safety_relevant,
+    })),
   };
   // Polite-exit counter snapshot (Locked Principle #6). At >= the envelope's
   // POLITE_EXIT_THRESHOLD (4 — lowered from 6 on beta feedback; see
@@ -848,6 +866,30 @@ export async function sendMessageHandlerCore(
           .map((f) => `${f.category}/${f.severity}`)
           .join(" "),
     );
+    // W3.2 — append to the open-symptom ledger DETERMINISTICALLY, at the
+    // same moment the classifier fires. The model never manages this list:
+    // D-43 is precisely the model forgetting a safety thread on a subject
+    // change, so the remedy cannot depend on the model remembering to write.
+    // Dedupe by category happens inside the mutation; failure-isolated so a
+    // ledger write can never break the turn.
+    for (const f of safetyFindings) {
+      try {
+        await ctx.runMutation(
+          internal.ai_conversations.appendOpenSymptomInternal,
+          {
+            id: conversationId,
+            text: message,
+            category: `${f.category}:${f.matched}`,
+            safety_relevant: true,
+          },
+        );
+      } catch (e: any) {
+        console.error(
+          "[oto/chat] open-symptom append failed (swallowed):",
+          e?.message,
+        );
+      }
+    }
   }
 
   const envelope = buildEnvelope({
@@ -1490,6 +1532,47 @@ export async function sendMessageHandlerCore(
       ];
     }
   }
+  // ── 7c. W3.3 open-symptom booking bundler ────────────────────────────
+  // The report's D-43 bundling fix: when a booking fires while earlier
+  // safety-relevant symptoms are still open, fold them into the booking's
+  // customer notes DETERMINISTICALLY — the mechanic sees them even if the
+  // model's prose forgot them — and mark the ledger rows addressed. Notes
+  // that already mention a symptom (Haiku did its job) aren't duplicated:
+  // the check is a case-insensitive substring pass per symptom text.
+  if (renderEnvelope.bookService !== undefined && openSymptomRows.length > 0) {
+    const bs = renderEnvelope.bookService as Record<string, unknown>;
+    const notes = typeof bs.customer_notes === "string" ? bs.customer_notes : "";
+    const notesLower = notes.toLowerCase();
+    const toBundle = openSymptomRows.filter(
+      (s) => !notesLower.includes(s.text.toLowerCase().slice(0, 60)),
+    );
+    if (toBundle.length > 0) {
+      bs.customer_notes =
+        (notes ? notes.trimEnd() + " — " : "") +
+        "Customer also reported earlier in this conversation: " +
+        toBundle.map((s) => `"${s.text}"`).join("; ");
+      console.warn(
+        `[oto/chat] W3.3: bundled ${toBundle.length} open symptom(s) into booking notes`,
+      );
+    }
+    // The booking offer is the addressing event for EVERY open symptom this
+    // turn (bundled or already present in the notes) — fire-and-forget.
+    try {
+      await ctx.runMutation(
+        internal.ai_conversations.markSymptomsAddressedInternal,
+        {
+          id: conversationId,
+          categories: openSymptomRows.map((s) => s.category),
+        },
+      );
+    } catch (e: any) {
+      console.error(
+        "[oto/chat] open-symptom resolve failed (swallowed):",
+        e?.message,
+      );
+    }
+  }
+
   const showRecordConfirmation =
     renderEnvelope.showRecordConfirmation &&
     typeof renderEnvelope.showRecordConfirmation === "object"
@@ -2093,6 +2176,13 @@ const OUTPUT_GUARD_PATTERNS: { category: GuardCategory; re: RegExp }[] = [
   // terms first, then case-sensitive proper nouns.
   { category: "internal_noun", re: /\bknowledge\s*base\b|\bsearch\s+index\b|\bsystem\s+prompt\b|\bfuzzy\s+match(?:er|ing)?\b|\bpipeline\b|\bFireCrawl\b|\bvPIC\b|\bAnthropic\b/i },
   { category: "internal_noun", re: /\bKB\b|\bConvex\b|\bClaude\b|\bHaiku\b|\bSonnet\b/ },
+  // Underscore-form internal vocabulary. Two live leaks motivated this row:
+  // "the `self_reported` flag just means..." (device, 2026-08-13, W4.3 test)
+  // and "the conversation_state arc says..." (device, 2026-08-13, duplicate-
+  // message turn). The underscore forms are code identifiers that never occur
+  // in natural prose, so this can't false-positive on legitimate sentences
+  // like "that's self-reported" (hyphen/space forms stay allowed).
+  { category: "internal_noun", re: /\bself_reported\b|\bconversation_state\b|\brecord_provenance\b|\bestablished_facts\b|\bopen_symptoms\b|\bsafety_override\b/ },
 ];
 
 /**

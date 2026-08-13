@@ -51,6 +51,10 @@ export interface ConversationStateBlock {
   established_facts: string[];
   last_user_intent: string | null;
   updated_at: number | null;
+  // W3.2 — unresolved symptoms from EARLIER turns of this conversation,
+  // appended deterministically by the safety classifier (never by the model).
+  // Rendered so a subject change cannot silently drop a safety thread (D-43).
+  open_symptoms?: { text: string; category: string; safety_relevant: boolean }[];
 }
 
 // Wave 3 integration step 4 (§3.4) — one fact pulled from a PRIOR
@@ -304,6 +308,21 @@ export function buildEnvelope({
         lines.push(`    - ${fact}`);
       }
     }
+    // W3.2 — the open-symptom ledger. Only rows still open reach the envelope
+    // (chat.ts filters), and the rule line travels WITH the data so the model
+    // never sees an open symptom without also seeing what it owes it.
+    const openSymptoms = conversationState.open_symptoms ?? [];
+    if (openSymptoms.length > 0) {
+      lines.push(`  unresolved_symptoms:`);
+      for (const s of openSymptoms) {
+        lines.push(
+          `    - "${s.text}"${s.safety_relevant ? " [safety-relevant]" : ""}`,
+        );
+      }
+      lines.push(
+        `  unresolved_symptoms_rule: These were reported earlier in THIS conversation and never resolved. Do not let a subject change drop them. Before this conversation ends or a booking is finalized, either fold them into the booking (they are auto-added to the customer notes when you fire render_book_service) or explicitly ask the user about them once.`,
+      );
+    }
     lines.push(`</conversation_state>`);
     blocks.push(lines.join("\n"));
   }
@@ -380,7 +399,10 @@ function hasUsefulState(s: ConversationStateBlock): boolean {
     s.mood ||
       s.arc_summary ||
       (s.established_facts && s.established_facts.length > 0) ||
-      s.last_user_intent,
+      s.last_user_intent ||
+      // W3.2 — an open symptom alone is reason enough to render the block;
+      // it is exactly the state that must survive a first-turn subject change.
+      (s.open_symptoms && s.open_symptoms.length > 0),
   );
 }
 
