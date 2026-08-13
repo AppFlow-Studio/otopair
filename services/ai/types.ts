@@ -183,6 +183,11 @@ export interface VehicleUpdatePayload {
     service_mileage?: number;
     service_age_days?: number;
     service_date?: number;
+    // W4.3 (QA K3) — "hedged" when the user signalled uncertainty ("I think…",
+    // "pretty sure…", "like 6 months ago?"). Absent = "certain". Hedged
+    // completed claims are written with a softer confidence label server-side
+    // and the card shows an explicit "you weren't sure" qualifier.
+    stated_confidence?: "certain" | "hedged";
   }[];
   // Named warning lights (e.g. ["check_engine"]).
   fault_lights?: string[];

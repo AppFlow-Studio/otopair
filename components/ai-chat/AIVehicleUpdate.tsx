@@ -63,6 +63,9 @@ export interface VehicleUpdateOutcome {
   mileageUpdated: boolean;
   servicesFlagged: string[];
   servicesCompleted: string[];
+  /** Subset of servicesCompleted the user HEDGED ("I think…", "pretty sure…").
+   *  Written server-side with a softer confidence label (W4.3 / QA K3). */
+  servicesCompletedHedged: string[];
   faultLightsAdded: string[];
 }
 
@@ -79,6 +82,7 @@ type TruthResult = {
   mileageUpdated?: boolean;
   servicesFlagged?: string[];
   servicesCompleted?: string[];
+  servicesCompletedHedged?: string[];
   faultLightsAdded?: string[];
 };
 
@@ -151,7 +155,15 @@ function buildRows(payload: VehicleUpdatePayload): string[] {
       if (claim.service_mileage != null) when.push(`at ${num(claim.service_mileage)} mi`);
       const ago = describeAge(claim.service_age_days, claim.service_date);
       if (ago) when.push(ago);
-      rows.push(`Log ${label} as done${when.length ? ` (${when.join(", ")})` : ""}`);
+      // Hedged claim ("I think…", "pretty sure…") — say so on the row, so the
+      // user confirms what will actually be written: a log noted as unsure.
+      const hedged =
+        claim.stated_confidence === "hedged"
+          ? " (you weren't sure — we'll note that)"
+          : "";
+      rows.push(
+        `Log ${label} as done${when.length ? ` (${when.join(", ")})` : ""}${hedged}`,
+      );
     } else {
       rows.push(`Flag ${label} as due`);
     }
@@ -185,8 +197,15 @@ function reconfirmMessage(res: TruthResult): string {
 function appliedMessage(res: TruthResult): string {
   const parts: string[] = [];
   if (res.mileageUpdated) parts.push("mileage updated");
-  if (res.servicesCompleted?.length)
-    parts.push(`logged ${res.servicesCompleted.map(humanizeSlug).join(", ")} as done`);
+  if (res.servicesCompleted?.length) {
+    // Hedged services were still written, but as unsure — say so.
+    const hedged = new Set(res.servicesCompletedHedged ?? []);
+    parts.push(
+      `logged ${res.servicesCompleted
+        .map((s) => humanizeSlug(s) + (hedged.has(s) ? " (noted as unsure)" : ""))
+        .join(", ")} as done`,
+    );
+  }
   if (res.servicesFlagged?.length)
     parts.push(`flagged ${res.servicesFlagged.map(humanizeSlug).join(", ")}`);
   if (res.faultLightsAdded?.length)
@@ -244,6 +263,7 @@ export function AIVehicleUpdate({
             mileageUpdated: !!res.mileageUpdated,
             servicesFlagged: res.servicesFlagged ?? [],
             servicesCompleted: res.servicesCompleted ?? [],
+            servicesCompletedHedged: res.servicesCompletedHedged ?? [],
             faultLightsAdded: res.faultLightsAdded ?? [],
           });
         } else if (res?.needsReconfirm && res?.reconfirmable) {

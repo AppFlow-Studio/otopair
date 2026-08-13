@@ -660,6 +660,12 @@ const RENDER_TOOLS: OtoToolSchema[] = [
                 description:
                   "Optional, kind:\"completed\" only. Absolute Unix ms timestamp the service was performed — use ONLY when the user names a concrete date. Prefer service_age_days for relative phrases. Wins over service_age_days if both are set.",
               },
+              stated_confidence: {
+                type: "string",
+                enum: ["certain", "hedged"],
+                description:
+                  "Optional. How sure the user sounded about THIS claim. \"hedged\" = the user signals uncertainty: \"I think\", \"pretty sure\", \"maybe\", \"probably\", \"if I remember right\", or an unsure date/mileage (\"like 6 months ago?\", \"around 90k I guess\"). \"certain\" = a plain assertion with no uncertainty markers (\"I did my brakes last week\", \"changed the oil at 89,000\"). Omit when certain — absent defaults to \"certain\" server-side. e.g. \"I think I changed the oil, like 6 months ago?\" → {oil_change, completed, service_age_days: 180, stated_confidence: \"hedged\"}; \"pretty sure the brakes were done recently\" → {brake_pad_replacement, completed, stated_confidence: \"hedged\"}.",
+              },
             },
             required: ["service_slug", "kind"],
           },
