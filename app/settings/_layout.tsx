@@ -1,4 +1,5 @@
 import { Stack } from "expo-router";
+import { OtoGradient } from "@/constants/theme";
 
 export default function SettingsLayout() {
     return (
@@ -23,7 +24,11 @@ export default function SettingsLayout() {
             <Stack.Screen name="contact-us" />
             <Stack.Screen
                 name="transactions"
-                options={{ contentStyle: { backgroundColor: "#FFFFFF" } }}
+                options={{
+                    // Matches the top stop of the screen's own Oto gradient so
+                    // the push doesn't flash a white edge before it paints.
+                    contentStyle: { backgroundColor: OtoGradient.colors[0] },
+                }}
             />
             <Stack.Screen
                 name="past-service/[bookingId]"

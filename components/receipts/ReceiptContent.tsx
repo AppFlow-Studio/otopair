@@ -1,45 +1,31 @@
 /**
- * ReceiptContent — Shop-style receipt body (v2).
+ * ReceiptContent — the statement
  *
- * Flat, hairline-separated layout matching the Shopify Shop receipt
- * sheet (Image #3/#4). Lives inside the formSheet route at
- * `app/settings/receipt/[bookingId].tsx` and inside the legacy
- * `<ReceiptSheet />` (home auto-prompt + Cars tab service history).
+ * Body of the receipt sheet. Reads as a document rather than a UI: the amount
+ * paid is the hero, line items run to dot leaders, and the totals stack ends in
+ * an unmistakable Total. A footer carries the provenance a receipt is actually
+ * kept for — shop, technician, vehicle, odometer.
  *
- * Order:
- *   1. Receipt title + share pill
- *   2. Order # · short date
- *   3. Line items (services + parts), icon tile left, price right
- *   4. Pricing stack (Labor / Parts / Platform fee / Tax)
- *   5. Total (bold, top hairline)
- *   6. Service location — shop address block
- *   7. Mechanic — avatar + name (+ optional title)
- *   8. Email address — Clerk-sourced
- *   9. Shop — placeholder logo tile + name
- *  10. Leave a review pill (only when `onLeaveReview` prop is set)
+ * Matches the Service Record surfaces: Inter for figures and names, Geist Mono
+ * for micro-labels, hairline rules, colours from ServiceLogColors. The dot
+ * leaders are the one motif unique to this screen — they're what makes a
+ * statement read as a statement.
+ *
+ * Renders as a plain View. The scroll container, grabber and sheet chrome all
+ * come from the parent (ReceiptSheet / ParsedDocumentSheet), so this must never
+ * introduce its own ScrollView.
+ *
+ * Deliberately NOT using <Text> from shared-ui — that component is bound to the
+ * Urbanist family and this surface pairs Inter with Geist Mono.
+ *
+ * USED IN: ReceiptSheet (Cars tab service history, Settings → Past Service),
+ *          ParsedDocumentSheet (uploaded-document preview).
  */
 
 import React from "react";
-import { Pressable, Share, StyleSheet, View } from "react-native";
-import { Image } from "expo-image";
-import { useUser } from "@clerk/clerk-expo";
-import {
-  Settings as Cog,
-  Share as ShareIcon,
-  Star,
-  Store,
-  Wrench,
-} from "lucide-react-native";
+import { Pressable, Share, StyleSheet, Text as RNText, View } from "react-native";
 
-import { Text } from "@/components/shared-ui";
-import { CardShadow } from "@/constants/theme";
-import { getServiceIcon } from "@/utils/serviceIcons";
-
-const ACCENT = "#5299FE";
-const INK = "#0F172A";
-const SUB = "#6B7280";
-const MUTED = "#94A3B8";
-const HAIRLINE = "#E5E7EB";
+import { FontFamily, ServiceLogColors as C } from "@/constants/theme";
 
 export interface ReceiptPayload {
   receipt_number: string;
@@ -77,7 +63,7 @@ export interface ReceiptPayload {
     customer_concern: string;
     mechanic_findings: string;
   };
-  line_items: Array<
+  line_items: (
     | { type: "service"; name: string; labor_hours: number | null; labor_cost: number | null }
     | {
         type: "part";
@@ -87,7 +73,7 @@ export interface ReceiptPayload {
         unit_cost?: number | null;
         cost: number | null;
       }
-  >;
+  )[];
   totals: {
     labor_subtotal: number | null;
     parts_subtotal: number;
@@ -109,424 +95,496 @@ export interface ReceiptPayload {
 
 interface Props {
   payload: ReceiptPayload;
-  /** When provided, renders a filled "Leave a review" pill at the
-   *  bottom. Home auto-prompt passes it; formSheet route + Cars-tab
-   *  service history leave it undefined. */
+  /** When provided, renders a filled "Leave a review" pill at the bottom. The
+   *  home auto-prompt passes it; the sheet routes leave it undefined. */
   onLeaveReview?: () => void;
 }
 
+/** Enough leader characters to span the widest gap at any font scale; the run
+ *  is clipped by an overflow:hidden parent, so over-supplying is free. */
+const LEADER_RUN = 140;
+
+const MONTHS = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
+
+/** With symbol, for the Total and the paid line. */
 function fmtUSD(n: number | null | undefined): string {
   if (n == null) return "—";
   return n.toLocaleString("en-US", { style: "currency", currency: "USD" });
 }
 
-function fmtShortDate(iso: string | null): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return "";
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+/** Without symbol — the column reads cleaner when only the Total carries one. */
+function fmtAmount(n: number | null | undefined): string {
+  if (n == null) return "—";
+  return n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-function initials(name: string): string {
-  return name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((w) => w[0]?.toUpperCase() ?? "")
-    .join("");
+function fmtMiles(n: number | null | undefined): string {
+  if (n == null) return "—";
+  return n.toLocaleString("en-US");
+}
+
+/** "2026-08-12" or epoch ms → "12 Aug 2026". Built by hand — Hermes ships a
+ *  reduced Intl that throws on toLocaleDateString with an options bag. */
+function fmtLongDate(value: string | number | null): string {
+  if (value == null) return "";
+  const d = typeof value === "number" ? new Date(value) : new Date(`${value}T00:00:00`);
+  if (isNaN(d.getTime())) return "";
+  return `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+}
+
+/** Ratings are raw averages (4.555555555555555). One decimal, no trailing .0 */
+function fmtRating(n: number): string {
+  return String(Math.round(n * 10) / 10);
+}
+
+function fmtLaborHours(hours: number): string {
+  return `${hours} ${hours === 1 ? "HR" : "HRS"}`;
+}
+
+/**
+ * A run of repeated dots clipped to whatever horizontal space is left. Hidden
+ * from assistive tech — without that VoiceOver reads 140 dots between every
+ * label and its amount.
+ */
+function Leader() {
+  return (
+    <View
+      style={styles.leaderBox}
+      accessible={false}
+      importantForAccessibility="no-hide-descendants"
+    >
+      {/* ellipsizeMode="clip" is load-bearing: the default appends an ellipsis
+          to the truncated run, so every rule would end in a stray "…". */}
+      <RNText numberOfLines={1} ellipsizeMode="clip" accessible={false} style={styles.leaderText}>
+        {".".repeat(LEADER_RUN)}
+      </RNText>
+    </View>
+  );
+}
+
+function SectionLabel({ children }: { children: string }) {
+  return <RNText style={styles.sectionLabel}>{children}</RNText>;
+}
+
+/** One itemised line: name → leader → amount, with an optional detail line. */
+function LineItem({
+  name,
+  detail,
+  amount,
+}: {
+  name: string;
+  detail?: string | null;
+  amount: string;
+}) {
+  return (
+    <View style={styles.lineItem}>
+      <View style={styles.lineTop}>
+        <RNText numberOfLines={1} style={styles.lineName}>
+          {name}
+        </RNText>
+        <Leader />
+        <RNText style={styles.lineAmount}>{amount}</RNText>
+      </View>
+      {detail ? <RNText style={styles.lineDetail}>{detail}</RNText> : null}
+    </View>
+  );
+}
+
+/** A row in the totals stack. `hero` renders the final Total. */
+function TotalRow({
+  label,
+  amount,
+  hero,
+  positive,
+}: {
+  label: string;
+  amount: string;
+  hero?: boolean;
+  positive?: boolean;
+}) {
+  return (
+    <View style={hero ? styles.totalRowHero : styles.totalRow}>
+      <RNText
+        style={[
+          hero ? styles.totalLabelHero : styles.totalLabel,
+          positive && styles.positive,
+        ]}
+      >
+        {label}
+      </RNText>
+      <Leader />
+      <RNText
+        style={[
+          hero ? styles.totalValueHero : styles.totalValue,
+          positive && styles.positive,
+        ]}
+      >
+        {amount}
+      </RNText>
+    </View>
+  );
 }
 
 export function ReceiptContent({ payload, onLeaveReview }: Props) {
-  const { receipt_number, service_date, shop, mechanic, line_items, totals } = payload;
-  const { user } = useUser();
-  const email = user?.primaryEmailAddress?.emailAddress ?? "—";
+  const { receipt_number, service_date, shop, mechanic, vehicle, line_items, totals, payment } =
+    payload;
 
   const serviceLines = line_items.filter(
-    (l): l is Extract<typeof line_items[number], { type: "service" }> => l.type === "service",
+    (l): l is Extract<(typeof line_items)[number], { type: "service" }> => l.type === "service",
   );
   const partLines = line_items.filter(
-    (l): l is Extract<typeof line_items[number], { type: "part" }> => l.type === "part",
+    (l): l is Extract<(typeof line_items)[number], { type: "part" }> => l.type === "part",
   );
 
   const mechanicName = mechanic
     ? `${mechanic.first_name} ${mechanic.last_name}`.trim()
     : "";
 
+  const paidDate = fmtLongDate(payment?.charged_at ?? service_date);
+  /** `card_last4` is not persisted yet (see convex/bookings.ts getReceipt), so
+   *  most rows only carry a bare method string like "card". Title-case it
+   *  rather than printing lowercase mid-sentence, and drop it entirely when
+   *  it adds nothing over the word "Paid". */
+  const method = payment?.method?.trim() ?? "";
+  const tender = payment?.card_last4
+    ? `Visa ···· ${payment.card_last4}`
+    : method && method.toLowerCase() !== "card"
+      ? method.charAt(0).toUpperCase() + method.slice(1)
+      : null;
+  const paidLine = [paidDate && `Paid ${paidDate}`, tender].filter(Boolean).join("  ·  ");
+
+  const vehicleLine = [vehicle.year, vehicle.make, vehicle.model, vehicle.trim]
+    .filter(Boolean)
+    .join(" ")
+    .toUpperCase();
+  const idLine = [
+    vehicle.vin_last4 && `VIN ····${vehicle.vin_last4}`,
+    vehicle.plate && `PLATE ${vehicle.plate}`,
+  ]
+    .filter(Boolean)
+    .join("  ·  ");
+  const odoLine =
+    vehicle.odometer_in != null && vehicle.odometer_out != null
+      ? `ODOMETER ${fmtMiles(vehicle.odometer_in)} → ${fmtMiles(vehicle.odometer_out)} MI`
+      : vehicle.odometer_out != null || vehicle.odometer_in != null
+        ? `ODOMETER ${fmtMiles(vehicle.odometer_out ?? vehicle.odometer_in)} MI`
+        : null;
+
+  const techLine = [
+    mechanicName.toUpperCase(),
+    mechanic?.rating != null ? `${fmtRating(mechanic.rating)} ★` : null,
+  ]
+    .filter(Boolean)
+    .join("  ·  ");
+
   const handleShare = async () => {
     try {
       await Share.share({ message: `Otopair Receipt #${receipt_number}` });
     } catch {
-      // user dismissed
+      // User dismissed the share sheet — nothing to recover from.
     }
   };
 
   return (
-    <View style={styles.wrap}>
-      {/* 1 · Title + share */}
-      <View style={styles.titleRow}>
-        <Text weight="bold" color={INK} style={styles.title}>
-          Receipt
-        </Text>
+    <View style={styles.root}>
+      {/* ── masthead ─────────────────────────────────────────── */}
+      <View style={styles.head}>
+        <RNText style={styles.eyebrow}>RECEIPT · {receipt_number}</RNText>
         <Pressable
           onPress={handleShare}
-          style={({ pressed }) => [styles.sharePill, pressed && { opacity: 0.7 }]}
-          hitSlop={8}
+          hitSlop={12}
+          accessibilityRole="button"
+          accessibilityLabel="Share receipt"
+          style={({ pressed }) => (pressed ? styles.pressed : null)}
         >
-          <ShareIcon size={18} color={INK} strokeWidth={2} />
+          <RNText style={styles.share}>SHARE</RNText>
         </Pressable>
       </View>
 
-      {/* 2 · Order # · date */}
-      <Text size="sm" color={MUTED} style={styles.subtitle}>
-        Order #{receipt_number}
-        {service_date ? ` · ${fmtShortDate(service_date)}` : ""}
-      </Text>
+      <RNText style={styles.hero}>{fmtUSD(totals.total)}</RNText>
 
-      {/* 3 · Line items */}
-      {[...serviceLines, ...partLines].length > 0 && (
-        <View style={styles.itemsBlock}>
-          {serviceLines.map((line, i) => {
-            const isLast = i === serviceLines.length - 1 && partLines.length === 0;
-            const iconAsset = getServiceIcon(line.name);
-            return (
-              <LineItemRow
-                key={`s-${i}`}
-                icon={
-                  iconAsset ? (
-                    <Image
-                      source={iconAsset}
-                      style={styles.serviceIconImage}
-                      contentFit="contain"
-                    />
-                  ) : (
-                    <Wrench size={18} color={ACCENT} strokeWidth={1.8} />
-                  )
-                }
-                iconBg="rgba(82,153,254,0.10)"
-                name={line.name}
-                subtitle={
-                  line.labor_hours != null && shop?.labor_rate != null
-                    ? `${line.labor_hours} hr · ${fmtUSD(shop.labor_rate)}/hr`
-                    : null
-                }
-                price={fmtUSD(line.labor_cost)}
-                isLast={isLast}
-              />
-            );
-          })}
-          {partLines.map((line, i) => {
-            const isLast = i === partLines.length - 1;
-            return (
-              <LineItemRow
-                key={`p-${i}`}
-                icon={<Cog size={18} color="#475569" strokeWidth={1.8} />}
-                iconBg="rgba(100,116,139,0.10)"
-                name={line.name}
-                subtitle={
-                  line.quantity != null && line.quantity > 1 && line.unit_cost != null
-                    ? `${line.oem_number ? `${line.oem_number} · ` : ""}${line.quantity} × ${fmtUSD(line.unit_cost)}`
-                    : line.oem_number ?? null
-                }
-                price={fmtUSD(line.cost)}
-                isLast={isLast}
-              />
-            );
-          })}
+      {paidLine ? (
+        <View style={styles.paidRow}>
+          <View style={styles.paidDot} />
+          <RNText style={styles.paidLabel}>{paidLine}</RNText>
         </View>
-      )}
+      ) : null}
 
-      {/* 4 · Pricing stack */}
-      <View style={styles.pricingStack}>
-        <PricingRow label="Labor" value={totals.labor_subtotal} />
-        <PricingRow label="Parts" value={totals.parts_subtotal} />
-        <PricingRow label="Platform fee" value={totals.platform_fee} />
-        <PricingRow label="Tax" value={totals.tax} />
+      <View style={styles.rule} />
+
+      {/* ── itemised ─────────────────────────────────────────── */}
+      {serviceLines.length > 0 ? (
+        <>
+          <SectionLabel>LABOR</SectionLabel>
+          {serviceLines.map((l, i) => (
+            <LineItem
+              key={`svc-${i}`}
+              name={l.name}
+              detail={
+                l.labor_hours != null
+                  ? `${fmtLaborHours(l.labor_hours)}${
+                      shop?.labor_rate != null ? ` @ ${fmtUSD(shop.labor_rate)}/HR` : ""
+                    }`
+                  : null
+              }
+              amount={fmtAmount(l.labor_cost)}
+            />
+          ))}
+        </>
+      ) : null}
+
+      {partLines.length > 0 ? (
+        <>
+          <SectionLabel>PARTS</SectionLabel>
+          {partLines.map((l, i) => (
+            <LineItem
+              key={`part-${i}`}
+              name={l.name}
+              detail={
+                [
+                  l.quantity != null && l.unit_cost != null
+                    ? `${l.quantity} × ${fmtUSD(l.unit_cost)}`
+                    : null,
+                  l.oem_number ? `OEM ${l.oem_number}` : null,
+                ]
+                  .filter(Boolean)
+                  .join("  ·  ") || null
+              }
+              amount={fmtAmount(l.cost)}
+            />
+          ))}
+        </>
+      ) : null}
+
+      {/* ── totals ───────────────────────────────────────────── */}
+      <View style={styles.rule} />
+
+      {totals.labor_subtotal != null ? (
+        <TotalRow label="Labor" amount={fmtAmount(totals.labor_subtotal)} />
+      ) : null}
+      <TotalRow label="Parts" amount={fmtAmount(totals.parts_subtotal)} />
+      <TotalRow label="Service fee" amount={fmtAmount(totals.platform_fee)} />
+      <TotalRow label="Tax" amount={fmtAmount(totals.tax)} />
+      {totals.parts_saved > 0 ? (
+        <TotalRow
+          label="You saved on parts"
+          amount={`−${fmtAmount(totals.parts_saved)}`}
+          positive
+        />
+      ) : null}
+
+      <View style={styles.ruleTight} />
+      <TotalRow label="Total" amount={fmtUSD(totals.total)} hero />
+
+      {/* ── provenance ───────────────────────────────────────── */}
+      <View style={styles.rule} />
+      <View style={styles.footer}>
+        {shop?.name ? <RNText style={styles.footerTitle}>{shop.name}</RNText> : null}
+        {techLine ? <RNText style={styles.footerMeta}>{techLine}</RNText> : null}
+        {vehicleLine ? <RNText style={styles.footerMeta}>{vehicleLine}</RNText> : null}
+        {idLine ? <RNText style={styles.footerMeta}>{idLine}</RNText> : null}
+        {odoLine ? <RNText style={styles.footerMeta}>{odoLine}</RNText> : null}
       </View>
 
-      {/* 5 · Total */}
-      <View style={styles.totalRow}>
-        <Text weight="bold" size="md" color={INK}>
-          Total
-        </Text>
-        <Text weight="bold" size="md" color={INK}>
-          {fmtUSD(totals.total)}
-        </Text>
-      </View>
-
-      {/* Sections divider */}
-      <View style={styles.sectionDivider} />
-
-      {/* 6 · Service location */}
-      <Section title="Service location">
-        {shop ? (
-          <>
-            <Text size="sm" color={INK}>
-              {shop.name}
-            </Text>
-            {shop.address ? (
-              <Text size="sm" color={INK} style={{ marginTop: 4 }}>
-                {shop.address}
-              </Text>
-            ) : null}
-            {shop.city ? (
-              <Text size="sm" color={INK} style={{ marginTop: 4 }}>
-                {shop.city}
-              </Text>
-            ) : null}
-          </>
-        ) : (
-          <Text size="sm" color={SUB}>
-            —
-          </Text>
-        )}
-      </Section>
-
-      {/* 7 · Mechanic */}
-      {mechanic && (
-        <Section title="Mechanic">
-          <View style={styles.iconRow}>
-            {mechanic.photo_url ? (
-              <Image
-                source={{ uri: mechanic.photo_url }}
-                style={styles.smallAvatar}
-                contentFit="cover"
-              />
-            ) : (
-              <View style={[styles.smallAvatar, styles.avatarFallback]}>
-                <Text weight="bold" size="xs" color="#FFFFFF">
-                  {initials(mechanicName) || "M"}
-                </Text>
-              </View>
-            )}
-            <View style={{ flex: 1 }}>
-              <Text size="sm" color={INK}>
-                {mechanicName}
-              </Text>
-              {mechanic.title ? (
-                <Text size="sm" color={SUB} style={{ marginTop: 2 }}>
-                  {mechanic.title}
-                </Text>
-              ) : null}
-            </View>
-          </View>
-        </Section>
-      )}
-
-      {/* 8 · Email address */}
-      <Section title="Email address">
-        <Text size="sm" color={INK}>
-          {email}
-        </Text>
-      </Section>
-
-      {/* 9 · Shop */}
-      {shop && (
-        <Section title="Shop">
-          <View style={styles.iconRow}>
-            <View style={styles.shopTile}>
-              <Store size={16} color="#475569" strokeWidth={1.8} />
-            </View>
-            <Text weight="semiBold" size="sm" color={INK}>
-              {shop.name}
-            </Text>
-          </View>
-        </Section>
-      )}
-
-      {/* 10 · Leave a review (home auto-prompt only) */}
-      {onLeaveReview && (
+      {onLeaveReview ? (
         <Pressable
           onPress={onLeaveReview}
-          style={({ pressed }) => [styles.reviewBtn, pressed && { opacity: 0.9 }]}
+          accessibilityRole="button"
+          style={({ pressed }) => [styles.cta, pressed && styles.pressed]}
         >
-          <Star size={16} color="#FFFFFF" fill="#FFFFFF" />
-          <Text weight="semiBold" size="sm" color="#FFFFFF">
-            Leave a review
-          </Text>
+          <RNText style={styles.ctaLabel}>Leave a review</RNText>
         </Pressable>
-      )}
+      ) : null}
     </View>
   );
 }
 
-function LineItemRow({
-  icon,
-  iconBg,
-  name,
-  subtitle,
-  price,
-  isLast,
-}: {
-  icon: React.ReactNode;
-  iconBg: string;
-  name: string;
-  subtitle: string | null;
-  price: string;
-  isLast: boolean;
-}) {
-  return (
-    <View style={styles.itemRow}>
-      <View style={[styles.itemIcon, { backgroundColor: iconBg }]}>{icon}</View>
-      <View style={{ flex: 1 }}>
-        <Text weight="bold" size="sm" color={INK} numberOfLines={2}>
-          {name}
-        </Text>
-      </View>
-      <Text size="sm" color={INK}>
-        {price}
-      </Text>
-    </View>
-  );
-}
-
-function PricingRow({ label, value }: { label: string; value: number | null }) {
-  return (
-    <View style={styles.pricingRow}>
-      <Text size="sm" color={SUB}>
-        {label}
-      </Text>
-      <Text size="sm" color={INK}>
-        {fmtUSD(value)}
-      </Text>
-    </View>
-  );
-}
-
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <View style={styles.section}>
-      <Text weight="bold" size="md" color={INK} style={styles.sectionTitle}>
-        {title}
-      </Text>
-      {children}
-    </View>
-  );
-}
+const G = 24;
 
 const styles = StyleSheet.create({
-  wrap: {
-    paddingHorizontal: 20,
-    paddingTop: 8,
+  root: {
+    paddingHorizontal: G,
+    paddingBottom: 8,
   },
-  titleRow: {
+  pressed: {
+    opacity: 0.6,
+  },
+
+  // ── masthead ──────────────────────────────────────────────
+  head: {
     flexDirection: "row",
+    alignItems: "center",
     justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 4,
   },
-  title: {
-    fontSize: 24,
-    lineHeight: 30,
-    letterSpacing: -0.3,
+  eyebrow: {
+    fontFamily: FontFamily.techMonoMedium,
+    fontSize: 9,
+    letterSpacing: 2,
+    color: C.low,
   },
-  sharePill: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "#FFFFFF",
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: HAIRLINE,
-    alignItems: "center",
-    justifyContent: "center",
+  share: {
+    fontFamily: FontFamily.techMonoMedium,
+    fontSize: 10,
+    letterSpacing: 1.4,
+    color: C.accent,
   },
-  subtitle: {
-    marginBottom: 18,
-    letterSpacing: 0.1,
+  hero: {
+    fontFamily: FontFamily.interBold,
+    fontSize: 38,
+    lineHeight: 42,
+    letterSpacing: -1.6,
+    color: C.ink,
+    marginTop: 4,
   },
-  itemsBlock: {
-    marginBottom: 4,
-  },
-  itemRow: {
+  paidRow: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 6,
-    gap: 14,
+    gap: 6,
+    marginTop: 6,
   },
-  itemRowDivider: {
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: HAIRLINE,
+  paidDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: C.positive,
   },
-  itemIcon: {
-    width: 50,
-    height: 50,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    boxShadow: CardShadow.default,
+  paidLabel: {
+    fontFamily: FontFamily.interMedium,
+    fontSize: 12,
+    color: C.mid,
   },
-  serviceIconImage: {
-    width: 70,
-    height: 70,
+
+  // ── rules ─────────────────────────────────────────────────
+  rule: {
+    height: 1,
+    backgroundColor: C.hairline,
+    marginTop: 20,
   },
-  pricingStack: {
-    paddingTop: 14,
-    paddingBottom: 4,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: HAIRLINE,
+  ruleTight: {
+    height: 1,
+    backgroundColor: C.hairline,
     marginTop: 12,
   },
-  pricingRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    paddingVertical: 6,
+
+  // ── sections + line items ─────────────────────────────────
+  sectionLabel: {
+    fontFamily: FontFamily.techMonoMedium,
+    fontSize: 9,
+    letterSpacing: 2,
+    color: C.low,
+    marginTop: 16,
+    marginBottom: 4,
   },
+  lineItem: {
+    paddingVertical: 8,
+  },
+  lineTop: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  lineName: {
+    fontFamily: FontFamily.interMedium,
+    fontSize: 14,
+    color: C.ink,
+    flexShrink: 1,
+  },
+  lineAmount: {
+    fontFamily: FontFamily.techMonoMedium,
+    fontSize: 13,
+    letterSpacing: 0.2,
+    color: C.ink,
+  },
+  lineDetail: {
+    fontFamily: FontFamily.techMono,
+    fontSize: 9,
+    letterSpacing: 0.9,
+    color: C.low,
+    marginTop: 2,
+  },
+
+  // ── leaders ───────────────────────────────────────────────
+  leaderBox: {
+    flex: 1,
+    overflow: "hidden",
+    marginHorizontal: 7,
+  },
+  leaderText: {
+    fontFamily: FontFamily.techMono,
+    fontSize: 11,
+    letterSpacing: 1,
+    color: C.leader,
+  },
+
+  // ── totals ────────────────────────────────────────────────
   totalRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
-    paddingTop: 14,
-    paddingBottom: 14,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: HAIRLINE,
-    marginTop: 8,
+    paddingVertical: 5,
   },
-  sectionDivider: {
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: HAIRLINE,
-    marginTop: 4,
-    marginBottom: 18,
+  totalLabel: {
+    fontFamily: FontFamily.interRegular,
+    fontSize: 13,
+    color: C.mid,
   },
-  section: {
-    marginBottom: 20,
+  totalValue: {
+    fontFamily: FontFamily.techMono,
+    fontSize: 12,
+    letterSpacing: 0.2,
+    color: C.mid,
   },
-  sectionTitle: {
+  totalRowHero: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingTop: 12,
+  },
+  totalLabelHero: {
+    fontFamily: FontFamily.interBold,
+    fontSize: 17,
+    letterSpacing: -0.3,
+    color: C.ink,
+  },
+  totalValueHero: {
+    fontFamily: FontFamily.interBold,
+    fontSize: 22,
+    letterSpacing: -0.6,
+    color: C.ink,
+  },
+  positive: {
+    color: C.positive,
+  },
+
+  // ── provenance footer ─────────────────────────────────────
+  footer: {
+    marginTop: 16,
+    gap: 3,
+  },
+  footerTitle: {
+    fontFamily: FontFamily.interSemiBold,
+    fontSize: 14,
+    color: C.ink,
+  },
+  footerMeta: {
+    fontFamily: FontFamily.techMono,
+    fontSize: 9,
+    letterSpacing: 1,
+    color: C.low,
+  },
+
+  // ── cta ───────────────────────────────────────────────────
+  cta: {
+    marginTop: 22,
+    paddingVertical: 15,
+    borderRadius: 999,
+    backgroundColor: C.accent,
+    alignItems: "center",
+  },
+  ctaLabel: {
+    fontFamily: FontFamily.interSemiBold,
     fontSize: 15,
-    marginBottom: 8,
-  },
-  iconRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  smallAvatar: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: "#E5E7EB",
-  },
-  avatarFallback: {
-    backgroundColor: ACCENT,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  shopTile: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: "#F1F5F9",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  reviewBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    backgroundColor: ACCENT,
-    borderRadius: 14,
-    paddingVertical: 14,
-    marginTop: 8,
-    marginBottom: 4,
+    color: C.onAccent,
   },
 });
 

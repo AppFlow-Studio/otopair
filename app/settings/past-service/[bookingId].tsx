@@ -1,25 +1,44 @@
 /**
- * Past Service Detail
+ * Past Service Detail — the report
  *
- * PURPOSE: Shop-style "Order detail" view for a single completed booking.
- *          Hero card (shop wordmark + order # + date), Review card,
- *          Completed card, Services card with View receipt CTA, and a
- *          "Book again" card. View receipt pushes the
- *          `settings/receipt/[bookingId]` route, which is configured as
- *          a native iOS formSheet in `app/settings/_layout.tsx`. Review
- *          opens <LeaveReviewSheet />.
+ * Reads as an account of what happened to the car rather than a bill: a
+ * plain-English headline, the work performed, the technician who did it, their
+ * findings as the centrepiece, odometer in/out, and money collapsed to a single
+ * row that opens the full receipt.
  *
- * USED IN: Settings → Past Services → row tap (and the Recommended-
- *          services deep link for resolved rows).
+ * Sits on the shared Oto ambient gradient so it belongs to the Service Record
+ * list it's pushed from.
+ *
+ * The headline never names a service. An order can carry any number of them,
+ * so it says "Your Tiguan was serviced" and the services live in their own
+ * list — naming one in the headline silently hid the rest.
+ *
+ * Deliberately NOT using <Text> from shared-ui: that component is bound to the
+ * Urbanist family, and this surface pairs Inter with Geist Mono, matching the
+ * list screen. Families and colours still come from constants/theme.ts.
+ *
+ * USED IN: Settings → Past Services → row tap (and the Recommended-services
+ *          deep link for resolved rows).
  */
 
 import React, { useMemo, useRef, useState } from "react";
-import { Alert, Image, Platform, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import {
+  Alert,
+  Image,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text as RNText,
+  View,
+} from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
+import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Link, useLocalSearchParams } from "expo-router";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { useQuery } from "convex/react";
-import { MoreHorizontal, Star, Wrench } from "lucide-react-native";
+import { ArrowLeft, Check, ChevronRight, MoreHorizontal, Star } from "lucide-react-native";
 
 import {
   LeaveReviewSheet,
@@ -34,19 +53,18 @@ import {
   type PastServiceActionsSheetRef,
 } from "@/components/past-services/PastServiceActionsSheet";
 import { ReceiptSheet } from "@/components/receipts/ReceiptSheet";
-import { Text } from "@/components/shared-ui";
-import { CardShadow, SurfaceColors } from "@/constants/theme";
+import { FontFamily, OtoGradient, ServiceLogColors as C } from "@/constants/theme";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useMyBookingsWithDetails } from "@/hooks/useMyBookingsWithDetails";
 import { useUserFromConvex } from "@/hooks/useUserFromConvex";
-import { getServiceIcon } from "@/utils/serviceIcons";
 
-const INK = "#0F172A";
-const MUTED = "#86868B";
-const HAIRLINE = "#E5E7EB";
-const ACCENT = "#5299FE";
-
+/**
+ * `Link.AppleZoomTarget` only exists on iOS builds of expo-router, and pairs
+ * with `Link.AppleZoom` on the list row that pushed here — see
+ * app/settings/transactions.tsx. Looked up optionally so Android and older
+ * router versions fall through to a plain push.
+ */
 type AppleZoomRouterLink = typeof Link & {
   AppleZoomTarget?: React.ComponentType<React.PropsWithChildren>;
 };
@@ -54,14 +72,62 @@ type AppleZoomRouterLink = typeof Link & {
 const AppleZoomTarget =
   Platform.OS === "ios" ? (Link as AppleZoomRouterLink).AppleZoomTarget : undefined;
 
-function fmtUSD(n: number | undefined): string {
+function fmtUSD(n: number | null | undefined): string {
   if (n == null) return "—";
   return n.toLocaleString("en-US", { style: "currency", currency: "USD" });
 }
 
-function shortOrderNumber(bookingId: string): string {
-  return bookingId.slice(-8).toUpperCase();
+function fmtMiles(n: number | null | undefined): string {
+  if (n == null) return "—";
+  return n.toLocaleString("en-US");
 }
+
+/** "1 HR LABOR" / "1.5 HRS LABOR". Singular only at exactly 1. */
+function fmtLaborHours(hours: number): string {
+  return `${hours} ${hours === 1 ? "HR" : "HRS"} LABOR`;
+}
+
+/** Ratings are stored as raw averages (4.555555555555555). One decimal, and
+ *  drop a trailing ".0" so a clean 5 doesn't render as "5.0". */
+function fmtRating(n: number): string {
+  return String(Math.round(n * 10) / 10);
+}
+
+/**
+ * TEMPORARY placeholder copy.
+ *
+ * `job_actuals.mechanic_findings` is empty on every booking today — nothing in
+ * the shop flow writes it yet. This keeps the section visible so the layout can
+ * be judged with realistic content. DELETE once the mechanic can submit
+ * findings; the section is already written to hide itself when the field is
+ * genuinely empty.
+ */
+const PLACEHOLDER_FINDINGS =
+  "Pulled code P0420 — catalytic converter efficiency below threshold on bank 1. " +
+  "Upstream and downstream O2 sensors both reading in range, so the sensors are " +
+  "not the fault. No exhaust leaks found at the manifold or flex joint. " +
+  "Cleared the code and road-tested 6 miles without it returning; if the light " +
+  "comes back the converter itself is the next step.";
+
+/**
+ * "Volkswagen Tiguan 2.0T SE R-Line" → "Tiguan", for the headline. Mirrors the
+ * same extraction the list screen uses for its channel labels.
+ */
+function extractModel(full: string): string {
+  const tokens = full.trim().split(/\s+/).filter(Boolean);
+  if (tokens.length <= 1) return full;
+  if (tokens[1].toLowerCase() === "model" && tokens[2]) {
+    return `${tokens[1]} ${tokens[2]}`;
+  }
+  if (/^\d+$/.test(tokens[1]) && tokens[2]?.toLowerCase() === "series") {
+    return `${tokens[1]} ${tokens[2]}`;
+  }
+  return tokens[1];
+}
+
+// ============================================================================
+// SCREEN
+// ============================================================================
 
 export default function PastServiceDetailScreen() {
   const insets = useSafeAreaInsets();
@@ -75,49 +141,63 @@ export default function PastServiceDetailScreen() {
     [historyBookings, bookingId],
   );
 
-  const reviewedBookingIds = useQuery(
-    api.reviews.listReviewedBookingIdsForUser,
-    userId ? { userId } : "skip",
-  );
-
-  // Receipt payload — fetched here so each service row can show its
-  // per-line price (Shop-style) beneath the service name. Only the
-  // service-type line items are used; parts (if any) are ignored
-  // here since the page only renders booking.services.
+  // Gated on the resolved booking, not the raw route param: Convex throws on a
+  // malformed id, which takes the whole screen down before the not-found state
+  // can render. Waiting for the booking to resolve means we only ever pass an
+  // id that came from a real row.
   const receiptData = useQuery(
     api.bookings.getReceipt,
-    bookingId ? { bookingId: bookingId as Id<"bookings"> } : "skip",
+    booking ? { bookingId: booking.id as Id<"bookings"> } : "skip",
   );
-  const servicePriceMap = useMemo(() => {
-    const map = new Map<string, number>();
-    if (receiptData) {
-      for (const line of receiptData.line_items) {
-        if (line.type === "service" && line.labor_cost != null) {
-          map.set(line.name, line.labor_cost);
-        }
-      }
-    }
-    return map;
-  }, [receiptData]);
-  const reviewedSet = useMemo(
-    () => new Set(reviewedBookingIds ?? []),
-    [reviewedBookingIds],
-  );
-  const isReviewed = bookingId ? reviewedSet.has(bookingId) : false;
 
   const reviewSheetRef = useRef<LeaveReviewSheetRef>(null);
   const actionsSheetRef = useRef<PastServiceActionsSheetRef>(null);
   const disputeSheetRef = useRef<DisputeSheetRef>(null);
   const [receiptBookingId, setReceiptBookingId] = useState<Id<"bookings"> | null>(null);
 
+  /** Prefer the receipt's service lines — they carry labor hours the booking
+   *  row doesn't. Fall back to plain service names.
+   *
+   *  Typed explicitly: `getReceipt`'s return is inferred through the Convex
+   *  api surface, and once bookings.ts grew past a certain size TypeScript
+   *  gave up and widened `line_items` to `any`, which silently made every
+   *  callback parameter here implicitly-any. */
+  const services = useMemo<{ name: string; hours: number | null }[]>(() => {
+    const lineItems: { type: string; name?: string; labor_hours?: number | null }[] =
+      receiptData?.line_items ?? [];
+    const lines = lineItems.filter((l) => l.type === "service");
+    if (lines.length > 0) {
+      return lines.map((l) => ({
+        name: l.name ?? "Service",
+        hours: l.labor_hours ?? null,
+      }));
+    }
+    return (booking?.services ?? []).filter(Boolean).map((name: string) => ({
+      name,
+      hours: null,
+    }));
+  }, [receiptData, booking]);
+
+  const mechanic = receiptData?.mechanic ?? null;
+  const mechanicFirstName = mechanic?.first_name?.trim() || null;
+  // TEMP: falls back to placeholder copy while the shop flow can't write
+  // findings. Drop the `|| PLACEHOLDER_FINDINGS` to restore real behaviour.
+  const findings =
+    receiptData?.service_notes?.mechanic_findings?.trim() || PLACEHOLDER_FINDINGS;
+  const odoIn = receiptData?.vehicle?.odometer_in ?? null;
+  const odoOut = receiptData?.vehicle?.odometer_out ?? null;
+  const total = receiptData?.totals?.total ?? booking?.totalCost ?? null;
+
+  /** Count-agnostic: the verb never names a service, so this stays correct
+   *  whether the order carried one job or six. */
+  const headline = useMemo(() => {
+    const model = booking?.carModel ? extractModel(booking.carModel).trim() : "";
+    return model ? `Your ${model} was serviced.` : "Your vehicle was serviced.";
+  }, [booking?.carModel]);
+
   const handleBack = () => {
     if (router.canGoBack()) router.back();
     else router.replace("/settings/transactions");
-  };
-
-  const handleReview = () => {
-    if (!booking || !userId) return;
-    reviewSheetRef.current?.open(booking, String(userId));
   };
 
   const handleReviewWithRating = (initialRating: number) => {
@@ -125,34 +205,12 @@ export default function PastServiceDetailScreen() {
     reviewSheetRef.current?.open(booking, String(userId), initialRating);
   };
 
-  const handleBookAgain = () => {
-    if (!booking?.shopId) {
-      router.push("/booking/map");
-      return;
-    }
-    // TODO: have /booking/map honor the shopId param to pre-select.
-    router.push({
-      pathname: "/booking/map",
-      params: { shopId: booking.shopId },
-    });
-  };
-
-  // Hero "•••" → action sheet → routes to one of three handlers.
-  // The DisputeSheet handles its own Convex action; the screen only
-  // needs to open it. Delete is informational for now (no persisted
-  // hide) — confirms intent, then drops back to the list. Hooking up
-  // a real "hide from history" persisted field is a follow-up that
-  // needs a schema change.
   const handleOpenActions = () => actionsSheetRef.current?.open();
-
   const handleReportIssue = () => disputeSheetRef.current?.open();
 
   const handleViewShopInfo = () => {
     if (!booking?.shopId) return;
-    router.push({
-      pathname: "/booking/shop/[id]",
-      params: { id: booking.shopId },
-    });
+    router.push({ pathname: "/booking/shop/[id]", params: { id: booking.shopId } });
   };
 
   const handleDelete = () => {
@@ -165,9 +223,8 @@ export default function PastServiceDetailScreen() {
           text: "Remove",
           style: "destructive",
           onPress: () => {
-            // TODO(persisted hide): once we land a `dismissed_at_ms`
-            // field on bookings, call the mutation here. For now we
-            // just back out so the user gets feedback.
+            // TODO(persisted hide): once we land a `dismissed_at_ms` field on
+            // bookings, call the mutation here. For now we just back out.
             if (router.canGoBack()) router.back();
             else router.replace("/settings/transactions");
           },
@@ -179,193 +236,218 @@ export default function PastServiceDetailScreen() {
   return (
     <>
       <View style={styles.screen}>
+        {/* The global bar is style="auto", which resolves from the colour
+            scheme rather than the backdrop — pin it dark for this surface. */}
+        <StatusBar style="dark" />
+        <LinearGradient
+          colors={[...OtoGradient.colors]}
+          locations={[...OtoGradient.locations]}
+          start={OtoGradient.start}
+          end={OtoGradient.end}
+          style={StyleSheet.absoluteFillObject}
+          pointerEvents="none"
+        />
+
         <ScrollView
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={[
-            styles.scrollContent,
-            {
-              paddingTop: insets.top + 8,
-              paddingBottom: insets.bottom + 32,
-            },
-          ]}
+          contentContainerStyle={{
+            paddingTop: insets.top + 4,
+            paddingBottom: insets.bottom + 32,
+          }}
         >
-          {booking ? (
-            <>
-              {/* Hero card */}
-              <View style={styles.heroHost}>
-                <View style={styles.heroCard}>
-                  <Text
-                    weight="bold"
-                    color={INK}
-                    style={styles.heroBrand}
-                    numberOfLines={2}
-                  >
-                    {booking.shopName}
-                  </Text>
-                  <Text weight="semiBold" size="sm" color={INK} style={styles.heroOrder}>
-                    Order #{shortOrderNumber(booking.id)}
-                  </Text>
-                  <Text size="sm" color={MUTED} style={styles.heroDate}>
-                    {booking.date}
-                  </Text>
-                </View>
-                <Pressable
-                  style={styles.heroMoreBtn}
-                  onPress={handleOpenActions}
-                  hitSlop={10}
-                  accessibilityLabel="Service options"
-                >
-                  <MoreHorizontal size={18} color={INK} strokeWidth={2.2} />
-                </Pressable>
-                {AppleZoomTarget ? (
-                  <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-                    <AppleZoomTarget>
-                      <View style={styles.zoomTarget} />
-                    </AppleZoomTarget>
-                  </View>
-                ) : null}
-              </View>
-
-              {/* Review — TEMP: always rendered regardless of review
-                  state. Wrap back in `{!isReviewed && (…)}` when we're
-                  ready to hide it post-review. */}
+          {/* ── nav ────────────────────────────────────────────── */}
+          <View style={styles.nav}>
+            <Pressable
+              onPress={handleBack}
+              hitSlop={12}
+              accessibilityRole="button"
+              accessibilityLabel="Back"
+              style={({ pressed }) => (pressed ? styles.pressed : null)}
+            >
+              <ArrowLeft size={24} color={C.ink} strokeWidth={2} />
+            </Pressable>
+            {booking ? (
               <Pressable
-                onPress={handleReview}
-                style={({ pressed }) => [
-                  styles.card,
-                  pressed && styles.cardPressed,
-                ]}
+                onPress={handleOpenActions}
+                hitSlop={12}
+                accessibilityRole="button"
+                accessibilityLabel="Service options"
+                style={({ pressed }) => (pressed ? styles.pressed : null)}
               >
-                <View style={styles.reviewLeft}>
-                  <Text weight="bold" size="sm" color={INK}>
-                    Review your service
-                  </Text>
-                  <Text size="sm" color={MUTED} style={{ marginTop: 2 }}>
-                    Tell us about your experience
-                  </Text>
-                </View>
-                <View style={styles.starsRow}>
-                  {[1, 2, 3, 4, 5].map((n) => (
-                    <Pressable
-                      key={n}
-                      onPress={() => handleReviewWithRating(n)}
-                      hitSlop={6}
-                      style={styles.starHit}
-                    >
-                      <Star
-                        size={18}
-                        color="#CBD5E1"
-                        strokeWidth={1.5}
-                      />
-                    </Pressable>
-                  ))}
-                </View>
+                <MoreHorizontal size={22} color={C.ink} strokeWidth={2.2} />
               </Pressable>
+            ) : null}
+          </View>
 
-              {/* Completed */}
-              <View style={styles.card}>
-                <View style={{ flex: 1 }}>
-                  <Text weight="bold" size="sm" color={INK}>
-                    Completed {booking.date}
-                  </Text>
-                  <Text size="sm" color={MUTED} style={{ marginTop: 2 }}>
-                    {booking.mechanicName} · {booking.time}
-                  </Text>
-                </View>
+          {booking ? (
+            <View style={styles.zoomHost}>
+              {/* ── headline ──────────────────────────────────── */}
+              <View style={styles.head}>
+                <RNText style={styles.headline}>{headline}</RNText>
+                <RNText style={styles.subhead}>
+                  {[booking.date, booking.shopName].filter(Boolean).join("  ·  ")}
+                </RNText>
               </View>
 
-              {/* Services + View receipt */}
-              <View style={[styles.card, styles.servicesCard]}>
-                {booking.services.map((service, i) => {
-                  const iconAsset = getServiceIcon(service);
-                  const price = servicePriceMap.get(service);
-                  return (
-                    <View
-                      key={`${service}-${i}`}
-                      style={styles.serviceRow}
-                    >
-                      <View style={styles.serviceIcon}>
-                        {iconAsset ? (
-                          <Image
-                            source={iconAsset}
-                            style={styles.serviceIconImage}
-                            resizeMode="contain"
-                          />
-                        ) : (
-                          <Wrench size={18} color={ACCENT} strokeWidth={1.8} />
-                        )}
-                      </View>
-                      <View style={{ flex: 1 }}>
-                        <Text
-                          weight="bold"
-                          size="sm"
-                          color={INK}
-                          numberOfLines={2}
-                        >
-                          {service}
-                        </Text>
-                        {price != null && (
-                          <Text size="sm" color={MUTED} style={{ marginTop: 2 }}>
-                            {fmtUSD(price)}
-                          </Text>
-                        )}
+              {/* ── work performed ────────────────────────────── */}
+              {services.length > 0 ? (
+                <>
+                  <RNText style={styles.label}>WORK PERFORMED</RNText>
+                  {services.map((s, i) => (
+                    <View key={`${s.name}-${i}`}>
+                      {i > 0 ? <View style={styles.serviceRule} /> : null}
+                      <View style={styles.serviceRow}>
+                        <Check size={17} color={C.positive} strokeWidth={2.6} />
+                        <View style={styles.serviceText}>
+                          <RNText numberOfLines={1} style={styles.serviceName}>
+                            {s.name}
+                          </RNText>
+                          {s.hours != null ? (
+                            <RNText style={styles.serviceMeta}>
+                              {fmtLaborHours(s.hours)}
+                            </RNText>
+                          ) : null}
+                        </View>
                       </View>
                     </View>
-                  );
-                })}
+                  ))}
+                </>
+              ) : null}
 
-                <Pressable
-                  onPress={() => setReceiptBookingId(booking.id as Id<"bookings">)}
-                  style={({ pressed }) => [
-                    styles.viewReceiptBtn,
-                    pressed && { opacity: 0.85 },
-                  ]}
-                >
-                  <Text weight="semiBold" size="sm" color={INK}>
-                    View receipt
-                  </Text>
-                </Pressable>
+              {/* ── the technician ────────────────────────────── */}
+              {booking.mechanicName ? (
+                <View style={styles.card}>
+                  {booking.mechanicImage ? (
+                    <Image
+                      source={{ uri: booking.mechanicImage }}
+                      style={styles.avatar}
+                      resizeMode="cover"
+                    />
+                  ) : (
+                    <View style={styles.avatar} />
+                  )}
+                  <View style={styles.cardText}>
+                    <RNText numberOfLines={1} style={styles.cardTitle}>
+                      {booking.mechanicName}
+                    </RNText>
+                    <RNText numberOfLines={1} style={styles.cardSub}>
+                      {[
+                        mechanic?.title,
+                        mechanic?.rating != null
+                          ? `${fmtRating(mechanic.rating)} ★${
+                              mechanic.review_count != null
+                                ? `  (${mechanic.review_count})`
+                                : ""
+                            }`
+                          : null,
+                      ]
+                        .filter(Boolean)
+                        .join("  ·  ") || "Technician"}
+                    </RNText>
+                  </View>
+                </View>
+              ) : null}
+
+              {/* ── findings. Omitted entirely when the shop left the field
+                     empty — an empty heading reads as a bug. ─────────── */}
+              {findings ? (
+                <>
+                  <RNText style={styles.label}>
+                    {mechanicFirstName
+                      ? `WHAT ${mechanicFirstName.toUpperCase()} FOUND`
+                      : "WHAT WE FOUND"}
+                  </RNText>
+                  <RNText style={styles.findings}>{findings}</RNText>
+                </>
+              ) : null}
+
+              {/* ── odometer ──────────────────────────────────────
+                  Only render readings that exist. A shop often records the
+                  out reading and skips the in, and an "ODOMETER IN —" next to
+                  a real number reads as broken data rather than absent data.
+                  With a single reading the in/out framing is meaningless, so
+                  it collapses to one "ODOMETER". */}
+              {odoIn != null && odoOut != null ? (
+                <View style={styles.readoutRow}>
+                  <View style={styles.readout}>
+                    <RNText style={styles.readoutLabel}>ODOMETER IN</RNText>
+                    <RNText style={styles.readoutValueMuted}>{fmtMiles(odoIn)}</RNText>
+                  </View>
+                  <View style={styles.readout}>
+                    <RNText style={styles.readoutLabel}>ODOMETER OUT</RNText>
+                    <RNText style={styles.readoutValue}>{fmtMiles(odoOut)}</RNText>
+                  </View>
+                </View>
+              ) : odoIn != null || odoOut != null ? (
+                <View style={styles.readoutRow}>
+                  <View style={styles.readout}>
+                    <RNText style={styles.readoutLabel}>ODOMETER</RNText>
+                    <RNText style={styles.readoutValue}>
+                      {fmtMiles(odoOut ?? odoIn)}
+                    </RNText>
+                  </View>
+                </View>
+              ) : null}
+
+              {/* ── money → receipt ───────────────────────────── */}
+              <Pressable
+                onPress={() => setReceiptBookingId(booking.id as Id<"bookings">)}
+                accessibilityRole="button"
+                accessibilityLabel={`You paid ${fmtUSD(total)}. View receipt.`}
+                style={({ pressed }) => [styles.card, pressed && styles.pressed]}
+              >
+                <View style={styles.cardText}>
+                  <RNText style={styles.cardTitle}>You paid {fmtUSD(total)}</RNText>
+                  <RNText numberOfLines={1} style={styles.cardSub}>
+                    Labor, parts, fee and tax
+                  </RNText>
+                </View>
+                <View style={styles.link}>
+                  <RNText style={styles.linkLabel}>Receipt</RNText>
+                  <ChevronRight size={16} color={C.accent} strokeWidth={2.4} />
+                </View>
+              </Pressable>
+
+              {/* ── rate ──────────────────────────────────────── */}
+              <RNText style={styles.label}>RATE THIS VISIT</RNText>
+              <View style={styles.stars}>
+                {[1, 2, 3, 4, 5].map((n) => (
+                  <Pressable
+                    key={n}
+                    onPress={() => handleReviewWithRating(n)}
+                    hitSlop={8}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Rate ${n} star${n === 1 ? "" : "s"}`}
+                  >
+                    <Star size={30} color={C.star} strokeWidth={1.6} />
+                  </Pressable>
+                ))}
               </View>
 
-              {/* Flex spacer — pushes the Book again pill down to
-                  the bottom of the viewport when the content above
-                  is short. Collapses to its minHeight when the
-                  services list pushes the page past the viewport. */}
-              <View style={styles.spacer} />
-
-              {/* Book again */}
-              <Pressable
-                onPress={handleBookAgain}
-                style={({ pressed }) => [
-                  styles.bookAgainCard,
-                  pressed && { opacity: 0.85 },
-                ]}
-              >
-                <Text weight="semiBold" size="sm" color="#FFFFFF">
-                  Book again with {booking.shopName}
-                </Text>
-              </Pressable>
-            </>
+              {AppleZoomTarget ? (
+                <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+                  <AppleZoomTarget>
+                    <View style={styles.zoomTarget} />
+                  </AppleZoomTarget>
+                </View>
+              ) : null}
+            </View>
           ) : isLoading ? (
-            <PastServiceSkeleton />
+            <View style={styles.notice}>
+              <RNText style={styles.noticeLabel}>READING RECORD…</RNText>
+            </View>
           ) : (
-            <View style={styles.emptyState}>
-              <Text weight="semiBold" size="sm" color={INK} center>
-                Service not found
-              </Text>
-              <Text size="sm" color={MUTED} center style={{ marginTop: 6 }}>
+            <View style={styles.notice}>
+              <RNText style={styles.noticeLabel}>SERVICE NOT FOUND</RNText>
+              <RNText style={styles.noticeSub}>
                 We couldn&apos;t load this past service.
-              </Text>
+              </RNText>
               <Pressable
                 onPress={handleBack}
-                style={({ pressed }) => [
-                  styles.errorBackBtn,
-                  pressed && { opacity: 0.85 },
-                ]}
+                accessibilityRole="button"
+                style={({ pressed }) => [styles.cta, pressed && styles.pressed]}
               >
-                <Text weight="semiBold" size="sm" color="#FFFFFF">
-                  Back to Past Services
-                </Text>
+                <RNText style={styles.ctaLabel}>Back to Service Record</RNText>
               </Pressable>
             </View>
           )}
@@ -383,186 +465,233 @@ export default function PastServiceDetailScreen() {
         onViewShopInfo={handleViewShopInfo}
         onDelete={handleDelete}
       />
-      <DisputeSheet
-        ref={disputeSheetRef}
-        bookingId={booking?.id ?? null}
-      />
+      <DisputeSheet ref={disputeSheetRef} bookingId={booking?.id ?? null} />
     </>
   );
 }
 
-function PastServiceSkeleton() {
-  return (
-    <>
-      <View style={[styles.heroCard, styles.skeletonBlock]}>
-        <View style={[styles.skeletonBar, { width: "55%", height: 28 }]} />
-        <View
-          style={[styles.skeletonBar, { width: "40%", height: 14, marginTop: 14 }]}
-        />
-        <View
-          style={[styles.skeletonBar, { width: "30%", height: 12, marginTop: 8 }]}
-        />
-      </View>
-      {[0, 1, 2, 3].map((i) => (
-        <View key={i} style={[styles.card, { height: 72 }]} />
-      ))}
-    </>
-  );
-}
+// ============================================================================
+// STYLES
+// ============================================================================
+
+const G = 22;
 
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: SurfaceColors.canvasWarm,
+    // Matches the gradient's final stop so overscroll shows white.
+    backgroundColor: OtoGradient.colors[2],
   },
-  scrollContent: {
-    paddingHorizontal: 16,
-    // `flexGrow: 1` lets the content container stretch to the full
-    // scroll viewport height when the natural content height is
-    // shorter. Combined with the <Spacer /> View below the services
-    // card, the Book again pill pins to the bottom on sparse
-    // bookings (1 service) and naturally floats up when the list
-    // fills the page (5+ services).
-    flexGrow: 1,
+  pressed: {
+    opacity: 0.6,
   },
-  spacer: {
-    flex: 1,
-    minHeight: 12,
+
+  nav: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: G,
+    paddingVertical: 6,
   },
-  heroHost: {
+  zoomHost: {
     position: "relative",
-    marginBottom: 16,
-  },
-  heroCard: {
-    backgroundColor: SurfaceColors.cardSurface,
-    borderRadius: 26,
-    paddingHorizontal: 24,
-    paddingTop: 36,
-    paddingBottom: 28,
-    alignItems: "center",
-    boxShadow: CardShadow.default,
-  },
-  heroMoreBtn: {
-    position: "absolute",
-    top: 14,
-    right: 14,
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: "rgba(255, 255, 255, 0.75)",
-    alignItems: "center",
-    justifyContent: "center",
-    // Sit above the optional AppleZoomTarget overlay so the tap registers here.
-    zIndex: 5,
   },
   zoomTarget: {
     flex: 1,
     backgroundColor: "transparent",
   },
-  heroBrand: {
-    fontSize: 24,
-    lineHeight: 30,
-    textAlign: "center",
-    letterSpacing: -0.3,
+
+  // ── headline ──────────────────────────────────────────────
+  head: {
+    paddingHorizontal: G,
+    paddingTop: 8,
+    paddingBottom: 22,
+    gap: 8,
   },
-  heroOrder: {
-    marginTop: 16,
+  headline: {
+    fontFamily: FontFamily.interBold,
+    fontSize: 26,
+    lineHeight: 32,
+    letterSpacing: -0.8,
+    color: C.ink,
   },
-  heroDate: {
-    marginTop: 4,
+  subhead: {
+    fontFamily: FontFamily.interRegular,
+    fontSize: 13,
+    color: C.low,
   },
-  card: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: SurfaceColors.cardSurface,
-    borderRadius: 26,
-    paddingHorizontal: 18,
-    paddingVertical: 16,
-    marginBottom: 14,
-    boxShadow: CardShadow.default,
+
+  // ── section labels ────────────────────────────────────────
+  label: {
+    fontFamily: FontFamily.techMonoMedium,
+    fontSize: 9,
+    letterSpacing: 1.8,
+    color: C.low,
+    paddingHorizontal: G,
+    paddingBottom: 8,
   },
-  cardPressed: {
-    opacity: 0.85,
-  },
-  reviewLeft: {
-    flex: 1,
-  },
-  starsRow: {
-    flexDirection: "row",
-    gap: 4,
-  },
-  starHit: {
-    padding: 2,
-  },
-  servicesCard: {
-    flexDirection: "column",
-    alignItems: "stretch",
-    paddingHorizontal: 14,
-    paddingTop: 6,
-    paddingBottom: 14,
-  },
+
+  // ── work performed ────────────────────────────────────────
   serviceRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 14,
-    paddingVertical: 6,
+    gap: 10,
+    paddingHorizontal: G,
+    paddingVertical: 8,
   },
-  serviceRowDivider: {
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: HAIRLINE,
+  serviceRule: {
+    height: 1,
+    marginLeft: G + 27,
+    marginRight: G,
+    backgroundColor: C.hairline,
   },
-  serviceIcon: {
-    width: 50,
-    height: 50,
-    borderRadius: 14,
-    backgroundColor: "rgba(82,153,254,0.10)",
+  serviceText: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  serviceName: {
+    fontFamily: FontFamily.interSemiBold,
+    fontSize: 15,
+    letterSpacing: -0.1,
+    color: C.ink,
+  },
+  serviceMeta: {
+    fontFamily: FontFamily.techMono,
+    fontSize: 9,
+    letterSpacing: 0.9,
+    color: C.low,
+  },
+
+  // ── cards ─────────────────────────────────────────────────
+  card: {
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    boxShadow: CardShadow.default,
-  },
-  serviceIconImage: {
-    width: 70,
-    height: 70,
-  },
-  viewReceiptBtn: {
-    backgroundColor: "#F2F2F7",
-    borderRadius: 22,
+    gap: 12,
+    marginHorizontal: G,
+    marginTop: 20,
+    // Cards need space AFTER them too — whatever section follows (odometer,
+    // RATE THIS VISIT) has no top spacing of its own and would otherwise sit
+    // flush against the card's bottom edge.
+    marginBottom: 22,
+    paddingLeft: 14,
+    paddingRight: 16,
     paddingVertical: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: 16,
+    borderRadius: 16,
+    backgroundColor: C.card,
+    shadowColor: C.ink,
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
   },
-  bookAgainCard: {
-    backgroundColor: ACCENT,
+  avatar: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: C.avatar,
+  },
+  cardText: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  cardTitle: {
+    fontFamily: FontFamily.interSemiBold,
+    fontSize: 15,
+    color: C.ink,
+  },
+  cardSub: {
+    fontFamily: FontFamily.interRegular,
+    fontSize: 12,
+    color: C.low,
+  },
+  link: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  linkLabel: {
+    fontFamily: FontFamily.interSemiBold,
+    fontSize: 13,
+    color: C.accent,
+  },
+
+  // ── findings ──────────────────────────────────────────────
+  findings: {
+    fontFamily: FontFamily.interRegular,
+    fontSize: 16,
+    lineHeight: 25,
+    color: C.ink,
+    paddingHorizontal: G,
+    paddingBottom: 22,
+  },
+
+  // ── odometer ──────────────────────────────────────────────
+  readoutRow: {
+    flexDirection: "row",
+    paddingHorizontal: G,
+  },
+  readout: {
+    flex: 1,
+    gap: 4,
+  },
+  readoutLabel: {
+    fontFamily: FontFamily.techMonoMedium,
+    fontSize: 9,
+    letterSpacing: 1.6,
+    color: C.low,
+  },
+  readoutValue: {
+    fontFamily: FontFamily.interSemiBold,
+    fontSize: 22,
+    letterSpacing: -0.6,
+    color: C.ink,
+  },
+  readoutValueMuted: {
+    fontFamily: FontFamily.interSemiBold,
+    fontSize: 22,
+    letterSpacing: -0.6,
+    color: C.mid,
+  },
+
+  // ── rate ──────────────────────────────────────────────────
+  stars: {
+    flexDirection: "row",
+    gap: 10,
+    paddingHorizontal: G,
+  },
+
+  // ── cta ───────────────────────────────────────────────────
+  cta: {
+    marginHorizontal: G,
+    marginTop: 26,
+    paddingVertical: 15,
     borderRadius: 999,
-    paddingVertical: 16,
-    paddingHorizontal: 24,
+    backgroundColor: C.accent,
     alignItems: "center",
-    justifyContent: "center",
-    // Top gap comes from the flex <Spacer /> above; the spacer's
-    // minHeight (12) is the minimum cushion between Book again and
-    // the services card. Trailing space is left to the ScrollView's
-    // paddingBottom (insets.bottom + 32).
-    marginBottom: 0,
   },
-  emptyState: {
-    alignItems: "center",
-    justifyContent: "center",
-    paddingTop: 80,
-    paddingHorizontal: 32,
+  ctaLabel: {
+    fontFamily: FontFamily.interSemiBold,
+    fontSize: 15,
+    color: C.onAccent,
   },
-  errorBackBtn: {
-    marginTop: 18,
-    backgroundColor: ACCENT,
-    paddingHorizontal: 22,
-    paddingVertical: 12,
-    borderRadius: 999,
+
+  // ── notices ───────────────────────────────────────────────
+  notice: {
+    paddingHorizontal: G,
+    paddingTop: 60,
   },
-  skeletonBlock: {
-    alignItems: "flex-start",
+  noticeLabel: {
+    fontFamily: FontFamily.techMonoMedium,
+    fontSize: 11,
+    letterSpacing: 1.8,
+    color: C.mid,
   },
-  skeletonBar: {
-    backgroundColor: "#E5E7EB",
-    borderRadius: 6,
+  noticeSub: {
+    fontFamily: FontFamily.interRegular,
+    fontSize: 13,
+    color: C.low,
+    marginTop: 8,
   },
 });
