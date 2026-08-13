@@ -76,6 +76,7 @@ import type * as devOnly_partsCoverage from "../devOnly/partsCoverage.js";
 import type * as devOnly_purgeEstimatorObs from "../devOnly/purgeEstimatorObs.js";
 import type * as devOnly_reassignShopLogins from "../devOnly/reassignShopLogins.js";
 import type * as devOnly_repriceJsonProbe from "../devOnly/repriceJsonProbe.js";
+import type * as devOnly_scanMessageLeaks from "../devOnly/scanMessageLeaks.js";
 import type * as devOnly_seedChelalaCopy from "../devOnly/seedChelalaCopy.js";
 import type * as devOnly_trimGarageToOneCar from "../devOnly/trimGarageToOneCar.js";
 import type * as devOnly_validateQuoteEngine from "../devOnly/validateQuoteEngine.js";
@@ -580,6 +581,7 @@ declare const fullApi: ApiFromModules<{
   "devOnly/purgeEstimatorObs": typeof devOnly_purgeEstimatorObs;
   "devOnly/reassignShopLogins": typeof devOnly_reassignShopLogins;
   "devOnly/repriceJsonProbe": typeof devOnly_repriceJsonProbe;
+  "devOnly/scanMessageLeaks": typeof devOnly_scanMessageLeaks;
   "devOnly/seedChelalaCopy": typeof devOnly_seedChelalaCopy;
   "devOnly/trimGarageToOneCar": typeof devOnly_trimGarageToOneCar;
   "devOnly/validateQuoteEngine": typeof devOnly_validateQuoteEngine;
