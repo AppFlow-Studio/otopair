@@ -216,6 +216,54 @@ turns. Haiku variance on an always-exposed path, not a prompt regression. The fl
 **Naming corrections this session**: render-persistence fix W3.3 → **W0.4**; competence work Q6 →
 **Q5c**. The plan's real Q6 (two renders in one message) is now ANSWERED in OTO_OPEN_QUESTIONS.md.
 
+---
+
+## 0f. Waves 3 + 4 COMPLETE (deployed 2026-08-13, device-tested 09:15–09:25)
+
+**W3.2 — typed open-symptom ledger** (`schema.ts` `ai_conversations.open_symptoms`,
+`ai_conversations.ts` append/resolve internal mutations, `chat.ts` deterministic append when the
+safety classifier fires, `envelope.ts` `unresolved_symptoms` + rule line). The ledger is written by
+the CLASSIFIER, never the model — D-43 is the model forgetting a safety thread on subject change, so
+the remedy cannot depend on the model remembering to write. Dedupe by category among open rows.
+
+**W3.3 — booking bundler** (`chat.ts`, after mergeRenderDirectives): when `render_book_service`
+fires with open symptoms, they are folded into `customer_notes` deterministically (substring-deduped)
+and the rows marked addressed. Log line: `W3.3: bundled N open symptom(s) into booking notes`.
+
+**W3.4 — closed as a sliver.** Sprint 4 Pass J had already built the redirect architecture; the
+remaining H2 shape (grievance + answerable question in ONE message) got a rule: answer the question
+in text, fire the customer_support button for the grievance, same turn (renderable since W3.1).
+
+**Device run, 4 turns, all held:** soft brake pedal → safety override + ledger append; subject
+change → "soft brakes are a safety issue that doesn't go away if we change the subject"; "ok book
+the oil change" → REFUSED while unsafe (three-state unsafe branch); "it's already towed" → booking
+fires, bundler folds the brake report into notes, ledger marked addressed.
+
+**W4.3 — stated_confidence on service claims** (fable subagent: `tools.ts` schema + discrimination
+examples, `dispatcher.ts` sanitize, `vehicleTruth.ts` write-side, `AIVehicleUpdate.tsx` card copy;
+me: prompt rule, v0.45). Write-side finding: there was NO weight mechanism at all — the pre-existing
+completed-claim write stamped nothing. Hedged claims now stamp `confidence: "self_reported_hedged"`
+(buckets as soft for every existing reader — all consumers verified). HONEST LIMIT: the record still
+clears the flag and re-anchors the due clock; the pipeline has no per-record weight input yet — the
+stamp enables that later, it does not implement it. Card path verified at type/deploy level; both
+device runs correctly hit the trust gate instead (test car has records for every type) — a capture
+needs a record-free vehicle.
+
+**Caught in flight:** Oto narrated `` `self_reported` `` to the user ("the flag just means it came
+from your onboarding answers"). New guard row for underscore-form internal vocabulary
+(self_reported / conversation_state / record_provenance / established_facts / open_symptoms /
+safety_override) — code identifiers never occur in natural prose, so "that's self-reported" (hyphen)
+stays allowed; harness asserts both directions. Guards 29/29 (harness copy synced — NOTE the Wave 1
+harness duplicates the pattern table rather than importing it; sync manually or migrate to the
+esbuild-bundle pattern the safety harness uses).
+
+**Prompt versions this session:** v0.40 → v0.45-stable; volatile → v0.20. Composite
+v0.45-stable+v0.20-volatile.
+
+**Plan scoreboard: 18 of 19 items closed or superseded.** Remaining: Wave 5 (W5.1/W5.2 duty-cycle
+KB — blocked on domain content, AAA-class sources don't cover it) + Q5b (brake_warning/abs split,
+product call) + the "other owners" list (camera/vision, voice, behaviour-profiling removal, chat UX).
+
 ### Still open after this session
 - **S5 / D-43** unresolved safety symptom dropped on subject change — needs typed
   `open_symptoms` on `ai_conversations` (schema migration).
