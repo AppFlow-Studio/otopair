@@ -113,6 +113,12 @@ interface BuildEnvelopeArgs {
   // conversations, top_K most-recent first. Optional; skipped from the
   // envelope when empty or omitted. See PriorConversationFact above.
   priorConversationFacts?: PriorConversationFact[];
+  // Wave 2.2 — pre-rendered <safety_override> block from
+  // convex/oto/safety.ts `renderSafetyOverrideBlock`, or null/undefined when
+  // the turn carries no urgent-or-worse hazard. Passed in rather than computed
+  // here so the classifier stays out of the envelope's dependency surface
+  // (envelope.ts is pure formatting; safety.ts owns the hazard model).
+  safetyOverride?: string | null;
   // Reference "now" for relative-time formatting under <recent_context>.
   // Defaults to Date.now() at call time when omitted (production path);
   // tests pin it explicitly so format output is deterministic.
@@ -254,6 +260,7 @@ export function buildEnvelope({
   diagnosticTurnCount = 0,
   priorConversationFacts,
   knowledgeLevel,
+  safetyOverride,
   now,
 }: BuildEnvelopeArgs): string {
   const blocks: string[] = [];
@@ -320,6 +327,14 @@ export function buildEnvelope({
     lines.push(`</recent_context>`);
     blocks.push(lines.join("\n"));
   }
+
+  // Wave 2.2 — safety override. Deliberately placed BEFORE conversation
+  // history and before <untrusted_user_input>: the block is system-authored
+  // context about the current turn, and putting it ahead of the user's own
+  // words keeps it from reading as something the user asked for. Highest
+  // priority block in the envelope; see convex/oto/safety.ts for why it
+  // exists and why it is tone-blind.
+  if (safetyOverride) blocks.push(safetyOverride);
 
   if (diagnosticTurnCount >= POLITE_EXIT_THRESHOLD) {
     blocks.push(
