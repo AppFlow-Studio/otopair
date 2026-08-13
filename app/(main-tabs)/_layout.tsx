@@ -15,6 +15,7 @@ import { Platform } from "react-native";
 import { useAuth } from "@clerk/clerk-expo";
 import { EnrichmentStatusPill } from "@/components/booking-flow/EnrichmentStatusPill";
 import { TabBar } from "@/components/navigation/TabBar";
+import { TAB_ITEMS } from "@/components/navigation/tabItems";
 import { useBookingsFromConvex } from "@/hooks/useBookingsFromConvex";
 import { useUnseenBookingsCount } from "@/hooks/useUnseenBookingsCount";
 import { useVehicleOwnershipFromConvex } from "@/hooks/useVehicleOwnershipFromConvex";
@@ -112,31 +113,12 @@ function ProtectedTabLayout() {
             headerShown: false,
           }}
         >
-          <Tabs.Screen
-            name="home"
-            options={{
-              title: 'Home',
-            }}
-          />
-          <Tabs.Screen
-            name="bookings"
-            options={{
-              title: 'Bookings',
-            }}
-          />
-          <Tabs.Screen
-            name="cars"
-            options={{
-              title: 'My Cars',
-            }}
-          />
-          <Tabs.Screen
-            name="ai-chat"
-            options={{
-              title: 'Oto',
-            }}
-            
-          />
+          {/* Labels come from TAB_ITEMS so this bar and the NativeTabs one
+              below can't drift — "My Cars" here versus "Cars" there was
+              exactly that drift. */}
+          {TAB_ITEMS.map((t) => (
+            <Tabs.Screen key={t.name} name={t.name} options={{ title: t.label }} />
+          ))}
           <Tabs.Screen
             name="index"
             options={{
@@ -157,25 +139,20 @@ function ProtectedTabLayout() {
     <>
       <HydrateBookingData />
       <OfflinePreload />
+      {/* Same TAB_ITEMS list the custom bar above uses — order, labels and
+          glyph pairing live in one place. `drawable` is intentionally absent:
+          this branch only ever runs on iOS 26+, so an Android drawable name
+          here was dead config that read as parity without providing it. */}
       <NativeTabs>
-        <NativeTabs.Trigger name="home">
-          <Label>{"Home"}</Label>
-          <Icon sf="house.fill" drawable="custom_android_drawable" />
-        </NativeTabs.Trigger>
-
-        <NativeTabs.Trigger name="bookings">
-          <Icon sf="calendar" drawable="custom_settings_drawable" />
-          <Label>{"Bookings"}</Label>
-          {showBookingsBadge ? <Badge>{" "}</Badge> : null}
-        </NativeTabs.Trigger>
-        <NativeTabs.Trigger name="cars">
-          <Icon sf="car" drawable="custom_settings_drawable" />
-          <Label>{"Cars"}</Label>
-        </NativeTabs.Trigger>
-        <NativeTabs.Trigger name="ai-chat">
-          <Icon sf="bubble.left.and.bubble.right.fill" drawable="custom_ai_drawable" />
-          <Label>{"Oto"}</Label>
-        </NativeTabs.Trigger>
+        {TAB_ITEMS.map((t) => (
+          <NativeTabs.Trigger key={t.name} name={t.name}>
+            <Icon sf={t.sf} />
+            <Label>{t.label}</Label>
+            {t.name === "bookings" && showBookingsBadge ? (
+              <Badge>{" "}</Badge>
+            ) : null}
+          </NativeTabs.Trigger>
+        ))}
       </NativeTabs>
       <NotificationsSheet />
       <RescheduleDecisionOverlay />
