@@ -359,6 +359,23 @@ export default function AIChatScreen() {
   const [isCarConfirmed, setIsCarConfirmed] = useState(false);
   const [selectedVehicle, setSelectedVehicle] = useState<VehicleCard | null>(null);
 
+  // Single-car auto-confirm (QA p.105): with exactly one car in the garage
+  // the chooser is a pointless gate — confirm it automatically so a new chat
+  // drops straight into the input. Multi-car garages keep the picker. Also
+  // re-fires after startNewChat resets isCarConfirmed, so every new chat
+  // skips the gate for single-car users.
+  React.useEffect(() => {
+    if (
+      !isCarConfirmed &&
+      greetingVehicles.length === 1 &&
+      state.messages.length === 0
+    ) {
+      setSelectedVehicleVin(greetingVehicles[0].vin);
+      setSelectedVehicle(greetingVehicles[0]);
+      setIsCarConfirmed(true);
+    }
+  }, [isCarConfirmed, greetingVehicles, state.messages.length]);
+
   // Attachment panel state
   const [isAttachmentOpen, setIsAttachmentOpen] = useState(false);
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
