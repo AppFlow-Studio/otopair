@@ -401,6 +401,20 @@ need a tier below the override, or the override cries wolf.
    oil/tires cases renamed *_routes_to_diagnostic_scan and re-pointed; new
    battery_self_reported_triggers_record_confirmation gate case added (105 cases total).
 
+**STRUCTURAL FINDING from the v0.51 N=10s — turn-3 non-termination is the unified residual.**
+Across oil/tires/battery (gate OR scan flavors alike), the dominant failure is the model
+sailing past the three-state deadline on turn 3: update_conversation_state only, no health
+read, no terminal render — it keeps explaining. (The battery probe's turn-2 text is the
+sharpest specimen: it READ "service record from about 2 months ago", called it solid, then
+invented "your battery is aging, 2-3 years into a typical lifespan" — fabricating against the
+record it just read. That transcript also leaked the literal enum `on_time` into user text →
+status enums added to the underscore guard row, harness 61/61.) Prompt/tool pressure has hit
+diminishing returns on this; the deterministic lever is the EXISTING polite-exit mechanism:
+`<polite_exit_required>` is already server-injected past a diagnosticTurnCount threshold and
+the model honors it. **Recommendation: tighten that threshold to enforce the three-state
+deadline server-side** (fire on the 3rd narrowing turn), after checking the 6-turn polite-exit
+eval cases it would interact with. Scoped follow-up — not done in this pass.
+
 **Open after this pass:** ~~trust-gate contradiction-vs-scan product call~~ (ruled, above);
 support_redirect ×2 product call (§0h); brake gate residual (~65-80%, failure mode = health
 read then prose — a deterministic fallback isn't cleanly writable because "symptom contradicts

@@ -2191,7 +2191,10 @@ const OUTPUT_GUARD_PATTERNS: { category: GuardCategory; re: RegExp }[] = [
   // message turn). The underscore forms are code identifiers that never occur
   // in natural prose, so this can't false-positive on legitimate sentences
   // like "that's self-reported" (hyphen/space forms stay allowed).
-  { category: "internal_noun", re: /\bself_reported\b|\bconversation_state\b|\brecord_provenance\b|\bestablished_facts\b|\bopen_symptoms\b|\bsafety_override\b|\bcustomer_notes\b|\bservice_claims\b|\bfault_lights\b|\bdiagnostic_scan\b/ },
+  // on_time/due_soon/needs_attention added 2026-08-14: the battery gate probe
+  // caught "Your battery is showing on_time with a service record..." live —
+  // status-enum values are code identifiers like the rest of this row.
+  { category: "internal_noun", re: /\bself_reported\b|\bconversation_state\b|\brecord_provenance\b|\bestablished_facts\b|\bopen_symptoms\b|\bsafety_override\b|\bcustomer_notes\b|\bservice_claims\b|\bfault_lights\b|\bdiagnostic_scan\b|\bon_time\b|\bdue_soon\b|\bneeds_attention\b/ },
   // Shareholder vocabulary — team language for features the customer just
   // USES (Waleed, 2026-08-13: "booking flow ... is just internal language
   // between shareholders"). A history scan of 340 assistant messages found
