@@ -485,8 +485,9 @@ Shipped this round (commits `6a2814eb`…`da632315`):
 discipline (~3 cases; forced-tool_choice retry NOT applicable — whether to record is a
 judgment, forcing would over-record), retraction (~1/3), book_service_pivot routing, loyalty
 tool choice, health-check batching, N63 engine-code literal, ~10% narration slips ("the
-system", "let me search"). Recommendation stands: define green as every case passing at N=3
-rather than a lucky all-green N=1.
+system", "let me search"). **GREEN BAR ADOPTED (Waleed, 2026-08-14): the suite is green when
+every active case passes at REPEAT=3.** Recorded in the case file _doc; the first full N=3
+measurement runs in 7 SLICE windows.
 
 ---
 
