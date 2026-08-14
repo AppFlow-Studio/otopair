@@ -108,6 +108,17 @@ function assertTurn(t, r, turnIdx, failures, toolsSoFar = []) {
     if (!tr.book_service)
       fail(`book_service not rendered (trace.book_service empty)`);
   }
+  // link_button_not_rendered — asserts the turn shipped NO link button in the
+  // final envelope. The effect-level twin of tools_not_called: server-side
+  // suppression (loyalty proxy-redirect) drops the render but cannot unsay
+  // the model's tool CALL, so call-level assertions would fail a turn whose
+  // user-visible behavior is correct.
+  if (e.link_button_not_rendered === true) {
+    if (tr.link_button)
+      fail(
+        `link_button rendered (${JSON.stringify(tr.link_button).slice(0, 80)})`,
+      );
+  }
   if (e.form_system) {
     const actual = result.showDiagnosticForm?.initialSystem ?? null;
     if (actual !== e.form_system) fail(`form_system "${actual}" !== "${e.form_system}"`);

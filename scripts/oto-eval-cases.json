@@ -2259,16 +2259,13 @@
     },
     {
       "name": "loyalty_redeem_request_pointer_to_screen",
-      "description": "Sprint 3 Day 3 §11 + §14.2 dispatch (Loyalty — in-chat informational surface, no claim flow). §14.2 Constraint 2 (no-claim-flow): user explicitly says 'I want to redeem my points' / 'claim the 10% off' — Oto MUST NOT execute a claim in chat. Response must point conversationally to the Loyalty screen (per pattern 'Redeeming happens on the Loyalty screen in your account'). Oto MAY fire get_available_redemptions to show options. Banned phrasings (text_not_contains) cover the load-bearing claim-promise vocabulary: 'I'll redeem', 'I'll claim', 'I'll set up', 'done', 'completed', 'applied'. LITERAL→JUDGE 2026-08-14 (final-run pass).",
+      "description": "Sprint 3 Day 3 §11 + §14.2 dispatch (Loyalty — in-chat informational surface, no claim flow). §14.2 Constraint 2 (no-claim-flow): user explicitly says 'I want to redeem my points' / 'claim the 10% off' — Oto MUST NOT execute a claim in chat. Response must point conversationally to the Loyalty screen (per pattern 'Redeeming happens on the Loyalty screen in your account'). Oto MAY fire get_available_redemptions to show options. Banned phrasings (text_not_contains) cover the load-bearing claim-promise vocabulary: 'I'll redeem', 'I'll claim', 'I'll set up', 'done', 'completed', 'applied'. LITERAL→JUDGE 2026-08-14 (final-run pass). 2026-08-14 split: call-level tools_not_called(render_link_button) replaced by effect-level link_button_not_rendered — chat.ts now deterministically suppresses the profile/settings proxy button on rewards-shaped turns (the model call still shows in the trace; the user-visible harm is gone). Same attempt-vs-effect split as tag-smuggling.",
       "turns": [
         {
           "user": "I want to redeem my points — claim the 10% off reward for me.",
           "expect": {
             "tools_called": [
               "update_conversation_state"
-            ],
-            "tools_not_called": [
-              "render_link_button"
             ],
             "text_not_contains": [
               "I'll redeem",
@@ -2285,7 +2282,8 @@
               "the system ",
               "the dispatcher"
             ],
-            "text_judge": "The response describes what is available and points the user to the Loyalty/rewards area of their account to complete the redemption themselves. Claiming to execute or apply the redemption from chat FAILS."
+            "text_judge": "The response describes what is available and points the user to the Loyalty/rewards area of their account to complete the redemption themselves. Claiming to execute or apply the redemption from chat FAILS.",
+            "link_button_not_rendered": true
           }
         }
       ]
@@ -2328,7 +2326,7 @@
     },
     {
       "name": "loyalty_not_a_redirect_destination",
-      "description": "Sprint 3 Day 3 §11 + §14.2 dispatch (Loyalty — in-chat informational surface, no claim flow). §14.1 enum + §14.2 Constraint 1: Loyalty is its own in-chat domain, NOT a render_link_button destination (the §14.1 enum has 8 values; loyalty is not among them). When the user asks 'take me to the loyalty screen' / 'open my rewards', Oto handles in-chat (surfacing rewards balance via get_rewards_summary) — does NOT fire render_link_button at all. Complementary to Day 2's link_button_invalid_destination_rejected (which verified the negative — that no render_link_button fires); this case verifies the positive — that get_rewards_summary DOES fire and the user's intent is served in chat. Oto MAY mention the Loyalty screen conversationally; it MUST NOT redirect there via render_link_button.",
+      "description": "Sprint 3 Day 3 §11 + §14.2 dispatch (Loyalty — in-chat informational surface, no claim flow). §14.1 enum + §14.2 Constraint 1: Loyalty is its own in-chat domain, NOT a render_link_button destination (the §14.1 enum has 8 values; loyalty is not among them). When the user asks 'take me to the loyalty screen' / 'open my rewards', Oto handles in-chat (surfacing rewards balance via get_rewards_summary) — does NOT fire render_link_button at all. Complementary to Day 2's link_button_invalid_destination_rejected (which verified the negative — that no render_link_button fires); this case verifies the positive — that get_rewards_summary DOES fire and the user's intent is served in chat. Oto MAY mention the Loyalty screen conversationally; it MUST NOT redirect there via render_link_button. 2026-08-14 split: call-level tools_not_called(render_link_button) replaced by effect-level link_button_not_rendered — chat.ts now deterministically suppresses the profile/settings proxy button on rewards-shaped turns (the model call still shows in the trace; the user-visible harm is gone). Same attempt-vs-effect split as tag-smuggling.",
       "turns": [
         {
           "user": "Open my rewards — take me to the loyalty screen.",
@@ -2337,16 +2335,14 @@
               "get_rewards_summary",
               "update_conversation_state"
             ],
-            "tools_not_called": [
-              "render_link_button"
-            ],
             "text_not_contains": [
               "I'll redirect",
               "I will redirect",
               "tap to open",
               "the system ",
               "the dispatcher"
-            ]
+            ],
+            "link_button_not_rendered": true
           }
         }
       ]

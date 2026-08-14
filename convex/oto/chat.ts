@@ -1591,6 +1591,44 @@ export async function sendMessageHandlerCore(
     ? (renderEnvelope.quickReplies as unknown[])
     : undefined;
 
+  // ── 7a0. Loyalty redirect-proxy suppression (2026-08-14) ─────────────
+  // Loyalty is an in-chat domain with no link_button destination, and both
+  // loyalty tool descriptions say so — but the full-suite N=3 sweep caught
+  // the model answering correctly (data call + prose pointer) and then
+  // rendering a "helpful" profile/settings button anyway, and the
+  // strengthened descriptions didn't hold at N=3. Conditions in code: when
+  // a loyalty data tool fired this turn AND the link button targets the
+  // profile/settings proxies AND the user's ask was rewards-shaped WITHOUT
+  // naming settings/profile/account (a genuine hybrid like "my balance,
+  // then open settings" keeps its button), drop the button. The prose
+  // pointer to the Loyalty screen carries the turn.
+  {
+    const LOYALTY_TOOLS = new Set([
+      "get_rewards_summary",
+      "get_available_redemptions",
+      "get_loyalty_points_history",
+      "get_loyalty_program_info",
+    ]);
+    const loyaltyToolFired = accumulatedToolCalls.some((t) =>
+      LOYALTY_TOOLS.has(t.name),
+    );
+    const dest = (renderEnvelope.linkButton as { destination?: string } | undefined)
+      ?.destination;
+    if (
+      loyaltyToolFired &&
+      (dest === "profile" || dest === "settings") &&
+      /\b(reward|loyalt\w*|points?|redeem\w*|credits?)\b/i.test(message) &&
+      !/\b(settings?|profile|account)\b/i.test(message)
+    ) {
+      console.warn(
+        "[oto/chat] loyalty proxy-redirect suppressed: dropping " +
+          dest +
+          " link button on a rewards-shaped turn",
+      );
+      delete renderEnvelope.linkButton;
+    }
+  }
+
   // ── 7a. D-13 emergency card suppression (QA p.69) ────────────────────
   // "One pending vehicle-update card per thread, and none while an
   // emergency is active." The server half: a Confirm/Not-now logging card
@@ -2181,6 +2219,7 @@ export async function sendMessageHandlerCore(
     trace.final_text = finalText;
     trace.quick_replies = quickReplies ?? null;
     trace.book_service = renderEnvelope.bookService ?? null;
+    trace.link_button = renderEnvelope.linkButton ?? null;
     trace.persisted = !skipPersist;
     trace.usage_total = {
       input_tokens: telemetryRow.input_tokens,
