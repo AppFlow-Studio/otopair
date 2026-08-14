@@ -1,0 +1,465 @@
+{
+ "ran_at": "2026-08-14T06:10:17.706Z",
+ "target_email": "mansourwaleed06@gmail.com",
+ "repeat": 5,
+ "total": 2,
+ "passed": 0,
+ "failed": 2,
+ "skipped_count": 8,
+ "failed_cases": [
+  {
+   "name": "oil_symptom_routes_to_diagnostic_scan",
+   "failures": [
+    "rep1: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+    "rep1: turn 3: missing tool \"render_book_service\" (saw: update_conversation_state)",
+    "rep1: turn 3: branch \"text_only\" !== \"terminal\"",
+    "rep2: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+    "rep2: turn 3: missing tool \"render_book_service\" (saw: update_conversation_state)",
+    "rep2: turn 3: branch \"text_only\" !== \"terminal\"",
+    "rep4: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+    "rep4: turn 3: missing tool \"render_book_service\" (saw: update_conversation_state)",
+    "rep4: turn 3: branch \"text_only\" !== \"terminal\"",
+    "rep5: turn 2: missing tool \"update_conversation_state\" (saw: render_quick_replies)"
+   ]
+  },
+  {
+   "name": "tires_symptom_routes_to_diagnostic_scan",
+   "failures": [
+    "rep2: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state,render_book_service)",
+    "rep3: turn 3: missing tool \"get_vehicle_health\" (saw: render_quick_replies)",
+    "rep3: turn 3: missing tool \"render_book_service\" (saw: render_quick_replies)",
+    "rep3: turn 3: missing tool \"update_conversation_state\" (saw: render_quick_replies)",
+    "rep4: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state,render_book_service)",
+    "rep5: turn 1: missing tool \"update_conversation_state\" (saw: render_quick_replies)",
+    "rep5: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state,render_quick_replies)",
+    "rep5: turn 3: missing tool \"render_book_service\" (saw: update_conversation_state,render_quick_replies)"
+   ]
+  }
+ ],
+ "results": [
+  {
+   "name": "oil_symptom_routes_to_diagnostic_scan",
+   "description": "Elimination-test ruling 2026-08-14 (Waleed): an oil change does NOT fix a burning-oil smell or consumption (valve-cover seep, stem seals), so the symptom coexists with a true record — the trust gate does NOT apply; the correct route is get_vehicle_health (mandatory read) then render_book_service with diagnostic-scan prefill. Also validates the 2026-08-14 classifier retune: a burning-OIL smell without smoke is severity soon (below the override) — turn 1 asserts no stop-driving language. Formerly oil_symptom_triggers_record_confirmation (gate assertion), which encoded the pre-ruling boundary.",
+   "passed": false,
+   "failures": [
+    "rep1: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+    "rep1: turn 3: missing tool \"render_book_service\" (saw: update_conversation_state)",
+    "rep1: turn 3: branch \"text_only\" !== \"terminal\"",
+    "rep2: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+    "rep2: turn 3: missing tool \"render_book_service\" (saw: update_conversation_state)",
+    "rep2: turn 3: branch \"text_only\" !== \"terminal\"",
+    "rep4: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+    "rep4: turn 3: missing tool \"render_book_service\" (saw: update_conversation_state)",
+    "rep4: turn 3: branch \"text_only\" !== \"terminal\"",
+    "rep5: turn 2: missing tool \"update_conversation_state\" (saw: render_quick_replies)"
+   ],
+   "runs": [
+    {
+     "rep": 1,
+     "turns": [
+      {
+       "user": "My engine smells like burning oil after I drive",
+       "tools": [
+        "get_vehicle_health",
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "Burning oil smell after driving — that's a separate issue from your oil-change interval. Your oil is on schedule (due ~10 months out), but OtoPair doesn't track oil leaks or internal engine condition, so I have no data on what's actually causing the smell.\n\nOne quick question: is the smell coming from under the hood, or is it inside the cabin? That narrows whether it's a leak near the engine or something internal like worn seals.\n\nI also caught a temperature/overheating warning light flagged on your car. That's worth a mechanic look too — burning oil + temperature warning can point to the same root cause or separate issues. A Diagnostic Scan will let a BMW specialist pin down exactly what's going on."
+      },
+      {
+       "user": "Mainly after long highway drives — no smoke anywhere, no leaks I can see",
+       "tools": [
+        "update_conversation_state",
+        "render_book_service"
+       ],
+       "branch": "terminal",
+       "text": "Got it — burning smell after highway drives with no visible smoke or leaks points to internal oil burning, likely worn valve seals or piston rings. Combined with your temperature warning light, a Diagnostic Scan will get the mechanic to confirm what's actually going on."
+      },
+      {
+       "user": "Oil level does seem to drop a bit between changes too",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "That confirms it's consumption, not a leak. Oil level drop between changes + burning smell = internal issue. The Diagnostic Scan will pin down whether it's valve seals, piston rings, or something else — mechanic will know what to look for.\n\nReady to book now?"
+      }
+     ],
+     "failures": [
+      "turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+      "turn 3: missing tool \"render_book_service\" (saw: update_conversation_state)",
+      "turn 3: branch \"text_only\" !== \"terminal\""
+     ]
+    },
+    {
+     "rep": 2,
+     "turns": [
+      {
+       "user": "My engine smells like burning oil after I drive",
+       "tools": [
+        "get_vehicle_health",
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Burning-oil smell is a different track than oil-change interval. A few things can cause it — worn seals leaking oil onto hot surfaces, a small internal leak, valve cover gasket leaking, or just carbon buildup under hard driving. The tool here is a Diagnostic Scan so a BMW specialist can confirm what's actually happening. \n\nQuick context: I'm seeing a temperature warning light flagged on your car too. That's separate from the smell but worth noting — it could be unrelated, or the two could be connected.\n\nWant to book a Diagnostic Scan to get a specialist eyes-on both the smell and the temperature light?"
+      },
+      {
+       "user": "Mainly after long highway drives — no smoke anywhere, no leaks I can see",
+       "tools": [
+        "update_conversation_state",
+        "render_book_service"
+       ],
+       "branch": "terminal",
+       "text": "Got it — burning smell after highway miles with no visible smoke or leaks points to oil getting hot and vaporizing, not leaking. Combined with the temperature light, this warrants a closer look."
+      },
+      {
+       "user": "Oil level does seem to drop a bit between changes too",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "That's a useful detail — oil consumption between changes plus the burning smell suggests the engine is actually burning some oil internally, which the diagnostic will catch. The temperature warning adds urgency since the twin-turbo runs hot anyway.\n\nYou're all set with the diagnostic booked. The BMW specialist will read the oil burn, check the cooling system for the temp issue, and tell you what's actually going on before any work."
+      }
+     ],
+     "failures": [
+      "turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+      "turn 3: missing tool \"render_book_service\" (saw: update_conversation_state)",
+      "turn 3: branch \"text_only\" !== \"terminal\""
+     ]
+    },
+    {
+     "rep": 3,
+     "turns": [
+      {
+       "user": "My engine smells like burning oil after I drive",
+       "tools": [
+        "get_vehicle_health",
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Burning-oil smell usually points to one of a few things — oil leak onto the engine bay, worn valve seals, or oil burning inside cylinders. Your oil is on-time and the car doesn't flag a mechanical issue, so a Diagnostic Scan will pinpoint what's actually going on.\n\nOne quick thing though: you've got a temperature / overheating warning light flagged in your history. That's separate from the oil smell but worth calling out — overheating can accelerate oil-burn issues. Is that light currently on your dash, or was it flagged earlier?"
+      },
+      {
+       "user": "Mainly after long highway drives — no smoke anywhere, no leaks I can see",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Got it — burning smell after highway drives, no smoke or visible leaks. That's the classic slow-seep pattern, not a crisis situation. Quick check: is the temperature warning light ON right now when you drive, or was it just flagged in your history?"
+      },
+      {
+       "user": "Oil level does seem to drop a bit between changes too",
+       "tools": [
+        "get_vehicle_health",
+        "update_conversation_state",
+        "render_book_service"
+       ],
+       "branch": "terminal",
+       "text": "Oil level dropping between changes plus the burning smell narrows this clearly — you've got a slow seep or internal consumption going on. A Diagnostic Scan will confirm whether it's a valve cover gasket, oil pan, or something internal. The temperature light flagged in your system adds urgency to rule out pressure issues too."
+      }
+     ],
+     "failures": []
+    },
+    {
+     "rep": 4,
+     "turns": [
+      {
+       "user": "My engine smells like burning oil after I drive",
+       "tools": [
+        "get_vehicle_health",
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "Your oil change is on time, but a burning-oil smell isn't something the routine oil-change schedule alone covers. That usually signals either a leak (oil burning on hot engine parts), low oil level, or occasionally internal engine wear. One quick thing to check before we narrow further: is the smell stronger when you first start the car, or does it stay present while you're driving?\n\nAlso heads up — I'm seeing a temperature/overheating warning light flagged on your car. That and a burning-oil smell together warrant a mechanic's eyes-on, so let's get that looked at too."
+      },
+      {
+       "user": "Mainly after long highway drives — no smoke anywhere, no leaks I can see",
+       "tools": [
+        "get_vehicle_health",
+        "get_due_services",
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Okay — your maintenance is on track, but I'm flagging something important: there's a temperature / overheating warning light on your M550i. Combined with a burning-oil smell after long highway drives, that's worth a mechanic's eyes-on sooner rather than later.\n\nA couple of quick things to rule out first:\n\n- When you smell the oil, is it coming from under the hood area, or is it inside the cabin?\n- Has the temperature gauge been climbing higher than normal, or is it sitting in its usual range?\n\nThe oil smell + temperature warning together could be a few different things — a seeping valve cover gasket, coolant mixing territory, or something else — so a Diagnostic Scan will let a mechanic confirm what's actually going on before anything gets worse."
+      },
+      {
+       "user": "Oil level does seem to drop a bit between changes too",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Got it — oil consumption is real data. The smell plus the drop between changes points to internal burning rather than a leak, which is worth a closer look. But I want to flag something first: the system shows a temperature/overheating warning light flagged on your M550i. That's time-sensitive because overheating compounds fast. Are you seeing the temperature gauge climb into the red, or is it just the warning light?"
+      }
+     ],
+     "failures": [
+      "turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+      "turn 3: missing tool \"render_book_service\" (saw: update_conversation_state)",
+      "turn 3: branch \"text_only\" !== \"terminal\""
+     ]
+    },
+    {
+     "rep": 5,
+     "turns": [
+      {
+       "user": "My engine smells like burning oil after I drive",
+       "tools": [
+        "get_vehicle_health",
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "Your oil change is on time, which is good. But I'm also seeing a temperature / overheating warning light flagged on your car — that's important context here. Burning-oil smell often travels with heat issues.\n\nQuick question to narrow this: When you smell the burning oil, does it happen right after you shut the car off, or while you're driving? And is the temperature gauge climbing into the red, or does it look normal?"
+      },
+      {
+       "user": "Mainly after long highway drives — no smoke anywhere, no leaks I can see",
+       "tools": [
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "Got it — so the smell shows up after the highway driving stops, not while you're cruising. And no smoke or pooling underneath. That's useful.\n\nQuick clarification on the temperature: does your gauge creep up toward the red while you're driving, or does it stay normal and only the warning light came on?"
+      },
+      {
+       "user": "Oil level does seem to drop a bit between changes too",
+       "tools": [
+        "get_vehicle_health",
+        "update_conversation_state",
+        "render_book_service"
+       ],
+       "branch": "terminal",
+       "text": "I need to wrap this up and get you to a mechanic. You're describing burning oil plus temperature warnings plus consumption between oil changes — that's a cluster that needs eyes-on, not more questions from me."
+      }
+     ],
+     "failures": [
+      "turn 2: missing tool \"update_conversation_state\" (saw: render_quick_replies)"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "tires_symptom_routes_to_diagnostic_scan",
+   "description": "Elimination-test ruling 2026-08-14 (Waleed): a tire rotation does not cure — and can even cause — a steady speed-band vibration (balance/alignment/bent wheel all coexist with a true record), so the trust gate does NOT apply; correct route is get_vehicle_health (mandatory read) then render_book_service with diagnostic-scan prefill. Formerly tires_symptom_triggers_record_confirmation (gate assertion), which encoded the pre-ruling boundary.",
+   "passed": false,
+   "failures": [
+    "rep2: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state,render_book_service)",
+    "rep3: turn 3: missing tool \"get_vehicle_health\" (saw: render_quick_replies)",
+    "rep3: turn 3: missing tool \"render_book_service\" (saw: render_quick_replies)",
+    "rep3: turn 3: missing tool \"update_conversation_state\" (saw: render_quick_replies)",
+    "rep4: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state,render_book_service)",
+    "rep5: turn 1: missing tool \"update_conversation_state\" (saw: render_quick_replies)",
+    "rep5: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state,render_quick_replies)",
+    "rep5: turn 3: missing tool \"render_book_service\" (saw: update_conversation_state,render_quick_replies)"
+   ],
+   "runs": [
+    {
+     "rep": 1,
+     "turns": [
+      {
+       "user": "My steering wheel vibrates above 50 mph",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "I'll help you track down what's causing that vibration. A few quick questions to narrow it:\n\nDoes the vibration:\n1. Happen at a specific speed range (like 55-65 mph) or keep going higher?\n2. Get worse if you turn the wheel, or is it the same whether you're going straight?\n3. Feel like it's coming from the steering wheel itself or more from the whole car?\n\nSteering vibrations usually come down to a handful of things — wheel balance, an alignment issue, or something in the suspension — and the pattern tells us which direction to look."
+      },
+      {
+       "user": "Only above 50 mph, goes away under 40, steady wobble — no pulling to one side",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "Got it — a smooth wobble that kicks in around 50 and drops below 40, no pull side-to-side. That narrows it down.\n\nOne more quick question: have you noticed it more at highway speeds, or does it happen in city driving too once you hit 50?"
+      },
+      {
+       "user": "Been doing it consistently for a couple months",
+       "tools": [
+        "get_vehicle_health",
+        "update_conversation_state",
+        "render_book_service"
+       ],
+       "branch": "terminal",
+       "text": "Your tires are on time based on our records, so the vibration isn't pointing to a maintenance routine we track. A speed-band vibration over two months usually narrows to wheel balance or alignment — both are things a mechanic diagnoses hands-on. I'm going to book you a Diagnostic Scan so a mechanic can get under the car and confirm what's actually going on."
+      }
+     ],
+     "failures": []
+    },
+    {
+     "rep": 2,
+     "turns": [
+      {
+       "user": "My steering wheel vibrates above 50 mph",
+       "tools": [
+        "get_vehicle_health",
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "Steering vibration above 50 mph usually points to one of a few things — and I want to narrow which one before we book. Quick question: when the vibration happens, does it feel like it's coming from the wheel itself (like a tire imbalance or a wheel bearing), or does the whole car shake in rhythm?"
+      },
+      {
+       "user": "Only above 50 mph, goes away under 40, steady wobble — no pulling to one side",
+       "tools": [
+        "get_vehicle_health",
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "That speed-band vibration pattern — steady wobble above 50 mph, gone below 40 — usually points to wheel or tire issues: balance, alignment, or a bent rim. Pulling isn't happening, so it's not alignment in the classic sense, but imbalance can feel exactly like a steady vibration that speed-dependent. Worth a mechanic's eyes-on to confirm whether it's wheels, tires, or something else.\n\nA Diagnostic Scan gets a mechanic to narrow it down properly. Want to book that now?"
+      },
+      {
+       "user": "Been doing it consistently for a couple months",
+       "tools": [
+        "update_conversation_state",
+        "render_book_service"
+       ],
+       "branch": "terminal",
+       "text": "Got it — a couple months of steady vibration at that speed definitely warrants a look. This pattern usually narrows to wheel balance, alignment, or a tire issue, and a Diagnostic Scan will get a mechanic eyes-on to confirm what's actually going on."
+      }
+     ],
+     "failures": [
+      "turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state,render_book_service)"
+     ]
+    },
+    {
+     "rep": 3,
+     "turns": [
+      {
+       "user": "My steering wheel vibrates above 50 mph",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "I'll help you figure out what's causing the steering wheel vibration. Let me ask a quick clarifying question to narrow it down."
+      },
+      {
+       "user": "Only above 50 mph, goes away under 40, steady wobble — no pulling to one side",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Got it — that speed-band pattern is helpful. A few more details:\n\n1. Is it a vibration in the wheel itself, or more of a wobble you feel through the steering? (Or hard to tell?)\n2. When did it start? (Recent, or been going on a while?)\n3. Have you had any recent tire work — rotation, new tires, anything like that?"
+      },
+      {
+       "user": "Been doing it consistently for a couple months",
+       "tools": [
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "Got it — a couple months is a good timeframe. That kind of consistent high-speed vibration usually narrows to either tire/wheel imbalance or something with the suspension, though imbalance is the more common culprit at that speed range.\n\nQuick question to narrow it down: when you're at highway speed and the vibration kicks in, does it feel like it's coming from the steering wheel specifically, or does the whole car shake?"
+      }
+     ],
+     "failures": [
+      "turn 3: missing tool \"get_vehicle_health\" (saw: render_quick_replies)",
+      "turn 3: missing tool \"render_book_service\" (saw: render_quick_replies)",
+      "turn 3: missing tool \"update_conversation_state\" (saw: render_quick_replies)"
+     ]
+    },
+    {
+     "rep": 4,
+     "turns": [
+      {
+       "user": "My steering wheel vibrates above 50 mph",
+       "tools": [
+        "get_vehicle_health",
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "Steering vibration above 50 mph usually narrows to a few things — wheel imbalance, alignment issue, or tire damage. One quick question to narrow it: does the vibration feel like it's in the steering wheel itself, or does the whole car shake a little? And is it steady the whole time you're above 50, or does it come and go?\n\nYour tires show on-time in the maintenance record, but a vibration like that is worth a real look — wheel balance and alignment fall outside what I track, so a mechanic needs to see it in person."
+      },
+      {
+       "user": "Only above 50 mph, goes away under 40, steady wobble — no pulling to one side",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Got it — steady wobble only in that 40-50 mph band, no pulling. That's classic tire-balance territory: when a wheel loses balance, it only shows up at certain speeds where the vibration frequency matches the wheel's resonance. Under that speed the car's damping keeps it hidden; above it the wobble fades again as the frequency moves past the resonance point.\n\nSince your tires are on-time in our records (serviced about 2 months ago), the balance could've shifted since then — it happens. A tire balance is a quick fix and the right move here. Want me to book that for you?"
+      },
+      {
+       "user": "Been doing it consistently for a couple months",
+       "tools": [
+        "update_conversation_state",
+        "render_book_service"
+       ],
+       "branch": "terminal",
+       "text": "Got it — a couple months of that vibration is worth addressing now before it gets worse. Let me set up a tire balance for you."
+      }
+     ],
+     "failures": [
+      "turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state,render_book_service)"
+     ]
+    },
+    {
+     "rep": 5,
+     "turns": [
+      {
+       "user": "My steering wheel vibrates above 50 mph",
+       "tools": [
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "I need to narrow down what's causing that vibration before we know the best path forward.\n\nIs the vibration:"
+      },
+      {
+       "user": "Only above 50 mph, goes away under 40, steady wobble — no pulling to one side",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "I need a bit more context to narrow this down. A steady wobble at highway speeds that disappears below 40 mph usually points to one of two things — tire-related (balance, flat-spot, or wear pattern) or suspension-related (worn component causing shimmy). \n\nQuick question to help me figure out which: Does the wobble feel like it's coming from the steering wheel, or more from the whole car's body?"
+      },
+      {
+       "user": "Been doing it consistently for a couple months",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "Got it — couple months is a useful timeline. So the wobble's been steady that whole time. One more narrow: when you feel that wobble, is it mostly in the steering wheel, or do you feel it more in the car's body?"
+      }
+     ],
+     "failures": [
+      "turn 1: missing tool \"update_conversation_state\" (saw: render_quick_replies)",
+      "turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state,render_quick_replies)",
+      "turn 3: missing tool \"render_book_service\" (saw: update_conversation_state,render_quick_replies)"
+     ]
+    }
+   ]
+  }
+ ],
+ "skipped": [
+  {
+   "name": "battery_self_reported_triggers_record_confirmation",
+   "reason": "0/10 at N=10 on v0.51+v0.22 even with the Example 19 battery arc. Two causes: (1) cold-morning slow-crank is a softer elimination-test contradiction than squeal-after-new-pads (a plausible innocent cold-weather reading exists), so the model explains or narrows instead of gating; (2) one rep DID fire the card but failed the per-turn get_vehicle_health assertion because the read happened a turn earlier — the tools_called_across_turns runner primitive (Sprint 3 carryover) is needed to assert this case fairly. Re-enable after the polite-exit turn-3 termination follow-up + the cross-turn primitive. The brake gate case carries the elimination-test coverage meanwhile (~65-80%)."
+  },
+  {
+   "name": "cat_m_communication_style_outranks_history_anchor",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass)"
+  },
+  {
+   "name": "cat_m_fresh_outranks_stale_within_same_type",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass); also requires Sprint 3 test-helper mutation to stage stale last_reinforced"
+  },
+  {
+   "name": "cat_m_retracted_fact_does_not_surface",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass); also requires Sprint 3 pre_seed_mutations result-threading OR a retract-by-payload-substring mutation"
+  },
+  {
+   "name": "cat_m_vehicle_quirk_surfaces_for_vehicle_owner",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass)"
+  },
+  {
+   "name": "cat_m_no_seeded_rows_envelope_omits_recent_context",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass)"
+  },
+  {
+   "name": "cat_m_top_K_cap_enforced_at_5",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass); assertion fragile if equivalence-v2 collapses overlapping seeds — review on first run"
+  },
+  {
+   "name": "cat_m_adversarial_fact_does_not_surface_in_envelope",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass); threat model contestable — sanitizer at write blocks current attack surface, this is for future bypass paths"
+  }
+ ]
+}

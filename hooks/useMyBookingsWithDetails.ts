@@ -16,6 +16,7 @@ import {
   adaptConvexBookingWithDetailsToCard,
   type ConvexBookingWithDetails,
 } from "@/utils/bookingAdapter";
+import { useSessionCachedQuery } from "@/lib/offlineSessionCache";
 import { useUserFromConvex } from "./useUserFromConvex";
 
 // Approval cycles that mean the customer still owes a decision (or the
@@ -78,10 +79,24 @@ function isHistory(row: ConvexBookingWithDetails): boolean {
 
 export function useMyBookingsWithDetails() {
   const { userId } = useUserFromConvex();
-  const rows = useQuery(api.bookings.getByUserIdWithDetails, userId ? { userId } : "skip");
-  const reviewedBookingIds = useQuery(
+  const liveRows = useQuery(api.bookings.getByUserIdWithDetails, userId ? { userId } : "skip");
+  const liveReviewedIds = useQuery(
     api.reviews.listReviewedBookingIdsForUser,
     userId ? { userId } : "skip",
+  );
+
+  // Session-scoped offline cache. Offline cold starts never resolve
+  // `useUserFromConvex` (it's a Convex query), so the live queries stay
+  // skipped/undefined forever — the cache serves the last online result
+  // as long as the saved Clerk session hasn't expired. Keys are
+  // per-device single-user; the envelope pins them to the Clerk user.
+  const { value: rows, isFromCache } = useSessionCachedQuery(
+    "bookings_rows",
+    liveRows,
+  );
+  const { value: reviewedBookingIds } = useSessionCachedQuery(
+    "bookings_reviewed_ids",
+    liveReviewedIds,
   );
 
   return useMemo(() => {
@@ -132,6 +147,8 @@ export function useMyBookingsWithDetails() {
       pendingReviewBookings,
       historyBookings,
       isLoading: rows === undefined,
+      /** True when the data shown is the offline session cache, not live. */
+      isFromCache,
     };
-  }, [rows, reviewedBookingIds]);
+  }, [rows, reviewedBookingIds, isFromCache]);
 }

@@ -1,0 +1,466 @@
+{
+ "ran_at": "2026-08-14T03:41:08.624Z",
+ "target_email": "mansourwaleed06@gmail.com",
+ "repeat": 10,
+ "total": 1,
+ "passed": 0,
+ "failed": 1,
+ "skipped_count": 9,
+ "failed_cases": [
+  {
+   "name": "oil_symptom_routes_to_diagnostic_scan",
+   "failures": [
+    "rep1: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+    "rep1: turn 3: missing tool \"render_book_service\" (saw: update_conversation_state)",
+    "rep1: turn 3: branch \"text_only\" !== \"terminal\"",
+    "rep2: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+    "rep2: turn 3: missing tool \"render_book_service\" (saw: update_conversation_state)",
+    "rep2: turn 3: branch \"text_only\" !== \"terminal\"",
+    "rep3: turn 3: missing tool \"render_book_service\" (saw: get_vehicle_health,update_conversation_state,render_quick_replies)",
+    "rep4: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+    "rep4: turn 3: missing tool \"render_book_service\" (saw: update_conversation_state)",
+    "rep4: turn 3: branch \"text_only\" !== \"terminal\"",
+    "rep5: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+    "rep5: turn 3: missing tool \"render_book_service\" (saw: update_conversation_state)",
+    "rep5: turn 3: branch \"text_only\" !== \"terminal\"",
+    "rep6: turn 2: missing tool \"update_conversation_state\" (saw: render_quick_replies)",
+    "rep6: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state,render_quick_replies)",
+    "rep6: turn 3: missing tool \"render_book_service\" (saw: update_conversation_state,render_quick_replies)",
+    "rep7: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state,render_book_service)",
+    "rep8: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state,render_quick_replies)",
+    "rep8: turn 3: missing tool \"render_book_service\" (saw: update_conversation_state,render_quick_replies)",
+    "rep9: turn 3: missing tool \"render_book_service\" (saw: get_vehicle_health,update_conversation_state)",
+    "rep9: turn 3: branch \"text_only\" !== \"terminal\"",
+    "rep10: turn 1: text contains banned \"shut the engine off\"",
+    "rep10: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state,render_book_service)"
+   ]
+  }
+ ],
+ "results": [
+  {
+   "name": "oil_symptom_routes_to_diagnostic_scan",
+   "description": "Elimination-test ruling 2026-08-14 (Waleed): an oil change does NOT fix a burning-oil smell or consumption (valve-cover seep, stem seals), so the symptom coexists with a true record — the trust gate does NOT apply; the correct route is get_vehicle_health (mandatory read) then render_book_service with diagnostic-scan prefill. Also validates the 2026-08-14 classifier retune: a burning-OIL smell without smoke is severity soon (below the override) — turn 1 asserts no stop-driving language. Formerly oil_symptom_triggers_record_confirmation (gate assertion), which encoded the pre-ruling boundary.",
+   "passed": false,
+   "failures": [
+    "rep1: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+    "rep1: turn 3: missing tool \"render_book_service\" (saw: update_conversation_state)",
+    "rep1: turn 3: branch \"text_only\" !== \"terminal\"",
+    "rep2: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+    "rep2: turn 3: missing tool \"render_book_service\" (saw: update_conversation_state)",
+    "rep2: turn 3: branch \"text_only\" !== \"terminal\"",
+    "rep3: turn 3: missing tool \"render_book_service\" (saw: get_vehicle_health,update_conversation_state,render_quick_replies)",
+    "rep4: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+    "rep4: turn 3: missing tool \"render_book_service\" (saw: update_conversation_state)",
+    "rep4: turn 3: branch \"text_only\" !== \"terminal\"",
+    "rep5: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+    "rep5: turn 3: missing tool \"render_book_service\" (saw: update_conversation_state)",
+    "rep5: turn 3: branch \"text_only\" !== \"terminal\"",
+    "rep6: turn 2: missing tool \"update_conversation_state\" (saw: render_quick_replies)",
+    "rep6: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state,render_quick_replies)",
+    "rep6: turn 3: missing tool \"render_book_service\" (saw: update_conversation_state,render_quick_replies)",
+    "rep7: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state,render_book_service)",
+    "rep8: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state,render_quick_replies)",
+    "rep8: turn 3: missing tool \"render_book_service\" (saw: update_conversation_state,render_quick_replies)",
+    "rep9: turn 3: missing tool \"render_book_service\" (saw: get_vehicle_health,update_conversation_state)",
+    "rep9: turn 3: branch \"text_only\" !== \"terminal\"",
+    "rep10: turn 1: text contains banned \"shut the engine off\"",
+    "rep10: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state,render_book_service)"
+   ],
+   "runs": [
+    {
+     "rep": 1,
+     "turns": [
+      {
+       "user": "My engine smells like burning oil after I drive",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "I hear you—burning-oil smell is worth taking seriously. Let me narrow down what's actually going on so we can figure out the right next step.\n\nA few quick questions to help narrow it:\n\nWhen do you notice the smell? Does it come during driving, right after you park, or both? And does it smell like burnt oil specifically (acrid, smoky) or more like oil fumes (sharp, chemical)?\n\nAlso: any visible smoke from under the hood? And have you noticed any oil spots under the car when it's parked?\n\nThese details matter because burning-oil smell can point to a few different things—some are chronic leaks that aren't urgent, some are exhaust-system issues, and some are things you want a mechanic to confirm sooner. The pattern of when it happens tells us a lot."
+      },
+      {
+       "user": "Mainly after long highway drives — no smoke anywhere, no leaks I can see",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Got it — long highway drives trigger it, no visible smoke or leaks. That's a useful pattern.\n\nA burning-oil smell after sustained highway driving without smoke or leaks usually points to one of two things: either oil is reaching hot engine surfaces (valve cover gasket seep, rocker cover leak, a small drip onto the exhaust manifold) or there's some unburned oil vapor in the combustion chamber that only shows up under sustained load. The N63 twin-turbo in your M550i can develop slow seeps from gaskets and seals over time — it's a known tendency on the engine family — and highway driving heats everything up and stresses those seals harder than city driving does. That's the most likely culprit here.\n\nOne more clarifying question to narrow further: when you smell it, is it coming from inside the cabin (you're smelling it while driving or right after you park), or is it mostly noticeable when you open the hood or walk around the car after parking? And how strong is the smell — faint and only if you're really paying attention, or pretty obvious?"
+      },
+      {
+       "user": "Oil level does seem to drop a bit between changes too",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "That's useful — oil consumption between services combined with the burning-oil smell points toward internal combustion, not just a surface seepage issue. Here's what's likely happening:\n\nWhen oil gets into the combustion chamber (usually through worn piston rings, valve seals, or PCV system issues), it burns along with the fuel. You'll see two signs working together: the smell itself, and the level dropping faster than normal. On your M550i with the N63 twin-turbo, this is actually a known concern across that generation — the N63 has a reputation for higher oil consumption than its atmospheric predecessors, and early examples sometimes developed ring wear or seal degradation.\n\nThe burn rate you're describing — noticeable drop between services — suggests it's more than just the minor seepage that all engines have. The question now is whether it's accelerating or stable. If the drop is consistent turn-to-turn, it's chronic but manageable; if it's getting worse, that's a flag to address sooner.\n\nNext step: A Diagnostic Scan will let a mechanic pull the engine codes and check the PCV system, fuel trim, and other combustion signals that tell us whether this is rings, seals, or a system fault. They can also log how much oil you're actually losing per mile, which gives you a real picture of urgency. Want me to set up a Diagnostic Scan?"
+      }
+     ],
+     "failures": [
+      "turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+      "turn 3: missing tool \"render_book_service\" (saw: update_conversation_state)",
+      "turn 3: branch \"text_only\" !== \"terminal\""
+     ]
+    },
+    {
+     "rep": 2,
+     "turns": [
+      {
+       "user": "My engine smells like burning oil after I drive",
+       "tools": [
+        "get_vehicle_health",
+        "get_due_services",
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Good news on the maintenance front — your oil change is on-time (done ~2 months ago with about 8,500 miles left before due), and your other routine maintenance items are all current too. But here's something important I'm seeing: your vehicle is flagging a temperature / overheating warning light, which can show up for several reasons, some of which overlap with a burning-oil smell.\n\nLet me break down what could be happening here, because the symptom matters:\n\nBurning oil smell can come from a few places: the most common in an N63 engine like yours is a valve-cover gasket seep — oil pools on hot exhaust components and creates that distinctive burnt smell. It's chronic, not dangerous, but it does need addressing eventually. Other possibilities include oil residue on the engine block from an older leak that's mostly sealed, debris on the hot exhaust, or in rarer cases, the engine running a bit hot from a coolant issue (which ties back to that temperature warning).\n\nWhat I need to narrow this down: Does the smell come during hard driving, or does it show up even on gentle/short trips? And critically — have you noticed any steam or mist from the engine bay, or has the coolant level dropped noticeably if you've checked under the hood? The temperature warning light + burning smell together could signal a cooling system issue that needs a closer look sooner rather than later.\n\nGiven your detailed-answer preference, I want to be clear about scope too: OtoPair tracks oil-change intervals and fluid checks, but we don't have data on oil leaks, valve-cover gaskets, or coolant integrity — those require a mechanic's hands-on inspection. The burning smell + the temperature warning light together warrant a Diagnostic Scan so a mechanic can read the exact cooling-system code (if that's what's flagging) and confirm whether you're dealing with a simple seep, an overheating issue, or something else.\n\nWhat's your experience been with the smell and the temperature warning — when did each start showing up?"
+      },
+      {
+       "user": "Mainly after long highway drives — no smoke anywhere, no leaks I can see",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "That detail actually narrows it importantly. Burning oil after long highway drives — especially without visible smoke or drips — usually points to one of two things on the N63:\n\nValve-cover gasket seep. The N63 has a known history with valve-cover gasket degradation. When you're cruising at highway RPMs for a long stretch, the engine heats up fully, and oil gets hot enough that even a small seep becomes an evaporative smell. You won't see it dripping because the oil vaporizes before it hits the ground. This is chronic and progressive — it's not an emergency, but it does need attention before the leak gets worse and oil level drops.\n\nCoolant side (less likely, but the temperature warning complicates this). The temperature light on your vehicle is flagged, which is interesting paired with the burning smell. A coolant leak — small enough that it's not pooling under the car — heats the oil indirectly by letting the engine run hotter. That plus a valve-cover seep would explain both the smell and the warning light together.\n\nThe question that would narrow it: When you smell it, does the smell feel sharp and acrid (like hot oil), or more sweet/sharp like coolant? That distinction usually tells you which system to focus on.\n\nEither way, this isn't something that clears on its own — a Diagnostic Scan gets a mechanic to confirm whether it's the valve-cover, the cooling system, or both, so you know the real scope before repair estimates come in. Want me to set that up?"
+      },
+      {
+       "user": "Oil level does seem to drop a bit between changes too",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "That oil-level drop between changes is a critical detail — it confirms consumption is happening, not just a smell. Combined with the burning-oil smell after highway drives, this points strongly toward a valve-cover gasket seep on your M550i's N63 engine. Here's why that's likely the culprit over a coolant leak:\n\nValve-cover gaskets on the N63 are a known wear point. They sit directly above the combustion chamber where it gets hottest, and BMW's design on this generation has them failing in the 80k–120k-mile window. When one starts leaking, a small amount of oil weeps down onto the hot exhaust manifold underneath, which creates that burning-oil smell. It's not dramatic — no smoke, no puddles — just a scent that gets more noticeable after sustained heat (like a long highway drive). The oil consumption between changes is the gasket slowly weeping, not a catastrophic leak.\n\nA coolant leak, by contrast, would typically show sweet-smelling vapor (coolant has a distinctive sweet odor) or actual residue on the engine bay floor, and you'd likely see the coolant level dropping in the expansion tank. Since you're seeing oil consumption and burning-oil smell without those coolant markers, the valve-cover route is the stronger match.\n\nThe temperature warning light is a separate question — it could be tied to the valve-cover seep if oil contaminated a sensor, or it could be an independent coolant-system flag. A Diagnostic Scan reads both, so the mechanic confirms whether they're connected or separate issues.\n\nGiven the oil consumption + burning smell + on-time oil changes, booking a Diagnostic Scan makes sense. The mechanic will confirm whether it's valve-cover gaskets (a known repair on the N63) or something else, and the scan also clarifies what the temperature light is reporting. Want to set that up?"
+      }
+     ],
+     "failures": [
+      "turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+      "turn 3: missing tool \"render_book_service\" (saw: update_conversation_state)",
+      "turn 3: branch \"text_only\" !== \"terminal\""
+     ]
+    },
+    {
+     "rep": 3,
+     "turns": [
+      {
+       "user": "My engine smells like burning oil after I drive",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "I'll help you narrow down what's happening with that burning-oil smell. Let me start by asking a couple of clarifying questions to point toward the right diagnosis."
+      },
+      {
+       "user": "Mainly after long highway drives — no smoke anywhere, no leaks I can see",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Got it — burning-oil smell specifically after highway driving, no smoke and no visible leaks. That pattern points away from the emergency stuff and toward a couple of more likely scenarios.\n\nHere's what's typically going on: Chronic seepage is the most common culprit with that exact picture. On the N63 twin-turbo in your M550i, valve-cover gaskets and PCV system connections can weep oil slowly over time — it doesn't leak enough to pool under the car, but it finds its way onto the hot engine block or exhaust manifold, which cooks it off as a smell. Highway driving is the perfect setup for it because sustained heat and load amplify the smell. The other possibility is that you're genuinely just a bit low on oil, which makes the same smell worse under sustained load, even if you're not seeing drips.\n\nThe third option, less likely given no smoke: an overdue oil change where the oil has degraded and burns off more readily. How long has it been since your last oil service, and do you remember the mileage?\n\nQuick question to narrow it further: When you park after the drive and pop the hood, does the engine bay smell like burnt oil, or is it coming more from under the car or the exhaust? That tells me whether it's something on the engine itself (seep) or further back in the system (exhaust, transmission — less common but possible)."
+      },
+      {
+       "user": "Oil level does seem to drop a bit between changes too",
+       "tools": [
+        "get_vehicle_health",
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "Here's what I'm seeing: your oil change is on-time with about 8,500 miles and 10 months left, last done roughly 2 months ago. That's good from a service-interval standpoint — but the fact that you're noticing the level drop between those changes is actually the important signal here, and it points to something the service-interval tracking doesn't catch.\n\nHere's the nuance: OtoPair's oil-maintenance monitoring tracks only the oil-change interval itself — when the filter and fluid get swapped. It doesn't monitor for oil consumption or leaks, which is exactly what you're describing. Measurable oil loss between services on a BMW with a direct-injection twin-turbo like yours typically comes from one of three places:\n\nValve-cover seepage is the most common culprit on the N63 engine (your M550i's powerplant). The gasket can weep over time, especially under sustained highway heat and load. The oil drips onto the hot engine bay, which is why you smell burning oil — the drips hit the exhaust or manifold and vaporize. No dramatic leak, just a slow seep that adds up over 10,000 miles.\n\nPiston-ring wear is less common but possible depending on the car's history and how it's been driven. This causes oil consumption inside the cylinder rather than external seepage — it still shows up as a lower dipstick reading between changes, but the mechanism is internal.\n\nLow oil level amplifying the smell is also at play: if you're running lower than the full mark between services, the oil has less thermal mass to absorb heat, so even small amounts burning off smell stronger and more quickly.\n\nThe right move here is a Diagnostic Scan. A mechanic can pull the engine codes (even if no check-engine light is on yet, the engine logs data on oil pressure and temperature under load), visually inspect the valve cover and surrounding areas for seepage, and check your current oil level to establish a baseline. From there they can tell you whether this is a slow-developing valve-cover issue, normal consumption that just happens to be noticeable on your car, or something earlier that needs attention. A burning-oil smell plus measurable consumption is absolutely worth eyes-on before it becomes a bigger bill down the line.\n\nWant me to set up a Diagnostic Scan? That'll get a mechanic to pin down what's actually happening and what timeline you're looking at."
+      }
+     ],
+     "failures": [
+      "turn 3: missing tool \"render_book_service\" (saw: get_vehicle_health,update_conversation_state,render_quick_replies)"
+     ]
+    },
+    {
+     "rep": 4,
+     "turns": [
+      {
+       "user": "My engine smells like burning oil after I drive",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Got it — burning-oil smell is worth taking seriously. Let me ask a couple of quick things to narrow down what's going on.\n\nFirst: where do you notice the smell? Is it coming from under the hood when you pop it open, or is it more noticeable inside the cabin or around the outside of the car as you're driving?\n\nAnd how long has this been happening? A few days, a couple weeks, or longer?\n\nThese details matter because burning oil can come from a few different places — it could be something minor like oil on a hot engine component, or it could signal something that needs attention sooner rather than later. Let me get a clearer picture of what you're experiencing, and then I'll help you figure out the right next step."
+      },
+      {
+       "user": "Mainly after long highway drives — no smoke anywhere, no leaks I can see",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Got it — that's helpful. Burning-oil smell after highway driving without visible smoke or leaks points to a few possibilities, but the pattern matters here.\n\nOn highway drives, your M550i is running sustained high RPMs and heat. A burning-oil smell without smoke usually means one of three things: (1) oil on a hot surface — maybe a small seep that's pooling on the exhaust manifold or turbo and burning off, which you'd notice most after sustained driving when everything's hot, (2) valve-cover gasket weeping slightly — the N63 twin-turbo in your M550i is known for this, and a small seep can go unnoticed until the oil hits heat and smells, or (3) a touch of oil consumption — the engine burning a small amount of oil as normal wear, which becomes noticeable on long drives when the engine's fully warmed.\n\nThe good news: no smoke and no visible pooling leaks rules out the urgent stuff. The reason this matters is whether it's a minor surface seep (cheap fix) or something that needs real eyes-on to confirm.\n\nQuick clarifier before we narrow further: when you say no leaks you can see — have you actually popped the hood and looked at the engine bay after a drive while it's still warm? Valve-cover seeps can be tiny and only visible if you're looking close. Or are you going more by \"I haven't noticed drips under the car\"?\n\nThis will help me figure whether a Diagnostic Scan is overkill or actually the right call here."
+      },
+      {
+       "user": "Oil level does seem to drop a bit between changes too",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "That's an important detail — oil consumption between changes, paired with the burning-oil smell after highway driving, points toward one of two things on the N63 engine in your M550i.\n\nThe first is minor valve-cover gasket seepage, which is a known issue on this generation of twin-turbo BMW engines. The gasket weeps just enough oil that it burns off on the hot manifold or turbo housing — you smell it, but there's no visible puddle under the car and no smoke. The consumption is usually slow (a quart or so over 5,000–10,000 miles), and it often gets worse on sustained highway driving when the engine is under load and running hot. This is the most common culprit on the M550i.\n\nThe second possibility is minor oil seepage from the turbo seals or oil-supply lines, which follows the same pattern: a slow weep that burns rather than leaks visibly, gradual consumption between oil changes, and more noticeable smell under sustained load.\n\nThe distinction matters because a valve-cover gasket is a straightforward (though labor-intensive) job, whereas a turbo seal issue is more involved. Both are worth diagnosing because they can accelerate into bigger problems if left alone — minor seepage can compound and eventually starve critical components.\n\nHere's what I'd suggest: before booking, pop the hood next time the engine is cool and look at the valve covers (the two long plastic covers running along the top of the engine, one on each side) and the turbo housings for any visible residue, seeping, or accumulated oil. If you spot weeping around the valve-cover seams or heat-staining and oil residue on the turbo housings, that narrows it. If everything looks dry but the consumption and smell persist, a mechanic will need to see it running to pin down where the oil is going.\n\nGiven that you've got both consumption AND smell, and given the N63's track record, a Diagnostic Scan is the right move — a mechanic can do a visual under-hood inspection, check your current oil level against the last fill, and if needed, run the engine to confirm where the smell is coming from. Want me to set that up?"
+      }
+     ],
+     "failures": [
+      "turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+      "turn 3: missing tool \"render_book_service\" (saw: update_conversation_state)",
+      "turn 3: branch \"text_only\" !== \"terminal\""
+     ]
+    },
+    {
+     "rep": 5,
+     "turns": [
+      {
+       "user": "My engine smells like burning oil after I drive",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "I'll get a better read on what's going on. A few quick questions to narrow it:\n\nDoes the smell happen while you're driving, or only after you park and the engine cools? And is there any visible smoke — like steam or haze coming from under the hood?"
+      },
+      {
+       "user": "Mainly after long highway drives — no smoke anywhere, no leaks I can see",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "Got it — long highway drives, no smoke, no visible leaks. That narrows it down. One more question: when you smell it, is it coming from under the hood, or more from around the exhaust area / rear of the car?"
+      },
+      {
+       "user": "Oil level does seem to drop a bit between changes too",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Got it — oil level dropping between changes plus the burning-oil smell tells a clear story: a seep somewhere, most likely the valve covers, that's burning off on the exhaust side. This is chronic, not acute.\n\nQuick question to nail the location: when you pop the hood and look around the engine bay, do you see any oily residue or wet spots on top of the engine, around the valve covers (the tall ribbed cover running down the middle)? That'll confirm whether it's actually seeping from there or if it's something else further down the line."
+      }
+     ],
+     "failures": [
+      "turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+      "turn 3: missing tool \"render_book_service\" (saw: update_conversation_state)",
+      "turn 3: branch \"text_only\" !== \"terminal\""
+     ]
+    },
+    {
+     "rep": 6,
+     "turns": [
+      {
+       "user": "My engine smells like burning oil after I drive",
+       "tools": [
+        "get_vehicle_health",
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "Burning-oil smell after driving is something worth narrowing. A few quick things: is the smell coming from under the hood (something smoking), or is it more of an odor seeping into the cabin?"
+      },
+      {
+       "user": "Mainly after long highway drives — no smoke anywhere, no leaks I can see",
+       "tools": [
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "Got it — burning-oil smell specifically after highway drives, no visible smoke or leaks. That pattern usually points to one of a few things: oil getting past worn valve seals (seeps into the combustion chamber), oil hitting hot engine surfaces from a slow external leak you haven't spotted yet, or less commonly, running slightly lean causing that smell without actual consumption.\n\nOne more clarifying question to narrow it: when you pull over after the drive and pop the hood, does the engine bay smell like burned oil too, or is it just the exhaust smell you're catching from outside the car?"
+      },
+      {
+       "user": "Oil level does seem to drop a bit between changes too",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "Got it — oil consumption between changes is a real pattern to note. That's different from a one-time smell. Quick clarifications to narrow this: when you say it drops between changes, how much are we talking? Like a quart over 5,000 miles, or more gradual than that? And does the smell happen right after driving, or is it more of a cold-start thing?"
+      }
+     ],
+     "failures": [
+      "turn 2: missing tool \"update_conversation_state\" (saw: render_quick_replies)",
+      "turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state,render_quick_replies)",
+      "turn 3: missing tool \"render_book_service\" (saw: update_conversation_state,render_quick_replies)"
+     ]
+    },
+    {
+     "rep": 7,
+     "turns": [
+      {
+       "user": "My engine smells like burning oil after I drive",
+       "tools": [
+        "get_vehicle_health",
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "That burning-oil smell after driving is something to take seriously — it's usually chronic (a leak or seep somewhere) rather than acute, but worth a real look. A few quick questions to narrow it down:\n\nDoes the smell happen during the drive itself, or only after you park it? And is there any smoke, or just the smell?"
+      },
+      {
+       "user": "Mainly after long highway drives — no smoke anywhere, no leaks I can see",
+       "tools": [
+        "get_vehicle_health",
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Got it — so the temperature warning is live on your car, and your oil is still on-time from two months ago. Here's the thing: burning-oil smell + a temperature warning after highway drives suggests heat is pushing oil past a seal or gasket somewhere. It's not the oil change itself — that's fresh — but something in the system is leaking internally under load.\n\nThis is a solid candidate for a Diagnostic Scan. A mechanic can read the temperature sensor, check the oil level under the hood, and confirm whether it's a valve-cover gasket, oil cooler line, or something else pushing oil into the combustion chamber or onto hot surfaces. No smoke visible and no puddles under the car are actually good signs — it's a slow seep, not a blowout — but you want to catch it before it gets worse.\n\nWant me to set up a Diagnostic Scan? The mechanic will have eyes on the engine bay and can pin down exactly what's leaking."
+      },
+      {
+       "user": "Oil level does seem to drop a bit between changes too",
+       "tools": [
+        "update_conversation_state",
+        "render_book_service"
+       ],
+       "branch": "terminal",
+       "text": "That oil-level drop between changes plus the burning smell under load is a classic internal-leak signature — oil seeping past a seal or gasket when the engine heats up and pressure rises. Combined with the temperature warning, a mechanic needs to pinpoint where it's coming from so you can get it sorted before it becomes a bigger issue.\n\nLet me get you booked for a Diagnostic Scan. A mechanic can pressure-test the system, check for visible seeps in the engine bay, and pull any codes the temperature sensor's flagging."
+      }
+     ],
+     "failures": [
+      "turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state,render_book_service)"
+     ]
+    },
+    {
+     "rep": 8,
+     "turns": [
+      {
+       "user": "My engine smells like burning oil after I drive",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "I'm picking up on a burning-oil smell after driving — that's worth understanding. A few quick questions to narrow it down:\n\nIs the smell coming from under the hood, or is it inside the cabin? And does the car seem to be using oil — like, do you need to top it off more often than normal?"
+      },
+      {
+       "user": "Mainly after long highway drives — no smoke anywhere, no leaks I can see",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Got it — long highway drives, no visible smoke or leaks. That helps narrow it. One more quick check: have you noticed your oil level dropping between fill-ups, or does it stay pretty steady?"
+      },
+      {
+       "user": "Oil level does seem to drop a bit between changes too",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "That confirms it — you've got some oil consumption happening. The smell + dropping level points to internal wear, not just a surface seep. The good news is it's manageable; the less-good news is a mechanic needs to look closer to pin down whether it's valve seals, piston rings, or something else, and how urgent the fix is.\n\nA Diagnostic Scan will let them measure the consumption rate and see what the engine's flagging. That'll give you a real picture of what's going on and what the timeline looks like for any repair.\n\nWant me to set up a Diagnostic Scan now?"
+      }
+     ],
+     "failures": [
+      "turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state,render_quick_replies)",
+      "turn 3: missing tool \"render_book_service\" (saw: update_conversation_state,render_quick_replies)"
+     ]
+    },
+    {
+     "rep": 9,
+     "turns": [
+      {
+       "user": "My engine smells like burning oil after I drive",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "I want to understand this better so we can nail down what's going on.\n\nQuick clarification: when you say burning oil smell — does it smell more like fresh oil burning off a hot surface (sharp, acrid, almost sweet), or more like thick, dark exhaust fumes? And does it only show up after a hard drive, or does it kick in even on short, easy trips?"
+      },
+      {
+       "user": "Mainly after long highway drives — no smoke anywhere, no leaks I can see",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "Got it — long highway drives, no visible smoke or leaks. That pattern points toward oil consumption rather than a fresh leak. When the engine's running hard and hot for a stretch, worn valve seals or piston rings let a small amount of oil past into the combustion chamber, where it burns off. No pooling underneath, no smoke (because it's a slow seep, not pooling burning on the manifold).\n\nQuick follow-up: has the oil level actually dropped between fill-ups, or is it just the smell?"
+      },
+      {
+       "user": "Oil level does seem to drop a bit between changes too",
+       "tools": [
+        "get_vehicle_health",
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Oil consumption on the N63 (your M550i's engine) is a known pattern — usually valve seals or piston rings wearing over time. The good news: your oil change is on time, so you're at least staying on top of topping it off. The bad news: it's a wear issue that gets worse the longer it goes, and it'll eventually trigger higher oil pressure warnings or smoke if it compounds.\n\nA mechanic can look at your oil pressure and do a compression test to narrow whether it's seals or rings, but realistically — if the smell and consumption are steady right now and not getting dramatic — you've got a window to decide whether to address it soon or keep an eye on it. A Diagnostic Scan will get you a real read on urgency. Want to book one?"
+      }
+     ],
+     "failures": [
+      "turn 3: missing tool \"render_book_service\" (saw: get_vehicle_health,update_conversation_state)",
+      "turn 3: branch \"text_only\" !== \"terminal\""
+     ]
+    },
+    {
+     "rep": 10,
+     "turns": [
+      {
+       "user": "My engine smells like burning oil after I drive",
+       "tools": [
+        "get_vehicle_health",
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "A burning-oil smell after driving could be a few things — it's one of those symptoms that needs a closer look. Quick clarifying question: does the smell happen right after you shut the engine off, or does it linger while you're driving? And is there any visible smoke, or just the smell?\n\nYour oil change is on time, but I should flag something: OtoPair tracks oil changes and intervals, but not oil leaks, oil pressure, or internal engine condition — those fall outside what I can see in your maintenance data. The burning smell suggests something's cooking, whether it's a leak dripping onto hot parts, valve seals wearing, or something in the exhaust. A mechanic will need eyes-on to pin down which one.\n\nThat said, there's also a temperature / overheating warning light flagged on your car — that changes things a bit. Has that light actually come on your dash, or is this something in the system?"
+      },
+      {
+       "user": "Mainly after long highway drives — no smoke anywhere, no leaks I can see",
+       "tools": [
+        "get_vehicle_health",
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Your oil change is on-time, so that's not the direct culprit. But here's what I'm seeing: you've got a temperature / overheating warning light flagged on your car — that's a separate issue from the oil smell, but it matters. The burning-oil smell after long highway drives with no visible smoke or leaks usually points to one of two things: either oil getting onto a hot engine surface (a valve cover gasket seep is classic), or the engine running hotter than it should be and cooking the oil slightly.\n\nThat temperature light could be part of the picture. Quick check before you drive it again: pop the hood when the car's cold and look at the coolant reservoir — is it near the full line, or low? If it's low, that's a clue. Either way, I'd book a Diagnostic Scan so a mechanic can read what the temperature sensor is actually seeing and check for leaks or seepage. The scan will pinpoint whether it's cooling, oil system, or something else.\n\nWant to set up the Diagnostic Scan now?"
+      },
+      {
+       "user": "Oil level does seem to drop a bit between changes too",
+       "tools": [
+        "update_conversation_state",
+        "render_book_service"
+       ],
+       "branch": "terminal",
+       "text": "Got it — oil consumption plus the smell pattern gives us something concrete to work with. That's not just wear; a mechanic needs to see it.\n\nA Diagnostic Scan focused on the engine will let them pinpoint whether it's valve seals, piston rings, or something else causing the consumption and the smell. Setting that up now."
+      }
+     ],
+     "failures": [
+      "turn 1: text contains banned \"shut the engine off\"",
+      "turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state,render_book_service)"
+     ]
+    }
+   ]
+  }
+ ],
+ "skipped": [
+  {
+   "name": "polite_exit_after_vague_narrowing",
+   "reason": "Sprint 2 / Wave 7.x: the polite-exit counter (ai_conversations.diagnostic_turn_count, threshold=6) is incremented in chat.ts inside `if (!skipPersist)`. The harness defaults to debug_skip_persist=true, so the counter never advances and the 6th turn never fires the <polite_exit_required> envelope block. Two unblock paths: (A) decouple the counter from skipPersist (a chat.ts-only change, out of scope for the QA-lead adaptation dispatch), or (B) ship a harness-side seed mutation that sets diagnostic_turn_count=5 before the final turn (also touches convex/). Re-enable once either lands. Intent preserved verbatim — do not delete."
+  },
+  {
+   "name": "cat_m_communication_style_outranks_history_anchor",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass)"
+  },
+  {
+   "name": "cat_m_fresh_outranks_stale_within_same_type",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass); also requires Sprint 3 test-helper mutation to stage stale last_reinforced"
+  },
+  {
+   "name": "cat_m_retracted_fact_does_not_surface",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass); also requires Sprint 3 pre_seed_mutations result-threading OR a retract-by-payload-substring mutation"
+  },
+  {
+   "name": "cat_m_vehicle_quirk_surfaces_for_vehicle_owner",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass)"
+  },
+  {
+   "name": "cat_m_no_seeded_rows_envelope_omits_recent_context",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass)"
+  },
+  {
+   "name": "cat_m_top_K_cap_enforced_at_5",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass); assertion fragile if equivalence-v2 collapses overlapping seeds — review on first run"
+  },
+  {
+   "name": "cat_m_adversarial_fact_does_not_surface_in_envelope",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass); threat model contestable — sanitizer at write blocks current attack surface, this is for future bypass paths"
+  },
+  {
+   "name": "book_service_polite_exit_not_sure",
+   "reason": "Sprint 2 / Wave 7.x: the polite-exit counter (ai_conversations.diagnostic_turn_count, threshold=6) is incremented in chat.ts inside `if (!skipPersist)`. The harness defaults to debug_skip_persist=true, so the counter never advances and the 6th turn never fires the <polite_exit_required> envelope block. Same disabled_reason as legacy polite_exit_after_vague_narrowing. Re-enable when counter decouples from skipPersist OR a pre_seed_mutations seed advances the counter."
+  }
+ ]
+}

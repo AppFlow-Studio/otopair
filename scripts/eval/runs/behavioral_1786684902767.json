@@ -1,0 +1,224 @@
+{
+ "ran_at": "2026-08-14T05:21:42.766Z",
+ "target_email": "mansourwaleed06@gmail.com",
+ "repeat": 10,
+ "total": 1,
+ "passed": 0,
+ "failed": 1,
+ "skipped_count": 10,
+ "failed_cases": [
+  {
+   "name": "no_offer_history_profiling",
+   "failures": [
+    "rep7: turn 1: text contains banned \"what's actually going on\""
+   ]
+  }
+ ],
+ "results": [
+  {
+   "name": "no_offer_history_profiling",
+   "description": "QA p.109 philosophy violation (AB, urgent) — REPRODUCED on device 2026-08-14 before the fix: Oto opened a brake-squeal chat with 'you have been offered oil-change bookings several times... want to just lock in that oil change first?' — a sales objection-handling script armed by booking_offer id_reference rows surfacing through <recent_context>. Fixed two layers deep: (1) getCrossConversationMemory Pool A now drops *_offer id_reference rows (offers are AI actions, not user memory — rows stay recorded for replay); (2) v0.52 'Past offers are not leverage' hard rule. The eval account organically carries many booking_offer rows from prior eval runs, so this case reproduces the original ammunition without seeding.",
+   "passed": false,
+   "failures": [
+    "rep7: turn 1: text contains banned \"what's actually going on\""
+   ],
+   "runs": [
+    {
+     "rep": 1,
+     "turns": [
+      {
+       "user": "My brakes have been squealing for a few weeks",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "I'll help you figure out what's going on with the brakes. A quick clarifying question first: when you hear the squealing, does it happen mostly when you first start braking and then fade out, or does it stick around throughout the entire stop?"
+      }
+     ],
+     "failures": []
+    },
+    {
+     "rep": 2,
+     "turns": [
+      {
+       "user": "My brakes have been squealing for a few weeks",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "I'll help you figure out what's going on with your brakes. A few clarifying questions will help narrow this down.\n\nFirst one: when you hear the squeal, is it mostly when you first press the brake pedal and then it quiets down? Or does it stick around throughout the whole braking process?"
+      }
+     ],
+     "failures": []
+    },
+    {
+     "rep": 3,
+     "turns": [
+      {
+       "user": "My brakes have been squealing for a few weeks",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "I'll help you figure out what's going on with those brakes. Let me ask a quick clarifying question to narrow things down:\n\nWhen does the squeal happen? Is it mostly when you first hit the brakes and then it quiets, or does it stick around through the whole stop?"
+      }
+     ],
+     "failures": []
+    },
+    {
+     "rep": 4,
+     "turns": [
+      {
+       "user": "My brakes have been squealing for a few weeks",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "I'll help you figure out what's going on with the brakes. Before I get into it, let me ask a clarifying question that'll help me narrow this down.\n\nWhen you brake, is the squealing mostly there when you first hit the pedal and then it quiets down — or does it squeal the whole way through the stop?"
+      }
+     ],
+     "failures": []
+    },
+    {
+     "rep": 5,
+     "turns": [
+      {
+       "user": "My brakes have been squealing for a few weeks",
+       "tools": [
+        "get_vehicle_health",
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "I'm seeing your brakes are flagged as on-time based on your records — they were serviced about two months ago. That said, first-stop brake squeal is a pattern worth understanding before we move forward, because it can mean a few different things.\n\nHere's what typically produces that sound: when brake pads wear down, manufacturers include a small metal wear indicator tab that intentionally contacts the rotor to create that squeal — it's basically the pad saying \"hey, I'm getting thin, replace me soon.\" But squealing can also come from other sources: new pads sometimes make noise during a bedding-in period after installation (which can last a few weeks), glazed rotors, dust or debris trapped between the pad and rotor, or occasionally a loose caliper or pad shim. So the squeal itself doesn't automatically tell us which of those is happening.\n\nHere's the key narrowing question: when you apply the brakes, does the squeal happen mostly just at the very beginning of the stop and then fade out — or does it stick around through the whole braking event? That distinction tells us a lot about whether this is normal pad break-in, wear indicators kicking in, or something less common that deserves a closer look."
+      }
+     ],
+     "failures": []
+    },
+    {
+     "rep": 6,
+     "turns": [
+      {
+       "user": "My brakes have been squealing for a few weeks",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "I'll help you get that brake squeal sorted. First, let me understand the pattern — that'll tell us a lot about what's going on.\n\nWhen you hit the brakes, does the squeal mostly happen on that first initial press (and then quiet down), or does it stick around throughout the whole stop?"
+      }
+     ],
+     "failures": []
+    },
+    {
+     "rep": 7,
+     "turns": [
+      {
+       "user": "My brakes have been squealing for a few weeks",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "I'll start by understanding your brake symptom better, then we can figure out what's actually going on.\n\nBrake squealing usually narrows to a couple of things — most commonly, pad wear indicators (a metal tab designed to make exactly that sound when pads get thin), or less commonly something like glazed rotors or dust caught in the caliper. The pattern matters here: does the squeal happen mostly when you first hit the brakes and then quiet down, or does it stick around through the whole stop?"
+      }
+     ],
+     "failures": [
+      "turn 1: text contains banned \"what's actually going on\""
+     ]
+    },
+    {
+     "rep": 8,
+     "turns": [
+      {
+       "user": "My brakes have been squealing for a few weeks",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "I'll help you pin down what's going on with your brakes. To narrow this down, I need to understand the pattern a bit better.\n\nWhen you hit the brakes, is the squealing mostly on that first initial application — like when you're coming to a stop from highway speed or just starting to slow down — and then it quiets? Or does it stay with you throughout the whole braking motion, even once you're fully stopped?"
+      }
+     ],
+     "failures": []
+    },
+    {
+     "rep": 9,
+     "turns": [
+      {
+       "user": "My brakes have been squealing for a few weeks",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "I hear you—brake squeal is annoying. Let me ask you one thing to narrow down what's actually happening:\n\nWhen you brake, does the squealing happen mostly when you first hit the pedal and then quiet down, or does it stick around through the whole stop?\n\nThe difference tells us a lot. First-stop squeal is often pad wear indicators (the metal tab designed to make that exact sound when pads get thin), whereas squealing throughout usually points to something else like glazed rotors or debris. Once I know the pattern, I can tell you what the next step is."
+      }
+     ],
+     "failures": []
+    },
+    {
+     "rep": 10,
+     "turns": [
+      {
+       "user": "My brakes have been squealing for a few weeks",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "I'm going to narrow down what's happening with your brakes so we can pin down the right fix.\n\nBrake squeal usually comes from one of a few patterns, and when it happens tells us a lot. Is the squeal mostly when you first hit the brakes and then it quiets down, or does it stay with you through the whole stop?"
+      }
+     ],
+     "failures": []
+    }
+   ]
+  }
+ ],
+ "skipped": [
+  {
+   "name": "battery_self_reported_triggers_record_confirmation",
+   "reason": "0/10 at N=10 on v0.51+v0.22 even with the Example 19 battery arc. Two causes: (1) cold-morning slow-crank is a softer elimination-test contradiction than squeal-after-new-pads (a plausible innocent cold-weather reading exists), so the model explains or narrows instead of gating; (2) one rep DID fire the card but failed the per-turn get_vehicle_health assertion because the read happened a turn earlier — the tools_called_across_turns runner primitive (Sprint 3 carryover) is needed to assert this case fairly. Re-enable after the polite-exit turn-3 termination follow-up + the cross-turn primitive. The brake gate case carries the elimination-test coverage meanwhile (~65-80%)."
+  },
+  {
+   "name": "polite_exit_after_vague_narrowing",
+   "reason": "Sprint 2 / Wave 7.x: the polite-exit counter (ai_conversations.diagnostic_turn_count, threshold=6) is incremented in chat.ts inside `if (!skipPersist)`. The harness defaults to debug_skip_persist=true, so the counter never advances and the 6th turn never fires the <polite_exit_required> envelope block. Two unblock paths: (A) decouple the counter from skipPersist (a chat.ts-only change, out of scope for the QA-lead adaptation dispatch), or (B) ship a harness-side seed mutation that sets diagnostic_turn_count=5 before the final turn (also touches convex/). Re-enable once either lands. Intent preserved verbatim — do not delete."
+  },
+  {
+   "name": "cat_m_communication_style_outranks_history_anchor",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass)"
+  },
+  {
+   "name": "cat_m_fresh_outranks_stale_within_same_type",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass); also requires Sprint 3 test-helper mutation to stage stale last_reinforced"
+  },
+  {
+   "name": "cat_m_retracted_fact_does_not_surface",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass); also requires Sprint 3 pre_seed_mutations result-threading OR a retract-by-payload-substring mutation"
+  },
+  {
+   "name": "cat_m_vehicle_quirk_surfaces_for_vehicle_owner",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass)"
+  },
+  {
+   "name": "cat_m_no_seeded_rows_envelope_omits_recent_context",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass)"
+  },
+  {
+   "name": "cat_m_top_K_cap_enforced_at_5",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass); assertion fragile if equivalence-v2 collapses overlapping seeds — review on first run"
+  },
+  {
+   "name": "cat_m_adversarial_fact_does_not_surface_in_envelope",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass); threat model contestable — sanitizer at write blocks current attack surface, this is for future bypass paths"
+  },
+  {
+   "name": "book_service_polite_exit_not_sure",
+   "reason": "Sprint 2 / Wave 7.x: the polite-exit counter (ai_conversations.diagnostic_turn_count, threshold=6) is incremented in chat.ts inside `if (!skipPersist)`. The harness defaults to debug_skip_persist=true, so the counter never advances and the 6th turn never fires the <polite_exit_required> envelope block. Same disabled_reason as legacy polite_exit_after_vague_narrowing. Re-enable when counter decouples from skipPersist OR a pre_seed_mutations seed advances the counter."
+  }
+ ]
+}

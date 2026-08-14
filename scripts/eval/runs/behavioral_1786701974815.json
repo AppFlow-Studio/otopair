@@ -1,0 +1,450 @@
+{
+ "ran_at": "2026-08-14T10:06:14.815Z",
+ "target_email": "mansourwaleed06@gmail.com",
+ "repeat": 3,
+ "total": 5,
+ "passed": 3,
+ "failed": 2,
+ "skipped_count": 8,
+ "failed_cases": [
+  {
+   "name": "oil_symptom_routes_to_diagnostic_scan",
+   "failures": [
+    "rep1: turn 1: text contains banned \"pull over\"",
+    "rep1: turn 1: text contains banned \"stop driving\""
+   ]
+  },
+  {
+   "name": "book_service_diagnostic_phrasing_correct",
+   "failures": [
+    "rep1: turn 3: missing tool \"render_book_service\" (saw: get_vehicle_health,update_conversation_state)",
+    "rep1: turn 3: branch \"text_only\" !== \"terminal\"",
+    "rep1: turn 3: judge: The response asks a clarifying question (\"Once you let me know when the clunk started\") instead of moving forward to set up the diagnostic booking. This delays the booking rather than concluding it."
+   ]
+  }
+ ],
+ "results": [
+  {
+   "name": "oil_symptom_routes_to_diagnostic_scan",
+   "description": "Elimination-test ruling 2026-08-14 (Waleed): an oil change does NOT fix a burning-oil smell or consumption (valve-cover seep, stem seals), so the symptom coexists with a true record — the trust gate does NOT apply; the correct route is get_vehicle_health (mandatory read) then render_book_service with diagnostic-scan prefill. Also validates the 2026-08-14 classifier retune: a burning-OIL smell without smoke is severity soon (below the override) — turn 1 asserts no stop-driving language. Formerly oil_symptom_triggers_record_confirmation (gate assertion), which encoded the pre-ruling boundary. CROSS-TURN 2026-08-14: get_vehicle_health moved to tools_called_any_turn — the read legitimately lands on the narrowing turn before the terminal turn; the per-turn literal punished correct sequencing.",
+   "passed": false,
+   "failures": [
+    "rep1: turn 1: text contains banned \"pull over\"",
+    "rep1: turn 1: text contains banned \"stop driving\""
+   ],
+   "runs": [
+    {
+     "rep": 1,
+     "turns": [
+      {
+       "user": "My engine smells like burning oil after I drive",
+       "tools": [
+        "get_vehicle_health",
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Burning oil smell after driving is worth taking seriously — it usually points to oil finding a hot surface, most commonly a valve-cover leak seeping onto the exhaust manifold. That said, I don't have data on oil leaks or internal engine condition; the oil-change status only tracks when you last had the routine service done.\n\nHere's what matters: is there visible smoke coming from under the hood or the exhaust? If yes, pull over and stop driving — that's the signal to let the car cool and get a mechanic eyes-on right away. If it's just the smell with no smoke, it's still worth a Diagnostic Scan sooner rather than later — a slow seep can get worse, and catching it early keeps it from getting expensive.\n\nOne other thing — your vehicle's flagging a temperature/overheating warning light. That's usually independent of an oil smell, but if you're seeing BOTH the smell AND the temperature gauge climbing into the red, pull over immediately and don't keep driving.\n\nWant me to book a Diagnostic Scan so a mechanic can pin down what's actually leaking and how urgent it is?"
+      },
+      {
+       "user": "Mainly after long highway drives — no smoke anywhere, no leaks I can see",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "Got it — burning-oil smell after highway driving, no smoke, no visible leaks. That pattern usually narrows to one of two things: chronic seep (oil finding a hot surface like the exhaust manifold — common and manageable) or early overheating (where the coolant gets tight and oil temps spike). Quick question to pin it down: is the temperature gauge climbing toward the red, or staying normal? And has the check engine light come on, or just the temperature warning?"
+      },
+      {
+       "user": "Oil level does seem to drop a bit between changes too",
+       "tools": [
+        "update_conversation_state",
+        "render_book_service"
+       ],
+       "branch": "terminal",
+       "text": "Oil consumption between changes narrows this pretty clearly — you've got a chronic seep. When oil finds a hot surface (valve cover, pan gasket, head gasket on some cars), it burns off on the exhaust; that's the smell you're catching after highway heat soak. The temperature light is separate — worth a closer look, but the burning-oil part is the seep diagnosis.\n\nHere's the thing: chronic seeps can stay fine for years, or they can get worse. Right now you're managing it by topping off between changes. The move is to get a mechanic's eyes on it to confirm where the leak actually is — some are quick fixes, others take more work. Either way, a diagnostic gets you the real picture and a quote before anything happens.\n\nGiven you trust BMW specialists, the booking screen will let you filter exactly for that when you pick a mechanic."
+      }
+     ],
+     "failures": [
+      "turn 1: text contains banned \"pull over\"",
+      "turn 1: text contains banned \"stop driving\""
+     ]
+    },
+    {
+     "rep": 2,
+     "turns": [
+      {
+       "user": "My engine smells like burning oil after I drive",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "I'll help you figure out what's going on with that smell. First, a quick safety check — is there any smoke coming from under the hood, or just the smell?"
+      },
+      {
+       "user": "Mainly after long highway drives — no smoke anywhere, no leaks I can see",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "Got it — burning-oil smell after highway driving with no smoke and no visible leaks points to a chronic seep, not an active leak. That's the valve-cover seal or gaskets letting oil find a hot exhaust manifold, usually nothing immediate but worth getting looked at soon so it doesn't compound.\n\nOne more quick check: have you noticed the oil level dropping between services, or does it stay stable?"
+      },
+      {
+       "user": "Oil level does seem to drop a bit between changes too",
+       "tools": [
+        "get_vehicle_health",
+        "update_conversation_state",
+        "render_book_service"
+       ],
+       "branch": "terminal",
+       "text": "Also note: there's a temperature/overheating warning light flagged in known_issues. That's a separate concern I should surface once this diagnostic is booked.\n\nHere's what I'm seeing: oil burning with level drop between services points to internal consumption — usually worn rings or valve seals — not just a seep burning off the block. A Diagnostic Scan will let a mechanic confirm whether it's internal wear, a slow leak you can't see, or something else. We'll get you booked with a BMW specialist as you prefer."
+      }
+     ],
+     "failures": []
+    },
+    {
+     "rep": 3,
+     "turns": [
+      {
+       "user": "My engine smells like burning oil after I drive",
+       "tools": [
+        "get_vehicle_health",
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Your oil's on time from two months ago, so this isn't a \"past-due oil change\" situation. But I need to know: smoke or just smell?"
+      },
+      {
+       "user": "Mainly after long highway drives — no smoke anywhere, no leaks I can see",
+       "tools": [
+        "get_vehicle_health",
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Good news on the maintenance side — your oil is on time, so this isn't about skipping an oil change. What you're describing — burning oil smell after highway drives with no smoke and no leaks visible — is typically a chronic seep, not an emergency. That's valve-cover oil finding a hot exhaust manifold and burning off, which is fixable but not a stop-driving situation.\n\nThe one thing I'd flag: your vehicle has a temperature / overheating warning light flagged in your system. If that light has been on or if the gauge is climbing toward hot, that changes the picture — overheating can accelerate oil burning and needs eyes sooner. Is the temperature warning light on for you, or has the gauge felt normal?"
+      },
+      {
+       "user": "Oil level does seem to drop a bit between changes too",
+       "tools": [
+        "get_vehicle_health",
+        "update_conversation_state",
+        "render_book_service"
+       ],
+       "branch": "terminal",
+       "text": "Now I fire the diagnostic-scan booking. A Diagnostic Scan lets the mechanic confirm whether this is a valve-cover seep (common on this engine), a head gasket beginning to weep, or something else. The temperature light is a separate concern that needs eyes-on as well."
+      }
+     ],
+     "failures": []
+    }
+   ]
+  },
+  {
+   "name": "cross_conv_recent_mechanic_preference_recalled_in_chat",
+   "description": "Wave 3 step 4 cross-conv READ-path coverage (Day 8). Pre-seeds a mechanic_preference fact and then asks the AI for a mechanic recommendation. If getCrossConversationMemory Day 8 extension correctly surfaces user_semantic_facts in the envelope <recent_context>, the model should reference the prior preference naturally in its response — text_contains:[specialists] tests the seeded payload distinctive token shows up. This is a tighter behavioral test than envelope_contains alone: the model not only RECEIVES the prior preference but USES it in conversation. update_conversation_state should fire as it does on virtually every turn. NO branch assertion — the chat path may stay text_only or route through a service tool; the load-bearing assertion is text_contains on the personalized token.",
+   "passed": true,
+   "failures": [],
+   "runs": [
+    {
+     "rep": 1,
+     "turns": [
+      {
+       "user": "Can you recommend a mechanic for my next service?",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "When you book a service, the component shows available mechanics filtered by shop, rating, and price. You can sort by \"best rated\" or \"closest\" to find exactly who you want.\n\nGiven your preference for BMW specialists, the booking screen will let you filter for shops that specialize in BMWs. That way you're picking directly from mechanics you're comfortable with.\n\nWhat service are you looking to book, or want me to check what's due on your M550i?"
+      }
+     ],
+     "failures": []
+    },
+    {
+     "rep": 2,
+     "turns": [
+      {
+       "user": "Can you recommend a mechanic for my next service?",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "But given you only trust BMW specialists, the booking screen will let you filter for exactly that, and you'll see ratings and availability before you confirm.\n\nWhat service are you looking to book? If you tell me what needs doing, I can get you set up."
+      }
+     ],
+     "failures": []
+    },
+    {
+     "rep": 3,
+     "turns": [
+      {
+       "user": "Can you recommend a mechanic for my next service?",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "But I know you only trust BMW specialists, so when you book, the system will let you filter by that and show you the ones in your area.\n\nWhat service are you looking to schedule?"
+      }
+     ],
+     "failures": []
+    }
+   ]
+  },
+  {
+   "name": "link_button_tos_request",
+   "description": "Sprint 3 Day 2 §14.1 dispatch (render_link_button — 8 destinations + 3 AI-feedback routing + 3 discrimination). Destination: terms_of_service. User asks for TOS — Oto fires render_link_button(destination='terms_of_service') with a brief framing sentence; mobile component opens in-app browser to the TOS page. Verifies the tool fires + brief text framing the redirect.",
+   "passed": true,
+   "failures": [],
+   "runs": [
+    {
+     "rep": 1,
+     "turns": [
+      {
+       "user": "Where can I find your terms of service?",
+       "tools": [
+        "update_conversation_state",
+        "render_link_button"
+       ],
+       "branch": "terminal",
+       "text": "Tap the button below to view the terms of service."
+      }
+     ],
+     "failures": []
+    },
+    {
+     "rep": 2,
+     "turns": [
+      {
+       "user": "Where can I find your terms of service?",
+       "tools": [
+        "update_conversation_state",
+        "render_link_button"
+       ],
+       "branch": "terminal",
+       "text": "Tap the button below to open the terms of service."
+      }
+     ],
+     "failures": []
+    },
+    {
+     "rep": 3,
+     "turns": [
+      {
+       "user": "Where can I find your terms of service?",
+       "tools": [
+        "update_conversation_state",
+        "render_link_button"
+       ],
+       "branch": "terminal",
+       "text": "The Terms of Service are in your app's built-in browser — tap the button below to open them."
+      }
+     ],
+     "failures": []
+    }
+   ]
+  },
+  {
+   "name": "link_button_privacy_request",
+   "description": "Sprint 3 Day 2 §14.1 dispatch (render_link_button — 8 destinations + 3 AI-feedback routing + 3 discrimination). Destination: privacy_policy. User asks for the privacy policy — render_link_button(destination='privacy_policy'). Mobile component opens in-app browser to the Privacy Policy page.",
+   "passed": true,
+   "failures": [],
+   "runs": [
+    {
+     "rep": 1,
+     "turns": [
+      {
+       "user": "What's your privacy policy?",
+       "tools": [
+        "update_conversation_state",
+        "render_link_button"
+       ],
+       "branch": "terminal",
+       "text": "Privacy policy is in the app — tap the button below to open it."
+      }
+     ],
+     "failures": []
+    },
+    {
+     "rep": 2,
+     "turns": [
+      {
+       "user": "What's your privacy policy?",
+       "tools": [
+        "update_conversation_state",
+        "render_link_button"
+       ],
+       "branch": "terminal",
+       "text": "I'll open the Privacy Policy for you."
+      }
+     ],
+     "failures": []
+    },
+    {
+     "rep": 3,
+     "turns": [
+      {
+       "user": "What's your privacy policy?",
+       "tools": [
+        "update_conversation_state",
+        "render_link_button"
+       ],
+       "branch": "terminal",
+       "text": "Privacy policy is in the app — tap the button below to read it."
+      }
+     ],
+     "failures": []
+    }
+   ]
+  },
+  {
+   "name": "book_service_diagnostic_phrasing_correct",
+   "description": "Sprint 4 Day 1 Pass B §4 dispatch (booking-flow consolidation; render_book_service). Booking-action phrasing per §1 Voice update + §4 booking-action phrasing rule. User reports a symptom; Oto's narrowing turn (or single-turn recommendation) MUST ask to BOOK directly, not offer to 'pull up details'. BANNED phrasings (text_not_contains): 'pull up details', 'pull that up', 'pull up a diagnostic'. Required: 'book' AND 'diagnostic' must appear in Oto's framing. This case asserts PHRASING, not the render fire — the render only fires on user confirm; depending on Haiku's pacing, render_book_service may or may not fire on this single-user-turn case, so we do NOT assert tools_called against render_book_service here. We assert that the 6 deprecated tools also don't fire (no fallback to legacy flow). RE-AUTHORED 2026-08-14: the single-turn shape demanded the booking recommendation on turn 1, but the prompt explicitly allows ONE narrowing question first — the case punished sanctioned behavior. Now two turns: narrowing allowed on turn 1, the terminal booking (with booking-action phrasing, never pull-up-details phrasing) required by turn 2. Deadline moved to turn 3 to match the enforced termination contract (two question-turns allowed, third concludes) — the turn-2 deadline was stricter than the machinery guarantees.",
+   "passed": false,
+   "failures": [
+    "rep1: turn 3: missing tool \"render_book_service\" (saw: get_vehicle_health,update_conversation_state)",
+    "rep1: turn 3: branch \"text_only\" !== \"terminal\"",
+    "rep1: turn 3: judge: The response asks a clarifying question (\"Once you let me know when the clunk started\") instead of moving forward to set up the diagnostic booking. This delays the booking rather than concluding it."
+   ],
+   "runs": [
+    {
+     "rep": 1,
+     "turns": [
+      {
+       "user": "Lately when I go over a speed bump I hear a clunk from the front. Pretty repeatable.",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "Got it — a clunk over bumps is worth tracking down. A quick question to narrow it: does the clunk happen right when the wheel hits the bump, or does it come a split-second after? And is it one solid thud, or does it sound like multiple impacts in quick succession?"
+      },
+      {
+       "user": "Both sides I think, mostly at low speed. No other noises while driving.",
+       "tools": [
+        "get_vehicle_health",
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "Got it — bilateral, low-speed clunk. That's a classic suspension-play pattern, usually something like a control-arm bushing or a sway-bar link that's worn loose and taps when the suspension articulates over a bump. OtoPair doesn't monitor suspension health, so I can't see the history on the system — but this is exactly what a mechanic needs eyes-on for.\n\nA Diagnostic Scan will get a BMW specialist under there to pinpoint which component is moving and confirm what the fix is. Given you want BMW specialists only, the booking screen will let you filter to them.\n\nWant to book that service now?"
+      },
+      {
+       "user": "Nothing else changed recently, it just started on its own.",
+       "tools": [
+        "get_vehicle_health",
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "I've got your car's health snapshot — everything monitored is on time. But I want to flag something: OtoPair tracks oil, brakes, tires, the battery, and state inspection only. Suspension is not on that list, which means I have zero data on it. That clunk you're hearing could be anything from worn bushings to strut mount wear to a stabilizer link — all things a mechanic actually needs to see and feel to diagnose. This one definitely needs a real look.\n\nOnce you let me know when the clunk started, I'll get you booked with a BMW specialist who can pinpoint it."
+      }
+     ],
+     "failures": [
+      "turn 3: missing tool \"render_book_service\" (saw: get_vehicle_health,update_conversation_state)",
+      "turn 3: branch \"text_only\" !== \"terminal\"",
+      "turn 3: judge: The response asks a clarifying question (\"Once you let me know when the clunk started\") instead of moving forward to set up the diagnostic booking. This delays the booking rather than concluding it."
+     ]
+    },
+    {
+     "rep": 2,
+     "turns": [
+      {
+       "user": "Lately when I go over a speed bump I hear a clunk from the front. Pretty repeatable.",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "I hear you — a clunk over bumps is worth pinning down. Quick question to narrow it: does the clunk happen on the initial impact when the wheel hits the bump, or does it come as the suspension extends back out? That tells us whether it's something loose at the top of the suspension or lower down."
+      },
+      {
+       "user": "Both sides I think, mostly at low speed. No other noises while driving.",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "Got it — clunk on both sides at low speed over bumps, and it's quiet otherwise while driving. That's suspension-component territory. One more clarifier: does the clunk happen right when the wheel hits the bump, or does it come after — like when the suspension rebounds back up?"
+      },
+      {
+       "user": "Nothing else changed recently, it just started on its own.",
+       "tools": [
+        "get_vehicle_health",
+        "update_conversation_state",
+        "record_semantic_fact",
+        "render_book_service"
+       ],
+       "branch": "terminal",
+       "text": "A clunk over speed bumps that just started — suspension symptoms fall outside what we track (OtoPair monitors oil, brakes, tires, battery, and inspection only). A Diagnostic Scan gets a BMW specialist eyes-on to pinpoint what's loose or worn in the front end. That's exactly the kind of thing a good suspension inspection catches.\n\nBooking a Diagnostic Scan will allow a mechanic to diagnose your car and pin down the exact issue — want to set that up now?"
+      }
+     ],
+     "failures": []
+    },
+    {
+     "rep": 3,
+     "turns": [
+      {
+       "user": "Lately when I go over a speed bump I hear a clunk from the front. Pretty repeatable.",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "Got it — a clunk from the front over bumps is worth pinning down. Quick question to narrow it: does the clunk happen right when you hit the bump, or does it feel like there's a delay, like the suspension is settling and then something knocks?"
+      },
+      {
+       "user": "Both sides I think, mostly at low speed. No other noises while driving.",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Got it — clunk on both sides at low speed over bumps, and it's quiet the rest of the time. That timing points to the suspension settling after the initial impact, not something catching during the hit itself.\n\nA front clunk that's bilateral and low-speed-specific usually lands in a few places: worn sway bar links (they clunk at the connection points), worn strut mounts, or play in the control arm bushings. Since it's repeatable and doesn't happen on normal driving, a mechanic can isolate it by getting under there and checking for play while the suspension cycles.\n\nA Diagnostic Scan will get a BMW specialist to confirm which component is loose. Want me to set that up?"
+      },
+      {
+       "user": "Nothing else changed recently, it just started on its own.",
+       "tools": [
+        "update_conversation_state",
+        "render_book_service"
+       ],
+       "branch": "terminal",
+       "text": "Got it — so it's a recent onset thing, not a slow creep. That clunk pattern (low-speed bumps only, repeatable, sudden appearance) points to a worn suspension link, strut mount, or bushing that's finally loose enough to make noise. Cold braking pull is separate — that's your known left-bias quirk — so we're looking at the clunk as its own thing.\n\nA Diagnostic Scan will get a mechanic to isolate which component is actually moving around, and given your preference for BMW specialists, the booking screen will let you filter for exactly that."
+      }
+     ],
+     "failures": []
+    }
+   ]
+  }
+ ],
+ "skipped": [
+  {
+   "name": "battery_self_reported_triggers_record_confirmation",
+   "reason": "0/10 at N=10 on v0.51+v0.22 even with the Example 19 battery arc. Two causes: (1) cold-morning slow-crank is a softer elimination-test contradiction than squeal-after-new-pads (a plausible innocent cold-weather reading exists), so the model explains or narrows instead of gating; (2) one rep DID fire the card but failed the per-turn get_vehicle_health assertion because the read happened a turn earlier — the tools_called_across_turns runner primitive (Sprint 3 carryover) is needed to assert this case fairly. Re-enable after the polite-exit turn-3 termination follow-up + the cross-turn primitive. The brake gate case carries the elimination-test coverage meanwhile (~65-80%)."
+  },
+  {
+   "name": "cat_m_communication_style_outranks_history_anchor",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass)"
+  },
+  {
+   "name": "cat_m_fresh_outranks_stale_within_same_type",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass); also requires Sprint 3 test-helper mutation to stage stale last_reinforced"
+  },
+  {
+   "name": "cat_m_retracted_fact_does_not_surface",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass); also requires Sprint 3 pre_seed_mutations result-threading OR a retract-by-payload-substring mutation"
+  },
+  {
+   "name": "cat_m_vehicle_quirk_surfaces_for_vehicle_owner",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass)"
+  },
+  {
+   "name": "cat_m_no_seeded_rows_envelope_omits_recent_context",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass)"
+  },
+  {
+   "name": "cat_m_top_K_cap_enforced_at_5",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass); assertion fragile if equivalence-v2 collapses overlapping seeds — review on first run"
+  },
+  {
+   "name": "cat_m_adversarial_fact_does_not_surface_in_envelope",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass); threat model contestable — sanitizer at write blocks current attack surface, this is for future bypass paths"
+  }
+ ]
+}

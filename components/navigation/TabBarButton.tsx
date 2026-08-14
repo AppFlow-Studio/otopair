@@ -6,19 +6,9 @@ import Animated, {
   withSpring,
   withTiming,
 } from "react-native-reanimated";
-import { Home, Calendar, MessageSquare, LucideIcon, Settings } from "lucide-react-native";
-import { CarIcon } from "phosphor-react-native";
-import { OtoPairIcon } from "@/components/icons/oto-pair";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { useUnseenBookingsCount } from "@/hooks/useUnseenBookingsCount";
-import { BrandColors } from "../shared-ui";
-
-const icon: Record<string, any> = {
-  home: OtoPairIcon,
-  bookings: Calendar,
-  cars: CarIcon,
-  settings: Settings,
-  "ai-chat": MessageSquare,
-};
+import { tabItem } from "./tabItems";
 
 interface TabBarButtonProps {
   onPress: () => void;
@@ -35,12 +25,22 @@ const TabBarButton = ({
   routeName,
   label,
 }: TabBarButtonProps) => {
-  const IconComponent = icon[routeName] || Home;
-  const activeColor = BrandColors.secondary;
-  const inactiveColor = "#86868B";
-
-  const isOtoPair = routeName === 'home';
-  const isPhosphor = routeName === 'cars';
+  // Glyph and label come from tabItems.ts, which the iOS NativeTabs bar
+  // reads too — that shared list is what keeps the two bars from drifting.
+  // Settings isn't a tab route (it opens as an overlay), so it falls back
+  // rather than occupying a row in TAB_ITEMS.
+  const item = tabItem(routeName);
+  const iconName = item?.ion ?? (routeName === "settings" ? "settings" : "home");
+  // Sampled off the iOS bar (Display P3 converted to sRGB), two captures:
+  //   inactive icon + label  #181919 / #191918   -> near-black, NOT grey
+  //   active   icon + label  #0075F0 / #027BF2   -> iOS system blue
+  // Android was #86868B inactive, which reads washed out beside iOS, and
+  // BrandColors.secondary (#5299FE) active, which is lighter than the blue
+  // iOS actually paints. iOS gets these from the native tab bar rather than
+  // the brand palette, so matching it means matching the system values.
+  const activeColor = "#007AFF";
+  const inactiveColor = "#181919";
+  const tint = isFocused ? activeColor : inactiveColor;
 
   // Only the Bookings tab consumes this — the hook returns 0 for every
   // other route, so reading it here is fine. We show a plain red dot
@@ -58,16 +58,12 @@ const TabBarButton = ({
       <View style={styles.buttonWrapper}>
         <View style={styles.content}>
           <View style={styles.iconWrapper}>
-            {isOtoPair ? (
-              <IconComponent size={24} />
-            ) : (
-              <IconComponent
-                size={24}
-                color={isFocused ? activeColor : inactiveColor}
-                strokeWidth={1.5}
-                weight="regular"
-              />
-            )}
+            {/* Ionicons for every tab. Solid-vs-hollow is chosen by the
+                glyph NAME in tabItems.ts ("home" vs "home-outline"), the
+                same way SF pairs house.fill with house — never by painting
+                an outline icon's interior, which is what broke the first
+                attempt. Colour is the only thing focus changes. */}
+            <Ionicons name={iconName} size={24} color={tint} />
             {showBookingsBadge ? <View style={styles.badgeDot} /> : null}
           </View>
           <Animated.Text

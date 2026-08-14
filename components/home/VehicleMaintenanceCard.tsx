@@ -26,6 +26,7 @@ import React, { useEffect, useState } from 'react';
 import {
   Dimensions,
   Image,
+  Platform,
   Pressable,
   StyleSheet,
   View,
@@ -412,12 +413,19 @@ export function VehicleMaintenanceCard({
               >
                 {vehicle.name}
               </Text>
+              {/* iOS-only auto-shrink. `adjustsFontSizeToFit` +
+                  `minimumFontScale` are honoured differently on Android: it
+                  shrinks the VIN far past the 0.68 floor iOS respects — with
+                  `flexShrink: 1` below it collapsed to roughly a third of
+                  `size="sm"` and stopped being readable. A VIN is a fixed
+                  17 characters, so Android simply renders it at its intended
+                  size and clips if it ever has to. */}
               <Text
                 size="sm"
                 color="#9CA3AF"
                 lineHeight={1.25}
                 numberOfLines={1}
-                adjustsFontSizeToFit={!flatName}
+                adjustsFontSizeToFit={Platform.OS === 'ios' && !flatName}
                 minimumFontScale={0.68}
                 ellipsizeMode="clip"
                 style={styles.vin}
@@ -823,11 +831,19 @@ const styles = StyleSheet.create({
     borderColor: '#E8ECF2',
     position: 'relative',
     marginBottom: -12,
+    // These shadow props never render. `overflow: 'hidden'` above clips the
+    // layer they would draw into, so on iOS this section is flush against the
+    // one below and the only thing separating them is the 1px border — the
+    // hairline you see on device. Kept because they document the intent.
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.15,
     shadowRadius: 10,
-    elevation: 6,
+    // Android draws elevation OUTSIDE the clip bounds, so `overflow: 'hidden'`
+    // does not suppress it the way it does on iOS. At 6 this painted a heavy
+    // drop shadow into the -12 overlap and the one card read as two stacked
+    // ones. Zero keeps Android flush, matching what iOS actually renders.
+    elevation: 0,
     zIndex: 2,
   },
   topSectionInner: {

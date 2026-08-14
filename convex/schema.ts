@@ -655,6 +655,11 @@ export default defineSchema({
   // the table above. Nothing writes here anymore. Once every deployment reports
   // a 0-row remainder, delete this block (see the runbook:
   // docs/superpowers/runbooks/2026-07-27-vendor-name-purge-migration.md).
+  //
+  // ALSO: this block MUST stay in sync with otopair-web's schema.ts — both
+  // repos target the same Convex deployment, so a schema pushed from here that
+  // omits this table would drop live rows. Delete on the runbook's say-so, not
+  // on this repo's read of the row count alone.
   // eslint-disable-next-line -- legacy table name, intentionally retained
   repairpal_endpoint_estimates: defineTable({
     vehicle_config_id: v.id("vehicle_configs"),
@@ -1269,7 +1274,8 @@ export default defineSchema({
     estimator_slug: v.optional(v.union(v.string(), v.null())),
     // DUAL-READ WINDOW — DELETE AFTER MIGRATION. Pre-rename name of
     // `estimator_slug`; readers fall back to it until the migration has copied
-    // every value across. Nothing writes here anymore.
+    // every value across. Nothing writes here anymore. Must stay in sync with
+    // otopair-web's schema.ts (shared deployment).
     repairpal_slug: v.optional(v.union(v.string(), v.null())),
     has_options: v.optional(v.boolean()),
     is_labor_only: v.optional(v.boolean()),
@@ -3520,6 +3526,32 @@ export default defineSchema({
     last_user_intent: v.optional(v.string()),
     state_updated_at: v.optional(v.number()),
     // -----------------------------------------------------------------------
+    // W3.2 (2026-08-13) — typed open-symptom ledger (D-43, D-15).
+    // An unresolved safety-relevant symptom used to live only in the free-text
+    // arc_summary / established_facts, so a subject change dropped it — the
+    // report's "user mentioned a soft brake pedal, then asked about oil, and
+    // the brake thread was never picked back up." Rows are appended
+    // DETERMINISTICALLY by chat.ts when the Wave 2 safety classifier fires
+    // (never by the model), deduped by `category` among open rows, and marked
+    // addressed when a booking that bundles them fires (W3.3).
+    // -----------------------------------------------------------------------
+    open_symptoms: v.optional(
+      v.array(
+        v.object({
+          text: v.string(), // user's own words, truncated
+          category: v.string(), // hazard category / matched light — the dedupe key
+          safety_relevant: v.boolean(),
+          status: v.union(
+            v.literal("open"),
+            v.literal("addressed"),
+            v.literal("dismissed"),
+          ),
+          opened_at: v.number(),
+          addressed_at: v.optional(v.number()),
+        }),
+      ),
+    ),
+    // -----------------------------------------------------------------------
     // [RESTORED post-merge — Sprint 2 polite-exit counter]
     // Tracks how many turns of symptom-narrowing have happened without
     // converging on a diagnostic form or direct service. chat.ts increments
@@ -3955,6 +3987,11 @@ export default defineSchema({
     // push to a deployment that still holds them — the validator rejects
     // legacy values on write and the push-time schema check rejects legacy
     // rows at rest.
+    //
+    // MUST stay in sync with otopair-web/convex/schema.ts — both repos push to
+    // the same deployments. The 2026-07-20 mobile deploy was rejected because
+    // this validator still carried the legacy union while live rows were
+    // already super_admin etc.
     role: v.union(
       v.literal("super_admin"),
       v.literal("ops_admin"),

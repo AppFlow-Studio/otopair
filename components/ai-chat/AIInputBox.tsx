@@ -43,10 +43,9 @@ import Animated, {
   withRepeat,
   withSequence,
   interpolate,
-  Extrapolate,
   Easing,
 } from 'react-native-reanimated';
-import { ImagePlus, Mic, ArrowUp, X } from 'lucide-react-native';
+import { ArrowUp, X } from 'lucide-react-native';
 
 // Native iOS 26 liquid glass (optional)
 let LiquidGlassView: React.ComponentType<any> | null = null;
@@ -301,7 +300,6 @@ export function AIInputBox({
   // Animation values
   const sendButtonScale = useSharedValue(0);
   const sendButtonOpacity = useSharedValue(0);
-  const plusRotation = useSharedValue(0);
 
   const hasText = value.trim().length > 0;
   // Allow sending if there's text OR images
@@ -317,15 +315,6 @@ export function AIInputBox({
       sendButtonOpacity.value = withTiming(0, TIMING_CONFIG);
     }
   }, [hasText, hasImages]);
-
-  // Animate plus button rotation when attachment panel opens/closes
-  useEffect(() => {
-    plusRotation.value = withSpring(isAttachmentOpen ? 45 : 0, {
-      damping: 15,
-      stiffness: 300,
-      mass: 0.6,
-    });
-  }, [isAttachmentOpen]);
 
   // Handle content size changes for auto-expand/shrink. `contentSize.height`
   // is the height of the text content only — it does NOT include the
@@ -367,18 +356,6 @@ export function AIInputBox({
   const sendButtonAnimatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: sendButtonScale.value }],
     opacity: sendButtonOpacity.value,
-  }));
-
-  const micButtonAnimatedStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(sendButtonOpacity.value, [0, 1], [1, 0], Extrapolate.CLAMP),
-    transform: [
-      { scale: interpolate(sendButtonOpacity.value, [0, 1], [1, 0.8], Extrapolate.CLAMP) },
-    ],
-  }));
-
-  // Animated style for plus button rotation (rotates 45deg to become X)
-  const plusButtonAnimatedStyle = useAnimatedStyle(() => ({
-    transform: [{ rotate: `${plusRotation.value}deg` }],
   }));
 
   const inputCardContent = (
@@ -446,45 +423,17 @@ export function AIInputBox({
 
         {/* Right side buttons */}
         <View style={styles.rightButtonsRow}>
-          {/* Plus / Add button */}
-          {!showRecordingUI && (
-            <Pressable
-              style={({ pressed }) => [
-                styles.plusBtn,
-                pressed && styles.btnPressed,
-              ]}
-              onPress={onToggleAttachment}
-            >
-              <Animated.View style={plusButtonAnimatedStyle}>
-                <ImagePlus size={20} color={isAttachmentOpen ? BrandColors.secondary : (hasText ? "rgba(0,0,0,0.6)" : "rgba(0,0,0,0.4)")} strokeWidth={2} />
-              </Animated.View>
-            </Pressable>
-          )}
-
+          {/* Image-attach button removed 2026-08-14: vision is scrapped for
+              MVP (deferred feature), so the affordance was a dead button —
+              the QA report's ship-blocker. The attachment plumbing
+              (isAttachmentOpen / onToggleAttachment / selectedImages props)
+              stays for when the feature returns. */}
           <View style={styles.rightButtons}>
-            {/* Mic button */}
-            <Animated.View style={[
-              styles.buttonWrapper,
-              !showRecordingUI && micButtonAnimatedStyle
-            ]}>
-              <Pressable
-                style={({ pressed }) => [
-                  showRecordingUI ? styles.micBtnRecording : styles.micBtn,
-                  !showRecordingUI && pressed && styles.micBtnPressed,
-                ]}
-                onPressIn={onMicPressIn}
-                onPressOut={onMicPressOut}
-                delayLongPress={0}
-                pointerEvents={hasText && !showRecordingUI ? 'none' : 'auto'}
-                disabled={isLoading || disabled}
-              >
-                {showRecordingUI ? (
-                  <ArrowUp size={16} color={BrandColors.white} strokeWidth={2.5} />
-                ) : (
-                  <Mic size={18} color={hasText ? "rgba(0,0,0,0.6)" : "rgba(0,0,0,0.4)"} strokeWidth={2} />
-                )}
-              </Pressable>
-            </Animated.View>
+            {/* Mic button removed 2026-08-14 (QA p.109 #2): voice input is
+                not wired end-to-end, so the affordance was a dead button —
+                same ship-blocker shape as the camera button. The recording
+                plumbing (onMicPressIn/Out, isRecording, waveform) stays for
+                when voice returns. */}
 
             {/* Send button */}
             {!showRecordingUI && (
@@ -500,21 +449,9 @@ export function AIInputBox({
             )}
           </View>
 
-          {/* X dismiss button - shown when focused AND has text */}
-          {isFocused && hasText && !showRecordingUI && (
-            <Pressable
-              onPress={() => {
-                Keyboard.dismiss();
-              }}
-              style={({ pressed }) => [
-                styles.dismissBtn,
-                pressed && { opacity: 0.6 },
-              ]}
-              hitSlop={8}
-            >
-              <X size={18} color="#9CA3AF" strokeWidth={2} />
-            </Pressable>
-          )}
+          {/* X dismiss button removed (QA p.7): it sat one slip away from
+              send. Keyboard dismissal is tap-anywhere-outside now — handled
+              at the screen level (ai-chat/index.tsx), not by a button. */}
         </View>
       </View>
     </View>
@@ -616,17 +553,6 @@ const styles = StyleSheet.create({
   },
   inputRowFocused: {
   },
-  plusBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 0,
-  },
-  btnPressed: {
-    backgroundColor: 'rgba(0, 0, 0, 0.05)',
-  },
   textInput: {
     flex: 1,
     fontSize: 16,
@@ -649,14 +575,6 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     position: 'relative',
-  },
-  dismissBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#F3F4F6',
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   buttonWrapper: {
     position: 'absolute',
