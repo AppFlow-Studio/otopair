@@ -2209,9 +2209,14 @@ export async function sendMessageHandlerCore(
         // decoration, not a clarifying loop — counting those would tick every
         // card-with-chips flow toward a forced diagnostic exit.
         const renderedChips = !!quickReplies && !modelConcludedTurn;
+        // The offer-hold protects the text-offer→confirm two-step, but a turn
+        // that offers AND renders another chips question has not converged —
+        // holding those let conversations idle below the threshold forever
+        // (final-run polite_exit reps: chips on turn 3, count stuck at 1).
+        const offerHold = offeringBooking && !renderedChips;
         if (
           (askedQuestion || renderedChips) &&
-          !offeringBooking &&
+          !offerHold &&
           (modelTaggedNarrowing || alreadyNarrowing || renderedChips)
         ) {
           nextCount = diagnosticTurnCount + 1;

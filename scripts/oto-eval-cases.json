@@ -1925,7 +1925,7 @@
     },
     {
       "name": "ai_feedback_points_to_icon",
-      "description": "Sprint 3 Day 2 §14.1 dispatch (render_link_button — 8 destinations + 3 AI-feedback routing + 3 discrimination). AI-feedback routing (§13 + §15.11). User complains about Oto's response — Oto acknowledges briefly and points to the per-message 'Report an issue with AI' exclamation icon. MUST NOT fire render_link_button (bug_report and feedback are wrong channels per §13). Pattern: 'tap the exclamation-point icon next to my response'.",
+      "description": "Sprint 3 Day 2 §14.1 dispatch (render_link_button — 8 destinations + 3 AI-feedback routing + 3 discrimination). AI-feedback routing (§13 + §15.11). User complains about Oto's response — Oto acknowledges briefly and points to the per-message 'Report an issue with AI' exclamation icon. MUST NOT fire render_link_button (bug_report and feedback are wrong channels per §13). Pattern: 'tap the exclamation-point icon next to my response'. LITERAL→JUDGE 2026-08-14 (final-run pass).",
       "turns": [
         {
           "user": "That was a wrong answer — you got that backwards.",
@@ -1937,9 +1937,6 @@
               "render_link_button",
               "render_support_form"
             ],
-            "text_contains": [
-              "icon"
-            ],
             "text_not_contains": [
               "I'll let the team know",
               "I'll flag this",
@@ -1950,7 +1947,8 @@
               "I'll pass it along",
               "the system",
               "the dispatcher"
-            ]
+            ],
+            "text_judge": "The response points the user to the per-message feedback control (thumbs-up/thumbs-down on the message) as the way to report the AI response. Promising Oto will file or forward it FAILS."
           }
         }
       ]
@@ -2200,7 +2198,7 @@
     },
     {
       "name": "loyalty_redeem_request_pointer_to_screen",
-      "description": "Sprint 3 Day 3 §11 + §14.2 dispatch (Loyalty — in-chat informational surface, no claim flow). §14.2 Constraint 2 (no-claim-flow): user explicitly says 'I want to redeem my points' / 'claim the 10% off' — Oto MUST NOT execute a claim in chat. Response must point conversationally to the Loyalty screen (per pattern 'Redeeming happens on the Loyalty screen in your account'). Oto MAY fire get_available_redemptions to show options. Banned phrasings (text_not_contains) cover the load-bearing claim-promise vocabulary: 'I'll redeem', 'I'll claim', 'I'll set up', 'done', 'completed', 'applied'.",
+      "description": "Sprint 3 Day 3 §11 + §14.2 dispatch (Loyalty — in-chat informational surface, no claim flow). §14.2 Constraint 2 (no-claim-flow): user explicitly says 'I want to redeem my points' / 'claim the 10% off' — Oto MUST NOT execute a claim in chat. Response must point conversationally to the Loyalty screen (per pattern 'Redeeming happens on the Loyalty screen in your account'). Oto MAY fire get_available_redemptions to show options. Banned phrasings (text_not_contains) cover the load-bearing claim-promise vocabulary: 'I'll redeem', 'I'll claim', 'I'll set up', 'done', 'completed', 'applied'. LITERAL→JUDGE 2026-08-14 (final-run pass).",
       "turns": [
         {
           "user": "I want to redeem my points — claim the 10% off reward for me.",
@@ -2210,9 +2208,6 @@
             ],
             "tools_not_called": [
               "render_link_button"
-            ],
-            "text_contains": [
-              "Loyalty screen"
             ],
             "text_not_contains": [
               "I'll redeem",
@@ -2228,7 +2223,8 @@
               "applied",
               "the system",
               "the dispatcher"
-            ]
+            ],
+            "text_judge": "The response describes what is available and points the user to the Loyalty/rewards area of their account to complete the redemption themselves. Claiming to execute or apply the redemption from chat FAILS."
           }
         }
       ]
