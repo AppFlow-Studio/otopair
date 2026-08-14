@@ -46,7 +46,7 @@ import Animated, {
   Extrapolate,
   Easing,
 } from 'react-native-reanimated';
-import { ImagePlus, Mic, ArrowUp, X } from 'lucide-react-native';
+import { Mic, ArrowUp, X } from 'lucide-react-native';
 
 // Native iOS 26 liquid glass (optional)
 let LiquidGlassView: React.ComponentType<any> | null = null;
@@ -301,7 +301,6 @@ export function AIInputBox({
   // Animation values
   const sendButtonScale = useSharedValue(0);
   const sendButtonOpacity = useSharedValue(0);
-  const plusRotation = useSharedValue(0);
 
   const hasText = value.trim().length > 0;
   // Allow sending if there's text OR images
@@ -317,15 +316,6 @@ export function AIInputBox({
       sendButtonOpacity.value = withTiming(0, TIMING_CONFIG);
     }
   }, [hasText, hasImages]);
-
-  // Animate plus button rotation when attachment panel opens/closes
-  useEffect(() => {
-    plusRotation.value = withSpring(isAttachmentOpen ? 45 : 0, {
-      damping: 15,
-      stiffness: 300,
-      mass: 0.6,
-    });
-  }, [isAttachmentOpen]);
 
   // Handle content size changes for auto-expand/shrink. `contentSize.height`
   // is the height of the text content only — it does NOT include the
@@ -374,11 +364,6 @@ export function AIInputBox({
     transform: [
       { scale: interpolate(sendButtonOpacity.value, [0, 1], [1, 0.8], Extrapolate.CLAMP) },
     ],
-  }));
-
-  // Animated style for plus button rotation (rotates 45deg to become X)
-  const plusButtonAnimatedStyle = useAnimatedStyle(() => ({
-    transform: [{ rotate: `${plusRotation.value}deg` }],
   }));
 
   const inputCardContent = (
@@ -446,21 +431,11 @@ export function AIInputBox({
 
         {/* Right side buttons */}
         <View style={styles.rightButtonsRow}>
-          {/* Plus / Add button */}
-          {!showRecordingUI && (
-            <Pressable
-              style={({ pressed }) => [
-                styles.plusBtn,
-                pressed && styles.btnPressed,
-              ]}
-              onPress={onToggleAttachment}
-            >
-              <Animated.View style={plusButtonAnimatedStyle}>
-                <ImagePlus size={20} color={isAttachmentOpen ? BrandColors.secondary : (hasText ? "rgba(0,0,0,0.6)" : "rgba(0,0,0,0.4)")} strokeWidth={2} />
-              </Animated.View>
-            </Pressable>
-          )}
-
+          {/* Image-attach button removed 2026-08-14: vision is scrapped for
+              MVP (deferred feature), so the affordance was a dead button —
+              the QA report's ship-blocker. The attachment plumbing
+              (isAttachmentOpen / onToggleAttachment / selectedImages props)
+              stays for when the feature returns. */}
           <View style={styles.rightButtons}>
             {/* Mic button */}
             <Animated.View style={[
@@ -603,17 +578,6 @@ const styles = StyleSheet.create({
     minHeight: 40,
   },
   inputRowFocused: {
-  },
-  plusBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 0,
-  },
-  btnPressed: {
-    backgroundColor: 'rgba(0, 0, 0, 0.05)',
   },
   textInput: {
     flex: 1,
