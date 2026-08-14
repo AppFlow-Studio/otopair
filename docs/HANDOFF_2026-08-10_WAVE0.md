@@ -457,6 +457,39 @@ in registry §14.4.
 
 ---
 
+## 0l. The drive to green — reliability round (2026-08-14, after Waleed's "get the baseline to 96")
+
+**Trajectory: 60/94 (v0.46) → 72/96 → 80/98 → 84/98**, with every remaining failure classified
+and most classes structurally closed this round. Sonnet considered and DECLINED by Waleed
+(real cost from telemetry: $0.017/turn Haiku vs $0.052 Sonnet, exactly 3×; the reliability
+gains keep coming from server-side mechanisms anyway).
+
+Shipped this round (commits `6a2814eb`…`da632315`):
+1. **State-contract retry** — turn ends without update_conversation_state → ONE follow-up call
+   with tool_choice FORCED to the state tool. Honest trace (state_repaired flag). Widened to
+   all turns after a prose-only skip slipped the first gate. Class went 0/3 → 3/3.
+2. **Forced-exit debugging arc** — instrumented counter logs traced the last polite-exit
+   failures to (a) the startsWith intent test missing tags like
+   "diagnostic_booking_vague_symptom" (now contains-test on symptom|diagnos|narrow), (b) the
+   offer-hold also holding chips turns, (c) a case punishing EARLY convergence (booked turn 2,
+   single-fire forbids re-render on turn 3 — final turn now asserts cumulatively).
+   polite_exit_after_vague_narrowing: first-ever 5/5.
+3. **tools_called_any_turn runner primitive** + contamination scrub (cross_conv_no_prior_data
+   3/3) + 6 more literal→judge conversions.
+4. **Exemplar pass v0.23-volatile** — Examples 21 (feedback-icon three-beat), 22 (reinforce +
+   recall corollary), 23 (retraction), chronic-seep register. Reinforce/ai-feedback/recall all
+   0/3 → 3/3-2/3. Link fallback lines reworded (my own fallback flunked the
+   claims-to-provide-directly judge).
+
+**Remaining known marginals** (the last mile to green): record_semantic_fact initial-record
+discipline (~3 cases; forced-tool_choice retry NOT applicable — whether to record is a
+judgment, forcing would over-record), retraction (~1/3), book_service_pivot routing, loyalty
+tool choice, health-check batching, N63 engine-code literal, ~10% narration slips ("the
+system", "let me search"). Recommendation stands: define green as every case passing at N=3
+rather than a lucky all-green N=1.
+
+---
+
 ## 0k. v0.52 full baseline + turn-3 termination enforced server-side (2026-08-14 night)
 
 **Full-suite baseline: 72/96 on v0.52** (was 60/94 on v0.46) — run in three SLICE windows
