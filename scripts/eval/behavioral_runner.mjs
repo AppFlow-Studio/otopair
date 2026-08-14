@@ -118,9 +118,17 @@ const data = JSON.parse(readFileSync(join(repo, "scripts", "oto-eval-cases.json"
 const all = data.cases || [];
 // CASE_FILTER accepts a comma-separated list of name substrings (any match).
 const filters = CASE_FILTER.split(",").map((f) => f.trim()).filter(Boolean);
-const active = all.filter(
+let active = all.filter(
   (c) => c.disabled !== true && (filters.length === 0 || filters.some((f) => c.name.includes(f))),
 );
+// SLICE="start:end" — index range over the ACTIVE list (end exclusive), for
+// splitting a full-suite run across command-timeout windows. Applied after
+// CASE_FILTER. e.g. SLICE=0:32, SLICE=32:64, SLICE=64:96.
+if (process.env.SLICE) {
+  const m = /^(\d+):(\d+)$/.exec(process.env.SLICE.trim());
+  if (!m) throw new Error(`bad SLICE "${process.env.SLICE}" — want "start:end"`);
+  active = active.slice(Number(m[1]), Number(m[2]));
+}
 const skipped = all.filter((c) => c.disabled === true).map((c) => ({ name: c.name, reason: c.disabled_reason || "" }));
 console.log(`cases: ${active.length} active${CASE_FILTER ? ` (filter: ${CASE_FILTER})` : ""}, ${skipped.length} disabled, REPEAT=${REPEAT}`);
 

@@ -457,6 +457,42 @@ in registry §14.4.
 
 ---
 
+## 0k. v0.52 full baseline + turn-3 termination enforced server-side (2026-08-14 night)
+
+**Full-suite baseline: 72/96 on v0.52** (was 60/94 on v0.46) — run in three SLICE windows
+(runner gained `SLICE=start:end`). Remaining 24 all fit known classes; two findings out of the
+triage were structural and got fixed in the same pass:
+
+**1. The polite-exit mechanism was DISABLED under the harness.** The diagnostic_turn_count
+update sat inside the `!skipPersist` gate, so eval runs (persist:false) never incremented it —
+`<polite_exit_required>` could never fire in ANY eval, the two polite_exit cases could never
+pass (both sat disabled), and §0i's "turn-3 non-termination" was measured with the enforcement
+switched off. Fixed: counter runs on harness turns too (writes to the eval conversation row).
+
+**2. Turn-3 deadline now server-enforced.** POLITE_EXIT_THRESHOLD 4 → 2 (two unconverged
+question-turns → the third turn carries the block), and the block text now (a) requires the
+get_vehicle_health read before concluding and (b) sanctions the trust gate as a terminal
+(elimination-test wording) — so the forced exit can never steamroll a legitimate
+record-confirmation turn. The polite_exit cases are re-authored to the turn-3 contract and
+RE-ENABLED (98 active / 106).
+
+**3. Empty-bubble render turns got a deterministic floor.** Five link_button cases + two
+book_service cases in the baseline shipped a terminal render with ZERO prose (judge: "no
+response provided") — the known Haiku all-tool-blocks-no-text mode, previously fallback-covered
+for render_vehicle_update only ("the other renders' framing is a product call" — the baseline
+made the call). Every terminal render now guarantees a framing sentence; link buttons get a
+destination-aware line so the prose names what's opening.
+
+Also this pass: W1 + W2 harnesses moved into the repo (`scripts/eval/w1_guard_harness.js`,
+`w2_safety_harness.mjs` — they were living in a session temp dir), and the chat-UX trio from
+the QA pdf shipped on device (composer X removed + tap-outside keyboard dismissal + image
+button removed per the vision scrap + keyboard-clearance fix, all device-verified).
+
+Verification N-runs for this pass recorded in scripts/eval/runs/ (polite-exit ×2, link_button
+×5, book_service ×2, scan-branch ×2, brake-gate regression).
+
+---
+
 ## 0h. Behavioral eval run — v0.46 baseline + v0.47 fix (2026-08-13 evening)
 
 **New headless runner** `scripts/eval/behavioral_runner.mjs` — drives the 94 golden cases through

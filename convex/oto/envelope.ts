@@ -130,9 +130,15 @@ interface BuildEnvelopeArgs {
 }
 
 // Lowered 6 → 4 (beta feedback: a stranded user hit "just get me a mechanic"
-// frustration well before six rounds of narrowing). Four unconverged
-// question-turns is enough signal to offer the booking exit.
-const POLITE_EXIT_THRESHOLD = 4;
+// frustration well before six rounds of narrowing), then 4 → 2 (2026-08-14):
+// the prompt's three-state termination rule caps narrowing at ~two clarifying
+// turns, and N=10 eval runs showed the model sailing past turn 3 explaining
+// instead of concluding — the server now enforces the same deadline the
+// prompt asks for. Two unconverged question-turns → the third turn carries
+// the block and must conclude.
+// Exported (2026-08-14) so chat.ts's forced-exit backstop keys on the same
+// number this block does — one threshold, two enforcement layers.
+export const POLITE_EXIT_THRESHOLD = 2;
 
 // -----------------------------------------------------------------------------
 // Pick the active vehicle for this conversation. Precedence:
@@ -360,7 +366,7 @@ export function buildEnvelope({
       [
         `<polite_exit_required>`,
         `  diagnostic_turn_count: ${diagnosticTurnCount}`,
-        `  rule: This conversation has narrowed for ${diagnosticTurnCount} turns without converging. Stop narrowing now. Call render_book_service with service_slugs=["diagnostic_scan"], diagnostic_system="not_sure", and customer_notes summarizing everything the user has mentioned across the conversation. The mechanic can see what you couldn't.`,
+        `  rule: This conversation has narrowed for ${diagnosticTurnCount} turns without converging. Stop narrowing — THIS turn must reach a terminal state, and no further clarifying question is allowed. If you have not yet consulted get_vehicle_health for the implicated system this conversation, call it NOW in this same turn before concluding. Then: if the trust gate holds (the narrowed symptom contradicts an on_time self_reported record — the recorded service, if real, would have eliminated this symptom), fire render_record_confirmation for that maintenance type. Otherwise call render_book_service with service_slugs=["diagnostic_scan"], diagnostic_system set to the closest subsystem (or "not_sure"), and customer_notes summarizing everything the user has mentioned across the conversation. The mechanic can see what you couldn't.`,
         `</polite_exit_required>`,
       ].join("\n"),
     );

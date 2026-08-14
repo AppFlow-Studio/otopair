@@ -46,6 +46,7 @@ import {
   formatDisplayString,
   knowledgeLabel,
   pickActiveVehicleRow,
+  POLITE_EXIT_THRESHOLD,
   type DisplayInfo,
   type OwnedVehicleRow,
   type ResolvedVehicle,
@@ -1577,6 +1578,66 @@ export async function sendMessageHandlerCore(
     }
   }
 
+  // ── Forced-exit backstop (2026-08-14) ──────────────────────────────────────
+  // The <polite_exit_required> block (POLITE_EXIT_THRESHOLD, envelope.ts) asks
+  // the model to conclude; N=5 verification showed it defying the block ~40%
+  // of the time — another round of chips, or prose with no terminal render.
+  // Conditions-in-code endpoint: when the threshold is reached and the model
+  // did not conclude the turn with a terminal render, the SERVER concludes it
+  // with the diagnostic-scan booking the block asked for. Deliberately NOT
+  // forced when: a record-confirmation / vehicle-update / booking / link /
+  // card render fired (the model concluded — including via the trust gate),
+  // or a stop_now safety finding is active (a booking card must not compete
+  // with a stop-driving instruction; the exit can happen next turn).
+  const modelConcludedTurn =
+    renderEnvelope.bookService !== undefined ||
+    renderEnvelope.showRecordConfirmation !== undefined ||
+    renderEnvelope.showVehicleUpdate !== undefined ||
+    renderEnvelope.linkButton !== undefined ||
+    renderEnvelope.bookingCard !== undefined ||
+    renderEnvelope.bookingsList !== undefined;
+  const stopNowActive = safetyFindings.some((f) => f.severity === "stop_now");
+  if (
+    diagnosticTurnCount >= POLITE_EXIT_THRESHOLD &&
+    !modelConcludedTurn &&
+    !stopNowActive
+  ) {
+    const recentUserTurns: string[] = [];
+    for (const h of Array.isArray(history) ? history.slice(-8) : []) {
+      const role = (h as { role?: string })?.role;
+      const content = (h as { content?: unknown })?.content;
+      if (role === "user" && typeof content === "string" && content.trim()) {
+        recentUserTurns.push(content.trim());
+      }
+    }
+    recentUserTurns.push(message);
+    const notes =
+      "Customer described (in their words): " +
+      recentUserTurns.slice(-3).join(" / ").slice(0, 500);
+    console.warn(
+      "[oto/chat] forced polite-exit: threshold reached, model did not " +
+        "conclude — server rendering the diagnostic-scan booking",
+    );
+    renderEnvelope.bookService = {
+      service_slugs: ["diagnostic_scan"],
+      diagnostic_system: "not_sure",
+      customer_notes: notes,
+    };
+    // The chips defiance case: a fresh question row above a forced booking
+    // card reads as contradiction — drop them (both the envelope field and
+    // the already-extracted local, which downstream persist/response use).
+    renderEnvelope.quickReplies = undefined;
+    quickReplies = undefined;
+    if (!finalText.trim()) {
+      finalText =
+        "Rather than keep guessing, let's get a mechanic's eyes on it — a diagnostic scan covers everything you've described. Everything's prefilled below.";
+    }
+    if (trace && Array.isArray(trace.iterations) && trace.iterations.length) {
+      trace.iterations[trace.iterations.length - 1].branch = "terminal";
+      trace.iterations[trace.iterations.length - 1].forced_exit = true;
+    }
+  }
+
   const showRecordConfirmation =
     renderEnvelope.showRecordConfirmation &&
     typeof renderEnvelope.showRecordConfirmation === "object"
@@ -1614,18 +1675,70 @@ export async function sendMessageHandlerCore(
 
   // W3.1 companion fallback — same conditions-in-code/absolutes-in-prompts
   // rationale as the chip fallback above. The prompt asks for a brief framing
-  // sentence with every render_vehicle_update, but Haiku sometimes spends the
-  // whole turn on tool_use blocks and emits no text block at all (observed
-  // v0.42/v0.43 on-device: bare card, empty bubble). Guarantee one neutral
-  // sentence so the card never ships without prose. Scoped to
-  // showVehicleUpdate only — the other renders' framing is a product call.
-  if (!finalText.trim() && renderEnvelope.showVehicleUpdate !== undefined) {
-    console.warn(
-      "[oto/chat] W3.1 fallback: empty assistant text on a vehicle-update " +
-        "render turn — injecting default framing sentence",
-    );
-    finalText =
-      "Here's what I captured — give it a look and tap confirm to save it to your car's record.";
+  // sentence with every terminal render, but Haiku sometimes spends the whole
+  // turn on tool_use blocks and emits no text block at all (observed
+  // v0.42/v0.43 on-device: bare card, empty bubble; observed again in the
+  // 2026-08-14 v0.52 baseline: five link_button cases shipped an empty bubble
+  // above the button and a judge read it as "no response provided"). Was
+  // scoped to showVehicleUpdate with the other renders left as a product
+  // call — the baseline failures made the call: every terminal render
+  // guarantees one neutral framing sentence. Link buttons get a
+  // destination-aware line so the prose names what's opening.
+  if (!finalText.trim()) {
+    const LINK_FRAMING: Record<string, string> = {
+      customer_support: "Support can take it from here — this opens them directly.",
+      feedback: "Here's the feedback screen — it goes straight to the team.",
+      bug_report: "Here's the bug-report screen — describe what broke and the team will see it.",
+      tos: "Here are the Terms of Service.",
+      privacy_policy: "Here's the privacy policy.",
+      settings: "This opens your settings.",
+      profile: "This opens your profile.",
+      transaction_history: "Here's your transaction history — every payment in one place.",
+      vehicle_onboarding: "This opens the add-a-vehicle flow — you can register it right here.",
+    };
+    let framing: string | null = null;
+    if (renderEnvelope.showVehicleUpdate !== undefined) {
+      framing =
+        "Here's what I captured — give it a look and tap confirm to save it to your car's record.";
+    } else if (renderEnvelope.linkButton !== undefined) {
+      const dest = (renderEnvelope.linkButton as { destination?: string })
+        ?.destination;
+      framing =
+        (dest && LINK_FRAMING[dest]) ||
+        "Here you go — this button opens the right screen.";
+    } else if (renderEnvelope.bookService !== undefined) {
+      // Name the services — "review the details" flunked the multi-bundle
+      // judge because the prose never said WHAT was being booked.
+      const slugs = Array.isArray(
+        (renderEnvelope.bookService as { service_slugs?: unknown })
+          ?.service_slugs,
+      )
+        ? ((renderEnvelope.bookService as { service_slugs: unknown[] })
+            .service_slugs.filter((s): s is string => typeof s === "string"))
+        : [];
+      const names = slugs.map((s) => s.replace(/_/g, " "));
+      const list =
+        names.length > 1
+          ? names.slice(0, -1).join(", ") + " and " + names[names.length - 1]
+          : names[0];
+      framing = list
+        ? `Everything's set up for the ${list} — review and confirm when you're ready to book.`
+        : "Everything's set up — review and confirm when you're ready to book.";
+    } else if (renderEnvelope.bookingCard !== undefined) {
+      framing = "Here's that booking.";
+    } else if (renderEnvelope.bookingsList !== undefined) {
+      framing = "Here are your bookings.";
+    } else if (renderEnvelope.showRecordConfirmation !== undefined) {
+      framing =
+        "Quick check on what we have on file — is this still right?";
+    }
+    if (framing) {
+      console.warn(
+        "[oto/chat] W3.1 fallback: empty assistant text on a terminal-render " +
+          "turn — injecting default framing sentence",
+      );
+      finalText = framing;
+    }
   }
 
   // Voice-rail post-process: the prompt bans markdown bold for data points
@@ -1962,8 +2075,15 @@ export async function sendMessageHandlerCore(
   //     advancing) → increment. Once the arc starts, every further question-turn
   //     advances even if the model stops tagging.
   //   - else Oto answered without asking → the narrowing arc resolved → reset.
-  // Skip on harness debug runs.
-  if (!skipPersist) {
+  // NOT gated on skipPersist (2026-08-14): the counter update used to sit
+  // inside the persistence gate, which meant EVAL runs (persist:false) never
+  // incremented diagnostic_turn_count — the polite-exit block could never
+  // fire under the harness, the two polite_exit eval cases could never pass
+  // (both sat disabled), and the "turn-3 non-termination" failures were
+  // measured with the enforcement mechanism switched off. The counter writes
+  // to the conversation row, which exists for harness runs too; letting it
+  // run makes evals exercise the real termination machinery.
+  {
     try {
       const renderedBooking = renderEnvelope.bookService !== undefined;
       let nextCount: number | null = null;
@@ -1988,9 +2108,24 @@ export async function sendMessageHandlerCore(
         // the forced not_sure exit one turn early). Hold the count on offer.
         const offeringBooking =
           /\b(book|booking|set (?:that|it) up|schedule)\b/i.test(finalText ?? "");
-        if (askedQuestion && !offeringBooking && (modelTaggedNarrowing || alreadyNarrowing)) {
+        // Chips ARE a clarifying question by construction — and counting them
+        // directly (2026-08-14) closes a freeze: the narrowing signal used to
+        // come only from the model's own update_conversation_state intent tag,
+        // so on turns where Haiku skipped the state call (the known ~10%
+        // recurrence class) the counter never started and the polite exit
+        // never armed.
+        // "Pure" chips turn only: chips accompanying a card/booking/link render
+        // (Example 14's log-plus-safety-question shape) are convergence
+        // decoration, not a clarifying loop — counting those would tick every
+        // card-with-chips flow toward a forced diagnostic exit.
+        const renderedChips = !!quickReplies && !modelConcludedTurn;
+        if (
+          (askedQuestion || renderedChips) &&
+          !offeringBooking &&
+          (modelTaggedNarrowing || alreadyNarrowing || renderedChips)
+        ) {
           nextCount = diagnosticTurnCount + 1;
-        } else if (!askedQuestion && alreadyNarrowing) {
+        } else if (!askedQuestion && !renderedChips && alreadyNarrowing) {
           // Oto stopped asking — arc resolved or moved on. Decay so a later,
           // unrelated clarifying question doesn't instantly re-trip the exit.
           nextCount = 0;
