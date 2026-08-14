@@ -1591,6 +1591,26 @@ export async function sendMessageHandlerCore(
     ? (renderEnvelope.quickReplies as unknown[])
     : undefined;
 
+  // ── 7a. D-13 emergency card suppression (QA p.69) ────────────────────
+  // "One pending vehicle-update card per thread, and none while an
+  // emergency is active." The server half: a Confirm/Not-now logging card
+  // must never render on a stop_now/urgent turn — the user has nothing to
+  // gain from confirming a checkbox on the shoulder. The symptom itself is
+  // already captured in the open-symptom ledger and conversation state, so
+  // nothing is lost; the card can render on a later calm turn if the model
+  // re-offers. (The one-pending-card-per-thread client half is mobile's.)
+  if (renderEnvelope.showVehicleUpdate !== undefined) {
+    const emergencyActive = safetyFindings.some(
+      (f) => f.severity === "stop_now" || f.severity === "urgent",
+    );
+    if (emergencyActive) {
+      console.warn(
+        "[oto/chat] D-13: suppressing vehicle-update card on an emergency turn",
+      );
+      delete renderEnvelope.showVehicleUpdate;
+    }
+  }
+
   // ── 7b. W3.1 deterministic chip fallback ─────────────────────────────
   // Conditions belong in code, absolutes in prompts: the prompt (stable
   // v0.43 "What terminal means" carve-out + tool descriptions + volatile
@@ -1841,7 +1861,7 @@ export async function sendMessageHandlerCore(
   // server-side as belt-and-suspenders. If real safety-critical emphasis is
   // ever needed in v0.8+, swap this for a directive that the chat UI
   // renders specially.
-  finalText = rewriteNarrationSlips(stripVoiceMarkup(finalText));
+  finalText = lowercaseUrgencyCaps(rewriteNarrationSlips(stripVoiceMarkup(finalText)));
 
   // Wave 1 output guards: drop sentences carrying banned claims (fabricated
   // prices, warranty promises, internal-architecture nouns). Currency is
@@ -2409,6 +2429,20 @@ const NARRATION_VERB: Record<string, string> = {
   lists: "list",
   found: "found",
 };
+// D-24/D-45 (QA pp.17, 69): one urgency signal per message, lowercase —
+// "caps make a true warning read like a sales tactic." The facts carry the
+// weight. Case-sensitive on purpose: only ALL-CAPS shouting matches; normal
+// sentence-case usage ("Immediately after…") passes through. None of these
+// words is a legitimate acronym in automotive prose.
+function lowercaseUrgencyCaps(s: string): string {
+  if (!s) return s;
+  return s
+    .replace(/\bRIGHT NOW\b/g, "right now")
+    .replace(/\bIMMEDIATELY\b/g, "immediately")
+    .replace(/\bURGENT(?:LY)?\b/g, (m) => m.toLowerCase())
+    .replace(/\bNOW\b/g, "now");
+}
+
 function rewriteNarrationSlips(s: string): string {
   if (!s) return s;
   return s
