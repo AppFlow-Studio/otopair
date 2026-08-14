@@ -1543,6 +1543,19 @@ export default function AIChatScreen() {
           { flex: 1 },
           showChatGreeting && { overflow: 'visible' },
         ]}
+        // Tap-anywhere-outside dismisses the keyboard (QA p.7 — replaces the
+        // composer's X button). Capture-phase so it fires no matter what the
+        // touch lands on — message bubbles and chips are pressables, so the
+        // ScrollView's keyboardShouldPersistTaps="handled" alone never
+        // dismissed on them. Returning false declines the responder claim,
+        // so children still receive the tap (a chip tap both dismisses AND
+        // activates). The composer is an absolutely-positioned SIBLING of
+        // this container, so touches in the input never pass through here —
+        // no dismiss/refocus flicker when tapping the text field.
+        onStartShouldSetResponderCapture={() => {
+          if (isKeyboardVisible) Keyboard.dismiss();
+          return false;
+        }}
       >
         {/* Chat Area */}
         <ScrollView
@@ -1554,6 +1567,7 @@ export default function AIChatScreen() {
           ]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
+          keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
           scrollEnabled={!showChatGreeting}
           onScroll={handleChatScroll}
           scrollEventThrottle={16}

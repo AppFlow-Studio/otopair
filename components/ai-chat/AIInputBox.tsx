@@ -500,21 +500,9 @@ export function AIInputBox({
             )}
           </View>
 
-          {/* X dismiss button - shown when focused AND has text */}
-          {isFocused && hasText && !showRecordingUI && (
-            <Pressable
-              onPress={() => {
-                Keyboard.dismiss();
-              }}
-              style={({ pressed }) => [
-                styles.dismissBtn,
-                pressed && { opacity: 0.6 },
-              ]}
-              hitSlop={8}
-            >
-              <X size={18} color="#9CA3AF" strokeWidth={2} />
-            </Pressable>
-          )}
+          {/* X dismiss button removed (QA p.7): it sat one slip away from
+              send. Keyboard dismissal is tap-anywhere-outside now — handled
+              at the screen level (ai-chat/index.tsx), not by a button. */}
         </View>
       </View>
     </View>
@@ -649,14 +637,6 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     position: 'relative',
-  },
-  dismissBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#F3F4F6',
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   buttonWrapper: {
     position: 'absolute',
