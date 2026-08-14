@@ -169,6 +169,14 @@ export default function AIChatScreen() {
 
   // Calculate bottom padding to account for the native tab bar
   const bottomPadding = Math.max(insets.bottom, TAB_BAR_HEIGHT);
+  // Android: the keyboard event's endCoordinates.height under-reports the
+  // occluded area slightly (edge-to-edge window metrics), which left the input
+  // card's lower edge clipped under the keyboard (QA: "the text box gets cut
+  // off by the keyboard"). Full insets.bottom over-corrects on gesture-nav
+  // devices (card floats high) — the right compensation is a small fixed
+  // nudge so the card sits flush with the keyboard top. iOS's
+  // keyboardWillShow height spans the full occluded area; no nudge needed.
+  const keyboardBottomInset = Platform.OS === "android" ? 24 : 0;
   const HEADER_HEIGHT = insets.top + Spacing.md * 2 + 40;
 
   // Welcome screen state (from Zustand store)
@@ -1563,7 +1571,7 @@ export default function AIChatScreen() {
           style={[styles.chatContainer, showChatGreeting && styles.chatContainerGreeting]}
           contentContainerStyle={[
             styles.chatContent,
-            showChatGreeting ? styles.chatContentCentered : { paddingTop: HEADER_HEIGHT + 16 + (selectedVehicle ? 52 : 0), paddingBottom: (keyboardHeight > 0 ? keyboardHeight + 8 : bottomPadding + 8) + 70 },
+            showChatGreeting ? styles.chatContentCentered : { paddingTop: HEADER_HEIGHT + 16 + (selectedVehicle ? 52 : 0), paddingBottom: (keyboardHeight > 0 ? keyboardHeight + keyboardBottomInset + 8 : bottomPadding + 8) + 70 },
           ]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
@@ -1773,7 +1781,7 @@ export default function AIChatScreen() {
           position: 'absolute',
           left: 0,
           right: 0,
-          bottom: keyboardHeight > 0 ? keyboardHeight + 8 : bottomPadding + 8,
+          bottom: keyboardHeight > 0 ? keyboardHeight + keyboardBottomInset + 8 : bottomPadding + 8,
         }}>
           {/* Selected images render inside the composer (AIInputBox) now,
               ChatGPT-style — the standalone AISelectedImages strip was
