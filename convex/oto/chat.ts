@@ -2458,7 +2458,9 @@ function rewriteNarrationSlips(s: string): string {
     .replace(
       /\b[Tt]he system (doesn't|does not|isn't|is not|won't|will not|can't|cannot|hasn't|has|tracks|tracked)\b/g,
       (_m, v: string) => `OtoPair ${v}`,
-    );
+    )
+    // Preposition form: "…isn't in the system" / "logged in the system".
+    .replace(/\b([Ii])n the system\b/g, (_m, i: string) => `${i}n our records`);
 }
 
 // =============================================================================
