@@ -26,8 +26,8 @@ describe("laborFlagsFromEnv", () => {
     }
   });
 
-  it("all vars absent → OLP + estimatorEndpoint default-on; web default-off", () => {
-    expect(laborFlagsFromEnv()).toEqual({ olp: true, web: false, estimatorEndpoint: true });
+  it("all vars absent → OLP + estimatorEndpoint + lemon default-on; web default-off", () => {
+    expect(laborFlagsFromEnv()).toEqual({ olp: true, web: false, estimatorEndpoint: true, lemon: true });
   });
 
   it("LABOR_SOURCE_ESTIMATOR_ENDPOINT='on' → estimatorEndpoint: true", () => {
