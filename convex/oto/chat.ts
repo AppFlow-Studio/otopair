@@ -1774,7 +1774,7 @@ export async function sendMessageHandlerCore(
   // call — the baseline failures made the call: every terminal render
   // guarantees one neutral framing sentence. Link buttons get a
   // destination-aware line so the prose names what's opening.
-  if (!finalText.trim()) {
+  const terminalRenderFraming = (): string | null => {
     const LINK_FRAMING: Record<string, string> = {
       customer_support: "Support can take it from here — this opens them directly.",
       feedback: "Here's the feedback screen — it goes straight to the team.",
@@ -1822,6 +1822,10 @@ export async function sendMessageHandlerCore(
       framing =
         "Quick check on what we have on file — is this still right?";
     }
+    return framing;
+  };
+  if (!finalText.trim()) {
+    const framing = terminalRenderFraming();
     if (framing) {
       console.warn(
         "[oto/chat] W3.1 fallback: empty assistant text on a terminal-render " +
@@ -1837,7 +1841,7 @@ export async function sendMessageHandlerCore(
   // server-side as belt-and-suspenders. If real safety-critical emphasis is
   // ever needed in v0.8+, swap this for a directive that the chat UI
   // renders specially.
-  finalText = stripVoiceMarkup(finalText);
+  finalText = rewriteNarrationSlips(stripVoiceMarkup(finalText));
 
   // Wave 1 output guards: drop sentences carrying banned claims (fabricated
   // prices, warranty promises, internal-architecture nouns). Currency is
@@ -1856,6 +1860,21 @@ export async function sendMessageHandlerCore(
         Array.from(new Set(guarded.dropped)).join(","),
     );
     finalText = guarded.text;
+    // Guard emptied the message but a terminal render still carries the turn
+    // (observed 2026-08-14: "book me an oil change" — the model's only
+    // sentence quoted a price, the currency guard dropped it, and the framing
+    // floor had already run — empty bubble above a live card). Re-apply the
+    // floor so the render always ships with prose.
+    if (!finalText && hasAnyRender) {
+      const framing = terminalRenderFraming();
+      if (framing) {
+        console.warn(
+          "[oto/chat] output guard emptied a terminal-render turn — " +
+            "re-applying framing floor",
+        );
+        finalText = framing;
+      }
+    }
     // Guard emptied the whole message and no render carries the turn: give
     // the price-shaped case its correct one-liner (the W1.5 target shape)
     // rather than dead air; anything else gets the generic recovery line.
@@ -2184,7 +2203,6 @@ export async function sendMessageHandlerCore(
           id: conversationId,
         });
         const latestIntent = (fresh as any)?.last_user_intent as string | undefined;
-        const askedQuestion = /\?/.test(finalText ?? "");
         // Contains-test, not prefix (2026-08-14): Haiku tags freely —
         // "diagnostic_booking_vague_symptom", "vague_symptom_intake" — and
         // the startsWith test let prose-question turns slip uncounted, running
@@ -2192,43 +2210,42 @@ export async function sendMessageHandlerCore(
         const modelTaggedNarrowing =
           !!latestIntent && /symptom|diagnos|narrow/i.test(latestIntent);
         const alreadyNarrowing = diagnosticTurnCount > 0;
-        // A booking OFFER ("...want to book that service now?") ends in a "?"
-        // but is CONVERGENCE, not failed narrowing — the two-step
-        // offer→confirm→render pattern means render_book_service hasn't fired
-        // yet, so renderedBooking is still false this turn. Don't let the offer
-        // turn inflate the count (it would push a successful conversation into
-        // the forced not_sure exit one turn early). Hold the count on offer.
-        const offeringBooking =
-          /\b(book|booking|set (?:that|it) up|schedule)\b/i.test(finalText ?? "");
-        // Chips ARE a clarifying question by construction — and counting them
-        // directly (2026-08-14) closes a freeze: the narrowing signal used to
-        // come only from the model's own update_conversation_state intent tag,
-        // so on turns where Haiku skipped the state call (the known ~10%
-        // recurrence class) the counter never started and the polite exit
-        // never armed.
+        // Chips ARE a clarifying question by construction — counting them
+        // directly closes a freeze: the narrowing signal used to come only
+        // from the model's own update_conversation_state intent tag, so on
+        // turns where Haiku skipped the state call (the known ~10% recurrence
+        // class) the counter never started and the polite exit never armed.
         // "Pure" chips turn only: chips accompanying a card/booking/link render
         // (Example 14's log-plus-safety-question shape) are convergence
-        // decoration, not a clarifying loop — counting those would tick every
-        // card-with-chips flow toward a forced diagnostic exit.
+        // decoration, not a clarifying loop.
         const renderedChips = !!quickReplies && !modelConcludedTurn;
-        // The offer-hold protects the text-offer→confirm two-step, but a turn
-        // that offers AND renders another chips question has not converged —
-        // holding those let conversations idle below the threshold forever
-        // (final-run polite_exit reps: chips on turn 3, count stuck at 1).
-        const offerHold = offeringBooking && !renderedChips;
-        if (
-          (askedQuestion || renderedChips) &&
-          !offerHold &&
-          (modelTaggedNarrowing || alreadyNarrowing || renderedChips)
-        ) {
+        // 2026-08-14 rewrite: EVERY unconverged narrowing turn counts —
+        // question, chips, or prose. The old rule gated the increment on
+        // askedQuestion||chips and the decay branch treated "didn't ask" as
+        // "arc resolved", RESETTING the count on statement turns. Observed
+        // (diagnostic_phrasing reps 1-2): chips t1 → count 1; prose analysis
+        // t2 (no "?") → reset to 0; t3 narrates "a Diagnostic Scan will let a
+        // mechanic confirm…" with NO render — and the backstop, reading
+        // count<2, can never convert it. Under the turn-3 contract the user
+        // is equally stuck in limbo on a statement turn as on a question
+        // turn; the intent tag (sticky across skipped state calls — it reads
+        // the persisted row) is the narrowing signal, chips the fallback.
+        // Decay now only fires on a genuine pivot: the arc WAS narrowing and
+        // the model's current intent no longer is (user changed topic — a
+        // rewards question mid-diagnosis must not tick toward a forced
+        // diagnostic card). The offer-hold is gone with the question-gate:
+        // under the turn-3 contract an offer on the deadline turn is not
+        // acceptable either (natural convergence renders → resets above; an
+        // offer answered "yes" renders next turn → resets; an offer answered
+        // with more symptoms is exactly the limbo the deadline exists for).
+        // A concluded-but-not-booking turn (trust gate's record confirmation,
+        // a pivot's link button) holds the count: sanctioned terminals don't
+        // advance the deadline, and the count survives for a resumed arc.
+        if (!modelConcludedTurn && (modelTaggedNarrowing || renderedChips)) {
           nextCount = diagnosticTurnCount + 1;
-        } else if (!askedQuestion && !renderedChips && alreadyNarrowing) {
-          // Oto stopped asking — arc resolved or moved on. Decay so a later,
-          // unrelated clarifying question doesn't instantly re-trip the exit.
+        } else if (alreadyNarrowing && !modelTaggedNarrowing && !renderedChips) {
           nextCount = 0;
         }
-        // offeringBooking turn → leave count unchanged (convergence, not a
-        // failed-narrowing turn).
       }
       if (nextCount !== null) {
         await ctx.runMutation(internal.ai_conversations.setDiagnosticTurnCount, {
@@ -2373,6 +2390,41 @@ function stripVoiceMarkup(s: string): string {
     .replace(/(^|[^\w_])_(?!\s)([^_\n]*[^_\s])?_(?![\w_])/g, "$1$2")
     // ATX headers at line start: ## Title → Title
     .replace(/^#{1,6}\s+/gm, "");
+}
+
+// Narration-slip rewrite (2026-08-14): "The system shows…" is internal-
+// architecture narration surfacing in the user's face — the ~10% slip class
+// the output guards can't sentence-drop without deleting substantive content
+// (and a blanket "system" ban would hit "the cooling system"). The bare
+// collocation "the system <verb>" never occurs in legitimate automotive prose
+// — real subsystems always carry a qualifier ("the cooling system", "the ABS
+// system"), so "the" is never adjacent to "system" there. Targeted rewrite to
+// record-voice, case-preserving.
+const NARRATION_VERB: Record<string, string> = {
+  shows: "show",
+  says: "say",
+  indicates: "indicate",
+  reports: "report",
+  flags: "flag",
+  lists: "list",
+  found: "found",
+};
+function rewriteNarrationSlips(s: string): string {
+  if (!s) return s;
+  return s
+    .replace(
+      /\b([Tt])he system (shows|says|indicates|reports|flags|lists|found)\b/g,
+      (_m, t: string, v: string) =>
+        `${t === "T" ? "Our" : "our"} records ${NARRATION_VERB[v] ?? v}`,
+    )
+    // Aux/negative and track-verb forms read best with the app as subject —
+    // matches the model's own good register ("something OtoPair doesn't
+    // track"). Observed slip: "…something else that the system doesn't
+    // currently track."
+    .replace(
+      /\b[Tt]he system (doesn't|does not|isn't|is not|won't|will not|can't|cannot|hasn't|has|tracks|tracked)\b/g,
+      (_m, v: string) => `OtoPair ${v}`,
+    );
 }
 
 // =============================================================================
