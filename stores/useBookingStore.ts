@@ -185,6 +185,15 @@ interface BookingState {
    *  picks one of the five areas on the diagnostic options screen. */
   selectedDiagnosticSystem: DiagnosticSystem | null;
 
+  // ═══════════════ SLOT HOLD STATE ═══════════════
+  /** Stable id for the current checkout, used to acquire/refresh/consume the
+   *  slot hold. Generated lazily; cleared by resetBookingFlow. */
+  holdSessionId: string | null;
+  /** Active slot hold for the current checkout (null = none / feature off). */
+  holdId: string | null;
+  /** Absolute ms when the hold expires — powers the countdown. */
+  holdExpiresAt: number | null;
+
   // ═══════════════ BOOKING STATE ═══════════════
   /** All bookings indexed by ID */
   bookings: Record<string, Booking>;
@@ -281,6 +290,15 @@ interface BookingState {
   setCustomerNotes: (notes: string) => void;
   /** Set the diagnostic area selection (null clears it). */
   setSelectedDiagnosticSystem: (system: DiagnosticSystem | null) => void;
+
+  // ═══════════════ SLOT HOLD ACTIONS ═══════════════
+  /** Return the session id, generating a fresh one on first call. */
+  ensureHoldSessionId: () => string;
+  /** Stash the acquired hold (null clears). */
+  setSlotHold: (hold: { holdId: string; expiresAt: number } | null) => void;
+  /** Clear the hold + session id (call after release/consume). */
+  clearSlotHold: () => void;
+
   /** Reset booking flow to initial state */
   resetBookingFlow: () => void;
 
@@ -470,6 +488,9 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
   prefilledScheduledAt: null,
   customerNotes: "",
   selectedDiagnosticSystem: null,
+  holdSessionId: null,
+  holdId: null,
+  holdExpiresAt: null,
   bookings: {},
   bookingIds: [],
   draftBooking: null,
@@ -724,6 +745,23 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
   setSelectedDiagnosticSystem: (system) =>
     set({ selectedDiagnosticSystem: system }),
 
+  // ═══════════════ SLOT HOLD ACTIONS ═══════════════
+  ensureHoldSessionId: () => {
+    const existing = get().holdSessionId;
+    if (existing) return existing;
+    // A per-checkout correlation id — not cryptographically sensitive, so a
+    // timestamp + random suffix is enough. Namespaced server-side by session.
+    const id = `hold-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    set({ holdSessionId: id });
+    return id;
+  },
+
+  setSlotHold: (hold) =>
+    set({ holdId: hold?.holdId ?? null, holdExpiresAt: hold?.expiresAt ?? null }),
+
+  clearSlotHold: () =>
+    set({ holdId: null, holdExpiresAt: null, holdSessionId: null }),
+
   resetBookingFlow: () =>
     set({
       bookingStage: "discovery",
@@ -748,6 +786,9 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
       prefilledScheduledAt: null,
       customerNotes: "",
       selectedDiagnosticSystem: null,
+      holdSessionId: null,
+      holdId: null,
+      holdExpiresAt: null,
       draftBooking: null,
     }),
 

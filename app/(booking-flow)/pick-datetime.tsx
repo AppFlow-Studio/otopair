@@ -18,10 +18,14 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { useLocalSearchParams, useNavigation } from "expo-router";
+import { useMutation } from "convex/react";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { ArrowLeft, Briefcase, ChevronDown } from "lucide-react-native";
+
+import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 
 import { Text } from "@/components/shared-ui";
 import { ConfirmBookingBar } from "@/components/booking-flow/ConfirmBookingBar";
@@ -35,6 +39,8 @@ import { useCalendarAvailabilityForShop } from "@/hooks/useCalendarAvailabilityF
 import { useNextAvailabilityForShop } from "@/hooks/useNextAvailabilityForShop";
 import { useNextAvailabilityPerMechanicForShop } from "@/hooks/useNextAvailabilityPerMechanicForShop";
 import { useTimeSlotsForShop } from "@/hooks/useTimeSlotsForShop";
+import { useToast } from "@/hooks/useToast";
+import { useUserFromConvex } from "@/hooks/useUserFromConvex";
 import { buildMechanicCarouselItems } from "@/lib/buildMechanicCarouselItems";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
@@ -69,8 +75,17 @@ export default function PickDateTimeScreen() {
   const setSelectedMechanicSlot = useBookingStore((s) => s.setSelectedMechanicSlot);
   const setScheduledAppointment = useBookingStore((s) => s.setScheduledAppointment);
   const selectMechanic = useBookingStore((s) => s.selectMechanic);
+  const ensureHoldSessionId = useBookingStore((s) => s.ensureHoldSessionId);
+  const setSlotHold = useBookingStore((s) => s.setSlotHold);
   const getShopById = useShopStore((s) => s.getShopById);
   const getMechanicById = useMechanicStore((s) => s.getMechanicById);
+
+  // Slot-hold acquisition: reserve the mechanic+window the instant the customer
+  // confirms a time, before the payment hop, so a second customer can't book
+  // the same slot mid-checkout. Idempotent per session_id (see holdSlot).
+  const holdSlot = useMutation(api.slotHolds.holdSlot);
+  const toast = useToast();
+  const { userId } = useUserFromConvex();
 
   // Accepting a tire/rotor quote: the shop + duration are already fixed by
   // the quote, and the "floor" below comes from the shop's quoted
@@ -318,11 +333,39 @@ export default function PickDateTimeScreen() {
   // is just to seed the booking store with the slot + appointment
   // so the payment page has everything it needs to render the
   // breakdown.
-  const onConfirm = () => {
+  const onConfirm = async () => {
     if (!shopId || !shop || !selectedDateISO || !selectedTime) return;
     const timeSlotId = getSlotIdByDisplayTime(selectedTime);
     const slotRow = slots.find((s) => s.displayTime === selectedTime);
     const startHHMM = slotRow?.startTime ?? displayTimeToHHMM(selectedTime);
+
+    // Reserve the mechanic+window for this checkout BEFORE navigating to
+    // payment. Idempotent per session_id — re-picking a time just moves the
+    // hold server-side. On a conflict (someone grabbed this slot mid-checkout)
+    // holdSlot throws: keep the user here, toast, and don't advance. When the
+    // feature flag is off holdSlot returns { holdId: null } (no throw) and we
+    // proceed with no hold — the server-side availability check is the backstop.
+    const sessionId = ensureHoldSessionId();
+    const holdDurationMinutes = totalMinutes > 0 ? totalMinutes : 60;
+    try {
+      const res = await holdSlot({
+        shop_id: shopId as Id<"shops">,
+        mechanic_id: selectedMechanicId ? (selectedMechanicId as Id<"mechanics">) : undefined,
+        date: selectedDateISO,
+        start_time: startHHMM,
+        duration_minutes: holdDurationMinutes,
+        session_id: sessionId,
+        held_by: userId ?? undefined,
+      });
+      setSlotHold(
+        res?.holdId && res.expiresAt != null
+          ? { holdId: res.holdId, expiresAt: res.expiresAt }
+          : null,
+      );
+    } catch {
+      toast.error("That time was just taken", "Please pick another slot.");
+      return; // do NOT navigate to payment
+    }
 
     // Resolve concrete mechanic id for the post-booking URL when "Any"
     // is selected. Falls back to shopId so the route param is non-empty.

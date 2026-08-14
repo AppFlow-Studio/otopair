@@ -53,9 +53,15 @@ import {
 import { useOpenApprovalForBooking } from "@/hooks/useOpenApprovalForBooking";
 import { useOfflineGuard } from "@/hooks/useOfflineGuard";
 import { useToast } from "@/hooks/useToast";
+import { useBookingActions } from "@/hooks/useBookingActions";
+import { buildCancelCopy } from "@/constants/bookingActionPolicy";
 import { usePaymentStore } from "@/stores/usePaymentStore";
-import { useBookingStore } from "@/stores/useBookingStore";
 import { buildInspectionFindingRows } from "@/lib/inspection-findings";
+import {
+  ReceiptContent,
+  type ReceiptPayload,
+} from "@/components/receipts/ReceiptContent";
+import { ReceiptSkeleton } from "@/components/receipts/ReceiptSkeleton";
 
 function formatUsd(cents: number | undefined | null): string {
   const v = ((cents ?? 0) / 100).toFixed(2);
@@ -78,29 +84,216 @@ const SUBTITLE_BY_CYCLE: Record<string, string> = {
 };
 
 /**
- * Top-level dispatcher. Decides whether the customer landed here to act on
- * an open over-range estimate (the original purpose) or to confirm a new
- * card hold after Stripe rejected the increment (`payment_approval_state ===
- * "reauth_required"`). The reauth path enters via:
- *   - Tap on the red `ApprovalBanner` rendered on the booking card.
- *   - Tap on a `booking_reauth_required` notification (deep link includes
- *     `mode=reauth`).
- * We trust the param when present, but also re-check live state so a stale
- * deep link can't render the wrong view.
+ * Top-level dispatcher. Routes to one of four views depending on where the job
+ * is in the price-agreement lifecycle:
+ *   - ReauthView — confirm a card hold after Stripe rejected the increment
+ *     (`payment_approval_state === "reauth_required"`), pre- OR post-job.
+ *     Enters via the `ApprovalBanner` or a `booking_reauth_required` push
+ *     (deep link → `mode=reauth`).
+ *   - CompletionReceiptView — the booking is `completed`: the price was agreed
+ *     before the job, so the "final breakdown" is an informational receipt with
+ *     no approve/decline.
+ *   - SettlementPendingView — completed but `awaiting_settlement` (the agreed
+ *     price couldn't be captured yet); a soft prompt into the reauth flow.
+ *   - ApprovalDecisionView — an open pre/mid-job over-range estimate awaiting
+ *     the customer's approve/decline (the original purpose).
+ * We trust the `mode` param when present, but also re-check live state so a
+ * stale deep link can't render the wrong view.
  */
 export default function ApproveEstimateScreen() {
   const params = useLocalSearchParams<{ id: string; mode?: string }>();
   const bookingId = params.id as Id<"bookings">;
   const booking = useQuery(api.bookings.getById, { id: bookingId });
+  const actions = useQuery(api.bookings.getCustomerBookingActions, {
+    bookingId,
+  });
   useOfflineGuard(booking);
   const liveState = (
     booking as { payment_approval_state?: string } | null | undefined
   )?.payment_approval_state;
   const isReauth = params.mode === "reauth" || liveState === "reauth_required";
-  return isReauth ? (
-    <ReauthView bookingId={bookingId} booking={booking} />
-  ) : (
-    <ApprovalDecisionView bookingId={bookingId} />
+
+  // Reauth confirms a card hold — a pre-job hold increment, or, post-job, the
+  // agreed price when it couldn't be captured on completion. It's the one
+  // actionable payment step, so it always takes precedence.
+  if (isReauth) {
+    return <ReauthView bookingId={bookingId} booking={booking} />;
+  }
+
+  // Non-reauth paths must tell a completed booking (→ receipt) from an open
+  // pre/mid-job estimate (→ approve/decline). Wait for both queries so we never
+  // flash the wrong screen.
+  if (booking === undefined || actions === undefined) {
+    return <LoadingScreen />;
+  }
+
+  // A completed booking has nothing left to approve or decline — the price was
+  // agreed before work began. Render the final breakdown as an informational
+  // receipt, or a soft "payment pending" prompt while the charge is still being
+  // settled. NEVER the approve/decline view (no post-job decision exists).
+  const completion = actions?.completion ?? null;
+  if (completion) {
+    return completion.settlementState === "awaiting_settlement" ? (
+      <SettlementPendingView
+        bookingId={bookingId}
+        shortfallCents={completion.settlementShortfallCents}
+      />
+    ) : (
+      <CompletionReceiptView bookingId={bookingId} />
+    );
+  }
+
+  return <ApprovalDecisionView bookingId={bookingId} />;
+}
+
+/** Shared minimal loading scaffold — back affordance + centered spinner copy. */
+function LoadingScreen() {
+  const router = useRouter();
+  const insets = useSafeAreaInsets();
+  return (
+    <View style={[styles.root, { paddingTop: insets.top + Spacing.lg }]}>
+      <Pressable onPress={() => router.back()} style={styles.backBtn} hitSlop={8}>
+        <ChevronLeft size={24} color={BrandColors.primary} />
+        <Text style={styles.backLabel}>Back</Text>
+      </Pressable>
+      <View style={styles.center}>
+        <Text style={{ color: SemanticColors.textMuted }}>Loading…</Text>
+      </View>
+    </View>
+  );
+}
+
+/**
+ * CompletionReceiptView — the post-completion "final breakdown", rendered as an
+ * informational receipt. The price was agreed before the job (pre/mid-job
+ * approvals), captured at completion, and there is nothing to approve or
+ * decline here — the single action is a neutral dismiss. Line items come from
+ * `api.bookings.getReceipt` (the same source as the emailed receipt); we do NOT
+ * call `applyApprovalDecision` for a completed booking.
+ */
+function CompletionReceiptView({ bookingId }: { bookingId: Id<"bookings"> }) {
+  const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const receipt = useQuery(api.bookings.getReceipt, { bookingId });
+
+  return (
+    <View style={[styles.root, { paddingTop: insets.top + Spacing.lg }]}>
+      <Pressable onPress={() => router.back()} style={styles.backBtn} hitSlop={8}>
+        <ChevronLeft size={24} color={BrandColors.primary} />
+        <Text style={styles.backLabel}>Back</Text>
+      </Pressable>
+
+      <ScrollView
+        contentContainerStyle={{ paddingBottom: 140 + insets.bottom }}
+        showsVerticalScrollIndicator={false}
+      >
+        {receipt === undefined ? (
+          <ReceiptSkeleton />
+        ) : receipt === null ? (
+          <View style={[styles.card, styles.center, { marginHorizontal: Spacing.lg }]}>
+            <Text style={{ color: SemanticColors.textMuted, textAlign: "center" }}>
+              We couldn&apos;t load your receipt right now. Head back and try
+              again.
+            </Text>
+          </View>
+        ) : (
+          <ReceiptContent payload={receipt as ReceiptPayload} />
+        )}
+      </ScrollView>
+
+      <View
+        style={[
+          styles.footer,
+          styles.footerStack,
+          { paddingBottom: insets.bottom + Spacing.md },
+        ]}
+      >
+        <Pressable
+          onPress={() => router.back()}
+          style={[styles.btn, styles.btnApprove, styles.btnFull]}
+        >
+          <Text weight="semiBold" style={styles.btnApproveText}>
+            Done
+          </Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+/**
+ * SettlementPendingView — the completed-but-not-yet-captured case
+ * (`settlement_state === "awaiting_settlement"`). We can't show a clean receipt
+ * because the agreed price wasn't fully captured (usually the card needs a
+ * fresh authorization). Soft prompt → routes into the reauth view (§4); the
+ * reconciliation cron captures on its next tick once the hold is confirmed.
+ */
+function SettlementPendingView({
+  bookingId,
+  shortfallCents,
+}: {
+  bookingId: Id<"bookings">;
+  shortfallCents: number;
+}) {
+  const router = useRouter();
+  const insets = useSafeAreaInsets();
+
+  return (
+    <View style={[styles.root, { paddingTop: insets.top + Spacing.lg }]}>
+      <Pressable onPress={() => router.back()} style={styles.backBtn} hitSlop={8}>
+        <ChevronLeft size={24} color={BrandColors.primary} />
+        <Text style={styles.backLabel}>Back</Text>
+      </Pressable>
+
+      <ScrollView
+        contentContainerStyle={{
+          paddingHorizontal: Spacing.lg,
+          paddingBottom: 200 + insets.bottom,
+        }}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.hero}>
+          <View style={[styles.iconChip, styles.iconChipBlue]}>
+            <CreditCard size={24} color={BrandColors.secondary} />
+          </View>
+          <Text weight="bold" style={styles.h1}>
+            Payment pending
+          </Text>
+          <Text style={styles.subtitle}>
+            Your work is complete, but we couldn&apos;t finish charging your card
+            for the agreed total
+            {shortfallCents > 0 ? ` (${formatUsd(shortfallCents)} outstanding)` : ""}
+            . Confirm your card to settle it.
+          </Text>
+        </View>
+      </ScrollView>
+
+      <View
+        style={[
+          styles.footer,
+          styles.footerStack,
+          { paddingBottom: insets.bottom + Spacing.md },
+        ]}
+      >
+        <Pressable
+          onPress={() => router.setParams({ mode: "reauth" })}
+          style={[styles.btn, styles.btnApprove, styles.btnFull]}
+        >
+          <Text weight="semiBold" style={styles.btnApproveText}>
+            Confirm your card
+          </Text>
+        </Pressable>
+        <Pressable
+          onPress={() => router.back()}
+          hitSlop={8}
+          style={styles.tertiaryLinkWrap}
+        >
+          <Text weight="semiBold" style={styles.tertiaryLinkText}>
+            Not now
+          </Text>
+        </Pressable>
+      </View>
+    </View>
   );
 }
 
@@ -488,9 +681,12 @@ interface ReauthBreakdown {
  *   2. Use a different card → navigate to the existing `/add-payment`
  *      route. After the user saves, `usePaymentStore.selectPaymentMethod`
  *      pre-selects it; they tap Confirm-hold to retry with the new PM.
- *   3. Cancel booking → mirrors `BookingDetailsSheet` cancel (local store
- *      patch + back). Convex-side cancel is server-driven elsewhere; we
- *      intentionally don't duplicate that surface here.
+ *   3. Cancel booking → phase-gated via `useBookingActions` (same policy as
+ *      the booking card / details sheet): free/late cancels go through
+ *      `api.bookings.cancelBooking` with the fee disclosed, vehicle_at_shop
+ *      through `requestCancellationAtShop`, and the link is hidden entirely
+ *      when the booking can't be cancelled (e.g. a completed booking being
+ *      settled). No local-only Zustand cancel — that never hit the server.
  */
 function ReauthView({
   bookingId,
@@ -531,6 +727,18 @@ function ReauthView({
     { bookingId },
   );
   const [submitting, setSubmitting] = useState(false);
+  const toast = useToast();
+  // Phase policy — same source of truth as the booking card / details sheet.
+  // Drives whether "Cancel booking" shows here and what it does. A completed
+  // booking has canCancel=false, so the link is hidden — you can't cancel a job
+  // that's already done; the reauth here just settles the agreed price.
+  const bookingActions = useBookingActions(
+    String(bookingId),
+    booking?.status ?? "confirmed",
+  );
+  const cancelBookingMut = useMutation(api.bookings.cancelBooking);
+  const requestPickupMut = useMutation(api.bookings.requestCancellationAtShop);
+  const isCompleted = booking?.status === "completed";
 
   const isBookingLoading = booking === undefined;
   // Prefer the approved ceiling (what backend will re-auth to). Fall back
@@ -681,23 +889,67 @@ function ReauthView({
   }, [submitting, router]);
 
   const handleCancelBooking = useCallback(() => {
-    if (submitting) return;
-    Alert.alert(
-      "Cancel booking?",
-      "Your mechanic will be notified and the booking will be cancelled.",
-      [
-        { text: "Keep booking", style: "cancel" },
+    if (submitting || !bookingActions.canCancel) return;
+    const copy = buildCancelCopy(bookingActions);
+
+    // vehicle_at_shop: not a self-cancel — request pickup so the shop releases
+    // the car. This does NOT flip status; the front desk confirms.
+    if (bookingActions.cancelKind === "request_shop") {
+      Alert.alert(copy.title, copy.body, [
+        { text: "Not now", style: "cancel" },
         {
-          text: "Cancel booking",
-          style: "destructive",
-          onPress: () => {
-            useBookingStore.getState().cancelBooking(String(bookingId));
+          text: copy.confirmLabel,
+          onPress: async () => {
+            try {
+              await requestPickupMut({ bookingId });
+              toast.info("Pickup request sent. The shop will confirm.");
+            } catch (err: any) {
+              Alert.alert(
+                "Couldn't send request",
+                err?.message ?? "Try again in a moment.",
+              );
+            }
             router.back();
           },
         },
-      ],
-    );
-  }, [submitting, bookingId, router]);
+      ]);
+      return;
+    }
+
+    // Free or late-fee cancel — the fee (when any) is disclosed in the body and
+    // confirm label before we charge. The server recomputes and rejects if the
+    // fee rose past what was acknowledged.
+    Alert.alert(copy.title, copy.body, [
+      { text: "Keep booking", style: "cancel" },
+      {
+        text: copy.confirmLabel,
+        style: "destructive",
+        onPress: async () => {
+          try {
+            await cancelBookingMut({
+              bookingId,
+              feeAcknowledgedCents: bookingActions.feeCentsIfCancelledNow,
+            });
+            toast.success("Booking cancelled.", undefined, { icon: FileX });
+          } catch (err: any) {
+            Alert.alert(
+              "Couldn't cancel",
+              err?.message ?? "Try again in a moment.",
+            );
+          }
+          router.back();
+        },
+      },
+    ]);
+  }, [
+    submitting,
+    bookingActions,
+    bookingId,
+    cancelBookingMut,
+    requestPickupMut,
+    toast,
+    router,
+  ]);
 
   if (isBookingLoading) {
     return (
@@ -750,14 +1002,16 @@ function ReauthView({
             <CreditCard size={24} color={BrandColors.secondary} />
           </View>
           <Text weight="bold" style={styles.h1}>
-            Confirm your card hold
+            {isCompleted ? "Confirm your final payment" : "Confirm your card hold"}
           </Text>
           <Text style={styles.subtitle}>
-            {isWalletOrigin
-              ? paymentOrigin === "apple_pay"
-                ? "We couldn't extend the hold on your Apple Pay automatically. Confirm below to re-authorize and keep your booking moving."
-                : "We couldn't extend the hold on your Google Pay automatically. Confirm below to re-authorize and keep your booking moving."
-              : "Your bank needs to verify the updated hold before work can begin. Confirm below — you may be asked to authenticate — or use a different card."}
+            {isCompleted
+              ? "Your work is complete, but we couldn't finish charging your card. Confirm below to settle the final amount — you may be asked to authenticate — or use a different card."
+              : isWalletOrigin
+                ? paymentOrigin === "apple_pay"
+                  ? "We couldn't extend the hold on your Apple Pay automatically. Confirm below to re-authorize and keep your booking moving."
+                  : "We couldn't extend the hold on your Google Pay automatically. Confirm below to re-authorize and keep your booking moving."
+                : "Your bank needs to verify the updated hold before work can begin. Confirm below — you may be asked to authenticate — or use a different card."}
           </Text>
         </View>
 
@@ -912,7 +1166,9 @@ function ReauthView({
                   ? paymentOrigin === "apple_pay"
                     ? "Confirm with Apple Pay"
                     : "Confirm with Google Pay"
-                  : "Confirm hold of"}
+                  : isCompleted
+                    ? "Confirm payment of"
+                    : "Confirm hold of"}
             </Text>
             {!submitting && (
               <Text
@@ -943,16 +1199,18 @@ function ReauthView({
           </Text>
         </Pressable>
 
-        <Pressable
-          onPress={handleCancelBooking}
-          disabled={submitting}
-          hitSlop={8}
-          style={styles.tertiaryLinkWrap}
-        >
-          <Text weight="semiBold" style={styles.tertiaryLinkText}>
-            Cancel booking
-          </Text>
-        </Pressable>
+        {bookingActions.canCancel && (
+          <Pressable
+            onPress={handleCancelBooking}
+            disabled={submitting}
+            hitSlop={8}
+            style={styles.tertiaryLinkWrap}
+          >
+            <Text weight="semiBold" style={styles.tertiaryLinkText}>
+              Cancel booking
+            </Text>
+          </Pressable>
+        )}
       </View>
     </View>
   );

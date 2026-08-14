@@ -19,6 +19,7 @@ export { AvailabilitySlots, type AvailabilitySlot, type AvailabilitySlotsProps }
 
 // Services
 export { ServiceRow, type ServiceRowProps } from "./ServiceRow";
+export { CollapsibleDetail } from "./CollapsibleDetail";
 
 // Payment
 export { CardIcon, type CardIconProps } from "./CardIcon";
