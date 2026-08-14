@@ -69,6 +69,7 @@ import type * as devOnly_endpointPartPriceBackfill from "../devOnly/endpointPart
 import type * as devOnly_endpointResearch from "../devOnly/endpointResearch.js";
 import type * as devOnly_estimatorMinutesSpread from "../devOnly/estimatorMinutesSpread.js";
 import type * as devOnly_fallbackVsOlp from "../devOnly/fallbackVsOlp.js";
+import type * as devOnly_findVehicleOwnerByVinTail from "../devOnly/findVehicleOwnerByVinTail.js";
 import type * as devOnly_laborValidation from "../devOnly/laborValidation.js";
 import type * as devOnly_laborWebSpread from "../devOnly/laborWebSpread.js";
 import type * as devOnly_olpProbe from "../devOnly/olpProbe.js";
@@ -574,6 +575,7 @@ declare const fullApi: ApiFromModules<{
   "devOnly/endpointResearch": typeof devOnly_endpointResearch;
   "devOnly/estimatorMinutesSpread": typeof devOnly_estimatorMinutesSpread;
   "devOnly/fallbackVsOlp": typeof devOnly_fallbackVsOlp;
+  "devOnly/findVehicleOwnerByVinTail": typeof devOnly_findVehicleOwnerByVinTail;
   "devOnly/laborValidation": typeof devOnly_laborValidation;
   "devOnly/laborWebSpread": typeof devOnly_laborWebSpread;
   "devOnly/olpProbe": typeof devOnly_olpProbe;
