@@ -81,3 +81,8 @@ scripts/eval/runs/.jwt-env.sh
 # Superpowers for Claude
 .superpowers/
 .claude/scheduled_tasks.lock
+
+# Behavioral eval run reports — transient artifacts. The 2026-08-12..14
+# remediation-arc reports are committed as the historical evidence snapshot;
+# everything after stays local.
+scripts/eval/runs/
