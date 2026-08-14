@@ -102,20 +102,65 @@ const HAZARD_RULES: readonly HazardRule[] = [
   {
     category: "fire_smoke",
     severity: "stop_now",
-    re: /\b(smoke|smoking|steam|steaming)\b[^.!?\n]{0,30}\b(hood|engine|bonnet|bay|front|dash|vent)|\b(hood|engine|bonnet|dash)\b[^.!?\n]{0,30}\b(smoke|smoking|steam|steaming|on fire|fire|flames?|burning)\b|\b(car|it|something)\b[^.!?\n]{0,15}\b(on fire|caught fire|flames?)\b|\bsparks?\b[^.!?\n]{0,25}\b(engine|hood|dash|wiring)\b/i,
+    // 2026-08-14: "burning" removed from the hood/engine proximity alternation
+    // — it made "my ENGINE smells like BURNING oil" match this stop_now rule,
+    // preempting the tiered burning-smell rules below (the w2 harness caught
+    // it). Actual-fire phrasing keeps its own alternative ("engine is
+    // burning"); smell phrasing is owned by the tiered rules.
+    re: /\b(smoke|smoking|steam|steaming)\b[^.!?\n]{0,30}\b(hood|engine|bonnet|bay|front|dash|vent)|\b(hood|engine|bonnet|dash)\b[^.!?\n]{0,30}\b(smoke|smoking|steam|steaming|on fire|fire|flames?)\b|\b(car|it|something)\b[^.!?\n]{0,15}\b(on fire|caught fire|flames?)\b|\b(car|engine|hood|it)\s+is\s+burning\b|\bsparks?\b[^.!?\n]{0,25}\b(engine|hood|dash|wiring)\b/i,
     action:
       "Pull over now, shut the engine off, and get everyone out and well away from the car. Do NOT open the hood — opening it feeds air to a fire. Call 911 if you see flames.",
     because:
       "an engine-bay fire can go from smoke to fully involved in under a minute, and lifting the hood is what turns one into the other",
   },
+  // Burning-smell severities split by substance (2026-08-14, Waleed's catch:
+  // "V8s can generate an oil-burning smell without the fire classifier —
+  // think like a mechanic"). The original rule mapped EVERY burning smell to
+  // stop_now, which told every owner of a chronically-seeping engine (the
+  // N63 in the eval M550i is the canonical example: valve-cover seep onto a
+  // hot downpipe) to stop driving and tow — an over-trigger that erodes
+  // trust in the stop instructions that matter. Published guidance
+  // (southjersey.aaa.com "How to Tell if Your Car is Burning Oil";
+  // autozone.com/diy/symptoms/why-does-my-car-car-smell-like-burning-oil)
+  // treats a burning-OIL smell as find-and-fix-the-leak-soon, with the
+  // escalation triggers being visible smoke, heavy dripping, or the
+  // oil-pressure light — each of which already has its OWN rule here (the
+  // smoke rule above; oil_pressure via the light table). Electrical/melting
+  // smells stay stop_now: wiring insulation burning IS a fire precursor.
+  // Rule order matters — the oil rule must precede the generic-smell rule
+  // ("smells like burning oil" contains "smells like burning"), and the
+  // per-category dedupe keeps the first match.
   {
     category: "fire_smoke",
     severity: "stop_now",
-    re: /\bburning\s+(smell|odou?r|rubber|plastic|oil|wire|wiring|electrical)\b|\bsmells?\s+(like\s+)?(burning|something burning|electrical|melting)\b/i,
+    re: /\bburning\s+(wire|wiring|electrical|plastic|insulation)\b|\bsmells?\s+(like\s+)?(electrical|melting|burning plastic|burning wir\w+)\b|\belectrical\s+(burning|smell|odou?r)\b/i,
     action:
       "Pull over safely and shut the engine off. Don't keep driving on it, and don't open the hood if you see any smoke.",
     because:
-      "a burning smell usually means something is overheating badly or wiring is melting, and both can turn into a fire while you drive",
+      "an electrical or melting-plastic smell means wiring insulation is overheating, and that can turn into a fire while you drive",
+  },
+  {
+    // Below the override threshold on purpose ("soon" is filtered out of
+    // classifyTurnSafety): a burning-oil smell WITHOUT smoke routes through
+    // normal symptom handling — narrowing, the trust gate, the diagnostic
+    // booking — where Oto can still say the honest thing about smoke being
+    // the stop condition. If there IS smoke, the smoke rule fires instead.
+    category: "fire_smoke",
+    severity: "soon",
+    re: /\bburn(?:ing|t)\s+oil\b|\boil\s+burning\b|\bsmells?\s+(like\s+)?burn(?:ing|t)\s+oil\b/i,
+    action:
+      "Get the leak found and fixed soon — oil seeping onto hot exhaust parts is the usual cause. If you ever see smoke from the hood or the oil-pressure light comes on, stop driving.",
+    because:
+      "a burning-oil smell is usually a slow seep onto the exhaust — worth fixing promptly, but the stop-driving triggers are smoke or the oil light, not the smell alone",
+  },
+  {
+    category: "fire_smoke",
+    severity: "urgent",
+    re: /\bburning\s+(smell|odou?r|rubber)\b|\bsmells?\s+(like\s+)?(burning|something burning)\b/i,
+    action:
+      "Get it checked promptly — today, not next week. If the smell gets stronger while driving or you see any smoke, pull over and shut the engine off.",
+    because:
+      "an unidentified burning smell can be a slipping belt, a dragging brake, or something hotter — worth a same-day look, and smoke is the signal to stop immediately",
   },
   // ── fuel / exhaust fumes ────────────────────────────────────────────────
   // E2. Fuel vapour is an ignition risk; exhaust in the cabin is CO poisoning.

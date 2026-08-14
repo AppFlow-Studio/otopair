@@ -369,7 +369,39 @@ device demo. The documented oil restore ran (`ageOilRecord:restore`, done). No r
 baseline exists for the synthetic rows, so they were left rather than guess-deleted; delete by
 hand if wanted.
 
-**Open after this pass:** trust-gate contradiction-vs-scan product call (above);
+**CORRECTION (2026-08-14, Waleed):** §4's claim that "burning oil smell … correctly trips the
+fire_smoke classifier" was wrong — chronically-seeping V8s (the eval car's own N63 is the
+canonical case) produce that smell with nothing on fire, and mapping it to stop_now tells every
+such owner to tow a car that's fine to drive to a shop. The classifier's burning-smell rule is
+now tiered by substance (v0.50 pass): electrical/melting/plastic → stop_now (fire precursor);
+generic/rubber burning smell → urgent (same-day look; smoke = stop); burning-OIL smell alone →
+soon, which sits below the override threshold, so it routes through normal symptom handling and
+CAN reach the trust gate — the smoke rule and the oil-pressure-light rule still catch the acute
+escalations independently. Grounded in published guidance (AAA South Jersey "How to Tell if
+Your Car is Burning Oil"; AutoZone burning-oil symptom guide): the escalation triggers are
+smoke / heavy dripping / the oil light, not the smell. The oil eval case got its original
+burning-oil wording back (plus a turn-1 assertion that no stop-driving language appears) and
+now validates both the tiering and the gate. The stable gate example was restored too (v0.50).
+Lesson recorded to memory: tone-blind must not mean severity-blind — common chronic conditions
+need a tier below the override, or the override cries wolf.
+
+**RULINGS (Waleed, 2026-08-14) — all three open product calls decided, v0.51 pass:**
+1. **Bad-work complaint → HYBRID.** "The shop did my brake job but they still squeak" does BOTH
+   in one turn: symptom routing primary (only a mechanic can determine whether the work was bad)
+   AND render_link_button(customer_support) for the accountability side. New checklist bullet
+   mirrors the grievance+question rule; case re-asserts the link while allowing diagnostic reads.
+2. **Bare "I need help" → CLARIFY FIRST.** One clarifying question; the customer_support
+   redirect fires on the turn the need turns out account/billing/platform-shaped. Case
+   re-authored to two turns.
+3. **Trust-gate boundary → the ELIMINATION TEST.** The gate fires only when the recorded
+   service, if real, would have eliminated the symptom (squeal↔fresh pads, slow crank↔month-old
+   battery). Symptoms that coexist with a true record (oil consumption after an oil change,
+   speed-band vibration after a rotation) go to the scan branch — the model had been right about
+   those all along. Codified in stable criterion 2 + the render_record_confirmation description;
+   oil/tires cases renamed *_routes_to_diagnostic_scan and re-pointed; new
+   battery_self_reported_triggers_record_confirmation gate case added (105 cases total).
+
+**Open after this pass:** ~~trust-gate contradiction-vs-scan product call~~ (ruled, above);
 support_redirect ×2 product call (§0h); brake gate residual (~65-80%, failure mode = health
 read then prose — a deterministic fallback isn't cleanly writable because "symptom contradicts
 record" is a judgment); tag-smuggling call-discipline marginal; full-suite regression run on
