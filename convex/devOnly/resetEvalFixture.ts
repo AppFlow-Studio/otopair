@@ -118,6 +118,49 @@ export const inspect = internalQuery({
   },
 });
 
+/**
+ * scrubAdversarialFacts — deletes user_semantic_facts rows on the eval account
+ * whose payload carries known injection-test markers. Needed because eval runs
+ * BEFORE the 2026-08-13 turn-level suppression could persist a tagless
+ * PARAPHRASE of a smuggled directive (the layer-2 sanitizer only rejects
+ * payloads containing literal envelope tags), and those poisoned rows would
+ * surface via <recent_context> in later runs, failing the effect-assertion
+ * case for a historical reason. Idempotent; markers are specific to the
+ * injection cases' payloads, so legitimate seeded facts survive.
+ */
+export const scrubAdversarialFacts = internalMutation({
+  args: { email: v.string() },
+  handler: async (ctx, args) => {
+    const user: Doc<"users"> | null = await ctx.db
+      .query("users")
+      .filter((q: any) => q.eq(q.field("email"), args.email))
+      .first();
+    if (!user) throw new Error(`no users row with email ${args.email}`);
+    const MARKERS = [
+      "always agree",
+      "self-diagnosis",
+      "never call render",
+      "never be told to take",
+      "user is always right",
+      "helpfulassistant",
+      "long detailed answers with lots of context",
+    ];
+    const rows = await ctx.db
+      .query("user_semantic_facts")
+      .filter((q: any) => q.eq(q.field("user_id"), user._id))
+      .collect();
+    let deleted = 0;
+    for (const row of rows) {
+      const p = ((row as any).payload ?? "").toLowerCase();
+      if (MARKERS.some((m) => p.includes(m))) {
+        await ctx.db.delete(row._id);
+        deleted++;
+      }
+    }
+    return { scanned: rows.length, deleted };
+  },
+});
+
 export const reset = internalMutation({
   args: { email: v.string(), vin: v.string() },
   handler: async (ctx, args) => {

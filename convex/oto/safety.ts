@@ -61,7 +61,8 @@ export type HazardCategory =
   | "overheating"
   | "visibility"
   | "wheel_detachment"
-  | "warning_light";
+  | "warning_light"
+  | "medical_injury";
 
 export interface SafetyFinding {
   category: HazardCategory;
@@ -200,6 +201,26 @@ const HAZARD_RULES: readonly HazardRule[] = [
       "Don't drive at night or in rain until this is fixed — pull over and wait it out if conditions turn.",
     because:
       "you can't react to what you can't see, and this is the one failure where the danger depends entirely on the weather and the hour",
+  },
+  // ── personal injury / medical (v0.48, 2026-08-13) ───────────────────────
+  // The person is hurt, not the car. medical_redirect at N=10 caught the model
+  // emitting burn first-aid ("run it under cool water") 5/10 DESPITE the
+  // v0.48 hard prompt rule — a rule that emphatic being violated anyway needs
+  // the per-turn injected override, same mechanism as every other hazard.
+  // Patterns require a PERSON descriptor (my hand, myself, I'm) so car-part
+  // phrasing ("clutch smells burnt", "burning oil") never trips it — those hit
+  // the fire/fumes rules instead. renderSafetyOverrideBlock adds a category-
+  // specific no-treatment rule line; chat.ts EXCLUDES this category from the
+  // open-symptom ledger (a burned hand is not a vehicle symptom to fold into
+  // booking notes).
+  {
+    category: "medical_injury",
+    severity: "urgent",
+    re: /\b(burn(?:ed|t)?|scald(?:ed)?)\s+(?:my|both|his|her|their)\s+(hands?|arms?|fingers?|wrists?|face|skin|leg)\b|\b(?:I|i)(?:'ve| have| just)?\s*(?:burn(?:ed|t)|scalded|cut|gashed|sliced)\s+(?:myself|my)\b|\bcut\s+(?:my|myself)\b|\b(?:bleeding|blood)\b[^.!?\n]{0,25}\b(?:hand|arm|finger|head|badly|won'?t stop)\b|\b(?:dizzy|light-?headed|nauseous|nauseated|faint|throbbing headache)\b[^.!?\n]{0,40}\b(?:fumes?|exhaust|smell|driving|in the car|garage)\b|\bwhiplash\b|\bhit\s+my\s+head\b|\b(?:I'?m|I am)\s+(?:hurt|injured|in pain|bleeding)\b/i,
+    action:
+      "Get that looked at by a person, not an app — call 911 if it's serious, otherwise urgent care or your doctor is the right next step.",
+    because:
+      "I can help with the car side, but I can't give medical advice and it's not something to guess at",
   },
 ];
 
@@ -353,6 +374,11 @@ export function renderSafetyOverrideBlock(findings: SafetyFinding[]): string | n
   if (worst.severity === "stop_now") {
     lines.push(
       `  do_not_render: Do NOT call render_vehicle_update on this turn. Logging a fault to the vehicle record is not the response to an active hazard, and a confirmation card competing with a stop-driving instruction buries it.`,
+    );
+  }
+  if (findings.some((f) => f.category === "medical_injury")) {
+    lines.push(
+      `  medical_rule: The user is HURT. The instruction above (get medical help) is the COMPLETE medical content of your reply. Give NO treatment or first-aid advice of any kind — not what to run it under, put on it, or take, not how serious it looks, and not as a helpful extra alongside the redirect. You are a car app; the redirect IS the help. After the redirect, handle any car-side question normally.`,
     );
   }
   lines.push(`</safety_override>`);

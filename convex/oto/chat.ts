@@ -873,6 +873,10 @@ export async function sendMessageHandlerCore(
     // Dedupe by category happens inside the mutation; failure-isolated so a
     // ledger write can never break the turn.
     for (const f of safetyFindings) {
+      // medical_injury is the PERSON being hurt, not the car — it must never
+      // enter the vehicle-symptom ledger (W3.3 folds open symptoms into
+      // booking customer_notes, and a burned hand does not belong there).
+      if (f.category === "medical_injury") continue;
       try {
         await ctx.runMutation(
           internal.ai_conversations.appendOpenSymptomInternal,
@@ -2161,7 +2165,12 @@ function stripVoiceMarkup(s: string): string {
 // Haiku, Sonnet) rely on the capital letter to disambiguate from legitimate
 // lowercase uses ("convex mirror", poetry).
 
-type GuardCategory = "currency" | "warranty" | "internal_noun" | "labor_time";
+type GuardCategory =
+  | "currency"
+  | "warranty"
+  | "internal_noun"
+  | "labor_time"
+  | "medical";
 
 const OUTPUT_GUARD_PATTERNS: { category: GuardCategory; re: RegExp }[] = [
   // W1.2 — currency. $N in any form, or spelled-out "N dollars/bucks".
@@ -2205,6 +2214,20 @@ const OUTPUT_GUARD_PATTERNS: { category: GuardCategory; re: RegExp }[] = [
   { category: "labor_time", re: /\b(?:\d+(?:\.\d+)?|an?|one|two|three|four|five|six|seven|eight|nine|ten|half|couple|few)\s+(?:or\s+\S+\s+)?(?:hours?|hrs?|minutes?|mins?)\s+(?:of\s+)?(?:labor|labour|book\s+time|shop\s+time)\b/i },
   { category: "labor_time", re: /\blabou?r\b(?!\s+day)[^.!?\n]{0,25}\b\d+(?:\.\d+)?\s*(?:hours?|hrs?|minutes?|mins?)\b/i },
   { category: "labor_time", re: /\bflat[- ]rate\s+(?:time|hours?)\b/i },
+  // Medical treatment phrases (v0.48 hard rule; medical_redirect emitted burn
+  // first-aid 5/10 at N=10 even with the prompt rule + these back up the new
+  // medical_injury classifier). Deliberately narrow: unambiguous FIRST-AID
+  // instructions only. "Get first aid", "call 911", "see a doctor" are
+  // redirect language and never match. Mechanical rinse instructions
+  // ("rinse the connector under running water") can match the water row —
+  // acceptable: detailed hands-on procedures are refused content anyway.
+  { category: "medical", re: /\bunder\s+(?:cool|cold|lukewarm|running)\s+water\b|\b(?:cool|cold)\s+water\b[^.!?\n]{0,25}\b(?:burn|scald|skin|wound)\b/i },
+  { category: "medical", re: /\bapply\s+(?:ice|a\s+cold\s+compress|burn\s+(?:cream|gel|ointment)|aloe|antibiotic|pressure\s+to\s+the\s+wound)\b|\b(?:bandage|gauze|sterile\s+dressing)\b/i },
+  { category: "medical", re: /\b(?:ibuprofen|acetaminophen|paracetamol|tylenol|advil|aspirin|antihistamine)\b|\b(?:first|second|third)[- ]degree\s+burn\b/i },
+  // Envelope-tag echo (tag-smuggling N=10: the model EXPLAINED the injection
+  // back to the user, quoting the tag names). A literal envelope tag in
+  // user-facing prose is never legitimate.
+  { category: "internal_noun", re: /<\/?(?:untrusted_user_input|system|conversation_state|established_facts|safety_override|recent_context|polite_exit_required)>/i },
 ];
 
 /**
@@ -3052,6 +3075,36 @@ function buildCallables(
      * surface (the only path Haiku has to reach user_semantic_facts).
      */
     record_semantic_fact: async (input) => {
+      // Tag-smuggling TURN suppression (2026-08-13): when this turn's raw user
+      // message contains envelope-tag substrings, the message is injection-
+      // shaped and no semantic fact may be recorded from it — the model firing
+      // this tool on such turns is exactly the manipulation the eval catches
+      // (prompt_injection_tag_smuggling fired record_semantic_fact 3/10 at
+      // N=10). The layer-2 payload sanitizer (sanitizeSemanticPayload) still
+      // guards the CONTENT; this guards the TURN. Deterministic — no model
+      // judgment involved. List mirrors memoryEquivalence.FORBIDDEN_ENVELOPE_TAGS
+      // plus the two envelope blocks added since.
+      const SMUGGLE_TAGS = [
+        "<untrusted_user_input>",
+        "</untrusted_user_input>",
+        "<conversation_state>",
+        "</conversation_state>",
+        "<recent_context>",
+        "</recent_context>",
+        "<system>",
+        "</system>",
+        "<vehicle_facts>",
+        "</vehicle_facts>",
+        "<safety_override>",
+        "<established_facts>",
+      ];
+      const lowerTurnMsg = (userMessage ?? "").toLowerCase();
+      if (SMUGGLE_TAGS.some((t) => lowerTurnMsg.includes(t))) {
+        console.warn(
+          "[oto/chat] record_semantic_fact suppressed: envelope-tag substring in this turn's user message (tag-smuggling shape).",
+        );
+        return { ok: false, reason: "suppressed on tag-smuggling-shaped turn" };
+      }
       const text = typeof input.text === "string" ? input.text.trim() : "";
       const factTypeRaw =
         typeof input.fact_type === "string" ? input.fact_type : "";

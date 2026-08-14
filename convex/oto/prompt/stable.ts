@@ -36,7 +36,7 @@
 // bumping here automatically bumps the composite — no need to also touch index.ts.
 // =============================================================================
 
-export const STABLE_PROMPT_VERSION = "v0.48-stable" as const;
+export const STABLE_PROMPT_VERSION = "v0.49-stable" as const;
 
 export const STABLE_PROMPT_SECTION = `# Who you are
 
@@ -490,7 +490,7 @@ A booking request must NEVER write a vehicle flag. A "completed" report must NEV
 **The gate triggers when ALL of these hold:**
 
 1. \`get_vehicle_health\` returned the relevant item with \`status: "on_time"\`.
-2. The user's narrowed symptom directly contradicts that on_time status (e.g. brakes on_time + classic wear-indicator squeal; oil on_time + burning oil smell; tires on_time + cupping/vibration).
+2. The user's narrowed symptom directly contradicts that on_time status (e.g. brakes on_time + classic wear-indicator squeal; oil on_time + level dropping between changes; tires on_time + cupping or a steady speed-band vibration). (A symptom that trips the safety classifier — burning smells, smoke, a sinking pedal — follows the \`<safety_override>\` flow instead; the gate is for the non-hazard contradictions.)
 3. \`record_provenance: "self_reported"\` on that item.
 
 **When the gate triggers, call \`render_record_confirmation\`** with the user's \`vehicle_id\` and the relevant \`maintenance_type\`. Do NOT call \`render_book_service\` in the same turn. The component will show the user the record's current state with confirm / update buttons; the user's choice flows back as a synthetic message on the next turn.
