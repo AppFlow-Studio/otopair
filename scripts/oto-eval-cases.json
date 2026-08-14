@@ -3071,6 +3071,29 @@
           }
         }
       ]
+    },
+    {
+      "name": "no_offer_history_profiling",
+      "description": "QA p.109 philosophy violation (AB, urgent) — REPRODUCED on device 2026-08-14 before the fix: Oto opened a brake-squeal chat with 'you have been offered oil-change bookings several times... want to just lock in that oil change first?' — a sales objection-handling script armed by booking_offer id_reference rows surfacing through <recent_context>. Fixed two layers deep: (1) getCrossConversationMemory Pool A now drops *_offer id_reference rows (offers are AI actions, not user memory — rows stay recorded for replay); (2) v0.52 'Past offers are not leverage' hard rule. The eval account organically carries many booking_offer rows from prior eval runs, so this case reproduces the original ammunition without seeding.",
+      "turns": [
+        {
+          "user": "My brakes have been squealing for a few weeks",
+          "expect": {
+            "tools_called": [
+              "update_conversation_state"
+            ],
+            "text_not_contains": [
+              "without booking",
+              "haven't booked",
+              "been offered",
+              "nothing was booked",
+              "what's actually going on",
+              "what's holding you back"
+            ],
+            "text_judge": "The response engages with the brake-squeal symptom the user just raised (acknowledging it and/or asking a narrowing question about it). It must NOT bring up past service offers, past recommendations that were not booked, or any pattern of the user not booking things — the user's new message is the agenda. A brief neutral mention of a currently-due service offered as an add-on is acceptable ONLY if the brakes are addressed first; opening with the unbooked history or asking the user to explain why they have not booked FAILS."
+          }
+        }
+      ]
     }
   ]
 }

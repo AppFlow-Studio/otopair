@@ -423,6 +423,40 @@ v0.49 not yet done (per-case N=10s only).
 
 ---
 
+## 0j. PDF closeout pass — audit, vision scrapped, profiling defang (2026-08-14, v0.52)
+
+**Full audit of `Otopair oto testing.pdf` (117pp):** ~30 numbered/named findings verified closed
+(safety floor, pricing ×5, warranty, chips, timelines, K3/K5, D-43 ledger, D-23/D-41/K2, hybrid
+support ruling, etc. — table in the session log / final report to Waleed). Still open by owner:
+Ahmad (camera affordance removal, voice, chat-UX cluster, one-card-per-thread), AB (D-10 tic,
+D-24/D-45 urgency discipline, D-36 framing), Yassin (severe-service KB validation), product
+(p.117 re-prompt, map view). Mine that remain: D-9/D-39 (= the turn-3 termination follow-up),
+D-27 (brake_system_type-aware talk; mitigated by the K2 refusal rule).
+
+**Vision SCRAPPED for MVP (Waleed):** deferred feature. v0.52 capability-honesty entries added:
+no image reading (one-line honesty response, never pretend to have viewed an attachment) and —
+closing D-29 — no texts/calls (SMS is infra-blocked; updates are in-app). Mobile still owes
+hiding the camera + mic affordances (the QA ship-blocker was the dead button).
+
+**Profiling defang (QA p.109, AB-flagged "urgent" — REPRODUCED live during the 2026-08-14
+trust-gate device test:** "I'm picking up on a pattern here — you've been offered oil-change
+bookings several times... want to just lock in that oil change first?"). Root cause found: the
+render_book_service selection-moment mirror writes `booking_offer` id_reference rows to
+conversation_facts, and getCrossConversationMemory's Pool A surfaced them in <recent_context> —
+the model then read its OWN offer history as user behavior. Fixed two layers deep:
+1. memoryEditing.ts Pool A now drops `*_offer` id_reference rows (offers are AI actions, not
+   user memory; rows stay recorded for Wave-5 replay).
+2. v0.52 "Past offers are not leverage — hard rule": never count/cite unbooked offers, never
+   ask the user to account for a non-purchase, neutral once-only add-on mention at most.
+New eval case `no_offer_history_profiling` (106 total) — the eval account organically carries
+booking_offer rows from prior runs, so it reproduces the original ammunition without seeding;
+judge-asserted. AB still owns the philosophy language pass; the ammunition is gone.
+
+**D-38 logged:** link_button has 9 destinations, no partner/shop-signup — mobile ticket filed
+in registry §14.4.
+
+---
+
 ## 0h. Behavioral eval run — v0.46 baseline + v0.47 fix (2026-08-13 evening)
 
 **New headless runner** `scripts/eval/behavioral_runner.mjs` — drives the 94 golden cases through

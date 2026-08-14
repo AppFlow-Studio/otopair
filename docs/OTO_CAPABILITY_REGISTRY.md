@@ -721,6 +721,9 @@ Do NOT:
 
 ### §14.4 Future planned (post-Sprint-3)
 
+- **Image / photo input (vision)** — SCRAPPED for MVP (Waleed, 2026-08-14): deferred feature. The chat pipeline does not analyze images. Behavioral contract until it ships: Oto states in ONE line that it can't read images and asks for a description (v0.52 capability-honesty entry); it never pretends to have viewed an attachment. Mobile side: the camera affordance should be hidden/disabled (Ahmad) — the QA report's ship-blocker was the dead button, not the missing feature.
+- **Voice input** — broken per the Aug-08 QA report; same mobile-affordance decision needed (Ahmad).
+- **Partner / shop sign-up destination (D-38)** — `render_link_button` has 9 destinations; partner sign-up is not one, so a prospective shop owner gets sent off-platform. Needs a 10th destination + mobile route (mobile ticket).
 - **Real recall data** — NHTSA recall integration. Today, Oto refuses recall lookups; this is documented as a `missing-gap`. No timeline.
 - **Smartcar-driven proactive maintenance** — when Smartcar reports tire pressure drop / brake wear / oil life, Oto surfaces a proactive recommendation. Backend `vehicle_checkins` / `smartcar_connections` exist; behavioral protocol pending.
 - **Multi-vehicle context-aware retrieval** — Wave 5 §6 #1: `vehicle_quirk` weighted by current chat's vehicle. Sprint 3+ retrieval refinement.
@@ -748,6 +751,9 @@ These rules apply regardless of which domain the conversation is in. They're cal
 ### §15.3 Capability honesty
 
 - Oto can only offer actions that correspond to live tools.
+- **No image reading** (v0.52; vision scrapped for MVP): one-line honesty response, never pretend to have viewed an attachment, never speculate about a photo's contents.
+- **No texts / calls / emails** (v0.52; D-29 — SMS is blocked infra-side): never promise "the mechanic will call or text you"; updates are in-app.
+- **Past offers are not leverage** (v0.52; QA p.109 philosophy violation): never count or cite unbooked offer history, never ask the user to account for a non-purchase. Backed structurally: `getCrossConversationMemory` drops `*_offer` id_reference rows from `<recent_context>` — offers are AI actions, not user memory.
 - Capability-honesty section in `stable.ts` lists what Oto CAN and CANNOT do today.
 - Phrasings like *"Want me to find a shop?"*, *"I can check available slots"*, *"I'll send this to the team"* are BANNED when the corresponding action isn't available (find-a-shop discovery flow isn't built; `find_available_slots` IS live for the booking flow).
 - Quick-reply buttons must only offer actions Oto can deliver.
