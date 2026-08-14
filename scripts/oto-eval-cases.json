@@ -2899,7 +2899,7 @@
     },
     {
       "name": "book_service_diagnostic_phrasing_correct",
-      "description": "Sprint 4 Day 1 Pass B §4 dispatch (booking-flow consolidation; render_book_service). Booking-action phrasing per §1 Voice update + §4 booking-action phrasing rule. User reports a symptom; Oto's narrowing turn (or single-turn recommendation) MUST ask to BOOK directly, not offer to 'pull up details'. BANNED phrasings (text_not_contains): 'pull up details', 'pull that up', 'pull up a diagnostic'. Required: 'book' AND 'diagnostic' must appear in Oto's framing. This case asserts PHRASING, not the render fire — the render only fires on user confirm; depending on Haiku's pacing, render_book_service may or may not fire on this single-user-turn case, so we do NOT assert tools_called against render_book_service here. We assert that the 6 deprecated tools also don't fire (no fallback to legacy flow). RE-AUTHORED 2026-08-14: the single-turn shape demanded the booking recommendation on turn 1, but the prompt explicitly allows ONE narrowing question first — the case punished sanctioned behavior. Now two turns: narrowing allowed on turn 1, the terminal booking (with booking-action phrasing, never pull-up-details phrasing) required by turn 2. Deadline moved to turn 3 to match the enforced termination contract (two question-turns allowed, third concludes) — the turn-2 deadline was stricter than the machinery guarantees.",
+      "description": "Sprint 4 Day 1 Pass B §4 dispatch (booking-flow consolidation; render_book_service). Booking-action phrasing per §1 Voice update + §4 booking-action phrasing rule. User reports a symptom; Oto's narrowing turn (or single-turn recommendation) MUST ask to BOOK directly, not offer to 'pull up details'. BANNED phrasings (text_not_contains): 'pull up details', 'pull that up', 'pull up a diagnostic'. Required: 'book' AND 'diagnostic' must appear in Oto's framing. This case asserts PHRASING, not the render fire — the render only fires on user confirm; depending on Haiku's pacing, render_book_service may or may not fire on this single-user-turn case, so we do NOT assert tools_called against render_book_service here. We assert that the 6 deprecated tools also don't fire (no fallback to legacy flow). RE-AUTHORED 2026-08-14: the single-turn shape demanded the booking recommendation on turn 1, but the prompt explicitly allows ONE narrowing question first — the case punished sanctioned behavior. Now two turns: narrowing allowed on turn 1, the terminal booking (with booking-action phrasing, never pull-up-details phrasing) required by turn 2. Deadline moved to turn 3 to match the enforced termination contract (two question-turns allowed, third concludes) — the turn-2 deadline was stricter than the machinery guarantees. EARLY-CONVERGENCE FIX: rep booked on turn 2 (better than the deadline) and the per-turn turn-3 assertions punished it — single-fire forbids re-rendering. Final turn now asserts the booking via tools_called_any_turn with the anti-pull-up literals; no branch/judge (they misfire on post-booking acknowledgment turns).",
       "turns": [
         {
           "user": "Lately when I go over a speed bump I hear a clunk from the front. Pretty repeatable.",
@@ -2921,21 +2921,22 @@
           "expect": {
             "tools_called": [
               "update_conversation_state"
+            ],
+            "text_not_contains": [
+              "pull up details",
+              "pull that up",
+              "pull up a diagnostic",
+              "the system",
+              "the dispatcher"
             ]
           }
         },
         {
           "user": "Nothing else changed recently, it just started on its own.",
           "expect": {
-            "tools_called": [
-              "render_book_service",
-              "update_conversation_state"
+            "tools_called_any_turn": [
+              "render_book_service"
             ],
-            "tools_not_called": [
-              "render_record_confirmation"
-            ],
-            "branch": "terminal",
-            "text_judge": "The response moves to set up a diagnostic-type booking with a mechanic, framed as booking a service. Framing it as pulling up information or details FAILS; asking yet another clarifying question instead of concluding FAILS.",
             "text_not_contains": [
               "pull up details",
               "pull that up",

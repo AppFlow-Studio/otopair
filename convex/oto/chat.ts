@@ -2185,10 +2185,12 @@ export async function sendMessageHandlerCore(
         });
         const latestIntent = (fresh as any)?.last_user_intent as string | undefined;
         const askedQuestion = /\?/.test(finalText ?? "");
+        // Contains-test, not prefix (2026-08-14): Haiku tags freely —
+        // "diagnostic_booking_vague_symptom", "vague_symptom_intake" — and
+        // the startsWith test let prose-question turns slip uncounted, running
+        // the whole conversation one count behind the deadline.
         const modelTaggedNarrowing =
-          !!latestIntent &&
-          (latestIntent.startsWith("symptom_narrowing") ||
-            latestIntent.startsWith("diagnos"));
+          !!latestIntent && /symptom|diagnos|narrow/i.test(latestIntent);
         const alreadyNarrowing = diagnosticTurnCount > 0;
         // A booking OFFER ("...want to book that service now?") ends in a "?"
         // but is CONVERGENCE, not failed narrowing — the two-step
@@ -2234,6 +2236,10 @@ export async function sendMessageHandlerCore(
           count: nextCount,
         });
       }
+      console.log(
+        `[oto/chat] polite-exit counter: start=${diagnosticTurnCount} next=${nextCount === null ? "(hold)" : nextCount} ` +
+          `asked=${/\?/.test(finalText ?? "")} chips=${!!quickReplies} concluded=${modelConcludedTurn} booking=${renderEnvelope.bookService !== undefined}`,
+      );
     } catch (e: any) {
       console.error("[oto/chat] polite-exit counter update failed (swallowed):", e?.message);
     }
