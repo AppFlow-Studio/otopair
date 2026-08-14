@@ -2161,7 +2161,7 @@ function stripVoiceMarkup(s: string): string {
 // Haiku, Sonnet) rely on the capital letter to disambiguate from legitimate
 // lowercase uses ("convex mirror", poetry).
 
-type GuardCategory = "currency" | "warranty" | "internal_noun";
+type GuardCategory = "currency" | "warranty" | "internal_noun" | "labor_time";
 
 const OUTPUT_GUARD_PATTERNS: { category: GuardCategory; re: RegExp }[] = [
   // W1.2 — currency. $N in any form, or spelled-out "N dollars/bucks".
@@ -2194,6 +2194,17 @@ const OUTPUT_GUARD_PATTERNS: { category: GuardCategory; re: RegExp }[] = [
   // "quick replies"/"quick-reply" only — singular unhyphenated "a quick reply
   // to your question" is legitimate prose and stays allowed.
   { category: "internal_noun", re: /\bbooking flow\b|\bquick replies\b|\bquick-repl(?:y|ies)\b|\btrust[- ]gat(?:e|ing)\b|\bintent ladder\b|\bstate tool\b|\bterminal render\b|\bdiagnostic domain\b|\brender_[a-z_]+\b|\bservice[- ]slugs?\b/i },
+  // D-41 — labor time is a price in disguise (shops bill by the hour, so
+  // "about 2 hours of labor" is a quote the user finishes with arithmetic).
+  // Guards only QUANTIFIED labor time so the legitimate shapes survive:
+  // "I can't estimate labor time" (no quantity), "labor rates vary by shop"
+  // (decline rationale), "it'll be at the shop a couple of hours" (wait-time
+  // logistics, no labor framing). (?!\s+day) keeps "Labor Day" out of the
+  // reverse-order clause match. Own category (NOT "currency") so the
+  // rewards-turn allowCurrency exemption can never disable these rows.
+  { category: "labor_time", re: /\b(?:\d+(?:\.\d+)?|an?|one|two|three|four|five|six|seven|eight|nine|ten|half|couple|few)\s+(?:or\s+\S+\s+)?(?:hours?|hrs?|minutes?|mins?)\s+(?:of\s+)?(?:labor|labour|book\s+time|shop\s+time)\b/i },
+  { category: "labor_time", re: /\blabou?r\b(?!\s+day)[^.!?\n]{0,25}\b\d+(?:\.\d+)?\s*(?:hours?|hrs?|minutes?|mins?)\b/i },
+  { category: "labor_time", re: /\bflat[- ]rate\s+(?:time|hours?)\b/i },
 ];
 
 /**
