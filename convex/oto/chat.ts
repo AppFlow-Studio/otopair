@@ -1495,6 +1495,96 @@ export async function sendMessageHandlerCore(
     }
   }
 
+  // ── 6.9 State-contract retry (2026-08-14) ────────────────────────────
+  // The prompt demands update_conversation_state on every substantive turn;
+  // Haiku skips it on ~10% of turns (B-P2 telemetry class), which is the
+  // suite's single biggest flake source AND desynchronizes conversation
+  // memory in production. Server-side silent repair would fix persistence
+  // but lie to the trace; instead: ONE follow-up call with
+  // tool_choice FORCED to update_conversation_state, so the model itself
+  // emits the missing call (guaranteed by the API contract). The result is
+  // dispatched normally and merged into the final trace iteration
+  // (state_repaired: true) — an honest record of a real model call.
+  // Only fires on non-trivial turns (a data or terminal tool ran).
+  {
+    const loopToolNames = turnSamples.flatMap((s) => s.tool_names);
+    const anyStateCalled = loopToolNames.some(
+      (n) => OTO_TOOL_CATEGORY[n] === "state",
+    );
+    // Originally gated on a data/terminal tool having fired ("non-trivial
+    // turns"), but the contract is state-on-EVERY-response-turn and the skip
+    // shows up on prose-only turns too (no_canonical rep: zero tools fired,
+    // state included). A retry on a trivial turn costs one small forced call
+    // and keeps conversation memory continuous — cheaper than a desynced
+    // next turn.
+    if (!anyStateCalled) {
+      try {
+        console.warn(
+          "[oto/chat] state-contract retry: substantive turn ended without " +
+            "update_conversation_state — forcing the call",
+        );
+        const stateTool = TOOLS_FOR_HAIKU.find(
+          (t) => t.name === "update_conversation_state",
+        );
+        const retryResp = await fetchAnthropicWithRetry(
+          ANTHROPIC_URL,
+          {
+            method: "POST",
+            headers: {
+              "x-api-key": apiKey,
+              "anthropic-version": ANTHROPIC_VERSION,
+              "content-type": "application/json",
+            },
+            body: JSON.stringify({
+              model: turnModel,
+              max_tokens: 1024,
+              system: SYSTEM_PROMPT,
+              tools: stateTool ? [stateTool] : [],
+              tool_choice: { type: "tool", name: "update_conversation_state" },
+              messages: [
+                ...messages,
+                {
+                  role: "user",
+                  content:
+                    "[contract check — not the user speaking] This turn ended without update_conversation_state. Call it now with the FULL current conversation state (repeat unchanged fields from the prior state). Output only the tool call.",
+                },
+              ],
+            }),
+          },
+          "state_retry",
+        );
+        if (retryResp.ok) {
+          const retry = (await retryResp.json()) as AnthropicResponse;
+          const tu = retry.content.find(
+            (b): b is ToolUseBlock =>
+              b.type === "tool_use" && b.name === "update_conversation_state",
+          );
+          if (tu) {
+            await executeTool(tu, callables);
+            turnSamples.push({
+              usage: retry.usage,
+              latency_ms: 0,
+              tool_names: ["update_conversation_state"],
+              branch: "state_repair",
+            });
+            if (trace && Array.isArray(trace.iterations) && trace.iterations.length) {
+              const last = trace.iterations[trace.iterations.length - 1];
+              last.state_tool_uses = [...(last.state_tool_uses ?? []), tu];
+              last.state_repaired = true;
+            }
+          }
+        }
+      } catch (e: any) {
+        // Repair is best-effort — a failed retry leaves the turn exactly as
+        // it was before this block existed.
+        console.error(
+          "[oto/chat] state-contract retry failed (swallowed):",
+          e?.message,
+        );
+      }
+    }
+  }
+
   // ── 7. Merge render directives ───────────────────────────────────────
   const renderEnvelope = mergeRenderDirectives(accumulatedResults);
   let quickReplies = Array.isArray(renderEnvelope.quickReplies)
@@ -1689,8 +1779,8 @@ export async function sendMessageHandlerCore(
       customer_support: "Support can take it from here — this opens them directly.",
       feedback: "Here's the feedback screen — it goes straight to the team.",
       bug_report: "Here's the bug-report screen — describe what broke and the team will see it.",
-      tos: "Here are the Terms of Service.",
-      privacy_policy: "Here's the privacy policy.",
+      tos: "This opens the Terms of Service screen for you.",
+      privacy_policy: "This opens the privacy policy screen for you.",
       settings: "This opens your settings.",
       profile: "This opens your profile.",
       transaction_history: "Here's your transaction history — every payment in one place.",

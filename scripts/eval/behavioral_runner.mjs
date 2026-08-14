@@ -61,7 +61,7 @@ function runTurn(message, conversationId) {
   return convexRun("oto/simulate:simulateOtoMessage", args);
 }
 
-function assertTurn(t, r, turnIdx, failures) {
+function assertTurn(t, r, turnIdx, failures, toolsSoFar = []) {
   const e = t.expect || {};
   const result = r?.result ?? {};
   const tr = result.trace || {};
@@ -73,6 +73,18 @@ function assertTurn(t, r, turnIdx, failures) {
     for (const tu of it.state_tool_uses || []) tools.push(tu.name);
     for (const tu of it.terminal_tool_uses || []) tools.push(tu.name);
   }
+  // tools_called_any_turn — the cross-turn primitive (Sprint 3 carryover,
+  // landed 2026-08-14): asserts against the UNION of tools fired in this turn
+  // plus every earlier turn of the case. For behaviors where the read
+  // legitimately happens a turn before the render (get_vehicle_health on the
+  // narrowing turn, card on the gate turn), the per-turn tools_called
+  // assertion punished correct sequencing.
+  const cumulative = [...toolsSoFar, ...tools];
+  for (const x of e.tools_called_any_turn || [])
+    if (!cumulative.includes(x))
+      failures.push(
+        `turn ${turnIdx + 1}: missing tool "${x}" across all turns (saw: ${cumulative.join(",") || "none"})`,
+      );
   const text = String(result.text || "").toLowerCase();
   const envelope = String(tr.envelope || "").toLowerCase();
   const fail = (msg) => failures.push(`turn ${turnIdx + 1}: ${msg}`);
@@ -142,10 +154,12 @@ for (const c of active) {
     try {
       for (const m of c.pre_seed_mutations || []) convexRun(m.path, m.args || {});
       let cid = undefined;
+      const toolsSoFar = [];
       for (let i = 0; i < c.turns.length; i++) {
         const r = runTurn(c.turns[i].user, cid);
         cid = r?.conversationId ?? cid;
-        const summary = assertTurn(c.turns[i], r, i, failures);
+        const summary = assertTurn(c.turns[i], r, i, failures, toolsSoFar);
+        toolsSoFar.push(...summary.tools);
         runOut.turns.push({ user: c.turns[i].user, ...summary });
       }
     } catch (err) {

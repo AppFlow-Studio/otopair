@@ -161,6 +161,32 @@ export const scrubAdversarialFacts = internalMutation({
   },
 });
 
+/**
+ * scrubAllSemanticFacts — deletes EVERY user_semantic_facts row on the eval
+ * account. Pre-seed for cases that assert a CLEAN memory slate
+ * (cross_conv_no_prior_data_envelope_empty_of_seeded_content): other cases
+ * seed facts into the same account and rows persist across runs, so without
+ * this the "no prior data" case fails on another case's leftovers. Cases
+ * that need seeded facts re-seed via their own pre_seed_mutations, so a full
+ * wipe here never breaks them.
+ */
+export const scrubAllSemanticFacts = internalMutation({
+  args: { email: v.string() },
+  handler: async (ctx, args) => {
+    const user: Doc<"users"> | null = await ctx.db
+      .query("users")
+      .filter((q: any) => q.eq(q.field("email"), args.email))
+      .first();
+    if (!user) throw new Error(`no users row with email ${args.email}`);
+    const rows = await ctx.db
+      .query("user_semantic_facts")
+      .filter((q: any) => q.eq(q.field("user_id"), user._id))
+      .collect();
+    for (const row of rows) await ctx.db.delete(row._id);
+    return { deleted: rows.length };
+  },
+});
+
 export const reset = internalMutation({
   args: { email: v.string(), vin: v.string() },
   handler: async (ctx, args) => {

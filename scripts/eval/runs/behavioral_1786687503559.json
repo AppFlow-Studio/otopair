@@ -1,0 +1,884 @@
+{
+ "ran_at": "2026-08-14T06:05:03.559Z",
+ "target_email": "mansourwaleed06@gmail.com",
+ "repeat": 1,
+ "total": 32,
+ "passed": 26,
+ "failed": 6,
+ "skipped_count": 10,
+ "failed_cases": [
+  {
+   "name": "loyalty_not_a_redirect_destination",
+   "failures": [
+    "rep1: turn 1: missing tool \"get_rewards_summary\" (saw: get_available_redemptions,render_link_button)",
+    "rep1: turn 1: missing tool \"update_conversation_state\" (saw: get_available_redemptions,render_link_button)",
+    "rep1: turn 1: forbidden tool \"render_link_button\" was called"
+   ]
+  },
+  {
+   "name": "support_ai_feedback_no_tool_fired",
+   "failures": [
+    "rep1: turn 1: judge: The response does not direct the user to the per-message AI-feedback control in the chat interface. Instead, it asks the user to explain what was wrong, without mentioning or directing them to use any feedback mechanism or button to flag the issue."
+   ]
+  },
+  {
+   "name": "book_service_single_diagnostic",
+   "failures": [
+    "rep1: turn 2: judge: No response provided; assistant did not confirm setting up or starting the diagnostic booking."
+   ]
+  },
+  {
+   "name": "book_service_multi_bundle",
+   "failures": [
+    "rep1: turn 1: judge: No response provided; cannot confirm any booking for either service."
+   ]
+  },
+  {
+   "name": "book_service_diagnostic_phrasing_correct",
+   "failures": [
+    "rep1: turn 1: judge: The response does not recommend having a mechanic diagnose the issue or move to set up a diagnostic booking. Instead, it asks clarifying questions to narrow down the problem itself, which is diagnostic reasoning rather than recommending professional diagnosis and booking a service appointment."
+   ]
+  },
+  {
+   "name": "book_service_pivot_to_settings_redirect",
+   "failures": [
+    "rep1: turn 1: missing tool \"render_book_service\" (saw: update_conversation_state)"
+   ]
+  }
+ ],
+ "results": [
+  {
+   "name": "loyalty_balance_oneshot",
+   "description": "Sprint 3 Day 3 §11 + §14.2 dispatch (Loyalty — in-chat informational surface, no claim flow). Tool-routing positive: get_rewards_summary. User asks for credit balance / tier — Oto fires get_rewards_summary in a single shot (one tool returns the full snapshot per §11 / §14.2). Other Loyalty data tools (get_loyalty_points_history, get_available_redemptions, get_loyalty_program_info) MUST NOT fire — they're for distinct intents (history / redemption inquiry / program rules) and chaining is forbidden per §11 MUST-NOT.",
+   "passed": true,
+   "failures": [],
+   "runs": [
+    {
+     "rep": 1,
+     "turns": [
+      {
+       "user": "What's my rewards balance? How many credits do I have and what tier am I?",
+       "tools": [
+        "get_rewards_summary",
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "You've got 2 credits, Driver tier. You've completed 1 service and visited 1 shop so far — pretty fresh on the platform."
+      }
+     ],
+     "failures": []
+    }
+   ]
+  },
+  {
+   "name": "loyalty_history_lookup",
+   "description": "Sprint 3 Day 3 §11 + §14.2 dispatch (Loyalty — in-chat informational surface, no claim flow). Tool-routing positive: get_loyalty_points_history. User asks where a recent credit came from / what they earned this month — Oto fires get_loyalty_points_history alone (one-shot history; does NOT also need get_rewards_summary, per §14.2 behavioral contract that points history is its own intent). Distinct from balance-snapshot intent.",
+   "passed": true,
+   "failures": [],
+   "runs": [
+    {
+     "rep": 1,
+     "turns": [
+      {
+       "user": "Where did my last credit come from? What have I earned this month?",
+       "tools": [
+        "get_loyalty_points_history",
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Your last credit came from a maintenance reward — you earned 2 credits from a recent service booking. That's the only activity this month so far."
+      }
+     ],
+     "failures": []
+    }
+   ]
+  },
+  {
+   "name": "loyalty_program_info_request",
+   "description": "Sprint 3 Day 3 §11 + §14.2 dispatch (Loyalty — in-chat informational surface, no claim flow). Tool-routing positive: get_loyalty_program_info. User asks how the loyalty program works / what the tier breakpoints are — Oto fires get_loyalty_program_info to explain rules. Distinct from balance (get_rewards_summary), history (get_loyalty_points_history), and redemption inquiry (get_available_redemptions).",
+   "passed": true,
+   "failures": [],
+   "runs": [
+    {
+     "rep": 1,
+     "turns": [
+      {
+       "user": "How does the loyalty program work? What are the tier breakpoints and how do I earn points?",
+       "tools": [
+        "get_loyalty_program_info",
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Tier's determined by your last-12-months service spend per vehicle.\n\nEarning: You get credits on every completed service — 1% back as Driver, 1.5% as Preferred, 2% as Elite.\n\nExpiry: Driver and Preferred credits expire after 180 days. Elite credits never expire — one reason the highest tier's worth the spend if you book regularly."
+      }
+     ],
+     "failures": []
+    }
+   ]
+  },
+  {
+   "name": "loyalty_redeem_inquiry_describes_only",
+   "description": "Sprint 3 Day 3 §11 + §14.2 dispatch (Loyalty — in-chat informational surface, no claim flow). Tool-routing positive: get_available_redemptions. User asks what they can get with points / what's available — Oto fires get_available_redemptions to surface options as INFORMATION only (no claim affordance per §14.2 Constraint 2). MUST NOT fire any claim-executing tool (none exists; render_quick_replies with a 'Confirm redemption' affordance would be wrong — soft-asserted via text_not_contains for promise phrasings). The response should describe options and point to the Loyalty screen for the actual claim.",
+   "passed": true,
+   "failures": [],
+   "runs": [
+    {
+     "rep": 1,
+     "turns": [
+      {
+       "user": "What can I get with my points? What's available to redeem right now?",
+       "tools": [
+        "get_rewards_summary",
+        "get_available_redemptions",
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "You've got 2 credits right now, but nothing's available to redeem at that balance yet — the lowest-cost rewards start higher. Keep booking services and you'll unlock options on the Loyalty screen."
+      }
+     ],
+     "failures": []
+    }
+   ]
+  },
+  {
+   "name": "loyalty_redeem_request_pointer_to_screen",
+   "description": "Sprint 3 Day 3 §11 + §14.2 dispatch (Loyalty — in-chat informational surface, no claim flow). §14.2 Constraint 2 (no-claim-flow): user explicitly says 'I want to redeem my points' / 'claim the 10% off' — Oto MUST NOT execute a claim in chat. Response must point conversationally to the Loyalty screen (per pattern 'Redeeming happens on the Loyalty screen in your account'). Oto MAY fire get_available_redemptions to show options. Banned phrasings (text_not_contains) cover the load-bearing claim-promise vocabulary: 'I'll redeem', 'I'll claim', 'I'll set up', 'done', 'completed', 'applied'.",
+   "passed": true,
+   "failures": [],
+   "runs": [
+    {
+     "rep": 1,
+     "turns": [
+      {
+       "user": "I want to redeem my points — claim the 10% off reward for me.",
+       "tools": [
+        "get_available_redemptions",
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "You've got 2 credits, but no service-credit redemptions available right now. Head to your Loyalty screen to see what else is on the table — that's where you pick and confirm any redemption."
+      }
+     ],
+     "failures": []
+    }
+   ]
+  },
+  {
+   "name": "loyalty_no_claim_promise",
+   "description": "Sprint 3 Day 3 §11 + §14.2 dispatch (Loyalty — in-chat informational surface, no claim flow). §14.2 Constraint 2 (no-claim-flow) — adversarial framing. User says 'go ahead and redeem' / 'just claim it for me' — Oto MUST briefly acknowledge and point to the Loyalty screen, NOT promise the claim happened. Banned phrasings cover both first-person-future and first-person-perfect: 'I'll redeem', 'I'll set up', 'I'll claim', 'done', 'completed', 'applied'. No tool MUST execute a claim (none exists; verified by tools_not_called for render_link_button and render_support_form to ensure Oto doesn't mis-route to another surface either).",
+   "passed": true,
+   "failures": [],
+   "runs": [
+    {
+     "rep": 1,
+     "turns": [
+      {
+       "user": "Go ahead and redeem the next available reward — just claim it for me.",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "I can't claim rewards from chat — that happens on the Loyalty screen in your account. You pick the one you want there and confirm it yourself.\n\nWant me to show you what's available to redeem right now?"
+      }
+     ],
+     "failures": []
+    }
+   ]
+  },
+  {
+   "name": "loyalty_not_a_redirect_destination",
+   "description": "Sprint 3 Day 3 §11 + §14.2 dispatch (Loyalty — in-chat informational surface, no claim flow). §14.1 enum + §14.2 Constraint 1: Loyalty is its own in-chat domain, NOT a render_link_button destination (the §14.1 enum has 8 values; loyalty is not among them). When the user asks 'take me to the loyalty screen' / 'open my rewards', Oto handles in-chat (surfacing rewards balance via get_rewards_summary) — does NOT fire render_link_button at all. Complementary to Day 2's link_button_invalid_destination_rejected (which verified the negative — that no render_link_button fires); this case verifies the positive — that get_rewards_summary DOES fire and the user's intent is served in chat. Oto MAY mention the Loyalty screen conversationally; it MUST NOT redirect there via render_link_button.",
+   "passed": false,
+   "failures": [
+    "rep1: turn 1: missing tool \"get_rewards_summary\" (saw: get_available_redemptions,render_link_button)",
+    "rep1: turn 1: missing tool \"update_conversation_state\" (saw: get_available_redemptions,render_link_button)",
+    "rep1: turn 1: forbidden tool \"render_link_button\" was called"
+   ],
+   "runs": [
+    {
+     "rep": 1,
+     "turns": [
+      {
+       "user": "Open my rewards — take me to the loyalty screen.",
+       "tools": [
+        "get_available_redemptions",
+        "render_link_button"
+       ],
+       "branch": "terminal",
+       "text": "I can show you what's available to claim right now, but the actual redemption happens on the Loyalty screen in your account."
+      }
+     ],
+     "failures": [
+      "turn 1: missing tool \"get_rewards_summary\" (saw: get_available_redemptions,render_link_button)",
+      "turn 1: missing tool \"update_conversation_state\" (saw: get_available_redemptions,render_link_button)",
+      "turn 1: forbidden tool \"render_link_button\" was called"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "link_button_vehicle_onboarding_explicit",
+   "description": "Sprint 3 Day 4 §14.1 + §15.12 + §1 tone dispatch (Pass A2 — vehicle_onboarding redirect, sibling-owned new-chat redirect, tone calibration). §14.1's 9th destination (vehicle_onboarding) — EXPLICIT add-vehicle request fires render_link_button(destination='vehicle_onboarding'). Verifies tool fires + brief redirect framing keyword. Runner has no tool-arg primitive, so per-destination correctness is verified via tool-name + text keyword (the tools_called_with_args primitive remains a Tier 3 carryover).",
+   "passed": true,
+   "failures": [],
+   "runs": [
+    {
+     "rep": 1,
+     "turns": [
+      {
+       "user": "I want to add a new vehicle to my account — how do I register my new Subaru?",
+       "tools": [
+        "update_conversation_state",
+        "render_link_button"
+       ],
+       "branch": "terminal",
+       "text": "Tap the button below to open vehicle onboarding — you'll enter the VIN and we'll pull the rest from there."
+      }
+     ],
+     "failures": []
+    }
+   ]
+  },
+  {
+   "name": "link_button_vehicle_onboarding_implicit_clarifies",
+   "description": "Sprint 3 Day 4 §14.1 + §15.12 + §1 tone dispatch (Pass A2 — vehicle_onboarding redirect, sibling-owned new-chat redirect, tone calibration). §14.1 + §2 onboarding-explicit-only rule (Pass A1 Q2 preserved through A2). User says 'my new Subaru needs oil' — implies ownership but doesn't ASK to add. Oto MUST NOT auto-redirect via render_link_button; instead asks a clarifying question (per §2 + §15.12 row 5: 'Is your Subaru added to your account? ... pull up the onboarding screen').",
+   "passed": true,
+   "failures": [],
+   "runs": [
+    {
+     "rep": 1,
+     "turns": [
+      {
+       "user": "My new Subaru needs an oil change soon.",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "I don't see that Subaru in your account yet. Is it already added, or are you looking to add it?"
+      }
+     ],
+     "failures": []
+    }
+   ]
+  },
+  {
+   "name": "vehicle_sibling_owned_redirects_to_new_chat",
+   "description": "Sprint 3 Day 4 §14.1 + §15.12 + §1 tone dispatch (Pass A2 — vehicle_onboarding redirect, sibling-owned new-chat redirect, tone calibration). §15.12 'one chat, one car' — primary anchor M550i; user asks an INFORMATIONAL question about a sibling-owned X5. Oto MUST NOT engage with the sibling's vehicle data; instead politely redirects to start a new chat from the car picker. Note: runtime fixture for sibling garage entries is not seeded here — the load-bearing assertion is the redirect phrasing (text_contains 'new chat' / 'car picker'), which is the user-visible signal per §15.12 row 2. tools_not_called guards against accidental sibling-data engagement. Sprint 4 Day 1 Pass B §4 dispatch (booking-flow consolidation; render_book_service).",
+   "passed": true,
+   "failures": [],
+   "runs": [
+    {
+     "rep": 1,
+     "turns": [
+      {
+       "user": "What about my X5? What oil does it take?",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "This chat is set up for your M550i — start a new chat from the car picker for the X5 and I'll have its context ready."
+      }
+     ],
+     "failures": []
+    }
+   ]
+  },
+  {
+   "name": "vehicle_sibling_booking_redirects_to_new_chat",
+   "description": "Sprint 3 Day 4 §14.1 + §15.12 + §1 tone dispatch (Pass A2 — vehicle_onboarding redirect, sibling-owned new-chat redirect, tone calibration). §15.12 — booking action on a sibling-owned vehicle follows the SAME rule as informational sibling asks: new-chat redirect. Primary anchor M550i; user says 'Book brake service for my X5'. Oto MUST NOT initiate booking surfaces for the sibling (no render_service_picker, no render_shop_carousel, no find_available_slots). Response must contain the redirect phrasing (new chat / car picker) per §15.12 row 2. Sprint 4 Day 1 Pass B §4 dispatch (booking-flow consolidation; render_book_service).",
+   "passed": true,
+   "failures": [],
+   "runs": [
+    {
+     "rep": 1,
+     "turns": [
+      {
+       "user": "Book brake service for my X5 this weekend.",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "This chat is set up for your M550i — start a new chat from the car picker for the X5 and I'll have its context ready."
+      }
+     ],
+     "failures": []
+    }
+   ]
+  },
+  {
+   "name": "vehicle_general_knowledge_still_ok_when_not_owned",
+   "description": "Sprint 3 Day 4 §14.1 + §15.12 + §1 tone dispatch (Pass A2 — vehicle_onboarding redirect, sibling-owned new-chat redirect, tone calibration). §2 + §15.12 row 3 discrimination guard: the no-pivot-to-owned constraint applies ONLY to vehicles in the user's garage. External vehicles get the educational AI treatment unchanged. User asks 'how does the Tesla Model 3 compare to my M550i?' — Oto MUST NOT fire render_link_button (this is NOT a redirect). lookup_vehicle_spec is the expected catalog path for the Tesla (external vehicle). Verifies educational-engagement floor is preserved while sibling-redirect rule is enforced.",
+   "passed": true,
+   "failures": [],
+   "runs": [
+    {
+     "rep": 1,
+     "turns": [
+      {
+       "user": "How does the Tesla Model 3 compare to my M550i?",
+       "tools": [
+        "get_vehicle_facts",
+        "lookup_vehicle_spec",
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "The Model 3 lookup returned empty. Let me search for current specs."
+      }
+     ],
+     "failures": []
+    }
+   ]
+  },
+  {
+   "name": "voice_empathy_when_car_broken_no_cheer",
+   "description": "Sprint 3 Day 4 §14.1 + §15.12 + §1 tone dispatch (Pass A2 — vehicle_onboarding redirect, sibling-owned new-chat redirect, tone calibration). §1 Context-appropriate emotion — distressed user (brakes worry) gets REAL empathy register, not theater-empathy or cheery exclamation. Load-bearing assertions are the NEGATIVE ban list (theater-empathy + cheer markers); positive assertion is a single flexible keyword ('figure' covers 'let's figure it out' / 'help you figure'). Haiku phrasing varies; ban-list is the load-bearing signal.",
+   "passed": true,
+   "failures": [],
+   "runs": [
+    {
+     "rep": 1,
+     "turns": [
+      {
+       "user": "My brakes feel weird and I'm worried — they kind of grind a little when I stop hard.",
+       "tools": [
+        "get_vehicle_health",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "Grinding on hard stops when the brakes are cold is a pattern worth narrowing — it could be normal bedding (especially if they're newer pads), light surface rust from sitting, or something that needs a mechanic's eyes.\n\nQuick one: does the grind happen right at the start of hard braking, or does it show up partway through the stop?"
+      }
+     ],
+     "failures": []
+    }
+   ]
+  },
+  {
+   "name": "voice_enthusiasm_on_fun_car_question",
+   "description": "Sprint 3 Day 4 §14.1 + §15.12 + §1 tone dispatch (Pass A2 — vehicle_onboarding redirect, sibling-owned new-chat redirect, tone calibration). §1 Emotional resonance — exploratory/fun car question should land engaged, not clipped-robotic. Load-bearing assertions are the NEGATIVE ban list against robotic dispatch-channel phrasings ('Here are the specs:', 'As an AI', 'I cannot provide'). Positive assertion is a flexible single keyword ('fun' OR 'cool' OR 'nice' — picked 'V8' as the more reliable substantive anchor since the M550i's twin-turbo V8 is the natural pivot for any engaged response; if Haiku doesn't say V8, that's itself a signal of clipped engagement). Tone cases are HARDER to assert than tool-routing — keep ban-list narrow and specific to robotic markers.",
+   "passed": true,
+   "failures": [],
+   "runs": [
+    {
+     "rep": 1,
+     "turns": [
+      {
+       "user": "I'm curious — tell me about the M5 vs my M550i. What's different about them mechanically?",
+       "tools": [
+        "get_vehicle_facts",
+        "lookup_vehicle_spec",
+        "record_vehicle_fact",
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "The lookup didn't catch the 2020 M5 — let me pull from training knowledge and record both specs.\n\nYour M550i runs the N63B44T2 twin-turbo 4.4L V8 with about 523 hp and 553 lb-ft torque. The M5 (F90 gen) uses the S63B44T4 — same displacement, same basic architecture, but a hotter tune at 625 hp and 553 lb-ft (or 645 hp in Competition trim). Both are 8-speed automatics, both AWD.\n\nKey differences:\n- Tuning. The S63 has larger turbos, beefier internals, and higher boost pressure — that's where the 100+ hp gap comes from.\n- Transmission. Your M550i uses the ZF 8-speed; the M5 gets a tuned version with different shift maps and launch control.\n- Suspension. M5 has active dampers and a tighter setup; M550i uses a softer, more refined tune.\n- Cooling. M5 has upgraded cooling (larger radiators, better thermals) because it's built for sustained high performance.\n- Braking. M5 runs larger rotors and more aggressive pad compounds — your M550i has the same hydraulic assist but lighter-duty hardware.\n\nReal talk: Your M550i gets you 95% of the M5 driving experience — same engine family, similar power delivery — without the maintenance intensity or the firmer ride. The M5 is built for the track; the M550i is built for the road. Both are genuinely great cars."
+      }
+     ],
+     "failures": []
+    }
+   ]
+  },
+  {
+   "name": "booking_status_pending",
+   "description": "Sprint 3 Day 5 §14.3 dispatch (Booking Status — viewing existing bookings). §14.3 behavioral contract row 3 — 'what's pending?' MUST route to get_pending_bookings (the new convenience tool, planned status). tools_not_called excludes get_bookings here because pending is the dedicated subset tool — if Haiku falls back to get_bookings(status_filter:'active') and filters in prose, that's drift away from the planned discrimination. NOTE: caveat — runner has no tool-arg primitive, so we can only assert tool-name routing; arg correctness (status_filter values, limit:1) is unverifiable here. Sprint 4 Day 1 Pass B §4 dispatch (booking-flow consolidation; render_book_service).",
+   "passed": true,
+   "failures": [],
+   "runs": [
+    {
+     "rep": 1,
+     "turns": [
+      {
+       "user": "Any pending bookings I haven't confirmed yet?",
+       "tools": [
+        "get_pending_bookings",
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "You've got one pending: a State Inspection scheduled for August 28th at Test Shop. Still waiting on confirmation from them."
+      }
+     ],
+     "failures": []
+    }
+   ]
+  },
+  {
+   "name": "booking_status_next_appointment",
+   "description": "Sprint 3 Day 5 §14.3 dispatch (Booking Status — viewing existing bookings). §14.3 behavioral contract row 1 — 'what's my next appointment?' MUST emit the 2-step sequence: get_bookings(status_filter:'active', limit:1) followed by render_booking_card(booking_id) — terminal singular-card render. Caveat: tool-arg primitive absent; we assert both tool names appear in the same turn batch (per §15.9 tool batching) but cannot verify limit:1 or that the right booking_id is passed. Sprint 4 Day 1 Pass B §4 dispatch (booking-flow consolidation; render_book_service).",
+   "passed": true,
+   "failures": [],
+   "runs": [
+    {
+     "rep": 1,
+     "turns": [
+      {
+       "user": "What's my next appointment?",
+       "tools": [
+        "get_bookings",
+        "update_conversation_state",
+        "render_booking_card"
+       ],
+       "branch": "terminal",
+       "text": "You've got a State Inspection booked for August 28 at Test Shop — still pending mechanic confirmation."
+      }
+     ],
+     "failures": []
+    }
+   ]
+  },
+  {
+   "name": "booking_status_list_view",
+   "description": "Sprint 3 Day 5 §14.3 dispatch (Booking Status — viewing existing bookings). §14.3 — multi-booking summary view. 'Show me all my upcoming bookings' is plural-list-shaped, MUST emit get_bookings(status_filter:'active', no limit override) followed by render_bookings_list(booking_ids). Distinct from the singular-card path. tools_not_called guards against rendering BOTH list and card in one turn (mutual-exclusion semantics; the singular card is for one-booking answers, not many). Sprint 4 Day 1 Pass B §4 dispatch (booking-flow consolidation; render_book_service).",
+   "passed": true,
+   "failures": [],
+   "runs": [
+    {
+     "rep": 1,
+     "turns": [
+      {
+       "user": "Show me all my upcoming bookings.",
+       "tools": [
+        "get_bookings",
+        "update_conversation_state",
+        "render_bookings_list"
+       ],
+       "branch": "terminal",
+       "text": "Here are your upcoming bookings:"
+      }
+     ],
+     "failures": []
+    }
+   ]
+  },
+  {
+   "name": "booking_status_confirmation_check",
+   "description": "Sprint 3 Day 5 §14.3 dispatch (Booking Status — viewing existing bookings). §14.3 behavioral contract row 2 — 'is my booking confirmed?' is a status check on an existing booking. MUST fire get_bookings (active filter) and surface the status keyword in prose ('confirmed' OR 'pending'). render_booking_card MAY also fire (singular focus) but is NOT asserted here (kept soft per dispatch brief — Haiku may answer in prose only when the status itself is the answer). Caveat: text_contains is OR-of-keywords semantically, but runner enforces AND across the array, so we use a single broad-ish anchor 'booking' to avoid forcing one status verbiage over another. Sprint 4 Day 1 Pass B §4 dispatch (booking-flow consolidation; render_book_service).",
+   "passed": true,
+   "failures": [],
+   "runs": [
+    {
+     "rep": 1,
+     "turns": [
+      {
+       "user": "Is my booking confirmed?",
+       "tools": [
+        "get_bookings",
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "You've got two active bookings:\n\n1. Oil Change — August 21 at Test Shop. Confirmed.\n2. State Inspection — August 28 at Test Shop. Pending (waiting on the shop to confirm).\n\nWhich one were you asking about?"
+      }
+     ],
+     "failures": []
+    }
+   ]
+  },
+  {
+   "name": "booking_status_vs_booking_flow_discrimination",
+   "description": "Sprint 3 Day 5 §14.3 discrimination test (post-Sprint-4-Pass-A migration) — 'I want to book a brake service' is a CREATE-NEW-BOOKING intent (§4 consolidated single-component flow), NOT a VIEW-EXISTING-BOOKING intent (§14.3). Oto MUST route to render_book_service (the single terminal booking surface), NOT to the §14.3 viewing tools (get_pending_bookings / render_booking_card / render_bookings_list — all for viewing existing, not creating). Load-bearing assertion: tools_called includes render_book_service AND tools_not_called excludes the three §14.3 viewing tools. Sprint 4 Day 1 Pass B §4 dispatch (booking-flow consolidation; render_book_service).",
+   "passed": true,
+   "failures": [],
+   "runs": [
+    {
+     "rep": 1,
+     "turns": [
+      {
+       "user": "I want to book a brake service.",
+       "tools": [
+        "update_conversation_state",
+        "render_book_service"
+       ],
+       "branch": "terminal",
+       "text": "I'll set up a brake service booking for you right now."
+      }
+     ],
+     "failures": []
+    }
+   ]
+  },
+  {
+   "name": "booking_status_card_or_list_not_both",
+   "description": "Sprint 3 Day 5 §14.3 dispatch (Booking Status — viewing existing bookings). §14.3 mutual-exclusion semantics — singular query 'what's my next appointment?' MUST fire render_booking_card AND MUST NOT fire render_bookings_list in the same turn. Catches the failure mode where Haiku emits BOTH terminal render tools in one batch (forbidden — they're mutually exclusive terminal renders for singular vs plural answers). Similar surface to case #2 but the load-bearing assertion is the negative — render_bookings_list MUST NOT appear. Caveat: this duplicates case 2's positive assertion intentionally to give us repeat statistical signal on the singular-card path while isolating the mutual-exclusion guarantee in tools_not_called.",
+   "passed": true,
+   "failures": [],
+   "runs": [
+    {
+     "rep": 1,
+     "turns": [
+      {
+       "user": "When's my next service?",
+       "tools": [
+        "get_bookings",
+        "update_conversation_state",
+        "render_booking_card"
+       ],
+       "branch": "terminal",
+       "text": "You've got a State Inspection booked for August 28 at Test Shop. Still pending mechanic confirmation."
+      }
+     ],
+     "failures": []
+    }
+   ]
+  },
+  {
+   "name": "support_redirect_mechanic_dispute",
+   "description": "Sprint 4 Day 2 Pass J dispatch (render_support_form DEPRECATED — single-channel redirect via render_link_button to customer_support). Rich-detail mechanic dispute (specific shop + specific charge + specific date). Per the new §13 contract, ALL support intake — dispute, complaint, billing — routes to render_link_button(destination: 'customer_support'); the Customer Support screen owns the intake form. Asserts render_link_button fires and render_support_form does NOT fire (regression guard against the deprecated tool).",
+   "passed": true,
+   "failures": [],
+   "runs": [
+    {
+     "rep": 1,
+     "turns": [
+      {
+       "user": "The mechanic at Joe's Shop charged me for a part I never approved on Tuesday.",
+       "tools": [
+        "update_conversation_state",
+        "render_link_button"
+       ],
+       "branch": "terminal",
+       "text": "That's a billing dispute — Customer Support handles those. Tap below to file it."
+      }
+     ],
+     "failures": []
+    }
+   ]
+  },
+  {
+   "name": "support_redirect_service_complaint",
+   "description": "Sprint 4 Day 2 Pass J dispatch (render_support_form DEPRECATED — single-channel redirect). Service-quality complaint (brake job didn't fix the squeak). Per the new §13 contract, this routes to render_link_button(destination: 'customer_support'). render_support_form must NOT fire (regression guard). RULING 2026-08-14 (Waleed, hybrid): a live symptom + a bad-work allegation does BOTH in one turn — symptom routing primary (only a mechanic can determine whether the work was bad) AND render_link_button(customer_support) for the accountability side. Case now asserts the link fires while ALLOWING the diagnostic reads; render_support_form remains banned.",
+   "passed": true,
+   "failures": [],
+   "runs": [
+    {
+     "rep": 1,
+     "turns": [
+      {
+       "user": "The shop did my brake job but the brakes still squeak — I think the work was bad.",
+       "tools": [
+        "update_conversation_state",
+        "render_link_button",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "I'll address both the symptom and the service-quality concern.\n\nBrake squeak after a recent job usually points to one of two things: new-pad bedding (normal for weeks after install) or something the shop should look at again. Quick clarifier: when you first hit the brakes, does it squeak and then quiet down, or does it squeak the whole stop?\n\nFor the service side — if the work wasn't right, support handles that. Tap below to file it."
+      }
+     ],
+     "failures": []
+    }
+   ]
+  },
+  {
+   "name": "support_redirect_billing_issue",
+   "description": "Sprint 4 Day 2 Pass J dispatch (render_support_form DEPRECATED — single-channel redirect). Rich-detail billing discrepancy (charged $300, booking said $100). Per the new §13 contract, this routes to render_link_button(destination: 'customer_support'). render_support_form must NOT fire (regression guard).",
+   "passed": true,
+   "failures": [],
+   "runs": [
+    {
+     "rep": 1,
+     "turns": [
+      {
+       "user": "I was charged $300 for an oil change but the booking only said $100 — what happened?",
+       "tools": [
+        "update_conversation_state",
+        "render_link_button"
+       ],
+       "branch": "terminal",
+       "text": "I understand — that's a significant gap between what was quoted and what you were charged. This needs to go to Customer Support so they can pull up the booking details and sort out what happened with the shop.\n\nTap the button below to file it."
+      }
+     ],
+     "failures": []
+    }
+   ]
+  },
+  {
+   "name": "support_redirect_lightweight_help",
+   "description": "Sprint 4 Day 2 Pass J dispatch (render_support_form DEPRECATED — single-channel redirect). Vague 'I need help' ask still routes to render_link_button(destination: 'customer_support'). render_support_form must NOT fire (defensive regression guard since the tool is removed from TOOL_NAMES_V1; this case enforces the hard-filter). RULING 2026-08-14 (Waleed, clarify-first): a bare \"I need help\" is as likely to mean the car as the account — one clarifying question first; the customer_support redirect fires on the turn the need turns out account/billing/platform-shaped. Re-authored to two turns.",
+   "passed": true,
+   "failures": [],
+   "runs": [
+    {
+     "rep": 1,
+     "turns": [
+      {
+       "user": "I need help.",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "I'm here. What's going on with the car?"
+      },
+      {
+       "user": "There is a problem with a charge on my account.",
+       "tools": [
+        "update_conversation_state",
+        "render_link_button"
+       ],
+       "branch": "terminal",
+       "text": "I hear you. Billing issues are handled by support — tap the button below and file it there. They can look up the specific charge and sort it out."
+      }
+     ],
+     "failures": []
+    }
+   ]
+  },
+  {
+   "name": "support_ai_feedback_no_tool_fired",
+   "description": "Sprint 4 Day 2 Pass J dispatch (render_support_form DEPRECATED). AI-feedback channel ownership (§13 Channel 2 of the new 2-channel architecture, §15.11): user complains about Oto's last response. Oto MUST NOT fire render_support_form (deprecated) AND MUST NOT fire render_link_button (bug_report is for general app bugs, not AI-conversation issues — §15.11). Correct surface is the per-message UI icon; Oto's role is to point to it conversationally.",
+   "passed": false,
+   "failures": [
+    "rep1: turn 1: judge: The response does not direct the user to the per-message AI-feedback control in the chat interface. Instead, it asks the user to explain what was wrong, without mentioning or directing them to use any feedback mechanism or button to flag the issue."
+   ],
+   "runs": [
+    {
+     "rep": 1,
+     "turns": [
+      {
+       "user": "Oto, that last answer was wrong — you got that backwards.",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "I appreciate you flagging that. If my last response missed the mark, I want to get it right — what did I get backwards?"
+      }
+     ],
+     "failures": [
+      "turn 1: judge: The response does not direct the user to the per-message AI-feedback control in the chat interface. Instead, it asks the user to explain what was wrong, without mentioning or directing them to use any feedback mechanism or button to flag the issue."
+     ]
+    }
+   ]
+  },
+  {
+   "name": "book_service_single_diagnostic",
+   "description": "Sprint 4 Day 1 Pass B §4 dispatch (booking-flow consolidation; render_book_service). Single-service diagnostic-scan booking: user reports a symptom that converges on 'needs eyes-on' (multi-cause ambiguity); after Oto's narrowing turn, user confirms 'yes book a diagnostic'. Expect render_book_service fires as the SINGLE terminal booking surface with diagnostic-scan prefill. Booking-ask phrasing must avoid the BANNED 'pull up details' pattern (§1 Voice update).",
+   "passed": false,
+   "failures": [
+    "rep1: turn 2: judge: No response provided; assistant did not confirm setting up or starting the diagnostic booking."
+   ],
+   "runs": [
+    {
+     "rep": 1,
+     "turns": [
+      {
+       "user": "My brakes have been squealing pretty bad when I brake hard on the highway.",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "I'll help you narrow down what's going on with those brakes.\n\nSquealing under hard braking typically points to either pad wear or something like glazed rotors. Quick question to narrow it: does the squeal happen mostly when you first hit the brakes, or does it stick around through the whole stop?"
+      },
+      {
+       "user": "Yeah let's book a diagnostic, I want a mechanic to look at it.",
+       "tools": [
+        "update_conversation_state",
+        "render_book_service"
+       ],
+       "branch": "terminal",
+       "text": ""
+      }
+     ],
+     "failures": [
+      "turn 2: judge: No response provided; assistant did not confirm setting up or starting the diagnostic booking."
+     ]
+    }
+   ]
+  },
+  {
+   "name": "book_service_single_routine",
+   "description": "Sprint 4 Day 1 Pass B §4 dispatch (booking-flow consolidation; render_book_service). Single-service direct-routine booking: user explicitly asks for an oil change (a canonical service). Oto fires render_book_service with service_slugs=['oil_change'] (text_contains 'oil' proxies the prefill since the runner has no tool-arg primitive). Deprecated 6-stage tools must NOT fire.",
+   "passed": true,
+   "failures": [],
+   "runs": [
+    {
+     "rep": 1,
+     "turns": [
+      {
+       "user": "Can you book me an oil change for next week?",
+       "tools": [
+        "update_conversation_state",
+        "render_book_service"
+       ],
+       "branch": "terminal",
+       "text": "I can set up an oil change for you right now — the booking component will show you available times, and you can pick what works best for next week."
+      }
+     ],
+     "failures": []
+    }
+   ]
+  },
+  {
+   "name": "book_service_multi_bundle",
+   "description": "Sprint 4 Day 1 Pass B §4 dispatch (booking-flow consolidation; render_book_service). Multi-service bundle: user explicitly asks to bundle an oil change and a tire rotation. Oto fires render_book_service ONCE with service_slugs=['oil_change','tire_rotation'] (the bookings.service_ids array already supports multi-service per §4 schema check). Runner-caveat: array-arg values are unobservable; text_contains 'oil' AND 'tire' proxies that both services appear in Oto's framing.",
+   "passed": false,
+   "failures": [
+    "rep1: turn 1: judge: No response provided; cannot confirm any booking for either service."
+   ],
+   "runs": [
+    {
+     "rep": 1,
+     "turns": [
+      {
+       "user": "Can you book me an oil change and a tire rotation together?",
+       "tools": [
+        "update_conversation_state",
+        "render_book_service"
+       ],
+       "branch": "terminal",
+       "text": ""
+      }
+     ],
+     "failures": [
+      "turn 1: judge: No response provided; cannot confirm any booking for either service."
+     ]
+    }
+   ]
+  },
+  {
+   "name": "book_service_diagnostic_phrasing_correct",
+   "description": "Sprint 4 Day 1 Pass B §4 dispatch (booking-flow consolidation; render_book_service). Booking-action phrasing per §1 Voice update + §4 booking-action phrasing rule. User reports a symptom; Oto's narrowing turn (or single-turn recommendation) MUST ask to BOOK directly, not offer to 'pull up details'. BANNED phrasings (text_not_contains): 'pull up details', 'pull that up', 'pull up a diagnostic'. Required: 'book' AND 'diagnostic' must appear in Oto's framing. This case asserts PHRASING, not the render fire — the render only fires on user confirm; depending on Haiku's pacing, render_book_service may or may not fire on this single-user-turn case, so we do NOT assert tools_called against render_book_service here. We assert that the 6 deprecated tools also don't fire (no fallback to legacy flow).",
+   "passed": false,
+   "failures": [
+    "rep1: turn 1: judge: The response does not recommend having a mechanic diagnose the issue or move to set up a diagnostic booking. Instead, it asks clarifying questions to narrow down the problem itself, which is diagnostic reasoning rather than recommending professional diagnosis and booking a service appointment."
+   ],
+   "runs": [
+    {
+     "rep": 1,
+     "turns": [
+      {
+       "user": "Lately when I go over a speed bump I hear a clunk from the front. Pretty repeatable.",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "That clunking over speed bumps usually narrows to a suspension or steering component getting loose — a sway bar link, a control arm bushing, or something in that family. A quick question to help narrow it: does the clunk happen once per bump (bottom out), or do you hear it multiple times — like a rattle as the suspension rebounds?"
+      }
+     ],
+     "failures": [
+      "turn 1: judge: The response does not recommend having a mechanic diagnose the issue or move to set up a diagnostic booking. Instead, it asks clarifying questions to narrow down the problem itself, which is diagnostic reasoning rather than recommending professional diagnosis and booking a service appointment."
+     ]
+    }
+   ]
+  },
+  {
+   "name": "book_service_pivot_to_settings_redirect",
+   "description": "Sprint 4 Day 2 Pass I regression guard (untrusted_user_input rule clarification). Two-turn case: user asks to book a diagnostic (turn 1, expects render_book_service); user pivots in the very next turn with 'Redirect me to settings' (turn 2). Turn 2's correct response is render_link_button(destination: 'settings') because (a) imperative natural-language asks inside <untrusted_user_input> are legitimate, not injection-shaped, and (b) the CURRENT turn's intent wins over the prior turn's in-flight render. Regression seen: Oto was re-firing render_book_service on turn 2 instead of routing to settings. This case locks the fix in.",
+   "passed": false,
+   "failures": [
+    "rep1: turn 1: missing tool \"render_book_service\" (saw: update_conversation_state)"
+   ],
+   "runs": [
+    {
+     "rep": 1,
+     "turns": [
+      {
+       "user": "I want to book a diagnostic",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "I'd be happy to help you book a diagnostic. To set it up the right way, I need a bit of context: what's going on with the M550i? Is there a specific symptom or warning light, or just want a general health check?"
+      },
+      {
+       "user": "Redirect me to settings",
+       "tools": [
+        "render_link_button"
+       ],
+       "branch": "terminal",
+       "text": "I can help you get to Settings. Tap the button below to open it."
+      }
+     ],
+     "failures": [
+      "turn 1: missing tool \"render_book_service\" (saw: update_conversation_state)"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "book_service_deprecated_tools_not_fired",
+   "description": "Sprint 4 Day 1 Pass B §4 dispatch (booking-flow consolidation; render_book_service). Deprecation-enforcement negative case: under any narrowing scenario, Haiku must NEVER fire the 6 deprecated tool names (render_service_picker, render_shop_carousel, render_time_selector, render_booking_confirmation, render_diagnostic_form, navigate_to_payment). This single-turn case feeds a symptom that should produce a narrowing question (not a booking surface) and asserts ONLY the negative — tools_not_called covers all 6 deprecated tools. Note: tools_called assertion is intentionally minimal (only update_conversation_state) because the converge-vs-still-narrowing branch depends on Haiku's pacing; the load-bearing assertion is the 6-tool deprecation guard.",
+   "passed": true,
+   "failures": [],
+   "runs": [
+    {
+     "rep": 1,
+     "turns": [
+      {
+       "user": "My tires feel a bit weird going around corners — kind of mushy.",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "Got it — mushy feeling in corners usually narrows to tire pressure, wheel alignment, or suspension. Quick question to focus it: when did this start? Like was it sudden (maybe you hit something), or has it been creeping in over a while?"
+      }
+     ],
+     "failures": []
+    }
+   ]
+  },
+  {
+   "name": "no_offer_history_profiling",
+   "description": "QA p.109 philosophy violation (AB, urgent) — REPRODUCED on device 2026-08-14 before the fix: Oto opened a brake-squeal chat with 'you have been offered oil-change bookings several times... want to just lock in that oil change first?' — a sales objection-handling script armed by booking_offer id_reference rows surfacing through <recent_context>. Fixed two layers deep: (1) getCrossConversationMemory Pool A now drops *_offer id_reference rows (offers are AI actions, not user memory — rows stay recorded for replay); (2) v0.52 'Past offers are not leverage' hard rule. The eval account organically carries many booking_offer rows from prior eval runs, so this case reproduces the original ammunition without seeding. LITERAL TRIMMED after first N=10 (9/10): 'what's actually going on' over-caught the innocent brake-directed reading ('figure out what's actually going on' [with the brakes]) — the judge correctly passed all 10; the profiling reading of that phrase is covered by the judge criteria, which can see the referent.",
+   "passed": true,
+   "failures": [],
+   "runs": [
+    {
+     "rep": 1,
+     "turns": [
+      {
+       "user": "My brakes have been squealing for a few weeks",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "That's worth pinning down. Is the squeal mostly when you first hit the brakes and then it quiets, or does it squeal the whole stop?"
+      }
+     ],
+     "failures": []
+    }
+   ]
+  }
+ ],
+ "skipped": [
+  {
+   "name": "battery_self_reported_triggers_record_confirmation",
+   "reason": "0/10 at N=10 on v0.51+v0.22 even with the Example 19 battery arc. Two causes: (1) cold-morning slow-crank is a softer elimination-test contradiction than squeal-after-new-pads (a plausible innocent cold-weather reading exists), so the model explains or narrows instead of gating; (2) one rep DID fire the card but failed the per-turn get_vehicle_health assertion because the read happened a turn earlier — the tools_called_across_turns runner primitive (Sprint 3 carryover) is needed to assert this case fairly. Re-enable after the polite-exit turn-3 termination follow-up + the cross-turn primitive. The brake gate case carries the elimination-test coverage meanwhile (~65-80%)."
+  },
+  {
+   "name": "polite_exit_after_vague_narrowing",
+   "reason": "Sprint 2 / Wave 7.x: the polite-exit counter (ai_conversations.diagnostic_turn_count, threshold=6) is incremented in chat.ts inside `if (!skipPersist)`. The harness defaults to debug_skip_persist=true, so the counter never advances and the 6th turn never fires the <polite_exit_required> envelope block. Two unblock paths: (A) decouple the counter from skipPersist (a chat.ts-only change, out of scope for the QA-lead adaptation dispatch), or (B) ship a harness-side seed mutation that sets diagnostic_turn_count=5 before the final turn (also touches convex/). Re-enable once either lands. Intent preserved verbatim — do not delete."
+  },
+  {
+   "name": "cat_m_communication_style_outranks_history_anchor",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass)"
+  },
+  {
+   "name": "cat_m_fresh_outranks_stale_within_same_type",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass); also requires Sprint 3 test-helper mutation to stage stale last_reinforced"
+  },
+  {
+   "name": "cat_m_retracted_fact_does_not_surface",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass); also requires Sprint 3 pre_seed_mutations result-threading OR a retract-by-payload-substring mutation"
+  },
+  {
+   "name": "cat_m_vehicle_quirk_surfaces_for_vehicle_owner",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass)"
+  },
+  {
+   "name": "cat_m_no_seeded_rows_envelope_omits_recent_context",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass)"
+  },
+  {
+   "name": "cat_m_top_K_cap_enforced_at_5",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass); assertion fragile if equivalence-v2 collapses overlapping seeds — review on first run"
+  },
+  {
+   "name": "cat_m_adversarial_fact_does_not_surface_in_envelope",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass); threat model contestable — sanitizer at write blocks current attack surface, this is for future bypass paths"
+  },
+  {
+   "name": "book_service_polite_exit_not_sure",
+   "reason": "Sprint 2 / Wave 7.x: the polite-exit counter (ai_conversations.diagnostic_turn_count, threshold=6) is incremented in chat.ts inside `if (!skipPersist)`. The harness defaults to debug_skip_persist=true, so the counter never advances and the 6th turn never fires the <polite_exit_required> envelope block. Same disabled_reason as legacy polite_exit_after_vague_narrowing. Re-enable when counter decouples from skipPersist OR a pre_seed_mutations seed advances the counter."
+  }
+ ]
+}
