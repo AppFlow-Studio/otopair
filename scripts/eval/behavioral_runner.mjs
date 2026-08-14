@@ -99,6 +99,15 @@ function assertTurn(t, r, turnIdx, failures, toolsSoFar = []) {
     if (!text.includes(String(n).toLowerCase())) fail(`text missing "${n}"`);
   for (const n of e.text_not_contains || [])
     if (text.includes(String(n).toLowerCase())) fail(`text contains banned "${n}"`);
+  // book_service_rendered — asserts the turn shipped a BookService render,
+  // whether the MODEL called render_book_service or the SERVER's forced-exit
+  // backstop concluded the turn (which sets renderEnvelope.bookService with no
+  // tool_use — invisible to tools_called/tools_called_any_turn by design).
+  // Reads trace.book_service (chat.ts sets it post-backstop on debug runs).
+  if (e.book_service_rendered === true) {
+    if (!tr.book_service)
+      fail(`book_service not rendered (trace.book_service empty)`);
+  }
   if (e.form_system) {
     const actual = result.showDiagnosticForm?.initialSystem ?? null;
     if (actual !== e.form_system) fail(`form_system "${actual}" !== "${e.form_system}"`);
