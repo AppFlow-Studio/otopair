@@ -457,6 +457,79 @@ in registry §14.4.
 
 ---
 
+## 0m. Reliability round 2 — the three broken cases closed + the marginal classes (2026-08-14, post-compact; commits `4f88d403` + `660fb8aa`)
+
+**All three "broken" cases from §0l are closed, and the biggest marginal classes got
+structural fixes.** Every case touched in this round passes at REPEAT=3 (the green bar).
+
+**Waleed ruling (this session): N63 is a DATA issue, do not fix the data here.** The dev
+deployment doesn't carry the latest enrichment data (the eval M550i's `engines` row stores
+`4.4l_8cyl` as `engine_code`), and enrichment data is out of Oto scope — "only oto ui or oto
+backend." Trace-proven: Oto calls `get_vehicle_facts` and faithfully cites the stored value —
+grounded read, correct behavior, wrong catalog. `engine_fact_accuracy_n63_not_s63` is disabled
+with the ruling in `disabled_reason`; re-enable when the deployment picks up current enrichment.
+
+**Loyalty routing (0/3 → 7/7 incl. neighbors):** all three reps refused the redirect correctly,
+then OFFERED to pull the balance instead of pulling it. Same failure class as card_or_list →
+same lever: `get_rewards_summary` description gained an OPEN/SHOW-requests-fire-this-tool
+clause ("the way you 'open' loyalty is to call this tool NOW — fire, don't offer").
+
+**Pivot case:** the original regression (re-firing book_service on a settings pivot) is fixed —
+all reps route turn 2 to `render_link_button`. What failed was turn 1: the bare "I want to book
+a diagnostic" correctly triggers the sanctioned clarify-first question, so the case's
+immediate-render demand contradicted product intent. Turn 1 is now symptom-complete
+(service + symptom + context), preserving the in-flight-render precondition the pivot guard needs.
+
+**Semantic-record flakiness was fixture dirt, not model indiscipline.** Failing reps said it
+outright: "That preference is already on file from earlier." The eval account accumulates
+facts across runs; the model correctly dedups. 8 memory cases now pre-seed
+`scrubAllSemanticFacts` PER-REP (the runner runs pre_seeds inside the rep loop). 11/11 after.
+
+**Reinforce-quirk was a stale layer-4 line.** `record_semantic_fact`'s description literally
+said "Reinforcement and retraction are deferred to future tools; this tool only RECORDS first
+observations" — pre-reinforcement text contradicting volatile Example 22, and tool descriptions
+outweigh prompt prose. Replaced with the live contract (re-call on repetition/emphasis, backend
+dedupes and bumps weight; analyzing the repetition in prose without re-calling is WRONG).
+
+**Polite-exit counter rewrite (the diagnostic_phrasing killer):** the old increment was gated
+on askedQuestion||chips, and the decay branch treated "didn't ask" as "arc resolved" —
+RESETTING the count on prose statement turns. Observed: chips t1 (count 1) → prose analysis t2
+(reset to 0!) → t3 narrates "a Diagnostic Scan will let a mechanic confirm…" with no render,
+and the backstop could never fire. Now EVERY unconverged narrowing turn counts (question,
+chips, or prose; intent tag is the signal — sticky across skipped state calls — chips the
+fallback); decay only on a genuine pivot (arc was narrowing, current intent isn't); offer-hold
+removed (under the turn-3 contract an offer on the deadline turn isn't acceptable either);
+concluded-non-booking turns (trust gate, link) hold the count.
+
+**Two more deterministic output layers in chat.ts:**
+- **Post-guard re-framing:** the terminal-render framing floor ran BEFORE `stripBannedClaims`,
+  so when the guard dropped the model's only sentence (an oil-change price quote), the turn
+  shipped an empty bubble above a live card. The floor is now a helper re-applied after the
+  guard pass.
+- **`rewriteNarrationSlips`:** "the system <verb>" → "Our records <verb>" (shows/says/
+  indicates/reports/flags/lists/found) and aux/track forms → "OtoPair <aux>". Safe because the
+  bare collocation never occurs in legitimate automotive prose — real subsystems always carry a
+  qualifier ("the cooling system"). Kills the ~10% narration-slip class deterministically.
+
+**Runner primitive `book_service_rendered`:** the forced-exit backstop renders the booking card
+server-side with NO tool_use, so `tools_called`/`tools_called_any_turn` could never see a
+backstop-concluded turn. New expect field reads `trace.book_service`. 5 termination cases
+converted (polite_exit ×2, diagnostic_phrasing, oil/tires routes).
+
+**Assertion repairs from this round's false positives:** "the system" bans are now the
+trailing-space literal `"the system "` (bare form substring-matched the legitimate plural "one
+of the systems OtoPair doesn't track"); oil turn-1's stop-drive ban is a judge (conditional
+escalation education — "if you see smoke, stop driving" — is correct mechanic behavior, not an
+instruction); support_ai_feedback is two-turn (a complaint about "that last answer" needs a
+prior answer to exist — the model reasonably said there was nothing to review).
+
+**Remaining marginals after this round** (from §0l's list, minus what closed here): retraction
+flavor variance, judge-depth phrasings, payload_overflow rep, health-check batching, voice/
+loyalty-info/link-button one-off reps. Next real signal should be a human free-play session
+against the current build.
+
+---
+
 ## 0l. The drive to green — reliability round (2026-08-14, after Waleed's "get the baseline to 96")
 
 **Trajectory: 60/94 (v0.46) → 72/96 → 80/98 → 84/98**, with every remaining failure classified
