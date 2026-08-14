@@ -13,8 +13,10 @@
 // fields the JSON _doc defines that the HTML block predates:
 //   tools_called / tools_not_called / branch / text_contains /
 //   text_not_contains / form_system / envelope_contains / envelope_not_contains
-//   / pre_seed_mutations. Env: CASE_FILTER (name substring), REPEAT (N>=1, all
-//   N must pass), TARGET_EMAIL (default the M550i owner).
+//   / pre_seed_mutations / text_judge (LLM judge via devOnly/evalJudge:judge —
+//   behavioral criteria instead of fragile substrings; Pass H's
+//   assertion-too-narrow fix). Env: CASE_FILTER (name substring), REPEAT
+//   (N>=1, all N must pass), TARGET_EMAIL (default the M550i owner).
 //
 // Usage:  node scripts/eval/behavioral_runner.mjs
 // Output: scripts/eval/runs/behavioral_<ts>.json + console summary.
@@ -93,6 +95,22 @@ function assertTurn(t, r, turnIdx, failures) {
     if (!envelope.includes(String(n).toLowerCase())) fail(`envelope missing "${n}"`);
   for (const n of e.envelope_not_contains || [])
     if (envelope.includes(String(n).toLowerCase())) fail(`envelope contains banned "${n}"`);
+  // text_judge — behavioral criteria evaluated by an LLM judge (temperature 0,
+  // verdict-first). The judge sees ONLY this turn's assistant text, so criteria
+  // must be self-contained. A judge-transport error fails the turn loudly
+  // (it's an infra problem, not a soft pass).
+  if (e.text_judge) {
+    try {
+      const verdict = convexRun("devOnly/evalJudge:judge", {
+        criteria: String(e.text_judge),
+        text: result.text ?? "",
+      });
+      if (!verdict || verdict.pass !== true)
+        fail(`judge: ${verdict?.reason ?? "no verdict returned"}`);
+    } catch (err) {
+      fail(`judge transport error: ${String(err?.message ?? err).slice(0, 200)}`);
+    }
+  }
   return { tools, branch: lastIter.branch, text: result.text ?? "" };
 }
 
