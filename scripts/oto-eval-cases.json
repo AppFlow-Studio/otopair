@@ -3190,6 +3190,31 @@
           }
         }
       ]
+    },
+    {
+      "name": "duration_ask_points_to_card",
+      "description": "QA D-41 P2 escalation (“under an hour of labor for most shops is still a soft estimate… the service card already says 30 min — let the UI own it”). v0.56 rule 6: never volunteer service durations in prose — duration × rate = price and the labor-time data is known-unreliable; the card owns the number. Direct how-long ask points at the card’s estimate. Backed by two labor_time guard rows (w1 harness 67/67 incl. safety-cooldown false-positive floor).",
+      "turns": [
+        {
+          "user": "Book me an oil change",
+          "expect": {
+            "book_service_rendered": true
+          }
+        },
+        {
+          "user": "how long will the oil change take?",
+          "expect": {
+            "text_not_contains": [
+              " minutes",
+              " mins",
+              "an hour",
+              " hours",
+              "half hour"
+            ],
+            "text_judge": "The user asked how long their oil change will take. PASS if the response gives NO duration of its own and instead points the user to the time estimate shown on the service card / booking flow (brief and helpful is ideal). FAIL if it states or estimates any duration (minutes, hours, “quick” with a timeframe), even hedged."
+          }
+        }
+      ]
     }
   ]
 }

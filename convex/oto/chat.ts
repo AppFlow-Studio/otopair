@@ -2622,6 +2622,10 @@ type GuardCategory =
 const OUTPUT_GUARD_PATTERNS: { category: GuardCategory; re: RegExp }[] = [
   // W1.2 — currency. $N in any form, or spelled-out "N dollars/bucks".
   { category: "currency", re: /\$\s*\d|\b\d[\d,]*(?:\.\d+)?\s*(?:dollars|bucks)\b/i },
+  // D-44 "not even loosely" (2026-08-15): spelled-out loose pricing slips the
+  // digit-anchored row above. Money units required, so "a few hundred miles"
+  // survives.
+  { category: "currency", re: /\b(?:few|couple(?:\s+of)?|several|some)\s+(?:hundred|thousand)\s+(?:dollars|bucks)\b|\b(?:hundreds?|thousands?)\s+of\s+dollars\b|\b\d[\d,]*\s*grand\b/i },
   // W1.4 — warranty-shaped durability promises: "N years ... N miles" either
   // order within one clause (D-19, K5's "10 years / 100,000 miles"). Plain
   // mileage-interval advice ("rotate every 5,000 miles") has no year pair and
@@ -2664,6 +2668,14 @@ const OUTPUT_GUARD_PATTERNS: { category: GuardCategory; re: RegExp }[] = [
   { category: "labor_time", re: /\b(?:\d+(?:\.\d+)?|an?|one|two|three|four|five|six|seven|eight|nine|ten|half|couple|few)\s+(?:or\s+\S+\s+)?(?:hours?|hrs?|minutes?|mins?)\s+(?:of\s+)?(?:labor|labour|book\s+time|shop\s+time)\b/i },
   { category: "labor_time", re: /\blabou?r\b(?!\s+day)[^.!?\n]{0,25}\b\d+(?:\.\d+)?\s*(?:hours?|hrs?|minutes?|mins?)\b/i },
   { category: "labor_time", re: /\bflat[- ]rate\s+(?:time|hours?)\b/i },
+  // D-41 escalation (2026-08-15): bare durations are labor time in disguise
+  // ("usually pretty quick — under an hour"); the service card owns the
+  // number. Both rows require a service noun in the same sentence so safety
+  // logistics survive ("let the engine cool for 30 minutes" has no service
+  // noun; "your brakes were serviced about 6 months ago" fails the
+  // minutes/hours unit match).
+  { category: "labor_time", re: /\b(?:scan|service|job|repair|appointment|visit|inspection|replacement|rotation|oil change|diagnostic|the work)\b[^.!?\n]{0,60}\b(?:about|around|roughly|under|less than|~)?\s*(?:an?\s+hour|half\s+an?\s+hour|\d+(?:\s*[-–]\s*\d+)?\s*(?:hours?|hrs?|minutes?|mins?))\b/i },
+  { category: "labor_time", re: /\b(?:takes?|taking|done|finished|in\s+and\s+out|turnaround|be\s+ready)\b[^.!?\n]{0,40}\b(?:about|around|roughly|under|less than|~)?\s*(?:an?\s+hour|half\s+an?\s+hour|\d+(?:\s*[-–]\s*\d+)?\s*(?:hours?|hrs?|minutes?|mins?))\b[^.!?\n]{0,60}\b(?:scan|service|job|repair|appointment|visit|inspection|replacement|rotation|oil change|diagnostic)\b/i },
   // Medical treatment phrases (v0.48 hard rule; medical_redirect emitted burn
   // first-aid 5/10 at N=10 even with the prompt rule + these back up the new
   // medical_injury classifier). Deliberately narrow: unambiguous FIRST-AID
