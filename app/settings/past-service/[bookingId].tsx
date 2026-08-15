@@ -13,9 +13,10 @@
  * so it says "Your Tiguan was serviced" and the services live in their own
  * list — naming one in the headline silently hid the rest.
  *
- * Deliberately NOT using <Text> from shared-ui: that component is bound to the
- * Urbanist family, and this surface pairs Inter with Geist Mono, matching the
- * list screen. Families and colours still come from constants/theme.ts.
+ * Type comes from ServiceLogFonts (constants/theme.ts) — roles, not families —
+ * so the whole typographic system for these three surfaces swaps in one place.
+ * Uses RN Text rather than shared-ui <Text> because these screens need weights
+ * and tracking that component does not expose.
  *
  * USED IN: Settings → Past Services → row tap (and the Recommended-services
  *          deep link for resolved rows).
@@ -53,7 +54,7 @@ import {
   type PastServiceActionsSheetRef,
 } from "@/components/past-services/PastServiceActionsSheet";
 import { ReceiptSheet } from "@/components/receipts/ReceiptSheet";
-import { FontFamily, OtoGradient, ServiceLogColors as C } from "@/constants/theme";
+import { OtoGradient, ServiceLogColors as C, ServiceLogFonts as F } from "@/constants/theme";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useMyBookingsWithDetails } from "@/hooks/useMyBookingsWithDetails";
@@ -509,21 +510,21 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   headline: {
-    fontFamily: FontFamily.interBold,
+    fontFamily: F.display,
     fontSize: 26,
     lineHeight: 32,
     letterSpacing: -0.8,
     color: C.ink,
   },
   subhead: {
-    fontFamily: FontFamily.interRegular,
+    fontFamily: F.regular,
     fontSize: 13,
     color: C.low,
   },
 
   // ── section labels ────────────────────────────────────────
   label: {
-    fontFamily: FontFamily.techMonoMedium,
+    fontFamily: F.micro,
     fontSize: 9,
     letterSpacing: 1.8,
     color: C.low,
@@ -551,13 +552,13 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   serviceName: {
-    fontFamily: FontFamily.interSemiBold,
+    fontFamily: F.semi,
     fontSize: 15,
     letterSpacing: -0.1,
     color: C.ink,
   },
   serviceMeta: {
-    fontFamily: FontFamily.techMono,
+    fontFamily: F.microRegular,
     fontSize: 9,
     letterSpacing: 0.9,
     color: C.low,
@@ -597,12 +598,12 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   cardTitle: {
-    fontFamily: FontFamily.interSemiBold,
+    fontFamily: F.semi,
     fontSize: 15,
     color: C.ink,
   },
   cardSub: {
-    fontFamily: FontFamily.interRegular,
+    fontFamily: F.regular,
     fontSize: 12,
     color: C.low,
   },
@@ -612,14 +613,14 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   linkLabel: {
-    fontFamily: FontFamily.interSemiBold,
+    fontFamily: F.semi,
     fontSize: 13,
     color: C.accent,
   },
 
   // ── findings ──────────────────────────────────────────────
   findings: {
-    fontFamily: FontFamily.interRegular,
+    fontFamily: F.regular,
     fontSize: 16,
     lineHeight: 25,
     color: C.ink,
@@ -637,19 +638,19 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   readoutLabel: {
-    fontFamily: FontFamily.techMonoMedium,
+    fontFamily: F.micro,
     fontSize: 9,
     letterSpacing: 1.6,
     color: C.low,
   },
   readoutValue: {
-    fontFamily: FontFamily.interSemiBold,
+    fontFamily: F.semi,
     fontSize: 22,
     letterSpacing: -0.6,
     color: C.ink,
   },
   readoutValueMuted: {
-    fontFamily: FontFamily.interSemiBold,
+    fontFamily: F.semi,
     fontSize: 22,
     letterSpacing: -0.6,
     color: C.mid,
@@ -672,7 +673,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   ctaLabel: {
-    fontFamily: FontFamily.interSemiBold,
+    fontFamily: F.semi,
     fontSize: 15,
     color: C.onAccent,
   },
@@ -683,13 +684,13 @@ const styles = StyleSheet.create({
     paddingTop: 60,
   },
   noticeLabel: {
-    fontFamily: FontFamily.techMonoMedium,
+    fontFamily: F.micro,
     fontSize: 11,
     letterSpacing: 1.8,
     color: C.mid,
   },
   noticeSub: {
-    fontFamily: FontFamily.interRegular,
+    fontFamily: F.regular,
     fontSize: 13,
     color: C.low,
     marginTop: 8,
