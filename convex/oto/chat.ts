@@ -52,6 +52,12 @@ import {
   type ResolvedVehicle,
 } from "./envelope";
 import { classifyTurnSafety, renderSafetyOverrideBlock } from "./safety";
+import {
+  classifyTrackedSymptoms,
+  symptomServiceTarget,
+  targetAlreadyCovered,
+  trackedSuppressedByHazards,
+} from "../../lib/symptomTracking";
 import { OTO_TOOL_CATEGORY, OTO_TOOLS, OTOPAIR_SERVICE_SLUGS } from "./tools";
 import {
   executeTool,
@@ -864,6 +870,15 @@ export async function sendMessageHandlerCore(
   // convex/oto/safety.ts for the defect inventory this closes.
   const safetyFindings = classifyTurnSafety(message);
   const safetyOverride = renderSafetyOverrideBlock(safetyFindings);
+  // Issue 2 (2026-08-15) — ledger rows appended THIS turn, safety and tracked
+  // alike. The `openSymptomRows` snapshot above is pre-turn, so without this
+  // a booking rendered on the SAME turn the symptoms arrived (the report's
+  // four-symptoms-in-one-message case) would bundle and pre-check nothing.
+  const symptomsAppendedThisTurn: {
+    text: string;
+    category: string;
+    safety_relevant: boolean;
+  }[] = [];
   if (safetyFindings.length > 0) {
     // Log the classification, never the user's message (PII). Category +
     // severity is enough to audit false positives from telemetry.
@@ -894,12 +909,47 @@ export async function sendMessageHandlerCore(
             safety_relevant: true,
           },
         );
+        symptomsAppendedThisTurn.push({
+          text: message.slice(0, 140),
+          category: `${f.category}:${f.matched}`,
+          safety_relevant: true,
+        });
       } catch (e: any) {
         console.error(
           "[oto/chat] open-symptom append failed (swallowed):",
           e?.message,
         );
       }
+    }
+  }
+  // Issue 2 — tracked-symptom appends. The safety ledger only ever carried
+  // hazard-tier findings, so a brake squeak, an AC smell, or a steady
+  // check-engine light was invisible state. Same deterministic posture:
+  // classifier, not model; dedupe by category inside the mutation; a hazard
+  // row appended above suppresses the tracked row for the same subsystem.
+  for (const t of classifyTrackedSymptoms(message)) {
+    if (trackedSuppressedByHazards(t.key, safetyFindings)) continue;
+    const category = `tracked:${t.key}`;
+    try {
+      await ctx.runMutation(
+        internal.ai_conversations.appendOpenSymptomInternal,
+        {
+          id: conversationId,
+          text: t.text,
+          category,
+          safety_relevant: false,
+        },
+      );
+      symptomsAppendedThisTurn.push({
+        text: t.text,
+        category,
+        safety_relevant: false,
+      });
+    } catch (e: any) {
+      console.error(
+        "[oto/chat] tracked-symptom append failed (swallowed):",
+        e?.message,
+      );
     }
   }
 
@@ -1698,11 +1748,20 @@ export async function sendMessageHandlerCore(
   // model's prose forgot them — and mark the ledger rows addressed. Notes
   // that already mention a symptom (Haiku did its job) aren't duplicated:
   // the check is a case-insensitive substring pass per symptom text.
-  if (renderEnvelope.bookService !== undefined && openSymptomRows.length > 0) {
+  // Issue 2 — the bundler sees the pre-turn snapshot PLUS rows appended this
+  // turn, so the report's four-symptoms-then-booking-in-one-turn case bundles
+  // and pre-checks everything instead of nothing.
+  const bundlerSymptomRows = [
+    ...openSymptomRows,
+    ...symptomsAppendedThisTurn.filter(
+      (a) => !openSymptomRows.some((s) => s.category === a.category),
+    ),
+  ];
+  if (renderEnvelope.bookService !== undefined && bundlerSymptomRows.length > 0) {
     const bs = renderEnvelope.bookService as Record<string, unknown>;
     const notes = typeof bs.customer_notes === "string" ? bs.customer_notes : "";
     const notesLower = notes.toLowerCase();
-    const toBundle = openSymptomRows.filter(
+    const toBundle = bundlerSymptomRows.filter(
       (s) => !notesLower.includes(s.text.toLowerCase().slice(0, 60)),
     );
     if (toBundle.length > 0) {
@@ -1714,6 +1773,41 @@ export async function sendMessageHandlerCore(
         `[oto/chat] W3.3: bundled ${toBundle.length} open symptom(s) into booking notes`,
       );
     }
+    // Issue 2 — "pre-check every one of them in the service picker": map each
+    // open symptom to its bookable service and merge into service_slugs, so
+    // BookServiceComponent stage 1 renders them already checked. Skips slugs
+    // the booking already covers (a brake-pad job covers a brake-noise scan).
+    // diagnostic_system: the model's own choice wins; otherwise one mapped
+    // system is used as-is and mixed systems degrade to not_sure.
+    const existingSlugs = Array.isArray(bs.service_slugs)
+      ? (bs.service_slugs as string[])
+      : [];
+    const addedSlugs: string[] = [];
+    const addedSystems = new Set<string>();
+    for (const s of bundlerSymptomRows) {
+      const target = symptomServiceTarget(s.category);
+      if (!target) continue;
+      if (
+        targetAlreadyCovered(target, existingSlugs) ||
+        addedSlugs.includes(target.slug)
+      )
+        continue;
+      addedSlugs.push(target.slug);
+      if (target.system) addedSystems.add(target.system);
+    }
+    if (addedSlugs.length > 0) {
+      bs.service_slugs = [...existingSlugs, ...addedSlugs];
+      if (
+        addedSlugs.includes("diagnostic_scan") &&
+        bs.diagnostic_system === undefined
+      ) {
+        bs.diagnostic_system =
+          addedSystems.size === 1 ? [...addedSystems][0] : "not_sure";
+      }
+      console.warn(
+        `[oto/chat] Issue 2: pre-checked ${addedSlugs.length} symptom service(s) into booking: ${addedSlugs.join(", ")}`,
+      );
+    }
     // The booking offer is the addressing event for EVERY open symptom this
     // turn (bundled or already present in the notes) — fire-and-forget.
     try {
@@ -1721,7 +1815,7 @@ export async function sendMessageHandlerCore(
         internal.ai_conversations.markSymptomsAddressedInternal,
         {
           id: conversationId,
-          categories: openSymptomRows.map((s) => s.category),
+          categories: bundlerSymptomRows.map((s) => s.category),
         },
       );
     } catch (e: any) {
