@@ -41,7 +41,7 @@ import { useToast } from "@/hooks/useToast";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
-import { Calendar, CalendarX, Check, ListFilter, Star } from "lucide-react-native";
+import { Calendar, CalendarX, Check, ChevronRight, ListFilter, Star } from "lucide-react-native";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Image, PixelRatio, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
 import Animated from "react-native-reanimated";
@@ -307,6 +307,24 @@ export default function BookingsScreen() {
   );
   const showPendingReviewsButton = activeTab === "bookings" && pendingReviewCount > 0;
 
+  const pendingReviewLabel =
+    pendingReviewCount === 1
+      ? "1 service needs your review"
+      : `${pendingReviewCount} services need your review`;
+
+  // Names the newest unreviewed booking so the row says what is waiting, not
+  // just how many. Respects the active vehicle filter, same as the count.
+  // Service labels match CompletedBookingReviewCard on the destination screen
+  // so the row and the screen it opens cannot disagree.
+  const pendingReviewSubtitle = useMemo(() => {
+    const first = pendingReviewBookings.filter(matchesListFilter)[0];
+    if (!first) return "";
+    const service = first.services.join(", ") || "Service";
+    const base = first.shopName ? `${service} · ${first.shopName}` : service;
+    const others = pendingReviewCount - 1;
+    return others > 0 ? `${base}  +${others} more` : base;
+  }, [pendingReviewBookings, matchesListFilter, pendingReviewCount]);
+
   const handleReschedule = useCallback(
     (bookingId?: string) => {
       if (!bookingId) return;
@@ -425,8 +443,8 @@ export default function BookingsScreen() {
               </View>
             </View>
 
-            {/* Vehicle picker + pending-review shortcut. */}
-            {allVehicles.length > 1 || showPendingReviewsButton ? (
+            {/* Vehicle picker. */}
+            {allVehicles.length > 1 ? (
               <View style={styles.pickerRow}>
                 {allVehicles.length > 1 ? (
                   <Pressable
@@ -469,35 +487,52 @@ export default function BookingsScreen() {
                     </View>
                   </Pressable>
                 ) : null}
-                {showPendingReviewsButton ? (
-                  <Pressable
-                    onPress={() => router.push("/bookings/pending-reviews")}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Pending reviews, ${pendingReviewCount}`}
-                    style={({ pressed }) => [
-                      styles.pendingReviewsButton,
-                      pressed && { opacity: 0.85 },
-                    ]}
-                  >
-                    <Star size={20} color="#141C24" />
-                    <View style={styles.pendingReviewsBadge}>
-                      <Text
-                        weight="semiBold"
-                        style={styles.pendingReviewsBadgeText}
-                      >
-                        {pendingReviewCount}
-                      </Text>
-                    </View>
-                  </Pressable>
-                ) : null}
               </View>
+            ) : null}
+
+            {/* Pending-review prompt. This was a circular Star button in the
+                row above with only a count badge — an unlabelled glyph that
+                never said what was waiting. A full-width row on the booking
+                cards' gutters names the service instead, which is what
+                comparable order-history surfaces do (Thrive Market, Agoda).
+                Destination is unchanged. */}
+            {showPendingReviewsButton ? (
+              <Pressable
+                onPress={() => router.push("/bookings/pending-reviews")}
+                accessibilityRole="button"
+                accessibilityLabel={pendingReviewLabel}
+                accessibilityHint="Opens your pending reviews"
+                style={({ pressed }) => [
+                  styles.reviewBanner,
+                  pressed && { opacity: 0.9 },
+                ]}
+              >
+                <View style={styles.reviewBannerIcon}>
+                  <Star size={19} color="#E8A93B" fill="#E8A93B" />
+                </View>
+                <View style={styles.reviewBannerCopy}>
+                  <Text weight="bold" color="#141C24" style={styles.reviewBannerTitle}>
+                    {pendingReviewLabel}
+                  </Text>
+                  {pendingReviewSubtitle ? (
+                    <Text
+                      color="#6B7280"
+                      numberOfLines={1}
+                      style={styles.reviewBannerSubtitle}
+                    >
+                      {pendingReviewSubtitle}
+                    </Text>
+                  ) : null}
+                </View>
+                <ChevronRight size={18} color="#9CA3AF" strokeWidth={2} />
+              </Pressable>
             ) : null}
 
             {/* Booking Content. The Bookings tab includes in-progress
                 cards now — their per-card progress bar communicates
                 status inline, replacing the old Live Tracker tab.
-                Completed-but-unreviewed bookings live behind the circular
-                Star button above — see /bookings/pending-reviews.
+                Completed-but-unreviewed bookings live behind the review
+                banner above — see /bookings/pending-reviews.
                 The Recommended tab swaps the list for the mechanic-rec
                 history view instead — same content as the standalone
                 /bookings/recommended screen (kept for deep links). */}
@@ -813,34 +848,44 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 16,
   },
-  pendingReviewsButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+  // Review banner — matches the booking cards' 20pt gutters so the two read
+  // as one column.
+  reviewBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginHorizontal: 20,
+    marginTop: 14,
+    marginBottom: 14,
+    paddingHorizontal: 14,
+    height: 68,
+    borderRadius: 18,
     backgroundColor: "#FFFFFF",
-    borderWidth: 0.5,
-    borderColor: "rgba(0,0,0,0.06)",
+    shadowColor: "#14273F",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.1,
+    shadowRadius: 16,
+    elevation: 3,
+  },
+  reviewBannerIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "#FEF4DA",
     alignItems: "center",
     justifyContent: "center",
   },
-  pendingReviewsBadge: {
-    position: "absolute",
-    top: -2,
-    right: -2,
-    minWidth: 18,
-    height: 18,
-    paddingHorizontal: 5,
-    borderRadius: 9,
-    backgroundColor: "#5299FE",
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1.5,
-    borderColor: "#FFFFFF",
+  reviewBannerCopy: {
+    flex: 1,
   },
-  pendingReviewsBadgeText: {
-    fontSize: 11,
-    color: "#FFFFFF",
-    lineHeight: 13,
+  reviewBannerTitle: {
+    fontSize: 14.5,
+    lineHeight: 19,
+  },
+  reviewBannerSubtitle: {
+    fontSize: 12,
+    lineHeight: 16,
+    marginTop: 2,
   },
   emptyState: {
     alignItems: "center",
