@@ -242,6 +242,7 @@ export default function HomeScreen() {
   const fetchedVinsRef = useRef<Set<string>>(new Set());
   const saveVehicleImageUrl = useMutation(api.vehicles.saveVehicleImageUrl);
   const dismissSetupCard = useMutation(api.vehicle_owners.dismissSetupCard);
+  const dismissAccountSetupCard = useMutation(api.users.dismissSetupCard);
   const [showLoyaltyCard, setShowLoyaltyCard] = useState(false);
   const [isCardSwiping, setIsCardSwiping] = useState(false);
   const [activeCardIndex, setActiveCardIndex] = useState(0);
@@ -533,10 +534,17 @@ export default function HomeScreen() {
   const onboardingDeferred = (me as { onboardingDeferred?: boolean } | null | undefined)?.onboardingDeferred === true;
   const onboardingFullyComplete = me?.onboardingCompleted === true;
   const shouldForceShowForDeferred = onboardingDeferred && !onboardingFullyComplete;
-  // The Finish Setup card persists until ALL FOUR steps are complete — it
-  // is not dismissable, so `isAccountSetupComplete` is the only thing that
-  // hides it (deferred just keeps it shown longer, never hides it early).
-  const showAccountSetup = !isAccountSetupComplete || shouldForceShowForDeferred;
+  // The card now stays up until the user acknowledges it with the ×, which
+  // is the only thing that sets `setupCardDismissed`. Vanishing the instant
+  // the fourth step lands would rob the user of the payoff for finishing
+  // the checklist — and gives them nothing to dismiss.
+  const showAccountSetup = me?.setupCardDismissed !== true;
+  // The × is only offered once all four steps are done. `shouldForceShow`
+  // still applies here: a user who tapped "Finish later" mid-onboarding can
+  // look complete by the four-tile test while profile photo / intent / zip
+  // are still missing, and dismissing would bury their only path back.
+  const canDismissAccountSetup =
+    isAccountSetupComplete && !shouldForceShowForDeferred;
 
   // Car setup: prefer incomplete vehicles, then completed-but-not-acknowledged.
   // `incompleteVehicles` is the full list of not-yet-onboarded cars so we can
@@ -1391,9 +1399,15 @@ export default function HomeScreen() {
                     }
                     router.push('/(booking-flow)/select-services');
                   }}
-                  // Account Setup — intentionally NOT dismissable: the card
-                  // must stay until all four steps are complete.
+                  // Account Setup — the × only exists once all four steps
+                  // are complete; before that there is no dismiss handler,
+                  // so the card renders without one.
                   showAccountSetup={showAccountSetup}
+                  onAccountSetupDismiss={
+                    canDismissAccountSetup
+                      ? () => { dismissAccountSetupCard({}); }
+                      : undefined
+                  }
                   // Car Setup
                   showCarSetup={showCarSetup}
                   carSetupChecklist={carSetupChecklist}
