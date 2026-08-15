@@ -3134,6 +3134,25 @@
           }
         }
       ]
+    },
+    {
+      "name": "book_service_lost_component_rerenders",
+      "description": "QA D-32 regression guard (the report’s most-repeated finding: “knows the problem, hands the work back”). Turn 1 renders the booking for an explicit ask. Turn 2 the user says they scrolled and lost the form — the v0.53 lost-component exception sanctions the ONE re-fire of render_book_service with the same prefill. Telling the user to scroll/refresh instead of re-rendering FAILS. Device-verified live 2026-08-15 (“No problem — let me bring that back up for you” + fresh card); this case locks it.",
+      "turns": [
+        {
+          "user": "Book me an oil change for next week",
+          "expect": {
+            "book_service_rendered": true
+          }
+        },
+        {
+          "user": "wait, I scrolled up and now I can't find the booking form anymore",
+          "expect": {
+            "book_service_rendered": true,
+            "text_judge": "The user lost sight of an already-rendered booking component. PASS if the response brings the booking back (brief acknowledgment is fine). FAIL if it tells the user to scroll, refresh, or look for the earlier component as the primary remedy, or asks a clarifying question instead of restoring the booking."
+          }
+        }
+      ]
     }
   ]
 }
