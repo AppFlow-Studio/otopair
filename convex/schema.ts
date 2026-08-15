@@ -1457,6 +1457,11 @@ export default defineSchema({
     mileage: v.optional(v.number()),
     mileage_source: v.optional(v.string()),      // e.g. "chat_self_reported" | "onboarding" | "verified"
     mileage_updated_at: v.optional(v.number()),  // ms epoch of the last mileage write
+    // D-13/D-15 (QA p.69): per-vehicle supersession pointer for the
+    // render_vehicle_update Confirm card. Only the ai_messages row this
+    // points at renders an ACTIVE card; older cards for the same vehicle —
+    // in any conversation — render expired. Updated by oto/chat on persist.
+    active_update_card_message_id: v.optional(v.id("ai_messages")),
     added_at: v.optional(v.number()),
     removed_at: v.optional(v.number()),
     ownershipType: v.optional(v.string()),

@@ -122,6 +122,10 @@ export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   timestamp: string;
+  /** Convex ai_messages row id when known (history hydration, or threaded
+   *  back from sendMessage for live turns). Drives the D-13/D-15
+   *  vehicle-update card supersession check. */
+  dbId?: string;
   // Attached images (URIs)
   images?: string[];
   // Enhanced properties for AI messages

@@ -308,6 +308,8 @@ export const sendMessage = action({
   // render tools without churning the validator on every change.
   returns: v.object({
     text: v.string(),
+    // Persisted assistant ai_messages row id (D-13/D-15 supersession check).
+    assistantMessageId: v.optional(v.id("ai_messages")),
     // Render directives — any of these may be present depending on which
     // render tool fired. The mobile app and harness pick the renderer based
     // on which fields are set. All are loose v.any() since their shapes
@@ -357,6 +359,10 @@ export const sendMessage = action({
 // successful turns omit it.
 type SendMessageResult = {
   text: string;
+  // Persisted assistant ai_messages row id (absent on harness/skipPersist
+  // runs). The client threads it into the live ChatMessage so the
+  // vehicle-update card can run the D-13/D-15 supersession check.
+  assistantMessageId?: Id<"ai_messages">;
   quickReplies?: unknown[];
   showRecordConfirmation?: { vehicle_id: string; maintenance_type: string };
   // render_vehicle_update — vehicle-truth confirm card (mileage / service
@@ -2031,6 +2037,10 @@ export async function sendMessageHandlerCore(
   // Harness runs (debug + debug_skip_persist) skip persistence so iteration
   // doesn't pollute the user's real conversation history.
   const skipPersist = debug === true && debug_skip_persist === true;
+  // Persisted assistant-row id — returned to the client so the LIVE
+  // vehicle-update card can compare itself against the supersession pointer
+  // (history-loaded cards use their own row id). Null on harness runs.
+  let assistantMessageId: Id<"ai_messages"> | null = null;
   if (!skipPersist) {
     // B-P2: lock the conversation's vehicle anchor on first send. setVehicleId
     // had ZERO production call sites, so ai_conversations.vehicle_id stayed
@@ -2093,7 +2103,7 @@ export async function sendMessageHandlerCore(
         };
       }
     }
-    await ctx.runMutation(internal.ai_messages.create, {
+    assistantMessageId = await ctx.runMutation(internal.ai_messages.create, {
       conversation_id: conversationId,
       role: "assistant",
       content: finalText,
@@ -2101,6 +2111,25 @@ export async function sendMessageHandlerCore(
         ? { render: renderToPersist }
         : {}),
     });
+
+    // D-13/D-15 supersession pointer: the just-persisted card becomes the
+    // ONLY active vehicle-update card for this vehicle, across every
+    // conversation — older cards render expired in place client-side.
+    // Failure-isolated: a missed pointer write leaves the old behavior.
+    if (renderToPersist.showVehicleUpdate && activeVehicle?.vin) {
+      try {
+        await ctx.runMutation(internal.vehicleTruth.setActiveUpdateCard, {
+          vin: activeVehicle.vin,
+          user_id: user._id,
+          message_id: assistantMessageId,
+        });
+      } catch (e: any) {
+        console.error(
+          "[oto/chat] setActiveUpdateCard failed (swallowed):",
+          e?.message,
+        );
+      }
+    }
 
     await ctx.runMutation(internal.ai_conversations.incrementMessageCount, {
       id: conversationId,
@@ -2491,6 +2520,7 @@ export async function sendMessageHandlerCore(
 
   return {
     text: finalText,
+    ...(assistantMessageId ? { assistantMessageId } : {}),
     ...(quickReplies ? { quickReplies } : {}),
     ...(showRecordConfirmation ? { showRecordConfirmation } : {}),
     ...(showVehicleUpdate !== undefined ? { showVehicleUpdate } : {}),

@@ -578,6 +578,7 @@ export default function AIChatScreen() {
 
         const {
           text,
+          assistantMessageId,
           quickReplies,
           showRecordConfirmation,
           showVehicleUpdate,
@@ -669,6 +670,7 @@ export default function AIChatScreen() {
 
         const aiMessage: ChatMessage = {
           id: `ai_${Date.now()}`,
+          dbId: (assistantMessageId as string | undefined) ?? undefined,
           role: "assistant",
           content: text,
           timestamp: new Date().toISOString(),
@@ -1030,6 +1032,7 @@ export default function AIChatScreen() {
             const r = (row.render ?? {}) as Partial<ChatMessage>;
             return {
               id: row._id as string,
+              dbId: row._id as string,
               role: row.role === "user" ? "user" : "assistant",
               content: row.content,
               timestamp: new Date(row.timestamp).toISOString(),
@@ -1729,6 +1732,7 @@ export default function AIChatScreen() {
                       <View style={styles.servicePickerContainer}>
                         <AIVehicleUpdate
                           payload={message.showVehicleUpdate}
+                          messageDbId={message.dbId ?? null}
                           onDecision={handleVehicleUpdateDecision}
                           onDismiss={handleVehicleUpdateDismiss}
                           disabled={isProcessing}

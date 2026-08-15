@@ -81,6 +81,7 @@ import type * as devOnly_repriceJsonProbe from "../devOnly/repriceJsonProbe.js";
 import type * as devOnly_resetEvalFixture from "../devOnly/resetEvalFixture.js";
 import type * as devOnly_scanMessageLeaks from "../devOnly/scanMessageLeaks.js";
 import type * as devOnly_seedChelalaCopy from "../devOnly/seedChelalaCopy.js";
+import type * as devOnly_seedTestShops from "../devOnly/seedTestShops.js";
 import type * as devOnly_trimGarageToOneCar from "../devOnly/trimGarageToOneCar.js";
 import type * as devOnly_validateQuoteEngine from "../devOnly/validateQuoteEngine.js";
 import type * as devOnly_vdbProbe from "../devOnly/vdbProbe.js";
@@ -589,6 +590,7 @@ declare const fullApi: ApiFromModules<{
   "devOnly/resetEvalFixture": typeof devOnly_resetEvalFixture;
   "devOnly/scanMessageLeaks": typeof devOnly_scanMessageLeaks;
   "devOnly/seedChelalaCopy": typeof devOnly_seedChelalaCopy;
+  "devOnly/seedTestShops": typeof devOnly_seedTestShops;
   "devOnly/trimGarageToOneCar": typeof devOnly_trimGarageToOneCar;
   "devOnly/validateQuoteEngine": typeof devOnly_validateQuoteEngine;
   "devOnly/vdbProbe": typeof devOnly_vdbProbe;
