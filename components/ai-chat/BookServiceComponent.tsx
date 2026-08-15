@@ -1490,6 +1490,25 @@ function Stage4Mechanic({
 // STAGE 5 — Time slot
 // ============================================================================
 
+// Day periods for the time grid (QA p.36 organization fix). Boundaries pick
+// even ~3-hour buckets across a typical 9-6 shop day; evening covers late
+// shops. Slots outside 9-6 still land in a bucket, nothing is dropped.
+type DayPeriod = "morning" | "midday" | "afternoon" | "evening";
+const PERIOD_ORDER: DayPeriod[] = ["morning", "midday", "afternoon", "evening"];
+const PERIOD_LABELS: Record<DayPeriod, string> = {
+  morning: "Morning",
+  midday: "Midday",
+  afternoon: "Afternoon",
+  evening: "Evening",
+};
+function periodOfTime(hhmm: string): DayPeriod {
+  const h = parseInt(hhmm.slice(0, 2), 10);
+  if (h < 12) return "morning";
+  if (h < 15) return "midday";
+  if (h < 18) return "afternoon";
+  return "evening";
+}
+
 function Stage5Time({
   slots,
   isLoading,
@@ -1528,6 +1547,35 @@ function Stage5Time({
       setActiveDate(dates[0]);
     }
   }, [dates, activeDate, byDate]);
+
+  // Period segmentation (QA p.36: "this is tooo many options … make this
+  // more organized"). A 9-to-6 day at quarter-hour granularity is a wall of
+  // 28+ chips; splitting the day into periods caps the visible grid at ~12
+  // chips without hiding any granularity. Only periods that actually have
+  // slots render as segments.
+  const periodsForDay = useMemo(() => {
+    const date = activeDate && byDate.has(activeDate) ? activeDate : dates[0];
+    const m = new Map<DayPeriod, typeof slots>();
+    for (const s of byDate.get(date ?? "") ?? []) {
+      const p = periodOfTime(s.start_time);
+      const arr = m.get(p) ?? [];
+      arr.push(s);
+      m.set(p, arr);
+    }
+    return m;
+  }, [activeDate, byDate, dates]);
+  const availablePeriods = useMemo(
+    () => PERIOD_ORDER.filter((p) => (periodsForDay.get(p)?.length ?? 0) > 0),
+    [periodsForDay],
+  );
+  const [activePeriod, setActivePeriod] = useState<DayPeriod | null>(null);
+  useEffect(() => {
+    if (availablePeriods.length === 0) {
+      if (activePeriod !== null) setActivePeriod(null);
+    } else if (activePeriod === null || !availablePeriods.includes(activePeriod)) {
+      setActivePeriod(availablePeriods[0]);
+    }
+  }, [availablePeriods, activePeriod]);
 
   if (!mechanicSelected) {
     return (
@@ -1610,9 +1658,40 @@ function Stage5Time({
         })}
       </ScrollView>
 
-      {/* Time grid for the selected day. */}
+      {/* Period segments — Morning / Midday / Afternoon / Evening. Only
+          periods with slots render; the grid below shows one period at a
+          time so the day never reads as a 28-chip wall. */}
+      {availablePeriods.length > 1 ? (
+        <View style={styles.priorityRow}>
+          {availablePeriods.map((p) => {
+            const active = p === activePeriod;
+            return (
+              <Pressable
+                key={p}
+                onPress={() => setActivePeriod(p)}
+                disabled={disabled}
+                style={({ pressed }) => [
+                  styles.priorityPill,
+                  active && styles.priorityPillActive,
+                  pressed && !disabled && styles.priorityPillPressed,
+                ]}
+              >
+                <Text
+                  style={[styles.priorityPillText, active && styles.priorityPillTextActive]}
+                  size="sm"
+                  weight={active ? "semiBold" : "medium"}
+                >
+                  {PERIOD_LABELS[p]}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      ) : null}
+
+      {/* Time grid for the selected day + period. */}
       <View style={styles.slotRow}>
-        {daySlots.map((s) => {
+        {(activePeriod ? (periodsForDay.get(activePeriod) ?? daySlots) : daySlots).map((s) => {
           const active = s._id === selectedSlotId;
           return (
             <Pressable
