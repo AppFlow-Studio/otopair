@@ -27,7 +27,6 @@ import { Check, X } from "lucide-react-native";
 import { Text } from "@/components/shared-ui";
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
 import { api } from "@/convex/_generated/api";
-import type { Id } from "@/convex/_generated/dataModel";
 
 const INK = "#0F172A";
 const MUTED = "#6B7280";
@@ -70,7 +69,7 @@ export const DisputeSheet = forwardRef<DisputeSheetRef, DisputeSheetProps>(
     const [sentOk, setSentOk] = useState(false);
     const [errorText, setErrorText] = useState<string | null>(null);
 
-    const submit = useAction(api.support_requests_node.submitSupportRequest);
+    const submit = useAction(api.support_requests_node.submitContactRequest);
 
     useImperativeHandle(ref, () => ({
       open: () => {
@@ -98,10 +97,15 @@ export const DisputeSheet = forwardRef<DisputeSheetRef, DisputeSheetProps>(
       setSubmitting(true);
       setErrorText(null);
       try {
+        // `submitContactRequest` is the only support action that exists; it
+        // takes a free-form topic/subject/description rather than a booking
+        // reference, so the booking id and reason are carried in the subject.
+        const reasonLabel =
+          REASONS.find((r) => r.key === reasonKey)?.label ?? reasonKey;
         const result = await submit({
-          bookingId: bookingId as Id<"bookings">,
-          reasonKey,
-          message: message.trim(),
+          topic: "booking_dispute",
+          subject: `${reasonLabel} — booking ${bookingId}`,
+          description: message.trim(),
         });
         if (result.ok) {
           setSentOk(true);
