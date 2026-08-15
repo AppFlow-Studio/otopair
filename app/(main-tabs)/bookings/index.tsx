@@ -43,9 +43,10 @@ import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { Calendar, CalendarX, Check, ChevronRight, LayoutGrid, ListFilter, Star } from "lucide-react-native";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Image, PixelRatio, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
+import { Image, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
 import Animated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import SegmentedControl from "@react-native-segmented-control/segmented-control";
 
 // ============================================================================
 // TYPES
@@ -58,20 +59,7 @@ const TAB_LABELS: Record<TabType, string> = {
   quotes: "Quotes",
   recommended: "Recommended",
 };
-const TAB_LABEL_MAX_SIZE = 14;
-const TAB_LABEL_MIN_SIZE = 11;
-const TAB_LABEL_LONGEST = "Recommended";
-const TAB_LABEL_WIDTH_RATIO = 0.62;
 const BOTTOM_NAV_SCROLL_CLEARANCE = 96;
-
-function getTabLabelSize(width: number, fontScale: number): number {
-  if (width <= 0) return TAB_LABEL_MAX_SIZE;
-  const segmentWidth = (width - 6) / TAB_ORDER.length;
-  const availableWidth = segmentWidth - 4;
-  const fittedSize =
-    availableWidth / (TAB_LABEL_LONGEST.length * TAB_LABEL_WIDTH_RATIO * fontScale);
-  return Math.min(Math.max(fittedSize, TAB_LABEL_MIN_SIZE), TAB_LABEL_MAX_SIZE);
-}
 
 // "All Vehicles" affordance. The covered-car asset is the fallback for a
 // real vehicle that's missing a photo, so reusing it here read as one
@@ -122,12 +110,6 @@ export default function BookingsScreen() {
     ? (tabParam as TabType)
     : "bookings";
   const [activeTab, setActiveTab] = useState<TabType>(initialTab);
-  const [segmentedWidth, setSegmentedWidth] = useState(0);
-  const fontScale = PixelRatio.getFontScale();
-  const tabLabelSize = useMemo(
-    () => getTabLabelSize(segmentedWidth, fontScale),
-    [segmentedWidth, fontScale],
-  );
   // If we land on the screen again with a new `tab` param (e.g. from the
   // tire flow completing), switch to the requested tab.
   useEffect(() => {
@@ -425,40 +407,14 @@ export default function BookingsScreen() {
 
             {/* Tab Switcher */}
             <View style={styles.segmentedWrapper}>
-              <View
+              <SegmentedControl
+                values={TAB_ORDER.map((tab) => TAB_LABELS[tab])}
+                selectedIndex={TAB_ORDER.indexOf(activeTab)}
+                onChange={(event) => {
+                  setActiveTab(TAB_ORDER[event.nativeEvent.selectedSegmentIndex]);
+                }}
                 style={styles.segmentedControl}
-                accessibilityRole="tablist"
-                onLayout={(event) => setSegmentedWidth(event.nativeEvent.layout.width)}
-              >
-                {TAB_ORDER.map((tab) => {
-                  const isSelected = activeTab === tab;
-                  return (
-                    <Pressable
-                      key={tab}
-                      onPress={() => setActiveTab(tab)}
-                      accessibilityRole="tab"
-                      accessibilityState={{ selected: isSelected }}
-                      style={({ pressed }) => [
-                        styles.segmentButton,
-                        isSelected && styles.segmentButtonActive,
-                        pressed && !isSelected && styles.segmentButtonPressed,
-                      ]}
-                    >
-                      <Text
-                        size={tabLabelSize}
-                        weight="semiBold"
-                        color="#FFFFFF"
-                        numberOfLines={1}
-                        allowFontScaling={false}
-                        lineHeight={1.05}
-                        style={styles.segmentLabel}
-                      >
-                        {TAB_LABELS[tab]}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
+              />
             </View>
 
             {/* Vehicle picker. */}
@@ -741,32 +697,6 @@ const styles = StyleSheet.create({
   },
   segmentedControl: {
     height: 44,
-    flexDirection: "row",
-    alignItems: "center",
-    padding: 3,
-    borderRadius: 8,
-    backgroundColor: "#111111",
-    overflow: "hidden",
-  },
-  segmentButton: {
-    flex: 1,
-    minWidth: 0,
-    height: 38,
-    borderRadius: 6,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 2,
-  },
-  segmentButtonActive: {
-    backgroundColor: "#5F6063",
-  },
-  segmentButtonPressed: {
-    backgroundColor: "rgba(255,255,255,0.10)",
-  },
-  segmentLabel: {
-    width: "100%",
-    textAlign: "center",
-    includeFontPadding: false,
   },
   // Vehicle picker button + sheet
   pickerRow: {
