@@ -224,6 +224,7 @@ import type * as mechanics from "../mechanics.js";
 import type * as migrations from "../migrations.js";
 import type * as migrations_categoryConsolidation from "../migrations/categoryConsolidation.js";
 import type * as migrations_directorRoles from "../migrations/directorRoles.js";
+import type * as migrations_dropPrePurchaseInspection from "../migrations/dropPrePurchaseInspection.js";
 import type * as migrations_purgeVendorNames from "../migrations/purgeVendorNames.js";
 import type * as migrations_seedDataIncidents from "../migrations/seedDataIncidents.js";
 import type * as models from "../models.js";
@@ -785,6 +786,7 @@ declare const fullApi: ApiFromModules<{
   migrations: typeof migrations;
   "migrations/categoryConsolidation": typeof migrations_categoryConsolidation;
   "migrations/directorRoles": typeof migrations_directorRoles;
+  "migrations/dropPrePurchaseInspection": typeof migrations_dropPrePurchaseInspection;
   "migrations/purgeVendorNames": typeof migrations_purgeVendorNames;
   "migrations/seedDataIncidents": typeof migrations_seedDataIncidents;
   models: typeof models;
