@@ -338,6 +338,10 @@ export function BookServiceComponent({
   // the mechanic list is filtered to that shop. Lives INSIDE stage 4 so the
   // stepper count, jump targets, and stages 5-6 stay untouched.
   const [shopFilterId, setShopFilterId] = useState<string | null>(null);
+  // Pending highlight in the shop phase (Waleed, 2026-08-15: "let them pick
+  // the shop"). Tapping a card/pin only SELECTS — pin grows, card
+  // highlights — and the footer button is what commits to the mechanic list.
+  const [pendingShopId, setPendingShopId] = useState<string | null>(null);
   // When Oto recommended a mechanic, pre-select that mechanic's shop once the
   // store hydrates — Oto's pick must stay one tap, not hide behind the new
   // shop phase. One-shot so backing out to "all shops" sticks.
@@ -679,10 +683,16 @@ export function BookServiceComponent({
         };
       }
       case 4:
-        // Shop phase: tapping a shop card/pin advances the phase directly,
-        // so the footer only communicates state.
+        // Shop phase: tapping a shop card/pin HIGHLIGHTS it (pin grows, card
+        // outlines); this footer button is what commits the pick.
         if (shopFilterId === null) {
-          return { enabled: false, label: "Pick a shop", onPress: advanceStage };
+          return {
+            enabled: pendingShopId !== null,
+            label: pendingShopId === null ? "Pick a shop" : "See mechanics",
+            onPress: () => {
+              if (pendingShopId) setShopFilterId(pendingShopId);
+            },
+          };
         }
         return {
           enabled: selectedMechanicId !== null,
@@ -708,6 +718,7 @@ export function BookServiceComponent({
     customerNotes,
     selectedMechanicId,
     shopFilterId,
+    pendingShopId,
     selectedSlotId,
     selectedSlot,
     isSubmitting,
@@ -818,7 +829,8 @@ export function BookServiceComponent({
               shops={shopChoices}
               priority={priority}
               onPriorityChange={setPriority}
-              onSelectShop={setShopFilterId}
+              selectedShopId={pendingShopId}
+              onSelectShop={setPendingShopId}
               disabled={disabled}
             />
           )}
@@ -1211,6 +1223,7 @@ function Stage4Shops({
   shops,
   priority,
   onPriorityChange,
+  selectedShopId,
   onSelectShop,
   disabled,
 }: {
@@ -1230,6 +1243,8 @@ function Stage4Shops({
   }>;
   priority: Priority;
   onPriorityChange: (p: Priority) => void;
+  /** Pending highlight — the parent's footer button commits it. */
+  selectedShopId: string | null;
   onSelectShop: (id: string) => void;
   disabled: boolean;
 }) {
@@ -1241,30 +1256,38 @@ function Stage4Shops({
     return () => clearTimeout(t);
   }, []);
 
-  // Selection feedback: the tapped shop's pin springs up (and the others dim)
-  // for a beat BEFORE the phase flips to the mechanic list — without the hold,
-  // setShopFilterId unmounts the map on the same frame as the tap and no
-  // animation can be seen. tracksViewChanges is enabled ONLY for the selected
-  // marker while it animates, so liteMode re-rasterizes the growing pin.
-  const [selectedPinId, setSelectedPinId] = useState<string | null>(null);
-  const pinScale = useRef(new RNAnimated.Value(1)).current;
-  const commitTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => () => {
-    if (commitTimer.current) clearTimeout(commitTimer.current);
-  }, []);
-  const handleSelectShop = useCallback(
+  // Selection feedback: the picked shop's pin springs up and STAYS up (the
+  // others dim) while its card highlights — the selection is a persistent
+  // choice the parent's footer button commits, not an auto-advance. One
+  // Animated.Value per shop so switching shops shrinks the old pin while the
+  // new one grows.
+  const pinScales = useRef(new Map<string, RNAnimated.Value>()).current;
+  const scaleFor = useCallback(
     (id: string) => {
-      if (disabled || selectedPinId !== null) return;
-      setSelectedPinId(id);
-      RNAnimated.spring(pinScale, {
-        toValue: 1.35,
+      let v = pinScales.get(id);
+      if (!v) {
+        v = new RNAnimated.Value(id === selectedShopId ? 1.35 : 1);
+        pinScales.set(id, v);
+      }
+      return v;
+    },
+    [pinScales, selectedShopId],
+  );
+  useEffect(() => {
+    for (const [id, v] of pinScales) {
+      RNAnimated.spring(v, {
+        toValue: id === selectedShopId ? 1.35 : 1,
         friction: 5,
         tension: 120,
         useNativeDriver: true,
       }).start();
-      commitTimer.current = setTimeout(() => onSelectShop(id), 420);
+    }
+  }, [selectedShopId, pinScales]);
+  const handleSelectShop = useCallback(
+    (id: string) => {
+      if (!disabled) onSelectShop(id);
     },
-    [disabled, selectedPinId, onSelectShop, pinScale],
+    [disabled, onSelectShop],
   );
 
   // Pin-overlay geometry. The MapView adjusts the displayed region to its
@@ -1342,8 +1365,8 @@ function Stage4Shops({
                   (0.5 + (r.latitude - shop.latitude) / r.latitudeDelta);
                 if (x < -20 || x > mapSize.w + 20 || y < -20 || y > mapSize.h + 20)
                   return null;
-                const isSelected = selectedPinId === shop.id;
-                const isDimmed = selectedPinId !== null && !isSelected;
+                const isSelected = selectedShopId === shop.id;
+                const isDimmed = selectedShopId !== null && !isSelected;
                 return (
                   <RNAnimated.View
                     key={shop.id}
@@ -1353,9 +1376,11 @@ function Stage4Shops({
                       // anchor the TIP at the shop's coordinate.
                       left: x - 15,
                       top: y - 33,
-                      transform: [{ scale: isSelected ? pinScale : 1 }],
+                      transform: [{ scale: scaleFor(shop.id) }],
                       transformOrigin: "bottom",
-                      opacity: isDimmed ? 0.45 : 1,
+                      opacity: isDimmed ? 0.55 : 1,
+                      // Selected pin draws over its dimmed neighbors.
+                      zIndex: isSelected ? 2 : 1,
                     }}
                   >
                     <Pressable
@@ -1421,6 +1446,7 @@ function Stage4Shops({
                 disabled={disabled}
                 style={({ pressed }) => [
                   styles.mechanicRow,
+                  selectedShopId === shop.id && styles.mechanicRowSelected,
                   pressed && !disabled && styles.mechanicRowPressed,
                 ]}
               >
