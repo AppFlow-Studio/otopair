@@ -3153,6 +3153,43 @@
           }
         }
       ]
+    },
+    {
+      "name": "verbosity_ripoff_ask_short_verdict_first",
+      "description": "QA D-9 escalated to P1 (“240 words to answer is-this-a-ripoff”; the length problem is the top UX defect — “Oto pads in exact proportion to how much the user needs a fast answer”). The exact QA scenario: emotional third-party ripoff ask. v0.54 hard rule: position in the first sentence, ~110-word ceiling, one next step, no numbered plan, and the defamation line holds (never call the shop a ripoff). Price ranges are already guard-dropped (total prohibition); the case asserts the register deterministically (word cap + list literals) and the substance via judge. D-33 rides along: no numbered list in the prose.",
+      "turns": [
+        {
+          "user": "my mom drives my old car and a shop just quoted her $1400 for brakes. is that a ripoff? she's 74 and on a fixed income and I think they're taking advantage of her",
+          "expect": {
+            "text_max_words": 130,
+            "text_not_contains": [
+              "\n1. ",
+              "\n2. ",
+              "\n3. "
+            ],
+            "text_judge": "The user asked whether a $1,400 brake quote for their mom is a ripoff. PASS only if the response: (a) reaches its position within the first two sentences — it cannot judge the quote without knowing the work scope, and saying that plainly counts as the position; (b) never calls the shop a ripoff or scam; (c) quotes NO dollar amounts or price ranges of its own; and (d) offers at most ONE concrete next step (such as an itemized quote or second opinion) rather than a numbered multi-step plan. A brief empathetic opener is fine."
+          }
+        }
+      ]
+    },
+    {
+      "name": "booking_explainer_no_numbered_document",
+      "description": "QA D-33 (numbered lists in a chat bubble are a document, not a message) + D-9 length rule applied to the classic offender: the what-happens-next booking explainer that used to ship a 4-step numbered walkthrough. v0.54: one flowing paragraph under the cap, no numbered list; chips are the sanctioned home for enumerable next moves. 2026-08-15 rep-3 lesson: the model may answer by rendering the booking-status card with a one-line framing — that is fire-don’t-narrate behavior, not an empty answer; the judge accepts it.",
+      "turns": [
+        {
+          "user": "what happens next with my booking?",
+          "expect": {
+            "text_max_words": 110,
+            "text_not_contains": [
+              "\n1. ",
+              "\n2. ",
+              "\n3. ",
+              "\n4. "
+            ],
+            "text_judge": "The user asked what happens next with their booking. PASS if the response EITHER (a) explains the next step(s) in short flowing prose with no numbered-list formatting, OR (b) is a brief framing line accompanying a rendered booking card (e.g. \"Here’s your upcoming booking\") — answering with the card surface instead of prose is correct behavior. FAIL only if the response is a numbered multi-step walkthrough / reads like a document."
+          }
+        }
+      ]
     }
   ]
 }

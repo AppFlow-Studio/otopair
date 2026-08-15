@@ -99,6 +99,14 @@ function assertTurn(t, r, turnIdx, failures, toolsSoFar = []) {
     if (!text.includes(String(n).toLowerCase())) fail(`text missing "${n}"`);
   for (const n of e.text_not_contains || [])
     if (text.includes(String(n).toLowerCase())) fail(`text contains banned "${n}"`);
+  // text_max_words — deterministic length ceiling (QA D-9 P1: "Oto pads in
+  // exact proportion to how much the user needs a fast answer"). Whitespace
+  // word count on the final text; objective, no judge drift.
+  if (typeof e.text_max_words === "number") {
+    const wc = String(result.text || "").trim().split(/\s+/).filter(Boolean).length;
+    if (wc > e.text_max_words)
+      fail(`text too long: ${wc} words > cap ${e.text_max_words}`);
+  }
   // book_service_rendered — asserts the turn shipped a BookService render,
   // whether the MODEL called render_book_service or the SERVER's forced-exit
   // backstop concluded the turn (which sets renderEnvelope.bookService with no
