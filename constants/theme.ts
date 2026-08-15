@@ -185,6 +185,37 @@ export const ServiceLogColors = {
 } as const;
 
 /**
+ * Type roles for the Service Record surfaces (list, service detail, receipt).
+ *
+ * One indirection on purpose: those three screens reference roles, never
+ * families, so the whole typographic system can be swapped from here without
+ * touching a single screen.
+ *
+ * Currently pointed at Urbanist — the app's own family, used everywhere else.
+ * The previous pairing was Inter for figures with Geist Mono for micro-labels;
+ * `micro` and `figure` are separate roles precisely because they were the two
+ * that carried the mono, and they're the ones to re-point first if the
+ * technical feel is wanted back.
+ */
+export const ServiceLogFonts = {
+  /** Headlines and hero amounts. */
+  display: FontFamily.bold,
+  /** Names, row titles, emphasised values. */
+  semi: FontFamily.semiBold,
+  /** Default body weight. */
+  medium: FontFamily.medium,
+  /** Secondary copy and findings prose. */
+  regular: FontFamily.regular,
+  /** Tracked-caps micro-labels: WORK PERFORMED, ODOMETER IN, RECEIPT · … */
+  micro: FontFamily.medium,
+  /** Lighter micro copy — line-item details, footer meta. */
+  microRegular: FontFamily.regular,
+  /** Money columns. NOTE: Urbanist is proportional, so figures no longer align
+   *  on a fixed advance the way the mono did. */
+  figure: FontFamily.medium,
+} as const;
+
+/**
  * The shared Oto ambient gradient, verbatim from the AI-chat surface
  * (app/(main-tabs)/ai-chat/index.tsx). Past Services reuses it so the two
  * screens sit on the same ground. Blue resolves to white inside the top 20%.
