@@ -276,6 +276,7 @@ export function adaptConvexBookingWithDetailsToCard(row: ConvexBookingWithDetail
     shopAddress: row.shopAddress?.trim() ? row.shopAddress : undefined,
     mechanicImage: row.mechanicImageUrl,
     date: formatBookingDate(row.scheduled_date),
+    scheduledDate: row.scheduled_date,
     time: formatBookingTime(row.scheduled_time),
     status,
     totalCost: row.total_cost,
