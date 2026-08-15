@@ -819,9 +819,9 @@ export function BookServiceComponent({
           )}
           {stage === 4 && shopFilterId !== null && (
             <Stage4Mechanic
-              mechanics={sortedMechanics.filter((m) => m.shopId === shopFilterId)}
-              priority={priority}
-              onPriorityChange={setPriority}
+              mechanics={sortedMechanics
+                .filter((m) => m.shopId === shopFilterId)
+                .sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0))}
               selectedMechanicId={selectedMechanicId}
               onSelect={handleMechanicSelect}
               recommendedMechanicId={payload.recommended_mechanic_id}
@@ -1349,8 +1349,6 @@ function Stage4Shops({
 
 function Stage4Mechanic({
   mechanics,
-  priority,
-  onPriorityChange,
   selectedMechanicId,
   onSelect,
   recommendedMechanicId,
@@ -1366,8 +1364,6 @@ function Stage4Mechanic({
     reviewCount?: number;
     distanceMi: number;
   }>;
-  priority: Priority;
-  onPriorityChange: (p: Priority) => void;
   selectedMechanicId: string | null;
   onSelect: (id: string) => void;
   recommendedMechanicId?: string;
@@ -1376,37 +1372,16 @@ function Stage4Mechanic({
 }) {
   const distanceUnit = useDistanceUnit();
 
+  // No priority chips here (2026-08-15, Waleed): within one shop every
+  // mechanic shares the address and the labor rate, so "Closest" and
+  // "Best price" were dead controls — the chips live on the SHOP phase
+  // where they sort something real. Mechanics sort by rating, the one
+  // attribute that differs.
   return (
     <View style={styles.stageBody}>
       <Text style={styles.helperText} size="sm">
-        {"Sorted by your preference. Oto's pick is highlighted; you can pick any mechanic."}
+        {"Sorted by rating. Oto's pick is highlighted; you can pick any mechanic."}
       </Text>
-
-      <View style={styles.priorityRow}>
-        {PRIORITY_OPTIONS.map((opt) => {
-          const active = opt.value === priority;
-          return (
-            <Pressable
-              key={opt.value}
-              onPress={() => onPriorityChange(opt.value)}
-              disabled={disabled}
-              style={({ pressed }) => [
-                styles.priorityPill,
-                active && styles.priorityPillActive,
-                pressed && !disabled && styles.priorityPillPressed,
-              ]}
-            >
-              <Text
-                style={[styles.priorityPillText, active && styles.priorityPillTextActive]}
-                size="sm"
-                weight={active ? "semiBold" : "medium"}
-              >
-                {opt.label}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </View>
 
       <View style={styles.mechanicList}>
         {mechanics.length === 0 ? (
