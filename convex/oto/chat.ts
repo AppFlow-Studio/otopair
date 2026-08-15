@@ -1821,6 +1821,90 @@ export async function sendMessageHandlerCore(
       "I'm having trouble pulling that one together — can you rephrase or break it into a smaller question?";
   }
 
+  // ── Announcement-terminal retry (2026-08-15) ─────────────────────────
+  // stable's narration rules ban ending a turn on "let me search…", and
+  // lookup_vehicle_spec's description says a catalog miss is not a
+  // terminal — the model still ships the placeholder ~1/3 of the time on
+  // misses ("The M5 lookup came back empty, so let me search for the
+  // current spec:"). Conditions in code, same philosophy as the §6.9
+  // state-contract retry: when the final text is a short announcement of
+  // an action with no render carrying the turn, ONE follow-up call (no
+  // tools — general knowledge, hedged) replaces the placeholder with the
+  // answer. The nudge tells the model to restate its answer if the text
+  // actually contained one, so a false-positive detection costs one small
+  // call and returns an equivalent answer — never a worse one.
+  {
+    const trimmed = finalText.trim();
+    const sentences = trimmed.split(/(?<=[.!?:])\s+/).filter(Boolean);
+    const lastSentence = sentences[sentences.length - 1] ?? "";
+    const ANNOUNCE_RE =
+      /\b(let me|i'?ll|i will|i'?m going to|gonna)\s+(search|look\s*up|pull|grab|fetch|dig|run|check)\b/i;
+    if (
+      !hasAnyRender &&
+      trimmed.length > 0 &&
+      trimmed.length < 280 &&
+      ANNOUNCE_RE.test(lastSentence)
+    ) {
+      try {
+        console.warn(
+          "[oto/chat] announcement-terminal retry: turn ended on an action " +
+            "announcement with no answer — requesting the completion",
+        );
+        const retryResp = await fetchAnthropicWithRetry(
+          ANTHROPIC_URL,
+          {
+            method: "POST",
+            headers: {
+              "x-api-key": apiKey,
+              "anthropic-version": ANTHROPIC_VERSION,
+              "content-type": "application/json",
+            },
+            body: JSON.stringify({
+              model: turnModel,
+              max_tokens: 700,
+              system: SYSTEM_PROMPT,
+              messages: [
+                ...messages,
+                {
+                  role: "user",
+                  content:
+                    "[turn repair — not the user speaking] Your turn ended by announcing a search or lookup instead of delivering the answer. Deliver the complete answer NOW in plain prose: use general knowledge hedged as general info where catalog data was missing. Do not mention tools, lookups, or searching; do not announce anything. If your previous text already contained the full answer, restate that answer.",
+                },
+              ],
+            }),
+          },
+          "answer_repair",
+        );
+        if (retryResp.ok) {
+          const retry = (await retryResp.json()) as AnthropicResponse;
+          const text = retry.content
+            .filter((b): b is { type: "text"; text: string } => b.type === "text")
+            .map((b) => b.text)
+            .join("\n")
+            .trim();
+          if (text) {
+            finalText = text;
+            turnSamples.push({
+              usage: retry.usage,
+              latency_ms: 0,
+              tool_names: [],
+              branch: "answer_repair",
+            });
+            if (trace && Array.isArray(trace.iterations) && trace.iterations.length) {
+              trace.iterations[trace.iterations.length - 1].answer_repaired = true;
+            }
+          }
+        }
+      } catch (e: any) {
+        // Best-effort — a failed retry leaves the announcement text as-is.
+        console.error(
+          "[oto/chat] announcement-terminal retry failed (swallowed):",
+          e?.message,
+        );
+      }
+    }
+  }
+
   // W3.1 companion fallback — same conditions-in-code/absolutes-in-prompts
   // rationale as the chip fallback above. The prompt asks for a brief framing
   // sentence with every terminal render, but Haiku sometimes spends the whole
