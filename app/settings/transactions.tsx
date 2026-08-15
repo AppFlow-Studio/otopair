@@ -10,9 +10,10 @@
  * same ground as the AI-chat surface, so this screen belongs to the app rather
  * than being a one-off dark or flat panel.
  *
- * Deliberately NOT using <Text> from shared-ui: that component is bound to the
- * Urbanist family, and this surface pairs Inter for headings with Geist Mono for
- * micro-labels. Families and colours still come from constants/theme.ts.
+ * Type comes from ServiceLogFonts (constants/theme.ts) — roles, not families —
+ * so the whole typographic system for these three surfaces swaps in one place.
+ * Uses RN Text rather than shared-ui <Text> because these screens need weights
+ * and tracking that component does not expose.
  *
  * Money appears per-row only. There are no month subtotals and no lifetime
  * total — the record is about what was done, not what it cost in aggregate.
@@ -37,7 +38,7 @@ import { ArrowLeft } from "lucide-react-native";
 import { Link } from "expo-router";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 
-import { FontFamily, OtoGradient, ServiceLogColors as C } from "@/constants/theme";
+import { OtoGradient, ServiceLogColors as C, ServiceLogFonts as F } from "@/constants/theme";
 import { useMyBookingsWithDetails } from "@/hooks/useMyBookingsWithDetails";
 
 const MONTHS_LONG = [
@@ -527,13 +528,13 @@ const styles = StyleSheet.create({
     paddingBottom: 18,
   },
   eyebrow: {
-    fontFamily: FontFamily.techMonoMedium,
+    fontFamily: F.micro,
     fontSize: 9,
     letterSpacing: 2,
     color: C.low,
   },
   title: {
-    fontFamily: FontFamily.interSemiBold,
+    fontFamily: F.semi,
     fontSize: 30,
     lineHeight: 34,
     letterSpacing: -0.8,
@@ -541,7 +542,7 @@ const styles = StyleSheet.create({
     marginTop: 7,
   },
   records: {
-    fontFamily: FontFamily.techMono,
+    fontFamily: F.microRegular,
     fontSize: 9,
     letterSpacing: 1.6,
     color: C.mid,
@@ -558,13 +559,13 @@ const styles = StyleSheet.create({
     gap: 7,
   },
   channelLabel: {
-    fontFamily: FontFamily.techMono,
+    fontFamily: F.microRegular,
     fontSize: 10,
     letterSpacing: 1.1,
     color: C.low,
   },
   channelLabelActive: {
-    fontFamily: FontFamily.techMonoMedium,
+    fontFamily: F.micro,
     color: C.ink,
   },
   channelRule: {
@@ -593,7 +594,7 @@ const styles = StyleSheet.create({
   },
   /** The month is the readout now — the subtotal it replaced is gone. */
   readoutMonth: {
-    fontFamily: FontFamily.interBold,
+    fontFamily: F.display,
     fontSize: 26,
     lineHeight: 30,
     letterSpacing: -0.6,
@@ -622,21 +623,21 @@ const styles = StyleSheet.create({
     gap: 3,
   },
   rowService: {
-    fontFamily: FontFamily.interMedium,
+    fontFamily: F.medium,
     fontSize: 15,
     lineHeight: 18,
     letterSpacing: -0.2,
     color: C.ink,
   },
   rowMeta: {
-    fontFamily: FontFamily.techMono,
+    fontFamily: F.microRegular,
     fontSize: 9,
     lineHeight: 13,
     letterSpacing: 0.8,
     color: C.low,
   },
   rowFigure: {
-    fontFamily: FontFamily.techMonoMedium,
+    fontFamily: F.micro,
     fontSize: 13,
     letterSpacing: 0.2,
     color: C.ink,
@@ -680,13 +681,13 @@ const styles = StyleSheet.create({
     paddingTop: 40,
   },
   noticeLabel: {
-    fontFamily: FontFamily.techMonoMedium,
+    fontFamily: F.micro,
     fontSize: 11,
     letterSpacing: 1.8,
     color: C.mid,
   },
   noticeSub: {
-    fontFamily: FontFamily.interRegular,
+    fontFamily: F.regular,
     fontSize: 13,
     color: C.low,
     marginTop: 8,

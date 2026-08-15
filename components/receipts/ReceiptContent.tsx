@@ -6,8 +6,8 @@
  * an unmistakable Total. A footer carries the provenance a receipt is actually
  * kept for — shop, technician, vehicle, odometer.
  *
- * Matches the Service Record surfaces: Inter for figures and names, Geist Mono
- * for micro-labels, hairline rules, colours from ServiceLogColors. The dot
+ * Matches the Service Record surfaces: type via ServiceLogFonts, hairline
+ * rules, colours from ServiceLogColors. The dot
  * leaders are the one motif unique to this screen — they're what makes a
  * statement read as a statement.
  *
@@ -15,8 +15,8 @@
  * come from the parent (ReceiptSheet / ParsedDocumentSheet), so this must never
  * introduce its own ScrollView.
  *
- * Deliberately NOT using <Text> from shared-ui — that component is bound to the
- * Urbanist family and this surface pairs Inter with Geist Mono.
+ * Uses RN Text rather than shared-ui <Text> — this surface needs weights and
+ * tracking that component does not expose.
  *
  * USED IN: ReceiptSheet (Cars tab service history, Settings → Past Service),
  *          ParsedDocumentSheet (uploaded-document preview).
@@ -25,7 +25,7 @@
 import React from "react";
 import { Pressable, Share, StyleSheet, Text as RNText, View } from "react-native";
 
-import { FontFamily, ServiceLogColors as C } from "@/constants/theme";
+import { ServiceLogColors as C, ServiceLogFonts as F } from "@/constants/theme";
 
 export interface ReceiptPayload {
   receipt_number: string;
@@ -420,19 +420,19 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   eyebrow: {
-    fontFamily: FontFamily.techMonoMedium,
+    fontFamily: F.micro,
     fontSize: 9,
     letterSpacing: 2,
     color: C.low,
   },
   share: {
-    fontFamily: FontFamily.techMonoMedium,
+    fontFamily: F.micro,
     fontSize: 10,
     letterSpacing: 1.4,
     color: C.accent,
   },
   hero: {
-    fontFamily: FontFamily.interBold,
+    fontFamily: F.display,
     fontSize: 38,
     lineHeight: 42,
     letterSpacing: -1.6,
@@ -452,7 +452,7 @@ const styles = StyleSheet.create({
     backgroundColor: C.positive,
   },
   paidLabel: {
-    fontFamily: FontFamily.interMedium,
+    fontFamily: F.medium,
     fontSize: 12,
     color: C.mid,
   },
@@ -471,7 +471,7 @@ const styles = StyleSheet.create({
 
   // ── sections + line items ─────────────────────────────────
   sectionLabel: {
-    fontFamily: FontFamily.techMonoMedium,
+    fontFamily: F.micro,
     fontSize: 9,
     letterSpacing: 2,
     color: C.low,
@@ -486,19 +486,19 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   lineName: {
-    fontFamily: FontFamily.interMedium,
+    fontFamily: F.medium,
     fontSize: 14,
     color: C.ink,
     flexShrink: 1,
   },
   lineAmount: {
-    fontFamily: FontFamily.techMonoMedium,
+    fontFamily: F.micro,
     fontSize: 13,
     letterSpacing: 0.2,
     color: C.ink,
   },
   lineDetail: {
-    fontFamily: FontFamily.techMono,
+    fontFamily: F.microRegular,
     fontSize: 9,
     letterSpacing: 0.9,
     color: C.low,
@@ -512,7 +512,7 @@ const styles = StyleSheet.create({
     marginHorizontal: 7,
   },
   leaderText: {
-    fontFamily: FontFamily.techMono,
+    fontFamily: F.microRegular,
     fontSize: 11,
     letterSpacing: 1,
     color: C.leader,
@@ -525,12 +525,12 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
   },
   totalLabel: {
-    fontFamily: FontFamily.interRegular,
+    fontFamily: F.regular,
     fontSize: 13,
     color: C.mid,
   },
   totalValue: {
-    fontFamily: FontFamily.techMono,
+    fontFamily: F.microRegular,
     fontSize: 12,
     letterSpacing: 0.2,
     color: C.mid,
@@ -541,13 +541,13 @@ const styles = StyleSheet.create({
     paddingTop: 12,
   },
   totalLabelHero: {
-    fontFamily: FontFamily.interBold,
+    fontFamily: F.display,
     fontSize: 17,
     letterSpacing: -0.3,
     color: C.ink,
   },
   totalValueHero: {
-    fontFamily: FontFamily.interBold,
+    fontFamily: F.display,
     fontSize: 22,
     letterSpacing: -0.6,
     color: C.ink,
@@ -562,12 +562,12 @@ const styles = StyleSheet.create({
     gap: 3,
   },
   footerTitle: {
-    fontFamily: FontFamily.interSemiBold,
+    fontFamily: F.semi,
     fontSize: 14,
     color: C.ink,
   },
   footerMeta: {
-    fontFamily: FontFamily.techMono,
+    fontFamily: F.microRegular,
     fontSize: 9,
     letterSpacing: 1,
     color: C.low,
@@ -582,7 +582,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   ctaLabel: {
-    fontFamily: FontFamily.interSemiBold,
+    fontFamily: F.semi,
     fontSize: 15,
     color: C.onAccent,
   },
