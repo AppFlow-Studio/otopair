@@ -781,12 +781,15 @@ export function BookServiceComponent({
           the body remounts + slides in from the right whenever the user
           advances. (Going back also re-triggers, which feels right —
           each stage entrance has a fresh sense of motion.) */}
-      <ScrollView
-        style={styles.body}
-        contentContainerStyle={styles.bodyContent}
-        showsVerticalScrollIndicator={false}
-        nestedScrollEnabled
-      >
+      {/* Content-sized body (QA p.38): "it would be a lot better if it
+          didn't make me scroll inside this container … the container
+          dynamically moves based on the height the content needs." The old
+          maxHeight:380 ScrollView forced inner scrolling on any tall stage;
+          now the card grows with its stage and the CHAT scroll carries it —
+          one scroll surface, never two. Stage bodies are compact post-
+          segmentation (time periods, shop phase), so the tallest stage is
+          the stage-1 service list, which reads fine as a tall card. */}
+      <View style={styles.bodyContent}>
         <Animated.View
           key={stage}
           entering={FadeInRight.duration(280).easing(Easing.out(Easing.cubic))}
@@ -854,7 +857,7 @@ export function BookServiceComponent({
             />
           )}
         </Animated.View>
-      </ScrollView>
+      </View>
 
       {/* Footer */}
       <View style={styles.footer}>
@@ -2043,9 +2046,8 @@ const styles = StyleSheet.create({
     borderRadius: 2,
   },
   // Body
-  body: {
-    maxHeight: 380,
-  },
+  // p.38: no fixed height — the card sizes to its stage and the chat
+  // scroll carries it. (Was maxHeight:380 + inner ScrollView.)
   bodyContent: {
     paddingBottom: Spacing.md,
   },
