@@ -48,6 +48,7 @@ import { isBookingActionAllowed } from '@/lib/connection/offlineBookingActions';
 import { OfflineActionsNotice } from '@/components/connection/OfflineActionsNotice';
 import { useRescheduleDecisionOverlayStore } from '@/stores/useRescheduleDecisionOverlayStore';
 import type { Id } from '@/convex/_generated/dataModel';
+import { BookingCardOnLight, BookingCardOnNavy } from '@/constants/theme';
 
 // ============================================================================
 // TYPES
@@ -138,6 +139,8 @@ function titleCase(str: string): string {
 
 const CARD_PADDING = 16;
 const CARD_RADIUS = 16;
+
+
 const ACTION_BUTTON_GAP = 10;
 const ACTION_BUTTON_HORIZONTAL_PADDING = 32;
 const ACTION_BUTTON_LABEL_MAX_SIZE = 14;
@@ -362,12 +365,44 @@ export function BookingCard({
   const stageView = getBookingStageView(booking.status, booking.liveStage);
   const isUpcoming = variant === 'upcoming';
 
+  /**
+   * Upcoming cards are navy end to end — the hero gradient runs the full card
+   * rather than banding just the header — so every foreground colour has to
+   * invert. History cards stay on white and keep the original values.
+   *
+   * One palette, switched once, rather than `isUpcoming ? … : …` at ~25 call
+   * sites.
+   */
+  const P = isUpcoming ? BookingCardOnNavy : BookingCardOnLight;
+
   return (
     <Animated.View
-      style={[styles.card, dimStyle]}
+      style={[
+        styles.card,
+        // Base under the gradient so the corners and any sub-pixel gap read
+        // navy rather than flashing white.
+        isUpcoming && { backgroundColor: HERO_SURFACE },
+        dimStyle,
+      ]}
       exiting={FadeOut.duration(220)}
       layout={LinearTransition.duration(260)}
     >
+      {/* Navy surface for the WHOLE card — mirrors the Home banner and the
+          details sheet, so the three read as one object at three sizes.
+          Upcoming only; history rows are an archive and stay plain white.
+          Sits at the card root (not inside the header) so it reaches every
+          edge, and bleeds past the padding while carrying its own radii, so
+          the card keeps the shadow it would lose to `overflow: hidden`. */}
+      {isUpcoming ? (
+        <LinearGradient
+          colors={[HERO_SURFACE, HERO_SURFACE_DEEP]}
+          start={{ x: 0.5, y: 0 }}
+          end={{ x: 0.5, y: 1 }}
+          style={styles.navyBand}
+          pointerEvents="none"
+        />
+      ) : null}
+
       {/* The card body IS the tap target — that's what replaced the old
           full-width "View Details" button. Actions stay outside the Pressable
           so there's no nested-press ambiguity. */}
@@ -384,15 +419,6 @@ export function BookingCard({
           the card keeps the shadow it would lose to `overflow: hidden`. It has
           to enclose the title row too — the title inverts to white inside it. */}
       <View style={styles.headerBlock}>
-        {isUpcoming ? (
-          <LinearGradient
-            colors={[HERO_SURFACE, HERO_SURFACE_DEEP]}
-            start={{ x: 0.5, y: 0 }}
-            end={{ x: 0.5, y: 1 }}
-            style={styles.navyBand}
-            pointerEvents="none"
-          />
-        ) : null}
 
         {/* Lifecycle progress bar — see utils/bookingStages.ts. Segments only:
             the status badge beside the title already names the state, and the
@@ -432,7 +458,7 @@ export function BookingCard({
               <Text
                 weight="semiBold"
                 size="xl"
-                color="#5299FE"
+                color={P.accent}
                 style={isCancelling ? styles.strikethrough : undefined}
               >
                 {additionalText}
@@ -473,7 +499,7 @@ export function BookingCard({
         <View style={styles.carInfo}>
           {showCarPlaceholder ? (
             <View style={styles.carPlaceholder}>
-              <Car size={20} color="#9CA3AF" strokeWidth={1.5} />
+              <Car size={20} color={P.icon} strokeWidth={1.5} />
             </View>
           ) : (
             <Image
@@ -487,11 +513,11 @@ export function BookingCard({
             <Text
               weight="bold"
               size="sm"
-              color="#1F2937"
+              color={P.text}
             >
               {titleCase(booking.carModel)}
             </Text>
-            <Text weight="regular" size="xs" color="#6B7280">
+            <Text weight="regular" size="xs" color={P.textMuted}>
               {booking.licensePlate}
             </Text>
           </View>
@@ -502,12 +528,12 @@ export function BookingCard({
           {booking.mechanicImage ? (
             <Image source={{ uri: booking.mechanicImage }} style={styles.mechanicImage} />
           ) : (
-            <View style={styles.mechanicPlaceholder}>
-              <User size={18} color="#9CA3AF" strokeWidth={1.5} />
+            <View style={[styles.mechanicPlaceholder, { backgroundColor: P.surface }]}>
+              <User size={18} color={P.icon} strokeWidth={1.5} />
             </View>
           )}
           <View style={styles.mechanicDetails}>
-            <Text weight="bold" size="sm" color="#1F2937">
+            <Text weight="bold" size="sm" color={P.text}>
               {booking.mechanicName}
             </Text>
             {/* Server falls back to shopName for `mechanicName` when no
@@ -515,7 +541,7 @@ export function BookingCard({
                 the second line when it's the same string to avoid
                 rendering "Shop / Shop". */}
             {booking.mechanicName !== booking.shopName ? (
-              <Text weight="regular" size="xs" color="#6B7280">
+              <Text weight="regular" size="xs" color={P.textMuted}>
                 {booking.shopName}
               </Text>
             ) : null}
@@ -527,21 +553,21 @@ export function BookingCard({
       {variant === 'upcoming' ? (
         booking.status === 'pending_quote' ? (
           <View style={styles.whenRow}>
-            <CalendarClock size={15} color="#C8972E" strokeWidth={2} />
-            <Text weight="semiBold" size="sm" color="#C8972E">
+            <CalendarClock size={15} color={P.amber} strokeWidth={2} />
+            <Text weight="semiBold" size="sm" color={P.amber}>
               Awaiting quote · Time TBD
             </Text>
             <View style={styles.whenSpacer} />
-            <ChevronRight size={18} color="#C3CBD6" strokeWidth={2} />
+            <ChevronRight size={18} color={P.chevron} strokeWidth={2} />
           </View>
         ) : (
           <View style={styles.whenRow}>
-            <CalendarClock size={15} color="#6B7280" strokeWidth={2} />
-            <Text weight="semiBold" size="sm" color="#1F2937" numberOfLines={1}>
+            <CalendarClock size={15} color={P.textMuted} strokeWidth={2} />
+            <Text weight="semiBold" size="sm" color={P.text} numberOfLines={1}>
               {[booking.date, booking.time].filter(Boolean).join(' · ')}
             </Text>
             <View style={styles.whenSpacer} />
-            <ChevronRight size={18} color="#C3CBD6" strokeWidth={2} />
+            <ChevronRight size={18} color={P.chevron} strokeWidth={2} />
           </View>
         )
       ) : (
@@ -555,16 +581,16 @@ export function BookingCard({
             <>
               {booking.date ? (
                 <View style={styles.historyInfoRow}>
-                  <Text weight="regular" size="sm" color="#6B7280">
+                  <Text weight="regular" size="sm" color={P.textMuted}>
                     Cancelled On
                   </Text>
-                  <Text weight="semiBold" size="sm" color="#6B7280">
+                  <Text weight="semiBold" size="sm" color={P.textMuted}>
                     {booking.date}
                   </Text>
                 </View>
               ) : null}
               <View style={styles.historyInfoRow}>
-                <Text weight="regular" size="sm" color="#6B7280">
+                <Text weight="regular" size="sm" color={P.textMuted}>
                   Status
                 </Text>
                 <Text weight="semiBold" size="sm" color={STATUS_CONFIG.cancelled.textColor}>
@@ -575,15 +601,15 @@ export function BookingCard({
           ) : (
             <>
               <View style={styles.historyInfoRow}>
-                <Text weight="regular" size="sm" color="#6B7280">
+                <Text weight="regular" size="sm" color={P.textMuted}>
                   Completed On
                 </Text>
-                <Text weight="semiBold" size="sm" color="#5299FE">
+                <Text weight="semiBold" size="sm" color={P.accent}>
                   {booking.date}
                 </Text>
               </View>
               <View style={styles.historyInfoRow}>
-                <Text weight="regular" size="sm" color="#6B7280">
+                <Text weight="regular" size="sm" color={P.textMuted}>
                   Total Cost
                 </Text>
                 <View style={styles.historyTotalCostWrap}>
@@ -592,7 +618,7 @@ export function BookingCard({
                     booking.disclosedRangeLowCents === booking.disclosedRangeHighCents && (
                       <FixedPriceBadge size="sm" />
                     )}
-                  <Text weight="semiBold" size="sm" color="#5299FE">
+                  <Text weight="semiBold" size="sm" color={P.accent}>
                     ${booking.totalCost?.toFixed(2) || '0.00'}
                   </Text>
                 </View>
@@ -648,13 +674,14 @@ export function BookingCard({
                   disabled={isCancelling}
                   style={({ pressed }) => [
                     styles.cancelButton,
+                    { backgroundColor: P.dangerSurface, borderColor: P.dangerBorder },
                     pressed && styles.buttonPressed,
                   ]}
                 >
                   <Text
                     weight="semiBold"
                     size={actionButtonLabelSize}
-                    color="#DC2626"
+                    color={P.danger}
                     numberOfLines={1}
                     lineHeight={1.2}
                     style={styles.actionButtonLabel}
@@ -668,13 +695,14 @@ export function BookingCard({
                   disabled={isCancelling}
                   style={({ pressed }) => [
                     styles.secondaryButton,
+                    { backgroundColor: P.surface, borderColor: P.surfaceBorder },
                     pressed && styles.buttonPressed,
                   ]}
                 >
                   <Text
                     weight="semiBold"
                     size={actionButtonLabelSize}
-                    color="#1F2937"
+                    color={P.text}
                     numberOfLines={1}
                     lineHeight={1.2}
                     style={styles.actionButtonLabel}
@@ -697,7 +725,7 @@ export function BookingCard({
               pressed && styles.buttonPressed,
             ]}
           >
-            <FileText size={20} color="#1F2937" strokeWidth={1.5} />
+            <FileText size={20} color={P.text} strokeWidth={1.5} />
           </Pressable>
           
           <Pressable
@@ -707,7 +735,7 @@ export function BookingCard({
               pressed && styles.buttonPressed,
             ]}
           >
-            <Star size={20} color="#1F2937" strokeWidth={1.5} />
+            <Star size={20} color={P.text} strokeWidth={1.5} />
           </Pressable>
 
           <View style={{ flex: 1 }} />
@@ -783,14 +811,15 @@ const styles = StyleSheet.create({
   headerBlock: {
     marginBottom: 4,
   },
+  /** Runs the full card, not just the header band — the gradient is the card
+   *  surface now, so it has to reach every edge and carry all four radii. */
   navyBand: {
     position: 'absolute',
     top: -CARD_PADDING,
     left: -CARD_PADDING,
     right: -CARD_PADDING,
-    bottom: 0,
-    borderTopLeftRadius: CARD_RADIUS,
-    borderTopRightRadius: CARD_RADIUS,
+    bottom: -CARD_PADDING,
+    borderRadius: CARD_RADIUS,
   },
   strikethrough: {
     textDecorationLine: 'line-through',

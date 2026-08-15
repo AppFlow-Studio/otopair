@@ -58,12 +58,12 @@ export function BookingProgressBar({
   return (
     <View style={styles.container}>
       {title ? (
-        <Text size="md" weight="bold" color="#1F2937" center style={styles.title}>
+        <Text size="md" weight="bold" color={onDark ? "#FFFFFF" : "#1F2937"} center style={styles.title}>
           {title}
         </Text>
       ) : null}
       {subtitle ? (
-        <Text size="xs" weight="regular" color="#6B7280" center style={styles.subtitle}>
+        <Text size="xs" weight="regular" color={onDark ? "rgba(255,255,255,0.62)" : "#6B7280"} center style={styles.subtitle}>
           {subtitle}
         </Text>
       ) : null}
@@ -84,7 +84,7 @@ export function BookingProgressBar({
       {/* Current-stage label sits under the bar so the card retains
           glance-readability without listing all segments by name. */}
       {showStageLabel && safeIndex >= 0 ? (
-        <Text size="sm" weight="semiBold" color="#1F2937" center style={styles.currentStage}>
+        <Text size="sm" weight="semiBold" color={onDark ? "#FFFFFF" : "#1F2937"} center style={styles.currentStage}>
           {stages[safeIndex]}
         </Text>
       ) : null}

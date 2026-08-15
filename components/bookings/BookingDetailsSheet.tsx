@@ -101,10 +101,10 @@ const STATUS_CONFIG: Record<BookingStatus, { label: string; bgColor: string; tex
   pending_shop_acceptance: { label: "Awaiting shop", bgColor: "#fff6ee", textColor: "#f89829" },
   pending: { label: "Pending", bgColor: "#fff6ee", textColor: "#f89829" },
   pending_quote: { label: "Pending Quote", bgColor: "#FFF8ED", textColor: "#C8972E" },
-  quotes_ready: { label: "Quotes Ready", bgColor: "#E3F0FF", textColor: "#2F6DCC" },
+  quotes_ready: { label: "Quotes Ready", bgColor: "#E3F0FF", textColor: "#7FB4FF" },
   pending_customer_acceptance: { label: "Action needed", bgColor: "#FFF6E5", textColor: "#C8972E" },
-  confirmed: { label: "Confirmed", bgColor: "#e8f5e9", textColor: "#4CAF50" },
-  in_progress: { label: "In Progress", bgColor: "#E0E7FF", textColor: "#4F46E5" },
+  confirmed: { label: "Confirmed", bgColor: "#e8f5e9", textColor: "#34D399" },
+  in_progress: { label: "In Progress", bgColor: "#E0E7FF", textColor: "#A5B4FC" },
   completed: { label: "Completed", bgColor: "#f0fcf5", textColor: "#60d17e" },
   cancelled: { label: "Cancelled", bgColor: "#FEE2E2", textColor: "#DC2626" },
   delayed: { label: "Delayed", bgColor: "#FEF3C7", textColor: "#D97706" },
@@ -561,6 +561,19 @@ export const BookingDetailsSheet = forwardRef<BookingDetailsSheetRef, BookingDet
 
         <Animated.View style={[styles.sheetShadow, sheetAnimStyle]}>
           <Animated.View style={[styles.sheetInner, innerAnimStyle]}>
+            {/* The sheet surface. Same navy the collapsed hero, the Home
+                banner and the booking card lead with — now running the whole
+                sheet rather than just the header, so the whole object reads as
+                one navy card instead of a navy cap on a white panel.
+                `sheetInner` clips it to the corner radius. */}
+            <LinearGradient
+              colors={[HERO_SURFACE, HERO_SURFACE_DEEP]}
+              start={{ x: 0.5, y: 0 }}
+              end={{ x: 0.5, y: 1 }}
+              style={StyleSheet.absoluteFill}
+              pointerEvents="none"
+            />
+
             {/* Grabber always at top, drag-to-resize. Absolutely positioned
                 (not in flow) so the collapsed view's navy header can run all
                 the way to the sheet's rounded top edge and the grabber floats
@@ -722,21 +735,21 @@ function MidContent({
             Message stays the primary CTA, the rest live here. */}
         <View style={styles.quickRow}>
           <QuickAction
-            icon={<Phone size={20} color={shopPhone ? "#0F172A" : "#B6C0CC"} strokeWidth={2} />}
+            icon={<Phone size={20} color={shopPhone ? "#FFFFFF" : "rgba(255,255,255,0.30)"} strokeWidth={2} />}
             label="Call"
             onPress={handleCall}
             disabled={!shopPhone}
           />
           <QuickAction
             icon={
-              <Navigation size={20} color={shopAddress ? "#0F172A" : "#B6C0CC"} strokeWidth={2} />
+              <Navigation size={20} color={shopAddress ? "#FFFFFF" : "rgba(255,255,255,0.30)"} strokeWidth={2} />
             }
             label="Directions"
             onPress={handleDirections}
             disabled={!shopAddress}
           />
           <QuickAction
-            icon={<CalendarDays size={20} color="#0F172A" strokeWidth={2} />}
+            icon={<CalendarDays size={20} color="#FFFFFF" strokeWidth={2} />}
             label="Reschedule"
             onPress={handleReschedule}
           />
@@ -746,14 +759,14 @@ function MidContent({
             sheet is already a container, so a card inside it just adds edges. */}
         <View style={styles.infoList}>
           <InfoRow
-            icon={<Store size={18} color="#5299FE" strokeWidth={2} />}
+            icon={<Store size={18} color="#7FB4FF" strokeWidth={2} />}
             label="SHOP"
             value={booking.shopName}
             sub={mechanicLine}
           />
           <View style={styles.infoDivider} />
           <InfoRow
-            icon={<Car size={18} color="#5299FE" strokeWidth={2} />}
+            icon={<Car size={18} color="#7FB4FF" strokeWidth={2} />}
             label="VEHICLE"
             value={`${titleCase(booking.carModel)}${booking.carYear ? ` · ${booking.carYear}` : ""}`}
           />
@@ -774,8 +787,8 @@ function MidContent({
         )}
 
         <View style={styles.midHintRow}>
-          <ChevronUp size={14} color="#A7B2BF" strokeWidth={2.5} />
-          <Text size="xs" weight="medium" color="#8E8E93">
+          <ChevronUp size={14} color="rgba(255,255,255,0.45)" strokeWidth={2.5} />
+          <Text size="xs" weight="medium" color="rgba(255,255,255,0.55)">
             Swipe up for full details
           </Text>
         </View>
@@ -901,7 +914,7 @@ function QuickAction({
       <View style={[styles.quickActionCircle, disabled && styles.quickActionCircleDisabled]}>
         {icon}
       </View>
-      <Text size="xs" weight="medium" color={disabled ? "#B6C0CC" : "#4A5763"}>
+      <Text size="xs" weight="medium" color={disabled ? "rgba(255,255,255,0.30)" : "rgba(255,255,255,0.72)"}>
         {label}
       </Text>
     </TouchableOpacity>
@@ -924,14 +937,14 @@ function InfoRow({
     <View style={styles.infoRow}>
       <View style={styles.infoIconTile}>{icon}</View>
       <View style={styles.infoRowText}>
-        <Text size="xs" weight="semiBold" color="#8E8E93" style={styles.infoEyebrow}>
+        <Text size="xs" weight="semiBold" color="rgba(255,255,255,0.55)" style={styles.infoEyebrow}>
           {label}
         </Text>
-        <Text size="md" weight="semiBold" color="#1A1A1A" numberOfLines={2}>
+        <Text size="md" weight="semiBold" color="#FFFFFF" numberOfLines={2}>
           {value}
         </Text>
         {sub ? (
-          <Text size="xs" weight="regular" color="#8E8E93" numberOfLines={1}>
+          <Text size="xs" weight="regular" color="rgba(255,255,255,0.55)" numberOfLines={1}>
             {sub}
           </Text>
         ) : null}
@@ -1116,23 +1129,23 @@ function FullContent({
         {/* SERVICE */}
         <View style={styles.section}>
           <SectionHeader label="Service" />
-          <Text size="lg" weight="semiBold" color="#1A1A1A">
+          <Text size="lg" weight="semiBold" color="#FFFFFF">
             {primaryService}
           </Text>
           {serviceDescription ? (
-            <Text size="sm" weight="regular" color="#3C3C43" style={styles.serviceDescription}>
+            <Text size="sm" weight="regular" color="rgba(255,255,255,0.72)" style={styles.serviceDescription}>
               {serviceDescription}
             </Text>
           ) : null}
           {serviceDurationMinutes != null ? (
-            <Text size="xs" weight="regular" color="#8E8E93" style={styles.serviceDuration}>
+            <Text size="xs" weight="regular" color="rgba(255,255,255,0.55)" style={styles.serviceDuration}>
               ⏱ ~{serviceDurationMinutes} minutes
             </Text>
           ) : null}
           {booking.services.length > 1 ? (
             <View style={styles.extraServices}>
               {booking.services.slice(1).map((s, i) => (
-                <Text key={i} size="sm" weight="regular" color="#3C3C43">
+                <Text key={i} size="sm" weight="regular" color="rgba(255,255,255,0.72)">
                   · {s}
                 </Text>
               ))}
@@ -1160,10 +1173,10 @@ function FullContent({
               )}
             </View>
             <View style={styles.vehicleInfo}>
-              <Text size="md" weight="semiBold" color="#1A1A1A">
+              <Text size="md" weight="semiBold" color="#FFFFFF">
                 {titleCase(booking.carModel)}
               </Text>
-              <Text size="xs" weight="regular" color="#8E8E93">
+              <Text size="xs" weight="regular" color="rgba(255,255,255,0.55)">
                 {booking.carYear}
                 {vehicleMileage != null ? ` · ${vehicleMileage.toLocaleString()} miles` : ""}
                 {booking.licensePlate ? ` · ${booking.licensePlate}` : ""}
@@ -1175,21 +1188,21 @@ function FullContent({
         {/* SHOP */}
         <View style={styles.section}>
           <SectionHeader label="Shop" />
-          <Text size="md" weight="semiBold" color="#1A1A1A">
+          <Text size="md" weight="semiBold" color="#FFFFFF">
             {booking.shopName}
           </Text>
           {shopAddress ? (
-            <Text size="sm" weight="regular" color="#3C3C43" style={styles.shopLine}>
+            <Text size="sm" weight="regular" color="rgba(255,255,255,0.72)" style={styles.shopLine}>
               {shopAddress}
             </Text>
           ) : null}
           {shopHoursLabel ? (
-            <Text size="xs" weight="regular" color="#10B981" style={styles.shopLine}>
+            <Text size="xs" weight="regular" color="#34D399" style={styles.shopLine}>
               {shopHoursLabel}
             </Text>
           ) : null}
           {shopRating ? (
-            <Text size="xs" weight="regular" color="#8E8E93" style={styles.shopLine}>
+            <Text size="xs" weight="regular" color="rgba(255,255,255,0.55)" style={styles.shopLine}>
               ⭐ {shopRating.score.toFixed(1)} ({shopRating.count.toLocaleString()} reviews)
             </Text>
           ) : null}
@@ -1246,10 +1259,10 @@ function FullContent({
               // needs the customer's explicit approval before collapsing).
               return (
                 <View style={styles.paymentRow}>
-                  <Text size="md" weight="regular" color="#1A1A1A">
+                  <Text size="md" weight="regular" color="#FFFFFF">
                     Estimated total
                   </Text>
-                  <Text size="md" weight="bold" color="#1A1A1A">
+                  <Text size="md" weight="bold" color="#FFFFFF">
                     {formatCents(mechanicSetPriceCents)}
                   </Text>
                 </View>
@@ -1273,10 +1286,10 @@ function FullContent({
                 });
                 return (
                   <View style={styles.paymentRow}>
-                    <Text size="md" weight="regular" color="#1A1A1A">
+                    <Text size="md" weight="regular" color="#FFFFFF">
                       Estimated total
                     </Text>
-                    <Text size="md" weight="bold" color="#1A1A1A">
+                    <Text size="md" weight="bold" color="#FFFFFF">
                       {range.formatted}
                     </Text>
                   </View>
@@ -1298,10 +1311,10 @@ function FullContent({
               });
               return (
                 <View style={styles.paymentRow}>
-                  <Text size="md" weight="regular" color="#1A1A1A">
+                  <Text size="md" weight="regular" color="#FFFFFF">
                     Estimated total
                   </Text>
-                  <Text size="md" weight="bold" color="#1A1A1A">
+                  <Text size="md" weight="bold" color="#FFFFFF">
                     {range.formatted}
                   </Text>
                 </View>
@@ -1309,10 +1322,10 @@ function FullContent({
             }
             return (
               <View style={styles.paymentRow}>
-                <Text size="md" weight="regular" color="#1A1A1A">
+                <Text size="md" weight="regular" color="#FFFFFF">
                   Estimated total
                 </Text>
-                <Text size="md" weight="regular" color="#8E8E93" style={styles.paymentPending}>
+                <Text size="md" weight="regular" color="rgba(255,255,255,0.55)" style={styles.paymentPending}>
                   Pending confirmation
                 </Text>
               </View>
@@ -1344,7 +1357,7 @@ function FullContent({
             onPress={handleAddToCalendar}
             activeOpacity={0.7}
           >
-            <Text size="md" weight="medium" color="#1A1A1A">
+            <Text size="md" weight="medium" color="#FFFFFF">
               Add to Calendar
             </Text>
           </TouchableOpacity>
@@ -1354,7 +1367,7 @@ function FullContent({
         {writeActionsAllowed ? (
           <View style={styles.cancelWrapper}>
             <TouchableOpacity style={styles.cancelButton} onPress={handleCancel} activeOpacity={0.7}>
-              <Text size="md" weight="medium" color="#FF3B30">
+              <Text size="md" weight="medium" color="#FCA5A5">
                 Cancel Booking
               </Text>
             </TouchableOpacity>
@@ -1367,7 +1380,7 @@ function FullContent({
 
 function SectionHeader({ label }: { label: string }) {
   return (
-    <Text size="xs" weight="bold" color="#8E8E93" style={styles.sectionHeaderText}>
+    <Text size="xs" weight="bold" color="rgba(255,255,255,0.55)" style={styles.sectionHeaderText}>
       {label.toUpperCase()}
     </Text>
   );
@@ -1404,7 +1417,7 @@ function ArrivalTrackingTimeline({ monitor }: { monitor: LateMonitor }) {
       {events.map((event, idx) => {
         const isLast = idx === events.length - 1;
         const IconComponent = event.icon === "bell" ? Bell : Car;
-        const iconColor = event.icon === "bell" ? "#D97706" : "#059669";
+        const iconColor = event.icon === "bell" ? "#D97706" : "#34D399";
         const bgColor = event.icon === "bell" ? "#FFFBEB" : "#ECFDF5";
 
         return (
@@ -1416,10 +1429,10 @@ function ArrivalTrackingTimeline({ monitor }: { monitor: LateMonitor }) {
               {!isLast ? <View style={styles.timelineLine} /> : null}
             </View>
             <View style={[styles.timelineBody, isLast && styles.timelineBodyLast]}>
-              <Text size="sm" weight="semiBold" color="#1A1A1A">
+              <Text size="sm" weight="semiBold" color="#FFFFFF">
                 {event.label}
               </Text>
-              <Text size="xs" weight="regular" color="#8E8E93">
+              <Text size="xs" weight="regular" color="rgba(255,255,255,0.55)">
                 {formatShortTime(event.ts)}
               </Text>
             </View>
@@ -1536,20 +1549,20 @@ function activitySummary(ev: ActivityEvent, isCustomer: boolean): string {
 function activityIcon(ev: ActivityEvent): { Icon: any; bg: string; fg: string } {
   switch (ev.type) {
     case "booking_created":
-      return { Icon: FileText, bg: "rgba(82,153,254,0.12)", fg: "#5299FE" };
+      return { Icon: FileText, bg: "rgba(82,153,254,0.12)", fg: "#7FB4FF" };
     case "status_change":
-      return { Icon: ArrowRight, bg: "#F2F2F7", fg: "#8E8E93" };
+      return { Icon: ArrowRight, bg: "#F2F2F7", fg: "rgba(255,255,255,0.55)" };
     case "estimate_submitted":
       return { Icon: ReceiptText, bg: "#FFFBEB", fg: "#D97706" };
     case "estimate_decision": {
       const d = ev.data.decision;
       if (d === "approved" || d === "auto_approved_within_range") {
-        return { Icon: Check, bg: "#ECFDF5", fg: "#059669" };
+        return { Icon: Check, bg: "#ECFDF5", fg: "#34D399" };
       }
       return { Icon: X, bg: "#FEF2F2", fg: "#DC2626" };
     }
     case "part_edit":
-      return { Icon: Wrench, bg: "#F2F2F7", fg: "#8E8E93" };
+      return { Icon: Wrench, bg: "#F2F2F7", fg: "rgba(255,255,255,0.55)" };
   }
 }
 
@@ -1587,19 +1600,19 @@ function ActivityRow({
         >
           <View style={styles.activityHeaderRow}>
             <View style={styles.activityHeaderText}>
-              <Text size="sm" weight="semiBold" color="#1A1A1A">
+              <Text size="sm" weight="semiBold" color="#FFFFFF">
                 {summary}
               </Text>
-              <Text size="xs" weight="regular" color="#8E8E93">
+              <Text size="xs" weight="regular" color="rgba(255,255,255,0.55)">
                 {formatShortTime(event.at)}
               </Text>
             </View>
             {hasDetail ? (
               <View style={styles.activityChevron}>
                 {expanded ? (
-                  <ChevronDown size={14} color="#8E8E93" />
+                  <ChevronDown size={14} color="rgba(255,255,255,0.55)" />
                 ) : (
-                  <ChevronRight size={14} color="#8E8E93" />
+                  <ChevronRight size={14} color="rgba(255,255,255,0.55)" />
                 )}
               </View>
             ) : null}
@@ -1609,7 +1622,7 @@ function ActivityRow({
         {expanded && event.type === "booking_created" ? (
           <View style={styles.activityDetail}>
             {event.data.services.length > 0 ? (
-              <Text size="xs" weight="regular" color="#3C3C43">
+              <Text size="xs" weight="regular" color="rgba(255,255,255,0.72)">
                 {event.data.services.join(" · ")}
               </Text>
             ) : null}
@@ -1618,7 +1631,7 @@ function ActivityRow({
                 range" line below is what the customer is contracted to. */}
             {event.data.disclosedRangeLowCents != null &&
             event.data.disclosedRangeHighCents != null ? (
-              <Text size="xs" weight="regular" color="#8E8E93" style={styles.activityDetailLine}>
+              <Text size="xs" weight="regular" color="rgba(255,255,255,0.55)" style={styles.activityDetailLine}>
                 Agreed range {formatCents(event.data.disclosedRangeLowCents)}–
                 {formatCents(event.data.disclosedRangeHighCents)}
               </Text>
@@ -1626,7 +1639,7 @@ function ActivityRow({
             {event.data.pricedPartsSnapshot && event.data.pricedPartsSnapshot.length > 0 ? (
               <View style={styles.activityPartsList}>
                 {event.data.pricedPartsSnapshot.map((p, i) => (
-                  <Text key={`${p.oem_number}-${i}`} size="xs" weight="regular" color="#3C3C43">
+                  <Text key={`${p.oem_number}-${i}`} size="xs" weight="regular" color="rgba(255,255,255,0.72)">
                     • {p.quantity}× {p.part_name} @ {formatCents(p.unit_price_cents)} ={" "}
                     {formatCents(p.line_total_cents)}
                   </Text>
@@ -1638,34 +1651,34 @@ function ActivityRow({
 
         {expanded && event.type === "estimate_submitted" ? (
           <View style={styles.activityDetail}>
-            <Text size="xs" weight="regular" color="#3C3C43">
+            <Text size="xs" weight="regular" color="rgba(255,255,255,0.72)">
               Total {formatCents(event.data.totalCents)}
             </Text>
             {(event.data.partsSubtotalCents != null ||
               event.data.laborCents != null ||
               event.data.taxCents != null ||
               event.data.serviceFeeCents != null) ? (
-              <Text size="xs" weight="regular" color="#3C3C43" style={styles.activityDetailLine}>
+              <Text size="xs" weight="regular" color="rgba(255,255,255,0.72)" style={styles.activityDetailLine}>
                 Parts {formatCents(event.data.partsSubtotalCents)} · Labor{" "}
                 {formatCents(event.data.laborCents)} · Tax {formatCents(event.data.taxCents)} · Fee{" "}
                 {formatCents(event.data.serviceFeeCents)}
               </Text>
             ) : null}
-            <Text size="xs" weight="regular" color="#8E8E93" style={styles.activityDetailLine}>
+            <Text size="xs" weight="regular" color="rgba(255,255,255,0.55)" style={styles.activityDetailLine}>
               Within agreed ceiling of {formatCents(event.data.priorCeilingCents)}
             </Text>
             {event.data.slaExpiresAtMs && !event.data.autoApprovedInRange ? (
-              <Text size="xs" weight="regular" color="#D97706" style={styles.activityDetailLine}>
+              <Text size="xs" weight="regular" color="#E8BC63" style={styles.activityDetailLine}>
                 Please respond by {formatShortTime(event.data.slaExpiresAtMs)}
               </Text>
             ) : null}
             {event.actor.label ? (
-              <Text size="xs" weight="regular" color="#8E8E93" style={styles.activityDetailLine}>
+              <Text size="xs" weight="regular" color="rgba(255,255,255,0.55)" style={styles.activityDetailLine}>
                 Submitted by {event.actor.label}
               </Text>
             ) : null}
             {event.data.notes ? (
-              <Text size="xs" weight="regular" color="#3C3C43" style={styles.activityDetailLine}>
+              <Text size="xs" weight="regular" color="rgba(255,255,255,0.72)" style={styles.activityDetailLine}>
                 “{event.data.notes}”
               </Text>
             ) : null}
@@ -1674,16 +1687,16 @@ function ActivityRow({
 
         {expanded && event.type === "estimate_decision" ? (
           <View style={styles.activityDetail}>
-            <Text size="xs" weight="regular" color="#3C3C43">
+            <Text size="xs" weight="regular" color="rgba(255,255,255,0.72)">
               At {formatCents(event.data.totalCents)}
             </Text>
             {event.data.ceilingAfterDecisionCents != null ? (
-              <Text size="xs" weight="regular" color="#8E8E93" style={styles.activityDetailLine}>
+              <Text size="xs" weight="regular" color="rgba(255,255,255,0.55)" style={styles.activityDetailLine}>
                 New ceiling {formatCents(event.data.ceilingAfterDecisionCents)}
               </Text>
             ) : null}
             {event.actor.label && event.actor.label !== "system" ? (
-              <Text size="xs" weight="regular" color="#8E8E93" style={styles.activityDetailLine}>
+              <Text size="xs" weight="regular" color="rgba(255,255,255,0.55)" style={styles.activityDetailLine}>
                 by {isCustomer && event.actor.userId ? "you" : event.actor.label}
               </Text>
             ) : null}
@@ -1693,17 +1706,17 @@ function ActivityRow({
         {expanded && event.type === "part_edit" ? (
           <View style={styles.activityDetail}>
             {event.data.oldValue || event.data.newValue ? (
-              <Text size="xs" weight="regular" color="#3C3C43">
+              <Text size="xs" weight="regular" color="rgba(255,255,255,0.72)">
                 {event.data.oldValue ?? "—"} → {event.data.newValue ?? "—"}
               </Text>
             ) : null}
             {event.data.oemNumber ? (
-              <Text size="xs" weight="regular" color="#8E8E93" style={styles.activityDetailLine}>
+              <Text size="xs" weight="regular" color="rgba(255,255,255,0.55)" style={styles.activityDetailLine}>
                 OEM {event.data.oemNumber}
               </Text>
             ) : null}
             {event.actor.label ? (
-              <Text size="xs" weight="regular" color="#8E8E93" style={styles.activityDetailLine}>
+              <Text size="xs" weight="regular" color="rgba(255,255,255,0.55)" style={styles.activityDetailLine}>
                 by {event.actor.label}
               </Text>
             ) : null}
@@ -1804,12 +1817,12 @@ function StatusTimeline({
               <Text
                 size="sm"
                 weight={isCurrent ? "semiBold" : "medium"}
-                color={isCompleted || isCurrent ? "#1A1A1A" : "#8E8E93"}
+                color={isCompleted || isCurrent ? "#FFFFFF" : "rgba(255,255,255,0.55)"}
               >
                 {stageLabels[stage] ?? ""}
               </Text>
               {timestamp ? (
-                <Text size="xs" weight="regular" color="#8E8E93">
+                <Text size="xs" weight="regular" color="rgba(255,255,255,0.55)">
                   {timestamp}
                 </Text>
               ) : null}
@@ -1833,7 +1846,9 @@ const styles = StyleSheet.create({
   // Sheet chrome (unchanged)
   sheetShadow: {
     position: "absolute",
-    backgroundColor: "#FFFFFF",
+    // Navy base: a white layer here flashes at the corners before the
+    // gradient paints.
+    backgroundColor: HERO_SURFACE,
     borderTopLeftRadius: CORNER_RADIUS,
     borderTopRightRadius: CORNER_RADIUS,
     borderBottomLeftRadius: CORNER_RADIUS,
@@ -1846,7 +1861,8 @@ const styles = StyleSheet.create({
   },
   sheetInner: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
+    // Transparent — the full-bleed navy gradient behind it is the surface now.
+    backgroundColor: "transparent",
     borderRadius: CORNER_RADIUS,
     overflow: "hidden",
   },
@@ -1957,7 +1973,9 @@ const styles = StyleSheet.create({
   midHeroCar: {
     position: "absolute",
     right: 8,
-    top: DRAG_REGION_HEIGHT + 44,
+    // Sits below the close button rather than alongside it — at +44 the roof
+    // crowded the X. Offset clears the 32pt button plus breathing room.
+    top: DRAG_REGION_HEIGHT + 62,
     width: 132,
     height: 84,
     alignItems: "center",
@@ -1985,13 +2003,13 @@ const styles = StyleSheet.create({
     borderRadius: 26,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#F1F5F9",
+    backgroundColor: "rgba(255,255,255,0.10)",
     borderWidth: 1,
-    borderColor: "#E6EDF5",
+    borderColor: "rgba(255,255,255,0.18)",
   },
   quickActionCircleDisabled: {
-    backgroundColor: "#F7F9FB",
-    borderColor: "#EEF2F6",
+    backgroundColor: "rgba(255,255,255,0.05)",
+    borderColor: "rgba(255,255,255,0.10)",
   },
   // At-a-glance rows.
   infoList: {
@@ -2010,7 +2028,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#EDF4FE",
+    backgroundColor: "rgba(255,255,255,0.10)",
   },
   infoRowText: {
     flex: 1,
@@ -2021,7 +2039,7 @@ const styles = StyleSheet.create({
   },
   infoDivider: {
     height: StyleSheet.hairlineWidth,
-    backgroundColor: "#E6EDF5",
+    backgroundColor: "rgba(255,255,255,0.18)",
     marginLeft: 54,
   },
   midHintRow: {
@@ -2045,7 +2063,7 @@ const styles = StyleSheet.create({
     marginTop: 24,
     height: 52,
     borderRadius: 14,
-    backgroundColor: "#5299FE",
+    backgroundColor: "#7FB4FF",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
@@ -2105,27 +2123,27 @@ const styles = StyleSheet.create({
     borderRadius: 9,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#EDF0F4",
+    backgroundColor: "rgba(255,255,255,0.10)",
     borderWidth: 2,
-    borderColor: "#E5E5EA",
+    borderColor: "rgba(255,255,255,0.22)",
   },
   timelineDotCompleted: {
-    backgroundColor: "#5299FE",
-    borderColor: "#5299FE",
+    backgroundColor: "#7FB4FF",
+    borderColor: "#7FB4FF",
   },
   timelineDotCurrent: {
-    backgroundColor: "#5299FE",
+    backgroundColor: "#7FB4FF",
     borderColor: "rgba(82,153,254,0.3)",
     borderWidth: 4,
   },
   timelineLine: {
     width: 2,
     flex: 1,
-    backgroundColor: "#E5E5EA",
+    backgroundColor: "rgba(255,255,255,0.22)",
     marginVertical: 2,
   },
   timelineLineCompleted: {
-    backgroundColor: "#5299FE",
+    backgroundColor: "#7FB4FF",
   },
   timelineBody: {
     flex: 1,
@@ -2212,7 +2230,7 @@ const styles = StyleSheet.create({
     height: 52,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: "#E5E5EA",
+    borderColor: "rgba(255,255,255,0.22)",
     backgroundColor: "transparent",
     alignItems: "center",
     justifyContent: "center",
@@ -2220,7 +2238,7 @@ const styles = StyleSheet.create({
   rescheduleButton: {
     height: 52,
     borderRadius: 14,
-    backgroundColor: "#5299FE",
+    backgroundColor: "#7FB4FF",
     alignItems: "center",
     justifyContent: "center",
   },
