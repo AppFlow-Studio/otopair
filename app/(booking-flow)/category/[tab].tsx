@@ -123,6 +123,10 @@ export default function CategoryDetailScreen() {
   const scrollContentRef = useRef<View>(null);
   const [highlightedSlug, setHighlightedSlug] = useState<string | null>(null);
   const didFocusScrollRef = useRef(false);
+  /** Separate from the scroll ref: selection must happen exactly once even
+   *  though the scroll retries, and must not re-fire if the user then
+   *  deselects the row by hand. */
+  const didFocusSelectRef = useRef(false);
 
   const tabKey = useMemo<TaxonomyTab | null>(() => {
     if (!params.tab) return null;
@@ -346,6 +350,23 @@ export default function CategoryDetailScreen() {
     if (!focusSlug || didFocusScrollRef.current) return;
     const target = filteredServices.find((s) => s.slug === focusSlug);
     if (!target) return;
+
+    // Arriving from a home card means the user already picked this service —
+    // land with it ticked rather than making them tap it again. Guarded so a
+    // deliberate deselect isn't undone by the scroll retries below, and
+    // checked first because toggleServiceSelection would otherwise turn an
+    // already-selected row back off.
+    // Read through getState() rather than the subscribed value: we want the
+    // selection as it is on arrival, and depending on the reactive array would
+    // re-run this whole effect (scroll retries and all) on every tick of the
+    // checkbox.
+    if (!didFocusSelectRef.current) {
+      didFocusSelectRef.current = true;
+      const store = useBookingStore.getState();
+      if (!store.selectedServiceIds.includes(target.id)) {
+        store.toggleServiceSelection(target.id);
+      }
+    }
 
     let attempts = 0;
     let timer: ReturnType<typeof setTimeout> | null = null;
