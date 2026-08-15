@@ -49,7 +49,6 @@ import { useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useUserFromConvex } from "@/hooks/useUserFromConvex";
 import { buildYearOptions, useMakes, useModels } from "@/hooks/useYmmtCatalog";
-import { usePendingNavigationStore } from "@/stores/usePendingNavigationStore";
 
 // 4. Shared UI
 import { Text } from "@/components/shared-ui";
@@ -262,13 +261,6 @@ export default function AddVehicleDetailsScreen() {
   const addOwner = useMutation(api.vehicles.addOwner);
   const upsertVehicle = useMutation(api.vehicles.upsertVehicle);
   const saveVehicleImageUrl = useMutation(api.vehicles.saveVehicleImageUrl);
-  // Queues the "Connecting to your <car>" toast for the user's NEXT
-  // home visit. Mirrors the VIN flow in add-vehicle-review.tsx so the
-  // manual-entry path gets the same enrichment-in-progress signal
-  // instead of silently dropping the user onto /vehicle-added.
-  const setPendingEnrichmentToast = usePendingNavigationStore(
-    (s) => s.setPendingEnrichmentToast,
-  );
   const isManualEntry = manual === "true";
 
   // State — hardcoded Lexus RX350 details for VIN mode, blank for manual mode.
@@ -566,6 +558,7 @@ export default function AddVehicleDetailsScreen() {
         metadata: {
           make: brand || "",
           model: model || "",
+          trim: trim || "",
           body_style: bodyStyle || "",
           color: selectedColor || "",
         },
@@ -618,26 +611,13 @@ export default function AddVehicleDetailsScreen() {
       }
     } catch (e) {
       console.warn("Convex add vehicle failed", e);
-    } finally {
-      // Re-enable the button. Safe on the happy path too: we navigate away
-      // next, and if the user returns a re-submit is idempotent (same VIN
-      // → addOwner dedupes on (vin, user)).
+      // Submission failed — release the guard so the user can retry. On the
+      // SUCCESS path we deliberately do NOT reset: we navigate away next, and
+      // the button must stay disabled so a late/second tap can't re-fire the
+      // mutations or double-push /vehicle-added.
       submittingRef.current = false;
       setIsSubmitting(false);
-    }
-
-    // Queue the enrichment toast for the next time the user lands on
-    // home — mirrors the VIN flow's behavior in add-vehicle-review.tsx
-    // so the manual path doesn't drop the user onto /vehicle-added
-    // with no signal that their car is being set up behind the scenes.
-    // Label uses the user-visible "<year> <brand> <model>" so the
-    // toast calls out their specific car.
-    const carLabel = [year.trim(), brand.trim(), model.trim()]
-      .filter(Boolean)
-      .join(" ")
-      .trim();
-    if (carLabel) {
-      setPendingEnrichmentToast(carLabel);
+      return;
     }
 
     router.push({
@@ -875,7 +855,7 @@ export default function AddVehicleDetailsScreen() {
           </Text>
           <View style={styles.rowValue}>
             {brandLogo ? (
-              <Image source={brandLogo} style={styles.rowBrandLogo} resizeMode="cover" />
+              <Image source={brandLogo} style={styles.rowBrandLogo} resizeMode="contain" />
             ) : null}
             {options.drivetrainValue ? (
               <DrivetrainIcon variant={drivetrainVariant(options.drivetrainValue)} size={20} />
