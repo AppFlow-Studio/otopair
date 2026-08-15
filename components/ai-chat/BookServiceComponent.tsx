@@ -797,6 +797,7 @@ export function BookServiceComponent({
           {stage === 1 && (
             <Stage1Services
               selectedIds={selectedIds}
+              initialSelectedIds={initialSelectedIds}
               onToggle={toggleServiceLocal}
               disabled={disabled}
             />
@@ -994,21 +995,36 @@ function headerSubtitle(
 
 function Stage1Services({
   selectedIds,
+  initialSelectedIds,
   onToggle,
   disabled,
 }: {
   selectedIds: Set<string>;
+  initialSelectedIds: Set<string>;
   onToggle: (id: string) => void;
   disabled: boolean;
 }) {
+  // QA p.60 ("I had to scroll down to it — it should automatically scroll to
+  // the option if it was selected by Oto"): when Oto pre-picked services,
+  // the card opens showing ONLY those — the selection is the first thing on
+  // screen instead of row 8 of 11 — with an "Add more services" expander for
+  // the full catalog. No prefill (rare) → full list from the start.
+  const [expanded, setExpanded] = useState(initialSelectedIds.size === 0);
+  const visibleServices = expanded
+    ? DEFAULT_SERVICES
+    : DEFAULT_SERVICES.filter(
+        (s) => selectedIds.has(s.id) || initialSelectedIds.has(s.id),
+      );
+
   return (
     <View style={styles.stageBody}>
       <Text style={styles.helperText} size="sm">
-        Pre-checked from our chat. Add or remove anything that should ride
-        along — bundling saves a shop trip.
+        {expanded
+          ? "Pre-checked from our chat. Add or remove anything that should ride along — bundling saves a shop trip."
+          : "Pre-checked from our chat — here's what we talked about. Add anything that should ride along; bundling saves a shop trip."}
       </Text>
       <View style={styles.serviceList}>
-        {DEFAULT_SERVICES.map((s, i) => {
+        {visibleServices.map((s, i) => {
           const selected = selectedIds.has(s.id);
           const IconComponent = SERVICE_ICONS[s.id] ?? Wrench;
           return (
@@ -1054,6 +1070,20 @@ function Stage1Services({
             </Animated.View>
           );
         })}
+        {!expanded ? (
+          <Pressable
+            onPress={() => setExpanded(true)}
+            disabled={disabled}
+            style={({ pressed }) => [
+              styles.addMoreRow,
+              pressed && !disabled && styles.serviceRowPressed,
+            ]}
+          >
+            <Text style={styles.addMoreText} size="sm" weight="semiBold">
+              + Add more services
+            </Text>
+          </Pressable>
+        ) : null}
       </View>
     </View>
   );
@@ -2199,6 +2229,19 @@ const styles = StyleSheet.create({
   // Mechanic rows (stage 4) — same card pattern as the deleted carousel
   mechanicList: {
     gap: Spacing.xs,
+  },
+  addMoreRow: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: Spacing.sm + 2,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    borderStyle: "dashed",
+    borderColor: "#C7CDD6",
+    backgroundColor: "transparent",
+  },
+  addMoreText: {
+    color: BrandColors.secondary,
   },
   shopMapWrap: {
     height: 180,
