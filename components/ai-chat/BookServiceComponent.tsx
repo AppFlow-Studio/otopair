@@ -447,8 +447,27 @@ export function BookServiceComponent({
         mechanicCount: sortedMechanics.filter((x) => x.shopId === m.shopId).length,
       });
     }
+    // Re-sort at SHOP level with the same priority — inheriting the
+    // mechanic-level order ranked shops by their best mechanic, which read
+    // as broken next to the shop rating printed on the card (seed test:
+    // "Best rated" showed 4.2 above 4.6).
+    if (priority === "closest") {
+      rows.sort(
+        (a, b) =>
+          (a.shop.distanceKm ?? Number.POSITIVE_INFINITY) -
+          (b.shop.distanceKm ?? Number.POSITIVE_INFINITY),
+      );
+    } else if (priority === "best_rated") {
+      rows.sort((a, b) => (b.shop.rating ?? 0) - (a.shop.rating ?? 0));
+    } else {
+      rows.sort(
+        (a, b) =>
+          (a.shop.labor_rate ?? Number.POSITIVE_INFINITY) -
+          (b.shop.labor_rate ?? Number.POSITIVE_INFINITY),
+      );
+    }
     return rows;
-  }, [sortedMechanics, getShopById]);
+  }, [sortedMechanics, getShopById, priority]);
 
   // Oto's-pick prefill: when the payload recommended a mechanic, land the
   // user directly on that mechanic's shop (mechanic already selected) the
