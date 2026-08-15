@@ -17,7 +17,7 @@ const OUTPUT_GUARD_PATTERNS = [
   { category: "warranty", re: /\b\d[\d,]*\s*miles\b[^.!?\n]{0,40}?\b\d+\s*(?:-|–|to\s+)?\s*years?\b/i },
   { category: "internal_noun", re: /\bknowledge\s*base\b|\bsearch\s+index\b|\bsystem\s+prompt\b|\bfuzzy\s+match(?:er|ing)?\b|\bpipeline\b|\bFireCrawl\b|\bvPIC\b|\bAnthropic\b/i },
   { category: "internal_noun", re: /\bKB\b|\bConvex\b|\bClaude\b|\bHaiku\b|\bSonnet\b/ },
-  { category: "internal_noun", re: /\bself_reported\b|\bconversation_state\b|\brecord_provenance\b|\bestablished_facts\b|\bopen_symptoms\b|\bsafety_override\b|\bcustomer_notes\b|\bservice_claims\b|\bfault_lights\b|\bdiagnostic_scan\b|\bon_time\b|\bdue_soon\b|\bneeds_attention\b/ },
+  { category: "internal_noun", re: /\bself_reported\b|\bself[- ]reported\b|\bconversation_state\b|\brecord_provenance\b|\bestablished_facts\b|\bopen_symptoms\b|\bsafety_override\b|\bcustomer_notes\b|\bservice_claims\b|\bfault_lights\b|\bdiagnostic_scan\b|\bon_time\b|\bdue_soon\b|\bneeds_attention\b/ },
   { category: "internal_noun", re: /\bbooking flow\b|\bquick replies\b|\bquick-repl(?:y|ies)\b|\btrust[- ]gat(?:e|ing)\b|\bintent ladder\b|\bstate tool\b|\bterminal render\b|\bdiagnostic domain\b|\brender_[a-z_]+\b|\bservice[- ]slugs?\b/i },
   { category: "labor_time", re: /\b(?:\d+(?:\.\d+)?|an?|one|two|three|four|five|six|seven|eight|nine|ten|half|couple|few)\s+(?:or\s+\S+\s+)?(?:hours?|hrs?|minutes?|mins?)\s+(?:of\s+)?(?:labor|labour|book\s+time|shop\s+time)\b/i },
   { category: "labor_time", re: /\blabou?r\b(?!\s+day)[^.!?\n]{0,25}\b\d+(?:\.\d+)?\s*(?:hours?|hrs?|minutes?|mins?)\b/i },
@@ -166,10 +166,18 @@ eq("self_reported flag leak",
 eq("conversation_state leak",
   g("Given the conversation_state arc says you were assessing location, let's continue. Where are you now?").text,
   "Where are you now?");
-// hyphen/space natural-prose forms stay allowed — no false positive
-eq("self-reported prose is fine",
-  g("That record is self-reported, so a mechanic hasn't verified it yet.").text,
-  "That record is self-reported, so a mechanic hasn't verified it yet.");
+// REVERSED 2026-08-15: hyphenated "self-reported" was originally allowed as
+// natural prose, but the §7b' eval sweep caught it live ("…since it's
+// self-reported from your onboarding") and the trust-gate eval cases ban the
+// hyphenated spelling too — provenance vocabulary never surfaces to the user
+// in ANY spelling. Sentence drops.
+eq("self-reported (hyphenated) also drops",
+  g("That record is self-reported, so a mechanic hasn't verified it yet. Want me to set up a diagnostic?").text,
+  "Want me to set up a diagnostic?");
+// "self reported" with a space drops too
+eq("self reported (spaced) drops",
+  g("It's marked as self reported in our records. A diagnostic will confirm it.").text,
+  "A diagnostic will confirm it.");
 
 // ── Shareholder vocabulary (added 2026-08-13; history scan found 10x "booking flow") ──
 eq("booking-flow leak (the x10 pattern)",

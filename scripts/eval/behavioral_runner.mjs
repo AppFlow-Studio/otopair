@@ -116,6 +116,14 @@ function assertTurn(t, r, turnIdx, failures, toolsSoFar = []) {
     if (!tr.book_service)
       fail(`book_service not rendered (trace.book_service empty)`);
   }
+  // record_confirmation_rendered — effect-level twin for the trust-gate card:
+  // §7b' can force the render server-side with no tool_use, so call-level
+  // assertions would fail a turn whose user-visible behavior is correct.
+  // Reads trace.record_confirmation (chat.ts mirrors the final envelope).
+  if (e.record_confirmation_rendered === true) {
+    if (!tr.record_confirmation)
+      fail(`record_confirmation not rendered (trace.record_confirmation empty)`);
+  }
   // link_button_not_rendered — asserts the turn shipped NO link button in the
   // final envelope. The effect-level twin of tools_not_called: server-side
   // suppression (loyalty proxy-redirect) drops the render but cannot unsay

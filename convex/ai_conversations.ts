@@ -385,6 +385,32 @@ export const markSymptomsAddressedInternal = internalMutation({
 });
 
 /**
+ * markRecordConfirmationOfferedInternal — §7b' trust-gate hard floor
+ * (2026-08-15). Records that a record-confirmation card for this maintenance
+ * type has been shown in this conversation (model-fired or server-forced),
+ * so the gate never re-fires for the same type. Called by chat.ts only.
+ */
+export const markRecordConfirmationOfferedInternal = internalMutation({
+  args: {
+    id: v.id("ai_conversations"),
+    maintenance_type: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const convo = await ctx.db.get(args.id);
+    if (!convo) return { ok: false as const };
+    const existing =
+      ((convo as Record<string, unknown>).record_confirmations_offered as
+        | string[]
+        | undefined) ?? [];
+    if (existing.includes(args.maintenance_type)) return { ok: true as const };
+    await ctx.db.patch(args.id, {
+      record_confirmations_offered: [...existing, args.maintenance_type],
+    });
+    return { ok: true as const };
+  },
+});
+
+/**
  * getOpenSymptoms — Issue 2 (2026-08-15) read path for the pinned
  * "Tracking: …" list in the chat thread. PUBLIC, owner-gated; reactive, so
  * the pin appears the moment chat.ts appends a row and clears the moment a

@@ -54,9 +54,12 @@ import {
 import { classifyTurnSafety, renderSafetyOverrideBlock } from "./safety";
 import {
   classifyTrackedSymptoms,
+  directSlugMaintenanceType,
+  symptomMaintenanceType,
   symptomServiceTarget,
   targetAlreadyCovered,
   trackedSuppressedByHazards,
+  userAskedForDirectService,
 } from "../../lib/symptomTracking";
 import { OTO_TOOL_CATEGORY, OTO_TOOLS, OTOPAIR_SERVICE_SLUGS } from "./tools";
 import {
@@ -1741,6 +1744,203 @@ export async function sendMessageHandlerCore(
       ];
     }
   }
+  // Issue 2 — the pre-turn ledger snapshot PLUS rows appended this turn.
+  // Shared by the §7b' trust-gate floor and the §7c bundler, so the report's
+  // four-symptoms-then-booking-in-one-turn case bundles and pre-checks
+  // everything instead of nothing.
+  const bundlerSymptomRows = [
+    ...openSymptomRows,
+    ...symptomsAppendedThisTurn.filter(
+      (a) => !openSymptomRows.some((s) => s.category === a.category),
+    ),
+  ];
+
+  // ── 7b'. Trust-gate hard floor (2026-08-15) ──────────────────────────
+  // Conditions in code, absolutes in prompts — same doctrine as §7b/§6.9.
+  // The v0.58 chips-default push made Haiku slip the trust gate ~2/6 reps
+  // (rationalizing "serviced 2 months ago, which lines up — Brake Pad
+  // Replacement is the right call" against an on_time self_reported record)
+  // after three prompt layers already carried the rule. This floor makes the
+  // gate deterministic on the turn it matters: mid-symptom-narrowing, the
+  // model just read the health record, an OPEN symptom contests a record
+  // that is on_time + self_reported and hasn't had a confirmation card this
+  // conversation — then the turn belongs to render_record_confirmation, no
+  // matter what the model rendered. The open-symptom ledger (Issue 2) is the
+  // symptom-driven discriminator: an explicit "book me an oil change" has no
+  // open symptom row, so routine bookings can never trip this. Never fires
+  // on an emergency turn (D-13: no cards compete with a stop instruction).
+  // Trigger deliberately does NOT read conversation_state.last_intent — the
+  // tag is model-authored free-form text ("symptom_narrowing_brakes" one rep,
+  // "brake_squeal_triage" the next), and gating a floor on it reintroduces
+  // the probabilism the floor exists to remove. The ledger is per-conversation,
+  // so an open contested symptom already proves this conversation raised it.
+  {
+    // accumulatedToolCalls EXCLUDES data reads by design (audit-row capture),
+    // so the health-read signal must come from turnSamples' tool_names.
+    const healthCalledThisTurn = turnSamples.some((s) =>
+      s.tool_names.includes("get_vehicle_health"),
+    );
+    const emergencyActive = safetyFindings.some(
+      (f) => f.severity === "stop_now" || f.severity === "urgent",
+    );
+    if (
+      renderEnvelope.showRecordConfirmation === undefined &&
+      healthCalledThisTurn &&
+      !emergencyActive &&
+      activeVehicle
+    ) {
+      const offered = ((conversation as any).record_confirmations_offered ??
+        []) as string[];
+      const contested = new Set<string>();
+      for (const s of bundlerSymptomRows) {
+        const t = symptomMaintenanceType(s.category);
+        if (t && !offered.includes(t)) contested.add(t);
+      }
+      if (contested.size > 0) {
+        try {
+          const health = await ctx.runQuery(
+            internal.oto.vehicleHealth.getVehicleHealthForUser,
+            { actingUserId: user._id, vehicle_id: activeVehicle.id },
+          );
+          const flagged = (health.items as {
+            type: string;
+            label: string;
+            detail?: string;
+            status: string;
+            record_provenance: string;
+          }[]).find(
+            (i) =>
+              contested.has(i.type) &&
+              i.status === "on_time" &&
+              i.record_provenance === "self_reported",
+          );
+          if (flagged) {
+            console.warn(
+              `[oto/chat] §7b' trust-gate floor: forcing record confirmation for "${flagged.type}" ` +
+                `(model rendered ${renderEnvelope.bookService !== undefined ? "book_service" : "no card"})`,
+            );
+            delete renderEnvelope.bookService;
+            delete renderEnvelope.quickReplies;
+            quickReplies = undefined;
+            renderEnvelope.showRecordConfirmation = {
+              vehicle_id: activeVehicle.id,
+              maintenance_type: flagged.type,
+            };
+            const detail =
+              typeof flagged.detail === "string" && flagged.detail !== "Not on file"
+                ? ` (${flagged.detail.toLowerCase()})`
+                : "";
+            finalText =
+              `Quick check before we go further: our records show your ${flagged.label.toLowerCase()} ` +
+              `service as up to date${detail}, and that doesn't quite line up with what you're describing. ` +
+              `The record itself might be off — is it still accurate?`;
+          }
+        } catch (e: any) {
+          console.error(
+            "[oto/chat] §7b' trust-gate floor failed (swallowed):",
+            e?.message,
+          );
+        }
+      }
+    }
+  }
+  // §7b' dedupe writeback — any record-confirmation card shown this turn
+  // (model-fired or floor-forced) marks its type offered for this
+  // conversation, so the floor never re-fires on the post-confirm turn.
+  if (renderEnvelope.showRecordConfirmation !== undefined) {
+    const mt = (renderEnvelope.showRecordConfirmation as { maintenance_type?: string })
+      .maintenance_type;
+    if (typeof mt === "string") {
+      try {
+        await ctx.runMutation(
+          internal.ai_conversations.markRecordConfirmationOfferedInternal,
+          { id: conversationId, maintenance_type: mt },
+        );
+      } catch (e: any) {
+        console.error(
+          "[oto/chat] record-confirmation-offered write failed (swallowed):",
+          e?.message,
+        );
+      }
+    }
+  }
+
+  // ── 7b''. Direct-service → diagnostic rewrite (2026-08-15) ───────────
+  // The floor's post-confirm companion: booking a direct WEAR repair (pad
+  // replacement, new battery) for a subsystem whose record is on_time +
+  // self_reported contradicts that record — doubly so once the user has just
+  // CONFIRMED it (fresh pads don't need replacing). The correct route is a
+  // diagnostic scan; a mechanic decides what the noise actually is. Rewrites
+  // the booking's slugs deterministically UNLESS the user named that service
+  // in their own message this turn — an explicit ask always wins. Symptom-
+  // driven only (open-ledger discriminator), same as §7b'.
+  if (renderEnvelope.bookService !== undefined && activeVehicle) {
+    const bs = renderEnvelope.bookService as Record<string, unknown>;
+    const slugs = Array.isArray(bs.service_slugs)
+      ? (bs.service_slugs as string[])
+      : [];
+    const symptomTypes = new Set(
+      bundlerSymptomRows
+        .map((s) => symptomMaintenanceType(s.category))
+        .filter((t): t is string => !!t),
+    );
+    const suspect = slugs.filter((slug) => {
+      const t = directSlugMaintenanceType(slug);
+      return t !== null && symptomTypes.has(t) && !userAskedForDirectService(slug, message);
+    });
+    if (suspect.length > 0) {
+      try {
+        const health = await ctx.runQuery(
+          internal.oto.vehicleHealth.getVehicleHealthForUser,
+          { actingUserId: user._id, vehicle_id: activeVehicle.id },
+        );
+        const items = health.items as {
+          type: string;
+          status: string;
+          record_provenance: string;
+        }[];
+        const toRewrite = suspect.filter((slug) => {
+          const t = directSlugMaintenanceType(slug)!;
+          return items.some(
+            (i) =>
+              i.type === t &&
+              i.status === "on_time" &&
+              i.record_provenance === "self_reported",
+          );
+        });
+        if (toRewrite.length > 0) {
+          const kept = slugs.filter((s) => !toRewrite.includes(s));
+          if (!kept.includes("diagnostic_scan")) kept.push("diagnostic_scan");
+          bs.service_slugs = kept;
+          if (bs.diagnostic_system === undefined) {
+            const t = directSlugMaintenanceType(toRewrite[0]);
+            bs.diagnostic_system =
+              t === "brakes"
+                ? "brakes"
+                : t === "battery"
+                  ? "battery_electrical"
+                  : t === "tires"
+                    ? "tires_wheels"
+                    : "not_sure";
+          }
+          console.warn(
+            `[oto/chat] §7b'' rewrite: ${toRewrite.join(", ")} → diagnostic_scan ` +
+              `(on_time self_reported record contradicts a direct wear repair)`,
+          );
+          finalText =
+            "Since your record checked out, the honest next step is a Diagnostic Scan — " +
+            "a mechanic gets eyes on it and confirms what's actually causing the noise " +
+            "before anything gets replaced. Everything's set up — review and confirm when you're ready.";
+        }
+      } catch (e: any) {
+        console.error(
+          "[oto/chat] §7b'' rewrite failed (swallowed):",
+          e?.message,
+        );
+      }
+    }
+  }
+
   // ── 7c. W3.3 open-symptom booking bundler ────────────────────────────
   // The report's D-43 bundling fix: when a booking fires while earlier
   // safety-relevant symptoms are still open, fold them into the booking's
@@ -1748,15 +1948,6 @@ export async function sendMessageHandlerCore(
   // model's prose forgot them — and mark the ledger rows addressed. Notes
   // that already mention a symptom (Haiku did its job) aren't duplicated:
   // the check is a case-insensitive substring pass per symptom text.
-  // Issue 2 — the bundler sees the pre-turn snapshot PLUS rows appended this
-  // turn, so the report's four-symptoms-then-booking-in-one-turn case bundles
-  // and pre-checks everything instead of nothing.
-  const bundlerSymptomRows = [
-    ...openSymptomRows,
-    ...symptomsAppendedThisTurn.filter(
-      (a) => !openSymptomRows.some((s) => s.category === a.category),
-    ),
-  ];
   if (renderEnvelope.bookService !== undefined && bundlerSymptomRows.length > 0) {
     const bs = renderEnvelope.bookService as Record<string, unknown>;
     const notes = typeof bs.customer_notes === "string" ? bs.customer_notes : "";
@@ -2427,6 +2618,9 @@ export async function sendMessageHandlerCore(
     trace.quick_replies = quickReplies ?? null;
     trace.book_service = renderEnvelope.bookService ?? null;
     trace.link_button = renderEnvelope.linkButton ?? null;
+    // §7b' — effect-level mirror: set whether the MODEL called the tool or
+    // the trust-gate floor forced the card server-side (no tool_use).
+    trace.record_confirmation = renderEnvelope.showRecordConfirmation ?? null;
     trace.persisted = !skipPersist;
     trace.usage_total = {
       input_tokens: telemetryRow.input_tokens,
@@ -2769,7 +2963,10 @@ const OUTPUT_GUARD_PATTERNS: { category: GuardCategory; re: RegExp }[] = [
   // on_time/due_soon/needs_attention added 2026-08-14: the battery gate probe
   // caught "Your battery is showing on_time with a service record..." live —
   // status-enum values are code identifiers like the rest of this row.
-  { category: "internal_noun", re: /\bself_reported\b|\bconversation_state\b|\brecord_provenance\b|\bestablished_facts\b|\bopen_symptoms\b|\bsafety_override\b|\bcustomer_notes\b|\bservice_claims\b|\bfault_lights\b|\bdiagnostic_scan\b|\bon_time\b|\bdue_soon\b|\bneeds_attention\b/ },
+  // self[- ]reported spellings added 2026-08-15: §7b'/§7b'' eval sweep caught
+  // "I want to double-check that record since it's self-reported from your
+  // onboarding" — the hyphenated form of the same provenance leak.
+  { category: "internal_noun", re: /\bself_reported\b|\bself[- ]reported\b|\bconversation_state\b|\brecord_provenance\b|\bestablished_facts\b|\bopen_symptoms\b|\bsafety_override\b|\bcustomer_notes\b|\bservice_claims\b|\bfault_lights\b|\bdiagnostic_scan\b|\bon_time\b|\bdue_soon\b|\bneeds_attention\b/ },
   // Shareholder vocabulary — team language for features the customer just
   // USES (Waleed, 2026-08-13: "booking flow ... is just internal language
   // between shareholders"). A history scan of 340 assistant messages found

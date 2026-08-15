@@ -285,6 +285,69 @@ export function targetAlreadyCovered(
 }
 
 /**
+ * Trust-gate hard floor (chat.ts §7b', 2026-08-15) — which maintenance-record
+ * type an open symptom's ledger category puts in question. STRICT elimination-
+ * test pairs ONLY (the render_record_confirmation contradiction test): the
+ * recorded service, had it really happened, would have ELIMINATED the
+ * symptom. Squeal-after-fresh-pads and slow-crank-after-fresh-battery
+ * qualify; a vibration does NOT contest a tire-service record, a TPMS light
+ * does NOT contest one either, and a no-start could be a starter — those
+ * coexist with a true record and belong to the diagnostic branch. (The first
+ * cut of this map included vibration→tires and the §7b' floor hijacked
+ * tires_symptom_routes_to_diagnostic_scan turn 1 — narrowness is the point.)
+ */
+const SYMPTOM_MAINTENANCE_TYPE: Readonly<Record<string, string>> = {
+  "tracked:brake_noise": "brakes",
+  "tracked:battery_weak": "battery",
+};
+
+export function symptomMaintenanceType(category: string): string | null {
+  if (SYMPTOM_MAINTENANCE_TYPE[category]) return SYMPTOM_MAINTENANCE_TYPE[category];
+  // Hazard-tier brake findings (grinding = friction material gone) contradict
+  // a fresh brake-service record the same way squeal does. (§7b' itself never
+  // fires on emergency turns; this mapping serves the §7b'' booking rewrite.)
+  if (category.split(":")[0] === "braking") return "brakes";
+  return null;
+}
+
+/**
+ * Direct (non-diagnostic) service slugs whose BOOKING asserts the maintenance
+ * record of that type is due — booking one against an on_time self_reported
+ * record is the trust-gate defect chat.ts §7b' repairs. Routine-cadence slugs
+ * (oil_change, tire_rotation) are deliberately absent: booking those on an
+ * explicit ask is normal and must never trip the gate.
+ */
+const DIRECT_SLUG_MAINTENANCE_TYPE: Readonly<Record<string, string>> = {
+  brake_pad_replacement: "brakes",
+  rotor_replacement: "brakes",
+  brake_fluid_flush: "brakes",
+  battery_replacement: "battery",
+  tire_replacement: "tires",
+};
+
+export function directSlugMaintenanceType(slug: string): string | null {
+  return DIRECT_SLUG_MAINTENANCE_TYPE[slug] ?? null;
+}
+
+/**
+ * Did the USER's own message ask for this direct service by name? An explicit
+ * ask always wins — the §7b'' diagnostic rewrite must never override "just
+ * replace the pads".
+ */
+const DIRECT_SLUG_USER_ASK: Readonly<Record<string, RegExp>> = {
+  brake_pad_replacement: /\bbrake\s*pads?\b|\bpad\s+replacement\b|\breplace\s+(?:the\s+|my\s+)?pads?\b/i,
+  rotor_replacement: /\brotors?\b/i,
+  brake_fluid_flush: /\bbrake\s+fluid\b/i,
+  battery_replacement: /\breplace\s+(?:the\s+|my\s+)?battery\b|\bnew\s+battery\b|\bbattery\s+replacement\b/i,
+  tire_replacement: /\bnew\s+tires?\b|\breplace\s+(?:the\s+|my\s+)?tires?\b|\btire\s+replacement\b/i,
+};
+
+export function userAskedForDirectService(slug: string, message: string): boolean {
+  const re = DIRECT_SLUG_USER_ASK[slug];
+  return re ? re.test(message) : false;
+}
+
+/**
  * chat.ts overlap suppression: when the safety classifier fired on a hazard
  * this turn, the tracked row for the same subsystem is a duplicate pin.
  * (e.g. "brakes are grinding" → braking hazard row; suppress brake_noise.)

@@ -3370,6 +3370,14 @@ export default defineSchema({
       ),
     ),
     // -----------------------------------------------------------------------
+    // §7b' trust-gate hard floor (2026-08-15). Maintenance types ("brakes",
+    // "battery", …) for which a record-confirmation card has already been
+    // offered in THIS conversation — model-fired or server-forced. The gate
+    // fires at most once per type per conversation; without this the forced
+    // card would re-appear on the post-confirm turn.
+    // -----------------------------------------------------------------------
+    record_confirmations_offered: v.optional(v.array(v.string())),
+    // -----------------------------------------------------------------------
     // [RESTORED post-merge — Sprint 2 polite-exit counter]
     // Tracks how many turns of symptom-narrowing have happened without
     // converging on a diagnostic form or direct service. chat.ts increments
