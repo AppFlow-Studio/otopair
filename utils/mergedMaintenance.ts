@@ -168,6 +168,48 @@ export interface MergeRecordLike {
   confirmedHealthyAt?: number;
   lastServiceDate?: number;
   lastServiceMileage?: number;
+  /** Read only for the minor-item types below (Consolidated model). */
+  customInputs?: Record<string, unknown> | null;
+}
+
+/** Consolidated Upkeep scoring model: catalog-matched minor inspection
+ *  fields that score automatically at the flat weight-10 "other" bucket
+ *  when flagged yellow/red — never when green (green produces no entry at
+ *  all, so a fully-green inspection doesn't dilute the weighted average).
+ *  `maintenance_records.type` for these is prefixed "minor_" so they never
+ *  collide with the real MaintenanceType rows, and so categoryWeightForItem
+ *  (utils/healthScore.ts) can't accidentally match one to a real category.
+ *  Written by convex/lib/inspectionHealth.ts's deriveCoreGrades via
+ *  convex/maintenance.ts's mergeMechanicGradeIntoRecord. */
+export const MINOR_ITEM_RECORD_TYPES: ReadonlyArray<{ type: string; label: string }> = [
+  { type: "minor_cool_condition", label: "Coolant Condition" },
+  { type: "minor_trans", label: "Transmission Fluid" },
+  { type: "minor_ps", label: "Power Steering Fluid" },
+  { type: "minor_filter", label: "Air / Cabin Filter" },
+  { type: "minor_bf_condition", label: "Brake Fluid Condition" },
+];
+
+/** Build the extra weight-10 minor-item cards from raw records — one per
+ *  flagged (yellow/red) catalog-matched minor field, none for green
+ *  (absent) or unmatched (freeform, never written here at all) findings. */
+function buildMinorItems(records: readonly MergeRecordLike[] | undefined): MaintenanceItem[] {
+  if (!records?.length) return [];
+  const out: MaintenanceItem[] = [];
+  for (const { type, label } of MINOR_ITEM_RECORD_TYPES) {
+    const record = records.find((r) => r.type === type);
+    const grade = record?.customInputs?.mechanicGrade as "g" | "y" | "r" | undefined;
+    if (!grade || grade === "g") continue;
+    const reason = (record?.customInputs?.mechanicGradeReason as string | undefined)
+      ?? `${label} flagged on eye-check`;
+    out.push({
+      id: `user-${type}`,
+      serviceName: label,
+      description: reason,
+      detail: grade === "r" ? "Overdue" : "Needs attention",
+      status: grade === "r" ? "overdue" : "needs_attention",
+    });
+  }
+  return out;
 }
 
 export interface BuildMergedMaintenanceInput {
@@ -304,6 +346,10 @@ export function buildMergedMaintenanceItems(
   // Inspection record (excluded from the default loop).
   const inspectionItem = userItems.get("inspection");
   if (inspectionItem) result.push(inspectionItem);
+
+  // Consolidated Upkeep scoring model — catalog-matched minor fields
+  // flagged yellow/red (see buildMinorItems above).
+  result.push(...buildMinorItems(records));
 
   // ── Catalog coverage via from-odometer inference (Behavior #7) ──
   // Only runs for callers that supply both an odometer and OEM intervals;

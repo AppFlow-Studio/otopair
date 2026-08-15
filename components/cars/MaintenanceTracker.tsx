@@ -122,6 +122,11 @@ export interface MaintenanceItem {
     interval?: string;
   };
   triggeredBy?: MaintenanceTriggerAxis;
+  /** Precomputed 0–1 score, bypassing the STATUS_SCORE lookup, when a status
+   *  alone can't capture severity (e.g. brakes' per-corner blend from a shop
+   *  inspection). Only set for brakes today; every other item leaves this
+   *  undefined and scores via the normal status lookup, unchanged. */
+  rawScore?: number;
 }
 
 interface MaintenanceTrackerProps {
