@@ -212,6 +212,10 @@ export function FinishAccountSetupCard({
     hasCarRegistered,
     isPaymentComplete,
   ];
+  // The card is kept mounted after the last step lands so the user sees
+  // four ticks and can acknowledge it with the × (the parent only supplies
+  // `onDismiss` in that state), so the header copy has to survive it.
+  const allComplete = completed.every(Boolean);
   const firstIncompleteIdx = completed.findIndex((c) => !c);
   const stateFor = (idx: number): TileState => {
     if (completed[idx]) return "completed";
@@ -333,10 +337,12 @@ export function FinishAccountSetupCard({
 
         <View style={styles.contentSection}>
           <Text weight="bold" size="xl" color="#141C24">
-            Finish setup
+            {allComplete ? "You're all set" : "Finish setup"}
           </Text>
           <Text size="sm" color="#6B7280" style={styles.subtitle}>
-            Complete the steps to get full access.
+            {allComplete
+              ? "Full access unlocked."
+              : "Complete the steps to get full access."}
           </Text>
         </View>
 
