@@ -281,7 +281,7 @@ export default function QuestionOverlay({
         <ReAnimated.ScrollView
           ref={scrollViewRef}
           style={{ flex: 1, width: "100%" }}
-          contentContainerStyle={st.scrollContent}
+          contentContainerStyle={[st.scrollContent, isMultiSelect && st.scrollContentMultiSelect]}
           showsVerticalScrollIndicator={false}
           bounces
           onScroll={scrollHandler}
@@ -314,7 +314,7 @@ export default function QuestionOverlay({
 
           {/* Question text */}
           <ReAnimated.View style={questionFadeStyle}>
-            <Text weight="bold" size="xl" color="#16293B" style={[st.questionText, { fontFamily: FontFamily.serifBold, marginBottom: isMultiSelect ? s(20) : s(72) }]}>
+            <Text weight="bold" size="xl" color="#16293B" style={[st.questionText, { fontFamily: FontFamily.serifBold, marginBottom: isMultiSelect ? s(20) : s(36) }]}>
               {currentQuestion.text}
             </Text>
           </ReAnimated.View>
@@ -344,24 +344,6 @@ export default function QuestionOverlay({
               );
             })}
           </View>
-
-          {isMultiSelect && multiSelectValues.length > 0 && (
-            <Pressable
-              style={({ pressed }) => [st.doneButton, pressed && { opacity: 0.9 }]}
-              onPress={handleMultiSelectDone}
-            >
-              <LinearGradient
-                colors={["#7BB8FF", "#5299FE", "#3B7FEB"]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={st.doneButtonGradient}
-              >
-                <Text weight="semiBold" size="md" color="#FFFFFF" style={{ fontSize: ms(17) }}>
-                  Done
-                </Text>
-              </LinearGradient>
-            </Pressable>
-          )}
 
           {!isMultiSelect && answers[currentQuestion.key] === "exact_date" && (
             <View style={st.datePickerSection}>
@@ -401,6 +383,28 @@ export default function QuestionOverlay({
             </View>
           )}
         </ReAnimated.ScrollView>
+
+        {/* Pinned Done button — stays above the scroll so the last option can
+            scroll clear of it instead of hiding underneath. */}
+        {isMultiSelect && multiSelectValues.length > 0 && (
+          <View style={st.pinnedFooter}>
+            <Pressable
+              style={({ pressed }) => [st.doneButton, { marginTop: 0 }, pressed && { opacity: 0.9 }]}
+              onPress={handleMultiSelectDone}
+            >
+              <LinearGradient
+                colors={["#7BB8FF", "#5299FE", "#3B7FEB"]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={st.doneButtonGradient}
+              >
+                <Text weight="semiBold" size="md" color="#FFFFFF" style={{ fontSize: ms(17) }}>
+                  Done
+                </Text>
+              </LinearGradient>
+            </Pressable>
+          </View>
+        )}
       </ReAnimated.View>
     </View>
   );
@@ -541,7 +545,7 @@ const st = StyleSheet.create({
     height: s(163),
     alignItems: "center",
     justifyContent: "center",
-    marginTop: s(40),
+    marginTop: s(24),
   },
   heroCardOuter: {
     shadowColor: "#5299FE",
@@ -559,8 +563,13 @@ const st = StyleSheet.create({
   },
   scrollContent: {
     alignItems: "center",
-    paddingTop: vs(200),
+    paddingTop: vs(150),
     paddingBottom: s(60),
+  },
+  // Multi-select pins the Done button as a footer, so the scroll content needs
+  // extra bottom room for the last option to clear the pinned button.
+  scrollContentMultiSelect: {
+    paddingBottom: s(120),
   },
   serviceLabel: {
     fontSize: ms(12),
@@ -604,6 +613,12 @@ const st = StyleSheet.create({
   },
   optionText: {
     fontSize: ms(16),
+  },
+  pinnedFooter: {
+    position: "absolute",
+    left: s(24),
+    right: s(24),
+    bottom: vs(40),
   },
   doneButton: {
     width: "100%",

@@ -626,8 +626,12 @@ export function VehicleMaintenanceCard({
           ))}
         </View>
 
-        {/* Stacked card behind */}
-        {canSwipe && (
+        {/* Stacked card behind — this is a purely decorative peek tier that
+            adds a THIRD visible layer on top of the real back + front cards.
+            Only show it once there are actually 3+ vehicles so the stack
+            depth stays proportional to the car count (1→flat, 2→two tiers,
+            3+→capped three tiers). */}
+        {vehicles.length >= 3 && (
           <View style={styles.stackedCard}>
             <BlurView
               intensity={40}

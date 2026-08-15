@@ -1,6 +1,7 @@
 // 1. React & React Native
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Animated, Dimensions, Easing, Image, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
+import { Alert, Animated, Dimensions, Easing, Image, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, UIManager, View } from "react-native";
+import { MenuView } from "@react-native-menu/menu";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // 2. Expo & Third-party
@@ -13,7 +14,7 @@ import ReAnimated, {
 } from "react-native-reanimated";
 import { useIsFocused } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
-import { ArrowLeft, Briefcase, Car, Check as CheckIcon, ChevronDown, Copy, Gauge, Info, Plus, Route, Sparkles, Star, Sun, Users, X } from "lucide-react-native";
+import { ArrowLeft, Briefcase, Car, Check as CheckIcon, ChevronDown, Copy, Ellipsis, Gauge, Info, Plus, Route, Sparkles, Star, Sun, Users, X } from "lucide-react-native";
 import * as Clipboard from "expo-clipboard";
 import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
@@ -31,6 +32,12 @@ try {
 } catch {
   // Not available — BlurView fallback.
 }
+
+// Native context-menu (@react-native-menu/menu) availability probe — mirrors
+// the guard in the AI Chat screen. When present, the header "⋯" opens a native
+// OS menu; otherwise we fall back to firing the remove confirm directly.
+const isMenuViewAvailable = !!UIManager.getViewManagerConfig?.("MenuView");
+
 import { haptics } from "@/lib/haptics";
 import { useToast } from "@/hooks/useToast";
 import { useUpdateMileage } from "@/hooks/useUpdateMileage";
@@ -1419,14 +1426,21 @@ export default function CarsHomeScreen() {
     editPickerY.setValue(SCREEN_HEIGHT);
     editPickerBackdrop.setValue(0);
     Animated.parallel([
-      Animated.spring(editPickerY, { toValue: 0, tension: 50, friction: 12, useNativeDriver: false }),
+      // translateY MUST run on the native driver. Under the New Architecture
+      // (Fabric — mandatory for reanimated 4), a JS-driven transform on an
+      // absolute-positioned view inside a Modal re-lays-out every frame and
+      // re-jitters on each parent re-render (Convex subscriptions), which
+      // reads as the sheet "seizing". Native driver moves it to the UI thread.
+      Animated.spring(editPickerY, { toValue: 0, tension: 50, friction: 12, useNativeDriver: true }),
       Animated.timing(editPickerBackdrop, { toValue: 1, duration: 300, useNativeDriver: true }),
     ]).start();
   }, [editPickerY, editPickerBackdrop]);
 
   const closeEditPicker = useCallback((cb?: () => void) => {
     Animated.parallel([
-      Animated.timing(editPickerY, { toValue: SCREEN_HEIGHT, duration: 250, easing: Easing.in(Easing.ease), useNativeDriver: false }),
+      // Must match the open animation's driver — an Animated.Value can't mix
+      // native and JS drivers across animations without throwing.
+      Animated.timing(editPickerY, { toValue: SCREEN_HEIGHT, duration: 250, easing: Easing.in(Easing.ease), useNativeDriver: true }),
       Animated.timing(editPickerBackdrop, { toValue: 0, duration: 250, useNativeDriver: true }),
     ]).start(() => {
       setShowEditPicker(false);
@@ -1802,6 +1816,64 @@ export default function CarsHomeScreen() {
               )}
             </Pressable>
           )}
+
+          {/* Overflow "⋯" menu — the destructive Remove Vehicle action lives
+              here (native OS context menu) instead of as a prominent CTA at
+              the bottom of the page. Same glass treatment as the Info button.
+              Falls back to firing the confirm directly when the native menu
+              view isn't available. */}
+          {!!activeVehicle?.vin && !!userId && (() => {
+            const ellipsisIcon =
+              isLiquidGlassEnabled && LiquidGlassView ? (
+                <LiquidGlassView interactive effect="clear" style={styles.infoGlassIcon}>
+                  <Ellipsis size={24} color="#FFFFFF" strokeWidth={2} />
+                </LiquidGlassView>
+              ) : (
+                <View style={styles.infoGlassContainer}>
+                  <BlurView intensity={10} tint="dark" style={styles.infoGlassBlur}>
+                    <View style={styles.infoGlassOverlay} />
+                    <LinearGradient
+                      colors={['rgba(255,255,255,0.25)', 'rgba(255,255,255,0.05)']}
+                      start={{ x: 0.5, y: 0 }}
+                      end={{ x: 0.5, y: 0.5 }}
+                      style={StyleSheet.absoluteFillObject}
+                    />
+                    <Ellipsis size={24} color="#FFFFFF" strokeWidth={2} />
+                  </BlurView>
+                </View>
+              );
+            return isMenuViewAvailable ? (
+              <MenuView
+                title="Vehicle options"
+                onPressAction={({ nativeEvent }) => {
+                  if (nativeEvent.event === "remove") {
+                    haptics.selection();
+                    handleRemoveActiveVehicle();
+                  }
+                }}
+                actions={[
+                  {
+                    id: "remove",
+                    title: "Remove Vehicle",
+                    image: Platform.OS === "ios" ? "trash" : undefined,
+                    attributes: { destructive: true },
+                  },
+                ]}
+              >
+                <View style={styles.infoGlassButton}>{ellipsisIcon}</View>
+              </MenuView>
+            ) : (
+              <Pressable
+                accessibilityLabel="Vehicle options"
+                accessibilityRole="button"
+                hitSlop={10}
+                onPress={handleRemoveActiveVehicle}
+                style={({ pressed }) => [styles.infoGlassButton, pressed && styles.infoGlassButtonPressed]}
+              >
+                {ellipsisIcon}
+              </Pressable>
+            );
+          })()}
         </View>
 
         {/* ═══════════════════════════════════════════════════════════════════
@@ -2178,40 +2250,6 @@ export default function CarsHomeScreen() {
           />}
           */}
 
-          {/* Remove Vehicle — destructive primary CTA at the bottom of the
-              page. Shape/size mirrors the AIWelcomeScreen Continue button
-              exactly (BorderRadius.xl = 16, Spacing.lg = 16 padding, Shadows.md). */}
-          {!!activeVehicle?.vin && !!userId && (
-            <Pressable
-              onPress={handleRemoveActiveVehicle}
-              style={({ pressed }) => [
-                styles.removeVehicleButton,
-                pressed && styles.removeVehicleButtonPressed,
-              ]}
-            >
-              {isLiquidGlassEnabled && LiquidGlassView ? (
-                <LiquidGlassView
-                  interactive
-                  effect="clear"
-                  style={styles.removeVehicleButtonGlass}
-                >
-                  <Text style={styles.removeVehicleButtonText} weight="semiBold">
-                    Remove Vehicle
-                  </Text>
-                </LiquidGlassView>
-              ) : (
-                <BlurView
-                  intensity={50}
-                  tint="light"
-                  style={styles.removeVehicleButtonGlass}
-                >
-                  <Text style={styles.removeVehicleButtonText} weight="semiBold">
-                    Remove Vehicle
-                  </Text>
-                </BlurView>
-              )}
-            </Pressable>
-          )}
         </View>
       </ScrollView>
 
@@ -3286,28 +3324,6 @@ const styles = StyleSheet.create({
   infoGlassOverlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: "rgba(255,255,255,0.12)",
-  },
-  removeVehicleButton: {
-    borderRadius: 16,
-    overflow: "hidden",
-    marginTop: scale(56),
-    marginBottom: scale(40),
-    marginHorizontal: scale(16),
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(82,153,254,0.35)",
-  },
-  removeVehicleButtonGlass: {
-    paddingVertical: 16,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  removeVehicleButtonPressed: {
-    opacity: 0.85,
-    transform: [{ scale: 0.98 }],
-  },
-  removeVehicleButtonText: {
-    color: "#5299FE",
-    fontSize: 16,
   },
   emptyContainer: {
     justifyContent: "center",

@@ -1039,7 +1039,9 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
               serviceName={SERVICE_CARDS[activeCard].label}
               heroIcon={<HeroIcon size={scale(40)} color="#FFFFFF" />}
               questions={SERVICE_QUESTIONS[activeCard]}
-              initialQuestionIndex={serviceQuestionIndex[activeCard] ?? 0}
+              // A completed card reopens for review from question one; an
+              // in-progress draft resumes where the user left off.
+              initialQuestionIndex={completedCards.has(activeCard) ? 0 : (serviceQuestionIndex[activeCard] ?? 0)}
               initialAnswers={serviceAnswers[activeCard] ?? {}}
               onAnswerUpdate={handleOverlayAnswer}
               onComplete={handleOverlayComplete}

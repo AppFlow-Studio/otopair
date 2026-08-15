@@ -1,9 +1,12 @@
 /**
  * LeaveReviewSheet
  *
- * Bottom sheet for leaving a review on a completed booking. Five-star
- * rating + quick-feedback chips + submit. Calls
- * `reviews.submit`, which inserts the row and trips the
+ * Bottom sheet for leaving a review on a completed booking. Two steps:
+ *   1. Rate the mechanic who worked on the car (stars + optional note).
+ *   2. Rate the shop (stars + quick-tag chips + a free-text experience note).
+ * Bookings without a mechanic skip step 1 and open straight on the shop step.
+ *
+ * Submit calls `reviews.submit`, which inserts the row(s) and trips the
  * `listReviewedBookingIdsForUser` query — `useMyBookingsWithDetails`
  * then drops the booking out of the pendingReview bucket and the card
  * disappears from the Bookings tab.
@@ -23,7 +26,6 @@ import {
   ActivityIndicator,
   Animated,
   Pressable,
-  ScrollView,
   StyleSheet,
   TextInput,
   useWindowDimensions,
@@ -31,7 +33,7 @@ import {
 } from "react-native";
 
 import { useMutation } from "convex/react";
-import { ChevronDown, ChevronUp, Star } from "lucide-react-native";
+import { ChevronLeft, Star } from "lucide-react-native";
 
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
 import { Text } from "@/components/shared-ui";
@@ -44,12 +46,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import type { Booking } from "@/components/bookings/BookingCard";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-// Two heights — the sheet animates between them when the mechanic
-// section toggles open. Module-scoped + memoized below so the array
-// reference is stable per branch (passing `[N]` inline would
-// retrigger FloatingSheet's enter animation on every render).
-const COLLAPSED_SHEET_MIN_HEIGHT = 580;
-const EXPANDED_SHEET_MIN_HEIGHT = 780;
+type Step = "mechanic" | "shop";
 
 const RATING_LABELS: Record<number, { text: string; color: string }> = {
   0: { text: "Tap a star to rate", color: "#9CA3AF" },
@@ -71,7 +68,7 @@ const QUICK_TAGS = [
 
 export interface LeaveReviewSheetRef {
   /** Open the sheet for a booking. `initialRating` (1–5) pre-selects
-   *  that many stars instead of the default 5. Used by surfaces that
+   *  that many shop stars instead of the default 5. Used by surfaces that
    *  let the user tap a star outside the sheet (e.g. the Review card
    *  on the past-service detail) and want the sheet to open already
    *  reflecting that tap. */
@@ -93,18 +90,21 @@ export const LeaveReviewSheet = forwardRef<LeaveReviewSheetRef, Props>(
     const { height: screenHeight } = useWindowDimensions();
     const [booking, setBooking] = useState<Booking | null>(null);
     const [userId, setUserId] = useState<string | null>(null);
+
+    // Two-step flow: rate the mechanic (step 1) then the shop (step 2).
+    // Bookings without a mechanic skip straight to the shop step.
+    const [step, setStep] = useState<Step>("mechanic");
+    // Mechanic review is opt-out — skipping step 1 drops the mechanic row.
+    const [mechanicSkipped, setMechanicSkipped] = useState(false);
+    const [mechanicRating, setMechanicRating] = useState(5);
+    const [mechanicComment, setMechanicComment] = useState("");
+
     // Default to 5 stars — most reviews are positive and pre-filling
     // matches the "you're rating, drag down to lower" pattern.
     const [rating, setRating] = useState(5);
     const [selectedTags, setSelectedTags] = useState<string[]>([]);
-    // Mechanic review — opt-out. Defaults to expanded so the mechanic
-    // section auto-renders with 5 stars whenever the booking has a
-    // mechanic. User can collapse to skip the mechanic review. The
-    // effect below re-syncs to `mechanicAvailable` whenever a new
-    // booking opens the sheet.
-    const [mechanicIncluded, setMechanicIncluded] = useState(true);
-    const [mechanicRating, setMechanicRating] = useState(5);
-    const [mechanicComment, setMechanicComment] = useState("");
+    const [shopComment, setShopComment] = useState("");
+
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
@@ -164,22 +164,23 @@ export const LeaveReviewSheet = forwardRef<LeaveReviewSheetRef, Props>(
         const startRating = initialRating != null
           ? Math.max(1, Math.min(5, Math.round(initialRating)))
           : 5;
+        const hasMechanic = !!(b.mechanicId && b.mechanicName);
         setBooking(b);
         setUserId(uid);
         setRating(startRating);
         setSelectedTags([]);
-        // Opt-out: auto-expand the mechanic section whenever the booking
-        // has a mechanic. The mechanicAvailable effect below double-checks
-        // once `booking` propagates, but this initial set keeps the UI
-        // from flashing collapsed on first paint.
-        setMechanicIncluded(!!(b.mechanicId && b.mechanicName));
+        setShopComment("");
+        setMechanicSkipped(false);
         setMechanicRating(5);
         setMechanicComment("");
+        // Mechanic-first: open on the mechanic step when one worked the
+        // booking, otherwise go straight to the shop step.
+        setStep(hasMechanic ? "mechanic" : "shop");
         setError(null);
         sheetRef.current?.open();
-        // Stagger the star fill on open for a small "ta-da". Animates
-        // from 0 up to whatever the initial rating is.
-        popStarsUpTo(startRating);
+        // Pop whichever star row the opening step shows.
+        if (hasMechanic) popMechStarsUpTo(5);
+        else popStarsUpTo(startRating);
       },
       close: () => sheetRef.current?.close(),
     }));
@@ -204,13 +205,22 @@ export const LeaveReviewSheet = forwardRef<LeaveReviewSheetRef, Props>(
       [popMechStarsUpTo],
     );
 
-    const toggleMechanic = useCallback(() => {
-      setMechanicIncluded((prev) => {
-        const next = !prev;
-        if (next) popMechStarsUpTo(5);
-        return next;
-      });
-    }, [popMechStarsUpTo]);
+    const goToShopStep = useCallback(() => {
+      setMechanicSkipped(false);
+      setStep("shop");
+      popStarsUpTo(rating);
+    }, [popStarsUpTo, rating]);
+
+    const skipMechanic = useCallback(() => {
+      setMechanicSkipped(true);
+      setStep("shop");
+      popStarsUpTo(rating);
+    }, [popStarsUpTo, rating]);
+
+    const backToMechanicStep = useCallback(() => {
+      setError(null);
+      setStep("mechanic");
+    }, []);
 
     const toggleTag = useCallback((tag: string) => {
       setSelectedTags((prev) =>
@@ -221,7 +231,7 @@ export const LeaveReviewSheet = forwardRef<LeaveReviewSheetRef, Props>(
     const handleSubmit = useCallback(async () => {
       if (!booking || !userId) return;
       if (rating < 1) {
-        setError("Tap a star to rate the service.");
+        setError("Tap a star to rate the shop.");
         return;
       }
       setSubmitting(true);
@@ -235,10 +245,12 @@ export const LeaveReviewSheet = forwardRef<LeaveReviewSheetRef, Props>(
         if (!booking.shopId) {
           throw new Error("Missing shop on this booking — can't post a review.");
         }
-        // Selected tags become the review comment so they make it to
-        // the backend without a schema change.
-        const finalShopComment = selectedTags.join(" · ");
-        const includeMechanic = mechanicIncluded && !!booking.mechanicId;
+        // Free-text experience + quick tags both land in shop_comment (no
+        // schema change): the written note first, tag summary on a new line.
+        const tagLine = selectedTags.join(" · ");
+        const noteLine = shopComment.trim();
+        const finalShopComment = [noteLine, tagLine].filter(Boolean).join("\n");
+        const includeMechanic = !mechanicSkipped && !!booking.mechanicId;
         await submitReview({
           booking_id: booking.id as Id<"bookings">,
           user_id: userId as Id<"users">,
@@ -255,7 +267,16 @@ export const LeaveReviewSheet = forwardRef<LeaveReviewSheetRef, Props>(
         sheetRef.current?.close();
         toast.success("Thanks for the review", undefined, { icon: Star });
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Couldn't submit review.");
+        // Surface a clean line instead of the raw Convex stack. Our own
+        // client-side throws above are already user-friendly; only the
+        // server errors need translating.
+        const raw = err instanceof Error ? err.message : "";
+        const friendly = /already been reviewed/i.test(raw)
+          ? "You've already reviewed this booking."
+          : /\[CONVEX|Server Error|at handler/i.test(raw)
+            ? "Couldn't submit your review. Please try again."
+            : raw || "Couldn't submit review.";
+        setError(friendly);
       } finally {
         setSubmitting(false);
       }
@@ -264,12 +285,8 @@ export const LeaveReviewSheet = forwardRef<LeaveReviewSheetRef, Props>(
       userId,
       rating,
       selectedTags,
-      // Mechanic-side values were missing here — the closure was capturing
-      // their initial-render values (mechanicComment: "", mechanicRating: 5,
-      // mechanicIncluded: false at the time of writing) so the user's typed
-      // comment never reached the backend. Add them so handleSubmit always
-      // reads the live state.
-      mechanicIncluded,
+      shopComment,
+      mechanicSkipped,
       mechanicRating,
       mechanicComment,
       submitReview,
@@ -278,12 +295,6 @@ export const LeaveReviewSheet = forwardRef<LeaveReviewSheetRef, Props>(
     ]);
 
     const mechanicAvailable = !!(booking?.mechanicId && booking?.mechanicName);
-    // Keep `mechanicIncluded` in sync with availability. Defaults to ON
-    // when a mechanic is on the booking (opt-out), OFF when there isn't.
-    // Re-runs each time a different booking opens the sheet.
-    React.useEffect(() => {
-      setMechanicIncluded(mechanicAvailable);
-    }, [mechanicAvailable]);
     const mechanicFirstName = useMemo(() => {
       const name = booking?.mechanicName?.trim() ?? "";
       return name.length > 0 ? name.split(/\s+/)[0] : null;
@@ -308,28 +319,35 @@ export const LeaveReviewSheet = forwardRef<LeaveReviewSheetRef, Props>(
       return name.length > 0 ? name.charAt(0).toUpperCase() : "?";
     }, [booking]);
 
-    const ratingLabel = RATING_LABELS[rating] ?? RATING_LABELS[0];
+    const shopRatingLabel = RATING_LABELS[rating] ?? RATING_LABELS[0];
+    const mechanicRatingLabel = RATING_LABELS[mechanicRating] ?? RATING_LABELS[0];
     const submitDisabled = submitting || rating < 1;
-    const snapHeights = useMemo(() => {
-      // Same formula BookingDetailsSheet uses for its mid detent —
-      // hard-cap around 640pt so the sheet sits low on the screen
-      // with a clear floating gap above. Form content scrolls
-      // inside the ScrollView when it doesn't all fit.
-      const target = Math.max(
-        screenHeight * 0.66,
-        Math.min(screenHeight * 0.76, 640),
-      );
-      // Mechanic section expanded needs a little more room than
-      // collapsed; bump the cap by 60pt so the mechanic stars +
-      // note input land above the Submit pill without immediate
-      // scrolling. Still capped well below the status bar.
-      const expandedTarget = Math.max(
-        screenHeight * 0.7,
-        Math.min(screenHeight * 0.82, 700),
-      );
 
-      return [mechanicIncluded ? expandedTarget : target];
-    }, [mechanicIncluded, screenHeight]);
+    // On the mechanic step, render it; otherwise (or when there's no mechanic)
+    // render the shop step. `showMechanicStep` gates the whole step 1 branch.
+    const showMechanicStep = step === "mechanic" && mechanicAvailable;
+
+    const snapHeights = useMemo(() => {
+      // Two detents per step so the grabber can be dragged up to grow the
+      // sheet (and back down): a snug resting height that hugs the step's
+      // content, and a tall detent that expands toward full-screen. At the
+      // tall detent FloatingSheet flattens the bottom corners and pins to the
+      // edges. Keyboard-lift absorbs any typing overflow.
+      const fit = (base: number) =>
+        Math.max(screenHeight * 0.52, Math.min(screenHeight * 0.82, base));
+      const resting = !mechanicAvailable
+        ? fit(600)
+        // Mechanic step hugs its content (~515pt). A taller detent here left
+        // ~45pt of empty slack below "Skip" and pushed the whole (bottom-
+        // anchored) sheet higher up the screen, so it rests lower now.
+        : showMechanicStep
+          ? fit(525)
+          : fit(648);
+      const expanded = Math.min(screenHeight - insets.top - 16, screenHeight * 0.94);
+      // Keep the array strictly ascending — on very short screens the resting
+      // height can already meet the cap, so fall back to a single detent.
+      return expanded > resting + 24 ? [resting, expanded] : [resting];
+    }, [screenHeight, insets.top, mechanicAvailable, showMechanicStep]);
 
     return (
       <FloatingSheet
@@ -337,231 +355,277 @@ export const LeaveReviewSheet = forwardRef<LeaveReviewSheetRef, Props>(
         snapHeights={snapHeights}
         onClose={handleClose}
         showBackdrop
+        liftWithKeyboard
+        floatBottomInset={12}
       >
-        <ScrollView
-          contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + 18 }]}
-          showsVerticalScrollIndicator={false}
-        >
-          <View style={styles.header}>
-            <Text
-              size="2xl"
-              weight="bold"
-              color="#141C24"
-              style={styles.title}
-            >
-              How was your service?
-            </Text>
-            <Text
-              size="sm"
-              weight="regular"
-              color="#6B7280"
-              style={styles.subtitle}
-            >
-              Your feedback helps other car owners find great shops
-            </Text>
-          </View>
-
-          {booking ? (
-            <View style={styles.shopCard}>
-              <View style={styles.shopAvatar}>
-                <Text size="lg" weight="bold" color="#2F6DCC">
-                  {shopInitial}
-                </Text>
-              </View>
-              <View style={styles.shopMeta}>
-                <Text
-                  size="md"
-                  weight="semiBold"
-                  color="#141C24"
-                  numberOfLines={1}
-                >
-                  {booking.shopName}
-                </Text>
-                <Text
-                  size="sm"
-                  weight="regular"
-                  color="#6B7280"
-                  numberOfLines={1}
-                >
-                  {summaryLine}
-                </Text>
-              </View>
-            </View>
-          ) : null}
-
-          <View style={styles.ratingSection}>
-            <View style={styles.starsRow}>
-              {[1, 2, 3, 4, 5].map((n) => {
-                const filled = rating >= n;
-                return (
-                  <Pressable
-                    key={n}
-                    onPress={() => handleStarPress(n)}
-                    hitSlop={8}
-                    style={styles.starButton}
-                  >
-                    <Animated.View
-                      style={{ transform: [{ scale: starScales[n - 1] }] }}
-                    >
-                      <Star
-                        size={40}
-                        color={filled ? "#F59E0B" : "#E5E7EB"}
-                        fill={filled ? "#F59E0B" : "transparent"}
-                        strokeWidth={1.5}
-                      />
-                    </Animated.View>
-                  </Pressable>
-                );
-              })}
-            </View>
-            <Text
-              size="sm"
-              weight="semiBold"
-              color={ratingLabel.color}
-              style={styles.ratingLabel}
-            >
-              {ratingLabel.text}
-            </Text>
-          </View>
-
-          {rating > 0 ? (
-            <View style={styles.tagsRow}>
-              {QUICK_TAGS.map((tag) => {
-                const selected = selectedTags.includes(tag);
-                return (
-                  <Pressable
-                    key={tag}
-                    onPress={() => toggleTag(tag)}
-                    style={({ pressed }) => [
-                      styles.chip,
-                      selected && styles.chipSelected,
-                      pressed && !selected && styles.chipPressed,
-                    ]}
-                  >
-                    <Text
-                      size="sm"
-                      weight="medium"
-                      color={selected ? "#2F6DCC" : "#4B5563"}
-                    >
-                      {tag}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-          ) : null}
-
+        <View style={styles.body}>
+          {/* Step indicator + back (only when a mechanic step exists) */}
           {mechanicAvailable ? (
-            <View style={styles.mechanicSection}>
-              <Pressable onPress={toggleMechanic} style={styles.mechanicToggle}>
-                <View style={styles.mechanicAvatar}>
-                  <Text size="md" weight="bold" color="#2F6DCC">
-                    {mechanicInitial}
+            <View style={styles.stepBar}>
+              {step === "shop" ? (
+                <Pressable
+                  onPress={backToMechanicStep}
+                  style={styles.backButton}
+                  hitSlop={8}
+                >
+                  <ChevronLeft size={18} color="#6B7280" />
+                  <Text size="sm" weight="medium" color="#6B7280">
+                    Back
                   </Text>
-                </View>
-                <View style={styles.mechanicToggleText}>
-                  <Text size="sm" weight="semiBold" color="#141C24">
-                    Also review your mechanic
-                  </Text>
-                  <Text size="xs" weight="regular" color="#6B7280">
-                    {mechanicFirstName} worked on this booking
-                  </Text>
-                </View>
-                {mechanicIncluded ? (
-                  <ChevronUp size={18} color="#6B7280" />
-                ) : (
-                  <ChevronDown size={18} color="#6B7280" />
-                )}
-              </Pressable>
+                </Pressable>
+              ) : null}
+              <Text size="xs" weight="semiBold" color="#9CA3AF">
+                {showMechanicStep ? "Step 1 of 2" : "Step 2 of 2"}
+              </Text>
+            </View>
+          ) : null}
 
-              {mechanicIncluded ? (
-                <View style={styles.mechanicBody}>
-                  <View style={styles.mechStarsRow}>
-                    {[1, 2, 3, 4, 5].map((n) => {
-                      const filled = mechanicRating >= n;
-                      return (
-                        <Pressable
-                          key={n}
-                          onPress={() => handleMechStarPress(n)}
-                          hitSlop={6}
-                          style={styles.starButton}
-                        >
-                          <Animated.View
-                            style={{
-                              transform: [{ scale: mechStarScales[n - 1] }],
-                            }}
-                          >
-                            <Star
-                              size={28}
-                              color={filled ? "#F59E0B" : "#E5E7EB"}
-                              fill={filled ? "#F59E0B" : "transparent"}
-                              strokeWidth={1.5}
-                            />
-                          </Animated.View>
-                        </Pressable>
-                      );
-                    })}
+          {showMechanicStep ? (
+            // ── STEP 1 — mechanic ──────────────────────────────────────
+            <>
+              <View style={styles.header}>
+                <Text size="2xl" weight="bold" color="#141C24" style={styles.title}>
+                  How was your mechanic?
+                </Text>
+                <Text size="sm" weight="regular" color="#6B7280" style={styles.subtitle}>
+                  {mechanicFirstName
+                    ? `${mechanicFirstName} worked on your car`
+                    : "Rate the mechanic who worked on your car"}
+                </Text>
+              </View>
+
+              {booking ? (
+                <View style={styles.shopCard}>
+                  <View style={styles.shopAvatar}>
+                    <Text size="lg" weight="bold" color="#2F6DCC">
+                      {mechanicInitial}
+                    </Text>
                   </View>
-                  <TextInput
-                    value={mechanicComment}
-                    onChangeText={setMechanicComment}
-                    placeholder={`A note for ${mechanicFirstName ?? "your mechanic"} (optional)`}
-                    placeholderTextColor="#9CA3AF"
-                    multiline
-                    maxLength={280}
-                    style={styles.mechanicCommentInput}
-                  />
+                  <View style={styles.shopMeta}>
+                    <Text size="md" weight="semiBold" color="#141C24" numberOfLines={1}>
+                      {booking.mechanicName}
+                    </Text>
+                    <Text size="sm" weight="regular" color="#6B7280" numberOfLines={1}>
+                      {summaryLine}
+                    </Text>
+                  </View>
                 </View>
               ) : null}
-            </View>
-          ) : null}
 
-          {error ? (
-            <Text
-              size="sm"
-              weight="regular"
-              color="#DC2626"
-              style={styles.error}
-            >
-              {error}
-            </Text>
-          ) : null}
-
-          {reviewAllowed ? (
-            <Pressable
-              onPress={handleSubmit}
-              disabled={submitDisabled}
-              style={({ pressed }) => [
-                styles.submitButton,
-                submitDisabled && styles.submitButtonDisabled,
-                pressed && !submitDisabled && styles.submitButtonPressed,
-              ]}
-            >
-              {submitting ? (
-                <ActivityIndicator color="#FFFFFF" />
-              ) : (
-                <Text size="md" weight="semiBold" color="#FFFFFF">
-                  Submit Review
+              <View style={styles.ratingSection}>
+                <View style={styles.starsRow}>
+                  {[1, 2, 3, 4, 5].map((n) => {
+                    const filled = mechanicRating >= n;
+                    return (
+                      <Pressable
+                        key={n}
+                        onPress={() => handleMechStarPress(n)}
+                        hitSlop={8}
+                        style={styles.starButton}
+                      >
+                        <Animated.View
+                          style={{ transform: [{ scale: mechStarScales[n - 1] }] }}
+                        >
+                          <Star
+                            size={40}
+                            color={filled ? "#F59E0B" : "#E5E7EB"}
+                            fill={filled ? "#F59E0B" : "transparent"}
+                            strokeWidth={1.5}
+                          />
+                        </Animated.View>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+                <Text
+                  size="sm"
+                  weight="semiBold"
+                  color={mechanicRatingLabel.color}
+                  style={styles.ratingLabel}
+                >
+                  {mechanicRatingLabel.text}
                 </Text>
-              )}
-            </Pressable>
-          ) : (
-            <OfflineActionsNotice label="You'll need a connection to review" />
-          )}
+              </View>
 
-          <Pressable
-            onPress={() => sheetRef.current?.close()}
-            disabled={submitting}
-            style={({ pressed }) => [
-              styles.dismissButton,
-              pressed && { opacity: 0.6 },
-            ]}
-          >
-            <Text size="sm" weight="medium" color="#6B7280">
-              Not now
-            </Text>
-          </Pressable>
-        </ScrollView>
+              <TextInput
+                value={mechanicComment}
+                onChangeText={setMechanicComment}
+                placeholder={`Add a note for ${mechanicFirstName ?? "your mechanic"} (optional)`}
+                placeholderTextColor="#9CA3AF"
+                multiline
+                maxLength={280}
+                style={styles.commentInput}
+              />
+
+              <Pressable
+                onPress={goToShopStep}
+                style={({ pressed }) => [
+                  styles.submitButton,
+                  pressed && styles.submitButtonPressed,
+                ]}
+              >
+                <Text size="md" weight="semiBold" color="#FFFFFF">
+                  Next
+                </Text>
+              </Pressable>
+
+              <Pressable
+                onPress={skipMechanic}
+                style={({ pressed }) => [
+                  styles.dismissButton,
+                  pressed && { opacity: 0.6 },
+                ]}
+              >
+                <Text size="sm" weight="medium" color="#6B7280">
+                  Skip mechanic review
+                </Text>
+              </Pressable>
+            </>
+          ) : (
+            // ── STEP 2 — shop ──────────────────────────────────────────
+            <>
+              <View style={styles.header}>
+                <Text size="2xl" weight="bold" color="#141C24" style={styles.title}>
+                  How was the shop?
+                </Text>
+                <Text size="sm" weight="regular" color="#6B7280" style={styles.subtitle}>
+                  Your feedback helps other car owners find great shops
+                </Text>
+              </View>
+
+              {booking ? (
+                <View style={styles.shopCard}>
+                  <View style={styles.shopAvatar}>
+                    <Text size="lg" weight="bold" color="#2F6DCC">
+                      {shopInitial}
+                    </Text>
+                  </View>
+                  <View style={styles.shopMeta}>
+                    <Text size="md" weight="semiBold" color="#141C24" numberOfLines={1}>
+                      {booking.shopName}
+                    </Text>
+                    <Text size="sm" weight="regular" color="#6B7280" numberOfLines={1}>
+                      {summaryLine}
+                    </Text>
+                  </View>
+                </View>
+              ) : null}
+
+              <View style={styles.ratingSection}>
+                <View style={styles.starsRow}>
+                  {[1, 2, 3, 4, 5].map((n) => {
+                    const filled = rating >= n;
+                    return (
+                      <Pressable
+                        key={n}
+                        onPress={() => handleStarPress(n)}
+                        hitSlop={8}
+                        style={styles.starButton}
+                      >
+                        <Animated.View
+                          style={{ transform: [{ scale: starScales[n - 1] }] }}
+                        >
+                          <Star
+                            size={40}
+                            color={filled ? "#F59E0B" : "#E5E7EB"}
+                            fill={filled ? "#F59E0B" : "transparent"}
+                            strokeWidth={1.5}
+                          />
+                        </Animated.View>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+                <Text
+                  size="sm"
+                  weight="semiBold"
+                  color={shopRatingLabel.color}
+                  style={styles.ratingLabel}
+                >
+                  {shopRatingLabel.text}
+                </Text>
+              </View>
+
+              {rating > 0 ? (
+                <View style={styles.tagsRow}>
+                  {QUICK_TAGS.map((tag) => {
+                    const selected = selectedTags.includes(tag);
+                    return (
+                      <Pressable
+                        key={tag}
+                        onPress={() => toggleTag(tag)}
+                        style={({ pressed }) => [
+                          styles.chip,
+                          selected && styles.chipSelected,
+                          pressed && !selected && styles.chipPressed,
+                        ]}
+                      >
+                        <Text
+                          size="sm"
+                          weight="medium"
+                          color={selected ? "#2F6DCC" : "#4B5563"}
+                        >
+                          {tag}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              ) : null}
+
+              <TextInput
+                value={shopComment}
+                onChangeText={setShopComment}
+                placeholder="Write about your experience at the shop (optional)"
+                placeholderTextColor="#9CA3AF"
+                multiline
+                maxLength={500}
+                style={[styles.commentInput, styles.shopCommentInput]}
+              />
+
+              {error ? (
+                <Text size="sm" weight="regular" color="#DC2626" style={styles.error}>
+                  {error}
+                </Text>
+              ) : null}
+
+              {reviewAllowed ? (
+                <Pressable
+                  onPress={handleSubmit}
+                  disabled={submitDisabled}
+                  style={({ pressed }) => [
+                    styles.submitButton,
+                    submitDisabled && styles.submitButtonDisabled,
+                    pressed && !submitDisabled && styles.submitButtonPressed,
+                  ]}
+                >
+                  {submitting ? (
+                    <ActivityIndicator color="#FFFFFF" />
+                  ) : (
+                    <Text size="md" weight="semiBold" color="#FFFFFF">
+                      Submit Review
+                    </Text>
+                  )}
+                </Pressable>
+              ) : (
+                <OfflineActionsNotice label="You'll need a connection to review" />
+              )}
+
+              <Pressable
+                onPress={() => sheetRef.current?.close()}
+                disabled={submitting}
+                style={({ pressed }) => [
+                  styles.dismissButton,
+                  pressed && { opacity: 0.6 },
+                ]}
+              >
+                <Text size="sm" weight="medium" color="#6B7280">
+                  Not now
+                </Text>
+              </Pressable>
+            </>
+          )}
+        </View>
       </FloatingSheet>
     );
   },
@@ -573,8 +637,21 @@ const styles = StyleSheet.create({
   body: {
     paddingHorizontal: 20,
     paddingTop: 4,
-    paddingBottom: 18,
+    paddingBottom: 24,
     gap: 18,
+  },
+  stepBar: {
+    height: 22,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  backButton: {
+    position: "absolute",
+    left: 0,
+    height: 22,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
   },
   header: {
     alignItems: "center",
@@ -648,43 +725,7 @@ const styles = StyleSheet.create({
   chipPressed: {
     opacity: 0.7,
   },
-  mechanicSection: {
-    backgroundColor: "#F8FAFC",
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "#EEF2F7",
-    overflow: "hidden",
-  },
-  mechanicToggle: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-  },
-  mechanicAvatar: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: "#EAF2FF",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  mechanicToggleText: {
-    flex: 1,
-    gap: 2,
-  },
-  mechanicBody: {
-    paddingHorizontal: 14,
-    paddingBottom: 14,
-    gap: 10,
-  },
-  mechStarsRow: {
-    flexDirection: "row",
-    gap: 6,
-    alignSelf: "center",
-  },
-  mechanicCommentInput: {
+  commentInput: {
     backgroundColor: "#FFFFFF",
     borderRadius: 12,
     borderWidth: 1,
@@ -696,6 +737,9 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#141C24",
     textAlignVertical: "top",
+  },
+  shopCommentInput: {
+    minHeight: 88,
   },
   error: {
     textAlign: "center",

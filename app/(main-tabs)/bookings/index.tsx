@@ -41,7 +41,7 @@ import { useToast } from "@/hooks/useToast";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
-import { Calendar, CalendarX, Check, ListFilter, Star } from "lucide-react-native";
+import { Calendar, CalendarX, Check, LayoutGrid, ListFilter, Star } from "lucide-react-native";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Image, PixelRatio, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
 import Animated from "react-native-reanimated";
@@ -71,6 +71,24 @@ function getTabLabelSize(width: number, fontScale: number): number {
   const fittedSize =
     availableWidth / (TAB_LABEL_LONGEST.length * TAB_LABEL_WIDTH_RATIO * fontScale);
   return Math.min(Math.max(fittedSize, TAB_LABEL_MIN_SIZE), TAB_LABEL_MAX_SIZE);
+}
+
+// "All Vehicles" affordance. The covered-car asset is the fallback for a
+// real vehicle that's missing a photo, so reusing it here read as one
+// specific shrouded car. A tinted grid badge instead signals "the whole
+// garage / every vehicle". Sized to match the car-thumbnail footprint in
+// both the collapsed filter button and the picker rows.
+function AllVehiclesGlyph({ size = 40, icon = 22 }: { size?: number; icon?: number }) {
+  return (
+    <View
+      style={[
+        styles.allVehiclesGlyph,
+        { width: size, height: size, borderRadius: size * 0.3 },
+      ]}
+    >
+      <LayoutGrid size={icon} color="#5299FE" strokeWidth={2} />
+    </View>
+  );
 }
 
 // ============================================================================
@@ -439,7 +457,9 @@ export default function BookingsScreen() {
                     ]}
                   >
                     <View style={styles.pickerSide}>
-                      {filterVehicle?.imageSource ? (
+                      {filterVehicle == null ? (
+                        <AllVehiclesGlyph size={28} icon={16} />
+                      ) : filterVehicle.imageSource ? (
                         <Image
                           source={filterVehicle.imageSource}
                           style={styles.pickerThumb}
@@ -574,7 +594,10 @@ export default function BookingsScreen() {
         showBackdrop dims + blurs the page behind it. */}
     <FloatingSheet
       ref={vehiclePickerRef}
-      snapHeights={[Math.min(540, 200 + (allVehicles.length + 1) * 78)]}
+      /* Height hugs content: ~96 chrome (handle + title + padding) + 78 per
+         row (incl. the "All Vehicles" row, hence +1). Caps at 540 so a large
+         garage scrolls instead of running off-screen. */
+      snapHeights={[Math.min(540, 96 + (allVehicles.length + 1) * 78)]}
       showBackdrop
     >
       <View style={styles.sheetContent}>
@@ -590,11 +613,7 @@ export default function BookingsScreen() {
             }}
           >
             <View style={styles.vehicleRowSide}>
-              <Image
-                source={require("@/assets/images/covered-car.png")}
-                style={styles.vehicleRowCoveredCar}
-                resizeMode="contain"
-              />
+              <AllVehiclesGlyph size={40} icon={22} />
             </View>
             <View style={styles.vehicleRowText}>
               <Text size="md" weight="semiBold" color="#1F2937">
@@ -793,6 +812,11 @@ const styles = StyleSheet.create({
   vehicleRowCoveredCar: {
     width: 56,
     height: 40,
+  },
+  allVehiclesGlyph: {
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(82, 153, 254, 0.12)",
   },
   vehicleRowText: {
     flex: 1,
