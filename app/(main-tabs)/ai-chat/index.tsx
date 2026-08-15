@@ -58,6 +58,7 @@ import { ProfileInitialsButton } from "@/components/home/ProfileInitialsButton";
 import {
   AIGreeting,
   AIContextBar,
+  SymptomTrackerPin,
   AIMessageBubble,
   AIInputBox,
   AITypingIndicator,
@@ -270,6 +271,14 @@ export default function AIChatScreen() {
   const setConversationPinned = useMutation(api.ai_conversations.setPinned);
   const [convexConversationId, setConvexConversationId] =
     useState<Id<"ai_conversations"> | null>(null);
+  // Issue 2 (Aug-08 QA) — reactive read of the open-symptom ledger for the
+  // pinned "Tracking: …" list. Rows appear when the server classifier appends
+  // them mid-turn and clear when a booking render marks them addressed.
+  const openSymptoms = useQuery(
+    api.ai_conversations.getOpenSymptoms,
+    convexConversationId ? { id: convexConversationId } : "skip",
+  );
+  const hasOpenSymptoms = (openSymptoms?.length ?? 0) > 0;
   // appendEstablishedFact — mobile-side write into ai_conversations.established_facts
   // so Haiku reads selections from <conversation_state> on the next turn instead of
   // re-deriving them from natural-language history. Decision D: "IDs come from
@@ -578,6 +587,7 @@ export default function AIChatScreen() {
 
         const {
           text,
+          assistantMessageId,
           quickReplies,
           showRecordConfirmation,
           showVehicleUpdate,
@@ -669,6 +679,7 @@ export default function AIChatScreen() {
 
         const aiMessage: ChatMessage = {
           id: `ai_${Date.now()}`,
+          dbId: (assistantMessageId as string | undefined) ?? undefined,
           role: "assistant",
           content: text,
           timestamp: new Date().toISOString(),
@@ -1030,6 +1041,7 @@ export default function AIChatScreen() {
             const r = (row.render ?? {}) as Partial<ChatMessage>;
             return {
               id: row._id as string,
+              dbId: row._id as string,
               role: row.role === "user" ? "user" : "assistant",
               content: row.content,
               timestamp: new Date(row.timestamp).toISOString(),
@@ -1562,6 +1574,14 @@ export default function AIChatScreen() {
         />
       )}
 
+      {/* Issue 2 — pinned unresolved-symptom list ("Tracking: …") */}
+      {!showChatGreeting && hasOpenSymptoms && (
+        <SymptomTrackerPin
+          symptoms={openSymptoms ?? []}
+          top={HEADER_HEIGHT + 8 + (selectedVehicle ? 52 : 0)}
+        />
+      )}
+
       {/* Main Content */}
       <View
         style={[
@@ -1588,7 +1608,7 @@ export default function AIChatScreen() {
           style={[styles.chatContainer, showChatGreeting && styles.chatContainerGreeting]}
           contentContainerStyle={[
             styles.chatContent,
-            showChatGreeting ? styles.chatContentCentered : { paddingTop: HEADER_HEIGHT + 16 + (selectedVehicle ? 52 : 0), paddingBottom: (keyboardHeight > 0 ? keyboardHeight + keyboardBottomInset + 8 : bottomPadding + 8) + 70 },
+            showChatGreeting ? styles.chatContentCentered : { paddingTop: HEADER_HEIGHT + 16 + (selectedVehicle ? 52 : 0) + (hasOpenSymptoms ? 60 : 0), paddingBottom: (keyboardHeight > 0 ? keyboardHeight + keyboardBottomInset + 8 : bottomPadding + 8) + 70 },
           ]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
@@ -1729,6 +1749,7 @@ export default function AIChatScreen() {
                       <View style={styles.servicePickerContainer}>
                         <AIVehicleUpdate
                           payload={message.showVehicleUpdate}
+                          messageDbId={message.dbId ?? null}
                           onDecision={handleVehicleUpdateDecision}
                           onDismiss={handleVehicleUpdateDismiss}
                           disabled={isProcessing}

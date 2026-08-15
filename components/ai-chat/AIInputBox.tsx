@@ -43,9 +43,10 @@ import Animated, {
   withRepeat,
   withSequence,
   interpolate,
+  Extrapolate,
   Easing,
 } from 'react-native-reanimated';
-import { ArrowUp, X } from 'lucide-react-native';
+import { Mic, ArrowUp, X } from 'lucide-react-native';
 
 // Native iOS 26 liquid glass (optional)
 let LiquidGlassView: React.ComponentType<any> | null = null;
@@ -358,6 +359,13 @@ export function AIInputBox({
     opacity: sendButtonOpacity.value,
   }));
 
+  const micButtonAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(sendButtonOpacity.value, [0, 1], [1, 0], Extrapolate.CLAMP),
+    transform: [
+      { scale: interpolate(sendButtonOpacity.value, [0, 1], [1, 0.8], Extrapolate.CLAMP) },
+    ],
+  }));
+
   const inputCardContent = (
     <View style={[
       styles.inputCardInner,
@@ -429,11 +437,29 @@ export function AIInputBox({
               (isAttachmentOpen / onToggleAttachment / selectedImages props)
               stays for when the feature returns. */}
           <View style={styles.rightButtons}>
-            {/* Mic button removed 2026-08-14 (QA p.109 #2): voice input is
-                not wired end-to-end, so the affordance was a dead button —
-                same ship-blocker shape as the camera button. The recording
-                plumbing (onMicPressIn/Out, isRecording, waveform) stays for
-                when voice returns. */}
+            {/* Mic button */}
+            <Animated.View style={[
+              styles.buttonWrapper,
+              !showRecordingUI && micButtonAnimatedStyle
+            ]}>
+              <Pressable
+                style={({ pressed }) => [
+                  showRecordingUI ? styles.micBtnRecording : styles.micBtn,
+                  !showRecordingUI && pressed && styles.micBtnPressed,
+                ]}
+                onPressIn={onMicPressIn}
+                onPressOut={onMicPressOut}
+                delayLongPress={0}
+                pointerEvents={hasText && !showRecordingUI ? 'none' : 'auto'}
+                disabled={isLoading || disabled}
+              >
+                {showRecordingUI ? (
+                  <ArrowUp size={16} color={BrandColors.white} strokeWidth={2.5} />
+                ) : (
+                  <Mic size={18} color={hasText ? "rgba(0,0,0,0.6)" : "rgba(0,0,0,0.4)"} strokeWidth={2} />
+                )}
+              </Pressable>
+            </Animated.View>
 
             {/* Send button */}
             {!showRecordingUI && (

@@ -12,15 +12,18 @@
 
 const OUTPUT_GUARD_PATTERNS = [
   { category: "currency", re: /\$\s*\d|\b\d[\d,]*(?:\.\d+)?\s*(?:dollars|bucks)\b/i },
+  { category: "currency", re: /\b(?:few|couple(?:\s+of)?|several|some)\s+(?:hundred|thousand)\s+(?:dollars|bucks)\b|\b(?:hundreds?|thousands?)\s+of\s+dollars\b|\b\d[\d,]*\s*grand\b/i },
   { category: "warranty", re: /\b\d+\s*(?:-|–|to\s+)?\s*years?\b[^.!?\n]{0,40}?\b\d[\d,]*\s*miles\b/i },
   { category: "warranty", re: /\b\d[\d,]*\s*miles\b[^.!?\n]{0,40}?\b\d+\s*(?:-|–|to\s+)?\s*years?\b/i },
   { category: "internal_noun", re: /\bknowledge\s*base\b|\bsearch\s+index\b|\bsystem\s+prompt\b|\bfuzzy\s+match(?:er|ing)?\b|\bpipeline\b|\bFireCrawl\b|\bvPIC\b|\bAnthropic\b/i },
   { category: "internal_noun", re: /\bKB\b|\bConvex\b|\bClaude\b|\bHaiku\b|\bSonnet\b/ },
-  { category: "internal_noun", re: /\bself_reported\b|\bconversation_state\b|\brecord_provenance\b|\bestablished_facts\b|\bopen_symptoms\b|\bsafety_override\b|\bcustomer_notes\b|\bservice_claims\b|\bfault_lights\b|\bdiagnostic_scan\b|\bon_time\b|\bdue_soon\b|\bneeds_attention\b/ },
+  { category: "internal_noun", re: /\bself_reported\b|\bself[- ]reported\b|\bconversation_state\b|\brecord_provenance\b|\bestablished_facts\b|\bopen_symptoms\b|\bsafety_override\b|\bcustomer_notes\b|\bservice_claims\b|\bfault_lights\b|\bdiagnostic_scan\b|\bon_time\b|\bdue_soon\b|\bneeds_attention\b/ },
   { category: "internal_noun", re: /\bbooking flow\b|\bquick replies\b|\bquick-repl(?:y|ies)\b|\btrust[- ]gat(?:e|ing)\b|\bintent ladder\b|\bstate tool\b|\bterminal render\b|\bdiagnostic domain\b|\brender_[a-z_]+\b|\bservice[- ]slugs?\b/i },
   { category: "labor_time", re: /\b(?:\d+(?:\.\d+)?|an?|one|two|three|four|five|six|seven|eight|nine|ten|half|couple|few)\s+(?:or\s+\S+\s+)?(?:hours?|hrs?|minutes?|mins?)\s+(?:of\s+)?(?:labor|labour|book\s+time|shop\s+time)\b/i },
   { category: "labor_time", re: /\blabou?r\b(?!\s+day)[^.!?\n]{0,25}\b\d+(?:\.\d+)?\s*(?:hours?|hrs?|minutes?|mins?)\b/i },
   { category: "labor_time", re: /\bflat[- ]rate\s+(?:time|hours?)\b/i },
+  { category: "labor_time", re: /\b(?:scan|service|job|repair|appointment|visit|inspection|replacement|rotation|oil change|diagnostic|the work)\b[^.!?\n]{0,60}\b(?:about|around|roughly|under|less than|~)?\s*(?:an?\s+hour|half\s+an?\s+hour|\d+(?:\s*[-–]\s*\d+)?\s*(?:hours?|hrs?|minutes?|mins?))\b/i },
+  { category: "labor_time", re: /\b(?:takes?|taking|done|finished|in\s+and\s+out|turnaround|be\s+ready)\b[^.!?\n]{0,40}\b(?:about|around|roughly|under|less than|~)?\s*(?:an?\s+hour|half\s+an?\s+hour|\d+(?:\s*[-–]\s*\d+)?\s*(?:hours?|hrs?|minutes?|mins?))\b[^.!?\n]{0,60}\b(?:scan|service|job|repair|appointment|visit|inspection|replacement|rotation|oil change|diagnostic)\b/i },
   { category: "medical", re: /\bunder\s+(?:cool|cold|lukewarm|running)\s+water\b|\b(?:cool|cold)\s+water\b[^.!?\n]{0,25}\b(?:burn|scald|skin|wound)\b/i },
   { category: "medical", re: /\bapply\s+(?:ice|a\s+cold\s+compress|burn\s+(?:cream|gel|ointment)|aloe|antibiotic|pressure\s+to\s+the\s+wound)\b|\b(?:bandage|gauze|sterile\s+dressing)\b/i },
   { category: "medical", re: /\b(?:ibuprofen|acetaminophen|paracetamol|tylenol|advil|aspirin|antihistamine)\b|\b(?:first|second|third)[- ]degree\s+burn\b/i },
@@ -163,10 +166,18 @@ eq("self_reported flag leak",
 eq("conversation_state leak",
   g("Given the conversation_state arc says you were assessing location, let's continue. Where are you now?").text,
   "Where are you now?");
-// hyphen/space natural-prose forms stay allowed — no false positive
-eq("self-reported prose is fine",
-  g("That record is self-reported, so a mechanic hasn't verified it yet.").text,
-  "That record is self-reported, so a mechanic hasn't verified it yet.");
+// REVERSED 2026-08-15: hyphenated "self-reported" was originally allowed as
+// natural prose, but the §7b' eval sweep caught it live ("…since it's
+// self-reported from your onboarding") and the trust-gate eval cases ban the
+// hyphenated spelling too — provenance vocabulary never surfaces to the user
+// in ANY spelling. Sentence drops.
+eq("self-reported (hyphenated) also drops",
+  g("That record is self-reported, so a mechanic hasn't verified it yet. Want me to set up a diagnostic?").text,
+  "Want me to set up a diagnostic?");
+// "self reported" with a space drops too
+eq("self reported (spaced) drops",
+  g("It's marked as self reported in our records. A diagnostic will confirm it.").text,
+  "A diagnostic will confirm it.");
 
 // ── Shareholder vocabulary (added 2026-08-13; history scan found 10x "booking flow") ──
 eq("booking-flow leak (the x10 pattern)",
@@ -224,13 +235,52 @@ eq("wait-time logistics is fine",
 eq("labor day is fine",
   g("Labor Day weekend traffic added 2 hours to my drive, the user said.").text,
   "Labor Day weekend traffic added 2 hours to my drive, the user said.");
-eq("service-duration prose is fine",
-  g("An oil change usually takes about 30 minutes once the car is in the bay.").text,
-  "An oil change usually takes about 30 minutes once the car is in the bay.");
+// ── D-41 ESCALATION (2026-08-15): bare service durations are labor time in
+// disguise ("under an hour" × rate = price); the service card owns durations.
+eq("service-duration prose now drops",
+  g("An oil change usually takes about 30 minutes once the car is in the bay. Want to book?").text,
+  "Want to book?");
+eq("under-an-hour diagnostic drops",
+  g("The diagnostic is usually pretty quick — under an hour at most shops. Want me to set it up?").text,
+  "Want me to set it up?");
+eq("takes-then-service reversed drops",
+  g("It takes about 30-45 minutes for the tire rotation. Bundling saves a trip.").text,
+  "Bundling saves a trip.");
+// escalation false-positive floor: non-billable durations survive
+eq("safety cooldown survives",
+  g("Let the engine cool for 30 minutes before checking the coolant level.").text,
+  "Let the engine cool for 30 minutes before checking the coolant level.");
+eq("service-history months survive",
+  g("Your brakes were serviced about 6 months ago, so this squeal is worth a look.").text,
+  "Your brakes were serviced about 6 months ago, so this squeal is worth a look.");
+eq("battery recharge drive survives",
+  g("Drive for 15 minutes on the highway to let the battery recharge.").text,
+  "Drive for 15 minutes on the highway to let the battery recharge.");
+eq("appointment clock time survives",
+  g("Your appointment is at 12:30 PM tomorrow at Test Shop.").text,
+  "Your appointment is at 12:30 PM tomorrow at Test Shop.");
 // allowCurrency must NOT relax labor_time rows
 eq("rewards-turn still blocks labor",
   g("You've got $12 in credits. Pads are about 2 hours of labor.", true).text,
   "You've got $12 in credits.");
+
+// ── D-44 loose pricing (2026-08-15; "not even loosely") ─────────────────────
+eq("few-hundred-dollars drops",
+  g("A new converter runs a few hundred dollars at least. Call AAA first.").text,
+  "Call AAA first.");
+eq("thousands-of-dollars drops",
+  g("Replacing it costs thousands of dollars in most cases. A tow is cheaper.").text,
+  "A tow is cheaper.");
+eq("digit-grand drops",
+  g("Figure about 2 grand for that job. Your call.").text,
+  "Your call.");
+// floor: distance and names survive
+eq("few-hundred-miles survives",
+  g("You can go a few hundred miles before the next rotation.").text,
+  "You can go a few hundred miles before the next rotation.");
+eq("grand-cherokee survives",
+  g("The Grand Cherokee is a solid tow vehicle.").text,
+  "The Grand Cherokee is a solid tow vehicle.");
 
 // ── Status-enum leak (2026-08-14; battery probe caught "showing on_time" live) ──
 eq("on_time enum leak strips",

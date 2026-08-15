@@ -39,7 +39,7 @@
     },
     {
       "name": "brake_self_reported_triggers_record_confirmation",
-      "description": "Trust protocol: on_time brakes + symptom contradicting + record_provenance=self_reported -> fires render_record_confirmation (NOT render_diagnostic_form). Replaces the v0.7 loophole-closure case (brake_narrowing_on_time_to_diagnostic) - the prior 'always force diagnostic form on on_time symptom' was overly strict; the real protocol gates on record provenance first. See docs/oto-ai/Trust_Protocol_Inflight_Handoff.md. CROSS-TURN 2026-08-14: get_vehicle_health moved to tools_called_any_turn — the read legitimately lands on the narrowing turn before the terminal turn; the per-turn literal punished correct sequencing.",
+      "description": "Trust protocol: on_time brakes + symptom contradicting + record_provenance=self_reported -> fires render_record_confirmation (NOT render_diagnostic_form). Replaces the v0.7 loophole-closure case (brake_narrowing_on_time_to_diagnostic) - the prior 'always force diagnostic form on on_time symptom' was overly strict; the real protocol gates on record provenance first. See docs/oto-ai/Trust_Protocol_Inflight_Handoff.md. CROSS-TURN 2026-08-14: get_vehicle_health moved to tools_called_any_turn — the read legitimately lands on the narrowing turn before the terminal turn; the per-turn literal punished correct sequencing. 2026-08-15 (§7b' floor): the v0.58 chips push aggravated the gate slip to 2/6 reps, so chat.ts now FORCES the record-confirmation render server-side (mid-narrowing + health read this turn + open symptom contesting an on_time self_reported record, once per type per conversation). Assertion moved to record_confirmation_rendered (effect-level, same precedent as book_service_rendered) and the branch literal dropped — a floor-forced turn can be branch text_only.",
       "pre_seed_mutations": [
         {
           "path": "devOnly/resetEvalFixture:reset",
@@ -59,21 +59,20 @@
             "text_not_contains": [
               "Brake Pad Replacement",
               "book it",
-              "is the right"
+              "is the right call"
             ]
           }
         },
         {
           "user": "Mostly when I first hit the brakes, then it goes quiet",
           "expect": {
+            "record_confirmation_rendered": true,
             "tools_called": [
-              "render_record_confirmation",
               "update_conversation_state"
             ],
-            "branch": "terminal",
             "text_not_contains": [
               "Brake Pad Replacement",
-              "is the right",
+              "is the right call",
               "self-reported",
               "self_reported",
               "record_provenance",
@@ -112,7 +111,7 @@
             ],
             "text_not_contains": [
               "Battery Replacement",
-              "is the right"
+              "is the right call"
             ]
           }
         },
@@ -127,7 +126,7 @@
             "branch": "terminal",
             "text_not_contains": [
               "Battery Replacement",
-              "is the right",
+              "is the right call",
               "self-reported",
               "self_reported",
               "record_provenance",
@@ -144,7 +143,7 @@
     },
     {
       "name": "brake_record_confirmed_routes_to_diagnostic",
-      "description": "Trust protocol completion path: after the user confirms the self_reported record is correct, Oto's next turn routes to render_book_service (record was right, symptom is the surprise - let a mechanic look). Turn 3 simulates the mobile component's synthetic follow-up message that fires after the user taps 'Yes, that's right'. Sprint 4 Day 1 Pass B §4 dispatch (booking-flow consolidation; render_book_service).",
+      "description": "Trust protocol completion path: after the user confirms the self_reported record is correct, Oto's next turn routes to render_book_service (record was right, symptom is the surprise - let a mechanic look). Turn 3 simulates the mobile component's synthetic follow-up message that fires after the user taps 'Yes, that's right'. Sprint 4 Day 1 Pass B §4 dispatch (booking-flow consolidation; render_book_service). 2026-08-15 (§7b' floor): turn-2 assertion moved to record_confirmation_rendered + tools_called_any_turn for the health read; the floor's once-per-type dedupe (record_confirmations_offered) keeps it from re-firing on turn 3, so the post-confirm booking assertion is unchanged.",
       "pre_seed_mutations": [
         {
           "path": "devOnly/resetEvalFixture:reset",
@@ -164,19 +163,20 @@
             "text_not_contains": [
               "Brake Pad Replacement",
               "book it",
-              "is the right"
+              "is the right call"
             ]
           }
         },
         {
           "user": "Mostly when I first hit the brakes, then it goes quiet",
           "expect": {
+            "record_confirmation_rendered": true,
             "tools_called": [
-              "get_vehicle_health",
-              "render_record_confirmation",
               "update_conversation_state"
             ],
-            "branch": "terminal",
+            "tools_called_any_turn": [
+              "get_vehicle_health"
+            ],
             "text_not_contains": [
               "Brake Pad Replacement",
               "self-reported",
@@ -201,7 +201,7 @@
             "branch": "terminal",
             "text_not_contains": [
               "Brake Pad Replacement",
-              "is the right",
+              "is the right call",
               "self-reported",
               "self_reported",
               "record_provenance",
@@ -3131,6 +3131,103 @@
               "what's holding you back"
             ],
             "text_judge": "The response engages with the brake-squeal symptom the user just raised (acknowledging it and/or asking a narrowing question about it). It must NOT bring up past service offers, past recommendations that were not booked, or any pattern of the user not booking things — the user's new message is the agenda. A brief neutral mention of a currently-due service offered as an add-on is acceptable ONLY if the brakes are addressed first; opening with the unbooked history or asking the user to explain why they have not booked FAILS."
+          }
+        }
+      ]
+    },
+    {
+      "name": "book_service_lost_component_rerenders",
+      "description": "QA D-32 regression guard (the report’s most-repeated finding: “knows the problem, hands the work back”). Turn 1 renders the booking for an explicit ask. Turn 2 the user says they scrolled and lost the form — the v0.53 lost-component exception sanctions the ONE re-fire of render_book_service with the same prefill. Telling the user to scroll/refresh instead of re-rendering FAILS. Device-verified live 2026-08-15 (“No problem — let me bring that back up for you” + fresh card); this case locks it.",
+      "turns": [
+        {
+          "user": "Book me an oil change for next week",
+          "expect": {
+            "book_service_rendered": true
+          }
+        },
+        {
+          "user": "wait, I scrolled up and now I can't find the booking form anymore",
+          "expect": {
+            "book_service_rendered": true,
+            "text_judge": "The user lost sight of an already-rendered booking component. PASS if the response brings the booking back (brief acknowledgment is fine). FAIL if it tells the user to scroll, refresh, or look for the earlier component as the primary remedy, or asks a clarifying question instead of restoring the booking."
+          }
+        }
+      ]
+    },
+    {
+      "name": "verbosity_ripoff_ask_short_verdict_first",
+      "description": "QA D-9 escalated to P1 (“240 words to answer is-this-a-ripoff”; the length problem is the top UX defect — “Oto pads in exact proportion to how much the user needs a fast answer”). The exact QA scenario: emotional third-party ripoff ask. v0.54 hard rule: position in the first sentence, ~110-word ceiling, one next step, no numbered plan, and the defamation line holds (never call the shop a ripoff). Price ranges are already guard-dropped (total prohibition); the case asserts the register deterministically (word cap + list literals) and the substance via judge. D-33 rides along: no numbered list in the prose.",
+      "turns": [
+        {
+          "user": "my mom drives my old car and a shop just quoted her $1400 for brakes. is that a ripoff? she's 74 and on a fixed income and I think they're taking advantage of her",
+          "expect": {
+            "text_max_words": 130,
+            "text_not_contains": [
+              "\n1. ",
+              "\n2. ",
+              "\n3. "
+            ],
+            "text_judge": "The user asked whether a $1,400 brake quote for their mom is a ripoff. PASS only if the response: (a) reaches its position within the first two sentences — it cannot judge the quote without knowing the work scope, and saying that plainly counts as the position; (b) never calls the shop a ripoff or scam; (c) quotes NO dollar amounts or price ranges of its own; and (d) offers at most ONE concrete next step (such as an itemized quote or second opinion) rather than a numbered multi-step plan. A brief empathetic opener is fine."
+          }
+        }
+      ]
+    },
+    {
+      "name": "booking_explainer_no_numbered_document",
+      "description": "QA D-33 (numbered lists in a chat bubble are a document, not a message) + D-9 length rule applied to the classic offender: the what-happens-next booking explainer that used to ship a 4-step numbered walkthrough. v0.54: one flowing paragraph under the cap, no numbered list; chips are the sanctioned home for enumerable next moves. 2026-08-15 rep-3 lesson: the model may answer by rendering the booking-status card with a one-line framing — that is fire-don’t-narrate behavior, not an empty answer; the judge accepts it.",
+      "turns": [
+        {
+          "user": "what happens next with my booking?",
+          "expect": {
+            "text_max_words": 110,
+            "text_not_contains": [
+              "\n1. ",
+              "\n2. ",
+              "\n3. ",
+              "\n4. "
+            ],
+            "text_judge": "The user asked what happens next with their booking. PASS if the response EITHER (a) explains the next step(s) in short flowing prose with no numbered-list formatting, OR (b) is a brief framing line accompanying a rendered booking card (e.g. \"Here’s your upcoming booking\") — answering with the card surface instead of prose is correct behavior. FAIL only if the response is a numbered multi-step walkthrough / reads like a document."
+          }
+        }
+      ]
+    },
+    {
+      "name": "chips_default_on_hardest_input",
+      "description": "QA p.72 Issue 3 (2026-08-15): chips rendered when Oto was confident (T5.2, T7.1) and vanished when the user was struggling — four symptoms typed in fragments got two open-ended prose questions. Backwards. v0.58 rule + render_quick_replies description rewrite: chips are the DEFAULT for ANY clarifying question with an enumerable answer set, they matter MOST on messy input, and a multi-symptom turn asks exactly ONE question with chips. The old tool-description line 'Don't use this for free-form clarifying questions' was the layer-4 root cause and is removed.",
+      "turns": [
+        {
+          "user": "ok so a few things. car wont start sometimes. some light on the dash. ac smells weird when i turn it on. brakes squeak a little too",
+          "expect": {
+            "tools_called": [
+              "render_quick_replies",
+              "update_conversation_state"
+            ],
+            "text_judge": "The user reported four symptoms in typed fragments — they are struggling, not composing prose. You see the TEXT only; tap-to-answer chips are rendered separately and verified separately, so do NOT fail the response for 'not using chips'. PASS if the text asks about ONE symptom only — a single clarifying question (an 'A or B, or C?' phrasing counts as ONE question; its options become the chips), with the other symptoms at most acknowledged in passing, and any conditional safety advice ('gas means stop running the AC') does not count as a question. FAIL only if it asks questions about two or more different symptoms, stacks two or more separate questions, or dumps a long multi-part triage plan."
+          }
+        }
+      ]
+    },
+    {
+      "name": "duration_ask_points_to_card",
+      "description": "QA D-41 P2 escalation (“under an hour of labor for most shops is still a soft estimate… the service card already says 30 min — let the UI own it”). v0.56 rule 6: never volunteer service durations in prose — duration × rate = price and the labor-time data is known-unreliable; the card owns the number. Direct how-long ask points at the card’s estimate. Backed by two labor_time guard rows (w1 harness 67/67 incl. safety-cooldown false-positive floor).",
+      "turns": [
+        {
+          "user": "Book me an oil change",
+          "expect": {
+            "book_service_rendered": true
+          }
+        },
+        {
+          "user": "how long will the oil change take?",
+          "expect": {
+            "text_not_contains": [
+              " minutes",
+              " mins",
+              "an hour",
+              " hours",
+              "half hour"
+            ],
+            "text_judge": "The user asked how long their oil change will take. PASS if the response gives NO duration of its own and instead points the user to the time estimate shown on the service card / booking flow (brief and helpful is ideal). FAIL if it states or estimates any duration (minutes, hours, “quick” with a timeframe), even hedged."
           }
         }
       ]

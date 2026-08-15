@@ -14,8 +14,15 @@
  */
 
 // 1. React & React Native
-import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ActivityIndicator, Animated as RNAnimated, Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
+// Shop-first map step (QA pp.55-57, AB): default provider = Apple Maps on
+// iOS, Google Maps on Android — exactly the platform split AB asked for.
+// NOTE: Android needs the GCP Maps key wired (known gap since 2026-07-20);
+// until then Android renders the pins over blank tiles and the shop LIST
+// below the map keeps the step fully functional.
+import MapView, { type Region } from "react-native-maps";
+import { OtoPairPin } from "@/components/booking/ShopMarker";
 
 // 2. Expo & Third-party
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
@@ -326,6 +333,19 @@ export function BookServiceComponent({
   const [selectedMechanicId, setSelectedMechanicId] = useState<string | null>(
     payload.recommended_mechanic_id ?? null,
   );
+  // Sub-stage 4a: shop-first selection (QA pp.55-57 — "I never got to choose
+  // the shop, isn't that first"). null = the shop phase is showing; an id =
+  // the mechanic list is filtered to that shop. Lives INSIDE stage 4 so the
+  // stepper count, jump targets, and stages 5-6 stay untouched.
+  const [shopFilterId, setShopFilterId] = useState<string | null>(null);
+  // Pending highlight in the shop phase (Waleed, 2026-08-15: "let them pick
+  // the shop"). Tapping a card/pin only SELECTS — pin grows, card
+  // highlights — and the footer button is what commits to the mechanic list.
+  const [pendingShopId, setPendingShopId] = useState<string | null>(null);
+  // When Oto recommended a mechanic, pre-select that mechanic's shop once the
+  // store hydrates — Oto's pick must stay one tap, not hide behind the new
+  // shop phase. One-shot so backing out to "all shops" sticks.
+  const shopPrefillDone = useRef(false);
 
   // Sub-stage 5: time slot — key is `${slotId}` since we read the canonical
   // slot row out of Convex.
@@ -411,6 +431,65 @@ export function BookServiceComponent({
     }
     return arr;
   }, [allMechanicsList, getMechanicById, getShopById, priority]);
+
+  // Shop choices for the shop-first phase — unique shops of the sorted
+  // mechanic list, in the same priority order, each carrying its mechanic
+  // count. Coordinates come from the shop store (same rows the Home map
+  // uses), so every card can also be a pin.
+  const shopChoices = useMemo(() => {
+    const seen = new Set<string>();
+    const rows: Array<{
+      shop: NonNullable<ReturnType<typeof getShopById>>;
+      mechanicCount: number;
+    }> = [];
+    for (const m of sortedMechanics) {
+      if (seen.has(m.shopId)) continue;
+      seen.add(m.shopId);
+      const shop = getShopById(m.shopId);
+      if (!shop) continue;
+      rows.push({
+        shop,
+        mechanicCount: sortedMechanics.filter((x) => x.shopId === m.shopId).length,
+      });
+    }
+    // Re-sort at SHOP level with the same priority — inheriting the
+    // mechanic-level order ranked shops by their best mechanic, which read
+    // as broken next to the shop rating printed on the card (seed test:
+    // "Best rated" showed 4.2 above 4.6).
+    if (priority === "closest") {
+      rows.sort(
+        (a, b) =>
+          (a.shop.distanceKm ?? Number.POSITIVE_INFINITY) -
+          (b.shop.distanceKm ?? Number.POSITIVE_INFINITY),
+      );
+    } else if (priority === "best_rated") {
+      rows.sort((a, b) => (b.shop.rating ?? 0) - (a.shop.rating ?? 0));
+    } else {
+      rows.sort(
+        (a, b) =>
+          (a.shop.labor_rate ?? Number.POSITIVE_INFINITY) -
+          (b.shop.labor_rate ?? Number.POSITIVE_INFINITY),
+      );
+    }
+    return rows;
+  }, [sortedMechanics, getShopById, priority]);
+
+  // Oto's-pick prefill: when the payload recommended a mechanic, land the
+  // user directly on that mechanic's shop (mechanic already selected) the
+  // first time the store resolves it. One-shot — backing out to the shop
+  // phase afterwards must stick.
+  useEffect(() => {
+    if (shopPrefillDone.current) return;
+    if (!payload.recommended_mechanic_id) {
+      shopPrefillDone.current = true;
+      return;
+    }
+    const rec = getMechanicById(payload.recommended_mechanic_id);
+    if (rec?.shopId) {
+      shopPrefillDone.current = true;
+      setShopFilterId(rec.shopId);
+    }
+  }, [payload.recommended_mechanic_id, getMechanicById, allMechanicsList]);
 
   // ──────────────────────────────────────────────────────────────────────
   // Navigation helpers
@@ -604,6 +683,17 @@ export function BookServiceComponent({
         };
       }
       case 4:
+        // Shop phase: tapping a shop card/pin HIGHLIGHTS it (pin grows, card
+        // outlines); this footer button is what commits the pick.
+        if (shopFilterId === null) {
+          return {
+            enabled: pendingShopId !== null,
+            label: pendingShopId === null ? "Pick a shop" : "See mechanics",
+            onPress: () => {
+              if (pendingShopId) setShopFilterId(pendingShopId);
+            },
+          };
+        }
         return {
           enabled: selectedMechanicId !== null,
           label: selectedMechanicId === null ? "Pick a mechanic" : "Continue to time",
@@ -627,12 +717,27 @@ export function BookServiceComponent({
     selectedIds.size,
     customerNotes,
     selectedMechanicId,
+    shopFilterId,
+    pendingShopId,
     selectedSlotId,
     selectedSlot,
     isSubmitting,
     advanceStage,
     handleBookAndPay,
   ]);
+
+  // Shop-phase-aware header pieces. Back on stage 4 with a shop chosen
+  // returns to the shop phase (clearing the mechanic) instead of leaving
+  // the stage — the two phases feel like one step to the stepper.
+  const inShopPhase = stage === 4 && shopFilterId === null;
+  const handleHeaderBack = useCallback(() => {
+    if (stage === 4 && shopFilterId !== null) {
+      setShopFilterId(null);
+      setSelectedMechanicId(null);
+      return;
+    }
+    retreatStage();
+  }, [stage, shopFilterId, retreatStage]);
 
   // ──────────────────────────────────────────────────────────────────────
   // RENDER
@@ -644,7 +749,7 @@ export function BookServiceComponent({
       <View style={styles.header}>
         {stage > 1 ? (
           <Pressable
-            onPress={retreatStage}
+            onPress={handleHeaderBack}
             disabled={disabled}
             hitSlop={8}
             style={styles.headerIconButton}
@@ -656,19 +761,23 @@ export function BookServiceComponent({
         )}
         <View style={styles.headerTitleWrap}>
           <Text style={styles.headerTitle} weight="semiBold">
-            {stageTitle(stage)}
+            {inShopPhase ? "Choose a shop" : stageTitle(stage)}
           </Text>
-          {headerSubtitle(
-            stage,
-            selectedServiceOptions,
-            selectedMechanic?.name ?? null,
-          ) ? (
-            <Text style={styles.headerSubtitle} size="xs">
-              {headerSubtitle(
+          {(inShopPhase
+            ? `${selectedServiceOptions.length} service${selectedServiceOptions.length === 1 ? "" : "s"} · pick where it happens`
+            : headerSubtitle(
                 stage,
                 selectedServiceOptions,
                 selectedMechanic?.name ?? null,
-              )}
+              )) ? (
+            <Text style={styles.headerSubtitle} size="xs">
+              {inShopPhase
+                ? `${selectedServiceOptions.length} service${selectedServiceOptions.length === 1 ? "" : "s"} · pick where it happens`
+                : headerSubtitle(
+                    stage,
+                    selectedServiceOptions,
+                    selectedMechanic?.name ?? null,
+                  )}
             </Text>
           ) : null}
         </View>
@@ -684,12 +793,15 @@ export function BookServiceComponent({
           the body remounts + slides in from the right whenever the user
           advances. (Going back also re-triggers, which feels right —
           each stage entrance has a fresh sense of motion.) */}
-      <ScrollView
-        style={styles.body}
-        contentContainerStyle={styles.bodyContent}
-        showsVerticalScrollIndicator={false}
-        nestedScrollEnabled
-      >
+      {/* Content-sized body (QA p.38): "it would be a lot better if it
+          didn't make me scroll inside this container … the container
+          dynamically moves based on the height the content needs." The old
+          maxHeight:380 ScrollView forced inner scrolling on any tall stage;
+          now the card grows with its stage and the CHAT scroll carries it —
+          one scroll surface, never two. Stage bodies are compact post-
+          segmentation (time periods, shop phase), so the tallest stage is
+          the stage-1 service list, which reads fine as a tall card. */}
+      <View style={styles.bodyContent}>
         <Animated.View
           key={stage}
           entering={FadeInRight.duration(280).easing(Easing.out(Easing.cubic))}
@@ -697,6 +809,7 @@ export function BookServiceComponent({
           {stage === 1 && (
             <Stage1Services
               selectedIds={selectedIds}
+              initialSelectedIds={initialSelectedIds}
               onToggle={toggleServiceLocal}
               disabled={disabled}
             />
@@ -711,11 +824,21 @@ export function BookServiceComponent({
               disabled={disabled}
             />
           )}
-          {stage === 4 && (
-            <Stage4Mechanic
-              mechanics={sortedMechanics}
+          {stage === 4 && shopFilterId === null && (
+            <Stage4Shops
+              shops={shopChoices}
               priority={priority}
               onPriorityChange={setPriority}
+              selectedShopId={pendingShopId}
+              onSelectShop={setPendingShopId}
+              disabled={disabled}
+            />
+          )}
+          {stage === 4 && shopFilterId !== null && (
+            <Stage4Mechanic
+              mechanics={sortedMechanics
+                .filter((m) => m.shopId === shopFilterId)
+                .sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0))}
               selectedMechanicId={selectedMechanicId}
               onSelect={handleMechanicSelect}
               recommendedMechanicId={payload.recommended_mechanic_id}
@@ -748,7 +871,7 @@ export function BookServiceComponent({
             />
           )}
         </Animated.View>
-      </ScrollView>
+      </View>
 
       {/* Footer */}
       <View style={styles.footer}>
@@ -885,21 +1008,36 @@ function headerSubtitle(
 
 function Stage1Services({
   selectedIds,
+  initialSelectedIds,
   onToggle,
   disabled,
 }: {
   selectedIds: Set<string>;
+  initialSelectedIds: Set<string>;
   onToggle: (id: string) => void;
   disabled: boolean;
 }) {
+  // QA p.60 ("I had to scroll down to it — it should automatically scroll to
+  // the option if it was selected by Oto"): when Oto pre-picked services,
+  // the card opens showing ONLY those — the selection is the first thing on
+  // screen instead of row 8 of 11 — with an "Add more services" expander for
+  // the full catalog. No prefill (rare) → full list from the start.
+  const [expanded, setExpanded] = useState(initialSelectedIds.size === 0);
+  const visibleServices = expanded
+    ? DEFAULT_SERVICES
+    : DEFAULT_SERVICES.filter(
+        (s) => selectedIds.has(s.id) || initialSelectedIds.has(s.id),
+      );
+
   return (
     <View style={styles.stageBody}>
       <Text style={styles.helperText} size="sm">
-        Pre-checked from our chat. Add or remove anything that should ride
-        along — bundling saves a shop trip.
+        {expanded
+          ? "Pre-checked from our chat. Add or remove anything that should ride along — bundling saves a shop trip."
+          : "Pre-checked from our chat — here's what we talked about. Add anything that should ride along; bundling saves a shop trip."}
       </Text>
       <View style={styles.serviceList}>
-        {DEFAULT_SERVICES.map((s, i) => {
+        {visibleServices.map((s, i) => {
           const selected = selectedIds.has(s.id);
           const IconComponent = SERVICE_ICONS[s.id] ?? Wrench;
           return (
@@ -945,6 +1083,20 @@ function Stage1Services({
             </Animated.View>
           );
         })}
+        {!expanded ? (
+          <Pressable
+            onPress={() => setExpanded(true)}
+            disabled={disabled}
+            style={({ pressed }) => [
+              styles.addMoreRow,
+              pressed && !disabled && styles.serviceRowPressed,
+            ]}
+          >
+            <Text style={styles.addMoreText} size="sm" weight="semiBold">
+              + Add more services
+            </Text>
+          </Pressable>
+        ) : null}
       </View>
     </View>
   );
@@ -1056,40 +1208,204 @@ function Stage3Notes({
 // STAGE 4 — Mechanic selection
 // ============================================================================
 
-function Stage4Mechanic({
-  mechanics,
+// ============================================================================
+// STAGE 4a — SHOP-FIRST SELECTION (QA pp.55-57, AB)
+// ============================================================================
+// "I never got to choose the shop, isn't that first" + "it would be nice to
+// see a map view of the mechanic shops… have the Apple Maps show up and on
+// android have the Google Maps show up and then when they click on the
+// mechanic shop it then shows the mechanics."
+// The map is deliberately static (no pan/zoom) with tappable pins — AB's
+// "generated map" feel — and every shop is ALSO a card below it, so the step
+// works even where the map can't (Android emulator without the GCP key).
+
+function Stage4Shops({
+  shops,
   priority,
   onPriorityChange,
-  selectedMechanicId,
-  onSelect,
-  recommendedMechanicId,
-  getShopName,
+  selectedShopId,
+  onSelectShop,
   disabled,
 }: {
-  mechanics: Array<{
-    id: string;
-    name: string;
-    title?: string;
-    shopId: string;
-    rating: number;
-    reviewCount?: number;
-    distanceMi: number;
+  shops: Array<{
+    shop: {
+      id: string;
+      name: string;
+      address?: string;
+      latitude: number;
+      longitude: number;
+      rating: number | null;
+      reviewCount?: number;
+      distanceKm: number | null;
+      labor_rate?: number;
+    };
+    mechanicCount: number;
   }>;
   priority: Priority;
   onPriorityChange: (p: Priority) => void;
-  selectedMechanicId: string | null;
-  onSelect: (id: string) => void;
-  recommendedMechanicId?: string;
-  getShopName: (id: string) => string | null;
+  /** Pending highlight — the parent's footer button commits it. */
+  selectedShopId: string | null;
+  onSelectShop: (id: string) => void;
   disabled: boolean;
 }) {
-  const distanceUnit = useDistanceUnit();
+  // AB's "we can fake the 'generating' part": a brief overlay while the map
+  // tiles land, then it fades away. Pure theater, honest underneath.
+  const [generating, setGenerating] = useState(true);
+  useEffect(() => {
+    const t = setTimeout(() => setGenerating(false), 1100);
+    return () => clearTimeout(t);
+  }, []);
+
+  // Selection feedback: the picked shop's pin springs up and STAYS up (the
+  // others dim) while its card highlights — the selection is a persistent
+  // choice the parent's footer button commits, not an auto-advance. One
+  // Animated.Value per shop so switching shops shrinks the old pin while the
+  // new one grows.
+  const pinScales = useRef(new Map<string, RNAnimated.Value>()).current;
+  const scaleFor = useCallback(
+    (id: string) => {
+      let v = pinScales.get(id);
+      if (!v) {
+        v = new RNAnimated.Value(id === selectedShopId ? 1.35 : 1);
+        pinScales.set(id, v);
+      }
+      return v;
+    },
+    [pinScales, selectedShopId],
+  );
+  useEffect(() => {
+    for (const [id, v] of pinScales) {
+      RNAnimated.spring(v, {
+        toValue: id === selectedShopId ? 1.35 : 1,
+        friction: 5,
+        tension: 120,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [selectedShopId, pinScales]);
+  const handleSelectShop = useCallback(
+    (id: string) => {
+      if (!disabled) onSelectShop(id);
+    },
+    [disabled, onSelectShop],
+  );
+
+  // Pin-overlay geometry. The MapView adjusts the displayed region to its
+  // aspect ratio, so overlay positions derive from onRegionChangeComplete's
+  // ACTUAL region (falling back to the requested one for the first frames —
+  // the "Generating map…" overlay covers the settle).
+  const [mapSize, setMapSize] = useState<{ w: number; h: number } | null>(null);
+  const onMapLayout = useCallback(
+    (e: { nativeEvent: { layout: { width: number; height: number } } }) => {
+      setMapSize({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height });
+    },
+    [],
+  );
+  const [displayedRegion, setDisplayedRegion] = useState<Region | null>(null);
+
+  // Fit the region around every pin (fallback: first shop, tight zoom).
+  const region = useMemo(() => {
+    const pts = shops.filter(
+      ({ shop }) =>
+        typeof shop.latitude === "number" &&
+        typeof shop.longitude === "number" &&
+        !(shop.latitude === 0 && shop.longitude === 0),
+    );
+    if (pts.length === 0) return null;
+    const lats = pts.map(({ shop }) => shop.latitude);
+    const lngs = pts.map(({ shop }) => shop.longitude);
+    const minLat = Math.min(...lats);
+    const maxLat = Math.max(...lats);
+    const minLng = Math.min(...lngs);
+    const maxLng = Math.max(...lngs);
+    return {
+      latitude: (minLat + maxLat) / 2,
+      longitude: (minLng + maxLng) / 2,
+      latitudeDelta: Math.max((maxLat - minLat) * 1.6, 0.02),
+      longitudeDelta: Math.max((maxLng - minLng) * 1.6, 0.02),
+    };
+  }, [shops]);
 
   return (
     <View style={styles.stageBody}>
       <Text style={styles.helperText} size="sm">
-        {"Sorted by your preference. Oto's pick is highlighted; you can pick any mechanic."}
+        {"Pick the shop first — tap a pin or a card to see who works there."}
       </Text>
+
+      {region ? (
+        <View style={styles.shopMapWrap} onLayout={onMapLayout}>
+          {/* The map is pure background: gestures off, taps pass to the pin
+              overlay below. NOT liteMode — lite rasterizes marker children
+              once and never re-renders them (verified frame-by-frame on
+              device), which killed both the selection spring and the dim.
+              Pins live in an absolutely-positioned overlay instead, aligned
+              via onRegionChangeComplete → full RN Animated control. */}
+          <MapView
+            style={styles.shopMap}
+            initialRegion={region}
+            scrollEnabled={false}
+            zoomEnabled={false}
+            rotateEnabled={false}
+            pitchEnabled={false}
+            toolbarEnabled={false}
+            moveOnMarkerPress={false}
+            onRegionChangeComplete={setDisplayedRegion}
+            pointerEvents="none"
+          />
+          {mapSize ? (
+            <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
+              {shops.map(({ shop }) => {
+                if (shop.latitude === 0 && shop.longitude === 0) return null;
+                const r = displayedRegion ?? region;
+                const x =
+                  mapSize.w *
+                  (0.5 + (shop.longitude - r.longitude) / r.longitudeDelta);
+                const y =
+                  mapSize.h *
+                  (0.5 + (r.latitude - shop.latitude) / r.latitudeDelta);
+                if (x < -20 || x > mapSize.w + 20 || y < -20 || y > mapSize.h + 20)
+                  return null;
+                const isSelected = selectedShopId === shop.id;
+                const isDimmed = selectedShopId !== null && !isSelected;
+                return (
+                  <RNAnimated.View
+                    key={shop.id}
+                    style={{
+                      position: "absolute",
+                      // Pin is 30×33 (OtoPairPin renders size × 1.1 tall);
+                      // anchor the TIP at the shop's coordinate.
+                      left: x - 15,
+                      top: y - 33,
+                      transform: [{ scale: scaleFor(shop.id) }],
+                      transformOrigin: "bottom",
+                      opacity: isDimmed ? 0.55 : 1,
+                      // Selected pin draws over its dimmed neighbors.
+                      zIndex: isSelected ? 2 : 1,
+                    }}
+                  >
+                    <Pressable
+                      onPress={() => handleSelectShop(shop.id)}
+                      hitSlop={8}
+                      disabled={disabled}
+                    >
+                      {/* Same custom pin as the discovery/booking maps. */}
+                      <OtoPairPin size={30} />
+                    </Pressable>
+                  </RNAnimated.View>
+                );
+              })}
+            </View>
+          ) : null}
+          {generating ? (
+            <View style={styles.shopMapOverlay} pointerEvents="none">
+              <ActivityIndicator size="small" color={BrandColors.secondary} />
+              <Text style={styles.shopMapOverlayText} size="xs" weight="medium">
+                Generating map…
+              </Text>
+            </View>
+          ) : null}
+        </View>
+      ) : null}
 
       <View style={styles.priorityRow}>
         {PRIORITY_OPTIONS.map((opt) => {
@@ -1116,6 +1432,94 @@ function Stage4Mechanic({
           );
         })}
       </View>
+
+      <View style={styles.mechanicList}>
+        {shops.length === 0 ? (
+          <Text style={styles.emptyState} size="sm">
+            Loading shops…
+          </Text>
+        ) : (
+          shops.map(({ shop, mechanicCount }, i) => (
+            <Animated.View key={shop.id} entering={FadeInUp.delay(i * 20).duration(160)}>
+              <Pressable
+                onPress={() => handleSelectShop(shop.id)}
+                disabled={disabled}
+                style={({ pressed }) => [
+                  styles.mechanicRow,
+                  selectedShopId === shop.id && styles.mechanicRowSelected,
+                  pressed && !disabled && styles.mechanicRowPressed,
+                ]}
+              >
+                <View style={styles.mechanicAvatar}>
+                  <MapPin size={16} color={BrandColors.secondary} strokeWidth={2} />
+                </View>
+                <View style={styles.mechanicInfo}>
+                  <Text style={styles.mechanicName} weight="semiBold">
+                    {shop.name}
+                  </Text>
+                  {shop.address ? (
+                    <Text style={styles.mechanicShop} size="sm" numberOfLines={1}>
+                      {shop.address}
+                    </Text>
+                  ) : null}
+                  <View style={styles.mechanicMetaRow}>
+                    <Star size={11} color="#F59E0B" fill="#F59E0B" />
+                    <Text style={styles.mechanicMetaSmall} size="xs">
+                      {(shop.rating ?? 0).toFixed(1)}
+                      {shop.reviewCount !== undefined ? ` (${shop.reviewCount})` : ""}
+                    </Text>
+                    <Text style={styles.mechanicMetaDot} size="xs">
+                      {"·"}
+                    </Text>
+                    <Text style={styles.mechanicMetaSmall} size="xs">
+                      {`${mechanicCount} mechanic${mechanicCount === 1 ? "" : "s"}`}
+                    </Text>
+                  </View>
+                </View>
+              </Pressable>
+            </Animated.View>
+          ))
+        )}
+      </View>
+    </View>
+  );
+}
+
+function Stage4Mechanic({
+  mechanics,
+  selectedMechanicId,
+  onSelect,
+  recommendedMechanicId,
+  getShopName,
+  disabled,
+}: {
+  mechanics: Array<{
+    id: string;
+    name: string;
+    title?: string;
+    shopId: string;
+    rating: number;
+    reviewCount?: number;
+    distanceMi: number;
+  }>;
+  selectedMechanicId: string | null;
+  onSelect: (id: string) => void;
+  recommendedMechanicId?: string;
+  getShopName: (id: string) => string | null;
+  disabled: boolean;
+}) {
+  const distanceUnit = useDistanceUnit();
+
+  // No priority chips here (2026-08-15, Waleed): within one shop every
+  // mechanic shares the address and the labor rate, so "Closest" and
+  // "Best price" were dead controls — the chips live on the SHOP phase
+  // where they sort something real. Mechanics sort by rating, the one
+  // attribute that differs.
+  return (
+    <View style={styles.stageBody}>
+      <Text style={styles.helperText} size="sm">
+        {"Sorted by rating. Oto's pick is highlighted; you can pick any mechanic."}
+      </Text>
 
       <View style={styles.mechanicList}>
         {mechanics.length === 0 ? (
@@ -1224,6 +1628,25 @@ function Stage4Mechanic({
 // STAGE 5 — Time slot
 // ============================================================================
 
+// Day periods for the time grid (QA p.36 organization fix). Boundaries pick
+// even ~3-hour buckets across a typical 9-6 shop day; evening covers late
+// shops. Slots outside 9-6 still land in a bucket, nothing is dropped.
+type DayPeriod = "morning" | "midday" | "afternoon" | "evening";
+const PERIOD_ORDER: DayPeriod[] = ["morning", "midday", "afternoon", "evening"];
+const PERIOD_LABELS: Record<DayPeriod, string> = {
+  morning: "Morning",
+  midday: "Midday",
+  afternoon: "Afternoon",
+  evening: "Evening",
+};
+function periodOfTime(hhmm: string): DayPeriod {
+  const h = parseInt(hhmm.slice(0, 2), 10);
+  if (h < 12) return "morning";
+  if (h < 15) return "midday";
+  if (h < 18) return "afternoon";
+  return "evening";
+}
+
 function Stage5Time({
   slots,
   isLoading,
@@ -1262,6 +1685,35 @@ function Stage5Time({
       setActiveDate(dates[0]);
     }
   }, [dates, activeDate, byDate]);
+
+  // Period segmentation (QA p.36: "this is tooo many options … make this
+  // more organized"). A 9-to-6 day at quarter-hour granularity is a wall of
+  // 28+ chips; splitting the day into periods caps the visible grid at ~12
+  // chips without hiding any granularity. Only periods that actually have
+  // slots render as segments.
+  const periodsForDay = useMemo(() => {
+    const date = activeDate && byDate.has(activeDate) ? activeDate : dates[0];
+    const m = new Map<DayPeriod, typeof slots>();
+    for (const s of byDate.get(date ?? "") ?? []) {
+      const p = periodOfTime(s.start_time);
+      const arr = m.get(p) ?? [];
+      arr.push(s);
+      m.set(p, arr);
+    }
+    return m;
+  }, [activeDate, byDate, dates]);
+  const availablePeriods = useMemo(
+    () => PERIOD_ORDER.filter((p) => (periodsForDay.get(p)?.length ?? 0) > 0),
+    [periodsForDay],
+  );
+  const [activePeriod, setActivePeriod] = useState<DayPeriod | null>(null);
+  useEffect(() => {
+    if (availablePeriods.length === 0) {
+      if (activePeriod !== null) setActivePeriod(null);
+    } else if (activePeriod === null || !availablePeriods.includes(activePeriod)) {
+      setActivePeriod(availablePeriods[0]);
+    }
+  }, [availablePeriods, activePeriod]);
 
   if (!mechanicSelected) {
     return (
@@ -1344,9 +1796,40 @@ function Stage5Time({
         })}
       </ScrollView>
 
-      {/* Time grid for the selected day. */}
+      {/* Period segments — Morning / Midday / Afternoon / Evening. Only
+          periods with slots render; the grid below shows one period at a
+          time so the day never reads as a 28-chip wall. */}
+      {availablePeriods.length > 1 ? (
+        <View style={styles.priorityRow}>
+          {availablePeriods.map((p) => {
+            const active = p === activePeriod;
+            return (
+              <Pressable
+                key={p}
+                onPress={() => setActivePeriod(p)}
+                disabled={disabled}
+                style={({ pressed }) => [
+                  styles.priorityPill,
+                  active && styles.priorityPillActive,
+                  pressed && !disabled && styles.priorityPillPressed,
+                ]}
+              >
+                <Text
+                  style={[styles.priorityPillText, active && styles.priorityPillTextActive]}
+                  size="sm"
+                  weight={active ? "semiBold" : "medium"}
+                >
+                  {PERIOD_LABELS[p]}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      ) : null}
+
+      {/* Time grid for the selected day + period. */}
       <View style={styles.slotRow}>
-        {daySlots.map((s) => {
+        {(activePeriod ? (periodsForDay.get(activePeriod) ?? daySlots) : daySlots).map((s) => {
           const active = s._id === selectedSlotId;
           return (
             <Pressable
@@ -1698,9 +2181,8 @@ const styles = StyleSheet.create({
     borderRadius: 2,
   },
   // Body
-  body: {
-    maxHeight: 380,
-  },
+  // p.38: no fixed height — the card sizes to its stage and the chat
+  // scroll carries it. (Was maxHeight:380 + inner ScrollView.)
   bodyContent: {
     paddingBottom: Spacing.md,
   },
@@ -1852,6 +2334,39 @@ const styles = StyleSheet.create({
   // Mechanic rows (stage 4) — same card pattern as the deleted carousel
   mechanicList: {
     gap: Spacing.xs,
+  },
+  addMoreRow: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: Spacing.sm + 2,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    borderStyle: "dashed",
+    borderColor: "#C7CDD6",
+    backgroundColor: "transparent",
+  },
+  addMoreText: {
+    color: BrandColors.secondary,
+  },
+  shopMapWrap: {
+    height: 180,
+    borderRadius: BorderRadius.md,
+    overflow: "hidden",
+    marginBottom: Spacing.sm,
+    backgroundColor: "#E5E7EB",
+  },
+  shopMap: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  shopMapOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    backgroundColor: "rgba(247,248,250,0.82)",
+  },
+  shopMapOverlayText: {
+    color: "#6B7280",
   },
   mechanicRow: {
     position: "relative",

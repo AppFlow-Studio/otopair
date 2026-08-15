@@ -99,6 +99,14 @@ function assertTurn(t, r, turnIdx, failures, toolsSoFar = []) {
     if (!text.includes(String(n).toLowerCase())) fail(`text missing "${n}"`);
   for (const n of e.text_not_contains || [])
     if (text.includes(String(n).toLowerCase())) fail(`text contains banned "${n}"`);
+  // text_max_words — deterministic length ceiling (QA D-9 P1: "Oto pads in
+  // exact proportion to how much the user needs a fast answer"). Whitespace
+  // word count on the final text; objective, no judge drift.
+  if (typeof e.text_max_words === "number") {
+    const wc = String(result.text || "").trim().split(/\s+/).filter(Boolean).length;
+    if (wc > e.text_max_words)
+      fail(`text too long: ${wc} words > cap ${e.text_max_words}`);
+  }
   // book_service_rendered — asserts the turn shipped a BookService render,
   // whether the MODEL called render_book_service or the SERVER's forced-exit
   // backstop concluded the turn (which sets renderEnvelope.bookService with no
@@ -107,6 +115,14 @@ function assertTurn(t, r, turnIdx, failures, toolsSoFar = []) {
   if (e.book_service_rendered === true) {
     if (!tr.book_service)
       fail(`book_service not rendered (trace.book_service empty)`);
+  }
+  // record_confirmation_rendered — effect-level twin for the trust-gate card:
+  // §7b' can force the render server-side with no tool_use, so call-level
+  // assertions would fail a turn whose user-visible behavior is correct.
+  // Reads trace.record_confirmation (chat.ts mirrors the final envelope).
+  if (e.record_confirmation_rendered === true) {
+    if (!tr.record_confirmation)
+      fail(`record_confirmation not rendered (trace.record_confirmation empty)`);
   }
   // link_button_not_rendered — asserts the turn shipped NO link button in the
   // final envelope. The effect-level twin of tools_not_called: server-side
