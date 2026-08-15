@@ -74,6 +74,9 @@ export interface Booking {
   mechanicImage?: string;
   // Scheduling
   date: string;
+  /** Raw `YYYY-MM-DD` from Convex. `date` above is display-formatted
+   *  ("Tuesday, May 26") and cannot be sorted or grouped on. */
+  scheduledDate?: string;
   time: string;
   status: BookingStatus;
   // History-specific
