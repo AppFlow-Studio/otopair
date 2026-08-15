@@ -15,13 +15,13 @@
 
 // 1. React & React Native
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
+import { ActivityIndicator, Animated as RNAnimated, Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
 // Shop-first map step (QA pp.55-57, AB): default provider = Apple Maps on
 // iOS, Google Maps on Android — exactly the platform split AB asked for.
 // NOTE: Android needs the GCP Maps key wired (known gap since 2026-07-20);
 // until then Android renders the pins over blank tiles and the shop LIST
 // below the map keeps the step fully functional.
-import MapView, { Marker } from "react-native-maps";
+import MapView, { type Region } from "react-native-maps";
 import { OtoPairPin } from "@/components/booking/ShopMarker";
 
 // 2. Expo & Third-party
@@ -1241,6 +1241,45 @@ function Stage4Shops({
     return () => clearTimeout(t);
   }, []);
 
+  // Selection feedback: the tapped shop's pin springs up (and the others dim)
+  // for a beat BEFORE the phase flips to the mechanic list — without the hold,
+  // setShopFilterId unmounts the map on the same frame as the tap and no
+  // animation can be seen. tracksViewChanges is enabled ONLY for the selected
+  // marker while it animates, so liteMode re-rasterizes the growing pin.
+  const [selectedPinId, setSelectedPinId] = useState<string | null>(null);
+  const pinScale = useRef(new RNAnimated.Value(1)).current;
+  const commitTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (commitTimer.current) clearTimeout(commitTimer.current);
+  }, []);
+  const handleSelectShop = useCallback(
+    (id: string) => {
+      if (disabled || selectedPinId !== null) return;
+      setSelectedPinId(id);
+      RNAnimated.spring(pinScale, {
+        toValue: 1.35,
+        friction: 5,
+        tension: 120,
+        useNativeDriver: true,
+      }).start();
+      commitTimer.current = setTimeout(() => onSelectShop(id), 420);
+    },
+    [disabled, selectedPinId, onSelectShop, pinScale],
+  );
+
+  // Pin-overlay geometry. The MapView adjusts the displayed region to its
+  // aspect ratio, so overlay positions derive from onRegionChangeComplete's
+  // ACTUAL region (falling back to the requested one for the first frames —
+  // the "Generating map…" overlay covers the settle).
+  const [mapSize, setMapSize] = useState<{ w: number; h: number } | null>(null);
+  const onMapLayout = useCallback(
+    (e: { nativeEvent: { layout: { width: number; height: number } } }) => {
+      setMapSize({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height });
+    },
+    [],
+  );
+  const [displayedRegion, setDisplayedRegion] = useState<Region | null>(null);
+
   // Fit the region around every pin (fallback: first shop, tight zoom).
   const region = useMemo(() => {
     const pts = shops.filter(
@@ -1271,7 +1310,13 @@ function Stage4Shops({
       </Text>
 
       {region ? (
-        <View style={styles.shopMapWrap}>
+        <View style={styles.shopMapWrap} onLayout={onMapLayout}>
+          {/* The map is pure background: gestures off, taps pass to the pin
+              overlay below. NOT liteMode — lite rasterizes marker children
+              once and never re-renders them (verified frame-by-frame on
+              device), which killed both the selection spring and the dim.
+              Pins live in an absolutely-positioned overlay instead, aligned
+              via onRegionChangeComplete → full RN Animated control. */}
           <MapView
             style={styles.shopMap}
             initialRegion={region}
@@ -1280,23 +1325,52 @@ function Stage4Shops({
             rotateEnabled={false}
             pitchEnabled={false}
             toolbarEnabled={false}
-            liteMode
-          >
-            {shops.map(({ shop }) =>
-              shop.latitude === 0 && shop.longitude === 0 ? null : (
-                <Marker
-                  key={shop.id}
-                  coordinate={{ latitude: shop.latitude, longitude: shop.longitude }}
-                  title={shop.name}
-                  onPress={() => !disabled && onSelectShop(shop.id)}
-                  anchor={{ x: 0.5, y: 1 }}
-                >
-                  {/* Same custom pin as the discovery/booking maps (ShopMarker). */}
-                  <OtoPairPin size={30} />
-                </Marker>
-              ),
-            )}
-          </MapView>
+            moveOnMarkerPress={false}
+            onRegionChangeComplete={setDisplayedRegion}
+            pointerEvents="none"
+          />
+          {mapSize ? (
+            <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
+              {shops.map(({ shop }) => {
+                if (shop.latitude === 0 && shop.longitude === 0) return null;
+                const r = displayedRegion ?? region;
+                const x =
+                  mapSize.w *
+                  (0.5 + (shop.longitude - r.longitude) / r.longitudeDelta);
+                const y =
+                  mapSize.h *
+                  (0.5 + (r.latitude - shop.latitude) / r.latitudeDelta);
+                if (x < -20 || x > mapSize.w + 20 || y < -20 || y > mapSize.h + 20)
+                  return null;
+                const isSelected = selectedPinId === shop.id;
+                const isDimmed = selectedPinId !== null && !isSelected;
+                return (
+                  <RNAnimated.View
+                    key={shop.id}
+                    style={{
+                      position: "absolute",
+                      // Pin is 30×33 (OtoPairPin renders size × 1.1 tall);
+                      // anchor the TIP at the shop's coordinate.
+                      left: x - 15,
+                      top: y - 33,
+                      transform: [{ scale: isSelected ? pinScale : 1 }],
+                      transformOrigin: "bottom",
+                      opacity: isDimmed ? 0.45 : 1,
+                    }}
+                  >
+                    <Pressable
+                      onPress={() => handleSelectShop(shop.id)}
+                      hitSlop={8}
+                      disabled={disabled}
+                    >
+                      {/* Same custom pin as the discovery/booking maps. */}
+                      <OtoPairPin size={30} />
+                    </Pressable>
+                  </RNAnimated.View>
+                );
+              })}
+            </View>
+          ) : null}
           {generating ? (
             <View style={styles.shopMapOverlay} pointerEvents="none">
               <ActivityIndicator size="small" color={BrandColors.secondary} />
@@ -1343,7 +1417,7 @@ function Stage4Shops({
           shops.map(({ shop, mechanicCount }, i) => (
             <Animated.View key={shop.id} entering={FadeInUp.delay(i * 20).duration(160)}>
               <Pressable
-                onPress={() => onSelectShop(shop.id)}
+                onPress={() => handleSelectShop(shop.id)}
                 disabled={disabled}
                 style={({ pressed }) => [
                   styles.mechanicRow,
