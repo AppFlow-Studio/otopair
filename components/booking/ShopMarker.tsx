@@ -91,8 +91,10 @@ interface ShopMarkerProps {
 // SUB-COMPONENTS
 // ============================================================================
 
-/** OtoPair Logo Pin - the full teardrop pin icon (for zoomed out) */
-function OtoPairPin({ size = 36 }: { size?: number }) {
+/** OtoPair Logo Pin - the full teardrop pin icon (for zoomed out).
+ *  Exported so the Oto booking flow's shop map (BookServiceComponent
+ *  Stage4Shops) renders the same custom pin as the discovery/booking maps. */
+export function OtoPairPin({ size = 36 }: { size?: number }) {
   return (
     <Svg width={size} height={size * 1.1} viewBox="0 0 120 132" fill="none">
       {/* Main pin shape with gradient */}

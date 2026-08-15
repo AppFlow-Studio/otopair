@@ -22,6 +22,7 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, TextInput, View }
 // until then Android renders the pins over blank tiles and the shop LIST
 // below the map keeps the step fully functional.
 import MapView, { Marker } from "react-native-maps";
+import { OtoPairPin } from "@/components/booking/ShopMarker";
 
 // 2. Expo & Third-party
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
@@ -1288,7 +1289,11 @@ function Stage4Shops({
                   coordinate={{ latitude: shop.latitude, longitude: shop.longitude }}
                   title={shop.name}
                   onPress={() => !disabled && onSelectShop(shop.id)}
-                />
+                  anchor={{ x: 0.5, y: 1 }}
+                >
+                  {/* Same custom pin as the discovery/booking maps (ShopMarker). */}
+                  <OtoPairPin size={30} />
+                </Marker>
               ),
             )}
           </MapView>
