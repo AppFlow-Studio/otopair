@@ -30,17 +30,27 @@ fi
 echo "→ syncing $WEB_REPO/convex/ → $MOBILE_REPO/convex/ (excluding _generated/)"
 rsync -av --delete --exclude='_generated/' "$WEB_REPO/convex/" "$MOBILE_REPO/convex/"
 
-# Mirror the repo-root lib/ modules that web's TOP-LEVEL convex imports. Files in
-# convex/*.ts use `../lib/X` to reach the repo-root lib/ (subdir files like
-# convex/vehicleEnrichment/*.ts resolve `../lib` to convex/lib, already synced
-# above). Copy per-file (no --delete) so mobile-only lib/ files — e.g.
-# shopPriceLabel.ts used by the app — survive; this also picks up new deps like
-# shopTimezone.ts automatically. Without this, codegen below fails to resolve
-# convex imports such as convex/shops.ts → ../lib/shopTimezone.
-echo "→ mirroring repo-root lib/ modules that top-level convex imports"
-mods="$(grep -rhoE 'from "\.\./lib/[A-Za-z0-9_.-]+"' "$WEB_REPO"/convex/*.ts 2>/dev/null \
-  | grep -oE '\.\./lib/[A-Za-z0-9_.-]+' | sed 's#\.\./lib/##' | sort -u)"
+# Mirror the repo-root lib/ modules that web's convex imports. Two import shapes
+# reach the repo-root lib/ (as opposed to convex's OWN lib/ subdir, already
+# rsynced above):
+#   - TOP-LEVEL convex/*.ts via `../lib/X`       (one ../ climbs out of convex/)
+#   - SUBDIR   convex/**/*.ts via `../../lib/X`   (two-or-more ../, e.g.
+#     convex/oto/chat.ts → ../../lib/symptomTracking)
+# A subdir file's single `../lib/X` means convex/lib/X (already synced), so it
+# must NOT be treated as repo-root — hence the top-level-only glob for the
+# single-dot case and the {2,}-dot pattern for the recursive case. Copy per-file
+# (no --delete) so mobile-only lib/ files — e.g. shopPriceLabel.ts used by the
+# app — survive; this also picks up new deps like shopTimezone.ts automatically.
+# Without this, codegen below fails to resolve imports such as
+# convex/shops.ts → ../lib/shopTimezone or convex/oto/chat.ts → ../../lib/symptomTracking.
+echo "→ mirroring repo-root lib/ modules that convex imports (top-level + subdir)"
+top_mods="$(grep -rhoE 'from "\.\./lib/[A-Za-z0-9_.-]+"' "$WEB_REPO"/convex/*.ts 2>/dev/null \
+  | grep -oE 'lib/[A-Za-z0-9_.-]+')"
+sub_mods="$(grep -rhoE 'from "(\.\./){2,}lib/[A-Za-z0-9_.-]+"' "$WEB_REPO"/convex --include='*.ts' 2>/dev/null \
+  | grep -oE 'lib/[A-Za-z0-9_.-]+')"
+mods="$(printf '%s\n%s\n' "$top_mods" "$sub_mods" | sed 's#^lib/##; s/\.js$//' | sort -u)"
 for m in $mods; do
+  [[ -n "$m" ]] || continue
   for ext in ts tsx; do
     if [[ -f "$WEB_REPO/lib/$m.$ext" ]]; then
       cp "$WEB_REPO/lib/$m.$ext" "$MOBILE_REPO/lib/$m.$ext"
