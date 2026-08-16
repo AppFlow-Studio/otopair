@@ -381,14 +381,42 @@ const MECHANIC_GRADE_STATUS: Record<string, MaintenanceStatus | null> = {
   r: "overdue",
 };
 
+/** A mechanic's grade stops being current the moment a real service is
+ *  recorded after it — e.g. oil flagged red pre-job, then actually changed
+ *  during the same visit. The deferred job
+ *  (convex/inspectionHealthDeferred.ts) can land up to 2 hours after the
+ *  visit closes, well after any same-visit service write, so a write-time
+ *  guard would race. Reading the two timestamps here instead — the same
+ *  "check a timestamp against now/lastServiceDate" pattern
+ *  isConfirmedHealthy already uses — is order-independent and
+ *  self-correcting. The grade stays in customInputs either way (audit
+ *  trail), it just stops being applied.
+ *
+ *  KNOWN LIMITATION (accepted): `maintenance_records` stores one row per
+ *  type, with no per-corner granularity, so a front-only brake job retires
+ *  a rear-corner finding too. Left as-is deliberately — the next
+ *  inspection re-grades every corner, and per-corner service tracking is a
+ *  much larger data-model change than the case warrants. */
+function isMechanicGradeStale(record: MaintenanceRecord): boolean {
+  const gradedAt = record.customInputs?.mechanicGradedAt as number | undefined;
+  return (
+    gradedAt != null &&
+    record.lastServiceDate != null &&
+    record.lastServiceDate > gradedAt
+  );
+}
+
 /**
  * Worst-of the interval result against a mechanic-submitted inspection
  * grade stored in `customInputs.mechanicGrade`/`mechanicGradeReason` (and,
  * brakes-only, `mechanicRawScore` — the per-corner blended float). Returns
- * `result` unchanged when there's no grade, or the grade is green, or the
- * grade's status isn't worse than what the interval already produced.
+ * `result` unchanged when the grade has been superseded by a real service
+ * since (see isMechanicGradeStale), when there's no grade, when the grade
+ * is green, or when the grade's status isn't worse than what the interval
+ * already produced.
  */
 function applyMechanicGrade(result: StatusResult, record: MaintenanceRecord): StatusResult {
+  if (isMechanicGradeStale(record)) return result;
   const grade = record.customInputs?.mechanicGrade as string | undefined;
   const gradeStatus = grade ? MECHANIC_GRADE_STATUS[grade] : undefined;
 
