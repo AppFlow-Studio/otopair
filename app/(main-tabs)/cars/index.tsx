@@ -1310,9 +1310,15 @@ export default function CarsHomeScreen() {
       .map((r: any) => ({ target_mileage: r.target_mileage as number })),
   }), [mergedMaintenanceItems, currentOdometer, activeVehicle?.mileage, activeOwnershipKnownIssues, activeOwnership?.health_score, activeOwnership?.health_score_is_estimated, activeOwnership?.health_score_rec_penalty, activeVehicleHpBuffer, driverRecommendations]);
 
+  // Director-adjustable outer weights (Upkeep vs. Warning Lights, plus the
+  // Open-recs cap) — reactive so a director's change is picked up live, and
+  // kept in step with the exact same weights Oto's server score reads
+  // (convex/oto/vehicleHealth.ts), per the "must agree" contract.
+  const healthScoreWeights = useQuery(api.healthScoreWeights.getWeights);
+
   const computedHealthScore = useMemo(() => {
-    return computeVehicleHealthScore(healthScoreInput);
-  }, [healthScoreInput]);
+    return computeVehicleHealthScore(healthScoreInput, healthScoreWeights);
+  }, [healthScoreInput, healthScoreWeights]);
 
   // Pulse animation for inline Quick Read health ring
   const showQuickReadCard = isPreOnboardingComplete && !isOnboardingComplete && !isNewVehicle;

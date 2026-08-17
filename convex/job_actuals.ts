@@ -24,6 +24,8 @@ import { ensureWalkInCashPayment } from "./bookings";
 import { partFitsConfigMake } from "./partSelector";
 import { hydrateTieredInspectionState } from "./lib/hydrateInspectionState";
 import { deriveSuggestedRecommendations } from "../lib/inspection-template";
+import { canonicalWarningLights } from "../lib/warningLightVocab";
+import { applyInspectionLightPicker } from "./lib/warningLightsMerge";
 
 function primaryServiceId(booking: { service_ids?: Id<"services">[] }): Id<"services"> | undefined {
   return booking.service_ids?.[0];
@@ -856,8 +858,9 @@ export const getPrefillData = query({
       .withIndex("by_booking", (q) => q.eq("booking_id", args.bookingId))
       .first();
     const allServices = booking.shop_id ? await ctx.db.query("services").collect() : [];
-    const suggestedFromInspection = inspection
-      ? deriveSuggestedRecommendations(hydrateTieredInspectionState(inspection), {
+    const inspectionState = inspection ? hydrateTieredInspectionState(inspection) : null;
+    const suggestedFromInspection = inspectionState
+      ? deriveSuggestedRecommendations(inspectionState, {
           onlyCompletedZones: true,
         })
           .map((s) => {
@@ -880,6 +883,27 @@ export const getPrefillData = query({
           )
       : [];
 
+    // Dashboard lights to offer in the post-job "still on?" list. This is
+    // the PROJECTED set, not just what's on file right now: this visit's own
+    // pre-job picker selections don't reach knownIssues until the deferred
+    // job runs 2 hours after close, so offering only the stored array would
+    // omit a light this very inspection just flagged — leaving the mechanic
+    // unable to clear the exact thing they may have just fixed (e.g. TPMS
+    // seen on the walk-around, tires topped up mid-visit). Uses the same
+    // shared merge the deferred write itself uses so the two can't drift.
+    // See "Dashboard warning lights."
+    const owner = await ctx.db
+      .query("vehicle_owners")
+      .withIndex("by_vin_user", (q) => q.eq("vin", booking.vin).eq("user_id", booking.user_id))
+      .first();
+    const projectedKnownIssues = applyInspectionLightPicker(
+      Array.isArray(owner?.knownIssues) ? (owner.knownIssues as string[]) : [],
+      inspectionState?.zones.ENG?.statuses.warning_lights
+        ? []
+        : inspectionState?.zones.ENG?.lights.warning_lights,
+    );
+    const currentWarningLights = canonicalWarningLights(projectedKnownIssues);
+
     return {
       vehicleLabel,
       serviceName: service?.name ?? "",
@@ -894,6 +918,7 @@ export const getPrefillData = query({
       priorOpenRecommendations,
       confirmedThisVisit,
       suggestedFromInspection,
+      currentWarningLights,
     };
   },
 });

@@ -70,6 +70,8 @@ import {
   type CompletedBooking,
   type HealthFactor,
 } from '@/utils/healthScore';
+import { useQuery } from 'convex/react';
+import { api } from '@/convex/_generated/api';
 
 
 // ============================================================================
@@ -438,6 +440,11 @@ const VehicleHealthModal = ({
   hpBuffer,
   completedBookings,
 }: VehicleHealthModalProps) => {
+  // Director-adjustable outer weights — reactive, kept in step with the
+  // exact same weights Oto's server score reads (convex/oto/vehicleHealth.ts)
+  // so this breakdown always reconciles with the score, per the "must
+  // agree" contract.
+  const healthScoreWeights = useQuery(api.healthScoreWeights.getWeights);
   const slideAnim = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const ringScaleAnim = useRef(new Animated.Value(1)).current;
@@ -481,7 +488,7 @@ const VehicleHealthModal = ({
       knownIssues,
       hpBuffer,
     };
-    const { positives, negatives } = computeHealthScoreFactors(input);
+    const { positives, negatives } = computeHealthScoreFactors(input, healthScoreWeights);
     const nonOnTimePositives = positives.filter(
       (f) => !f.label.startsWith("On-time:"),
     );
@@ -493,7 +500,7 @@ const VehicleHealthModal = ({
       factorsPositive: [...nonOnTimePositives, ...bookingPositives],
       factorsNegative: negatives,
     };
-  }, [realItems, realMileage, knownIssues, hpBuffer, completedBookings]);
+  }, [realItems, realMileage, knownIssues, hpBuffer, completedBookings, healthScoreWeights]);
 
   // Use the unified health score passed from parent
   const calculatedCondition = healthPercentage;
