@@ -330,6 +330,29 @@ function ApprovalDecisionView({ bookingId }: { bookingId: Id<"bookings"> }) {
     () => buildInspectionFindingRows(approval?.inspection_snapshot),
     [approval?.inspection_snapshot],
   );
+  /* What the mechanic actually added after starting. The screen used to show a
+     total and a delta and then jump to inspection findings, so the customer was
+     asked to approve a number on trust — at the one moment trust is most
+     expensive: not at the shop, car on a lift, declining awkward. */
+  // `api as any` because the vendored convex/_generated types predate the
+  // custom-jobs module — same pattern the rec screens use. Needs the backend
+  // deploy before it resolves; see the branch's PR.
+  const midJobAdditions = useQuery(
+    (api as any).customJobs.listMidJobAdditionsForCustomer,
+    { bookingId },
+  ) as
+    | Array<{
+        _id: string;
+        name: string;
+        complaint: string | null;
+        estimated_minutes: number | null;
+        parts: Array<{
+          part_name: string;
+          oem_number: string | null;
+          quantity: number;
+        }>;
+      }>
+    | undefined;
 
   const handleApprove = async () => {
     if (submitting) return;
@@ -451,6 +474,46 @@ function ApprovalDecisionView({ bookingId }: { bookingId: Id<"bookings"> }) {
           )}
         </View>
 
+        {midJobAdditions && midJobAdditions.length > 0 ? (
+          <View style={styles.card}>
+            <Text weight="semiBold" style={styles.sectionLabel}>
+              What your mechanic found
+            </Text>
+            <Text style={styles.inspectionIntro}>
+              Added after work started. This is what the extra cost is for.
+            </Text>
+            {midJobAdditions.map((item, index) => (
+              <View
+                key={item._id}
+                style={[
+                  styles.addedRow,
+                  index > 0 && styles.addedRowBorder,
+                ]}
+              >
+                <Text weight="semiBold" style={styles.addedName}>
+                  {item.name}
+                </Text>
+                {/* The mechanic's own words. This is the sentence that makes
+                    the number make sense, so it sits directly under the name. */}
+                {item.complaint ? (
+                  <Text style={styles.addedWhy}>{item.complaint}</Text>
+                ) : null}
+                {/* Named parts justify a figure better than any summary line. */}
+                {item.parts.map((part, partIndex) => (
+                  <Text
+                    key={`${item._id}-${partIndex}`}
+                    style={styles.addedPart}
+                  >
+                    {part.part_name}
+                    {part.quantity > 1 ? ` ×${part.quantity}` : ""}
+                    {part.oem_number ? `  ${part.oem_number}` : ""}
+                  </Text>
+                ))}
+              </View>
+            ))}
+          </View>
+        ) : null}
+
         {inspectionFindings.length > 0 ? (
           <View style={styles.card}>
             <Text weight="semiBold" style={styles.sectionLabel}>
@@ -545,7 +608,7 @@ function ApprovalDecisionView({ bookingId }: { bookingId: Id<"bookings"> }) {
               <View style={styles.totalRow}>
                 <Text style={styles.totalLabel}>
                   Labor
-                  {breakdown.laborHours ? ` (${breakdown.laborHours} hrs)` : ""}
+                  {breakdown.laborHours ? ` (${breakdown.laborHours.toFixed(2)} hrs)` : ""}
                 </Text>
                 <Text style={styles.totalValue}>
                   {formatUsd(breakdown.laborCents)}
@@ -1344,6 +1407,31 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     color: SemanticColors.textSecondary,
     fontStyle: "italic",
+  },
+
+  // ── What the mechanic added mid-job ───────────────────────────────────
+  addedRow: {
+    paddingTop: Spacing.md,
+  },
+  addedRowBorder: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: SemanticColors.border,
+    marginTop: Spacing.md,
+  },
+  addedName: {
+    fontSize: 15,
+    color: BrandColors.primary,
+  },
+  addedWhy: {
+    fontSize: 13,
+    lineHeight: 18,
+    color: SemanticColors.textSecondary,
+    marginTop: 2,
+  },
+  addedPart: {
+    fontSize: 12,
+    color: SemanticColors.textMuted,
+    marginTop: 3,
   },
 
   // ── Totals ────────────────────────────────────────────────────────────
