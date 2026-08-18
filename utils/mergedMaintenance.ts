@@ -47,6 +47,29 @@ export interface DriverRecommendationLike {
   target_mileage?: number | null;
   scheduled_at?: number | null;
   scheduled_mechanic_name?: string | null;
+
+  /* ── Advisories (off-catalog recommendations) ───────────────────────────
+     A mechanic can flag work that ISN'T in the catalog — "that CV boot is
+     starting to weep". The server already distinguishes these (`kind`), and
+     has done since the feature shipped; the app just wasn't reading the
+     fields, so an advisory arrived looking like an ordinary recommendation
+     and was rendered with a Book CTA that has nothing behind it.
+
+     An advisory has no service_id because no catalog service exists to
+     price or book. That's the whole distinction — everything below follows
+     from it. */
+  kind?: "advisory" | "canonical";
+  bookable?: boolean;
+  /** One fixed sentence, identical on the card, the reminder and in history,
+   *  so the driver reads the same framing everywhere. */
+  disclaimer?: string | null;
+  /** "Mike at Brooklyn Auto suggests" — on an advisory the attribution IS
+   *  the headline. This is one person's professional opinion, not an Otopair
+   *  position, and naming them is what makes that legible. */
+  author_label?: string | null;
+  /** Advisories never expire the way a scheduled service does; past a
+   *  threshold they soften rather than disappearing. */
+  aged?: boolean;
 }
 
 export function recUrgencyToStatus(
@@ -430,6 +453,13 @@ export function buildMergedMaintenanceItems(
         scheduledAt: rec.scheduled_at ?? null,
         scheduledMechanicName: rec.scheduled_mechanic_name ?? null,
         serviceId: rec.service_id ?? null,
+        // Fall back to the structural test rather than trusting `kind` alone,
+        // so a row from an older client that predates the field still renders
+        // correctly: no service id means nothing to book, full stop.
+        advisory: rec.kind === "advisory" || !rec.service_id,
+        advisoryDisclaimer: rec.disclaimer ?? null,
+        authorLabel: rec.author_label ?? null,
+        advisoryAged: rec.aged === true,
       });
     }
   }
