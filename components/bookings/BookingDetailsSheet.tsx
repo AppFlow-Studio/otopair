@@ -41,7 +41,7 @@ import Animated, {
 import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
 
-import { ArrowRight, Bell, CalendarX, Car, Check, ChevronDown, ChevronRight, FileText, MessageCircle, Navigation, Phone, ReceiptText, User, Wrench, X } from "lucide-react-native";
+import { ArrowRight, Bell, CalendarX, Car, Check, ChevronDown, ChevronRight, Clock, FileText, MessageCircle, Navigation, Phone, ReceiptText, User, Wrench, X } from "lucide-react-native";
 
 import { openMapsForAddress, openPhone } from "@/utils/linking";
 import { useQuery } from "convex/react";
@@ -1494,6 +1494,19 @@ function statusFriendlyLabel(status: string | null | undefined): string {
   }
 }
 
+// A mechanic/front-desk time extension on an in-progress job is recorded as a
+// same-status (in_progress → in_progress) history row whose reason encodes the
+// minutes + who granted it: `overrun_extension_{minutes}min_{mechanic|front_desk|system}`.
+// We surface that as a real "time extended" line instead of a no-op arrow.
+function parseOverrunExtension(
+  reason: string | null,
+): { minutes: number; source: string } | null {
+  if (!reason) return null;
+  const m = reason.match(/^overrun_extension_(\d+)min_(\w+)$/);
+  if (!m) return null;
+  return { minutes: Number(m[1]), source: m[2] };
+}
+
 function activitySummary(ev: ActivityEvent, isCustomer: boolean): string {
   switch (ev.type) {
     case "booking_created": {
@@ -1511,8 +1524,15 @@ function activitySummary(ev: ActivityEvent, isCustomer: boolean): string {
       }
       return "Booking created";
     }
-    case "status_change":
+    case "status_change": {
+      const ext = parseOverrunExtension(ev.data.reason);
+      if (ext) {
+        return ext.source === "system"
+          ? `Service time auto-extended by ${ext.minutes} min`
+          : `Service time extended by ${ext.minutes} min`;
+      }
       return `${statusFriendlyLabel(ev.data.from)} → ${statusFriendlyLabel(ev.data.to)}`;
+    }
     case "estimate_submitted": {
       const adj = cycleAdjective(ev.data.cycle);
       const total = formatCents(ev.data.totalCents);
@@ -1568,7 +1588,9 @@ function activityIcon(ev: ActivityEvent): { Icon: any; bg: string; fg: string } 
     case "booking_created":
       return { Icon: FileText, bg: "rgba(82,153,254,0.12)", fg: "#5299FE" };
     case "status_change":
-      return { Icon: ArrowRight, bg: "#F2F2F7", fg: "#8E8E93" };
+      return parseOverrunExtension(ev.data.reason)
+        ? { Icon: Clock, bg: "#FFFBEB", fg: "#D97706" }
+        : { Icon: ArrowRight, bg: "#F2F2F7", fg: "#8E8E93" };
     case "estimate_submitted":
       return { Icon: ReceiptText, bg: "#FFFBEB", fg: "#D97706" };
     case "estimate_decision": {
