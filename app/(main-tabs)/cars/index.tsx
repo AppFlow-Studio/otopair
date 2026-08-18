@@ -61,6 +61,7 @@ import {
 } from "@/lib/maintenanceServiceMapping";
 import { useTireBookingStore } from "@/stores/useTireBookingStore";
 import type { Id } from "@/convex/_generated/dataModel";
+import { isPseudoVin } from "@/convex/lib/vinIdentity";
 import { ALL_MAINTENANCE_TYPES, MAINTENANCE_LABELS, type MaintenanceType } from "@/utils/maintenanceStatus";
 import { computeVehicleHealthScore, type HealthScoreInput } from "@/utils/healthScore";
 
@@ -1013,6 +1014,9 @@ export default function CarsHomeScreen() {
   }, [activeVehicle]);
   const activeOwnershipId = useMemo(() => ownershipIds[activeVehicleIndex], [ownershipIds, activeVehicleIndex]);
   const activeOwnership = useMemo(() => ownerships[activeVehicleIndex], [ownerships, activeVehicleIndex]);
+  // A manually-added car carries a MANUAL-… placeholder VIN. Only these can
+  // have a real VIN attached (see "Add VIN" in the ⋯ menu below).
+  const activeVehicleIsManual = useMemo(() => isPseudoVin(activeVehicle?.vin), [activeVehicle?.vin]);
   // Active vehicle's resolved Convex config — fed to useOemServiceIntervals
   // so the maintenance calc can prefer per-vehicle OEM cadences from
   // the v3 enrichment over the hardcoded MAKE_OVERRIDES / DEFAULT_INTERVALS.
@@ -1605,6 +1609,26 @@ export default function CarsHomeScreen() {
     );
   }, [activeVehicle?.vin, userId, removeOwner]);
 
+  // Attach a real VIN to a manually-added car. Routes into the normal VIN
+  // decode/review flow, carrying the manual ownership's id so the review
+  // screen can correct this car's VIN in place (keeping all its history).
+  // See attachRealVinToManualVehicle in convex/vehicles.
+  const handleAddVinToManualVehicle = useCallback(() => {
+    if (!activeVehicle?.vin || !activeOwnershipId) return;
+    router.push({
+      pathname: "/add-vehicle",
+      params: {
+        migrateFromOwnerId: String(activeOwnershipId),
+        migrateFromVin: activeVehicle.vin,
+        // Carried so the review screen can warn if the entered VIN decodes to a
+        // different make/model than this car.
+        migrateFromMake: activeVehicle.make ?? "",
+        migrateFromModel: activeVehicle.model ?? "",
+        migrateFromYear: activeVehicle.year != null ? String(activeVehicle.year) : "",
+      },
+    });
+  }, [activeVehicle?.vin, activeVehicle?.make, activeVehicle?.model, activeVehicle?.year, activeOwnershipId, router]);
+
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
     setRefreshing(false);
@@ -1800,26 +1824,12 @@ export default function CarsHomeScreen() {
               onPress={() => setVinModalVisible(true)}
               style={({ pressed }) => [styles.infoGlassButton, pressed && styles.infoGlassButtonPressed]}
             >
-              {/* Matches the Home notification bell: iOS 26 native liquid
-                  glass when supported, frosted BlurView fallback otherwise. */}
-              {isLiquidGlassEnabled && LiquidGlassView ? (
-                <LiquidGlassView interactive effect="clear" style={styles.infoGlassIcon}>
-                  <Info size={24} color="#FFFFFF" strokeWidth={2} />
-                </LiquidGlassView>
-              ) : (
-                <View style={styles.infoGlassContainer}>
-                  <BlurView intensity={10} tint="dark" style={styles.infoGlassBlur}>
-                    <View style={styles.infoGlassOverlay} />
-                    <LinearGradient
-                      colors={['rgba(255,255,255,0.25)', 'rgba(255,255,255,0.05)']}
-                      start={{ x: 0.5, y: 0 }}
-                      end={{ x: 0.5, y: 0.5 }}
-                      style={StyleSheet.absoluteFillObject}
-                    />
-                    <Info size={24} color="#FFFFFF" strokeWidth={2} />
-                  </BlurView>
-                </View>
-              )}
+              {/* Plain frosted-white chip. On the light Cars background the
+                  native liquid-glass material renders off-center, so a solid
+                  chip keeps the icon perfectly centered (and reads clearly). */}
+              <View style={styles.infoSolidChip}>
+                <Info size={24} color="#4B5563" strokeWidth={2} />
+              </View>
             </Pressable>
           )}
 
@@ -1829,35 +1839,31 @@ export default function CarsHomeScreen() {
               Falls back to firing the confirm directly when the native menu
               view isn't available. */}
           {!!activeVehicle?.vin && !!userId && (() => {
-            const ellipsisIcon =
-              isLiquidGlassEnabled && LiquidGlassView ? (
-                <LiquidGlassView interactive effect="clear" style={styles.infoGlassIcon}>
-                  <Ellipsis size={24} color="#FFFFFF" strokeWidth={2} />
-                </LiquidGlassView>
-              ) : (
-                <View style={styles.infoGlassContainer}>
-                  <BlurView intensity={10} tint="dark" style={styles.infoGlassBlur}>
-                    <View style={styles.infoGlassOverlay} />
-                    <LinearGradient
-                      colors={['rgba(255,255,255,0.25)', 'rgba(255,255,255,0.05)']}
-                      start={{ x: 0.5, y: 0 }}
-                      end={{ x: 0.5, y: 0.5 }}
-                      style={StyleSheet.absoluteFillObject}
-                    />
-                    <Ellipsis size={24} color="#FFFFFF" strokeWidth={2} />
-                  </BlurView>
-                </View>
-              );
+            const ellipsisIcon = (
+              <View style={styles.infoSolidChip}>
+                <Ellipsis size={24} color="#4B5563" strokeWidth={2} />
+              </View>
+            );
             return isMenuViewAvailable ? (
               <MenuView
                 title="Vehicle options"
                 onPressAction={({ nativeEvent }) => {
-                  if (nativeEvent.event === "remove") {
+                  if (nativeEvent.event === "addVin") {
+                    haptics.selection();
+                    handleAddVinToManualVehicle();
+                  } else if (nativeEvent.event === "remove") {
                     haptics.selection();
                     handleRemoveActiveVehicle();
                   }
                 }}
                 actions={[
+                  ...(activeVehicleIsManual
+                    ? [{
+                        id: "addVin",
+                        title: "Add VIN",
+                        image: Platform.OS === "ios" ? "barcode.viewfinder" : undefined,
+                      }]
+                    : []),
                   {
                     id: "remove",
                     title: "Remove Vehicle",
@@ -1873,7 +1879,20 @@ export default function CarsHomeScreen() {
                 accessibilityLabel="Vehicle options"
                 accessibilityRole="button"
                 hitSlop={10}
-                onPress={handleRemoveActiveVehicle}
+                onPress={() => {
+                  // Fallback when the native menu is unavailable — a manual car
+                  // gets both actions via an ActionSheet-style Alert; otherwise
+                  // the ⋯ goes straight to the sole Remove action.
+                  if (activeVehicleIsManual) {
+                    Alert.alert("Vehicle options", undefined, [
+                      { text: "Add VIN", onPress: handleAddVinToManualVehicle },
+                      { text: "Remove Vehicle", style: "destructive", onPress: handleRemoveActiveVehicle },
+                      { text: "Cancel", style: "cancel" },
+                    ]);
+                  } else {
+                    handleRemoveActiveVehicle();
+                  }
+                }}
                 style={({ pressed }) => [styles.infoGlassButton, pressed && styles.infoGlassButtonPressed]}
               >
                 {ellipsisIcon}
@@ -3307,12 +3326,36 @@ const styles = StyleSheet.create({
   infoGlassButtonPressed: {
     opacity: 0.7,
   },
+  // Solid frosted-white chip for the Cars-tab header icon buttons. A plain
+  // View (not liquid glass) guarantees the glyph is dead-centered on the light
+  // background; shadow mirrors the "Add role" pill so the pair feels cohesive.
+  infoSolidChip: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "rgba(15,23,42,0.08)",
+    shadowColor: "#0F172A",
+    shadowOpacity: 0.08,
+    shadowRadius: 5,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 2,
+  },
   infoGlassIcon: {
     width: 40,
     height: 40,
     borderRadius: 20,
     justifyContent: "center",
     alignItems: "center",
+    // Sits on the light Cars-tab background: a frosted-white chip with a
+    // hairline dark edge so the button reads (the glass alone is invisible
+    // white-on-white).
+    backgroundColor: "rgba(255,255,255,0.6)",
+    borderWidth: 1,
+    borderColor: "rgba(15,23,42,0.12)",
   },
   infoGlassContainer: {
     width: 40,
@@ -3320,7 +3363,8 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     overflow: "hidden",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.5)",
+    // Dark hairline (was white/0.5, invisible on the light background).
+    borderColor: "rgba(15,23,42,0.12)",
   },
   infoGlassBlur: {
     flex: 1,
@@ -3329,7 +3373,8 @@ const styles = StyleSheet.create({
   },
   infoGlassOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(255,255,255,0.12)",
+    // Lift the frosted fill so the circle is a visible chip on light.
+    backgroundColor: "rgba(255,255,255,0.45)",
   },
   emptyContainer: {
     justifyContent: "center",

@@ -17,6 +17,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CameraView, useCameraPermissions, BarcodeScanningResult } from 'expo-camera';
 import { StatusBar } from 'expo-status-bar';
 import { useGuardedRouter as useRouter } from '@/hooks/useGuardedRouter';
+import { useLocalSearchParams } from 'expo-router';
 import { X, Flashlight } from 'lucide-react-native';
 import { useAction } from 'convex/react';
 
@@ -35,6 +36,14 @@ const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 export default function VinScannerScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  // Forwarded from add-vehicle when this scan is part of an "Add VIN" migration.
+  const migrateParams = useLocalSearchParams<{
+    migrateFromOwnerId?: string;
+    migrateFromVin?: string;
+    migrateFromMake?: string;
+    migrateFromModel?: string;
+    migrateFromYear?: string;
+  }>();
   const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = useState(false);
   const [torch, setTorch] = useState(false);
@@ -103,6 +112,12 @@ export default function VinScannerScreen() {
               transSpeeds: decoded.transSpeeds != null ? String(decoded.transSpeeds) : "",
               drivetrain: decoded.drivetrain ?? "",
               bodyClass: decoded.bodyClass ?? "",
+              // Carry migration intent through to the review screen.
+              migrateFromOwnerId: migrateParams.migrateFromOwnerId ?? "",
+              migrateFromVin: migrateParams.migrateFromVin ?? "",
+              migrateFromMake: migrateParams.migrateFromMake ?? "",
+              migrateFromModel: migrateParams.migrateFromModel ?? "",
+              migrateFromYear: migrateParams.migrateFromYear ?? "",
             },
           });
         } else {

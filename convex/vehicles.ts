@@ -9,7 +9,7 @@ import {
   calculatePrevOwnerAnnualRate,
 } from "./lib/classifier";
 import { resolveTireSizesForVin } from "./lib/vehicle_passports";
-import { isRealVin } from "./lib/vinIdentity";
+import { isRealVin, isPseudoVin } from "./lib/vinIdentity";
 
 /**
  * vehicles.ts - Canonical vehicle catalog management
@@ -833,6 +833,194 @@ export const removeOwnerById = mutation({
 
     await ctx.db.delete(ownership._id);
     return { success: true };
+  },
+});
+
+/**
+ * Re-point the children that key on the VIN *string* from a car's placeholder
+ * MANUAL- VIN to its real VIN. Everything that keys on the owner _id, the
+ * vehicle _id, or a booking _id needs no change — those ids don't move when we
+ * correct the VIN in place, so that data transfers for free.
+ *
+ * User/history rows are moved; enrichment-derived rows (passport, tier) are
+ * dropped so the real VIN's enrichment regenerates the accurate version rather
+ * than risk a stale duplicate.
+ */
+async function repointVinChildren(
+  ctx: any,
+  userId: Id<"users">,
+  fromVin: string,
+  toVin: string,
+): Promise<void> {
+  // bookings — scoped to this user (a MANUAL- VIN is unique to them anyway).
+  const bookings = await ctx.db
+    .query("bookings")
+    .withIndex("by_vin", (q: any) => q.eq("vin", fromVin))
+    .collect();
+  for (const b of bookings) {
+    if (b.user_id === userId) await ctx.db.patch(b._id, { vin: toVin });
+  }
+
+  // inspections
+  const inspections = await ctx.db
+    .query("vehicle_inspections")
+    .withIndex("by_vin", (q: any) => q.eq("vin", fromVin))
+    .collect();
+  for (const r of inspections) await ctx.db.patch(r._id, { vin: toVin });
+
+  // earned health points (ledger, by vin+user)
+  const hps = await ctx.db
+    .query("vehicle_health_points")
+    .withIndex("by_vin_user", (q: any) => q.eq("vin", fromVin).eq("user_id", userId))
+    .collect();
+  for (const r of hps) await ctx.db.patch(r._id, { vin: toVin });
+
+  // uploaded documents (owner_id unchanged; vin field moves)
+  const docs = await ctx.db
+    .query("vehicle_documents")
+    .withIndex("by_vin", (q: any) => q.eq("vin", fromVin))
+    .collect();
+  for (const r of docs) await ctx.db.patch(r._id, { vin: toVin });
+
+  // saved part preferences (index prefix is [vin, service_id])
+  const prefs = await ctx.db
+    .query("vehicle_part_preferences")
+    .withIndex("by_vin_service", (q: any) => q.eq("vin", fromVin))
+    .collect();
+  for (const r of prefs) await ctx.db.patch(r._id, { vin: toVin });
+
+  // follow-ups
+  const followUps = await ctx.db
+    .query("follow_ups")
+    .withIndex("by_vin", (q: any) => q.eq("vin", fromVin))
+    .collect();
+  for (const r of followUps) await ctx.db.patch(r._id, { vin: toVin });
+
+  // Enrichment-derived — drop so the real VIN's enrichment regenerates them.
+  const passports = await ctx.db
+    .query("vehicle_passports")
+    .withIndex("by_vin", (q: any) => q.eq("vin", fromVin))
+    .collect();
+  for (const r of passports) await ctx.db.delete(r._id);
+  const tiers = await ctx.db
+    .query("vehicle_tiers")
+    .withIndex("by_vin_user", (q: any) => q.eq("vin", fromVin).eq("user_id", userId))
+    .collect();
+  for (const r of tiers) await ctx.db.delete(r._id);
+}
+
+/**
+ * Attach a REAL VIN to a manually-added car — in place.
+ *
+ * A manual car carries a MANUAL-… placeholder VIN. Rather than create a second
+ * identity (which would orphan everything the car owns), we correct the VIN on
+ * the SAME vehicle_owners and vehicles rows. Because those _ids don't change,
+ * all owner-scoped children (maintenance, classifications, driving profile,
+ * service states, check-ins, health snapshots, odometer, docs), all
+ * vehicle-scoped children (quote snapshots, chat threads, semantic memory), and
+ * all booking-scoped children (payments, reviews, job actuals, recommendations…
+ * via booking_id) stay attached automatically. Only the handful of children
+ * that key on the VIN *string* are re-pointed (see repointVinChildren).
+ *
+ * Enrichment then re-runs for the real VIN (runHeadless), exactly like a fresh
+ * real-VIN add — the config pointer is reset so the pipeline re-attaches the
+ * accurate one for the decoded identity.
+ */
+export const attachRealVinToManualVehicle = mutation({
+  args: {
+    manualVehicleOwnerId: v.id("vehicle_owners"),
+    realVin: v.string(),
+    trimId: v.optional(v.id("trims")),
+    engineId: v.optional(v.id("engines")),
+    transmissionId: v.optional(v.id("transmissions")),
+    year: v.optional(v.float64()),
+    make: v.optional(v.string()),
+    model: v.optional(v.string()),
+    color: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Not authenticated");
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_clerkUserId", (q) => q.eq("clerkUserId", identity.subject))
+      .unique();
+    if (!user) throw new Error("User not found");
+
+    const realVin = args.realVin.toUpperCase().trim();
+    if (!isRealVin(realVin)) throw new Error("That isn't a valid 17-character VIN.");
+
+    const owner = await ctx.db.get(args.manualVehicleOwnerId);
+    if (!owner) throw new Error("Vehicle not found.");
+    if (owner.user_id !== user._id) throw new Error("Not authorized for this vehicle.");
+
+    const manualVin = owner.vin;
+    if (!isPseudoVin(manualVin)) {
+      // Already a real VIN. If it's the same one, this is a safe retry; if not,
+      // refuse — we don't overwrite a real VIN.
+      if (manualVin.toUpperCase().trim() === realVin) {
+        return { success: true, alreadyReal: true, vehicleOwnerId: owner._id, vin: manualVin };
+      }
+      throw new Error("This car already has a real VIN.");
+    }
+
+    // The user already has this real VIN as another car in their garage.
+    const existingRealOwner = await ctx.db
+      .query("vehicle_owners")
+      .withIndex("by_vin_user", (q) => q.eq("vin", realVin).eq("user_id", user._id))
+      .unique();
+    if (existingRealOwner && existingRealOwner._id !== owner._id) {
+      throw new Error("You already have this VIN in your garage.");
+    }
+
+    // A catalog row for this real VIN already exists (e.g. a co-owned car added
+    // by someone else). Folding onto it would require re-keying vehicle-scoped
+    // children — out of scope here; refuse cleanly rather than half-do it.
+    const manualVehicle = await ctx.db
+      .query("vehicles")
+      .withIndex("by_vin", (q) => q.eq("vin", manualVin))
+      .unique();
+    const existingRealVehicle = await ctx.db
+      .query("vehicles")
+      .withIndex("by_vin", (q) => q.eq("vin", realVin))
+      .unique();
+    if (existingRealVehicle && existingRealVehicle._id !== manualVehicle?._id) {
+      throw new Error("This VIN is already registered in the system.");
+    }
+
+    // Turn the placeholder vehicles row into the real one, in place. Reset the
+    // config pointer so enrichment re-attaches the accurate config.
+    if (manualVehicle) {
+      const meta: Record<string, unknown> = { ...(manualVehicle.metadata ?? {}) };
+      if (args.make !== undefined) meta.make = args.make;
+      if (args.model !== undefined) meta.model = args.model;
+      if (args.color !== undefined) meta.color = args.color;
+      await ctx.db.patch(manualVehicle._id, {
+        vin: realVin,
+        ...(args.trimId !== undefined ? { trim_id: args.trimId } : {}),
+        ...(args.engineId !== undefined ? { engine_id: args.engineId } : {}),
+        ...(args.transmissionId !== undefined ? { transmission_id: args.transmissionId } : {}),
+        ...(args.year !== undefined ? { year: args.year } : {}),
+        metadata: meta,
+        vehicle_config_id: undefined,
+        enriched_engine_config_id: undefined,
+        updated_at: Date.now(),
+      } as any);
+    }
+
+    // Correct the owner's VIN in place — keeps the owner _id so every
+    // owner-scoped child stays attached.
+    await ctx.db.patch(owner._id, { vin: realVin } as any);
+
+    // Move the VIN-string-keyed children over.
+    await repointVinChildren(ctx, user._id, manualVin, realVin);
+
+    // Enrich the real VIN — same path a fresh real-VIN add takes.
+    await ctx.scheduler.runAfter(0, internal.vehicleEnrichment.runHeadless.go, {
+      vin: realVin,
+    });
+
+    return { success: true, vehicleOwnerId: owner._id, vin: realVin };
   },
 });
 
