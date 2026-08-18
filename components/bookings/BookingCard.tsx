@@ -37,6 +37,7 @@ import Animated, { FadeOut, LinearTransition, useAnimatedStyle, useSharedValue, 
 // 3. Shared UI
 import { FixedPriceBadge, Text } from '@/components/shared-ui';
 import { BookingProgressBar } from '@/components/bookings/BookingProgressBar';
+import { JobBlockedNotice } from '@/components/bookings/JobBlockedNotice';
 import { ApprovalBanner } from '@/components/booking/ApprovalBanner';
 import { getBookingStageView } from '@/utils/bookingStages';
 import { useConnection } from '@/hooks/useConnection';
@@ -642,6 +643,12 @@ export function BookingCard({
           )}
         </View>
       )}
+
+      {/* Held-up notice. Sits above the pickup row because "we can't finish
+          yet" is the more urgent fact — and if the car is blocked, a pickup
+          estimate is answering the wrong question. Renders nothing unless the
+          shop has flagged a hold the driver is meant to know about. */}
+      <JobBlockedNotice bookingId={String(booking.id)} />
 
       {/* Pickup request status — appears once the customer has requested their
           car back (vehicle_at_shop). Reflects the shop/mechanic's live response
