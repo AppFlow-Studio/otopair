@@ -1,6 +1,7 @@
 // 1. React & React Native
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Animated, Dimensions, Easing, Image, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
+import { Alert, Animated, Dimensions, Easing, Image, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, UIManager, View } from "react-native";
+import { MenuView } from "@react-native-menu/menu";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // 2. Expo & Third-party
@@ -13,7 +14,7 @@ import ReAnimated, {
 } from "react-native-reanimated";
 import { useIsFocused } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
-import { ArrowLeft, Briefcase, Car, Check as CheckIcon, ChevronDown, Copy, Gauge, Info, Plus, Route, Sparkles, Star, Sun, Users, X } from "lucide-react-native";
+import { ArrowLeft, Briefcase, Car, Check as CheckIcon, ChevronDown, Copy, Ellipsis, Gauge, Info, Plus, Route, Sparkles, Star, Sun, Users, X } from "lucide-react-native";
 import * as Clipboard from "expo-clipboard";
 import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
@@ -31,6 +32,12 @@ try {
 } catch {
   // Not available — BlurView fallback.
 }
+
+// Native context-menu (@react-native-menu/menu) availability probe — mirrors
+// the guard in the AI Chat screen. When present, the header "⋯" opens a native
+// OS menu; otherwise we fall back to firing the remove confirm directly.
+const isMenuViewAvailable = !!UIManager.getViewManagerConfig?.("MenuView");
+
 import { haptics } from "@/lib/haptics";
 import { useToast } from "@/hooks/useToast";
 import { useUpdateMileage } from "@/hooks/useUpdateMileage";
@@ -54,6 +61,7 @@ import {
 } from "@/lib/maintenanceServiceMapping";
 import { useTireBookingStore } from "@/stores/useTireBookingStore";
 import type { Id } from "@/convex/_generated/dataModel";
+import { isPseudoVin } from "@/convex/lib/vinIdentity";
 import { ALL_MAINTENANCE_TYPES, MAINTENANCE_LABELS, type MaintenanceType } from "@/utils/maintenanceStatus";
 import { computeVehicleHealthScore, type HealthScoreInput } from "@/utils/healthScore";
 
@@ -86,7 +94,7 @@ import { useVehicleStore } from "@/stores/useVehicleStore";
 import { PostOptimizeBookingSheet } from "@/components/cars/PostOptimizeBookingSheet";
 import { PackageQuestionsSheet } from "@/components/cars/PackageQuestionsSheet";
 import { useVehicleReadiness } from "@/hooks/useVehicleReadiness";
-import { ChevronRight, Wrench } from "lucide-react-native";
+import { ChevronRight, ScanLine, Wrench } from "lucide-react-native";
 
 // ============================================================================
 // HELPERS
@@ -1006,6 +1014,20 @@ export default function CarsHomeScreen() {
   }, [activeVehicle]);
   const activeOwnershipId = useMemo(() => ownershipIds[activeVehicleIndex], [ownershipIds, activeVehicleIndex]);
   const activeOwnership = useMemo(() => ownerships[activeVehicleIndex], [ownerships, activeVehicleIndex]);
+  // Any car without a real VIN — one the owner added by hand (MANUAL-…) OR one
+  // a shop created as a walk-in (SHOP…). isPseudoVin is the complement of the
+  // ISO 3779 charset test, so it catches every placeholder format we mint
+  // without enumerating them. Both can have a real VIN attached: see "Add VIN"
+  // in the ⋯ menu and the prompt on the card.
+  const activeVehicleIsManual = useMemo(() => isPseudoVin(activeVehicle?.vin), [activeVehicle?.vin]);
+  // Dismissal is per-vehicle and per-session. The ask is worth repeating — a
+  // placeholder VIN costs the owner their maintenance schedule and exact-fit
+  // parts on every future booking — but not worth nagging within one sitting.
+  const [vinPromptDismissed, setVinPromptDismissed] = useState<Set<string>>(new Set());
+  const showVinPrompt =
+    activeVehicleIsManual &&
+    !!activeVehicle?.vin &&
+    !vinPromptDismissed.has(activeVehicle.vin);
   // Active vehicle's resolved Convex config — fed to useOemServiceIntervals
   // so the maintenance calc can prefer per-vehicle OEM cadences from
   // the v3 enrichment over the hardcoded MAKE_OVERRIDES / DEFAULT_INTERVALS.
@@ -1303,9 +1325,15 @@ export default function CarsHomeScreen() {
       .map((r: any) => ({ target_mileage: r.target_mileage as number })),
   }), [mergedMaintenanceItems, currentOdometer, activeVehicle?.mileage, activeOwnershipKnownIssues, activeOwnership?.health_score, activeOwnership?.health_score_is_estimated, activeOwnership?.health_score_rec_penalty, activeVehicleHpBuffer, driverRecommendations]);
 
+  // Director-adjustable outer weights (Upkeep vs. Warning Lights, plus the
+  // Open-recs cap) — reactive so a director's change is picked up live, and
+  // kept in step with the exact same weights Oto's server score reads
+  // (convex/oto/vehicleHealth.ts), per the "must agree" contract.
+  const healthScoreWeights = useQuery(api.healthScoreWeights.getWeights);
+
   const computedHealthScore = useMemo(() => {
-    return computeVehicleHealthScore(healthScoreInput);
-  }, [healthScoreInput]);
+    return computeVehicleHealthScore(healthScoreInput, healthScoreWeights);
+  }, [healthScoreInput, healthScoreWeights]);
 
   // Pulse animation for inline Quick Read health ring
   const showQuickReadCard = isPreOnboardingComplete && !isOnboardingComplete && !isNewVehicle;
@@ -1419,14 +1447,21 @@ export default function CarsHomeScreen() {
     editPickerY.setValue(SCREEN_HEIGHT);
     editPickerBackdrop.setValue(0);
     Animated.parallel([
-      Animated.spring(editPickerY, { toValue: 0, tension: 50, friction: 12, useNativeDriver: false }),
+      // translateY MUST run on the native driver. Under the New Architecture
+      // (Fabric — mandatory for reanimated 4), a JS-driven transform on an
+      // absolute-positioned view inside a Modal re-lays-out every frame and
+      // re-jitters on each parent re-render (Convex subscriptions), which
+      // reads as the sheet "seizing". Native driver moves it to the UI thread.
+      Animated.spring(editPickerY, { toValue: 0, tension: 50, friction: 12, useNativeDriver: true }),
       Animated.timing(editPickerBackdrop, { toValue: 1, duration: 300, useNativeDriver: true }),
     ]).start();
   }, [editPickerY, editPickerBackdrop]);
 
   const closeEditPicker = useCallback((cb?: () => void) => {
     Animated.parallel([
-      Animated.timing(editPickerY, { toValue: SCREEN_HEIGHT, duration: 250, easing: Easing.in(Easing.ease), useNativeDriver: false }),
+      // Must match the open animation's driver — an Animated.Value can't mix
+      // native and JS drivers across animations without throwing.
+      Animated.timing(editPickerY, { toValue: SCREEN_HEIGHT, duration: 250, easing: Easing.in(Easing.ease), useNativeDriver: true }),
       Animated.timing(editPickerBackdrop, { toValue: 0, duration: 250, useNativeDriver: true }),
     ]).start(() => {
       setShowEditPicker(false);
@@ -1584,6 +1619,26 @@ export default function CarsHomeScreen() {
       { cancelable: true }
     );
   }, [activeVehicle?.vin, userId, removeOwner]);
+
+  // Attach a real VIN to a manually-added car. Routes into the normal VIN
+  // decode/review flow, carrying the manual ownership's id so the review
+  // screen can correct this car's VIN in place (keeping all its history).
+  // See attachRealVinToManualVehicle in convex/vehicles.
+  const handleAddVinToManualVehicle = useCallback(() => {
+    if (!activeVehicle?.vin || !activeOwnershipId) return;
+    router.push({
+      pathname: "/add-vehicle",
+      params: {
+        migrateFromOwnerId: String(activeOwnershipId),
+        migrateFromVin: activeVehicle.vin,
+        // Carried so the review screen can warn if the entered VIN decodes to a
+        // different make/model than this car.
+        migrateFromMake: activeVehicle.make ?? "",
+        migrateFromModel: activeVehicle.model ?? "",
+        migrateFromYear: activeVehicle.year != null ? String(activeVehicle.year) : "",
+      },
+    });
+  }, [activeVehicle?.vin, activeVehicle?.make, activeVehicle?.model, activeVehicle?.year, activeOwnershipId, router]);
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -1780,28 +1835,81 @@ export default function CarsHomeScreen() {
               onPress={() => setVinModalVisible(true)}
               style={({ pressed }) => [styles.infoGlassButton, pressed && styles.infoGlassButtonPressed]}
             >
-              {/* Matches the Home notification bell: iOS 26 native liquid
-                  glass when supported, frosted BlurView fallback otherwise. */}
-              {isLiquidGlassEnabled && LiquidGlassView ? (
-                <LiquidGlassView interactive effect="clear" style={styles.infoGlassIcon}>
-                  <Info size={24} color="#FFFFFF" strokeWidth={2} />
-                </LiquidGlassView>
-              ) : (
-                <View style={styles.infoGlassContainer}>
-                  <BlurView intensity={10} tint="dark" style={styles.infoGlassBlur}>
-                    <View style={styles.infoGlassOverlay} />
-                    <LinearGradient
-                      colors={['rgba(255,255,255,0.25)', 'rgba(255,255,255,0.05)']}
-                      start={{ x: 0.5, y: 0 }}
-                      end={{ x: 0.5, y: 0.5 }}
-                      style={StyleSheet.absoluteFillObject}
-                    />
-                    <Info size={24} color="#FFFFFF" strokeWidth={2} />
-                  </BlurView>
-                </View>
-              )}
+              {/* Plain frosted-white chip. On the light Cars background the
+                  native liquid-glass material renders off-center, so a solid
+                  chip keeps the icon perfectly centered (and reads clearly). */}
+              <View style={styles.infoSolidChip}>
+                <Info size={24} color="#4B5563" strokeWidth={2} />
+              </View>
             </Pressable>
           )}
+
+          {/* Overflow "⋯" menu — the destructive Remove Vehicle action lives
+              here (native OS context menu) instead of as a prominent CTA at
+              the bottom of the page. Same glass treatment as the Info button.
+              Falls back to firing the confirm directly when the native menu
+              view isn't available. */}
+          {!!activeVehicle?.vin && !!userId && (() => {
+            const ellipsisIcon = (
+              <View style={styles.infoSolidChip}>
+                <Ellipsis size={24} color="#4B5563" strokeWidth={2} />
+              </View>
+            );
+            return isMenuViewAvailable ? (
+              <MenuView
+                title="Vehicle options"
+                onPressAction={({ nativeEvent }) => {
+                  if (nativeEvent.event === "addVin") {
+                    haptics.selection();
+                    handleAddVinToManualVehicle();
+                  } else if (nativeEvent.event === "remove") {
+                    haptics.selection();
+                    handleRemoveActiveVehicle();
+                  }
+                }}
+                actions={[
+                  ...(activeVehicleIsManual
+                    ? [{
+                        id: "addVin",
+                        title: "Add VIN",
+                        image: Platform.OS === "ios" ? "barcode.viewfinder" : undefined,
+                      }]
+                    : []),
+                  {
+                    id: "remove",
+                    title: "Remove Vehicle",
+                    image: Platform.OS === "ios" ? "trash" : undefined,
+                    attributes: { destructive: true },
+                  },
+                ]}
+              >
+                <View style={styles.infoGlassButton}>{ellipsisIcon}</View>
+              </MenuView>
+            ) : (
+              <Pressable
+                accessibilityLabel="Vehicle options"
+                accessibilityRole="button"
+                hitSlop={10}
+                onPress={() => {
+                  // Fallback when the native menu is unavailable — a manual car
+                  // gets both actions via an ActionSheet-style Alert; otherwise
+                  // the ⋯ goes straight to the sole Remove action.
+                  if (activeVehicleIsManual) {
+                    Alert.alert("Vehicle options", undefined, [
+                      { text: "Add VIN", onPress: handleAddVinToManualVehicle },
+                      { text: "Remove Vehicle", style: "destructive", onPress: handleRemoveActiveVehicle },
+                      { text: "Cancel", style: "cancel" },
+                    ]);
+                  } else {
+                    handleRemoveActiveVehicle();
+                  }
+                }}
+                style={({ pressed }) => [styles.infoGlassButton, pressed && styles.infoGlassButtonPressed]}
+              >
+                {ellipsisIcon}
+              </Pressable>
+            );
+          })()}
         </View>
 
         {/* ═══════════════════════════════════════════════════════════════════
@@ -1987,6 +2095,51 @@ export default function CarsHomeScreen() {
               vehicleOwnerId={activeOwnershipId}
               vehicleName={activeVehicle?.make ? `${activeVehicle.make} ${activeVehicle.model ?? ""}`.trim() : undefined}
             />
+          )}
+
+          {/* No real VIN on this car. Sits ABOVE readiness deliberately: without
+              a VIN there is nothing for the pipeline to be ready about, so
+              asking about package questions first would be asking the second
+              question before the first. Names what's lost rather than just
+              flagging a missing field — "(Optional)" with no reason is why
+              these go unfilled. */}
+          {showVinPrompt && (
+            <Pressable
+              onPress={handleAddVinToManualVehicle}
+              style={({ pressed }) => [
+                readinessStyles.cta,
+                pressed && readinessStyles.ctaPressed,
+              ]}
+            >
+              <View style={readinessStyles.ctaIcon}>
+                <ScanLine size={20} color="#2563EB" strokeWidth={2} />
+              </View>
+              <View style={readinessStyles.pillBody}>
+                <Text size="md" weight="semiBold" color="#1A1A1A">
+                  Add your VIN
+                </Text>
+                <Text size="sm" weight="regular" color="#2563EB">
+                  Unlocks this car&apos;s real maintenance schedule and
+                  exact-fit parts
+                </Text>
+              </View>
+              <Pressable
+                accessibilityLabel="Dismiss VIN prompt"
+                accessibilityRole="button"
+                hitSlop={12}
+                onPress={(event) => {
+                  // Stop the press bubbling into the row's own onPress, which
+                  // would open the scanner the driver just declined.
+                  event.stopPropagation();
+                  const vin = activeVehicle?.vin;
+                  if (!vin) return;
+                  setVinPromptDismissed((prev) => new Set(prev).add(vin));
+                }}
+                style={styles.vinPromptDismiss}
+              >
+                <X size={16} color="#94A3B8" strokeWidth={2} />
+              </Pressable>
+            </Pressable>
           )}
 
           {/* Vehicle readiness — "Setting up your car…" while enriching,
@@ -2178,40 +2331,6 @@ export default function CarsHomeScreen() {
           />}
           */}
 
-          {/* Remove Vehicle — destructive primary CTA at the bottom of the
-              page. Shape/size mirrors the AIWelcomeScreen Continue button
-              exactly (BorderRadius.xl = 16, Spacing.lg = 16 padding, Shadows.md). */}
-          {!!activeVehicle?.vin && !!userId && (
-            <Pressable
-              onPress={handleRemoveActiveVehicle}
-              style={({ pressed }) => [
-                styles.removeVehicleButton,
-                pressed && styles.removeVehicleButtonPressed,
-              ]}
-            >
-              {isLiquidGlassEnabled && LiquidGlassView ? (
-                <LiquidGlassView
-                  interactive
-                  effect="clear"
-                  style={styles.removeVehicleButtonGlass}
-                >
-                  <Text style={styles.removeVehicleButtonText} weight="semiBold">
-                    Remove Vehicle
-                  </Text>
-                </LiquidGlassView>
-              ) : (
-                <BlurView
-                  intensity={50}
-                  tint="light"
-                  style={styles.removeVehicleButtonGlass}
-                >
-                  <Text style={styles.removeVehicleButtonText} weight="semiBold">
-                    Remove Vehicle
-                  </Text>
-                </BlurView>
-              )}
-            </Pressable>
-          )}
         </View>
       </ScrollView>
 
@@ -3251,6 +3370,12 @@ const revealStyles = StyleSheet.create({
 });
 
 const styles = StyleSheet.create({
+  // Small tap target on the VIN prompt's trailing edge. Sized past the visual
+  // glyph so a thumb finds it without stealing the row's own press.
+  vinPromptDismiss: {
+    padding: 4,
+    marginLeft: 2,
+  },
   container: {
     flex: 1,
     backgroundColor: "#FFFFFF",
@@ -3263,12 +3388,36 @@ const styles = StyleSheet.create({
   infoGlassButtonPressed: {
     opacity: 0.7,
   },
+  // Solid frosted-white chip for the Cars-tab header icon buttons. A plain
+  // View (not liquid glass) guarantees the glyph is dead-centered on the light
+  // background; shadow mirrors the "Add role" pill so the pair feels cohesive.
+  infoSolidChip: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "rgba(15,23,42,0.08)",
+    shadowColor: "#0F172A",
+    shadowOpacity: 0.08,
+    shadowRadius: 5,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 2,
+  },
   infoGlassIcon: {
     width: 40,
     height: 40,
     borderRadius: 20,
     justifyContent: "center",
     alignItems: "center",
+    // Sits on the light Cars-tab background: a frosted-white chip with a
+    // hairline dark edge so the button reads (the glass alone is invisible
+    // white-on-white).
+    backgroundColor: "rgba(255,255,255,0.6)",
+    borderWidth: 1,
+    borderColor: "rgba(15,23,42,0.12)",
   },
   infoGlassContainer: {
     width: 40,
@@ -3276,7 +3425,8 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     overflow: "hidden",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.5)",
+    // Dark hairline (was white/0.5, invisible on the light background).
+    borderColor: "rgba(15,23,42,0.12)",
   },
   infoGlassBlur: {
     flex: 1,
@@ -3285,29 +3435,8 @@ const styles = StyleSheet.create({
   },
   infoGlassOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(255,255,255,0.12)",
-  },
-  removeVehicleButton: {
-    borderRadius: 16,
-    overflow: "hidden",
-    marginTop: scale(56),
-    marginBottom: scale(40),
-    marginHorizontal: scale(16),
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(82,153,254,0.35)",
-  },
-  removeVehicleButtonGlass: {
-    paddingVertical: 16,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  removeVehicleButtonPressed: {
-    opacity: 0.85,
-    transform: [{ scale: 0.98 }],
-  },
-  removeVehicleButtonText: {
-    color: "#5299FE",
-    fontSize: 16,
+    // Lift the frosted fill so the circle is a visible chip on light.
+    backgroundColor: "rgba(255,255,255,0.45)",
   },
   emptyContainer: {
     justifyContent: "center",

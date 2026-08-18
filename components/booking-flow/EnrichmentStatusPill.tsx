@@ -37,7 +37,7 @@
  * touches — the rest of the screen stays interactive.
  */
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Dimensions, Image, Pressable, StyleSheet, View } from "react-native";
 import Animated, {
   Easing,
@@ -69,7 +69,10 @@ const TAB_BAR_CLEARANCE = 60;
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 // Compact one-detent sheet: header + copy + a single "thinking" ticker + button.
+// Fallback height before the body has measured itself (see bodyHeight).
 const SHEET_HEIGHT = Math.min(440, SCREEN_HEIGHT * 0.6);
+// Drag handle + the sheet's own top chrome sitting above the measured body.
+const SHEET_CHROME = 28;
 
 // OtoPair AI mark — pulses Claude-style beside the streaming facts.
 const OTOPAIR_AI_LOGO = require("@/assets/images/otopair-ai-logo.png");
@@ -93,6 +96,10 @@ export function EnrichmentStatusPill({
   // Drives the on-open ring/typing animations — set true when we open the
   // sheet, cleared on close so the animations replay next time.
   const [sheetOpen, setSheetOpen] = useState(false);
+  // Measured natural height of the sheet body, so the sheet hugs its content
+  // instead of padding out to a fixed height (which left dead space below the
+  // button). Persists across opens, so only the first open settles.
+  const [bodyHeight, setBodyHeight] = useState<number | null>(null);
   const selectedVin = useVehicleStore((s) => s.getSelectedVehicle()?.vin ?? null);
 
   // Subtle sparkle pulse for the compact pill (design: "sparkle pulses
@@ -196,6 +203,18 @@ export function EnrichmentStatusPill({
   const allReady = detail?.phase === "ready";
   // Every REAL fact gathered so far — the "thinking" ticker cycles them.
   const facts = detail?.facts ?? [];
+  // Reshuffle the order every time the sheet opens so the ticker streams a
+  // fresh random mix of specs + parts each visit (keyed on sheetOpen). Derived
+  // from the join key, not the array ref, so it doesn't reshuffle every render.
+  const factsKey = facts.join("¦");
+  const shuffledFacts = useMemo(() => {
+    const a = factsKey ? factsKey.split("¦") : [];
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  }, [sheetOpen, factsKey]);
   const etaLine = pastBaseline
     ? "Almost there — finishing up."
     : eta != null
@@ -255,13 +274,25 @@ export function EnrichmentStatusPill({
 
       <FloatingSheet
         ref={sheetRef}
-        snapHeights={[SHEET_HEIGHT]}
+        snapHeights={[
+          bodyHeight != null
+            ? Math.min(bodyHeight + SHEET_CHROME, SCREEN_HEIGHT * 0.85)
+            : SHEET_HEIGHT,
+        ]}
         showBackdrop
         backdropMode="dim"
         cornerRadius={32}
         onClose={() => setSheetOpen(false)}
       >
-        <View style={[styles.sheetBody, { paddingBottom: insets.bottom + 10 }]}>
+        <View
+          style={[styles.sheetBody, { paddingBottom: insets.bottom + 10 }]}
+          onLayout={(e) => {
+            const h = e.nativeEvent.layout.height;
+            setBodyHeight((prev) =>
+              prev == null || Math.abs(prev - h) > 1 ? h : prev,
+            );
+          }}
+        >
           {/* Header: car name on the left, circular car render on the right. */}
           <View style={styles.headerRow}>
             <View style={styles.headerText}>
@@ -305,7 +336,7 @@ export function EnrichmentStatusPill({
             />
             <View style={styles.thinkingTextWrap}>
               {facts.length > 0 ? (
-                <TypingFact facts={facts} active={sheetOpen} />
+                <TypingFact facts={shuffledFacts} active={sheetOpen} />
               ) : (
                 <Text size="sm" weight="medium" color={SemanticColors.textMuted}>
                   Gathering your car&apos;s details…

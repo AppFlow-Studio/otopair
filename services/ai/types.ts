@@ -122,6 +122,10 @@ export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   timestamp: string;
+  /** Convex ai_messages row id when known (history hydration, or threaded
+   *  back from sendMessage for live turns). Drives the D-13/D-15
+   *  vehicle-update card supersession check. */
+  dbId?: string;
   // Attached images (URIs)
   images?: string[];
   // Enhanced properties for AI messages
@@ -183,6 +187,11 @@ export interface VehicleUpdatePayload {
     service_mileage?: number;
     service_age_days?: number;
     service_date?: number;
+    // W4.3 (QA K3) — "hedged" when the user signalled uncertainty ("I think…",
+    // "pretty sure…", "like 6 months ago?"). Absent = "certain". Hedged
+    // completed claims are written with a softer confidence label server-side
+    // and the card shows an explicit "you weren't sure" qualifier.
+    stated_confidence?: "certain" | "hedged";
   }[];
   // Named warning lights (e.g. ["check_engine"]).
   fault_lights?: string[];

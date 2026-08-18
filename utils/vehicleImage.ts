@@ -822,6 +822,9 @@ export function useVehicleImage(
   color?: string,
   trim?: string,
   debounceMs: number = 400,
+  // Bump to force a re-fetch with the same inputs (e.g. a manual "Retry"
+  // after a failed/empty lookup). Included in the effect deps below.
+  reloadKey: number = 0,
 ): { url: string | null; isLoading: boolean } {
   const [url, setUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -865,7 +868,7 @@ export function useVehicleImage(
         timerRef.current = null;
       }
     };
-  }, [make, model, year, vin, color, trim, debounceMs]);
+  }, [make, model, year, vin, color, trim, debounceMs, reloadKey]);
 
   return { url, isLoading };
 }

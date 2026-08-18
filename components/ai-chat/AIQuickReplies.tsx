@@ -30,7 +30,7 @@ import Animated, { FadeInUp, useAnimatedStyle, useSharedValue, withSpring } from
 import { Text } from "@/components/shared-ui";
 
 // 4. Constants, hooks, types
-import { BrandColors, BorderRadius, Spacing, FontFamily, Shadows } from "@/constants/theme";
+import { BrandColors, BorderRadius, Spacing, FontFamily } from "@/constants/theme";
 
 // ============================================================================
 // TYPES
@@ -201,14 +201,15 @@ const styles = StyleSheet.create({
     gap: Spacing.sm,
     marginTop: Spacing.md,
   },
+  // Chip spec mirrors the confirm-card button row (AIVehicleUpdate btn):
+  // radius-md, 1px border, 13px semiBold, flat (no shadow).
   button: {
-    paddingVertical: Spacing.sm + 2,
+    paddingVertical: Spacing.sm,
     paddingHorizontal: Spacing.lg,
-    borderRadius: BorderRadius.lg,
-    borderWidth: 1.5,
-    minWidth: 100,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    minWidth: 88,
     alignItems: "center",
-    ...Shadows.sm,
   },
   buttonDefault: {
     backgroundColor: BrandColors.white,
@@ -230,6 +231,7 @@ const styles = StyleSheet.create({
   },
   text: {
     fontFamily: FontFamily.semiBold,
+    fontSize: 13,
   },
   textDefault: {
     color: BrandColors.secondary,
@@ -238,6 +240,6 @@ const styles = StyleSheet.create({
     color: BrandColors.white,
   },
   textOutline: {
-    color: "#6B7280",
+    color: "#4A5568",
   },
 });

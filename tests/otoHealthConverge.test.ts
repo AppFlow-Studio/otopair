@@ -96,14 +96,13 @@ describe("get_vehicle_health score converges with the Cars ring", () => {
     expect(after.score).toBe(before.score - 15);
   });
 
-  it("adds the Health-Points buffer", async () => {
+  it("does not apply the Health-Points buffer (rewards paused — see utils/healthScore.ts HealthScoreInput.hpBuffer)", async () => {
     const t = makeT();
     const s = await seedBase(t);
     const before: any = await t.query(internal.oto.vehicleHealth.getVehicleHealthForUser, {
       actingUserId: s.userId,
       vehicle_id: s.vehicleId,
     });
-    // 30 HP -> floor(30/15) = +2 buffer.
     await t.run((ctx: any) =>
       ctx.db.insert("vehicle_health_points", {
         vin: VIN,
@@ -117,10 +116,10 @@ describe("get_vehicle_health score converges with the Cars ring", () => {
       actingUserId: s.userId,
       vehicle_id: s.vehicleId,
     });
-    expect(after.score).toBe(Math.min(100, before.score + 2));
+    expect(after.score).toBe(before.score);
   });
 
-  it("includes an open mechanic recommendation in the score (drags it down)", async () => {
+  it("includes an open mechanic recommendation in the score only via the Open-recs penalty (Consolidated model — no double-count)", async () => {
     const t = makeT();
     const s = await seedBase(t);
     const before: any = await t.query(internal.oto.vehicleHealth.getVehicleHealthForUser, {
@@ -146,6 +145,17 @@ describe("get_vehicle_health score converges with the Cars ring", () => {
         created_at: 1,
       } as any);
     });
+    // The recommendation card itself (Consolidated model) never creates a
+    // second weighted Upkeep item — only recomputeRecPenaltyForVehicle
+    // ramping health_score_rec_penalty (production pipeline, bypassed by
+    // this direct insert) moves the score. Simulate that ramp explicitly.
+    const noPenalty: any = await t.query(internal.oto.vehicleHealth.getVehicleHealthForUser, {
+      actingUserId: s.userId,
+      vehicle_id: s.vehicleId,
+    });
+    expect(noPenalty.score).toBe(before.score);
+
+    await t.run((ctx: any) => ctx.db.patch(s.ownerId, { health_score_rec_penalty: 5 }));
     const after: any = await t.query(internal.oto.vehicleHealth.getVehicleHealthForUser, {
       actingUserId: s.userId,
       vehicle_id: s.vehicleId,

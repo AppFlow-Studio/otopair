@@ -47,6 +47,29 @@ export interface DriverRecommendationLike {
   target_mileage?: number | null;
   scheduled_at?: number | null;
   scheduled_mechanic_name?: string | null;
+
+  /* ── Advisories (off-catalog recommendations) ───────────────────────────
+     A mechanic can flag work that ISN'T in the catalog — "that CV boot is
+     starting to weep". The server already distinguishes these (`kind`), and
+     has done since the feature shipped; the app just wasn't reading the
+     fields, so an advisory arrived looking like an ordinary recommendation
+     and was rendered with a Book CTA that has nothing behind it.
+
+     An advisory has no service_id because no catalog service exists to
+     price or book. That's the whole distinction — everything below follows
+     from it. */
+  kind?: "advisory" | "canonical";
+  bookable?: boolean;
+  /** One fixed sentence, identical on the card, the reminder and in history,
+   *  so the driver reads the same framing everywhere. */
+  disclaimer?: string | null;
+  /** "Mike at Brooklyn Auto suggests" — on an advisory the attribution IS
+   *  the headline. This is one person's professional opinion, not an Otopair
+   *  position, and naming them is what makes that legible. */
+  author_label?: string | null;
+  /** Advisories never expire the way a scheduled service does; past a
+   *  threshold they soften rather than disappearing. */
+  aged?: boolean;
 }
 
 export function recUrgencyToStatus(
@@ -168,6 +191,48 @@ export interface MergeRecordLike {
   confirmedHealthyAt?: number;
   lastServiceDate?: number;
   lastServiceMileage?: number;
+  /** Read only for the minor-item types below (Consolidated model). */
+  customInputs?: Record<string, unknown> | null;
+}
+
+/** Consolidated Upkeep scoring model: catalog-matched minor inspection
+ *  fields that score automatically at the flat weight-10 "other" bucket
+ *  when flagged yellow/red — never when green (green produces no entry at
+ *  all, so a fully-green inspection doesn't dilute the weighted average).
+ *  `maintenance_records.type` for these is prefixed "minor_" so they never
+ *  collide with the real MaintenanceType rows, and so categoryWeightForItem
+ *  (utils/healthScore.ts) can't accidentally match one to a real category.
+ *  Written by convex/lib/inspectionHealth.ts's deriveCoreGrades via
+ *  convex/maintenance.ts's mergeMechanicGradeIntoRecord. */
+export const MINOR_ITEM_RECORD_TYPES: ReadonlyArray<{ type: string; label: string }> = [
+  { type: "minor_cool_condition", label: "Coolant Condition" },
+  { type: "minor_trans", label: "Transmission Fluid" },
+  { type: "minor_ps", label: "Power Steering Fluid" },
+  { type: "minor_filter", label: "Air / Cabin Filter" },
+  { type: "minor_bf_condition", label: "Brake Fluid Condition" },
+];
+
+/** Build the extra weight-10 minor-item cards from raw records — one per
+ *  flagged (yellow/red) catalog-matched minor field, none for green
+ *  (absent) or unmatched (freeform, never written here at all) findings. */
+function buildMinorItems(records: readonly MergeRecordLike[] | undefined): MaintenanceItem[] {
+  if (!records?.length) return [];
+  const out: MaintenanceItem[] = [];
+  for (const { type, label } of MINOR_ITEM_RECORD_TYPES) {
+    const record = records.find((r) => r.type === type);
+    const grade = record?.customInputs?.mechanicGrade as "g" | "y" | "r" | undefined;
+    if (!grade || grade === "g") continue;
+    const reason = (record?.customInputs?.mechanicGradeReason as string | undefined)
+      ?? `${label} flagged on eye-check`;
+    out.push({
+      id: `user-${type}`,
+      serviceName: label,
+      description: reason,
+      detail: grade === "r" ? "Overdue" : "Needs attention",
+      status: grade === "r" ? "overdue" : "needs_attention",
+    });
+  }
+  return out;
 }
 
 export interface BuildMergedMaintenanceInput {
@@ -305,6 +370,10 @@ export function buildMergedMaintenanceItems(
   const inspectionItem = userItems.get("inspection");
   if (inspectionItem) result.push(inspectionItem);
 
+  // Consolidated Upkeep scoring model — catalog-matched minor fields
+  // flagged yellow/red (see buildMinorItems above).
+  result.push(...buildMinorItems(records));
+
   // ── Catalog coverage via from-odometer inference (Behavior #7) ──
   // Only runs for callers that supply both an odometer and OEM intervals;
   // Oto's server-side score passes neither and keeps the anchored-only set.
@@ -384,6 +453,13 @@ export function buildMergedMaintenanceItems(
         scheduledAt: rec.scheduled_at ?? null,
         scheduledMechanicName: rec.scheduled_mechanic_name ?? null,
         serviceId: rec.service_id ?? null,
+        // Fall back to the structural test rather than trusting `kind` alone,
+        // so a row from an older client that predates the field still renders
+        // correctly: no service id means nothing to book, full stop.
+        advisory: rec.kind === "advisory" || !rec.service_id,
+        advisoryDisclaimer: rec.disclaimer ?? null,
+        authorLabel: rec.author_label ?? null,
+        advisoryAged: rec.aged === true,
       });
     }
   }

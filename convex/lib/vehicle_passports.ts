@@ -71,6 +71,8 @@ export const tireTreadMeasurementsValidator = v.object({
 export const tireIdentityValidator = v.object({
   brand: v.optional(nullableStringValidator),
   model: v.optional(nullableStringValidator),
+  dot_code: v.optional(nullableStringValidator),
+  run_flat: v.optional(nullableBooleanValidator),
 });
 
 export const tireIdentityByPositionValidator = v.object({
@@ -125,6 +127,7 @@ export const vehiclePassportTiresValidator = v.object({
   size_front: v.optional(nullableStringValidator),
   size_rear: v.optional(nullableStringValidator),
   run_flat: v.optional(nullableBooleanValidator),
+  identities: v.optional(v.union(tireIdentityByPositionValidator, v.null())),
   overall_condition: v.optional(v.union(tireConditionValidator, v.null())),
   front_condition: v.optional(v.union(tireConditionValidator, v.null())),
   rear_condition: v.optional(v.union(tireConditionValidator, v.null())),
@@ -141,6 +144,7 @@ export const vehiclePassportFluidsValidator = v.object({
   coolant_type: v.optional(nullableStringValidator),
   brake_fluid_type: v.optional(nullableStringValidator),
   transmission_fluid_type: v.optional(nullableStringValidator),
+  power_steering_fluid_type: v.optional(nullableStringValidator),
   confirmation_status: v.optional(nullableStringValidator),
 });
 
@@ -163,6 +167,18 @@ export const vehiclePassportBrakesValidator = v.object({
   rotor_min_quality_front: v.optional(nullableStringValidator),
   rotor_min_quality_rear: v.optional(nullableStringValidator),
   rotor_min_source_url: v.optional(nullableStringValidator),
+});
+
+const rotorPhotoEvidenceItemValidator = v.object({
+  first_accepted_at: v.float64(),
+  source_inspection_id: v.id("vehicle_inspections"),
+});
+
+export const rotorPhotoEvidenceValidator = v.object({
+  FL: v.optional(rotorPhotoEvidenceItemValidator),
+  FR: v.optional(rotorPhotoEvidenceItemValidator),
+  RL: v.optional(rotorPhotoEvidenceItemValidator),
+  RR: v.optional(rotorPhotoEvidenceItemValidator),
 });
 
 export const vehiclePassportInspectionValidator = v.object({
@@ -227,17 +243,62 @@ export const prejobReportValidator = v.object({
 export const inspectionZoneStateValidator = v.object({
   zone_id: v.string(),
   done: v.boolean(),
-  measures: v.optional(v.any()),
-  tri: v.optional(v.any()),
-  descriptors: v.optional(v.any()),
-  text: v.optional(v.any()),
-  select: v.optional(v.any()),
+  measures: v.optional(v.record(v.string(), v.string())),
+  tri: v.optional(
+    v.record(v.string(), v.union(v.literal("g"), v.literal("y"), v.literal("r"))),
+  ),
+  descriptors: v.optional(v.record(v.string(), v.array(v.string()))),
+  text: v.optional(v.record(v.string(), v.string())),
+  select: v.optional(v.record(v.string(), v.union(v.string(), v.float64()))),
+  statuses: v.optional(
+    v.record(
+      v.string(),
+      v.union(
+        v.literal("not_inspected"),
+        v.literal("not_visible"),
+        v.literal("not_applicable"),
+      ),
+    ),
+  ),
+  methods: v.optional(v.record(v.string(), v.string())),
   photo_ids: v.optional(v.array(v.id("_storage"))),
+  photo_tags: v.optional(
+    v.record(
+      v.string(),
+      v.union(v.literal("general"), v.literal("rotor_stamp")),
+    ),
+  ),
+  // Repeatable warning-light picker entries. Only answered entries are ever
+  // sent (the client omits blanks) — see "Dashboard warning lights."
+  lights: v.optional(
+    v.record(
+      v.string(),
+      v.array(
+        v.object({
+          light: v.union(
+            v.literal("oil_pressure"),
+            v.literal("battery_charging"),
+            v.literal("temperature"),
+            v.literal("abs"),
+            v.literal("tpms"),
+            v.literal("airbag_srs"),
+            v.literal("transmission"),
+            v.literal("check_engine"),
+            v.literal("other"),
+            v.literal("none"),
+          ),
+          other_text: v.optional(v.string()),
+        }),
+      ),
+    ),
+  ),
 });
 
 export const inspectionInputValidator = v.object({
   template_version: v.string(),
   zones: v.array(inspectionZoneStateValidator),
+  odometer: v.optional(v.float64()),
+  lift_status: v.optional(v.union(v.literal("yes"), v.literal("no"))),
   findings_attention: v.optional(
     v.array(v.object({ label: v.string(), zone: v.string() })),
   ),
@@ -398,6 +459,13 @@ export const postjobReportValidator = v.object({
   time_variance_reason: v.optional(v.union(timeVarianceReasonValidator, v.null())),
   time_variance_note: v.optional(nullableStringValidator),
   recommendations: v.optional(v.array(jobRecommendationInputValidator)),
+  // Canonical warning-light codes the mechanic confirmed are no longer lit,
+  // re-checked against the vehicle's current knownIssues at post-job close
+  // (any source — driver check-in, Oto, an earlier visit's inspection, or
+  // this same visit's pre-job picker). Applied as a targeted removal by the
+  // same deferred job that applies everything else from this visit — see
+  // "Dashboard warning lights."
+  cleared_warning_lights: v.optional(v.array(v.string())),
 });
 
 export function hasText(value: unknown): value is string {

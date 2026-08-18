@@ -30,6 +30,7 @@ import {
   postjobPhotoValidator,
   postjobReportValidator,
   prejobReportValidator,
+  rotorPhotoEvidenceValidator,
   vehiclePassportBrakesValidator,
   vehiclePassportFluidsValidator,
   vehiclePassportInspectionValidator,
@@ -1530,6 +1531,11 @@ export default defineSchema({
     mileage: v.optional(v.number()),
     mileage_source: v.optional(v.string()),      // e.g. "chat_self_reported" | "onboarding" | "verified"
     mileage_updated_at: v.optional(v.number()),  // ms epoch of the last mileage write
+    // D-13/D-15 (QA p.69): per-vehicle supersession pointer for the
+    // render_vehicle_update Confirm card. Only the ai_messages row this
+    // points at renders an ACTIVE card; older cards for the same vehicle —
+    // in any conversation — render expired. Updated by oto/chat on persist.
+    active_update_card_message_id: v.optional(v.id("ai_messages")),
     added_at: v.optional(v.number()),
     removed_at: v.optional(v.number()),
     ownershipType: v.optional(v.string()),
@@ -1573,6 +1579,11 @@ export default defineSchema({
     // separate so the maintenance pipeline stays auditable.
     health_score_rec_penalty: v.optional(v.number()),
     health_score_rec_penalty_updated_at: v.optional(v.number()),
+    // Set when a booking's deferred inspection-health write is scheduled
+    // (now + 2h); cleared once that scheduled job actually lands. The
+    // mobile client shows a "processing" state for the score while this is
+    // in the future. See "Deferred writes at job completion."
+    health_score_pending_until: v.optional(v.number()),
     ownership_plan: v.optional(v.string()),
     lease_ending_soon: v.optional(v.boolean()),
     lease_mileage_pace: v.optional(v.string()),
@@ -1673,6 +1684,7 @@ export default defineSchema({
     updated_at: v.optional(v.number()),
     first_shop_confirmed_at: v.optional(v.number()),
     last_shop_confirmed_at: v.optional(v.number()),
+    rotor_photo_evidence: v.optional(rotorPhotoEvidenceValidator),
   })
     .index("by_vin", ["vin"])
     .index("by_updated_at", ["updated_at"]),
@@ -1689,6 +1701,8 @@ export default defineSchema({
     shop_id: v.optional(v.id("shops")),
     mechanic_id: v.optional(v.id("mechanics")),
     template_version: v.string(),
+    odometer: v.optional(v.float64()),
+    lift_status: v.optional(v.union(v.literal("yes"), v.literal("no"))),
     zones: v.array(
       v.object({
         zone_id: v.string(),
@@ -1696,12 +1710,62 @@ export default defineSchema({
         // Free-form per-field maps keyed by the template field keys. `v.any()`
         // because the template owns the shape and it evolves with the template
         // version (recorded above) rather than the schema.
-        measures: v.optional(v.any()),
-        tri: v.optional(v.any()),
-        descriptors: v.optional(v.any()),
-        text: v.optional(v.any()),
-        select: v.optional(v.any()),
+        measures: v.optional(v.record(v.string(), v.string())),
+        tri: v.optional(
+          v.record(
+            v.string(),
+            v.union(v.literal("g"), v.literal("y"), v.literal("r")),
+          ),
+        ),
+        descriptors: v.optional(v.record(v.string(), v.array(v.string()))),
+        text: v.optional(v.record(v.string(), v.string())),
+        select: v.optional(
+          v.record(v.string(), v.union(v.string(), v.float64())),
+        ),
+        statuses: v.optional(
+          v.record(
+            v.string(),
+            v.union(
+              v.literal("not_inspected"),
+              v.literal("not_visible"),
+              v.literal("not_applicable"),
+            ),
+          ),
+        ),
+        methods: v.optional(v.record(v.string(), v.string())),
         photo_ids: v.optional(v.array(v.id("_storage"))),
+        photo_tags: v.optional(
+          v.record(
+            v.string(),
+            v.union(v.literal("general"), v.literal("rotor_stamp")),
+          ),
+        ),
+        // Repeatable warning-light picker entries (currently only field key
+        // "warning_lights") — see "Dashboard warning lights." Only answered
+        // entries are ever persisted (the client omits blanks), so "light"
+        // is a closed union of real picker choices, no "" sentinel needed.
+        lights: v.optional(
+          v.record(
+            v.string(),
+            v.array(
+              v.object({
+                light: v.union(
+                  v.literal("oil_pressure"),
+                  v.literal("battery_charging"),
+                  v.literal("temperature"),
+                  v.literal("abs"),
+                  v.literal("tpms"),
+                  v.literal("airbag_srs"),
+                  v.literal("transmission"),
+                  v.literal("check_engine"),
+                  v.literal("other"),
+                  v.literal("none"),
+                ),
+                other_text: v.optional(v.string()),
+              }),
+            ),
+          ),
+        ),
       }),
     ),
     findings_attention: v.array(
@@ -1711,6 +1775,7 @@ export default defineSchema({
       v.object({ label: v.string(), zone: v.string() }),
     ),
     pdf_storage_id: v.optional(v.id("_storage")),
+    submitted_at: v.optional(v.float64()),
     created_at: v.float64(),
     updated_at: v.float64(),
   })
@@ -1759,6 +1824,36 @@ export default defineSchema({
     hcm_weight: v.optional(v.number()),
     is_fixed: v.optional(v.boolean()),
   }).index("by_category", ["category_name"]),
+
+  // Director-adjustable outer health-score weights — a single, platform-wide
+  // row (not per-shop, not per-vehicle; the score formula is a global
+  // constant). Mirrors the composite_modifier_weights precedent above.
+  // Absent/no-row means "use the hardcoded 85/15/15 defaults" — see
+  // utils/healthScore.ts's HealthScoreWeights. A bigger blast radius than
+  // per-item severity tuning (inspection_health_config below), so writes to
+  // this table are expected to also record an audit_log entry.
+  health_score_weights: defineTable({
+    upkeep_weight: v.number(),
+    open_issue_penalty_max: v.number(),
+    updated_at: v.number(),
+    updated_by: v.optional(v.id("director_users")),
+  }),
+
+  // Per-inspection-field director tuning: which core type a field maps to,
+  // how severe a yellow/red reads, and (for minor items) the recommendation
+  // urgency/copy. Row per inspection field key. Absent row for a field means
+  // "use the hardcoded default" — see convex/lib/inspectionHealth.ts.
+  inspection_health_config: defineTable({
+    field_key: v.string(),
+    maps_to: v.optional(v.string()),
+    yellow_status: v.optional(v.string()),
+    red_status: v.optional(v.string()),
+    rec_service_slug: v.optional(v.string()),
+    rec_urgency: v.optional(v.string()),
+    rec_copy: v.optional(v.string()),
+    updated_at: v.optional(v.number()),
+    updated_by: v.optional(v.id("director_users")),
+  }).index("by_field_key", ["field_key"]),
 
   // [U-A] Quarterly check-in data
   vehicle_checkins: defineTable({
@@ -1990,6 +2085,11 @@ export default defineSchema({
     // SetupIntent succeeds or a PaymentMethod attaches; cleared if the
     // user removes their last card.
     has_saved_payment_method: v.optional(v.boolean()),
+    // Set when the user taps the × on the home "Finish setup" card. The
+    // card only offers the × once all four steps are complete, so this is
+    // an acknowledgement of a finished checklist, not a way to skip it.
+    // Mirrors `vehicle_owners.setupCardDismissed`.
+    setupCardDismissed: v.optional(v.boolean()),
     // Expo push token registered by mobile on app open / after onboarding.
     // Consumed by convex/lib/push_dispatcher.ts. Cleared on
     // `DeviceNotRegistered` from Expo Push API.
@@ -2897,6 +2997,12 @@ export default defineSchema({
         }),
       ),
     ),
+    // Pending 2-hour deferred inspection-health job for this booking (see
+    // convex/inspectionHealthDeferred.ts). Stored so a booking that
+    // re-enters a terminal state (completed → reopened → completed again,
+    // dispute resolution, etc.) cancels its previous job instead of
+    // stacking a second one that could later replay stale picker data.
+    deferred_health_job_id: v.optional(v.id("_scheduled_functions")),
   })
     .index("by_user_id", ["user_id"])
     .index("by_shop_id", ["shop_id"])
@@ -3519,6 +3625,40 @@ export default defineSchema({
     established_facts: v.optional(v.array(v.string())),
     last_user_intent: v.optional(v.string()),
     state_updated_at: v.optional(v.number()),
+    // -----------------------------------------------------------------------
+    // W3.2 (2026-08-13) — typed open-symptom ledger (D-43, D-15).
+    // An unresolved safety-relevant symptom used to live only in the free-text
+    // arc_summary / established_facts, so a subject change dropped it — the
+    // report's "user mentioned a soft brake pedal, then asked about oil, and
+    // the brake thread was never picked back up." Rows are appended
+    // DETERMINISTICALLY by chat.ts when the Wave 2 safety classifier fires
+    // (never by the model), deduped by `category` among open rows, and marked
+    // addressed when a booking that bundles them fires (W3.3).
+    // -----------------------------------------------------------------------
+    open_symptoms: v.optional(
+      v.array(
+        v.object({
+          text: v.string(), // user's own words, truncated
+          category: v.string(), // hazard category / matched light — the dedupe key
+          safety_relevant: v.boolean(),
+          status: v.union(
+            v.literal("open"),
+            v.literal("addressed"),
+            v.literal("dismissed"),
+          ),
+          opened_at: v.number(),
+          addressed_at: v.optional(v.number()),
+        }),
+      ),
+    ),
+    // -----------------------------------------------------------------------
+    // §7b' trust-gate hard floor (2026-08-15). Maintenance types ("brakes",
+    // "battery", …) for which a record-confirmation card has already been
+    // offered in THIS conversation — model-fired or server-forced. The gate
+    // fires at most once per type per conversation; without this the forced
+    // card would re-appear on the post-confirm turn.
+    // -----------------------------------------------------------------------
+    record_confirmations_offered: v.optional(v.array(v.string())),
     // -----------------------------------------------------------------------
     // [RESTORED post-merge — Sprint 2 polite-exit counter]
     // Tracks how many turns of symptom-narrowing have happened without
@@ -5782,6 +5922,55 @@ export default defineSchema({
   })
     .index("by_ymm", ["make", "model", "year"])
     .index("by_fetched_at", ["fetched_at"]),
+
+  /**
+   * Walk ledger for the WEBSITE-ROUTE pipeline (convex/vehicleEnrichment/
+   * routeSources/). One row per (source, vehicle) — deliberately NOT a row in
+   * `vehicle_manuals`.
+   *
+   * Keeping the two caches apart is the whole safety property. `vehicle_manuals`
+   * is one row per YMM and `shouldSkipManualLookup` reads `file_id`/`storage_id`
+   * on it as "this vehicle is resolved", skipping PDF discovery for
+   * MANUAL_REFRESH_DAYS. A route walk that recorded itself there would suppress
+   * the PDF pipeline for 180 days on every vehicle it touched — the same class
+   * of failure the `rejected_urls` field exists to prevent, and just as silent.
+   *
+   * The grain differs too: one vehicle can be walked by several route sources,
+   * where it has at most one manual PDF.
+   */
+  vehicle_route_docs: defineTable({
+    /** RouteSource.id from the manifest. */
+    source_id: v.string(),
+    make: v.string(), // lowercase canonical
+    model: v.string(), // lowercase canonical
+    year: v.number(),
+    /**
+     * "ok"   — content pages were read.
+     * "gap"  — the site genuinely does not carry this vehicle. Long TTL.
+     * "fail" — the site broke, blocked us, or changed shape. Short TTL.
+     *
+     * Collapsing gap into fail (or the reverse) is how a walker either retries
+     * forever on vehicles a site will never have, or caches a redesign as "this
+     * vehicle does not exist". See routeSources/types.ts.
+     */
+    outcome: v.string(),
+    reason: v.optional(v.string()),
+    /** Every URL fetched on the last walk, in order — the audit trail. */
+    visited: v.optional(v.array(v.string())),
+    /** Content pages that yielded usable text. */
+    content_urls: v.optional(v.array(v.string())),
+    sections: v.optional(v.number()),
+    /** Rows accepted by _writeManualIntervals on the last run. */
+    intervals_written: v.optional(v.number()),
+    /** The extraction named a different vehicle and was discarded whole. */
+    identity_rejected: v.optional(v.boolean()),
+    /** Refused by an anti-bot wall or a failed looksLikeContent assertion. */
+    blocked: v.optional(v.boolean()),
+    attempts: v.optional(v.number()),
+    walked_at: v.number(),
+  })
+    .index("by_source_ymm", ["source_id", "make", "model", "year"])
+    .index("by_walked_at", ["walked_at"]),
 
   // ── Part-number existence oracle ──────────────────────────────────────────
   // Catalog sitemaps enumerate every part number a storefront sells, with the

@@ -37,6 +37,7 @@ import Animated, { FadeOut, LinearTransition, useAnimatedStyle, useSharedValue, 
 // 3. Shared UI
 import { FixedPriceBadge, Text } from '@/components/shared-ui';
 import { BookingProgressBar } from '@/components/bookings/BookingProgressBar';
+import { JobBlockedNotice } from '@/components/bookings/JobBlockedNotice';
 import { ApprovalBanner } from '@/components/booking/ApprovalBanner';
 import { getBookingStageView } from '@/utils/bookingStages';
 import { useConnection } from '@/hooks/useConnection';
@@ -74,6 +75,9 @@ export interface Booking {
   mechanicImage?: string;
   // Scheduling
   date: string;
+  /** Raw `YYYY-MM-DD` from Convex. `date` above is display-formatted
+   *  ("Tuesday, May 26") and cannot be sorted or grouped on. */
+  scheduledDate?: string;
   time: string;
   status: BookingStatus;
   // History-specific
@@ -115,6 +119,12 @@ export interface Booking {
    *  Bookings tab knows which QuoteListSheet variant to open. Derived from
    *  bookings.tire_specs / bookings.rotor_specs in the Convex adapter. */
   quoteType?: "tire" | "rotor";
+  /** Epoch ms the customer tapped "Request pickup" (vehicle_at_shop). Present
+   *  once requested, until the booking leaves that state. */
+  pickupRequestedAtMs?: number;
+  /** The shop/mechanic's answer to the pickup request, once they respond.
+   *  Drives the status line on the card. */
+  pickupResponse?: "acknowledged" | "bringing_out" | "declined";
 }
 
 interface BookingCardProps {
@@ -138,6 +148,39 @@ interface BookingCardProps {
 
 function titleCase(str: string): string {
   return str.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+// Copy + colors for the pickup-request status banner. `undefined` response =
+// requested but not yet answered by the shop.
+function pickupStatusView(
+  response?: 'acknowledged' | 'bringing_out' | 'declined',
+): { label: string; bg: string; color: string } {
+  switch (response) {
+    case 'acknowledged':
+      return {
+        label: 'Shop got your request — preparing your vehicle',
+        bg: '#EFF6FF',
+        color: '#1D4ED8',
+      };
+    case 'bringing_out':
+      return {
+        label: 'The shop is bringing your car out',
+        bg: '#ECFDF5',
+        color: '#047857',
+      };
+    case 'declined':
+      return {
+        label: "Shop can't release your car yet — please contact the shop",
+        bg: '#FEF2F2',
+        color: '#B91C1C',
+      };
+    default:
+      return {
+        label: 'Pickup requested — waiting for the shop to respond',
+        bg: '#FFF7ED',
+        color: '#C2410C',
+      };
+  }
 }
 
 const ACTION_BUTTON_GAP = 10;
@@ -439,7 +482,8 @@ export function BookingCard({
             weight="bold"
             size="xl"
             color="#1F2937"
-            style={isCancelling ? styles.strikethrough : undefined}
+            numberOfLines={1}
+            style={[styles.mainServiceText, isCancelling ? styles.strikethrough : undefined]}
           >
             {mainService}
           </Text>
@@ -450,6 +494,7 @@ export function BookingCard({
                 weight="semiBold"
                 size="xl"
                 color="#5299FE"
+                numberOfLines={1}
                 style={isCancelling ? styles.strikethrough : undefined}
               >
                 {additionalText}
@@ -596,6 +641,32 @@ export function BookingCard({
               </View>
             </>
           )}
+        </View>
+      )}
+
+      {/* Held-up notice. Sits above the pickup row because "we can't finish
+          yet" is the more urgent fact — and if the car is blocked, a pickup
+          estimate is answering the wrong question. Renders nothing unless the
+          shop has flagged a hold the driver is meant to know about. */}
+      <JobBlockedNotice bookingId={String(booking.id)} />
+
+      {/* Pickup request status — appears once the customer has requested their
+          car back (vehicle_at_shop). Reflects the shop/mechanic's live response
+          so the round trip is visible right on the card. */}
+      {booking.status === 'vehicle_at_shop' && booking.pickupRequestedAtMs != null && (
+        <View
+          style={[
+            styles.pickupStatus,
+            { backgroundColor: pickupStatusView(booking.pickupResponse).bg },
+          ]}
+        >
+          <Text
+            weight="semiBold"
+            size="sm"
+            color={pickupStatusView(booking.pickupResponse).color}
+          >
+            {pickupStatusView(booking.pickupResponse).label}
+          </Text>
         </View>
       )}
 
@@ -783,11 +854,25 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
+    minWidth: 0,
+  },
+  // Lets a long service name ellipsize instead of overflowing into the
+  // status badge; the "+N More" suffix and badge keep their full width.
+  mainServiceText: {
+    flexShrink: 1,
   },
   statusBadge: {
     paddingVertical: 6,
     paddingHorizontal: 14,
     borderRadius: 20,
+    flexShrink: 0,
+    marginLeft: 8,
+  },
+  pickupStatus: {
+    marginBottom: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 12,
   },
   strikethrough: {
     textDecorationLine: 'line-through',

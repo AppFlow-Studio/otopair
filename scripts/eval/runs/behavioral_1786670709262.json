@@ -1,0 +1,411 @@
+{
+ "ran_at": "2026-08-14T01:25:09.262Z",
+ "target_email": "mansourwaleed06@gmail.com",
+ "repeat": 10,
+ "total": 1,
+ "passed": 0,
+ "failed": 1,
+ "skipped_count": 9,
+ "failed_cases": [
+  {
+   "name": "oil_symptom_triggers_record_confirmation",
+   "failures": [
+    "rep1: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+    "rep2: turn 2: missing tool \"update_conversation_state\" (saw: none)",
+    "rep2: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+    "rep3: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+    "rep4: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+    "rep5: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state,render_book_service)",
+    "rep6: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state,render_book_service)",
+    "rep7: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+    "rep8: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+    "rep9: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+    "rep10: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)"
+   ]
+  }
+ ],
+ "results": [
+  {
+   "name": "oil_symptom_triggers_record_confirmation",
+   "description": "Trust protocol generalizes beyond brakes — burning-oil smell symptom contradicting self_reported on_time oil status should fire render_record_confirmation. Three turns: initial mention, narrowing detail, then a third sharpening turn that pushes Haiku past narrowing into the gate. Sprint 4 Day 1 Pass B §4 dispatch (booking-flow consolidation; render_book_service).",
+   "passed": false,
+   "failures": [
+    "rep1: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+    "rep2: turn 2: missing tool \"update_conversation_state\" (saw: none)",
+    "rep2: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+    "rep3: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+    "rep4: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+    "rep5: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state,render_book_service)",
+    "rep6: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state,render_book_service)",
+    "rep7: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+    "rep8: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+    "rep9: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+    "rep10: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)"
+   ],
+   "runs": [
+    {
+     "rep": 1,
+     "turns": [
+      {
+       "user": "My engine smells like burning oil after I drive",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Pull over now, shut the engine off, and get everyone out and well away from the car. If you see any flames or smoke coming from under the hood, call 911 immediately — do NOT open the hood, as that feeds air to a fire and can make it much worse.\n\nAn engine-bay fire can escalate in under a minute, so treating this as urgent is the right call.\n\nOnce you're safely away from the car and it's cooled down, you'll need a mechanic to look at it before you drive it again. The burning-oil smell combined with heat can point to a few things — a leak hitting hot surfaces, degraded seals, worn gaskets — but none of them are safe to diagnose yourself or drive on. A BMW specialist should inspect the engine bay to confirm what's actually happening and whether it's safe to move the car to a shop.\n\nAre you able to get it to a mechanic today, or do you need roadside help getting it to one?"
+      },
+      {
+       "user": "Mainly after long highway drives — engine smells hot, no leaks visible",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "I need to understand the current situation first. Earlier in this conversation, you reported burning oil smell after driving and the safety protocol fired — I told you to pull over, shut off the engine, and evacuate. \n\nAre you somewhere safe right now? Have you stopped driving, and is the car parked and cooled down?\n\nOnce I confirm you're safe, the next step is getting this inspected by a BMW specialist before you drive it again. Burning oil + heat after highway driving can signal a leak or overheating in the engine bay, and both need eyes-on before the car moves.\n\nWhat's your status?"
+      },
+      {
+       "user": "It's pretty consistent, didn't start with anything specific I changed",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Got it — steady burning-oil smell after highway drives, no trigger event. That points to an ongoing issue that heat and sustained driving bring out.\n\nYour M550i needs a mechanic eyes-on before you drive it again. Burning oil after long highway sessions can mean a few things — valve seals, piston rings, or oil getting into the combustion chamber — but the pattern you're describing (triggered by sustained heat) is time-sensitive because it can escalate quickly. Stop driving it except to get to a shop.\n\nYou're looking for a BMW specialist — I know that's your preference. Setting up a Diagnostic Scan with a mechanic who knows the M550i will get to the root of it fast. Ready to book that now?"
+      }
+     ],
+     "failures": [
+      "turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)"
+     ]
+    },
+    {
+     "rep": 2,
+     "turns": [
+      {
+       "user": "My engine smells like burning oil after I drive",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Pull over now, shut the engine off, and get everyone out and well away from the car. Do NOT open the hood — opening it feeds air to a fire. Call 911 if you see flames.\n\nA burning-oil smell after driving can escalate to an engine-bay fire quickly, and once it starts, lifting the hood is what turns it into a full blaze. Get clear first.\n\nOnce you're safe and away from the car: are you seeing any smoke or flames right now, or just the smell?"
+      },
+      {
+       "user": "Mainly after long highway drives — engine smells hot, no leaks visible",
+       "tools": [],
+       "branch": "text_only",
+       "text": "I need to clarify the immediate safety status before proceeding. You mentioned burning oil smell after highway driving, but I don't see smoke or flames — is that still the case, or are you seeing active smoke/fire right now?\n\nIf there's ANY smoke or flames visible, pull over immediately, turn off the engine, and call 911. Do not drive further.\n\nIf it's just the smell with no smoke/flames: The burning-oil odor after long highway drives — especially with no visible leaks — usually points to oil seeping onto hot engine surfaces (valve covers, gaskets, drain plug area) rather than an active fire risk. Still worth a mechanic's eyes, but less urgent than active smoke.\n\nOne question to narrow it: When you park after the highway drive, do you see any pooling under the car, or is the smell just from the engine bay?"
+      },
+      {
+       "user": "It's pretty consistent, didn't start with anything specific I changed",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "I need clarity on the safety hazard right now — is there smoke or flame coming from the engine, or just the smell?"
+      }
+     ],
+     "failures": [
+      "turn 2: missing tool \"update_conversation_state\" (saw: none)",
+      "turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)"
+     ]
+    },
+    {
+     "rep": 3,
+     "turns": [
+      {
+       "user": "My engine smells like burning oil after I drive",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Pull over, shut the engine off, and get out of the car immediately. If you see any smoke or flames coming from the engine bay, stay well clear and call 911. Don't open the hood — that feeds air to a fire. Engine fires go from smoke to fully involved in under a minute.\n\nOnce you're safe and the car has cooled, you need to get it towed to a BMW specialist (not a general shop) before you drive it again. Burning-oil smell after driving can signal a serious leak near hot surfaces, and that's a fire risk. A shop needs to inspect the engine bay to find where the oil is coming from.\n\nYou safe right now?"
+      },
+      {
+       "user": "Mainly after long highway drives — engine smells hot, no leaks visible",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Got it — the timing and conditions are helpful. Burning-oil smell after highway driving, with engine heat but no visible leaks, points to a few possibilities a mechanic needs to confirm: oil burning in the combustion chamber (worn rings/valve seals), oil getting to the exhaust (PCV system issue), or sometimes just heavy load pushing old oil past its limits.\n\nThe good news: it's not an immediate pull-over situation if the smell fades once the engine cools. The urgency is to get it looked at soon — this week — so it doesn't compound.\n\nNext step: A Diagnostic Scan is the right move. A mechanic will pull any logged fault codes, check your oil level and condition, and confirm whether it's internal wear or a system issue before recommending fix options. Want me to set that up?"
+      },
+      {
+       "user": "It's pretty consistent, didn't start with anything specific I changed",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Got it — so it's been a steady thing, not tied to any recent work or a change you made. That rules out a lot of the one-off causes.\n\nGiven the consistent burning-oil smell after highway driving, a Diagnostic Scan is the right move. The mechanic will plug in, read what the engine's logging, and confirm whether it's oil burning in the combustion chamber, a PCV issue, or something load-related. They'll know what's actually going on before any work starts.\n\nYou mentioned a preference for BMW specialists — I'll make sure that comes through in the booking. Ready to book now?"
+      }
+     ],
+     "failures": [
+      "turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)"
+     ]
+    },
+    {
+     "rep": 4,
+     "turns": [
+      {
+       "user": "My engine smells like burning oil after I drive",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Pull over now, shut the engine off, and get everyone out and well away from the car. Do NOT open the hood — opening it feeds air to a fire. Call 911 if you see flames.\n\nEngine-bay fires can go from smoke to fully involved in under a minute, and lifting the hood is exactly what turns one into the other.\n\nOnce you're safe and the car is stopped: are you seeing any smoke or flames, or just smelling the burning oil?"
+      },
+      {
+       "user": "Mainly after long highway drives — engine smells hot, no leaks visible",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "I appreciate the detail. Here's what I'm hearing: the burning smell shows up after sustained highway driving, the engine runs hot, and you don't see pooling oil underneath. That pattern matters.\n\nBefore we go further — is there any visible smoke coming from under the hood, or flames? That's the one thing that means pull over and stop right now. If it's just the smell and heat, we're in diagnostic territory, not emergency-pull-over.\n\nAssuming no smoke or flames: a burning-oil smell after highway drives on a hot engine can be a few things — light surface oil burning off the block from normal heat, a slow leak dripping onto hot parts, or (less common) valve-cover gasket seeping. The fact that you don't see pooling is a good sign, but a mechanic needs to actually look to confirm what's happening before it gets worse.\n\nWant me to set up a Diagnostic Scan? A mechanic can check for leaks, inspect the valve covers and gaskets, and confirm whether this is routine heat-burn or something that needs attention soon."
+      },
+      {
+       "user": "It's pretty consistent, didn't start with anything specific I changed",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "I need to get eyes on this — a consistent burning-oil smell after highway drives, especially with the engine running hot, isn't something to ignore. A Diagnostic Scan will let a mechanic pinpoint whether it's an oil leak getting hot, valve-seal wear, or something else that needs attention.\n\nReady to book that now?"
+      }
+     ],
+     "failures": [
+      "turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)"
+     ]
+    },
+    {
+     "rep": 5,
+     "turns": [
+      {
+       "user": "My engine smells like burning oil after I drive",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Pull over now, shut the engine off, and get everyone out and well away from the car. Do NOT open the hood — that feeds air to a fire. Call 911 if you see flames.\n\nEngine-bay fires can go from smoke to fully involved in under a minute. Opening the hood is what turns one into the other.\n\nOnce you're safe and the car is off, here's what happens next: if there's no active fire, this still needs immediate attention from a mechanic — burning oil usually means an oil leak somewhere in the bay, and a hot leak can ignite. Do NOT drive it to a shop. Get a tow, and call a mechanic from the side of the road to let them know what you saw — they'll want to inspect it safely before starting any work.\n\nStay away from the car until it cools. Call 911 if you see flames or heavy smoke."
+      },
+      {
+       "user": "Mainly after long highway drives — engine smells hot, no leaks visible",
+       "tools": [
+        "get_vehicle_health",
+        "update_conversation_state",
+        "render_book_service"
+       ],
+       "branch": "terminal",
+       "text": "Your oil-change history is on-time (last done ~2 months ago), so this isn't about being overdue. A burning-oil smell on sustained highway heat — with no visible leaks — usually points to one of these: a small seep from a gasket or seal that only leaks when the engine reaches full operating temp, oil hitting the exhaust manifold or engine block, or (less common) an issue with the PCV system. None of those are safe to ignore, and all of them need a mechanic to pinpoint.\n\nI'm booking you a Diagnostic Scan focused on the engine bay. The mechanic will check oil level, inspect all the gaskets and seals for seepage, look at the exhaust system, and scan for any oil-pressure warnings the car has logged. That gets you a real answer on what's leaking and how urgent the fix is."
+      },
+      {
+       "user": "It's pretty consistent, didn't start with anything specific I changed",
+       "tools": [
+        "update_conversation_state",
+        "render_book_service"
+       ],
+       "branch": "terminal",
+       "text": "I'm going to set up an urgent Diagnostic Scan to get a mechanic eyes-on your engine right away — this needs real inspection to find the oil leak before it gets worse on the road."
+      }
+     ],
+     "failures": [
+      "turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state,render_book_service)"
+     ]
+    },
+    {
+     "rep": 6,
+     "turns": [
+      {
+       "user": "My engine smells like burning oil after I drive",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Pull over, shut the engine off, and get everyone out and well away from the car right now. Do NOT open the hood — opening it feeds air to a fire. If you see any flames, call 911 immediately.\n\nAn engine-bay fire can go from smoke to fully involved in under a minute, and the worst thing you can do is lift the hood.\n\nOnce you're safe and away from the car, call 911 or a tow truck. Do not try to drive it anywhere."
+      },
+      {
+       "user": "Mainly after long highway drives — engine smells hot, no leaks visible",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "I'm glad you're still here and safe. That detail helps — long highway drives + hot engine smell without visible leaks points toward a few things, but the key is getting eyes on it before you drive again.\n\nPull over immediately if you see smoke, flames, or the smell gets stronger while driving. Otherwise, here's the next move: get the car to a mechanic within the next day or two for a Diagnostic Scan. The smell after highway driving usually narrows to an oil leak (slow seep that only shows under heat), a worn gasket, or coolant evaporation — but a mechanic needs to actually look under the hood to confirm which one and whether it's urgent.\n\nWant me to book a Diagnostic Scan for you now?"
+      },
+      {
+       "user": "It's pretty consistent, didn't start with anything specific I changed",
+       "tools": [
+        "update_conversation_state",
+        "render_book_service"
+       ],
+       "branch": "terminal",
+       "text": "Got it — consistent burning oil smell without a triggering event usually narrows to an active leak or seal issue rather than something you did. That's exactly what a mechanic needs to inspect: the engine bay for visible leaks, gasket condition, coolant level, that kind of thing.\n\nSetting up a Diagnostic Scan for you now. The mechanic will get eyes on the engine to pin down whether it's an oil leak, a coolant issue, or something else — and give you a real estimate before any work happens."
+      }
+     ],
+     "failures": [
+      "turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state,render_book_service)"
+     ]
+    },
+    {
+     "rep": 7,
+     "turns": [
+      {
+       "user": "My engine smells like burning oil after I drive",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Pull over now, shut the engine off, and get everyone out and well away from the car. Do NOT open the hood — opening it feeds air to a fire. Call 911 if you see flames.\n\nEngine-bay fires can go from smoke to fully involved in under a minute, and lifting the hood is what turns one into the other.\n\nOnce you're safely away from the car, let me know what you see — any visible smoke or flames, or just the smell?"
+      },
+      {
+       "user": "Mainly after long highway drives — engine smells hot, no leaks visible",
+       "tools": [
+        "get_vehicle_health",
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "This is important: your car is flagging a temperature / overheating warning light that's active right now. Combined with burning-oil smell after highway drives, that's a real concern — overheating can compound fast and cause engine damage if ignored.\n\nThe good news: your oil change is current (done ~2 months ago). But here's what I want to be clear about — I track oil-change intervals only. I have no data on internal engine condition, oil leaks, oil pressure, or the cooling system. A burning-oil smell + overheating light together points to something a mechanic needs to see in person.\n\nWhat to do next:\n\n1. Don't ignore the overheating light. If you see steam, smell coolant, or the gauge climbs into the red, pull over immediately and let it cool before driving more.\n\n2. Get a mechanic to look. A Diagnostic Scan will let them plug in and read what's actually tripped the temperature light, then they can confirm whether it's coolant level, the thermostat, a pressure issue, or something else. From there you'll get a real diagnosis and a quote before any work happens.\n\nWant me to set up a Diagnostic Scan now?"
+      },
+      {
+       "user": "It's pretty consistent, didn't start with anything specific I changed",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Got it — so it's been ongoing, not a sudden shift. That consistency matters because it points more toward a system-level issue than something you triggered.\n\nThe burning-oil smell combined with the temperature warning and heat buildup suggests the diagnostic scan will need to look at three things: whether oil is actually leaking internally (even if nothing's visible underneath), whether the cooling system is working right, and whether the engine's running hot for a reason the diagnostics can pin down. A mechanic plugging in will read what the engine logged and get eyes on the cooling system to see what's going on.\n\nReady to book that Diagnostic Scan, or do you have other questions before we set it up?"
+      }
+     ],
+     "failures": [
+      "turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)"
+     ]
+    },
+    {
+     "rep": 8,
+     "turns": [
+      {
+       "user": "My engine smells like burning oil after I drive",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Pull over now, shut the engine off, and get everyone out and well away from the car. Do NOT open the hood — opening it feeds air to a fire. Call 911 if you see flames.\n\nEngine fires can escalate in under a minute, and lifting the hood is what turns smoke into a full blaze.\n\nOnce you're safely away, let me know if you see flames or heavy smoke. If it's just a smell and no visible smoke or flames, you're safer for now — but the car needs a mechanic to look at the engine bay before you drive it again. A Diagnostic Scan focused on the engine will get a mechanic eyes-on to see what's causing the burning smell and whether it's safe to drive.\n\nAre you and everyone with you safely away from the car right now?"
+      },
+      {
+       "user": "Mainly after long highway drives — engine smells hot, no leaks visible",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "I need to understand the current situation clearly: are you safe right now? If the smell is happening actively or the engine is hot, make sure the car is parked with the engine off in a safe spot away from other vehicles and buildings.\n\nOnce you've confirmed you're safe, here's what's likely going on: burning-oil smell after highway driving usually narrows to a few things — worn valve seals or piston rings letting oil past, overfilled oil level, or oil on the exhaust manifold from a prior leak. The fact that it's mainly after sustained highway driving (when the engine runs hotter and longer) points toward internal wear rather than an external spill.\n\nNo visible leaks is good — that rules out the most acute risk. Still, this is worth a mechanic's eyes. A Diagnostic Scan will let them pull any codes, check your oil level, and inspect the engine bay to confirm what's actually burning. Want me to set that up now?"
+      },
+      {
+       "user": "It's pretty consistent, didn't start with anything specific I changed",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Got it — consistent burning-oil smell after highway drives, nothing you changed to trigger it. That points to something systematic rather than a one-off, which is good news diagnostically (easier to pin down).\n\nHere's what we know: the engine runs hot after highway driving, there's no visible leak underneath, and the smell hits after the drive cools down. That combo usually narrows to valve seals, piston rings, or oil pooling on the exhaust manifold where it burns off. A mechanic needs to look under the hood to confirm which one — that's the whole point of a Diagnostic Scan.\n\nReady to book that now?"
+      }
+     ],
+     "failures": [
+      "turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)"
+     ]
+    },
+    {
+     "rep": 9,
+     "turns": [
+      {
+       "user": "My engine smells like burning oil after I drive",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Pull over now, shut the engine off, and get everyone out and well away from the car. Do NOT open the hood — opening it feeds air to a fire. Call 911 if you see any flames or heavy smoke.\n\nAn engine-bay fire can go from smoke to fully involved in under a minute. Getting clear is the first move.\n\nOnce you're safe and away from the car, let me know what you see — is there visible smoke, flames, or just the smell?"
+      },
+      {
+       "user": "Mainly after long highway drives — engine smells hot, no leaks visible",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Got it — that detail matters. A burning-oil smell after highway driving, with the engine hot but no visible leaks, usually points to oil getting where it shouldn't: a leaky valve cover gasket, a worn PCV system, or oil pooling somewhere and burning off on hot surfaces. It's not an immediate crisis like smoke or a fire, but it's worth getting looked at soon so a small leak doesn't become a bigger one.\n\nA Diagnostic Scan will let a mechanic get eyes under the hood to pinpoint where it's coming from and what's actually burning. Want me to set that up?"
+      },
+      {
+       "user": "It's pretty consistent, didn't start with anything specific I changed",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Got it — consistent burning-oil smell with no clear trigger means there's something ongoing that needs eyes-on. A Diagnostic Scan will let a mechanic pinpoint whether it's valve-cover seepage, the PCV system, or oil pooling somewhere it shouldn't be.\n\nReady to book that now?"
+      }
+     ],
+     "failures": [
+      "turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)"
+     ]
+    },
+    {
+     "rep": 10,
+     "turns": [
+      {
+       "user": "My engine smells like burning oil after I drive",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Pull over now, shut the engine off, and get everyone out and well away from the car. Do NOT open the hood — opening it feeds air to a fire. Call 911 if you see flames.\n\nEngine-bay fires can go from smoke to fully involved in under a minute, and the hood is what turns one into the other.\n\nOnce you're safe and away from the car, let me know if you see flames or heavy smoke. If it's just the smell without visible fire or smoke, you can stay clear and call roadside or a tow — Otopair books the repair once your car reaches a shop, but right now the priority is getting it somewhere safe where a mechanic can look at it without risk.\n\nAre you okay? Where are you right now?"
+      },
+      {
+       "user": "Mainly after long highway drives — engine smells hot, no leaks visible",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "I want to make sure you're safe first: is the smell accompanied by any smoke, flames, or heat you can feel through the hood or dash? Or is it just the smell?\n\nIf there's ANY smoke or visible flames, pull over immediately, turn off the engine, and get away from the car. Call 911 if you're unsafe on the roadside.\n\nIf it's just the smell without smoke or heat — that's still worth looking at, but it's less urgent. A mechanic can pinpoint whether it's an oil leak dripping on the hot engine, a worn seal, or something else. A Diagnostic Scan will get eyes on it."
+      },
+      {
+       "user": "It's pretty consistent, didn't start with anything specific I changed",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "I need to get clarity on the immediate safety question first — this is the most critical thing.\n\nIs there any smoke or flames coming from under the hood or the engine bay right now, or have you seen that at any point? Even a little bit of smoke is the line where you pull over and don't keep driving.\n\nIf it's smell-only with no visible smoke/flames, that's a diagnostic path we can set up. But I need to know the smoke/flames status first."
+      }
+     ],
+     "failures": [
+      "turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)"
+     ]
+    }
+   ]
+  }
+ ],
+ "skipped": [
+  {
+   "name": "polite_exit_after_vague_narrowing",
+   "reason": "Sprint 2 / Wave 7.x: the polite-exit counter (ai_conversations.diagnostic_turn_count, threshold=6) is incremented in chat.ts inside `if (!skipPersist)`. The harness defaults to debug_skip_persist=true, so the counter never advances and the 6th turn never fires the <polite_exit_required> envelope block. Two unblock paths: (A) decouple the counter from skipPersist (a chat.ts-only change, out of scope for the QA-lead adaptation dispatch), or (B) ship a harness-side seed mutation that sets diagnostic_turn_count=5 before the final turn (also touches convex/). Re-enable once either lands. Intent preserved verbatim — do not delete."
+  },
+  {
+   "name": "cat_m_communication_style_outranks_history_anchor",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass)"
+  },
+  {
+   "name": "cat_m_fresh_outranks_stale_within_same_type",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass); also requires Sprint 3 test-helper mutation to stage stale last_reinforced"
+  },
+  {
+   "name": "cat_m_retracted_fact_does_not_surface",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass); also requires Sprint 3 pre_seed_mutations result-threading OR a retract-by-payload-substring mutation"
+  },
+  {
+   "name": "cat_m_vehicle_quirk_surfaces_for_vehicle_owner",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass)"
+  },
+  {
+   "name": "cat_m_no_seeded_rows_envelope_omits_recent_context",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass)"
+  },
+  {
+   "name": "cat_m_top_K_cap_enforced_at_5",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass); assertion fragile if equivalence-v2 collapses overlapping seeds — review on first run"
+  },
+  {
+   "name": "cat_m_adversarial_fact_does_not_surface_in_envelope",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass); threat model contestable — sanitizer at write blocks current attack surface, this is for future bypass paths"
+  },
+  {
+   "name": "book_service_polite_exit_not_sure",
+   "reason": "Sprint 2 / Wave 7.x: the polite-exit counter (ai_conversations.diagnostic_turn_count, threshold=6) is incremented in chat.ts inside `if (!skipPersist)`. The harness defaults to debug_skip_persist=true, so the counter never advances and the 6th turn never fires the <polite_exit_required> envelope block. Same disabled_reason as legacy polite_exit_after_vague_narrowing. Re-enable when counter decouples from skipPersist OR a pre_seed_mutations seed advances the counter."
+  }
+ ]
+}

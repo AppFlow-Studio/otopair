@@ -22,6 +22,10 @@ import {
 } from "./lib/brakeScope";
 import { ensureWalkInCashPayment } from "./bookings";
 import { partFitsConfigMake } from "./partSelector";
+import { hydrateTieredInspectionState } from "./lib/hydrateInspectionState";
+import { deriveSuggestedRecommendations } from "../lib/inspection-template";
+import { canonicalWarningLights } from "../lib/warningLightVocab";
+import { applyInspectionLightPicker } from "./lib/warningLightsMerge";
 
 function primaryServiceId(booking: { service_ids?: Id<"services">[] }): Id<"services"> | undefined {
   return booking.service_ids?.[0];
@@ -811,6 +815,95 @@ export const getPrefillData = query({
       return nameAxle == null || nameAxle === axle;
     });
 
+    // This visit's inspection recommendations — split into what the mechanic
+    // already confirmed at pre-job (read-only here) and what they saw but
+    // didn't check (a second chance at post-job). See "Post-job survey —
+    // surfacing this visit's inspection recommendations."
+    const thisVisitRecRows = await ctx.db
+      .query("job_recommendations")
+      .withIndex("by_booking_id", (q) => q.eq("booking_id", args.bookingId))
+      .collect();
+    const confirmedThisVisitRows = thisVisitRecRows.filter(
+      (r) => r.source === "inspection",
+    );
+    const confirmedThisVisit = await Promise.all(
+      confirmedThisVisitRows.map(async (rec) => {
+        const svc = rec.recommended_service_id
+          ? await ctx.db.get(rec.recommended_service_id)
+          : null;
+        return {
+          _id: rec._id,
+          service_name: svc?.name ?? rec.freeform_text ?? "Unspecified",
+          is_freeform: !rec.recommended_service_id,
+          urgency: rec.urgency,
+          reason: rec.reason ?? null,
+          created_at: rec.created_at,
+        };
+      }),
+    );
+    const confirmedServiceIds = new Set(
+      confirmedThisVisitRows
+        .map((r) => (r.recommended_service_id ? String(r.recommended_service_id) : null))
+        .filter((id): id is string => !!id),
+    );
+    const confirmedFreeformLabels = new Set(
+      confirmedThisVisitRows
+        .filter((r) => !r.recommended_service_id)
+        .map((r) => (r.freeform_text ?? "").trim().toLowerCase())
+        .filter((label) => label.length > 0),
+    );
+
+    const inspection = await ctx.db
+      .query("vehicle_inspections")
+      .withIndex("by_booking", (q) => q.eq("booking_id", args.bookingId))
+      .first();
+    const allServices = booking.shop_id ? await ctx.db.query("services").collect() : [];
+    const inspectionState = inspection ? hydrateTieredInspectionState(inspection) : null;
+    const suggestedFromInspection = inspectionState
+      ? deriveSuggestedRecommendations(inspectionState, {
+          onlyCompletedZones: true,
+        })
+          .map((s) => {
+            const found = allServices.find((svc: any) =>
+              svc.slug ? s.match.includes(svc.slug) : false,
+            );
+            return {
+              key: s.key,
+              label: s.label,
+              urgency: s.urgency,
+              reasons: s.reasons,
+              serviceId: found?._id ?? null,
+              serviceName: found?.name ?? null,
+            };
+          })
+          .filter((s) =>
+            s.serviceId
+              ? !confirmedServiceIds.has(String(s.serviceId))
+              : !confirmedFreeformLabels.has(s.label.trim().toLowerCase()),
+          )
+      : [];
+
+    // Dashboard lights to offer in the post-job "still on?" list. This is
+    // the PROJECTED set, not just what's on file right now: this visit's own
+    // pre-job picker selections don't reach knownIssues until the deferred
+    // job runs 2 hours after close, so offering only the stored array would
+    // omit a light this very inspection just flagged — leaving the mechanic
+    // unable to clear the exact thing they may have just fixed (e.g. TPMS
+    // seen on the walk-around, tires topped up mid-visit). Uses the same
+    // shared merge the deferred write itself uses so the two can't drift.
+    // See "Dashboard warning lights."
+    const owner = await ctx.db
+      .query("vehicle_owners")
+      .withIndex("by_vin_user", (q) => q.eq("vin", booking.vin).eq("user_id", booking.user_id))
+      .first();
+    const projectedKnownIssues = applyInspectionLightPicker(
+      Array.isArray(owner?.knownIssues) ? (owner.knownIssues as string[]) : [],
+      inspectionState?.zones.ENG?.statuses.warning_lights
+        ? []
+        : inspectionState?.zones.ENG?.lights.warning_lights,
+    );
+    const currentWarningLights = canonicalWarningLights(projectedKnownIssues);
+
     return {
       vehicleLabel,
       serviceName: service?.name ?? "",
@@ -823,6 +916,9 @@ export const getPrefillData = query({
       oemRecommendations,
       vehicleConfigId: vehicle.vehicle_config_id ?? null,
       priorOpenRecommendations,
+      confirmedThisVisit,
+      suggestedFromInspection,
+      currentWarningLights,
     };
   },
 });

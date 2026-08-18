@@ -11,7 +11,7 @@ import { useQuery } from "convex/react";
 import { useMemo } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { displayTimeToHHMM } from "@/utils/timeSlotUtils";
+import { displayTimeToHHMM, minBookableHHMM, todayLocalISO } from "@/utils/timeSlotUtils";
 
 /** Converts 24h "09:00" to display "9:00 AM" */
 function hhmmToDisplayTime(hhmm: string): string {
@@ -60,15 +60,24 @@ export function useTimeSlotsForShop(
 
   const availableSlots = useMemo((): TimeSlotOption[] => {
     if (!slots) return [];
+    // Enforce the booking lead time at the single choke point every
+    // time-picker surface reads through: on today, drop any slot starting
+    // before the minimum bookable time (now + advance notice). "HH:MM" is
+    // lexically chronological, so a string compare is correct. Later days
+    // are unaffected. Keeping the rule here means no picker has to
+    // re-implement it.
+    const isToday = date === todayLocalISO();
+    const minTime = minBookableHHMM();
     return (slots as TimeSlotRow[])
       .filter((s) => s.is_available)
+      .filter((s) => !isToday || s.start_time >= minTime)
       .map((s) => ({
         id: s._id,
         startTime: s.start_time,
         endTime: s.end_time,
         displayTime: hhmmToDisplayTime(s.start_time),
       }));
-  }, [slots]);
+  }, [slots, date]);
 
   // Sort by 24-hour `startTime` (HH:MM is lexically chronological) so the
   // list reads store-open → close. A naive sort on `displayTime` puts

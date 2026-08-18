@@ -45,7 +45,14 @@ import {
   RatingMarkerPill,
   RATING_MARKER_REPAINT_MS,
 } from "@/components/booking-flow/RatingMarkerPill";
+import { MapSkeleton } from "@/components/booking-flow/MapSkeleton";
 import type { UserLocation } from "@/stores/types/store.types";
+
+/** Hard stop on the skeleton. `onMapLoaded` is not guaranteed to fire —
+ *  a misconfigured Google Maps key, for one, leaves it silent — and a
+ *  surface that shimmers forever reads worse than a static one. Past
+ *  this we drop the skeleton and show whatever the map managed. */
+const MAP_READY_TIMEOUT_MS = 6000;
 
 export interface BookingFlowMarker {
   id: string;
@@ -127,6 +134,13 @@ export function BookingFlowMapProvider({
   const [interactive, setInteractive] = useState(false);
   const [markers, setMarkers] = useState<BookingFlowMarker[]>([]);
   const [shopPins, setShopPins] = useState<BookingFlowShopPin[]>([]);
+  // Skeleton covers two distinct waits: `region === null` (permission
+  // check + location fix still in flight) and the gap between MapView
+  // mounting and the provider painting its first tiles. Dismissal is
+  // keyed to `onMapLoaded` (tiles rendered), NOT `onMapReady` — ready
+  // fires when the map object initialises, seconds before anything is
+  // drawn, which left the user staring at Google's blank beige canvas.
+  const [mapReady, setMapReady] = useState(false);
 
   useEffect(() => {
     setLocationLoading(isResolving);
@@ -143,6 +157,15 @@ export function BookingFlowMapProvider({
   useEffect(() => {
     if (region) mapRef.current?.animateToRegion(region, 450);
   }, [region]);
+
+  // Start the fallback timer only once the MapView is actually mounted
+  // (`region` resolved) — otherwise a slow permission prompt burns the
+  // window before the map ever gets a chance to report in.
+  useEffect(() => {
+    if (!region || mapReady) return;
+    const t = setTimeout(() => setMapReady(true), MAP_READY_TIMEOUT_MS);
+    return () => clearTimeout(t);
+  }, [region, mapReady]);
 
   const setInteractiveCb = useCallback(
     (next: boolean) => setInteractive(next),
@@ -187,6 +210,7 @@ export function BookingFlowMapProvider({
               style={StyleSheet.absoluteFill}
               provider={PROVIDER_DEFAULT}
               initialRegion={region}
+              onMapLoaded={() => setMapReady(true)}
               showsUserLocation
               scrollEnabled
               zoomEnabled
@@ -229,6 +253,19 @@ export function BookingFlowMapProvider({
             </View>
           )}
         </View>
+
+        {/* Above the map, below the screens. `pointerEvents="none"`
+            inside `MapSkeleton` keeps it out of the touch path, so a
+            late `onMapReady` can't strand gestures behind it.
+
+            Gated on HAVING a region, not just on readiness. With no region
+            the branch above already renders the staged-location fallback
+            ("Enable location…" / "Finding your location…"), and `region &&
+            mapReady` can never become true without one — so the old
+            condition left the skeleton shimmering permanently on top of
+            that message. Skeleton is for "map is coming"; the fallback is
+            for "there is no map to come". */}
+        {!region || mapReady ? null : <MapSkeleton />}
 
         {/* Children (the booking-flow Stack) wrapped in a controlled
             pointerEvents layer. When the map is interactive, this

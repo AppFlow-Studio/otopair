@@ -38,6 +38,7 @@ import type { Id } from "./_generated/dataModel";
 import { internal, api } from "./_generated/api";
 import { getStripe } from "../lib/stripe";
 import { isTerminal, validateTransition } from "./booking_status_history";
+import { scheduleDeferredInspectionHealth } from "./inspectionHealthDeferred";
 import {
   resolvePolicy,
   computeCancellationFee,
@@ -48,6 +49,8 @@ import { bookingVisibleUnderScope, getCurrentNotificationScope } from "./lib/not
 import { BOOKING_STATUS_VISUALS, type BookingStatus } from "../lib/booking-status";
 import { computePlatformFeeDollars } from "../lib/platformFee";
 import { metaMakeModel } from "./lib/bookingEnrichment";
+import { isRealVin, isPseudoVin, mintPseudoVin } from "./lib/vinIdentity";
+import { buildYmmtFingerprint } from "./vehicleEnrichment/types";
 import {
   computeDisclosedRange,
   computePricedPartsSnapshot,
@@ -67,7 +70,10 @@ import {
   resolveVehicleConfigFromVin,
 } from "./lib/quoteEngine";
 import { resolveLaborRate, type VehicleTier } from "./lib/vehicleTiers";
-import { recordTypeForServiceSlug } from "./lib/serviceRecordType";
+import {
+  minorRecordTypeForServiceSlug,
+  recordTypeForServiceSlug,
+} from "./lib/serviceRecordType";
 import { symptomForRecordType } from "./lib/serviceSymptoms";
 import { logPrejobMechanicVerification } from "./lib/mechanic_verification_logging";
 import {
@@ -128,6 +134,17 @@ import {
   vehiclePassportUpdateValidator,
 } from "./lib/vehicle_passports";
 import { getBookingServiceFlags } from "../lib/vehicle-service-relevance";
+import {
+  derivePrejobFromInspection,
+  deriveTierInspectionScope,
+  gatherFindings,
+  INSPECTION_TEMPLATE_VERSION,
+  INSPECTION_ZONES_BY_ID,
+  requiredZonesForBooking,
+  rotorEvidenceCornersFromSubmission,
+  validateZoneForCompletion,
+  type CornerZoneId,
+} from "../lib/inspection-template";
 import {
   areTireReplacementPositionsValid,
   getBookedTireReplacementPositions,
@@ -225,7 +242,7 @@ async function assertBookingWithinShopHours(
   const openMinutes = hhmmToMinutes(hours.open_time);
   const closeMinutes = hhmmToMinutes(hours.close_time);
 
-  if (startMinutes < openMinutes || startMinutes >= closeMinutes) {
+  if (startMinutes < openMinutes || startMinutes > closeMinutes) {
     throw new Error("The requested start time is outside the shop's operating hours.");
   }
   if (endMinutes > closeMinutes && !allowAfterClose) {
@@ -2455,6 +2472,7 @@ async function computeEarlyPushPreview(ctx: any, booking: any) {
         startTime: proposedScheduledTime,
         durationMinutes,
         excludeBookingId: String(booking._id),
+        allowOutsideShopHours: true,
       });
       conflict = null;
       conflictingBookingId = null;
@@ -3849,6 +3867,143 @@ function toCanonicalVin(vin: string) {
   return vin.trim().toUpperCase();
 }
 
+/**
+ * Decide which vehicles row a walk-in booking belongs to, minting a placeholder
+ * VIN only when there's genuinely no better answer.
+ *
+ * The drawer used to mint `SHOP${Date.now()}` client-side on every submit. Two
+ * problems with that: `"SHOP"` + a 13-digit epoch is exactly 17 characters, so
+ * downstream `vin.length === 17` gates treated it as a real VIN (lib/vehicle_image
+ * then spent a paid Vehicle Databases lookup on it); and because it was minted
+ * fresh each time, the same customer returning with the same car got a brand-new
+ * vehicles + vehicle_owners row every visit, fragmenting their service history,
+ * mileage and health scoring across N rows for one physical car.
+ *
+ * Resolution order:
+ *   1. A structurally valid VIN wins outright.
+ *   2. Otherwise, reuse a placeholder this customer already has for the same
+ *      YMMT — that's the returning-walk-in case.
+ *   3. Otherwise mint a fresh placeholder.
+ *
+ * Reuse is scoped to the customer ON PURPOSE. A YMMT-global placeholder would
+ * collapse every 2020 CR-V in the system onto one row, and since bookings and
+ * service history are keyed by VIN string that would leak one customer's
+ * service records into another's. Sharing happens at the vehicle_configs level
+ * instead, which is exactly what it's for.
+ */
+async function resolveWalkInVin(
+  ctx: MutationCtx,
+  args: {
+    customerId: Id<"users">;
+    vinRaw: string;
+    year?: number;
+    make?: string;
+    model?: string;
+    trim?: string;
+  },
+): Promise<string> {
+  const typed = toCanonicalVin(args.vinRaw);
+  if (isRealVin(typed)) return typed;
+
+  if (typed && !isRealVin(typed)) {
+    // A partially-typed VIN reaching the server used to be stored verbatim as
+    // the car's permanent identity. Log it and fall through to a placeholder
+    // rather than immortalizing "1HGCV" as a VIN.
+    console.warn(
+      `[walkin] discarding malformed VIN "${typed}" (${typed.length} chars) — using a placeholder`,
+    );
+  }
+
+  const fingerprint =
+    args.year && args.make && args.model
+      ? buildYmmtFingerprint({
+          year: args.year,
+          make: args.make,
+          model: args.model,
+          trim: args.trim,
+        })
+      : null;
+
+  if (fingerprint) {
+    const ownerships = await ctx.db
+      .query("vehicle_owners")
+      .withIndex("by_user_status", (q) =>
+        q.eq("user_id", args.customerId).eq("status", "active"),
+      )
+      .collect();
+
+    for (const o of ownerships) {
+      if (!isPseudoVin(o.vin)) continue;
+      const veh = await ctx.db
+        .query("vehicles")
+        .withIndex("by_vin", (q) => q.eq("vin", o.vin))
+        .first();
+      if (!veh?.year || !veh.metadata?.make || !veh.metadata?.model) continue;
+      const existing = buildYmmtFingerprint({
+        year: veh.year,
+        make: String(veh.metadata.make),
+        model: String(veh.metadata.model),
+        trim: veh.metadata.trim ? String(veh.metadata.trim) : undefined,
+      });
+      if (existing === fingerprint) {
+        console.log(`[walkin] reusing placeholder ${o.vin} for returning ${fingerprint}`);
+        return o.vin;
+      }
+    }
+  }
+
+  return mintPseudoVin(Date.now(), Math.random().toString(36).slice(2, 10));
+}
+
+/**
+ * Route a vehicle to the right identity-resolution pipeline.
+ *
+ * Previously both walk-in paths scheduled `vehicleEnrichment.runPublic.go`,
+ * which is the ADMIN/TEST wrapper — its own header says so. On a real VIN it
+ * looked up a hardcoded test Clerk account and called `addOwner(..., is_primary:
+ * true)`, attaching `test@otopair.com` as a primary owner of the customer's car
+ * (8 such rows are visible in the dev dataset), then polled in-action for up to
+ * 20 minutes, past the Convex action limit. On a placeholder VIN it just failed
+ * the decode silently and the manually-entered year/make/model was discarded.
+ *
+ *   real VIN  → runHeadless.go (decode; no owner rows, no polling)
+ *   YMMT only → ymmtPipeline.enrichVehicleFromYmmt (research; refuses to guess)
+ *   neither   → nothing to work with; logged, not silently dropped
+ */
+async function scheduleVehicleIdentityResolution(
+  ctx: MutationCtx,
+  args: {
+    vin: string;
+    year?: number;
+    make?: string;
+    model?: string;
+    trim?: string;
+  },
+): Promise<void> {
+  if (isRealVin(args.vin)) {
+    await ctx.scheduler.runAfter(0, internal.vehicleEnrichment.runHeadless.go, {
+      vin: args.vin,
+    });
+    return;
+  }
+
+  if (args.year && args.make && args.model) {
+    await ctx.scheduler.runAfter(0, internal.ymmtPipeline.enrichVehicleFromYmmt, {
+      vin: args.vin,
+      year: args.year,
+      make: args.make,
+      model: args.model,
+      trim: args.trim,
+    });
+    return;
+  }
+
+  console.warn(
+    `[identity] ${args.vin}: no VIN and no year/make/model — cannot enrich. ` +
+      `Booking proceeds; parts-dependent services stay gated.`,
+  );
+}
+
 function getTodayString(timezone?: string | null) {
   return new Date().toLocaleDateString("en-CA", {
     timeZone: timezone ?? "UTC",
@@ -4823,6 +4978,43 @@ function buildPassportPatchFromPrejob(prejob: any, existingPassport: any) {
         typeof value === "boolean" ||
         hasText(value)
     );
+  const tireIdentities = prejob.tire_details
+    ? Object.fromEntries(
+        Object.entries(prejob.tire_details).map(([position, identity]) => [
+          position,
+          {
+            ...(existingPassport?.tires?.identities?.[position] ?? {}),
+            ...Object.fromEntries(
+              Object.entries((identity ?? {}) as Record<string, unknown>).filter(
+                ([, value]) => value !== null && value !== undefined,
+              ),
+            ),
+          },
+        ]),
+      )
+    : undefined;
+  const brakes = prejob.brakes
+    ? {
+        ...prejob.brakes,
+        pad_brand: prejob.brakes.pad_brand ?? undefined,
+        front_pad_mm: prejob.brakes.front_pad_mm ?? undefined,
+        rear_pad_mm: prejob.brakes.rear_pad_mm ?? undefined,
+        rotor_condition: prejob.brakes.rotor_condition ?? undefined,
+        rotor_thickness: prejob.brakes.rotor_thickness
+          ? {
+              ...(existingPassport?.brakes?.rotor_thickness ?? {}),
+              ...prejob.brakes.rotor_thickness,
+            }
+          : undefined,
+      }
+    : undefined;
+  const definedFluidOverrides = fluidOverrides
+    ? Object.fromEntries(
+        Object.entries(fluidOverrides).filter(
+          ([, value]) => value !== null && value !== undefined,
+        ),
+      )
+    : undefined;
 
   return {
     mileage:
@@ -4832,9 +5024,20 @@ function buildPassportPatchFromPrejob(prejob: any, existingPassport: any) {
     tires: {
       brand: prejob.tire_brand ?? firstCornerBrand ?? undefined,
       model: prejob.tire_model ?? firstCornerModel ?? undefined,
+      identities: tireIdentities
+        ? {
+            ...(existingPassport?.tires?.identities ?? {}),
+            ...tireIdentities,
+          }
+        : undefined,
       size_front: prejob.tire_size_front ?? undefined,
       size_rear: prejob.tire_size_rear ?? undefined,
-      tread_depths: prejob.tire_tread ?? undefined,
+      tread_depths: prejob.tire_tread
+        ? {
+            ...(existingPassport?.tires?.tread_depths ?? {}),
+            ...prejob.tire_tread,
+          }
+        : undefined,
       front_condition: frontCondition,
       rear_condition: rearCondition,
       overall_condition:
@@ -4842,11 +5045,11 @@ function buildPassportPatchFromPrejob(prejob: any, existingPassport: any) {
           ? frontCondition
           : existingPassport?.tires?.overall_condition ?? frontCondition ?? rearCondition,
     },
-    brakes: prejob.brakes,
+    brakes,
     fluids:
       prejob.fluids_match_oem || hasFluidOverride
         ? {
-            ...(fluidOverrides ?? {}),
+            ...(definedFluidOverrides ?? {}),
             confirmation_status: hasFluidOverride ? "updated" : "oem_confirmed",
           }
         : undefined,
@@ -5085,6 +5288,7 @@ async function buildVehiclePassportForBooking(ctx: any, booking: any) {
         trimSpec?.tire_size_front
       ),
       run_flat: firstDefinedBoolean(passportRecord?.tires?.run_flat, trimSpec?.is_run_flat),
+      identities: passportRecord?.tires?.identities ?? null,
       overall_condition: passportRecord?.tires?.overall_condition ?? null,
       front_condition: passportRecord?.tires?.front_condition ?? null,
       rear_condition: passportRecord?.tires?.rear_condition ?? null,
@@ -5118,6 +5322,9 @@ async function buildVehiclePassportForBooking(ctx: any, booking: any) {
       transmission_fluid_type: firstDefinedString(
         passportRecord?.fluids?.transmission_fluid_type,
         transmission?.fluid_type
+      ),
+      power_steering_fluid_type: firstDefinedString(
+        passportRecord?.fluids?.power_steering_fluid_type,
       ),
       confirmation_status: firstDefinedString(passportRecord?.fluids?.confirmation_status),
     },
@@ -5313,6 +5520,13 @@ async function buildVehiclePassportForBooking(ctx: any, booking: any) {
       return out;
     })(),
     is_complete: missing_fields.length === 0,
+    is_first_shop_visit: !passportRecord?.first_shop_confirmed_at,
+    rotor_photo_evidence: {
+      FL: !!passportRecord?.rotor_photo_evidence?.FL,
+      FR: !!passportRecord?.rotor_photo_evidence?.FR,
+      RL: !!passportRecord?.rotor_photo_evidence?.RL,
+      RR: !!passportRecord?.rotor_photo_evidence?.RR,
+    },
     completion_percent: getPassportCompletionPercent(passport),
     missing_fields,
     passport,
@@ -5403,12 +5617,151 @@ function getTireReplacementPositions(booking: {
     .filter((position: TirePosition | undefined): position is TirePosition => !!position);
 }
 
+// Moved to convex/lib/hydrateInspectionState.ts so
+// convex/inspectionHealthDeferred.ts can reuse it without a circular
+// import back into this file; re-imported here since this file's own
+// callers (grantRotorPhotoEvidence etc.) still reference it by this name.
+import { hydrateTieredInspectionState } from "./lib/hydrateInspectionState";
+export { hydrateTieredInspectionState };
+
+async function validateTieredInspectionInput({
+  ctx,
+  booking,
+  inspection,
+  prejob,
+  serviceNames,
+  brakeScope,
+  tireReplacementPositions,
+  passportView,
+  requireFinal = true,
+}: {
+  ctx: any;
+  booking: any;
+  inspection: any;
+  prejob: any;
+  serviceNames: string[];
+  brakeScope: BrakeScope;
+  tireReplacementPositions: CornerZoneId[];
+  passportView: any;
+  requireFinal?: boolean;
+}) {
+  if (!inspection) throw new Error("The multi-point inspection is required.");
+  if (inspection.template_version !== INSPECTION_TEMPLATE_VERSION) {
+    throw new Error("This inspection form is out of date. Reload it before continuing.");
+  }
+  if (
+    requireFinal &&
+    inspection.lift_status !== "yes" &&
+    inspection.lift_status !== "no"
+  ) {
+    throw new Error("Select whether the vehicle is on a lift before submitting.");
+  }
+  if (
+    requireFinal &&
+    (typeof inspection.odometer !== "number" ||
+      !Number.isSafeInteger(inspection.odometer) ||
+      inspection.odometer < 0)
+  ) {
+    throw new Error("Odometer reading is required before submitting.");
+  }
+  if (
+    inspection.odometer != null &&
+    (!Number.isSafeInteger(inspection.odometer) || inspection.odometer < 0)
+  ) {
+    throw new Error("Odometer must be a non-negative whole number.");
+  }
+  if (inspection.odometer != null && inspection.odometer !== prejob.mileage) {
+    throw new Error("The inspection odometer does not match the pre-job report.");
+  }
+
+  const savedInspection = await ctx.db
+    .query("vehicle_inspections")
+    .withIndex("by_booking", (q: any) => q.eq("booking_id", booking._id))
+    .first();
+  for (const zone of inspection.zones ?? []) {
+    const savedZone = savedInspection?.zones.find(
+      (candidate: any) => candidate.zone_id === zone.zone_id,
+    );
+    for (const photoId of zone.photo_ids ?? []) {
+      if (!(savedZone?.photo_ids ?? []).includes(photoId)) {
+        throw new Error("An inspection photo is not associated with this booking.");
+      }
+      if (!(await ctx.db.system.get("_storage", photoId))) {
+        throw new Error("An inspection photo is no longer available. Upload it again before submitting.");
+      }
+      if (
+        zone.photo_tags?.[String(photoId)] !==
+        savedZone?.photo_tags?.[String(photoId)]
+      ) {
+        throw new Error("An inspection photo tag does not match its saved association.");
+      }
+    }
+  }
+
+  const state = hydrateTieredInspectionState(inspection);
+  const prior = passportView.passport.tires.tread_depths ?? {};
+  const context = {
+    serviceNames,
+    brakeScope,
+    tireReplacementPositions,
+    isFirstShopVisit: !!passportView.is_first_shop_visit,
+    priorTreadReadings: {
+      FL: prior.front_left?.reported_min_32nds,
+      FR: prior.front_right?.reported_min_32nds,
+      RL: prior.rear_left?.reported_min_32nds,
+      RR: prior.rear_right?.reported_min_32nds,
+    },
+    rotorPhotoEvidence: passportView.rotor_photo_evidence,
+    inspectionState: state,
+    liftStatus: inspection.lift_status,
+  } as const;
+  const scopeError = deriveTierInspectionScope(context).bookingScopeError;
+  if (scopeError) throw new Error(scopeError);
+
+  if (requireFinal) {
+    for (const zoneId of requiredZonesForBooking(serviceNames)) {
+      if (!state.zones[zoneId]?.done) {
+        throw new Error(`${INSPECTION_ZONES_BY_ID[zoneId].label} must be marked complete.`);
+      }
+    }
+  }
+  for (const [zoneId, zoneState] of Object.entries(state.zones)) {
+    if (!zoneState?.done) continue;
+    const result = validateZoneForCompletion(state, zoneId as keyof typeof INSPECTION_ZONES_BY_ID, context);
+    if (!result.valid) {
+      throw new Error(`${INSPECTION_ZONES_BY_ID[zoneId as keyof typeof INSPECTION_ZONES_BY_ID].label}: ${result.error}`);
+    }
+  }
+
+  const findings = gatherFindings(state, { onlyCompletedZones: true });
+  const canonicalInspection = {
+    ...inspection,
+    findings_attention: findings.attention,
+    findings_monitor: findings.monitor,
+  };
+  const canonicalPrejob = derivePrejobFromInspection(state, {
+    mileage:
+      typeof inspection.odometer === "number"
+        ? inspection.odometer
+        : typeof prejob.mileage === "number"
+          ? prejob.mileage
+          : null,
+    inspectionStatus: prejob.inspection ?? null,
+    modifications: prejob.modifications ?? null,
+    flaggedVehicleSpecs: prejob.flagged_vehicle_specs ?? false,
+    nextMechanicTip: prejob.next_mechanic_tip ?? null,
+    completionContext: context,
+  });
+  return { inspection: canonicalInspection, prejob: canonicalPrejob };
+}
+
 function validatePrejobReport(
   prejob: any,
   baselineMileage: number | null,
   serviceFlags: ReturnType<typeof getBookingServiceFlags>,
   brakeScope: BrakeScope,
   tireReplacementPositions: TirePosition[],
+  useTieredInspection = false,
 ) {
   const tireInspectionRequired =
     serviceFlags.hasTireWork || serviceFlags.hasBrakeWork;
@@ -5418,7 +5771,7 @@ function validatePrejobReport(
   if (typeof prejob.mileage !== "number" || !Number.isFinite(prejob.mileage)) {
     throw new Error("Mileage is required before starting this booking.");
   }
-  if (tireInspectionRequired) {
+  if (tireInspectionRequired && !useTieredInspection) {
     const tireDetails = prejob.tire_details ?? {};
     const tireLabels: Record<TirePosition, string> = {
       front_left: "Front-left",
@@ -5464,7 +5817,7 @@ function validatePrejobReport(
       `Mileage cannot move backward. Stored mileage is ${baselineMileage.toLocaleString()}.`
     );
   }
-  if (serviceFlags.hasBrakeWork) {
+  if (serviceFlags.hasBrakeWork && !useTieredInspection) {
     if (
       brakeScope.front &&
       (typeof prejob.brakes?.front_pad_mm !== "number" ||
@@ -5483,15 +5836,17 @@ function validatePrejobReport(
       throw new Error("Rotor condition is required for brake-related work.");
     }
   }
-  const measurementResult = validateInspectionMeasurements({
-    tire_tread: prejob.tire_tread,
-    tire_replacement_positions: [...replaced],
-    require_tire_tread: tireInspectionRequired,
-    brakes: prejob.brakes,
-    brake_scope: brakeScope,
-  });
-  if (!measurementResult.valid) {
-    throw new Error(measurementResult.error);
+  if (!useTieredInspection) {
+    const measurementResult = validateInspectionMeasurements({
+      tire_tread: prejob.tire_tread,
+      tire_replacement_positions: [...replaced],
+      require_tire_tread: tireInspectionRequired,
+      brakes: prejob.brakes,
+      brake_scope: brakeScope,
+    });
+    if (!measurementResult.valid) {
+      throw new Error(measurementResult.error);
+    }
   }
   if (serviceFlags.hasOilChange) {
     if (!hasText(prejob.fluid_overrides?.oil_viscosity)) {
@@ -5540,6 +5895,9 @@ async function upsertInspectionRecord(
   const patch: Record<string, any> = {
     job_actual_id: jobActualId ?? undefined,
     template_version: inspection.template_version ?? "mpi-v1",
+    odometer:
+      typeof inspection.odometer === "number" ? inspection.odometer : undefined,
+    lift_status: inspection.lift_status ?? undefined,
     zones,
     findings_attention: inspection.findings_attention ?? [],
     findings_monitor: inspection.findings_monitor ?? [],
@@ -5550,6 +5908,21 @@ async function upsertInspectionRecord(
     .query("vehicle_inspections")
     .withIndex("by_booking", (q: any) => q.eq("booking_id", booking._id))
     .first();
+
+  // Photo associations and tags are server-owned. Upload/delete mutations are
+  // the only allowed way to change them; a draft/final payload cannot attach an
+  // arbitrary storage object or relabel a general photo as rotor evidence.
+  const existingZones = new Map(
+    (existing?.zones ?? []).map((zone: any) => [zone.zone_id, zone]),
+  );
+  patch.zones = zones.map((zone: any) => {
+    const saved = existingZones.get(zone.zone_id) as any;
+    return {
+      ...zone,
+      photo_ids: saved?.photo_ids ?? [],
+      photo_tags: saved?.photo_tags ?? {},
+    };
+  });
 
   if (existing) {
     await ctx.db.patch(existing._id, patch);
@@ -5566,6 +5939,75 @@ async function upsertInspectionRecord(
   });
 }
 
+async function grantRotorPhotoEvidence(
+  ctx: any,
+  {
+    booking,
+    inspectionId,
+    inspection,
+    now,
+  }: { booking: any; inspectionId: any; inspection: any; now: number },
+) {
+  if (!inspectionId || !inspection) return;
+  await ctx.db.patch(inspectionId, { submitted_at: now, updated_at: now });
+  const serviceNames = await resolveServiceNames(ctx, booking.service_ids);
+  const brakeScope = await resolveBrakeScopeForBooking(ctx, booking);
+  const context = {
+    serviceNames,
+    brakeScope,
+    tireReplacementPositions: getBookedTireReplacementPositions(
+      booking.tire_specs,
+    ) as CornerZoneId[],
+  };
+  const scope = deriveTierInspectionScope(context);
+  if (scope.bookingScopeError) throw new Error(scope.bookingScopeError);
+
+  const passport = await ctx.db
+    .query("vehicle_passports")
+    .withIndex("by_vin", (q: any) => q.eq("vin", toCanonicalVin(booking.vin)))
+    .unique();
+  if (!passport) return;
+  const evidence = { ...(passport.rotor_photo_evidence ?? {}) };
+  let changed = false;
+  const state = hydrateTieredInspectionState(inspection);
+  for (const corner of rotorEvidenceCornersFromSubmission(state, {
+    ...context,
+    rotorPhotoEvidence: {
+      FL: !!evidence.FL,
+      FR: !!evidence.FR,
+      RL: !!evidence.RL,
+      RR: !!evidence.RR,
+    },
+    inspectionState: state,
+  })) {
+    if (evidence[corner]) continue;
+    const zone = inspection.zones?.find(
+      (candidate: any) => candidate.zone_id === corner && candidate.done,
+    );
+    const taggedPhotoId = (zone?.photo_ids ?? []).find(
+      (photoId: any) => zone.photo_tags?.[String(photoId)] === "rotor_stamp",
+    );
+    if (!taggedPhotoId) continue;
+    const storedPhoto = await ctx.db.system.get("_storage", taggedPhotoId);
+    if (!storedPhoto) continue;
+    evidence[corner] = {
+      first_accepted_at: now,
+      source_inspection_id: inspectionId,
+    };
+    changed = true;
+  }
+  if (changed) {
+    await ctx.db.patch(passport._id, { rotor_photo_evidence: evidence, updated_at: now });
+  }
+}
+
+// The old addBrakeFluidDeclineFinding (a findings_attention/findings_monitor
+// text-note heuristic keyed on the single `bf` tri field) is superseded —
+// `bf` split into `bf_level`/`bf_condition`/`bf_leak`, and brake-fluid
+// decline detection now happens for real inside deriveCoreGrades (see
+// convex/lib/inspectionHealth.ts and convex/inspectionHealthDeferred.ts),
+// producing an actual score signal instead of a PDF-only note.
+
 async function persistPrejobSurvey(
   ctx: any,
   {
@@ -5575,6 +6017,7 @@ async function persistPrejobSurvey(
     inspection,
     now,
     startedAtMs,
+    finalizeInspection = false,
   }: {
     booking: any;
     passportView: any;
@@ -5582,6 +6025,7 @@ async function persistPrejobSurvey(
     inspection?: any;
     now: number;
     startedAtMs?: number;
+    finalizeInspection?: boolean;
   }
 ) {
   const jobActual = await ensureJobActualRecord(ctx, {
@@ -5601,18 +6045,31 @@ async function persistPrejobSurvey(
 
   await ctx.db.patch(jobActual._id, jobActualPatch);
 
-  await upsertInspectionRecord(ctx, {
+  const persistedInspection = inspection;
+  const inspectionId = await upsertInspectionRecord(ctx, {
     booking,
     jobActualId: jobActual._id,
-    inspection,
+    inspection: persistedInspection,
     now,
   });
+
+  // Draft saves persist the booking-scoped inspection only. They must not
+  // advance the vehicle passport's "latest completed" readings or first-visit
+  // marker, and they never grant permanent rotor-photo evidence.
+  if (!finalizeInspection) return;
 
   await upsertVehiclePassportRecord(ctx, {
     vin: booking.vin,
     patch: buildPassportPatchFromPrejob(prejob, passportView.passport),
     now,
     markConfirmed: true,
+  });
+
+  await grantRotorPhotoEvidence(ctx, {
+    booking,
+    inspectionId,
+    inspection: persistedInspection,
+    now,
   });
 
   // Log the mechanic's spec review/corrections to the Director "Mechanic Edits"
@@ -8132,14 +8589,11 @@ export async function runCompletionSideEffects(ctx: any, booking: any) {
         // (mirrors maintenance.upsertRecord / vehicleTruth's add). Patched once
         // after the loop so a multi-service booking clears all of them together.
         const clearedCodes = new Set<string>();
-        for (const serviceId of serviceIds) {
-          const service = await ctx.db.get(serviceId as any);
-          if (!service) continue;
-          // #90: services.slug is snake_case — resolve via the canonical map.
-          const recordType = recordTypeForServiceSlug((service as any).slug);
-          if (!recordType || typesUpdated.has(recordType)) continue;
-          typesUpdated.add(recordType);
 
+        /** Upsert one maintenance_records row, stamping it serviced now.
+         *  Shared by the aggregate write and the Consolidated-model
+         *  minor-item write below — same shape, different `type`. */
+        const markServiced = async (recordType: string) => {
           const existing = await ctx.db
             .query("maintenance_records")
             .withIndex("by_vehicle_and_type", (q: any) =>
@@ -8166,6 +8620,32 @@ export async function runCompletionSideEffects(ctx: any, booking: any) {
               createdAt: now,
             });
           }
+        };
+
+        for (const serviceId of serviceIds) {
+          const service = await ctx.db.get(serviceId as any);
+          if (!service) continue;
+          const slug = (service as any).slug;
+
+          // Consolidated Upkeep model: the per-field `minor_*` row this
+          // service actually resolves. Handled BEFORE the aggregate dedup
+          // below — several distinct minor services collapse onto the same
+          // aggregate type ("fluids"), so dedup'ing on the aggregate would
+          // silently skip the second one's own minor row. Advancing
+          // lastServiceDate here is what lets isMechanicGradeStale
+          // (utils/maintenanceStatus.ts) retire the finding.
+          const minorType = minorRecordTypeForServiceSlug(slug);
+          if (minorType && !typesUpdated.has(minorType)) {
+            typesUpdated.add(minorType);
+            await markServiced(minorType);
+          }
+
+          // #90: services.slug is snake_case — resolve via the canonical map.
+          const recordType = recordTypeForServiceSlug(slug);
+          if (!recordType || typesUpdated.has(recordType)) continue;
+          typesUpdated.add(recordType);
+
+          await markServiced(recordType);
 
           const code = symptomForRecordType(recordType);
           if (code) clearedCodes.add(code);
@@ -8310,6 +8790,16 @@ export async function applyBookingStatusTransition(
 
   if (newStatus === "completed") {
     await runCompletionSideEffects(ctx, booking);
+  }
+
+  // Deferred inspection-health writes (score + recommendation reveal) —
+  // scheduled 2 hours out the moment the booking is genuinely no longer
+  // open. isTerminal covers completed/cancelled/no_show/declined (verified
+  // against the real TERMINAL_STATES in convex/booking_status_history.ts —
+  // a broader, more accurate set than "completed" alone). See "Deferred
+  // writes at job completion."
+  if (isTerminal(newStatus)) {
+    await scheduleDeferredInspectionHealth(ctx, booking._id, booking.vin, booking.user_id);
   }
 
   // Walk-in client status-driven updates. The helper guards source +
@@ -9835,25 +10325,39 @@ export const startWithPrejob = mutation({
     }
 
     const passportView = await buildVehiclePassportForBooking(ctx, booking);
-    const serviceFlags = getBookingServiceFlags(
-      await resolveServiceNames(ctx, booking.service_ids)
-    );
+    const serviceNames = await resolveServiceNames(ctx, booking.service_ids);
+    const serviceFlags = getBookingServiceFlags(serviceNames);
+    const brakeScope = await resolveBrakeScopeForBooking(ctx, booking);
+    const canonical = await validateTieredInspectionInput({
+      ctx,
+      booking,
+      inspection: args.inspection,
+      prejob: args.prejob,
+      serviceNames,
+      brakeScope,
+      tireReplacementPositions: getBookedTireReplacementPositions(
+        booking.tire_specs,
+      ) as CornerZoneId[],
+      passportView,
+    });
     validatePrejobReport(
-      args.prejob,
+      canonical.prejob,
       passportView.passport.mileage ?? null,
       serviceFlags,
-      await resolveBrakeScopeForBooking(ctx, booking),
+      brakeScope,
       getTireReplacementPositions(booking),
+      true,
     );
 
     const now = Date.now();
     await persistPrejobSurvey(ctx, {
       booking,
       passportView,
-      prejob: args.prejob,
-      inspection: args.inspection,
+      prejob: canonical.prejob,
+      inspection: canonical.inspection,
       now,
       startedAtMs: now,
+      finalizeInspection: true,
     });
 
     if (booking.status !== "in_progress") {
@@ -9939,25 +10443,39 @@ export const commitInspectionAndAwaitEstimate = mutation({
     }
 
     const passportView = await buildVehiclePassportForBooking(ctx, booking);
-    const serviceFlags = getBookingServiceFlags(
-      await resolveServiceNames(ctx, booking.service_ids),
-    );
+    const serviceNames = await resolveServiceNames(ctx, booking.service_ids);
+    const serviceFlags = getBookingServiceFlags(serviceNames);
+    const brakeScope = await resolveBrakeScopeForBooking(ctx, booking);
+    const canonical = await validateTieredInspectionInput({
+      ctx,
+      booking,
+      inspection: args.inspection,
+      prejob: args.prejob,
+      serviceNames,
+      brakeScope,
+      tireReplacementPositions: getBookedTireReplacementPositions(
+        booking.tire_specs,
+      ) as CornerZoneId[],
+      passportView,
+    });
     validatePrejobReport(
-      args.prejob,
+      canonical.prejob,
       passportView.passport.mileage ?? null,
       serviceFlags,
-      await resolveBrakeScopeForBooking(ctx, booking),
+      brakeScope,
       getTireReplacementPositions(booking),
+      true,
     );
 
     const now = Date.now();
     await persistPrejobSurvey(ctx, {
       booking,
       passportView,
-      prejob: args.prejob,
-      inspection: args.inspection,
+      prejob: canonical.prejob,
+      inspection: canonical.inspection,
       now,
       startedAtMs: now,
+      finalizeInspection: true,
     });
 
     // Diagnostic checklist seeding — mirrors startWithPrejob's tail block.
@@ -10012,13 +10530,30 @@ export const savePrejob = mutation({
     }
 
     const passportView = await buildVehiclePassportForBooking(ctx, booking);
+    const serviceNames = await resolveServiceNames(ctx, booking.service_ids);
+    const brakeScope = await resolveBrakeScopeForBooking(ctx, booking);
+    const canonical = args.inspection
+      ? await validateTieredInspectionInput({
+          ctx,
+          booking,
+          inspection: args.inspection,
+          prejob: args.prejob,
+          serviceNames,
+          brakeScope,
+          tireReplacementPositions: getBookedTireReplacementPositions(
+            booking.tire_specs,
+          ) as CornerZoneId[],
+          passportView,
+          requireFinal: false,
+        })
+      : { prejob: args.prejob, inspection: args.inspection };
     const now = Date.now();
 
     await persistPrejobSurvey(ctx, {
       booking,
       passportView,
-      prejob: args.prejob,
-      inspection: args.inspection,
+      prejob: canonical.prejob,
+      inspection: canonical.inspection,
       now,
     });
 
@@ -10955,7 +11490,9 @@ export const createByShop = mutation({
     await requireShopStaff(ctx, user._id, args.shopId);
 
     const now = Date.now();
-    const canonicalVin = toCanonicalVin(args.vin);
+    // NOTE: the canonical VIN is resolved AFTER the customer row exists —
+    // resolveWalkInVin needs the customer to find a placeholder they already
+    // have for this car. See resolveWalkInVin.
 
     if (!args.customerEmail && !args.customerPhone) {
       throw new Error("Provide a customer email or phone number.");
@@ -11029,6 +11566,15 @@ export const createByShop = mutation({
 
     if (!customer) throw new Error("Could not create customer");
 
+    const canonicalVin = await resolveWalkInVin(ctx, {
+      customerId: customer._id,
+      vinRaw: args.vin,
+      year: args.vehicleYear,
+      make: args.vehicleMake,
+      model: args.vehicleModel,
+      trim: args.vehicleTrim,
+    });
+
     let existingVehicle = await ctx.db
       .query("vehicles")
       .withIndex("by_vin", (q: any) => q.eq("vin", canonicalVin))
@@ -11047,17 +11593,34 @@ export const createByShop = mutation({
         updated_at: now,
       });
       existingVehicle = await ctx.db.get(newVehicleId);
+    } else if (!existingVehicle.year && args.vehicleYear) {
+      // A reused placeholder (or a bare row from the consumer add-car path)
+      // may predate our having any YMMT for it. Fill it in so the identity
+      // resolution below has something to work with.
+      await ctx.db.patch(existingVehicle._id, {
+        year: args.vehicleYear,
+        metadata: {
+          ...(existingVehicle.metadata ?? {}),
+          make: args.vehicleMake,
+          model: args.vehicleModel,
+          trim: args.vehicleTrim,
+        },
+        updated_at: now,
+      });
     }
 
-    // Fire-and-forget enrichment for any VIN whose vehicles row doesn't yet
-    // have a resolved vehicle_config_id. Walk-in events are the freshest VIN
-    // signal we get, so we always want full passport data ready by next visit.
+    // Fire-and-forget identity resolution for any vehicle without a resolved
+    // config. Real VIN → decode; YMMT-only → research. Walk-ins are the
+    // freshest vehicle signal we get, so we want the passport ready by the
+    // next visit either way.
     if (existingVehicle && !existingVehicle.vehicle_config_id) {
-      await ctx.scheduler.runAfter(
-        0,
-        internal.vehicleEnrichment.runPublic.go,
-        { vin: canonicalVin },
-      );
+      await scheduleVehicleIdentityResolution(ctx, {
+        vin: canonicalVin,
+        year: args.vehicleYear,
+        make: args.vehicleMake,
+        model: args.vehicleModel,
+        trim: args.vehicleTrim,
+      });
     }
 
     const ownerLink = await ctx.db
@@ -11550,7 +12113,11 @@ export const backfillCompletedBooking = mutation({
     await requireShopStaff(ctx, user._id, args.shopId);
 
     const now = Date.now();
-    const canonicalVin = toCanonicalVin(args.vin);
+    // Starts as whatever the mechanic typed so the duplicate-booking check
+    // below can compare against existing rows, then is re-resolved once the
+    // customer exists (see resolveWalkInVin). A real VIN resolves to itself,
+    // so the duplicate check is unaffected in the case where it can fire.
+    let canonicalVin = toCanonicalVin(args.vin);
     const timezone = await getShopTimezone(ctx, args.shopId);
     const scheduledStartMs = toBookingDateTimeMs(
       args.scheduledDate,
@@ -11638,6 +12205,15 @@ export const backfillCompletedBooking = mutation({
     }
     if (!customer) throw new Error("Could not create customer");
 
+    canonicalVin = await resolveWalkInVin(ctx, {
+      customerId: customer._id,
+      vinRaw: args.vin,
+      year: args.vehicleYear,
+      make: args.vehicleMake,
+      model: args.vehicleModel,
+      trim: args.vehicleTrim,
+    });
+
     let vehicle = await ctx.db
       .query("vehicles")
       .withIndex("by_vin", (q: any) => q.eq("vin", canonicalVin))
@@ -11655,10 +12231,25 @@ export const backfillCompletedBooking = mutation({
         updated_at: now,
       });
       vehicle = await ctx.db.get(newVehicleId);
+    } else if (!vehicle.year && args.vehicleYear) {
+      await ctx.db.patch(vehicle._id, {
+        year: args.vehicleYear,
+        metadata: {
+          ...(vehicle.metadata ?? {}),
+          make: args.vehicleMake,
+          model: args.vehicleModel,
+          trim: args.vehicleTrim,
+        },
+        updated_at: now,
+      });
     }
     if (vehicle && !vehicle.vehicle_config_id) {
-      await ctx.scheduler.runAfter(0, internal.vehicleEnrichment.runPublic.go, {
+      await scheduleVehicleIdentityResolution(ctx, {
         vin: canonicalVin,
+        year: args.vehicleYear,
+        make: args.vehicleMake,
+        model: args.vehicleModel,
+        trim: args.vehicleTrim,
       });
     }
 
@@ -15584,7 +16175,14 @@ export const getReceipt = query({
         plate: (vehicleOwner as any)?.license_plate ?? null,
         vin_last4: booking.vin ? booking.vin.slice(-4).toUpperCase() : null,
         image_url: vehicleRow?.image_url ?? null,
-        odometer_in: jobActual?.odometer_in ?? null,
+        // `job_actuals.odometer_in` is declared in the schema but no mutation
+        // in either repo ever writes it, so it is always null. The reading the
+        // mechanic actually enters is the pre-job mileage — required by
+        // validatePrejobReport and persisted on the same job_actuals row — so
+        // fall back to it. Without this the receipt can only ever show an
+        // "after" and the before/after pair never renders.
+        odometer_in:
+          jobActual?.odometer_in ?? jobActual?.prejob_report?.mileage ?? null,
         odometer_out: jobActual?.completion_mileage ?? null,
       },
       service_notes: {

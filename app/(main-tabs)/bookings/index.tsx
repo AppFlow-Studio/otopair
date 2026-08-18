@@ -41,11 +41,12 @@ import { useToast } from "@/hooks/useToast";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
-import { Calendar, CalendarX, Check, ListFilter, Star } from "lucide-react-native";
+import { Calendar, CalendarX, Check, ChevronRight, LayoutGrid, ListFilter, Star } from "lucide-react-native";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Image, PixelRatio, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
+import { Image, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
 import Animated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import SegmentedControl from "@react-native-segmented-control/segmented-control";
 
 // ============================================================================
 // TYPES
@@ -58,19 +59,24 @@ const TAB_LABELS: Record<TabType, string> = {
   quotes: "Quotes",
   recommended: "Recommended",
 };
-const TAB_LABEL_MAX_SIZE = 14;
-const TAB_LABEL_MIN_SIZE = 11;
-const TAB_LABEL_LONGEST = "Recommended";
-const TAB_LABEL_WIDTH_RATIO = 0.62;
 const BOTTOM_NAV_SCROLL_CLEARANCE = 96;
 
-function getTabLabelSize(width: number, fontScale: number): number {
-  if (width <= 0) return TAB_LABEL_MAX_SIZE;
-  const segmentWidth = (width - 6) / TAB_ORDER.length;
-  const availableWidth = segmentWidth - 4;
-  const fittedSize =
-    availableWidth / (TAB_LABEL_LONGEST.length * TAB_LABEL_WIDTH_RATIO * fontScale);
-  return Math.min(Math.max(fittedSize, TAB_LABEL_MIN_SIZE), TAB_LABEL_MAX_SIZE);
+// "All Vehicles" affordance. The covered-car asset is the fallback for a
+// real vehicle that's missing a photo, so reusing it here read as one
+// specific shrouded car. A tinted grid badge instead signals "the whole
+// garage / every vehicle". Sized to match the car-thumbnail footprint in
+// both the collapsed filter button and the picker rows.
+function AllVehiclesGlyph({ size = 40, icon = 22 }: { size?: number; icon?: number }) {
+  return (
+    <View
+      style={[
+        styles.allVehiclesGlyph,
+        { width: size, height: size, borderRadius: size * 0.3 },
+      ]}
+    >
+      <LayoutGrid size={icon} color="#5299FE" strokeWidth={2} />
+    </View>
+  );
 }
 
 // ============================================================================
@@ -104,12 +110,6 @@ export default function BookingsScreen() {
     ? (tabParam as TabType)
     : "bookings";
   const [activeTab, setActiveTab] = useState<TabType>(initialTab);
-  const [segmentedWidth, setSegmentedWidth] = useState(0);
-  const fontScale = PixelRatio.getFontScale();
-  const tabLabelSize = useMemo(
-    () => getTabLabelSize(segmentedWidth, fontScale),
-    [segmentedWidth, fontScale],
-  );
   // If we land on the screen again with a new `tab` param (e.g. from the
   // tire flow completing), switch to the requested tab.
   useEffect(() => {
@@ -307,6 +307,24 @@ export default function BookingsScreen() {
   );
   const showPendingReviewsButton = activeTab === "bookings" && pendingReviewCount > 0;
 
+  const pendingReviewLabel =
+    pendingReviewCount === 1
+      ? "1 service needs your review"
+      : `${pendingReviewCount} services need your review`;
+
+  // Names the newest unreviewed booking so the row says what is waiting, not
+  // just how many. Respects the active vehicle filter, same as the count.
+  // Service labels match CompletedBookingReviewCard on the destination screen
+  // so the row and the screen it opens cannot disagree.
+  const pendingReviewSubtitle = useMemo(() => {
+    const first = pendingReviewBookings.filter(matchesListFilter)[0];
+    if (!first) return "";
+    const service = first.services.join(", ") || "Service";
+    const base = first.shopName ? `${service} · ${first.shopName}` : service;
+    const others = pendingReviewCount - 1;
+    return others > 0 ? `${base}  +${others} more` : base;
+  }, [pendingReviewBookings, matchesListFilter, pendingReviewCount]);
+
   const handleReschedule = useCallback(
     (bookingId?: string) => {
       if (!bookingId) return;
@@ -389,44 +407,18 @@ export default function BookingsScreen() {
 
             {/* Tab Switcher */}
             <View style={styles.segmentedWrapper}>
-              <View
+              <SegmentedControl
+                values={TAB_ORDER.map((tab) => TAB_LABELS[tab])}
+                selectedIndex={TAB_ORDER.indexOf(activeTab)}
+                onChange={(event) => {
+                  setActiveTab(TAB_ORDER[event.nativeEvent.selectedSegmentIndex]);
+                }}
                 style={styles.segmentedControl}
-                accessibilityRole="tablist"
-                onLayout={(event) => setSegmentedWidth(event.nativeEvent.layout.width)}
-              >
-                {TAB_ORDER.map((tab) => {
-                  const isSelected = activeTab === tab;
-                  return (
-                    <Pressable
-                      key={tab}
-                      onPress={() => setActiveTab(tab)}
-                      accessibilityRole="tab"
-                      accessibilityState={{ selected: isSelected }}
-                      style={({ pressed }) => [
-                        styles.segmentButton,
-                        isSelected && styles.segmentButtonActive,
-                        pressed && !isSelected && styles.segmentButtonPressed,
-                      ]}
-                    >
-                      <Text
-                        size={tabLabelSize}
-                        weight="semiBold"
-                        color="#FFFFFF"
-                        numberOfLines={1}
-                        allowFontScaling={false}
-                        lineHeight={1.05}
-                        style={styles.segmentLabel}
-                      >
-                        {TAB_LABELS[tab]}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
+              />
             </View>
 
-            {/* Vehicle picker + pending-review shortcut. */}
-            {allVehicles.length > 1 || showPendingReviewsButton ? (
+            {/* Vehicle picker. */}
+            {allVehicles.length > 1 ? (
               <View style={styles.pickerRow}>
                 {allVehicles.length > 1 ? (
                   <Pressable
@@ -439,7 +431,9 @@ export default function BookingsScreen() {
                     ]}
                   >
                     <View style={styles.pickerSide}>
-                      {filterVehicle?.imageSource ? (
+                      {filterVehicle == null ? (
+                        <AllVehiclesGlyph size={28} icon={16} />
+                      ) : filterVehicle.imageSource ? (
                         <Image
                           source={filterVehicle.imageSource}
                           style={styles.pickerThumb}
@@ -469,35 +463,52 @@ export default function BookingsScreen() {
                     </View>
                   </Pressable>
                 ) : null}
-                {showPendingReviewsButton ? (
-                  <Pressable
-                    onPress={() => router.push("/bookings/pending-reviews")}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Pending reviews, ${pendingReviewCount}`}
-                    style={({ pressed }) => [
-                      styles.pendingReviewsButton,
-                      pressed && { opacity: 0.85 },
-                    ]}
-                  >
-                    <Star size={20} color="#141C24" />
-                    <View style={styles.pendingReviewsBadge}>
-                      <Text
-                        weight="semiBold"
-                        style={styles.pendingReviewsBadgeText}
-                      >
-                        {pendingReviewCount}
-                      </Text>
-                    </View>
-                  </Pressable>
-                ) : null}
               </View>
+            ) : null}
+
+            {/* Pending-review prompt. This was a circular Star button in the
+                row above with only a count badge — an unlabelled glyph that
+                never said what was waiting. A full-width row on the booking
+                cards' gutters names the service instead, which is what
+                comparable order-history surfaces do (Thrive Market, Agoda).
+                Destination is unchanged. */}
+            {showPendingReviewsButton ? (
+              <Pressable
+                onPress={() => router.push("/bookings/pending-reviews")}
+                accessibilityRole="button"
+                accessibilityLabel={pendingReviewLabel}
+                accessibilityHint="Opens your pending reviews"
+                style={({ pressed }) => [
+                  styles.reviewBanner,
+                  pressed && { opacity: 0.9 },
+                ]}
+              >
+                <View style={styles.reviewBannerIcon}>
+                  <Star size={19} color="#E8A93B" fill="#E8A93B" />
+                </View>
+                <View style={styles.reviewBannerCopy}>
+                  <Text weight="bold" color="#141C24" style={styles.reviewBannerTitle}>
+                    {pendingReviewLabel}
+                  </Text>
+                  {pendingReviewSubtitle ? (
+                    <Text
+                      color="#6B7280"
+                      numberOfLines={1}
+                      style={styles.reviewBannerSubtitle}
+                    >
+                      {pendingReviewSubtitle}
+                    </Text>
+                  ) : null}
+                </View>
+                <ChevronRight size={18} color="#9CA3AF" strokeWidth={2} />
+              </Pressable>
             ) : null}
 
             {/* Booking Content. The Bookings tab includes in-progress
                 cards now — their per-card progress bar communicates
                 status inline, replacing the old Live Tracker tab.
-                Completed-but-unreviewed bookings live behind the circular
-                Star button above — see /bookings/pending-reviews.
+                Completed-but-unreviewed bookings live behind the review
+                banner above — see /bookings/pending-reviews.
                 The Recommended tab swaps the list for the mechanic-rec
                 history view instead — same content as the standalone
                 /bookings/recommended screen (kept for deep links). */}
@@ -574,7 +585,10 @@ export default function BookingsScreen() {
         showBackdrop dims + blurs the page behind it. */}
     <FloatingSheet
       ref={vehiclePickerRef}
-      snapHeights={[Math.min(540, 200 + (allVehicles.length + 1) * 78)]}
+      /* Height hugs content: ~96 chrome (handle + title + padding) + 78 per
+         row (incl. the "All Vehicles" row, hence +1). Caps at 540 so a large
+         garage scrolls instead of running off-screen. */
+      snapHeights={[Math.min(540, 96 + (allVehicles.length + 1) * 78)]}
       showBackdrop
     >
       <View style={styles.sheetContent}>
@@ -590,11 +604,7 @@ export default function BookingsScreen() {
             }}
           >
             <View style={styles.vehicleRowSide}>
-              <Image
-                source={require("@/assets/images/covered-car.png")}
-                style={styles.vehicleRowCoveredCar}
-                resizeMode="contain"
-              />
+              <AllVehiclesGlyph size={40} icon={22} />
             </View>
             <View style={styles.vehicleRowText}>
               <Text size="md" weight="semiBold" color="#1F2937">
@@ -687,32 +697,6 @@ const styles = StyleSheet.create({
   },
   segmentedControl: {
     height: 44,
-    flexDirection: "row",
-    alignItems: "center",
-    padding: 3,
-    borderRadius: 8,
-    backgroundColor: "#111111",
-    overflow: "hidden",
-  },
-  segmentButton: {
-    flex: 1,
-    minWidth: 0,
-    height: 38,
-    borderRadius: 6,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 2,
-  },
-  segmentButtonActive: {
-    backgroundColor: "#5F6063",
-  },
-  segmentButtonPressed: {
-    backgroundColor: "rgba(255,255,255,0.10)",
-  },
-  segmentLabel: {
-    width: "100%",
-    textAlign: "center",
-    includeFontPadding: false,
   },
   // Vehicle picker button + sheet
   pickerRow: {
@@ -794,6 +778,11 @@ const styles = StyleSheet.create({
     width: 56,
     height: 40,
   },
+  allVehiclesGlyph: {
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(82, 153, 254, 0.12)",
+  },
   vehicleRowText: {
     flex: 1,
     gap: 2,
@@ -813,34 +802,44 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 16,
   },
-  pendingReviewsButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+  // Review banner — matches the booking cards' 20pt gutters so the two read
+  // as one column.
+  reviewBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginHorizontal: 20,
+    marginTop: 14,
+    marginBottom: 14,
+    paddingHorizontal: 14,
+    height: 68,
+    borderRadius: 18,
     backgroundColor: "#FFFFFF",
-    borderWidth: 0.5,
-    borderColor: "rgba(0,0,0,0.06)",
+    shadowColor: "#14273F",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.1,
+    shadowRadius: 16,
+    elevation: 3,
+  },
+  reviewBannerIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "#FEF4DA",
     alignItems: "center",
     justifyContent: "center",
   },
-  pendingReviewsBadge: {
-    position: "absolute",
-    top: -2,
-    right: -2,
-    minWidth: 18,
-    height: 18,
-    paddingHorizontal: 5,
-    borderRadius: 9,
-    backgroundColor: "#5299FE",
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1.5,
-    borderColor: "#FFFFFF",
+  reviewBannerCopy: {
+    flex: 1,
   },
-  pendingReviewsBadgeText: {
-    fontSize: 11,
-    color: "#FFFFFF",
-    lineHeight: 13,
+  reviewBannerTitle: {
+    fontSize: 14.5,
+    lineHeight: 19,
+  },
+  reviewBannerSubtitle: {
+    fontSize: 12,
+    lineHeight: 16,
+    marginTop: 2,
   },
   emptyState: {
     alignItems: "center",

@@ -16,11 +16,15 @@ import { ChevronRight, Star } from "lucide-react-native";
 
 import { Text } from "@/components/shared-ui";
 
+// OtoPair pin mark — placeholder for shops that haven't uploaded a logo.
+const SHOP_LOGO_PLACEHOLDER = require("@/assets/images/pin-logo-3d.png");
+
 interface MapShopCardProps {
   shopId: string;
   shopName: string;
   /** Shop logo (shops.logo_storage_id resolved by shops.list). Renders a
-   *  small avatar before the name when set; layout is unchanged when null. */
+   *  small avatar before the name — the shop's logo when set, the OtoPair
+   *  pin placeholder when null. */
   imageUrl?: string | null;
   rating: number | null;
   distanceMi: number;
@@ -61,9 +65,11 @@ export function MapShopCard({
         />
       ) : null}
       <View style={styles.topRow}>
-        {imageUrl ? (
-          <Image source={{ uri: imageUrl }} style={styles.logo} resizeMode="cover" />
-        ) : null}
+        <Image
+          source={imageUrl ? { uri: imageUrl } : SHOP_LOGO_PLACEHOLDER}
+          style={styles.logo}
+          resizeMode={imageUrl ? "cover" : "contain"}
+        />
         <Text size="md" weight="bold" color="#0F172A" numberOfLines={1} style={styles.name}>
           {shopName}
         </Text>

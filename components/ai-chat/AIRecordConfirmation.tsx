@@ -37,7 +37,7 @@ import Animated, {
   withSpring,
   withTiming,
 } from "react-native-reanimated";
-import { Check, Pencil } from "lucide-react-native";
+import { Check, Pencil, X } from "lucide-react-native";
 import { useQuery, useMutation } from "convex/react";
 
 // 3. Convex
@@ -91,6 +91,13 @@ interface AIRecordConfirmationProps {
 // FORMATTERS
 // ============================================================================
 
+/** Maintenance types whose display label is a plural noun ("Brakes", "Tires").
+ *  They take "were"/"them"; every other type takes "was"/"it". */
+const PLURAL_TYPES: ReadonlySet<MaintenanceType> = new Set<MaintenanceType>([
+  "brakes",
+  "tires",
+]);
+
 function formatRecordDate(ms?: number): string {
   if (ms == null) return "Unknown date";
   const d = new Date(ms);
@@ -115,7 +122,9 @@ export function AIRecordConfirmation({
   // Two-step state machine: "prompt" (initial confirm/deny) → "form" (date+mileage input).
   const [step, setStep] = useState<"prompt" | "form">("prompt");
   const [submitting, setSubmitting] = useState(false);
-  const [resolved, setResolved] = useState(false);
+  // Which way the card settled. Three-valued rather than a boolean because
+  // declining confirms nothing — it must not render as a blue "✓".
+  const [resolved, setResolved] = useState<null | "confirmed" | "updated" | "declined">(null);
   // Label shown in the auto-dismissing confirmation pill.
   const [resolvedText, setResolvedText] = useState("Updated");
   // Inline failure surface — fires when upsertRecord throws. Console warns
@@ -141,14 +150,17 @@ export function AIRecordConfirmation({
 
   const summaryLine = useMemo(() => {
     if (!data) return "Loading record…";
+    const plural = PLURAL_TYPES.has(maintenanceType);
     if (!data.record) {
-      return `We don't have a record on file for ${label.toLowerCase()}. When did you last service it?`;
+      return `We don't have a record on file for ${label.toLowerCase()}. When did you last service ${plural ? "them" : "it"}?`;
     }
-    const parts: string[] = [`our records show your ${label.toLowerCase()} was serviced`];
+    const parts: string[] = [
+      `our records show your ${label.toLowerCase()} ${plural ? "were" : "was"} serviced`,
+    ];
     if (data.record.lastServiceDate != null) parts.push(`in ${dateText}`);
     if (mileageText) parts.push(`at ${mileageText}`);
     return capitalize(parts.join(" ")) + ". Is that still right?";
-  }, [data, label, dateText, mileageText]);
+  }, [data, label, dateText, mileageText, maintenanceType]);
 
   // ---------------------------------------------------------------------------
   // Confirm path — record is correct as-is. Stamp confirmedHealthyAt to lock
@@ -170,7 +182,7 @@ export function AIRecordConfirmation({
         // correct, didn't add new evidence. Preserve whatever's there.
       });
       setResolvedText("Confirmed");
-      setResolved(true);
+      setResolved("confirmed");
       onDecision({ kind: "confirmed", type: maintenanceType });
     } catch (err) {
       // Surface failure but don't block the user from retrying.
@@ -186,7 +198,7 @@ export function AIRecordConfirmation({
   // validated. Guarded against double-fire like the confirm path.
   const handleDecline = useCallback(() => {
     if (submitting || resolved) return;
-    setResolved(true);
+    setResolved("declined");
     onDecision({ kind: "declined", type: maintenanceType });
   }, [maintenanceType, onDecision, resolved, submitting]);
 
@@ -231,7 +243,7 @@ export function AIRecordConfirmation({
       setResolvedText(
         Number.isFinite(parsedMileage as number) ? "Mileage updated" : "Updated",
       );
-      setResolved(true);
+      setResolved("updated");
       onDecision({
         kind: "updated",
         type: maintenanceType,
@@ -264,8 +276,18 @@ export function AIRecordConfirmation({
   // Resolved state — a clean confirmation pill that pops in, then fades out
   // and unmounts so it doesn't linger in the transcript (the follow-up chat
   // message from the parent already carries the outcome).
+  //
+  // Declined takes the muted variant. It is a real outcome the pill design
+  // did not originally cover, and it must not read as a blue "✓" — the user
+  // dismissed the record, so nothing was confirmed and nothing was written.
   if (resolved) {
-    return <ResolvedConfirmation text={resolvedText} />;
+    const declined = resolved === "declined";
+    return (
+      <ResolvedConfirmation
+        text={declined ? "Left as is" : resolvedText}
+        declined={declined}
+      />
+    );
   }
 
   return (
@@ -334,7 +356,9 @@ export function AIRecordConfirmation({
       {step === "form" && (
         <View style={styles.formBlock}>
           <Text style={styles.formLabel} weight="medium">
-            When was it last serviced?
+            {PLURAL_TYPES.has(maintenanceType)
+              ? "When were they last serviced?"
+              : "When was it last serviced?"}
           </Text>
           <DatePickerMonthYear
             value={newDate}
@@ -391,7 +415,13 @@ function capitalize(s: string): string {
 
 const HOLD_MS = 1400;
 
-function ResolvedConfirmation({ text }: { text: string }) {
+function ResolvedConfirmation({
+  text,
+  declined = false,
+}: {
+  text: string;
+  declined?: boolean;
+}) {
   const [gone, setGone] = useState(false);
 
   const checkScale = useSharedValue(0.4);
@@ -427,11 +457,18 @@ function ResolvedConfirmation({ text }: { text: string }) {
 
   return (
     <Animated.View style={[styles.resolvedWrap, wrapStyle]}>
-      <View style={styles.resolvedBanner}>
+      <View style={[styles.resolvedBanner, declined && styles.resolvedBannerMuted]}>
         <Animated.View style={badgeStyle}>
-          <Check size={14} color={BrandColors.white} strokeWidth={3} />
+          {declined ? (
+            <X size={14} color={NEUTRAL_TEXT} strokeWidth={3} />
+          ) : (
+            <Check size={14} color={BrandColors.white} strokeWidth={3} />
+          )}
         </Animated.View>
-        <Text style={styles.resolvedText} weight="medium">
+        <Text
+          style={[styles.resolvedText, declined && styles.resolvedTextMuted]}
+          weight="medium"
+        >
           {text}
         </Text>
       </View>
@@ -563,10 +600,18 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.md,
     alignSelf: "flex-start",
   },
+  // Declined: nothing was confirmed, so drop the brand fill entirely rather
+  // than tinting it — a washed-out blue still reads as an affirmative.
+  resolvedBannerMuted: {
+    backgroundColor: "rgba(0, 0, 0, 0.06)",
+  },
   resolvedText: {
     fontSize: 12,
     color: BrandColors.white,
     fontFamily: FontFamily.medium,
+  },
+  resolvedTextMuted: {
+    color: NEUTRAL_TEXT,
   },
   errorBanner: {
     marginTop: Spacing.xs,

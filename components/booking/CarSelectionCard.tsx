@@ -66,6 +66,13 @@ function truncateVin(vin: string | undefined): string {
   return vin.toUpperCase();
 }
 
+/** Manual-entry cars carry a client-minted `MANUAL-<time>-<rand>` placeholder
+ *  instead of a real 17-char VIN. Surface a friendly label rather than the
+ *  meaningless id. */
+function isManualVin(vin: string | undefined): boolean {
+  return !!vin && vin.toUpperCase().startsWith("MANUAL-");
+}
+
 // ============================================================================
 // COMPONENT
 // ============================================================================
@@ -107,7 +114,7 @@ function CarSelectionCardComponent({
             </View>
             {vehicle.vin && (
               <Text size="xs" color="#000000" style={styles.vin}>
-                {truncateVin(vehicle.vin)}
+                {isManualVin(vehicle.vin) ? "Manually added" : truncateVin(vehicle.vin)}
               </Text>
             )}
           </View>
@@ -169,10 +176,10 @@ function CarSelectionCardComponent({
             </Text>
           </View>
 
-          {/* VIN (truncated) */}
+          {/* VIN — or "Manually added" for manual-entry placeholder ids */}
           {vehicle.vin && (
             <Text size="xs" color="#9CA3AF" style={styles.vin}>
-              VIN: {truncateVin(vehicle.vin)}
+              {isManualVin(vehicle.vin) ? "Manually added" : `VIN: ${truncateVin(vehicle.vin)}`}
             </Text>
           )}
         </View>

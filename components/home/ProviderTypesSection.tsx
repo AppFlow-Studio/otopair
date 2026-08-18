@@ -177,6 +177,16 @@ const styles = StyleSheet.create({
   cardWrapper: {
     width: CARD_WIDTH,
     height: CARD_HEIGHT,
+    // Shadow lives here — the wrapper does NOT clip, so the card's soft
+    // lift renders cleanly. (The inner `card` has overflow:'hidden' to
+    // crop the oversized icon, which would otherwise mask its own shadow.)
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 2,
   },
   cardPressed: {
     opacity: 0.7,
@@ -207,10 +217,10 @@ const styles = StyleSheet.create({
   imageIcon: {
     width: IMAGE_ICON_SIZE,
     height: IMAGE_ICON_SIZE,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 5 },
-    shadowOpacity: 0.28,
-    shadowRadius: 7,
+    // No drop shadow here: the icon nearly fills the card, so its shadow
+    // used to bleed to the edges and get sliced by the card's rounded
+    // clip (hard bottom line + odd corners). The card lift now lives on
+    // `cardWrapper`; the 3D PNG carries its own baked lighting.
   },
   cardLabel: {
     marginBottom: 2,

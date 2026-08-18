@@ -9,6 +9,7 @@ import {
   calculatePrevOwnerAnnualRate,
 } from "./lib/classifier";
 import { resolveTireSizesForVin } from "./lib/vehicle_passports";
+import { isRealVin, isPseudoVin } from "./lib/vinIdentity";
 
 /**
  * vehicles.ts - Canonical vehicle catalog management
@@ -596,26 +597,103 @@ export const addOwner = mutation({
     nickname: v.optional(v.string()),
     is_primary: v.optional(v.boolean()),
     mileage: v.optional(v.float64()),
+    // Vehicle identity for cars added WITHOUT a VIN (the consumer app's
+    // "enter it manually" flow, which mints a MANUAL-… placeholder client-side).
+    //
+    // These are new and optional so older clients keep working. Before them
+    // this mutation created a vehicles row holding ONLY {vin, created_at,
+    // updated_at} — the year/make/model the owner had just typed was dropped on
+    // the floor, surviving nowhere but the free-text `nickname`. With nothing to
+    // identify the car by, it could never be enriched, so it could never clear
+    // the enrichment gate in bookings.ts and the owner could never book a
+    // parts-dependent service on it.
+    year: v.optional(v.float64()),
+    make: v.optional(v.string()),
+    model: v.optional(v.string()),
+    trim: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const normalizedVin = args.vin.toUpperCase().trim();
-    
+    const argsHaveYmmt = Boolean(args.year && args.make && args.model);
+
     // Ensure vehicle exists (upsert it if not)
     let vehicle = await ctx.db
       .query("vehicles")
       .withIndex("by_vin", (q) => q.eq("vin", normalizedVin))
       .unique();
-    
+
     if (!vehicle) {
       const now = Date.now();
       const vehicleId = await ctx.db.insert("vehicles", {
         vin: normalizedVin,
+        ...(args.year ? { year: args.year } : {}),
+        ...(argsHaveYmmt
+          ? { metadata: { make: args.make, model: args.model, trim: args.trim } }
+          : {}),
         created_at: now,
         updated_at: now,
       });
       vehicle = await ctx.db.get(vehicleId);
+    } else if (argsHaveYmmt && !vehicle.year) {
+      // Backfill identity onto a bare row created by an older client.
+      await ctx.db.patch(vehicle._id, {
+        year: args.year,
+        metadata: {
+          ...(vehicle.metadata ?? {}),
+          make: args.make,
+          model: args.model,
+          trim: args.trim,
+        },
+        updated_at: Date.now(),
+      });
+      vehicle = await ctx.db.get(vehicle._id);
     }
-    
+
+    // Resolve the car's identity from the ARGS IF GIVEN, otherwise from what is
+    // already on the vehicles row.
+    //
+    // The row fallback is the one that actually fires in production. The
+    // consumer app's manual-add mints its own `MANUAL-…` VIN and sends the
+    // year/make/model to the vehicle row (via upsertVehicle) — NOT to this
+    // mutation, which it calls with just {vin, userId, nickname, mileage}.
+    // Requiring the args here meant the common path stayed silent and the car
+    // still never enriched. Reading the row covers every client, old or new,
+    // with no mobile release needed.
+    const meta = (vehicle?.metadata ?? {}) as Record<string, unknown>;
+    const ymmtYear = args.year ?? vehicle?.year ?? undefined;
+    const ymmtMake = args.make ?? (meta.make ? String(meta.make) : undefined);
+    const ymmtModel = args.model ?? (meta.model ? String(meta.model) : undefined);
+    const ymmtTrim = args.trim ?? (meta.trim ? String(meta.trim) : undefined);
+    const hasYmmt = Boolean(ymmtYear && ymmtMake && ymmtModel);
+
+    // Kick off identity resolution for a car nothing has resolved yet.
+    //
+    // `engine_id` is the discriminator, not `vehicle_config_id`: the VIN path
+    // (confirmVehicleForUser, runHeadless) calls upsertVehicle with the decoded
+    // trim/engine BEFORE calling addOwner, so an engine_id here means a decode
+    // already ran and scheduled its own enrichment. Without that check we'd
+    // double-schedule the pipeline on every VIN add.
+    if (vehicle && !vehicle.vehicle_config_id && !vehicle.engine_id) {
+      if (isRealVin(normalizedVin)) {
+        await ctx.scheduler.runAfter(0, internal.vehicleEnrichment.runHeadless.go, {
+          vin: normalizedVin,
+        });
+      } else if (hasYmmt) {
+        await ctx.scheduler.runAfter(0, internal.ymmtPipeline.enrichVehicleFromYmmt, {
+          vin: normalizedVin,
+          year: ymmtYear!,
+          make: ymmtMake!,
+          model: ymmtModel!,
+          trim: ymmtTrim,
+        });
+      } else {
+        console.warn(
+          `[addOwner] ${normalizedVin}: no VIN and no year/make/model on the ` +
+            `vehicle row — cannot resolve an identity, so this car stays unenriched.`,
+        );
+      }
+    }
+
     // Check for existing ownership
     const existing = await ctx.db
       .query("vehicle_owners")
@@ -755,6 +833,194 @@ export const removeOwnerById = mutation({
 
     await ctx.db.delete(ownership._id);
     return { success: true };
+  },
+});
+
+/**
+ * Re-point the children that key on the VIN *string* from a car's placeholder
+ * MANUAL- VIN to its real VIN. Everything that keys on the owner _id, the
+ * vehicle _id, or a booking _id needs no change — those ids don't move when we
+ * correct the VIN in place, so that data transfers for free.
+ *
+ * User/history rows are moved; enrichment-derived rows (passport, tier) are
+ * dropped so the real VIN's enrichment regenerates the accurate version rather
+ * than risk a stale duplicate.
+ */
+async function repointVinChildren(
+  ctx: any,
+  userId: Id<"users">,
+  fromVin: string,
+  toVin: string,
+): Promise<void> {
+  // bookings — scoped to this user (a MANUAL- VIN is unique to them anyway).
+  const bookings = await ctx.db
+    .query("bookings")
+    .withIndex("by_vin", (q: any) => q.eq("vin", fromVin))
+    .collect();
+  for (const b of bookings) {
+    if (b.user_id === userId) await ctx.db.patch(b._id, { vin: toVin });
+  }
+
+  // inspections
+  const inspections = await ctx.db
+    .query("vehicle_inspections")
+    .withIndex("by_vin", (q: any) => q.eq("vin", fromVin))
+    .collect();
+  for (const r of inspections) await ctx.db.patch(r._id, { vin: toVin });
+
+  // earned health points (ledger, by vin+user)
+  const hps = await ctx.db
+    .query("vehicle_health_points")
+    .withIndex("by_vin_user", (q: any) => q.eq("vin", fromVin).eq("user_id", userId))
+    .collect();
+  for (const r of hps) await ctx.db.patch(r._id, { vin: toVin });
+
+  // uploaded documents (owner_id unchanged; vin field moves)
+  const docs = await ctx.db
+    .query("vehicle_documents")
+    .withIndex("by_vin", (q: any) => q.eq("vin", fromVin))
+    .collect();
+  for (const r of docs) await ctx.db.patch(r._id, { vin: toVin });
+
+  // saved part preferences (index prefix is [vin, service_id])
+  const prefs = await ctx.db
+    .query("vehicle_part_preferences")
+    .withIndex("by_vin_service", (q: any) => q.eq("vin", fromVin))
+    .collect();
+  for (const r of prefs) await ctx.db.patch(r._id, { vin: toVin });
+
+  // follow-ups
+  const followUps = await ctx.db
+    .query("follow_ups")
+    .withIndex("by_vin", (q: any) => q.eq("vin", fromVin))
+    .collect();
+  for (const r of followUps) await ctx.db.patch(r._id, { vin: toVin });
+
+  // Enrichment-derived — drop so the real VIN's enrichment regenerates them.
+  const passports = await ctx.db
+    .query("vehicle_passports")
+    .withIndex("by_vin", (q: any) => q.eq("vin", fromVin))
+    .collect();
+  for (const r of passports) await ctx.db.delete(r._id);
+  const tiers = await ctx.db
+    .query("vehicle_tiers")
+    .withIndex("by_vin_user", (q: any) => q.eq("vin", fromVin).eq("user_id", userId))
+    .collect();
+  for (const r of tiers) await ctx.db.delete(r._id);
+}
+
+/**
+ * Attach a REAL VIN to a manually-added car — in place.
+ *
+ * A manual car carries a MANUAL-… placeholder VIN. Rather than create a second
+ * identity (which would orphan everything the car owns), we correct the VIN on
+ * the SAME vehicle_owners and vehicles rows. Because those _ids don't change,
+ * all owner-scoped children (maintenance, classifications, driving profile,
+ * service states, check-ins, health snapshots, odometer, docs), all
+ * vehicle-scoped children (quote snapshots, chat threads, semantic memory), and
+ * all booking-scoped children (payments, reviews, job actuals, recommendations…
+ * via booking_id) stay attached automatically. Only the handful of children
+ * that key on the VIN *string* are re-pointed (see repointVinChildren).
+ *
+ * Enrichment then re-runs for the real VIN (runHeadless), exactly like a fresh
+ * real-VIN add — the config pointer is reset so the pipeline re-attaches the
+ * accurate one for the decoded identity.
+ */
+export const attachRealVinToManualVehicle = mutation({
+  args: {
+    manualVehicleOwnerId: v.id("vehicle_owners"),
+    realVin: v.string(),
+    trimId: v.optional(v.id("trims")),
+    engineId: v.optional(v.id("engines")),
+    transmissionId: v.optional(v.id("transmissions")),
+    year: v.optional(v.float64()),
+    make: v.optional(v.string()),
+    model: v.optional(v.string()),
+    color: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Not authenticated");
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_clerkUserId", (q) => q.eq("clerkUserId", identity.subject))
+      .unique();
+    if (!user) throw new Error("User not found");
+
+    const realVin = args.realVin.toUpperCase().trim();
+    if (!isRealVin(realVin)) throw new Error("That isn't a valid 17-character VIN.");
+
+    const owner = await ctx.db.get(args.manualVehicleOwnerId);
+    if (!owner) throw new Error("Vehicle not found.");
+    if (owner.user_id !== user._id) throw new Error("Not authorized for this vehicle.");
+
+    const manualVin = owner.vin;
+    if (!isPseudoVin(manualVin)) {
+      // Already a real VIN. If it's the same one, this is a safe retry; if not,
+      // refuse — we don't overwrite a real VIN.
+      if (manualVin.toUpperCase().trim() === realVin) {
+        return { success: true, alreadyReal: true, vehicleOwnerId: owner._id, vin: manualVin };
+      }
+      throw new Error("This car already has a real VIN.");
+    }
+
+    // The user already has this real VIN as another car in their garage.
+    const existingRealOwner = await ctx.db
+      .query("vehicle_owners")
+      .withIndex("by_vin_user", (q) => q.eq("vin", realVin).eq("user_id", user._id))
+      .unique();
+    if (existingRealOwner && existingRealOwner._id !== owner._id) {
+      throw new Error("You already have this VIN in your garage.");
+    }
+
+    // A catalog row for this real VIN already exists (e.g. a co-owned car added
+    // by someone else). Folding onto it would require re-keying vehicle-scoped
+    // children — out of scope here; refuse cleanly rather than half-do it.
+    const manualVehicle = await ctx.db
+      .query("vehicles")
+      .withIndex("by_vin", (q) => q.eq("vin", manualVin))
+      .unique();
+    const existingRealVehicle = await ctx.db
+      .query("vehicles")
+      .withIndex("by_vin", (q) => q.eq("vin", realVin))
+      .unique();
+    if (existingRealVehicle && existingRealVehicle._id !== manualVehicle?._id) {
+      throw new Error("This VIN is already registered in the system.");
+    }
+
+    // Turn the placeholder vehicles row into the real one, in place. Reset the
+    // config pointer so enrichment re-attaches the accurate config.
+    if (manualVehicle) {
+      const meta: Record<string, unknown> = { ...(manualVehicle.metadata ?? {}) };
+      if (args.make !== undefined) meta.make = args.make;
+      if (args.model !== undefined) meta.model = args.model;
+      if (args.color !== undefined) meta.color = args.color;
+      await ctx.db.patch(manualVehicle._id, {
+        vin: realVin,
+        ...(args.trimId !== undefined ? { trim_id: args.trimId } : {}),
+        ...(args.engineId !== undefined ? { engine_id: args.engineId } : {}),
+        ...(args.transmissionId !== undefined ? { transmission_id: args.transmissionId } : {}),
+        ...(args.year !== undefined ? { year: args.year } : {}),
+        metadata: meta,
+        vehicle_config_id: undefined,
+        enriched_engine_config_id: undefined,
+        updated_at: Date.now(),
+      } as any);
+    }
+
+    // Correct the owner's VIN in place — keeps the owner _id so every
+    // owner-scoped child stays attached.
+    await ctx.db.patch(owner._id, { vin: realVin } as any);
+
+    // Move the VIN-string-keyed children over.
+    await repointVinChildren(ctx, user._id, manualVin, realVin);
+
+    // Enrich the real VIN — same path a fresh real-VIN add takes.
+    await ctx.scheduler.runAfter(0, internal.vehicleEnrichment.runHeadless.go, {
+      vin: realVin,
+    });
+
+    return { success: true, vehicleOwnerId: owner._id, vin: realVin };
   },
 });
 
@@ -2009,6 +2275,15 @@ export const getEnrichmentDetail = query({
         }
       }
     }
+    // Manual-entry cars carry no catalog trim_id — the manual add flow writes
+    // their YMMT to vehicle.metadata ({ make, model, trim }) instead. Fall back
+    // to it so the pill/sheet surface the real car (and resolve a car image)
+    // rather than collapsing to just the year.
+    const meta = (vehicle.metadata ?? {}) as { make?: string; model?: string; trim?: string };
+    if (!make && meta.make) make = meta.make;
+    if (!model && meta.model) model = meta.model;
+    if (!trimName && meta.trim) trimName = meta.trim;
+
     const year = vehicle.year ?? null;
     const labelParts: string[] = [];
     if (year != null) labelParts.push(String(year));
@@ -2221,6 +2496,12 @@ export const getMyVehiclesEnrichmentStatus = query({
               if (makeRow) make = (makeRow as { name?: string }).name ?? null;
             }
           }
+          // Manual-entry cars have no catalog trim_id; their make/model live
+          // in vehicle.metadata (written by the manual add flow). Fall back so
+          // the pill names the real car instead of just the year.
+          const meta = (vehicle.metadata ?? {}) as { make?: string; model?: string };
+          if (!make && meta.make) make = meta.make;
+          if (!model && meta.model) model = meta.model;
           const parts: string[] = [];
           if (vehicle.year != null) parts.push(String(vehicle.year));
           if (make) parts.push(make);
