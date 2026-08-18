@@ -94,7 +94,7 @@ import { useVehicleStore } from "@/stores/useVehicleStore";
 import { PostOptimizeBookingSheet } from "@/components/cars/PostOptimizeBookingSheet";
 import { PackageQuestionsSheet } from "@/components/cars/PackageQuestionsSheet";
 import { useVehicleReadiness } from "@/hooks/useVehicleReadiness";
-import { ChevronRight, Wrench } from "lucide-react-native";
+import { ChevronRight, ScanLine, Wrench } from "lucide-react-native";
 
 // ============================================================================
 // HELPERS
@@ -1014,9 +1014,20 @@ export default function CarsHomeScreen() {
   }, [activeVehicle]);
   const activeOwnershipId = useMemo(() => ownershipIds[activeVehicleIndex], [ownershipIds, activeVehicleIndex]);
   const activeOwnership = useMemo(() => ownerships[activeVehicleIndex], [ownerships, activeVehicleIndex]);
-  // A manually-added car carries a MANUAL-… placeholder VIN. Only these can
-  // have a real VIN attached (see "Add VIN" in the ⋯ menu below).
+  // Any car without a real VIN — one the owner added by hand (MANUAL-…) OR one
+  // a shop created as a walk-in (SHOP…). isPseudoVin is the complement of the
+  // ISO 3779 charset test, so it catches every placeholder format we mint
+  // without enumerating them. Both can have a real VIN attached: see "Add VIN"
+  // in the ⋯ menu and the prompt on the card.
   const activeVehicleIsManual = useMemo(() => isPseudoVin(activeVehicle?.vin), [activeVehicle?.vin]);
+  // Dismissal is per-vehicle and per-session. The ask is worth repeating — a
+  // placeholder VIN costs the owner their maintenance schedule and exact-fit
+  // parts on every future booking — but not worth nagging within one sitting.
+  const [vinPromptDismissed, setVinPromptDismissed] = useState<Set<string>>(new Set());
+  const showVinPrompt =
+    activeVehicleIsManual &&
+    !!activeVehicle?.vin &&
+    !vinPromptDismissed.has(activeVehicle.vin);
   // Active vehicle's resolved Convex config — fed to useOemServiceIntervals
   // so the maintenance calc can prefer per-vehicle OEM cadences from
   // the v3 enrichment over the hardcoded MAKE_OVERRIDES / DEFAULT_INTERVALS.
@@ -2084,6 +2095,51 @@ export default function CarsHomeScreen() {
               vehicleOwnerId={activeOwnershipId}
               vehicleName={activeVehicle?.make ? `${activeVehicle.make} ${activeVehicle.model ?? ""}`.trim() : undefined}
             />
+          )}
+
+          {/* No real VIN on this car. Sits ABOVE readiness deliberately: without
+              a VIN there is nothing for the pipeline to be ready about, so
+              asking about package questions first would be asking the second
+              question before the first. Names what's lost rather than just
+              flagging a missing field — "(Optional)" with no reason is why
+              these go unfilled. */}
+          {showVinPrompt && (
+            <Pressable
+              onPress={handleAddVinToManualVehicle}
+              style={({ pressed }) => [
+                readinessStyles.cta,
+                pressed && readinessStyles.ctaPressed,
+              ]}
+            >
+              <View style={readinessStyles.ctaIcon}>
+                <ScanLine size={20} color="#2563EB" strokeWidth={2} />
+              </View>
+              <View style={readinessStyles.pillBody}>
+                <Text size="md" weight="semiBold" color="#1A1A1A">
+                  Add your VIN
+                </Text>
+                <Text size="sm" weight="regular" color="#2563EB">
+                  Unlocks this car&apos;s real maintenance schedule and
+                  exact-fit parts
+                </Text>
+              </View>
+              <Pressable
+                accessibilityLabel="Dismiss VIN prompt"
+                accessibilityRole="button"
+                hitSlop={12}
+                onPress={(event) => {
+                  // Stop the press bubbling into the row's own onPress, which
+                  // would open the scanner the driver just declined.
+                  event.stopPropagation();
+                  const vin = activeVehicle?.vin;
+                  if (!vin) return;
+                  setVinPromptDismissed((prev) => new Set(prev).add(vin));
+                }}
+                style={styles.vinPromptDismiss}
+              >
+                <X size={16} color="#94A3B8" strokeWidth={2} />
+              </Pressable>
+            </Pressable>
           )}
 
           {/* Vehicle readiness — "Setting up your car…" while enriching,
@@ -3314,6 +3370,12 @@ const revealStyles = StyleSheet.create({
 });
 
 const styles = StyleSheet.create({
+  // Small tap target on the VIN prompt's trailing edge. Sized past the visual
+  // glyph so a thumb finds it without stealing the row's own press.
+  vinPromptDismiss: {
+    padding: 4,
+    marginLeft: 2,
+  },
   container: {
     flex: 1,
     backgroundColor: "#FFFFFF",
