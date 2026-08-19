@@ -41,7 +41,7 @@ import Animated, {
 import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
 
-import { ArrowRight, Bell, CalendarX, Car, Check, ChevronDown, ChevronRight, FileText, MessageCircle, Navigation, Phone, ReceiptText, User, Wrench, X } from "lucide-react-native";
+import { ArrowRight, Bell, CalendarX, Car, Check, ChevronDown, ChevronRight, Clock, FileText, MessageCircle, Navigation, Phone, ReceiptText, User, Wrench, X } from "lucide-react-native";
 
 import { openMapsForAddress, openPhone } from "@/utils/linking";
 import { useQuery } from "convex/react";
@@ -176,6 +176,25 @@ type ActivityEvent =
         decision: string;
         totalCents: number;
         ceilingAfterDecisionCents: number | null;
+      };
+    }
+  | {
+      type: "custom_work_added";
+      at: number;
+      actor: ActivityActor;
+      data: {
+        name: string;
+        source: string;
+        complaint: string | null;
+        systemTags: string[];
+        workType: string | null;
+        estimatedMinutes: number | null;
+        parts: Array<{
+          part_name: string;
+          oem_number: string | null;
+          quantity: number;
+        }>;
+        quotedPartsCents: number | null;
       };
     }
   | {
@@ -1494,6 +1513,19 @@ function statusFriendlyLabel(status: string | null | undefined): string {
   }
 }
 
+// A mechanic/front-desk time extension on an in-progress job is recorded as a
+// same-status (in_progress → in_progress) history row whose reason encodes the
+// minutes + who granted it: `overrun_extension_{minutes}min_{mechanic|front_desk|system}`.
+// We surface that as a real "time extended" line instead of a no-op arrow.
+function parseOverrunExtension(
+  reason: string | null,
+): { minutes: number; source: string } | null {
+  if (!reason) return null;
+  const m = reason.match(/^overrun_extension_(\d+)min_(\w+)$/);
+  if (!m) return null;
+  return { minutes: Number(m[1]), source: m[2] };
+}
+
 function activitySummary(ev: ActivityEvent, isCustomer: boolean): string {
   switch (ev.type) {
     case "booking_created": {
@@ -1511,8 +1543,15 @@ function activitySummary(ev: ActivityEvent, isCustomer: boolean): string {
       }
       return "Booking created";
     }
-    case "status_change":
+    case "status_change": {
+      const ext = parseOverrunExtension(ev.data.reason);
+      if (ext) {
+        return ext.source === "system"
+          ? `Service time auto-extended by ${ext.minutes} min`
+          : `Service time extended by ${ext.minutes} min`;
+      }
       return `${statusFriendlyLabel(ev.data.from)} → ${statusFriendlyLabel(ev.data.to)}`;
+    }
     case "estimate_submitted": {
       const adj = cycleAdjective(ev.data.cycle);
       const total = formatCents(ev.data.totalCents);
@@ -1542,6 +1581,15 @@ function activitySummary(ev: ActivityEvent, isCustomer: boolean): string {
           return `${adj} estimate · ${ev.data.decision}`;
       }
     }
+    case "custom_work_added": {
+      // "Found while working" is the fact that matters. Work on the original
+      // order was agreed up front; work added mid-job is the surprise, and the
+      // timeline was previously silent about it — a bigger estimate appeared
+      // with no statement of what had been added.
+      return ev.data.source === "mid_job"
+        ? `Mechanic found extra work · ${ev.data.name}`
+        : `Added to this booking · ${ev.data.name}`;
+    }
     case "part_edit": {
       const noun = ev.data.partName || ev.data.oemNumber || "a part";
       switch (ev.data.editType) {
@@ -1568,7 +1616,9 @@ function activityIcon(ev: ActivityEvent): { Icon: any; bg: string; fg: string } 
     case "booking_created":
       return { Icon: FileText, bg: "rgba(82,153,254,0.12)", fg: "#5299FE" };
     case "status_change":
-      return { Icon: ArrowRight, bg: "#F2F2F7", fg: "#8E8E93" };
+      return parseOverrunExtension(ev.data.reason)
+        ? { Icon: Clock, bg: "#FFFBEB", fg: "#D97706" }
+        : { Icon: ArrowRight, bg: "#F2F2F7", fg: "#8E8E93" };
     case "estimate_submitted":
       return { Icon: ReceiptText, bg: "#FFFBEB", fg: "#D97706" };
     case "estimate_decision": {
@@ -1578,6 +1628,10 @@ function activityIcon(ev: ActivityEvent): { Icon: any; bg: string; fg: string } 
       }
       return { Icon: X, bg: "#FEF2F2", fg: "#DC2626" };
     }
+    case "custom_work_added":
+      return ev.data.source === "mid_job"
+        ? { Icon: Wrench, bg: "#FFFBEB", fg: "#D97706" }
+        : { Icon: Wrench, bg: "#F2F2F7", fg: "#8E8E93" };
     case "part_edit":
       return { Icon: Wrench, bg: "#F2F2F7", fg: "#8E8E93" };
   }
@@ -1599,6 +1653,7 @@ function ActivityRow({
     event.type === "booking_created" ||
     event.type === "estimate_submitted" ||
     event.type === "estimate_decision" ||
+    event.type === "custom_work_added" ||
     event.type === "part_edit";
 
   return (
@@ -1715,6 +1770,42 @@ function ActivityRow({
             {event.actor.label && event.actor.label !== "system" ? (
               <Text size="xs" weight="regular" color="#8E8E93" style={styles.activityDetailLine}>
                 by {isCustomer && event.actor.userId ? "you" : event.actor.label}
+              </Text>
+            ) : null}
+          </View>
+        ) : null}
+
+        {expanded && event.type === "custom_work_added" ? (
+          <View style={styles.activityDetail}>
+            {/* The mechanic's own words for why. This is the sentence that
+                makes the price change make sense. */}
+            {event.data.complaint ? (
+              <Text size="xs" weight="regular" color="#3C3C43">
+                {event.data.complaint}
+              </Text>
+            ) : null}
+            {/* Named parts do more to justify a figure than any summary. */}
+            {event.data.parts.map((part, index) => (
+              <Text
+                key={`${part.part_name}-${index}`}
+                size="xs"
+                weight="regular"
+                color="#8E8E93"
+                style={styles.activityDetailLine}
+              >
+                {part.part_name}
+                {part.quantity > 1 ? ` ×${part.quantity}` : ""}
+                {part.oem_number ? `  OEM ${part.oem_number}` : ""}
+              </Text>
+            ))}
+            {event.data.estimatedMinutes != null ? (
+              <Text size="xs" weight="regular" color="#8E8E93" style={styles.activityDetailLine}>
+                {event.data.estimatedMinutes} min estimated
+              </Text>
+            ) : null}
+            {event.actor.label ? (
+              <Text size="xs" weight="regular" color="#8E8E93" style={styles.activityDetailLine}>
+                by {event.actor.label}
               </Text>
             ) : null}
           </View>

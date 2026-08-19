@@ -88,7 +88,7 @@ import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
 import { useShopStore } from "@/stores/useShopStore";
 import { formatProximityDistanceFromMiles } from "@/utils/geo";
-import { displayTimeToHHMM } from "@/utils/timeSlotUtils";
+import { displayTimeToHHMM, MIN_ADVANCE_NOTICE_LABEL, minBookableHHMM, todayLocalISO } from "@/utils/timeSlotUtils";
 
 // Local service catalog (12 entries). Static client-side metadata; the
 // authoritative booking-time service rows live in Convex (`services` table)
@@ -390,13 +390,28 @@ export function BookServiceComponent({
           // day already has ~12 slots, so a small limit collapsed the whole
           // picker onto one date with no way to choose another.
           limit: 200,
+          // Enforce the booking lead time server-side: never return today's
+          // slots inside the advance-notice window (same floor every other
+          // booking surface uses).
+          cutoffDate: todayLocalISO(),
+          cutoffTime: minBookableHHMM(),
         }
       : "skip",
   );
 
+  // Belt-and-braces: re-apply the lead-time floor on the client in case we're
+  // talking to an older deploy that ignores the cutoff args, mirroring
+  // useNextAvailabilityForShop. "HH:MM" is lexically chronological.
+  const visibleSlots = useMemo(() => {
+    if (!slots) return [];
+    const today = todayLocalISO();
+    const minTime = minBookableHHMM();
+    return slots.filter((s) => s.date !== today || s.start_time >= minTime);
+  }, [slots]);
+
   const selectedSlot = useMemo(
-    () => slots?.find((s: { _id: string }) => s._id === selectedSlotId) ?? null,
-    [slots, selectedSlotId],
+    () => visibleSlots.find((s: { _id: string }) => s._id === selectedSlotId) ?? null,
+    [visibleSlots, selectedSlotId],
   );
 
   // ──────────────────────────────────────────────────────────────────────
@@ -848,7 +863,7 @@ export function BookServiceComponent({
           )}
           {stage === 5 && (
             <Stage5Time
-              slots={slots ?? []}
+              slots={visibleSlots}
               isLoading={slots === undefined && selectedMechanicId !== null}
               mechanicSelected={selectedMechanicId !== null}
               selectedSlotId={selectedSlotId}
@@ -1750,6 +1765,9 @@ function Stage5Time({
     <View style={styles.stageBody}>
       <Text style={styles.helperText} size="sm">
         Pick a day, then a time that works for you.
+      </Text>
+      <Text style={styles.helperText} size="xs">
+        {MIN_ADVANCE_NOTICE_LABEL}
       </Text>
 
       {/* Day picker — horizontal pills, one per available day. */}

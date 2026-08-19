@@ -96,6 +96,14 @@ export interface MaintenanceItem {
   urgency?: string;
   impacts?: Array<{ label: string; severity: 'high' | 'medium' | 'low' }>;
   recommendation?: string;
+  /* ── Advisory (off-catalog) recommendation ──────────────────────────────
+     Set when the mechanic flagged work the catalog can't name. There is no
+     service behind it, so it cannot be booked, cannot be priced, and cannot
+     move the health score — see the delta suppression in UrgentCard. */
+  advisory?: boolean;
+  advisoryDisclaimer?: string | null;
+  authorLabel?: string | null;
+  advisoryAged?: boolean;
   /** Set when this item comes from a mechanic-submitted job recommendation.
    *  Threaded through the booking flow as bookings.source_recommendation_id
    *  so the rec auto-closes when the booking completes. */
@@ -122,6 +130,11 @@ export interface MaintenanceItem {
     interval?: string;
   };
   triggeredBy?: MaintenanceTriggerAxis;
+  /** Precomputed 0–1 score, bypassing the STATUS_SCORE lookup, when a status
+   *  alone can't capture severity (e.g. brakes' per-corner blend from a shop
+   *  inspection). Only set for brakes today; every other item leaves this
+   *  undefined and scores via the normal status lookup, unchanged. */
+  rawScore?: number;
 }
 
 interface MaintenanceTrackerProps {
@@ -497,15 +510,22 @@ function UrgentCard({ item, entryDelay, vehicleCondition, healthScoreInput, onBo
   // routes to the detail screen. Algorithmic items keep the legacy two-button
   // layout (Book Service + View Details).
   const isMechanicRec = !!item.sourceRecommendationId;
+  // Off-catalog advice. Nothing behind it to price or book, so the CTA, the
+  // score delta and the headline all change.
+  const isAdvisory = item.advisory === true;
   // Anchorless items (proposal Behavior #6): no stored interval + no
   // user record → the row's primary action becomes "Book diagnostic
   // scan" so the CTA lives INSIDE the tier rather than replacing it.
   const isAnchorless = item.triggeredBy === "none";
-  const primaryLabel = isMechanicRec
-    ? "Take Action"
-    : isAnchorless
-      ? "Book diagnostic scan"
-      : "Book Service";
+  const primaryLabel = isAdvisory
+    // "Take Action" promises a flow that ends in a booking. An advisory has no
+    // service to book, so the honest CTA is the one that just shows the detail.
+    ? "View suggestion"
+    : isMechanicRec
+      ? "Take Action"
+      : isAnchorless
+        ? "Book diagnostic scan"
+        : "Book Service";
   // Only the algorithmic Book Service CTA is coverage-gated — mechanic "Take
   // Action" routes to its own rec flow with the parts the shop already picked.
   const bookDisabled = isEnriching && !isMechanicRec;
@@ -516,7 +536,12 @@ function UrgentCard({ item, entryDelay, vehicleCondition, healthScoreInput, onBo
   };
   const colors = CARD_COLORS[item.status] ?? { statusColor: '#5299FE', iconBg: 'rgba(82,153,254,0.07)' };
 
-  const delta = healthScoreInput
+  // ─── CUSTOM JOB INVARIANT — APP-SIDE ───────────────────────────────────
+  // Off-catalog work can never move the health score, so an advisory must not
+  // advertise a gain for doing it. The projection function would happily
+  // return a number here; printing it would be a promise the backend is
+  // deliberately built never to keep.
+  const delta = healthScoreInput && !isAdvisory
     ? Math.round(computeProjectedHealthScore(healthScoreInput, item.id) - vehicleCondition)
     : 0;
 
@@ -555,14 +580,23 @@ function UrgentCard({ item, entryDelay, vehicleCondition, healthScoreInput, onBo
             {getServiceIcon(item.id, 24, colors.statusColor)}
           </View>
           <View style={cardStyles.textColumn}>
+            {/* On an advisory the attribution comes FIRST. The reader needs to
+                know this is one mechanic's opinion before they read what the
+                opinion is — otherwise it reads as an Otopair position. */}
+            {isAdvisory && item.authorLabel ? (
+              <Text style={cardStyles.advisoryAuthor}>{item.authorLabel}</Text>
+            ) : null}
             <Text weight="bold" style={cardStyles.title}>{item.serviceName}</Text>
             <Text style={cardStyles.subtitle}>{item.description}</Text>
-            {item.mechanicProvenance && (item.mechanicProvenance.mechanicName || item.mechanicProvenance.shopName) && (
+            {!isAdvisory && item.mechanicProvenance && (item.mechanicProvenance.mechanicName || item.mechanicProvenance.shopName) && (
               <Text style={cardStyles.provenance}>
                 Suggested by {item.mechanicProvenance.mechanicName ?? 'your mechanic'}
                 {item.mechanicProvenance.shopName ? ` at ${item.mechanicProvenance.shopName}` : ''}
               </Text>
             )}
+            {isAdvisory && item.advisoryDisclaimer ? (
+              <Text style={cardStyles.advisoryNote}>{item.advisoryDisclaimer}</Text>
+            ) : null}
           </View>
           {delta > 0 && (
             <View style={cardStyles.scoreColumn}>
@@ -1211,6 +1245,23 @@ const cardStyles = StyleSheet.create({
     fontSize: moderateScale(11),
     color: '#5299FE',
     marginTop: 2,
+  },
+  // Attribution above an advisory's title — same blue as `provenance` so the
+  // two read as one family, but sized and spaced as an eyebrow since here it
+  // leads rather than trails.
+  advisoryAuthor: {
+    fontSize: moderateScale(10.5),
+    color: '#5299FE',
+    letterSpacing: 0.3,
+    marginBottom: 2,
+  },
+  // The fixed disclaimer. Deliberately quiet — it qualifies the card, it
+  // isn't the message.
+  advisoryNote: {
+    fontSize: moderateScale(10.5),
+    lineHeight: moderateScale(14),
+    color: '#8A94A6',
+    marginTop: 4,
   },
   scoreColumn: {
     alignItems: 'flex-end',

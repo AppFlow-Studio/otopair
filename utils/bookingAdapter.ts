@@ -97,6 +97,11 @@ export interface ConvexBookingWithDetails {
   final_capture_amount_cents?: number;
   /** Shop-assigned invoice / work-order number, if the mechanic set one. */
   invoice_number?: string;
+  /** Pickup-request round trip (vehicle_at_shop). `pickupRequestedAtMs` marks
+   *  the customer's "request pickup"; `pickupResponse` is the shop's answer. */
+  pickupRequestedAtMs?: number | null;
+  pickupResponse?: "acknowledged" | "bringing_out" | "declined" | null;
+  pickupRespondedAtMs?: number | null;
 }
 
 interface BookingAdapterParams {
@@ -291,6 +296,8 @@ export function adaptConvexBookingWithDetailsToCard(row: ConvexBookingWithDetail
     paymentApprovalState: row.payment_approval_state,
     finalCaptureAmountCents: row.final_capture_amount_cents,
     invoiceNumber: row.invoice_number,
+    pickupRequestedAtMs: row.pickupRequestedAtMs ?? undefined,
+    pickupResponse: row.pickupResponse ?? undefined,
     quoteType,
   };
 }

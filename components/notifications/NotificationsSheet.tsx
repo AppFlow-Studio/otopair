@@ -43,6 +43,7 @@ import {
 import { useNotificationsSheetStore } from "@/stores/useNotificationsSheetStore";
 import { useRescheduleDecisionOverlayStore } from "@/stores/useRescheduleDecisionOverlayStore";
 import { routeOtopairDeepLink } from "@/utils/linking";
+import { notificationTitle } from "./notificationLabels";
 
 const { height: SCREEN_H } = Dimensions.get("window");
 const SHEET_HEIGHT = Math.round(SCREEN_H * 0.78);
@@ -82,7 +83,8 @@ export function NotificationsSheet() {
   const closeStore = useNotificationsSheetStore((s) => s.close);
   const openDecision = useRescheduleDecisionOverlayStore((s) => s.open);
 
-  const { notifications, markRead, isLoading } = useNotificationsFromConvex();
+  const { notifications, markRead, resolve, isLoading } =
+    useNotificationsFromConvex();
 
   const [mounted, setMounted] = useState(false);
   const progress = useSharedValue(0);
@@ -199,6 +201,11 @@ export function NotificationsSheet() {
     }
   };
 
+  // Dismiss an informational notification — archives it from the feed.
+  const handleDismiss = (row: NotificationRow) => {
+    resolve(row._id).catch(() => {});
+  };
+
   if (!mounted) return null;
 
   return (
@@ -259,8 +266,8 @@ export function NotificationsSheet() {
                 You're all caught up
               </Text>
               <Text size="md" color="#6B7280" style={styles.emptyBody}>
-                When a shop proposes a change to one of your bookings,
-                it'll show up here.
+                Updates about your bookings — reschedules, reminders, and
+                status changes — show up here.
               </Text>
             </View>
           ) : null}
@@ -268,7 +275,8 @@ export function NotificationsSheet() {
           {notifications.map((row) => {
             const isReschedule = RESCHEDULE_CATEGORIES.has(row.category);
             const isForced = row.category === "booking_forced_delay_proposed";
-            const title = row.payload?.title ?? "Update";
+            const isUnread = row.read_at == null;
+            const title = notificationTitle(row.category, row.payload);
             const body = row.payload?.body ?? "";
             const expiryLabel =
               isReschedule && typeof row.rescheduleExpiresAt === "number"
@@ -283,6 +291,7 @@ export function NotificationsSheet() {
                 onPress={() => handleRowPress(row)}
                 style={({ pressed }) => [
                   styles.row,
+                  !isUnread && styles.rowRead,
                   pressed && styles.rowPressed,
                 ]}
               >
@@ -307,13 +316,17 @@ export function NotificationsSheet() {
                   )}
                 </View>
                 <View style={styles.rowText}>
-                  <Text
-                    size="md"
-                    weight="semiBold"
-                    color={BrandColors.primary}
-                  >
-                    {title}
-                  </Text>
+                  <View style={styles.titleRow}>
+                    {isUnread ? <View style={styles.unreadDot} /> : null}
+                    <Text
+                      size="md"
+                      weight={isUnread ? "bold" : "semiBold"}
+                      color={BrandColors.primary}
+                      style={styles.titleText}
+                    >
+                      {title}
+                    </Text>
+                  </View>
                   {body ? (
                     <Text size="sm" color="#4B5563" style={styles.rowBody}>
                       {body}
@@ -333,6 +346,16 @@ export function NotificationsSheet() {
                     {relativeTime(row.created_at)}
                   </Text>
                 </View>
+                {!isReschedule ? (
+                  <Pressable
+                    onPress={() => handleDismiss(row)}
+                    hitSlop={10}
+                    style={styles.dismissButton}
+                    accessibilityLabel="Dismiss notification"
+                  >
+                    <X size={16} color="#9CA3AF" strokeWidth={2.4} />
+                  </Pressable>
+                ) : null}
               </Pressable>
             );
           })}
@@ -413,8 +436,34 @@ const styles = StyleSheet.create({
     backgroundColor: "#F9FAFB",
     borderRadius: BorderRadius.lg,
   },
+  rowRead: {
+    backgroundColor: "#F3F4F6",
+    opacity: 0.72,
+  },
   rowPressed: {
     opacity: 0.7,
+  },
+  titleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.xs,
+  },
+  titleText: {
+    flexShrink: 1,
+  },
+  unreadDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: BrandColors.secondary,
+  },
+  dismissButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    alignSelf: "flex-start",
   },
   rowIcon: {
     width: 40,

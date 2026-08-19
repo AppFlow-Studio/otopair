@@ -106,6 +106,8 @@ const styles = StyleSheet.create({
   container: {
     flexDirection: "row",
     alignItems: "center",
+    marginHorizontal: scale(16),
+    marginTop: scale(8),
     padding: Spacing.lg,
     borderRadius: BorderRadius.lg,
     borderWidth: 1,

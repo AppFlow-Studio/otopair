@@ -37,6 +37,7 @@ import { useMechanicStore } from "@/stores/useMechanicStore";
 import { useScheduleStore } from "@/stores/useScheduleStore";
 import { useShopStore } from "@/stores/useShopStore";
 import type { Service } from "@/stores/types/store.types";
+import { MIN_ADVANCE_NOTICE_LABEL } from "@/utils/timeSlotUtils";
 
 // ============================================================================
 // TYPES
@@ -645,9 +646,14 @@ export function ShopBookingModal({ visible, shopId, mechanicId, onClose, onConti
 
           {/* Time Selection */}
           <View style={styles.timeSection}>
-            <Text size="lg" weight="bold" color={BrandColors.primary}>
-              Select Time
-            </Text>
+            <View style={styles.timeHeader}>
+              <Text size="lg" weight="bold" color={BrandColors.primary}>
+                Select Time
+              </Text>
+              <Text size="xs" weight="regular" color="#6B7280">
+                {MIN_ADVANCE_NOTICE_LABEL}
+              </Text>
+            </View>
 
             <ScrollView
               horizontal
@@ -920,6 +926,9 @@ const styles = StyleSheet.create({
   timeSection: {
     marginTop: Spacing.lg,
     gap: Spacing.lg,
+  },
+  timeHeader: {
+    gap: 4,
   },
   timeSlotsContent: {
     gap: Spacing.md,

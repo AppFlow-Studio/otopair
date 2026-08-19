@@ -48,7 +48,7 @@ import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
 import { useShopStore } from "@/stores/useShopStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
-import { displayTimeToHHMM, minBookableHHMM, todayLocalISO } from "@/utils/timeSlotUtils";
+import { displayTimeToHHMM, MIN_ADVANCE_NOTICE_LABEL, minBookableHHMM, todayLocalISO } from "@/utils/timeSlotUtils";
 
 const FRAME_GRADIENT = ["#CFE0EB", "#DCE7EF", "#E8EEF3"] as const;
 
@@ -546,6 +546,14 @@ export default function PickDateTimeScreen() {
               </Text>
             ) : null}
           </View>
+          <Text
+            size="xs"
+            weight="regular"
+            color="#6B7280"
+            style={styles.timesNote}
+          >
+            {MIN_ADVANCE_NOTICE_LABEL}
+          </Text>
           {/* Key on the selected day so swapping dates remounts the
               grid — that re-triggers the FadeInUp cascade so the new
               day's slots animate in like MaintenanceTracker does
@@ -706,5 +714,9 @@ const styles = StyleSheet.create({
   },
   offlineTimesNotice: {
     paddingVertical: 28,
+  },
+  timesNote: {
+    paddingHorizontal: 20,
+    marginTop: -4,
   },
 });

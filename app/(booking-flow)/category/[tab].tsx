@@ -112,6 +112,15 @@ export default function CategoryDetailScreen() {
   const router = useRouter();
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
+  // The sheet is bottom-anchored at 92% height, so its top edge lands
+  // right at the notch. Pad the scroll content past the safe-area inset
+  // so the back arrow + vehicle puck clear the status bar instead of
+  // touching it. Clamped to a min gap for devices where the sheet top
+  // already sits below the notch.
+  const headerTopPad = Math.max(
+    insets.top + 12 - (SCREEN_HEIGHT - SHEET_H),
+    12,
+  );
   const params = useLocalSearchParams<{ tab: string; focus?: string }>();
   const reviewSheetRef = useRef<SelectedServicesSheetRef>(null);
   // When the user deep-links to a specific service (home "More Services"
@@ -543,6 +552,7 @@ export default function CategoryDetailScreen() {
           <ScrollView
             ref={scrollRef}
             contentContainerStyle={{
+              paddingTop: headerTopPad,
               paddingBottom: insets.bottom + 120,
             }}
             showsVerticalScrollIndicator={false}
