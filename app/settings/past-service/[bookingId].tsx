@@ -94,21 +94,15 @@ function fmtRating(n: number): string {
   return String(Math.round(n * 10) / 10);
 }
 
-/**
- * TEMPORARY placeholder copy.
- *
- * `job_actuals.mechanic_findings` is empty on every booking today — nothing in
- * the shop flow writes it yet. This keeps the section visible so the layout can
- * be judged with realistic content. DELETE once the mechanic can submit
- * findings; the section is already written to hide itself when the field is
- * genuinely empty.
- */
-const PLACEHOLDER_FINDINGS =
-  "Pulled code P0420 — catalytic converter efficiency below threshold on bank 1. " +
-  "Upstream and downstream O2 sensors both reading in range, so the sensors are " +
-  "not the fault. No exhaust leaks found at the manifold or flex joint. " +
-  "Cleared the code and road-tested 6 miles without it returning; if the light " +
-  "comes back the converter itself is the next step.";
+/** One row of the mechanic's per-cycle reasoning, mirroring the `adjustments`
+ *  shape returned by `bookings.getReceipt`. */
+type Adjustment = {
+  cycle: string;
+  cycle_label: string;
+  note: string;
+  at: number;
+  total_cents: number;
+};
 
 /**
  * "Volkswagen Tiguan 2.0T SE R-Line" → "Tiguan", for the headline. Mirrors the
@@ -181,10 +175,13 @@ export default function PastServiceDetailScreen() {
 
   const mechanic = receiptData?.mechanic ?? null;
   const mechanicFirstName = mechanic?.first_name?.trim() || null;
-  // TEMP: falls back to placeholder copy while the shop flow can't write
-  // findings. Drop the `|| PLACEHOLDER_FINDINGS` to restore real behaviour.
-  const findings =
-    receiptData?.service_notes?.mechanic_findings?.trim() || PLACEHOLDER_FINDINGS;
+  // The mechanic's customer-facing summary, written in the post-job survey's
+  // "For the customer — what did you find or do?" step. Null when they left it
+  // blank, and the section below hides itself entirely.
+  const findings = receiptData?.service_notes?.mechanic_findings?.trim() || null;
+  // Per-cycle "why I set/changed this price" notes the mechanic entered on each
+  // estimate the customer confirmed. Empty array when there were none.
+  const adjustments: Adjustment[] = receiptData?.adjustments ?? [];
   const odoIn = receiptData?.vehicle?.odometer_in ?? null;
   const odoOut = receiptData?.vehicle?.odometer_out ?? null;
   const total = receiptData?.totals?.total ?? booking?.totalCost ?? null;
@@ -359,6 +356,29 @@ export default function PastServiceDetailScreen() {
                       : "WHAT WE FOUND"}
                   </RNText>
                   <RNText style={styles.findings}>{findings}</RNText>
+                </>
+              ) : null}
+
+              {/* ── the mechanic's reasoning on each estimate the customer
+                     confirmed (initial quote, mid-job additions, final).
+                     Each row is tagged with which moment it belongs to.
+                     Hidden when no cycle carried a note. ─────────────── */}
+              {adjustments.length > 0 ? (
+                <>
+                  <RNText style={styles.label}>ALONG THE WAY</RNText>
+                  <View style={styles.adjustments}>
+                    {adjustments.map((a, i) => (
+                      <View
+                        key={a.at}
+                        style={i > 0 ? styles.adjustmentSpaced : null}
+                      >
+                        <RNText style={styles.adjustmentCycle}>
+                          {a.cycle_label.toUpperCase()}
+                        </RNText>
+                        <RNText style={styles.adjustmentNote}>{a.note}</RNText>
+                      </View>
+                    ))}
+                  </View>
                 </>
               ) : null}
 
@@ -626,6 +646,28 @@ const styles = StyleSheet.create({
     color: C.ink,
     paddingHorizontal: G,
     paddingBottom: 22,
+  },
+
+  // ── along the way (per-cycle mechanic notes) ──────────────
+  adjustments: {
+    paddingHorizontal: G,
+    paddingBottom: 22,
+  },
+  adjustmentSpaced: {
+    marginTop: 16,
+  },
+  adjustmentCycle: {
+    fontFamily: F.micro,
+    fontSize: 9,
+    letterSpacing: 1.6,
+    color: C.low,
+    marginBottom: 5,
+  },
+  adjustmentNote: {
+    fontFamily: F.regular,
+    fontSize: 15,
+    lineHeight: 23,
+    color: C.ink,
   },
 
   // ── odometer ──────────────────────────────────────────────

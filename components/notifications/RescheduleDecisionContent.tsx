@@ -112,6 +112,34 @@ export function RescheduleDecisionContent({ bookingId, onClose }: Props) {
     );
   }
 
+  // The proposal was already decided (accepted / declined / withdrawn / the
+  // 24h offer lapsed) and the booking has moved on. Reachable when the customer
+  // taps a stale push from the tray — show a resolved state instead of an
+  // Accept/Decline that would only error.
+  if (booking.status !== "pending_customer_acceptance") {
+    return (
+      <View
+        style={[
+          styles.container,
+          styles.center,
+          { paddingTop: insets.top + 80, paddingHorizontal: Spacing["2xl"] },
+        ]}
+      >
+        <Text size="xl" weight="semiBold" color={BrandColors.primary}>
+          This was already handled
+        </Text>
+        <Text size="md" color={BrandColors.primary} style={styles.center}>
+          The reschedule has been resolved — your booking is set for{" "}
+          {formatDateLabel(booking.scheduledDate)} at{" "}
+          {formatTimeLabel(booking.scheduledTime)}.
+        </Text>
+        <Button onPress={onClose} variant="primary" size="lg">
+          Close
+        </Button>
+      </View>
+    );
+  }
+
   const handleAccept = async () => {
     try {
       setSubmitting("accept");
