@@ -182,3 +182,51 @@ function normalizeMakes(make: string): string[] {
   if (lower === "vw") return ["VW", "Volkswagen"];
   return [m];
 }
+
+
+/**
+ * Every exterior render VDB has for a vehicle, so the customer can pick their
+ * actual paint. Same lookup as `resolveVehicleImage` but it returns the whole
+ * list instead of choosing one — the caller turns each URL into a swatch with
+ * `parseVdbColorUrl`.
+ *
+ * Not cached: it is called once, on a screen the customer sees once.
+ */
+export const listVehicleImageOptions = internalAction({
+  args: {
+    vin: v.optional(v.string()),
+    year: v.optional(v.number()),
+    make: v.optional(v.string()),
+    model: v.optional(v.string()),
+    trim: v.optional(v.string()),
+  },
+  handler: async (ctx, args): Promise<string[]> => {
+    const vin = (args.vin ?? "").toUpperCase().trim();
+    const apiKey = process.env.VEHICLE_DATABASES_API_KEY;
+    if (!apiKey) return [];
+
+    const urls: string[] = [];
+    if (vin.length === 17) urls.push(`${VDB_BASE}/${vin}`);
+    if (args.year && args.make && args.model && args.trim) {
+      for (const m of normalizeMakes(args.make)) {
+        urls.push(
+          `${VDB_BASE}/${args.year}/${encodeURIComponent(m)}/${encodeURIComponent(args.model)}/${encodeURIComponent(args.trim)}`,
+        );
+      }
+    }
+
+    for (const url of urls) {
+      const json = await fetchVdb(url, apiKey);
+      if (!json || json.status !== "success") continue;
+      // ONLY `colors`. `exterior` is the same car photographed from different
+      // angles (rear, side, front) with hash filenames like `ext-3030325f32` —
+      // including it produced swatches that changed the camera angle instead
+      // of the paint.
+      const colors: string[] = Array.isArray(json.data?.images?.colors)
+        ? json.data.images.colors
+        : [];
+      if (colors.length) return Array.from(new Set(colors));
+    }
+    return [];
+  },
+});
