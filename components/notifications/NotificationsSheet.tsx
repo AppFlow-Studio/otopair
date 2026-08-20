@@ -32,10 +32,10 @@ import Animated, {
 import { BlurView } from "expo-blur";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
-import { Bell, Calendar, X } from "lucide-react-native";
+import { Bell, Calendar, Clock, X } from "lucide-react-native";
 
 import { Text } from "@/components/shared-ui";
-import { BorderRadius, BrandColors, Spacing } from "@/constants/theme";
+import { BorderRadius, BrandColors, SemanticColors, Spacing } from "@/constants/theme";
 import {
   useNotificationsFromConvex,
   type NotificationRow,
@@ -43,17 +43,14 @@ import {
 import { useNotificationsSheetStore } from "@/stores/useNotificationsSheetStore";
 import { useRescheduleDecisionOverlayStore } from "@/stores/useRescheduleDecisionOverlayStore";
 import { routeOtopairDeepLink } from "@/utils/linking";
+import { NotificationActions } from "./NotificationActions";
 import { notificationTitle } from "./notificationLabels";
+import { getNotificationShape } from "./notificationShapes";
 
 const { height: SCREEN_H } = Dimensions.get("window");
 const SHEET_HEIGHT = Math.round(SCREEN_H * 0.78);
 
 const SPRING_CONFIG = { damping: 24, stiffness: 180, mass: 1 } as const;
-
-const RESCHEDULE_CATEGORIES = new Set([
-  "booking_reschedule_proposed",
-  "booking_forced_delay_proposed",
-]);
 
 function relativeTime(createdAt: number): string {
   const diffMs = Date.now() - createdAt;
@@ -65,6 +62,21 @@ function relativeTime(createdAt: number): string {
   const days = Math.floor(hours / 24);
   if (days < 7) return `${days}d ago`;
   return new Date(createdAt).toLocaleDateString();
+}
+
+// Muted "what is this about" line. Includes only the entities the row
+// actually references: car (VIN · YMMT · mileage), then shop, then mechanic.
+function contextLine(row: NotificationRow): string | null {
+  const parts = [
+    row.vin ? `VIN ${row.vin}` : null,
+    row.vehicleYMMT ?? null,
+    typeof row.mileage === "number"
+      ? `${row.mileage.toLocaleString()} mi`
+      : null,
+    row.shopName ?? null,
+    row.mechanicName ?? null,
+  ].filter(Boolean);
+  return parts.length > 0 ? parts.join("  ·  ") : null;
 }
 
 function formatExpiry(expiresAt: number): string | null {
@@ -134,7 +146,8 @@ export function NotificationsSheet() {
   };
 
   const handleRowPress = (row: NotificationRow) => {
-    if (RESCHEDULE_CATEGORIES.has(row.category) && row.booking_id) {
+    const spec = getNotificationShape(row.category);
+    if (spec.action === "reschedule_decision" && row.booking_id) {
       const node = rowRefs.current.get(String(row._id));
       const launch = (rect: {
         x: number;
@@ -273,7 +286,19 @@ export function NotificationsSheet() {
           ) : null}
 
           {notifications.map((row) => {
-            const isReschedule = RESCHEDULE_CATEGORIES.has(row.category);
+            const spec = getNotificationShape(row.category);
+            const isReschedule = spec.action === "reschedule_decision";
+            const isOnMyWay = spec.action === "on_my_way";
+            const isActionableRow = spec.shape === "actionable";
+            // Inline decision buttons are wired for the families that resolve
+            // with just a bookingId; other actionable rows stay tap-through.
+            const inlineAction =
+              isActionableRow &&
+              (spec.action === "reschedule_decision" ||
+                spec.action === "estimate_decision" ||
+                spec.action === "on_my_way")
+                ? spec.action
+                : null;
             const isForced = row.category === "booking_forced_delay_proposed";
             const isUnread = row.read_at == null;
             const title = notificationTitle(row.category, row.payload);
@@ -282,6 +307,7 @@ export function NotificationsSheet() {
               isReschedule && typeof row.rescheduleExpiresAt === "number"
                 ? formatExpiry(row.rescheduleExpiresAt)
                 : null;
+            const context = contextLine(row);
             return (
               <Pressable
                 key={String(row._id)}
@@ -299,12 +325,19 @@ export function NotificationsSheet() {
                   style={[
                     styles.rowIcon,
                     isReschedule ? styles.rowIconAccent : null,
+                    isOnMyWay ? styles.rowIconWarn : null,
                   ]}
                 >
                   {isReschedule ? (
                     <Calendar
                       size={20}
                       color={isForced ? "#C8972E" : BrandColors.secondary}
+                      strokeWidth={2}
+                    />
+                  ) : isOnMyWay ? (
+                    <Clock
+                      size={20}
+                      color={SemanticColors.warningAmber}
                       strokeWidth={2}
                     />
                   ) : (
@@ -345,8 +378,26 @@ export function NotificationsSheet() {
                   <Text size="xs" color="#9CA3AF" style={styles.rowTime}>
                     {relativeTime(row.created_at)}
                   </Text>
+                  {context ? (
+                    <Text
+                      size="xs"
+                      color="#9CA3AF"
+                      style={styles.rowContext}
+                      numberOfLines={2}
+                    >
+                      {context}
+                    </Text>
+                  ) : null}
+                  {inlineAction ? (
+                    <NotificationActions
+                      row={row}
+                      action={inlineAction}
+                      onResolve={() => resolve(row._id).catch(() => {})}
+                      onOpenOverlay={() => handleRowPress(row)}
+                    />
+                  ) : null}
                 </View>
-                {!isReschedule ? (
+                {!isActionableRow ? (
                   <Pressable
                     onPress={() => handleDismiss(row)}
                     hitSlop={10}
@@ -476,6 +527,9 @@ const styles = StyleSheet.create({
   rowIconAccent: {
     backgroundColor: "#EFF5FF",
   },
+  rowIconWarn: {
+    backgroundColor: SemanticColors.warningAmberLight,
+  },
   rowText: {
     flex: 1,
     gap: 2,
@@ -486,6 +540,10 @@ const styles = StyleSheet.create({
   },
   rowTime: {
     marginTop: Spacing.xs,
+  },
+  rowContext: {
+    marginTop: 2,
+    lineHeight: 16,
   },
 });
 

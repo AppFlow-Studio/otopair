@@ -3197,6 +3197,15 @@ export const acknowledgeCustomerLate = mutation({
       }
     }
 
+    // The customer responded — drop the "are you on your way?" push card from
+    // their bookings banner and notifications feed right away. The monitor
+    // itself stays active (the shop still tracks physical arrival); we only
+    // clear the customer-facing prompt.
+    await resolveBookingNotifications(ctx, booking._id, {
+      categories: ["customer_late_push_reminder"],
+      reason: "user_action",
+    });
+
     return { acknowledged: true, monitorId: monitor._id };
   },
 });
@@ -4382,6 +4391,17 @@ export async function enqueueNotificationOutbox(
 const RESCHEDULE_PROPOSAL_CATEGORIES = [
   "booking_reschedule_proposed",
   "booking_forced_delay_proposed",
+];
+
+// Customer-facing "are you on your way / shop is waiting" alerts. They only
+// make sense while the booking is still confirmed and the customer hasn't
+// arrived. The moment the vehicle checks in, work starts, or the booking moves
+// on, they're stale and must be resolved so the bookings banner AND the
+// notifications feed clear. (The front_desk decision variant is shop-side and
+// resolves on its own path.)
+const CUSTOMER_LATE_NOTIFICATION_CATEGORIES = [
+  "customer_late_push_reminder",
+  "customer_late_sms_reminder",
 ];
 
 /**
@@ -6737,6 +6757,16 @@ async function resolveCustomerLateMonitorForBooking(
   resolvedByUserId?: any,
 ) {
   if (!booking?._id) return;
+
+  // Clear the customer-facing late / "on your way" cards for this booking.
+  // Runs BEFORE the monitor early-return (and independently of it) so the
+  // banner + notifications feed can never be left showing a "waiting" alert
+  // for a car that's already checked in or being worked on. Idempotent.
+  await resolveBookingNotifications(ctx, booking._id, {
+    categories: CUSTOMER_LATE_NOTIFICATION_CATEGORIES,
+    reason: resolvedByUserId ? "user_action" : "superseded",
+  });
+
   const monitor = await getCustomerLateMonitorByBookingId(ctx, booking._id);
   if (!monitor || monitor.status === "resolved") return;
 

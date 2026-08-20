@@ -21,6 +21,12 @@ export interface NotificationRow {
   /** null until the user has opened/seen the row (drives read/unread styling). */
   read_at?: number | null;
   rescheduleExpiresAt?: number | null;
+  /** Muted context line inputs — present on booking- and car-bound rows. */
+  vin?: string | null;
+  vehicleYMMT?: string | null;
+  mileage?: number | null;
+  shopName?: string | null;
+  mechanicName?: string | null;
 }
 
 export function useNotificationsFromConvex() {
