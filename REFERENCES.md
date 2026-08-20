@@ -84,6 +84,7 @@
 
 ### Known Gaps
 
+- **`known_issue_events` can drift from its source record.** The mechanic-inspection path (`convex/inspectionHealthDeferred.ts`) writes the same finding to both `known_issue_events` (the provenance log — who/when added or cleared a `knownIssues` code) and `vehicle_inspections.zones` (the inspection's own record, which already carried shop + timestamp for this one source) in the same deferred job. `vehicle_owners.knownIssues` itself is unaffected by any of this — still a flat `string[]`, no reader changed. If either write path is ever touched independently later, they can disagree — check both before changing one. See `convex/lib/knownIssueEvents.ts`.
 - **AI chat seed message.** `convex/oto/chat.ts` `sendMessage` action accepts `message + vehicleVin` only; no topic / seed-context parameter. The "Ask Oto" pin in the booking grid currently opens a blank chat. Add a seed param + thread the booking-context (selected tab? failed-applicability service?) when product wants it.
 - **Legacy `ServiceCategory` 4-key enum** (`basic_maintenance | tires_wheels | brakes_suspension | system_diagnostics`) still drives Discovery / AddMoreServices / TopBar / Modals. v5 grid groups by `tab` instead. Sweep these surfaces onto taxonomy tabs in a follow-up; until then, `useServicesFromConvex` derives `category` from `tab` so they keep compiling.
 
