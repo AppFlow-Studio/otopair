@@ -289,6 +289,11 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingLeft: Spacing.lg,
     paddingRight: Spacing.lg,
+    // Vertical breathing room so each card's drop shadow renders *inside*
+    // the ScrollView bounds. Without it, the horizontal ScrollView clips
+    // the shadow at its frame edge, cutting it into a hard bottom line.
+    paddingTop: Spacing.xs,
+    paddingBottom: Spacing.md,
     gap: Spacing.md,
   },
 
@@ -300,7 +305,7 @@ const styles = StyleSheet.create({
     padding: Spacing.xl,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: "rgba(0,0,0,0.08)",
-    ...Shadows.md,
+    // ...Shadows.md,
   },
 
   // ── Bundle title — Urbanist Bold to match the rest of the app ────────

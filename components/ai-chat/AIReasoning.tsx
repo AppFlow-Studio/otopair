@@ -437,7 +437,7 @@ export function AIReasoning({
           {isExpanded ? 'Hide thinking' : 'Show thinking'}
         </Text>
         <Animated.View style={chevronStyle}>
-          <ChevronDown size={14} color="#5F6368" strokeWidth={2} />
+          <ChevronDown size={14} color="#A0AEC0" strokeWidth={2} />
         </Animated.View>
       </Pressable>
 
@@ -524,9 +524,12 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
     gap: 6,
   },
+  // Family neutral (matches the confirm cards' NEUTRAL_TEXT) instead of the
+  // old Google-palette #5F6368.
   headerText: {
-    color: '#5F6368',
+    color: '#4A5568',
     fontSize: 13,
+    fontFamily: FontFamily.medium,
   },
   // Current step summary (always visible when streaming) - no box
   currentStepContainer: {

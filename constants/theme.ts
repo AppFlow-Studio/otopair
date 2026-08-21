@@ -116,6 +116,115 @@ export const FontFamily = {
   serif: "SourceSerif4-Regular",
   serifSemiBold: "SourceSerif4-SemiBold",
   serifBold: "SourceSerif4-Bold",
+  mono: "IBMPlexMono-Regular",
+  monoMedium: "IBMPlexMono-Medium",
+  monoSemiBold: "IBMPlexMono-SemiBold",
+  monoBold: "IBMPlexMono-Bold",
+  /** Instrument surface — Past Services. Grotesque for readouts and service
+   *  names, technical mono for micro-labels and figures. */
+  interRegular: "Inter-Regular",
+  interMedium: "Inter-Medium",
+  interSemiBold: "Inter-SemiBold",
+  interBold: "Inter-Bold",
+  techMono: "GeistMono-Regular",
+  techMonoMedium: "GeistMono-Medium",
+} as const;
+
+/**
+ * Service-log palette — Settings → Past Services.
+ *
+ * The screen reads as an instrument surface: the shared Oto ambient gradient,
+ * hairline dividers, technical micro-labels, and month subtotals rendered as
+ * large readouts. Brand tokens re-pointed for that surface, not new colors —
+ * `ink` is BrandColors.primary, `accent` is BrandColors.secondary.
+ */
+export const ServiceLogColors = {
+  /** Panel behind the channel sheet. */
+  panel: "#FFFFFF",
+  /** Primary type and readouts. */
+  ink: "#141C24",
+  /** Secondary type. */
+  mid: "#475569",
+  /** Micro-labels, units, meta lines. */
+  low: "#6B7280",
+  /** The single signal colour — active channel, readout rule. */
+  accent: "#5299FE",
+  /** Vehicle thumbnail plate. */
+  plate: "#E9F0F8",
+  /** Vehicle glyph on the plate, when there is no photo. */
+  glyph: "#A9BACB",
+  /** Hairline dividers — `ink` at 9%. */
+  hairline: "rgba(20, 28, 36, 0.09)",
+  /** Sheet top edge — `ink` at 14%. */
+  edge: "rgba(20, 28, 36, 0.14)",
+  /** Inactive channel underline — `ink` at 8%. */
+  channelIdle: "rgba(20, 28, 36, 0.08)",
+  /** Inactive channel bar in the sheet — `ink` at 10%. */
+  barIdle: "rgba(20, 28, 36, 0.10)",
+  /** Selected channel row wash — `ink` at 4.5%. */
+  rowActive: "rgba(20, 28, 36, 0.045)",
+  /** Row separator inside the sheet — `ink` at 7%. */
+  sheetRule: "rgba(20, 28, 36, 0.07)",
+  /** Scrim behind the sheet — `ink` at 22%. */
+  veil: "rgba(20, 28, 36, 0.22)",
+  /** Raised surface on the gradient — mechanic + payment cards on the detail. */
+  card: "#FFFFFF",
+  /** Avatar placeholder before a mechanic photo resolves. */
+  avatar: "#DCE6F2",
+  /** Completion badge + work-performed ticks — SemanticColors.successGreen. */
+  positive: "#059669",
+  /** Completion badge fill — `positive` at 10%. */
+  positiveWash: "rgba(5, 150, 105, 0.10)",
+  /** Unfilled review stars. */
+  star: "#C9CDD4",
+  /** Text on an accent fill. */
+  onAccent: "#FFFFFF",
+  /** Dot leaders and other purely structural marks — lighter than `low` so a
+   *  rule never competes with the label it connects. */
+  leader: "#A9AAB2",
+} as const;
+
+/**
+ * Type roles for the Service Record surfaces (list, service detail, receipt).
+ *
+ * One indirection on purpose: those three screens reference roles, never
+ * families, so the whole typographic system can be swapped from here without
+ * touching a single screen.
+ *
+ * Currently pointed at Urbanist — the app's own family, used everywhere else.
+ * The previous pairing was Inter for figures with Geist Mono for micro-labels;
+ * `micro` and `figure` are separate roles precisely because they were the two
+ * that carried the mono, and they're the ones to re-point first if the
+ * technical feel is wanted back.
+ */
+export const ServiceLogFonts = {
+  /** Headlines and hero amounts. */
+  display: FontFamily.bold,
+  /** Names, row titles, emphasised values. */
+  semi: FontFamily.semiBold,
+  /** Default body weight. */
+  medium: FontFamily.medium,
+  /** Secondary copy and findings prose. */
+  regular: FontFamily.regular,
+  /** Tracked-caps micro-labels: WORK PERFORMED, ODOMETER IN, RECEIPT · … */
+  micro: FontFamily.medium,
+  /** Lighter micro copy — line-item details, footer meta. */
+  microRegular: FontFamily.regular,
+  /** Money columns. NOTE: Urbanist is proportional, so figures no longer align
+   *  on a fixed advance the way the mono did. */
+  figure: FontFamily.medium,
+} as const;
+
+/**
+ * The shared Oto ambient gradient, verbatim from the AI-chat surface
+ * (app/(main-tabs)/ai-chat/index.tsx). Past Services reuses it so the two
+ * screens sit on the same ground. Blue resolves to white inside the top 20%.
+ */
+export const OtoGradient = {
+  colors: ["#A5CDFF", "#D6E8FF", "#FFFFFF"] as const,
+  locations: [0, 0.1, 0.2] as const,
+  start: { x: 0, y: 0 },
+  end: { x: 0, y: 1 },
 } as const;
 
 export const FontSize = {

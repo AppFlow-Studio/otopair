@@ -23,9 +23,8 @@ import {
 import { ensureWalkInCashPayment } from "./bookings";
 import { partFitsConfigMake } from "./partSelector";
 import { hydrateTieredInspectionState } from "./lib/hydrateInspectionState";
+import { resolveSparkPlugQuantity } from "./lib/sparkPlugs";
 import { deriveSuggestedRecommendations } from "../lib/inspection-template";
-import { canonicalWarningLights } from "../lib/warningLightVocab";
-import { applyInspectionLightPicker } from "./lib/warningLightsMerge";
 
 function primaryServiceId(booking: { service_ids?: Id<"services">[] }): Id<"services"> | undefined {
   return booking.service_ids?.[0];
@@ -565,7 +564,30 @@ export const getPrefillData = query({
           // Per-unit cost (the dialog multiplies by quantity for the total).
           // Pre-fix bug: previously pushed `cost: 12 * qty` (line total)
           // with no `quantity`, which the dialog then multiplied again.
-          const qty = s.spark_plug_quantity ?? 4;
+          //
+          // The `?? 4` this replaces was a second, quieter bug: a missing
+          // quantity billed FOUR plugs on every engine, so a V6 was under-
+          // quoted by two and a HEMI V8 by twelve — confidently, with nothing
+          // marking it as a guess. `engine` is in scope here, so derive from
+          // its real cylinder count instead (lib/sparkPlugs owns the twin-plug
+          // exceptions). A genuinely unknown count now falls back to 1 rather
+          // than 4: still not the truth, but off by the smallest possible
+          // margin and visible as an obviously-wrong line rather than a
+          // plausible one. The pre-job form is where a mechanic corrects it.
+          const resolved = resolveSparkPlugQuantity({
+            spark_plug_quantity: s.spark_plug_quantity ?? engine.spark_plug_quantity,
+            cylinders: engine.cylinders,
+            make: make?.name,
+            engineCode: engine.engine_code,
+            displacementL: engine.displacement_l,
+          });
+          if (resolved.quantity == null) {
+            console.warn(
+              `[job-actuals] spark plug quantity unknown for engine ${engine._id} ` +
+                `(cylinders=${engine.cylinders ?? "null"}) — quoting 1, needs mechanic input`,
+            );
+          }
+          const qty = resolved.quantity ?? 1;
           suggestedParts.push({
             part_name: "Spark Plug",
             oem_number: s.spark_plug_oem,
@@ -863,9 +885,8 @@ export const getPrefillData = query({
       .withIndex("by_booking", (q) => q.eq("booking_id", args.bookingId))
       .first();
     const allServices = booking.shop_id ? await ctx.db.query("services").collect() : [];
-    const inspectionState = inspection ? hydrateTieredInspectionState(inspection) : null;
-    const suggestedFromInspection = inspectionState
-      ? deriveSuggestedRecommendations(inspectionState, {
+    const suggestedFromInspection = inspection
+      ? deriveSuggestedRecommendations(hydrateTieredInspectionState(inspection), {
           onlyCompletedZones: true,
         })
           .map((s) => {
@@ -888,27 +909,6 @@ export const getPrefillData = query({
           )
       : [];
 
-    // Dashboard lights to offer in the post-job "still on?" list. This is
-    // the PROJECTED set, not just what's on file right now: this visit's own
-    // pre-job picker selections don't reach knownIssues until the deferred
-    // job runs 2 hours after close, so offering only the stored array would
-    // omit a light this very inspection just flagged — leaving the mechanic
-    // unable to clear the exact thing they may have just fixed (e.g. TPMS
-    // seen on the walk-around, tires topped up mid-visit). Uses the same
-    // shared merge the deferred write itself uses so the two can't drift.
-    // See "Dashboard warning lights."
-    const owner = await ctx.db
-      .query("vehicle_owners")
-      .withIndex("by_vin_user", (q) => q.eq("vin", booking.vin).eq("user_id", booking.user_id))
-      .first();
-    const projectedKnownIssues = applyInspectionLightPicker(
-      Array.isArray(owner?.knownIssues) ? (owner.knownIssues as string[]) : [],
-      inspectionState?.zones.ENG?.statuses.warning_lights
-        ? []
-        : inspectionState?.zones.ENG?.lights.warning_lights,
-    );
-    const currentWarningLights = canonicalWarningLights(projectedKnownIssues);
-
     return {
       vehicleLabel,
       serviceName: service?.name ?? "",
@@ -923,7 +923,6 @@ export const getPrefillData = query({
       priorOpenRecommendations,
       confirmedThisVisit,
       suggestedFromInspection,
-      currentWarningLights,
     };
   },
 });

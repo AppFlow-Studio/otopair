@@ -30,6 +30,7 @@
 
 export { AIGreeting, type VehicleCard } from "./AIGreeting";
 export { AIContextBar } from "./AIContextBar";
+export { SymptomTrackerPin, type OpenSymptomRow } from "./SymptomTrackerPin";
 export { AIMessageBubble, type AIMessage } from "./AIMessageBubble";
 export { AIInputBox } from "./AIInputBox";
 export { AITypingIndicator } from "./AITypingIndicator";

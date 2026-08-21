@@ -34,6 +34,8 @@ import { MechanicCarousel } from "@/components/booking-flow/MechanicCarousel";
 import { MonthPickerSheet, type MonthOption } from "@/components/booking-flow/MonthPickerSheet";
 import { TimeSlotGrid } from "@/components/booking-flow/TimeSlotGrid";
 import { VehiclePuck } from "@/components/booking-flow/VehiclePuck";
+import { OfflineActionsNotice } from "@/components/connection/OfflineActionsNotice";
+import { useConnection } from "@/hooks/useConnection";
 import { useBookingLaborHoursMap } from "@/hooks/useBookingLaborHoursMap";
 import { useCalendarAvailabilityForShop } from "@/hooks/useCalendarAvailabilityForShop";
 import { useNextAvailabilityForShop } from "@/hooks/useNextAvailabilityForShop";
@@ -46,7 +48,7 @@ import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
 import { useShopStore } from "@/stores/useShopStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
-import { displayTimeToHHMM, minBookableHHMM, todayLocalISO } from "@/utils/timeSlotUtils";
+import { displayTimeToHHMM, MIN_ADVANCE_NOTICE_LABEL, minBookableHHMM, todayLocalISO } from "@/utils/timeSlotUtils";
 
 const FRAME_GRADIENT = ["#CFE0EB", "#DCE7EF", "#E8EEF3"] as const;
 
@@ -111,6 +113,9 @@ export default function PickDateTimeScreen() {
     if (!shopId) router.replace("/(booking-flow)/select-services");
   }, [shopId, router]);
 
+  // Offline gating for the slot grid below — temur-dev's restructure kept the
+  // store reads (above) but not this, and it is still read further down.
+  const conn = useConnection();
   const shop = shopId ? getShopById(shopId) ?? null : null;
   const mechanic = selectedMechanicId ? getMechanicById(selectedMechanicId) ?? null : null;
 
@@ -541,17 +546,37 @@ export default function PickDateTimeScreen() {
               </Text>
             ) : null}
           </View>
+          <Text
+            size="xs"
+            weight="regular"
+            color="#6B7280"
+            style={styles.timesNote}
+          >
+            {MIN_ADVANCE_NOTICE_LABEL}
+          </Text>
           {/* Key on the selected day so swapping dates remounts the
               grid — that re-triggers the FadeInUp cascade so the new
               day's slots animate in like MaintenanceTracker does
               when the user switches cars. */}
-          <TimeSlotGrid
-            key={selectedDateISO ?? "no-date"}
-            slots={slots}
-            selectedTime={selectedTime}
-            onSelect={setSelectedTime}
-            isLoading={slotsLoading}
-          />
+          {/* Hard-offline + slots never resolved for this day → the query
+              would skeleton forever (availability is live Convex data with
+              no disk cache), so swap in the inline offline note instead.
+              A day whose slots loaded BEFORE the drop still renders — the
+              commit path stays gated on the Review & Pay screen. */}
+          {conn === "offline" && (slotsLoading || !selectedDateISO) ? (
+            <OfflineActionsNotice
+              label="Please connect to the internet to see available times"
+              style={styles.offlineTimesNotice}
+            />
+          ) : (
+            <TimeSlotGrid
+              key={selectedDateISO ?? "no-date"}
+              slots={slots}
+              selectedTime={selectedTime}
+              onSelect={setSelectedTime}
+              isLoading={slotsLoading}
+            />
+          )}
         </View>
       </ScrollView>
 
@@ -686,5 +711,12 @@ const styles = StyleSheet.create({
   },
   monthLabel: {
     letterSpacing: 0.8,
+  },
+  offlineTimesNotice: {
+    paddingVertical: 28,
+  },
+  timesNote: {
+    paddingHorizontal: 20,
+    marginTop: -4,
   },
 });

@@ -1,4 +1,5 @@
 import { clearOnboardingResumeState } from "@/lib/onboarding-resume";
+import { purgeOfflineSessionCache } from "@/lib/offlineSessionCache";
 import { useAuthStore } from "@/stores/useAuthStore";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useOnboardingStore } from "@/stores/useOnboardingStore";
@@ -19,4 +20,7 @@ export function clearUserScopedStores() {
 export async function clearUserSessionState(clerkUserId?: string | null) {
   clearUserScopedStores();
   await clearOnboardingResumeState(clerkUserId);
+  // Session-scoped offline cache (bookings / vehicles / maintenance) is
+  // only valid for the signed-in session — drop it with the session.
+  await purgeOfflineSessionCache();
 }

@@ -28,6 +28,15 @@ export interface DriverRecommendation {
   scheduled_at?: number | null;
   scheduled_mechanic_id?: string | null;
   scheduled_mechanic_name?: string | null;
+
+  /** Advisory fields. The server has always returned these; the interface
+   *  simply didn't declare them, so they were dropped on the floor and every
+   *  advisory rendered as if it were a bookable catalog service. */
+  kind?: "advisory" | "canonical";
+  bookable?: boolean;
+  disclaimer?: string | null;
+  author_label?: string | null;
+  aged?: boolean;
 }
 
 export function useDriverRecommendationsFromConvex(vin: string | null | undefined) {

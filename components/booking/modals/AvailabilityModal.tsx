@@ -28,7 +28,7 @@ import { BrandColors, PrimaryButton, Spacing, Text } from "@/components/shared-u
 // 4. Constants, hooks, types, stores
 import { useCalendarAvailabilityForShop } from "@/hooks/useCalendarAvailabilityForShop";
 import { useTimeSlotsForShop } from "@/hooks/useTimeSlotsForShop";
-import { displayTimeToHHMM } from "@/utils/timeSlotUtils";
+import { displayTimeToHHMM, MIN_ADVANCE_NOTICE_LABEL, minBookableMinutes } from "@/utils/timeSlotUtils";
 import { BorderRadius, Shadows } from "@/constants/theme";
 import { AnimationDuration } from "@/constants/animations";
 import { useScheduleStore } from "@/stores/useScheduleStore";
@@ -102,13 +102,6 @@ function parseDisplayTime(displayTime: string): { hours: number; minutes: number
   if (period === "PM" && hours !== 12) hours += 12;
   if (period === "AM" && hours === 12) hours = 0;
   return { hours, minutes };
-}
-
-/** Returns the earliest bookable minute-of-day: now + 15 min, rounded up to next 15-min boundary */
-function getMinBookableMinutes(): number {
-  const now = new Date();
-  const rawMinutes = now.getHours() * 60 + now.getMinutes() + 15;
-  return Math.ceil(rawMinutes / 15) * 15;
 }
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
@@ -318,7 +311,7 @@ export function AvailabilityModal({
         selectedDate.getDate() === now.getDate();
 
       if (isToday) {
-        const minMinutes = getMinBookableMinutes();
+        const minMinutes = minBookableMinutes();
         slots = slots.filter((slot) => {
           const parsed = parseDisplayTime(slot);
           if (!parsed) return true;
@@ -738,9 +731,14 @@ export function AvailabilityModal({
             layout={LinearTransition.duration(AnimationDuration.standard)}
             style={styles.timeSection}
           >
-            <Text size="lg" weight="bold" color={BrandColors.primary}>
-              Select Time
-            </Text>
+            <View style={styles.timeHeader}>
+              <Text size="lg" weight="bold" color={BrandColors.primary}>
+                Select Time
+              </Text>
+              <Text size="xs" weight="regular" color="#6B7280">
+                {MIN_ADVANCE_NOTICE_LABEL}
+              </Text>
+            </View>
 
             <ScrollView
               horizontal
@@ -999,6 +997,9 @@ const styles = StyleSheet.create({
   timeSection: {
     marginTop: Spacing.lg,
     gap: Spacing.lg,
+  },
+  timeHeader: {
+    gap: 4,
   },
   timeSlotsContent: {
     gap: Spacing.md,

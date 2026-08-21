@@ -36,7 +36,7 @@ import { View, Pressable, StyleSheet } from "react-native";
 // 2. Expo & Third-party
 import Animated, { FadeInUp } from "react-native-reanimated";
 import { Check, X } from "lucide-react-native";
-import { useMutation } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 
 // 3. Convex
 import { api } from "@/convex/_generated/api";
@@ -63,6 +63,9 @@ export interface VehicleUpdateOutcome {
   mileageUpdated: boolean;
   servicesFlagged: string[];
   servicesCompleted: string[];
+  /** Subset of servicesCompleted the user HEDGED ("I think…", "pretty sure…").
+   *  Written server-side with a softer confidence label (W4.3 / QA K3). */
+  servicesCompletedHedged: string[];
   faultLightsAdded: string[];
 }
 
@@ -79,11 +82,16 @@ type TruthResult = {
   mileageUpdated?: boolean;
   servicesFlagged?: string[];
   servicesCompleted?: string[];
+  servicesCompletedHedged?: string[];
   faultLightsAdded?: string[];
 };
 
 interface AIVehicleUpdateProps {
   payload: VehicleUpdatePayload;
+  /** Convex ai_messages row id of the message carrying this card (null for
+   *  unpersisted/harness turns). Compared against the per-vehicle active-card
+   *  pointer; a mismatch renders the card expired (D-13/D-15). */
+  messageDbId?: string | null;
   /** Called once the user successfully applies the update. Parent should send a
    *  follow-up turn to Oto so the next assistant message reacts to the outcome. */
   onDecision?: (outcome: VehicleUpdateOutcome) => void;
@@ -151,7 +159,15 @@ function buildRows(payload: VehicleUpdatePayload): string[] {
       if (claim.service_mileage != null) when.push(`at ${num(claim.service_mileage)} mi`);
       const ago = describeAge(claim.service_age_days, claim.service_date);
       if (ago) when.push(ago);
-      rows.push(`Log ${label} as done${when.length ? ` (${when.join(", ")})` : ""}`);
+      // Hedged claim ("I think…", "pretty sure…") — say so on the row, so the
+      // user confirms what will actually be written: a log noted as unsure.
+      const hedged =
+        claim.stated_confidence === "hedged"
+          ? " (you weren't sure — we'll note that)"
+          : "";
+      rows.push(
+        `Log ${label} as done${when.length ? ` (${when.join(", ")})` : ""}${hedged}`,
+      );
     } else {
       rows.push(`Flag ${label} as due`);
     }
@@ -185,8 +201,15 @@ function reconfirmMessage(res: TruthResult): string {
 function appliedMessage(res: TruthResult): string {
   const parts: string[] = [];
   if (res.mileageUpdated) parts.push("mileage updated");
-  if (res.servicesCompleted?.length)
-    parts.push(`logged ${res.servicesCompleted.map(humanizeSlug).join(", ")} as done`);
+  if (res.servicesCompleted?.length) {
+    // Hedged services were still written, but as unsure — say so.
+    const hedged = new Set(res.servicesCompletedHedged ?? []);
+    parts.push(
+      `logged ${res.servicesCompleted
+        .map((s) => humanizeSlug(s) + (hedged.has(s) ? " (noted as unsure)" : ""))
+        .join(", ")} as done`,
+    );
+  }
   if (res.servicesFlagged?.length)
     parts.push(`flagged ${res.servicesFlagged.map(humanizeSlug).join(", ")}`);
   if (res.faultLightsAdded?.length)
@@ -200,11 +223,27 @@ function appliedMessage(res: TruthResult): string {
 
 export function AIVehicleUpdate({
   payload,
+  messageDbId = null,
   onDecision,
   onDismiss,
   disabled,
 }: AIVehicleUpdateProps) {
   const applyVehicleTruth = useMutation(api.vehicleTruth.applyVehicleTruth);
+
+  // D-13/D-15 supersession (Waleed's ruling 2026-08-16): only the NEWEST
+  // vehicle-update card for a vehicle — across every conversation — stays
+  // active. The server stamps each persisted card's message id on the owner
+  // row; a mismatch here means a newer card exists somewhere and this one is
+  // expired. Reactive: an open older chat expires live the moment a new card
+  // renders elsewhere. A vehicle-context switch alone changes nothing.
+  const activeCardId = useQuery(
+    api.vehicleTruth.getActiveUpdateCard,
+    payload.vehicle_id ? { vehicle_id: payload.vehicle_id } : "skip",
+  );
+  const superseded =
+    typeof activeCardId === "string" &&
+    typeof messageDbId === "string" &&
+    activeCardId !== messageDbId;
 
   const [submitting, setSubmitting] = useState(false);
   // Terminal states: "applied" (success banner) / "dismissed" (cancelled).
@@ -244,6 +283,7 @@ export function AIVehicleUpdate({
             mileageUpdated: !!res.mileageUpdated,
             servicesFlagged: res.servicesFlagged ?? [],
             servicesCompleted: res.servicesCompleted ?? [],
+            servicesCompletedHedged: res.servicesCompletedHedged ?? [],
             faultLightsAdded: res.faultLightsAdded ?? [],
           });
         } else if (res?.needsReconfirm && res?.reconfirmable) {
@@ -277,31 +317,57 @@ export function AIVehicleUpdate({
   // Render
   // ---------------------------------------------------------------------------
 
-  // Resolved — small banner, stop accepting input.
+  // Superseded — a newer vehicle-update card exists for this car (possibly in
+  // another chat). Keep the card visible for the record, but inert: no
+  // Confirm to tap out of habit onto a stale write (the exact D-13/D-15
+  // failure — "a tap the user barely read just placed a durable mark on
+  // their car's record").
+  if (superseded && !resolved) {
+    return (
+      <Animated.View entering={FadeInUp.duration(150)} style={[styles.container, styles.containerExpired]}>
+        <Text style={styles.label} weight="semiBold">
+          Vehicle update
+        </Text>
+        <View style={styles.rows}>
+          {rows.map((row, i) => (
+            <View key={i} style={styles.row}>
+              <View style={styles.rowDot} />
+              <Text style={[styles.rowText, styles.rowTextMuted]}>{row}</Text>
+            </View>
+          ))}
+        </View>
+        <View style={styles.row}>
+          <View style={[styles.resolvedBadge, styles.resolvedBadgeMuted]}>
+            <X size={12} color={NEUTRAL_TEXT} strokeWidth={3} />
+          </View>
+          <Text style={[styles.rowText, styles.rowTextMuted]}>
+            Expired — a newer update card is active for this car.
+          </Text>
+        </View>
+      </Animated.View>
+    );
+  }
+
+  // Resolved — keep the card's anatomy (eyebrow + row) so this reads as the
+  // same component that just settled, not a different floating pill. The row
+  // dot grows into a status badge; text stays in the body typography.
   if (resolved) {
+    const applied = resolved === "applied";
     return (
       <Animated.View entering={FadeInUp.duration(150)} style={styles.container}>
-        <View
-          style={[
-            styles.resolvedBanner,
-            resolved === "dismissed" && styles.resolvedBannerMuted,
-          ]}
-        >
-          {resolved === "applied" ? (
-            <Check size={14} color={BrandColors.white} strokeWidth={3} />
-          ) : (
-            <X size={14} color={NEUTRAL_TEXT} strokeWidth={3} />
-          )}
-          <Text
-            style={[
-              styles.resolvedText,
-              resolved === "dismissed" && styles.resolvedTextMuted,
-            ]}
-            weight="medium"
-          >
-            {resolved === "applied"
-              ? successText ?? "Got it — updated."
-              : "Dismissed."}
+        <Text style={styles.label} weight="semiBold">
+          Vehicle update
+        </Text>
+        <View style={styles.row}>
+          <View style={[styles.resolvedBadge, !applied && styles.resolvedBadgeMuted]}>
+            {applied ? (
+              <Check size={12} color={BrandColors.white} strokeWidth={3} />
+            ) : (
+              <X size={12} color={NEUTRAL_TEXT} strokeWidth={3} />
+            )}
+          </View>
+          <Text style={[styles.rowText, !applied && styles.rowTextMuted]}>
+            {applied ? successText ?? "Got it — updated." : "Dismissed."}
           </Text>
         </View>
       </Animated.View>
@@ -414,6 +480,9 @@ const NEUTRAL_BORDER = "#D1D5DB";
 const SURFACE_GLASS = "rgba(255, 255, 255, 0.6)";
 
 const styles = StyleSheet.create({
+  containerExpired: {
+    opacity: 0.6,
+  },
   container: {
     backgroundColor: SURFACE_GLASS,
     borderRadius: BorderRadius.lg,
@@ -497,25 +566,18 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     fontFamily: FontFamily.medium,
   },
-  resolvedBanner: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingVertical: Spacing.xs,
-    paddingHorizontal: Spacing.sm,
+  resolvedBadge: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
     backgroundColor: BrandColors.secondary,
-    borderRadius: BorderRadius.md,
-    alignSelf: "flex-start",
+    alignItems: "center",
+    justifyContent: "center",
   },
-  resolvedBannerMuted: {
-    backgroundColor: "rgba(0,0,0,0.05)",
+  resolvedBadgeMuted: {
+    backgroundColor: "rgba(0, 0, 0, 0.06)",
   },
-  resolvedText: {
-    fontSize: 12,
-    color: BrandColors.white,
-    fontFamily: FontFamily.medium,
-  },
-  resolvedTextMuted: {
+  rowTextMuted: {
     color: NEUTRAL_TEXT,
   },
   errorBanner: {

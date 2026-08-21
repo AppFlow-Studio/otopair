@@ -14,13 +14,13 @@
 
 // 1. React & React Native
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, AppState, BackHandler, Image, Platform, StyleSheet, TextInput, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, AppState, BackHandler, Platform, StyleSheet, TextInput, TouchableOpacity, View } from "react-native";
 
 // 2. Expo & Third-party
 import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useMutation, useQuery } from "convex/react";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
-import { Calendar, Car, ChevronRight, Clock, FileText, Info, Star, WifiOff } from "lucide-react-native";
+import { Calendar, Car, ChevronRight, Clock, FileText, Info, Smartphone, Wallet, WifiOff } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 
@@ -32,10 +32,10 @@ import { BrandColors, ErrorOccurredModal, FixedPriceBadge, Spacing, Text } from 
 
 // 4. Flow-specific components
 import { BookingPageHeader } from "@/components/booking/pages";
+import { CollapsibleDetail } from "@/components/booking/shared";
+import { PaymentMethodModal } from "@/components/booking/modals/PaymentMethodModal";
 import { normalizeStripeBrand } from "@/components/payments/BrandedCardVisual";
 import { BRAND_SVG } from "@/components/payments/brandSvg";
-import ApplePay from "@/assets/images/APPLEPAY.svg";
-import GooglePay from "@/assets/images/GOOGLEPAY.svg";
 
 // 5. Constants, hooks, types, stores
 import { getPartsBreakdown } from "@/constants/services";
@@ -95,6 +95,8 @@ export default function PaymentScreen() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorModalVisible, setErrorModalVisible] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string>("");
+  // Slim payment-method picker (Change → bottom-sheet modal).
+  const [paymentModalVisible, setPaymentModalVisible] = useState(false);
 
   // Pick up an error bounced back from the /confirming screen and surface
   // it in the existing error modal. Run once when the param shows up.
@@ -151,6 +153,9 @@ export default function PaymentScreen() {
   // e.g., right after AddPaymentScreen attaches a new card and pre-selects it.
   const paymentMethods = usePaymentStore((state) => state.paymentMethods);
   const selectedPaymentMethodId = usePaymentStore((state) => state.selectedPaymentMethodId);
+  // Which method the Authorize button should use — a wallet value routes
+  // through the platform wallet sheet, null falls back to the selected card.
+  const walletIntent = usePaymentStore((state) => state.walletIntent);
 
   // ═══════════════ COMPUTED ═══════════════
   const appointmentDate = getFormattedAppointmentDate();
@@ -683,6 +688,36 @@ export default function PaymentScreen() {
     }
   }, [walletError]);
 
+  // Single Authorize CTA. Routes through the platform wallet sheet when the
+  // picker's intent is a supported wallet; otherwise runs the saved-card
+  // path (handleConfirmPayment, which also surfaces the "add a payment
+  // method" error when none is selected). If a wallet intent is set but that
+  // wallet isn't supported on this device, we fall through to the card path
+  // rather than dead-ending.
+  const handleAuthorize = useCallback(() => {
+    if (!canWrite) return;
+    if (!selectedMechanicId && !selectedMechanicSlot?.shopId) return;
+    if (walletIntent === "apple_pay" && applePaySupported) {
+      handleApplePay();
+      return;
+    }
+    if (walletIntent === "google_pay" && googlePaySupported) {
+      handleGooglePay();
+      return;
+    }
+    handleConfirmPayment();
+  }, [
+    canWrite,
+    selectedMechanicId,
+    selectedMechanicSlot?.shopId,
+    walletIntent,
+    applePaySupported,
+    googlePaySupported,
+    handleApplePay,
+    handleGooglePay,
+    handleConfirmPayment,
+  ]);
+
   useFocusEffect(
     useCallback(() => {
       if (Platform.OS !== "android") {
@@ -738,79 +773,119 @@ export default function PaymentScreen() {
         keyboardDismissMode="on-drag"
         bottomOffset={24}
       >
-        {/* Mechanic Card with Appointment Details */}
-        <View style={styles.mechanicCard}>
-          {/* Mechanic Info Row */}
-          <View style={styles.mechanicRow}>
-            <View style={styles.avatarWrapper}>
-              {mechanic?.photoUrl ? (
-                <Image source={{ uri: mechanic.photoUrl }} style={styles.avatar} />
+        {/* Payment — a slim chooser up top instead of a screen-hogging
+            sticky block. One "pay in full" term + the selected method; the
+            full card/wallet list lives behind "Change" (PaymentMethodModal). */}
+        <View style={styles.paySection}>
+          <Text size="xs" weight="bold" color={BrandColors.secondary} style={styles.paySectionLabel}>
+            PAYMENT
+          </Text>
+
+          {/* Pay-in-full term. Single option today ($20 hold now, balance
+              settled after inspection), shown as the selected choice. */}
+          <View style={styles.payTermRow}>
+            <View style={styles.radioOuter}>
+              <View style={styles.radioInner} />
+            </View>
+            <View style={styles.payTermText}>
+              <Text size="sm" weight="semiBold" color={BrandColors.primary}>
+                Pay in full
+              </Text>
+              <Text size="xs" weight="regular" color="#6B7280">
+                $20 authorized today · balance charged after inspection
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.payMethodDivider} />
+
+          {/* Selected method + Change. Wallet intent shows the wallet name;
+              otherwise the saved card brand + last4, or a prompt to add one. */}
+          <TouchableOpacity
+            style={styles.payMethodRow}
+            onPress={() => setPaymentModalVisible(true)}
+            activeOpacity={0.7}
+          >
+            <View style={styles.payMethodIcon}>
+              {walletIntent === "apple_pay" ? (
+                <Wallet size={20} color={BrandColors.primary} />
+              ) : walletIntent === "google_pay" ? (
+                <Smartphone size={20} color={BrandColors.primary} />
+              ) : selectedPaymentMethod ? (
+                (() => {
+                  const BrandSvg = BRAND_SVG?.[normalizeStripeBrand(selectedPaymentMethod.brand)];
+                  return BrandSvg ? (
+                    <BrandSvg width={40} height={26} />
+                  ) : (
+                    <Text size="xs" weight="bold" color={BrandColors.secondary}>
+                      {selectedPaymentMethod.brand.toUpperCase().slice(0, 4)}
+                    </Text>
+                  );
+                })()
               ) : (
-                <View style={styles.avatarPlaceholder}>
-                  <Text size="xl" weight="bold" color="#9CA3AF">
-                    {mechanicDisplayName.charAt(0)}
-                  </Text>
-                </View>
-              )}
-              {/* Rating Badge */}
-              {mechanic && (
-                <View style={styles.ratingBadge}>
-                  <Star size={10} color="#FCD34D" fill="#FCD34D" />
-                  <Text size="xs" weight="bold" color={BrandColors.white}>
-                    {mechanic.rating.toFixed(1)}
-                  </Text>
-                </View>
+                <ChevronRight size={20} color="#9CA3AF" />
               )}
             </View>
 
-            <View style={styles.mechanicInfo}>
-              <Text size="lg" weight="bold" color={BrandColors.primary}>
-                {mechanicDisplayName}
-              </Text>
-              <Text size="sm" weight="medium" color="#6B7280">
-                {mechanicSubtitle}
-              </Text>
-            </View>
-          </View>
-
-          {/* Divider */}
-          <View style={styles.cardDivider} />
-
-          {/* Appointment Details */}
-          <View style={styles.appointmentDetails}>
-            <View style={styles.detailRow}>
-              <Text size="xs" weight="bold" color={BrandColors.secondary} style={styles.detailLabel}>
-                APPOINTMENT
-              </Text>
-              <View style={styles.detailContent}>
-                <Calendar size={16} color="#6B7280" />
-                <Text size="sm" weight="medium" color={BrandColors.primary}>
-                  {appointmentDisplay}
+            <View style={styles.payMethodText}>
+              {walletIntent === "apple_pay" ? (
+                <Text size="sm" weight="semiBold" color={BrandColors.primary}>
+                  Apple Pay
                 </Text>
-              </View>
+              ) : walletIntent === "google_pay" ? (
+                <Text size="sm" weight="semiBold" color={BrandColors.primary}>
+                  Google Pay
+                </Text>
+              ) : selectedPaymentMethod ? (
+                <>
+                  <Text size="sm" weight="semiBold" color={BrandColors.primary}>
+                    {selectedPaymentMethod.brand.charAt(0).toUpperCase() +
+                      selectedPaymentMethod.brand.slice(1)}{" "}
+                    •••• {selectedPaymentMethod.last4}
+                  </Text>
+                  <Text size="xs" weight="regular" color="#6B7280">
+                    Expires {String(selectedPaymentMethod.expMonth).padStart(2, "0")}/
+                    {String(selectedPaymentMethod.expYear).slice(-2)}
+                  </Text>
+                </>
+              ) : (
+                <Text size="sm" weight="semiBold" color={BrandColors.secondary}>
+                  Add payment method
+                </Text>
+              )}
             </View>
 
-            <View style={styles.detailRow}>
-              <Text size="xs" weight="bold" color={BrandColors.secondary} style={styles.detailLabel}>
-                VEHICLE
-              </Text>
-              <View style={styles.detailContent}>
-                <Car size={16} color="#6B7280" />
-                <Text size="sm" weight="medium" color={BrandColors.primary}>
-                  {vehicleDisplay}
-                </Text>
-              </View>
-            </View>
-          </View>
+            <Text size="sm" weight="semiBold" color={BrandColors.secondary}>
+              Change
+            </Text>
+          </TouchableOpacity>
         </View>
 
-        {/* Service Breakdown Card */}
+        {/* Booking summary — service line(s), vehicle/shop and slot stay
+            visible; the itemized labor/parts/tax breakdown tucks behind a
+            "See full breakdown" toggle so the collapsed card reads simple. */}
         <View style={styles.serviceCard}>
           <View style={styles.serviceHeader}>
             <Text size="md" weight="bold" color={BrandColors.primary}>
-              Service Breakdown
+              Booking summary
             </Text>
             <FileText size={20} color="#9CA3AF" />
+          </View>
+
+          {/* Context: vehicle · shop and the appointment slot. */}
+          <View style={styles.summaryContext}>
+            <View style={styles.summaryContextRow}>
+              <Car size={16} color="#6B7280" />
+              <Text size="sm" weight="medium" color={BrandColors.primary}>
+                {vehicleDisplay} · {shop?.name ?? mechanicSubtitle}
+              </Text>
+            </View>
+            <View style={styles.summaryContextRow}>
+              <Calendar size={16} color="#6B7280" />
+              <Text size="sm" weight="medium" color={BrandColors.primary}>
+                {appointmentDisplay}
+              </Text>
+            </View>
           </View>
 
           {isQuoteAccept && quoteBreakdown ? (
@@ -830,30 +905,32 @@ export default function PaymentScreen() {
                 </View>
               ))}
 
-              <View style={styles.breakdownSection}>
-                <View style={styles.breakdownRow}>
-                  <Text size="sm" weight="regular" color="#6B7280">
-                    Taxes
-                  </Text>
-                  <Text size="sm" weight="medium" color="#6B7280">
-                    ${quoteBreakdown.taxDollars.toFixed(2)}
-                  </Text>
+              <CollapsibleDetail>
+                <View style={styles.breakdownSection}>
+                  <View style={styles.breakdownRow}>
+                    <Text size="sm" weight="regular" color="#6B7280">
+                      Taxes
+                    </Text>
+                    <Text size="sm" weight="medium" color="#6B7280">
+                      ${quoteBreakdown.taxDollars.toFixed(2)}
+                    </Text>
+                  </View>
                 </View>
-              </View>
 
-              <View style={styles.serviceRow}>
-                <View style={styles.feeRow}>
-                  <Text size="sm" weight="regular" color="#6B7280">
-                    Service Fee — 7%
+                <View style={styles.serviceRow}>
+                  <View style={styles.feeRow}>
+                    <Text size="sm" weight="regular" color="#6B7280">
+                      Service Fee — 7%
+                    </Text>
+                    <TouchableOpacity style={styles.infoButton} activeOpacity={0.7}>
+                      <Info size={14} color="#9CA3AF" />
+                    </TouchableOpacity>
+                  </View>
+                  <Text size="sm" weight="medium" color="#6B7280">
+                    ${quoteBreakdown.serviceFeeDollars.toFixed(2)}
                   </Text>
-                  <TouchableOpacity style={styles.infoButton} activeOpacity={0.7}>
-                    <Info size={14} color="#9CA3AF" />
-                  </TouchableOpacity>
                 </View>
-                <Text size="sm" weight="medium" color="#6B7280">
-                  ${quoteBreakdown.serviceFeeDollars.toFixed(2)}
-                </Text>
-              </View>
+              </CollapsibleDetail>
 
               <View style={styles.serviceDivider} />
 
@@ -892,12 +969,36 @@ export default function PaymentScreen() {
             </>
           ) : (
             <>
-          {/* Service names with line range (labor + parts ±25%) so the
-              summary row shows the same band as the aggregate total.
-              Flat-price lines surface the labor duration inline with the
-              service name and replace the dollar amount with "Fixed" —
-              the customer's price contract is the flat rate, not the
-              underlying parts+labor math. */}
+          {/* Collapsed: one summary line — first service (+ N more) and the
+              total estimate. Expanding reveals the full breakdown service by
+              service, then the itemized labor/parts/tax. */}
+          <CollapsibleDetail
+            header={
+              <View style={styles.summaryLine}>
+                <Text
+                  size="sm"
+                  weight="semiBold"
+                  color={BrandColors.primary}
+                  style={styles.summaryLineName}
+                  numberOfLines={1}
+                >
+                  {selectedServices[0]?.name ?? "Your booking"}
+                  {selectedServices.length > 1
+                    ? ` + ${selectedServices.length - 1} more`
+                    : ""}
+                </Text>
+                <View style={styles.summaryLineRight}>
+                  {hasAnyFixedPrice && <FixedPriceBadge size="sm" />}
+                  <Text size="sm" weight="bold" color={BrandColors.secondary} numberOfLines={1}>
+                    {breakdown.rangeFormatted}
+                  </Text>
+                </View>
+              </View>
+            }
+          >
+          {/* Full breakdown, service by service (labor + parts ±25% band).
+              Flat-price lines surface the labor duration inline and replace
+              the dollar amount with the flat rate. */}
           {selectedServices.map((service) => {
             const lineRange = getServiceLineRange(service);
             const lineDurationLabel = lineRange.isFixed
@@ -924,7 +1025,6 @@ export default function PaymentScreen() {
               </View>
             );
           })}
-
           {/* Detailed Breakdown */}
           <View style={styles.breakdownSection}>
             {/* Labor — uses per-vehicle book hours from `labor_times` when
@@ -1085,42 +1185,15 @@ export default function PaymentScreen() {
               {formatRange(breakdown.feeLow, breakdown.feeHigh)}
             </Text>
           </View>
+          </CollapsibleDetail>
 
-          {/* Divider */}
-          <View style={styles.serviceDivider} />
-
-          {/* Estimated price range — Pre-Job Approval flow. Stacked layout
-              gives the range string full card width so the dash + two
-              prices read cleanly without clipping. */}
-          <View style={styles.totalSection}>
-            <View style={styles.totalHeader}>
-              <Text size="md" weight="bold" color={BrandColors.primary}>
-                {hasAnyFixedPrice && breakdown.rangeLow === breakdown.rangeHigh
-                  ? "Estimated price"
-                  : "Estimated price range"}
+          {dealerSavings !== null && (
+            <View style={styles.savingsRow}>
+              <Text size="xs" weight="semiBold" color={BrandColors.secondary}>
+                → Save ~${dealerSavings} vs dealership
               </Text>
-              <View style={styles.totalHeaderBadges}>
-                {hasAnyFixedPrice && <FixedPriceBadge size="sm" />}
-                {dealerSavings !== null && (
-                  <View style={styles.savingsBadge}>
-                    <Text size="xs" weight="semiBold" color={BrandColors.secondary}>
-                      → Save ~${dealerSavings} vs dealership
-                    </Text>
-                  </View>
-                )}
-              </View>
             </View>
-            <Text
-              size="2xl"
-              weight="bold"
-              color={BrandColors.secondary}
-              numberOfLines={1}
-              adjustsFontSizeToFit
-              minimumFontScale={0.6}
-            >
-              {breakdown.rangeFormatted}
-            </Text>
-          </View>
+          )}
 
           {/* $20 hold info block — surfaces the deposit mechanic and the
               "only charged after inspection" promise alongside the range,
@@ -1177,12 +1250,15 @@ export default function PaymentScreen() {
 
       </KeyboardAwareScrollView>
 
-      {/* Footer CTA — wallet button on top (Apple Pay on iOS, Google Pay
-          on Android), saved card row below. The wallet button is hidden
-          on devices without wallet support (e.g., iOS simulator, Android
-          without Google Play Services) instead of just disabled, so the
-          surface doesn't suggest a path the user can't take. */}
-      <View style={[styles.footer, { paddingBottom: insets.bottom + Spacing.xs }]}>
+      {/* Footer — a floating "toast" Authorize pill (no bar background).
+          70/30 split: label left, amount centered in the right third.
+          box-none lets touches pass through the transparent area to the
+          scroll content behind it. handleAuthorize opens the wallet sheet
+          when the picker's intent is a wallet, else the saved-card path. */}
+      <View
+        style={[styles.footer, { paddingBottom: insets.bottom + Spacing.md }]}
+        pointerEvents="box-none"
+      >
         {!canWrite ? (
           <View style={styles.offlineNote}>
             <WifiOff size={16} color="#92400E" />
@@ -1192,88 +1268,48 @@ export default function PaymentScreen() {
           </View>
         ) : null}
 
-        {(Platform.OS === "ios" ? applePaySupported : googlePaySupported) ? (
-          <TouchableOpacity
-            style={[
-              styles.walletButton,
-              (isSubmitting || walletPending || !canWrite) && styles.confirmButtonDisabled,
-            ]}
-            onPress={Platform.OS === "android" ? handleGooglePay : handleApplePay}
-            activeOpacity={0.85}
-            disabled={isSubmitting || walletPending || !canWrite}
-          >
-            {isSubmitting || walletPending ? (
-              <ActivityIndicator color={BrandColors.white} size="small" />
-            ) : Platform.OS === "android" ? (
-              <GooglePay width={76} height={30} />
-            ) : (
-              <ApplePay width={72} height={30} />
-            )}
-          </TouchableOpacity>
-        ) : null}
-
-        {hasPayment && selectedPaymentMethod ? (
-          <TouchableOpacity
-            style={styles.footerCardRow}
-            onPress={handleConfirmPayment}
-            activeOpacity={0.85}
-            disabled={isSubmitting || !canWrite}
-          >
-            <View style={styles.cardBrandIcon}>
-              {(() => {
-                const BrandSvg =
-                  BRAND_SVG?.[normalizeStripeBrand(selectedPaymentMethod.brand)];
-                return BrandSvg ? (
-                  // The brand SVGs reserve viewBox space below the card
-                  // for a drop shadow, so the glyph optically floats high
-                  // in any fixed box. Nudge it down so it sits dead-center
-                  // in the tile.
-                  <BrandSvg
-                    width={56}
-                    height={36}
-                    style={{ transform: [{ translateY: 3 }] }}
-                  />
-                ) : (
-                  <Text size="xs" weight="bold" color={BrandColors.secondary}>
-                    {selectedPaymentMethod.brand.toUpperCase().slice(0, 4)}
-                  </Text>
-                );
-              })()}
-            </View>
-            <View style={styles.cardDetails}>
-              <Text size="md" weight="semiBold" color={BrandColors.primary}>
-                Pay with{" "}
-                {selectedPaymentMethod.brand.charAt(0).toUpperCase() +
-                  selectedPaymentMethod.brand.slice(1)}{" "}
-                •••• {selectedPaymentMethod.last4}
-              </Text>
-              <Text size="xs" weight="regular" color="#6B7280">
-                Expires {String(selectedPaymentMethod.expMonth).padStart(2, "0")}/
-                {String(selectedPaymentMethod.expYear).slice(-2)}
-              </Text>
-            </View>
-            <ChevronRight size={20} color="#9CA3AF" />
-          </TouchableOpacity>
-        ) : (
-          <TouchableOpacity
-            style={styles.footerCardRow}
-            onPress={() => router.push("/add-payment")}
-            activeOpacity={0.85}
-          >
-            <View style={styles.cardBrandIcon}>
-              <Text size="xs" weight="bold" color="#9CA3AF">
-                CARD
-              </Text>
-            </View>
-            <View style={styles.cardDetails}>
-              <Text size="md" weight="semiBold" color={BrandColors.secondary}>
-                Pay with card
-              </Text>
-            </View>
-            <ChevronRight size={20} color="#9CA3AF" />
-          </TouchableOpacity>
-        )}
+        <TouchableOpacity
+          style={[
+            styles.authorizeButton,
+            (isSubmitting || walletPending || !canWrite) && styles.confirmButtonDisabled,
+          ]}
+          onPress={handleAuthorize}
+          activeOpacity={0.9}
+          disabled={isSubmitting || walletPending || !canWrite}
+        >
+          {isSubmitting || walletPending ? (
+            <ActivityIndicator color={BrandColors.white} size="small" />
+          ) : (
+            <>
+              <View style={styles.authorizeLabelZone}>
+                <Text size="md" weight="bold" color={BrandColors.white}>
+                  Authorize
+                </Text>
+              </View>
+              <View style={styles.authorizeDivider} />
+              <View style={styles.authorizeAmountZone}>
+                <Text size="md" weight="bold" color={BrandColors.white}>
+                  $20
+                </Text>
+              </View>
+            </>
+          )}
+        </TouchableOpacity>
       </View>
+
+      {/* Change payment method — full card + supported-wallet list. Wallet
+          selection sets walletIntent so the single Authorize button routes
+          through the platform sheet; card selection clears it. */}
+      <PaymentMethodModal
+        visible={paymentModalVisible}
+        onClose={() => setPaymentModalVisible(false)}
+        totalAmount={isQuoteAccept && quoteBreakdown ? quoteBreakdown.total : breakdown.total}
+        serviceSummary={selectedServices[0]?.name ?? "Your booking"}
+        mechanicName={mechanicDisplayName}
+        applePaySupported={applePaySupported}
+        googlePaySupported={googlePaySupported}
+        onAddCard={() => router.push("/add-payment")}
+      />
 
       <ErrorOccurredModal
         visible={errorModalVisible}
@@ -1329,6 +1365,110 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
+  },
+
+  // Payment picker (slim, top of screen)
+  paySection: {
+    backgroundColor: BrandColors.white,
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.lg,
+    ...Shadows.sm,
+  },
+  paySectionLabel: {
+    letterSpacing: 0.5,
+    marginBottom: Spacing.md,
+  },
+  payTermRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.md,
+  },
+  radioOuter: {
+    width: 20,
+    height: 20,
+    borderRadius: BorderRadius.full,
+    borderWidth: 2,
+    borderColor: BrandColors.secondary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  radioInner: {
+    width: 10,
+    height: 10,
+    borderRadius: BorderRadius.full,
+    backgroundColor: BrandColors.secondary,
+  },
+  payTermText: {
+    flex: 1,
+    gap: 2,
+  },
+  payMethodDivider: {
+    height: 1,
+    backgroundColor: "#E5E7EB",
+    marginVertical: Spacing.md,
+  },
+  payMethodRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.md,
+  },
+  payMethodIcon: {
+    width: 44,
+    height: 30,
+    borderRadius: BorderRadius.sm,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    backgroundColor: "#F9FAFB",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  payMethodText: {
+    flex: 1,
+    gap: 2,
+  },
+
+  // Booking-summary context rows (vehicle · shop, appointment)
+  summaryContext: {
+    gap: Spacing.xs,
+    marginBottom: Spacing.md,
+    paddingBottom: Spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F3F4F6",
+  },
+  summaryContextRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+  },
+
+  // Authorize CTA (footer)
+  authorizeButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    height: 56,
+    borderRadius: BorderRadius.xl,
+    backgroundColor: BrandColors.primary,
+    // Floats over the content like a toast — the footer wrapper is
+    // transparent, so this shadow is what lifts the pill off the page.
+    ...Shadows.lg,
+  },
+  // 70 / 30 split. Label sits on the left; amount is centered in its third.
+  authorizeLabelZone: {
+    flex: 0.7,
+    justifyContent: "center",
+    alignItems: "flex-start",
+    paddingLeft: Spacing.lg,
+  },
+  authorizeAmountZone: {
+    flex: 0.3,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  authorizeDivider: {
+    width: 1,
+    height: 24,
+    backgroundColor: "rgba(255,255,255,0.35)",
   },
 
   // Slot-hold countdown pill (header right action)
@@ -1435,6 +1575,31 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: Spacing.xs,
+  },
+  // Collapsed summary line: service name (+ N more) on the left, total
+  // estimate on the right; the CollapsibleDetail chevron sits after it.
+  summaryLine: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: Spacing.sm,
+  },
+  summaryLineName: {
+    flexShrink: 1,
+  },
+  summaryLineRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.xs,
+    flexShrink: 0,
+  },
+  savingsRow: {
+    alignSelf: "flex-start",
+    backgroundColor: "#EFF6FF",
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 4,
+    borderRadius: BorderRadius.md,
+    marginTop: Spacing.sm,
   },
   breakdownSection: {
     marginTop: Spacing.sm,
@@ -1567,26 +1732,27 @@ const styles = StyleSheet.create({
     gap: 2,
   },
 
-  // Footer
+  // Footer — transparent wrapper; the Authorize pill floats inside it. No
+  // bar background, border, or shadow of its own.
   footer: {
     position: "absolute",
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: BrandColors.white,
-    paddingTop: Spacing.md,
     paddingHorizontal: Spacing.lg,
     gap: Spacing.sm,
-    borderTopWidth: 1,
-    borderTopColor: "#E5E7EB",
-    ...Shadows.lg,
   },
   offlineNote: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
     justifyContent: "center",
-    paddingBottom: Spacing.sm,
+    // Readable chip since it now floats over content, not a white bar.
+    alignSelf: "center",
+    backgroundColor: "#FEF3C7",
+    borderRadius: BorderRadius.full,
+    paddingVertical: Spacing.xs,
+    paddingHorizontal: Spacing.md,
   },
   walletButton: {
     // Full-width CTA. The SVG holds ONLY the wallet mark (Apple/Google

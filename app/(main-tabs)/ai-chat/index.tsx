@@ -58,6 +58,7 @@ import { ProfileInitialsButton } from "@/components/home/ProfileInitialsButton";
 import {
   AIGreeting,
   AIContextBar,
+  SymptomTrackerPin,
   AIMessageBubble,
   AIInputBox,
   AITypingIndicator,
@@ -169,6 +170,14 @@ export default function AIChatScreen() {
 
   // Calculate bottom padding to account for the native tab bar
   const bottomPadding = Math.max(insets.bottom, TAB_BAR_HEIGHT);
+  // Android: the keyboard event's endCoordinates.height under-reports the
+  // occluded area slightly (edge-to-edge window metrics), which left the input
+  // card's lower edge clipped under the keyboard (QA: "the text box gets cut
+  // off by the keyboard"). Full insets.bottom over-corrects on gesture-nav
+  // devices (card floats high) — the right compensation is a small fixed
+  // nudge so the card sits flush with the keyboard top. iOS's
+  // keyboardWillShow height spans the full occluded area; no nudge needed.
+  const keyboardBottomInset = Platform.OS === "android" ? 24 : 0;
   const HEADER_HEIGHT = insets.top + Spacing.md * 2 + 40;
 
   // Welcome screen state (from Zustand store)
@@ -262,6 +271,14 @@ export default function AIChatScreen() {
   const setConversationPinned = useMutation(api.ai_conversations.setPinned);
   const [convexConversationId, setConvexConversationId] =
     useState<Id<"ai_conversations"> | null>(null);
+  // Issue 2 (Aug-08 QA) — reactive read of the open-symptom ledger for the
+  // pinned "Tracking: …" list. Rows appear when the server classifier appends
+  // them mid-turn and clear when a booking render marks them addressed.
+  const openSymptoms = useQuery(
+    api.ai_conversations.getOpenSymptoms,
+    convexConversationId ? { id: convexConversationId } : "skip",
+  );
+  const hasOpenSymptoms = (openSymptoms?.length ?? 0) > 0;
   // appendEstablishedFact — mobile-side write into ai_conversations.established_facts
   // so Haiku reads selections from <conversation_state> on the next turn instead of
   // re-deriving them from natural-language history. Decision D: "IDs come from
@@ -350,6 +367,23 @@ export default function AIChatScreen() {
   // Car selection state — input bar hidden until car confirmed
   const [isCarConfirmed, setIsCarConfirmed] = useState(false);
   const [selectedVehicle, setSelectedVehicle] = useState<VehicleCard | null>(null);
+
+  // Single-car auto-confirm (QA p.105): with exactly one car in the garage
+  // the chooser is a pointless gate — confirm it automatically so a new chat
+  // drops straight into the input. Multi-car garages keep the picker. Also
+  // re-fires after startNewChat resets isCarConfirmed, so every new chat
+  // skips the gate for single-car users.
+  React.useEffect(() => {
+    if (
+      !isCarConfirmed &&
+      greetingVehicles.length === 1 &&
+      state.messages.length === 0
+    ) {
+      setSelectedVehicleVin(greetingVehicles[0].vin);
+      setSelectedVehicle(greetingVehicles[0]);
+      setIsCarConfirmed(true);
+    }
+  }, [isCarConfirmed, greetingVehicles, state.messages.length]);
 
   // Attachment panel state
   const [isAttachmentOpen, setIsAttachmentOpen] = useState(false);
@@ -553,6 +587,7 @@ export default function AIChatScreen() {
 
         const {
           text,
+          assistantMessageId,
           quickReplies,
           showRecordConfirmation,
           showVehicleUpdate,
@@ -644,6 +679,7 @@ export default function AIChatScreen() {
 
         const aiMessage: ChatMessage = {
           id: `ai_${Date.now()}`,
+          dbId: (assistantMessageId as string | undefined) ?? undefined,
           role: "assistant",
           content: text,
           timestamp: new Date().toISOString(),
@@ -1005,11 +1041,17 @@ export default function AIChatScreen() {
             const r = (row.render ?? {}) as Partial<ChatMessage>;
             return {
               id: row._id as string,
+              dbId: row._id as string,
               role: row.role === "user" ? "user" : "assistant",
               content: row.content,
               timestamp: new Date(row.timestamp).toISOString(),
               quickReplies: r.quickReplies,
               showRecordConfirmation: r.showRecordConfirmation,
+              // W0.4 (formerly mislabeled W3.3): the persisted payload already carries vehicle_id, stamped
+              // server-side from the vehicle this turn was actually about. Do
+              // NOT re-stamp it from the live picker here — that would rebind an
+              // old thread's card to whatever car happens to be selected now.
+              showVehicleUpdate: r.showVehicleUpdate,
               bookService: r.bookService,
               linkButton: r.linkButton,
               bookingCard: r.bookingCard,
@@ -1532,12 +1574,33 @@ export default function AIChatScreen() {
         />
       )}
 
+      {/* Issue 2 — pinned unresolved-symptom list ("Tracking: …") */}
+      {!showChatGreeting && hasOpenSymptoms && (
+        <SymptomTrackerPin
+          symptoms={openSymptoms ?? []}
+          top={HEADER_HEIGHT + 8 + (selectedVehicle ? 52 : 0)}
+        />
+      )}
+
       {/* Main Content */}
       <View
         style={[
           { flex: 1 },
           showChatGreeting && { overflow: 'visible' },
         ]}
+        // Tap-anywhere-outside dismisses the keyboard (QA p.7 — replaces the
+        // composer's X button). Capture-phase so it fires no matter what the
+        // touch lands on — message bubbles and chips are pressables, so the
+        // ScrollView's keyboardShouldPersistTaps="handled" alone never
+        // dismissed on them. Returning false declines the responder claim,
+        // so children still receive the tap (a chip tap both dismisses AND
+        // activates). The composer is an absolutely-positioned SIBLING of
+        // this container, so touches in the input never pass through here —
+        // no dismiss/refocus flicker when tapping the text field.
+        onStartShouldSetResponderCapture={() => {
+          if (isKeyboardVisible) Keyboard.dismiss();
+          return false;
+        }}
       >
         {/* Chat Area */}
         <ScrollView
@@ -1545,10 +1608,11 @@ export default function AIChatScreen() {
           style={[styles.chatContainer, showChatGreeting && styles.chatContainerGreeting]}
           contentContainerStyle={[
             styles.chatContent,
-            showChatGreeting ? styles.chatContentCentered : { paddingTop: HEADER_HEIGHT + 16 + (selectedVehicle ? 52 : 0), paddingBottom: (keyboardHeight > 0 ? keyboardHeight + 8 : bottomPadding + 8) + 70 },
+            showChatGreeting ? styles.chatContentCentered : { paddingTop: HEADER_HEIGHT + 16 + (selectedVehicle ? 52 : 0) + (hasOpenSymptoms ? 60 : 0), paddingBottom: (keyboardHeight > 0 ? keyboardHeight + keyboardBottomInset + 8 : bottomPadding + 8) + 70 },
           ]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
+          keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
           scrollEnabled={!showChatGreeting}
           onScroll={handleChatScroll}
           scrollEventThrottle={16}
@@ -1593,9 +1657,30 @@ export default function AIChatScreen() {
                 // insurance against a malformed envelope ever reaching the
                 // client. Priority order matches the handoff doc:
                 // bookService → showRecordConfirmation → bookingCard /
-                // bookingsList → linkButton. When any terminal is set, we
-                // also drop quickReplies from the bubble so a confused
-                // payload can't double-render a tap surface.
+                // bookingsList → linkButton.
+                //
+                // W3.1 (2026-08-13): this block USED to also strip quickReplies
+                // whenever a terminal was set — `{ ...message, quickReplies:
+                // undefined }` — on the reasoning that two tap surfaces in one
+                // message was a malformed payload. That was the actual cause of
+                // the chips inversion (D-6, D-33, I2, L2, the 7-light case):
+                // chips disappeared exactly when Oto was ALSO logging a fault or
+                // offering a booking, i.e. when the user was deepest in a
+                // problem and least able to type. The backend was never the
+                // problem — mergeRenderDirectives writes every render field
+                // unconditionally, renderToPersist uses independent ifs, and
+                // ai_messages.render holds several at once — so no prompt change
+                // could ever have fixed it.
+                //
+                // Two tap surfaces is now the intended shape, not a malformed
+                // one. Layout is chips-above-card, which needs no new layout
+                // code: the bubble (which owns the chip row) already renders
+                // ahead of the card below. Precedent that a bubble can carry
+                // several renders at once: `reasoning` and `sources` have always
+                // co-existed with chips, because they sit outside this chain.
+                //
+                // The cards themselves stay mutually exclusive — `terminalKind`
+                // still picks exactly one.
                 const isAssistant = message.role === "assistant";
                 const terminalKind: "bookService" | "recordConfirm" | "vehicleUpdate" | "bookingCard" | "bookingsList" | "linkButton" | null =
                   isAssistant
@@ -1613,9 +1698,14 @@ export default function AIChatScreen() {
                                 ? "linkButton"
                                 : null
                     : null;
-                const messageForBubble = terminalKind
-                  ? { ...message, quickReplies: undefined }
-                  : message;
+                // Chips ride along with whatever card fires. Applied to every
+                // terminal kind, including `bookService` — see the note in the
+                // handoff: the booking flow is a 4-step wizard that already
+                // gives the user plenty to tap, so it is the one case where a
+                // chip row may be redundant rather than helpful. Reverting just
+                // that case is a one-line exemption here, deliberately not taken
+                // pre-emptively.
+                const messageForBubble = message;
                 return (
                   <View key={message.id}>
                     <AIMessageBubble
@@ -1659,6 +1749,7 @@ export default function AIChatScreen() {
                       <View style={styles.servicePickerContainer}>
                         <AIVehicleUpdate
                           payload={message.showVehicleUpdate}
+                          messageDbId={message.dbId ?? null}
                           onDecision={handleVehicleUpdateDecision}
                           onDismiss={handleVehicleUpdateDismiss}
                           disabled={isProcessing}
@@ -1728,7 +1819,7 @@ export default function AIChatScreen() {
           position: 'absolute',
           left: 0,
           right: 0,
-          bottom: keyboardHeight > 0 ? keyboardHeight + 8 : bottomPadding + 8,
+          bottom: keyboardHeight > 0 ? keyboardHeight + keyboardBottomInset + 8 : bottomPadding + 8,
         }}>
           {/* Selected images render inside the composer (AIInputBox) now,
               ChatGPT-style — the standalone AISelectedImages strip was

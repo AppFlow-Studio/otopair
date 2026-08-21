@@ -211,7 +211,12 @@ const styles = StyleSheet.create({
   activeCapsule: {
     width: '105%',
     height: '110%',
-    backgroundColor: 'rgba(37, 99, 235, 0.1)',
+    // Neutral, not tinted. This was rgba(37, 99, 235, 0.1) — brand blue at
+    // 10% — which composites to #E2E8F6 over the #F7F7F7 bar and reads as a
+    // blue wash. iOS uses a plain grey capsule (#E5E5E5), so the selected tab
+    // is signalled by the icon and label turning blue, not by the pill itself.
+    // Black at 7.3% over #F7F7F7 lands on #E5E5E5 and matches.
+    backgroundColor: 'rgba(0, 0, 0, 0.073)',
     borderRadius: 28,
   }
 })

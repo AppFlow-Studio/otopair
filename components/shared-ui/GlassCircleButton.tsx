@@ -16,6 +16,8 @@ interface GlassCircleButtonProps {
     onPress?: () => void;
     children?: React.ReactNode;
     style?: ViewStyle;
+    /** Screen-reader label — the icon children are decorative SVG */
+    accessibilityLabel?: string;
 }
 
 export function GlassCircleButton({
@@ -24,14 +26,17 @@ export function GlassCircleButton({
     onPress,
     children,
     style,
+    accessibilityLabel,
 }: GlassCircleButtonProps) {
     const center = size / 2;
     const radius = (size / 2) - strokeWidth / 2;
 
     return (
-        <TouchableOpacity 
-            onPress={onPress} 
+        <TouchableOpacity
+            onPress={onPress}
             activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityLabel={accessibilityLabel}
             style={[styles.container, { width: size, height: size }, style]}
         >
             <View style={StyleSheet.absoluteFill}>

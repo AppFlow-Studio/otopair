@@ -37,18 +37,39 @@ export function todayLocalISO(): string {
 }
 
 /**
- * Earliest bookable slot time as "HH:MM" in local time.
- * Uses the current minute as the floor — a slot stays visible until its
- * start time actually passes. No lead-time buffer: at 8:53am a 9:00 slot
- * is still bookable because the user can confirm in seconds, and hiding
- * opening-time slots an hour before they hit makes shops look empty in
- * the booking flow.
- * Returns "24:00" when past midnight (all today's slots have passed).
+ * Minimum advance notice for a booking, in minutes. A slot must start at
+ * least this far in the future to be bookable, so same-day slots inside
+ * the window are hidden on every booking surface. Single source of truth:
+ * retune the lead time everywhere by changing this one number.
+ */
+export const MIN_ADVANCE_NOTICE_MINUTES = 60;
+
+/**
+ * User-facing caption for the advance-notice rule. Rendered wherever the
+ * customer picks a time so the constraint is visible, not just enforced.
+ */
+export const MIN_ADVANCE_NOTICE_LABEL = "Bookings require at least 1 hour's notice.";
+
+/**
+ * Earliest bookable minute-of-day in local time: now + the advance-notice
+ * window, rounded up to the next 15-minute slot boundary. Rounding only
+ * ever pushes later, so the guarantee stays "at least 1 hour." Can exceed
+ * 1440 late at night — callers treat that as "nothing bookable today."
+ */
+export function minBookableMinutes(): number {
+  const now = new Date();
+  const raw = now.getHours() * 60 + now.getMinutes() + MIN_ADVANCE_NOTICE_MINUTES;
+  return Math.ceil(raw / 15) * 15;
+}
+
+/**
+ * Earliest bookable slot time as "HH:MM" in local time — the same floor as
+ * {@link minBookableMinutes}, formatted for slot comparisons ("HH:MM" is
+ * lexically chronological). Returns "24:00" when the window runs past
+ * midnight (all of today's slots fall within the lead time).
  */
 export function minBookableHHMM(): string {
-  const now = new Date();
-  const rawMin = now.getHours() * 60 + now.getMinutes() + 15;
-  const rounded = Math.ceil(rawMin / 15) * 15;
+  const rounded = minBookableMinutes();
   if (rounded >= 1440) return "24:00";
   const hh = String(Math.floor(rounded / 60)).padStart(2, "0");
   const mm = String(rounded % 60).padStart(2, "0");

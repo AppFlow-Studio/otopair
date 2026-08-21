@@ -1,19 +1,22 @@
 /**
- * Past Services
+ * Service Record
  *
- * Single-page list of every completed booking, sorted by date desc.
- * Header shows a horizontal filter pill row when the user has more
- * than one car — first pill is `All cars`, the rest scope the list
- * to a single vehicle. In "All cars" mode every row gets a small
- * vehicle kicker so it's obvious which car each booking is for
- * without forcing a drilldown.
+ * An instrument surface rather than a list of cards. The month is the readout —
+ * large and bold, with a signal rule beneath it — and service rows sit quiet and
+ * technical underneath. Vehicle scoping is the channel strip alone: always
+ * visible, one tap, no sheet to open or dismiss.
  *
- * Replaces the old two-step "pick a car → see its history" browser:
- * the default is now an informative full list, the filter is opt-in,
- * and the back button has only one level to handle.
+ * Sits on the shared Oto ambient gradient (constants/theme → OtoGradient), the
+ * same ground as the AI-chat surface, so this screen belongs to the app rather
+ * than being a one-off dark or flat panel.
  *
- * Visual: home-tab gradient backdrop (matches the rest of the
- * settings overlay destinations).
+ * Type comes from ServiceLogFonts (constants/theme.ts) — roles, not families —
+ * so the whole typographic system for these three surfaces swaps in one place.
+ * Uses RN Text rather than shared-ui <Text> because these screens need weights
+ * and tracking that component does not expose.
+ *
+ * Money appears per-row only. There are no month subtotals and no lifetime
+ * total — the record is about what was done, not what it cost in aggregate.
  *
  * USED IN: Settings → Past Services (My Garage section).
  */
@@ -21,39 +24,71 @@
 import React, { useMemo, useState } from "react";
 import {
   Image,
-  LayoutAnimation,
   Platform,
   Pressable,
   ScrollView,
   StyleSheet,
-  UIManager,
+  Text as RNText,
   View,
 } from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
+import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { ArrowLeft } from "lucide-react-native";
 import { Link } from "expo-router";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
-import { ArrowLeft, Calendar, Wrench } from "lucide-react-native";
 
-import { Text } from "@/components/shared-ui";
-import { BrandColors, SurfaceColors } from "@/constants/theme";
+import { OtoGradient, ServiceLogColors as C, ServiceLogFonts as F } from "@/constants/theme";
 import { useMyBookingsWithDetails } from "@/hooks/useMyBookingsWithDetails";
-import { useVehicleStore } from "@/stores/useVehicleStore";
 
-const INK = "#0F172A";
-const MUTED = "#6B7280";
+const MONTHS_LONG = [
+  "JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE",
+  "JULY", "AUGUST", "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER",
+];
+const MONTHS_SHORT = [
+  "JAN", "FEB", "MAR", "APR", "MAY", "JUN",
+  "JUL", "AUG", "SEP", "OCT", "NOV", "DEC",
+];
 
+/**
+ * `Link.AppleZoom` only exists on iOS builds of expo-router, and only when the
+ * paired `Link.AppleZoomTarget` is mounted on the destination — see
+ * app/settings/past-service/[bookingId].tsx. Looked up optionally so Android
+ * and older router versions fall through to a plain push.
+ */
 type AppleZoomRouterLink = typeof Link & {
   AppleZoom?: React.ComponentType<React.PropsWithChildren>;
 };
 
 const AppleZoom =
   Platform.OS === "ios" ? (Link as AppleZoomRouterLink).AppleZoom : undefined;
-// Android: LayoutAnimation needs an opt-in. No-op on iOS.
-if (
-  Platform.OS === "android" &&
-  UIManager.setLayoutAnimationEnabledExperimental
-) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
+
+type CompletedBooking = ReturnType<
+  typeof useMyBookingsWithDetails
+>["historyBookings"][number];
+
+type FilterValue = "all" | string;
+
+interface Channel {
+  /** year|model|vin — two cars sharing year+model stay distinct. */
+  key: string;
+  /** Strip label, uppercased ("TIGUAN", "7 SERIES"). */
+  short: string;
+  count: number;
+}
+
+/** Displayed money is what was captured, falling back to the pre-approval
+ *  estimate on legacy rows that never went through Stripe. */
+function amountOf(b: CompletedBooking): number | undefined {
+  if (b.finalCaptureAmountCents != null) return b.finalCaptureAmountCents / 100;
+  return b.totalCost;
+}
+
+/** Row figures carry no symbol — the readout above the group already
+ *  establishes the unit, and the column reads cleaner without it. */
+function fmtFigure(n: number | undefined): string {
+  if (n == null) return "—";
+  return n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 function fmtUSD(n: number | undefined): string {
@@ -61,348 +96,394 @@ function fmtUSD(n: number | undefined): string {
   return n.toLocaleString("en-US", { style: "currency", currency: "USD" });
 }
 
+/** "2026-06" → "JUNE 2026". Hermes ships a reduced Intl that throws on
+ *  toLocaleDateString with an options bag, so this is built by hand. */
+function monthLabel(ym: string): string {
+  const [y, m] = ym.split("-");
+  const name = MONTHS_LONG[Number(m) - 1];
+  return name ? `${name} ${y}` : ym;
+}
 
-// `carModel` in our booking rows is actually "Make Model Trim …" (e.g.
-// "Volkswagen Tiguan 2.0T SE R-Line Black"). Pull out just the model
-// for the filter pill so chips stay short.
-//   "Volkswagen Tiguan 2.0T SE R-Line Black" → "Tiguan"
-//   "Chevrolet Corvette"                     → "Corvette"
-//   "Ford F-150 SuperCrew"                   → "F-150"
-//   "Tesla Model 3"                          → "Model 3"
-//   "BMW 7 Series 750i xDrive"               → "7 Series"
-// Single-token strings pass through unchanged.
+/** "2026-06-18" → "18 JUN". */
+function shortDate(ymd: string): string {
+  const [, m, d] = ymd.split("-");
+  const mon = MONTHS_SHORT[Number(m) - 1];
+  if (!mon || !d) return ymd;
+  return `${Number(d)} ${mon}`;
+}
+
+
+// `carModel` carries "Make Model Trim …". Pull just the model for channel
+// labels and row meta so the fixed mono column stays narrow.
+//   "Volkswagen Tiguan 2.0T SE R-Line" → "Tiguan"
+//   "Tesla Model 3 Long Range"         → "Model 3"
+//   "BMW 7 Series 750i xDrive"         → "7 Series"
 function extractModel(full: string): string {
   const tokens = full.trim().split(/\s+/).filter(Boolean);
   if (tokens.length <= 1) return full;
-  // Tesla naming uses "Model X / 3 / Y / S" — keep the qualifier token.
   if (tokens[1].toLowerCase() === "model" && tokens[2]) {
     return `${tokens[1]} ${tokens[2]}`;
   }
-  // BMW naming uses "<digit> Series" — keep the "Series" qualifier.
   if (/^\d+$/.test(tokens[1]) && tokens[2]?.toLowerCase() === "series") {
     return `${tokens[1]} ${tokens[2]}`;
   }
   return tokens[1];
 }
 
-// Sibling of `extractModel` that returns "YEAR MAKE MODEL" for the per-row
-// kicker — trims the trim/sub-trim suffix that `carModel` carries so the
-// eyebrow fits on one line.
-//   "2024" + "Volkswagen Tiguan 2.0T SE R-Line Black" → "2024 Volkswagen Tiguan"
-//   "2024" + "Tesla Model 3 Long Range"               → "2024 Tesla Model 3"
-//   "2024" + "BMW 7 Series 750i xDrive"               → "2024 BMW 7 Series"
-//   "2024" + "Land Rover Defender"                    → "2024 Land Rover Defender"
+// Sibling returning "YEAR MAKE MODEL" with the trim dropped.
 function extractYearMakeModel(year: string | undefined, carModel: string): string {
   const tokens = carModel.trim().split(/\s+/).filter(Boolean);
   const yr = (year ?? "").trim();
   if (tokens.length === 0) return yr;
   if (tokens.length === 1) return [yr, tokens[0]].filter(Boolean).join(" ");
 
-  // Two-word makes — first two tokens are the make, take the next as the model.
   const firstTwo = `${tokens[0]} ${tokens[1]}`.toLowerCase();
   const isTwoWordMake =
     firstTwo === "land rover" ||
     firstTwo === "alfa romeo" ||
     firstTwo === "aston martin";
   if (isTwoWordMake) {
-    const make = `${tokens[0]} ${tokens[1]}`;
-    const model = tokens[2] ?? "";
-    return [yr, make, model].filter(Boolean).join(" ");
+    return [yr, `${tokens[0]} ${tokens[1]}`, tokens[2] ?? ""].filter(Boolean).join(" ");
   }
 
   const make = tokens[0];
   let model = tokens[1];
-  // Tesla → keep the qualifier ("Model 3", "Model X", …).
-  if (model.toLowerCase() === "model" && tokens[2]) {
-    model = `Model ${tokens[2]}`;
-  }
-  // BMW → keep the "Series" qualifier ("7 Series", "3 Series", …).
+  if (model.toLowerCase() === "model" && tokens[2]) model = `Model ${tokens[2]}`;
   else if (/^\d+$/.test(model) && tokens[2]?.toLowerCase() === "series") {
     model = `${model} Series`;
   }
   return [yr, make, model].filter(Boolean).join(" ");
 }
 
-type CompletedBooking = ReturnType<typeof useMyBookingsWithDetails>["historyBookings"][number];
-
-interface CarBucket {
-  /** Stable key for grouping: year|model|vin so two cars with the
-   *  same year+model but different VINs stay distinct. */
-  key: string;
-  /** Full label (e.g. "2024 Tiguan") — used for the row kicker. */
-  label: string;
-  /** Raw model — used as the filter pill title (e.g. "Tiguan",
-   *  "F-150", "Model 3", "Grand Cherokee"). Falls back to the full
-   *  label when the booking has no carModel. */
-  model: string;
-  /** Optional ownership match — used to swap the makeLogoUrl
-   *  thumbnail for a real garage car photo when we have one. */
-  vehicleId?: string;
-  makeLogoUrl?: string;
-  bookings: CompletedBooking[];
+function channelKey(b: CompletedBooking): string {
+  return `${(b.carYear ?? "").trim()}|${(b.carModel ?? "").trim()}|${(b.vin ?? "").trim()}`;
 }
 
-type FilterValue = "all" | string;
+
+// ============================================================================
+// SCREEN
+// ============================================================================
 
 export default function PastServicesScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { historyBookings } = useMyBookingsWithDetails();
+  const { historyBookings, isLoading } = useMyBookingsWithDetails();
 
-  const vehicleIds = useVehicleStore((s) => s.vehicleIds);
-  const vehicles = useVehicleStore((s) => s.vehicles);
-
-  // "all" → show every car's bookings; otherwise = a bucket.key.
   const [filter, setFilter] = useState<FilterValue>("all");
 
-  const completed = useMemo<CompletedBooking[]>(
+  const completed = useMemo(
     () => historyBookings.filter((b) => b.status === "completed"),
     [historyBookings],
   );
 
-  // Bucket completed bookings by car. Identity comes from the booking
-  // row itself (year + carModel + vin) so we always show every completed
-  // booking — VIN-only joining against the garage store dropped any
-  // booking whose VIN was empty or stale. When a bucket's VIN happens
-  // to match a stored vehicle we borrow the vehicle's image for the
-  // (currently unused) thumbnail; otherwise we use the booking's
-  // makeLogoUrl. Buckets feed the filter pill row.
-  const buckets = useMemo<CarBucket[]>(() => {
-    const vehicleByVin: Record<string, string> = {};
-    for (const id of vehicleIds) {
-      const v = vehicles[id];
-      if (v?.vin) vehicleByVin[v.vin] = id;
-    }
-
-    const map = new Map<string, CarBucket>();
-    for (const b of completed) {
-      const year = (b.carYear ?? "").trim();
-      const model = (b.carModel ?? "").trim();
-      const vin = (b.vin ?? "").trim();
-      const key = `${year}|${model}|${vin}`;
-      const label =
-        [year, model].filter(Boolean).join(" ") || "Unknown vehicle";
-      const pillModel = model ? extractModel(model) : label;
-      const vehicleId = vin ? vehicleByVin[vin] : undefined;
-      let bucket = map.get(key);
-      if (!bucket) {
-        bucket = {
-          key,
-          label,
-          model: pillModel,
-          vehicleId,
-          makeLogoUrl: b.makeLogoUrl,
-          bookings: [],
-        };
-        map.set(key, bucket);
-      }
-      bucket.bookings.push(b);
-    }
-    return Array.from(map.values());
-  }, [completed, vehicleIds, vehicles]);
-
-  // Flat list, newest first. `date` is "YYYY-MM-DD" so lexicographic
-  // sort doubles as chronological.
+  /** Newest first. Sorted on scheduledDate, the only raw sortable date —
+   *  `date` is display-formatted ("Tuesday, May 26") and has no year. */
   const allBookings = useMemo(() => {
     const sorted = [...completed];
-    sorted.sort((a, b) => (b.date ?? "").localeCompare(a.date ?? ""));
+    sorted.sort((a, b) => (b.scheduledDate ?? "").localeCompare(a.scheduledDate ?? ""));
     return sorted;
+  }, [completed]);
+
+  const channels = useMemo<Channel[]>(() => {
+    const map = new Map<string, Channel>();
+    for (const b of completed) {
+      const key = channelKey(b);
+      const existing = map.get(key);
+      if (existing) {
+        existing.count += 1;
+        continue;
+      }
+      const model = (b.carModel ?? "").trim();
+      const full = model ? extractYearMakeModel(b.carYear, model) : "Unknown vehicle";
+      map.set(key, {
+        key,
+        short: (model ? extractModel(model) : full).toUpperCase(),
+        count: 1,
+      });
+    }
+    return Array.from(map.values());
   }, [completed]);
 
   const visibleBookings = useMemo(() => {
     if (filter === "all") return allBookings;
-    return allBookings.filter((b) => {
-      const key = `${(b.carYear ?? "").trim()}|${(b.carModel ?? "").trim()}|${(b.vin ?? "").trim()}`;
-      return key === filter;
-    });
+    return allBookings.filter((b) => channelKey(b) === filter);
   }, [allBookings, filter]);
 
-  const handleFilterChange = (next: FilterValue) => {
-    if (next === filter) return;
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    setFilter(next);
-  };
+  const monthGroups = useMemo(() => {
+    const map = new Map<
+      string,
+      { key: string; label: string; total: number; rows: CompletedBooking[] }
+    >();
+    for (const b of visibleBookings) {
+      const ym = (b.scheduledDate ?? "").slice(0, 7);
+      let g = map.get(ym);
+      if (!g) {
+        g = { key: ym || "unknown", label: ym ? monthLabel(ym) : "UNDATED", total: 0, rows: [] };
+        map.set(ym, g);
+      }
+      g.rows.push(b);
+      g.total += amountOf(b) ?? 0;
+    }
+    return Array.from(map.values());
+  }, [visibleBookings]);
+
+
+  const activeChannel = useMemo(
+    () => (filter === "all" ? null : channels.find((c) => c.key === filter) ?? null),
+    [filter, channels],
+  );
 
   const handleBack = () => {
     if (router.canGoBack()) router.back();
     else router.replace("/(main-tabs)/home");
   };
 
-  const showFilterRow = buckets.length > 1;
-  const showVehicleKicker = filter === "all" && buckets.length > 1;
-
   return (
     <View style={styles.screen}>
+      {/* The global bar is style="auto", which resolves from the colour scheme
+          rather than the backdrop — on this light gradient it renders light-on-
+          light. Pin it dark for the life of this screen. */}
+      <StatusBar style="dark" />
+      <LinearGradient
+        colors={[...OtoGradient.colors]}
+        locations={[...OtoGradient.locations]}
+        start={OtoGradient.start}
+        end={OtoGradient.end}
+        style={StyleSheet.absoluteFillObject}
+        pointerEvents="none"
+      />
+
       <ScrollView
         showsVerticalScrollIndicator={false}
-        // Nothing to scroll to when the list is empty — the empty state
-        // fits on screen, so disable scroll/bounce until there are services.
         scrollEnabled={visibleBookings.length > 0}
-        contentContainerStyle={[
-          styles.scrollContent,
-          { paddingTop: insets.top, paddingBottom: insets.bottom + 32 },
-        ]}
+        contentContainerStyle={{ paddingTop: insets.top + 4, paddingBottom: insets.bottom + 40 }}
       >
-        <View style={styles.topBar}>
-          <Pressable onPress={handleBack} hitSlop={12} style={styles.backBtn}>
-            <ArrowLeft size={20} color={INK} />
-          </Pressable>
-          <View style={{ flex: 1 }} />
+        {/* ── masthead ─────────────────────────────────────────── */}
+        <Pressable
+          onPress={handleBack}
+          hitSlop={12}
+          accessibilityRole="button"
+          accessibilityLabel="Back"
+          style={({ pressed }) => [styles.backBtn, pressed && styles.backBtnPressed]}
+        >
+          <ArrowLeft size={24} color={C.ink} strokeWidth={2} />
+        </Pressable>
+
+        <View style={styles.masthead}>
+          <RNText style={styles.title}>Service Record</RNText>
         </View>
 
-        <View style={styles.heroRow}>
-          <Text weight="bold" color={INK} style={styles.heroTitle}>
-            Past Services
-          </Text>
-          {/* Only show the count subtitle when there are services — when
-              empty, the centered EmptyState below already says so, so a
-              top "No services yet" line would just be redundant. */}
-          {visibleBookings.length > 0 && (
-            <Text size="md" color={MUTED} style={styles.heroSubtitle} center>
-              {`${visibleBookings.length} completed service${visibleBookings.length === 1 ? "" : "s"}`}
-            </Text>
-          )}
-        </View>
-
-        {showFilterRow && (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.filterRow}
-            style={styles.filterScroll}
-          >
-            <FilterPill
-              label="All cars"
-              count={allBookings.length}
-              active={filter === "all"}
-              onPress={() => handleFilterChange("all")}
+        {/* ── channel selector ─────────────────────────────────── */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.channels}
+        >
+          <ChannelTab label="ALL" active={filter === "all"} onPress={() => setFilter("all")} />
+          {channels.map((c) => (
+            <ChannelTab
+              key={c.key}
+              label={c.short}
+              active={filter === c.key}
+              onPress={() => setFilter(c.key)}
             />
-            {buckets.map((bucket) => (
-              <FilterPill
-                key={bucket.key}
-                label={bucket.model}
-                count={bucket.bookings.length}
-                active={filter === bucket.key}
-                onPress={() => handleFilterChange(bucket.key)}
-              />
-            ))}
-          </ScrollView>
-        )}
+          ))}
+        </ScrollView>
 
-        {visibleBookings.length > 0 ? (
-          <View style={styles.list}>
-            {visibleBookings.map((b) => (
-              <PastServiceRow
-                key={b.id}
-                booking={b}
-                showVehicleKicker={showVehicleKicker}
-              />
-            ))}
+        <View style={styles.topRule} />
+
+        {/* ── readouts + rows ──────────────────────────────────── */}
+        {/* isLoading first: the hook returns `rows ?? []` while the Convex
+            query is in flight, so without this every user with history sees
+            the empty state flash before their data lands. */}
+        {isLoading ? (
+          <View style={styles.notice}>
+            <RNText style={styles.noticeLabel}>READING LOG…</RNText>
           </View>
+        ) : visibleBookings.length > 0 ? (
+          monthGroups.map((g) => (
+            <View key={g.key}>
+              <View style={styles.readout}>
+                <RNText style={styles.readoutMonth}>{g.label}</RNText>
+              </View>
+              {g.rows.map((b, i) => (
+                <Row key={b.id} booking={b} isFirst={i === 0} />
+              ))}
+            </View>
+          ))
         ) : (
-          <EmptyState
-            label="No past services yet"
-            sub="Completed bookings will show up here."
-          />
+          <View style={styles.notice}>
+            <RNText style={styles.noticeLabel}>NO RECORDS</RNText>
+            <RNText style={styles.noticeSub}>
+              {activeChannel
+                ? "This vehicle has no completed services yet."
+                : "Completed services are logged here."}
+            </RNText>
+          </View>
         )}
       </ScrollView>
     </View>
   );
 }
 
-interface FilterPillProps {
+// ============================================================================
+// PIECES
+// ============================================================================
+
+function ChannelTab({
+  label,
+  active,
+  onPress,
+}: {
   label: string;
-  count: number;
   active: boolean;
   onPress: () => void;
-}
-
-function FilterPill({ label, count, active, onPress }: FilterPillProps) {
+}) {
   return (
     <Pressable
       onPress={onPress}
-      style={({ pressed }) => [
-        styles.pill,
-        active && styles.pillActive,
-        pressed && styles.pillPressed,
-      ]}
       accessibilityRole="button"
       accessibilityState={{ selected: active }}
-      accessibilityLabel={`${label}, ${count} service${count === 1 ? "" : "s"}`}
+      // The strip is deliberately dense — mono at 10pt is ~24pt tall — so the
+      // target is extended with hitSlop rather than by adding padding.
+      hitSlop={{ top: 14, bottom: 14, left: 6, right: 6 }}
+      style={styles.channel}
     >
-      <Text
-        weight="semiBold"
-        style={[styles.pillLabel, active && styles.pillLabelActive]}
-        numberOfLines={1}
-      >
+      <RNText style={[styles.channelLabel, active && styles.channelLabelActive]}>
         {label}
-      </Text>
-      <Text style={[styles.pillCount, active && styles.pillCountActive]}>
-        {count}
-      </Text>
+      </RNText>
+      <View style={[styles.channelRule, active && styles.channelRuleActive]} />
     </Pressable>
   );
 }
 
-interface RowProps {
-  booking: CompletedBooking;
-  showVehicleKicker: boolean;
+/**
+ * Vehicle plate. Prefers the cached hero photo; falls back to a neutral glyph
+ * so a list with mixed coverage still reads as one treatment.
+ *
+ * Landscape and `contain`, not a square with `cover`: VehicleDB heroes are wide
+ * three-quarter shots, so a square crop decapitates every car. No background
+ * either — the images ship on white and the rows sit below where the Oto
+ * gradient has resolved to white, so the car floats cleanly instead of sitting
+ * in a tinted box.
+ */
+function Plate({ imageUrl }: { imageUrl?: string }) {
+  return (
+    <View style={styles.plate}>
+      {imageUrl ? (
+        <Image source={{ uri: imageUrl }} style={styles.plateImage} resizeMode="contain" />
+      ) : (
+        <View style={styles.glyphWrap}>
+          <View style={styles.glyphRoof} />
+          <View style={styles.glyphBody} />
+        </View>
+      )}
+    </View>
+  );
 }
 
-function PastServiceRow({ booking, showVehicleKicker }: RowProps) {
-  const href = {
-    pathname: "/settings/past-service/[bookingId]",
-    params: { bookingId: booking.id },
-  } as const;
+function RowBody({
+  service,
+  meta,
+  figure,
+  imageUrl,
+}: {
+  service: string;
+  meta: string;
+  figure: string;
+  imageUrl?: string;
+}) {
+  return (
+    <View style={styles.row}>
+      <Plate imageUrl={imageUrl} />
+      <View style={styles.rowText}>
+        <RNText numberOfLines={1} style={styles.rowService}>
+          {service}
+        </RNText>
+        <RNText numberOfLines={2} style={styles.rowMeta}>
+          {meta}
+        </RNText>
+      </View>
+      <RNText style={styles.rowFigure}>{figure}</RNText>
+    </View>
+  );
+}
 
-  const kicker = useMemo(
-    () =>
-      extractYearMakeModel(booking.carYear, booking.carModel ?? "").toUpperCase(),
+/**
+ * One completed service. Leads with the work performed; falls back to the
+ * vehicle when `services` carries no resolvable names, in which case the meta
+ * line drops the vehicle rather than printing it twice.
+ */
+function Row({ booking, isFirst }: { booking: CompletedBooking; isFirst: boolean }) {
+  const vehicle = useMemo(
+    () => extractYearMakeModel(booking.carYear, booking.carModel ?? ""),
     [booking.carYear, booking.carModel],
   );
 
-  const subtitle = useMemo(() => {
-    const services = booking.services.length;
-    const parts = [booking.shopName];
-    if (services > 0) {
-      parts.push(`${services} service${services === 1 ? "" : "s"}`);
+  const { service, usedVehicle } = useMemo(() => {
+    const clean = booking.services.filter(Boolean);
+    if (clean.length === 1) return { service: clean[0], usedVehicle: false };
+    if (clean.length > 1) {
+      return { service: `${clean[0]} +${clean.length - 1}`, usedVehicle: false };
     }
-    parts.push(fmtUSD(booking.totalCost));
-    return parts.join(" · ");
-  }, [booking.shopName, booking.services.length, booking.totalCost]);
+    return { service: vehicle || "Service", usedVehicle: Boolean(vehicle) };
+  }, [booking.services, vehicle]);
+
+  const shortVehicle = useMemo(
+    () => extractModel(booking.carModel ?? "").toUpperCase(),
+    [booking.carModel],
+  );
+
+  const meta = useMemo(() => {
+    const parts = [
+      booking.scheduledDate ? shortDate(booking.scheduledDate) : "",
+      usedVehicle ? "" : shortVehicle,
+      (booking.shopName ?? "").toUpperCase(),
+    ].filter(Boolean);
+    return parts.join("  |  ");
+  }, [booking.scheduledDate, booking.shopName, shortVehicle, usedVehicle]);
+
+  const figure = fmtFigure(amountOf(booking));
+
+  const spoken = useMemo(() => {
+    const when = booking.scheduledDate ? shortDate(booking.scheduledDate) : "";
+    return [
+      service,
+      fmtUSD(amountOf(booking)),
+      when && `on ${when}`,
+      !usedVehicle && vehicle && vehicle,
+      booking.shopName && `at ${booking.shopName}`,
+    ]
+      .filter(Boolean)
+      .join(", ");
+  }, [service, vehicle, usedVehicle, booking]);
+
+  // `makeLogoUrl` already resolves to the cached vehicle hero photo when one
+  // exists, falling back to the brand mark — see utils/bookingAdapter.ts.
+  const body = (
+    <RowBody service={service} meta={meta} figure={figure} imageUrl={booking.makeLogoUrl} />
+  );
 
   return (
-    <Link
-      href={href}
-      asChild
-    >
-      <Pressable>
-        {({ pressed }) => (
-          <View style={[styles.row, pressed && styles.rowPressed]}>
-            <View style={styles.thumb}>
-              {booking.makeLogoUrl ? (
-                <Image
-                  source={{ uri: booking.makeLogoUrl }}
-                  style={styles.thumbImage}
-                  resizeMode="contain"
-                />
-              ) : (
-                <Wrench size={22} color={MUTED} strokeWidth={1.8} />
-              )}
-            </View>
-            <View style={styles.rowText}>
-              {showVehicleKicker && kicker.length > 0 ? (
-                <Text style={styles.kicker} numberOfLines={1}>
-                  {kicker}
-                </Text>
-              ) : null}
-              <Text weight="bold" size="md" color={INK} numberOfLines={1}>
-                Completed {booking.date}
-              </Text>
-              <Text size="sm" color={MUTED} style={styles.rowSubtitle} numberOfLines={1}>
-                {subtitle}
-              </Text>
-            </View>
+    <View>
+      {!isFirst ? <View style={styles.rowRule} /> : null}
+      <Link
+        href={{
+          pathname: "/settings/past-service/[bookingId]",
+          params: { bookingId: booking.id },
+        }}
+        asChild
+      >
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={spoken}
+          style={({ pressed }) => (pressed ? styles.rowPressed : null)}
+        >
+          <View>
+            {body}
+            {/* Zoom source is an absolutely-positioned marker, never a wrapper —
+                same shape as AppleZoomTarget on the detail screen. Wrapping the
+                row content in it collapses the figure column. */}
             {AppleZoom ? (
               <View pointerEvents="none" style={StyleSheet.absoluteFill}>
                 <AppleZoom>
@@ -411,182 +492,205 @@ function PastServiceRow({ booking, showVehicleKicker }: RowProps) {
               </View>
             ) : null}
           </View>
-        )}
-      </Pressable>
-    </Link>
-  );
-}
-
-interface EmptyStateProps {
-  label: string;
-  sub: string;
-}
-
-function EmptyState({ label, sub }: EmptyStateProps) {
-  return (
-    <View style={styles.emptyState}>
-      <View style={styles.emptyIconContainer}>
-        <Calendar size={48} color="#9CA3AF" strokeWidth={1.5} />
-      </View>
-      <Text weight="semiBold" size="lg" color="#374151" center>
-        {label}
-      </Text>
-      <Text size="sm" color={MUTED} center style={styles.emptyText}>
-        {sub}
-      </Text>
+        </Pressable>
+      </Link>
     </View>
   );
 }
 
+
+// ============================================================================
+// STYLES
+// ============================================================================
+
+const G = 24;
+
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: SurfaceColors.canvasWarm,
+    // Matches the gradient's final stop, so overscroll past the bottom shows
+    // white rather than a bare surface.
+    backgroundColor: OtoGradient.colors[2],
   },
-  topBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 12,
-    height: 44,
-  },
+
+  // ── masthead ──────────────────────────────────────────────
   backBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#FFFFFF",
-    shadowColor: "#0F172A",
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
+    alignSelf: "flex-start",
+    paddingHorizontal: G,
+    paddingVertical: 6,
   },
-  scrollContent: {
-    paddingHorizontal: 20,
+  backBtnPressed: {
+    opacity: 0.6,
   },
-  heroRow: {
-    alignItems: "center",
-    marginTop: 24,
-    marginBottom: 20,
+  masthead: {
+    paddingHorizontal: G,
+    paddingTop: 6,
+    paddingBottom: 18,
   },
-  heroTitle: {
-    fontSize: 28,
+  eyebrow: {
+    fontFamily: F.micro,
+    fontSize: 9,
+    letterSpacing: 2,
+    color: C.low,
+  },
+  title: {
+    fontFamily: F.semi,
+    fontSize: 30,
     lineHeight: 34,
-    textAlign: "center",
+    letterSpacing: -0.8,
+    color: C.ink,
+    marginTop: 7,
   },
-  heroSubtitle: {
-    marginTop: 6,
-  },
-
-  // ── Filter pill row ──────────────────────────────────────────────
-  filterScroll: {
-    marginHorizontal: -20,
-    marginBottom: 16,
-  },
-  filterRow: {
-    paddingHorizontal: 20,
-    gap: 8,
-    alignItems: "center",
-  },
-  pill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    borderRadius: 9999,
-    backgroundColor: SurfaceColors.cardSurface,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(15,23,42,0.08)",
-  },
-  pillActive: {
-    backgroundColor: BrandColors.secondary,
-    borderColor: "transparent",
-  },
-  pillPressed: {
-    opacity: 0.85,
-  },
-  pillLabel: {
-    fontSize: 13,
-    color: INK,
-  },
-  pillLabelActive: {
-    color: "#FFFFFF",
-  },
-  pillCount: {
-    fontSize: 12,
-    color: MUTED,
-  },
-  pillCountActive: {
-    color: "rgba(255,255,255,0.85)",
+  records: {
+    fontFamily: F.microRegular,
+    fontSize: 9,
+    letterSpacing: 1.6,
+    color: C.mid,
+    marginTop: 7,
   },
 
-  // ── Bookings list ────────────────────────────────────────────────
-  list: {
-    // No `gap` — each row's `marginBottom` owns the spacing.
+  // ── channel selector ──────────────────────────────────────
+  channels: {
+    paddingHorizontal: G,
+    gap: 20,
   },
+  channel: {
+    alignItems: "center",
+    gap: 7,
+  },
+  channelLabel: {
+    fontFamily: F.microRegular,
+    fontSize: 10,
+    letterSpacing: 1.1,
+    color: C.low,
+  },
+  channelLabelActive: {
+    fontFamily: F.micro,
+    color: C.ink,
+  },
+  channelRule: {
+    height: 2,
+    minWidth: 18,
+    alignSelf: "stretch",
+    backgroundColor: C.channelIdle,
+  },
+  channelRuleActive: {
+    backgroundColor: C.accent,
+  },
+  topRule: {
+    height: 1,
+    marginHorizontal: G,
+    marginTop: 18,
+    backgroundColor: C.hairline,
+  },
+
+  // ── readout ───────────────────────────────────────────────
+  readout: {
+    paddingHorizontal: G,
+    paddingTop: 24,
+    // The rule used to carry 10pt of this gap; without it the month needs its
+    // own breathing room or it collides with the first row.
+    paddingBottom: 16,
+  },
+  /** The month is the readout now — the subtotal it replaced is gone. */
+  readoutMonth: {
+    fontFamily: F.display,
+    fontSize: 26,
+    lineHeight: 30,
+    letterSpacing: -0.6,
+    color: C.ink,
+  },
+
+  // ── rows ──────────────────────────────────────────────────
   row: {
-    // Flat editorial row — no card surface, no shadow. Rows sit
-    // directly on the canvas separated by whitespace alone.
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 12,
-    gap: 14,
-    marginBottom: 16,
+    gap: 13,
+    paddingHorizontal: G,
+    paddingVertical: 11,
   },
   rowPressed: {
-    opacity: 0.85,
+    opacity: 0.55,
   },
-  thumb: {
-    width: 72,
-    height: 72,
-    borderRadius: 20,
-    alignItems: "center",
-    justifyContent: "center",
-    overflow: "hidden",
-    backgroundColor: SurfaceColors.cardSurface,
+  rowRule: {
+    height: 1,
+    marginHorizontal: G,
+    backgroundColor: C.hairline,
+  },
+  rowText: {
+    flex: 1,
+    minWidth: 0,
+    gap: 3,
+  },
+  rowService: {
+    fontFamily: F.medium,
+    fontSize: 15,
+    lineHeight: 18,
+    letterSpacing: -0.2,
+    color: C.ink,
+  },
+  rowMeta: {
+    fontFamily: F.microRegular,
+    fontSize: 9,
+    lineHeight: 13,
+    letterSpacing: 0.8,
+    color: C.low,
+  },
+  rowFigure: {
+    fontFamily: F.micro,
+    fontSize: 13,
+    letterSpacing: 0.2,
+    color: C.ink,
   },
   zoomSource: {
     flex: 1,
     backgroundColor: "transparent",
   },
-  thumbImage: {
-    width: 56,
-    height: 56,
+
+  // ── vehicle plate ─────────────────────────────────────────
+  plate: {
+    width: 52,
+    height: 36,
+    alignItems: "center",
+    justifyContent: "center",
   },
-  rowText: {
-    flex: 1,
-    minWidth: 0,
+  plateImage: {
+    width: "100%",
+    height: "100%",
   },
-  kicker: {
-    fontSize: 10,
-    letterSpacing: 1.2,
-    color: MUTED,
-    marginBottom: 2,
+  glyphWrap: {
+    alignItems: "center",
   },
-  rowSubtitle: {
-    marginTop: 2,
+  glyphRoof: {
+    width: 13,
+    height: 5.5,
+    borderRadius: 2.4,
+    backgroundColor: C.glyph,
+  },
+  glyphBody: {
+    width: 21,
+    height: 7,
+    borderRadius: 2.5,
+    backgroundColor: C.glyph,
+    marginTop: -0.5,
   },
 
-  // ── Empty state ──────────────────────────────────────────────────
-  emptyState: {
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 60,
-    paddingHorizontal: 40,
+  // ── notices ───────────────────────────────────────────────
+  notice: {
+    paddingHorizontal: G,
+    paddingTop: 40,
   },
-  emptyIconContainer: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: "rgba(255, 255, 255, 0.6)",
-    justifyContent: "center",
-    alignItems: "center",
-    marginBottom: 20,
+  noticeLabel: {
+    fontFamily: F.micro,
+    fontSize: 11,
+    letterSpacing: 1.8,
+    color: C.mid,
   },
-  emptyText: {
+  noticeSub: {
+    fontFamily: F.regular,
+    fontSize: 13,
+    color: C.low,
     marginTop: 8,
-    lineHeight: 22,
   },
+
 });

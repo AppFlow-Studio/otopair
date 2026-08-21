@@ -69,7 +69,7 @@ export function HeroCardClosestShop() {
 }
 
 function formatMiles(miles: number): string {
-  if (miles < 0.1) return "<0.1";
+  if (miles < 0.1) return "less than 0.1";
   if (miles < 10) return miles.toFixed(1);
   return Math.round(miles).toString();
 }

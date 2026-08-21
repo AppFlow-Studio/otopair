@@ -100,7 +100,7 @@ describe("agreement + fallback-guardrail confidence", () => {
     // the 0.6 LLM-consensus tier, below the 0.75 quote gate).
     const db = base([
       obs("web_labor", 2.0, 0.6),
-      obs("repairpal_labor", 1.0, 0.4),
+      obs("estimator_labor", 1.0, 0.4),
       obs("llm_training", 1.2, 0.3),
     ]);
     await recomputeLaborForConfigService({ db } as any,
@@ -120,7 +120,7 @@ describe("agreement + fallback-guardrail confidence", () => {
     // 0.6 LLM-consensus tier instead of the strong-source 0.8.
     const db = base([
       obs("web_labor", 1.2, 0.3),
-      obs("repairpal_labor", 0.6, 0.4),
+      obs("estimator_labor", 0.6, 0.4),
       obs("llm_training", 0.6, 0.5),
     ]);
     await recomputeLaborForConfigService({ db } as any,

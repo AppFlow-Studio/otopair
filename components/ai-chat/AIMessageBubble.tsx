@@ -24,7 +24,7 @@
  */
 
 // 1. React & React Native
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { View, StyleSheet, Pressable, ActionSheetIOS, Platform, Alert } from 'react-native';
 
 // 2. Expo & Third-party
@@ -100,27 +100,47 @@ function StreamingText({
 }) {
   const [displayedText, setDisplayedText] = useState('');
   const [isComplete, setIsComplete] = useState(!isStreaming);
+  // QA p.77 ("animates two sentences then pops the rest"): when the parent
+  // flips isStreaming off mid-reveal, the old effect snapped the full text in
+  // one frame. Track reveal progress in refs so the re-run can FINISH the
+  // reveal from where it was — faster (15ms/word vs 50) so long tails don't
+  // drag — instead of popping. A text that arrives already-complete (history
+  // hydration, non-streaming renders) still shows instantly.
+  const revealIndexRef = useRef(0);
+  const revealDoneRef = useRef(!isStreaming);
+  const prevTextRef = useRef(text);
 
   useEffect(() => {
-    if (!isStreaming) {
+    const midReveal =
+      prevTextRef.current === text &&
+      revealIndexRef.current > 0 &&
+      !revealDoneRef.current;
+    prevTextRef.current = text;
+
+    if (!isStreaming && !midReveal) {
+      revealDoneRef.current = true;
       setDisplayedText(text);
       setIsComplete(true);
       return;
     }
 
-    // Simulate streaming by revealing text progressively
-    let currentIndex = 0;
+    // Reveal word-by-word; continue from the ref position when the streaming
+    // flag flipped mid-animation.
     const words = text.split(' ');
-    
+    let currentIndex = midReveal ? revealIndexRef.current : 0;
+    revealDoneRef.current = false;
+
     const interval = setInterval(() => {
       if (currentIndex < words.length) {
-        setDisplayedText(words.slice(0, currentIndex + 1).join(' '));
         currentIndex++;
+        revealIndexRef.current = currentIndex;
+        setDisplayedText(words.slice(0, currentIndex).join(' '));
       } else {
         clearInterval(interval);
+        revealDoneRef.current = true;
         setIsComplete(true);
       }
-    }, 50); // 50ms per word
+    }, isStreaming ? 50 : 15);
 
     return () => clearInterval(interval);
   }, [text, isStreaming]);

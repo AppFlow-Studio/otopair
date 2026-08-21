@@ -17,6 +17,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useGuardedRouter as useRouter } from '@/hooks/useGuardedRouter';
+import { useLocalSearchParams } from 'expo-router';
 import { ArrowLeft, QrCode, Edit3 } from 'lucide-react-native';
 import Animated, {
   Extrapolation,
@@ -51,6 +52,26 @@ const getKeyboardOffsetMultiplier = () => {
 export default function AddVehicleScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  // Migration mode: launched from a manual car's "Add VIN" action. We carry the
+  // manual ownership id through decode → review so the review screen can migrate
+  // that car's context onto the new real-VIN record.
+  const migrateParams = useLocalSearchParams<{
+    migrateFromOwnerId?: string;
+    migrateFromVin?: string;
+    migrateFromMake?: string;
+    migrateFromModel?: string;
+    migrateFromYear?: string;
+  }>();
+  const isMigration = !!migrateParams.migrateFromOwnerId;
+  // Carried verbatim through decode → review (and via the scanner) so the
+  // review screen can migrate context and warn on a make/model mismatch.
+  const migrateForward = {
+    migrateFromOwnerId: migrateParams.migrateFromOwnerId ?? "",
+    migrateFromVin: migrateParams.migrateFromVin ?? "",
+    migrateFromMake: migrateParams.migrateFromMake ?? "",
+    migrateFromModel: migrateParams.migrateFromModel ?? "",
+    migrateFromYear: migrateParams.migrateFromYear ?? "",
+  };
   const [vinNumber, setVinNumber] = useState('');
   const [isDecoding, setIsDecoding] = useState(false);
   const [decodeError, setDecodeError] = useState<string | null>(null);
@@ -128,6 +149,9 @@ export default function AddVehicleScreen() {
             transSpeeds: result.transSpeeds != null ? String(result.transSpeeds) : "",
             drivetrain: result.drivetrain ?? "",
             bodyClass: result.bodyClass ?? "",
+            // Carry migration intent through to the review screen (all empty
+            // when this is a normal add, not an "Add VIN" migration).
+            ...migrateForward,
           },
         });
       } else {
@@ -141,7 +165,10 @@ export default function AddVehicleScreen() {
   };
 
   const handleScanVin = () => {
-    router.push('/vin-scanner');
+    router.push({
+      pathname: '/vin-scanner',
+      params: { ...migrateForward },
+    });
   };
 
   const handleManualEntry = () => {
@@ -369,19 +396,23 @@ export default function AddVehicleScreen() {
             </Pressable>
           )}
 
-          {/* Manual Entry Link */}
-          <Pressable
-            onPress={handleManualEntry}
-            style={({ pressed }) => [
-              styles.manualEntryButton,
-              pressed && styles.manualEntryButtonPressed,
-            ]}
-          >
-            <Edit3 size={scale(16)} color="#5299FE" strokeWidth={2} />
-            <Text weight="semiBold" size="sm" color="#5299FE" style={styles.manualEntryText}>
-              Enter car information manually
-            </Text>
-          </Pressable>
+          {/* Manual Entry Link — hidden in migration mode: the user is here
+              specifically to attach a REAL VIN, and a manual re-add would just
+              mint another placeholder. */}
+          {!isMigration && (
+            <Pressable
+              onPress={handleManualEntry}
+              style={({ pressed }) => [
+                styles.manualEntryButton,
+                pressed && styles.manualEntryButtonPressed,
+              ]}
+            >
+              <Edit3 size={scale(16)} color="#5299FE" strokeWidth={2} />
+              <Text weight="semiBold" size="sm" color="#5299FE" style={styles.manualEntryText}>
+                Enter car information manually
+              </Text>
+            </Pressable>
+          )}
         </Animated.View>
       </KeyboardStickyView>
     </View>

@@ -44,6 +44,7 @@ import { CheckCircle, Info, Trash2 } from "lucide-react-native";
 
 import { Text } from "@/components/shared-ui";
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
+import { FontFamily } from "@/constants/theme";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 
@@ -742,6 +743,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingHorizontal: 14,
     paddingVertical: 12,
+    fontFamily: FontFamily.regular,
     fontSize: 16,
     color: "#0F172A",
     backgroundColor: "#FFFFFF",

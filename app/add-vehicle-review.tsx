@@ -10,6 +10,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Dimensions,
   Pressable,
   ScrollView,
@@ -155,6 +156,16 @@ export default function AddVehicleReviewScreen() {
     /** NHTSA / VDB-merged body class — used to pick the SUV vs sedan
      *  loading silhouette while the VDB image resolves. */
     bodyClass?: string;
+    /** Set when this add is an "Add VIN" migration from a manually-added car:
+     *  the manual vehicle_owners._id whose context migrates onto the new
+     *  real-VIN record, and that car's MANUAL- placeholder VIN. The
+     *  make/model/year describe the manual car — used to warn if the entered
+     *  VIN decodes to a different vehicle. */
+    migrateFromOwnerId?: string;
+    migrateFromVin?: string;
+    migrateFromMake?: string;
+    migrateFromModel?: string;
+    migrateFromYear?: string;
   }>();
 
   const [isConfirming, setIsConfirming] = useState(false);
@@ -163,6 +174,7 @@ export default function AddVehicleReviewScreen() {
 
   const confirmVehicle = useAction(api.vehicle_pipeline.confirmVehicleForUser);
   const saveVehicleImageUrl = useMutation(api.vehicles.saveVehicleImageUrl);
+  const attachRealVin = useMutation(api.vehicles.attachRealVinToManualVehicle);
 
   // We only ever show the colors VDB actually has for this vehicle.
   // No generic fallback palette — if VDB has no color variants for this
@@ -333,6 +345,80 @@ export default function AddVehicleReviewScreen() {
       return;
     }
 
+    // Prefer the picked color's image; if VDB had no color variants, persist
+    // the generic exterior render so the cars page shows the actual car instead
+    // of the covered-car placeholder. Fire-and-forget in both paths.
+    const persistImage = () => {
+      const pickedVdbColor = vdbColors.find((c) => c.id === selectedColor);
+      const imageToSave = pickedVdbColor?.imageUrl ?? exteriorFallbackUrl;
+      if (imageToSave && params.vin) {
+        saveVehicleImageUrl({ vin: params.vin, image_url: imageToSave }).catch(() => {
+          // Non-fatal: cars page useEffect will retry.
+        });
+      }
+    };
+
+    // ───── "Add VIN": correct a manually-added car's VIN in place ─────
+    // Everything the car owns (bookings, inspections, maintenance, chat, …)
+    // stays attached to the same owner/vehicle rows — we only swap the VIN and
+    // re-enrich. No new car is created and no history is lost.
+    if (params.migrateFromOwnerId) {
+      // Guard: if the entered VIN decodes to a different make/model than the
+      // car being corrected, confirm first — a wrong VIN would swap the car
+      // out. Year/trim differences pass through (the VIN is authoritative).
+      const decodedMake = (params.make ?? '').trim().toLowerCase();
+      const decodedModel = (effectiveModel || params.model || '').trim().toLowerCase();
+      const manualMake = (params.migrateFromMake ?? '').trim().toLowerCase();
+      const manualModel = (params.migrateFromModel ?? '').trim().toLowerCase();
+      const makeMismatch = !!manualMake && !!decodedMake && manualMake !== decodedMake;
+      const modelMismatch = !!manualModel && !!decodedModel && manualModel !== decodedModel;
+      if (makeMismatch || modelMismatch) {
+        const manualLabel = [params.migrateFromYear, params.migrateFromMake, params.migrateFromModel]
+          .filter(Boolean).join(' ');
+        const decodedLabel = [params.year, params.make, effectiveModel || params.model]
+          .filter(Boolean).join(' ');
+        const proceed = await new Promise<boolean>((resolve) => {
+          Alert.alert(
+            "This VIN doesn't match your car",
+            `The VIN you entered is a ${decodedLabel}, but you're updating your ${manualLabel}. Use the VIN's details?`,
+            [
+              { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
+              { text: "Yes, it's correct", onPress: () => resolve(true) },
+            ],
+            { cancelable: false },
+          );
+        });
+        if (!proceed) return;
+      }
+
+      setIsConfirming(true);
+      setError(null);
+      try {
+        await attachRealVin({
+          manualVehicleOwnerId: params.migrateFromOwnerId as Id<'vehicle_owners'>,
+          realVin: params.vin,
+          trimId: params.trimId as Id<'trims'>,
+          engineId: params.engineId as Id<'engines'>,
+          year: parseFloat(params.year || '0'),
+          make: params.make || '',
+          model: effectiveModel || params.model || '',
+          color: selectedColor || undefined,
+        });
+        persistImage();
+        // Back to the garage, anchored to the now-real car.
+        router.replace({
+          pathname: '/(main-tabs)/cars',
+          params: { focusVin: params.vin },
+        });
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to attach VIN');
+      } finally {
+        setIsConfirming(false);
+      }
+      return;
+    }
+
+    // ───── Normal add: create the vehicle + ownership ─────
     setIsConfirming(true);
     setError(null);
 
@@ -353,32 +439,12 @@ export default function AddVehicleReviewScreen() {
       });
 
       if (result.success) {
-        // When the user picked from the VDB palette, persist the exact
-        // image URL straight from the picker option. This bypasses the
-        // cars-page `findColorImage()` keyword round-trip (which has
-        // been observed to mis-match for some marketing paint names,
-        // e.g. a gray VW Tiguan pick rendering as a neutral white EVOX).
-        // Fire-and-forget — the cars page falls back to its own fetch
-        // if this hasn't landed by the time the user gets there.
-        // Prefer the picked color's image; if VDB had no color variants,
-        // persist the generic exterior render so the cars page shows the
-        // actual car instead of the covered-car placeholder.
-        const pickedVdbColor = vdbColors.find((c) => c.id === selectedColor);
-        const imageToSave = pickedVdbColor?.imageUrl ?? exteriorFallbackUrl;
-        if (imageToSave && params.vin) {
-          saveVehicleImageUrl({
-            vin: params.vin,
-            image_url: imageToSave,
-          }).catch(() => {
-            // Non-fatal: cars page useEffect will retry.
-          });
-        }
+        persistImage();
 
         // No enrichment toast queued anymore — the persistent
         // EnrichmentStatusPill in the (main-tabs) layout picks the new
         // car up from getMyVehiclesEnrichmentStatus and shows
         // "Connecting to your <car>" until the pipeline finishes.
-
         router.replace({
           pathname: '/vehicle-added',
           params: {

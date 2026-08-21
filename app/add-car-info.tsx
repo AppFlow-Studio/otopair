@@ -32,12 +32,15 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import { useLocalSearchParams } from "expo-router";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
-import { Car, Bike, Truck, Check, ChevronLeft, ChevronRight, X } from "lucide-react-native";
+import { Car, Bike, Truck, Check, ChevronLeft, ChevronRight, X, Search, RotateCw } from "lucide-react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import LottieView from "lottie-react-native";
+import Svg, { Line, Rect } from "react-native-svg";
 import Animated, {
+  Easing,
   useAnimatedStyle,
   useSharedValue,
+  withRepeat,
   withTiming,
 } from "react-native-reanimated";
 
@@ -46,7 +49,6 @@ import { useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useUserFromConvex } from "@/hooks/useUserFromConvex";
 import { buildYearOptions, useMakes, useModels } from "@/hooks/useYmmtCatalog";
-import { usePendingNavigationStore } from "@/stores/usePendingNavigationStore";
 
 // 4. Shared UI
 import { Text } from "@/components/shared-ui";
@@ -62,6 +64,7 @@ import { ColorSwatchSkeletonList } from "@/components/shared-ui/ColorSwatchSkele
 
 // 5. Constants
 import { Spacing, BorderRadius, BrandColors } from "@/constants/theme";
+import { getMakeLogo } from "@/constants/carLogos";
 
 // ============================================================================
 // CONSTANTS
@@ -115,6 +118,137 @@ const DRIVETRAINS = [
 
 type SheetMode = "brand" | "model" | "year" | "color" | "bodyStyle" | "trim" | "drivetrain";
 
+// Tidy verbose VDB variant strings for display: abbreviate the drivetrain and
+// drop the redundant "Automatic" so trims read clean in the picker + form
+// (e.g. "Base All Wheel Drive Automatic" → "Base AWD"). Display-only — the raw
+// trim is still what gets stored and used as the VDB image-lookup key, so this
+// never changes selection or lookups.
+const prettyTrim = (t: string): string =>
+  t
+    .replace(/\bAll[-\s]?Wheel[-\s]?Drive\b/gi, "AWD")
+    .replace(/\bFour[-\s]?Wheel[-\s]?Drive\b/gi, "4WD")
+    .replace(/\bFront[-\s]?Wheel[-\s]?Drive\b/gi, "FWD")
+    .replace(/\bRear[-\s]?Wheel[-\s]?Drive\b/gi, "RWD")
+    .replace(/\bAutomatic\b/gi, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+
+// ── Drivetrain icons ─────────────────────────────────────────────────────────
+// Schematic (two axles + a central driveshaft, four wheel pills) with the
+// *driven* wheels filled — so FWD / RWD / AWD / 4WD read at a glance. Matches
+// the reference icon style.
+type DrivetrainVariant = "fwd" | "rwd" | "awd" | "4wd";
+
+// [frontLeft, frontRight, rearLeft, rearRight]
+const DRIVEN_WHEELS: Record<DrivetrainVariant, [boolean, boolean, boolean, boolean]> = {
+  fwd: [true, true, false, false],
+  rwd: [false, false, true, true],
+  awd: [true, true, true, true],
+  "4wd": [true, true, true, true],
+};
+
+const drivetrainVariant = (label: string): DrivetrainVariant => {
+  if (/fwd|front/i.test(label)) return "fwd";
+  if (/rwd|rear/i.test(label)) return "rwd";
+  if (/4wd|four/i.test(label)) return "4wd";
+  return "awd";
+};
+
+// Full picker labels keyed by variant — must match the DRIVETRAINS list.
+const DRIVETRAIN_LABEL: Record<DrivetrainVariant, string> = {
+  fwd: "Front-Wheel Drive (FWD)",
+  rwd: "Rear-Wheel Drive (RWD)",
+  awd: "All-Wheel Drive (AWD)",
+  "4wd": "Four-Wheel Drive (4WD)",
+};
+
+// Detect a drivetrain the trim string *explicitly* names — VDB variant strings
+// encode it (e.g. "…4dr AWD 4MATIC+", "…quattro"). Returns null when the trim
+// says nothing about drivetrain, so we never overwrite the field with a guess.
+const drivetrainFromTrim = (trim: string): DrivetrainVariant | null => {
+  if (/\bFWD\b|front[-\s]?wheel/i.test(trim)) return "fwd";
+  if (/\bRWD\b|rear[-\s]?wheel/i.test(trim)) return "rwd";
+  if (/\b4WD\b|four[-\s]?wheel/i.test(trim)) return "4wd";
+  if (/\bAWD\b|all[-\s]?wheel|4MATIC|quattro|xDrive/i.test(trim)) return "awd";
+  return null;
+};
+
+// Pulsing skeleton shown over the hero card while the car image is being
+// fetched (useVehicleImage.isLoading) — a loading state instead of a static
+// placeholder during the lookup.
+function HeroImageSkeleton() {
+  const pulse = useSharedValue(0.5);
+  useEffect(() => {
+    pulse.value = withRepeat(
+      withTiming(1, { duration: 750, easing: Easing.inOut(Easing.ease) }),
+      -1,
+      true,
+    );
+  }, [pulse]);
+  const style = useAnimatedStyle(() => ({ opacity: pulse.value }));
+  return (
+    <Animated.View pointerEvents="none" style={[styles.heroSkeleton, style]}>
+      <View style={styles.heroSkeletonBlock} />
+    </Animated.View>
+  );
+}
+
+function DrivetrainIcon({
+  variant,
+  size = 24,
+  color = BrandColors.primary,
+}: {
+  variant: DrivetrainVariant;
+  size?: number;
+  color?: string;
+}) {
+  const [fl, fr, rl, rr] = DRIVEN_WHEELS[variant];
+  const frame = "rgba(20,28,36,0.32)";
+  const wheel = (x: number, y: number, on: boolean) => (
+    <Rect
+      x={x}
+      y={y}
+      width={3.2}
+      height={6.4}
+      rx={1.6}
+      fill={on ? color : "#FFFFFF"}
+      stroke={on ? color : frame}
+      strokeWidth={1.4}
+    />
+  );
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24">
+      {/* front axle, rear axle, driveshaft */}
+      <Line x1={5} y1={7} x2={19} y2={7} stroke={frame} strokeWidth={1.4} strokeLinecap="round" />
+      <Line x1={5} y1={17} x2={19} y2={17} stroke={frame} strokeWidth={1.4} strokeLinecap="round" />
+      <Line x1={12} y1={7} x2={12} y2={17} stroke={frame} strokeWidth={1.4} strokeLinecap="round" />
+      {/* wheels: FL, FR, RL, RR — filled when driven */}
+      {wheel(3.4, 3.8, fl)}
+      {wheel(17.4, 3.8, fr)}
+      {wheel(3.4, 13.8, rl)}
+      {wheel(17.4, 13.8, rr)}
+    </Svg>
+  );
+}
+
+// Leading slot for a brand row: the make's bundled logo on a white tile
+// (see constants/carLogos.ts), with a first-letter monogram fallback for any
+// make we don't have a logo asset for. Fully offline — no network fetch.
+function BrandLogoTile({ name }: { name: string }) {
+  const logo = getMakeLogo(name);
+  return (
+    <View style={styles.pickerLogoTile}>
+      {logo ? (
+        <Image source={logo} style={styles.pickerLogoImage} resizeMode="contain" />
+      ) : (
+        <Text weight="bold" size="sm" color="#4B5563">
+          {name.trim().charAt(0).toUpperCase() || "?"}
+        </Text>
+      )}
+    </View>
+  );
+}
+
 // ============================================================================
 // COMPONENT
 // ============================================================================
@@ -127,13 +261,6 @@ export default function AddVehicleDetailsScreen() {
   const addOwner = useMutation(api.vehicles.addOwner);
   const upsertVehicle = useMutation(api.vehicles.upsertVehicle);
   const saveVehicleImageUrl = useMutation(api.vehicles.saveVehicleImageUrl);
-  // Queues the "Connecting to your <car>" toast for the user's NEXT
-  // home visit. Mirrors the VIN flow in add-vehicle-review.tsx so the
-  // manual-entry path gets the same enrichment-in-progress signal
-  // instead of silently dropping the user onto /vehicle-added.
-  const setPendingEnrichmentToast = usePendingNavigationStore(
-    (s) => s.setPendingEnrichmentToast,
-  );
   const isManualEntry = manual === "true";
 
   // State — hardcoded Lexus RX350 details for VIN mode, blank for manual mode.
@@ -153,6 +280,28 @@ export default function AddVehicleDetailsScreen() {
   const [sheetMode, setSheetMode] = useState<SheetMode>("brand");
   const [isLoadingComplete, setIsLoadingComplete] = useState(false);
   const hasAnimationPlayedRef = useRef(false);
+
+  // Submission guard — the "Confirm & Add Vehicle" button is idempotency's
+  // last line of defense. `submittingRef` blocks re-entrancy synchronously
+  // (state updates are async, so a fast double-tap can slip past `disabled`
+  // alone). `isSubmitting` just drives the button's disabled/spinner UI.
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const submittingRef = useRef(false);
+  // One stable VIN per screen visit for the manual path. Previously a fresh
+  // `MANUAL-<time>-<rand>` was minted on EVERY press, so each tap created a
+  // distinct vehicle + ownership (this is how 44 dupes happened). Minting it
+  // once means repeated submits upsert the SAME vehicle and addOwner dedupes
+  // on (vin, user) → at most one car per visit.
+  const manualVinRef = useRef<string | null>(null);
+  const resolveVin = useCallback((): string => {
+    if (typeof vin === "string" && vin.trim().length === 17) {
+      return vin.trim().toUpperCase();
+    }
+    if (!manualVinRef.current) {
+      manualVinRef.current = `MANUAL-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    }
+    return manualVinRef.current;
+  }, [vin]);
 
   // Refs
   const pickerSheetRef = useRef<FloatingSheetRef>(null);
@@ -182,13 +331,18 @@ export default function AddVehicleDetailsScreen() {
   const effectiveModel =
     vdbVariants.find((v) => v.trim === effectiveTrim)?.model ?? model;
 
-  const { url: carImageUrl } = useVehicleImage(
+  // Bumped by the failure-state "Retry" button to force a fresh image fetch
+  // with the same inputs.
+  const [imageReloadKey, setImageReloadKey] = useState(0);
+  const { url: carImageUrl, isLoading: isImageLoading } = useVehicleImage(
     brand,
     effectiveModel,
     yearNum,
     undefined,
     selectedColor,
     effectiveTrim,
+    400,
+    imageReloadKey,
   );
 
   // VDB's paint variants for this exact vehicle. Replaces the static
@@ -229,10 +383,52 @@ export default function AddVehicleDetailsScreen() {
   // arrives. Driven by URL presence — when carImageUrl flips null→string
   // we fade in over 300ms; when it flips back to null (user clears a
   // field) we fade out symmetrically.
+  // Reveal the resolved image only once it has actually DECODED (the <Image>
+  // onLoad below), not merely when the URL is set — otherwise it fades in over
+  // a still-blank image and pops when the bytes land. `imageReady` gates both
+  // the crossfade and the skeleton. It stays true across url swaps (color/trim
+  // refetch) so the current image is held and swapped in place rather than
+  // blinking back to the skeleton; it only resets when the url clears.
+  const [imageReady, setImageReady] = useState(false);
+  // A new car identity (year/make/model) is a *different* vehicle — drop the
+  // previous image so the skeleton covers the gap instead of lingering on the
+  // old car. Color/trim tweaks don't touch these, so imageReady is held and
+  // the current image is swapped in place (no skeleton flash) for same-car
+  // variant changes.
+  useEffect(() => {
+    setImageReady(false);
+  }, [year, brand, model]);
+  useEffect(() => {
+    if (!carImageUrl) setImageReady(false);
+  }, [carImageUrl]);
+
+  // Keep the skeleton up *continuously* through the whole model→variants→image
+  // cascade. Picking a model kicks off the VDB trim lookup (trimsLoading) and
+  // the image can refetch a few times as the trim list resolves; latching on
+  // (isImageLoading || trimsLoading) with a short tail bridges every gap so the
+  // covered-car placeholder never flashes between fetches.
+  // We had enough to look up an image, so an empty result means "no image
+  // found" (→ failure copy) rather than "not enough info yet" (→ fill-in hint).
+  const canLookupImage =
+    (typeof vin === "string" && vin.trim().length === 17) ||
+    !!(brand && model && year);
+  const imageBusy = isImageLoading || trimsLoading;
+  // Start latched when we can already look up an image (e.g. VIN-review mount)
+  // so the skeleton shows immediately instead of a one-frame "no image" flash.
+  const [loadingLatch, setLoadingLatch] = useState(canLookupImage);
+  useEffect(() => {
+    if (imageBusy) {
+      setLoadingLatch(true);
+      return;
+    }
+    const t = setTimeout(() => setLoadingLatch(false), 350);
+    return () => clearTimeout(t);
+  }, [imageBusy]);
+
   const carImageOpacity = useSharedValue(0);
   useEffect(() => {
-    carImageOpacity.value = withTiming(carImageUrl ? 1 : 0, { duration: 300 });
-  }, [carImageUrl, carImageOpacity]);
+    carImageOpacity.value = withTiming(imageReady ? 1 : 0, { duration: 300 });
+  }, [imageReady, carImageOpacity]);
   const carImageAnimatedStyle = useAnimatedStyle(() => ({
     opacity: carImageOpacity.value,
   }));
@@ -241,6 +437,11 @@ export default function AddVehicleDetailsScreen() {
   // expose trims without VIN context — most cache rows resolve to []. The
   // input lives in the sheet so the user can type the trim themselves.
   const [trimDraft, setTrimDraft] = useState("");
+
+  // Header search box — filters the active picker list by label. Reset on
+  // every openPicker() so each sheet starts unfiltered. Trim mode reuses
+  // `trimDraft` as its query instead (it already owns the header input).
+  const [searchQuery, setSearchQuery] = useState("");
 
   // Check if all required fields are filled (for manual entry)
   const allFieldsFilled = useMemo(() => {
@@ -271,6 +472,7 @@ export default function AddVehicleDetailsScreen() {
   const openPicker = useCallback((mode: SheetMode) => {
     // Seed the trim draft with the current selection so the user can edit it.
     if (mode === "trim") setTrimDraft(trim);
+    setSearchQuery(""); // start each sheet with the full, unfiltered list
     setSheetMode(mode);
     pickerSheetRef.current?.open();
   }, [trim]);
@@ -310,6 +512,11 @@ export default function AddVehicleDetailsScreen() {
 
   const handleSelectTrim = useCallback((selectedTrim: string) => {
     setTrim(selectedTrim);
+    // Auto-fill drivetrain when the trim string explicitly names one
+    // (VDB variants encode it, e.g. "…4dr AWD 4MATIC+"). Leaves the field
+    // untouched when the trim says nothing about drivetrain.
+    const dt = drivetrainFromTrim(selectedTrim);
+    if (dt) setDrivetrain(DRIVETRAIN_LABEL[dt]);
     pickerSheetRef.current?.close();
   }, []);
 
@@ -318,18 +525,32 @@ export default function AddVehicleDetailsScreen() {
     pickerSheetRef.current?.close();
   }, []);
 
+  const handleRetryImage = useCallback(() => {
+    // Flip to the skeleton immediately, then force a fresh fetch.
+    setLoadingLatch(true);
+    setImageReloadKey((k) => k + 1);
+  }, []);
+
   const handleConfirmVehicle = async () => {
+    // Re-entrancy guard: ignore every tap after the first until this
+    // submission settles (or the screen navigates away).
+    if (submittingRef.current) return;
+    if (!allFieldsFilled && isManualEntry) return; // belt-and-suspenders
+    submittingRef.current = true;
+    setIsSubmitting(true);
+
     if (!userId) {
       router.push("/vehicle-added");
+      submittingRef.current = false;
+      setIsSubmitting(false);
       return;
     }
 
     let createdOwnershipId: string | null = null;
     try {
-      const normalizedVin =
-        typeof vin === "string" && vin.trim().length === 17
-          ? vin.trim().toUpperCase()
-          : `MANUAL-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+      // Stable per-visit VIN — see manualVinRef above. Repeated submits now
+      // resolve to the same VIN, so upsertVehicle + addOwner are idempotent.
+      const normalizedVin = resolveVin();
 
       await upsertVehicle({
         vin: normalizedVin,
@@ -337,6 +558,7 @@ export default function AddVehicleDetailsScreen() {
         metadata: {
           make: brand || "",
           model: model || "",
+          trim: trim || "",
           body_style: bodyStyle || "",
           color: selectedColor || "",
         },
@@ -389,20 +611,13 @@ export default function AddVehicleDetailsScreen() {
       }
     } catch (e) {
       console.warn("Convex add vehicle failed", e);
-    }
-
-    // Queue the enrichment toast for the next time the user lands on
-    // home — mirrors the VIN flow's behavior in add-vehicle-review.tsx
-    // so the manual path doesn't drop the user onto /vehicle-added
-    // with no signal that their car is being set up behind the scenes.
-    // Label uses the user-visible "<year> <brand> <model>" so the
-    // toast calls out their specific car.
-    const carLabel = [year.trim(), brand.trim(), model.trim()]
-      .filter(Boolean)
-      .join(" ")
-      .trim();
-    if (carLabel) {
-      setPendingEnrichmentToast(carLabel);
+      // Submission failed — release the guard so the user can retry. On the
+      // SUCCESS path we deliberately do NOT reset: we navigate away next, and
+      // the button must stay disabled so a late/second tap can't re-fire the
+      // mutations or double-push /vehicle-added.
+      submittingRef.current = false;
+      setIsSubmitting(false);
+      return;
     }
 
     router.push({
@@ -449,18 +664,44 @@ export default function AddVehicleDetailsScreen() {
     }
   }, [sheetMode, makes, ymmtModels, vdbTrims]);
 
+  // Search-filtered view of the active list. Case-insensitive substring
+  // match on each row's label (string rows match themselves; color /
+  // bodyStyle rows match their `.label`). Trim mode filters by `trimDraft`
+  // since that input lives in the header for trim; all other modes use the
+  // header search box. The unfiltered `pickerData` still drives the snap
+  // height so the sheet doesn't resize on every keystroke.
+  const filteredPickerData = useMemo(() => {
+    const q = (sheetMode === "trim" ? trimDraft : searchQuery).trim().toLowerCase();
+    if (!q) return pickerData;
+    return pickerData.filter((item: any) => {
+      const label = typeof item === "string" ? item : item?.label ?? "";
+      return String(label).toLowerCase().includes(q);
+    });
+  }, [pickerData, sheetMode, searchQuery, trimDraft]);
+
   // Dynamic snap height — fits the actual content (header + rows +
   // padding) so short lists like Drivetrain don't render as a half-empty
   // sheet. Trim mode reserves extra height for the text-input header.
   // Capped at 70% of screen height for long lists.
   const pickerSnapHeights = useMemo(() => {
-    const HEADER = 60;
-    const ROW = 56;
-    const PADDING = 40;
-    const EXTRA = sheetMode === "trim" ? 120 : 0;
-    const content =
-      HEADER + Math.max(pickerData.length, 1) * ROW + PADDING + EXTRA;
-    return [Math.min(content, SCREEN_HEIGHT * 0.7)];
+    const HANDLE = 24; // grabber region above the header
+    const HEADER = 62; // title + inline search row
+    // Rows with a 40px icon tile (brand logo, body-style icon, drivetrain
+    // schematic) stand taller than plain text rows — size for that so short
+    // lists like Drivetrain fit all options without scrolling.
+    const hasIconTiles =
+      sheetMode === "brand" || sheetMode === "bodyStyle" || sheetMode === "drivetrain";
+    const ROW = hasIconTiles ? 78 : 62; // row height incl. the 8px inter-row gap
+    // sheetContent top(4) + bottom(28) + slack so the last full-width row
+    // clears the sheet's 46px rounded bottom corner instead of touching it.
+    const LIST_VPAD = 36;
+    const EXTRA = sheetMode === "trim" ? 120 : 0; // trim's free-text input row
+    const rows = Math.max(pickerData.length, 1);
+    const content = HANDLE + HEADER + LIST_VPAD + rows * ROW + EXTRA;
+    // Short lists still open with presence (never a cramped sliver); long
+    // lists cap out and scroll internally.
+    const MIN = 300 + EXTRA;
+    return [Math.max(Math.min(content, SCREEN_HEIGHT * 0.72), MIN)];
   }, [pickerData, sheetMode]);
 
   const isPickerLoading =
@@ -520,7 +761,13 @@ export default function AddVehicleDetailsScreen() {
   const renderPickerItem = (item: any) => {
     switch (sheetMode) {
       case "brand":
-        return renderPickerRow(item, item, brand === item, () => handleSelectBrand(item));
+        return renderPickerRow(
+          item,
+          item,
+          brand === item,
+          () => handleSelectBrand(item),
+          <BrandLogoTile name={item} />,
+        );
       case "model":
         return renderPickerRow(item, item, model === item, () => handleSelectModel(item));
       case "year":
@@ -552,9 +799,17 @@ export default function AddVehicleDetailsScreen() {
         );
       }
       case "trim":
-        return renderPickerRow(item, item, trim === item, () => handleSelectTrim(item));
+        return renderPickerRow(item, prettyTrim(item), trim === item, () => handleSelectTrim(item));
       case "drivetrain":
-        return renderPickerRow(item, item, drivetrain === item, () => handleSelectDrivetrain(item));
+        return renderPickerRow(
+          item,
+          item,
+          drivetrain === item,
+          () => handleSelectDrivetrain(item),
+          <View style={styles.pickerIconContainer}>
+            <DrivetrainIcon variant={drivetrainVariant(item)} size={24} />
+          </View>,
+        );
       default:
         return null;
     }
@@ -566,9 +821,17 @@ export default function AddVehicleDetailsScreen() {
     value: string | null,
     placeholder: string,
     onPress: () => void,
-    options: { isFirst?: boolean; colorDot?: string; disabled?: boolean } = {},
+    options: {
+      isFirst?: boolean;
+      colorDot?: string;
+      disabled?: boolean;
+      logoMake?: string;
+      drivetrainValue?: string;
+    } = {},
   ) => {
     const tappable = isEditing && !options.disabled;
+    // Bundled make logo for the Brand row (null when the make has no asset).
+    const brandLogo = options.logoMake ? getMakeLogo(options.logoMake) : null;
     return (
       <React.Fragment key={label}>
         {!options.isFirst && <View style={styles.rowDivider} />}
@@ -581,10 +844,22 @@ export default function AddVehicleDetailsScreen() {
           ]}
           disabled={!tappable}
         >
-          <Text size="md" weight="medium" color={BrandColors.primary}>
+          <Text
+            size="md"
+            weight="medium"
+            color={BrandColors.primary}
+            numberOfLines={1}
+            style={styles.rowLabel}
+          >
             {label}
           </Text>
           <View style={styles.rowValue}>
+            {brandLogo ? (
+              <Image source={brandLogo} style={styles.rowBrandLogo} resizeMode="contain" />
+            ) : null}
+            {options.drivetrainValue ? (
+              <DrivetrainIcon variant={drivetrainVariant(options.drivetrainValue)} size={20} />
+            ) : null}
             {options.colorDot ? (
               <View
                 style={[
@@ -598,6 +873,8 @@ export default function AddVehicleDetailsScreen() {
               size="md"
               weight="semiBold"
               color={value ? BrandColors.primary : "rgba(20,28,36,0.4)"}
+              numberOfLines={1}
+              style={styles.rowValueText}
             >
               {value ?? placeholder}
             </Text>
@@ -658,24 +935,54 @@ export default function AddVehicleDetailsScreen() {
             plays once when manual-mode fields fill, but it now sits on
             top of the swap instead of gating it. */}
         <View style={styles.heroCard}>
-          <View style={isManualEntry ? styles.heroEmpty : undefined}>
-            <Image
-              source={require("@/assets/images/covered-car.png")}
-              style={isManualEntry ? styles.heroEmptyImage : styles.heroImage}
-              resizeMode="contain"
-            />
-            {isManualEntry && !carImageUrl && (
+          {/* Empty-state placeholder — ONLY when there's nothing to show and
+              we're not loading. Hidden during load so the skeleton isn't
+              stacked on top of the covered-car art. */}
+          {!imageReady && !loadingLatch && !carImageUrl && (
+            <View style={styles.heroEmpty}>
+              <Image
+                source={require("@/assets/images/covered-car.png")}
+                style={styles.heroEmptyImage}
+                resizeMode="contain"
+              />
               <Text size="sm" color="#8E8E93" center style={styles.heroEmptyText}>
-                Your car shows up here as you fill in the details
+                {canLookupImage
+                  ? "Couldn't get an image of your car"
+                  : "Your car shows up here as you fill in the details"}
               </Text>
-            )}
-          </View>
+              {canLookupImage && (
+                <>
+                  <Text size="xs" color="#9CA3AF" center style={styles.heroContinueHint}>
+                    You can still continue without an image
+                  </Text>
+                  <Pressable
+                    onPress={handleRetryImage}
+                    style={({ pressed }) => [styles.heroRetryBtn, pressed && { opacity: 0.7 }]}
+                    hitSlop={8}
+                  >
+                    <RotateCw size={14} color={BrandColors.secondary} strokeWidth={2.25} />
+                    <Text weight="semiBold" size="sm" color={BrandColors.secondary}>
+                      Retry
+                    </Text>
+                  </Pressable>
+                </>
+              )}
+            </View>
+          )}
+
+          {/* Loading skeleton — stays up continuously through the whole
+              model→variants→image cascade (latched), and covers the card so the
+              placeholder never peeks through. Once an image has decoded, same-car
+              refetches (color/trim) hold it and swap in place — no re-flash. */}
+          {!imageReady && (loadingLatch || !!carImageUrl) && <HeroImageSkeleton />}
 
           {carImageUrl && (
             <Animated.Image
               source={{ uri: carImageUrl }}
               style={[styles.heroImageOverlay, carImageAnimatedStyle]}
               resizeMode="contain"
+              onLoad={() => setImageReady(true)}
+              onError={() => setImageReady(true)}
             />
           )}
 
@@ -709,7 +1016,9 @@ export default function AddVehicleDetailsScreen() {
             () => openPicker("year"),
             { isFirst: true },
           )}
-          {renderRow("Brand", brand || null, "Select brand", () => openPicker("brand"))}
+          {renderRow("Brand", brand || null, "Select brand", () => openPicker("brand"), {
+            logoMake: brand,
+          })}
           {renderRow(
             "Model",
             model || null,
@@ -719,7 +1028,7 @@ export default function AddVehicleDetailsScreen() {
           )}
           {renderRow(
             "Trim",
-            trim || null,
+            trim ? prettyTrim(trim) : null,
             canPickTrim ? "Select trim" : "Pick model first",
             () => openPicker("trim"),
             { disabled: !canPickTrim },
@@ -736,6 +1045,7 @@ export default function AddVehicleDetailsScreen() {
             drivetrain || null,
             "Select drivetrain",
             () => openPicker("drivetrain"),
+            { drivetrainValue: drivetrain },
           )}
         </View>
 
@@ -757,11 +1067,11 @@ export default function AddVehicleDetailsScreen() {
             one continuous motion (no sticky footer, no cut-off line). */}
         <Pressable
           onPress={handleConfirmVehicle}
-          disabled={!allFieldsFilled}
+          disabled={!allFieldsFilled || isSubmitting}
           style={({ pressed }) => [
             styles.ctaWrap,
-            !allFieldsFilled && styles.ctaDisabled,
-            pressed && allFieldsFilled && { opacity: 0.92 },
+            (!allFieldsFilled || isSubmitting) && styles.ctaDisabled,
+            pressed && allFieldsFilled && !isSubmitting && { opacity: 0.92 },
           ]}
         >
           <LinearGradient
@@ -770,9 +1080,13 @@ export default function AddVehicleDetailsScreen() {
             end={{ x: 1, y: 0 }}
             style={styles.ctaGradient}
           >
-            <Text weight="bold" size="md" color={BrandColors.white}>
-              Confirm & Add Vehicle
-            </Text>
+            {isSubmitting ? (
+              <ActivityIndicator color={BrandColors.white} />
+            ) : (
+              <Text weight="bold" size="md" color={BrandColors.white}>
+                Confirm & Add Vehicle
+              </Text>
+            )}
           </LinearGradient>
         </Pressable>
 
@@ -800,9 +1114,36 @@ export default function AddVehicleDetailsScreen() {
       >
         <View style={styles.sheetWrapper}>
           <View style={styles.sheetHeader}>
-            <Text weight="bold" size="lg" color={BrandColors.primary}>
+            <Text
+              weight="bold"
+              size="lg"
+              color={BrandColors.primary}
+              numberOfLines={1}
+              style={styles.sheetTitle}
+            >
               {getSheetTitle()}
             </Text>
+
+            {/* Inline search — filters the list as you type. Hidden in trim
+                mode, which owns a dedicated free-text input row below. */}
+            {sheetMode !== "trim" && (
+              <View style={styles.headerSearch}>
+                <Search size={16} color="rgba(20,28,36,0.4)" strokeWidth={2.2} />
+                <TextInput
+                  value={searchQuery}
+                  onChangeText={setSearchQuery}
+                  placeholder="Search"
+                  placeholderTextColor="rgba(20,28,36,0.4)"
+                  style={styles.headerSearchInput}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  returnKeyType="search"
+                  keyboardType={sheetMode === "year" ? "number-pad" : "default"}
+                  clearButtonMode="while-editing"
+                />
+              </View>
+            )}
+
             <Pressable
               onPress={() => pickerSheetRef.current?.close()}
               style={styles.sheetCloseBtn}
@@ -860,18 +1201,20 @@ export default function AddVehicleDetailsScreen() {
                   Loading…
                 </Text>
               </View>
-            ) : pickerData.length === 0 ? (
+            ) : filteredPickerData.length === 0 ? (
               <View style={styles.emptyState}>
                 <Text size="md" color="#8E8E93" center>
-                  {sheetMode === "model"
-                    ? "No models found — try a different year"
-                    : sheetMode === "trim"
-                      ? "No saved trims — type your trim above"
-                      : "Nothing to pick yet"}
+                  {(sheetMode === "trim" ? trimDraft.trim() : searchQuery.trim())
+                    ? "No matches"
+                    : sheetMode === "model"
+                      ? "No models found — try a different year"
+                      : sheetMode === "trim"
+                        ? "No saved trims — type your trim above"
+                        : "Nothing to pick yet"}
                 </Text>
               </View>
             ) : (
-              pickerData.map((item: any) => renderPickerItem(item))
+              filteredPickerData.map((item: any) => renderPickerItem(item))
             )}
           </ScrollView>
         </View>
@@ -926,7 +1269,10 @@ const styles = StyleSheet.create({
     padding: Spacing.lg,
     alignItems: "center",
     justifyContent: "center",
-    minHeight: 200,
+    // Stable height across placeholder / skeleton / image states — the
+    // covered-car art no longer sets the card height (it's hidden during
+    // load), so pin it here to avoid a layout jump as the states swap.
+    minHeight: 230,
     marginBottom: Spacing.lg,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 4 },
@@ -944,6 +1290,21 @@ const styles = StyleSheet.create({
     left: Spacing.lg,
     right: Spacing.lg,
     bottom: Spacing.lg,
+  },
+  heroSkeleton: {
+    position: "absolute",
+    top: Spacing.lg,
+    left: Spacing.lg,
+    right: Spacing.lg,
+    bottom: Spacing.lg,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  heroSkeletonBlock: {
+    width: "100%",
+    height: "100%",
+    borderRadius: BorderRadius.lg,
+    backgroundColor: "#E5E7EB",
   },
   heroLottie: {
     width: 200,
@@ -964,6 +1325,23 @@ const styles = StyleSheet.create({
   heroEmptyText: {
     maxWidth: 240,
     lineHeight: 18,
+  },
+  heroContinueHint: {
+    maxWidth: 240,
+    marginTop: 2,
+    lineHeight: 16,
+  },
+  heroRetryBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: Spacing.sm,
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.full,
+    borderWidth: 1,
+    borderColor: "rgba(82,153,254,0.4)",
+    backgroundColor: "rgba(82,153,254,0.08)",
   },
   extractedBadge: {
     position: "absolute",
@@ -1014,15 +1392,34 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(20,28,36,0.08)",
     marginHorizontal: Spacing.lg,
   },
+  rowLabel: {
+    // Label keeps its natural width; the value column shrinks instead.
+    flexShrink: 0,
+    marginRight: Spacing.md,
+  },
   rowValue: {
     flexDirection: "row",
     alignItems: "center",
     gap: Spacing.sm,
+    // Take the remaining width and allow the value text to shrink so a
+    // long trim ("Base E 400 4dr All-wheel Drive 4MATIC Sedan Automatic")
+    // ellipsizes on one line instead of wrapping under the label.
+    flex: 1,
+    minWidth: 0,
+    justifyContent: "flex-end",
+  },
+  rowValueText: {
+    flexShrink: 1,
+    textAlign: "right",
   },
   rowColorDot: {
     width: 18,
     height: 18,
     borderRadius: 9,
+  },
+  rowBrandLogo: {
+    width: 28,
+    height: 28,
   },
   rowColorDotBorder: {
     borderWidth: 1,
@@ -1065,13 +1462,39 @@ const styles = StyleSheet.create({
   sheetHeader: {
     // Roomier header — matches the sheet header pattern used on
     // Screen 2 category rows and the cart sheet. Title on the left,
-    // soft-circle close on the right.
+    // inline search in the middle, soft-circle close on the right.
+    // space-between keeps the close X pinned right even in trim mode,
+    // which has no search field to fill the row.
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    gap: Spacing.sm,
     paddingHorizontal: 20,
     paddingTop: 10,
     paddingBottom: 14,
+  },
+  sheetTitle: {
+    // Natural width but allowed to shrink so the search pill keeps room
+    // on narrow screens / longer titles ("Select Drivetrain").
+    flexShrink: 1,
+  },
+  headerSearch: {
+    // Soft pill that flexes to fill the space between title and close.
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    minWidth: 96,
+    paddingHorizontal: 10,
+    height: 36,
+    backgroundColor: "rgba(20,28,36,0.05)",
+    borderRadius: BorderRadius.full,
+  },
+  headerSearchInput: {
+    flex: 1,
+    paddingVertical: 0,
+    fontSize: 15,
+    color: BrandColors.primary,
   },
   sheetCloseBtn: {
     // Soft-tinted circle for the close X — mirrors the close chip
@@ -1086,7 +1509,9 @@ const styles = StyleSheet.create({
   sheetContent: {
     paddingHorizontal: 20,
     paddingTop: 4,
-    paddingBottom: 16,
+    // Extra bottom room so the last row clears the sheet's 46px rounded
+    // bottom corner (matched by LIST_VPAD in pickerSnapHeights).
+    paddingBottom: 28,
     gap: 8,
   },
   pickerItem: {
@@ -1139,6 +1564,23 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255, 255, 255, 0.85)",
     justifyContent: "center",
     alignItems: "center",
+  },
+  pickerLogoTile: {
+    // White tile so full-colour brand marks read cleanly; doubles as the
+    // monogram chip when the CDN has no logo for a make.
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "rgba(15, 23, 42, 0.06)",
+    justifyContent: "center",
+    alignItems: "center",
+    overflow: "hidden",
+  },
+  pickerLogoImage: {
+    width: 35,
+    height: 35,
   },
   pickerCheckPill: {
     // Same black check pill as ServiceMultiSelectRow's stateCheck.

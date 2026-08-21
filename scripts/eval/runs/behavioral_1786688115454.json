@@ -1,0 +1,255 @@
+{
+ "ran_at": "2026-08-14T06:15:15.452Z",
+ "target_email": "mansourwaleed06@gmail.com",
+ "repeat": 3,
+ "total": 3,
+ "passed": 2,
+ "failed": 1,
+ "skipped_count": 8,
+ "failed_cases": [
+  {
+   "name": "link_button_bug_report",
+   "failures": [
+    "rep1: turn 1: missing tool \"update_conversation_state\" (saw: render_link_button)",
+    "rep1: turn 1: judge: The response promises that \"the team will see the details and get it sorted,\" which implies Oto will file or handle the report, rather than simply directing the user to the bug-report screen and letting them file it themselves.",
+    "rep2: turn 1: missing tool \"render_link_button\" (saw: update_conversation_state)",
+    "rep2: turn 1: branch \"text_only\" !== \"terminal\"",
+    "rep3: turn 1: judge: The response acknowledges the app problem but does not direct the user to a bug-report screen or indicate that one is being opened for them. It only mentions that crashes \"should get flagged\" without confirming action is being taken."
+   ]
+  }
+ ],
+ "results": [
+  {
+   "name": "link_button_bug_report",
+   "description": "Sprint 3 Day 2 §14.1 dispatch (render_link_button — 8 destinations + 3 AI-feedback routing + 3 discrimination). Destination: bug_report. User reports a general app bug (crash / broken screen) — render_link_button(destination='bug_report'). Generic-app-bug phrasing only; AI-conversation bugs route to the per-message icon (see ai_feedback_* cases below). LITERAL→JUDGE 2026-08-14: the bare 'bug' literal failed on behaviorally-correct phrasings (assertion-too-narrow class).",
+   "passed": false,
+   "failures": [
+    "rep1: turn 1: missing tool \"update_conversation_state\" (saw: render_link_button)",
+    "rep1: turn 1: judge: The response promises that \"the team will see the details and get it sorted,\" which implies Oto will file or handle the report, rather than simply directing the user to the bug-report screen and letting them file it themselves.",
+    "rep2: turn 1: missing tool \"render_link_button\" (saw: update_conversation_state)",
+    "rep2: turn 1: branch \"text_only\" !== \"terminal\"",
+    "rep3: turn 1: judge: The response acknowledges the app problem but does not direct the user to a bug-report screen or indicate that one is being opened for them. It only mentions that crashes \"should get flagged\" without confirming action is being taken."
+   ],
+   "runs": [
+    {
+     "rep": 1,
+     "turns": [
+      {
+       "user": "The app crashed when I tried to open the booking screen — something's broken.",
+       "tools": [
+        "render_link_button"
+       ],
+       "branch": "terminal",
+       "text": "I can help with that. Tap the button below to file a bug report — the team will see the details and get it sorted."
+      }
+     ],
+     "failures": [
+      "turn 1: missing tool \"update_conversation_state\" (saw: render_link_button)",
+      "turn 1: judge: The response promises that \"the team will see the details and get it sorted,\" which implies Oto will file or handle the report, rather than simply directing the user to the bug-report screen and letting them file it themselves."
+     ]
+    },
+    {
+     "rep": 2,
+     "turns": [
+      {
+       "user": "The app crashed when I tried to open the booking screen — something's broken.",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "That sounds frustrating. Got a quick question before I route you to the right place — when you tried to open the booking screen, did you get an error message, or did the app just close?\n\nIf it's a straight crash, I can send you to the bug-report screen where the team can dig into what happened."
+      }
+     ],
+     "failures": [
+      "turn 1: missing tool \"render_link_button\" (saw: update_conversation_state)",
+      "turn 1: branch \"text_only\" !== \"terminal\""
+     ]
+    },
+    {
+     "rep": 3,
+     "turns": [
+      {
+       "user": "The app crashed when I tried to open the booking screen — something's broken.",
+       "tools": [
+        "update_conversation_state",
+        "render_link_button"
+       ],
+       "branch": "terminal",
+       "text": "That sounds frustrating. General app crashes on the booking screen should get flagged so the team can track it down."
+      }
+     ],
+     "failures": [
+      "turn 1: judge: The response acknowledges the app problem but does not direct the user to a bug-report screen or indicate that one is being opened for them. It only mentions that crashes \"should get flagged\" without confirming action is being taken."
+     ]
+    }
+   ]
+  },
+  {
+   "name": "book_service_single_diagnostic",
+   "description": "Sprint 4 Day 1 Pass B §4 dispatch (booking-flow consolidation; render_book_service). Single-service diagnostic-scan booking: user reports a symptom that converges on 'needs eyes-on' (multi-cause ambiguity); after Oto's narrowing turn, user confirms 'yes book a diagnostic'. Expect render_book_service fires as the SINGLE terminal booking surface with diagnostic-scan prefill. Booking-ask phrasing must avoid the BANNED 'pull up details' pattern (§1 Voice update).",
+   "passed": true,
+   "failures": [],
+   "runs": [
+    {
+     "rep": 1,
+     "turns": [
+      {
+       "user": "My brakes have been squealing pretty bad when I brake hard on the highway.",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "I hear you — brake squeal under hard braking is worth looking into. Quick question to narrow it: does the squeal happen right when you first press hard, or does it stick around through the whole braking action?"
+      },
+      {
+       "user": "Yeah let's book a diagnostic, I want a mechanic to look at it.",
+       "tools": [
+        "update_conversation_state",
+        "render_book_service"
+       ],
+       "branch": "terminal",
+       "text": "Everything's set up for the diagnostic scan — review and confirm when you're ready to book."
+      }
+     ],
+     "failures": []
+    },
+    {
+     "rep": 2,
+     "turns": [
+      {
+       "user": "My brakes have been squealing pretty bad when I brake hard on the highway.",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "That brake squeal under hard braking is worth narrowing down. Quick question to help figure out what's going on: does the squeal happen right when you first press hard, or does it stick around through the whole stop?"
+      },
+      {
+       "user": "Yeah let's book a diagnostic, I want a mechanic to look at it.",
+       "tools": [
+        "update_conversation_state",
+        "render_book_service"
+       ],
+       "branch": "terminal",
+       "text": "Everything's set up for the diagnostic scan — review and confirm when you're ready to book."
+      }
+     ],
+     "failures": []
+    },
+    {
+     "rep": 3,
+     "turns": [
+      {
+       "user": "My brakes have been squealing pretty bad when I brake hard on the highway.",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "I hear you — brake squeal under hard braking is worth pinning down. Let me ask one clarifying question to help narrow it:\n\nDoes the squeal happen only when you brake hard, or does it show up even on light braking too?"
+      },
+      {
+       "user": "Yeah let's book a diagnostic, I want a mechanic to look at it.",
+       "tools": [
+        "update_conversation_state",
+        "render_book_service"
+       ],
+       "branch": "terminal",
+       "text": "Everything's set up for the diagnostic scan — review and confirm when you're ready to book."
+      }
+     ],
+     "failures": []
+    }
+   ]
+  },
+  {
+   "name": "book_service_multi_bundle",
+   "description": "Sprint 4 Day 1 Pass B §4 dispatch (booking-flow consolidation; render_book_service). Multi-service bundle: user explicitly asks to bundle an oil change and a tire rotation. Oto fires render_book_service ONCE with service_slugs=['oil_change','tire_rotation'] (the bookings.service_ids array already supports multi-service per §4 schema check). Runner-caveat: array-arg values are unobservable; text_contains 'oil' AND 'tire' proxies that both services appear in Oto's framing.",
+   "passed": true,
+   "failures": [],
+   "runs": [
+    {
+     "rep": 1,
+     "turns": [
+      {
+       "user": "Can you book me an oil change and a tire rotation together?",
+       "tools": [
+        "update_conversation_state",
+        "render_book_service"
+       ],
+       "branch": "terminal",
+       "text": "Everything's set up for the oil change and tire rotation — review and confirm when you're ready to book."
+      }
+     ],
+     "failures": []
+    },
+    {
+     "rep": 2,
+     "turns": [
+      {
+       "user": "Can you book me an oil change and a tire rotation together?",
+       "tools": [
+        "update_conversation_state",
+        "render_book_service"
+       ],
+       "branch": "terminal",
+       "text": "I'll set that up for you — oil change and tire rotation bundled in one visit."
+      }
+     ],
+     "failures": []
+    },
+    {
+     "rep": 3,
+     "turns": [
+      {
+       "user": "Can you book me an oil change and a tire rotation together?",
+       "tools": [
+        "update_conversation_state",
+        "render_book_service"
+       ],
+       "branch": "terminal",
+       "text": "Everything's set up for the oil change and tire rotation — review and confirm when you're ready to book."
+      }
+     ],
+     "failures": []
+    }
+   ]
+  }
+ ],
+ "skipped": [
+  {
+   "name": "battery_self_reported_triggers_record_confirmation",
+   "reason": "0/10 at N=10 on v0.51+v0.22 even with the Example 19 battery arc. Two causes: (1) cold-morning slow-crank is a softer elimination-test contradiction than squeal-after-new-pads (a plausible innocent cold-weather reading exists), so the model explains or narrows instead of gating; (2) one rep DID fire the card but failed the per-turn get_vehicle_health assertion because the read happened a turn earlier — the tools_called_across_turns runner primitive (Sprint 3 carryover) is needed to assert this case fairly. Re-enable after the polite-exit turn-3 termination follow-up + the cross-turn primitive. The brake gate case carries the elimination-test coverage meanwhile (~65-80%)."
+  },
+  {
+   "name": "cat_m_communication_style_outranks_history_anchor",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass)"
+  },
+  {
+   "name": "cat_m_fresh_outranks_stale_within_same_type",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass); also requires Sprint 3 test-helper mutation to stage stale last_reinforced"
+  },
+  {
+   "name": "cat_m_retracted_fact_does_not_surface",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass); also requires Sprint 3 pre_seed_mutations result-threading OR a retract-by-payload-substring mutation"
+  },
+  {
+   "name": "cat_m_vehicle_quirk_surfaces_for_vehicle_owner",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass)"
+  },
+  {
+   "name": "cat_m_no_seeded_rows_envelope_omits_recent_context",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass)"
+  },
+  {
+   "name": "cat_m_top_K_cap_enforced_at_5",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass); assertion fragile if equivalence-v2 collapses overlapping seeds — review on first run"
+  },
+  {
+   "name": "cat_m_adversarial_fact_does_not_surface_in_envelope",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass); threat model contestable — sanitizer at write blocks current attack surface, this is for future bypass paths"
+  }
+ ]
+}

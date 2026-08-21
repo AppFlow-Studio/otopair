@@ -97,6 +97,11 @@ export interface ConvexBookingWithDetails {
   final_capture_amount_cents?: number;
   /** Shop-assigned invoice / work-order number, if the mechanic set one. */
   invoice_number?: string;
+  /** Pickup-request round trip (vehicle_at_shop). `pickupRequestedAtMs` marks
+   *  the customer's "request pickup"; `pickupResponse` is the shop's answer. */
+  pickupRequestedAtMs?: number | null;
+  pickupResponse?: "acknowledged" | "bringing_out" | "declined" | null;
+  pickupRespondedAtMs?: number | null;
 }
 
 interface BookingAdapterParams {
@@ -217,8 +222,13 @@ function parseVehicleDisplay(vehicleDisplay: string): { carModel: string; carYea
  */
 export function adaptConvexBookingWithDetailsToCard(row: ConvexBookingWithDetails): BookingCardBooking {
   const { carModel, carYear } = parseVehicleDisplay(row.vehicleDisplay);
+  // Booking status is taken straight from the backend. We deliberately do
+  // NOT derive a "delayed" state from elapsed time: an in-progress job reads
+  // "In Progress" (with its live progress bar) for its whole run. The old
+  // derivation compared now vs the scheduled *start*, so any started job
+  // flipped to "Delayed" within minutes — see delayMinutes in
+  // getByUserIdWithDetails, which is now unused by the client.
   const status = row.status as BookingCardBooking["status"];
-  const displayStatus = status === "in_progress" && (row.delayMinutes ?? 0) > 0 ? "delayed" : status;
 
   // For tire-quote bookings, synthesize the same notes string the local
   // PendingQuoteCard parser expects ("4 Premium All-Season · 225/45R18").
@@ -271,8 +281,9 @@ export function adaptConvexBookingWithDetailsToCard(row: ConvexBookingWithDetail
     shopAddress: row.shopAddress?.trim() ? row.shopAddress : undefined,
     mechanicImage: row.mechanicImageUrl,
     date: formatBookingDate(row.scheduled_date),
+    scheduledDate: row.scheduled_date,
     time: formatBookingTime(row.scheduled_time),
-    status: displayStatus as BookingCardBooking["status"],
+    status,
     totalCost: row.total_cost,
     notes,
     createdAt: row._creationTime,
@@ -285,6 +296,8 @@ export function adaptConvexBookingWithDetailsToCard(row: ConvexBookingWithDetail
     paymentApprovalState: row.payment_approval_state,
     finalCaptureAmountCents: row.final_capture_amount_cents,
     invoiceNumber: row.invoice_number,
+    pickupRequestedAtMs: row.pickupRequestedAtMs ?? undefined,
+    pickupResponse: row.pickupResponse ?? undefined,
     quoteType,
   };
 }

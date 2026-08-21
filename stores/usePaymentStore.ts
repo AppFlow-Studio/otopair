@@ -37,6 +37,13 @@ interface PaymentState {
   transactions: Transaction[];
   /** Currently selected payment method ID for checkout */
   selectedPaymentMethodId: string | null;
+  /** Which method the customer picked to authorize with. `null` means "the
+   *  selected saved card"; a wallet value means the single Authorize button
+   *  should launch that platform's wallet sheet instead of the card path.
+   *  Set by the payment-method picker, read by the Authorize CTA. This is a
+   *  pre-mint *intent* — distinct from `selectedWalletPm`, which is the
+   *  post-mint one-time PM handed to `/confirming`. */
+  walletIntent: "apple_pay" | "google_pay" | null;
   /** Wallet PM minted by Apple Pay / Google Pay for the in-flight booking.
    *  See SelectedWalletPm — single-use, cleared by `/confirming`. */
   selectedWalletPm: SelectedWalletPm | null;
@@ -56,6 +63,10 @@ interface PaymentState {
   setDefaultPaymentMethod: (paymentMethodId: string) => void;
   /** Select a payment method for current checkout */
   selectPaymentMethod: (paymentMethodId: string | null) => void;
+  /** Set which method the Authorize button should use. Pass a wallet type to
+   *  route Authorize through the platform wallet sheet, or `null` to fall
+   *  back to the selected saved card. */
+  setWalletIntent: (walletIntent: "apple_pay" | "google_pay" | null) => void;
   /** Stash a freshly-minted wallet PM (Apple Pay / Google Pay) for the
    *  active booking. Pass `null` to clear after `/confirming` consumes it
    *  or when the user cancels the wallet sheet. */
@@ -93,6 +104,7 @@ export const usePaymentStore = create<PaymentState>()((set, get) => ({
   paymentMethods: [],
   transactions: [],
   selectedPaymentMethodId: null,
+  walletIntent: null,
   selectedWalletPm: null,
   paymentMethodsRefreshKey: 0,
   isLoading: false,
@@ -160,6 +172,11 @@ export const usePaymentStore = create<PaymentState>()((set, get) => ({
       selectedPaymentMethodId: paymentMethodId,
     }),
 
+  setWalletIntent: (walletIntent) =>
+    set({
+      walletIntent,
+    }),
+
   setSelectedWalletPm: (wallet) =>
     set({
       selectedWalletPm: wallet,
@@ -197,6 +214,7 @@ export const usePaymentStore = create<PaymentState>()((set, get) => ({
     set({
       paymentMethods: [],
       selectedPaymentMethodId: null,
+      walletIntent: null,
       selectedWalletPm: null,
       error: null,
     }),

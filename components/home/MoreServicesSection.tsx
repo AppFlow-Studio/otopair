@@ -29,17 +29,49 @@ import { Text } from '@/components/shared-ui';
 // 4. Constants
 import { Spacing, BorderRadius } from '@/constants/theme';
 
-// 5. Stores
-import { useBookingStore } from '@/stores/useBookingStore';
-import type { ServiceCategory } from '@/stores/types/store.types';
+// 5. Constants
+import type { TaxonomyTab } from '@/constants/serviceTaxonomy';
 
-// Maps each card id to the service category tab the booking sheet
-// should open on. Cards not listed here fall back to basic_maintenance
-// (the default "Maintenance" tab) — i.e. Oil Change, Battery, Inspection.
-const CARD_TO_CATEGORY: Record<string, ServiceCategory> = {
-  diagnostics: 'system_diagnostics',
-  brakes: 'brakes_suspension',
-  tires: 'tires_wheels',
+/**
+ * Card → Booking Taxonomy v5 tab.
+ *
+ * Every card is mapped explicitly. This previously went through the legacy
+ * 4-key `ServiceCategory` enum and only covered three cards, so Oil Change,
+ * Battery and Inspection all fell through to `basic_maintenance` — which put
+ * Inspection on the Routine tab instead of Inspections.
+ *
+ * Routing straight to the tab also drops the two-step handoff it used to rely
+ * on (seed a one-shot store signal → push the landing screen → let that screen
+ * read the signal and `router.replace` onward). Fewer moving parts, and the
+ * one-shot signal can no longer be left set on a path that never consumes it,
+ * which is what makes a later plain entry bounce past the landing screen.
+ */
+const CARD_TO_TAB: Record<string, TaxonomyTab> = {
+  diagnostics: 'inspections',
+  'oil-change': 'routine_upkeep',
+  brakes: 'tires_brakes',
+  battery: 'routine_upkeep',
+  tires: 'tires_brakes',
+  inspection: 'inspections',
+};
+
+/**
+ * Card → the taxonomy slug to scroll to, highlight and pre-select on arrival.
+ *
+ * Only cards that map to a single obvious job appear here. Brakes and Tires
+ * are deliberately absent: each covers several distinct services (pads vs
+ * rotors vs fluid flush; rotation vs balancing vs alignment vs replacement),
+ * so picking one would drop something into the cart the user never chose.
+ * Those two land on the tab and let the user decide.
+ *
+ * A card with no entry simply navigates — the `focus` param is omitted, so
+ * there is no scroll, no highlight and no selection.
+ */
+const CARD_TO_SERVICE: Record<string, string> = {
+  diagnostics: 'diagnostic_scan',
+  'oil-change': 'oil_change',
+  battery: 'battery_test',
+  inspection: 'state_inspection',
 };
 
 // ============================================================================
@@ -128,19 +160,21 @@ const SERVICE_CARDS: ServiceCard[] = [
 
 export function MoreServicesSection({ onBeforeOpenBookingFlow }: MoreServicesSectionProps) {
   const router = useRouter();
-  const setInitialServiceCategory = useBookingStore(
-    (state) => state.setInitialServiceCategory,
-  );
 
   const handleCardPress = (serviceId: string) => {
     if (onBeforeOpenBookingFlow?.() === false) {
       return;
     }
-    // Seed the booking-store one-shot category signal so the service
-    // selector mounts on the right tab. Cards not in the map default
-    // to `basic_maintenance` (Maintenance tab).
-    setInitialServiceCategory(CARD_TO_CATEGORY[serviceId] ?? 'basic_maintenance');
-    router.push('/(booking-flow)/select-services');
+    // Straight to the category screen. `category/[tab]` loads its own
+    // services, so it does not need the landing screen to have run first.
+    // `focus` is the slug it scrolls to, highlights and pre-selects.
+    router.push({
+      pathname: '/(booking-flow)/category/[tab]',
+      params: {
+        tab: CARD_TO_TAB[serviceId] ?? 'routine_upkeep',
+        ...(CARD_TO_SERVICE[serviceId] ? { focus: CARD_TO_SERVICE[serviceId] } : {}),
+      },
+    });
   };
 
   return (
@@ -243,6 +277,16 @@ const styles = StyleSheet.create({
     width: CARD_WIDTH,
     height: CARD_HEIGHT,
     marginBottom: GRID_GAP,
+    // Shadow lives here — the wrapper does NOT clip, so the card's soft
+    // lift renders cleanly. (The inner `card` has overflow:'hidden' to
+    // crop the oversized icon, which would otherwise mask its own shadow.)
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
+    // shadowColor: '#000',
+    // shadowOffset: { width: 0, height: 2 },
+    // shadowOpacity: 0.08,
+    // shadowRadius: 6,
+    // elevation: 2,
   },
   cardPressed: {
     opacity: 0.7,
@@ -295,11 +339,10 @@ const styles = StyleSheet.create({
     width: IMAGE_ICON_SIZE,
     height: IMAGE_ICON_SIZE,
     marginTop: 0,
-    // Shape-aware drop shadow matching ProviderTypesSection.
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 5 },
-    shadowOpacity: 0.28,
-    shadowRadius: 7,
+    // No drop shadow here: the icon nearly fills the card, so its shadow
+    // used to bleed to the edges and get sliced by the card's rounded
+    // clip (hard bottom line + odd corners). The card lift now lives on
+    // `cardWrapper`; the 3D PNG carries its own baked lighting.
   },
   cardLabel: {
     marginBottom: 2,

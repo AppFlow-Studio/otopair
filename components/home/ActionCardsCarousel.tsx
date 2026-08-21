@@ -68,8 +68,11 @@ interface ActionCardsCarouselProps {
   appointmentDestinationName?: string;
   appointmentDestinationAddress?: string;
   onAppointmentViewDetails?: (bookingId: string) => void;
-  onAppointmentCancel?: (bookingId: string) => void;
+  /** feeAcknowledgedCents = the late-cancel fee shown to the customer, if any. */
+  onAppointmentCancel?: (bookingId: string, feeAcknowledgedCents?: number) => void;
   onAppointmentReschedule?: (bookingId: string) => void;
+  /** Limited-reschedule "Contact shop" affordance (routes to shop contact). */
+  onAppointmentMessageShop?: (bookingId: string) => void;
 
   // Resume Booking
   showResumeBooking?: boolean;
@@ -119,6 +122,7 @@ export function ActionCardsCarousel({
   onAppointmentViewDetails,
   onAppointmentCancel,
   onAppointmentReschedule,
+  onAppointmentMessageShop,
 
   // Resume Booking
   showResumeBooking = false,
@@ -269,6 +273,7 @@ export function ActionCardsCarousel({
                   onViewDetails={onAppointmentViewDetails}
                   onCancelBooking={onAppointmentCancel}
                   onReschedule={onAppointmentReschedule}
+                  onMessageShop={onAppointmentMessageShop}
                 />
                 <NavigationETABar
                   etaMinutes={appointmentEtaMinutes}

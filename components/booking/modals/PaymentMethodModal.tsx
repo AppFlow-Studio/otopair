@@ -48,6 +48,14 @@ interface PaymentMethodModalProps {
   serviceSummary: string;
   /** Mechanic name to display */
   mechanicName: string;
+  /** Show the Apple Pay option — gate on device support so we never offer a
+   *  wallet the Authorize button can't launch. Defaults to false. */
+  applePaySupported?: boolean;
+  /** Show the Google Pay option (see applePaySupported). Defaults to false. */
+  googlePaySupported?: boolean;
+  /** Called when the user taps "Enter New Card" — the host routes to the
+   *  add-payment flow (the modal has no router of its own). */
+  onAddCard?: () => void;
 }
 
 type WalletType = "apple_pay" | "google_pay";
@@ -81,6 +89,9 @@ export function PaymentMethodModal({
   totalAmount,
   serviceSummary,
   mechanicName,
+  applePaySupported = false,
+  googlePaySupported = false,
+  onAddCard,
 }: PaymentMethodModalProps) {
   // ═══════════════ HOOKS ═══════════════
   const insets = useSafeAreaInsets();
@@ -90,10 +101,15 @@ export function PaymentMethodModal({
   const selectedPaymentMethodId = usePaymentStore((state) => state.selectedPaymentMethodId);
   const selectPaymentMethod = usePaymentStore((state) => state.selectPaymentMethod);
   const getDefaultPaymentMethod = usePaymentStore((state) => state.getDefaultPaymentMethod);
+  const walletIntent = usePaymentStore((state) => state.walletIntent);
+  const setWalletIntent = usePaymentStore((state) => state.setWalletIntent);
 
   // ═══════════════ COMPUTED ═══════════════
   const defaultMethod = getDefaultPaymentMethod();
-  const currentSelectedId = selectedPaymentMethodId || defaultMethod?.id;
+  // A wallet intent wins over any card highlight — when a wallet is chosen,
+  // no saved card should read as selected.
+  const currentSelectedId = walletIntent ? undefined : selectedPaymentMethodId || defaultMethod?.id;
+  const showWalletSection = applePaySupported || googlePaySupported;
 
   // ═══════════════ HANDLERS ═══════════════
   const handleBackdropPress = useCallback(() => {
@@ -102,30 +118,35 @@ export function PaymentMethodModal({
 
   const handleWalletSelect = useCallback(
     (walletType: WalletType) => {
-      // For now, just close the modal - wallet integration would go here
-      selectPaymentMethod(null); // Clear card selection when wallet is selected
+      // Route the single Authorize button through the wallet sheet; drop any
+      // card highlight so the picker reflects one active method.
+      setWalletIntent(walletType);
+      selectPaymentMethod(null);
       onClose();
     },
-    [selectPaymentMethod, onClose]
+    [setWalletIntent, selectPaymentMethod, onClose]
   );
 
   const handleCardSelect = useCallback(
     (paymentMethodId: string) => {
       selectPaymentMethod(paymentMethodId);
+      setWalletIntent(null); // Card wins — clear any wallet intent.
       onClose();
     },
-    [selectPaymentMethod, onClose]
+    [selectPaymentMethod, setWalletIntent, onClose]
   );
 
   const handleAddNewCard = useCallback(() => {
-    // Would open add card flow
     onClose();
-  }, [onClose]);
+    onAddCard?.();
+  }, [onClose, onAddCard]);
 
   // ═══════════════ RENDER HELPERS ═══════════════
   const renderWalletOption = useCallback(
     (type: WalletType, label: string, IconComponent: React.ElementType) => {
       const isApplePay = type === "apple_pay";
+      const isSelected = walletIntent === type;
+      const fg = isApplePay ? BrandColors.white : BrandColors.primary;
 
       return (
         <TouchableOpacity
@@ -137,21 +158,20 @@ export function PaymentMethodModal({
           onPress={() => handleWalletSelect(type)}
           activeOpacity={0.8}
         >
-          <IconComponent
-            size={20}
-            color={isApplePay ? BrandColors.white : BrandColors.primary}
-          />
-          <Text
-            size="md"
-            weight="semiBold"
-            color={isApplePay ? BrandColors.white : BrandColors.primary}
-          >
+          <IconComponent size={20} color={fg} />
+          <Text size="md" weight="semiBold" color={fg}>
             {label}
           </Text>
+          {isSelected && (
+            <>
+              <View style={{ flex: 1 }} />
+              <Check size={18} color={fg} />
+            </>
+          )}
         </TouchableOpacity>
       );
     },
-    [handleWalletSelect]
+    [handleWalletSelect, walletIntent]
   );
 
   const renderCardOption = useCallback(
@@ -235,20 +255,26 @@ export function PaymentMethodModal({
             contentContainerStyle={styles.scrollContent}
             showsVerticalScrollIndicator={false}
           >
-            {/* Wallet Options */}
-            <View style={styles.walletSection}>
-              {renderWalletOption("apple_pay", "Apple Pay", Wallet)}
-              {renderWalletOption("google_pay", "Google Pay", Smartphone)}
-            </View>
+            {/* Wallet Options — only surfaced on devices that actually
+                support the wallet, so the picker never offers a method the
+                Authorize button can't launch. */}
+            {showWalletSection && (
+              <>
+                <View style={styles.walletSection}>
+                  {applePaySupported && renderWalletOption("apple_pay", "Apple Pay", Wallet)}
+                  {googlePaySupported && renderWalletOption("google_pay", "Google Pay", Smartphone)}
+                </View>
 
-            {/* Divider */}
-            <View style={styles.dividerContainer}>
-              <View style={styles.dividerLine} />
-              <Text size="xs" weight="medium" color="#9CA3AF" style={styles.dividerText}>
-                OR PAY WITH CARD
-              </Text>
-              <View style={styles.dividerLine} />
-            </View>
+                {/* Divider */}
+                <View style={styles.dividerContainer}>
+                  <View style={styles.dividerLine} />
+                  <Text size="xs" weight="medium" color="#9CA3AF" style={styles.dividerText}>
+                    OR PAY WITH CARD
+                  </Text>
+                  <View style={styles.dividerLine} />
+                </View>
+              </>
+            )}
 
             {/* Saved Cards */}
             {paymentMethods.length > 0 && (

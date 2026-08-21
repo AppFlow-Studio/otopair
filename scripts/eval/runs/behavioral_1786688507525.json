@@ -1,0 +1,323 @@
+{
+ "ran_at": "2026-08-14T06:21:47.524Z",
+ "target_email": "mansourwaleed06@gmail.com",
+ "repeat": 3,
+ "total": 3,
+ "passed": 2,
+ "failed": 1,
+ "skipped_count": 8,
+ "failed_cases": [
+  {
+   "name": "polite_exit_after_vague_narrowing",
+   "failures": [
+    "rep3: turn 3: missing tool \"render_book_service\" (saw: update_conversation_state,render_quick_replies)"
+   ]
+  }
+ ],
+ "results": [
+  {
+   "name": "polite_exit_after_vague_narrowing",
+   "description": "Symptom routing safety valve: when narrowing fails to converge after several vague exchanges, fire render_book_service with diagnostic_scan + diagnostic_system='not_sure' (per the polite-exit rule). Sprint 4 Day 1 Pass B §4 dispatch (booking-flow consolidation; render_book_service). RE-AUTHORED + RE-ENABLED 2026-08-14: originally 6 turns for the threshold-4 era, and DISABLED because the polite-exit counter sat inside the skipPersist gate — the harness could never increment it, so the block never fired and the case could never pass. The counter now runs on harness turns and POLITE_EXIT_THRESHOLD=2 enforces the three-state deadline server-side: two unconverged question-turns, the third turn carries <polite_exit_required> and must conclude.",
+   "passed": false,
+   "failures": [
+    "rep3: turn 3: missing tool \"render_book_service\" (saw: update_conversation_state,render_quick_replies)"
+   ],
+   "runs": [
+    {
+     "rep": 1,
+     "turns": [
+      {
+       "user": "Something feels weird with my car",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "What's weird about it? Engine, handling, brakes, noise — give me what you're noticing."
+      },
+      {
+       "user": "Hard to say, just doesn't feel right",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "I need one more detail to point you toward the right check. When you say it doesn't feel right — is it the handling (pulling, drifting, response), the engine (power, rough idle, noise), the brakes (pedal feel, response), or something else?"
+      },
+      {
+       "user": "Maybe when driving, sometimes when stopping, I dunno",
+       "tools": [
+        "update_conversation_state",
+        "render_book_service"
+       ],
+       "branch": "terminal",
+       "text": "Got it — the vagueness actually points toward Diagnostic Scan. The symptom is too scattered (happens when driving, happens when stopping, maybe both) for me to narrow further without guessing. A mechanic needs to see it and pull the data."
+      }
+     ],
+     "failures": []
+    },
+    {
+     "rep": 2,
+     "turns": [
+      {
+       "user": "Something feels weird with my car",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "I'll help you narrow it down. What's feeling off — is it a noise, handling, responsiveness, or something harder to pin down?"
+      },
+      {
+       "user": "Hard to say, just doesn't feel right",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "Got it. Let me narrow this down with one question to pin it where it matters.\n\nWhen you drive, what's the main thing that feels off? Is it:\n- How it handles (steering, pulling, stability)\n- How it sounds (noise, grinding, ticking)\n- How it drives (power, shifting, smoothness)\n- Something else entirely"
+      },
+      {
+       "user": "Maybe when driving, sometimes when stopping, I dunno",
+       "tools": [
+        "get_vehicle_health",
+        "update_conversation_state",
+        "render_book_service"
+       ],
+       "branch": "terminal",
+       "text": "Your maintenance is all on time. But there's a temperature / overheating warning light flagged on your car — that's worth addressing. A Diagnostic Scan will let a mechanic plug in and see what's triggering it, plus pin down whether the on-and-off feel you're noticing ties back to it."
+      }
+     ],
+     "failures": []
+    },
+    {
+     "rep": 3,
+     "turns": [
+      {
+       "user": "Something feels weird with my car",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "I'll help you nail this down. What's the weird feeling — is it in how it drives, a noise, the way it handles, something with the controls?"
+      },
+      {
+       "user": "Hard to say, just doesn't feel right",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "Need one more detail to narrow this down. When you say doesn't feel right — is it how it drives (pulling, rough idle, response lag), how it sounds (new noise, ticking, grinding), or how it feels physically (vibration, soft pedal, spongy brake)?"
+      },
+      {
+       "user": "Maybe when driving, sometimes when stopping, I dunno",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "Got it — so it's intermittent around braking. Quick check: when you say it doesn't feel right, does the car pull to one side when you hit the brakes, or is it something else like pedal feel, responsiveness, or vibration?"
+      }
+     ],
+     "failures": [
+      "turn 3: missing tool \"render_book_service\" (saw: update_conversation_state,render_quick_replies)"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "warning_light_narrows_before_diagnostic",
+   "description": "Tool-finding narrowing flow: when get_vehicle_health surfaces a warning light, ask the user about their experience FIRST — do NOT immediately offer Diagnostic Scan.",
+   "passed": true,
+   "failures": [],
+   "runs": [
+    {
+     "rep": 1,
+     "turns": [
+      {
+       "user": "How is my car doing?",
+       "tools": [
+        "get_vehicle_health",
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Score is 71. Solid, but there's a flag: a temperature / overheating warning light is on. That one needs attention this week — overheating compounds fast if ignored.\n\nEverything else is on time. Oil, brakes, tires, battery all good based on your records (~2 months ago). \n\nThe temperature light is the thing to handle. Want me to set up a Diagnostic Scan so a mechanic can read what triggered it?"
+      }
+     ],
+     "failures": []
+    },
+    {
+     "rep": 2,
+     "turns": [
+      {
+       "user": "How is my car doing?",
+       "tools": [
+        "get_vehicle_health",
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Your M550i is sitting at 71 — all the tracked maintenance (oil, brakes, tires, battery, state inspection) is on time, but there's a temperature / overheating warning light flagged. That's the only thing pulling the score down.\n\nHow long has that light been on? If it just popped up recently, it's worth getting checked this week before it compounds."
+      }
+     ],
+     "failures": []
+    },
+    {
+     "rep": 3,
+     "turns": [
+      {
+       "user": "How is my car doing?",
+       "tools": [
+        "get_vehicle_health",
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Your M550i is sitting at a 71 health score. Everything major is on time — oil, brakes, tires, battery, inspection all checked within the last 2 months. But there's a temperature / overheating warning light flagged.\n\nThat's the one thing worth addressing. Have you noticed anything yourself — any steam, the temperature gauge climbing, or anything off when you start up? Or has the warning light just appeared on the dash?"
+      }
+     ],
+     "failures": []
+    }
+   ]
+  },
+  {
+   "name": "book_service_polite_exit_not_sure",
+   "description": "Sprint 4 Day 1 Pass B §4 dispatch (booking-flow consolidation; render_book_service). Polite-exit safety valve: after 6 unconverged narrowing turns, Oto fires render_book_service with service_slugs=['diagnostic_scan'] + diagnostic_system='not_sure'. Tool-arg assertion proxied via text_contains 'diagnostic' (the runner has no tool-arg primitive). Replaces the prior polite_exit_after_vague_narrowing intent under the consolidated flow. NOTE: this case may inherit the same disabled_reason as polite_exit_after_vague_narrowing (the diagnostic_turn_count counter is gated by skipPersist in chat.ts and the harness defaults skipPersist=true; the 6th-turn polite-exit envelope block never fires under harness conditions). Disabling explicitly with the same reason as the legacy case so the migration is symmetric — re-enable once the counter is decoupled from skipPersist OR a pre_seed_mutations seed advances the counter. RE-AUTHORED + RE-ENABLED 2026-08-14: originally 6 turns for the threshold-4 era, and DISABLED because the polite-exit counter sat inside the skipPersist gate — the harness could never increment it, so the block never fired and the case could never pass. The counter now runs on harness turns and POLITE_EXIT_THRESHOLD=2 enforces the three-state deadline server-side: two unconverged question-turns, the third turn carries <polite_exit_required> and must conclude.",
+   "passed": true,
+   "failures": [],
+   "runs": [
+    {
+     "rep": 1,
+     "turns": [
+      {
+       "user": "Something feels weird with my car",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "I need to narrow this down. What's the weirdness — noise, handling, something on the dash, or a feeling while driving?"
+      },
+      {
+       "user": "Hard to say, just doesn't feel right",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "Got it — \"doesn't feel right\" is vague, but we can narrow it down. A few quick questions to pin it down:\n\nIs it something driving-related (steering, acceleration, braking, handling) or non-driving (noise, smell, warning light on the dash)?"
+      },
+      {
+       "user": "I really cannot pin it down, could be anything",
+       "tools": [
+        "get_vehicle_health",
+        "update_conversation_state",
+        "render_book_service"
+       ],
+       "branch": "terminal",
+       "text": "I understand — some things don't have a clear pattern until a mechanic digs in. Let me get you set up with a Diagnostic Scan so someone who can actually look at the car can pin down what's going on."
+      }
+     ],
+     "failures": []
+    },
+    {
+     "rep": 2,
+     "turns": [
+      {
+       "user": "Something feels weird with my car",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Got it. Help me narrow it down — what's the weirdness? Is it a noise, a feel (steering, braking, acceleration), a warning light, or just a general vibe?"
+      },
+      {
+       "user": "Hard to say, just doesn't feel right",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "I need more specifics to narrow this down. When you say it doesn't feel right — is it:\n\n- How it drives (pulling, vibration, rough idle)?\n- How it sounds (ticking, knocking, grinding)?\n- How it handles (brakes, steering, acceleration)?\n- Something on the dash (warning lights, gauge behavior)?"
+      },
+      {
+       "user": "I really cannot pin it down, could be anything",
+       "tools": [
+        "get_vehicle_health",
+        "update_conversation_state",
+        "render_book_service"
+       ],
+       "branch": "terminal",
+       "text": "Got it — that's exactly what a Diagnostic Scan is for. A mechanic can plug in and find what's actually going on when you can't nail it down yourself."
+      }
+     ],
+     "failures": []
+    },
+    {
+     "rep": 3,
+     "turns": [
+      {
+       "user": "Something feels weird with my car",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "What kind of weird — any specific sounds, warning lights, or how it drives?"
+      },
+      {
+       "user": "Hard to say, just doesn't feel right",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "Got it. One thing to anchor on: does the weirdness show up while driving, parked, or both? And does it happen consistently or come and go?"
+      },
+      {
+       "user": "I really cannot pin it down, could be anything",
+       "tools": [
+        "get_vehicle_health",
+        "update_conversation_state",
+        "render_book_service"
+       ],
+       "branch": "terminal",
+       "text": "I'll check your vehicle health and then get you booked with a mechanic who can pinpoint it."
+      }
+     ],
+     "failures": []
+    }
+   ]
+  }
+ ],
+ "skipped": [
+  {
+   "name": "battery_self_reported_triggers_record_confirmation",
+   "reason": "0/10 at N=10 on v0.51+v0.22 even with the Example 19 battery arc. Two causes: (1) cold-morning slow-crank is a softer elimination-test contradiction than squeal-after-new-pads (a plausible innocent cold-weather reading exists), so the model explains or narrows instead of gating; (2) one rep DID fire the card but failed the per-turn get_vehicle_health assertion because the read happened a turn earlier — the tools_called_across_turns runner primitive (Sprint 3 carryover) is needed to assert this case fairly. Re-enable after the polite-exit turn-3 termination follow-up + the cross-turn primitive. The brake gate case carries the elimination-test coverage meanwhile (~65-80%)."
+  },
+  {
+   "name": "cat_m_communication_style_outranks_history_anchor",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass)"
+  },
+  {
+   "name": "cat_m_fresh_outranks_stale_within_same_type",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass); also requires Sprint 3 test-helper mutation to stage stale last_reinforced"
+  },
+  {
+   "name": "cat_m_retracted_fact_does_not_surface",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass); also requires Sprint 3 pre_seed_mutations result-threading OR a retract-by-payload-substring mutation"
+  },
+  {
+   "name": "cat_m_vehicle_quirk_surfaces_for_vehicle_owner",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass)"
+  },
+  {
+   "name": "cat_m_no_seeded_rows_envelope_omits_recent_context",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass)"
+  },
+  {
+   "name": "cat_m_top_K_cap_enforced_at_5",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass); assertion fragile if equivalence-v2 collapses overlapping seeds — review on first run"
+  },
+  {
+   "name": "cat_m_adversarial_fact_does_not_surface_in_envelope",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass); threat model contestable — sanitizer at write blocks current attack surface, this is for future bypass paths"
+  }
+ ]
+}
