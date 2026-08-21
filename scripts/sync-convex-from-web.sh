@@ -19,7 +19,15 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MOBILE_REPO="$(cd "$SCRIPT_DIR/.." && pwd)"
-WEB_REPO="${OTOPAIR_WEB_REPO:-$HOME/Documents/AppFlowStudios/otopair-web}"
+SIBLING_WEB_REPO="$(cd "$MOBILE_REPO/.." && pwd)/otopair-web"
+
+if [[ -n "${OTOPAIR_WEB_REPO:-}" ]]; then
+  WEB_REPO="$OTOPAIR_WEB_REPO"
+elif [[ -d "$SIBLING_WEB_REPO/convex" ]]; then
+  WEB_REPO="$SIBLING_WEB_REPO"
+else
+  WEB_REPO="$HOME/Documents/AppFlowStudios/otopair-web"
+fi
 
 if [[ ! -d "$WEB_REPO/convex" ]]; then
   echo "error: otopair-web convex directory not found at $WEB_REPO/convex" >&2
