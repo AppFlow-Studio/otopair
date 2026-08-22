@@ -484,14 +484,27 @@ export default function HomeScreen() {
     const mm = String(now.getMonth() + 1).padStart(2, "0");
     const dd = String(now.getDate()).padStart(2, "0");
     const today = `${yyyy}-${mm}-${dd}`;
+    // Active jobs (car at the shop / mid-service) always headline the hero,
+    // regardless of scheduled_date — an in-progress job past its booked day
+    // should still show. Upcoming jobs qualify only from today forward.
+    const isActive = (b: any) =>
+      b.status === 'in_progress' || b.status === 'vehicle_at_shop';
+    const isUpcoming = (b: any) =>
+      (b.status === 'pending' ||
+        b.status === 'confirmed' ||
+        b.status === 'pending_shop_acceptance') &&
+      b.scheduled_date >= today;
     return allBookings
-      .filter(
-        (b: any) =>
-          (b.status === 'pending' || b.status === 'confirmed' || b.status === 'pending_shop_acceptance') &&
-          b.scheduled_date >= today,
-      )
-      .sort((a: any, b: any) => a.scheduled_date.localeCompare(b.scheduled_date) || a.scheduled_time.localeCompare(b.scheduled_time))
-      [0] ?? null;
+      .filter((b: any) => isActive(b) || isUpcoming(b))
+      // Active jobs first, then soonest scheduled.
+      .sort((a: any, b: any) => {
+        const activeDelta = (isActive(a) ? 0 : 1) - (isActive(b) ? 0 : 1);
+        if (activeDelta !== 0) return activeDelta;
+        return (
+          (a.scheduled_date || '').localeCompare(b.scheduled_date || '') ||
+          (a.scheduled_time || '').localeCompare(b.scheduled_time || '')
+        );
+      })[0] ?? null;
   }, [allBookings]);
 
   // Resume booking: user has services selected in an incomplete flow
