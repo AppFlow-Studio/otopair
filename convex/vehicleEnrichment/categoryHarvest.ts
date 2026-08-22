@@ -53,7 +53,11 @@
 import { v } from "convex/values";
 import { internalAction } from "../_generated/server";
 import { internal } from "../_generated/api";
-import { attestParts, parseInterchangeNumbers } from "./sourceAdapters/rockauto";
+import {
+  attestParts,
+  parseInterchangeNumbers,
+  parseInterchangeNumbersDetailed,
+} from "./sourceAdapters/rockauto";
 import { adapterFetch } from "./sourceAdapters/http";
 import {
   buildCatalogPath,
@@ -63,7 +67,9 @@ import {
   pickEngineNode,
   pickNodeByPatterns,
   positionOfRoleKey,
+  isMakeAttestedNumber,
   rankInterchangeCandidates,
+  salvageForMakeFormat,
   ROCKAUTO_ROLE_LOCATION,
   type CatalogNode,
   type InterchangeSet,
@@ -84,6 +90,20 @@ import { classifyFuelClass } from "./variantFingerprint";
 import { PART_FIELD_MAP } from "./v3pipeline";
 
 // ─── Pure helpers (unit-tested in tests/categoryHarvest.test.ts) ────────────
+
+/** Outcome tag for a fitment verdict. Non-confirmed verdicts carry the
+ *  verifier's one-line reason — the verdict alone is unadjudicable after the
+ *  fact (the 2021 Nautilus's `front_rotor:M2GZ1125A:x2:refuted` left no way to
+ *  tell a positive misfit from a bad call without re-running the whole rung). */
+export function verdictNote(
+  vd: { verdict: string; reason?: string } | undefined,
+): string {
+  const verdict = vd?.verdict ?? "uncertain";
+  const reason = String(vd?.reason ?? "").trim();
+  return verdict === "confirmed" || !reason
+    ? verdict
+    : `${verdict}[${reason.slice(0, 160)}]`;
+}
 
 /** `/v-2020-mercedes-benz-glc43-amg--4matic--3-0l-v6-gas` from any URL under
  *  it, or null when the URL is not vehicle-scoped (e.g. a detail page). */
@@ -509,7 +529,7 @@ async function writeCandidate(
   makeId: any,
   cand: { roleKey: string; oem: string; title: string | null; price: number | null; sourceUrl: string | null },
   confidence: number,
-): Promise<boolean> {
+): Promise<{ ok: boolean; rejected: string | null }> {
   const sourceDomain = (() => {
     try {
       return cand.sourceUrl ? new URL(cand.sourceUrl).hostname.replace(/^www\./, "") : undefined;
@@ -535,7 +555,12 @@ async function writeCandidate(
       observed_title: cand.title ?? undefined,
     },
   );
-  if (!res?.part_id || res?.rejected) return false;
+  // The mutation's typed rejection is the diagnosis — a bare boolean here made
+  // the Nautilus write failures unreadable (all three gates print identically
+  // as "write_rejected" while the causes have opposite fixes).
+  if (!res?.part_id || res?.rejected) {
+    return { ok: false, rejected: String(res?.rejected ?? "no_part_id") };
+  }
   if (cand.price != null && cand.price > 0 && sourceDomain && cand.sourceUrl) {
     try {
       await ctx.runMutation(internal.vehicleEnrichment.v3mutations.upsertPartPrice, {
@@ -549,7 +574,7 @@ async function writeCandidate(
       console.warn(`[category-harvest] price write failed for ${cand.oem} (non-fatal):`, e);
     }
   }
-  return true;
+  return { ok: true, rejected: null };
 }
 
 // ─── Rung 1: vehicle-scoped category pages ──────────────────────────────────
@@ -832,16 +857,16 @@ export const harvestVehicleCategories = internalAction({
         (x) => x.roleKey === c.roleKey && normalizeOemNumber(x.oem) === normalizeOemNumber(c.oem),
       );
       const verdict = vd?.verdict ?? "uncertain";
-      outcomes.push(`${c.roleKey}:${c.oem}:${verdict}`);
+      outcomes.push(`${c.roleKey}:${c.oem}:${verdictNote(vd)}`);
       if (verdict === "refuted" || filled.has(c.roleKey)) continue;
       const meta = cx.metaBySubcategory[c.roleKey];
       if (!meta) continue;
-      const ok = await writeCandidate(ctx, args.vehicleConfigId, meta, resolved.makeId, c, 0.75);
-      if (ok) {
+      const w = await writeCandidate(ctx, args.vehicleConfigId, meta, resolved.makeId, c, 0.75);
+      if (w.ok) {
         filled.add(c.roleKey);
         written.push(`${c.roleKey}:${c.oem}`);
       } else {
-        outcomes.push(`${c.roleKey}:${c.oem}:write_rejected`);
+        outcomes.push(`${c.roleKey}:${c.oem}:write_rejected:${w.rejected}`);
       }
     }
     const summary = {
@@ -910,6 +935,31 @@ export const harvestRockAutoVehicle = internalAction({
       return Number.isFinite(n) && n > 0 ? n : null;
     })();
     if (displacementL == null) return { status: "no_displacement" as const };
+
+    // Same-make prefix vocabulary. THE decisive gate for this rung — see
+    // getOemPrefixesForMake. Brand corroboration proves an interchange number
+    // is real; it cannot prove it is THIS manufacturer's, because one
+    // aftermarket casting spans makes and every brand lists every make's
+    // number. Live: a Kia Sportage oil-filter walk ranked Subaru's 15208AA030
+    // at x3, and `sanitizePartNumber` accepts it for Kia because both makes
+    // use a 5+5 shape.
+    let makePrefixes: string[] = [];
+    try {
+      makePrefixes = await ctx.runQuery(
+        internal.vehicleEnrichment.v3queries.getOemPrefixesForMake,
+        { makeId: resolved.makeId },
+      );
+    } catch (e) {
+      console.warn("[rockauto-vehicle] prefix vocabulary read failed (non-fatal):", e);
+    }
+    // FAIL CLOSED. No vocabulary means we cannot tell this make's numbers from
+    // a sibling's, and writing anyway is the present-but-wrong outcome the
+    // pipeline forbids. Declining costs a cold-start make one rung; guessing
+    // costs a customer the wrong part.
+    if (makePrefixes.length === 0) {
+      return { status: "no_make_prefix_vocabulary" as const, make: resolved.make };
+    }
+    const attestedForMake = (oem: string) => isMakeAttestedNumber(oem, makePrefixes);
 
     const fetchPath = async (path: string) => {
       const r = await adapterFetch(`https://www.rockauto.com${path}`, { timeoutMs: 25_000 });
@@ -983,7 +1033,17 @@ export const harvestRockAutoVehicle = internalAction({
         for (const l of listings.slice(0, MOREINFO_BUDGET)) {
           try {
             const r = await adapterFetch(l.moreInfoUrl, { timeoutMs: 25_000 });
-            sets.push({ brand: l.manufacturer, numbers: parseInterchangeNumbers(r.body) });
+            // Detailed form keeps the VERBATIM number alongside the normalized
+            // one. The format gate below needs the separators normalizing
+            // strips — without them every Ford-family number is unpassable.
+            const detailed = parseInterchangeNumbersDetailed(r.body);
+            sets.push({
+              brand: l.manufacturer,
+              numbers: detailed.map((d) => d.normalized),
+              rawByNormalized: Object.fromEntries(
+                detailed.map((d) => [d.normalized, d.raw]),
+              ),
+            });
             await new Promise((x) => setTimeout(x, 300));
           } catch {
             /* fail open per listing */
@@ -992,14 +1052,35 @@ export const harvestRockAutoVehicle = internalAction({
 
         // Brand corroboration, then the SAME gates every other rung applies:
         // make format, refute blocklist, then the adversarial verifier.
-        const ranked = rankInterchangeCandidates(sets)
-          .filter((c) => c.brandCount >= MIN_BRAND_CORROBORATION)
-          .map((c) => ({ ...c, sanitized: sanitizePartNumber(c.oem, resolved.make) }))
+        const corroborated = rankInterchangeCandidates(sets).filter(
+          (c) => c.brandCount >= MIN_BRAND_CORROBORATION,
+        );
+        // Order matters: SHAPE first (cheap), then THIS MAKE'S OWN vocabulary,
+        // then the refute blocklist. The middle gate is the one that stops a
+        // sibling manufacturer's number wearing a compatible format.
+        const ranked = corroborated
+          // Gate on the verbatim form, and — because RockAuto publishes
+          // interchange numbers with separators already stripped — offer the
+          // gate the hyphenations the number could legitimately take. The gate
+          // itself is never weakened; see salvageForMakeFormat.
+          .map((c) => ({
+            ...c,
+            sanitized: salvageForMakeFormat(c.raw, resolved.make, sanitizePartNumber),
+          }))
           .filter((c) => c.sanitized != null)
+          .filter((c) => attestedForMake(c.sanitized!))
           .filter((c) => !cx.blocked.has(normalizeOemNumber(c.sanitized!)))
           .slice(0, ROCKAUTO_VERIFY_BUDGET);
         if (ranked.length === 0) {
-          outcomes.push(`${roleKey}:no_corroborated_candidates(sets=${sets.length})`);
+          // Distinguish "nothing agreed" from "things agreed but none was this
+          // make's" — they look identical downstream and have opposite fixes.
+          const foreign = corroborated.filter(
+            (c) => salvageForMakeFormat(c.raw, resolved.make, sanitizePartNumber) != null,
+          ).length;
+          outcomes.push(
+            `${roleKey}:no_candidates(sets=${sets.length},corroborated=${corroborated.length}` +
+              `,shape_ok=${foreign},make_attested=0)`,
+          );
           continue;
         }
 
@@ -1037,13 +1118,13 @@ export const harvestRockAutoVehicle = internalAction({
             (x) => normalizeOemNumber(x.oem) === normalizeOemNumber(c.sanitized!),
           );
           const verdict = vd?.verdict ?? "uncertain";
-          outcomes.push(`${roleKey}:${c.sanitized}:x${c.brandCount}:${verdict}`);
+          outcomes.push(`${roleKey}:${c.sanitized}:x${c.brandCount}:${verdictNote(vd)}`);
           // CONFIRMED ONLY. Rung 1 may write on "uncertain" because the store's
           // vehicle-scoped URL is itself the fitment statement; here the
           // evidence is an aftermarket cross-reference, which THE LAW says is
           // never fitment-equivalent. Same standard as rung 2.
           if (verdict !== "confirmed") continue;
-          const ok = await writeCandidate(
+          const w = await writeCandidate(
             ctx,
             args.vehicleConfigId,
             meta,
@@ -1057,11 +1138,11 @@ export const harvestRockAutoVehicle = internalAction({
             },
             0.7,
           );
-          if (ok) {
+          if (w.ok) {
             filled = true;
             written.push(`${roleKey}:${c.sanitized}`);
           } else {
-            outcomes.push(`${roleKey}:${c.sanitized}:write_rejected`);
+            outcomes.push(`${roleKey}:${c.sanitized}:write_rejected:${w.rejected}`);
           }
         }
       } catch (e) {
@@ -1165,13 +1246,13 @@ export const backtrackInterchange = internalAction({
         (x) => x.roleKey === t.roleKey && normalizeOemNumber(x.oem) === normalizeOemNumber(t.oem),
       );
       const verdict = vd?.verdict ?? "uncertain";
-      outcomes.push(`${t.roleKey}:${t.oem}:${verdict}`);
+      outcomes.push(`${t.roleKey}:${t.oem}:${verdictNote(vd)}`);
       // Interchange provenance is the WEAKEST rung — cross-brand catalog
       // consolidation. Only a positive confirmation writes.
       if (verdict !== "confirmed" || filled.has(t.roleKey)) continue;
       const meta = cx.metaBySubcategory[t.roleKey];
       if (!meta) continue;
-      const ok = await writeCandidate(
+      const w = await writeCandidate(
         ctx,
         args.vehicleConfigId,
         meta,
@@ -1179,11 +1260,11 @@ export const backtrackInterchange = internalAction({
         { roleKey: t.roleKey, oem: t.oem, title: null, price: null, sourceUrl: null },
         0.7,
       );
-      if (ok) {
+      if (w.ok) {
         filled.add(t.roleKey);
         written.push(`${t.roleKey}:${t.oem}`);
       } else {
-        outcomes.push(`${t.roleKey}:${t.oem}:write_rejected`);
+        outcomes.push(`${t.roleKey}:${t.oem}:write_rejected:${w.rejected}`);
       }
     }
     const summary = { status: "done" as const, seeds: seeds.length, candidates: toVerify.length, outcomes, written };
