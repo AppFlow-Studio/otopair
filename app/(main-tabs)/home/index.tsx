@@ -2,7 +2,19 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, BackHandler, Image, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Animated from 'react-native-reanimated';
+import { StatusBar } from 'expo-status-bar';
+import Animated, {
+  Extrapolation,
+  interpolate,
+  interpolateColor,
+  runOnJS,
+  useAnimatedProps,
+  useAnimatedReaction,
+  useAnimatedStyle,
+  useDerivedValue,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 
 // 2. Expo & Third-party
 import { BlurView } from 'expo-blur';
@@ -16,7 +28,7 @@ import {
 import { BlurBackdrop } from "@/components/shared-ui/BlurBackdrop";
 import type { FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
 // MVP-DISABLED: loyalty/rewards — re-enable post-launch (drop Trophy)
-import { Bell, MoveRight, Star, Car, CalendarX } from 'lucide-react-native';
+import { MoveRight, Star, Car, CalendarX } from 'lucide-react-native';
 import { useMutation, useQuery } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { useMutationWithToast } from '@/hooks/useMutationWithToast';
@@ -99,19 +111,15 @@ import { computeMaintenanceStatus, MAINTENANCE_LABELS } from '@/utils/maintenanc
 import { computeUrgency } from '@/utils/urgency';
 import type { Id } from '@/convex/_generated/dataModel';
 
-// Native iOS 26 liquid glass (optional)
-let LiquidGlassView: React.ComponentType<any> | null = null;
-let isLiquidGlassEnabled = false;
-try {
-  const lg = require("@callstack/liquid-glass");
-  LiquidGlassView = lg.LiquidGlassView;
-  isLiquidGlassEnabled = !!lg.isLiquidGlassSupported;
-} catch {
-  // Not available — fall back to BlurView style
-}
-
 // 6. Flow-specific components
 import { ActionCardsCarousel } from "@/components/home/ActionCardsCarousel";
+import {
+  UpcomingAppointmentHero,
+  HERO_SHEET_OVERLAP,
+  HERO_SURFACE,
+  HERO_SURFACE_DEEP,
+} from "@/components/home/UpcomingAppointmentHero";
+import { HomeHeaderBar, HOME_HEADER_SUBLINE_HEIGHT } from "@/components/home/HomeHeaderBar";
 import { AddVehicleRequiredSheet } from "@/components/home/AddVehicleRequiredSheet";
 import { AddFirstVehicleCard } from "@/components/home/AddFirstVehicleCard";
 import {
@@ -126,7 +134,6 @@ import { MoreServicesSection } from "@/components/home/MoreServicesSection";
 import { ProviderTypesSection } from "@/components/home/ProviderTypesSection";
 import { VehicleMaintenanceCard } from "@/components/home/VehicleMaintenanceCard";
 import { NowTierCallout } from "@/components/home/NowTierCallout";
-import { ProfileInitialsButton } from "@/components/home/ProfileInitialsButton";
 import { OtoPairIcon } from "@/components/icons/oto-pair";
 
 function formatBookingDate(dateStr: string): string {
@@ -167,6 +174,49 @@ interface HomeVehicleBaseData {
   nowItems: HomeNowItem[];
 }
 
+// --- Home top-chrome / hero choreography tuning -----------------------------
+/** Design height of the header row with its location subline showing. Only a
+ *  seed value — the real height is measured via onLayout. */
+const HOME_HEADER_ROW_HEIGHT = 52;
+/** Seed height for the pinned search row; replaced by the measured height of
+ *  the in-flow search bar + PINNED_SEARCH_ROW_PADDING. */
+const PINNED_SEARCH_ROW_HEIGHT = 66;
+/** `pinnedSearchInner.paddingTop` + `pinnedSearch.paddingBottom`. */
+const PINNED_SEARCH_ROW_PADDING = 16;
+/** Distance from the sheet's top edge to the in-flow search bar
+ *  (`searchContainer.marginTop`) — used to recover the sheet's own Y from
+ *  `searchBarOffsetY`. */
+const SHEET_SEARCH_LEAD = 34;
+/** The header's navy→light switch runs while the sheet's top edge climbs from
+ *  this far below the header's bottom edge to level with it, so it completes
+ *  exactly as the seam docks. Kept short deliberately: backdrop and copy have
+ *  to invert together, and their midpoint is necessarily the low-contrast
+ *  moment — at flick speed 40pt is a couple of frames. */
+const HEADER_TONE_START_OFFSET = 40;
+const HEADER_TONE_END_OFFSET = 0;
+/** The copy inverts on a later, tighter window than the backdrop. Flipping both
+ *  together puts mid-grey text on a mid-grey bar at the midpoint; letting the
+ *  bar lighten first means the worst case is grey-on-light, which still reads. */
+const COPY_TONE_START_OFFSET = 24;
+const COPY_TONE_END_OFFSET = 6;
+/** Fraction of the scroll speed the appointment banner moves at. 0 = pinned
+ *  (reads as stuck), 1 = moves with the content (no parallax at all). */
+const HERO_PARALLAX_RATE = 0.45;
+/** Banner height used until onLayout reports the real one. */
+const HERO_FALLBACK_HEIGHT = 160;
+/** How far the banner's background extends above the banner, to cover an
+ *  overscroll bounce. */
+const HERO_BACKDROP_OVERSCROLL = 400;
+/** The app-wide page gradient's middle stop (see ScrollDrivenGradientBackground).
+ *  The booked Home's sheet starts here so it continues the same ramp the
+ *  unbooked Home shows at that point on screen. */
+const PAGE_GRADIENT_MID = '#B0D6F0';
+/** Where both the page gradient and the sheet settle. */
+const SHEET_SETTLED = '#EAF2FA';
+/** Height of the sheet's blue wash. Fixed, not a gradient fraction, so it
+ *  doesn't drift with page length. */
+const SHEET_WASH_HEIGHT = 260;
+
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   // Lock `insets.top` to its first-render value for the lifetime of the
@@ -199,6 +249,151 @@ export default function HomeScreen() {
   const [showLoyaltyCard, setShowLoyaltyCard] = useState(false);
   const [isCardSwiping, setIsCardSwiping] = useState(false);
   const [activeCardIndex, setActiveCardIndex] = useState(0);
+  // Sticky search: the in-flow search bar's Y within the scroll content
+  // (set via onLayout). The pinned-search overlay's opacity AND its
+  // pointerEvents are both driven on the UI thread from `scrollYRef`, so
+  // nothing re-renders while scrolling — that JS re-render at the cover
+  // threshold was the source of the "shake".
+  const scrollYRef = useSharedValue(0);
+  const searchBarOffsetY = useSharedValue(400);
+  // Measured height of the header row at full height (location subline
+  // visible). Seeded with the design value so the first frame lays out at
+  // roughly the right offset and the measurement doesn't visibly shift it.
+  const [headerRowHeight, setHeaderRowHeight] = useState(HOME_HEADER_ROW_HEIGHT);
+  const headerMeasuredRef = useRef(false);
+  // Height of the appointment hero (measured) — drives how far the sheet has
+  // to travel before the hero is fully covered.
+  const heroHeightSV = useSharedValue(HERO_FALLBACK_HEIGHT);
+  // Natural height of the pinned search row, measured off the in-flow search
+  // bar (same component → same height) plus the row's own vertical padding.
+  const searchRowHeightSV = useSharedValue(PINNED_SEARCH_ROW_HEIGHT);
+  // Screen-space bottom edge of the fixed chrome once it has condensed: the
+  // safe-area inset plus the header row minus its collapsed-away location
+  // subline. Stays at just the inset when there's no hero, since the chrome
+  // (and its header) isn't mounted then — which keeps the no-hero pinned
+  // search firing at exactly the offset it always did.
+  const condensedChromeHeight = useSharedValue(stableInsetTop);
+
+  // Single source of truth for "the in-flow search has scrolled up under the
+  // chrome". Drives the pinned search, its touch-eligibility, and the header's
+  // location-subline collapse — all on the UI thread, no re-renders.
+  const searchPinned = useDerivedValue<number>(() => {
+    const threshold = searchBarOffsetY.value - condensedChromeHeight.value - 6;
+    return scrollYRef.value > threshold ? 1 : 0;
+  });
+  const pinnedSearchStyle = useAnimatedStyle(() => {
+    const show = searchPinned.value === 1;
+    return {
+      opacity: withTiming(show ? 1 : 0, { duration: 160 }),
+      transform: [{ translateY: withTiming(show ? 0 : -8, { duration: 160 }) }],
+    };
+  });
+  // Same fade, but inside the fixed chrome the row also has to claim (and give
+  // back) its vertical space so the chrome grows from header-only to
+  // header+search instead of reserving a permanent gap. Height comes from the
+  // in-flow search bar's measured height — the pinned copy is the same
+  // component, so it's the same size.
+  const pinnedSearchRowStyle = useAnimatedStyle(() => {
+    const show = searchPinned.value === 1;
+    return {
+      opacity: withTiming(show ? 1 : 0, { duration: 160 }),
+      height: withTiming(show ? searchRowHeightSV.value : 0, { duration: 200 }),
+      transform: [{ translateY: withTiming(show ? 0 : -8, { duration: 160 }) }],
+    };
+  });
+  // Toggle the overlay's touch-eligibility on the UI thread (no state / no
+  // re-render) so the hidden copy never eats taps meant for the header/hero.
+  const pinnedSearchProps = useAnimatedProps(() => {
+    return { pointerEvents: searchPinned.value === 1 ? ("auto" as const) : ("none" as const) };
+  });
+  // What's behind the fixed header: 0 = the navy banner, 1 = the light content
+  // sheet. Drives the header's copy/bell cross-fade, its frosted backdrop, and
+  // the status-bar style — all off one value so they can never disagree.
+  // Screen-space Y of the content sheet's top edge — the seam that both tone
+  // values key off. Derived once rather than recomputed inside each.
+  const sheetTopOnScreen = useDerivedValue<number>(
+    () => searchBarOffsetY.value - SHEET_SEARCH_LEAD - scrollYRef.value,
+  );
+  const headerTone = useDerivedValue<number>(() => {
+    return interpolate(
+      sheetTopOnScreen.value,
+      [
+        condensedChromeHeight.value + HEADER_TONE_START_OFFSET,
+        condensedChromeHeight.value + HEADER_TONE_END_OFFSET,
+      ],
+      [0, 1],
+      Extrapolation.CLAMP,
+    );
+  });
+  // Frosted backdrop behind the fixed chrome. Absent while the header sits on
+  // the navy banner (it's already an opaque surface); fades in with the tone
+  // switch, so the light blur only ever appears over the light sheet.
+  const chromeNavyStyle = useAnimatedStyle(() => ({
+    opacity: 1 - headerTone.value,
+  }));
+  // The bar is fixed to the screen while the sheet scrolls beneath it, so no
+  // single colour can match: at the moment the seam docks the sheet's top is
+  // PAGE_GRADIENT_MID, and SHEET_WASH_HEIGHT later it's SHEET_SETTLED. Sample
+  // the same ramp at the bar's own depth into the sheet so it always matches
+  // whatever it's sitting on, instead of splitting the difference and being
+  // visibly wrong at both ends.
+  const chromeLightStyle = useAnimatedStyle(() => {
+    const depth = condensedChromeHeight.value - sheetTopOnScreen.value;
+    const p = Math.min(1, Math.max(0, depth / SHEET_WASH_HEIGHT));
+    return {
+      backgroundColor: interpolateColor(p, [0, 1], [PAGE_GRADIENT_MID, SHEET_SETTLED]),
+    };
+  });
+  // Same crossing, later window — see COPY_TONE_START_OFFSET.
+  const copyTone = useDerivedValue<number>(() => {
+    return interpolate(
+      sheetTopOnScreen.value,
+      [
+        condensedChromeHeight.value + COPY_TONE_START_OFFSET,
+        condensedChromeHeight.value + COPY_TONE_END_OFFSET,
+      ],
+      [0, 1],
+      Extrapolation.CLAMP,
+    );
+  });
+  // The status bar has to follow the same surface the header does — light icons
+  // over the navy banner, dark once the light sheet is behind it. This is the
+  // one thing that can't be driven on the UI thread, so it's a single state
+  // flip at the midpoint of the cross-fade rather than a per-frame value.
+  const [statusBarLight, setStatusBarLight] = useState(true);
+  useAnimatedReaction(
+    // Follows the copy, not the backdrop — the status-bar icons sit on the same
+    // bar the header copy does, so they should invert with it.
+    () => copyTone.value < 0.5,
+    (isOverBanner, prev) => {
+      if (prev !== null && isOverBanner !== prev) {
+        runOnJS(setStatusBarLight)(isOverBanner);
+      }
+    },
+    [],
+  );
+  // Hero parallax: the banner drifts up at a fraction of the scroll speed while
+  // the content sheet rises at full speed, so the sheet closes on it and the
+  // page reads as two layers rather than one flat surface. Clamped at 0 so an
+  // overscroll bounce moves banner and sheet together — that's what used to
+  // open a gap at the seam and forced `bounces={false}`.
+  const heroParallaxStyle = useAnimatedStyle(() => {
+    const y = Math.max(0, scrollYRef.value);
+    return { transform: [{ translateY: y * (1 - HERO_PARALLAX_RATE) }] };
+  });
+  // As the sheet closes over it, the banner dims and shrinks a hair so it reads
+  // as receding behind the sheet instead of just being clipped by it. Applied
+  // to the hero's content only — never its background layer, which has to stay
+  // full-bleed to cover the page gradient.
+  const heroRecedeStyle = useAnimatedStyle(() => {
+    const closed = Math.max(0, scrollYRef.value) * (1 - HERO_PARALLAX_RATE);
+    const travel = Math.max(1, heroHeightSV.value - HERO_SHEET_OVERLAP);
+    const p = Math.min(1, closed / travel);
+    return {
+      opacity: 1 - p * 0.45,
+      transform: [{ scale: 1 - p * 0.04 }],
+    };
+  });
   const [carSetupDismissed, setCarSetupDismissed] = useState(false);
   const [rescheduleBooking, setRescheduleBooking] = useState<BookingCardBooking | null>(null);
   const toast = useToast();
@@ -289,14 +484,33 @@ export default function HomeScreen() {
     const mm = String(now.getMonth() + 1).padStart(2, "0");
     const dd = String(now.getDate()).padStart(2, "0");
     const today = `${yyyy}-${mm}-${dd}`;
+    // Active jobs (car at the shop / mid-service) always headline the hero,
+    // regardless of scheduled_date — an in-progress job past its booked day
+    // should still show. Upcoming jobs qualify only from today forward.
+    const isActive = (b: any) =>
+      b.status === 'in_progress' || b.status === 'vehicle_at_shop';
+    const isUpcoming = (b: any) =>
+      (b.status === 'pending' ||
+        b.status === 'confirmed' ||
+        b.status === 'pending_shop_acceptance') &&
+      b.scheduled_date >= today;
+    // Which single job headlines the hero when several are live at once. Lower
+    // rank shows first: a car actively in service outranks one merely checked
+    // in, which outranks a future booking. (Refine here if "ready for pickup"
+    // should jump the queue over "in service".)
+    const heroRank = (b: any) =>
+      b.status === 'in_progress' ? 0 : b.status === 'vehicle_at_shop' ? 1 : 2;
     return allBookings
-      .filter(
-        (b: any) =>
-          (b.status === 'pending' || b.status === 'confirmed' || b.status === 'pending_shop_acceptance') &&
-          b.scheduled_date >= today,
-      )
-      .sort((a: any, b: any) => a.scheduled_date.localeCompare(b.scheduled_date) || a.scheduled_time.localeCompare(b.scheduled_time))
-      [0] ?? null;
+      .filter((b: any) => isActive(b) || isUpcoming(b))
+      // Highest-priority state first, then soonest scheduled within a state.
+      .sort((a: any, b: any) => {
+        const rankDelta = heroRank(a) - heroRank(b);
+        if (rankDelta !== 0) return rankDelta;
+        return (
+          (a.scheduled_date || '').localeCompare(b.scheduled_date || '') ||
+          (a.scheduled_time || '').localeCompare(b.scheduled_time || '')
+        );
+      })[0] ?? null;
   }, [allBookings]);
 
   // Resume booking: user has services selected in an incomplete flow
@@ -812,6 +1026,9 @@ export default function HomeScreen() {
     () => (upcomingBooking ? adaptConvexBookingWithDetailsToCard(upcomingBooking) : null),
     [upcomingBooking],
   );
+  // Whether the full-bleed appointment hero is showing — drives the
+  // "content sheet covers the hero" treatment below.
+  const hasHero = !!upcomingBooking && !!upcomingBookingCard;
 
   // Pull the shop record for the upcoming booking so we can fall back
   // to a postal address when the shop hasn't been geocoded (shopLat /
@@ -958,7 +1175,8 @@ export default function HomeScreen() {
   const visibleCardIds = useMemo(() => {
     return [
       showAccountSetup ? 'account' : null,
-      upcomingBooking ? 'appointment' : null,
+      // Appointment now lives in the top hero (UpcomingAppointmentHero), not
+      // the carousel — keep it out of here so it isn't shown twice.
       hasResumeBooking ? 'resume' : null,
       showCarSetup ? 'car' : null,
     ].filter(Boolean) as ('account' | 'appointment' | 'resume' | 'car')[];
@@ -1000,15 +1218,31 @@ export default function HomeScreen() {
 
   return (
     <>
-    <ScrollDrivenGradientBackground colors={["#5BA3D9", "#8FC4E8", "#d9e8f5"]}>
+    {/* With a banner the top surface starts navy and ends light, so the status
+        bar follows `headerTone`. Without one it's the blue page gradient the
+        whole way down, which has always taken dark icons. */}
+    <StatusBar style={hasHero && statusBarLight ? "light" : "dark"} />
+    <ScrollDrivenGradientBackground colors={["#5BA3D9", "#8FC4E8", "#d9e8f5"]} scrollY={scrollYRef}>
       {(scrollHandler) => (
         <View style={styles.container}>
           {/* Full Page Scroll */}
           <Animated.ScrollView
             style={styles.scrollView}
-            contentContainerStyle={[styles.scrollContent, { paddingTop: stableInsetTop + 19 }]}
+            contentContainerStyle={[
+              styles.scrollContent,
+              // With a hero, the header lives in the fixed chrome above the
+              // ScrollView, so the content has to start clear of it.
+              { paddingTop: hasHero ? stableInsetTop + headerRowHeight : 0 },
+            ]}
             showsVerticalScrollIndicator={false}
             scrollEnabled={!isCardSwiping}
+            // Rubber-band is back: the banner's parallax is clamped at scroll 0
+            // (see heroParallaxStyle) so banner and sheet move together on an
+            // overscroll bounce, and the banner's background layer extends far
+            // enough above itself that pulling down reveals more banner rather
+            // than the page gradient.
+            bounces
+            overScrollMode="never"
             // Prevent iOS from re-adjusting the scroll content when a
             // transparent Modal (e.g. the settings overlay) mounts and
             // triggers a transient safe-area renegotiation — without
@@ -1018,117 +1252,113 @@ export default function HomeScreen() {
             onScroll={scrollHandler}
             scrollEventThrottle={16}
           >
-            {/* Header */}
-            <View style={styles.header}>
-              {/* Location */}
-              <View style={styles.locationSection}>
-                <View style={{ marginLeft: 20, marginTop: -8 }}>
-                  <ProfileInitialsButton />
+            {/* Appointment banner. Only the banner lives in the scroll flow
+                now — the header sits in the fixed chrome below, outside the
+                ScrollView, so it survives the whole scroll. The banner drifts
+                up at HERO_PARALLAX_RATE while the content sheet rises at full
+                speed and closes over it. With no booking, the header is
+                in-flow here instead and scrolls away as it always has. */}
+            {hasHero ? (
+              <Animated.View
+                style={heroParallaxStyle}
+                onLayout={(e) => {
+                  heroHeightSV.value = e.nativeEvent.layout.height;
+                }}
+              >
+                {/* Banner background. The solid fill extends far above the
+                    banner so an overscroll bounce pulls more navy into view
+                    rather than exposing the page gradient above it; the
+                    gradient is offset back down to sit exactly over the
+                    banner, so its stops aren't smeared across the overscroll
+                    slack. */}
+                <View style={styles.heroBackdrop} pointerEvents="none">
+                  <LinearGradient
+                    colors={[HERO_SURFACE, HERO_SURFACE_DEEP]}
+                    start={{ x: 0.5, y: 0 }}
+                    end={{ x: 0.5, y: 1 }}
+                    style={styles.heroBackdropFill}
+                  />
                 </View>
-                <View style={styles.locationText}>
-                  <Text size="xl" color="#FFFFFF" weight="bold">
-                    Otopair
-                  </Text>
-                  <Text
-                    weight="semiBold"
-                    size="sm"
-                    color="#FFFFFF"
-                    numberOfLines={3}
-                    style={styles.locationName}
-                  >
-                    {locationName}
-                  </Text>
-                </View>
-              </View>
 
-              {/* Right Side - Bell only (Trophy hidden for MVP) */}
-              <View style={styles.headerRight}>
-                {/* MVP-DISABLED: loyalty/rewards — re-enable post-launch */}
-                {/*
-                <Pressable
-                  onPress={() => {
-                    if (hasUnseenCredits && userId) {
-                      void markCreditsSeen({ userId });
+                <Animated.View style={heroRecedeStyle}>
+                  <UpcomingAppointmentHero
+                    flat
+                    booking={upcomingBookingCard!}
+                    carImageUri={
+                      upcomingBookingCard!.vin
+                        ? vehicleImageUrls[upcomingBookingCard!.vin]
+                        : undefined
                     }
-                    router.push("/membership");
-                  }}
-                  style={({ pressed }) => [styles.goldTierBadge, pressed && styles.goldTierBadgePressed]}
-                >
-                  {isLiquidGlassEnabled && LiquidGlassView ? (
-                    <LiquidGlassView interactive effect="clear" style={styles.liquidGlassIcon}>
-                      <View style={styles.bellIconContainer}>
-                        <Trophy size={22} color="#FFFFFF" fill="none" strokeWidth={2} />
-                        {hasUnseenCredits ? <View style={styles.trophyDot} /> : null}
-                      </View>
-                    </LiquidGlassView>
-                  ) : (
-                    <View style={styles.glassContainer}>
-                      <BlurView intensity={10} tint="dark" style={styles.glassBlur}>
-                        <View style={styles.glassOverlay} />
-                        <LinearGradient
-                          colors={['rgba(255,255,255,0.25)', 'rgba(255,255,255,0.05)']}
-                          start={{ x: 0.5, y: 0 }}
-                          end={{ x: 0.5, y: 0.5 }}
-                          style={styles.glassGloss}
-                        />
-                        <View style={styles.bellIconContainer}>
-                          <Trophy size={22} color="#FFFFFF" fill="none" strokeWidth={2} />
-                          {hasUnseenCredits ? <View style={styles.trophyDot} /> : null}
-                        </View>
-                      </BlurView>
-                    </View>
-                  )}
-                </Pressable>
-                */}
-
-                {/* Notification Bell */}
-                <Pressable
-                  onPress={openNotificationsSheet}
-                  style={({ pressed }) => [styles.bellButton, pressed && styles.bellButtonPressed]}
-                  accessibilityRole="button"
-                  accessibilityLabel="Notifications"
-                >
-                  {isLiquidGlassEnabled && LiquidGlassView ? (
-                    <LiquidGlassView interactive effect="clear" style={styles.liquidGlassIcon}>
-                      <View style={styles.bellIconContainer}>
-                        <Bell size={22} color="#FFFFFF" fill="none" strokeWidth={2} />
-                        {hasUnreadNotifications ? <View style={styles.bellDot} /> : null}
-                      </View>
-                    </LiquidGlassView>
-                  ) : (
-                    <View style={styles.glassContainer}>
-                      <BlurView intensity={10} tint="dark" style={styles.glassBlur}>
-                        <View style={styles.glassOverlay} />
-                        <LinearGradient
-                          colors={['rgba(255,255,255,0.25)', 'rgba(255,255,255,0.05)']}
-                          start={{ x: 0.5, y: 0 }}
-                          end={{ x: 0.5, y: 0.5 }}
-                          style={styles.glassGloss}
-                        />
-                        <View style={styles.bellIconContainer}>
-                          <Bell size={22} color="#FFFFFF" fill="none" strokeWidth={2} />
-                          {hasUnreadNotifications ? <View style={styles.bellDot} /> : null}
-                        </View>
-                      </BlurView>
-                    </View>
-                  )}
-                </Pressable>
+                    onPress={() => handleAppointmentViewDetails(upcomingBookingCard!.id)}
+                  />
+                </Animated.View>
+              </Animated.View>
+            ) : (
+              <View style={{ paddingTop: stableInsetTop + 19 }}>
+                <HomeHeaderBar
+                  variant="onGradient"
+                  locationName={locationName}
+                  hasUnreadNotifications={hasUnreadNotifications}
+                  onBellPress={openNotificationsSheet}
+                />
               </View>
-            </View>
+            )}
 
-            {/* Search Bar — search field opens the map AND auto-expands
-                the booking sheet (entry point for booking a service). The
-                Map button opens only the map (sheet stays collapsed). */}
-            <View style={styles.searchContainer}>
-              <MechanicSearchBar
-                value={searchQuery}
-                onChangeText={setSearchQuery}
-                onSubmit={handleSearch}
-                onMapPress={handleMapPress}
-                onPress={handleSearchPress}
-                placeholderPhrases={SEARCH_PLACEHOLDER_PHRASES}
-              />
-            </View>
+            {/* Everything below the hero is a rounded "sheet" that slides up
+                and COVERS the hero as you scroll (Uber-style). When a hero is
+                present it carries the old light-blue home gradient (opaque, so
+                it covers the white banner and blends with the page gradient at
+                the bottom); otherwise it stays transparent as before. */}
+            <View
+              style={[styles.sheet, hasHero && styles.sheetOverHero]}
+              onLayout={(e) => {
+                // Search sits ~34pt into the sheet; use the sheet's Y within
+                // the scroll content to drive the sticky-search fade.
+                searchBarOffsetY.value = e.nativeEvent.layout.y + SHEET_SEARCH_LEAD;
+              }}
+            >
+              {hasHero && (
+                <>
+                  {/* Flat base. The wash below is a FIXED height rather than a
+                      gradient stop, because LinearGradient locations are
+                      fractions of the element and this sheet's height is the
+                      whole page — a 30% stop landed hundreds of points below
+                      the fold, and moved whenever the content length changed. */}
+                  <View style={styles.sheetOverHeroFill} pointerEvents="none" />
+                  {/* Picks up the page gradient's mid stop so the booked and
+                      unbooked Home read as the same screen below the banner. */}
+                  <LinearGradient
+                    colors={[PAGE_GRADIENT_MID, SHEET_SETTLED]}
+                    start={{ x: 0.5, y: 0 }}
+                    end={{ x: 0.5, y: 1 }}
+                    style={styles.sheetOverHeroWash}
+                    pointerEvents="none"
+                  />
+                </>
+              )}
+
+              {/* Search Bar — search field opens the map AND auto-expands
+                  the booking sheet (entry point for booking a service). The
+                  Map button opens only the map (sheet stays collapsed). */}
+              <View
+                style={styles.searchContainer}
+                onLayout={(e) => {
+                  // Feed the pinned copy's collapsed→expanded height animation.
+                  // PINNED_SEARCH_ROW_PADDING accounts for the pinned row's own
+                  // vertical padding, which the in-flow copy doesn't have.
+                  searchRowHeightSV.value =
+                    e.nativeEvent.layout.height + PINNED_SEARCH_ROW_PADDING;
+                }}
+              >
+                <MechanicSearchBar
+                  value={searchQuery}
+                  onChangeText={setSearchQuery}
+                  onSubmit={handleSearch}
+                  onMapPress={handleMapPress}
+                  onPress={handleSearchPress}
+                  placeholderPhrases={SEARCH_PLACEHOLDER_PHRASES}
+                />
+              </View>
 
             {/* Content Area */}
             <View style={styles.content}>
@@ -1143,7 +1373,7 @@ export default function HomeScreen() {
                   // Upcoming Appointment — now uses the same BookingCard
                   // the bookings tab renders, fed by the adapted booking
                   // row + view-details/cancel handlers below.
-                  showAppointment={!!upcomingBooking}
+                  showAppointment={false}
                   appointmentBooking={upcomingBookingCard}
                   appointmentDestinationLatitude={upcomingBooking?.shopLat ?? 0}
                   appointmentDestinationLongitude={upcomingBooking?.shopLng ?? 0}
@@ -1152,10 +1382,6 @@ export default function HomeScreen() {
                   onAppointmentViewDetails={handleAppointmentViewDetails}
                   onAppointmentCancel={handleAppointmentCancel}
                   onAppointmentReschedule={handleReschedule}
-                  // Limited reschedule ("Contact shop") opens the detail sheet,
-                  // where the phase-aware contact/reschedule flow lives — same
-                  // target the bookings tab uses for onMessageShop.
-                  onAppointmentMessageShop={handleAppointmentViewDetails}
                   // Resume Booking
                   showResumeBooking={hasResumeBooking}
                   resumeServicesPreview={resumeServicesPreview}
@@ -1348,7 +1574,104 @@ export default function HomeScreen() {
                 </>
               )}
             </View>
+            </View>
           </Animated.ScrollView>
+
+          {/* Fixed top chrome (hero only) — one overlay holding the header for
+              the whole scroll plus the search bar that slides in beneath it
+              once the in-flow one has passed underneath. Both share a single
+              frosted backdrop and hairline so the top of the screen reads as
+              one surface instead of two stacked bars. Lives outside the
+              ScrollView so we control its safe-area offset directly (avoids
+              the sticky-header-under-the-notch problem). */}
+          {hasHero && (
+            <View style={[styles.topChrome, { paddingTop: stableInsetTop }]} pointerEvents="box-none">
+              {/* Chrome background, in two layers. The light bar is the base and
+                  is ALWAYS fully opaque; only the navy on top animates.
+                  Cross-fading both would let the banner ghost through at the
+                  midpoint — two layers at opacity t and 1-t composite to
+                  1-t(1-t), so 25% of whatever is behind leaks through dead
+                  centre. One opaque base + one fading layer is a true blend
+                  between the two colours at every point.
+
+                  Both are opaque rather than frosted for the same reason: a
+                  translucent light layer over the navy reads as grey mush and
+                  puts the copy at its worst contrast exactly mid-transition.
+                  Content passing under simply clips at the hairline, which is
+                  standard opaque nav-bar behaviour. */}
+              <Animated.View
+                style={[StyleSheet.absoluteFill, chromeLightStyle]}
+                pointerEvents="none"
+              >
+                <View style={styles.topChromeHairline} />
+              </Animated.View>
+              <Animated.View
+                style={[StyleSheet.absoluteFill, styles.topChromeNavy, chromeNavyStyle]}
+                pointerEvents="none"
+              />
+
+              <View
+                onLayout={(e) => {
+                  // Measure ONCE, at full height. The location subline collapses
+                  // on scroll, which re-fires onLayout — re-reading it there
+                  // would shrink the ScrollView's paddingTop and jerk the
+                  // content up by the subline's height mid-scroll.
+                  if (headerMeasuredRef.current) return;
+                  headerMeasuredRef.current = true;
+                  const h = Math.round(e.nativeEvent.layout.height);
+                  setHeaderRowHeight(h);
+                  condensedChromeHeight.value =
+                    stableInsetTop + h - HOME_HEADER_SUBLINE_HEIGHT;
+                }}
+              >
+                <HomeHeaderBar
+                  variant="onHero"
+                  locationName={locationName}
+                  hasUnreadNotifications={hasUnreadNotifications}
+                  onBellPress={openNotificationsSheet}
+                  collapse={searchPinned}
+                  tone={copyTone}
+                />
+              </View>
+
+              <Animated.View
+                animatedProps={pinnedSearchProps}
+                style={[styles.pinnedSearch, pinnedSearchRowStyle]}
+              >
+                <View style={styles.pinnedSearchInner}>
+                  <MechanicSearchBar
+                    value={searchQuery}
+                    onChangeText={setSearchQuery}
+                    onSubmit={handleSearch}
+                    onMapPress={handleMapPress}
+                    onPress={handleSearchPress}
+                    placeholderPhrases={SEARCH_PLACEHOLDER_PHRASES}
+                  />
+                </View>
+              </Animated.View>
+            </View>
+          )}
+
+          {/* No hero: the header is in-flow and scrolls away, so the search bar
+              still pins on its own as before. */}
+          {!hasHero && (
+            <Animated.View
+              animatedProps={pinnedSearchProps}
+              style={[styles.pinnedSearchStandalone, { paddingTop: stableInsetTop }, pinnedSearchStyle]}
+            >
+              <BlurView intensity={40} tint="light" style={StyleSheet.absoluteFill} />
+              <View style={styles.pinnedSearchInner}>
+                <MechanicSearchBar
+                  value={searchQuery}
+                  onChangeText={setSearchQuery}
+                  onSubmit={handleSearch}
+                  onMapPress={handleMapPress}
+                  onPress={handleSearchPress}
+                  placeholderPhrases={SEARCH_PLACEHOLDER_PHRASES}
+                />
+              </View>
+            </Animated.View>
+          )}
 
           {/* Loyalty Card Overlay — commented out; the trophy icon now
               navigates straight to /membership instead of opening this
@@ -1520,109 +1843,128 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
+    // NO paddingBottom here — it would sit *outside* the sheet, cutting the
+    // sheet's surface short and leaving a hard edge with the page gradient
+    // showing beneath it. The tab-bar clearance lives on the sheet instead.
+    flexGrow: 1,
+  },
+  sheet: {
+    // Clearance for the floating tab bar. Inside the sheet so the sheet's own
+    // surface runs all the way to the bottom of the scroll.
     paddingBottom: 150,
   },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingRight: 16,
-    paddingLeft: 0,
-    marginBottom: 16,
+  sheetOverHero: {
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    // Overlap the hero's lower edge by exactly its paddingBottom (26) so no
+    // page gradient shows between them; as the page scrolls, this light-blue
+    // surface rises and covers the white hero.
+    marginTop: -HERO_SHEET_OVERLAP,
+    // NOT `overflow: 'hidden'` — that would kill the shadow on iOS. The
+    // gradient fill clips itself instead (see sheetOverHeroFill).
+    // Cast a soft shadow upward onto the banner so the sheet reads as a layer
+    // lifting over it rather than a rectangle sliding across it.
+    shadowColor: '#0B1B33',
+    shadowOpacity: 0.12,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: -5 },
+    elevation: 14,
+    // Fill down to the tab bar so the page gradient never shows at the bottom.
+    flexGrow: 1,
   },
-  locationSection: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 2,
-    flex: 1,
-    minWidth: 0,
-    paddingLeft: 0,
-  },
-  locationText: {
-    flex: 1,
-    minWidth: 0,
-    gap: 0,
-    marginTop: -7,
-    marginLeft: 12,
-  },
-  locationName: {
-    flexShrink: 1,
-    width: "100%",
-  },
-  headerRight: {
-    flexDirection: "row",
-    alignItems: "center",
-    flexShrink: 0,
-    gap: 8,
-  },
-  goldTierBadge: {
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  goldTierBadgePressed: {
-    opacity: 0.7,
-  },
-  bellButton: {
-    padding: 4,
-  },
-  bellButtonPressed: {
-    opacity: 0.7,
-  },
-  liquidGlassIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  glassContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    overflow: "hidden",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.5)",
-  },
-  glassBlur: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  glassOverlay: {
+  // The sheet's gradient fill, clipped to the rounded top corners itself so the
+  // sheet view can keep its shadow. Runs past the sheet's bottom edge so an
+  // overscroll bounce at the end of the page pulls more sheet into view rather
+  // than exposing the page gradient beneath it.
+  sheetOverHeroFill: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(255,255,255,0.12)",
+    bottom: -400,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    backgroundColor: SHEET_SETTLED,
   },
-  glassGloss: {
-    ...StyleSheet.absoluteFillObject,
+  sheetOverHeroWash: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: SHEET_WASH_HEIGHT,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
   },
-  bellIconContainer: {
-    position: "relative",
+  // Full-bleed banner background. `top` reaches far above the banner so an
+  // overscroll bounce pulls more banner down instead of exposing the page
+  // gradient behind the status bar. The solid fill matches the gradient's first
+  // stop, so the overscroll slack and the banner proper meet seamlessly.
+  heroBackdrop: {
+    position: 'absolute',
+    top: -HERO_BACKDROP_OVERSCROLL,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: HERO_SURFACE,
   },
-  bellDot: {
-    position: "absolute",
-    top: 1,
-    right: 1,
-    width: 7,
-    height: 7,
-    borderRadius: 3.5,
-    backgroundColor: "#FF3B30",
+  heroBackdropFill: {
+    position: 'absolute',
+    top: HERO_BACKDROP_OVERSCROLL,
+    left: 0,
+    right: 0,
+    bottom: 0,
   },
-  // Trophy icon's handles extend past its cup, so the bell offset
-  // would land the dot on the handle. Pull it up-and-out so it sits
-  // cleanly above the cup.
-  trophyDot: {
-    position: "absolute",
-    top: -3,
-    right: -3,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: "#FF3B30",
+  // Fixed top chrome: header (always) + pinned search (on scroll).
+  topChrome: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    // Must out-stack the content sheet, which carries elevation for its own
+    // upward shadow — on Android that would otherwise paint over the header.
+    zIndex: 10,
+    elevation: 20,
+  },
+  topChromeNavy: {
+    backgroundColor: HERO_SURFACE,
+  },
+  topChromeHairline: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: 'rgba(15,27,45,0.08)',
   },
   searchContainer: {
     paddingHorizontal: 16,
-    marginTop: 34,
+    // SHEET_SEARCH_LEAD is defined as this offset — keep them one value, since
+    // the sticky-search threshold recovers the sheet's Y by subtracting it.
+    marginTop: SHEET_SEARCH_LEAD,
     marginBottom: 16,
+  },
+  // Search row inside the fixed chrome — in normal flow under the header, its
+  // height animated from 0 so the chrome grows only once the row is needed.
+  pinnedSearch: {
+    paddingBottom: 10,
+    overflow: 'hidden',
+  },
+  // No-hero variant: still its own absolutely-positioned bar with its own
+  // backdrop, exactly as before.
+  pinnedSearchStandalone: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 10,
+    elevation: 20,
+    paddingBottom: 10,
+    overflow: 'hidden',
+    // Hairline separation from the content scrolling beneath it.
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(15,27,45,0.08)',
+  },
+  pinnedSearchInner: {
+    paddingLeft: 16,
+    paddingRight: 16,
+    paddingTop: 6,
   },
   content: {
     paddingHorizontal: 16,

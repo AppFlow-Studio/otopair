@@ -31,6 +31,14 @@ export default function SettingsLayout() {
                 }}
             />
             <Stack.Screen
+                name="payment-history"
+                options={{
+                    // Matches the top stop of the screen's own Oto gradient so
+                    // the push doesn't flash a white edge before it paints.
+                    contentStyle: { backgroundColor: OtoGradient.colors[0] },
+                }}
+            />
+            <Stack.Screen
                 name="past-service/[bookingId]"
                 options={{ contentStyle: { backgroundColor: "#F5F8FB" } }}
             />

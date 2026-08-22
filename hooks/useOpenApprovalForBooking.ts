@@ -12,6 +12,13 @@ export type OpenApproval = {
   labor_hours?: number;
   labor_rate_cents?: number;
   notes?: string;
+  /**
+   * Mechanic's justification photos for the added scope, resolved to signed
+   * URLs server-side. Always present from an up-to-date deploy (`[]` when the
+   * mechanic attached none); optional here so the mobile client stays
+   * backward-compatible with a deploy that predates the field.
+   */
+  scope_photos?: Array<{ storage_id: Id<"_storage">; url: string }>;
   inspection_snapshot?: CustomerInspectionSnapshot;
   submitted_at_ms: number;
   sla_expires_at_ms?: number;

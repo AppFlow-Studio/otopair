@@ -185,6 +185,48 @@ export const ServiceLogColors = {
 } as const;
 
 /**
+ * Booking-card colour roles, split by the surface the card sits on.
+ * `OnLight` is the default white/light card; `OnNavy` is the same roles tuned
+ * for the navy gradient (see PendingQuoteCard / UpcomingAppointmentHero).
+ */
+export const BookingCardOnLight = {
+  text: '#1F2937',
+  textMuted: '#6B7280',
+  icon: '#9CA3AF',
+  chevron: '#C3CBD6',
+  accent: '#5299FE',
+  amber: '#C8972E',
+  danger: '#DC2626',
+  /** Neutral button face. */
+  surface: '#FFFFFF',
+  surfaceBorder: '#E5E7EB',
+  dangerSurface: '#FEF2F2',
+  dangerBorder: '#FECACA',
+  divider: '#F3F4F6',
+} as const;
+
+/**
+ * The same roles on the navy gradient. Accent and amber are lifted — #5299FE
+ * and #C8972E are tuned for white and go muddy on navy — and button faces
+ * become translucent white so the gradient still reads through them instead of
+ * being punched out by opaque chips.
+ */
+export const BookingCardOnNavy = {
+  text: '#FFFFFF',
+  textMuted: 'rgba(255,255,255,0.62)',
+  icon: 'rgba(255,255,255,0.52)',
+  chevron: 'rgba(255,255,255,0.42)',
+  accent: '#7FB4FF',
+  amber: '#E8BC63',
+  danger: '#FCA5A5',
+  surface: 'rgba(255,255,255,0.08)',
+  surfaceBorder: 'rgba(255,255,255,0.18)',
+  dangerSurface: 'rgba(252,165,165,0.12)',
+  dangerBorder: 'rgba(252,165,165,0.32)',
+  divider: 'rgba(255,255,255,0.12)',
+} as const;
+
+/**
  * Type roles for the Service Record surfaces (list, service detail, receipt).
  *
  * One indirection on purpose: those three screens reference roles, never

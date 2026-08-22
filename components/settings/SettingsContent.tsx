@@ -74,6 +74,7 @@ import {
   MapPin,
   MessageSquare,
   QrCode,
+  Receipt,
   RotateCcw,
   ScanFace,
   Shield,
@@ -574,6 +575,11 @@ export function SettingsContent({
             label="Payment Methods"
             value={paymentMethodCount > 0 ? paymentMethodCount : undefined}
             onPress={() => router.push("/payments")}
+          />
+          <SettingsRow
+            icon={<Receipt size={18} color="#FFFFFF" />}
+            label="Payment History"
+            onPress={() => router.push("/settings/payment-history")}
             isLast
           />
         </SettingsCard>
@@ -676,7 +682,7 @@ export function SettingsContent({
           />
           <SettingsRow
             icon={<FileText size={18} color="#FFFFFF" />}
-            label="Terms and Conditions"
+            label="Terms of Use"
             onPress={() => router.push("/settings/terms-and-conditions")}
             isLast
           />

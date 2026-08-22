@@ -28,6 +28,13 @@ import { Text } from "@/components/shared-ui";
 interface Props {
   /** Stage labels — array length determines the number of segments. */
   stages: readonly string[];
+  /** Set false where the surrounding card already names the state (e.g. a
+   *  status pill beside the title), so the bar contributes progress rather
+   *  than a second, differently-worded status line. */
+  showStageLabel?: boolean;
+  /** Render for a dark surface. The default unfilled track (#E5E7EB) is a
+   *  light grey built for white cards and glares on navy. */
+  onDark?: boolean;
   /** 0-based index of the highest filled segment. -1 = none filled. */
   currentIndex: number;
   /** Optional headline (e.g., "Now arriving 2:55 - 3:00 PM"). */
@@ -39,6 +46,8 @@ interface Props {
 export function BookingProgressBar({
   stages,
   currentIndex,
+  showStageLabel = true,
+  onDark = false,
   title,
   subtitle,
 }: Props) {
@@ -49,12 +58,12 @@ export function BookingProgressBar({
   return (
     <View style={styles.container}>
       {title ? (
-        <Text size="md" weight="bold" color="#1F2937" center style={styles.title}>
+        <Text size="md" weight="bold" color={onDark ? "#FFFFFF" : "#1F2937"} center style={styles.title}>
           {title}
         </Text>
       ) : null}
       {subtitle ? (
-        <Text size="xs" weight="regular" color="#6B7280" center style={styles.subtitle}>
+        <Text size="xs" weight="regular" color={onDark ? "rgba(255,255,255,0.62)" : "#6B7280"} center style={styles.subtitle}>
           {subtitle}
         </Text>
       ) : null}
@@ -62,7 +71,11 @@ export function BookingProgressBar({
         {stages.map((_, i) => (
           <View
             key={i}
-            style={[styles.segment, i <= safeIndex && styles.segmentFilled]}
+            style={[
+              styles.segment,
+              onDark && styles.segmentOnDark,
+              i <= safeIndex && styles.segmentFilled,
+            ]}
           >
             {i === nextIndex ? <SegmentSweep /> : null}
           </View>
@@ -70,8 +83,8 @@ export function BookingProgressBar({
       </View>
       {/* Current-stage label sits under the bar so the card retains
           glance-readability without listing all segments by name. */}
-      {safeIndex >= 0 ? (
-        <Text size="sm" weight="semiBold" color="#1F2937" center style={styles.currentStage}>
+      {showStageLabel && safeIndex >= 0 ? (
+        <Text size="sm" weight="semiBold" color={onDark ? "#FFFFFF" : "#1F2937"} center style={styles.currentStage}>
           {stages[safeIndex]}
         </Text>
       ) : null}
@@ -130,6 +143,9 @@ const styles = StyleSheet.create({
     borderRadius: 2,
     backgroundColor: "#E5E7EB",
     overflow: "hidden",
+  },
+  segmentOnDark: {
+    backgroundColor: "rgba(255,255,255,0.18)",
   },
   segmentFilled: {
     backgroundColor: "#5299FE",

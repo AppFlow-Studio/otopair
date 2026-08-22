@@ -98,6 +98,10 @@ interface Props {
   /** When provided, renders a filled "Leave a review" pill at the bottom. The
    *  home auto-prompt passes it; the sheet routes leave it undefined. */
   onLeaveReview?: () => void;
+  /** When provided, renders a ghost "View job details" link that routes to the
+   *  linked job (past-service detail). Passed by the Payment History flow so a
+   *  receipt can reach the job it paid for; other callers omit it. */
+  onViewJob?: () => void;
 }
 
 /** Enough leader characters to span the widest gap at any font scale; the run
@@ -228,7 +232,7 @@ function TotalRow({
   );
 }
 
-export function ReceiptContent({ payload, onLeaveReview }: Props) {
+export function ReceiptContent({ payload, onLeaveReview, onViewJob }: Props) {
   const { receipt_number, service_date, shop, mechanic, vehicle, line_items, totals, payment } =
     payload;
 
@@ -388,6 +392,17 @@ export function ReceiptContent({ payload, onLeaveReview }: Props) {
         {idLine ? <RNText style={styles.footerMeta}>{idLine}</RNText> : null}
         {odoLine ? <RNText style={styles.footerMeta}>{odoLine}</RNText> : null}
       </View>
+
+      {onViewJob ? (
+        <Pressable
+          onPress={onViewJob}
+          accessibilityRole="button"
+          accessibilityLabel="View job details"
+          style={({ pressed }) => [styles.jobLink, pressed && styles.pressed]}
+        >
+          <RNText style={styles.jobLinkLabel}>View job details  →</RNText>
+        </Pressable>
+      ) : null}
 
       {onLeaveReview ? (
         <Pressable
@@ -585,6 +600,21 @@ const styles = StyleSheet.create({
     fontFamily: F.semi,
     fontSize: 15,
     color: C.onAccent,
+  },
+
+  // ── view job link (ghost, secondary to the review CTA) ────
+  jobLink: {
+    marginTop: 20,
+    paddingVertical: 14,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: C.hairline,
+    alignItems: "center",
+  },
+  jobLinkLabel: {
+    fontFamily: F.semi,
+    fontSize: 14,
+    color: C.accent,
   },
 });
 

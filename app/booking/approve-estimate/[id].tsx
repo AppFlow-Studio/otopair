@@ -18,6 +18,8 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Image,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -35,6 +37,7 @@ import {
   FileCheck,
   FileX,
   Wallet,
+  X,
 } from "lucide-react-native";
 import {
   PlatformPay,
@@ -346,6 +349,8 @@ function ApprovalDecisionView({
   // Picker (Apple Pay / Google Pay / saved cards / add card). Choosing a wallet
   // sets `walletIntent` in the store, which `useConfirmHold` honors.
   const [pickerVisible, setPickerVisible] = useState(false);
+  // Full-screen viewer for a tapped mechanic scope photo (null = closed).
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const setWalletIntent = usePaymentStore((s) => s.setWalletIntent);
   // Start from the booking's own payment method and don't leak the wallet
   // choice made here into other flows: clear any stale intent on entry, and
@@ -502,19 +507,30 @@ function ApprovalDecisionView({
 
   const handleDecline = () => {
     if (busy) return;
+    // Mid-job is an *added scope* confirmation: declining reverts only the
+    // extra lines (`revertDeclinedMidJobWork`) — the mechanic keeps working on
+    // what was already approved and the added work is never charged. No vehicle
+    // return / inspection deposit (that's the pre-job "can't proceed" case).
+    const isMidJob = approval?.cycle === "mid_job";
     Alert.alert(
-      "Decline updated estimate?",
-      "Your mechanic will be notified and your vehicle will be returned to you. A $20 deposit will be captured to cover the inspection time.",
+      isMidJob ? "Decline the added work?" : "Decline updated estimate?",
+      isMidJob
+        ? "Your mechanic will keep going on the work you already approved — the added work just won't be included, and you won't be charged for it."
+        : "Your mechanic will be notified and your vehicle will be returned to you. A $20 deposit will be captured to cover the inspection time.",
       [
         { text: "Keep reviewing", style: "cancel" },
         {
-          text: "Decline",
+          text: isMidJob ? "Decline added work" : "Decline",
           style: "destructive",
           onPress: async () => {
             setSubmitting("declined");
             try {
               await applyDecision({ bookingId, decision: "declined" });
-              toast.info("Estimate declined", undefined, { icon: FileX });
+              toast.info(
+                isMidJob ? "Added work declined" : "Estimate declined",
+                undefined,
+                { icon: FileX },
+              );
               router.back();
             } catch (err: any) {
               Alert.alert(
@@ -570,6 +586,7 @@ function ApprovalDecisionView({
 
   const header = HEADER_BY_CYCLE[approval.cycle] ?? "Estimate update";
   const subtitle = SUBTITLE_BY_CYCLE[approval.cycle] ?? "";
+  const scopePhotos = approval.scope_photos ?? [];
   const rangeLow = approval.disclosed_range_low_cents ?? 0;
   const rangeHigh = approval.disclosed_range_high_cents ?? 0;
   const deltaCents = approval.mechanic_set_price_cents - rangeHigh;
@@ -589,7 +606,9 @@ function ApprovalDecisionView({
       <ScrollView
         contentContainerStyle={{
           paddingHorizontal: Spacing.lg,
-          paddingBottom: 160 + insets.bottom,
+          // Just clears the floating button so "Decline this update" comes to
+          // rest right above it at max scroll.
+          paddingBottom: 78 + insets.bottom,
         }}
         showsVerticalScrollIndicator={false}
       >
@@ -754,6 +773,37 @@ function ApprovalDecisionView({
             </View>
           ) : null}
 
+          {/* Mechanic's justification photos — the visual half of "why the
+              change", so they sit with the reason text and above the price
+              breakdown (see why before how much). */}
+          {scopePhotos.length > 0 ? (
+            <View style={styles.scopePhotos}>
+              <Text weight="semiBold" style={styles.scopePhotosLabel}>
+                Photos from your mechanic
+              </Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.scopePhotoStrip}
+              >
+                {scopePhotos.map((p) => (
+                  <Pressable
+                    key={p.storage_id}
+                    onPress={() => setLightboxUrl(p.url)}
+                    accessibilityRole="imagebutton"
+                    accessibilityLabel="View mechanic photo"
+                  >
+                    <Image
+                      source={{ uri: p.url }}
+                      style={styles.scopeThumb}
+                      resizeMode="cover"
+                    />
+                  </Pressable>
+                ))}
+              </ScrollView>
+            </View>
+          ) : null}
+
           <View style={styles.cardDivider} />
 
           <View style={styles.totalsBlock}>
@@ -854,18 +904,30 @@ function ApprovalDecisionView({
             </Text>
           </View>
         </View>
-      </ScrollView>
 
-      <View style={[styles.footer, { paddingBottom: insets.bottom + Spacing.md }]}>
+        {/* Decline lives at the very bottom, beneath the payment card, as a
+            quiet text link — accepting is the primary path, declining is the
+            deliberate exception. */}
         <Pressable
           onPress={handleDecline}
           disabled={busy}
-          style={[styles.btn, styles.btnDecline, busy && { opacity: 0.5 }]}
+          hitSlop={8}
+          style={[styles.declineLinkWrap, busy && { opacity: 0.5 }]}
         >
-          <Text weight="semiBold" style={styles.btnDeclineText}>
-            {isDeclining ? "Declining…" : "Decline"}
+          <Text weight="semiBold" style={styles.declineLinkText}>
+            {isDeclining ? "Declining…" : "Decline this update"}
           </Text>
         </Pressable>
+      </ScrollView>
+
+      <View
+        style={[
+          styles.footer,
+          styles.footerStack,
+          styles.footerTransparent,
+          { paddingBottom: insets.bottom + Spacing.md },
+        ]}
+      >
         <Pressable
           onPress={() =>
             handleAccept(approval.mechanic_set_price_cents, isPostJob)
@@ -874,35 +936,31 @@ function ApprovalDecisionView({
           style={[
             styles.btn,
             styles.btnApprove,
+            styles.btnFull,
             (busy || (!isPostJob && originLoading)) && { opacity: 0.7 },
           ]}
         >
-          {isProcessing ? (
-            <Text weight="semiBold" style={styles.btnApproveText}>
-              Authorizing…
+          <View style={styles.btnApproveRow}>
+            <Text
+              weight="semiBold"
+              style={styles.btnApproveLabelInline}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.8}
+            >
+              {isPostJob ? "Accept & pay" : "Accept & update hold"}
             </Text>
-          ) : (
-            <View style={styles.btnApproveStack}>
-              <Text
-                weight="semiBold"
-                style={styles.btnApproveLabel}
-                numberOfLines={1}
-                adjustsFontSizeToFit
-                minimumFontScale={0.8}
-              >
-                {isPostJob ? "Accept & pay" : "Accept & update hold"}
-              </Text>
-              <Text
-                weight="bold"
-                style={styles.btnApproveAmount}
-                numberOfLines={1}
-                adjustsFontSizeToFit
-                minimumFontScale={0.7}
-              >
-                {formatUsd(approval.mechanic_set_price_cents)}
-              </Text>
-            </View>
-          )}
+            <View style={styles.btnApproveDivider} />
+            <Text
+              weight="bold"
+              style={styles.btnApproveAmountInline}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.7}
+            >
+              {formatUsd(approval.mechanic_set_price_cents)}
+            </Text>
+          </View>
         </Pressable>
       </View>
 
@@ -916,6 +974,40 @@ function ApprovalDecisionView({
         googlePaySupported={googlePaySupported}
         onAddCard={() => router.push({ pathname: "/add-payment" } as any)}
       />
+
+      {/* Full-screen scope-photo viewer. Tap the backdrop or the close button
+          to dismiss. Single image — the strip is short (≤4). */}
+      <Modal
+        visible={lightboxUrl !== null}
+        transparent
+        statusBarTranslucent
+        animationType="fade"
+        onRequestClose={() => setLightboxUrl(null)}
+      >
+        <Pressable
+          style={styles.lightboxBackdrop}
+          onPress={() => setLightboxUrl(null)}
+        >
+          {lightboxUrl ? (
+            <Image
+              source={{ uri: lightboxUrl }}
+              style={styles.lightboxImage}
+              resizeMode="contain"
+            />
+          ) : null}
+          <View style={[styles.lightboxTopBar, { top: insets.top + Spacing.md }]}>
+            <Pressable
+              onPress={() => setLightboxUrl(null)}
+              hitSlop={10}
+              accessibilityRole="button"
+              accessibilityLabel="Close photo"
+              style={styles.lightboxClose}
+            >
+              <X size={20} color="#FFFFFF" strokeWidth={2.5} />
+            </Pressable>
+          </View>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -1630,6 +1722,43 @@ const styles = StyleSheet.create({
     fontStyle: "italic",
   },
 
+  // ── Mechanic scope photos ─────────────────────────────────────────────
+  scopePhotos: { marginTop: Spacing.lg },
+  scopePhotosLabel: {
+    fontSize: 13,
+    color: SemanticColors.textMuted,
+    marginBottom: Spacing.sm,
+  },
+  scopePhotoStrip: { gap: Spacing.sm, paddingRight: Spacing.sm },
+  scopeThumb: {
+    width: 96,
+    height: 96,
+    borderRadius: 14,
+    backgroundColor: "#F3F4F6",
+  },
+  lightboxBackdrop: {
+    flex: 1,
+    backgroundColor: "#000000",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  lightboxImage: { width: "100%", height: "100%" },
+  lightboxTopBar: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    paddingHorizontal: Spacing.lg,
+    alignItems: "flex-end",
+  },
+  lightboxClose: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(0,0,0,0.45)",
+  },
+
   // ── What the mechanic added mid-job ───────────────────────────────────
   addedRow: {
     paddingTop: Spacing.md,
@@ -1784,6 +1913,12 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: SemanticColors.border,
   },
+  // ApprovalDecisionView floats a single button over the canvas — no white bar
+  // or divider behind it (matches the Review & Pay accept treatment).
+  footerTransparent: {
+    backgroundColor: "transparent",
+    borderTopWidth: 0,
+  },
   btn: {
     flex: 1,
     borderRadius: 16,
@@ -1791,8 +1926,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  btnDecline: { backgroundColor: "#F2F2F7" },
-  btnDeclineText: { color: BrandColors.primary, fontSize: 16 },
   btnApprove: { backgroundColor: BrandColors.secondary, flex: 1.5 },
   btnApproveText: { color: "#FFFFFF", fontSize: 16 },
   btnApproveStack: {
@@ -1803,6 +1936,36 @@ const styles = StyleSheet.create({
   },
   btnApproveLabel: { color: "#FFFFFF", fontSize: 12, opacity: 0.9 },
   btnApproveAmount: { color: "#FFFFFF", fontSize: 18 },
+  // Single-bar accept: "Accept & update hold │ $495.74" laid out inline with a
+  // hairline divider between label and price (Review & Pay grammar).
+  btnApproveRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: Spacing.md,
+    paddingHorizontal: Spacing.sm,
+  },
+  btnApproveDivider: {
+    width: StyleSheet.hairlineWidth,
+    alignSelf: "stretch",
+    marginVertical: 2,
+    backgroundColor: "rgba(255,255,255,0.45)",
+  },
+  btnApproveLabelInline: { color: "#FFFFFF", fontSize: 16, flexShrink: 1 },
+  btnApproveAmountInline: { color: "#FFFFFF", fontSize: 16 },
+  // Decline demoted to a quiet blue link at the foot of the scroll content.
+  declineLinkWrap: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingTop: Spacing.lg,
+    paddingBottom: Spacing.sm,
+    marginTop: Spacing.xs,
+  },
+  declineLinkText: {
+    color: SemanticColors.primaryBlue,
+    fontSize: 15,
+    textDecorationLine: "underline",
+  },
   // ── Reauth footer additions ───────────────────────────────────────────
   footerStack: { flexDirection: "column", gap: Spacing.sm },
   btnFull: { width: "100%", flex: 0 },
