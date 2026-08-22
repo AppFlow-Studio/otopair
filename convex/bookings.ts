@@ -162,6 +162,7 @@ import {
   closeRecForCompletedBooking,
   closeMatchingRecsForCompletedBooking,
   submitRecommendationsForBooking,
+  resolvePriorRecommendationsForBooking,
 } from "./jobRecommendations";
 import {
   templateForSystem,
@@ -10514,6 +10515,49 @@ export const getJobDetail = query({
         ? hoursToMinutes(agreedApproval.labor_hours)
         : booking.estimated_labor_minutes ?? null;
 
+    // Scope-justification photos the mechanic attached when submitting a change
+    // that was AGREED (mid/pre-job "Why the added scope?"). Surface them in the
+    // post-job form the same way layover photos are — read-only context that
+    // also merges into the final report — so evidence captured mid-job isn't
+    // lost at closeout. Only agreed rows: a declined/withdrawn change was
+    // reverted, so its photos don't belong on the completed job. Deduped across
+    // approvals by storage id.
+    const seenScopePhotoIds = new Set<string>();
+    const agreedScopePhotoIds: Id<"_storage">[] = [];
+    // The mechanic's "Why the added scope? / Why this adjustment?" reason for
+    // each AGREED change. Same rationale as the photos: it's the mechanic's own
+    // account of what was found, so it seeds the post-job "What did you find or
+    // do?" instead of making them retype it. Deduped, order preserved.
+    const seenScopeReasons = new Set<string>();
+    const agreedScopeReasons: string[] = [];
+    for (const a of jobDetailApprovals) {
+      if (!AGREED_DECISIONS.has((a as any).decision ?? "")) continue;
+      const reason = (a as any).notes;
+      if (typeof reason === "string" && reason.trim()) {
+        const trimmed = reason.trim();
+        if (!seenScopeReasons.has(trimmed)) {
+          seenScopeReasons.add(trimmed);
+          agreedScopeReasons.push(trimmed);
+        }
+      }
+      for (const sid of (((a as any).scope_photo_ids ?? []) as Id<"_storage">[])) {
+        const key = String(sid);
+        if (seenScopePhotoIds.has(key)) continue;
+        seenScopePhotoIds.add(key);
+        agreedScopePhotoIds.push(sid);
+      }
+    }
+    const scopePhotosResolved = (
+      await Promise.all(
+        agreedScopePhotoIds.map(async (storageId) => ({
+          storageId,
+          caption: null as string | null,
+          takenAt: undefined as number | undefined,
+          url: await ctx.storage.getUrl(storageId),
+        })),
+      )
+    ).filter((entry) => entry.url !== null);
+
     return {
       _id: booking._id,
       _creationTime: booking._creationTime,
@@ -10589,6 +10633,14 @@ export const getJobDetail = query({
             inProgressPhotos: inProgressPhotosResolved,
           }
         : null,
+      // Evidence photos from agreed mid/pre-job changes. Kept at the top level
+      // (not under jobActuals) so they resolve even when no job_actuals row
+      // exists yet. Carried into the post-job form alongside layover photos.
+      scopePhotos: scopePhotosResolved,
+      // The "why the added scope / why this adjustment" reasons for those same
+      // agreed changes — carried into the post-job findings so the mechanic
+      // doesn't re-explain what they already justified to the customer.
+      scopeReasons: agreedScopeReasons,
       history,
       previousScheduledDate: booking.previous_scheduled_date ?? null,
       previousScheduledTime: booking.previous_scheduled_time ?? null,
@@ -11088,6 +11140,14 @@ export const completeWithPostjob = mutation({
         }),
       ),
     ),
+    // Prior open recommendations the mechanic resolved during this booking
+    // ("Still open from last visit" → Mark done). Separate arg for the same
+    // reason as customJobOutcomes — postjobReportValidator is shared and
+    // wouldn't consume this. Optional; each id is marked completed against
+    // this booking, scoped to this shop + vehicle server-side.
+    resolvedPriorRecommendationIds: v.optional(
+      v.array(v.id("job_recommendations")),
+    ),
   },
   handler: async (ctx, args) => {
     const user = await getCurrentUser(ctx);
@@ -11183,6 +11243,20 @@ export const completeWithPostjob = mutation({
         jobActualId: jobActual._id,
         mechanicId: booking.mechanic_id,
         recommendations: args.postjob.recommendations,
+        now,
+      });
+    }
+
+    // Close out any prior recommendations the mechanic marked done this visit.
+    // Complements the service-match auto-close in runCompletionSideEffects for
+    // freeform / non-matching / mid-job-extra recs the mechanic resolved by hand.
+    if (
+      args.resolvedPriorRecommendationIds &&
+      args.resolvedPriorRecommendationIds.length > 0
+    ) {
+      await resolvePriorRecommendationsForBooking(ctx, {
+        booking,
+        recommendationIds: args.resolvedPriorRecommendationIds,
         now,
       });
     }
