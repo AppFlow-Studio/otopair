@@ -19,16 +19,20 @@
  */
 
 import React, { useEffect, useState } from "react";
-import { Alert, Image, Platform, Pressable, StyleSheet, View } from "react-native";
+import { Alert, Image, Pressable, StyleSheet, View } from "react-native";
 
+import { ArrowRight, Car } from "lucide-react-native";
 import Animated, { FadeOut, LinearTransition, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 
 import { Text } from "@/components/shared-ui";
 import { type Booking } from "@/components/bookings/BookingCard";
 import { BookingProgressBar } from "@/components/bookings/BookingProgressBar";
 import { getBookingStageView } from "@/utils/bookingStages";
-
-const CARD_EXIT_ANIMATION = Platform.OS === "android" ? undefined : FadeOut.duration(220);
+import { LinearGradient } from "expo-linear-gradient";
+// Same navy every other booking card carries — a quote request is a booking
+// at an earlier stage, so it wears the same surface.
+import { HERO_SURFACE, HERO_SURFACE_DEEP } from "@/components/home/UpcomingAppointmentHero";
+import { BookingCardOnNavy as P } from "@/constants/theme";
 
 // ============================================================================
 // HELPERS
@@ -88,9 +92,6 @@ function titleCase(str: string): string {
   return str.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-const ACTION_BUTTON_GAP = 10;
-const ACTION_BUTTON_LABEL_SIZE = 15;
-
 // ============================================================================
 // COMPONENT
 // ============================================================================
@@ -133,7 +134,7 @@ export function PendingQuoteCard({
   return (
     <Animated.View
       style={dimStyle}
-      exiting={CARD_EXIT_ANIMATION}
+      exiting={FadeOut.duration(220)}
       layout={LinearTransition.duration(260)}
     >
     <Pressable
@@ -143,10 +144,21 @@ export function PendingQuoteCard({
         onPress?.(booking.id);
       }}
     >
+      {/* Navy surface for the whole card, matching BookingCard and the details
+          sheet. `overflow: hidden` on the card clips it to the radius. */}
+      <LinearGradient
+        colors={[HERO_SURFACE, HERO_SURFACE_DEEP]}
+        start={{ x: 0.5, y: 0 }}
+        end={{ x: 0.5, y: 1 }}
+        style={StyleSheet.absoluteFill}
+        pointerEvents="none"
+      />
+
       {/* Quote-stage progress bar — see utils/bookingStages.ts. */}
       <BookingProgressBar
         stages={stageView.stages}
         currentIndex={stageView.currentIndex}
+        onDark
       />
 
       {/* Header: vehicle + status tag. Mirrors BookingCard's vehicle row —
@@ -169,11 +181,11 @@ export function PendingQuoteCard({
           </View>
         )}
         <View style={styles.headerText}>
-          <Text size="md" weight="bold" color="#1F2937">
+          <Text size="md" weight="bold" color={P.text}>
             {titleCase(vehicleLabel)}
           </Text>
           {booking.licensePlate ? (
-            <Text size="xs" weight="regular" color="#6B7280">
+            <Text size="xs" weight="regular" color={P.textMuted}>
               {booking.licensePlate}
             </Text>
           ) : null}
@@ -191,7 +203,7 @@ export function PendingQuoteCard({
           <Text
             size="xs"
             weight="bold"
-            color={isCancelling ? "#DC2626" : isReady ? "#2F6DCC" : "#C8972E"}
+            color={isCancelling ? P.danger : isReady ? P.accent : P.amber}
           >
             {isCancelling ? "Cancelled" : isReady ? "Quotes Ready" : "Pending Quote"}
           </Text>
@@ -218,7 +230,7 @@ export function PendingQuoteCard({
             <SpecRow label="Quantity" value={tireSpecs.quantity} />
           </>
         ) : (
-          <Text size="md" weight="semiBold" color="#1A1A1A">
+          <Text size="md" weight="semiBold" color={P.text}>
             {booking.notes || (isRotor ? "Rotor quote" : "Tire quote")}
           </Text>
         )}
@@ -234,16 +246,10 @@ export function PendingQuoteCard({
             }}
             style={({ pressed }) => [styles.viewButton, pressed && styles.viewButtonPressed]}
           >
-            <Text
-              size={ACTION_BUTTON_LABEL_SIZE}
-              weight="semiBold"
-              color="#FFFFFF"
-              numberOfLines={1}
-              lineHeight={1.2}
-              style={styles.actionButtonLabel}
-            >
-              View Quotes
+            <Text size="sm" weight="semiBold" color="#FFFFFF">
+              View quotes
             </Text>
+            <ArrowRight size={16} color="#FFFFFF" strokeWidth={2.4} />
           </Pressable>
           {onCancel && booking.status !== "cancelled" ? (
             <Pressable
@@ -254,14 +260,7 @@ export function PendingQuoteCard({
               disabled={isCancelling}
               style={({ pressed }) => [styles.cancelOutlineButton, pressed && styles.viewButtonPressed]}
             >
-              <Text
-                size={ACTION_BUTTON_LABEL_SIZE}
-                weight="semiBold"
-                color="#DC2626"
-                numberOfLines={1}
-                lineHeight={1.2}
-                style={styles.actionButtonLabel}
-              >
+              <Text size="sm" weight="semiBold" color={P.danger}>
                 Cancel Request
               </Text>
             </Pressable>
@@ -278,14 +277,7 @@ export function PendingQuoteCard({
             disabled={isCancelling}
             style={({ pressed }) => [styles.viewButton, pressed && styles.viewButtonPressed]}
           >
-            <Text
-              size={ACTION_BUTTON_LABEL_SIZE}
-              weight="semiBold"
-              color="#FFFFFF"
-              numberOfLines={1}
-              lineHeight={1.2}
-              style={styles.actionButtonLabel}
-            >
+            <Text size="sm" weight="semiBold" color="#FFFFFF">
               View Details
             </Text>
           </Pressable>
@@ -298,14 +290,7 @@ export function PendingQuoteCard({
               disabled={isCancelling}
               style={({ pressed }) => [styles.cancelOutlineButton, pressed && styles.viewButtonPressed]}
             >
-              <Text
-                size={ACTION_BUTTON_LABEL_SIZE}
-                weight="semiBold"
-                color="#DC2626"
-                numberOfLines={1}
-                lineHeight={1.2}
-                style={styles.actionButtonLabel}
-              >
+              <Text size="sm" weight="semiBold" color={P.danger}>
                 Cancel Request
               </Text>
             </Pressable>
@@ -345,10 +330,10 @@ export function PendingQuoteCard({
 function SpecRow({ label, value }: { label: string; value: string }) {
   return (
     <View style={styles.specRow}>
-      <Text size="xs" weight="semiBold" color="#8E8E93" style={styles.specLabel}>
+      <Text size="xs" weight="semiBold" color={P.textMuted} style={styles.specLabel}>
         {label.toUpperCase()}
       </Text>
-      <Text size="md" weight="semiBold" color="#1A1A1A" style={styles.specValue}>
+      <Text size="md" weight="semiBold" color={P.text} style={styles.specValue}>
         {value}
       </Text>
     </View>
@@ -361,7 +346,8 @@ function SpecRow({ label, value }: { label: string; value: string }) {
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: HERO_SURFACE,
+    overflow: "hidden",
     borderRadius: 16,
     paddingVertical: 18,
     paddingHorizontal: 18,
@@ -392,7 +378,7 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: "#E5E7EB",
+    backgroundColor: "rgba(255,255,255,0.18)",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -408,19 +394,19 @@ const styles = StyleSheet.create({
     alignSelf: "flex-start",
   },
   tagPending: {
-    backgroundColor: "#FFF8ED",
+    backgroundColor: "rgba(232,188,99,0.14)",
   },
   tagReady: {
-    backgroundColor: "#E3F0FF",
+    backgroundColor: "rgba(255,255,255,0.10)",
   },
   tagCancelled: {
-    backgroundColor: "#FEE2E2",
+    backgroundColor: "rgba(252,165,165,0.32)",
   },
 
   // Divider
   divider: {
     height: StyleSheet.hairlineWidth,
-    backgroundColor: "#E5E7EB",
+    backgroundColor: "rgba(255,255,255,0.18)",
     marginVertical: 16,
   },
 
@@ -445,13 +431,8 @@ const styles = StyleSheet.create({
   actionRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: ACTION_BUTTON_GAP,
+    gap: 10,
     marginTop: 14,
-  },
-  actionButtonLabel: {
-    minWidth: 0,
-    flexShrink: 1,
-    textAlign: "center",
   },
   pendingFooter: {
     flex: 1,
@@ -462,11 +443,13 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     minWidth: 0,
     height: 48,
-    paddingHorizontal: 8,
+    paddingHorizontal: 16,
     borderRadius: 12,
     backgroundColor: "#5299FE",
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
+    gap: 8,
   },
   cancelOutlineButton: {
     flexBasis: 0,
@@ -474,11 +457,11 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     minWidth: 0,
     height: 48,
-    paddingHorizontal: 8,
+    paddingHorizontal: 16,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: "#FECACA",
-    backgroundColor: "#FEF2F2",
+    borderColor: "rgba(252,165,165,0.32)",
+    backgroundColor: "rgba(252,165,165,0.12)",
     alignItems: "center",
     justifyContent: "center",
   },
