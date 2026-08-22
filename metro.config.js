@@ -1,16 +1,21 @@
-// Metro config — `@/convex/*` resolution has two modes:
+// Metro config — `@/convex/*` resolution.
 //
-// LOCAL DEV (otopair-web sibling repo present): redirect `@/convex/*` to
-//   `../otopair-web/convex` so edits there hot-reload in the app without
-//   requiring an rsync round-trip. The `convex/` entry in this repo is a
-//   vendored mirror of that same path, kept in sync by
-//   `npm run sync:convex` and guarded by the pre-push hook in
-//   `scripts/git-hooks/pre-push` (see `scripts/check-convex-drift.sh`).
+// DEFAULT: resolve against this repo's own `convex/`. Mobile is canonical for
+//   convex code, so the app must run against the source, not a copy of it.
 //
-// EAS BUILD (no sibling repo): fall through to the default `@/*` alias,
-//   which resolves `@/convex/*` against `./convex/*` — the vendored
-//   directory, kept current by `npm run sync:convex` and committed to
-//   the build branch.
+//   This used to redirect to `../otopair-web/convex` whenever that sibling repo
+//   existed, which inverted the canon: a module added correctly here (e.g.
+//   `convex/lib/vinIdentity.ts`, imported by app/(main-tabs)/cars) failed to
+//   bundle because the web checkout hadn't received it. The app was building
+//   against whatever state that unrelated clone happened to be in.
+//
+// OPT-IN: set OTOPAIR_CONVEX_FROM_WEB=1 to restore the old behaviour when you
+//   are actively editing convex inside otopair-web and want it to hot-reload
+//   here without a sync round-trip.
+//
+// NOTE: `npm run sync:convex` (sync-convex-from-web.sh) and the pre-push drift
+//   guard still assume web → mobile. Both point the wrong way for a
+//   mobile-canonical repo and need revisiting.
 
 const path = require("path");
 const fs = require("fs");
@@ -18,7 +23,8 @@ const { getDefaultConfig } = require("expo/metro-config");
 
 const projectRoot = __dirname;
 const webConvexRoot = path.resolve(projectRoot, "../otopair-web/convex");
-const useExternalConvex = fs.existsSync(webConvexRoot);
+const useExternalConvex =
+  process.env.OTOPAIR_CONVEX_FROM_WEB === "1" && fs.existsSync(webConvexRoot);
 
 const config = getDefaultConfig(projectRoot);
 
