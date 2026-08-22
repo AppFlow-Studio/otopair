@@ -38,9 +38,12 @@ interface Props {
    *  receipt body. Used by the home auto-prompt; manual entry
    *  surfaces leave it undefined. */
   onLeaveReview?: () => void;
+  /** When set, surfaces a ghost "View job details" link inside the receipt
+   *  body. Used by the Payment History flow to reach the linked job. */
+  onViewJob?: () => void;
 }
 
-export const ReceiptSheet = forwardRef<ReceiptSheetRef, Props>(({ bookingId, onClose, onLeaveReview }, ref) => {
+export const ReceiptSheet = forwardRef<ReceiptSheetRef, Props>(({ bookingId, onClose, onLeaveReview, onViewJob }, ref) => {
   const sheetRef = useRef<FloatingSheetRef>(null);
   const insets = useSafeAreaInsets();
   const { height: screenHeight } = useWindowDimensions();
@@ -87,7 +90,7 @@ export const ReceiptSheet = forwardRef<ReceiptSheetRef, Props>(({ bookingId, onC
   } else if (data === null) {
     body = <ReceiptError />;
   } else {
-    body = <ReceiptContent payload={data as ReceiptPayload} onLeaveReview={onLeaveReview} />;
+    body = <ReceiptContent payload={data as ReceiptPayload} onLeaveReview={onLeaveReview} onViewJob={onViewJob} />;
   }
 
   return (
