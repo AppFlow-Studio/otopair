@@ -494,12 +494,18 @@ export default function HomeScreen() {
         b.status === 'confirmed' ||
         b.status === 'pending_shop_acceptance') &&
       b.scheduled_date >= today;
+    // Which single job headlines the hero when several are live at once. Lower
+    // rank shows first: a car actively in service outranks one merely checked
+    // in, which outranks a future booking. (Refine here if "ready for pickup"
+    // should jump the queue over "in service".)
+    const heroRank = (b: any) =>
+      b.status === 'in_progress' ? 0 : b.status === 'vehicle_at_shop' ? 1 : 2;
     return allBookings
       .filter((b: any) => isActive(b) || isUpcoming(b))
-      // Active jobs first, then soonest scheduled.
+      // Highest-priority state first, then soonest scheduled within a state.
       .sort((a: any, b: any) => {
-        const activeDelta = (isActive(a) ? 0 : 1) - (isActive(b) ? 0 : 1);
-        if (activeDelta !== 0) return activeDelta;
+        const rankDelta = heroRank(a) - heroRank(b);
+        if (rankDelta !== 0) return rankDelta;
         return (
           (a.scheduled_date || '').localeCompare(b.scheduled_date || '') ||
           (a.scheduled_time || '').localeCompare(b.scheduled_time || '')
