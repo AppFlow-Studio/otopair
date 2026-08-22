@@ -52,6 +52,19 @@ function serviceTitle(services: string[]): string {
   return `${clean[0]} +${clean.length - 1}`;
 }
 
+/** Eyebrow reflects where the job actually is: an active job at the shop must
+ *  not read "UPCOMING". Mirrors getTrackerData's displayStatus grammar so the
+ *  hero and the tracker agree. */
+function eyebrowLabel(status: string, liveStage?: string): string {
+  if (status === "in_progress") {
+    if (liveStage === "vehicle_ready") return "READY FOR PICKUP";
+    if (liveStage === "service_in_progress") return "IN SERVICE";
+    return "IN PROGRESS";
+  }
+  if (status === "vehicle_at_shop") return "AT THE SHOP";
+  return "UPCOMING";
+}
+
 export function UpcomingAppointmentHero({
   booking,
   onPress,
@@ -61,13 +74,14 @@ export function UpcomingAppointmentHero({
   const title = serviceTitle(booking.services);
   const whenParts = [booking.date, booking.time].filter(Boolean);
   const when = whenParts.length ? whenParts.join(" · ") : "Time to be confirmed";
+  const eyebrow = eyebrowLabel(booking.status, booking.liveStage);
 
   return (
     <Pressable
       onPress={onPress}
       style={({ pressed }) => [styles.wrap, pressed && styles.wrapPressed]}
       accessibilityRole="button"
-      accessibilityLabel={`Upcoming appointment: ${title} at ${booking.shopName}, ${when}`}
+      accessibilityLabel={`${eyebrow}: ${title} at ${booking.shopName}, ${when}`}
     >
       <View style={styles.card}>
         {/* Navy surface — omitted in `flat` mode (parent supplies it, so it can
@@ -87,7 +101,7 @@ export function UpcomingAppointmentHero({
         <View style={styles.body}>
           <View style={styles.copy}>
             <Text style={styles.eyebrow} weight="bold">
-              UPCOMING
+              {eyebrow}
             </Text>
 
             {/* Two lines each, never one: a truncated service or shop name
