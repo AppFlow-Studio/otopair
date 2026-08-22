@@ -25,6 +25,8 @@ import { partFitsConfigMake } from "./partSelector";
 import { hydrateTieredInspectionState } from "./lib/hydrateInspectionState";
 import { resolveSparkPlugQuantity } from "./lib/sparkPlugs";
 import { deriveSuggestedRecommendations } from "../lib/inspection-template";
+import { canonicalWarningLights } from "../lib/warningLightVocab";
+import { applyInspectionLightPicker } from "./lib/warningLightsMerge";
 
 function primaryServiceId(booking: { service_ids?: Id<"services">[] }): Id<"services"> | undefined {
   return booking.service_ids?.[0];
@@ -46,6 +48,13 @@ type SuggestedPart = {
   // "Used last time on this car" (vin) vs "Shop default" (shop) vs catalog
   // fallback. Absent for legacy paths that pre-date the layered cascade.
   learned_from?: "vin" | "shop" | "config" | "catalog";
+  // Tire-replacement suggestion — identity lives in these structured fields
+  // (tires have no OEM number). oem_number carries the `TIRE-{size}` sentinel.
+  is_tire?: boolean;
+  tire_size?: string | null;
+  tire_brand?: string | null;
+  tire_model?: string | null;
+  tire_position?: string | null;
 };
 
 // Mirror of SHOP_DEMOTE_DELTA in shop_part_preferences.ts so the cascade
@@ -645,8 +654,15 @@ export const getPrefillData = query({
               ? `Tires — ${brandModel} (x${qty})`
               : `Tires (x${qty})`,
             oem_number: tireOem(booking.tire_specs?.size),
-            cost: (acceptedQuote.per_tire_price ?? 0) * qty,
+            // Per-unit cost + real quantity so the parts step (which bills
+            // cost × quantity) shows the true count instead of a single line.
+            cost: acceptedQuote.per_tire_price ?? 0,
+            quantity: qty,
             service_id: sid,
+            is_tire: true,
+            tire_size: booking.tire_specs?.size ?? null,
+            tire_brand: acceptedQuote.tire_brand ?? null,
+            tire_model: acceptedQuote.tire_model ?? null,
           });
         } else if (booking.tire_specs) {
           const qty = booking.tire_specs.quantity ?? 4;
@@ -654,7 +670,10 @@ export const getPrefillData = query({
             part_name: `Tires — ${booking.tire_specs.tier} ${booking.tire_specs.type} (x${qty})`,
             oem_number: tireOem(booking.tire_specs.size),
             cost: 0,
+            quantity: qty,
             service_id: sid,
+            is_tire: true,
+            tire_size: booking.tire_specs.size ?? null,
           });
         }
       }
@@ -885,8 +904,9 @@ export const getPrefillData = query({
       .withIndex("by_booking", (q) => q.eq("booking_id", args.bookingId))
       .first();
     const allServices = booking.shop_id ? await ctx.db.query("services").collect() : [];
-    const suggestedFromInspection = inspection
-      ? deriveSuggestedRecommendations(hydrateTieredInspectionState(inspection), {
+    const inspectionState = inspection ? hydrateTieredInspectionState(inspection) : null;
+    const suggestedFromInspection = inspectionState
+      ? deriveSuggestedRecommendations(inspectionState, {
           onlyCompletedZones: true,
         })
           .map((s) => {
@@ -909,6 +929,55 @@ export const getPrefillData = query({
           )
       : [];
 
+    // Dashboard lights to offer in the post-job "still on?" list. This is
+    // the PROJECTED set, not just what's on file right now: this visit's own
+    // pre-job picker selections don't reach knownIssues until the deferred
+    // job runs 2 hours after close, so offering only the stored array would
+    // omit a light this very inspection just flagged — leaving the mechanic
+    // unable to clear the exact thing they may have just fixed (e.g. TPMS
+    // seen on the walk-around, tires topped up mid-visit). Uses the same
+    // shared merge the deferred write itself uses so the two can't drift.
+    // See "Dashboard warning lights."
+    const owner = await ctx.db
+      .query("vehicle_owners")
+      .withIndex("by_vin_user", (q) => q.eq("vin", booking.vin).eq("user_id", booking.user_id))
+      .first();
+    const projectedKnownIssues = applyInspectionLightPicker(
+      Array.isArray(owner?.knownIssues) ? (owner.knownIssues as string[]) : [],
+      inspectionState?.zones.ENG?.statuses.warning_lights
+        ? []
+        : inspectionState?.zones.ENG?.lights.warning_lights,
+    );
+    const currentWarningLights = canonicalWarningLights(projectedKnownIssues);
+
+    // Prejob inspection tire findings — surfaced so the mid-job / walk-in tire
+    // editor can prefill the sizes (and brand/model) recorded per corner during
+    // the multi-point inspection. Front axle takes front_left else front_right;
+    // rear axle takes rear_left else rear_right (sizes are synced per axle).
+    const latestActual = await getLatestJobActualForBooking(ctx, args.bookingId);
+    const prejob = (latestActual?.prejob_report ?? null) as any;
+    const td = prejob?.tire_details ?? null;
+    const pickCorner = (a: any, b: any) =>
+      (a ?? null) || (b ?? null) || null;
+    const prejobTires = prejob
+      ? {
+          tire_size_front: prejob.tire_size_front ?? null,
+          tire_size_rear: prejob.tire_size_rear ?? null,
+          front: td
+            ? {
+                brand: pickCorner(td.front_left?.brand, td.front_right?.brand),
+                model: pickCorner(td.front_left?.model, td.front_right?.model),
+              }
+            : null,
+          rear: td
+            ? {
+                brand: pickCorner(td.rear_left?.brand, td.rear_right?.brand),
+                model: pickCorner(td.rear_left?.model, td.rear_right?.model),
+              }
+            : null,
+        }
+      : null;
+
     return {
       vehicleLabel,
       serviceName: service?.name ?? "",
@@ -923,6 +992,8 @@ export const getPrefillData = query({
       priorOpenRecommendations,
       confirmedThisVisit,
       suggestedFromInspection,
+      currentWarningLights,
+      prejobTires,
     };
   },
 });
