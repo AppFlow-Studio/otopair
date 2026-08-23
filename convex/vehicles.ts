@@ -2322,6 +2322,7 @@ export const getEnrichmentDetail = query({
       const engine = await ctx.db.get(vehicle.engine_id);
       if (engine) {
         const e = engine as {
+          engine_code?: string;
           displacement_l?: number;
           cylinders?: number;
           configuration?: string;
@@ -2344,6 +2345,8 @@ export const getEnrichmentDetail = query({
         const layout = e.configuration ?? (e.cylinders != null ? `I${e.cylinders}` : null);
         const engineDesc = [disp, forced, layout].filter(Boolean).join(" ");
         if (engineDesc) specFacts.push(engineDesc);
+        if (e.engine_code) specFacts.push(`Engine code ${e.engine_code}`);
+        if (e.cylinders != null) specFacts.push(`${e.cylinders} cylinders`);
         if (e.fuel_type) specFacts.push(`Fuel: ${e.fuel_type}`);
         if (e.oil_viscosity) specFacts.push(`${e.oil_viscosity} oil`);
         if (e.oil_capacity_qts != null) specFacts.push(`${e.oil_capacity_qts} qt oil capacity`);
@@ -2359,6 +2362,67 @@ export const getEnrichmentDetail = query({
         if (e.transmission_fluid_capacity_qts != null) {
           specFacts.push(`Trans fluid ${e.transmission_fluid_capacity_qts} qt`);
         }
+      }
+    }
+
+    // ── Drivetrain / chassis-platform / transmission specs ────────────────
+    // Pulls the "chassis & platform" fields the config page shows: drivetrain,
+    // chassis code, brake fluid, lug-nut torque, battery, steering, etc. All
+    // best-effort — a missing table/field just drops that one fact.
+    if (configId) {
+      const config = await ctx.db.get(configId);
+      const cfg = config as { drivetrain?: string; chassis_code?: string } | null;
+      if (cfg?.drivetrain) specFacts.push(`Drivetrain: ${cfg.drivetrain.toUpperCase()}`);
+      if (cfg?.chassis_code) {
+        specFacts.push(`Chassis code ${cfg.chassis_code}`);
+        const chassis = await ctx.db
+          .query("chassis_specs")
+          .withIndex("by_chassis_code", (q) => q.eq("chassis_code", cfg.chassis_code as string))
+          .first();
+        if (chassis) {
+          const c = chassis as {
+            brake_fluid_type?: string;
+            brake_fluid_capacity_oz?: number;
+            lug_nut_torque_ft_lbs?: number;
+            battery_group?: string;
+            battery_type?: string;
+            steering_type?: string;
+            parking_brake_type?: string;
+            wiper_blade_driver_size_in?: number;
+            wiper_blade_passenger_size_in?: number;
+          };
+          if (c.brake_fluid_type) {
+            const cap = c.brake_fluid_capacity_oz != null ? ` · ${c.brake_fluid_capacity_oz} oz` : "";
+            specFacts.push(`Brake fluid ${c.brake_fluid_type}${cap}`);
+          }
+          if (c.lug_nut_torque_ft_lbs != null) {
+            specFacts.push(`Lug-nut torque ${c.lug_nut_torque_ft_lbs} ft-lbs`);
+          }
+          if (c.battery_group) specFacts.push(`Battery group ${c.battery_group}`);
+          if (c.battery_type) specFacts.push(`Battery type ${c.battery_type}`);
+          if (c.steering_type) specFacts.push(`${c.steering_type} steering`);
+          if (c.parking_brake_type) {
+            specFacts.push(`${c.parking_brake_type.replace(/_/g, " ")} parking brake`);
+          }
+          if (c.wiper_blade_driver_size_in != null) {
+            const pass = c.wiper_blade_passenger_size_in != null
+              ? ` / ${c.wiper_blade_passenger_size_in}"`
+              : "";
+            specFacts.push(`Wiper blades ${c.wiper_blade_driver_size_in}"${pass}`);
+          }
+        }
+      }
+    }
+    if (vehicle.trim_id) {
+      const tx = await ctx.db
+        .query("transmissions")
+        .withIndex("by_trim", (q) => q.eq("trim_id", vehicle.trim_id as Id<"trims">))
+        .first();
+      if (tx) {
+        const t = tx as { transmission_type?: string; type?: string; speeds?: number };
+        const kind = t.transmission_type ?? t.type;
+        const speeds = t.speeds != null ? `${t.speeds}-speed ` : "";
+        if (kind) specFacts.push(`${speeds}${kind}`.trim());
       }
     }
 
@@ -2402,22 +2466,44 @@ export const getEnrichmentDetail = query({
       // Tire resolution is best-effort; skip on any lookup miss.
     }
 
-    // ── Parts catalogued: distinct parts fitted to this config. ──────────
+    // ── Parts catalogued: distinct parts fitted to this config. Also pulls a
+    // sample of the actual fitments and joins oem_parts so the ticker can
+    // stream real "Part name · OEM#" lines, not just a count. ─────────────
     let partsCount = 0;
+    const partFacts: string[] = [];
     if (configId) {
       const fitments = await ctx.db
         .query("part_fitments")
         .withIndex("by_vehicle_config", (q) => q.eq("vehicle_config_id", configId))
         .collect();
       partsCount = new Set(fitments.map((f) => String(f.part_id))).size;
+
+      // One line per distinct part (capped so the query stays cheap). Each is
+      // a real OEM part: "Brake Fluid · 00475-1BAA-01".
+      const seen = new Set<string>();
+      const PART_FACT_CAP = 18;
+      for (const f of fitments) {
+        const key = String(f.part_id);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const part = await ctx.db.get(f.part_id);
+        const p = part as { name?: string; oem_part_number?: string } | null;
+        if (p?.name && p.oem_part_number) {
+          partFacts.push(`${p.name} · ${p.oem_part_number}`);
+        } else if (p?.name) {
+          partFacts.push(p.name);
+        }
+        if (partFacts.length >= PART_FACT_CAP) break;
+      }
     }
 
     // One comprehensive stream of REAL facts for the "thinking" ticker —
-    // specs, then tires, then every service interval, then the parts tally.
+    // specs, tires, service intervals, individual parts, then the parts tally.
     const facts: string[] = [
       ...specFacts,
       ...tireFacts,
       ...intervalFacts,
+      ...partFacts,
       ...(partsCount > 0 ? [`${partsCount.toLocaleString()} parts catalogued`] : []),
     ];
 
@@ -2433,7 +2519,7 @@ export const getEnrichmentDetail = query({
       facts,
       specs: { ready: specFacts.length > 0, facts: specFacts },
       intervals: { ready: intervalFacts.length > 0, facts: intervalFacts },
-      parts: { ready: partsCount > 0, count: partsCount },
+      parts: { ready: partsCount > 0, count: partsCount, facts: partFacts },
     };
   },
 });

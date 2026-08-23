@@ -18,7 +18,15 @@ export interface NotificationRow {
   shop_id: Id<"shops"> | null;
   created_at: number;
   status: string;
+  /** null until the user has opened/seen the row (drives read/unread styling). */
+  read_at?: number | null;
   rescheduleExpiresAt?: number | null;
+  /** Muted context line inputs — present on booking- and car-bound rows. */
+  vin?: string | null;
+  vehicleYMMT?: string | null;
+  mileage?: number | null;
+  shopName?: string | null;
+  mechanicName?: string | null;
 }
 
 export function useNotificationsFromConvex() {
@@ -27,7 +35,9 @@ export function useNotificationsFromConvex() {
     | undefined;
   const unreadCount = useQuery(api.notifications.getMyUnreadCount);
   const markReadMutation = useMutation(api.notifications.markNotificationRead);
+  const resolveMutation = useMutation(api.notifications.resolveNotification);
 
+  // Mark a row SEEN — it stays in the feed (styled read) until resolved.
   const markRead = useCallback(
     async (notificationId: Id<"notification_outbox">) => {
       await markReadMutation({ notificationId });
@@ -35,10 +45,19 @@ export function useNotificationsFromConvex() {
     [markReadMutation],
   );
 
+  // Archive a row from the feed (dismiss / done).
+  const resolve = useCallback(
+    async (notificationId: Id<"notification_outbox">) => {
+      await resolveMutation({ notificationId });
+    },
+    [resolveMutation],
+  );
+
   return {
     notifications: notifications ?? [],
     unreadCount: unreadCount ?? 0,
     isLoading: notifications === undefined,
     markRead,
+    resolve,
   };
 }

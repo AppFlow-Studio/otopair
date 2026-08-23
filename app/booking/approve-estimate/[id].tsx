@@ -14,9 +14,12 @@
  * (Alert) — full FeedbackModal pattern is overkill for binary intent.
  */
 
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
+  Image,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -33,6 +36,8 @@ import {
   CreditCard,
   FileCheck,
   FileX,
+  Wallet,
+  X,
 } from "lucide-react-native";
 import {
   PlatformPay,
@@ -51,6 +56,8 @@ import {
   CardShadow,
 } from "@/constants/theme";
 import { useOpenApprovalForBooking } from "@/hooks/useOpenApprovalForBooking";
+import { useConfirmHold } from "@/hooks/useConfirmHold";
+import { PaymentMethodModal } from "@/components/booking/modals/PaymentMethodModal";
 import { useOfflineGuard } from "@/hooks/useOfflineGuard";
 import { useToast } from "@/hooks/useToast";
 import { useBookingActions } from "@/hooks/useBookingActions";
@@ -101,7 +108,14 @@ const SUBTITLE_BY_CYCLE: Record<string, string> = {
  * stale deep link can't render the wrong view.
  */
 export default function ApproveEstimateScreen() {
-  const params = useLocalSearchParams<{ id: string; mode?: string }>();
+  const params = useLocalSearchParams<{
+    id: string;
+    mode?: string;
+    // Set by the merged approve-and-hold flow so a mid-flow flip to
+    // `reauth_required` doesn't yank the customer to the standalone ReauthView
+    // — the approval screen confirms the hold inline instead.
+    inlineHold?: string;
+  }>();
   const bookingId = params.id as Id<"bookings">;
   const booking = useQuery(api.bookings.getById, { id: bookingId });
   const actions = useQuery(api.bookings.getCustomerBookingActions, {
@@ -111,7 +125,9 @@ export default function ApproveEstimateScreen() {
   const liveState = (
     booking as { payment_approval_state?: string } | null | undefined
   )?.payment_approval_state;
-  const isReauth = params.mode === "reauth" || liveState === "reauth_required";
+  const isReauth =
+    params.mode === "reauth" ||
+    (liveState === "reauth_required" && params.inlineHold !== "1");
 
   // Reauth confirms a card hold — a pre-job hold increment, or, post-job, the
   // agreed price when it couldn't be captured on completion. It's the one
@@ -143,7 +159,7 @@ export default function ApproveEstimateScreen() {
     );
   }
 
-  return <ApprovalDecisionView bookingId={bookingId} />;
+  return <ApprovalDecisionView bookingId={bookingId} booking={booking} />;
 }
 
 /** Shared minimal loading scaffold — back affordance + centered spinner copy. */
@@ -297,15 +313,60 @@ function SettlementPendingView({
   );
 }
 
-function ApprovalDecisionView({ bookingId }: { bookingId: Id<"bookings"> }) {
+function ApprovalDecisionView({
+  bookingId,
+  booking,
+}: {
+  bookingId: Id<"bookings">;
+  booking: any;
+}) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { approval, isLoading } = useOpenApprovalForBooking(bookingId);
   const applyDecision = useMutation(api.booking_approvals.applyApprovalDecision);
-  const toast = useToast();
-  const [submitting, setSubmitting] = useState<"approved" | "declined" | null>(
-    null,
+  const approveAndAuthorizeHold = useAction(
+    api.payments_stripe.approveAndAuthorizeHold,
   );
+  const { handleNextAction } = useStripe();
+  const toast = useToast();
+  // `submitting` now only tracks the decline path; accept is driven by `phase`.
+  const [submitting, setSubmitting] = useState<"declined" | null>(null);
+
+  // Merged accept flow. Tapping "Accept & update hold" records the approval AND
+  // places the new hold on the customer's chosen method in one on-session call
+  // (`approveAndAuthorizeHold`) — no bounce to a separate reauth screen, and the
+  // picked method (switched card / Apple Pay / Google Pay) is always the one
+  // authorized. `useConfirmHold` resolves + mints that method.
+  const {
+    resolvePaymentMethod,
+    methodKind,
+    methodLabel,
+    canConfirm,
+    originLoading,
+    applePaySupported,
+    googlePaySupported,
+  } = useConfirmHold(bookingId, booking);
+  // Picker (Apple Pay / Google Pay / saved cards / add card). Choosing a wallet
+  // sets `walletIntent` in the store, which `useConfirmHold` honors.
+  const [pickerVisible, setPickerVisible] = useState(false);
+  // Full-screen viewer for a tapped mechanic scope photo (null = closed).
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+  const setWalletIntent = usePaymentStore((s) => s.setWalletIntent);
+  // Start from the booking's own payment method and don't leak the wallet
+  // choice made here into other flows: clear any stale intent on entry, and
+  // this screen's intent on exit.
+  useEffect(() => {
+    setWalletIntent(null);
+    return () => setWalletIntent(null);
+  }, [setWalletIntent]);
+  const [phase, setPhase] = useState<"review" | "processing">("review");
+  // Amount snapshotted at accept time — the open approval clears the moment
+  // it's decided, so the processing view can't read it back off `approval`.
+  const [acceptedCents, setAcceptedCents] = useState<number>(0);
+
+  const isDeclining = submitting === "declined";
+  const isProcessing = phase === "processing";
+  const busy = isDeclining || isProcessing;
 
   const breakdown = useMemo(() => {
     if (!approval) return null;
@@ -354,35 +415,122 @@ function ApprovalDecisionView({ bookingId }: { bookingId: Id<"bookings"> }) {
       }>
     | undefined;
 
-  const handleApprove = async () => {
-    if (submitting) return;
-    setSubmitting("approved");
-    try {
-      await applyDecision({ bookingId, decision: "approved" });
-      toast.success("Estimate approved", undefined, { icon: FileCheck });
-      router.back();
-    } catch (err: any) {
-      Alert.alert("Could not approve", err?.message ?? "Try again in a moment.");
-    } finally {
-      setSubmitting(null);
-    }
-  };
+  const handleAccept = useCallback(
+    async (amountCents: number, postJob: boolean) => {
+      if (busy) return;
+      setAcceptedCents(amountCents);
+      setPhase("processing");
+
+      // Post-job is a final capture, not a hold — keep the existing path, which
+      // records the approval and lets the server finalize + charge.
+      if (postJob) {
+        try {
+          await applyDecision({ bookingId, decision: "approved" });
+          toast.success("Estimate approved", undefined, { icon: FileCheck });
+          router.back();
+        } catch (err: any) {
+          setPhase("review");
+          Alert.alert(
+            "Could not approve",
+            err?.message ?? "Try again in a moment.",
+          );
+        }
+        return;
+      }
+
+      // Pre/mid-job: approve AND place the hold on the chosen method in one
+      // on-session call.
+      if (!canConfirm) {
+        setPhase("review");
+        Alert.alert(
+          "Choose a payment method",
+          "Tap 'Change' to pick Apple Pay, Google Pay, or a card first.",
+        );
+        return;
+      }
+      // Keep the dispatcher from swapping in the standalone ReauthView while the
+      // booking is briefly `reauth_required` mid-authorization.
+      router.setParams({ inlineHold: "1" });
+      try {
+        const resolved = await resolvePaymentMethod();
+        if (resolved === "cancelled") {
+          setPhase("review");
+          return;
+        }
+        const pi = await approveAndAuthorizeHold({
+          bookingId,
+          paymentMethodId: resolved.paymentMethodId,
+          paymentOrigin: resolved.paymentOrigin,
+        });
+        if (pi.requiresAction) {
+          const { error } = await handleNextAction(pi.clientSecret);
+          if (error) {
+            throw new Error(error.message ?? "Card authorization failed.");
+          }
+          // 3DS done. The `amount_capturable_updated` webhook clears the state.
+        } else if (
+          pi.status !== "requires_capture" &&
+          pi.status !== "succeeded" &&
+          pi.status !== "processing"
+        ) {
+          throw new Error(`Card authorization failed (status: ${pi.status}).`);
+        }
+        toast.success("Estimate approved", undefined, { icon: FileCheck });
+        router.back();
+      } catch (err: any) {
+        // The estimate IS approved; only the hold failed. Hand off to the reauth
+        // screen (retry / change card / cancel) rather than stranding them.
+        Alert.alert(
+          "Couldn't confirm the hold",
+          err?.message ?? "You can try again on the next screen.",
+        );
+        router.setParams({ mode: "reauth" });
+      }
+    },
+    [
+      busy,
+      canConfirm,
+      applyDecision,
+      approveAndAuthorizeHold,
+      resolvePaymentMethod,
+      handleNextAction,
+      bookingId,
+      router,
+      toast,
+    ],
+  );
+
+  const handleChangePaymentMethod = useCallback(() => {
+    if (busy) return;
+    setPickerVisible(true);
+  }, [busy]);
 
   const handleDecline = () => {
-    if (submitting) return;
+    if (busy) return;
+    // Mid-job is an *added scope* confirmation: declining reverts only the
+    // extra lines (`revertDeclinedMidJobWork`) — the mechanic keeps working on
+    // what was already approved and the added work is never charged. No vehicle
+    // return / inspection deposit (that's the pre-job "can't proceed" case).
+    const isMidJob = approval?.cycle === "mid_job";
     Alert.alert(
-      "Decline updated estimate?",
-      "Your mechanic will be notified and your vehicle will be returned to you. A $20 deposit will be captured to cover the inspection time.",
+      isMidJob ? "Decline the added work?" : "Decline updated estimate?",
+      isMidJob
+        ? "Your mechanic will keep going on the work you already approved — the added work just won't be included, and you won't be charged for it."
+        : "Your mechanic will be notified and your vehicle will be returned to you. A $20 deposit will be captured to cover the inspection time.",
       [
         { text: "Keep reviewing", style: "cancel" },
         {
-          text: "Decline",
+          text: isMidJob ? "Decline added work" : "Decline",
           style: "destructive",
           onPress: async () => {
             setSubmitting("declined");
             try {
               await applyDecision({ bookingId, decision: "declined" });
-              toast.info("Estimate declined", undefined, { icon: FileX });
+              toast.info(
+                isMidJob ? "Added work declined" : "Estimate declined",
+                undefined,
+                { icon: FileX },
+              );
               router.back();
             } catch (err: any) {
               Alert.alert(
@@ -397,6 +545,28 @@ function ApprovalDecisionView({ bookingId }: { bookingId: Id<"bookings"> }) {
       ],
     );
   };
+
+  // Accepted — confirming the hold. The open approval clears the instant it's
+  // decided, so we render this from `phase` (not `approval`) and keep the
+  // customer here while the hold (and any 3DS sheet) resolves. No back
+  // affordance: dropping out mid-authorization is what the reauth fallback and
+  // its push are for, not an accidental swipe.
+  if (isProcessing) {
+    return (
+      <View style={[styles.root, { paddingTop: insets.top + Spacing.lg }]}>
+        <View style={styles.center}>
+          <ActivityIndicator size="large" color={BrandColors.secondary} />
+          <Text weight="semiBold" style={styles.processingTitle}>
+            Authorizing your hold…
+          </Text>
+          <Text style={styles.processingSub}>
+            Confirming {formatUsd(acceptedCents)} with your bank. You may be
+            asked to verify.
+          </Text>
+        </View>
+      </View>
+    );
+  }
 
   if (isLoading || !approval || !breakdown) {
     return (
@@ -416,9 +586,15 @@ function ApprovalDecisionView({ bookingId }: { bookingId: Id<"bookings"> }) {
 
   const header = HEADER_BY_CYCLE[approval.cycle] ?? "Estimate update";
   const subtitle = SUBTITLE_BY_CYCLE[approval.cycle] ?? "";
+  const scopePhotos = approval.scope_photos ?? [];
   const rangeLow = approval.disclosed_range_low_cents ?? 0;
   const rangeHigh = approval.disclosed_range_high_cents ?? 0;
   const deltaCents = approval.mechanic_set_price_cents - rangeHigh;
+  // Post-job is the final breakdown: the card is charged, not held. Pre/mid-job
+  // raise a hold. Copy on the payment card + accept button reflects which.
+  const isPostJob = approval.cycle === "post_job";
+  const isWalletMethod =
+    methodKind === "apple_pay" || methodKind === "google_pay";
 
   return (
     <View style={[styles.root, { paddingTop: insets.top + Spacing.lg }]}>
@@ -430,7 +606,9 @@ function ApprovalDecisionView({ bookingId }: { bookingId: Id<"bookings"> }) {
       <ScrollView
         contentContainerStyle={{
           paddingHorizontal: Spacing.lg,
-          paddingBottom: 160 + insets.bottom,
+          // Just clears the floating button so "Decline this update" comes to
+          // rest right above it at max scroll.
+          paddingBottom: 78 + insets.bottom,
         }}
         showsVerticalScrollIndicator={false}
       >
@@ -595,6 +773,37 @@ function ApprovalDecisionView({ bookingId }: { bookingId: Id<"bookings"> }) {
             </View>
           ) : null}
 
+          {/* Mechanic's justification photos — the visual half of "why the
+              change", so they sit with the reason text and above the price
+              breakdown (see why before how much). */}
+          {scopePhotos.length > 0 ? (
+            <View style={styles.scopePhotos}>
+              <Text weight="semiBold" style={styles.scopePhotosLabel}>
+                Photos from your mechanic
+              </Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.scopePhotoStrip}
+              >
+                {scopePhotos.map((p) => (
+                  <Pressable
+                    key={p.storage_id}
+                    onPress={() => setLightboxUrl(p.url)}
+                    accessibilityRole="imagebutton"
+                    accessibilityLabel="View mechanic photo"
+                  >
+                    <Image
+                      source={{ uri: p.url }}
+                      style={styles.scopeThumb}
+                      resizeMode="cover"
+                    />
+                  </Pressable>
+                ))}
+              </ScrollView>
+            </View>
+          ) : null}
+
           <View style={styles.cardDivider} />
 
           <View style={styles.totalsBlock}>
@@ -644,57 +853,161 @@ function ApprovalDecisionView({ bookingId }: { bookingId: Id<"bookings"> }) {
           </View>
         </View>
 
-        <View style={styles.infoBanner}>
-          <ShieldCheck
-            size={18}
-            color={SemanticColors.primaryBlue}
-            style={{ marginTop: 1 }}
-          />
-          <Text style={styles.infoText}>
-            Approving raises the hold on your card to{" "}
-            {formatUsd(approval.mechanic_set_price_cents)}. You&apos;re only charged
-            when the work is complete.
+        <View style={styles.card}>
+          <Text weight="semiBold" style={styles.sectionLabel}>
+            Payment
           </Text>
-        </View>
-      </ScrollView>
 
-      <View style={[styles.footer, { paddingBottom: insets.bottom + Spacing.md }]}>
-        <Pressable
-          onPress={handleDecline}
-          disabled={submitting !== null}
-          style={[styles.btn, styles.btnDecline, submitting && { opacity: 0.5 }]}
-        >
-          <Text weight="semiBold" style={styles.btnDeclineText}>
-            {submitting === "declined" ? "Declining…" : "Decline"}
-          </Text>
-        </Pressable>
-        <Pressable
-          onPress={handleApprove}
-          disabled={submitting !== null}
-          style={[styles.btn, styles.btnApprove, submitting && { opacity: 0.7 }]}
-        >
-          {submitting === "approved" ? (
-            <Text weight="semiBold" style={styles.btnApproveText}>
-              Approving…
+          <View style={styles.payRow}>
+            <Text style={styles.payRowLabel}>
+              {isPostJob ? "Final total" : "New hold on your card"}
             </Text>
-          ) : (
-            <View style={styles.btnApproveStack}>
-              <Text weight="semiBold" style={styles.btnApproveLabel}>
-                Approve
-              </Text>
-              <Text
-                weight="bold"
-                style={styles.btnApproveAmount}
-                numberOfLines={1}
-                adjustsFontSizeToFit
-                minimumFontScale={0.7}
-              >
-                {formatUsd(approval.mechanic_set_price_cents)}
+            <Text weight="semiBold" style={styles.payRowValue}>
+              {formatUsd(approval.mechanic_set_price_cents)}
+            </Text>
+          </View>
+
+          <View style={[styles.payRow, styles.payRowBorder]}>
+            <View style={styles.payCardLeft}>
+              {isWalletMethod ? (
+                <Wallet size={18} color={SemanticColors.textMuted} />
+              ) : (
+                <CreditCard size={18} color={SemanticColors.textMuted} />
+              )}
+              <Text style={styles.payCardLabel} numberOfLines={1}>
+                {methodLabel}
               </Text>
             </View>
-          )}
+            {!isPostJob && (
+              <Pressable
+                onPress={handleChangePaymentMethod}
+                disabled={busy}
+                hitSlop={8}
+              >
+                <Text weight="semiBold" style={styles.changeCardLink}>
+                  Change
+                </Text>
+              </Pressable>
+            )}
+          </View>
+
+          <View style={[styles.infoBanner, { marginTop: Spacing.md }]}>
+            <ShieldCheck
+              size={18}
+              color={SemanticColors.primaryBlue}
+              style={{ marginTop: 1 }}
+            />
+            <Text style={styles.infoText}>
+              {isPostJob
+                ? "Your card will be charged for the completed work."
+                : "This is a hold, not a charge — you’re only charged when the work is complete."}
+            </Text>
+          </View>
+        </View>
+
+        {/* Decline lives at the very bottom, beneath the payment card, as a
+            quiet text link — accepting is the primary path, declining is the
+            deliberate exception. */}
+        <Pressable
+          onPress={handleDecline}
+          disabled={busy}
+          hitSlop={8}
+          style={[styles.declineLinkWrap, busy && { opacity: 0.5 }]}
+        >
+          <Text weight="semiBold" style={styles.declineLinkText}>
+            {isDeclining ? "Declining…" : "Decline this update"}
+          </Text>
+        </Pressable>
+      </ScrollView>
+
+      <View
+        style={[
+          styles.footer,
+          styles.footerStack,
+          styles.footerTransparent,
+          { paddingBottom: insets.bottom + Spacing.md },
+        ]}
+      >
+        <Pressable
+          onPress={() =>
+            handleAccept(approval.mechanic_set_price_cents, isPostJob)
+          }
+          disabled={busy || (!isPostJob && originLoading)}
+          style={[
+            styles.btn,
+            styles.btnApprove,
+            styles.btnFull,
+            (busy || (!isPostJob && originLoading)) && { opacity: 0.7 },
+          ]}
+        >
+          <View style={styles.btnApproveRow}>
+            <Text
+              weight="semiBold"
+              style={styles.btnApproveLabelInline}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.8}
+            >
+              {isPostJob ? "Accept & pay" : "Accept & update hold"}
+            </Text>
+            <View style={styles.btnApproveDivider} />
+            <Text
+              weight="bold"
+              style={styles.btnApproveAmountInline}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.7}
+            >
+              {formatUsd(approval.mechanic_set_price_cents)}
+            </Text>
+          </View>
         </Pressable>
       </View>
+
+      <PaymentMethodModal
+        visible={pickerVisible}
+        onClose={() => setPickerVisible(false)}
+        totalAmount={approval.mechanic_set_price_cents / 100}
+        serviceSummary={isPostJob ? "Final payment" : "Secure hold"}
+        mechanicName="OtoPair"
+        applePaySupported={applePaySupported}
+        googlePaySupported={googlePaySupported}
+        onAddCard={() => router.push({ pathname: "/add-payment" } as any)}
+      />
+
+      {/* Full-screen scope-photo viewer. Tap the backdrop or the close button
+          to dismiss. Single image — the strip is short (≤4). */}
+      <Modal
+        visible={lightboxUrl !== null}
+        transparent
+        statusBarTranslucent
+        animationType="fade"
+        onRequestClose={() => setLightboxUrl(null)}
+      >
+        <Pressable
+          style={styles.lightboxBackdrop}
+          onPress={() => setLightboxUrl(null)}
+        >
+          {lightboxUrl ? (
+            <Image
+              source={{ uri: lightboxUrl }}
+              style={styles.lightboxImage}
+              resizeMode="contain"
+            />
+          ) : null}
+          <View style={[styles.lightboxTopBar, { top: insets.top + Spacing.md }]}>
+            <Pressable
+              onPress={() => setLightboxUrl(null)}
+              hitSlop={10}
+              accessibilityRole="button"
+              accessibilityLabel="Close photo"
+              style={styles.lightboxClose}
+            >
+              <X size={20} color="#FFFFFF" strokeWidth={2.5} />
+            </Pressable>
+          </View>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -1409,6 +1722,43 @@ const styles = StyleSheet.create({
     fontStyle: "italic",
   },
 
+  // ── Mechanic scope photos ─────────────────────────────────────────────
+  scopePhotos: { marginTop: Spacing.lg },
+  scopePhotosLabel: {
+    fontSize: 13,
+    color: SemanticColors.textMuted,
+    marginBottom: Spacing.sm,
+  },
+  scopePhotoStrip: { gap: Spacing.sm, paddingRight: Spacing.sm },
+  scopeThumb: {
+    width: 96,
+    height: 96,
+    borderRadius: 14,
+    backgroundColor: "#F3F4F6",
+  },
+  lightboxBackdrop: {
+    flex: 1,
+    backgroundColor: "#000000",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  lightboxImage: { width: "100%", height: "100%" },
+  lightboxTopBar: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    paddingHorizontal: Spacing.lg,
+    alignItems: "flex-end",
+  },
+  lightboxClose: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(0,0,0,0.45)",
+  },
+
   // ── What the mechanic added mid-job ───────────────────────────────────
   addedRow: {
     paddingTop: Spacing.md,
@@ -1509,6 +1859,46 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
 
+  // ── Payment (merged hold) ─────────────────────────────────────────────
+  payRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: Spacing.sm,
+  },
+  payRowBorder: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: SemanticColors.border,
+    marginTop: Spacing.xs,
+  },
+  payRowLabel: { color: SemanticColors.textSecondary, fontSize: 14 },
+  payRowValue: { color: BrandColors.primary, fontSize: 15 },
+  payCardLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    flex: 1,
+    marginRight: Spacing.md,
+  },
+  payCardLabel: { color: BrandColors.primary, fontSize: 14, flexShrink: 1 },
+  changeCardLink: { color: SemanticColors.primaryBlue, fontSize: 14 },
+
+  // ── Authorizing (accept in flight) ────────────────────────────────────
+  processingTitle: {
+    fontSize: 18,
+    color: BrandColors.primary,
+    marginTop: Spacing.lg,
+    letterSpacing: -0.2,
+  },
+  processingSub: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: SemanticColors.textMuted,
+    textAlign: "center",
+    marginTop: Spacing.sm,
+    paddingHorizontal: Spacing.xl,
+  },
+
   // ── Footer + buttons ──────────────────────────────────────────────────
   footer: {
     position: "absolute",
@@ -1523,6 +1913,12 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: SemanticColors.border,
   },
+  // ApprovalDecisionView floats a single button over the canvas — no white bar
+  // or divider behind it (matches the Review & Pay accept treatment).
+  footerTransparent: {
+    backgroundColor: "transparent",
+    borderTopWidth: 0,
+  },
   btn: {
     flex: 1,
     borderRadius: 16,
@@ -1530,8 +1926,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  btnDecline: { backgroundColor: "#F2F2F7" },
-  btnDeclineText: { color: BrandColors.primary, fontSize: 16 },
   btnApprove: { backgroundColor: BrandColors.secondary, flex: 1.5 },
   btnApproveText: { color: "#FFFFFF", fontSize: 16 },
   btnApproveStack: {
@@ -1542,6 +1936,36 @@ const styles = StyleSheet.create({
   },
   btnApproveLabel: { color: "#FFFFFF", fontSize: 12, opacity: 0.9 },
   btnApproveAmount: { color: "#FFFFFF", fontSize: 18 },
+  // Single-bar accept: "Accept & update hold │ $495.74" laid out inline with a
+  // hairline divider between label and price (Review & Pay grammar).
+  btnApproveRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: Spacing.md,
+    paddingHorizontal: Spacing.sm,
+  },
+  btnApproveDivider: {
+    width: StyleSheet.hairlineWidth,
+    alignSelf: "stretch",
+    marginVertical: 2,
+    backgroundColor: "rgba(255,255,255,0.45)",
+  },
+  btnApproveLabelInline: { color: "#FFFFFF", fontSize: 16, flexShrink: 1 },
+  btnApproveAmountInline: { color: "#FFFFFF", fontSize: 16 },
+  // Decline demoted to a quiet blue link at the foot of the scroll content.
+  declineLinkWrap: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingTop: Spacing.lg,
+    paddingBottom: Spacing.sm,
+    marginTop: Spacing.xs,
+  },
+  declineLinkText: {
+    color: SemanticColors.primaryBlue,
+    fontSize: 15,
+    textDecorationLine: "underline",
+  },
   // ── Reauth footer additions ───────────────────────────────────────────
   footerStack: { flexDirection: "column", gap: Spacing.sm },
   btnFull: { width: "100%", flex: 0 },
