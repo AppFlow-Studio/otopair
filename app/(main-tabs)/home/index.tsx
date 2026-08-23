@@ -467,41 +467,25 @@ export default function HomeScreen() {
     useShallow((s) => ({ selectedServiceIds: s.selectedServiceIds, availableServices: s.availableServices }))
   );
 
-  // Upcoming appointment: next future booking that's pending or confirmed.
+  // The hero headlines ACTIVE jobs only: the car is at the shop or mid-service.
+  // Future bookings deliberately do NOT appear here — they live in the Bookings
+  // tab. `upcomingBooking` keeps its name (it is read in ~12 places downstream)
+  // but now means "the active job", never a scheduled one.
   //
-  // `today` MUST be built from the user's LOCAL timezone, not UTC.
-  // bookings.scheduled_date is stored as a local "YYYY-MM-DD" string
-  // (no timezone), so comparing it against `new Date().toISOString()`
-  // (UTC) was off-by-one in evenings west of UTC: e.g. 11pm in NY
-  // (UTC-5) is already 4am the next day UTC, so a booking scheduled
-  // for "today in NY" failed the `>= today` check and the card
-  // randomly disappeared. The bug surfaced only at certain hours,
-  // matching Ahmad's "sometimes doesn't show" report.
+  // Dropping the upcoming case also retires the local-vs-UTC `today` compare
+  // this used to need: scheduled_date was a local "YYYY-MM-DD" and comparing it
+  // against a UTC date was off-by-one in evenings west of UTC, which is what
+  // made the card randomly disappear at certain hours. Active jobs qualify on
+  // status alone, so there is no date comparison left to get wrong.
   const upcomingBooking = useMemo(() => {
     if (!allBookings) return null;
-    const now = new Date();
-    const yyyy = now.getFullYear();
-    const mm = String(now.getMonth() + 1).padStart(2, "0");
-    const dd = String(now.getDate()).padStart(2, "0");
-    const today = `${yyyy}-${mm}-${dd}`;
-    // Active jobs (car at the shop / mid-service) always headline the hero,
-    // regardless of scheduled_date — an in-progress job past its booked day
-    // should still show. Upcoming jobs qualify only from today forward.
     const isActive = (b: any) =>
       b.status === 'in_progress' || b.status === 'vehicle_at_shop';
-    const isUpcoming = (b: any) =>
-      (b.status === 'pending' ||
-        b.status === 'confirmed' ||
-        b.status === 'pending_shop_acceptance') &&
-      b.scheduled_date >= today;
-    // Which single job headlines the hero when several are live at once. Lower
-    // rank shows first: a car actively in service outranks one merely checked
-    // in, which outranks a future booking. (Refine here if "ready for pickup"
-    // should jump the queue over "in service".)
-    const heroRank = (b: any) =>
-      b.status === 'in_progress' ? 0 : b.status === 'vehicle_at_shop' ? 1 : 2;
+    // Which single job headlines when several are live: a car actively in
+    // service outranks one merely checked in.
+    const heroRank = (b: any) => (b.status === 'in_progress' ? 0 : 1);
     return allBookings
-      .filter((b: any) => isActive(b) || isUpcoming(b))
+      .filter(isActive)
       // Highest-priority state first, then soonest scheduled within a state.
       .sort((a: any, b: any) => {
         const rankDelta = heroRank(a) - heroRank(b);
