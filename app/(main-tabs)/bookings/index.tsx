@@ -16,7 +16,10 @@
  *
  * OWNER: Waleed Mansour
  */
+import { Bell } from "lucide-react-native";
 import { ProfileInitialsButton } from "@/components/home/ProfileInitialsButton";
+import { useNotificationsSheetStore } from "@/stores/useNotificationsSheetStore";
+import { useNotificationsFromConvex } from "@/hooks/useNotificationsFromConvex";
 import { BookingCard, type Booking } from "@/components/bookings/BookingCard";
 import { PendingQuoteCard } from "@/components/bookings/PendingQuoteCard";
 import { QuoteListSheet, type QuoteListSheetRef } from "@/components/bookings/QuoteListSheet";
@@ -186,6 +189,14 @@ export default function BookingsScreen() {
   // `tire_quote_*` id format; real
   // Convex ids are base32 and never start with that prefix.
   const cancelLocalBooking = useBookingStore((s) => s.cancelBooking);
+  // Notifications bell. The sheet is global; Bookings only needs a trigger.
+  // It lives here as well as on Home because pickup-request responses land in
+  // the outbox while the customer is sitting on this screen watching the card
+  // — without a bell here the notification is written and never seen.
+  const openNotificationsSheet = useNotificationsSheetStore((s) => s.open);
+  const { unreadCount: notificationsUnreadCount } = useNotificationsFromConvex();
+  const hasUnreadNotifications = notificationsUnreadCount > 0;
+
   const toast = useToast();
   const cancelConvexBooking = useMutationWithToast(api.bookings.cancelBooking, {
     success: ({ result }) => ({
@@ -402,7 +413,18 @@ export default function BookingsScreen() {
                   My Bookings
                 </Text>
               </View>
-              <View style={styles.headerSide} />
+              <View style={styles.headerSide}>
+                <Pressable
+                  onPress={openNotificationsSheet}
+                  style={({ pressed }) => [styles.bellChip, pressed && { opacity: 0.6 }]}
+                  accessibilityRole="button"
+                  accessibilityLabel="Notifications"
+                  hitSlop={8}
+                >
+                  <Bell size={20} color="#FFFFFF" strokeWidth={2} />
+                  {hasUnreadNotifications ? <View style={styles.bellDot} /> : null}
+                </Pressable>
+              </View>
             </View>
 
             {/* Tab Switcher */}
@@ -687,6 +709,23 @@ const styles = StyleSheet.create({
   },
   headerSide: {
     width: 40,
+  },
+  bellChip: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.16)",
+  },
+  bellDot: {
+    position: "absolute",
+    top: 9,
+    right: 10,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#EF4444",
   },
   headerCenter: {
     flex: 1,
