@@ -874,6 +874,64 @@ export const respondToPickupRequest = mutation({
 });
 
 /**
+ * QUERY: getPendingPickupRequests
+ * Bookings at THIS shop where the customer has tapped "request pickup" and
+ * no shop-side answer has landed yet (or the customer re-requested after a
+ * stale response). Powers the web dashboard alert card. Reactive — pings the
+ * mechanic surface as soon as a fresh request lands.
+ *
+ * Response shape is tuned for the alert-card UX: enough to render the row
+ * without a second round-trip (vehicle label, customer name, minutes since
+ * requested), and the booking id so the Ack / Bringing out / Decline
+ * buttons can call `respondToPickupRequest` in place.
+ */
+export const getPendingPickupRequests = query({
+  args: {},
+  handler: async (ctx) => {
+    const user = await getCurrentUserOrNull(ctx);
+    if (!user) return [];
+    const primary = await getPrimaryAuthorizedShop(ctx, user._id);
+    if (!primary) return [];
+
+    const atShop = await ctx.db
+      .query("bookings")
+      .withIndex("by_status", (q: any) => q.eq("status", "vehicle_at_shop"))
+      .collect();
+
+    const forShop = atShop.filter(
+      (b: any) =>
+        String(b.shop_id) === String(primary.shopId) && b.cancel_requested_at_ms,
+    );
+
+    return await Promise.all(
+      forShop.map(async (b: any) => {
+        const customer = b.user_id ? await ctx.db.get(b.user_id) : null;
+        const vehicle = b.vin ? await resolveVehicleLabel(ctx, b.vin) : null;
+        const mechanic = b.mechanic_id ? await ctx.db.get(b.mechanic_id) : null;
+        return {
+          _id: b._id,
+          bookingId: b._id,
+          customerName: customer ? formatCustomerName(customer) : null,
+          vehicle: vehicle?.short ?? vehicle?.full ?? null,
+          mechanicName: mechanic
+            ? `${(mechanic as any).first_name ?? ""} ${(mechanic as any).last_name ?? ""}`.trim() ||
+              null
+            : null,
+          requestedAtMs: b.cancel_requested_at_ms as number,
+          requestReason: b.cancel_request_reason ?? null,
+          pickupResponse: (b.pickup_response ?? null) as
+            | "acknowledged"
+            | "bringing_out"
+            | "declined"
+            | null,
+          pickupRespondedAtMs: b.pickup_responded_at_ms ?? null,
+        };
+      }),
+    );
+  },
+});
+
+/**
  * Single source of truth for what the customer may do to a booking right now
  * and what it would cost. The app renders Cancel/Reschedule buttons + fee
  * disclosure straight off this — so UI gating and server enforcement can never
@@ -16740,6 +16798,22 @@ export const getReceipt = query({
     if (!user || user._id !== booking.user_id) return null;
 
     const jobActual = await getLatestJobActualForBooking(ctx, booking._id);
+    // Photos the mechanic attached while the job was open. Storage ids are
+    // useless to the client, so they resolve to signed URLs here — same shape
+    // and resolution as getJobDetail's inProgressPhotos. Entries whose file
+    // has since been deleted are dropped rather than rendered broken.
+    const mechanicPhotos = jobActual?.in_progress_photos
+      ? (
+          await Promise.all(
+            jobActual.in_progress_photos.map(async (photo: any) => ({
+              storageId: photo.storage_id,
+              caption: photo.caption ?? null,
+              takenAt: photo.taken_at,
+              url: await ctx.storage.getUrl(photo.storage_id),
+            })),
+          )
+        ).filter((entry) => entry.url !== null)
+      : [];
     const payment = await ctx.db
       .query("payments")
       .withIndex("by_booking_id", (q) => q.eq("booking_id", booking._id))
@@ -17048,6 +17122,7 @@ export const getReceipt = query({
       service_notes: {
         customer_concern: booking.customer_notes ?? "",
         mechanic_findings: jobActual?.mechanic_findings ?? "",
+        mechanic_photos: mechanicPhotos,
       },
       adjustments,
       line_items: [...serviceLines, ...partLines] as Array<
