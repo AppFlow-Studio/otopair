@@ -16740,6 +16740,22 @@ export const getReceipt = query({
     if (!user || user._id !== booking.user_id) return null;
 
     const jobActual = await getLatestJobActualForBooking(ctx, booking._id);
+    // Photos the mechanic attached while the job was open. Storage ids are
+    // useless to the client, so they resolve to signed URLs here — same shape
+    // and resolution as getJobDetail's inProgressPhotos. Entries whose file
+    // has since been deleted are dropped rather than rendered broken.
+    const mechanicPhotos = jobActual?.in_progress_photos
+      ? (
+          await Promise.all(
+            jobActual.in_progress_photos.map(async (photo: any) => ({
+              storageId: photo.storage_id,
+              caption: photo.caption ?? null,
+              takenAt: photo.taken_at,
+              url: await ctx.storage.getUrl(photo.storage_id),
+            })),
+          )
+        ).filter((entry) => entry.url !== null)
+      : [];
     const payment = await ctx.db
       .query("payments")
       .withIndex("by_booking_id", (q) => q.eq("booking_id", booking._id))
@@ -17048,6 +17064,7 @@ export const getReceipt = query({
       service_notes: {
         customer_concern: booking.customer_notes ?? "",
         mechanic_findings: jobActual?.mechanic_findings ?? "",
+        mechanic_photos: mechanicPhotos,
       },
       adjustments,
       line_items: [...serviceLines, ...partLines] as Array<

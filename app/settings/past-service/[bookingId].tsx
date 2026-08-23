@@ -179,6 +179,10 @@ export default function PastServiceDetailScreen() {
   // "For the customer — what did you find or do?" step. Null when they left it
   // blank, and the section below hides itself entirely.
   const findings = receiptData?.service_notes?.mechanic_findings?.trim() || null;
+  // Photos the mechanic attached while the job was open. Resolved to signed
+  // URLs server-side; entries whose file is gone are already filtered out
+  // there, so anything that arrives here is renderable.
+  const mechanicPhotos = receiptData?.service_notes?.mechanic_photos ?? [];
   // Per-cycle "why I set/changed this price" notes the mechanic entered on each
   // estimate the customer confirmed. Empty array when there were none.
   const adjustments: Adjustment[] = receiptData?.adjustments ?? [];
@@ -348,14 +352,36 @@ export default function PastServiceDetailScreen() {
 
               {/* ── findings. Omitted entirely when the shop left the field
                      empty — an empty heading reads as a bug. ─────────── */}
-              {findings ? (
+              {findings || mechanicPhotos.length > 0 ? (
                 <>
                   <RNText style={styles.label}>
                     {mechanicFirstName
                       ? `WHAT ${mechanicFirstName.toUpperCase()} FOUND`
                       : "WHAT WE FOUND"}
                   </RNText>
-                  <RNText style={styles.findings}>{findings}</RNText>
+                  {findings ? (
+                    <RNText style={styles.findings}>{findings}</RNText>
+                  ) : null}
+                  {mechanicPhotos.length > 0 ? (
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      // flexGrow:0 or the strip claims the leftover column
+                      // height and the thumbnails float mid-screen.
+                      style={styles.photoStrip}
+                      contentContainerStyle={styles.photoStripContent}
+                    >
+                      {mechanicPhotos.map((photo: any) => (
+                        <Image
+                          key={photo.storageId}
+                          source={{ uri: photo.url }}
+                          style={styles.photo}
+                          resizeMode="cover"
+                          accessibilityLabel={photo.caption ?? "Photo from the mechanic"}
+                        />
+                      ))}
+                    </ScrollView>
+                  ) : null}
                 </>
               ) : null}
 
@@ -646,6 +672,22 @@ const styles = StyleSheet.create({
     color: C.ink,
     paddingHorizontal: G,
     paddingBottom: 22,
+  },
+
+  // ── mechanic's job photos ─────────────────────────────────
+  photoStrip: {
+    flexGrow: 0,
+    paddingBottom: 22,
+  },
+  photoStripContent: {
+    paddingHorizontal: G,
+    gap: 10,
+  },
+  photo: {
+    width: 132,
+    height: 99,
+    borderRadius: 12,
+    backgroundColor: C.hairline,
   },
 
   // ── along the way (per-cycle mechanic notes) ──────────────
