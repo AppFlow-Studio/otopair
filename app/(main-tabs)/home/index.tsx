@@ -217,6 +217,10 @@ const SHEET_SETTLED = '#EAF2FA';
  *  doesn't drift with page length. */
 const SHEET_WASH_HEIGHT = 260;
 
+/** A car dropped off but never started stays at vehicle_at_shop forever.
+ *  Past this many days a drop-off stops headlining the hero. */
+const STALE_DROPOFF_DAYS = 7;
+
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   // Lock `insets.top` to its first-render value for the lifetime of the
@@ -479,8 +483,29 @@ export default function HomeScreen() {
   // status alone, so there is no date comparison left to get wrong.
   const upcomingBooking = useMemo(() => {
     if (!allBookings) return null;
-    const isActive = (b: any) =>
-      b.status === 'in_progress' || b.status === 'vehicle_at_shop';
+    /*
+     * in_progress means a mechanic is actively working — always headline it,
+     * whatever the booked date says.
+     *
+     * vehicle_at_shop only means the car was dropped off; nothing moves it on
+     * if the job is never started, so those rows sit at that status forever.
+     * One on this account has been "at the shop" since June with no
+     * live_stage — 75 days — and it kept taking over the hero. Only headline a
+     * drop-off from the last week; past that it is stale data, not news.
+     *
+     * The cutoff is built from the LOCAL date for the same reason the old
+     * upcoming filter had to be: scheduled_date is a local "YYYY-MM-DD" with
+     * no timezone, so a UTC-derived string is off by one in the evening west
+     * of UTC.
+     */
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - STALE_DROPOFF_DAYS);
+    const cutoffKey = `${cutoff.getFullYear()}-${String(cutoff.getMonth() + 1).padStart(2, '0')}-${String(cutoff.getDate()).padStart(2, '0')}`;
+    const isActive = (b: any) => {
+      if (b.status === 'in_progress') return true;
+      if (b.status !== 'vehicle_at_shop') return false;
+      return typeof b.scheduled_date === 'string' && b.scheduled_date >= cutoffKey;
+    };
     // Which single job headlines when several are live: a car actively in
     // service outranks one merely checked in.
     const heroRank = (b: any) => (b.status === 'in_progress' ? 0 : 1);
