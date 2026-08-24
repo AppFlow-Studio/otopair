@@ -36,7 +36,7 @@ import { haptics } from "@/lib/haptics";
 import { useToast } from "@/hooks/useToast";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { useCanWrite } from "@/hooks/useConnection";
-import { AlignLeft, SquarePen, Ellipsis, Sparkles, History, CarFront, Zap, ChevronDown, Copy, Volume2, Clock, ImageOff, AlertCircle, WifiOff, type LucideIcon } from "lucide-react-native";
+import { AlignLeft, SquarePen, Ellipsis, History, CarFront, Copy, Volume2, Clock, ImageOff, AlertCircle, WifiOff, type LucideIcon } from "lucide-react-native";
 import { MenuView } from "@react-native-menu/menu";
 
 // Liquid Glass (iOS 26+)
@@ -58,7 +58,6 @@ import { ProfileInitialsButton } from "@/components/home/ProfileInitialsButton";
 // 4. Flow-specific components
 import {
   AIGreeting,
-  AIContextBar,
   SymptomTrackerPin,
   AIMessageBubble,
   AIInputBox,
@@ -1148,33 +1147,6 @@ export default function AIChatScreen() {
     [setConversationPinned, showToast],
   );
 
-  // Model selector
-  const [selectedModel, setSelectedModel] = useState<'pro' | 'flash'>('flash');
-
-  // Oto pill expanding menu (LiquidGlass path)
-  const [showOtoMenu, setShowOtoMenu] = useState(false);
-  const menuExpand = useSharedValue(0);
-
-  const toggleOtoMenu = useCallback(() => {
-    const next = !showOtoMenu;
-    setShowOtoMenu(next);
-    menuExpand.value = withTiming(next ? 1 : 0, { duration: 280, easing: Easing.bezier(0.25, 0.1, 0.25, 1) });
-  }, [showOtoMenu, menuExpand]);
-
-  const closeOtoMenu = useCallback(() => {
-    setShowOtoMenu(false);
-    menuExpand.value = withTiming(0, { duration: 220, easing: Easing.bezier(0.25, 0.1, 0.25, 1) });
-    setShowRightMenu(false);
-    rightMenuExpand.value = withTiming(0, { duration: 220, easing: Easing.bezier(0.25, 0.1, 0.25, 1) });
-  }, [menuExpand]);
-
-  const expandedMenuStyle = useAnimatedStyle(() => ({
-    height: menuExpand.value * 155,
-    width: menuExpand.value * 240,
-    opacity: menuExpand.value,
-    overflow: "hidden" as const,
-  }));
-
   // Right pill expanding menu (LiquidGlass path)
   const [showRightMenu, setShowRightMenu] = useState(false);
   const rightMenuExpand = useSharedValue(0);
@@ -1390,8 +1362,8 @@ export default function AIChatScreen() {
       )}
 
       {/* Header — absolutely positioned, floats above scroll */}
-      {(showOtoMenu || showRightMenu) && <Pressable style={styles.otoMenuOverlay} onPress={closeOtoMenu} />}
-      <Animated.View style={[styles.headerFloating, { paddingTop: insets.top }, (showOtoMenu || showRightMenu) && { zIndex: 100 }]}>
+      {showRightMenu && <Pressable style={styles.otoMenuOverlay} onPress={closeRightMenu} />}
+      <Animated.View style={[styles.headerFloating, { paddingTop: insets.top }, showRightMenu && { zIndex: 100 }]}>
         {/* Left: Hamburger + Profile avatar */}
         <View style={styles.headerSide}>
           {isLiquidGlassEnabled && LiquidGlassView ? (
@@ -1411,139 +1383,19 @@ export default function AIChatScreen() {
           <ProfileInitialsButton />
         </View>
 
-        {/* Center: the car in discussion; also the model-selector trigger */}
+        {/* Center: the car in discussion. Display only — deliberately not a
+            button. The Oto Pro / Oto model selector used to live here; it was
+            decorative (selectedModel drove nothing but its own label) so it was
+            removed rather than relocated. */}
         <View style={styles.headerCenter}>
-          {isLiquidGlassEnabled && LiquidGlassView ? (
-            <Pressable onPress={toggleOtoMenu}>
-              <LiquidGlassView
-                interactive
-                effect="regular"
-                style={[styles.glassCenterPill, headerVehicleSource && styles.glassCenterPillVehicle]}
-              >
-                <View style={styles.glassExpandableRow}>
-                  {headerVehicleSource ? (
-                    <Image
-                      source={headerVehicleSource}
-                      style={styles.headerVehicleImage}
-                      contentFit="contain"
-                      transition={0}
-                    />
-                  ) : (
-                    <Text style={styles.glassTitleText} size="md" weight="semiBold">
-                      {selectedModel === 'pro' ? 'Oto Pro' : 'Oto'}
-                    </Text>
-                  )}
-                </View>
-                <Animated.View style={expandedMenuStyle}>
-                  <View style={styles.otoExpandedDivider} />
-                  <Pressable
-                    onPress={() => { setSelectedModel('pro'); closeOtoMenu(); }}
-                    style={({ pressed }) => [styles.modelOptionItem, pressed && { opacity: 0.6 }]}
-                  >
-                    <View style={styles.modelOptionRow}>
-                      <Sparkles size={18} color="#000000" style={{ marginTop: 2 }} />
-                      <View style={styles.modelOptionTextContainer}>
-                        <View style={styles.modelOptionTitleRow}>
-                          <Text size="sm" weight="semiBold" style={styles.otoMenuItemText}>Oto Pro</Text>
-                          {selectedModel === 'pro' && <View style={styles.modelSelectedDot} />}
-                        </View>
-                        <Text size="xs" weight="regular" style={styles.modelOptionDescription}>
-                          Maximum quality and reasoning. Prioritizes depth over speed.
-                        </Text>
-                      </View>
-                    </View>
-                  </Pressable>
-                  <Pressable
-                    onPress={() => { setSelectedModel('flash'); closeOtoMenu(); }}
-                    style={({ pressed }) => [styles.modelOptionItem, pressed && { opacity: 0.6 }]}
-                  >
-                    <View style={styles.modelOptionRow}>
-                      <Zap size={18} color="#000000" style={{ marginTop: 2 }} />
-                      <View style={styles.modelOptionTextContainer}>
-                        <View style={styles.modelOptionTitleRow}>
-                          <Text size="sm" weight="semiBold" style={styles.otoMenuItemText}>Oto Flash</Text>
-                          {selectedModel === 'flash' && <View style={styles.modelSelectedDot} />}
-                        </View>
-                        <Text size="xs" weight="regular" style={styles.modelOptionDescription}>
-                          Fast, everyday responses. Great for quick questions and tasks.
-                        </Text>
-                      </View>
-                    </View>
-                  </Pressable>
-                </Animated.View>
-              </LiquidGlassView>
-            </Pressable>
-          ) : isMenuViewAvailable ? (
-            <MenuView
-              onPressAction={({ nativeEvent }) => {
-                haptics.selection();
-                if (nativeEvent.event === 'pro') setSelectedModel('pro');
-                else if (nativeEvent.event === 'flash') setSelectedModel('flash');
-              }}
-              actions={[
-                {
-                  id: 'pro',
-                  title: 'Oto Pro',
-                  subtitle: 'Maximum quality and reasoning. Prioritizes depth over speed.',
-                  image: 'sparkles',
-                  state: selectedModel === 'pro' ? 'on' : 'off',
-                },
-                {
-                  id: 'flash',
-                  title: 'Oto Flash',
-                  subtitle: 'Fast, everyday responses. Great for quick questions and tasks.',
-                  image: 'bolt.fill',
-                  state: selectedModel === 'flash' ? 'on' : 'off',
-                },
-              ]}
-            >
-              <View style={styles.modelSelectorButton}>
-                <View style={styles.pillContent}>
-                  {headerVehicleSource ? (
-                    <Image
-                      source={headerVehicleSource}
-                      style={styles.headerVehicleImage}
-                      contentFit="contain"
-                      transition={0}
-                    />
-                  ) : (
-                    <>
-                      <Text style={styles.glassTitleText} size="md" weight="semiBold">
-                        {selectedModel === 'pro' ? 'Oto Pro' : 'Oto'}
-                      </Text>
-                      <ChevronDown size={12} color="rgba(0,0,0,0.3)" />
-                    </>
-                  )}
-                </View>
-              </View>
-            </MenuView>
-          ) : (
-            <Pressable
-              onPress={() => {
-                haptics.selection();
-                setSelectedModel((prev) => (prev === 'pro' ? 'flash' : 'pro'));
-              }}
-              style={({ pressed }) => [styles.modelSelectorButton, pressed && styles.headerIconPressed]}
-            >
-              <View style={styles.pillContent}>
-                {headerVehicleSource ? (
-                  <Image
-                      source={headerVehicleSource}
-                      style={styles.headerVehicleImage}
-                      contentFit="contain"
-                      transition={0}
-                    />
-                ) : (
-                  <>
-                    <Text style={styles.glassTitleText} size="md" weight="semiBold">
-                      {selectedModel === 'pro' ? 'Oto Pro' : 'Oto'}
-                    </Text>
-                    <ChevronDown size={12} color="rgba(0,0,0,0.3)" />
-                  </>
-                )}
-              </View>
-            </Pressable>
-          )}
+          {headerVehicleSource ? (
+            <Image
+              source={headerVehicleSource}
+              style={styles.headerVehicleImage}
+              contentFit="contain"
+              transition={0}
+            />
+          ) : null}
         </View>
 
         {/* Right: Compose pill */}
@@ -1611,20 +1463,11 @@ export default function AIChatScreen() {
         </View>
       </Animated.View>
 
-      {/* Context bar — shows selected vehicle during chat */}
-      {!showChatGreeting && selectedVehicle && (
-        <AIContextBar
-          vehicle={selectedVehicle}
-          onChangeVehicle={startNewChat}
-          top={HEADER_HEIGHT + 8}
-        />
-      )}
-
       {/* Issue 2 — pinned unresolved-symptom list ("Tracking: …") */}
       {!showChatGreeting && hasOpenSymptoms && (
         <SymptomTrackerPin
           symptoms={openSymptoms ?? []}
-          top={HEADER_HEIGHT + 8 + (selectedVehicle ? 52 : 0)}
+          top={HEADER_HEIGHT + 8}
         />
       )}
 
@@ -1654,7 +1497,7 @@ export default function AIChatScreen() {
           style={[styles.chatContainer, showChatGreeting && styles.chatContainerGreeting]}
           contentContainerStyle={[
             styles.chatContent,
-            showChatGreeting ? styles.chatContentCentered : { paddingTop: HEADER_HEIGHT + 16 + (selectedVehicle ? 52 : 0) + (hasOpenSymptoms ? 60 : 0), paddingBottom: (keyboardHeight > 0 ? keyboardHeight + keyboardBottomInset + 8 : bottomPadding + 8) + 70 },
+            showChatGreeting ? styles.chatContentCentered : { paddingTop: HEADER_HEIGHT + 16 + (hasOpenSymptoms ? 60 : 0), paddingBottom: (keyboardHeight > 0 ? keyboardHeight + keyboardBottomInset + 8 : bottomPadding + 8) + 70 },
           ]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
@@ -1996,8 +1839,8 @@ const styles = StyleSheet.create({
     alignItems: "flex-end",
   },
   headerVehicleImage: {
-    width: 62,
-    height: 26,
+    width: 72,
+    height: 40,
   },
   headerCenter: {
     flex: 1,
@@ -2033,10 +1876,6 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     paddingHorizontal: 14,
     paddingVertical: 8,
-  },
-  glassCenterPillVehicle: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
   },
   pillContent: {
     flexDirection: "row",
