@@ -39,12 +39,7 @@ import {
   Wallet,
   X,
 } from "lucide-react-native";
-import {
-  PlatformPay,
-  PlatformPayError,
-  useStripe,
-  usePlatformPay,
-} from "@stripe/stripe-react-native";
+import { useStripe } from "@stripe/stripe-react-native";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { Text } from "@/components/shared-ui";
@@ -58,6 +53,7 @@ import {
 import { useOpenApprovalForBooking } from "@/hooks/useOpenApprovalForBooking";
 import { useConfirmHold } from "@/hooks/useConfirmHold";
 import { PaymentMethodModal } from "@/components/booking/modals/PaymentMethodModal";
+import { PaymentMethodBlock } from "@/components/booking/PaymentMethodBlock";
 import { useOfflineGuard } from "@/hooks/useOfflineGuard";
 import { useToast } from "@/hooks/useToast";
 import { useBookingActions } from "@/hooks/useBookingActions";
@@ -1074,7 +1070,6 @@ function ReauthView({
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { handleNextAction } = useStripe();
-  const { createPlatformPayPaymentMethod } = usePlatformPay();
   // Reauth uses a dedicated action (NOT createPaymentIntentForBooking):
   // the public booking action short-circuits when a PI already exists for
   // the booking and just returns it — useless here because the existing
@@ -1082,19 +1077,31 @@ function ReauthView({
   // PI and creates a fresh one at the new approved ceiling, on-session,
   // so Stripe can surface 3DS via `requires_action` for `handleNextAction`.
   const resumeReauth = useAction(api.payments_stripe.resumeReauthFromMobile);
-  const selectedPaymentMethodId = usePaymentStore(
-    (s) => s.selectedPaymentMethodId,
-  );
-  const paymentMethods = usePaymentStore((s) => s.paymentMethods);
-  // Originating payment method (card vs. wallet) for this booking. Wallets
-  // can't silently reauth — we must re-prompt the customer for a fresh
-  // PlatformPay token because the original one-time PM is no longer valid.
-  const paymentOrigin = useQuery(
-    api.payments_stripe.getPaymentOriginForBooking,
-    { bookingId },
-  );
-  const isWalletOrigin =
-    paymentOrigin === "apple_pay" || paymentOrigin === "google_pay";
+
+  // Resolve the method backing the new hold the same way the merged
+  // approve-and-hold screen does: an explicit pick (wallet intent / a selected
+  // saved card) wins over the booking's original origin, then any saved card.
+  // `resolvePaymentMethod` mints (wallet) or resolves (card) the concrete PM to
+  // hand to `resumeReauth`, so picking "Use a different card" actually takes
+  // effect instead of re-authorizing the original method.
+  const {
+    newHoldCents,
+    methodKind,
+    methodLabel,
+    canConfirm,
+    originLoading,
+    applePaySupported,
+    googlePaySupported,
+    resolvePaymentMethod,
+  } = useConfirmHold(bookingId, booking);
+  // Start from the booking's own method and don't leak the wallet choice made
+  // here into other flows: clear any stale intent on entry, and on exit.
+  const setWalletIntent = usePaymentStore((s) => s.setWalletIntent);
+  useEffect(() => {
+    setWalletIntent(null);
+    return () => setWalletIntent(null);
+  }, [setWalletIntent]);
+
   // Itemized breakdown of what makes up the hold — the approved estimate
   // that set the ceiling, or the booking's original quote as fallback.
   // `undefined` = loading, `null` = no source (legacy booking).
@@ -1103,6 +1110,8 @@ function ReauthView({
     { bookingId },
   );
   const [submitting, setSubmitting] = useState(false);
+  // Payment picker (Apple Pay / Google Pay / saved cards / add card).
+  const [pickerVisible, setPickerVisible] = useState(false);
   const toast = useToast();
   // Phase policy — same source of truth as the booking card / details sheet.
   // Drives whether "Cancel booking" shows here and what it does. A completed
@@ -1117,114 +1126,35 @@ function ReauthView({
   const isCompleted = booking?.status === "completed";
 
   const isBookingLoading = booking === undefined;
-  // Prefer the approved ceiling (what backend will re-auth to). Fall back
-  // to mechanic_set_price_cents for older bookings that haven't been
-  // through the new approval cycle yet.
-  const newHoldCents: number =
-    booking?.running_approved_ceiling_cents ??
-    booking?.mechanic_set_price_cents ??
-    0;
   const stillReauth = booking?.payment_approval_state === "reauth_required";
-
-  // Resolve which PM to charge. Prefer the user's current selection
-  // (which `AddPaymentScreen` updates after a save), then default,
-  // then the first saved card.
-  const pmId = useMemo<string | null>(() => {
-    if (selectedPaymentMethodId) return selectedPaymentMethodId;
-    const def = paymentMethods.find((pm) => pm.isDefault);
-    if (def) return def.id;
-    return paymentMethods[0]?.id ?? null;
-  }, [paymentMethods, selectedPaymentMethodId]);
 
   const handleConfirmHold = useCallback(async () => {
     if (submitting) return;
-    let pmIdToCharge: string | null = null;
-    let originForRow: "card" | "apple_pay" | "google_pay" | undefined;
-
-    if (isWalletOrigin) {
-      // Wallet origin → re-present the same wallet sheet to mint a fresh
-      // one-time PM. The original wallet token is invalid for re-use; only
-      // the user's biometric / device auth on a new sheet can produce a
-      // valid PM. iOS shows Apple Pay; Android shows Google Pay.
-      setSubmitting(true);
-      try {
-        const { paymentMethod, error } =
-          paymentOrigin === "apple_pay"
-            ? await createPlatformPayPaymentMethod({
-                applePay: {
-                  cartItems: [
-                    {
-                      paymentType: PlatformPay.PaymentType.Immediate,
-                      label: "OtoPair booking",
-                      amount: ((newHoldCents ?? 0) / 100).toFixed(2),
-                    },
-                  ],
-                  merchantCountryCode: "US",
-                  currencyCode: "USD",
-                },
-              })
-            : await createPlatformPayPaymentMethod({
-                googlePay: {
-                  testEnv: __DEV__,
-                  merchantCountryCode: "US",
-                  currencyCode: "USD",
-                  merchantName: "OtoPair",
-                },
-              });
-        if (error) {
-          if (error.code !== PlatformPayError.Canceled) {
-            Alert.alert(
-              "Couldn't confirm hold",
-              error.message ?? "Wallet authorization failed.",
-            );
-          }
-          setSubmitting(false);
-          return;
-        }
-        if (!paymentMethod) {
-          Alert.alert(
-            "Couldn't confirm hold",
-            "Wallet didn't return a payment method.",
-          );
-          setSubmitting(false);
-          return;
-        }
-        pmIdToCharge = paymentMethod.id;
-        originForRow = paymentOrigin;
-      } catch (err: any) {
-        Alert.alert(
-          "Couldn't confirm hold",
-          err?.message ?? "Wallet authorization failed.",
-        );
+    if (!canConfirm) {
+      Alert.alert(
+        "Choose a payment method",
+        "Tap 'Use a different card' to pick Apple Pay, Google Pay, or a card first.",
+      );
+      return;
+    }
+    setSubmitting(true);
+    try {
+      // Mint (wallet) or resolve (card) the concrete PM. Wallets re-present the
+      // sheet; a cancelled sheet is a soft exit, not an error.
+      const resolved = await resolvePaymentMethod();
+      if (resolved === "cancelled") {
         setSubmitting(false);
         return;
       }
-    } else {
-      // Card origin (or origin not yet recorded — legacy bookings).
-      if (!pmId) {
-        Alert.alert(
-          "Add a card first",
-          "You don't have a saved card. Tap 'Use a different card' to add one.",
-        );
-        return;
-      }
-      pmIdToCharge = pmId;
-      originForRow = "card";
-      setSubmitting(true);
-    }
-
-    try {
       const pi = await resumeReauth({
         bookingId,
-        paymentMethodId: pmIdToCharge!,
-        ...(originForRow ? { paymentOrigin: originForRow } : {}),
+        paymentMethodId: resolved.paymentMethodId,
+        paymentOrigin: resolved.paymentOrigin,
       });
       if (pi.requiresAction) {
         const { error } = await handleNextAction(pi.clientSecret);
         if (error) {
-          throw new Error(
-            error.message ?? "Card authorization failed.",
-          );
+          throw new Error(error.message ?? "Card authorization failed.");
         }
         // 3DS succeeded. The `amount_capturable_updated` webhook in
         // otopair-web/convex/http.ts clears `payment_approval_state` from
@@ -1248,21 +1178,20 @@ function ReauthView({
     }
   }, [
     submitting,
-    pmId,
-    isWalletOrigin,
-    paymentOrigin,
-    newHoldCents,
-    createPlatformPayPaymentMethod,
+    canConfirm,
+    resolvePaymentMethod,
     resumeReauth,
     bookingId,
     handleNextAction,
     router,
   ]);
 
+  // Open the picker (saved cards + wallets + add card) rather than jumping
+  // straight to add-card — so a customer with a saved method can just pick it.
   const handleUseDifferentCard = useCallback(() => {
     if (submitting) return;
-    router.push({ pathname: "/add-payment" } as any);
-  }, [submitting, router]);
+    setPickerVisible(true);
+  }, [submitting]);
 
   const handleCancelBooking = useCallback(() => {
     if (submitting || !bookingActions.canCancel) return;
@@ -1369,7 +1298,9 @@ function ReauthView({
       <ScrollView
         contentContainerStyle={{
           paddingHorizontal: Spacing.lg,
-          paddingBottom: 240 + insets.bottom,
+          // Clears the floating accept bar so the bottom links come to rest
+          // just above it at max scroll.
+          paddingBottom: 96 + insets.bottom,
         }}
         showsVerticalScrollIndicator={false}
       >
@@ -1383,11 +1314,11 @@ function ReauthView({
           <Text style={styles.subtitle}>
             {isCompleted
               ? "Your work is complete, but we couldn't finish charging your card. Confirm below to settle the final amount — you may be asked to authenticate — or use a different card."
-              : isWalletOrigin
-                ? paymentOrigin === "apple_pay"
-                  ? "We couldn't extend the hold on your Apple Pay automatically. Confirm below to re-authorize and keep your booking moving."
-                  : "We couldn't extend the hold on your Google Pay automatically. Confirm below to re-authorize and keep your booking moving."
-                : "Your bank needs to verify the updated hold before work can begin. Confirm below — you may be asked to authenticate — or use a different card."}
+              : methodKind === "apple_pay"
+                ? "We couldn't extend the hold on your Apple Pay automatically. Confirm below to re-authorize and keep your booking moving."
+                : methodKind === "google_pay"
+                  ? "We couldn't extend the hold on your Google Pay automatically. Confirm below to re-authorize and keep your booking moving."
+                  : "Your bank needs to verify the updated hold before work can begin. Confirm below — you may be asked to authenticate — or use a different card."}
           </Text>
         </View>
 
@@ -1512,65 +1443,25 @@ function ReauthView({
             </View>
           </View>
         ) : null}
-      </ScrollView>
+        {/* Which card / wallet backs the hold — reflects the resolved / picked
+            method. Read-only here; changing it lives in the bottom links below,
+            matching "Use a different card". */}
+        <PaymentMethodBlock
+          kind={methodKind === "none" ? "card" : methodKind}
+          label={methodLabel}
+        />
 
-      <View
-        style={[
-          styles.footer,
-          styles.footerStack,
-          { paddingBottom: insets.bottom + Spacing.md },
-        ]}
-      >
-        <Pressable
-          onPress={handleConfirmHold}
-          // paymentOrigin === undefined means the query is in flight —
-          // disable so the user doesn't tap and fall through to the card
-          // branch before the origin lands.
-          disabled={submitting || paymentOrigin === undefined}
-          style={[
-            styles.btn,
-            styles.btnApprove,
-            styles.btnFull,
-            (submitting || paymentOrigin === undefined) && { opacity: 0.7 },
-          ]}
-        >
-          <View style={styles.btnApproveStack}>
-            <Text weight="semiBold" style={styles.btnApproveLabel}>
-              {submitting
-                ? "Confirming…"
-                : isWalletOrigin
-                  ? paymentOrigin === "apple_pay"
-                    ? "Confirm with Apple Pay"
-                    : "Confirm with Google Pay"
-                  : isCompleted
-                    ? "Confirm payment of"
-                    : "Confirm hold of"}
-            </Text>
-            {!submitting && (
-              <Text
-                weight="bold"
-                style={styles.btnApproveAmount}
-                numberOfLines={1}
-                adjustsFontSizeToFit
-                minimumFontScale={0.7}
-              >
-                {formatUsd(newHoldCents)}
-              </Text>
-            )}
-          </View>
-        </Pressable>
-
+        {/* Secondary actions demoted to quiet links beneath the payment block,
+            mirroring the approve-estimate "Decline this update" treatment:
+            confirming is the primary path (the floating bar), these are the
+            deliberate exceptions. */}
         <Pressable
           onPress={handleUseDifferentCard}
           disabled={submitting}
-          style={[
-            styles.btn,
-            styles.btnSecondary,
-            styles.btnFull,
-            submitting && { opacity: 0.5 },
-          ]}
+          hitSlop={8}
+          style={[styles.declineLinkWrap, submitting && { opacity: 0.5 }]}
         >
-          <Text weight="semiBold" style={styles.btnSecondaryText}>
+          <Text weight="semiBold" style={styles.declineLinkText}>
             Use a different card
           </Text>
         </Pressable>
@@ -1587,7 +1478,77 @@ function ReauthView({
             </Text>
           </Pressable>
         )}
+      </ScrollView>
+
+      {/* Floating single accept bar — "Confirm hold │ $220.43" laid out inline
+          over the canvas, matching the approve-estimate accept treatment. */}
+      <View
+        style={[
+          styles.footer,
+          styles.footerStack,
+          styles.footerTransparent,
+          { paddingBottom: insets.bottom + Spacing.md },
+        ]}
+      >
+        <Pressable
+          onPress={handleConfirmHold}
+          // originLoading = the booking's origin is still resolving; !canConfirm
+          // = no usable method yet. Disable so a tap can't fall through before
+          // the method the hold will ride on is known.
+          disabled={submitting || originLoading || !canConfirm}
+          style={[
+            styles.btn,
+            styles.btnApprove,
+            styles.btnFull,
+            (submitting || originLoading || !canConfirm) && { opacity: 0.7 },
+          ]}
+        >
+          {submitting ? (
+            <Text weight="semiBold" style={styles.btnApproveLabelInline}>
+              Confirming…
+            </Text>
+          ) : (
+            <View style={styles.btnApproveRow}>
+              <Text
+                weight="semiBold"
+                style={styles.btnApproveLabelInline}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.8}
+              >
+                {methodKind === "apple_pay"
+                  ? "Confirm with Apple Pay"
+                  : methodKind === "google_pay"
+                    ? "Confirm with Google Pay"
+                    : isCompleted
+                      ? "Confirm payment"
+                      : "Confirm hold"}
+              </Text>
+              <View style={styles.btnApproveDivider} />
+              <Text
+                weight="bold"
+                style={styles.btnApproveAmountInline}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.7}
+              >
+                {formatUsd(newHoldCents)}
+              </Text>
+            </View>
+          )}
+        </Pressable>
       </View>
+
+      <PaymentMethodModal
+        visible={pickerVisible}
+        onClose={() => setPickerVisible(false)}
+        totalAmount={newHoldCents / 100}
+        serviceSummary={isCompleted ? "Final payment" : "Secure hold"}
+        mechanicName="OtoPair"
+        applePaySupported={applePaySupported}
+        googlePaySupported={googlePaySupported}
+        onAddCard={() => router.push({ pathname: "/add-payment" } as any)}
+      />
     </View>
   );
 }
@@ -1928,14 +1889,6 @@ const styles = StyleSheet.create({
   },
   btnApprove: { backgroundColor: BrandColors.secondary, flex: 1.5 },
   btnApproveText: { color: "#FFFFFF", fontSize: 16 },
-  btnApproveStack: {
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 1,
-    paddingHorizontal: Spacing.sm,
-  },
-  btnApproveLabel: { color: "#FFFFFF", fontSize: 12, opacity: 0.9 },
-  btnApproveAmount: { color: "#FFFFFF", fontSize: 18 },
   // Single-bar accept: "Accept & update hold │ $495.74" laid out inline with a
   // hairline divider between label and price (Review & Pay grammar).
   btnApproveRow: {
@@ -1969,8 +1922,6 @@ const styles = StyleSheet.create({
   // ── Reauth footer additions ───────────────────────────────────────────
   footerStack: { flexDirection: "column", gap: Spacing.sm },
   btnFull: { width: "100%", flex: 0 },
-  btnSecondary: { backgroundColor: "#F2F2F7" },
-  btnSecondaryText: { color: BrandColors.primary, fontSize: 15 },
   tertiaryLinkWrap: {
     paddingVertical: Spacing.sm,
     alignItems: "center",
