@@ -688,39 +688,7 @@ function ApprovalDecisionView({
           </View>
         ) : null}
 
-        {inspectionFindings.length > 0 ? (
-          <View style={styles.card}>
-            <Text weight="semiBold" style={styles.sectionLabel}>
-              Inspection findings
-            </Text>
-            <Text style={styles.inspectionIntro}>
-              Measurements recorded before work began.
-            </Text>
-            {inspectionFindings.map((section, sectionIndex) => (
-              <View
-                key={section.title}
-                style={[
-                  styles.inspectionGroup,
-                  sectionIndex > 0 && styles.inspectionGroupBorder,
-                ]}
-              >
-                <Text weight="semiBold" style={styles.inspectionGroupTitle}>
-                  {section.title}
-                </Text>
-                <View style={styles.inspectionGrid}>
-                  {section.values.map((row) => (
-                    <View key={row.label} style={styles.inspectionCell}>
-                      <Text style={styles.inspectionLabel}>{row.label}</Text>
-                      <Text weight="semiBold" style={styles.inspectionValue}>
-                        {row.value}
-                      </Text>
-                    </View>
-                  ))}
-                </View>
-              </View>
-            ))}
-          </View>
-        ) : null}
+      
 
         <View style={styles.card}>
           <Text weight="semiBold" style={styles.sectionLabel}>
@@ -848,6 +816,40 @@ function ApprovalDecisionView({
             </View>
           </View>
         </View>
+        
+  {inspectionFindings.length > 0 ? (
+          <View style={styles.card}>
+            <Text weight="semiBold" style={styles.sectionLabel}>
+              Inspection findings
+            </Text>
+            <Text style={styles.inspectionIntro}>
+              Measurements recorded before work began.
+            </Text>
+            {inspectionFindings.map((section, sectionIndex) => (
+              <View
+                key={section.title}
+                style={[
+                  styles.inspectionGroup,
+                  sectionIndex > 0 && styles.inspectionGroupBorder,
+                ]}
+              >
+                <Text weight="semiBold" style={styles.inspectionGroupTitle}>
+                  {section.title}
+                </Text>
+                <View style={styles.inspectionGrid}>
+                  {section.values.map((row) => (
+                    <View key={row.label} style={styles.inspectionCell}>
+                      <Text style={styles.inspectionLabel}>{row.label}</Text>
+                      <Text weight="semiBold" style={styles.inspectionValue}>
+                        {row.value}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              </View>
+            ))}
+          </View>
+        ) : null}
 
         <View style={styles.card}>
           <Text weight="semiBold" style={styles.sectionLabel}>
