@@ -65,6 +65,10 @@ export interface NowCalloutGroup {
   /** Max urgencyScore across items — used at the caller so the most
    *  urgent vehicle's card lands first in the pager. */
   topUrgency: number;
+  /** True while the post-service health write is still queued (the two-hour
+   *  deferral in inspectionHealthDeferred). The items shown are pre-service,
+   *  so the card states that rather than offering to book the work again. */
+  healthPending?: boolean;
 }
 
 interface NowTierCalloutProps {
@@ -125,15 +129,24 @@ function NowCard({
         ) : null}
 
         <View style={styles.actions}>
-          <Pressable
-            style={({ pressed }) => [styles.cta, pressed && { opacity: 0.85 }]}
-            onPress={() => onBookNow(group, [item])}
-          >
-            <Text weight="semiBold" style={styles.ctaText}>
-              Book Service
-            </Text>
-            <Ionicons name="arrow-forward" size={scale(16)} color="#FFFFFF" />
-          </Pressable>
+          {group.healthPending ? (
+            <View style={styles.pendingNote}>
+              <Ionicons name="time-outline" size={scale(16)} color="#5299FE" />
+              <Text weight="semiBold" style={styles.pendingText}>
+                Updating after your service
+              </Text>
+            </View>
+          ) : (
+            <Pressable
+              style={({ pressed }) => [styles.cta, pressed && { opacity: 0.85 }]}
+              onPress={() => onBookNow(group, [item])}
+            >
+              <Text weight="semiBold" style={styles.ctaText}>
+                Book Service
+              </Text>
+              <Ionicons name="arrow-forward" size={scale(16)} color="#FFFFFF" />
+            </Pressable>
+          )}
         </View>
       </Pressable>
     </View>
@@ -245,26 +258,35 @@ function NowMultiCard({
         </View>
 
         <View style={styles.actions}>
-          <Pressable
-            disabled={!canBook}
-            style={({ pressed }) => [
-              styles.cta,
-              !canBook && styles.ctaDisabled,
-              pressed && canBook && { opacity: 0.85 },
-            ]}
-            onPress={() => {
-              if (!canBook) return;
-              const selected = group.items.filter((i) =>
-                checkedIds.has(i.itemId),
-              );
-              onBookNow(group, selected);
-            }}
-          >
-            <Text weight="semiBold" style={styles.ctaText}>
-              {canBook ? `Book (${checkedCount})` : "Book"}
-            </Text>
-            <Ionicons name="arrow-forward" size={scale(16)} color="#FFFFFF" />
-          </Pressable>
+          {group.healthPending ? (
+            <View style={styles.pendingNote}>
+              <Ionicons name="time-outline" size={scale(16)} color="#5299FE" />
+              <Text weight="semiBold" style={styles.pendingText}>
+                Updating after your service
+              </Text>
+            </View>
+          ) : (
+            <Pressable
+              disabled={!canBook}
+              style={({ pressed }) => [
+                styles.cta,
+                !canBook && styles.ctaDisabled,
+                pressed && canBook && { opacity: 0.85 },
+              ]}
+              onPress={() => {
+                if (!canBook) return;
+                const selected = group.items.filter((i) =>
+                  checkedIds.has(i.itemId),
+                );
+                onBookNow(group, selected);
+              }}
+            >
+              <Text weight="semiBold" style={styles.ctaText}>
+                {canBook ? `Book (${checkedCount})` : "Book"}
+              </Text>
+              <Ionicons name="arrow-forward" size={scale(16)} color="#FFFFFF" />
+            </Pressable>
+          )}
         </View>
       </View>
     </View>
@@ -481,6 +503,19 @@ const styles = StyleSheet.create({
   },
   ctaDisabled: {
     opacity: 0.4,
+  },
+  pendingNote: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: scale(8),
+    paddingVertical: scale(12),
+    paddingHorizontal: scale(16),
+    borderRadius: scale(999),
+    backgroundColor: "#EAF2FF",
+  },
+  pendingText: {
+    fontSize: scale(14),
+    color: "#2E6BF0",
   },
   ctaText: {
     fontSize: moderateScale(14),

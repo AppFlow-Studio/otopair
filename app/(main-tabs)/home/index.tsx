@@ -889,6 +889,26 @@ export default function HomeScreen() {
    * while the car is at the shop, anything else it needs is a conversation
    * with the mechanic, not a second booking.
    */
+  /*
+   * VINs whose health score is mid-recompute. applyBookingStatusTransition
+   * schedules the inspection-health write two hours after a job closes and
+   * stamps health_score_pending_until for that window (see
+   * inspectionHealthDeferred). Until it lands, knownIssues still holds the
+   * pre-service warning lights — so the Now callout would otherwise sit there
+   * urging the customer to book work the shop has just finished.
+   */
+  const healthPendingVins = useMemo(() => {
+    const vins = new Set<string>();
+    const now = Date.now();
+    (listVehicles ?? []).forEach((r: any) => {
+      const until = r?.ownership?.health_score_pending_until;
+      if (typeof until === "number" && until > now) {
+        vins.add(String(r.vin).toUpperCase());
+      }
+    });
+    return vins;
+  }, [listVehicles]);
+
   const inServiceVins = useMemo(() => {
     const vins = new Set<string>();
     (allBookings ?? []).forEach((b: any) => {
@@ -928,13 +948,14 @@ export default function HomeScreen() {
           vehicleImageUrl,
           items,
           topUrgency: items[0]?.urgencyScore ?? 0,
+          healthPending: healthPendingVins.has(String(v.vin).toUpperCase()),
         };
       })
       .sort(
         (a: { topUrgency: number }, b: { topUrgency: number }) =>
           b.topUrgency - a.topUrgency,
       );
-  }, [vehicleBaseData, vehicleImageUrls, inServiceVins]);
+  }, [vehicleBaseData, vehicleImageUrls, inServiceVins, healthPendingVins]);
 
   const handleSearch = (query: string) => {
     console.log("Search submitted:", query);
