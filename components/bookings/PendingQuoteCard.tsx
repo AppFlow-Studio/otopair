@@ -28,11 +28,6 @@ import { Text } from "@/components/shared-ui";
 import { type Booking } from "@/components/bookings/BookingCard";
 import { BookingProgressBar } from "@/components/bookings/BookingProgressBar";
 import { getBookingStageView } from "@/utils/bookingStages";
-import { LinearGradient } from "expo-linear-gradient";
-// Same navy every other booking card carries — a quote request is a booking
-// at an earlier stage, so it wears the same surface.
-import { HERO_SURFACE, HERO_SURFACE_DEEP } from "@/components/home/UpcomingAppointmentHero";
-import { BookingCardOnNavy as P } from "@/constants/theme";
 
 // ============================================================================
 // HELPERS
@@ -144,21 +139,10 @@ export function PendingQuoteCard({
         onPress?.(booking.id);
       }}
     >
-      {/* Navy surface for the whole card, matching BookingCard and the details
-          sheet. `overflow: hidden` on the card clips it to the radius. */}
-      <LinearGradient
-        colors={[HERO_SURFACE, HERO_SURFACE_DEEP]}
-        start={{ x: 0.5, y: 0 }}
-        end={{ x: 0.5, y: 1 }}
-        style={StyleSheet.absoluteFill}
-        pointerEvents="none"
-      />
-
       {/* Quote-stage progress bar — see utils/bookingStages.ts. */}
       <BookingProgressBar
         stages={stageView.stages}
         currentIndex={stageView.currentIndex}
-        onDark
       />
 
       {/* Header: vehicle + status tag. Mirrors BookingCard's vehicle row —
@@ -181,11 +165,11 @@ export function PendingQuoteCard({
           </View>
         )}
         <View style={styles.headerText}>
-          <Text size="md" weight="bold" color={P.text}>
+          <Text size="md" weight="bold" color="#1F2937">
             {titleCase(vehicleLabel)}
           </Text>
           {booking.licensePlate ? (
-            <Text size="xs" weight="regular" color={P.textMuted}>
+            <Text size="xs" weight="regular" color="#6B7280">
               {booking.licensePlate}
             </Text>
           ) : null}
@@ -203,7 +187,7 @@ export function PendingQuoteCard({
           <Text
             size="xs"
             weight="bold"
-            color={isCancelling ? P.danger : isReady ? P.accent : P.amber}
+            color={isCancelling ? "#DC2626" : isReady ? "#2F6DCC" : "#C8972E"}
           >
             {isCancelling ? "Cancelled" : isReady ? "Quotes Ready" : "Pending Quote"}
           </Text>
@@ -230,7 +214,7 @@ export function PendingQuoteCard({
             <SpecRow label="Quantity" value={tireSpecs.quantity} />
           </>
         ) : (
-          <Text size="md" weight="semiBold" color={P.text}>
+          <Text size="md" weight="semiBold" color="#1A1A1A">
             {booking.notes || (isRotor ? "Rotor quote" : "Tire quote")}
           </Text>
         )}
@@ -260,7 +244,7 @@ export function PendingQuoteCard({
               disabled={isCancelling}
               style={({ pressed }) => [styles.cancelOutlineButton, pressed && styles.viewButtonPressed]}
             >
-              <Text size="sm" weight="semiBold" color={P.danger}>
+              <Text size="sm" weight="semiBold" color="#DC2626">
                 Cancel Request
               </Text>
             </Pressable>
@@ -290,7 +274,7 @@ export function PendingQuoteCard({
               disabled={isCancelling}
               style={({ pressed }) => [styles.cancelOutlineButton, pressed && styles.viewButtonPressed]}
             >
-              <Text size="sm" weight="semiBold" color={P.danger}>
+              <Text size="sm" weight="semiBold" color="#DC2626">
                 Cancel Request
               </Text>
             </Pressable>
@@ -330,10 +314,10 @@ export function PendingQuoteCard({
 function SpecRow({ label, value }: { label: string; value: string }) {
   return (
     <View style={styles.specRow}>
-      <Text size="xs" weight="semiBold" color={P.textMuted} style={styles.specLabel}>
+      <Text size="xs" weight="semiBold" color="#8E8E93" style={styles.specLabel}>
         {label.toUpperCase()}
       </Text>
-      <Text size="md" weight="semiBold" color={P.text} style={styles.specValue}>
+      <Text size="md" weight="semiBold" color="#1A1A1A" style={styles.specValue}>
         {value}
       </Text>
     </View>
@@ -346,8 +330,7 @@ function SpecRow({ label, value }: { label: string; value: string }) {
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: HERO_SURFACE,
-    overflow: "hidden",
+    backgroundColor: "#FFFFFF",
     borderRadius: 16,
     paddingVertical: 18,
     paddingHorizontal: 18,
@@ -378,7 +361,7 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: "rgba(255,255,255,0.18)",
+    backgroundColor: "#E5E7EB",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -394,19 +377,19 @@ const styles = StyleSheet.create({
     alignSelf: "flex-start",
   },
   tagPending: {
-    backgroundColor: "rgba(232,188,99,0.14)",
+    backgroundColor: "#FFF8ED",
   },
   tagReady: {
-    backgroundColor: "rgba(255,255,255,0.10)",
+    backgroundColor: "#E3F0FF",
   },
   tagCancelled: {
-    backgroundColor: "rgba(252,165,165,0.32)",
+    backgroundColor: "#FEE2E2",
   },
 
   // Divider
   divider: {
     height: StyleSheet.hairlineWidth,
-    backgroundColor: "rgba(255,255,255,0.18)",
+    backgroundColor: "#E5E7EB",
     marginVertical: 16,
   },
 
@@ -460,8 +443,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: "rgba(252,165,165,0.32)",
-    backgroundColor: "rgba(252,165,165,0.12)",
+    borderColor: "#FECACA",
+    backgroundColor: "#FEF2F2",
     alignItems: "center",
     justifyContent: "center",
   },
