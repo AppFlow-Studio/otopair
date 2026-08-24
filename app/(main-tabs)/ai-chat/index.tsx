@@ -53,7 +53,6 @@ import * as Speech from "expo-speech";
 // 3. Shared UI (design system)
 import { Text } from "@/components/shared-ui";
 import { Image } from "expo-image";
-import { ProfileInitialsButton } from "@/components/home/ProfileInitialsButton";
 
 // 4. Flow-specific components
 import {
@@ -1364,7 +1363,7 @@ export default function AIChatScreen() {
       {/* Header — absolutely positioned, floats above scroll */}
       {showRightMenu && <Pressable style={styles.otoMenuOverlay} onPress={closeRightMenu} />}
       <Animated.View style={[styles.headerFloating, { paddingTop: insets.top }, showRightMenu && { zIndex: 100 }]}>
-        {/* Left: Hamburger + Profile avatar */}
+        {/* Left: Hamburger */}
         <View style={styles.headerSide}>
           {isLiquidGlassEnabled && LiquidGlassView ? (
             <Pressable onPress={toggleDrawer}>
@@ -1380,7 +1379,6 @@ export default function AIChatScreen() {
               <AlignLeft size={22} color="#000000" />
             </Pressable>
           )}
-          <ProfileInitialsButton />
         </View>
 
         {/* Center: the car in discussion. Display only — deliberately not a
