@@ -119,9 +119,9 @@ export function CustomerLateBanner({ onReschedule }: Props) {
           />
           <View style={styles.heroContent}>
             <View style={styles.heroHeader}>
-              <View style={styles.clockChip}>
+              {/* <View style={styles.clockChip}>
                 <Clock size={20} color={ACCENT} strokeWidth={2.4} />
-              </View>
+              </View> */}
               <Text
                 weight="bold"
                 style={styles.heroTitle}
@@ -179,7 +179,7 @@ export function CustomerLateBanner({ onReschedule }: Props) {
                 }}
               >
                 <Navigation
-                  size={16}
+                  size={11}
                   color={BrandColors.white}
                   fill={BrandColors.white}
                   strokeWidth={2}

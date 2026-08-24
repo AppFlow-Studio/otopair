@@ -86,6 +86,22 @@ const SUBTITLE_BY_CYCLE: Record<string, string> = {
     "The work is done. Here's the final breakdown before your card is charged.",
 };
 
+// Heading + intro for the "recommended service" card that sits under the
+// Original Estimate Card. Keyed by the approval cycle so the pre-job estimate
+// (work found during inspection) and the mid-job change (work found while
+// running) each read in their own tense. post_job has no additions of its own,
+// so it's absent — the card never renders there.
+const ADDED_SERVICES_COPY: Record<string, { title: string; intro: string }> = {
+  pre_job: {
+    title: "Recommended by your mechanic",
+    intro: "Found during inspection, before work begins.",
+  },
+  mid_job: {
+    title: "What your mechanic found",
+    intro: "Added after work started. This is what the extra cost is for.",
+  },
+};
+
 /**
  * Top-level dispatcher. Routes to one of four views depending on where the job
  * is in the price-agreement lifecycle:
@@ -387,20 +403,23 @@ function ApprovalDecisionView({
     () => buildInspectionFindingRows(approval?.inspection_snapshot),
     [approval?.inspection_snapshot],
   );
-  /* What the mechanic actually added after starting. The screen used to show a
-     total and a delta and then jump to inspection findings, so the customer was
-     asked to approve a number on trust — at the one moment trust is most
-     expensive: not at the shop, car on a lift, declining awkward. */
+  /* The off-catalog work the mechanic added — before starting (pre-job) or
+     while working (mid-job). The screen used to show a total and a delta and
+     then jump to inspection findings, so the customer was asked to approve a
+     number on trust — at the one moment trust is most expensive: not at the
+     shop, car on a lift, declining awkward. Each row carries its `source` so we
+     render only the additions for the cycle being approved. */
   // `api as any` because the vendored convex/_generated types predate the
   // custom-jobs module — same pattern the rec screens use. Needs the backend
   // deploy before it resolves; see the branch's PR.
-  const midJobAdditions = useQuery(
-    (api as any).customJobs.listMidJobAdditionsForCustomer,
+  const addedServices = useQuery(
+    (api as any).customJobs.listAddedServicesForCustomer,
     { bookingId },
   ) as
     | Array<{
         _id: string;
         name: string;
+        source: "pre_job" | "mid_job";
         complaint: string | null;
         estimated_minutes: number | null;
         parts: Array<{
@@ -592,6 +611,14 @@ function ApprovalDecisionView({
   const isWalletMethod =
     methodKind === "apple_pay" || methodKind === "google_pay";
 
+  // Recommended-service card: only the additions the mechanic added in THIS
+  // cycle (pre-job's inspection finds on the pre-job estimate, mid-job's on the
+  // mid-job change) — a prior cycle's already-approved work must not resurface.
+  const addedCopy = ADDED_SERVICES_COPY[approval.cycle];
+  const cycleAdditions = (addedServices ?? []).filter(
+    (a) => a.source === approval.cycle,
+  );
+
   return (
     <View style={[styles.root, { paddingTop: insets.top + Spacing.lg }]}>
       <Pressable onPress={() => router.back()} style={styles.backBtn} hitSlop={8}>
@@ -648,15 +675,13 @@ function ApprovalDecisionView({
           )}
         </View>
 
-        {midJobAdditions && midJobAdditions.length > 0 ? (
+        {addedCopy && cycleAdditions.length > 0 ? (
           <View style={styles.card}>
             <Text weight="semiBold" style={styles.sectionLabel}>
-              What your mechanic found
+              {addedCopy.title}
             </Text>
-            <Text style={styles.inspectionIntro}>
-              Added after work started. This is what the extra cost is for.
-            </Text>
-            {midJobAdditions.map((item, index) => (
+            <Text style={styles.inspectionIntro}>{addedCopy.intro}</Text>
+            {cycleAdditions.map((item, index) => (
               <View
                 key={item._id}
                 style={[
