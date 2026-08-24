@@ -1157,6 +1157,8 @@ export const updateMileage = mutation({
       throw new Error("This customer isn't listed as an owner of that vehicle.");
     }
     
+    const now = Date.now();
+
     // Stamp provenance alongside the value. `mileage_updated_at` is not
     // decoration: vehicleTruth sizes the plausibility ceiling from how long
     // ago the last reading was taken (yearsElapsed -> computeMaxDelta), and a
@@ -1166,8 +1168,45 @@ export const updateMileage = mutation({
     await ctx.db.patch(ownership._id, {
       mileage: args.mileage,
       mileage_source: "app_self_reported",
-      mileage_updated_at: Date.now(),
+      mileage_updated_at: now,
     } as any);
+
+    /*
+     * Mirror the reading onto the vehicle-level passport.
+     *
+     * vehicle_owners.mileage is per-OWNER: two accounts can hold the same VIN
+     * and each carries its own number. The shop portal does not read it — its
+     * inspection baseline is `vehicle_passports.mileage` (see
+     * multi-point-inspection-dialog: `prefillData?.mileage ??
+     * passportData?.passport.mileage`), which until now was only ever written
+     * from job pre/post data. So an app edit updated the owner row and nothing
+     * else, and the mechanic's job sheet kept showing the old figure.
+     *
+     * Guarded so a low reading cannot drag the shop's baseline backwards: the
+     * portal refuses any odometer below it, and an odometer does not run
+     * backwards. A correction downward stays on the owner row, where it only
+     * affects this user's view.
+     */
+    const passport = await ctx.db
+      .query("vehicle_passports")
+      .withIndex("by_vin", (q) => q.eq("vin", normalizedVin))
+      .unique();
+
+    if (!passport) {
+      await ctx.db.insert("vehicle_passports", {
+        vin: normalizedVin,
+        mileage: args.mileage,
+        last_reported_at: now,
+      } as any);
+    } else if (
+      typeof passport.mileage !== "number" ||
+      args.mileage >= passport.mileage
+    ) {
+      await ctx.db.patch(passport._id, {
+        mileage: args.mileage,
+        last_reported_at: now,
+      } as any);
+    }
   },
 });
 
