@@ -16,6 +16,12 @@ const CUSTOMER_CATEGORY_TITLES: Record<string, string> = {
   appointment_reminder: "Appointment reminder",
   overrun_customer_resolution: "Service running long",
   new_booking: "Booking received",
+  // Pickup-request family. respondToPickupRequest sets payload.title per
+  // response, so these are fallbacks — but without them the resolver
+  // title-cases the raw category and the user reads "Customer Cancel Pickup
+  // Request", which looks like a leaked database field.
+  pickup_request_response: "Pickup request update",
+  customer_cancel_pickup_request: "Pickup request cancelled",
 };
 
 function titleCase(category: string): string {

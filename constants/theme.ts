@@ -167,6 +167,9 @@ export const ServiceLogColors = {
   sheetRule: "rgba(20, 28, 36, 0.07)",
   /** Scrim behind the sheet — `ink` at 22%. */
   veil: "rgba(20, 28, 36, 0.22)",
+  /** Backdrop behind a full-screen job photo — `ink` at 96%, near-opaque so
+   *  the photo reads against it. */
+  photoVeil: "rgba(20, 28, 36, 0.96)",
   /** Raised surface on the gradient — mechanic + payment cards on the detail. */
   card: "#FFFFFF",
   /** Avatar placeholder before a mechanic photo resolves. */

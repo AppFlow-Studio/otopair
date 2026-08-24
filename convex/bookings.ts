@@ -45,7 +45,11 @@ import {
   evaluateRescheduleLimit,
 } from "./lib/cancellation_policy";
 import { mintClaimToken } from "./walkin_claims";
-import { blockedMinutesForBooking } from "./jobBlockers";
+import {
+  blockedMinutesForBooking,
+  isClockPausedForBooking,
+} from "./jobBlockers";
+import { mileageSourceTag, resolveVehicleMileage } from "./lib/mileage";
 import {
   recordCustomJobsForBooking,
   customPartsFromSnapshot,
@@ -870,6 +874,64 @@ export const respondToPickupRequest = mutation({
     });
 
     return { responded: true };
+  },
+});
+
+/**
+ * QUERY: getPendingPickupRequests
+ * Bookings at THIS shop where the customer has tapped "request pickup" and
+ * no shop-side answer has landed yet (or the customer re-requested after a
+ * stale response). Powers the web dashboard alert card. Reactive — pings the
+ * mechanic surface as soon as a fresh request lands.
+ *
+ * Response shape is tuned for the alert-card UX: enough to render the row
+ * without a second round-trip (vehicle label, customer name, minutes since
+ * requested), and the booking id so the Ack / Bringing out / Decline
+ * buttons can call `respondToPickupRequest` in place.
+ */
+export const getPendingPickupRequests = query({
+  args: {},
+  handler: async (ctx) => {
+    const user = await getCurrentUserOrNull(ctx);
+    if (!user) return [];
+    const primary = await getPrimaryAuthorizedShop(ctx, user._id);
+    if (!primary) return [];
+
+    const atShop = await ctx.db
+      .query("bookings")
+      .withIndex("by_status", (q: any) => q.eq("status", "vehicle_at_shop"))
+      .collect();
+
+    const forShop = atShop.filter(
+      (b: any) =>
+        String(b.shop_id) === String(primary.shopId) && b.cancel_requested_at_ms,
+    );
+
+    return await Promise.all(
+      forShop.map(async (b: any) => {
+        const customer = b.user_id ? await ctx.db.get(b.user_id) : null;
+        const vehicle = b.vin ? await resolveVehicleLabel(ctx, b.vin) : null;
+        const mechanic = b.mechanic_id ? await ctx.db.get(b.mechanic_id) : null;
+        return {
+          _id: b._id,
+          bookingId: b._id,
+          customerName: customer ? formatCustomerName(customer) : null,
+          vehicle: vehicle?.short ?? vehicle?.full ?? null,
+          mechanicName: mechanic
+            ? `${(mechanic as any).first_name ?? ""} ${(mechanic as any).last_name ?? ""}`.trim() ||
+              null
+            : null,
+          requestedAtMs: b.cancel_requested_at_ms as number,
+          requestReason: b.cancel_request_reason ?? null,
+          pickupResponse: (b.pickup_response ?? null) as
+            | "acknowledged"
+            | "bringing_out"
+            | "declined"
+            | null,
+          pickupRespondedAtMs: b.pickup_responded_at_ms ?? null,
+        };
+      }),
+    );
   },
 });
 
@@ -2899,6 +2961,7 @@ export const getActiveJobsForHeader = query({
     // Enriched rows so the header "View" can open the active-jobs picker
     // (mechanic · car, service, and a live elapsed timer) rather than a bare
     // set of ids. Same order as the pill count (most recently touched first).
+    const nowMs = Date.now();
     const activeJobs = await Promise.all(
       inProgress.map(async (b: any) => {
         const mechanic: any = b.mechanic_id
@@ -2921,6 +2984,11 @@ export const getActiveJobsForHeader = query({
           serviceSummary: serviceNames.join(" · "),
           startedAt: jobActual?.started_at ?? null,
           scheduledDate: b.scheduled_date ?? null,
+          // The picker renders a live timer per row, so it needs the same
+          // stopped-clock figures the focused pane gets. Without them a blocked
+          // job keeps ticking here while reading "paused" one screen over.
+          blockedMinutes: await blockedMinutesForBooking(ctx, b._id, nowMs),
+          clockPaused: await isClockPausedForBooking(ctx, b._id, nowMs),
         };
       }),
     );
@@ -4991,6 +5059,7 @@ function firstDefinedNumber(...values: unknown[]) {
   return null;
 }
 
+
 function firstDefinedString(...values: unknown[]) {
   for (const value of values) {
     if (hasText(value)) {
@@ -5577,7 +5646,8 @@ async function buildVehiclePassportForBooking(ctx: any, booking: any) {
   );
   const ownerOwnership = determineOwnershipLabel(preferredOwner);
 
-  const mileage = firstDefinedNumber(passportRecord?.mileage, preferredOwner?.mileage);
+  const resolvedMileage = resolveVehicleMileage(passportRecord, preferredOwner);
+  const mileage = resolvedMileage.mileage;
   const mileageVelocity = firstDefinedNumber(
     passportRecord?.mileage_velocity,
     typeof preferredOwner?.annual_mileage_rate === "number"
@@ -5673,7 +5743,10 @@ async function buildVehiclePassportForBooking(ctx: any, booking: any) {
   };
 
   const sources = {
-    mileage: buildSourceTag(passportRecord?.mileage, preferredOwner?.mileage, "user_reported"),
+    // Follows whichever value actually won above. Tagging the driver's
+    // self-reported number "verified" — or a shop reading "user_reported" —
+    // misattributes it on every surface that renders the badge.
+    mileage: mileageSourceTag(resolvedMileage.from),
     "tires.brand": buildSourceTag(passportRecord?.tires?.brand, null, "oem_default"),
     "tires.model": buildSourceTag(passportRecord?.tires?.model, null, "oem_default"),
     "tires.size_front": buildSourceTag(
@@ -6230,6 +6303,12 @@ async function upsertInspectionRecord(
   // Photo associations and tags are server-owned. Upload/delete mutations are
   // the only allowed way to change them; a draft/final payload cannot attach an
   // arbitrary storage object or relabel a general photo as rotor evidence.
+  //
+  // `completed_at` is server-owned for the same reason plus one more: it feeds
+  // labor calibration, so a client-supplied timestamp would be both unreliable
+  // and gameable. Stamped the first time a zone arrives done and never moved
+  // after — re-opening a zone to correct a reading shouldn't restart its clock,
+  // or the correction would read as time spent inspecting.
   const existingZones = new Map(
     (existing?.zones ?? []).map((zone: any) => [zone.zone_id, zone]),
   );
@@ -6239,6 +6318,8 @@ async function upsertInspectionRecord(
       ...zone,
       photo_ids: saved?.photo_ids ?? [],
       photo_tags: saved?.photo_tags ?? {},
+      completed_at:
+        saved?.completed_at ?? (zone.done === true ? now : undefined),
     };
   });
 
@@ -16740,6 +16821,22 @@ export const getReceipt = query({
     if (!user || user._id !== booking.user_id) return null;
 
     const jobActual = await getLatestJobActualForBooking(ctx, booking._id);
+    // Photos the mechanic attached while the job was open. Storage ids are
+    // useless to the client, so they resolve to signed URLs here — same shape
+    // and resolution as getJobDetail's inProgressPhotos. Entries whose file
+    // has since been deleted are dropped rather than rendered broken.
+    const mechanicPhotos = jobActual?.in_progress_photos
+      ? (
+          await Promise.all(
+            jobActual.in_progress_photos.map(async (photo: any) => ({
+              storageId: photo.storage_id,
+              caption: photo.caption ?? null,
+              takenAt: photo.taken_at,
+              url: await ctx.storage.getUrl(photo.storage_id),
+            })),
+          )
+        ).filter((entry) => entry.url !== null)
+      : [];
     const payment = await ctx.db
       .query("payments")
       .withIndex("by_booking_id", (q) => q.eq("booking_id", booking._id))
@@ -16761,6 +16858,20 @@ export const getReceipt = query({
       mid_job: 2,
       post_job: 3,
     };
+    // A frozen breakdown is only "agreed" — and therefore chargeable and
+    // printable as the customer's receipt — when they actually accepted it:
+    // explicitly ("approved") or by auto-accept within the pre-authorized
+    // range ("auto_approved_within_range"). EVERY other decision is a
+    // non-agreement and must not drive the receipt: "declined"/"withdrawn",
+    // and also "sla_expired" (an estimate offered mid-job and never answered),
+    // "reauth_required", or a still-"pending"/null row. The old blocklist only
+    // dropped declined/withdrawn, so an expired upsell the customer let lapse —
+    // e.g. a "tires were worn" mid-job estimate — was picked as the final
+    // breakdown and billed onto the receipt as if the work had happened.
+    // Mirrors customJobs.ts's is-agreed predicate, which already excludes
+    // sla_expired.
+    const isAgreedDecision = (d: string | null | undefined) =>
+      d === "approved" || d === "auto_approved_within_range";
     const finalApproval = approvalRows
       .filter(
         (a) =>
@@ -16768,8 +16879,7 @@ export const getReceipt = query({
           a.labor_cents != null &&
           a.tax_cents != null &&
           a.service_fee_cents != null &&
-          a.decision !== "declined" &&
-          a.decision !== "withdrawn",
+          isAgreedDecision(a.decision),
       )
       .sort((a, b) => {
         const byCycle =
@@ -16990,8 +17100,7 @@ export const getReceipt = query({
         (a) =>
           typeof a.notes === "string" &&
           a.notes.trim().length > 0 &&
-          a.decision !== "declined" &&
-          a.decision !== "withdrawn",
+          isAgreedDecision(a.decision),
       )
       .sort((a, b) => a.submitted_at_ms - b.submitted_at_ms)
       .map((a) => ({
@@ -17048,6 +17157,7 @@ export const getReceipt = query({
       service_notes: {
         customer_concern: booking.customer_notes ?? "",
         mechanic_findings: jobActual?.mechanic_findings ?? "",
+        mechanic_photos: mechanicPhotos,
       },
       adjustments,
       line_items: [...serviceLines, ...partLines] as Array<

@@ -52,6 +52,7 @@ import * as Speech from "expo-speech";
 
 // 3. Shared UI (design system)
 import { Text } from "@/components/shared-ui";
+import { Image } from "expo-image";
 import { ProfileInitialsButton } from "@/components/home/ProfileInitialsButton";
 
 // 4. Flow-specific components
@@ -1211,6 +1212,16 @@ export default function AIChatScreen() {
     haptics.selection();
   }, []);
 
+  /*
+   * The car in discussion owns the header's centre slot. The model selector
+   * still lives there as the tap target, so switching Oto Pro / Oto is
+   * unchanged — only the pill's face is the vehicle instead of a text label.
+   * Falls back to the text label until a vehicle is chosen.
+   */
+  const headerVehicleSource = selectedVehicle
+    ? selectedVehicle.localImage ?? (selectedVehicle.imageUrl ? { uri: selectedVehicle.imageUrl as string } : null)
+    : null;
+
   const toggleDrawer = useCallback(() => {
     const isOpen = drawerProgress.value > 0.5;
     drawerProgress.value = withTiming(isOpen ? 0 : 1, { duration: 250, easing: Easing.out(Easing.cubic) });
@@ -1400,15 +1411,28 @@ export default function AIChatScreen() {
           <ProfileInitialsButton />
         </View>
 
-        {/* Center: Oto model selector */}
+        {/* Center: the car in discussion; also the model-selector trigger */}
         <View style={styles.headerCenter}>
           {isLiquidGlassEnabled && LiquidGlassView ? (
             <Pressable onPress={toggleOtoMenu}>
-              <LiquidGlassView interactive effect="regular" style={styles.glassCenterPill}>
+              <LiquidGlassView
+                interactive
+                effect="regular"
+                style={[styles.glassCenterPill, headerVehicleSource && styles.glassCenterPillVehicle]}
+              >
                 <View style={styles.glassExpandableRow}>
-                  <Text style={styles.glassTitleText} size="md" weight="semiBold">
-                    {selectedModel === 'pro' ? 'Oto Pro' : 'Oto'}
-                  </Text>
+                  {headerVehicleSource ? (
+                    <Image
+                      source={headerVehicleSource}
+                      style={styles.headerVehicleImage}
+                      contentFit="contain"
+                      transition={0}
+                    />
+                  ) : (
+                    <Text style={styles.glassTitleText} size="md" weight="semiBold">
+                      {selectedModel === 'pro' ? 'Oto Pro' : 'Oto'}
+                    </Text>
+                  )}
                 </View>
                 <Animated.View style={expandedMenuStyle}>
                   <View style={styles.otoExpandedDivider} />
@@ -1475,10 +1499,21 @@ export default function AIChatScreen() {
             >
               <View style={styles.modelSelectorButton}>
                 <View style={styles.pillContent}>
-                  <Text style={styles.glassTitleText} size="md" weight="semiBold">
-                    {selectedModel === 'pro' ? 'Oto Pro' : 'Oto'}
-                  </Text>
-                  <ChevronDown size={12} color="rgba(0,0,0,0.3)" />
+                  {headerVehicleSource ? (
+                    <Image
+                      source={headerVehicleSource}
+                      style={styles.headerVehicleImage}
+                      contentFit="contain"
+                      transition={0}
+                    />
+                  ) : (
+                    <>
+                      <Text style={styles.glassTitleText} size="md" weight="semiBold">
+                        {selectedModel === 'pro' ? 'Oto Pro' : 'Oto'}
+                      </Text>
+                      <ChevronDown size={12} color="rgba(0,0,0,0.3)" />
+                    </>
+                  )}
                 </View>
               </View>
             </MenuView>
@@ -1491,10 +1526,21 @@ export default function AIChatScreen() {
               style={({ pressed }) => [styles.modelSelectorButton, pressed && styles.headerIconPressed]}
             >
               <View style={styles.pillContent}>
-                <Text style={styles.glassTitleText} size="md" weight="semiBold">
-                  {selectedModel === 'pro' ? 'Oto Pro' : 'Oto'}
-                </Text>
-                <ChevronDown size={12} color="rgba(0,0,0,0.3)" />
+                {headerVehicleSource ? (
+                  <Image
+                      source={headerVehicleSource}
+                      style={styles.headerVehicleImage}
+                      contentFit="contain"
+                      transition={0}
+                    />
+                ) : (
+                  <>
+                    <Text style={styles.glassTitleText} size="md" weight="semiBold">
+                      {selectedModel === 'pro' ? 'Oto Pro' : 'Oto'}
+                    </Text>
+                    <ChevronDown size={12} color="rgba(0,0,0,0.3)" />
+                  </>
+                )}
               </View>
             </Pressable>
           )}
@@ -1949,6 +1995,10 @@ const styles = StyleSheet.create({
     width: 90,
     alignItems: "flex-end",
   },
+  headerVehicleImage: {
+    width: 62,
+    height: 26,
+  },
   headerCenter: {
     flex: 1,
     alignItems: "center",
@@ -1983,6 +2033,10 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     paddingHorizontal: 14,
     paddingVertical: 8,
+  },
+  glassCenterPillVehicle: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
   },
   pillContent: {
     flexDirection: "row",

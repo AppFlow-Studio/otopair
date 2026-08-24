@@ -26,6 +26,7 @@ import React, { useMemo, useRef, useState } from "react";
 import {
   Alert,
   Image,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -39,7 +40,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Link, useLocalSearchParams } from "expo-router";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { useQuery } from "convex/react";
-import { ArrowLeft, Check, ChevronRight, MoreHorizontal, Star } from "lucide-react-native";
+import { ArrowLeft, Check, ChevronRight, MoreHorizontal, Star, X } from "lucide-react-native";
 
 import {
   LeaveReviewSheet,
@@ -149,6 +150,12 @@ export default function PastServiceDetailScreen() {
   const actionsSheetRef = useRef<PastServiceActionsSheetRef>(null);
   const disputeSheetRef = useRef<DisputeSheetRef>(null);
   const [receiptBookingId, setReceiptBookingId] = useState<Id<"bookings"> | null>(null);
+  // The mechanic photo being viewed full-screen, or null when the lightbox is
+  // closed. Tapping any thumbnail opens it; tapping the backdrop closes it.
+  const [viewerPhoto, setViewerPhoto] = useState<{
+    url: string;
+    caption: string | null;
+  } | null>(null);
 
   /** Prefer the receipt's service lines — they carry labor hours the booking
    *  row doesn't. Fall back to plain service names.
@@ -179,6 +186,10 @@ export default function PastServiceDetailScreen() {
   // "For the customer — what did you find or do?" step. Null when they left it
   // blank, and the section below hides itself entirely.
   const findings = receiptData?.service_notes?.mechanic_findings?.trim() || null;
+  // Photos the mechanic attached while the job was open. Resolved to signed
+  // URLs server-side; entries whose file is gone are already filtered out
+  // there, so anything that arrives here is renderable.
+  const mechanicPhotos = receiptData?.service_notes?.mechanic_photos ?? [];
   // Per-cycle "why I set/changed this price" notes the mechanic entered on each
   // estimate the customer confirmed. Empty array when there were none.
   const adjustments: Adjustment[] = receiptData?.adjustments ?? [];
@@ -348,14 +359,51 @@ export default function PastServiceDetailScreen() {
 
               {/* ── findings. Omitted entirely when the shop left the field
                      empty — an empty heading reads as a bug. ─────────── */}
-              {findings ? (
+              {findings || mechanicPhotos.length > 0 ? (
                 <>
                   <RNText style={styles.label}>
                     {mechanicFirstName
                       ? `WHAT ${mechanicFirstName.toUpperCase()} FOUND`
                       : "WHAT WE FOUND"}
                   </RNText>
-                  <RNText style={styles.findings}>{findings}</RNText>
+                  {findings ? (
+                    <RNText style={styles.findings}>{findings}</RNText>
+                  ) : null}
+                  {mechanicPhotos.length > 0 ? (
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      // flexGrow:0 or the strip claims the leftover column
+                      // height and the thumbnails float mid-screen.
+                      style={styles.photoStrip}
+                      contentContainerStyle={styles.photoStripContent}
+                    >
+                      {mechanicPhotos.map((photo: any) => (
+                        <Pressable
+                          key={photo.storageId}
+                          onPress={() =>
+                            setViewerPhoto({
+                              url: photo.url,
+                              caption: photo.caption ?? null,
+                            })
+                          }
+                          accessibilityRole="button"
+                          accessibilityLabel={
+                            photo.caption
+                              ? `${photo.caption}. Tap to view full screen.`
+                              : "Photo from the mechanic. Tap to view full screen."
+                          }
+                          style={({ pressed }) => (pressed ? styles.pressed : null)}
+                        >
+                          <Image
+                            source={{ uri: photo.url }}
+                            style={styles.photo}
+                            resizeMode="cover"
+                          />
+                        </Pressable>
+                      ))}
+                    </ScrollView>
+                  ) : null}
                 </>
               ) : null}
 
@@ -474,6 +522,44 @@ export default function PastServiceDetailScreen() {
           )}
         </ScrollView>
       </View>
+
+      {/* ── full-screen job-photo viewer ──────────────────────────
+          Tapping a thumbnail opens the photo edge-to-edge on a near-opaque
+          ink backdrop; a tap anywhere (or the system back gesture) closes it. */}
+      <Modal
+        visible={viewerPhoto != null}
+        transparent
+        animationType="fade"
+        statusBarTranslucent
+        onRequestClose={() => setViewerPhoto(null)}
+      >
+        <StatusBar style="light" />
+        <Pressable
+          style={styles.viewerBackdrop}
+          onPress={() => setViewerPhoto(null)}
+          accessibilityRole="button"
+          accessibilityLabel="Close photo"
+        >
+          {viewerPhoto ? (
+            <Image
+              source={{ uri: viewerPhoto.url }}
+              style={styles.viewerImage}
+              resizeMode="contain"
+              accessibilityLabel={viewerPhoto.caption ?? "Photo from the mechanic"}
+            />
+          ) : null}
+          {viewerPhoto?.caption ? (
+            <RNText
+              style={[styles.viewerCaption, { bottom: insets.bottom + 28 }]}
+            >
+              {viewerPhoto.caption}
+            </RNText>
+          ) : null}
+          <View style={[styles.viewerClose, { top: insets.top + 8 }]}>
+            <X size={24} color={C.onAccent} strokeWidth={2.2} />
+          </View>
+        </Pressable>
+      </Modal>
 
       <LeaveReviewSheet ref={reviewSheetRef} />
       <ReceiptSheet
@@ -646,6 +732,53 @@ const styles = StyleSheet.create({
     color: C.ink,
     paddingHorizontal: G,
     paddingBottom: 22,
+  },
+
+  // ── mechanic's job photos ─────────────────────────────────
+  photoStrip: {
+    flexGrow: 0,
+    paddingBottom: 22,
+  },
+  photoStripContent: {
+    paddingHorizontal: G,
+    gap: 10,
+  },
+  photo: {
+    width: 132,
+    height: 99,
+    borderRadius: 12,
+    backgroundColor: C.hairline,
+  },
+
+  // ── full-screen photo viewer ──────────────────────────────
+  viewerBackdrop: {
+    flex: 1,
+    backgroundColor: C.photoVeil,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 16,
+  },
+  viewerImage: {
+    width: "100%",
+    height: "78%",
+  },
+  viewerCaption: {
+    position: "absolute",
+    left: 24,
+    right: 24,
+    fontFamily: F.regular,
+    fontSize: 13,
+    lineHeight: 19,
+    color: C.onAccent,
+    textAlign: "center",
+  },
+  viewerClose: {
+    position: "absolute",
+    right: 16,
+    width: 40,
+    height: 40,
+    alignItems: "center",
+    justifyContent: "center",
   },
 
   // ── along the way (per-cycle mechanic notes) ──────────────
