@@ -20,8 +20,17 @@
  */
 
 // 1. React & React Native
-import React from "react";
+import React, { useEffect, useRef } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
+import Animated, {
+  Easing,
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withDelay,
+  withSequence,
+  withTiming,
+} from "react-native-reanimated";
 
 // 2. Expo & Third-party
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
@@ -103,6 +112,9 @@ interface IconProps {
 
 const ICON_VIEWBOX = "26 28 40 40";
 
+/** How long the finished card lingers before it collapses away. */
+const HOLD_MS = 1500;
+
 /** Person head + shoulders + plus — `icon_create_account`. */
 function CreateAccountIcon({ color, size = 32 }: IconProps) {
   return (
@@ -158,6 +170,10 @@ function CheckGlyph({ color, size = 12 }: IconProps) {
 // ============================================================================
 
 interface FinishAccountSetupCardProps {
+  /** True when this card is the one the carousel is actually showing. The
+   *  completion animation ends by dismissing the card, so it must not run
+   *  while parked off-screen. */
+  isVisible?: boolean;
   onPress?: () => void;
   onDismiss?: () => void;
 }
@@ -175,6 +191,7 @@ interface StepConfig {
 export function FinishAccountSetupCard({
   onPress,
   onDismiss,
+  isVisible = true,
 }: FinishAccountSetupCardProps) {
   const router = useRouter();
   const { userId: clerkUserId } = useAuth();
@@ -216,6 +233,55 @@ export function FinishAccountSetupCard({
   // four ticks and can acknowledge it with the × (the parent only supplies
   // `onDismiss` in that state), so the header copy has to survive it.
   const allComplete = completed.every(Boolean);
+
+  /*
+   * Completion moment. The parent only supplies `onDismiss` once every step
+   * is done, so that prop doubles as "this card has earned its send-off".
+   * Runs when Home renders the card in the finished state — the user
+   * completes the last step elsewhere and sees the payoff on returning here.
+   *
+   * `played` guards it: the card re-renders on every reactive query tick, and
+   * without the ref the sequence would restart (and re-fire onDismiss) each
+   * time. onDismiss is deliberately not in the dep array for the same reason —
+   * the parent rebuilds that closure on render.
+   */
+  const played = useRef(false);
+  const cardOpacity = useSharedValue(1);
+  const cardScale = useSharedValue(1);
+  const overlayProgress = useSharedValue(0);
+  const badgeScale = useSharedValue(0.5);
+
+  useEffect(() => {
+    if (!allComplete || !onDismiss || !isVisible || played.current) return;
+    played.current = true;
+
+    overlayProgress.value = withTiming(1, { duration: 220 });
+    badgeScale.value = withSequence(
+      withTiming(1.12, { duration: 280, easing: Easing.out(Easing.quad) }),
+      withTiming(1, { duration: 160 }),
+    );
+
+    // Hold the moment, then collapse. Persisting the dismissal is the very
+    // last step so the card cannot vanish before the animation is seen.
+    cardScale.value = withDelay(HOLD_MS, withTiming(0.97, { duration: 320 }));
+    cardOpacity.value = withDelay(
+      HOLD_MS,
+      withTiming(0, { duration: 320 }, (finished) => {
+        if (finished) runOnJS(onDismiss)();
+      }),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allComplete, isVisible]);
+
+  const cardAnimStyle = useAnimatedStyle(() => ({
+    opacity: cardOpacity.value,
+    transform: [{ scale: cardScale.value }],
+  }));
+  const overlayStyle = useAnimatedStyle(() => ({ opacity: overlayProgress.value }));
+  const badgeStyle = useAnimatedStyle(() => ({
+    opacity: overlayProgress.value,
+    transform: [{ scale: badgeScale.value }],
+  }));
   const firstIncompleteIdx = completed.findIndex((c) => !c);
   const stateFor = (idx: number): TileState => {
     if (completed[idx]) return "completed";
@@ -322,7 +388,7 @@ export function FinishAccountSetupCard({
 
   return (
     <View style={styles.container}>
-      <View style={styles.card}>
+      <Animated.View style={[styles.card, cardAnimStyle]}>
         {onDismiss && (
           <Pressable
             onPress={onDismiss}
@@ -398,7 +464,22 @@ export function FinishAccountSetupCard({
             );
           })}
         </View>
-      </View>
+
+        {/* Completion moment. Sits over the finished tiles rather than
+            replacing them, so the four ticks stay visible underneath and the
+            card reads as "done" rather than as a different card. */}
+        <Animated.View
+          style={[styles.celebration, overlayStyle]}
+          pointerEvents="none"
+        >
+          {/* Badge only — the card's own header already reads "You're all
+              set / Full access unlocked" underneath, so repeating it here
+              just doubled the words on screen. */}
+          <Animated.View style={[styles.celebrationBadge, badgeStyle]}>
+            <CheckGlyph color="#FFFFFF" size={38} />
+          </Animated.View>
+        </Animated.View>
+      </Animated.View>
     </View>
   );
 }
@@ -409,6 +490,23 @@ export function FinishAccountSetupCard({
 
 const styles = StyleSheet.create({
   container: {},
+  celebration: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 20,
+    // Card's own background, near-opaque: the ticked tiles stay faintly
+    // visible through it instead of being blanked out.
+    backgroundColor: "rgba(243,247,255,0.94)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  celebrationBadge: {
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+    backgroundColor: "#5299FE",
+    alignItems: "center",
+    justifyContent: "center",
+  },
   card: {
     backgroundColor: "#F3F7FF",
     borderRadius: 20,
