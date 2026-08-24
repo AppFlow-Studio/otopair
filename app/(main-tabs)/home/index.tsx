@@ -881,11 +881,33 @@ export default function HomeScreen() {
   // with N checkable rows (locked decision) instead of N cards. Items
   // inside each group sort by urgency-desc; groups sort by their top
   // item's urgency so the most urgent vehicle leads.
+  /*
+   * VINs whose car is physically with the shop right now. A "Book Service"
+   * prompt for a car that is mid-service is worse than useless — the work is
+   * already happening, and the hero directly above says so. Suppressing the
+   * whole vehicle rather than just the service being worked on is deliberate:
+   * while the car is at the shop, anything else it needs is a conversation
+   * with the mechanic, not a second booking.
+   */
+  const inServiceVins = useMemo(() => {
+    const vins = new Set<string>();
+    (allBookings ?? []).forEach((b: any) => {
+      if (b.status === 'in_progress' || b.status === 'vehicle_at_shop') {
+        const vin = String(b.vin ?? '').toUpperCase();
+        if (vin) vins.add(vin);
+      }
+    });
+    return vins;
+  }, [allBookings]);
+
   const allNowGroups = useMemo(() => {
     type BaseVehicle = (typeof vehicleBaseData)[number];
     type BaseNowItem = BaseVehicle["nowItems"][number];
     return vehicleBaseData
-      .filter((v: BaseVehicle) => v.nowItems.length > 0)
+      .filter(
+        (v: BaseVehicle) =>
+          v.nowItems.length > 0 && !inServiceVins.has(String(v.vin).toUpperCase()),
+      )
       .map((v: BaseVehicle) => {
         const vehicleName = v.name.replace(/\n/g, " ");
         const vehicleImageUrl = vehicleImageUrls[v.vin] || undefined;
@@ -912,7 +934,7 @@ export default function HomeScreen() {
         (a: { topUrgency: number }, b: { topUrgency: number }) =>
           b.topUrgency - a.topUrgency,
       );
-  }, [vehicleBaseData, vehicleImageUrls]);
+  }, [vehicleBaseData, vehicleImageUrls, inServiceVins]);
 
   const handleSearch = (query: string) => {
     console.log("Search submitted:", query);
