@@ -117,6 +117,10 @@ interface CarCarouselProps {
   healthScore?: number;
   /** True when showing the pipeline estimate (pre-onboarding done, CarInfoStepper not done) */
   isEstimatedScore?: boolean;
+  /** True while the deferred post-service health write is still queued. The
+   *  score on screen is pre-service until it lands, so surfaces say so rather
+   *  than presenting a stale number as current. */
+  healthScorePending?: boolean;
   /** Called when the user taps to resume the Quick Read from the estimated modal */
   onResumeCheckin?: () => void;
   /** Parent has determined the active vehicle's gradient top is dark
@@ -423,6 +427,8 @@ interface VehicleHealthModalProps {
   maintenanceItems?: import("@/components/cars/MaintenanceTracker").MaintenanceItem[];
   currentMileage?: number;
   isEstimated?: boolean;
+  /** Deferred post-service write still queued. */
+  pending?: boolean;
   onResumeCheckin?: () => void;
   knownIssues?: string[];
   hpBuffer?: number;
@@ -439,6 +445,7 @@ const VehicleHealthModal = ({
   maintenanceItems: realItems,
   currentMileage: realMileage,
   isEstimated,
+  pending = false,
   onResumeCheckin,
   knownIssues,
   hpBuffer,
@@ -713,9 +720,16 @@ const VehicleHealthModal = ({
         </Svg>
       </Animated.View>
       
+      {/* The number to hand is pre-service until the deferred write lands, so
+          it is withheld rather than presented as current. Deliberately not
+          replaced with a predicted score — the real result isn't known yet. */}
       <View style={modalStyles.ringCenterContent}>
-        <Text style={modalStyles.percentageText}>{Math.round(overallPercentage)}</Text>
-        <Text style={modalStyles.ringSubLabel}>out of 100</Text>
+        <Text style={modalStyles.percentageText}>
+          {pending ? '· · ·' : Math.round(overallPercentage)}
+        </Text>
+        <Text style={modalStyles.ringSubLabel}>
+          {pending ? 'updating' : 'out of 100'}
+        </Text>
       </View>
     </View>
   );
@@ -807,13 +821,20 @@ const VehicleHealthModal = ({
             <View style={modalStyles.scrollContent}>
               {renderRings()}
 
-              <Text style={modalStyles.estimatedLabel}>Estimated Score</Text>
+              {/* Pending outranks estimated: both can be true at once, but
+                  "we're applying your mechanic's findings" is the more
+                  specific and more time-sensitive of the two. */}
+              <Text style={modalStyles.estimatedLabel}>
+                {pending ? 'Updating After Your Service' : 'Estimated Score'}
+              </Text>
               {/* This state means onboarding is incomplete (isEstimatedScore =
                   isPreOnboardingComplete && !isOnboardingComplete), so the
                   honest reason is a missing service history — not age, mileage
                   or driving habits, none of which are terms in the model. */}
               <Text style={modalStyles.estimatedSubtitle}>
-                An estimate — we don't have your full service history yet.
+                {pending
+                  ? "Your mechanic's findings are still being applied. Your score and any new recommendations will appear together shortly."
+                  : "An estimate — we don't have your full service history yet."}
               </Text>
 
               <Pressable
@@ -835,6 +856,24 @@ const VehicleHealthModal = ({
             bounces={true}
           >
             {renderRings()}
+
+            {/* Why the number is withheld. The grades, the recommendation
+                reveal and the mechanic's warning-light changes all land
+                together when the deferred job runs, so this covers the
+                breakdown below as well as the ring above — one coherent
+                "here's what changed" moment rather than a ring that says
+                updating next to a list that looks finished. */}
+            {pending && (
+              <View style={modalStyles.pendingBanner}>
+                <Text style={modalStyles.pendingBannerTitle}>
+                  Updating after your service
+                </Text>
+                <Text style={modalStyles.pendingBannerBody}>
+                  Your mechanic's findings are still being applied. Your score
+                  and any new recommendations will appear together shortly.
+                </Text>
+              </View>
+            )}
 
             <View style={modalStyles.breakdownSection}>
               <View style={modalStyles.sectionTitleRow}>
@@ -1022,6 +1061,25 @@ const VehicleHealthModal = ({
 };
 
 const modalStyles = StyleSheet.create({
+  pendingBanner: {
+    marginHorizontal: scale(20),
+    marginBottom: scale(16),
+    padding: scale(14),
+    borderRadius: scale(14),
+    backgroundColor: '#EAF2FF',
+  },
+  pendingBannerTitle: {
+    fontFamily: 'Urbanist-Bold',
+    fontSize: scale(14),
+    color: '#2E6BF0',
+    marginBottom: scale(4),
+  },
+  pendingBannerBody: {
+    fontFamily: 'Urbanist-Regular',
+    fontSize: scale(13),
+    lineHeight: scale(18),
+    color: '#4B5563',
+  },
   overlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
@@ -1430,6 +1488,8 @@ interface ActivityRingsProps {
   /** Flip the centered percentage to white when the page bg is dark
    *  enough that the default dark navy is unreadable. */
   isDarkBg?: boolean;
+  /** Withhold the number while the deferred post-service write is queued. */
+  pending?: boolean;
 }
 
 const ActivityRings = ({
@@ -1437,6 +1497,7 @@ const ActivityRings = ({
   size = scale(72),
   onPress,
   isDarkBg = false,
+  pending = false,
 }: ActivityRingsProps) => {
   const [animatedHealth, setAnimatedHealth] = useState(0);
 
@@ -1538,10 +1599,12 @@ const ActivityRings = ({
           opacity={0.2}
         />
       </Svg>
-      {/* Centered percentage */}
+      {/* Centered percentage. While the deferred write is queued the number
+          on hand is pre-service, so it is withheld rather than shown as
+          current — and no prediction is put in its place. */}
       <View style={activityRingStyles.centerContainer}>
         <Text style={[activityRingStyles.percentageText, { color: isDarkBg ? '#FFFFFF' : '#1F2937' }]}>
-          {Math.round(animatedHealth)}%
+          {pending ? '· · ·' : `${Math.round(animatedHealth)}%`}
         </Text>
       </View>
     </View>
@@ -1683,6 +1746,7 @@ export function CarCarousel({
   showHealthRing = true,
   healthScore: parentHealthScore,
   isEstimatedScore,
+  healthScorePending = false,
   onResumeCheckin,
   isDarkBg = false,
   groundLineTint,
@@ -2430,6 +2494,7 @@ export function CarCarousel({
         {/* Activity Rings - Vehicle Condition (hidden until onboarding is complete) */}
         {showHealthRing && (
           <ActivityRings
+            pending={healthScorePending}
             healthPercentage={overallCondition}
             maintenancePercentage={maintenanceScoreForRing}
             warningLightsPercentage={warningLightsPctForRing}
@@ -2644,6 +2709,7 @@ export function CarCarousel({
         maintenanceItems={maintenanceItems}
         currentMileage={vehicleMileage}
         isEstimated={isEstimatedScore}
+        pending={healthScorePending}
         onResumeCheckin={onResumeCheckin}
         knownIssues={knownIssues}
         hpBuffer={hpBuffer}

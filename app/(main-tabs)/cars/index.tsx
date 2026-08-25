@@ -1331,6 +1331,27 @@ export default function CarsHomeScreen() {
   // (convex/oto/vehicleHealth.ts), per the "must agree" contract.
   const healthScoreWeights = useQuery(api.healthScoreWeights.getWeights);
 
+  /*
+   * True while the post-service health write is still queued.
+   *
+   * applyBookingStatusTransition schedules the inspection-health job two hours
+   * after a booking reaches a terminal state and stamps
+   * health_score_pending_until for that window; the job clears it when it
+   * lands. Until then the score on screen is pre-service — the grades, the
+   * recommendation reveal and the mechanic's warning-light changes all apply
+   * together, later.
+   *
+   * Compared against now rather than trusting the clear: if a job fails the
+   * timestamp is left behind, and a stale one must read as "not pending"
+   * rather than pinning the ring forever. A booking that re-enters a terminal
+   * state reschedules and pushes the timestamp out again, so this can
+   * legitimately return true a second time.
+   */
+  const healthScorePending = useMemo(() => {
+    const until = activeOwnership?.health_score_pending_until as number | undefined;
+    return typeof until === "number" && until > Date.now();
+  }, [activeOwnership?.health_score_pending_until]);
+
   const computedHealthScore = useMemo(() => {
     return computeVehicleHealthScore(healthScoreInput, healthScoreWeights);
   }, [healthScoreInput, healthScoreWeights]);
@@ -1949,6 +1970,7 @@ export default function CarsHomeScreen() {
               ? (activeOwnership?.health_score as number | undefined) ?? computedHealthScore
               : computedHealthScore}
             isEstimatedScore={isPreOnboardingComplete && !isOnboardingComplete}
+            healthScorePending={healthScorePending}
             onResumeCheckin={openEstimatedHealthSheet}
             knownIssues={activeOwnershipKnownIssues}
             hpBuffer={activeVehicleHpBuffer}
