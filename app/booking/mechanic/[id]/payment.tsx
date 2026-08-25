@@ -28,7 +28,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 
 // 3. Shared UI (design system)
-import { BrandColors, ErrorOccurredModal, FixedPriceBadge, Spacing, Text } from "@/components/shared-ui";
+import { BrandColors, ErrorOccurredModal, EstimatePill, FixedPriceBadge, Spacing, Text } from "@/components/shared-ui";
 
 // 4. Flow-specific components
 import { BookingPageHeader } from "@/components/booking/pages";
@@ -276,6 +276,25 @@ export default function PaymentScreen() {
     [laborHoursMap]
   );
 
+  // Per-service labor cost, tier-aware. Uses the Pricing v2 engine's
+  // byService[sid].laborCost (hours × the vehicle's TIER rate) — the exact
+  // number the server bills and that createBatch validates — falling back to
+  // the flat shop.labor_rate only when the engine refused the line (which is
+  // when the server skips its check too). Keeps the customer from seeing a
+  // flat-rate price the server would then reject (LABOR_COST_TIER_MISMATCH) or
+  // silently re-price. Fixed-price lines resolve to engine laborCost = 0.
+  // Mirrors the identical helper in components/booking/sheets/ReviewPayContent.tsx.
+  const getServiceLaborCost = useCallback(
+    (service: (typeof selectedServices)[0]) => {
+      const engine = quoteFallback.byService.get(String(service.id));
+      if (engine && !engine.refused && engine.laborCost != null) {
+        return Math.max(0, engine.laborCost);
+      }
+      return Math.max(0, (laborRate ?? 0) * getServiceLaborHours(service));
+    },
+    [quoteFallback.byService, laborRate, getServiceLaborHours]
+  );
+
   // Per-(shop, service, tier) flat-price overrides — same hook the mechanic
   // selection footer + ShopCard call. Hits collapse the parts band and zero
   // labor for that line; mirrors `computeDisclosedRange` on the server so
@@ -287,6 +306,42 @@ export default function PaymentScreen() {
       selectedVehicle?.ownershipId,
       selectedServiceIds,
     );
+
+  // ── Labor-Only pricing state (doc: "Labor-Only Pricing State v1", State 2) ──
+  // `pricedPartsMap` only holds winner!==null rows; read the full breakdown
+  // array here so we can also see `laborOnlyByDesign` and winner===null rows.
+  const partsRowById = useMemo(() => {
+    const m = new Map<string, (typeof pricedPartsByService)[number]>();
+    for (const row of pricedPartsByService) m.set(String(row.serviceId), row);
+    return m;
+  }, [pricedPartsByService]);
+
+  // State 2: service needs parts + labor but none are priced for THIS vehicle
+  // (no fitments, or a winner with no price data). Distinct from labor-only-by-
+  // design services (Diagnostic, Alignment) which never bill parts (State 1).
+  // We surface "From $labor" + an amber disclosure so the eventual parts bill
+  // isn't a surprise — never a fabricated parts range.
+  const isLaborOnlyForVehicle = useCallback(
+    (service: (typeof selectedServices)[0]) => {
+      if (fixedPriceMap.has(String(service.id))) return false; // flat price wins
+      const row = partsRowById.get(String(service.id));
+      if (!row) return false; // query skipped (walk-in / mock ids) → no disclosure
+      // Only warn when the backend EXPLICITLY says this service needs parts.
+      // `!== false` (rather than truthiness of `laborOnlyByDesign`) makes the
+      // feature degrade safely: if the deployed backend predates this field it
+      // returns undefined → no false Labor-Only warning on by-design labor
+      // services (Diagnostic, Alignment). Once web ships the field, it engages.
+      if (row.laborOnlyByDesign !== false) return false; // State 1 or unknown
+      const hasPricedParts = row.winner !== null && row.partsTotal > 0;
+      return !hasPricedParts;
+    },
+    [partsRowById, fixedPriceMap],
+  );
+
+  const isLaborOnlyBooking = useMemo(
+    () => selectedServices.some(isLaborOnlyForVehicle),
+    [selectedServices, isLaborOnlyForVehicle],
+  );
 
   // Round 6 — flag-only parts: the customer always sees the real AI/OEM
   // priced number. The engine band is a sanity check, not a price source —
@@ -339,9 +394,13 @@ export default function PaymentScreen() {
   // platform-fee floor are honored. Matches the server math in
   // convex/booking_quotes.ts and lib/disclosedRange.ts.
   const breakdown = useMemo(() => {
-    const rate = laborRate ?? 0;
     const laborHours = selectedServices.reduce((sum, s) => sum + getServiceLaborHours(s), 0);
-    const laborCost = laborHours * rate;
+    // Tier-aware labor per service (engine), NOT flat rate × hours — see
+    // getServiceLaborCost. `laborHours` is kept only for the duration label.
+    const laborCost = selectedServices.reduce(
+      (sum, s) => sum + getServiceLaborCost(s),
+      0,
+    );
     // Hours attributable to variable services only — drives the "Labor (X mins)"
     // label so the duration matches the displayed billableLaborCost below.
     const variableLaborHours = selectedServices.reduce(
@@ -357,23 +416,26 @@ export default function PaymentScreen() {
     // with a ±8% band. When AI lands outside the engine band, we keep the
     // AI value (Round 6 — flag-only) and surface `fallback_catch` server-
     // side for director audit, instead of substituting the engine midpoint.
+    // Labor-only-for-vehicle services (State 2) are ALSO excluded: their parts
+    // aren't priced yet, so we never fold a guessed `default_parts_estimate`
+    // into the band — the customer sees "From $labor" and the amber callout.
     const variablePartsCost = selectedServices.reduce(
       (sum, s) =>
-        fixedPriceMap.has(String(s.id))
+        fixedPriceMap.has(String(s.id)) || isLaborOnlyForVehicle(s)
           ? sum
           : sum + getEffectiveParts(s).cost,
       0,
     );
     const variablePartsLowSum = selectedServices.reduce(
       (sum, s) =>
-        fixedPriceMap.has(String(s.id))
+        fixedPriceMap.has(String(s.id)) || isLaborOnlyForVehicle(s)
           ? sum
           : sum + getEffectiveParts(s).low,
       0,
     );
     const variablePartsHighSum = selectedServices.reduce(
       (sum, s) =>
-        fixedPriceMap.has(String(s.id))
+        fixedPriceMap.has(String(s.id)) || isLaborOnlyForVehicle(s)
           ? sum
           : sum + getEffectiveParts(s).high,
       0,
@@ -389,7 +451,7 @@ export default function PaymentScreen() {
     const fixedLaborCost = selectedServices.reduce(
       (sum, s) =>
         fixedPriceMap.has(String(s.id))
-          ? sum + rate * getServiceLaborHours(s)
+          ? sum + getServiceLaborCost(s)
           : sum,
       0,
     );
@@ -425,7 +487,7 @@ export default function PaymentScreen() {
       .filter((s) => fixedPriceMap.has(String(s.id)))
       .map((s) => ({
         serviceId: String(s.id),
-        laborCost: rate * getServiceLaborHours(s),
+        laborCost: getServiceLaborCost(s),
         partsFixed: fixedPriceMap.get(String(s.id)) ?? 0,
       }));
     // Pass the engine-aware low/high explicitly so deriveDisclosedRange
@@ -442,9 +504,15 @@ export default function PaymentScreen() {
       fixedPriceLines,
     });
 
+    const effectiveLaborRate =
+      variableLaborHours > 0
+        ? Math.round(billableLaborCost / variableLaborHours)
+        : (laborRate ?? 0);
+
     return {
       laborHours,
       variableLaborHours,
+      effectiveLaborRate,
       laborCost: billableLaborCost,
       partsCost: Math.max(0, partsCost),
       taxesAndFees,
@@ -460,8 +528,13 @@ export default function PaymentScreen() {
       rangeLow: range.lowDollars,
       rangeHigh: range.highDollars,
       rangeFormatted: range.formatted,
+      // State 2: the total is a floor, not a band — parts are still coming.
+      // "From $<low>" where low = labor + any priced parts + tax/fee on what's
+      // known (state-2 parts are excluded above, so they contribute nothing).
+      isLaborOnly: isLaborOnlyBooking,
+      rangeFromFormatted: `From $${range.lowDollars.toFixed(2)}`,
     };
-  }, [selectedServices, laborRate, shop?.state, shop?.zip, getEffectiveParts, getServiceLaborHours, fixedPriceMap]);
+  }, [selectedServices, laborRate, shop?.state, shop?.zip, getEffectiveParts, getServiceLaborCost, getServiceLaborHours, fixedPriceMap, isLaborOnlyForVehicle, isLaborOnlyBooking]);
 
   // Conservative dealer-vs-independent saving (labor-rate delta). Null on
   // parts-only / diagnostic / flat-fee tickets or when no shop rate resolved,
@@ -545,9 +618,14 @@ export default function PaymentScreen() {
     (service: (typeof selectedServices)[0]) => {
       const flat = fixedPriceMap.get(String(service.id));
       if (flat != null) {
-        return { low: flat, high: flat, isFixed: true as const, isEngineEstimate: false };
+        return { low: flat, high: flat, isFixed: true as const, isEngineEstimate: false, laborOnly: false as const, from: flat };
       }
-      const labor = (laborRate ?? 0) * getServiceLaborHours(service);
+      const labor = getServiceLaborCost(service);
+      // State 2: parts not priced for this vehicle → show labor as a floor
+      // ("From $labor"), never a fabricated labor+parts band.
+      if (isLaborOnlyForVehicle(service)) {
+        return { low: labor, high: labor, isFixed: false as const, isEngineEstimate: false, laborOnly: true as const, from: labor };
+      }
       const eff = getEffectiveParts(service);
       return {
         low: labor + eff.low,
@@ -559,9 +637,11 @@ export default function PaymentScreen() {
         // explicit estimate marker (source === "ai_estimate").
         isEngineEstimate:
           eff.source === "ai_out_of_band" || eff.source === "ai_estimate",
+        laborOnly: false as const,
+        from: labor + eff.low,
       };
     },
-    [laborRate, getEffectiveParts, getServiceLaborHours, fixedPriceMap]
+    [getServiceLaborCost, getEffectiveParts, getServiceLaborHours, fixedPriceMap, isLaborOnlyForVehicle]
   );
 
   // Fallback parts breakdown for services without real OEM-priced data.
@@ -576,11 +656,15 @@ export default function PaymentScreen() {
       // render their own "Parts — Fixed" row, so skip them here.
       if (fixedPriceMap.has(String(service.id))) continue;
       if (pricedPartsMap.has(String(service.id))) continue;
+      // State 2: parts aren't priced for this vehicle — never synthesize
+      // "Part — $X" rows from a guessed estimate; the amber callout explains
+      // the shop will price them.
+      if (isLaborOnlyForVehicle(service)) continue;
       unpricedNames.push(service.name);
       unpricedTotal += service.default_parts_estimate ?? 0;
     }
     return getPartsBreakdown(unpricedNames, unpricedTotal);
-  }, [selectedServices, pricedPartsMap, fixedPriceMap]);
+  }, [selectedServices, pricedPartsMap, fixedPriceMap, isLaborOnlyForVehicle]);
 
   // Format vehicle display
   const vehicleDisplay = selectedVehicle
@@ -988,9 +1072,10 @@ export default function PaymentScreen() {
                     : ""}
                 </Text>
                 <View style={styles.summaryLineRight}>
+                  {breakdown.isLaborOnly && <EstimatePill size="sm" label="Labor only" />}
                   {hasAnyFixedPrice && <FixedPriceBadge size="sm" />}
                   <Text size="sm" weight="bold" color={BrandColors.secondary} numberOfLines={1}>
-                    {breakdown.rangeFormatted}
+                    {breakdown.isLaborOnly ? breakdown.rangeFromFormatted : breakdown.rangeFormatted}
                   </Text>
                 </View>
               </View>
@@ -1011,6 +1096,7 @@ export default function PaymentScreen() {
                     {service.name}
                   </Text>
                   {lineRange.isFixed && <FixedPriceBadge size="sm" />}
+                  {lineRange.laborOnly && <EstimatePill size="sm" label="Labor only" />}
                   {lineDurationLabel ? (
                     <Text size="sm" weight="regular" color="#6B7280">
                       · {lineDurationLabel}
@@ -1020,7 +1106,9 @@ export default function PaymentScreen() {
                 <Text size="sm" weight="semiBold" color={BrandColors.primary}>
                   {lineRange.isFixed
                     ? `$${lineRange.low.toFixed(2)}`
-                    : formatRange(lineRange.low, lineRange.high)}
+                    : lineRange.laborOnly
+                      ? `From $${lineRange.from.toFixed(2)}`
+                      : formatRange(lineRange.low, lineRange.high)}
                 </Text>
               </View>
             );
@@ -1046,7 +1134,7 @@ export default function PaymentScreen() {
                       rate so customers see what's being applied — different
                       vehicle tiers get different shop rates. */}
                   Labor ({formatDurationForCar(breakdown.laborHours) ?? "0 mins"}
-                  {laborRate ? ` @ $${laborRate}/hr` : ""})
+                  {breakdown.effectiveLaborRate ? ` @ $${breakdown.effectiveLaborRate}/hr` : ""})
                 </Text>
                 <Text size="sm" weight="medium" color="#6B7280">
                   ${breakdown.laborCost.toFixed(2)}
@@ -1201,6 +1289,22 @@ export default function PaymentScreen() {
               When Pricing v2 flagged the band as estimate-grade (engine
               refusal, tier_estimate, fallback_catch, missing labor / parts
               data) we swap the heading copy to call that out explicitly. */}
+          {breakdown.isLaborOnly ? (
+            // State 2 (amber) — replaces the blue estimate box. Amber and blue
+            // never appear together: incomplete quote (amber) vs complete
+            // estimate (blue). Copy per the Labor-Only Pricing doc, layer 3.
+            <View style={styles.laborOnlyCallout}>
+              <Info size={14} color="#B45309" style={{ marginTop: 1 }} />
+              <View style={styles.laborOnlyCalloutBody}>
+                <Text size="sm" weight="bold" color="#78350F">
+                  Labor only — parts not yet included.
+                </Text>
+                <Text size="xs" weight="regular" color="#57534E" style={styles.laborOnlyCalloutText}>
+                  {`Parts pricing for your ${vehicleDisplay} isn't on file yet. Your shop will price the parts your vehicle needs, and you'll receive your complete quote to review and approve before any work begins. Nothing moves forward without your approval.`}
+                </Text>
+              </View>
+            </View>
+          ) : (
           <View style={styles.holdInfoBlock}>
             <Info size={14} color={BrandColors.secondary} style={{ marginTop: 2 }} />
             <View style={{ flex: 1, marginLeft: 8 }}>
@@ -1216,6 +1320,7 @@ export default function PaymentScreen() {
               </Text>
             </View>
           </View>
+          )}
             </>
           )}
         </View>
@@ -1682,6 +1787,26 @@ const styles = StyleSheet.create({
   holdInfoBody: {
     marginTop: 4,
     lineHeight: 16,
+  },
+  // State 2 (Labor-Only) disclosure — amber, reserved for the incomplete-quote
+  // state (blue holdInfoBlock is the complete-estimate state; never together).
+  laborOnlyCallout: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: Spacing.sm,
+    backgroundColor: "#FFFBEB",
+    borderColor: "#FDE68A",
+    borderWidth: 1,
+    borderRadius: BorderRadius.md,
+    padding: Spacing.md,
+    marginTop: Spacing.md,
+  },
+  laborOnlyCalloutBody: {
+    flex: 1,
+    gap: 4,
+  },
+  laborOnlyCalloutText: {
+    lineHeight: 18,
   },
 
   // Notes Section
