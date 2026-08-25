@@ -26,6 +26,7 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import {
   customerInspectionSnapshotValidator,
+  laborAllocationValidator,
   postjobPartValidator,
   postjobPhotoValidator,
   postjobReportValidator,
@@ -2856,6 +2857,14 @@ export default defineSchema({
         v.object({
           name: v.string(),
           duration_minutes: v.optional(v.float64()),
+          // True while this off-catalog line is STAGED but not yet confirmed by
+          // the customer — i.e. added mid-inspection ("Add to this job") / as
+          // unforeseen scope, and awaiting approval of the pre_job / mid_job
+          // estimate that carries it. Shop-facing surfaces still show it (the
+          // mechanic priced and sent it); customer-facing reads hide it until
+          // approval clears this flag. Absent = confirmed/booked work (the
+          // pre-existing default), so old rows read as confirmed.
+          pending_confirmation: v.optional(v.boolean()),
         })
       )
     ),
@@ -3045,6 +3054,13 @@ export default defineSchema({
     running_approved_ceiling_cents: v.optional(v.number()),
     // Mechanic's current target (singular). Set on submitPreJobEstimate.
     mechanic_set_price_cents: v.optional(v.number()),
+    // Fixed-price bookings only. The ORIGINAL contracted flat price (in cents),
+    // captured once the first added service is billed on top of it. Stays put
+    // even as `mechanic_set_price_cents`/`total_cost` grow with added scope, so
+    // every added-scope estimate recomputes total = fixed_contract_base_cents +
+    // Σ(added services). Without this stable anchor, re-pricing would read the
+    // already-grown running total as the "base" and double-count prior additions.
+    fixed_contract_base_cents: v.optional(v.number()),
     estimate_approved_at_ms: v.optional(v.number()),
     estimate_decided_by_user_id: v.optional(v.id("users")),
 
@@ -4861,6 +4877,25 @@ export default defineSchema({
     .index("by_shop_and_match_key", ["shop_id", "match_key"])
     .index("by_match_key", ["match_key"]),
 
+  // A shop's remembered custom PART brands — supplier brands (Bosch, Denso…) or
+  // any one-off brand a mechanic sourced externally for a part on a walk-in
+  // booking. The parts Brand picker is seeded from the vehicle `makes` catalog,
+  // but that table is vehicle makes only (guarded by getOrCreateMake); part
+  // brands would pollute it. So, exactly like shop_custom_services, these are
+  // shop-scoped "autocomplete with a memory" — added only by an explicit
+  // "Add … as custom" tap, never driver-facing or bookable.
+  shop_custom_part_brands: defineTable({
+    shop_id: v.id("shops"),
+    name: v.string(),
+    // Trimmed + lowercased identity key for an idempotent upsert per shop.
+    name_key: v.string(),
+    use_count: v.number(),
+    last_used_at: v.number(),
+    created_at: v.number(),
+  })
+    .index("by_shop", ["shop_id"])
+    .index("by_shop_and_key", ["shop_id", "name_key"]),
+
   // One structured record per piece of off-catalog work (Off-Catalog Work
   // spec, §7). `bookings.custom_services[]` stays as the lightweight display
   // and scheduling copy — this table is the extraction spine.
@@ -6068,6 +6103,12 @@ export default defineSchema({
     parts_snapshot: v.array(postjobPartValidator),
     labor_hours: v.optional(v.number()),
     labor_rate_cents: v.optional(v.number()),
+    // Per-line breakdown behind `labor_hours` (the scalar total). Keyed "base"
+    // + custom-job ids; lets the post-job Labor step seed each line with its
+    // agreed labor instead of treating the whole-approval total as the base
+    // service's time (which double-counted custom-job labor). Optional —
+    // legacy rows predate it and fall back to the booking's base estimate.
+    labor_allocations: v.optional(v.array(laborAllocationValidator)),
     notes: v.optional(v.string()),
     // Optional photos the mechanic attached to justify the change (e.g. a shot
     // of the seized caliper behind the added scope). Storage ids; the
