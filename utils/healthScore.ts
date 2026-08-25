@@ -74,7 +74,7 @@ export const OPEN_ISSUE_PENALTY_MAX = 15;
 
 /** Default Upkeep share; Warning Lights is the remainder. Mirrors
  *  convex/healthScoreWeights.ts DEFAULT_UPKEEP_WEIGHT. */
-const DEFAULT_UPKEEP_SPLIT = 85;
+export const DEFAULT_UPKEEP_SPLIT = 85;
 
 // Urgency-engine constants — read by Change 3 (utils/urgency.ts).
 export const URGENCY_WEIGHTS = { severity: 0.50, proximity: 0.35 } as const;
