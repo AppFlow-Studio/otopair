@@ -123,6 +123,10 @@ export type CustomJobInput = {
   quoted_parts_cents?: number | null;
   /** Legacy catalog category. No longer collected; see schema.ts. */
   category_id?: Id<"service_categories"> | null;
+  /** The canonical service this added line resolved to at entry, when the
+   *  mechanic added a real bookable service mid-job. Its presence is the
+   *  discriminator the CUSTOM JOB INVARIANT keys on — see schema.ts. */
+  catalog_service_id?: Id<"services"> | null;
   complaint?: string | null;
   estimated_minutes?: number | null;
   quoted_price_cents?: number | null;
@@ -243,6 +247,7 @@ export async function recordCustomJobsForBooking(
         quoted_parts_cents:
           input.quoted_parts_cents ?? prior.quoted_parts_cents,
         category_id: input.category_id ?? prior.category_id,
+        catalog_service_id: input.catalog_service_id ?? prior.catalog_service_id,
         complaint: input.complaint?.trim() || prior.complaint,
         estimated_minutes:
           input.estimated_minutes ?? prior.estimated_minutes,
@@ -282,6 +287,7 @@ export async function recordCustomJobsForBooking(
       parts: input.parts && input.parts.length > 0 ? input.parts : undefined,
       quoted_parts_cents: input.quoted_parts_cents ?? undefined,
       category_id: input.category_id ?? undefined,
+      catalog_service_id: input.catalog_service_id ?? undefined,
       complaint: input.complaint?.trim() || undefined,
       estimated_minutes: input.estimated_minutes ?? undefined,
       quoted_price_cents: input.quoted_price_cents ?? undefined,
@@ -920,6 +926,10 @@ async function addCustomServiceForBooking(
         name,
         system_tags: args.systemTags ?? null,
         work_type: args.workType ?? null,
+        // Persist the catalog match resolved above. This is what lets booking
+        // completion credit a maintenance anchor for an added *catalog* service
+        // (and only that) — see the CUSTOM JOB INVARIANT in bookings.ts.
+        catalog_service_id: catalogServiceId,
         complaint: args.complaint ?? null,
         estimated_minutes: estimatedMinutes,
         shop_custom_service_id: args.shopCustomServiceId ?? null,

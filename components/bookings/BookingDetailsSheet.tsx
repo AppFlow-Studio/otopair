@@ -465,8 +465,13 @@ export const BookingDetailsSheet = forwardRef<BookingDetailsSheetRef, BookingDet
       });
     }, [detentJs, midOpacity, fullOpacity]);
 
-    // Pan gesture: drag handle up to grow, down to shrink/dismiss.
-    const dragGesture = useMemo(
+    // Pan gesture: drag up to grow, down to shrink/dismiss. We build two
+    // identical instances — one on the grabber, one over the whole mid-view
+    // body — because a single RNGH Gesture can't attach to two
+    // GestureDetectors. Wiring it to the mid body means swiping/scrolling
+    // anywhere on the summary grows the sheet to full instead of scrolling
+    // the content internally.
+    const buildDragGesture = useCallback(
       () =>
         Gesture.Pan()
           .onBegin(() => {
@@ -503,6 +508,9 @@ export const BookingDetailsSheet = forwardRef<BookingDetailsSheetRef, BookingDet
           }),
       [H_FULL, H_MED, close, sheetHeight, startHeight],
     );
+
+    const dragGesture = useMemo(() => buildDragGesture(), [buildDragGesture]);
+    const midDragGesture = useMemo(() => buildDragGesture(), [buildDragGesture]);
 
     const sheetAnimStyle = useAnimatedStyle(() => {
       const progress = interpolate(
@@ -601,20 +609,25 @@ export const BookingDetailsSheet = forwardRef<BookingDetailsSheetRef, BookingDet
 
             {/* Two stacked content layers, crossfaded on detent change */}
             <View style={styles.contentStack}>
-              <Animated.View
-                style={[styles.contentLayer, midAnimStyle]}
-                pointerEvents={detentJs === 0 ? "auto" : "none"}
-              >
-                <MidContent
-                  booking={booking}
-                  mechanicRating={mechanicRating}
-                  statusConfig={statusConfig}
-                  shopAddress={resolvedShopAddress}
-                  shopPhone={resolvedShopPhone}
-                  onClose={close}
-                  onOpenChat={handleOpenChat}
-                />
-              </Animated.View>
+              {/* Mid layer is wrapped in its own drag gesture so swiping the
+                  summary body grows the sheet to full (it no longer scrolls
+                  internally). Disabled in full via pointerEvents="none". */}
+              <GestureDetector gesture={midDragGesture}>
+                <Animated.View
+                  style={[styles.contentLayer, midAnimStyle]}
+                  pointerEvents={detentJs === 0 ? "auto" : "none"}
+                >
+                  <MidContent
+                    booking={booking}
+                    mechanicRating={mechanicRating}
+                    statusConfig={statusConfig}
+                    shopAddress={resolvedShopAddress}
+                    shopPhone={resolvedShopPhone}
+                    onClose={close}
+                    onOpenChat={handleOpenChat}
+                  />
+                </Animated.View>
+              </GestureDetector>
 
               <Animated.View
                 style={[styles.contentLayer, fullAnimStyle]}
@@ -717,11 +730,9 @@ function MidContent({
   const contactDisabled = !shopPhone;
 
   return (
-    <ScrollView
-      style={styles.midScroll}
-      contentContainerStyle={styles.midContainer}
-      showsVerticalScrollIndicator={false}
-    >
+    // Non-scrolling: the parent GestureDetector turns any vertical swipe here
+    // into a sheet grow-to-full instead of an internal scroll.
+    <View style={styles.midContainer}>
       {/* Top block — pushed to top */}
       <View>
         <SheetHeader onClose={onClose} />
@@ -838,7 +849,7 @@ function MidContent({
           Swipe up for full details
         </Text>
       </View>
-    </ScrollView>
+    </View>
   );
 }
 
@@ -2017,12 +2028,10 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
   },
 
-  // Mid content
-  midScroll: {
-    flex: 1,
-  },
+  // Mid content — non-scrolling; fills the layer so the top/bottom blocks
+  // spread via space-between. Vertical swipes here grow the sheet to full.
   midContainer: {
-    flexGrow: 1,
+    flex: 1,
     paddingHorizontal: 20,
     paddingBottom: 24,
     justifyContent: "space-between",

@@ -2013,6 +2013,15 @@ export default defineSchema({
      *  was originally v.number() but every writer (checkin, bookings)
      *  uses string labels — the validator was the side that drifted. */
     confidence: v.optional(v.string()),
+    /** The booking whose completion last serviced this anchor. Stamped by
+     *  bookings.ts runCompletionSideEffects → markServiced (both originally-
+     *  booked services and mid-job-added catalog services). Drives the Cars-tab
+     *  "Resolved by [shop] →" card + its deep-link to the past-service detail. */
+    lastServiceBookingId: v.optional(v.id("bookings")),
+    /** When the driver tapped the resolved card (opening the closing service).
+     *  The card shows only while resolutionAckedAt < lastServiceDate, so a fresh
+     *  completion re-surfaces it even if a prior resolution was already acked. */
+    resolutionAckedAt: v.optional(v.number()),
     createdAt: v.optional(v.number()),
     updatedAt: v.optional(v.number()),
   })
@@ -4730,6 +4739,34 @@ export default defineSchema({
     .index("by_kind", ["kind"])
     .index("by_opened_at", ["opened_at"]),
 
+  // Admin time inside the "Flag issue" flow — the mechanic writing up extra
+  // scope (the flag sheet and the mid-job scope dialog it opens) rather than
+  // turning a wrench. Recorded as closed spans so it drops out of worked labour
+  // the same way a clock-stopping blocker does: jobBlockers.clockStoppedSpans
+  // merges both, and mergedSpanMinutes de-overlaps them so a span opened during
+  // a blocker isn't subtracted twice.
+  //
+  // WHY CLOSED SPANS, WRITTEN ON CLOSE: a modal being "open" is far more
+  // transient than a blocker, and an open-ended row (opened, never closed) would
+  // pause the clock forever if the tab were closed mid-sheet. Writing only the
+  // completed span, on close, means an abandoned/crashed sheet is simply not
+  // credited — the safe direction (bills the customer, never over-credits).
+  //
+  // Unlike job_blockers this never reports "currently paused": the span is
+  // already closed by the time it lands, so isClockPausedForBooking (which looks
+  // for a span still open at `now`) skips it. The live, on-screen pause is a
+  // client concern (see NowWorkingPane); this table is the durable record that
+  // keeps blocked_minutes and the auto-derived labour honest.
+  job_admin_pauses: defineTable({
+    booking_id: v.id("bookings"),
+    shop_id: v.optional(v.id("shops")),
+    mechanic_id: v.optional(v.id("mechanics")),
+    recorded_by_user_id: v.id("users"),
+    opened_at: v.number(),
+    closed_at: v.number(),
+    created_at: v.number(),
+  }).index("by_booking", ["booking_id"]),
+
   // Audit trail for pseudo-VIN → real-VIN re-keys (Off-Catalog Work spec, §5).
   //
   // A walk-in entered without a valid VIN gets a placeholder, and every row about
@@ -4871,6 +4908,15 @@ export default defineSchema({
     // this is the field that filed a window-switch replacement under
     // "Inspections". No longer collected; kept so historical rows resolve.
     category_id: v.optional(v.id("service_categories")),
+    // The canonical catalog service this line resolved to at entry, when the
+    // mechanic added a real bookable service mid-job (addCustomServiceForBooking
+    // resolves it to seed OEM parts/labor). This is the ONE discriminator the
+    // CUSTOM JOB INVARIANT turns on: a row WITH catalog_service_id is an added
+    // *catalog* service and DOES move maintenance health on completion (via
+    // bookings.ts runCompletionSideEffects), exactly like an originally-booked
+    // service; a row WITHOUT it is genuine off-catalog work and stays isolated.
+    // Null on all pre-existing rows and on every truly off-catalog job.
+    catalog_service_id: v.optional(v.id("services")),
 
     // The reasoning. `complaint` is why the work happened, `resolution` is what
     // was actually done, `resolved_complaint` is whether it worked.
