@@ -69,6 +69,7 @@ import {
   computeHealthScoreFactors,
   type CompletedBooking,
   type HealthFactor,
+  isScorableMaintenanceItem,
 } from '@/utils/healthScore';
 import { useQuery } from 'convex/react';
 import { api } from '@/convex/_generated/api';
@@ -506,7 +507,12 @@ const VehicleHealthModal = ({
   const calculatedCondition = healthPercentage;
 
   // Sub-scores for display breakdown
-  const knownItems = (realItems ?? []).filter((i) => i.status !== "unknown");
+  // Count only what actually drives the score. Before this filter the ratio
+  // included catalog-inference rows and recommendation cards — neither scores
+  // — so a vehicle reading 4/9 was really 4 of 5 scored tiles on time.
+  const knownItems = (realItems ?? [])
+    .filter(isScorableMaintenanceItem)
+    .filter((i) => i.status !== "unknown");
   const onTimeItems = knownItems.filter((i) => i.status === "on_time");
   const maintenanceCompleted = onTimeItems.length;
   const maintenanceTotal = Math.max(knownItems.length, 1);
@@ -1897,7 +1903,9 @@ export function CarCarousel({
   const overallCondition = parentHealthScore ?? 0;
 
   // Sub-scores for the detail modal rings (maintenance = % of known items on_time, usage = mileage curve)
-  const knownItems = (maintenanceItems ?? []).filter((i) => i.status !== "unknown");
+  const knownItems = (maintenanceItems ?? [])
+    .filter(isScorableMaintenanceItem)
+    .filter((i) => i.status !== "unknown");
   const onTimeItems = knownItems.filter((i) => i.status === "on_time");
   const maintenanceTotal = Math.max(knownItems.length, 1);
   const maintenanceCompleted = onTimeItems.length;

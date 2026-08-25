@@ -92,6 +92,28 @@ function categoryWeightForItem(item: MaintenanceItem): number {
 // STATUS → SCORE (graduated, not binary)
 // ============================================================================
 
+/**
+ * Does this item contribute to the Upkeep term?
+ *
+ * Two kinds of row are shown to the driver but must never move the score:
+ *  - recommendation cards (`sourceRecommendationId`) — the matching core or
+ *    minor tile already scores that finding, and the Open-recs penalty covers
+ *    it a second time; counting the card would be a third.
+ *  - catalog-inference rows (`excludeFromScore`) — derived from an OEM
+ *    interval and an odometer alone, with no record and no mechanic behind
+ *    them. Only the five core tiles score by default.
+ *
+ * Exported so any UI that *describes* the score (the x/y maintenance counter)
+ * filters on exactly the same rule the score itself uses, instead of keeping a
+ * second definition that drifts.
+ */
+export function isScorableMaintenanceItem(item: {
+  sourceRecommendationId?: string;
+  excludeFromScore?: boolean;
+}): boolean {
+  return !item.sourceRecommendationId && !item.excludeFromScore;
+}
+
 const STATUS_SCORE: Record<MaintenanceStatus, number> = {
   on_time: 1.0,
   due_soon: 0.7,
@@ -253,9 +275,7 @@ export function computeVehicleHealthScore(
     // real category and falls it to the generic weight-10 "other" bucket —
     // double-counting the same physical problem the matching core/minor
     // tile already scores, on top of a third time via the Open-recs cap.
-    if (item.sourceRecommendationId) continue;
-    // Catalog-coverage inference rows: shown to the driver, never scored.
-    if (item.excludeFromScore) continue;
+    if (!isScorableMaintenanceItem(item)) continue;
     const w = categoryWeightForItem(item);
     const score =
       item.rawScore ??
@@ -356,9 +376,7 @@ export function computeHealthScoreFactors(
   // including skipping recommendation-derived cards (Consolidated model:
   // they never create a weighted Upkeep item, only the core/minor tile
   // that already covers the same finding does).
-  const scorableItems = maintenanceItems.filter(
-    (i) => !i.sourceRecommendationId && !i.excludeFromScore,
-  );
+  const scorableItems = maintenanceItems.filter(isScorableMaintenanceItem);
   const knownCount = scorableItems.filter((i) => i.status !== "unknown").length;
   let weightTotal = 0;
   for (const item of scorableItems) weightTotal += categoryWeightForItem(item);

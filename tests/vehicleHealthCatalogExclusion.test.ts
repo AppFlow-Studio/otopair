@@ -2,7 +2,10 @@
 // shown to the driver but never scored. Numbers are the doc's worked example
 // (Nissan Rogue, 145k mi, four core services recent, no state-inspection record).
 import { describe, it, expect } from "vitest";
-import { computeVehicleHealthScore } from "@/utils/healthScore";
+import {
+  computeVehicleHealthScore,
+  isScorableMaintenanceItem,
+} from "@/utils/healthScore";
 
 const core = (id: string, status: any) => ({
   id, serviceName: id, description: "", detail: "", status,
@@ -78,5 +81,36 @@ describe("§04 catalog-inference items must not score", () => {
     );
     expect(at145).toBe(91);
     expect(at40).toBe(97);
+  });
+});
+
+describe("§07 the x/y maintenance counter", () => {
+  // Mirrors CarCarousel's counting rule exactly: scorable items only, then
+  // drop unknowns, then count on_time.
+  const ratio = (list: any[]) => {
+    const known = list
+      .filter(isScorableMaintenanceItem)
+      .filter((i) => i.status !== "unknown");
+    return `${known.filter((i) => i.status === "on_time").length}/${Math.max(known.length, 1)}`;
+  };
+
+  it("drops the four catalog rows from the denominator", () => {
+    // Before the fix the same rule over the unfiltered list gave 4/8:
+    // 4 core on_time + 4 catalog overdue are all "known".
+    const unfiltered = items.filter((i) => i.status !== "unknown");
+    expect(
+      `${unfiltered.filter((i) => i.status === "on_time").length}/${unfiltered.length}`,
+    ).toBe("4/8");
+    expect(ratio(items)).toBe("4/4");
+  });
+
+  it("reads 4/5 only once the inspection tile has a known status", () => {
+    // The handoff predicts 4/5. That holds when inspection is present-but-not
+    // on_time; while it is `unknown` the counter's own rule excludes it, so
+    // the honest reading is 4/4.
+    const withOverdueInspection = items.map((i) =>
+      i.id === "inspection" ? core("inspection", "overdue") : i,
+    );
+    expect(ratio(withOverdueInspection)).toBe("4/5");
   });
 });
