@@ -108,6 +108,14 @@ export interface MaintenanceItem {
    *  Threaded through the booking flow as bookings.source_recommendation_id
    *  so the rec auto-closes when the booking completes. */
   sourceRecommendationId?: string;
+  /** Item is shown to the driver but must never enter the health score.
+   *  Set by the catalog-coverage inference pass: those rows are derived from
+   *  an OEM interval and an odometer alone, with no service record and no
+   *  mechanic behind them. Only the five core tiles score by default; a minor
+   *  item earns its weight because a mechanic graded it, never because time
+   *  passed. Kept as an explicit flag rather than sniffing the `catalog-` id
+   *  prefix, matching how recommendation cards are already excluded. */
+  excludeFromScore?: boolean;
   /** Mechanic + shop provenance for recs — drives the "Suggested by …" subtitle. */
   mechanicProvenance?: {
     shopName?: string | null;

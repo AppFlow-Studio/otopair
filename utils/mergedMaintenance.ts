@@ -409,6 +409,8 @@ export function buildMergedMaintenanceItems(
           detail: "No data",
           status: "on_time",
           triggeredBy: "none",
+          // Informational only — see MaintenanceItem.excludeFromScore.
+          excludeFromScore: true,
         });
         continue;
       }
@@ -427,6 +429,11 @@ export function buildMergedMaintenanceItems(
         status: status.status,
         percentUsed: status.percentUsed,
         triggeredBy: "inference",
+        // Inferred from an OEM interval and the odometer, measured from
+        // lastServiceMileage ?? 0 — i.e. as though the service had never been
+        // done. Useful as an upcoming-service hint and for urgency ranking,
+        // but it must not move the score. See MaintenanceItem.excludeFromScore.
+        excludeFromScore: true,
         signals: {
           mileage: `${formatMileage(currentOdometer)} (current)`,
           interval: `${formatMileage(bounded)} (OEM)`,

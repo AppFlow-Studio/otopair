@@ -254,6 +254,8 @@ export function computeVehicleHealthScore(
     // double-counting the same physical problem the matching core/minor
     // tile already scores, on top of a third time via the Open-recs cap.
     if (item.sourceRecommendationId) continue;
+    // Catalog-coverage inference rows: shown to the driver, never scored.
+    if (item.excludeFromScore) continue;
     const w = categoryWeightForItem(item);
     const score =
       item.rawScore ??
@@ -354,7 +356,9 @@ export function computeHealthScoreFactors(
   // including skipping recommendation-derived cards (Consolidated model:
   // they never create a weighted Upkeep item, only the core/minor tile
   // that already covers the same finding does).
-  const scorableItems = maintenanceItems.filter((i) => !i.sourceRecommendationId);
+  const scorableItems = maintenanceItems.filter(
+    (i) => !i.sourceRecommendationId && !i.excludeFromScore,
+  );
   const knownCount = scorableItems.filter((i) => i.status !== "unknown").length;
   let weightTotal = 0;
   for (const item of scorableItems) weightTotal += categoryWeightForItem(item);
