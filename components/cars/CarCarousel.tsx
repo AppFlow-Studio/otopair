@@ -70,6 +70,8 @@ import {
   type CompletedBooking,
   type HealthFactor,
   isScorableMaintenanceItem,
+  warningLightPenalty,
+  warningLightsReservePct,
 } from '@/utils/healthScore';
 import { useQuery } from 'convex/react';
 import { api } from '@/convex/_generated/api';
@@ -416,7 +418,8 @@ interface VehicleHealthModalProps {
   vehicleName: string;
   healthPercentage: number;
   maintenancePercentage: number;
-  servicePercentage: number;
+  /** 0–100 fullness of the Warning Lights reserve. */
+  warningLightsPercentage: number;
   maintenanceItems?: import("@/components/cars/MaintenanceTracker").MaintenanceItem[];
   currentMileage?: number;
   isEstimated?: boolean;
@@ -432,7 +435,7 @@ const VehicleHealthModal = ({
   vehicleName,
   healthPercentage,
   maintenancePercentage,
-  servicePercentage,
+  warningLightsPercentage,
   maintenanceItems: realItems,
   currentMileage: realMileage,
   isEstimated,
@@ -466,7 +469,6 @@ const VehicleHealthModal = ({
   const [showInfoModal, setShowInfoModal] = useState(false);
 
   // Calculate overall score (average of all three)
-  const overallScore = Math.round((healthPercentage + maintenancePercentage + servicePercentage) / 3);
 
   // Score factors breakdown — same formula as the displayed score, but
   // split into "what's helping" vs "what's hurting" with pts deltas.
@@ -528,7 +530,10 @@ const VehicleHealthModal = ({
   const maintenanceScore = maintenancePercentage;
 
   const vehicleMileage = realMileage ?? 0;
-  const usageScore = servicePercentage;
+  // Real reserve state, from the same function the score uses.
+  const lightsScore = warningLightsPercentage;
+  const lightsPenaltyPts = warningLightPenalty(knownIssues);
+  const litCount = (knownIssues ?? []).length;
 
   // Format mileage for display
   const formatMileage = (miles: number) => {
@@ -542,7 +547,7 @@ const VehicleHealthModal = ({
   const metrics: MetricConfig[] = [
     {
       name: 'Overall Vehicle Condition',
-      subtitle: 'Based on your maintenance and Usage',
+      subtitle: 'Upkeep, warning lights and open recommendations',
       color: '#30D158',
       percentage: calculatedCondition,
       displayValue: `${calculatedCondition}%`,
@@ -550,21 +555,26 @@ const VehicleHealthModal = ({
     },
     {
       name: 'Maintenance',
-      subtitle: 'More services completed = higher score',
+      subtitle: 'Services on time, weighted by how safety-critical they are',
       color: maintenanceScore >= 75 ? '#30D158' : maintenanceScore >= 60 ? '#FFEA00' : '#FF3B5C',
       percentage: maintenanceScore,
       displayValue: `${maintenanceCompleted}/${maintenanceTotal}`,
-      // Weighted impact: (75 - score) × 0.7 weight
-      scoreImpact: maintenanceScore >= 75 ? 0 : -Math.round((75 - maintenanceScore) * 0.7),
+      // No impact number here. The old -(75 - score) × 0.7 came from the
+      // deleted 70% Maintenance weight and reconciled with nothing. Upkeep's
+      // real contribution is a category-weighted average; the per-item
+      // breakdown below ("What's helping / hurting") already reports it from
+      // computeHealthScoreFactors, so inventing a headline figure here would
+      // only disagree with it.
+      scoreImpact: 0,
     },
     {
-      name: 'Usage & Wear',
-      subtitle: 'Lower mileage = higher score',
-      color: usageScore >= 75 ? '#30D158' : usageScore >= 60 ? '#FFEA00' : '#FF3B5C',
-      percentage: usageScore,
-      displayValue: formatMileage(vehicleMileage),
-      // Weighted impact: (75 - score) × 0.3 weight
-      scoreImpact: usageScore >= 75 ? 0 : -Math.round((75 - usageScore) * 0.3),
+      name: 'Warning Lights',
+      subtitle: 'Reserve drains as dashboard lights come on',
+      color: lightsScore >= 75 ? '#30D158' : lightsScore >= 60 ? '#FFEA00' : '#FF3B5C',
+      percentage: lightsScore,
+      displayValue: litCount === 0 ? 'None on' : `${litCount} on`,
+      // Real points off, not a fabricated curve.
+      scoreImpact: lightsPenaltyPts > 0 ? -lightsPenaltyPts : 0,
     },
   ];
 
@@ -635,8 +645,8 @@ const VehicleHealthModal = ({
       animateRing(setProgressService, calculatedCondition, 0);
       animateRing(setAnimatedHealth, maintenanceScore, 200);
       animateRing(setProgressHealth, maintenanceScore, 200);
-      animateRing(setAnimatedMaintenance, usageScore, 400);
-      animateRing(setProgressMaintenance, usageScore, 400);
+      animateRing(setAnimatedMaintenance, lightsScore, 400);
+      animateRing(setProgressMaintenance, lightsScore, 400);
     } else {
       // Close modal animation
       Animated.parallel([
@@ -653,7 +663,7 @@ const VehicleHealthModal = ({
         }),
       ]).start();
     }
-  }, [visible, calculatedCondition, maintenanceScore, usageScore]);
+  }, [visible, calculatedCondition, maintenanceScore, lightsScore]);
 
   // Single large ring configuration
   const modalRingSize = scale(180);
@@ -1409,7 +1419,8 @@ const modalStyles = StyleSheet.create({
 interface ActivityRingsProps {
   healthPercentage: number;
   maintenancePercentage?: number;
-  servicePercentage?: number;
+  /** 0–100 fullness of the Warning Lights reserve. */
+  warningLightsPercentage?: number;
   size?: number;
   onPress?: () => void;
   /** Flip the centered percentage to white when the page bg is dark
@@ -1680,6 +1691,9 @@ export function CarCarousel({
   activeVehicleId,
 }: CarCarouselProps) {
   "use no memo";
+  // Director-adjustable Warning Lights budget, so the ring tracks the same
+  // reserve the score uses rather than assuming the default 15.
+  const healthScoreWeightsForRing = useQuery(api.healthScoreWeights.getWeights);
   // ↑ Opt this file out of React Compiler. The compiler was freezing
   //   ref objects (`prevStoreVinRef`, `prevActiveIndexRef`,
   //   `activeVehicleIdRef`) and refusing assignments to `.current`,
@@ -1926,14 +1940,13 @@ export function CarCarousel({
     : overallCondition; // no known items → match overall so it doesn't look broken
 
   const vehicleMileage = currentMileage ?? activeVehicle?.mileage ?? 0;
-  const getMileageScoreForRing = (miles: number) => {
-    if (miles <= 30000) return 100;
-    if (miles <= 60000) return 90;
-    if (miles <= 100000) return 75;
-    if (miles <= 150000) return 55;
-    return 35;
-  };
-  const usageScoreForRing = getMileageScoreForRing(vehicleMileage);
+  // The third ring is Warning Lights, so the rings are Overall plus its two
+  // real components. The mileage curve that used to live here scored nothing —
+  // mileage has no independent term in the model.
+  const warningLightsPctForRing = warningLightsReservePct(
+    knownIssues,
+    healthScoreWeightsForRing?.warningLightsWeight,
+  );
 
   const setAnimatingTrue = useCallback(() => { isUserAnimating.current = true; }, []);
   const finishAnimation = useCallback((newIndex: number) => {
@@ -2415,7 +2428,7 @@ export function CarCarousel({
           <ActivityRings
             healthPercentage={overallCondition}
             maintenancePercentage={maintenanceScoreForRing}
-            servicePercentage={usageScoreForRing}
+            warningLightsPercentage={warningLightsPctForRing}
             size={scale(72)}
             onPress={() => setShowHealthModal(true)}
             isDarkBg={isDarkBg}
@@ -2623,7 +2636,7 @@ export function CarCarousel({
         vehicleName={activeVehicle ? `${activeVehicle.make} ${activeVehicle.model}` : 'Vehicle'}
         healthPercentage={overallCondition}
         maintenancePercentage={maintenanceScoreForRing}
-        servicePercentage={usageScoreForRing}
+        warningLightsPercentage={warningLightsPctForRing}
         maintenanceItems={maintenanceItems}
         currentMileage={vehicleMileage}
         isEstimated={isEstimatedScore}

@@ -72,6 +72,10 @@ export const COMPONENT_WEIGHTS = {
  *  v1 collapses to a single 0–15 deduction, "upcoming" moves to urgency. */
 export const OPEN_ISSUE_PENALTY_MAX = 15;
 
+/** Default Upkeep share; Warning Lights is the remainder. Mirrors
+ *  convex/healthScoreWeights.ts DEFAULT_UPKEEP_WEIGHT. */
+const DEFAULT_UPKEEP_SPLIT = 85;
+
 // Urgency-engine constants — read by Change 3 (utils/urgency.ts).
 export const URGENCY_WEIGHTS = { severity: 0.50, proximity: 0.35 } as const;
 export const URGENCY_TIEBREAKER_WINDOW = 5;
@@ -107,6 +111,21 @@ function categoryWeightForItem(item: MaintenanceItem): number {
  * filters on exactly the same rule the score itself uses, instead of keeping a
  * second definition that drifts.
  */
+/**
+ * How full the Warning Lights reserve still is, 0–100, for ring display.
+ * The reserve starts full and drains by warningLightPenalty; `reserveWeight`
+ * is the director-set Warning Lights budget (default 15) so the ring tracks
+ * the same number the score uses.
+ */
+export function warningLightsReservePct(
+  knownIssues?: string[],
+  reserveWeight: number = 100 - DEFAULT_UPKEEP_SPLIT,
+): number {
+  if (reserveWeight <= 0) return 100;
+  const remaining = Math.max(0, reserveWeight - warningLightPenalty(knownIssues));
+  return Math.round((remaining / reserveWeight) * 100);
+}
+
 export function isScorableMaintenanceItem(item: {
   sourceRecommendationId?: string;
   excludeFromScore?: boolean;
@@ -173,7 +192,10 @@ const LIGHT_PENALTY: Record<string, number> = {
  * light never dented the score. Penalty is summed per canonical light, capped
  * at 25 (the reserve floors at 0 regardless).
  */
-function warningLightPenalty(knownIssues?: string[]): number {
+/** Points drained from the Warning Lights reserve by the currently-lit
+ *  dashboard lights. Exported so UI that displays the reserve uses the same
+ *  arithmetic the score does rather than a second, drifting copy. */
+export function warningLightPenalty(knownIssues?: string[]): number {
   let penalty = 0;
   for (const light of canonicalWarningLights(knownIssues)) {
     penalty += LIGHT_PENALTY[light] ?? 6;
