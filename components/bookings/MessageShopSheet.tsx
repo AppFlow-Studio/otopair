@@ -25,17 +25,17 @@ import {
   Alert,
   FlatList,
   Image,
-  KeyboardAvoidingView,
   Modal,
-  Platform,
   Pressable,
   StyleSheet,
   TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
+import Animated, { useAnimatedStyle } from 'react-native-reanimated';
+import { useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ArrowLeft, ChevronRight, Plus, Send, User } from 'lucide-react-native';
+import { ArrowLeft, Car, ChevronRight, Plus, Send, User, Wrench } from 'lucide-react-native';
 import { useMutation } from 'convex/react';
 
 import { Text } from '@/components/shared-ui';
@@ -67,6 +67,10 @@ interface OpenParams {
   mechanicName: string;
   shopName: string;
   mechanicImage?: string;
+  /** Car this booking is for, e.g. "2011 Acura TL". Shown in the context bar. */
+  vehicleLabel?: string;
+  /** Service(s) being booked, e.g. "Tire Replacement". Shown in the context bar. */
+  serviceLabel?: string;
 }
 
 type SheetView = 'list' | 'intents' | 'thread';
@@ -115,6 +119,28 @@ function actionSummary(action: {
     default:
       return `Update${status}`;
   }
+}
+
+/** Gap kept above the keyboard when it's open (so the input isn't flush against it). */
+const INPUT_OPEN_GAP = 12;
+
+/**
+ * Animated bottom padding that lifts the input bar to sit just above the
+ * keyboard. Uses the app's keyboard-controller pattern (see FloatingSheet)
+ * instead of RN's KeyboardAvoidingView, which left a large gap here because
+ * it doesn't account for the globally-injected keyboard toolbar.
+ *
+ * Closed: sit flush near the bottom with a little padding — the full
+ * home-indicator inset left too big a gap, so we cap it. Open: lift by the
+ * keyboard height plus a small gap so the input isn't flush against it.
+ */
+function useInputBarLift(bottomInset: number) {
+  const { height: keyboardHeight } = useReanimatedKeyboardAnimation();
+  const closedPad = Math.min(Math.max(bottomInset, 12), 20);
+  return useAnimatedStyle(() => {
+    const kb = Math.abs(keyboardHeight.value);
+    return { paddingBottom: kb > 8 ? kb + INPUT_OPEN_GAP : closedPad };
+  });
 }
 
 // ============================================================================
@@ -242,6 +268,11 @@ export const MessageShopSheet = forwardRef<MessageShopSheetRef>((_props, ref) =>
           onClose={close}
         />
 
+        <ContextBar
+          vehicleLabel={params?.vehicleLabel}
+          serviceLabel={params?.serviceLabel}
+        />
+
         {view === 'list' && (
           <ListView
             tickets={tickets}
@@ -344,6 +375,39 @@ function Header({
   );
 }
 
+// Slim, always-visible bar under the header so both sides know which car +
+// service this conversation is about. Renders nothing when we have neither.
+function ContextBar({
+  vehicleLabel,
+  serviceLabel,
+}: {
+  vehicleLabel?: string;
+  serviceLabel?: string;
+}) {
+  if (!vehicleLabel && !serviceLabel) return null;
+  return (
+    <View style={styles.contextBar}>
+      {vehicleLabel ? (
+        <View style={styles.contextItem}>
+          <Car size={14} color="#6B7280" />
+          <Text size="xs" weight="semiBold" color="#4B5563" numberOfLines={1}>
+            {vehicleLabel}
+          </Text>
+        </View>
+      ) : null}
+      {vehicleLabel && serviceLabel ? <View style={styles.contextDivider} /> : null}
+      {serviceLabel ? (
+        <View style={[styles.contextItem, styles.contextItemFlex]}>
+          <Wrench size={14} color="#6B7280" />
+          <Text size="xs" weight="semiBold" color="#4B5563" numberOfLines={1}>
+            {serviceLabel}
+          </Text>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
 function ListView({
   tickets,
   onOpenTicket,
@@ -423,11 +487,9 @@ function IntentsView({
   onSendFreeText: () => void;
   bottomInset: number;
 }) {
+  const inputBarLift = useInputBarLift(bottomInset);
   return (
-    <KeyboardAvoidingView
-      style={styles.flex}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
+    <View style={styles.flex}>
       <FlatList
         data={intents}
         keyExtractor={(i) => i.category}
@@ -472,7 +534,7 @@ function IntentsView({
           </Text>
         }
       />
-      <View style={[styles.inputBar, { paddingBottom: Math.max(bottomInset, 10) }]}>
+      <Animated.View style={[styles.inputBar, inputBarLift]}>
         <TextInput
           style={styles.input}
           placeholder="Message the shop…"
@@ -490,8 +552,8 @@ function IntentsView({
         >
           <Send size={18} color="#FFFFFF" />
         </TouchableOpacity>
-      </View>
-    </KeyboardAvoidingView>
+      </Animated.View>
+    </View>
   );
 }
 
@@ -514,6 +576,7 @@ function ThreadView({
 }) {
   const { ticket, messages } = useShopTicketThread(ticketId);
   const listRef = useRef<FlatList<any>>(null);
+  const inputBarLift = useInputBarLift(bottomInset);
 
   // Mark read whenever new shop content arrives while the thread is open.
   const lastShopAt = ticket?.last_message_at ?? 0;
@@ -530,10 +593,7 @@ function ThreadView({
   const closed = ticket?.status === 'closed';
 
   return (
-    <KeyboardAvoidingView
-      style={styles.flex}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
+    <View style={styles.flex}>
       <FlatList
         ref={listRef}
         data={messages}
@@ -587,7 +647,7 @@ function ThreadView({
           );
         }}
       />
-      <View style={[styles.inputBar, { paddingBottom: Math.max(bottomInset, 10) }]}>
+      <Animated.View style={[styles.inputBar, inputBarLift]}>
         <TextInput
           style={styles.input}
           placeholder={closed ? 'This conversation is closed' : 'Message…'}
@@ -609,8 +669,8 @@ function ThreadView({
         >
           <Send size={18} color="#FFFFFF" />
         </TouchableOpacity>
-      </View>
-    </KeyboardAvoidingView>
+      </Animated.View>
+    </View>
   );
 }
 
@@ -643,6 +703,20 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   avatarImage: { width: 36, height: 36, borderRadius: 18 },
+  // Context bar (car + service the booking is for)
+  contextBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    gap: 10,
+    backgroundColor: '#F9FAFB',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#E5E5EA',
+  },
+  contextItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  contextItemFlex: { flex: 1 },
+  contextDivider: { width: 1, height: 12, backgroundColor: '#D1D5DB' },
   listContent: { padding: 16, gap: 10 },
   sectionTitle: { marginBottom: 4 },
   // Ticket list

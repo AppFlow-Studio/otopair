@@ -32,7 +32,15 @@ import Animated, {
 import { BlurView } from "expo-blur";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
-import { Bell, Calendar, Clock, X } from "lucide-react-native";
+import {
+  Bell,
+  Calendar,
+  Car,
+  ChevronRight,
+  CircleCheck,
+  Gauge,
+  X,
+} from "lucide-react-native";
 
 import { Text } from "@/components/shared-ui";
 import { BorderRadius, BrandColors, SemanticColors, Spacing } from "@/constants/theme";
@@ -46,6 +54,10 @@ import { routeOtopairDeepLink } from "@/utils/linking";
 import { NotificationActions } from "./NotificationActions";
 import { notificationTitle } from "./notificationLabels";
 import { getNotificationShape } from "./notificationShapes";
+import { NOTIFICATION_TONES, getNotificationVisual } from "./notificationVisuals";
+
+/** Filter tabs across the top of the sheet. */
+type NotificationFilter = "all" | "unread";
 
 const { height: SCREEN_H } = Dimensions.get("window");
 const SHEET_HEIGHT = Math.round(SCREEN_H * 0.78);
@@ -64,19 +76,14 @@ function relativeTime(createdAt: number): string {
   return new Date(createdAt).toLocaleDateString();
 }
 
-// Muted "what is this about" line. Includes only the entities the row
-// actually references: car (VIN · YMMT · mileage), then shop, then mechanic.
-function contextLine(row: NotificationRow): string | null {
-  const parts = [
-    row.vin ? `VIN ${row.vin}` : null,
-    row.vehicleYMMT ?? null,
-    typeof row.mileage === "number"
-      ? `${row.mileage.toLocaleString()} mi`
-      : null,
-    row.shopName ?? null,
-    row.mechanicName ?? null,
-  ].filter(Boolean);
-  return parts.length > 0 ? parts.join("  ·  ") : null;
+// Appointment date for the row meta line. Bookings store scheduled_date as an
+// ISO-ish string; render it as M/D/YYYY, or null when absent/unparseable so the
+// meta line just omits the date rather than showing "Invalid Date".
+function formatMetaDate(scheduledDate?: string | null): string | null {
+  if (!scheduledDate) return null;
+  const d = new Date(scheduledDate);
+  if (Number.isNaN(d.getTime())) return null;
+  return `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
 }
 
 function formatExpiry(expiresAt: number): string | null {
@@ -99,12 +106,14 @@ export function NotificationsSheet() {
     useNotificationsFromConvex();
 
   const [mounted, setMounted] = useState(false);
+  const [filter, setFilter] = useState<NotificationFilter>("all");
   const progress = useSharedValue(0);
   const rowRefs = useRef<Map<string, RNView | null>>(new Map());
 
   useEffect(() => {
     if (isOpen) {
       setMounted(true);
+      setFilter("all");
       progress.value = 0;
       requestAnimationFrame(() => {
         progress.value = withSpring(1, SPRING_CONFIG);
@@ -219,6 +228,27 @@ export function NotificationsSheet() {
     resolve(row._id).catch(() => {});
   };
 
+  // "Mark all as read" — marks every unread row SEEN. Backend has no bulk
+  // mutation (convex is owned by otopair-web), so fan out over the existing,
+  // deployed markRead; the reactive query collapses the unread styling as each
+  // patch lands.
+  const unreadRows = notifications.filter((row) => row.read_at == null);
+  const handleMarkAllRead = () => {
+    if (unreadRows.length === 0) return;
+    unreadRows.forEach((row) => {
+      markRead(row._id).catch(() => {});
+    });
+  };
+
+  // Feed slices behind the filter tabs.
+  const visibleRows = filter === "unread" ? unreadRows : notifications;
+
+  const filterTabs: { key: NotificationFilter; label: string; count?: number }[] =
+    [
+      { key: "all", label: "All", count: notifications.length },
+      { key: "unread", label: "Unread", count: unreadRows.length },
+    ];
+
   if (!mounted) return null;
 
   return (
@@ -249,7 +279,7 @@ export function NotificationsSheet() {
       >
         <View style={styles.handle} />
         <View style={styles.header}>
-          <Text size="xl" weight="bold" color={BrandColors.primary}>
+          <Text size={28} weight="extraBold" color={BrandColors.primary}>
             Notifications
           </Text>
           <Pressable
@@ -261,11 +291,74 @@ export function NotificationsSheet() {
           </Pressable>
         </View>
 
+        <View style={styles.filterBar}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.filterScroll}
+            contentContainerStyle={styles.filterScrollContent}
+          >
+            {filterTabs.map((tab) => {
+              const active = filter === tab.key;
+              return (
+                <Pressable
+                  key={tab.key}
+                  onPress={() => setFilter(tab.key)}
+                  style={[styles.pill, active && styles.pillActive]}
+                >
+                  <Text
+                    size="sm"
+                    weight={active ? "bold" : "semiBold"}
+                    color={active ? BrandColors.primary : SemanticColors.textMuted}
+                  >
+                    {tab.label}
+                  </Text>
+                  {typeof tab.count === "number" ? (
+                    <View
+                      style={[
+                        styles.pillBadge,
+                        active && styles.pillBadgeActive,
+                      ]}
+                    >
+                      <Text
+                        size="xs"
+                        weight="bold"
+                        color={active ? BrandColors.white : SemanticColors.textMuted}
+                      >
+                        {tab.count}
+                      </Text>
+                    </View>
+                  ) : null}
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+
+          <Pressable
+            onPress={handleMarkAllRead}
+            disabled={unreadRows.length === 0}
+            hitSlop={8}
+            style={[
+              styles.markAll,
+              unreadRows.length === 0 && styles.markAllDisabled,
+            ]}
+          >
+            <CircleCheck
+              size={16}
+              color={BrandColors.secondary}
+              strokeWidth={2.2}
+            />
+            <Text size="sm" weight="semiBold" color={BrandColors.secondary}>
+              Mark all as read
+            </Text>
+          </Pressable>
+        </View>
+
         <ScrollView
           style={styles.list}
           contentContainerStyle={styles.listContent}
         >
-          {!isLoading && notifications.length === 0 ? (
+          {!isLoading && visibleRows.length === 0 ? (
             <View style={styles.empty}>
               <View style={styles.emptyIcon}>
                 <Bell size={28} color="#9CA3AF" strokeWidth={1.75} />
@@ -276,7 +369,9 @@ export function NotificationsSheet() {
                 color={BrandColors.primary}
                 style={styles.emptyTitle}
               >
-                You're all caught up
+                {filter === "unread"
+                  ? "No unread notifications"
+                  : "You're all caught up"}
               </Text>
               <Text size="md" color="#6B7280" style={styles.emptyBody}>
                 Updates about your bookings — reschedules, reminders, and
@@ -285,10 +380,9 @@ export function NotificationsSheet() {
             </View>
           ) : null}
 
-          {notifications.map((row) => {
+          {visibleRows.map((row) => {
             const spec = getNotificationShape(row.category);
             const isReschedule = spec.action === "reschedule_decision";
-            const isOnMyWay = spec.action === "on_my_way";
             const isActionableRow = spec.shape === "actionable";
             // Inline decision buttons are wired for the families that resolve
             // with just a bookingId; other actionable rows stay tap-through.
@@ -299,7 +393,6 @@ export function NotificationsSheet() {
                 spec.action === "on_my_way")
                 ? spec.action
                 : null;
-            const isForced = row.category === "booking_forced_delay_proposed";
             const isUnread = row.read_at == null;
             const title = notificationTitle(row.category, row.payload);
             const body = row.payload?.body ?? "";
@@ -307,7 +400,37 @@ export function NotificationsSheet() {
               isReschedule && typeof row.rescheduleExpiresAt === "number"
                 ? formatExpiry(row.rescheduleExpiresAt)
                 : null;
-            const context = contextLine(row);
+
+            // Icon + colour tone driven by the notification type.
+            const visual = getNotificationVisual(row.category);
+            const tone = NOTIFICATION_TONES[visual.tone];
+            const RowIcon = visual.Icon;
+
+            // Top-right control: a chevron for tap-through actionable rows, a
+            // dismiss X for acknowledge rows, nothing for rows that carry their
+            // own inline decision buttons.
+            const showChevron = isActionableRow && !inlineAction;
+            const showDismiss = !isActionableRow;
+
+            // Meta line — appointment date, vehicle, odometer — only the parts
+            // this row actually references.
+            const dateLabel = formatMetaDate(row.scheduledDate);
+            const metaParts: {
+              key: string;
+              Icon: typeof RowIcon;
+              label: string;
+            }[] = [];
+            if (dateLabel)
+              metaParts.push({ key: "date", Icon: Calendar, label: dateLabel });
+            if (row.vehicleYMMT)
+              metaParts.push({ key: "veh", Icon: Car, label: row.vehicleYMMT });
+            if (typeof row.mileage === "number")
+              metaParts.push({
+                key: "mi",
+                Icon: Gauge,
+                label: `${row.mileage.toLocaleString()} mi`,
+              });
+
             return (
               <Pressable
                 key={String(row._id)}
@@ -321,73 +444,105 @@ export function NotificationsSheet() {
                   pressed && styles.rowPressed,
                 ]}
               >
+                {isUnread ? <View style={styles.railDot} /> : null}
+
                 <View
-                  style={[
-                    styles.rowIcon,
-                    isReschedule ? styles.rowIconAccent : null,
-                    isOnMyWay ? styles.rowIconWarn : null,
-                  ]}
+                  style={[styles.rowIcon, { backgroundColor: tone.tile }]}
                 >
-                  {isReschedule ? (
-                    <Calendar
-                      size={20}
-                      color={isForced ? "#C8972E" : BrandColors.secondary}
-                      strokeWidth={2}
-                    />
-                  ) : isOnMyWay ? (
-                    <Clock
-                      size={20}
-                      color={SemanticColors.warningAmber}
-                      strokeWidth={2}
-                    />
-                  ) : (
-                    <Bell
-                      size={20}
-                      color={BrandColors.primary}
-                      strokeWidth={2}
-                    />
-                  )}
+                  <RowIcon size={22} color={tone.icon} strokeWidth={2} />
                 </View>
+
                 <View style={styles.rowText}>
                   <View style={styles.titleRow}>
-                    {isUnread ? <View style={styles.unreadDot} /> : null}
                     <Text
                       size="md"
                       weight={isUnread ? "bold" : "semiBold"}
                       color={BrandColors.primary}
                       style={styles.titleText}
+                      numberOfLines={2}
                     >
                       {title}
                     </Text>
+                    <View style={styles.topRight}>
+                      <Text size="xs" color="#9AA4B2" style={styles.timeText}>
+                        {relativeTime(row.created_at)}
+                      </Text>
+                      {showChevron ? (
+                        <ChevronRight
+                          size={16}
+                          color="#C3CBD6"
+                          strokeWidth={2.4}
+                        />
+                      ) : null}
+                      {showDismiss ? (
+                        <Pressable
+                          onPress={() => handleDismiss(row)}
+                          hitSlop={10}
+                          style={styles.dismissButton}
+                          accessibilityLabel="Dismiss notification"
+                        >
+                          <X size={15} color="#9AA4B2" strokeWidth={2.4} />
+                        </Pressable>
+                      ) : null}
+                    </View>
                   </View>
+
                   {body ? (
-                    <Text size="sm" color="#4B5563" style={styles.rowBody}>
+                    <Text
+                      size="sm"
+                      color="#4B5563"
+                      style={styles.rowBody}
+                      numberOfLines={2}
+                    >
                       {body}
                     </Text>
                   ) : null}
+
                   {expiryLabel ? (
                     <Text
                       size="xs"
                       weight="semiBold"
-                      color="#C8972E"
-                      style={styles.rowTime}
+                      color={SemanticColors.warningAmber}
+                      style={styles.rowExpiry}
                     >
                       {expiryLabel}
                     </Text>
                   ) : null}
-                  <Text size="xs" color="#9CA3AF" style={styles.rowTime}>
-                    {relativeTime(row.created_at)}
-                  </Text>
-                  {context ? (
-                    <Text
-                      size="xs"
-                      color="#9CA3AF"
-                      style={styles.rowContext}
-                      numberOfLines={2}
-                    >
-                      {context}
-                    </Text>
+
+                  {metaParts.length > 0 ? (
+                    <View style={styles.metaRow}>
+                      {metaParts.map((part, i) => (
+                        <React.Fragment key={part.key}>
+                          {i > 0 ? <View style={styles.metaSep} /> : null}
+                          <View style={styles.metaItem}>
+                            <part.Icon
+                              size={13}
+                              color="#9AA4B2"
+                              strokeWidth={2}
+                            />
+                            <Text
+                              size="xs"
+                              color={SemanticColors.textMuted}
+                              numberOfLines={1}
+                            >
+                              {part.label}
+                            </Text>
+                          </View>
+                        </React.Fragment>
+                      ))}
+                    </View>
                   ) : null}
+
+                  {row.shopName ? (
+                    <View
+                      style={[styles.shopChip, { backgroundColor: tone.chipBg }]}
+                    >
+                      <Text size="xs" weight="semiBold" color={tone.chipText}>
+                        {row.shopName}
+                      </Text>
+                    </View>
+                  ) : null}
+
                   {inlineAction ? (
                     <NotificationActions
                       row={row}
@@ -397,16 +552,6 @@ export function NotificationsSheet() {
                     />
                   ) : null}
                 </View>
-                {!isActionableRow ? (
-                  <Pressable
-                    onPress={() => handleDismiss(row)}
-                    hitSlop={10}
-                    style={styles.dismissButton}
-                    accessibilityLabel="Dismiss notification"
-                  >
-                    <X size={16} color="#9CA3AF" strokeWidth={2.4} />
-                  </Pressable>
-                ) : null}
               </Pressable>
             );
           })}
@@ -441,7 +586,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: Spacing.xl,
-    paddingBottom: Spacing.md,
+    paddingBottom: Spacing.sm,
   },
   closeButton: {
     width: 32,
@@ -451,13 +596,71 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+
+  // ── Filter bar ─────────────────────────────────────────────────────────
+  filterBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: Spacing.xl,
+    paddingBottom: Spacing.md,
+    gap: Spacing.sm,
+  },
+  filterScroll: {
+    flexGrow: 0,
+    flexShrink: 1,
+  },
+  filterScrollContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+    paddingRight: Spacing.sm,
+  },
+  pill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: BorderRadius.full,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    backgroundColor: "#FFFFFF",
+  },
+  pillActive: {
+    backgroundColor: SemanticColors.primaryBlueLight,
+    borderColor: SemanticColors.primaryBlueLightAlt,
+  },
+  pillBadge: {
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    paddingHorizontal: 5,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#E5E7EB",
+  },
+  pillBadgeActive: {
+    backgroundColor: BrandColors.secondary,
+  },
+  markAll: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    flexShrink: 0,
+    paddingVertical: 4,
+  },
+  markAllDisabled: {
+    opacity: 0.4,
+  },
+
   list: {
     flex: 1,
   },
   listContent: {
     paddingHorizontal: Spacing.xl,
     paddingBottom: Spacing["2xl"],
-    gap: Spacing.sm,
+    gap: Spacing.md,
   },
   empty: {
     alignItems: "center",
@@ -480,70 +683,110 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.lg,
     lineHeight: 20,
   },
+
+  // ── Notification card ──────────────────────────────────────────────────
   row: {
+    position: "relative",
     flexDirection: "row",
+    alignItems: "flex-start",
     gap: Spacing.md,
     padding: Spacing.lg,
-    backgroundColor: "#F9FAFB",
-    borderRadius: BorderRadius.lg,
+    backgroundColor: "#FFFFFF",
+    borderRadius: BorderRadius.xl,
+    borderWidth: 1,
+    borderColor: "#EEF1F4",
+    shadowColor: "#0B1220",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 1,
   },
   rowRead: {
-    backgroundColor: "#F3F4F6",
-    opacity: 0.72,
+    backgroundColor: "#F7F8FA",
+    borderColor: "#F0F2F5",
+    opacity: 0.9,
   },
   rowPressed: {
     opacity: 0.7,
   },
-  titleRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.xs,
-  },
-  titleText: {
-    flexShrink: 1,
-  },
-  unreadDot: {
+  railDot: {
+    position: "absolute",
+    left: -12,
+    top: 34,
     width: 8,
     height: 8,
     borderRadius: 4,
     backgroundColor: BrandColors.secondary,
   },
-  dismissButton: {
-    width: 28,
-    height: 28,
+  rowIcon: {
+    width: 44,
+    height: 44,
     borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
-    alignSelf: "flex-start",
-  },
-  rowIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "#F3F4F6",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  rowIconAccent: {
-    backgroundColor: "#EFF5FF",
-  },
-  rowIconWarn: {
-    backgroundColor: SemanticColors.warningAmberLight,
   },
   rowText: {
     flex: 1,
     gap: 2,
   },
+  titleRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: Spacing.sm,
+  },
+  titleText: {
+    flex: 1,
+    lineHeight: 20,
+  },
+  topRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    flexShrink: 0,
+    marginTop: 1,
+  },
+  timeText: {
+    // muted timestamp — colour set inline
+  },
+  dismissButton: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   rowBody: {
-    marginTop: 2,
+    marginTop: 3,
     lineHeight: 18,
   },
-  rowTime: {
-    marginTop: Spacing.xs,
+  rowExpiry: {
+    marginTop: 4,
   },
-  rowContext: {
-    marginTop: 2,
-    lineHeight: 16,
+  metaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 6,
+    marginTop: 8,
+  },
+  metaItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  metaSep: {
+    width: 3,
+    height: 3,
+    borderRadius: 1.5,
+    backgroundColor: "#CBD2DB",
+  },
+  shopChip: {
+    alignSelf: "flex-start",
+    marginTop: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: BorderRadius.full,
   },
 });
 

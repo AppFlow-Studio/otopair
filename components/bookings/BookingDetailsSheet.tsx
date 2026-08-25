@@ -320,6 +320,9 @@ export const BookingDetailsSheet = forwardRef<BookingDetailsSheetRef, BookingDet
         mechanicName: booking.mechanicName,
         shopName: booking.shopName,
         mechanicImage: booking.mechanicImage,
+        vehicleLabel:
+          [booking.carYear, booking.carModel].filter(Boolean).join(" ") || undefined,
+        serviceLabel: (booking.services ?? []).join(" · ") || undefined,
       });
     }, [booking]);
 

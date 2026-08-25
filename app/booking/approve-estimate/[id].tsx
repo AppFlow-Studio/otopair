@@ -34,6 +34,7 @@ import {
   ShieldCheck,
   Wrench,
   CreditCard,
+  CircleCheck,
   FileCheck,
   FileX,
   Wallet,
@@ -69,6 +70,68 @@ import { ReceiptSkeleton } from "@/components/receipts/ReceiptSkeleton";
 function formatUsd(cents: number | undefined | null): string {
   const v = ((cents ?? 0) / 100).toFixed(2);
   return `$${v}`;
+}
+
+/**
+ * Appointment "when" line for the already-confirmed recap. `scheduledDate` is
+ * an ISO-ish string; render it friendly (Mon, Aug 7) and append the raw time
+ * slot when present. Falls back to the raw date string if it won't parse.
+ */
+function formatApptWhen(
+  date: string | null | undefined,
+  time: string | null | undefined,
+): string | null {
+  let d: string | null = null;
+  if (date) {
+    const parsed = new Date(date);
+    d = Number.isNaN(parsed.getTime())
+      ? date
+      : parsed.toLocaleDateString(undefined, {
+          weekday: "short",
+          month: "short",
+          day: "numeric",
+        });
+  }
+  const parts = [d, time].filter(Boolean);
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
+
+/** Title-case a raw status like `in_progress` → `In Progress`. */
+function statusLabel(status: string | null | undefined): string | null {
+  if (!status) return null;
+  return status
+    .split("_")
+    .map((w) => (w.length ? w[0].toUpperCase() + w.slice(1) : w))
+    .join(" ");
+}
+
+/**
+ * Collapse a mechanic-added service's parts down to the ones actually being
+ * used and quoted.
+ *
+ * A catalog service (e.g. "Oil Change") seeds its parts from the OEM catalog,
+ * which lists every fitment candidate — two drain-plug gaskets, two engine
+ * oils — when only one of each goes on the job. Keep one row per part name,
+ * preferring the candidate whose OEM number appears on the approval's quoted
+ * parts (`quotedOemNumbers`); fall back to the first when the quote names none
+ * of them. Insertion order is preserved so the list still reads top-down.
+ */
+function usedAndQuotedParts<
+  T extends { part_name: string; oem_number: string | null; quantity: number },
+>(parts: T[], quotedOemNumbers: Set<string>): T[] {
+  const isQuoted = (oem: string | null) =>
+    !!oem && quotedOemNumbers.has(oem.trim().toLowerCase());
+  const byRole = new Map<string, T>();
+  for (const part of parts) {
+    const role = part.part_name.trim().toLowerCase().replace(/\s+/g, " ");
+    const existing = byRole.get(role);
+    if (!existing) {
+      byRole.set(role, part);
+    } else if (isQuoted(part.oem_number) && !isQuoted(existing.oem_number)) {
+      byRole.set(role, part);
+    }
+  }
+  return [...byRole.values()];
 }
 
 const HEADER_BY_CYCLE: Record<string, string> = {
@@ -618,6 +681,17 @@ function ApprovalDecisionView({
   const cycleAdditions = (addedServices ?? []).filter(
     (a) => a.source === approval.cycle,
   );
+  // OEM numbers actually on the quote (the parts_snapshot behind the total),
+  // minus declined and customer-supplied lines. Lets the "what your mechanic
+  // found" card keep only the seeded candidate per role that's really quoted.
+  const quotedOemNumbers = new Set(
+    breakdown.parts
+      .filter((p: any) => !p?.not_used && p?.supplied_by !== "customer")
+      .map((p: any) =>
+        p?.oem_number ? String(p.oem_number).trim().toLowerCase() : "",
+      )
+      .filter((s: string) => s.length > 0),
+  );
 
   return (
     <View style={[styles.root, { paddingTop: insets.top + Spacing.lg }]}>
@@ -697,8 +771,10 @@ function ApprovalDecisionView({
                 {item.complaint ? (
                   <Text style={styles.addedWhy}>{item.complaint}</Text>
                 ) : null}
-                {/* Named parts justify a figure better than any summary line. */}
-                {item.parts.map((part, partIndex) => (
+                {/* Named parts justify a figure better than any summary line.
+                    Deduped to one row per role so the seeded OEM candidates
+                    (two gaskets, two oils) don't read as extra parts. */}
+                {usedAndQuotedParts(item.parts, quotedOemNumbers).map((part, partIndex) => (
                   <Text
                     key={`${item._id}-${partIndex}`}
                     style={styles.addedPart}
@@ -1155,6 +1231,14 @@ function ReauthView({
   const isBookingLoading = booking === undefined;
   const stillReauth = booking?.payment_approval_state === "reauth_required";
 
+  // When the hold is already confirmed there's nothing to do here — pull the
+  // enriched booking so we can show the appointment recap instead of a
+  // dead-end message. Skipped while an action is still pending.
+  const bookingInfo = useQuery(
+    api.bookings.getBookingByIdForCustomer,
+    stillReauth ? "skip" : { bookingId },
+  );
+
   const handleConfirmHold = useCallback(async () => {
     if (submitting) return;
     if (!canConfirm) {
@@ -1297,20 +1381,81 @@ function ReauthView({
     );
   }
 
-  // State may have cleared in flight (background webhook resolved). Show a
-  // calm confirmation rather than the scary "couldn't confirm" alert.
+  // State may have cleared in flight (background webhook resolved). No action
+  // is needed — rather than a dead-end message, show a calm confirmation banner
+  // over the booking's details so the tap still lands somewhere useful.
   if (!stillReauth) {
+    const services = bookingInfo?.serviceNames ?? [];
+    const whenLabel = formatApptWhen(
+      bookingInfo?.scheduledDate,
+      bookingInfo?.scheduledTime,
+    );
+    const details: { label: string; value: string }[] = [];
+    if (bookingInfo?.vehicleDisplay)
+      details.push({ label: "Vehicle", value: bookingInfo.vehicleDisplay });
+    if (bookingInfo?.shopName)
+      details.push({ label: "Shop", value: bookingInfo.shopName });
+    if (bookingInfo?.mechanicName)
+      details.push({ label: "Mechanic", value: bookingInfo.mechanicName });
+    if (whenLabel) details.push({ label: "When", value: whenLabel });
+    if (services.length > 0)
+      details.push({ label: "Services", value: services.join(", ") });
+    const status = statusLabel(bookingInfo?.status);
+    if (status) details.push({ label: "Status", value: status });
+
     return (
       <View style={[styles.root, { paddingTop: insets.top + Spacing.lg }]}>
-        <Pressable onPress={() => router.back()} style={styles.backBtn}>
+        <Pressable
+          onPress={() => router.back()}
+          style={styles.backBtn}
+          hitSlop={8}
+        >
           <ChevronLeft size={24} color={BrandColors.primary} />
           <Text style={styles.backLabel}>Back</Text>
         </Pressable>
-        <View style={styles.center}>
-          <Text style={{ color: SemanticColors.textMuted, textAlign: "center", paddingHorizontal: Spacing.xl }}>
-            Your card hold is already confirmed. No action needed.
-          </Text>
-        </View>
+
+        <ScrollView
+          contentContainerStyle={{
+            paddingHorizontal: Spacing.lg,
+            paddingBottom: Spacing["2xl"] + insets.bottom,
+          }}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.confirmedBanner}>
+            <CircleCheck size={20} color={SemanticColors.successGreen} />
+            <Text weight="semiBold" style={styles.confirmedBannerText}>
+              Your card hold is already confirmed. No action needed.
+            </Text>
+          </View>
+
+          {bookingInfo === undefined ? (
+            <View
+              style={[
+                styles.card,
+                { alignItems: "center", paddingVertical: Spacing["3xl"] },
+              ]}
+            >
+              <Text style={{ color: SemanticColors.textMuted }}>
+                Loading booking…
+              </Text>
+            </View>
+          ) : bookingInfo === null || details.length === 0 ? null : (
+            <View style={styles.card}>
+              <Text weight="bold" style={styles.detailsTitle}>
+                Booking details
+              </Text>
+              {details.map((d, i) => (
+                <View
+                  key={d.label}
+                  style={[styles.detailRow, i > 0 && styles.detailRowBorder]}
+                >
+                  <Text style={styles.detailLabel}>{d.label}</Text>
+                  <Text style={styles.detailValue}>{d.value}</Text>
+                </View>
+              ))}
+            </View>
+          )}
+        </ScrollView>
       </View>
     );
   }
@@ -1638,6 +1783,47 @@ const styles = StyleSheet.create({
     height: StyleSheet.hairlineWidth,
     backgroundColor: SemanticColors.border,
     marginVertical: Spacing.lg,
+  },
+
+  // ── Already-confirmed recap (no-action state) ─────────────────────────
+  confirmedBanner: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    backgroundColor: SemanticColors.successGreenLight,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.md,
+    borderRadius: 16,
+    marginTop: Spacing.xs,
+    marginBottom: Spacing.md,
+  },
+  confirmedBannerText: {
+    flex: 1,
+    color: SemanticColors.successGreen,
+    fontSize: 14,
+    lineHeight: 19,
+  },
+  detailsTitle: {
+    fontSize: 16,
+    color: BrandColors.primary,
+    marginBottom: Spacing.xs,
+  },
+  detailRow: { paddingVertical: Spacing.md },
+  detailRowBorder: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: SemanticColors.border,
+  },
+  detailLabel: {
+    color: SemanticColors.textMuted,
+    fontSize: 12,
+    letterSpacing: 0.3,
+    textTransform: "uppercase",
+    marginBottom: 3,
+  },
+  detailValue: {
+    color: BrandColors.primary,
+    fontSize: 15,
+    lineHeight: 20,
   },
 
   // ── Price summary ─────────────────────────────────────────────────────

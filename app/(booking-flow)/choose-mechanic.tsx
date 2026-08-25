@@ -113,6 +113,22 @@ export default function ChooseMechanicScreen() {
     return m;
   }, [pricedPartsByService]);
 
+  // State 2 (Labor Only) candidates: services that need parts + labor but have
+  // NONE priced for this vehicle. Vehicle-scoped (same across shops); each card
+  // subtracts its own fixed-price lines. `=== false` (not truthiness) degrades
+  // safely — an older backend without `laborOnlyByDesign` yields undefined → no
+  // candidate → no badge, until web ships the field.
+  const laborOnlyCandidateIds = useMemo(() => {
+    const s = new Set<string>();
+    for (const row of pricedPartsByService) {
+      const hasPricedParts = row.winner !== null && row.partsTotal > 0;
+      if (row.laborOnlyByDesign === false && !hasPricedParts) {
+        s.add(String(row.serviceId));
+      }
+    }
+    return s;
+  }, [pricedPartsByService]);
+
   const selectedServices = useMemo(
     () => availableServices.filter((s) => selectedServiceIds.includes(s.id)),
     [availableServices, selectedServiceIds],
@@ -217,9 +233,10 @@ export default function ChooseMechanicScreen() {
             selectedServices: selectedServicesForPricing,
             laborHoursMap,
             fixedPriceMap: activeFixedMap,
+            laborOnlyCandidateIds,
           })
-        : { text: null, isFixed: false },
-    [activeShop, selectedServicesForPricing, laborHoursMap, activeFixedMap],
+        : { text: null, isFixed: false, isLaborOnly: false },
+    [activeShop, selectedServicesForPricing, laborHoursMap, activeFixedMap, laborOnlyCandidateIds],
   );
 
   // Per-shop mechanic selection — null = Any. Reset when the active
@@ -627,6 +644,7 @@ export default function ChooseMechanicScreen() {
             distanceMi={activeDistanceMi}
             priceRange={activePriceLabel.text}
             isFixed={activePriceLabel.isFixed}
+            isLaborOnly={activePriceLabel.isLaborOnly}
             nextSlotLabel={activeNextSlotLabel}
           />
         </Animated.View>
@@ -747,6 +765,7 @@ export default function ChooseMechanicScreen() {
                   selectedServices={selectedServicesForPricing}
                   laborHoursMap={laborHoursMap}
                   vehicleOwnerId={ownershipId}
+                  laborOnlyCandidateIds={laborOnlyCandidateIds}
                   selectedMechanicId={
                     selectedMechanicByShop[r.shop.id] ?? null
                   }

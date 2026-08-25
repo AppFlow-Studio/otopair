@@ -39,6 +39,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQuery } from "convex/react";
 
 import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 import { Chip, Text } from "@/components/shared-ui";
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
 import { TierInfoSheet, type TierInfoSheetRef } from "@/components/tire-booking/TierInfoSheet";
@@ -128,7 +129,16 @@ export default function TireBookingScreen({ onClose, onConfirmed }: TireBookingS
   // missing — so demo / pre-onboarding flows still work.
   const tireOptions = useQuery(
     api.vehicles.getTireOptionsForVehicle,
-    selectedVehicle?.vin ? { vin: selectedVehicle.vin } : "skip",
+    selectedVehicle?.vin
+      ? {
+          vin: selectedVehicle.vin,
+          // Owner id lets the query also return the tire set actually
+          // mounted on this car (vehicle_owner_specs.tire_setup).
+          ...(selectedVehicle.ownershipId
+            ? { vehicleOwnerId: selectedVehicle.ownershipId as Id<"vehicle_owners"> }
+            : {}),
+        }
+      : "skip",
   );
   const sizeOptions = useMemo<TireSizeOption[]>(() => {
     if (tireOptions && tireOptions.sizes.length > 0) {
@@ -147,10 +157,25 @@ export default function TireBookingScreen({ onClose, onConfirmed }: TireBookingS
   const optionsMatch = (a: TireSizeOption, b: { size: string; sizeRear: string | null }) =>
     a.size === b.size && (a.sizeRear ?? null) === (b.sizeRear ?? null);
 
+  // The tire set actually mounted on the car (or last recorded). Used to
+  // pre-select the matching SIZE chip and caption it with the brand/model
+  // — data the OEM size list alone doesn't carry.
+  const mounted = tireOptions?.mounted ?? null;
+  const mountedFront = mounted?.sizeFront ?? null;
+  const mountedRear = mounted?.sizeRear ?? null;
+  const mountedMatch = mountedFront
+    ? sizeOptions.find((opt) =>
+        optionsMatch(opt, { size: mountedFront, sizeRear: mountedRear }),
+      ) ?? null
+    : null;
+  const mountedLabel = mounted
+    ? [mounted.brand, mounted.model].filter(Boolean).join(" ") || null
+    : null;
+
   // If the previously-picked fitment isn't in the new vehicle's option list
-  // (e.g. user switched cars mid-flow), clear it. When there's exactly one
-  // OEM option (passport + trim agree, only one package), pre-select it so
-  // the CTA unlocks immediately.
+  // (e.g. user switched cars mid-flow), clear it. When nothing's picked yet,
+  // pre-select the set already mounted on the car; else the sole OEM option
+  // (passport + trim agree) so the CTA unlocks immediately.
   React.useEffect(() => {
     const stillValid =
       tireSize != null &&
@@ -159,11 +184,11 @@ export default function TireBookingScreen({ onClose, onConfirmed }: TireBookingS
       setTireSize("", null);
       return;
     }
-    if (!tireSize && sizeOptions.length === 1) {
-      const only = sizeOptions[0];
-      setTireSize(only.size, only.sizeRear);
+    if (!tireSize) {
+      const preset = mountedMatch ?? (sizeOptions.length === 1 ? sizeOptions[0] : null);
+      if (preset) setTireSize(preset.size, preset.sizeRear);
     }
-  }, [sizeOptions, tireSize, tireSizeRear, setTireSize]);
+  }, [sizeOptions, tireSize, tireSizeRear, setTireSize, mountedMatch]);
 
   // Sync tire store's vehicleId with the user-selected vehicle.
   React.useEffect(() => {
@@ -360,6 +385,16 @@ export default function TireBookingScreen({ onClose, onConfirmed }: TireBookingS
                 );
               })}
             </View>
+            {mountedMatch && mountedLabel ? (
+              <Text
+                size="xs"
+                weight="regular"
+                color="#8E8E93"
+                style={styles.mountedCaption}
+              >
+                Currently mounted: {mountedLabel}
+              </Text>
+            ) : null}
           </View>
         ) : null}
 
@@ -656,6 +691,9 @@ const styles = StyleSheet.create({
   chipWithCaption: {
     alignItems: "center",
     gap: 4,
+  },
+  mountedCaption: {
+    marginTop: 10,
   },
   sourcePill: {
     paddingHorizontal: 6,

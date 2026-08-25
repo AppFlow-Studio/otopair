@@ -17,6 +17,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useBookingLaborHours } from "./useBookingLaborHours";
 import { useBookingPartsBreakdown } from "./useBookingPartsBreakdown";
+import { useBookingQuoteFallback } from "./useBookingQuoteFallback";
 import { positionFromOption } from "@/constants/serviceVariants";
 import { useUserFromConvex } from "./useUserFromConvex";
 import { useToast } from "./useToast";
@@ -139,6 +140,42 @@ export function useCreateBookingConvex() {
     return map;
   }, [pricedPartsByService]);
 
+  // Per-service axle/position picks (per_axle services), so the engine scales
+  // labor + parts to the same axles the customer picked on Review & Pay.
+  const servicePositions = useMemo(() => {
+    const rec: Record<string, "front" | "rear" | "both"> = {};
+    for (const sid of selectedServiceIds) {
+      const pos = positionFromOption(selectedServiceOptions[sid]);
+      if (pos === "front" || pos === "rear" || pos === "both") {
+        rec[String(sid)] = pos;
+      }
+    }
+    return rec;
+  }, [selectedServiceIds, selectedServiceOptions]);
+
+  // Tier-aware labor from the Pricing v2 engine — the SAME source
+  // ReviewPayContent renders and the SAME number the server bills. Submitting
+  // this (instead of flat shop.labor_rate × hours) is what stops the server's
+  // createBatch labor-cost guard from rejecting high-tier vehicles with
+  // LABOR_COST_TIER_MISMATCH. Keyed service id → labor $; refused/absent lines
+  // fall back to the flat computation below (which is exactly when the server
+  // also skips its cost check, so the two never disagree in a rejecting way).
+  const engineQuote = useBookingQuoteFallback(
+    effectiveShopId,
+    vehicleOwnershipId,
+    selectedServiceIds,
+    servicePositions,
+  );
+  const engineLaborCostMap = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const [sid, line] of engineQuote.byService) {
+      if (!line.refused && line.laborCost != null) {
+        map.set(String(sid), Math.max(0, line.laborCost));
+      }
+    }
+    return map;
+  }, [engineQuote.byService]);
+
   const createBookingConvex = useCallback(
     async (
       mechanicId: string | null | undefined,
@@ -190,7 +227,10 @@ export function useCreateBookingConvex() {
       const services = selectedServices.map((s) => {
         const variantHours = laborHoursMap.get(String(s.id));
         const hours = typeof variantHours === "number" ? variantHours : (s.default_labor_hours ?? 0);
-        const laborCost = laborRate * hours;
+        // Tier-aware engine labor when available; flat rate only as the
+        // refuse/unenrolled fallback (server skips its check there too).
+        const engineLabor = engineLaborCostMap.get(String(s.id));
+        const laborCost = engineLabor != null ? engineLabor : laborRate * hours;
         const pricedParts = pricedPartsTotalMap.get(String(s.id));
         const partsCost = typeof pricedParts === "number" ? pricedParts : (s.default_parts_estimate ?? 0);
         return {
@@ -343,6 +383,7 @@ export function useCreateBookingConvex() {
       availableServices,
       laborHoursMap,
       pricedPartsTotalMap,
+      engineLaborCostMap,
       scheduledAppointment,
       getShopById,
       createBatch,
