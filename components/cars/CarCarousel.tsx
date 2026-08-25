@@ -808,8 +808,12 @@ const VehicleHealthModal = ({
               {renderRings()}
 
               <Text style={modalStyles.estimatedLabel}>Estimated Score</Text>
+              {/* This state means onboarding is incomplete (isEstimatedScore =
+                  isPreOnboardingComplete && !isOnboardingComplete), so the
+                  honest reason is a missing service history — not age, mileage
+                  or driving habits, none of which are terms in the model. */}
               <Text style={modalStyles.estimatedSubtitle}>
-                Based on your vehicle's age, mileage, and driving habits.
+                An estimate — we don't have your full service history yet.
               </Text>
 
               <Pressable
