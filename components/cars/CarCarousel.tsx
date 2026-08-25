@@ -503,6 +503,15 @@ const VehicleHealthModal = ({
     };
   }, [realItems, realMileage, knownIssues, hpBuffer, completedBookings, healthScoreWeights]);
 
+  // Director-adjustable weights, read live. Defaults match the hardcoded
+  // constants in utils/healthScore.ts so an unconfigured deployment reads
+  // identically.
+  const upkeepWeightPct = Math.round(healthScoreWeights?.upkeepWeight ?? 85);
+  const warningLightsPct = Math.round(
+    healthScoreWeights?.warningLightsWeight ?? 100 - upkeepWeightPct,
+  );
+  const openRecsCap = Math.round(healthScoreWeights?.openIssuePenaltyMax ?? 15);
+
   // Use the unified health score passed from parent
   const calculatedCondition = healthPercentage;
 
@@ -933,40 +942,61 @@ const VehicleHealthModal = ({
               </View>
               
               <View style={modalStyles.infoModalBody}>
+                {/* Copy tracks the model in utils/healthScore.ts. The two
+                    weights and the open-recs cap are director-adjustable at
+                    runtime, so they are interpolated from the live
+                    healthScoreWeights query rather than written into the
+                    sentence — hardcoding them would go stale the moment the
+                    panel changes and would contradict the ring beside it. */}
                 <Text style={modalStyles.infoFormulaTitle}>Formula:</Text>
                 <View style={modalStyles.formulaBox}>
                   <Text style={modalStyles.formulaText}>
-                    Overall = (Maintenance × 70%) + (Usage × 30%)
+                    Upkeep (0–{upkeepWeightPct}) + Warning Lights (0–
+                    {warningLightsPct}) − Open recommendations (up to −
+                    {openRecsCap})
                   </Text>
                 </View>
-                
+
                 <View style={modalStyles.infoSection}>
-                  <Text style={modalStyles.infoLabel}>Maintenance (70% weight)</Text>
+                  <Text style={modalStyles.infoLabel}>
+                    Upkeep — up to {upkeepWeightPct} points
+                  </Text>
                   <Text style={modalStyles.infoDescription}>
-                    Based on services completed out of total scheduled. Example: 7/10 = 70%
+                    Most of your score. It reflects the state of your
+                    maintenance — whether each service is on time, due soon or
+                    overdue — not how many services you've had. Safety items
+                    carry the most weight, so brakes and tires move your score
+                    more than a filter does.
                   </Text>
                 </View>
-                
+
                 <View style={modalStyles.infoSection}>
-                  <Text style={modalStyles.infoLabel}>Usage & Wear (30% weight)</Text>
+                  <Text style={modalStyles.infoLabel}>
+                    Warning Lights — up to {warningLightsPct} points
+                  </Text>
                   <Text style={modalStyles.infoDescription}>
-                    Based on mileage:{'\n'}
-                    • 0-30k mi = 100%{'\n'}
-                    • 30k-60k mi = 90%{'\n'}
-                    • 60k-100k mi = 75%{'\n'}
-                    • 100k-150k mi = 55%{'\n'}
-                    • 150k+ mi = 35%
+                    Starts full and drains as dashboard lights come on. An oil
+                    pressure or temperature light costs the most; a tire
+                    pressure light costs the least.
                   </Text>
                 </View>
-                
-                <View style={modalStyles.infoExample}>
-                  <Text style={modalStyles.infoExampleTitle}>Example:</Text>
-                  <Text style={modalStyles.infoExampleText}>
-                    7/10 maintenance (70%) × 0.7 = 49%{'\n'}
-                    45k miles (90%) × 0.3 = 27%{'\n'}
-                    <Text style={{ fontFamily: 'Urbanist-Bold', color: '#30D158' }}>
-                      Total: 76%
-                    </Text>
+
+                <View style={modalStyles.infoSection}>
+                  <Text style={modalStyles.infoLabel}>
+                    Open recommendations — up to −{openRecsCap} points
+                  </Text>
+                  <Text style={modalStyles.infoDescription}>
+                    Work a mechanic has recommended that you haven't booked
+                    yet. It phases in over 30 days rather than landing all at
+                    once, so there's time to act before it counts in full.
+                  </Text>
+                </View>
+
+                <View style={modalStyles.infoSection}>
+                  <Text style={modalStyles.infoLabel}>Mileage</Text>
+                  <Text style={modalStyles.infoDescription}>
+                    Driving more doesn't cost you points on its own. Mileage
+                    only matters through the services it makes due.
                   </Text>
                 </View>
               </View>
@@ -1369,24 +1399,6 @@ const modalStyles = StyleSheet.create({
     fontFamily: 'Urbanist-Regular',
     color: '#666',
     lineHeight: moderateScale(20),
-  },
-  infoExample: {
-    backgroundColor: 'rgba(48, 209, 88, 0.1)',
-    borderRadius: moderateScale(12),
-    padding: scale(16),
-    marginTop: scale(8),
-  },
-  infoExampleTitle: {
-    fontSize: moderateScale(12),
-    fontFamily: 'Urbanist-SemiBold',
-    color: '#30D158',
-    marginBottom: scale(8),
-  },
-  infoExampleText: {
-    fontSize: moderateScale(13),
-    fontFamily: 'Urbanist-Medium',
-    color: '#1a1a1a',
-    lineHeight: moderateScale(22),
   },
 });
 
