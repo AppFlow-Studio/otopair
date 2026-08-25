@@ -140,6 +140,22 @@ export const URGENT_DETAILS: Record<string, Partial<Record<MaintenanceStatus, De
   },
 };
 
+/** Shop + date behind a yellow/red mechanic grade, for the "Flagged by …"
+ *  line. Returns undefined when there is no grade, when it is green — green
+ *  is inert and never changes a status, so claiming a shop flagged it would
+ *  be wrong — or when the record carries neither source nor date, so the UI
+ *  renders nothing rather than half a line. */
+function mechanicFlagFrom(
+  customInputs: Record<string, unknown> | undefined,
+): { shopName?: string | null; gradedAt?: number | null } | undefined {
+  const grade = customInputs?.mechanicGrade as "g" | "y" | "r" | undefined;
+  if (!grade || grade === "g") return undefined;
+  const shopName = (customInputs?.mechanicGradeSource as string | undefined) ?? null;
+  const gradedAt = (customInputs?.mechanicGradedAt as number | undefined) ?? null;
+  if (!shopName && !gradedAt) return undefined;
+  return { shopName, gradedAt };
+}
+
 export function enrichUrgentItem(item: MaintenanceItem): MaintenanceItem {
   const isUrgent = item.status === "overdue" || item.status === "due_soon" || item.status === "needs_attention";
   if (!isUrgent) return item;
@@ -221,6 +237,7 @@ export function buildMaintenanceItems(
       status: result.status,
       percentUsed: result.percentUsed,
       rawScore: result.rawScore,
+      mechanicFlag: mechanicFlagFrom(rec.customInputs),
     });
   }
 

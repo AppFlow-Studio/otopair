@@ -80,6 +80,23 @@ export type MaintenanceStatus = 'on_time' | 'needs_attention' | 'due_soon' | 'ov
  *  emphasis and the anchorless-CTA branch. */
 export type MaintenanceTriggerAxis = 'time' | 'mileage' | 'both' | 'inference' | 'none';
 
+/** "Flagged by Chelala Service Center, Jul 14" — degrades to whichever half
+ *  is present rather than printing a dangling "by" or a bare date. */
+function formatMechanicFlag(flag: {
+  shopName?: string | null;
+  gradedAt?: number | null;
+}): string {
+  const when = flag.gradedAt
+    ? new Date(flag.gradedAt).toLocaleDateString(undefined, {
+        month: "short",
+        day: "numeric",
+      })
+    : null;
+  if (flag.shopName && when) return `Flagged by ${flag.shopName}, ${when}`;
+  if (flag.shopName) return `Flagged by ${flag.shopName}`;
+  return when ? `Flagged ${when}` : "";
+}
+
 export interface MaintenanceItem {
   id: string;
   serviceName: string;
@@ -116,6 +133,15 @@ export interface MaintenanceItem {
    *  passed. Kept as an explicit flag rather than sniffing the `catalog-` id
    *  prefix, matching how recommendation cards are already excluded. */
   excludeFromScore?: boolean;
+  /** Who flagged a CORE or MINOR item and when — drives the "Flagged by
+   *  <shop>, <date>" line. Distinct from `mechanicProvenance`, which belongs
+   *  to recommendation cards and reads "Suggested by …": a grade is a finding
+   *  recorded against the vehicle, not a suggestion to book something.
+   *  Written by the inspection into the record's customInputs. */
+  mechanicFlag?: {
+    shopName?: string | null;
+    gradedAt?: number | null;
+  };
   /** Mechanic + shop provenance for recs — drives the "Suggested by …" subtitle. */
   mechanicProvenance?: {
     shopName?: string | null;
@@ -600,6 +626,16 @@ function UrgentCard({ item, entryDelay, vehicleCondition, healthScoreInput, onBo
               <Text style={cardStyles.provenance}>
                 Suggested by {item.mechanicProvenance.mechanicName ?? 'your mechanic'}
                 {item.mechanicProvenance.shopName ? ` at ${item.mechanicProvenance.shopName}` : ''}
+              </Text>
+            )}
+            {/* Provenance for a graded finding. A driver watching points come
+                off deserves to know which shop said so and when — the plan's
+                principle that every flag carries a source and a date. Only on
+                items that are actually flagged: an on-time item may still
+                carry an old green-era grade, and "Flagged by" would misread. */}
+            {!isAdvisory && item.mechanicFlag && item.status !== 'on_time' && (
+              <Text style={cardStyles.provenance}>
+                {formatMechanicFlag(item.mechanicFlag)}
               </Text>
             )}
             {isAdvisory && item.advisoryDisclaimer ? (

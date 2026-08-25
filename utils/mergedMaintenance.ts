@@ -224,12 +224,17 @@ function buildMinorItems(records: readonly MergeRecordLike[] | undefined): Maint
     if (!grade || grade === "g") continue;
     const reason = (record?.customInputs?.mechanicGradeReason as string | undefined)
       ?? `${label} flagged on eye-check`;
+    const shopName = (record?.customInputs?.mechanicGradeSource as string | undefined) ?? null;
+    const gradedAt = (record?.customInputs?.mechanicGradedAt as number | undefined) ?? null;
     out.push({
       id: `user-${type}`,
       serviceName: label,
       description: reason,
       detail: grade === "r" ? "Overdue" : "Needs attention",
       status: grade === "r" ? "overdue" : "needs_attention",
+      // A minor item only exists because a mechanic graded it yellow or red,
+      // so it always has a source worth showing.
+      mechanicFlag: shopName || gradedAt ? { shopName, gradedAt } : undefined,
     });
   }
   return out;
