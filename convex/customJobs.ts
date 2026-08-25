@@ -123,6 +123,10 @@ export type CustomJobInput = {
   quoted_parts_cents?: number | null;
   /** Legacy catalog category. No longer collected; see schema.ts. */
   category_id?: Id<"service_categories"> | null;
+  /** The canonical service this added line resolved to at entry, when the
+   *  mechanic added a real bookable service mid-job. Its presence is the
+   *  discriminator the CUSTOM JOB INVARIANT keys on — see schema.ts. */
+  catalog_service_id?: Id<"services"> | null;
   complaint?: string | null;
   estimated_minutes?: number | null;
   quoted_price_cents?: number | null;
@@ -243,6 +247,7 @@ export async function recordCustomJobsForBooking(
         quoted_parts_cents:
           input.quoted_parts_cents ?? prior.quoted_parts_cents,
         category_id: input.category_id ?? prior.category_id,
+        catalog_service_id: input.catalog_service_id ?? prior.catalog_service_id,
         complaint: input.complaint?.trim() || prior.complaint,
         estimated_minutes:
           input.estimated_minutes ?? prior.estimated_minutes,
@@ -282,6 +287,7 @@ export async function recordCustomJobsForBooking(
       parts: input.parts && input.parts.length > 0 ? input.parts : undefined,
       quoted_parts_cents: input.quoted_parts_cents ?? undefined,
       category_id: input.category_id ?? undefined,
+      catalog_service_id: input.catalog_service_id ?? undefined,
       complaint: input.complaint?.trim() || undefined,
       estimated_minutes: input.estimated_minutes ?? undefined,
       quoted_price_cents: input.quoted_price_cents ?? undefined,
@@ -845,6 +851,17 @@ async function addCustomServiceForBooking(
   if (!name) throw new Error("A name is required");
 
   const now = Date.now();
+
+  // Resolve which catalog service this line IS, so its OEM parts and labor can
+  // be seeded. Prefer the id the caller passed (the inspection knows it), but
+  // fall back to matching the line's NAME against the catalog on the same key
+  // the catalog dedupes on — so "Oil Change" seeds whether or not the caller
+  // threaded an id. Freeform work that matches nothing stays bare.
+  let catalogServiceId = args.catalogServiceId ?? null;
+  if (!catalogServiceId) {
+    catalogServiceId = await resolveCatalogServiceIdByName(ctx, name);
+  }
+
   const existingLines = Array.isArray((booking as any).custom_services)
     ? [...(booking as any).custom_services]
     : [];
@@ -853,25 +870,36 @@ async function addCustomServiceForBooking(
     (c: any) => serviceMatchKey(String(c.name)) === matchKey,
   );
 
+  // Labor minutes for the line. The mechanic's explicit value wins; otherwise,
+  // for a CATALOG service, fall back to the OEM labor ladder — the same time a
+  // booked instance would carry — so the line reaches BOTH the estimate's labor
+  // step and the receipt's per-service split with a real number instead of 0.
+  // Without this, custom_services.duration_minutes stayed null: getReceipt
+  // couldn't attribute any labor to the added line (it rendered "—") and instead
+  // dumped the whole labor subtotal onto the original service's row. Only
+  // computed for a NEW line, so a re-add never clobbers a time edited by hand.
+  let estimatedMinutes = args.estimatedMinutes ?? null;
+  if (
+    estimatedMinutes == null &&
+    !alreadyThere &&
+    catalogServiceId &&
+    booking.vin
+  ) {
+    estimatedMinutes = await oemLaborMinutesForServiceOnVehicle(ctx, {
+      vin: booking.vin,
+      serviceId: catalogServiceId,
+    });
+  }
+
   if (!alreadyThere) {
     existingLines.push({
       name,
-      duration_minutes: args.estimatedMinutes ?? undefined,
+      duration_minutes: estimatedMinutes ?? undefined,
     });
     await ctx.db.patch(args.bookingId, {
       custom_services: existingLines,
       updated_at: now,
     });
-  }
-
-  // Resolve which catalog service this line IS, so its OEM parts can be seeded.
-  // Prefer the id the caller passed (the inspection knows it), but fall back to
-  // matching the line's NAME against the catalog on the same key the catalog
-  // dedupes on — so "Oil Change" seeds its parts whether or not the caller
-  // threaded an id. Freeform work that matches nothing stays parts-less.
-  let catalogServiceId = args.catalogServiceId ?? null;
-  if (!catalogServiceId) {
-    catalogServiceId = await resolveCatalogServiceIdByName(ctx, name);
   }
 
   // Catalog service? Seed the line's parts from the OEM catalog/enrichment so
@@ -898,8 +926,12 @@ async function addCustomServiceForBooking(
         name,
         system_tags: args.systemTags ?? null,
         work_type: args.workType ?? null,
+        // Persist the catalog match resolved above. This is what lets booking
+        // completion credit a maintenance anchor for an added *catalog* service
+        // (and only that) — see the CUSTOM JOB INVARIANT in bookings.ts.
+        catalog_service_id: catalogServiceId,
         complaint: args.complaint ?? null,
-        estimated_minutes: args.estimatedMinutes ?? null,
+        estimated_minutes: estimatedMinutes,
         shop_custom_service_id: args.shopCustomServiceId ?? null,
         parts: seededParts,
       },
@@ -1442,8 +1474,9 @@ function dominantName(jobs: Array<{ name: string }>): string | null {
 }
 
 /**
- * What the mechanic added to this job after work started, for the customer's
- * mid-job approval screen.
+ * The off-catalog work a mechanic added to this job, for the customer's
+ * approval screen — both the pre-job case ("found more during inspection,
+ * before work begins") and the mid-job case ("found more while working").
  *
  * ─── WHY ────────────────────────────────────────────────────────────────────
  * The approval screen showed a price and a delta — "$472.84", "$220.08 above
@@ -1452,15 +1485,18 @@ function dominantName(jobs: Array<{ name: string }>): string | null {
  * number on trust, which is the exact moment trust is most expensive: they're
  * not at the shop, the car is on a lift, and declining is awkward.
  *
- * `source: "mid_job"` is what makes this answerable. Work added while the job
- * was running is stamped with it at write time, so this is a read of what
- * actually happened rather than a diff of two snapshots that may not exist.
+ * `source` is what makes this answerable. Work added before the job (the
+ * pre-job estimate) is stamped "pre_job"; work added while it was running is
+ * stamped "mid_job" — each at write time, so this is a read of what actually
+ * happened rather than a diff of two snapshots that may not exist. Every row
+ * carries its `source` so the caller renders the additions for the cycle being
+ * approved, and only those.
  *
- * Returns the off-catalog additions only. A catalog service added mid-job
- * lands on `booking.service_ids` and already renders by name through the
+ * Returns the off-catalog additions only. A catalog service added to either
+ * cycle lands on `booking.service_ids` and already renders by name through the
  * receipt's service lines; it's this half that had no route to the customer.
  */
-export const listMidJobAdditionsForCustomer = query({
+export const listAddedServicesForCustomer = query({
   args: { bookingId: v.id("bookings") },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
@@ -1485,11 +1521,19 @@ export const listMidJobAdditionsForCustomer = query({
       .collect();
 
     return rows
-      .filter((r: any) => r.source === "mid_job" && r.status !== "cancelled")
+      .filter(
+        (r: any) =>
+          (r.source === "mid_job" || r.source === "pre_job") &&
+          r.status !== "cancelled",
+      )
       .sort((a: any, b: any) => a.created_at - b.created_at)
       .map((r: any) => ({
         _id: r._id,
         name: r.name,
+        // Which cycle added the line. The caller shows only the additions for
+        // the approval it's rendering — pre-job on the pre-job estimate, mid-job
+        // on the mid-job change — so a prior cycle's work doesn't resurface.
+        source: r.source as "pre_job" | "mid_job",
         // The mechanic's own words for what they found. This is the sentence
         // that makes the number make sense, so it leads on the card.
         complaint: r.complaint ?? null,

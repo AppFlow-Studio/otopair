@@ -14,7 +14,7 @@ import { BlurView } from "expo-blur";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { ChevronRight, Star } from "lucide-react-native";
 
-import { Text } from "@/components/shared-ui";
+import { EstimatePill, Text } from "@/components/shared-ui";
 
 // OtoPair pin mark — placeholder for shops that haven't uploaded a logo.
 const SHOP_LOGO_PLACEHOLDER = require("@/assets/images/pin-logo-3d.png");
@@ -28,10 +28,14 @@ interface MapShopCardProps {
   imageUrl?: string | null;
   rating: number | null;
   distanceMi: number;
-  priceRange: string | null; // e.g. "~$92 – $108" or "$120" (fixed); null while loading
+  priceRange: string | null; // e.g. "~$92 – $108", "$120" (fixed), "From $52" (labor only); null while loading
   /** True when the price is a guaranteed fixed rate (no range) — swaps
    *  the "Estimated price" eyebrow for "Fixed price". */
   isFixed?: boolean;
+  /** True when a selected service needs parts but has NONE priced for this
+   *  vehicle (State 2). Swaps the eyebrow to "LABOR ESTIMATE" + amber badge;
+   *  `priceRange` is already a "From $X" floor from buildShopPriceLabel. */
+  isLaborOnly?: boolean;
   nextSlotLabel: string | null; // e.g. "Next: Mon 9:00 AM"; null while loading
 }
 
@@ -43,6 +47,7 @@ export function MapShopCard({
   distanceMi,
   priceRange,
   isFixed = false,
+  isLaborOnly = false,
   nextSlotLabel,
 }: MapShopCardProps) {
   const router = useRouter();
@@ -93,9 +98,12 @@ export function MapShopCard({
         </Text>
       </View>
 
-      <Text size="xs" weight="semiBold" color="#6B7280" style={styles.eyebrow}>
-        {isFixed ? "FIXED PRICE" : "ESTIMATED PRICE"}
-      </Text>
+      <View style={styles.eyebrowRow}>
+        <Text size="xs" weight="semiBold" color="#6B7280" style={styles.eyebrow}>
+          {isLaborOnly ? "LABOR ESTIMATE" : isFixed ? "FIXED PRICE" : "ESTIMATED PRICE"}
+        </Text>
+        {isLaborOnly ? <EstimatePill size="sm" label="Labor only" /> : null}
+      </View>
       <View style={styles.priceRow}>
         <Text size="xl" weight="bold" color="#0F172A" style={styles.price}>
           {priceRange ?? "—"}
@@ -156,9 +164,14 @@ const styles = StyleSheet.create({
     gap: 4,
     marginBottom: 8,
   },
+  eyebrowRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 2,
+  },
   eyebrow: {
     letterSpacing: 0.7,
-    marginBottom: 2,
   },
   priceRow: {
     flexDirection: "row",

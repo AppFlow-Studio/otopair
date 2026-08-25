@@ -21,6 +21,9 @@ export interface NotificationRow {
   /** null until the user has opened/seen the row (drives read/unread styling). */
   read_at?: number | null;
   rescheduleExpiresAt?: number | null;
+  /** Booking appointment date/time (ISO-ish string) — shown in the row meta. */
+  scheduledDate?: string | null;
+  scheduledTime?: string | null;
   /** Muted context line inputs — present on booking- and car-bound rows. */
   vin?: string | null;
   vehicleYMMT?: string | null;

@@ -33,6 +33,11 @@ import { canonicalWarningLights } from "@/lib/warningLightVocab";
 import { safeInterval } from "@/utils/serviceIntervalGuardrails";
 import { TAXONOMY } from "@/constants/serviceTaxonomy";
 import { formatMileage } from "@/lib/vehicle-passport";
+// Slug → its slug-specific "minor" anchor. Single source of truth (same map
+// booking completion writes back to), so a from-odometer inference item closes
+// out against the exact service that was done. Client already imports from
+// @/convex/lib elsewhere (see cars/index.tsx → vinIdentity).
+import { minorRecordTypeForServiceSlug } from "@/convex/lib/serviceRecordType";
 
 /** Minimal shape of a driver-visible mechanic recommendation, mirrored from
  *  api.jobRecommendations.getDriverVisibleRecsForVehicle. */
@@ -193,6 +198,14 @@ export interface MergeRecordLike {
   lastServiceMileage?: number;
   /** Read only for the minor-item types below (Consolidated model). */
   customInputs?: Record<string, unknown> | null;
+  /** Set by booking completion (bookings.ts markServiced) when a service —
+   *  originally-booked or an added catalog service — closed this anchor. Drives
+   *  the Cars-tab "Resolved by [shop] →" overlay; lastServiceShopName is
+   *  resolved server-side in maintenance.getRecordsByVehicle. The overlay shows
+   *  until resolutionAckedAt catches up to lastServiceDate (tapped once). */
+  lastServiceBookingId?: string;
+  resolutionAckedAt?: number;
+  lastServiceShopName?: string | null;
 }
 
 /** Consolidated Upkeep scoring model: catalog-matched minor inspection
@@ -413,9 +426,25 @@ export function buildMergedMaintenanceItems(
         continue;
       }
 
+      // Anchor-aware close-out: if this exact service was recorded (booking
+      // completion stamps the slug-specific `minor_*` row with lastServiceMileage),
+      // measure the interval from that service, not from new — otherwise a
+      // high-mileage car reads "overdue" forever even right after the service.
+      // Only the slug-specific minor anchor is safe here; the shared aggregate
+      // ("fluids"/"engine_parts") would falsely retire sibling services.
+      const minorType = minorRecordTypeForServiceSlug(slug);
+      const minorAnchor = minorType
+        ? records?.find((r) => r.type === minorType)
+        : undefined;
+      const anchorLastServiceMileage =
+        typeof minorAnchor?.lastServiceMileage === "number"
+          ? minorAnchor.lastServiceMileage
+          : undefined;
+
       const status = computeFromOdometerStatus({
         interval_miles: bounded,
         currentOdometer,
+        lastServiceMileage: anchorLastServiceMileage,
         serviceName: entry.label,
       });
 
@@ -473,7 +502,31 @@ export function buildMergedMaintenanceItems(
     return { ...item, status: "overdue" as const, percentUsed: 100 };
   });
 
-  const enriched = escalated.map(enrichUrgentItem);
+  const enriched = escalated.map(enrichUrgentItem).map((item) => {
+    // "Resolved by this booking" overlay — booking completion stamped this
+    // anchor's record with the booking that closed it (an originally-booked OR
+    // an added catalog service). Surface the resolved card until the driver taps
+    // it once (resolutionAckedAt catches up to lastServiceDate), then it folds
+    // back into Healthy. `resolvedRecordType` is the row the ack must patch:
+    // anchored/minor items embed it in the id, but a `catalog-<slug>` inference
+    // item resolves via its slug-specific minor anchor instead.
+    const recordType = item.id.startsWith("catalog-")
+      ? minorRecordTypeForServiceSlug(item.id.slice("catalog-".length))
+      : item.id.replace(/^(unknown-|user-|smartcar-)/, "");
+    if (!recordType) return item;
+    const rec = records?.find((r) => r.type === recordType);
+    if (!rec?.lastServiceBookingId) return item;
+    const serviced =
+      typeof rec.lastServiceDate === "number" ? rec.lastServiceDate : 0;
+    if (!serviced || (rec.resolutionAckedAt ?? 0) >= serviced) return item;
+    return {
+      ...item,
+      resolvedByBookingId: String(rec.lastServiceBookingId),
+      resolvedShopName: rec.lastServiceShopName ?? null,
+      resolvedAt: serviced,
+      resolvedRecordType: recordType,
+    };
+  });
 
   // Consolidated unpaired-light item — appended AFTER enrichment so its
   // hand-tuned copy isn't clobbered by the generic URGENT_DETAILS fallback.

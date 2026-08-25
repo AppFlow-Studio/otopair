@@ -61,7 +61,7 @@ import { buildCancelCopy, isLocalBookingId } from "@/constants/bookingActionPoli
 import { buildBookingCalendarEvent, formatBookingReference } from "@/lib/booking-calendar";
 import { useBookingStore } from "@/stores/useBookingStore";
 import type { Booking } from "./BookingCard";
-import { MechanicChatSheet, type MechanicChatSheetRef } from "./MechanicChatSheet";
+import { MessageShopSheet, type MessageShopSheetRef } from "./MessageShopSheet";
 import { RescheduleSheet, type RescheduleSheetRef } from "./RescheduleSheet";
 import { ApprovalBanner } from "@/components/booking/ApprovalBanner";
 import { PaymentBreakdown } from "@/components/booking/PaymentBreakdown";
@@ -303,7 +303,7 @@ export const BookingDetailsSheet = forwardRef<BookingDetailsSheetRef, BookingDet
     const startHeight = useSharedValue(0);
 
     const rescheduleSheetRef = useRef<RescheduleSheetRef>(null);
-    const chatSheetRef = useRef<MechanicChatSheetRef>(null);
+    const chatSheetRef = useRef<MessageShopSheetRef>(null);
 
     const handleRequestReschedule = useCallback(
       (bookingId: string, date: string, time: string) => {
@@ -316,9 +316,13 @@ export const BookingDetailsSheet = forwardRef<BookingDetailsSheetRef, BookingDet
       if (!booking) return;
       chatSheetRef.current?.open({
         bookingId: booking.id,
+        status: booking.status,
         mechanicName: booking.mechanicName,
         shopName: booking.shopName,
         mechanicImage: booking.mechanicImage,
+        vehicleLabel:
+          [booking.carYear, booking.carModel].filter(Boolean).join(" ") || undefined,
+        serviceLabel: (booking.services ?? []).join(" · ") || undefined,
       });
     }, [booking]);
 
@@ -657,8 +661,8 @@ export const BookingDetailsSheet = forwardRef<BookingDetailsSheetRef, BookingDet
         {/* Reschedule picker — renders above the sheet when opened */}
         <RescheduleSheet ref={rescheduleSheetRef} onConfirm={handleConfirmReschedule} />
 
-        {/* Chat thread with the mechanic */}
-        <MechanicChatSheet ref={chatSheetRef} />
+        {/* Message Shop — support-ticket flow + open-chat fallback */}
+        <MessageShopSheet ref={chatSheetRef} />
       </View>
       </Modal>
     );

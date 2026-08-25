@@ -95,4 +95,49 @@ describe("buildMergedMaintenanceItems (shared Cars-page / Oto merge)", () => {
     const brakes = items.find((i) => i.id.includes("brakes"));
     expect(brakes?.status).toBe("on_time");
   });
+
+  // A from-odometer catalog item (coolant flush) must close out once the exact
+  // service is recorded — measured from the slug-specific minor anchor, not from
+  // new — and surface the "Resolved by [shop]" overlay until acked.
+  it("closes out a catalog-inference item once its slug-specific service is recorded, with the resolved overlay", () => {
+    const oemIntervals = {
+      coolant_flush: { interval_miles: 100000, interval_months: null },
+    } as any;
+    const currentOdometer = 171000;
+
+    // Before service: no anchor → measured from new → overdue on a high-mileage car.
+    const before = buildMergedMaintenanceItems({
+      userItems: new Map(),
+      records: [],
+      scopeId: "owner_1",
+      now: NOW,
+      currentOdometer,
+      oemIntervals,
+    });
+    expect(before.find((i) => i.id === "catalog-coolant_flush")?.status).toBe("overdue");
+
+    // After service: the minor anchor carries the completion mileage + booking →
+    // on_time AND resolved (targets minor_cool_condition for the ack).
+    const after = buildMergedMaintenanceItems({
+      userItems: new Map(),
+      records: [
+        {
+          type: "minor_cool_condition",
+          lastServiceMileage: 171000,
+          lastServiceDate: NOW,
+          lastServiceBookingId: "booking_123",
+          lastServiceShopName: "Brooklyn Auto",
+        },
+      ] as any,
+      scopeId: "owner_1",
+      now: NOW,
+      currentOdometer,
+      oemIntervals,
+    });
+    const coolant = after.find((i) => i.id === "catalog-coolant_flush");
+    expect(coolant?.status).toBe("on_time");
+    expect(coolant?.resolvedByBookingId).toBe("booking_123");
+    expect(coolant?.resolvedRecordType).toBe("minor_cool_condition");
+    expect(coolant?.resolvedShopName).toBe("Brooklyn Auto");
+  });
 });

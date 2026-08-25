@@ -17,7 +17,7 @@ import { ScrollView } from "react-native-gesture-handler";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { Star, Wrench } from "lucide-react-native";
 
-import { Text } from "@/components/shared-ui";
+import { EstimatePill, Text } from "@/components/shared-ui";
 import {
   MechanicCarousel,
   type MechanicCarouselItem,
@@ -42,6 +42,10 @@ interface ShopPageProps {
   laborHoursMap: Map<string, number>;
   /** Vehicle owner id — keys the per-shop fixed-price lookup. */
   vehicleOwnerId: string | undefined;
+  /** Service ids that need parts but have NONE priced for this vehicle
+   *  (State 2 candidates, vehicle-scoped). Each card still applies its own
+   *  fixed-price check on top. */
+  laborOnlyCandidateIds?: ReadonlySet<string>;
   /** Current mechanic selection for THIS page. null = Any. */
   selectedMechanicId: string | null;
   onSelectMechanic: (mechanicId: string | null) => void;
@@ -56,6 +60,7 @@ export function ShopPage({
   selectedServices,
   laborHoursMap,
   vehicleOwnerId,
+  laborOnlyCandidateIds,
   selectedMechanicId,
   onSelectMechanic,
   onMechanicCarouselInteractionChange,
@@ -72,8 +77,14 @@ export function ShopPage({
   );
   const priceLabel = useMemo(
     () =>
-      buildShopPriceLabel({ shop, selectedServices, laborHoursMap, fixedPriceMap }),
-    [shop, selectedServices, laborHoursMap, fixedPriceMap],
+      buildShopPriceLabel({
+        shop,
+        selectedServices,
+        laborHoursMap,
+        fixedPriceMap,
+        laborOnlyCandidateIds,
+      }),
+    [shop, selectedServices, laborHoursMap, fixedPriceMap, laborOnlyCandidateIds],
   );
 
   // Next slot for the shop overall (for the Any-mechanic earliest).
@@ -157,13 +168,27 @@ export function ShopPage({
             {formatTotalMinutes(totalMinutes)}
           </Text>
           {priceLabel.text ? (
-            <Text size="sm" weight="regular" color="#6B7280">
-              {priceLabel.isFixed ? "Fixed price " : "Estimated "}
-              <Text weight="bold" color="#0F172A">
-                {priceLabel.text}
+            <View style={styles.priceRow}>
+              <Text size="sm" weight="regular" color="#6B7280">
+                {priceLabel.isLaborOnly
+                  ? "Labor "
+                  : priceLabel.isFixed
+                    ? "Fixed price "
+                    : "Estimated "}
+                <Text weight="bold" color="#0F172A">
+                  {priceLabel.text}
+                </Text>
               </Text>
-            </Text>
+              {priceLabel.isLaborOnly && <EstimatePill size="sm" label="Labor only" />}
+            </View>
           ) : null}
+          {/* State 2 supporting line (doc, layer 2). */}
+          {priceLabel.isLaborOnly && (
+            <Text size="xs" weight="regular" color="#8E959F" style={styles.laborOnlySupport}>
+              Parts not yet included — your shop will price them, and you&#39;ll
+              approve the complete quote before any work begins.
+            </Text>
+          )}
         </View>
       </View>
 
@@ -243,6 +268,16 @@ const styles = StyleSheet.create({
   summaryBody: {
     flex: 1,
     gap: 2,
+  },
+  priceRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    flexWrap: "wrap",
+  },
+  laborOnlySupport: {
+    marginTop: 2,
+    lineHeight: 16,
   },
   eyebrow: {
     letterSpacing: 0.7,

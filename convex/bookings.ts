@@ -82,6 +82,7 @@ import {
   resolveVehicleConfigFromVin,
 } from "./lib/quoteEngine";
 import { resolveLaborRate, type VehicleTier } from "./lib/vehicleTiers";
+import { syncTicketActionStatus } from "./lib/shopTicketSync";
 import {
   minorRecordTypeForServiceSlug,
   recordTypeForServiceSlug,
@@ -4528,7 +4529,7 @@ export async function enqueueNotificationOutbox(
  * mechanic isn't linked to a user yet (invite unaccepted). Mirrors the
  * `shopUserByMechanicId` map the owner dashboard builds.
  */
-async function resolveMechanicUserId(
+export async function resolveMechanicUserId(
   ctx: any,
   shopId: any,
   mechanicId: any,
@@ -4576,7 +4577,7 @@ const CUSTOMER_LATE_NOTIFICATION_CATEGORIES = [
  * reason: "user_action" (customer/shop acted) | "superseded" (booking state
  * moved on) | "expired" (proposal TTL lapsed).
  */
-async function resolveBookingNotifications(
+export async function resolveBookingNotifications(
   ctx: any,
   bookingId: any,
   opts?: { categories?: string[]; reason?: string },
@@ -9022,105 +9023,132 @@ export async function runCompletionSideEffects(ctx: any, booking: any) {
       .first();
     if (vehicleOwner?.preOnboardingComplete) {
       // ─── CUSTOM JOB INVARIANT — ENFORCEMENT SITE 1 OF 2 ──────────────────
-      // This loop reads `service_ids` and MUST NOT be widened to include
-      // `booking.custom_services`. A custom job is a billing and data object,
-      // never evidence about maintenance state: it cannot write a
-      // maintenance_records anchor, satisfy an interval, or move the health
-      // score. Custom work has no canonical slug, so recordTypeForServiceSlug
-      // has nothing to resolve and any interval it "reset" would be invented.
+      // The write-back below MUST NOT be widened to read `booking.custom_services`
+      // (the raw display copy). A genuine custom job — off-catalog work with no
+      // canonical slug — is a billing/data object only: it cannot write a
+      // maintenance_records anchor, satisfy an interval, or move the health score,
+      // because recordTypeForServiceSlug has nothing to resolve and any interval
+      // it "reset" would be invented.
       //
-      // Mileage is the deliberate exception — see runPipeline below. The car
-      // genuinely aged, which is true regardless of what work was done.
+      // The ONE exception, added deliberately: a mid-job-added line that resolved
+      // to a real catalog service carries `catalog_service_id` (Loop 2 below). It
+      // DOES have a canonical slug, so it credits an anchor exactly like an
+      // originally-booked service. Rows without that id stay isolated — that is
+      // the whole invariant, now keyed on the id rather than on "is it custom".
       //
-      // If a mechanic typed a real service as custom, the fix belongs at entry
-      // (convex/serviceMatch.ts, the match gate), not here. Widening this loop
-      // would credit a maintenance anchor for work nobody can identify.
-      // Guarded by tests/customJobHealthIsolation.test.ts.
+      // Mileage is a separate deliberate exception — see runPipeline below. The
+      // car genuinely aged, regardless of what work was done.
+      //
+      // If a mechanic typed a real service as freeform, the durable fix is still
+      // at entry (convex/serviceMatch.ts, the match gate), not a broader read here.
+      // Guarded by tests/bookingCompletionHealth.test.ts.
       const serviceIds = booking.service_ids as string[] | undefined;
-      if (serviceIds?.length) {
-        const typesUpdated = new Set<string>();
-        // Warning-light codes to clear from knownIssues once the service is done
-        // (mirrors maintenance.upsertRecord / vehicleTruth's add). Patched once
-        // after the loop so a multi-service booking clears all of them together.
-        const clearedCodes = new Set<string>();
 
-        /** Upsert one maintenance_records row, stamping it serviced now.
-         *  Shared by the aggregate write and the Consolidated-model
-         *  minor-item write below — same shape, different `type`. */
-        const markServiced = async (recordType: string) => {
-          const existing = await ctx.db
-            .query("maintenance_records")
-            .withIndex("by_vehicle_and_type", (q: any) =>
-              q.eq("vehicleOwnerId", vehicleOwner._id).eq("type", recordType)
-            )
-            .unique();
+      const typesUpdated = new Set<string>();
+      // Warning-light codes to clear from knownIssues once the service is done
+      // (mirrors maintenance.upsertRecord / vehicleTruth's add). Patched once
+      // after BOTH loops so a booking clears all of them together.
+      const clearedCodes = new Set<string>();
 
-          const now = Date.now();
-          const data = {
-            lastServiceDate: now,
-            lastServiceMileage: vehicleOwner.mileage as number | undefined,
-            serviceSource: "otopair" as const,
-            confidence: "verified" as const,
-            updatedAt: now,
-          };
+      /** Upsert one maintenance_records row, stamping it serviced now and
+       *  recording the booking that closed it (drives the Cars-tab "Resolved by
+       *  [shop]" card + its deep-link). Shared by the aggregate write and the
+       *  Consolidated-model minor-item write — same shape, different `type`. */
+      const markServiced = async (recordType: string) => {
+        const existing = await ctx.db
+          .query("maintenance_records")
+          .withIndex("by_vehicle_and_type", (q: any) =>
+            q.eq("vehicleOwnerId", vehicleOwner._id).eq("type", recordType)
+          )
+          .unique();
 
-          if (existing) {
-            await ctx.db.patch(existing._id, data);
-          } else {
-            await ctx.db.insert("maintenance_records", {
-              vehicleOwnerId: vehicleOwner._id,
-              type: recordType,
-              ...data,
-              createdAt: now,
-            });
-          }
+        const now = Date.now();
+        const data = {
+          lastServiceDate: now,
+          lastServiceMileage: vehicleOwner.mileage as number | undefined,
+          serviceSource: "otopair" as const,
+          confidence: "verified" as const,
+          lastServiceBookingId: booking._id,
+          updatedAt: now,
         };
 
-        for (const serviceId of serviceIds) {
-          const service = await ctx.db.get(serviceId as any);
-          if (!service) continue;
-          const slug = (service as any).slug;
+        if (existing) {
+          await ctx.db.patch(existing._id, data);
+        } else {
+          await ctx.db.insert("maintenance_records", {
+            vehicleOwnerId: vehicleOwner._id,
+            type: recordType,
+            ...data,
+            createdAt: now,
+          });
+        }
+      };
 
-          // Consolidated Upkeep model: the per-field `minor_*` row this
-          // service actually resolves. Handled BEFORE the aggregate dedup
-          // below — several distinct minor services collapse onto the same
-          // aggregate type ("fluids"), so dedup'ing on the aggregate would
-          // silently skip the second one's own minor row. Advancing
-          // lastServiceDate here is what lets isMechanicGradeStale
-          // (utils/maintenanceStatus.ts) retire the finding.
-          const minorType = minorRecordTypeForServiceSlug(slug);
-          if (minorType && !typesUpdated.has(minorType)) {
-            typesUpdated.add(minorType);
-            await markServiced(minorType);
-          }
+      /** Resolve one catalog slug to its maintenance anchor(s) and stamp them.
+       *  Idempotent across both loops via the shared `typesUpdated` set, so a
+       *  type an earlier loop already reset is never written twice. */
+      const applyServiceSlug = async (slug: string | undefined) => {
+        if (!slug) return;
 
-          // #90: services.slug is snake_case — resolve via the canonical map.
-          const recordType = recordTypeForServiceSlug(slug);
-          if (!recordType || typesUpdated.has(recordType)) continue;
-          typesUpdated.add(recordType);
-
-          await markServiced(recordType);
-
-          const code = symptomForRecordType(recordType);
-          if (code) clearedCodes.add(code);
+        // Consolidated Upkeep model: the per-field `minor_*` row this service
+        // actually resolves. Handled BEFORE the aggregate dedup below — several
+        // distinct minor services collapse onto the same aggregate type
+        // ("fluids"), so dedup'ing on the aggregate would silently skip the
+        // second one's own minor row. Advancing lastServiceDate here is what lets
+        // isMechanicGradeStale (utils/maintenanceStatus.ts) retire the finding.
+        const minorType = minorRecordTypeForServiceSlug(slug);
+        if (minorType && !typesUpdated.has(minorType)) {
+          typesUpdated.add(minorType);
+          await markServiced(minorType);
         }
 
-        // Service done → clear its warning-light code(s) so the pipeline stops
-        // flagging it. Single patch; only writes when something actually clears.
-        if (clearedCodes.size > 0 && Array.isArray(vehicleOwner.knownIssues)) {
-          const beforeIssues = vehicleOwner.knownIssues as string[];
-          const next = beforeIssues.filter((x) => !clearedCodes.has(x));
-          if (next.length !== beforeIssues.length) {
-            await ctx.db.patch(vehicleOwner._id, { knownIssues: next } as any);
-            await logKnownIssueEvents(ctx, {
-              vehicleOwnerId: vehicleOwner._id,
-              before: beforeIssues,
-              after: next,
-              source: "service_completion",
-              sourceDetail: String(booking._id),
-              now: Date.now(),
-            });
-          }
+        // #90: services.slug is snake_case — resolve via the canonical map.
+        const recordType = recordTypeForServiceSlug(slug);
+        if (!recordType || typesUpdated.has(recordType)) return;
+        typesUpdated.add(recordType);
+
+        await markServiced(recordType);
+
+        const code = symptomForRecordType(recordType);
+        if (code) clearedCodes.add(code);
+      };
+
+      // Loop 1 — originally-booked catalog services.
+      for (const serviceId of serviceIds ?? []) {
+        const service = await ctx.db.get(serviceId as any);
+        await applyServiceSlug((service as any)?.slug);
+      }
+
+      // Loop 2 — mid-job-added catalog services. `completeCustomJobsForBooking`
+      // has already run (see completeWithPostjob), so these rows are terminal;
+      // only a "completed" row carrying a catalog_service_id credits an anchor.
+      // A "declined" mid-job line — or genuine off-catalog work with no catalog
+      // id — is skipped, which is the CUSTOM JOB INVARIANT holding.
+      const bookingCustomJobs = await ctx.db
+        .query("custom_jobs")
+        .withIndex("by_booking", (q: any) => q.eq("booking_id", booking._id))
+        .collect();
+      for (const job of bookingCustomJobs) {
+        if (job.status !== "completed" || !job.catalog_service_id) continue;
+        const service = await ctx.db.get(job.catalog_service_id);
+        await applyServiceSlug((service as any)?.slug);
+      }
+
+      // Service done → clear its warning-light code(s) so the pipeline stops
+      // flagging it. Single patch; only writes when something actually clears.
+      if (clearedCodes.size > 0 && Array.isArray(vehicleOwner.knownIssues)) {
+        const beforeIssues = vehicleOwner.knownIssues as string[];
+        const next = beforeIssues.filter((x) => !clearedCodes.has(x));
+        if (next.length !== beforeIssues.length) {
+          await ctx.db.patch(vehicleOwner._id, { knownIssues: next } as any);
+          await logKnownIssueEvents(ctx, {
+            vehicleOwnerId: vehicleOwner._id,
+            before: beforeIssues,
+            after: next,
+            source: "service_completion",
+            sourceDetail: String(booking._id),
+            now: Date.now(),
+          });
         }
       }
 
@@ -13883,6 +13911,15 @@ export const customerApproveReschedule = mutation({
       "customer_approved_reschedule"
     );
 
+    // Message Shop: mark any open "propose_reschedule" ticket action accepted
+    // and resolve the ticket, so the thread reflects the customer's decision.
+    await syncTicketActionStatus(ctx, {
+      bookingId: booking._id,
+      kind: "propose_reschedule",
+      status: "accepted",
+      autoResolve: true,
+    });
+
     await syncBookingAssignments(ctx, [
       {
         shopId: booking.shop_id,
@@ -14116,6 +14153,14 @@ export const customerDeclineReschedule = mutation({
       booking.user_id,
       "customer_declined_reschedule"
     );
+
+    // Message Shop: mark any open "propose_reschedule" ticket action declined.
+    // Leave the ticket open so the customer/shop can keep talking.
+    await syncTicketActionStatus(ctx, {
+      bookingId: booking._id,
+      kind: "propose_reschedule",
+      status: "declined",
+    });
 
     await syncBookingAssignments(ctx, [
       {
@@ -15590,6 +15635,13 @@ export const revertExpiredReschedules = internalMutation({
         booking.user_id,
         "reschedule_auto_reverted_24h"
       );
+
+      // Message Shop: the proposal lapsed — mark the ticket action expired.
+      await syncTicketActionStatus(ctx, {
+        bookingId: booking._id,
+        kind: "propose_reschedule",
+        status: "expired",
+      });
 
       await syncBookingAssignments(ctx, [
         {
