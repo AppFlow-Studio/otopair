@@ -114,3 +114,64 @@ describe("§07 the x/y maintenance counter", () => {
     expect(ratio(withOverdueInspection)).toBe("4/5");
   });
 });
+
+describe("§12 regression guards — what must NOT have been broken", () => {
+  it("mechanic-graded minor items still score at weight 10", () => {
+    // The weight-10 path is the whole point of the Consolidated model: a
+    // minor item earns its deduction when a mechanic grades it yellow/red.
+    // §04 must exclude catalog-inference rows without touching this.
+    const minor = {
+      id: "brake_fluid_flush",
+      serviceName: "Brake Fluid Condition",
+      description: "",
+      detail: "",
+      status: "overdue" as const,
+    };
+    const withoutMinor = computeVehicleHealthScore(
+      { maintenanceItems: items, odometerMiles: 145_000, knownIssues: [] } as any,
+    );
+    const withMinor = computeVehicleHealthScore(
+      { maintenanceItems: [...items, minor], odometerMiles: 145_000, knownIssues: [] } as any,
+    );
+    expect(withMinor).toBeLessThan(withoutMinor);
+  });
+
+  it("recommendation cards still never score", () => {
+    const rec = {
+      id: "rec-abc", serviceName: "Rec", description: "", detail: "",
+      status: "overdue" as const, sourceRecommendationId: "abc",
+    };
+    const base = computeVehicleHealthScore(
+      { maintenanceItems: items, odometerMiles: 145_000, knownIssues: [] } as any,
+    );
+    const withRec = computeVehicleHealthScore(
+      { maintenanceItems: [...items, rec], odometerMiles: 145_000, knownIssues: [] } as any,
+    );
+    expect(withRec).toBe(base);
+  });
+
+  it("warning lights drain the reserve and floor at 0, never below", () => {
+    const clean = computeVehicleHealthScore(
+      { maintenanceItems: items, odometerMiles: 145_000, knownIssues: [] } as any,
+    );
+    // oil_pressure 15 + temperature 15 = 30, capped at 25, reserve floors at 0
+    const swamped = computeVehicleHealthScore(
+      {
+        maintenanceItems: items,
+        odometerMiles: 145_000,
+        knownIssues: ["oil_pressure", "temperature", "check_engine"],
+      } as any,
+    );
+    expect(swamped).toBe(clean - 15); // the whole 15-pt reserve, no more
+  });
+
+  it("the open-recs penalty is capped at 15", () => {
+    const base = computeVehicleHealthScore(
+      { maintenanceItems: items, odometerMiles: 145_000, knownIssues: [] } as any,
+    );
+    const huge = computeVehicleHealthScore(
+      { maintenanceItems: items, odometerMiles: 145_000, knownIssues: [], recPenalty: 999 } as any,
+    );
+    expect(huge).toBe(base - 15);
+  });
+});
