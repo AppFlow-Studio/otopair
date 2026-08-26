@@ -13,7 +13,6 @@
 
 import React, { useCallback, useMemo } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
-import { ScrollView } from "react-native-gesture-handler";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { Star, Wrench } from "lucide-react-native";
 
@@ -131,12 +130,11 @@ export function ShopPage({
   );
 
   return (
-    <ScrollView
-      style={[styles.page, { width: pageWidth }]}
-      contentContainerStyle={styles.pageContent}
-      showsVerticalScrollIndicator={false}
-      nestedScrollEnabled
-    >
+    // Plain View (not a ScrollView): the page is fixed-height and fits the
+    // sheet, so no internal vertical scroll should compete with gorhom's
+    // pan — a downward swipe here drags the whole sheet down to reveal the
+    // map underneath.
+    <View style={[styles.page, styles.pageContent, { width: pageWidth }]}>
       <View style={styles.shopHeader}>
         <View style={styles.shopHeaderText}>
           <Text size="xl" weight="bold" color="#0F172A" numberOfLines={1}>
@@ -201,7 +199,7 @@ export function ShopPage({
         onSelect={onSelectMechanic}
         onInteractionChange={onMechanicCarouselInteractionChange}
       />
-    </ScrollView>
+    </View>
   );
 }
 

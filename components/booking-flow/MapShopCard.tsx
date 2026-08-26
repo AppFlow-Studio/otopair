@@ -14,7 +14,7 @@ import { BlurView } from "expo-blur";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { ChevronRight, Star } from "lucide-react-native";
 
-import { EstimatePill, Text } from "@/components/shared-ui";
+import { Text } from "@/components/shared-ui";
 
 // OtoPair pin mark — placeholder for shops that haven't uploaded a logo.
 const SHOP_LOGO_PLACEHOLDER = require("@/assets/images/pin-logo-3d.png");
@@ -99,10 +99,11 @@ export function MapShopCard({
       </View>
 
       <View style={styles.eyebrowRow}>
+        {/* Eyebrow only — the "Labor only" pill lives solely on the sheet's
+            ShopPage now, so it isn't duplicated across the map card too. */}
         <Text size="xs" weight="semiBold" color="#6B7280" style={styles.eyebrow}>
           {isLaborOnly ? "LABOR ESTIMATE" : isFixed ? "FIXED PRICE" : "ESTIMATED PRICE"}
         </Text>
-        {isLaborOnly ? <EstimatePill size="sm" label="Labor only" /> : null}
       </View>
       <View style={styles.priceRow}>
         <Text size="xl" weight="bold" color="#0F172A" style={styles.price}>
