@@ -22,11 +22,12 @@ import {
 } from "react-native";
 
 // 2. Third-party libraries
-import { Check, ChevronRight, CreditCard, Lock, Plus, Smartphone, Wallet } from "lucide-react-native";
+import { Check, ChevronRight, CreditCard, Lock, Plus, Smartphone } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // 3. Shared UI (design system)
 import { BrandColors, Spacing, Text } from "@/components/shared-ui";
+import { AppleIcon } from "@/components/icons/apple";
 
 // 4. Constants, hooks, types, stores
 import { BorderRadius, Shadows } from "@/constants/theme";
@@ -261,7 +262,7 @@ export function PaymentMethodModal({
             {showWalletSection && (
               <>
                 <View style={styles.walletSection}>
-                  {applePaySupported && renderWalletOption("apple_pay", "Apple Pay", Wallet)}
+                  {applePaySupported && renderWalletOption("apple_pay", "Apple Pay", AppleIcon)}
                   {googlePaySupported && renderWalletOption("google_pay", "Google Pay", Smartphone)}
                 </View>
 
@@ -378,6 +379,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: Spacing.sm,
     paddingVertical: Spacing.lg,
+    paddingHorizontal: Spacing.lg,
     borderRadius: BorderRadius.xl,
   },
   walletOptionApple: {
