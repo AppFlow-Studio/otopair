@@ -55,6 +55,7 @@ import { useOpenApprovalForBooking } from "@/hooks/useOpenApprovalForBooking";
 import { useConfirmHold } from "@/hooks/useConfirmHold";
 import { PaymentMethodModal } from "@/components/booking/modals/PaymentMethodModal";
 import { PaymentMethodBlock } from "@/components/booking/PaymentMethodBlock";
+import { AppleIcon } from "@/components/icons/apple";
 import { useOfflineGuard } from "@/hooks/useOfflineGuard";
 import { useToast } from "@/hooks/useToast";
 import { useBookingActions } from "@/hooks/useBookingActions";
@@ -968,7 +969,9 @@ function ApprovalDecisionView({
 
           <View style={[styles.payRow, styles.payRowBorder]}>
             <View style={styles.payCardLeft}>
-              {isWalletMethod ? (
+              {methodKind === "apple_pay" ? (
+                <AppleIcon size={18} color={SemanticColors.textMuted} />
+              ) : isWalletMethod ? (
                 <Wallet size={18} color={SemanticColors.textMuted} />
               ) : (
                 <CreditCard size={18} color={SemanticColors.textMuted} />

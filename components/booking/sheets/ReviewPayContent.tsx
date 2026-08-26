@@ -34,6 +34,7 @@ import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 
 // 3. Shared UI (design system)
 import { BrandColors, EstimatePill, FixedPriceBadge, Spacing, Text } from "@/components/shared-ui";
+import { AppleIcon } from "@/components/icons/apple";
 
 // 4. Constants, hooks, types
 import { getPartsBreakdown } from "@/constants/services";
@@ -1100,7 +1101,7 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
               disabled={walletPending}
             >
               <View style={styles.payButtonContent}>
-                <FontAwesome name="apple" size={20} color="#FFFFFF" />
+                <AppleIcon size={20} color="#FFFFFF" />
                 <Text size="md" weight="semiBold" color={BrandColors.white}>
                   Pay
                 </Text>
