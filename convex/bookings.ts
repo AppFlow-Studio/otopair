@@ -49,7 +49,11 @@ import {
   blockedMinutesForBooking,
   isClockPausedForBooking,
 } from "./jobBlockers";
-import { mileageSourceTag, resolveVehicleMileage } from "./lib/mileage";
+import {
+  mileageSourceTag,
+  pickPreferredOwner,
+  resolveVehicleMileage,
+} from "./lib/mileage";
 import {
   recordCustomJobsForBooking,
   customPartsFromSnapshot,
@@ -462,7 +466,11 @@ export const getByUserIdWithDetails = query({
           })
         ).then((a) => [
           ...a.filter(Boolean),
-          ...customServiceNames(booking.custom_services),
+          // Consumer app's booking list — hide off-catalog lines the customer
+          // hasn't approved yet (staged mid-inspection via "Add to this job").
+          ...customServiceNames(booking.custom_services, {
+            customerVisibleOnly: true,
+          }),
         ]);
 
         const vehicle = await ctx.db
@@ -1333,6 +1341,12 @@ export const create = mutation({
     // Optional fallback labor hours from the mobile pricing pipeline, used
     // only by `resolveBookingLaborMinutes` when no enrichment row exists.
     labor_hours: v.optional(v.float64()),
+    // Booked axle for a per_axle-scaled service (brakes). When the app sends
+    // the customer's Front/Rear/Both pick, the server's per-axle labor scaling
+    // + guard match what the app displayed. Absent → 1 axle (today's behavior).
+    booking_position: v.optional(
+      v.union(v.literal("front"), v.literal("rear"), v.literal("both")),
+    ),
     session_id: v.optional(v.string()),
     // StubHub-style slot hold acquired during checkout (convex/slotHolds.ts).
     // Verified + consumed atomically with the booking insert below.
@@ -1401,6 +1415,7 @@ export const create = mutation({
         {
           service_id: args.service_id,
           fallback_hours: args.labor_hours ?? null,
+          position: args.booking_position ?? null,
         },
       ],
     });
@@ -1424,6 +1439,9 @@ export const create = mutation({
       serviceIds: [args.service_id],
       laborCostDollars: args.labor_cost,
       expectMinutes: args.displayed_labor_minutes,
+      servicePositions: args.booking_position
+        ? { [String(args.service_id)]: args.booking_position }
+        : undefined,
     });
 
     const durationMinutes =
@@ -1554,6 +1572,8 @@ async function resolveBookingLaborMinutes(
     services: Array<{
       service_id: Id<"services">;
       fallback_hours: number | null;
+      /** Booked axle for per_axle-scaled services (brakes). Absent → 1 axle. */
+      position?: "front" | "rear" | "both" | null;
     }>;
   },
 ): Promise<number> {
@@ -1589,6 +1609,7 @@ async function resolveBookingLaborMinutes(
       vehicle_config_id: args.vehicleConfigId,
       service_id: svc.service_id,
       vehicle_tier: tier,
+      booking_position: svc.position ?? null,
     });
     if (res.ok) {
       totalHours += res.hours;
@@ -1638,6 +1659,10 @@ async function assertLaborCostMatchesDuration(
     serviceIds: Array<Id<"services">>;
     laborCostDollars: number;
     expectMinutes: number | undefined;
+    /** Booked axle per service (brakes) so the recomputed expectation applies
+     *  the SAME per_axle labor scaling the client used — otherwise a valid
+     *  both-axle booking looks "above engine". Absent → 1 axle. */
+    servicePositions?: Record<string, "front" | "rear" | "both">;
   },
 ): Promise<LaborCostCheckResult> {
   if (args.expectMinutes == null || args.expectMinutes <= 0) return undefined;
@@ -1658,6 +1683,7 @@ async function assertLaborCostMatchesDuration(
     vehicle_config_id: cfg._id,
     service_ids: args.serviceIds,
     shop_id: args.shopId,
+    service_positions: args.servicePositions,
   });
 
   // If ANY service was refused (e.g. CCB without absolute pricing, missing
@@ -2007,11 +2033,29 @@ async function createBatchImpl(ctx: MutationCtx, args: CreateBatchArgs): Promise
     // (the mobile fallback resolves `vehicle_config_id` from an arbitrary
     // vehicle with the same engine, not the customer's own — see
     // `service_vehicle_specs.getByEngineAndService` step 2).
+    // Booked axle per service (brakes), so per_axle labor scaling matches the
+    // drawer's displayed estimate. Prefer explicit client variants; else derive
+    // from the customer's selected_service_options (same source as the parts
+    // snapshot below).
+    const laborPositionByServiceId = new Map<string, "front" | "rear" | "both">();
+    for (const variant of args.service_variants &&
+    args.service_variants.length > 0
+      ? args.service_variants.map((v) => ({
+          serviceId: v.service_id,
+          position: v.position,
+        }))
+      : deriveServiceVariantsFromOptions(args.selected_service_options)) {
+      laborPositionByServiceId.set(
+        String(variant.serviceId),
+        variant.position as "front" | "rear" | "both",
+      );
+    }
     const enrichmentLaborMinutes = await resolveBookingLaborMinutes(ctx, {
       vehicleConfigId: vehicle.vehicle_config_id ?? null,
       services: args.services.map((s) => ({
         service_id: s.service_id,
         fallback_hours: s.labor_hours ?? null,
+        position: laborPositionByServiceId.get(String(s.service_id)) ?? null,
       })),
     });
     const estimated_labor_minutes =
@@ -2034,6 +2078,7 @@ async function createBatchImpl(ctx: MutationCtx, args: CreateBatchArgs): Promise
       serviceIds: args.services.map((s) => s.service_id),
       laborCostDollars: labor_cost,
       expectMinutes: args.displayed_labor_minutes,
+      servicePositions: Object.fromEntries(laborPositionByServiceId),
     });
 
     // ── Pre-Job Approval flow: disclosed range snapshot ──────────────
@@ -2058,6 +2103,7 @@ async function createBatchImpl(ctx: MutationCtx, args: CreateBatchArgs): Promise
       shop_zip: shop?.zip ?? null,
       shop_id: args.shop_id,
       vehicle_config_id: vehicle.vehicle_config_id ?? null,
+      service_positions: Object.fromEntries(laborPositionByServiceId),
     });
 
     // Itemized parts snapshot — same per-unit prices the customer saw on
@@ -4816,7 +4862,7 @@ function compareBookingsBySchedule(a: any, b: any) {
   return (a.scheduled_time ?? "").localeCompare(b.scheduled_time ?? "");
 }
 
-function formatCustomerName(customer: any) {
+export function formatCustomerName(customer: any) {
   return (
     `${customer?.first_name ?? ""} ${customer?.last_name ?? ""}`.trim() ||
     customer?.email ||
@@ -4902,7 +4948,7 @@ async function getPrimaryAuthorizedShop(ctx: any, userId: any) {
   return null;
 }
 
-async function resolveVehicleLabel(
+export async function resolveVehicleLabel(
   ctx: any,
   vin: string
 ): Promise<{
@@ -4996,14 +5042,19 @@ async function resolveVehicleLabel(
   return { full, short, spec_label, chassis_label };
 }
 
-async function resolveServiceNames(
+export async function resolveServiceNames(
   ctx: any,
   serviceIds?: Array<any>,
   /** booking.custom_services — off-catalog lines, appended after the catalog
    *  ones. Without this a custom-only booking renders blank everywhere. */
   customServices?: unknown,
+  /** Pass `{ customerVisibleOnly: true }` from CUSTOMER-facing queries so a
+   *  line still `pending_confirmation` (staged but not yet approved) is hidden
+   *  from the driver's card. Omit everywhere else — shop/ops surfaces show
+   *  staged work. See customServiceNames + confirmStagedCustomServices. */
+  opts?: { customerVisibleOnly?: boolean },
 ) {
-  const custom = customServiceNames(customServices);
+  const custom = customServiceNames(customServices, opts);
   if (!serviceIds || serviceIds.length === 0) return custom;
   const names = await Promise.all(
     serviceIds.map(async (serviceId) => {
@@ -5284,14 +5335,8 @@ async function recordPartSnapshotsForBooking(
   }
 }
 
-function pickPreferredOwner(owners: any[]) {
-  return (
-    owners.find((owner) => owner.status === "active" && owner.is_primary) ??
-    owners.find((owner) => owner.status === "active") ??
-    owners[0] ??
-    null
-  );
-}
+// `pickPreferredOwner` now lives in ./lib/mileage (shared with every current-
+// mileage reader) and is imported at the top of this file.
 
 function determineOwnershipLabel(owner: any) {
   if (!owner) return null;
@@ -5483,6 +5528,13 @@ async function updateOwnerMileageForVin(ctx: any, vin: string, mileage: number, 
     if (owner.status !== "active") continue;
     await ctx.db.patch(owner._id, {
       mileage,
+      // Stamp the write time. Without this the pushed-down shop reading kept
+      // whatever `mileage_updated_at` the driver last set, so `resolveVehicleMileage`
+      // compared a fresh value against a stale timestamp and could hand a later
+      // (older-timestamped) shop reading back to the passport side. Source-tag it
+      // so provenance follows the value.
+      mileage_updated_at: now,
+      mileage_source: "shop_visit",
       last_checkin_at: now,
     });
   }
@@ -5510,10 +5562,13 @@ async function upsertVehiclePassportRecord(
 
   const currentMileage = existing?.mileage;
   const currentReportedAt = existing?.last_reported_at;
-  const nextMileage =
-    typeof patch?.mileage === "number" && Number.isFinite(patch.mileage)
-      ? patch.mileage
-      : currentMileage;
+  // Did THIS write carry an actual odometer reading from the shop? Only then is
+  // it fresh. A confirm/patch with no mileage must not refresh `last_reported_at`
+  // or push down to owners — otherwise a stale passport value gets re-stamped
+  // "now" and wrongly beats a newer driver app entry in resolveVehicleMileage.
+  const hasFreshReading =
+    typeof patch?.mileage === "number" && Number.isFinite(patch.mileage);
+  const nextMileage = hasFreshReading ? patch.mileage : currentMileage;
 
   let nextVelocity = existing?.mileage_velocity;
   if (
@@ -5538,16 +5593,20 @@ async function upsertVehiclePassportRecord(
   const mergedFluids = mergePassportSection(existing?.fluids, patch?.fluids);
   const mergedBrakes = mergePassportSection(existing?.brakes, patch?.brakes);
   const mergedInspection = mergePassportSection(existing?.inspection, patch?.inspection);
-  const mergedModifications = mergePassportSection(
-    existing?.modifications,
-    patch?.modifications
-  );
+  // modifications is a whole-object union — the new {has_mods, notes,
+  // affected_systems} shape vs the legacy {notes, status} shape — NOT a
+  // field-mergeable section like tires/fluids. Shallow-merging a new-shape
+  // patch over a legacy-shape existing row fuses them into a hybrid
+  // ({notes, status, has_mods, affected_systems}) that matches NEITHER
+  // validator and rejects on write. The prejob dialog always submits the
+  // complete modifications object, so replace wholesale instead of merging.
+  const mergedModifications = patch?.modifications ?? existing?.modifications;
 
   const nextRecord = {
     vin: canonicalVin,
     mileage: nextMileage ?? undefined,
     last_reported_at:
-      typeof nextMileage === "number" ? now : existing?.last_reported_at ?? undefined,
+      hasFreshReading ? now : existing?.last_reported_at ?? undefined,
     mileage_velocity: nextVelocity ?? undefined,
     tires: mergedTires,
     fluids: mergedFluids,
@@ -5565,15 +5624,15 @@ async function upsertVehiclePassportRecord(
   if (existing) {
     await ctx.db.patch(existing._id, nextRecord);
     const updated = await ctx.db.get(existing._id);
-    if (typeof nextMileage === "number") {
-      await updateOwnerMileageForVin(ctx, canonicalVin, nextMileage, now);
+    if (hasFreshReading) {
+      await updateOwnerMileageForVin(ctx, canonicalVin, nextMileage as number, now);
     }
     return updated;
   }
 
   const insertedId = await ctx.db.insert("vehicle_passports", nextRecord);
-  if (typeof nextMileage === "number") {
-    await updateOwnerMileageForVin(ctx, canonicalVin, nextMileage, now);
+  if (hasFreshReading) {
+    await updateOwnerMileageForVin(ctx, canonicalVin, nextMileage as number, now);
   }
   return await ctx.db.get(insertedId);
 }
@@ -9445,6 +9504,8 @@ async function mapBookingListItem(ctx: any, booking: any) {
     partsCost: booking.parts_cost,
     totalCost: booking.total_cost,
     estimatedLaborMinutes: booking.estimated_labor_minutes ?? null,
+    combinedLaborSavedMinutes: booking.combined_labor_saved_minutes ?? null,
+    combinedLaborNotes: booking.combined_labor_notes ?? null,
     mechanicId: booking.mechanic_id ?? null,
     assignmentPreference: normalizeAssignmentPreference(
       booking.assignment_preference,
@@ -9453,6 +9514,7 @@ async function mapBookingListItem(ctx: any, booking: any) {
     mechanicName: mechanic
       ? `${mechanic.first_name} ${mechanic.last_name}`.trim()
       : null,
+    source: booking.source ?? null,
   };
 }
 
@@ -9494,6 +9556,8 @@ async function mapMechanicDashboardJob(ctx: any, booking: any) {
     serviceNames,
     vehiclePassportComplete,
     estimatedLaborMinutes: booking.estimated_labor_minutes ?? null,
+    combinedLaborSavedMinutes: booking.combined_labor_saved_minutes ?? null,
+    combinedLaborNotes: booking.combined_labor_notes ?? null,
     totalCost: booking.total_cost,
     assignmentPreference: normalizeAssignmentPreference(
       booking.assignment_preference,
@@ -10639,15 +10703,73 @@ export const getJobDetail = query({
         : ((booking as any).priced_parts_snapshot ?? null);
 
     // Labor mirrors the parts logic above: the mechanic's agreed labor edit
-    // lives on the same approval row (booking_approvals.labor_hours), so the
-    // post-job Labor step must seed from it — not the stale catalog estimate on
-    // the booking. Derive from the SAME agreedApproval row so labor and parts
-    // never come from different approvals. Falls back to the booking estimate
-    // when nothing has been agreed yet.
+    // lives on the same approval row, so the post-job Labor step seeds the BASE
+    // line from it — not the stale catalog estimate on the booking. But the row
+    // also carries `labor_hours`, the whole-approval TOTAL (base service PLUS
+    // every custom job in scope at that approval). Seeding the base line from
+    // that total folded the custom-job labor into the base, and the Labor step
+    // then re-listed each custom job as its own line — double-counting it. So
+    // prefer the RECORDED per-line breakdown's "base" entry, which is base-only
+    // by construction. Legacy rows predate the breakdown; fall back to the
+    // booking's original base estimate (also base-only), never the conflated
+    // total. Custom-job lines seed their own labor from custom_jobs separately.
+    const recordedBaseLaborHours = Array.isArray(agreedApproval?.labor_allocations)
+      ? (agreedApproval.labor_allocations as any[]).find(
+          (a: any) => a?.line_key === "base",
+        )?.hours
+      : undefined;
     const effectiveEstimatedLaborMinutes: number | null =
-      agreedApproval?.labor_hours != null
-        ? hoursToMinutes(agreedApproval.labor_hours)
+      typeof recordedBaseLaborHours === "number"
+        ? hoursToMinutes(recordedBaseLaborHours)
         : booking.estimated_labor_minutes ?? null;
+
+    // Per-custom-line agreed labor for the post-job Labor step. Same problem the
+    // base line had: a custom line's hours edited in the pre/mid Labor step were
+    // recorded in the approval's breakdown but never written back to the
+    // custom_jobs row, so its `estimated_minutes` can be stale. Prefer the
+    // recorded value — BUT only for a line that hasn't been TOUCHED SINCE the
+    // agreement. `stampMidJobCustomJobs` stamps `updated_at` with the same clock
+    // as the approval's `submitted_at_ms`, and a later found-work edit
+    // (`updateMidJobCustomService`) bumps it past that. So `updated_at <=
+    // submitted_at_ms` means "as agreed" (recorded wins); a greater value means
+    // the mechanic re-set this line's labor after agreeing, and that live edit
+    // must win (the post-job carryover). Keyed by custom-job id → minutes; the
+    // client applies it only in the post-job flow.
+    const customLaborOverridesMinutes: Record<string, number> = {};
+    {
+      const agreedAllocs = Array.isArray(agreedApproval?.labor_allocations)
+        ? (agreedApproval.labor_allocations as any[])
+        : [];
+      const agreedSubmittedAtMs = (agreedApproval?.submitted_at_ms ??
+        agreedApproval?._creationTime) as number | undefined;
+      const recordedByKey = new Map<string, number>();
+      for (const a of agreedAllocs) {
+        if (
+          a?.line_key &&
+          a.line_key !== "base" &&
+          typeof a.hours === "number"
+        ) {
+          recordedByKey.set(String(a.line_key), a.hours);
+        }
+      }
+      if (recordedByKey.size > 0 && agreedSubmittedAtMs != null) {
+        const customRows = await ctx.db
+          .query("custom_jobs")
+          .withIndex("by_booking", (q: any) =>
+            q.eq("booking_id", booking._id),
+          )
+          .collect();
+        for (const row of customRows) {
+          const recorded = recordedByKey.get(String(row._id));
+          if (recorded == null) continue;
+          const updatedAt = (row.updated_at ?? row._creationTime) as number;
+          if (updatedAt <= agreedSubmittedAtMs) {
+            customLaborOverridesMinutes[String(row._id)] =
+              hoursToMinutes(recorded);
+          }
+        }
+      }
+    }
 
     // Scope-justification photos the mechanic attached when submitting a change
     // that was AGREED (mid/pre-job "Why the added scope?"). Surface them in the
@@ -10704,6 +10826,7 @@ export const getJobDetail = query({
       partsCost: booking.parts_cost,
       totalCost: booking.total_cost,
       estimatedLaborMinutes: effectiveEstimatedLaborMinutes,
+      customLaborOverridesMinutes,
       vin: booking.vin,
       serviceIds: booking.service_ids ?? [],
       mechanicId: booking.mechanic_id ?? null,
@@ -10799,6 +10922,21 @@ export const getJobDetail = query({
       // quotedSetPriceDollars / totalCost, both of which the mechanic
       // already sees).
       isFixedPrice: (booking as any).is_fixed_price === true,
+      // The customer-agreed flat contract price (cents, ALL-IN incl. tax + fee),
+      // for fixed-price bookings only. Same expression the server uses in
+      // booking_approvals.performSubmission to pin the base, so the mechanic
+      // dialog can render `fixed base + added scope` = exactly what the customer
+      // pays. Reconstructing this client-side from mechanicSetPriceCents would
+      // double-count after a prior approved added-scope cycle (that field then
+      // holds base+prevAdded), which is why we surface the frozen base directly.
+      // Null for non-fixed bookings — unlike a disclosed range it carries no
+      // anchoring risk here (the customer already agreed to this exact number).
+      fixedContractBaseCents:
+        (booking as any).is_fixed_price === true
+          ? ((booking as any).fixed_contract_base_cents ??
+             (booking as any).disclosed_range_high_cents ??
+             Math.round(((booking as any).total_cost ?? 0) * 100))
+          : null,
       paymentApprovalState:
         ((booking as any).payment_approval_state as string | undefined) ?? null,
       settlementState:
@@ -12147,6 +12285,12 @@ export const createByShop = mutation({
     catalogEstimatedMinutes: v.optional(v.float64()),
     mechanicQuotedPrice: v.optional(v.float64()),
     catalogQuotedPrice: v.optional(v.float64()),
+    // Combined labor operations (convex/lib/combinedLabor.ts): minutes the
+    // drawer shaved off the naive per-service sum because co-booked services
+    // shared teardown, plus the customer-facing reasons. Client-computed with
+    // the same pure resolver the quote engine uses.
+    combinedLaborSavedMinutes: v.optional(v.float64()),
+    combinedLaborNotes: v.optional(v.array(v.string())),
     // Optional parts data-gathering: the mechanic's edits to the catalog's
     // parts/price/quantity guess shown in the drawer. Pure analytics — the
     // catalog reference is recomputed server-side, so the client sends ONLY
@@ -12461,6 +12605,14 @@ export const createByShop = mutation({
       // none/skip — pre-job then seeds from the catalog as before.
       priced_parts_snapshot: pricedSnapshot,
       estimated_labor_minutes: args.estimatedLaborMinutes,
+      combined_labor_saved_minutes:
+        args.combinedLaborSavedMinutes && args.combinedLaborSavedMinutes > 0
+          ? args.combinedLaborSavedMinutes
+          : undefined,
+      combined_labor_notes:
+        args.combinedLaborNotes && args.combinedLaborNotes.length > 0
+          ? args.combinedLaborNotes
+          : undefined,
       mechanic_id: resolvedMechanicId,
       scheduled_date: args.scheduledDate,
       scheduled_time: args.scheduledTime,
@@ -15737,6 +15889,10 @@ export const autoDropUnconfirmedBookings = internalMutation({
     let dropped = 0;
     for (const booking of confirmed) {
       if ((booking as any).vehicle_arrived_at_ms) continue;
+      // Walk-ins are physical-presence: the customer was AT the shop when
+      // the booking was created. Auto-dropping them to "no_show" makes no
+      // semantic sense — the mechanic already saw them at intake. Excluded.
+      if ((booking as any).source === "mechanic_walk_in") continue;
       if (!booking.scheduled_date || !booking.scheduled_time) continue;
 
       const timezone = await getShopTimezone(ctx, booking.shop_id);
@@ -16762,7 +16918,14 @@ export const getBookingByIdForCustomer = query({
       ? await ctx.db.get(booking.previous_mechanic_id)
       : null;
 
-    const serviceNames = await resolveServiceNames(ctx, booking.service_ids, booking.custom_services);
+    // Customer's booking detail — hide off-catalog lines still awaiting their
+    // approval (staged mid-inspection). Shop surfaces omit this flag and see them.
+    const serviceNames = await resolveServiceNames(
+      ctx,
+      booking.service_ids,
+      booking.custom_services,
+      { customerVisibleOnly: true },
+    );
 
     const vehicle = booking.vin
       ? await ctx.db
@@ -16946,6 +17109,25 @@ export const getReceipt = query({
         .filter((c: any) => c.status === "declined")
         .map((c: any) => c.match_key ?? serviceMatchKey(String(c.name))),
     );
+    // Labor-time fallback per custom line. An added line's duration lives on
+    // `custom_services.duration_minutes`, but a line added before that was
+    // persisted at add-time (or via a path that never set it) carries the
+    // estimate only on the `custom_jobs` row. Read through to it so the split
+    // below can still attribute labor to the line instead of dumping the whole
+    // labor subtotal onto the original service's row. Keyed on the same
+    // match_key the display copy dedupes on.
+    const customJobMinutesByKey = new Map<string, number>();
+    for (const c of customJobRows) {
+      if (c.status === "declined") continue;
+      const key = c.match_key ?? serviceMatchKey(String(c.name));
+      const mins =
+        typeof c.estimated_minutes === "number" && c.estimated_minutes > 0
+          ? c.estimated_minutes
+          : null;
+      if (mins != null && !customJobMinutesByKey.has(key)) {
+        customJobMinutesByKey.set(key, mins);
+      }
+    }
 
     const shop = booking.shop_id ? await ctx.db.get(booking.shop_id) : null;
     const mechanic = booking.mechanic_id
@@ -17016,7 +17198,7 @@ export const getReceipt = query({
         const mins =
           typeof c?.duration_minutes === "number" && c.duration_minutes > 0
             ? c.duration_minutes
-            : null;
+            : (customJobMinutesByKey.get(serviceMatchKey(name)) ?? null);
         const hours = mins != null ? mins / 60 : null;
         if (hours != null) totalHours += hours;
         rawServices.push({ name, hours });
