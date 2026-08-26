@@ -176,6 +176,7 @@ import type * as lib_brakeScope from "../lib/brakeScope.js";
 import type * as lib_cancellation_policy from "../lib/cancellation_policy.js";
 import type * as lib_checkin_questions from "../lib/checkin_questions.js";
 import type * as lib_classifier from "../lib/classifier.js";
+import type * as lib_combinedLabor from "../lib/combinedLabor.js";
 import type * as lib_customServiceNames from "../lib/customServiceNames.js";
 import type * as lib_dataLayers from "../lib/dataLayers.js";
 import type * as lib_email_provider from "../lib/email_provider.js";
@@ -219,6 +220,7 @@ import type * as lib_quoteEngine from "../lib/quoteEngine.js";
 import type * as lib_reviewFieldMap from "../lib/reviewFieldMap.js";
 import type * as lib_robustStats from "../lib/robustStats.js";
 import type * as lib_schedule_overlap from "../lib/schedule_overlap.js";
+import type * as lib_serviceLaborReference from "../lib/serviceLaborReference.js";
 import type * as lib_serviceMatch from "../lib/serviceMatch.js";
 import type * as lib_servicePartsReference from "../lib/servicePartsReference.js";
 import type * as lib_serviceRecordType from "../lib/serviceRecordType.js";
@@ -498,6 +500,7 @@ import type * as vehicleEnrichment_laborWebSearch from "../vehicleEnrichment/lab
 import type * as vehicleEnrichment_lemonLabor from "../vehicleEnrichment/lemonLabor.js";
 import type * as vehicleEnrichment_lemonManuals from "../vehicleEnrichment/lemonManuals.js";
 import type * as vehicleEnrichment_makeCoverage from "../vehicleEnrichment/makeCoverage.js";
+import type * as vehicleEnrichment_manualCompanion from "../vehicleEnrichment/manualCompanion.js";
 import type * as vehicleEnrichment_manualDirectSources from "../vehicleEnrichment/manualDirectSources.js";
 import type * as vehicleEnrichment_manualLibrary from "../vehicleEnrichment/manualLibrary.js";
 import type * as vehicleEnrichment_manualPageIndex from "../vehicleEnrichment/manualPageIndex.js";
@@ -785,6 +788,7 @@ declare const fullApi: ApiFromModules<{
   "lib/cancellation_policy": typeof lib_cancellation_policy;
   "lib/checkin_questions": typeof lib_checkin_questions;
   "lib/classifier": typeof lib_classifier;
+  "lib/combinedLabor": typeof lib_combinedLabor;
   "lib/customServiceNames": typeof lib_customServiceNames;
   "lib/dataLayers": typeof lib_dataLayers;
   "lib/email_provider": typeof lib_email_provider;
@@ -828,6 +832,7 @@ declare const fullApi: ApiFromModules<{
   "lib/reviewFieldMap": typeof lib_reviewFieldMap;
   "lib/robustStats": typeof lib_robustStats;
   "lib/schedule_overlap": typeof lib_schedule_overlap;
+  "lib/serviceLaborReference": typeof lib_serviceLaborReference;
   "lib/serviceMatch": typeof lib_serviceMatch;
   "lib/servicePartsReference": typeof lib_servicePartsReference;
   "lib/serviceRecordType": typeof lib_serviceRecordType;
@@ -1107,6 +1112,7 @@ declare const fullApi: ApiFromModules<{
   "vehicleEnrichment/lemonLabor": typeof vehicleEnrichment_lemonLabor;
   "vehicleEnrichment/lemonManuals": typeof vehicleEnrichment_lemonManuals;
   "vehicleEnrichment/makeCoverage": typeof vehicleEnrichment_makeCoverage;
+  "vehicleEnrichment/manualCompanion": typeof vehicleEnrichment_manualCompanion;
   "vehicleEnrichment/manualDirectSources": typeof vehicleEnrichment_manualDirectSources;
   "vehicleEnrichment/manualLibrary": typeof vehicleEnrichment_manualLibrary;
   "vehicleEnrichment/manualPageIndex": typeof vehicleEnrichment_manualPageIndex;

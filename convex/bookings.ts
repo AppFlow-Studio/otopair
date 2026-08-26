@@ -1341,6 +1341,12 @@ export const create = mutation({
     // Optional fallback labor hours from the mobile pricing pipeline, used
     // only by `resolveBookingLaborMinutes` when no enrichment row exists.
     labor_hours: v.optional(v.float64()),
+    // Booked axle for a per_axle-scaled service (brakes). When the app sends
+    // the customer's Front/Rear/Both pick, the server's per-axle labor scaling
+    // + guard match what the app displayed. Absent → 1 axle (today's behavior).
+    booking_position: v.optional(
+      v.union(v.literal("front"), v.literal("rear"), v.literal("both")),
+    ),
     session_id: v.optional(v.string()),
     // StubHub-style slot hold acquired during checkout (convex/slotHolds.ts).
     // Verified + consumed atomically with the booking insert below.
@@ -1409,6 +1415,7 @@ export const create = mutation({
         {
           service_id: args.service_id,
           fallback_hours: args.labor_hours ?? null,
+          position: args.booking_position ?? null,
         },
       ],
     });
@@ -1432,6 +1439,9 @@ export const create = mutation({
       serviceIds: [args.service_id],
       laborCostDollars: args.labor_cost,
       expectMinutes: args.displayed_labor_minutes,
+      servicePositions: args.booking_position
+        ? { [String(args.service_id)]: args.booking_position }
+        : undefined,
     });
 
     const durationMinutes =
@@ -1562,6 +1572,8 @@ async function resolveBookingLaborMinutes(
     services: Array<{
       service_id: Id<"services">;
       fallback_hours: number | null;
+      /** Booked axle for per_axle-scaled services (brakes). Absent → 1 axle. */
+      position?: "front" | "rear" | "both" | null;
     }>;
   },
 ): Promise<number> {
@@ -1597,6 +1609,7 @@ async function resolveBookingLaborMinutes(
       vehicle_config_id: args.vehicleConfigId,
       service_id: svc.service_id,
       vehicle_tier: tier,
+      booking_position: svc.position ?? null,
     });
     if (res.ok) {
       totalHours += res.hours;
@@ -1646,6 +1659,10 @@ async function assertLaborCostMatchesDuration(
     serviceIds: Array<Id<"services">>;
     laborCostDollars: number;
     expectMinutes: number | undefined;
+    /** Booked axle per service (brakes) so the recomputed expectation applies
+     *  the SAME per_axle labor scaling the client used — otherwise a valid
+     *  both-axle booking looks "above engine". Absent → 1 axle. */
+    servicePositions?: Record<string, "front" | "rear" | "both">;
   },
 ): Promise<LaborCostCheckResult> {
   if (args.expectMinutes == null || args.expectMinutes <= 0) return undefined;
@@ -1666,6 +1683,7 @@ async function assertLaborCostMatchesDuration(
     vehicle_config_id: cfg._id,
     service_ids: args.serviceIds,
     shop_id: args.shopId,
+    service_positions: args.servicePositions,
   });
 
   // If ANY service was refused (e.g. CCB without absolute pricing, missing
@@ -1679,25 +1697,18 @@ async function assertLaborCostMatchesDuration(
     return;
   }
 
-  // Mirror the client's labor-hours rounding when the director toggle is on
-  // (laborTimes.ts ceil-to-15). Without this mirror the server computes raw
-  // hours (e.g. 0.6h) while the client submits the rounded value (0.75h),
-  // which makes a legitimate ±8% check fail at the boundary.
-  const settingsRow = await ctx.db
-    .query("director_settings")
-    .withIndex("by_key", (q: any) => q.eq("key", "global"))
-    .first();
-  const roundTo15 = settingsRow?.round_labor_times_to_15min ?? true;
-  const expectedLaborCost = roundTo15
-    ? Math.round(
-        series.quotes.reduce((sum, q) => {
-          if (!q.ok) return sum;
-          const roundedHours =
-            (Math.ceil((q.labor.hours * 60) / 15) * 15) / 60;
-          return sum + roundedHours * q.labor.rate;
-        }, 0) * 100,
-      ) / 100
-    : series.labor_cost_total;
+  // Compare against the engine's OWN labor total — series.labor_cost_total is
+  // the number buildQuote handed the client (useBookingQuoteFallback submits it
+  // verbatim) AND the 15-min-rounded figure the customer sees on Review & Pay
+  // (quotes.previewForBooking returns this exact value). So the expectation IS
+  // series.labor_cost_total in every case — naive and combined alike.
+  // Re-deriving it here with an extra ceil-to-15 is what let the two drift: it
+  // rounded a faithful client's estimate UP and hard-rejected it for the
+  // server's own rounding — e.g. a T4 tier-floor of 0.85h billed as 0.85h but
+  // re-rounded to 1.0h, throwing LABOR_COST_TIER_MISMATCH. Now every path uses
+  // one number. Downward tampering is still caught: a client >8% below
+  // labor_cost_total trips the reject below.
+  const expectedLaborCost = series.labor_cost_total;
   if (expectedLaborCost <= 0) return;
   const tolerance = expectedLaborCost * 0.08; // ±8% band per Pricing v2 spec
   const signedDelta = args.laborCostDollars - expectedLaborCost;
@@ -2024,11 +2035,29 @@ async function createBatchImpl(ctx: MutationCtx, args: CreateBatchArgs): Promise
     // (the mobile fallback resolves `vehicle_config_id` from an arbitrary
     // vehicle with the same engine, not the customer's own — see
     // `service_vehicle_specs.getByEngineAndService` step 2).
+    // Booked axle per service (brakes), so per_axle labor scaling matches the
+    // drawer's displayed estimate. Prefer explicit client variants; else derive
+    // from the customer's selected_service_options (same source as the parts
+    // snapshot below).
+    const laborPositionByServiceId = new Map<string, "front" | "rear" | "both">();
+    for (const variant of args.service_variants &&
+    args.service_variants.length > 0
+      ? args.service_variants.map((v) => ({
+          serviceId: v.service_id,
+          position: v.position,
+        }))
+      : deriveServiceVariantsFromOptions(args.selected_service_options)) {
+      laborPositionByServiceId.set(
+        String(variant.serviceId),
+        variant.position as "front" | "rear" | "both",
+      );
+    }
     const enrichmentLaborMinutes = await resolveBookingLaborMinutes(ctx, {
       vehicleConfigId: vehicle.vehicle_config_id ?? null,
       services: args.services.map((s) => ({
         service_id: s.service_id,
         fallback_hours: s.labor_hours ?? null,
+        position: laborPositionByServiceId.get(String(s.service_id)) ?? null,
       })),
     });
     const estimated_labor_minutes =
@@ -2051,6 +2080,7 @@ async function createBatchImpl(ctx: MutationCtx, args: CreateBatchArgs): Promise
       serviceIds: args.services.map((s) => s.service_id),
       laborCostDollars: labor_cost,
       expectMinutes: args.displayed_labor_minutes,
+      servicePositions: Object.fromEntries(laborPositionByServiceId),
     });
 
     // ── Pre-Job Approval flow: disclosed range snapshot ──────────────
@@ -2075,6 +2105,7 @@ async function createBatchImpl(ctx: MutationCtx, args: CreateBatchArgs): Promise
       shop_zip: shop?.zip ?? null,
       shop_id: args.shop_id,
       vehicle_config_id: vehicle.vehicle_config_id ?? null,
+      service_positions: Object.fromEntries(laborPositionByServiceId),
     });
 
     // Itemized parts snapshot — same per-unit prices the customer saw on
@@ -9475,6 +9506,8 @@ async function mapBookingListItem(ctx: any, booking: any) {
     partsCost: booking.parts_cost,
     totalCost: booking.total_cost,
     estimatedLaborMinutes: booking.estimated_labor_minutes ?? null,
+    combinedLaborSavedMinutes: booking.combined_labor_saved_minutes ?? null,
+    combinedLaborNotes: booking.combined_labor_notes ?? null,
     mechanicId: booking.mechanic_id ?? null,
     assignmentPreference: normalizeAssignmentPreference(
       booking.assignment_preference,
@@ -9525,6 +9558,8 @@ async function mapMechanicDashboardJob(ctx: any, booking: any) {
     serviceNames,
     vehiclePassportComplete,
     estimatedLaborMinutes: booking.estimated_labor_minutes ?? null,
+    combinedLaborSavedMinutes: booking.combined_labor_saved_minutes ?? null,
+    combinedLaborNotes: booking.combined_labor_notes ?? null,
     totalCost: booking.total_cost,
     assignmentPreference: normalizeAssignmentPreference(
       booking.assignment_preference,
@@ -12252,6 +12287,12 @@ export const createByShop = mutation({
     catalogEstimatedMinutes: v.optional(v.float64()),
     mechanicQuotedPrice: v.optional(v.float64()),
     catalogQuotedPrice: v.optional(v.float64()),
+    // Combined labor operations (convex/lib/combinedLabor.ts): minutes the
+    // drawer shaved off the naive per-service sum because co-booked services
+    // shared teardown, plus the customer-facing reasons. Client-computed with
+    // the same pure resolver the quote engine uses.
+    combinedLaborSavedMinutes: v.optional(v.float64()),
+    combinedLaborNotes: v.optional(v.array(v.string())),
     // Optional parts data-gathering: the mechanic's edits to the catalog's
     // parts/price/quantity guess shown in the drawer. Pure analytics — the
     // catalog reference is recomputed server-side, so the client sends ONLY
@@ -12566,6 +12607,14 @@ export const createByShop = mutation({
       // none/skip — pre-job then seeds from the catalog as before.
       priced_parts_snapshot: pricedSnapshot,
       estimated_labor_minutes: args.estimatedLaborMinutes,
+      combined_labor_saved_minutes:
+        args.combinedLaborSavedMinutes && args.combinedLaborSavedMinutes > 0
+          ? args.combinedLaborSavedMinutes
+          : undefined,
+      combined_labor_notes:
+        args.combinedLaborNotes && args.combinedLaborNotes.length > 0
+          ? args.combinedLaborNotes
+          : undefined,
       mechanic_id: resolvedMechanicId,
       scheduled_date: args.scheduledDate,
       scheduled_time: args.scheduledTime,

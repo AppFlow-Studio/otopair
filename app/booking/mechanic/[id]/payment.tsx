@@ -20,7 +20,8 @@ import { ActivityIndicator, AppState, BackHandler, Platform, StyleSheet, TextInp
 import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useMutation, useQuery } from "convex/react";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
-import { Calendar, Car, ChevronRight, Clock, FileText, Info, Smartphone, Wallet, WifiOff } from "lucide-react-native";
+import { Calendar, Car, ChevronRight, Clock, FileText, Info, Smartphone, WifiOff } from "lucide-react-native";
+import { AppleIcon } from "@/components/icons/apple";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 
@@ -892,7 +893,7 @@ export default function PaymentScreen() {
           >
             <View style={styles.payMethodIcon}>
               {walletIntent === "apple_pay" ? (
-                <Wallet size={20} color={BrandColors.primary} />
+                <AppleIcon size={20} color={BrandColors.primary} />
               ) : walletIntent === "google_pay" ? (
                 <Smartphone size={20} color={BrandColors.primary} />
               ) : selectedPaymentMethod ? (

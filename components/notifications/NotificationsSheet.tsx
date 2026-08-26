@@ -1,35 +1,23 @@
 /**
  * NotificationsSheet
  *
- * Bottom-up slide sheet showing the customer's pending notifications
- * from `notification_outbox`. Tapping a row in category
+ * Floating bottom sheet (shared `FloatingSheet` chrome — rounded, side-inset,
+ * draggable grabber) showing the customer's pending notifications from
+ * `notification_outbox`. Tapping a row in category
  * `booking_reschedule_proposed` / `booking_forced_delay_proposed`
  * marks it read and launches the RescheduleDecisionOverlay.
+ *
+ * Two detents: it opens at a resting height and can be dragged up to a
+ * full-width detent. "Mark all as read" is hidden at rest and only appears
+ * once the sheet is expanded, keeping the first-open surface clean.
  *
  * Triggered globally by `useNotificationsSheetStore.open()` so any
  * tab's bell icon can open it.
  */
 
-import React, { useEffect, useRef, useState } from "react";
-import {
-  Dimensions,
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  View,
-} from "react-native";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Dimensions, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import type { View as RNView } from "react-native";
-import Animated, {
-  Extrapolation,
-  interpolate,
-  runOnJS,
-  useAnimatedStyle,
-  useSharedValue,
-  withSpring,
-  withTiming,
-} from "react-native-reanimated";
-import { BlurView } from "expo-blur";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import {
@@ -43,6 +31,10 @@ import {
 } from "lucide-react-native";
 
 import { Text } from "@/components/shared-ui";
+import {
+  FloatingSheet,
+  type FloatingSheetRef,
+} from "@/components/shared-ui/FloatingSheet";
 import { BorderRadius, BrandColors, SemanticColors, Spacing } from "@/constants/theme";
 import {
   useNotificationsFromConvex,
@@ -60,9 +52,6 @@ import { NOTIFICATION_TONES, getNotificationVisual } from "./notificationVisuals
 type NotificationFilter = "all" | "unread";
 
 const { height: SCREEN_H } = Dimensions.get("window");
-const SHEET_HEIGHT = Math.round(SCREEN_H * 0.78);
-
-const SPRING_CONFIG = { damping: 24, stiffness: 180, mass: 1 } as const;
 
 function relativeTime(createdAt: number): string {
   const diffMs = Date.now() - createdAt;
@@ -105,54 +94,44 @@ export function NotificationsSheet() {
   const { notifications, markRead, resolve, isLoading } =
     useNotificationsFromConvex();
 
-  const [mounted, setMounted] = useState(false);
+  const sheetRef = useRef<FloatingSheetRef>(null);
+  // Tracks whether the imperative sheet is currently open, so the store→sheet
+  // bridge below only fires open()/close() on real transitions.
+  const wasOpen = useRef(false);
   const [filter, setFilter] = useState<NotificationFilter>("all");
-  const progress = useSharedValue(0);
+  // Detent index reported by FloatingSheet. 0 = resting, last = expanded.
+  const [snapIndex, setSnapIndex] = useState(0);
   const rowRefs = useRef<Map<string, RNView | null>>(new Map());
 
+  // Two detents: a resting height that floats with rounded chrome, and a tall
+  // detent that pulls up to full-width (FloatingSheet flattens the corners and
+  // drops the side inset as it approaches the top of this range).
+  const snapHeights = useMemo(() => {
+    const resting = Math.round(SCREEN_H * 0.78);
+    const expanded = SCREEN_H - Math.max(insets.top, 12) - 8;
+    return expanded > resting + 24 ? [resting, expanded] : [resting];
+  }, [insets.top]);
+
+  // Bridge the global store's boolean to the sheet's imperative open/close.
   useEffect(() => {
-    if (isOpen) {
-      setMounted(true);
+    if (isOpen && !wasOpen.current) {
+      wasOpen.current = true;
       setFilter("all");
-      progress.value = 0;
-      requestAnimationFrame(() => {
-        progress.value = withSpring(1, SPRING_CONFIG);
-      });
-    } else if (mounted) {
-      progress.value = withTiming(0, { duration: 220 }, (finished) => {
-        if (finished) {
-          runOnJS(setMounted)(false);
-        }
-      });
+      setSnapIndex(0);
+      sheetRef.current?.open();
+    } else if (!isOpen && wasOpen.current) {
+      wasOpen.current = false;
+      sheetRef.current?.close();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
-  const sheetStyle = useAnimatedStyle(() => ({
-    transform: [
-      {
-        translateY: interpolate(
-          progress.value,
-          [0, 1],
-          [SHEET_HEIGHT, 0],
-          Extrapolation.CLAMP,
-        ),
-      },
-    ],
-  }));
-
-  const backdropStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(
-      progress.value,
-      [0, 1],
-      [0, 1],
-      Extrapolation.CLAMP,
-    ),
-  }));
-
-  const handleClose = () => {
+  // FloatingSheet finished closing (drag-dismiss, backdrop tap, or our own
+  // programmatic close) — keep the store in sync so the bell can reopen it.
+  const handleSheetClosed = useCallback(() => {
+    wasOpen.current = false;
     closeStore();
-  };
+  }, [closeStore]);
 
   const handleRowPress = (row: NotificationRow) => {
     const spec = getNotificationShape(row.category);
@@ -249,41 +228,28 @@ export function NotificationsSheet() {
       { key: "unread", label: "Unread", count: unreadRows.length },
     ];
 
-  if (!mounted) return null;
+  // "Mark all as read" is only offered once the sheet is expanded to its full
+  // detent — the first-open resting surface stays clean. When the screen is too
+  // short for a second detent, there's no expand affordance, so show it at rest.
+  const canExpand = snapHeights.length > 1;
+  const showMarkAll = !canExpand || snapIndex >= snapHeights.length - 1;
 
   return (
-    <Modal
-      transparent
-      visible={mounted}
-      animationType="none"
-      presentationStyle="overFullScreen"
-      statusBarTranslucent
-      onRequestClose={handleClose}
+    <FloatingSheet
+      ref={sheetRef}
+      snapHeights={snapHeights}
+      onClose={handleSheetClosed}
+      onSnapIndexChange={setSnapIndex}
+      showBackdrop
+      backdropMode="blur"
     >
-      <Animated.View style={[StyleSheet.absoluteFill, backdropStyle]}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={handleClose}>
-          <BlurView
-            intensity={30}
-            tint="dark"
-            style={StyleSheet.absoluteFill}
-          />
-        </Pressable>
-      </Animated.View>
-
-      <Animated.View
-        style={[
-          styles.sheet,
-          { height: SHEET_HEIGHT, paddingBottom: insets.bottom },
-          sheetStyle,
-        ]}
-      >
-        <View style={styles.handle} />
+      <View style={styles.container}>
         <View style={styles.header}>
           <Text size={28} weight="extraBold" color={BrandColors.primary}>
             Notifications
           </Text>
           <Pressable
-            onPress={handleClose}
+            onPress={closeStore}
             hitSlop={12}
             style={styles.closeButton}
           >
@@ -334,29 +300,34 @@ export function NotificationsSheet() {
             })}
           </ScrollView>
 
-          <Pressable
-            onPress={handleMarkAllRead}
-            disabled={unreadRows.length === 0}
-            hitSlop={8}
-            style={[
-              styles.markAll,
-              unreadRows.length === 0 && styles.markAllDisabled,
-            ]}
-          >
-            <CircleCheck
-              size={16}
-              color={BrandColors.secondary}
-              strokeWidth={2.2}
-            />
-            <Text size="sm" weight="semiBold" color={BrandColors.secondary}>
-              Mark all as read
-            </Text>
-          </Pressable>
+          {showMarkAll ? (
+            <Pressable
+              onPress={handleMarkAllRead}
+              disabled={unreadRows.length === 0}
+              hitSlop={8}
+              style={[
+                styles.markAll,
+                unreadRows.length === 0 && styles.markAllDisabled,
+              ]}
+            >
+              <CircleCheck
+                size={16}
+                color={BrandColors.secondary}
+                strokeWidth={2.2}
+              />
+              <Text size="sm" weight="semiBold" color={BrandColors.secondary}>
+                Mark all as read
+              </Text>
+            </Pressable>
+          ) : null}
         </View>
 
         <ScrollView
           style={styles.list}
-          contentContainerStyle={styles.listContent}
+          contentContainerStyle={[
+            styles.listContent,
+            { paddingBottom: insets.bottom + Spacing["2xl"] },
+          ]}
         >
           {!isLoading && visibleRows.length === 0 ? (
             <View style={styles.empty}>
@@ -556,36 +527,21 @@ export function NotificationsSheet() {
             );
           })}
         </ScrollView>
-      </Animated.View>
-    </Modal>
+      </View>
+    </FloatingSheet>
   );
 }
 
 const styles = StyleSheet.create({
-  sheet: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: "#FFFFFF",
-    borderTopLeftRadius: BorderRadius["2xl"] ?? 24,
-    borderTopRightRadius: BorderRadius["2xl"] ?? 24,
-    overflow: "hidden",
-  },
-  handle: {
-    alignSelf: "center",
-    width: 36,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: "#D1D5DB",
-    marginTop: Spacing.sm,
-    marginBottom: Spacing.sm,
+  container: {
+    flex: 1,
   },
   header: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: Spacing.xl,
+    paddingTop: Spacing.xs,
     paddingBottom: Spacing.sm,
   },
   closeButton: {
