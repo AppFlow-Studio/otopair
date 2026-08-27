@@ -732,6 +732,15 @@ function HealthyItemRow({
         <View style={summaryStyles.itemContent}>
           <Text weight="semiBold" style={summaryStyles.itemName}>{item.serviceName}</Text>
           <Text style={summaryStyles.itemDesc}>{item.description}</Text>
+          {/* Same provenance line UrgentCard carries. A graded item can land in
+              any tier — a yellow eye-check grade shows up under "on the
+              horizon", not "now" — and the driver deserves the source wherever
+              it appears, not only when it is urgent. */}
+          {item.mechanicFlag && item.status !== 'on_time' && (
+            <Text style={summaryStyles.itemProvenance}>
+              {formatMechanicFlag(item.mechanicFlag)}
+            </Text>
+          )}
         </View>
         <Ionicons name="checkmark-circle" size={18} color="#5299FE" />
       </View>
@@ -1578,6 +1587,12 @@ const summaryStyles = StyleSheet.create({
   itemName: {
     fontSize: moderateScale(14),
     color: '#2d3435',
+  },
+  itemProvenance: {
+    fontFamily: 'Urbanist-Medium',
+    fontSize: scale(11),
+    color: '#9CA3AF',
+    marginTop: scale(2),
   },
   itemDesc: {
     fontSize: moderateScale(11),
