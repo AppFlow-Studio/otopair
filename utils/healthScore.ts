@@ -97,6 +97,27 @@ function categoryWeightForItem(item: MaintenanceItem): number {
 // ============================================================================
 
 /**
+ * The only types that may deduct on interval.
+ *
+ * The five core tiles, plus `warning` for the consolidated active-lights card.
+ * maintenance_records.type is an unconstrained v.string() and
+ * buildMaintenanceItems casts whatever it finds to MaintenanceType, so records
+ * of types outside the union (`fluids`, `diagnostics`, `transmission_service`,
+ * `filters`, `wipers`, `engine_parts`) were becoming scored items and losing
+ * the driver points purely because time or mileage had passed. Those are
+ * exactly the rows the model says must never score without a mechanic behind
+ * them.
+ */
+const SCORING_TYPES: ReadonlySet<string> = new Set([
+  "oil",
+  "brakes",
+  "tires",
+  "battery",
+  "inspection",
+  "warning",
+]);
+
+/**
  * Does this item contribute to the Upkeep term?
  *
  * Two kinds of row are shown to the driver but must never move the score:
@@ -127,10 +148,18 @@ export function warningLightsReservePct(
 }
 
 export function isScorableMaintenanceItem(item: {
+  id?: string;
   sourceRecommendationId?: string;
   excludeFromScore?: boolean;
 }): boolean {
-  return !item.sourceRecommendationId && !item.excludeFromScore;
+  if (item.sourceRecommendationId || item.excludeFromScore) return false;
+  if (!item.id) return true;
+  const type = extractMaintenanceType(item.id);
+  // Mechanic-graded minor items (Consolidated model) keep their weight-10
+  // deduction — that is the whole point of the model, and the `minor_` prefix
+  // only exists on records a mechanic graded yellow or red.
+  if (type.startsWith("minor_")) return true;
+  return SCORING_TYPES.has(type);
 }
 
 const STATUS_SCORE: Record<MaintenanceStatus, number> = {

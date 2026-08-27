@@ -96,6 +96,7 @@ import type * as devOnly_reconcileMileage from "../devOnly/reconcileMileage.js";
 import type * as devOnly_reductoUsage from "../devOnly/reductoUsage.js";
 import type * as devOnly_repriceJsonProbe from "../devOnly/repriceJsonProbe.js";
 import type * as devOnly_resetEvalFixture from "../devOnly/resetEvalFixture.js";
+import type * as devOnly_resetSetupCard from "../devOnly/resetSetupCard.js";
 import type * as devOnly_rockautoCatalogProbe from "../devOnly/rockautoCatalogProbe.js";
 import type * as devOnly_rockautoProbe from "../devOnly/rockautoProbe.js";
 import type * as devOnly_rockautoRungByVin from "../devOnly/rockautoRungByVin.js";
@@ -704,6 +705,7 @@ declare const fullApi: ApiFromModules<{
   "devOnly/reductoUsage": typeof devOnly_reductoUsage;
   "devOnly/repriceJsonProbe": typeof devOnly_repriceJsonProbe;
   "devOnly/resetEvalFixture": typeof devOnly_resetEvalFixture;
+  "devOnly/resetSetupCard": typeof devOnly_resetSetupCard;
   "devOnly/rockautoCatalogProbe": typeof devOnly_rockautoCatalogProbe;
   "devOnly/rockautoProbe": typeof devOnly_rockautoProbe;
   "devOnly/rockautoRungByVin": typeof devOnly_rockautoRungByVin;

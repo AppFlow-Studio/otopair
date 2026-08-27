@@ -36,12 +36,18 @@ describe("§04 catalog-inference items must not score", () => {
     expect(score).toBe(91);
   });
 
-  it("would score 70 if they were still counted", () => {
-    const counted = items.map((i) => ({ ...i, excludeFromScore: false }));
-    const score = computeVehicleHealthScore(
-      { maintenanceItems: counted, odometerMiles: 145_000, knownIssues: [] } as any,
-    );
-    expect(score).toBe(70);
+  it("catalog rows are now blocked twice over — flag AND type", () => {
+    // This used to assert 70: clearing excludeFromScore reproduced the
+    // original bug. It no longer can. SCORING_TYPES also rejects the
+    // `catalog` type, so clearing the flag alone changes nothing. Two
+    // independent guards, which is what we want for a rule that has been
+    // violated once already.
+    const flagCleared = items.map((i) => ({ ...i, excludeFromScore: false }));
+    expect(
+      computeVehicleHealthScore(
+        { maintenanceItems: flagCleared, odometerMiles: 145_000, knownIssues: [] } as any,
+      ),
+    ).toBe(91);
   });
 
   it("reaches 100 once a state-inspection record exists", () => {
@@ -121,7 +127,7 @@ describe("§12 regression guards — what must NOT have been broken", () => {
     // minor item earns its deduction when a mechanic grades it yellow/red.
     // §04 must exclude catalog-inference rows without touching this.
     const minor = {
-      id: "brake_fluid_flush",
+      id: "user-minor_bf_condition",
       serviceName: "Brake Fluid Condition",
       description: "",
       detail: "",
