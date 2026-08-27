@@ -71,8 +71,14 @@ export const tireTreadMeasurementsValidator = v.object({
 export const tireIdentityValidator = v.object({
   brand: v.optional(nullableStringValidator),
   model: v.optional(nullableStringValidator),
+  // Vestigial: the MPI stopped collecting DOT codes in PR #60 (Abdul — not
+  // relevant to standard repair). Kept optional so historical rows still read.
   dot_code: v.optional(nullableStringValidator),
   run_flat: v.optional(nullableBooleanValidator),
+  // Season / construction category, vocabulary shared with the tire catalog
+  // (convex/lib/tireBrands.ts mapTireType) so a reading here can join to a
+  // scraped listing for automated re-booking.
+  tire_type: v.optional(nullableStringValidator),
 });
 
 export const tireIdentityByPositionValidator = v.object({
@@ -394,6 +400,23 @@ export const postjobPartValidator = v.object({
   tire_brand: v.optional(nullableStringValidator),
   tire_model: v.optional(nullableStringValidator),
   tire_position: v.optional(nullableStringValidator),
+});
+
+/**
+ * Per-line labor breakdown behind the single `labor_hours` scalar an approval
+ * carries. Mirrors `parts_snapshot` — a per-line record, not a lump. Keyed the
+ * same way the Labor step is: `"base"` for the original booked service(s) plus
+ * one entry per custom-job id. Recording it lets the post-job Labor step seed
+ * each line with the labor that was AGREED for it, instead of treating the
+ * whole-approval total as the BASE service's time — which folded every custom
+ * job's hours into the base line and then double-counted them when the step
+ * re-listed each custom job. `hours` is decimal labor hours; `label` is a
+ * human tag for provenance only.
+ */
+export const laborAllocationValidator = v.object({
+  line_key: v.string(),
+  label: v.optional(nullableStringValidator),
+  hours: v.float64(),
 });
 
 export const postjobPhotoValidator = v.object({
