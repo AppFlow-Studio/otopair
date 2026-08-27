@@ -835,51 +835,46 @@ function HealthySection({
       </Animated.View>
 
       {expanded && (
-        <>
-          <HealthyItemsCard items={items} cascadeStartDelay={cascadeStartDelay} />
-          {/* Every unknown is a question only a mechanic can close. Rather than
-              a CTA per blank row, one scan covers the lot — that is exactly
-              what a diagnostic scan buys, and it is the honest alternative to
-              the "Book Service" buttons these rows used to carry when they
-              were dressed up as SOON findings. Ahmad, 2026-08-27: "whenever
-              anything at all is unknown we recommend a diagnostic scan so the
-              mechanic will be the one to turn those unknowns into knowns." */}
-          {items.length - knownHealthy > 0 && onBookNow && (
-            <Animated.View entering={FadeInUp.duration(450).delay(cascadeStartDelay + 120)}>
-              <Pressable
-                onPress={() => {
-                  if (isEnriching) return;
-                  // extractMaintenanceType → "warning" → MAINTENANCE_TYPE_TO_SLUG
-                  // → diagnostic_scan, so this reuses the normal booking
-                  // handoff with no special case at the call site.
-                  onBookNow('warning-unknown-scan');
-                }}
-                disabled={isEnriching}
-                style={({ pressed }) => [
-                  scanCtaStyles.button,
-                  isEnriching && scanCtaStyles.buttonDisabled,
-                  pressed && !isEnriching && { opacity: 0.85 },
-                ]}
-              >
-                <Ionicons
-                  name="search-outline"
-                  size={16}
-                  color={isEnriching ? '#9CA3AF' : '#5299FE'}
-                />
-                <Text
-                  weight="semiBold"
-                  style={[scanCtaStyles.text, isEnriching && scanCtaStyles.textDisabled]}
-                >
-                  {isEnriching ? 'Setting up…' : 'Book a diagnostic scan'}
-                </Text>
-              </Pressable>
-              <Text style={scanCtaStyles.caption}>
-                A mechanic can check what we have no record of.
-              </Text>
-            </Animated.View>
-          )}
-        </>
+        <HealthyItemsCard items={items} cascadeStartDelay={cascadeStartDelay} />
       )}
+
+      {/* Outside the `expanded` branch on purpose: collapsing the list hides
+          detail, it does not withdraw the recommendation. */}
+        {items.length - knownHealthy > 0 && onBookNow && (
+          <Animated.View entering={FadeInUp.duration(450).delay(cascadeStartDelay + 120)}>
+            <Pressable
+              onPress={() => {
+                if (isEnriching) return;
+                // extractMaintenanceType → "warning" → MAINTENANCE_TYPE_TO_SLUG
+                // → diagnostic_scan, so this reuses the normal booking
+                // handoff with no special case at the call site.
+                onBookNow('warning-unknown-scan');
+              }}
+              disabled={isEnriching}
+              style={({ pressed }) => [
+                scanCtaStyles.button,
+                isEnriching && scanCtaStyles.buttonDisabled,
+                pressed && !isEnriching && { opacity: 0.85 },
+              ]}
+            >
+              <Ionicons
+                name="search-outline"
+                size={16}
+                color={isEnriching ? '#9CA3AF' : '#5299FE'}
+              />
+              <Text
+                weight="semiBold"
+                style={[scanCtaStyles.text, isEnriching && scanCtaStyles.textDisabled]}
+              >
+                {isEnriching ? 'Setting up…' : 'Book a diagnostic scan'}
+              </Text>
+            </Pressable>
+            <Text style={scanCtaStyles.caption}>
+              A mechanic can check what we have no record of.
+            </Text>
+          </Animated.View>
+        )}
+
     </View>
   );
 }
@@ -1189,6 +1184,8 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
             items={healthyItems}
             isDarkBg={isDarkBg}
             cascadeStartDelay={healthyDelay}
+            onBookNow={onBookNow}
+            isEnriching={isEnriching}
           />
         </>
       )}
