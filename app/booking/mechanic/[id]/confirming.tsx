@@ -30,6 +30,7 @@ import Animated, {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAction, useMutation } from "convex/react";
+import type { FunctionReference } from "convex/server";
 import { useStripe } from "@stripe/stripe-react-native";
 
 import { Text } from "@/components/shared-ui";
@@ -51,6 +52,30 @@ import type { Id } from "@/convex/_generated/dataModel";
 // the timing reads consistently across both surfaces.
 const COPY_FADE_DELAY_MS = 2050;
 const COPY_FADE_DURATION_MS = 600;
+
+type AcceptQuoteArgs<ResponseTable extends "tire_quote_responses" | "rotor_quote_responses"> = {
+  booking_id: Id<"bookings">;
+  response_id: Id<ResponseTable>;
+  scheduled_date: string;
+  scheduled_time: string;
+  mechanic_id?: Id<"mechanics">;
+  hold_id?: Id<"slot_holds">;
+  session_id?: string;
+};
+
+const acceptTireQuoteWithHold = api.bookings.acceptTireQuote as FunctionReference<
+  "mutation",
+  "public",
+  AcceptQuoteArgs<"tire_quote_responses">,
+  Id<"bookings">
+>;
+
+const acceptRotorQuoteWithHold = api.bookings.acceptRotorQuote as FunctionReference<
+  "mutation",
+  "public",
+  AcceptQuoteArgs<"rotor_quote_responses">,
+  Id<"bookings">
+>;
 
 /** Strip the Convex error wrapper down to the human-readable message. */
 function extractErrorMessage(err: unknown): string {
@@ -86,6 +111,8 @@ export default function BookingConfirmingScreen() {
   const scheduledAppointment = useBookingStore((s) => s.scheduledAppointment);
   const bookingType = useBookingStore((s) => s.bookingType);
   const quoteAcceptContext = useBookingStore((s) => s.quoteAcceptContext);
+  const holdId = useBookingStore((s) => s.holdId);
+  const holdSessionId = useBookingStore((s) => s.holdSessionId);
   const setQuoteAcceptContext = useBookingStore((s) => s.setQuoteAcceptContext);
   const getMechanicById = useMechanicStore((s) => s.getMechanicById);
   const selectedPaymentMethodId = usePaymentStore((s) => s.selectedPaymentMethodId);
@@ -96,8 +123,8 @@ export default function BookingConfirmingScreen() {
   const cancelPreauthorizedPayment = useAction(api.payments_stripe.cancelPreauthorizedPaymentIntent);
   const customerRequestReschedule = useMutation(api.bookings.customerRequestReschedule);
   const rollbackFailedBookingCreation = useMutation(api.bookings.rollbackFailedBookingCreation);
-  const acceptTireQuote = useMutation(api.bookings.acceptTireQuote);
-  const acceptRotorQuote = useMutation(api.bookings.acceptRotorQuote);
+  const acceptTireQuote = useMutation(acceptTireQuoteWithHold);
+  const acceptRotorQuote = useMutation(acceptRotorQuoteWithHold);
   const toast = useToast();
   // The PaymentIntent is created + confirmed server-side. If 3DS is needed,
   // Stripe returns requires_action and the client *finishes* the challenge
@@ -292,6 +319,8 @@ export default function BookingConfirmingScreen() {
                 scheduled_date: scheduledAppointment.date,
                 scheduled_time: scheduledTime,
                 mechanic_id: mechanicIdArg,
+                hold_id: holdId ? (holdId as Id<"slot_holds">) : undefined,
+                session_id: holdSessionId ?? undefined,
               })
             : await acceptTireQuote({
                 booking_id: quoteAcceptContext.bookingId,
@@ -299,6 +328,8 @@ export default function BookingConfirmingScreen() {
                 scheduled_date: scheduledAppointment.date,
                 scheduled_time: scheduledTime,
                 mechanic_id: mechanicIdArg,
+                hold_id: holdId ? (holdId as Id<"slot_holds">) : undefined,
+                session_id: holdSessionId ?? undefined,
               });
       } else {
         const bookingIds = await createBookingConvex(
@@ -374,6 +405,8 @@ export default function BookingConfirmingScreen() {
     rollbackFailedBookingCreation,
     customerRequestReschedule,
     quoteAcceptContext,
+    holdId,
+    holdSessionId,
     setQuoteAcceptContext,
     acceptTireQuote,
     acceptRotorQuote,
