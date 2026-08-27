@@ -64,6 +64,7 @@ import { OilIcon, BrakesIcon, TireIcon, BatteryIcon, WarningIcon } from '@/compo
 import MaintenanceDetailView from '@/components/cars/MaintenanceDetailView';
 
 // 5. Constants, hooks, types
+import { healthySectionChip } from '@/utils/healthySection';
 import { computeProjectedHealthScore, type HealthScoreInput } from '@/utils/healthScore';
 import { scale, moderateScale } from '@/utils/responsive';
 import type { RankedMaintenanceItem } from '@/hooks/useUrgencyRankedItems';
@@ -727,7 +728,13 @@ function HealthyItemRow({
             </Text>
           )}
         </View>
-        <Ionicons name="checkmark-circle" size={18} color="#5299FE" />
+        {/* A check mark asserts we looked and it was fine. For an item with no
+            record on file we did neither, so it gets a neutral outline. */}
+        {item.status === 'unknown' ? (
+          <Ionicons name="ellipse-outline" size={18} color="#C7C7CC" />
+        ) : (
+          <Ionicons name="checkmark-circle" size={18} color="#5299FE" />
+        )}
       </View>
       {showSeparator && <View style={summaryStyles.separator} />}
     </Animated.View>
@@ -787,6 +794,8 @@ function HealthySection({
 
   if (items.length === 0) return null;
 
+  const { label: chipLabel, knownHealthy } = healthySectionChip(items);
+
   const toggle = () => {
     setExpanded(prev => !prev);
     chevronRotation.value = withTiming(expanded ? 0 : 1, { duration: 200 });
@@ -804,10 +813,13 @@ function HealthySection({
               tiny green dot + bold uppercase text + count. Chevron
               reveals/hides the list. */}
           <View style={summaryStyles.headerRow}>
-            <View style={summaryStyles.chip}>
-              <View style={summaryStyles.dot} />
-              <Text weight="bold" style={summaryStyles.chipText}>
-                {`HEALTHY · ${items.length}`}
+            <View style={[summaryStyles.chip, knownHealthy === 0 && summaryStyles.chipNeutral]}>
+              <View style={[summaryStyles.dot, knownHealthy === 0 && summaryStyles.dotNeutral]} />
+              <Text
+                weight="bold"
+                style={[summaryStyles.chipText, knownHealthy === 0 && summaryStyles.chipTextNeutral]}
+              >
+                {chipLabel}
               </Text>
             </View>
             <View style={{ flex: 1 }} />
@@ -1436,10 +1448,6 @@ const summaryStyles = StyleSheet.create({
     borderRadius: moderateScale(4),
     backgroundColor: '#059669',
   },
-  /** Override applied when HealthySection is rendering the Soon-ish tier. */
-  dotSoonish: {
-    backgroundColor: '#5299FE',
-  },
   // Chip variant per PM spec (bg #ECFDF5, text #059669, 8pt radius,
   // 8/4 padding). Wraps dot + label so it reads as a proper pill on
   // any background tint.
@@ -1457,6 +1465,19 @@ const summaryStyles = StyleSheet.create({
     color: '#059669',
     letterSpacing: 0.66, // ≈ 0.06em at 11pt
     textTransform: 'uppercase',
+  },
+  // Neutral grey variant, used when the section holds only items with no
+  // record on file. Green is the app's "we checked and it's fine" colour;
+  // spending it on an absence of data would be the same overclaim the chip
+  // copy is there to avoid.
+  chipNeutral: {
+    backgroundColor: '#F3F4F6',
+  },
+  dotNeutral: {
+    backgroundColor: '#9CA3AF',
+  },
+  chipTextNeutral: {
+    color: '#6B7280',
   },
   // Kept for backwards-compat with any leftover references; the
   // chip variants above are what render on the Cars screen now.

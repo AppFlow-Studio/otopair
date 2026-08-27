@@ -52,12 +52,17 @@ describe("buildMergedMaintenanceItems (shared Cars-page / Oto merge)", () => {
     expect(items.length).toBeGreaterThanOrEqual(ALL_MAINTENANCE_TYPES.length);
   });
 
-  it("uses the optimistic no-record fallbacks (oil -> due_soon, brakes -> on_time)", () => {
+  it("reports no-record types as unknown rather than guessing at them", () => {
+    // Was: "optimistic no-record fallbacks (oil -> due_soon, brakes -> on_time)".
+    // Those guesses told a 300,000-mile car its brakes were fine, and because
+    // they never arrived as `unknown` they slipped past §08's exclusion and
+    // scored — a fixed 93 for every record-less vehicle. Ahmad, 2026-08-27.
     const items = merge();
     const oil = items.find((i) => i.id === "unknown-oil");
     const brakes = items.find((i) => i.id === "unknown-brakes");
-    expect(oil?.status).toBe("due_soon");
-    expect(brakes?.status).toBe("on_time");
+    expect(oil?.status).toBe("unknown");
+    expect(brakes?.status).toBe("unknown");
+    expect(brakes?.description).toMatch(/not on file|history on file/i);
   });
 
   it("appends a mechanic driver recommendation as a rec-* item", () => {

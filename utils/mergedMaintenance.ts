@@ -355,13 +355,29 @@ export function buildMergedMaintenanceItems(
       }
     }
 
-    const fallback: Record<string, { status: MaintenanceItem["status"]; description: string; detail: string }> = {
-      oil:    { status: "due_soon",  description: "No oil change data — service recommended", detail: "Check soon" },
-      brakes: { status: "on_time",   description: "No brake concerns reported",              detail: "On time" },
-      tires:  { status: "on_time",   description: "No tire concerns reported",               detail: "On time" },
-      battery:{ status: "on_time",   description: "No battery concerns reported",            detail: "On time" },
+    // Nothing on file for this type. That is the absence of a finding, not a
+    // finding of "fine" — these previously claimed `on_time` with "No brake
+    // concerns reported" (and oil `due_soon`) for a vehicle we hold no record
+    // of at all, which meant a 300,000-mile car was told its brakes, tires and
+    // battery were in good order. Those asserted statuses also scored: they
+    // averaged to a fixed 93 for EVERY record-less vehicle, and §08 could not
+    // exclude them because they never arrived as "unknown" in the first place.
+    //
+    // Reporting them honestly is also consistent with the rest of the model —
+    // when a record EXISTS but carries no date, maintenanceStatus.ts already
+    // returns "unknown" with this same "not on file" vocabulary. Having no
+    // record at all should not read as better news than a blank one.
+    const fallback: Record<string, { description: string }> = {
+      oil:    { description: "No oil change history on file" },
+      brakes: { description: "No brake service history on file" },
+      tires:  { description: "No tire service history on file" },
+      battery:{ description: "No battery service history on file" },
     };
-    const fb = fallback[type] ?? { status: "on_time" as const, description: "No concerns reported", detail: "On time" };
+    const fb = {
+      status: "unknown" as const,
+      description: fallback[type]?.description ?? "No service history on file",
+      detail: "Not on file",
+    };
     result.push({
       id: `unknown-${type}`,
       serviceName: MAINTENANCE_LABELS[type] || type,
