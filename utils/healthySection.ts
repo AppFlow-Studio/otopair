@@ -19,7 +19,7 @@ export function healthySectionChip(
   const notOnFile = items.length - knownHealthy;
   const label =
     knownHealthy > 0
-      ? `HEALTHY · ${knownHealthy}${notOnFile > 0 ? ` · ${notOnFile} NOT ON FILE` : ""}`
-      : `NOT ON FILE · ${notOnFile}`;
+      ? `HEALTHY · ${knownHealthy}${notOnFile > 0 ? ` · ${notOnFile} UNKNOWN` : ""}`
+      : `UNKNOWN · ${notOnFile}`;
   return { label, knownHealthy };
 }

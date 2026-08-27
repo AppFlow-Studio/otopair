@@ -19,6 +19,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { healthySectionChip } from "@/utils/healthySection";
+import { computeMaintenanceStatus } from "@/utils/maintenanceStatus";
 import { buildMergedMaintenanceItems } from "@/utils/mergedMaintenance";
 import { computeVehicleHealthScore } from "@/utils/healthScore";
 
@@ -88,15 +89,47 @@ describe("the quiet section's chip", () => {
   });
 
   it("does not fold unknowns into the healthy count", () => {
-    expect(chip(["on_time", "unknown", "unknown"])).toBe("HEALTHY · 1 · 2 NOT ON FILE");
+    expect(chip(["on_time", "unknown", "unknown"])).toBe("HEALTHY · 1 · 2 UNKNOWN");
   });
 
   it("claims nothing when every row is a blank", () => {
     // The record-less vehicle case: four core types, nothing known about any.
-    expect(chip(["unknown", "unknown", "unknown", "unknown"])).toBe("NOT ON FILE · 4");
+    expect(chip(["unknown", "unknown", "unknown", "unknown"])).toBe("UNKNOWN · 4");
   });
 
   it("never labels a section of pure unknowns as healthy", () => {
     expect(chip(["unknown"])).not.toContain("HEALTHY");
+  });
+});
+
+describe('"I\'m not sure" never becomes a finding', () => {
+  // The stepper's tire question stores "I'm not sure" as tireReplaced:
+  // "dont_know". It used to return due_soon / "Tire condition uncertain —
+  // inspection recommended", which cost 26 points for admitting ignorance.
+  // The battery path took this same fix on 2026-05-18; tires was missed.
+  const NOW = new Date("2026-08-27T00:00:00Z").getTime();
+
+  const statusFor = (type: string, customInputs: Record<string, string>) =>
+    computeMaintenanceStatus(
+      { type, customInputs } as any,
+      300_000, "Audi", NOW, "city", "light", [], 2020,
+    );
+
+  it("tires: unsure when replaced scores nothing", () => {
+    const r = statusFor("tires", { recency: "not_sure", tireOriginal: "not_sure", tireReplaced: "dont_know" });
+    expect(r.status).toBe("unknown");
+    expect(r.percentUsed).toBe(0);
+    expect(r.description).not.toMatch(/inspection recommended|uncertain/i);
+  });
+
+  it("battery: unsure when replaced scores nothing (the 2026-05-18 precedent)", () => {
+    expect(statusFor("battery", { batteryReplaced: "not_sure", recency: "not_sure" }).status).toBe("unknown");
+  });
+
+  it("still reports what the driver DID tell us — original tires are a real signal", () => {
+    // "Are these the original tires? → Yes" is information, not an absence of
+    // it, so age-from-model-year still applies and still scores.
+    const r = statusFor("tires", { tireOriginal: "yes", tireReplaced: "original" });
+    expect(r.status).not.toBe("unknown");
   });
 });

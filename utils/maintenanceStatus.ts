@@ -850,13 +850,20 @@ function computeTireStatusCore(
     };
   }
 
-  // Quick Read: user doesn't know tire status — flag for attention
+  // Quick Read: the driver answered "I'm not sure" to when the tires were
+  // last replaced. That is an absence of information, not a finding. It used
+  // to return `due_soon` / "Tire condition uncertain — inspection
+  // recommended", which cost 26 points on a car where nothing about the tires
+  // was ever reported — the driver was penalised for admitting they didn't
+  // know. Same fix the battery path took on 2026-05-18 ("not_sure used to
+  // fabricate a due_soon urgency with no anchor"); tires was missed then
+  // because the stepper stores this answer under a different id.
   if (tireReplaced === "dont_know" && !record.lastServiceDate && !record.lastServiceMileage && !tp) {
     return {
-      status: "due_soon",
-      percentUsed: 50,
-      description: "Tire condition uncertain — inspection recommended",
-      detail: "Check soon",
+      status: "unknown",
+      percentUsed: 0,
+      description: "Tire service history not on file",
+      detail: "Not on file",
     };
   }
 
