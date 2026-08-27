@@ -174,23 +174,7 @@ const STATUS_SCORE: Record<MaintenanceStatus, number> = {
 // UNKNOWN-ITEM SCORE BY MILEAGE
 // ============================================================================
 
-/**
- * When a maintenance item has no data ("unknown"), its implied health
- * depends on how far the car has been driven.
- *
- *   ≤15k mi  → 0.95  (brand new, no service expected yet)
- *   ≤30k mi  → 0.85  (still early, most items haven't come due)
- *   ≤60k mi  → 0.55  (some service should have happened by now)
- *   ≤100k mi → 0.35  (missing records is a yellow flag)
- *   >100k mi → 0.20  (high mileage + no records is concerning)
- */
-function unknownScoreForMileage(miles: number): number {
-  if (miles <= 15_000) return 0.95;
-  if (miles <= 30_000) return 0.95 - ((miles - 15_000) / 15_000) * 0.10;  // 0.95→0.85
-  if (miles <= 60_000) return 0.85 - ((miles - 30_000) / 30_000) * 0.30;  // 0.85→0.55
-  if (miles <= 100_000) return 0.55 - ((miles - 60_000) / 40_000) * 0.20; // 0.55→0.35
-  return Math.max(0.15, 0.35 - ((miles - 100_000) / 50_000) * 0.15);     // 0.35→0.20→0.15 floor
-}
+
 
 // ============================================================================
 // WARNING-LIGHT PENALTY
@@ -313,8 +297,6 @@ export function computeVehicleHealthScore(
   // redistributes naturally across the remaining ones. An item with a
   // precomputed `rawScore` (brakes' per-corner blend today) uses that float
   // directly instead of the 4-value STATUS_SCORE lookup.
-  const unknownInferredScore = unknownScoreForMileage(odometerMiles);
-
   let weightedSum = 0;
   let weightTotal = 0;
   for (const item of maintenanceItems) {
@@ -327,16 +309,21 @@ export function computeVehicleHealthScore(
     // double-counting the same physical problem the matching core/minor
     // tile already scores, on top of a third time via the Open-recs cap.
     if (!isScorableMaintenanceItem(item)) continue;
+    // A type we hold no record for scores nothing and weighs nothing: it
+    // leaves the average entirely rather than being guessed at from the
+    // odometer. Mileage on its own must never cost points — it matters only
+    // through the intervals it makes due on services we DO have records for.
+    // The old behaviour ran every unknown through a mileage curve, so a
+    // high-mileage car was docked for the absence of data alone.
+    if (item.status === "unknown") continue;
     const w = categoryWeightForItem(item);
-    const score =
-      item.rawScore ??
-      (item.status === "unknown" ? unknownInferredScore : STATUS_SCORE[item.status]);
+    const score = item.rawScore ?? STATUS_SCORE[item.status];
     weightedSum += w * score;
     weightTotal += w;
   }
-  const maintenanceAvg = weightTotal > 0
-    ? weightedSum / weightTotal
-    : unknownInferredScore;
+  // No records at all → nothing is known against the driver. The UI already
+  // labels this state "Estimated" and asks for service history.
+  const maintenanceAvg = weightTotal > 0 ? weightedSum / weightTotal : 1;
   const maintenancePct = maintenanceAvg * 100;
 
   // ── Warning-light penalty + reserve ────────────────────────────
@@ -430,16 +417,18 @@ export function computeHealthScoreFactors(
   const scorableItems = maintenanceItems.filter(isScorableMaintenanceItem);
   const knownCount = scorableItems.filter((i) => i.status !== "unknown").length;
   let weightTotal = 0;
-  for (const item of scorableItems) weightTotal += categoryWeightForItem(item);
+  // Same set the score weights: unknowns are excluded there, so counting them
+  // here would give every other item a smaller share than it really has and
+  // the breakdown would stop reconciling with the headline number.
+  for (const item of scorableItems) {
+    if (item.status === "unknown") continue;
+    weightTotal += categoryWeightForItem(item);
+  }
   const maintenanceBudget = upkeepWeight;
   const perWeightUnit = weightTotal > 0 ? maintenanceBudget / weightTotal : 0;
 
-  let unknownCount = 0;
   for (const item of scorableItems) {
-    if (item.status === "unknown") {
-      unknownCount += 1;
-      continue;
-    }
+    if (item.status === "unknown") continue;
     const itemWeight = categoryWeightForItem(item);
     const itemShare = itemWeight * perWeightUnit;
     const score = item.rawScore ?? STATUS_SCORE[item.status];
@@ -465,28 +454,9 @@ export function computeHealthScoreFactors(
     }
   }
 
-  if (unknownCount > 0) {
-    const inferred = unknownScoreForMileage(odometerMiles);
-    // Aggregate the unknowns' weighted share.
-    let unknownShare = 0;
-    for (const item of scorableItems) {
-      if (item.status === "unknown") {
-        unknownShare += categoryWeightForItem(item) * perWeightUnit;
-      }
-    }
-    const totalPts = Math.round((1 - inferred) * unknownShare);
-    if (totalPts > 0) {
-      negatives.push({
-        label: unknownCount === 1
-          ? "Service history pending"
-          : `Service history pending (${unknownCount})`,
-        detail: knownCount === 0
-          ? "Add records to refine your score"
-          : "Logging more services will improve accuracy",
-        pts: totalPts,
-      });
-    }
-  }
+  // Unknowns are deliberately absent from both buckets now. They cost
+  // nothing, so listing them under "what's hurting" would report a deduction
+  // the score does not apply.
 
   // ── Warning lights (warningLightsWeight reserve, minus penalty) ──
   // Same canonical, format-agnostic read as warningLightPenalty so the

@@ -29,11 +29,14 @@ const items: any[] = [
 ];
 
 describe("§04 catalog-inference items must not score", () => {
-  it("scores 91 with catalog rows excluded", () => {
+  it("scores 100 with catalog rows excluded", () => {
     const score = computeVehicleHealthScore(
       { maintenanceItems: items, odometerMiles: 145_000, knownIssues: [] } as any,
     );
-    expect(score).toBe(91);
+    // Was 91 while a missing record was scored from a mileage curve. Since
+    // the §08 decision (mileage alone must never deduct) the absent
+    // state-inspection record no longer costs anything, so this is 100.
+    expect(score).toBe(100);
   });
 
   it("catalog rows are now blocked twice over — flag AND type", () => {
@@ -47,7 +50,7 @@ describe("§04 catalog-inference items must not score", () => {
       computeVehicleHealthScore(
         { maintenanceItems: flagCleared, odometerMiles: 145_000, knownIssues: [] } as any,
       ),
-    ).toBe(91);
+    ).toBe(100);
   });
 
   it("reaches 100 once a state-inspection record exists", () => {
@@ -78,15 +81,19 @@ describe("§04 catalog-inference items must not score", () => {
     expect(at40).toBe(100);
   });
 
-  it("with a missing record, mileage still shapes the score via the unknown curve (§08)", () => {
+  it("mileage never moves the score, with or without a missing record (§08)", () => {
+    // Ahmad's call, 2026-08-27: "mileage alone should never bring the score
+    // down... we don't wanna penalize the user just for having high milage."
+    // Previously this same fixture scored 91 at 145k and 97 at 40k, purely
+    // because the absent inspection record was guessed at from the odometer.
     const at145 = computeVehicleHealthScore(
       { maintenanceItems: items, odometerMiles: 145_000, knownIssues: [] } as any,
     );
     const at40 = computeVehicleHealthScore(
       { maintenanceItems: items, odometerMiles: 40_000, knownIssues: [] } as any,
     );
-    expect(at145).toBe(91);
-    expect(at40).toBe(97);
+    expect(at145).toBe(100);
+    expect(at40).toBe(100);
   });
 });
 
