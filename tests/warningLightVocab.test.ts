@@ -25,7 +25,14 @@ describe("canonicalWarningLights", () => {
     expect(canonicalWarningLights(["other", "temperature"])).toEqual(["temperature"]);
     expect(canonicalWarningLights(["no_all_clear"])).toEqual([]);
     expect(canonicalWarningLights(["check_engine"])).toEqual(["check_engine"]);
-    expect(canonicalWarningLights(["not_sure"])).toEqual(["not_sure_which"]);
+    // `not_sure` answers "Any dashboard warning lights on right now?" with
+    // "I don't know" — a bare sentinel like no_all_clear, NOT a light. It is
+    // distinct from `not_sure_which`, which comes from the follow-up asked
+    // only after the user confirms a light IS on. It used to alias to that
+    // one, which turned "I haven't checked" into an active fault.
+    expect(canonicalWarningLights(["not_sure"])).toEqual([]);
+    expect(canonicalWarningLights(["not_sure_which"])).toEqual(["not_sure_which"]);
+    expect(canonicalWarningLights(["other", "not_sure_which"])).toEqual(["not_sure_which"]);
   });
 
   it("recovers a light appended after a stale no_all_clear sentinel (the Oto corruption)", () => {

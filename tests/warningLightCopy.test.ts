@@ -18,7 +18,9 @@ describe("warning light copy", () => {
   });
 
   it("an unidentified light reads cleanly", () => {
-    const item = buildWarningLightItem({ knownIssues: ["not_sure"], scopeId: "v1" });
+    // `not_sure_which` — the follow-up answer, where a light IS confirmed on.
+    // Plain `not_sure` produces no item at all; see warningLightVocab.test.ts.
+    const item = buildWarningLightItem({ knownIssues: ["not_sure_which"], scopeId: "v1" });
     expect(item).not.toBeNull();
     expect(item!.serviceName).toBe("Unidentified warning light");
     expect(item!.description).toBe(
