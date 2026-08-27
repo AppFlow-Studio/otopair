@@ -69,6 +69,39 @@ type TireSizeOption = {
   source: "verified" | "oem_standard" | "oem_optional" | null;
 };
 
+// ── Display formatting ───────────────────────────────────────────────────────
+// The mounted tire brand/model arrive as machine slugs (e.g. "goodyear",
+// "goodyear_eagle_sport"). Un-slug + Title Case them for the UI.
+const humanizeTireTerm = (raw: string | null | undefined): string =>
+  (raw ?? "")
+    .replace(/[_-]+/g, " ")
+    .trim()
+    .split(/\s+/)
+    .map((w) => (w ? w[0].toUpperCase() + w.slice(1) : w))
+    .join(" ");
+
+// Brand + model as one label, dropping a brand slug that the model repeats
+// ("goodyear" + "goodyear_eagle_sport" → "Goodyear Eagle Sport").
+const formatMountedName = (
+  brand: string | null,
+  model: string | null,
+): string | null => {
+  const brandHuman = humanizeTireTerm(brand);
+  let modelHuman = humanizeTireTerm(model);
+  if (
+    brandHuman &&
+    modelHuman.toLowerCase().startsWith(`${brandHuman.toLowerCase()} `)
+  ) {
+    modelHuman = modelHuman.slice(brandHuman.length).trim();
+  }
+  return [brandHuman, modelHuman].filter(Boolean).join(" ").trim() || null;
+};
+
+// Staggered setups (rear differs from front) spell out which size goes where;
+// square setups just show the single size.
+const formatSizeLabel = (front: string, rear: string | null): string =>
+  rear ? `Front ${front} · Rear ${rear}` : front;
+
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 
 // ============================================================================
@@ -169,7 +202,7 @@ export default function TireBookingScreen({ onClose, onConfirmed }: TireBookingS
       ) ?? null
     : null;
   const mountedLabel = mounted
-    ? [mounted.brand, mounted.model].filter(Boolean).join(" ") || null
+    ? formatMountedName(mounted.brand, mounted.model)
     : null;
 
   // If the previously-picked fitment isn't in the new vehicle's option list
@@ -360,11 +393,9 @@ export default function TireBookingScreen({ onClose, onConfirmed }: TireBookingS
             </Text>
             <View style={styles.chipRow}>
               {sizeOptions.map((option, idx) => {
-                // Each chip = one OEM wheel package. Staggered setups show
-                // both sizes (front / rear); square setups show just front.
-                const chipLabel = option.sizeRear
-                  ? `${option.size} / ${option.sizeRear}`
-                  : option.size;
+                // Each chip = one OEM wheel package. Staggered setups spell
+                // out front vs rear; square setups show just the one size.
+                const chipLabel = formatSizeLabel(option.size, option.sizeRear);
                 const isSelected = optionsMatch(option, {
                   size: tireSize ?? "",
                   sizeRear: tireSizeRear,

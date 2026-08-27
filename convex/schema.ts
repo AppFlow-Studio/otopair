@@ -26,6 +26,7 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import {
   customerInspectionSnapshotValidator,
+  laborAllocationValidator,
   postjobPartValidator,
   postjobPhotoValidator,
   postjobReportValidator,
@@ -376,6 +377,11 @@ export default defineSchema({
     // drivetrain, brake_fluid_capacity_oz and ps_fluid_capacity_oz are today.
     // Durable across re-runs, same as na_role_keys above.
     verified_fields: v.optional(v.array(v.string())),
+    /** When this config's fitments last went through the adversarial
+     *  re-verification sweep (fitmentReverify). The nightly audit loop picks
+     *  never/oldest-audited first, so the whole fleet rotates through the
+     *  auditor without any cursor state to lose. */
+    fitment_audited_at: v.optional(v.number()),
     created_at: v.optional(v.number()),
   })
     .index("by_config_key", ["config_key"])
@@ -2856,6 +2862,14 @@ export default defineSchema({
         v.object({
           name: v.string(),
           duration_minutes: v.optional(v.float64()),
+          // True while this off-catalog line is STAGED but not yet confirmed by
+          // the customer — i.e. added mid-inspection ("Add to this job") / as
+          // unforeseen scope, and awaiting approval of the pre_job / mid_job
+          // estimate that carries it. Shop-facing surfaces still show it (the
+          // mechanic priced and sent it); customer-facing reads hide it until
+          // approval clears this flag. Absent = confirmed/booked work (the
+          // pre-existing default), so old rows read as confirmed.
+          pending_confirmation: v.optional(v.boolean()),
         })
       )
     ),
@@ -3045,6 +3059,13 @@ export default defineSchema({
     running_approved_ceiling_cents: v.optional(v.number()),
     // Mechanic's current target (singular). Set on submitPreJobEstimate.
     mechanic_set_price_cents: v.optional(v.number()),
+    // Fixed-price bookings only. The ORIGINAL contracted flat price (in cents),
+    // captured once the first added service is billed on top of it. Stays put
+    // even as `mechanic_set_price_cents`/`total_cost` grow with added scope, so
+    // every added-scope estimate recomputes total = fixed_contract_base_cents +
+    // Σ(added services). Without this stable anchor, re-pricing would read the
+    // already-grown running total as the "base" and double-count prior additions.
+    fixed_contract_base_cents: v.optional(v.number()),
     estimate_approved_at_ms: v.optional(v.number()),
     estimate_decided_by_user_id: v.optional(v.id("users")),
 
@@ -3072,6 +3093,12 @@ export default defineSchema({
     quote_flags: v.optional(v.array(v.string())),
     quote_fallback_low: v.optional(v.float64()),
     quote_fallback_high: v.optional(v.float64()),
+    // Combined labor operations (convex/lib/combinedLabor.ts): minutes shaved
+    // off the naive per-service labor sum because co-booked services shared
+    // teardown, plus the human reasons shown to the customer. Set at
+    // createBatch when the director flag is on; absent = no combine applied.
+    combined_labor_saved_minutes: v.optional(v.number()),
+    combined_labor_notes: v.optional(v.array(v.string())),
     // Dollar delta when the customer's labor cost lands above the engine's
     // expected labor cost by more than ±8% — paired with the
     // `labor_cost_above_engine` flag on `quote_flags`. Server still books
@@ -4322,6 +4349,20 @@ export default defineSchema({
     // defaults (enabled, 15-minute TTL).
     slot_hold_enabled: v.optional(v.boolean()),
     slot_hold_ttl_minutes: v.optional(v.number()),
+    // Combined labor operations (convex/lib/combinedLabor.ts). When enabled,
+    // multi-service bookings that share teardown (pads+rotors, wheels-off,
+    // coolant drain) charge the shared labor once. Absent/false → naive sum
+    // (today's behavior). `combined_labor_disabled_families` holds any overlap
+    // family ids the director switched off (see OVERLAP_FAMILIES).
+    combined_labor_enabled: v.optional(v.boolean()),
+    combined_labor_disabled_families: v.optional(v.array(v.string())),
+    // Per-axle / per-unit labor scaling (convex/lib/serviceUnits.ts
+    // resolveLaborUnitCount). When enabled, a service that scales per axle
+    // (brakes) bills its labor × the booked axle count — a "both axles" job
+    // ≈ 2× a single axle. Absent/false → flat labor (today's behavior).
+    // Independent of combined_labor: per-axle inflates the job to its true
+    // size; combined_labor then shaves shared teardown.
+    per_axle_labor_enabled: v.optional(v.boolean()),
     updated_at: v.number(),
     updated_by_user_id: v.optional(v.id("director_users")),
   }).index("by_key", ["key"]),
@@ -4860,6 +4901,25 @@ export default defineSchema({
     .index("by_shop", ["shop_id"])
     .index("by_shop_and_match_key", ["shop_id", "match_key"])
     .index("by_match_key", ["match_key"]),
+
+  // A shop's remembered custom PART brands — supplier brands (Bosch, Denso…) or
+  // any one-off brand a mechanic sourced externally for a part on a walk-in
+  // booking. The parts Brand picker is seeded from the vehicle `makes` catalog,
+  // but that table is vehicle makes only (guarded by getOrCreateMake); part
+  // brands would pollute it. So, exactly like shop_custom_services, these are
+  // shop-scoped "autocomplete with a memory" — added only by an explicit
+  // "Add … as custom" tap, never driver-facing or bookable.
+  shop_custom_part_brands: defineTable({
+    shop_id: v.id("shops"),
+    name: v.string(),
+    // Trimmed + lowercased identity key for an idempotent upsert per shop.
+    name_key: v.string(),
+    use_count: v.number(),
+    last_used_at: v.number(),
+    created_at: v.number(),
+  })
+    .index("by_shop", ["shop_id"])
+    .index("by_shop_and_key", ["shop_id", "name_key"]),
 
   // One structured record per piece of off-catalog work (Off-Catalog Work
   // spec, §7). `bookings.custom_services[]` stays as the lightweight display
@@ -6068,6 +6128,12 @@ export default defineSchema({
     parts_snapshot: v.array(postjobPartValidator),
     labor_hours: v.optional(v.number()),
     labor_rate_cents: v.optional(v.number()),
+    // Per-line breakdown behind `labor_hours` (the scalar total). Keyed "base"
+    // + custom-job ids; lets the post-job Labor step seed each line with its
+    // agreed labor instead of treating the whole-approval total as the base
+    // service's time (which double-counted custom-job labor). Optional —
+    // legacy rows predate it and fall back to the booking's base estimate.
+    labor_allocations: v.optional(v.array(laborAllocationValidator)),
     notes: v.optional(v.string()),
     // Optional photos the mechanic attached to justify the change (e.g. a shot
     // of the seized caliper behind the added scope). Storage ids; the

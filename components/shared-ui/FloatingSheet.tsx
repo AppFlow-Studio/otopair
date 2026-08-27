@@ -68,6 +68,10 @@ interface FloatingSheetProps {
   snapHeights: number[];
   /** Which snap the sheet opens to. Defaults to 0 (smallest). */
   initialSnapIndex?: number;
+  /** Fires with the snap index the sheet settles on after a drag/fling.
+   *  Lets a consumer reveal controls only at the expanded detent. Not
+   *  fired on open (the caller already knows `initialSnapIndex`). */
+  onSnapIndexChange?: (index: number) => void;
   /** If true, render a blurred + dimmed backdrop that dismisses on tap. */
   showBackdrop?: boolean;
   /** Backdrop style when `showBackdrop` is true. `"blur"` (default)
@@ -125,6 +129,7 @@ export const FloatingSheet = forwardRef<FloatingSheetRef, FloatingSheetProps>(
     {
       snapHeights,
       initialSnapIndex = 0,
+      onSnapIndexChange,
       showBackdrop = false,
       backdropMode = "blur",
       onClose,
@@ -251,28 +256,33 @@ export const FloatingSheet = forwardRef<FloatingSheetRef, FloatingSheetProps>(
             }
 
             // Snap to nearest height on the snaps list.
-            let target = snaps[0];
+            let targetIndex = 0;
             let bestDist = Math.abs(snaps[0] - h);
             for (let i = 1; i < snaps.length; i++) {
               const d = Math.abs(snaps[i] - h);
               if (d < bestDist) {
                 bestDist = d;
-                target = snaps[i];
+                targetIndex = i;
               }
             }
 
             // Velocity bias: if flinging, prefer the next snap in that direction.
             if (vUp > FLING_VELOCITY) {
-              const above = snaps.find((s) => s > h);
-              if (above != null) target = above;
+              const aboveIdx = snaps.findIndex((s) => s > h);
+              if (aboveIdx !== -1) targetIndex = aboveIdx;
             } else if (vUp < -FLING_VELOCITY) {
-              const below = [...snaps].reverse().find((s) => s < h);
-              if (below != null) target = below;
+              for (let i = snaps.length - 1; i >= 0; i--) {
+                if (snaps[i] < h) {
+                  targetIndex = i;
+                  break;
+                }
+              }
             }
 
-            sheetHeight.value = withTiming(target, { duration: 280 });
+            sheetHeight.value = withTiming(snaps[targetIndex], { duration: 280 });
+            if (onSnapIndexChange) runOnJS(onSnapIndexChange)(targetIndex);
           }),
-      [H_MIN, H_MAX, snaps, close, sheetHeight, startHeight],
+      [H_MIN, H_MAX, snaps, close, sheetHeight, startHeight, onSnapIndexChange],
     );
 
     // With a single snap, there's no "pull up to full" transition to

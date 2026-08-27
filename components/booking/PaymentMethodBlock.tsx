@@ -10,6 +10,7 @@ import React from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { CreditCard, Wallet } from "lucide-react-native";
 import { Text } from "@/components/shared-ui";
+import { AppleIcon } from "@/components/icons/apple";
 import {
   BrandColors,
   SemanticColors,
@@ -40,8 +41,6 @@ export function PaymentMethodBlock({
   onChange,
   disabled,
 }: PaymentMethodBlockProps) {
-  const isWallet = kind === "apple_pay" || kind === "google_pay";
-
   return (
     <View style={styles.card}>
       <Text weight="semiBold" style={styles.title}>
@@ -49,7 +48,9 @@ export function PaymentMethodBlock({
       </Text>
       <View style={styles.row}>
         <View style={styles.left}>
-          {isWallet ? (
+          {kind === "apple_pay" ? (
+            <AppleIcon size={18} color={SemanticColors.textMuted} />
+          ) : kind === "google_pay" ? (
             <Wallet size={18} color={SemanticColors.textMuted} />
           ) : (
             <CreditCard size={18} color={SemanticColors.textMuted} />
