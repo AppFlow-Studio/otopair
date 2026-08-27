@@ -746,6 +746,9 @@ export default function PickDateTimeScreen() {
             <Text size="lg" weight="bold" color="#0F172A" center>
               This time slot is no longer available
             </Text>
+            <Text size="sm" weight="regular" color="#6B7280" center>
+              Choose another date, time, or mechanic to continue.
+            </Text>
             <Button
               style={styles.staleSheetButton}
               onPress={() => staleSlotSheetRef.current?.close()}

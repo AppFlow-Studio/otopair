@@ -33,6 +33,7 @@ test("picker recovers from a stale earliest slot with the shared floating sheet"
   const picker = source("app/(booking-flow)/pick-datetime.tsx");
   expect(picker).toContain("FloatingSheet");
   expect(picker).toContain("This time slot is no longer available");
+  expect(picker).toContain("Choose another date, time, or mechanic to continue.");
   expect(picker).not.toContain("The shop's earliest appointment was just taken");
   expect(picker).toContain("autoConfirmEarliest");
   expect(picker).toContain("quote_context");
