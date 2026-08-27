@@ -15,10 +15,11 @@
  * Spec: ~/Downloads/<figma frames> Screen 4.
  */
 
-import React, { useEffect, useMemo, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, View } from "react-native";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { useLocalSearchParams, useNavigation } from "expo-router";
 import { useMutation } from "convex/react";
+import type { FunctionReference } from "convex/server";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
@@ -27,7 +28,8 @@ import { ArrowLeft, Briefcase, ChevronDown } from "lucide-react-native";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 
-import { Text } from "@/components/shared-ui";
+import { Button, Text } from "@/components/shared-ui";
+import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
 import { ConfirmBookingBar } from "@/components/booking-flow/ConfirmBookingBar";
 import { DateChipRow, type DateChipItem } from "@/components/booking-flow/DateChipRow";
 import { MechanicCarousel } from "@/components/booking-flow/MechanicCarousel";
@@ -40,7 +42,7 @@ import { useBookingLaborHoursMap } from "@/hooks/useBookingLaborHoursMap";
 import { useCalendarAvailabilityForShop } from "@/hooks/useCalendarAvailabilityForShop";
 import { useNextAvailabilityForShop } from "@/hooks/useNextAvailabilityForShop";
 import { useNextAvailabilityPerMechanicForShop } from "@/hooks/useNextAvailabilityPerMechanicForShop";
-import { useTimeSlotsForShop } from "@/hooks/useTimeSlotsForShop";
+import { useTimeSlotsForShop, type QuoteHoldContext } from "@/hooks/useTimeSlotsForShop";
 import { useToast } from "@/hooks/useToast";
 import { useUserFromConvex } from "@/hooks/useUserFromConvex";
 import { buildMechanicCarouselItems } from "@/lib/buildMechanicCarouselItems";
@@ -64,11 +66,40 @@ const DAY_OF_WEEK = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 const DATE_RANGE_DAYS = 14; // how many days from today to render in the picker
 
+type QuoteAwareHoldArgs = {
+  shop_id: Id<"shops">;
+  mechanic_id?: Id<"mechanics">;
+  date: string;
+  start_time: string;
+  duration_minutes: number;
+  session_id: string;
+  held_by?: Id<"users">;
+  quote_context?: QuoteHoldContext;
+};
+
+type QuoteAwareHoldResult = {
+  holdId: Id<"slot_holds"> | null;
+  mechanicId: Id<"mechanics"> | null;
+  expiresAt: number | null;
+  disabled?: boolean;
+};
+
+const holdQuoteAwareSlot = api.slotHolds.holdSlot as FunctionReference<
+  "mutation",
+  "public",
+  QuoteAwareHoldArgs,
+  QuoteAwareHoldResult
+>;
+
 export default function PickDateTimeScreen() {
   const router = useRouter();
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
-  const params = useLocalSearchParams<{ shopId?: string; mechanicId?: string }>();
+  const params = useLocalSearchParams<{
+    shopId?: string;
+    mechanicId?: string;
+    autoConfirmEarliest?: string;
+  }>();
 
   // Store reads
   const selectedServiceIds = useBookingStore((s) => s.selectedServiceIds);
@@ -85,7 +116,7 @@ export default function PickDateTimeScreen() {
   // Slot-hold acquisition: reserve the mechanic+window the instant the customer
   // confirms a time, before the payment hop, so a second customer can't book
   // the same slot mid-checkout. Idempotent per session_id (see holdSlot).
-  const holdSlot = useMutation(api.slotHolds.holdSlot);
+  const holdSlot = useMutation(holdQuoteAwareSlot);
   const toast = useToast();
   const { userId } = useUserFromConvex();
 
@@ -93,6 +124,24 @@ export default function PickDateTimeScreen() {
   // the quote, and the "floor" below comes from the shop's quoted
   // availability rather than just "today."
   const isQuoteAccept = quoteAcceptContext != null;
+  const quoteHoldContext = useMemo<QuoteHoldContext | undefined>(() => {
+    if (!quoteAcceptContext) return undefined;
+    return quoteAcceptContext.quoteType === "tire"
+      ? {
+          quote_type: "tire",
+          response_id: quoteAcceptContext.responseId as Id<"tire_quote_responses">,
+        }
+      : {
+          quote_type: "rotor",
+          response_id: quoteAcceptContext.responseId as Id<"rotor_quote_responses">,
+        };
+  }, [quoteAcceptContext]);
+  const [autoConfirmPending, setAutoConfirmPending] = useState(
+    params.autoConfirmEarliest === "1" && isQuoteAccept,
+  );
+  const [staleSlotSheetVisible, setStaleSlotSheetVisible] = useState(false);
+  const autoConfirmAttemptedRef = useRef(false);
+  const staleSlotSheetRef = useRef<FloatingSheetRef>(null);
   const shopId = quoteAcceptContext?.shopId ?? params.shopId ?? null;
   // Seed the local mechanic selection from the quote (if it named one) or
   // the route param, so deep links / the legacy Choose Mechanic hop / quote
@@ -173,7 +222,15 @@ export default function PickDateTimeScreen() {
   // Which month the day picker is showing. null = the default
   // today-anchored view (current month). A non-null value comes from
   // the month picker and jumps the row forward into a future month.
-  const [viewMonth, setViewMonth] = useState<MonthOption | null>(null);
+  const [viewMonth, setViewMonth] = useState<MonthOption | null>(() => {
+    if (!autoConfirmPending || !quoteAcceptContext?.minDate) return null;
+    const year = Number(quoteAcceptContext.minDate.slice(0, 4));
+    const month = Number(quoteAcceptContext.minDate.slice(5, 7));
+    const today = new Date();
+    return year === today.getFullYear() && month === today.getMonth() + 1
+      ? null
+      : { year, month };
+  });
   const [monthPickerVisible, setMonthPickerVisible] = useState(false);
 
   // The date chips we'll render. For the current month we anchor on
@@ -223,6 +280,7 @@ export default function PickDateTimeScreen() {
     anchorMonth,
     selectedMechanicId,
     totalMinutes > 0 ? totalMinutes : undefined,
+    quoteHoldContext,
   );
 
   // Merge availability into the chip items (same month only — chips beyond
@@ -241,7 +299,9 @@ export default function PickDateTimeScreen() {
   }, [dateChipItems, availableDayNumbers, anchorMonth, floor]);
 
   // Default-select the first day with availability.
-  const [selectedDateISO, setSelectedDateISO] = useState<string | null>(null);
+  const [selectedDateISO, setSelectedDateISO] = useState<string | null>(
+    autoConfirmPending ? quoteAcceptContext?.minDate ?? null : null,
+  );
   useEffect(() => {
     if (selectedDateISO) return;
     const firstAvail = chipItemsWithAvailability.find((c) => c.hasAvailability);
@@ -262,6 +322,7 @@ export default function PickDateTimeScreen() {
     selectedDateISO,
     selectedMechanicId,
     totalMinutes > 0 ? totalMinutes : undefined,
+    quoteHoldContext,
   );
   const slots = useMemo(() => {
     // On the floor date, hide any slot earlier than the floor time (today's
@@ -338,11 +399,33 @@ export default function PickDateTimeScreen() {
   // is just to seed the booking store with the slot + appointment
   // so the payment page has everything it needs to render the
   // breakdown.
-  const onConfirm = async () => {
-    if (!shopId || !shop || !selectedDateISO || !selectedTime) return;
-    const timeSlotId = getSlotIdByDisplayTime(selectedTime);
-    const slotRow = slots.find((s) => s.displayTime === selectedTime);
-    const startHHMM = slotRow?.startTime ?? displayTimeToHHMM(selectedTime);
+  const showStaleSlotSheet = () => {
+    setAutoConfirmPending(false);
+    setSelectedTime(null);
+    if (
+      quoteAcceptContext &&
+      (quoteAcceptContext.minDate < floor.date ||
+        (quoteAcceptContext.minDate === floor.date && quoteAcceptContext.minTime < floor.time))
+    ) {
+      setViewMonth(null);
+      setSelectedDateISO(null);
+    }
+    setStaleSlotSheetVisible(true);
+  };
+  const showStaleSlotSheetRef = useRef(showStaleSlotSheet);
+  showStaleSlotSheetRef.current = showStaleSlotSheet;
+
+  const onConfirm = async (
+    dateOverride?: string,
+    timeOverride?: string,
+    isAutoAttempt = false,
+  ) => {
+    const chosenDate = dateOverride ?? selectedDateISO;
+    const chosenTime = timeOverride ?? selectedTime;
+    if (!shopId || !shop || !chosenDate || !chosenTime) return;
+    const timeSlotId = getSlotIdByDisplayTime(chosenTime);
+    const slotRow = slots.find((s) => s.displayTime === chosenTime);
+    const startHHMM = slotRow?.startTime ?? displayTimeToHHMM(chosenTime);
 
     // Reserve the mechanic+window for this checkout BEFORE navigating to
     // payment. Idempotent per session_id — re-picking a time just moves the
@@ -356,11 +439,12 @@ export default function PickDateTimeScreen() {
       const res = await holdSlot({
         shop_id: shopId as Id<"shops">,
         mechanic_id: selectedMechanicId ? (selectedMechanicId as Id<"mechanics">) : undefined,
-        date: selectedDateISO,
+        date: chosenDate,
         start_time: startHHMM,
         duration_minutes: holdDurationMinutes,
         session_id: sessionId,
         held_by: userId ?? undefined,
+        quote_context: quoteHoldContext,
       });
       setSlotHold(
         res?.holdId && res.expiresAt != null
@@ -368,6 +452,10 @@ export default function PickDateTimeScreen() {
           : null,
       );
     } catch {
+      if (isAutoAttempt) {
+        showStaleSlotSheet();
+        return;
+      }
       toast.error("That time was just taken", "Please pick another slot.");
       return; // do NOT navigate to payment
     }
@@ -377,7 +465,7 @@ export default function PickDateTimeScreen() {
     const urlMechanicId =
       selectedMechanicId ?? findFirstMechanicForShop(shopId, getMechanicById) ?? shopId;
 
-    const d = isoToDate(selectedDateISO);
+    const d = isoToDate(chosenDate);
     const dowAbbrev = DAY_OF_WEEK[d.getDay()];
 
     setSelectedMechanicSlot({
@@ -388,29 +476,63 @@ export default function PickDateTimeScreen() {
       slot: {
         dayOfWeek: dowAbbrev,
         day: String(d.getDate()),
-        time: selectedTime,
+        time: chosenTime,
         timeSlotId: timeSlotId ?? undefined,
-        scheduledDate: selectedDateISO,
+        scheduledDate: chosenDate,
         scheduledTime: startHHMM,
         mechanicId: selectedMechanicId ?? undefined,
       },
       timeSlotId: timeSlotId ?? undefined,
-      scheduledDate: selectedDateISO,
+      scheduledDate: chosenDate,
       scheduledTime: startHHMM,
     });
 
     setScheduledAppointment({
-      date: selectedDateISO,
-      time: selectedTime,
-      displayDate: selectedDateHeader ?? selectedDateISO,
+      date: chosenDate,
+      time: chosenTime,
+      displayDate:
+        chosenDate === selectedDateISO && selectedDateHeader
+          ? selectedDateHeader
+          : formatDateHeader(chosenDate),
     });
     selectMechanic(selectedMechanicId);
 
-    router.push({
-      pathname: "/booking/mechanic/[id]/payment",
+    const paymentRoute = {
+      pathname: "/booking/mechanic/[id]/payment" as const,
       params: { id: urlMechanicId },
-    });
+    };
+    if (isAutoAttempt) {
+      router.replace(paymentRoute);
+    } else {
+      router.push(paymentRoute);
+    }
   };
+
+  const onConfirmRef = useRef(onConfirm);
+  onConfirmRef.current = onConfirm;
+
+  useEffect(() => {
+    if (!autoConfirmPending || autoConfirmAttemptedRef.current || slotsLoading || !shop) return;
+    autoConfirmAttemptedRef.current = true;
+    const quotedDate = quoteAcceptContext?.minDate;
+    const quotedTime = quoteAcceptContext?.minTime;
+    const exactSlot = slots.find((slot) => slot.startTime === quotedTime);
+    if (
+      !exactSlot ||
+      !quotedDate ||
+      quotedDate !== floor.date ||
+      quotedTime !== floor.time ||
+      selectedDateISO !== quotedDate
+    ) {
+      showStaleSlotSheetRef.current();
+      return;
+    }
+    void onConfirmRef.current(quotedDate, exactSlot.displayTime, true);
+  }, [autoConfirmPending, floor, quoteAcceptContext, selectedDateISO, shop, slots, slotsLoading]);
+
+  useEffect(() => {
+    if (staleSlotSheetVisible) staleSlotSheetRef.current?.open();
+  }, [staleSlotSheetVisible]);
 
   // Back normalizes to Screen 1 when the user landed on Pick
   // Date & Time without walking the rest of the flow first.
@@ -438,6 +560,25 @@ export default function PickDateTimeScreen() {
     setSelectedDateISO(null);
     setMonthPickerVisible(false);
   };
+
+  if (autoConfirmPending) {
+    return (
+      <View style={styles.root}>
+        <LinearGradient
+          colors={FRAME_GRADIENT}
+          start={{ x: 0.5, y: 0 }}
+          end={{ x: 0.5, y: 1 }}
+          style={StyleSheet.absoluteFill}
+        />
+        <View style={styles.autoConfirmLoading}>
+          <ActivityIndicator size="large" color="#5299FE" />
+          <Text size="md" weight="semiBold" color="#0F172A" center>
+            Checking the shop&apos;s earliest time…
+          </Text>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.root}>
@@ -582,7 +723,7 @@ export default function PickDateTimeScreen() {
 
       <ConfirmBookingBar
         selectionLabel={selectionLabel}
-        onPress={onConfirm}
+        onPress={() => void onConfirm()}
       />
 
       <MonthPickerSheet
@@ -592,6 +733,35 @@ export default function PickDateTimeScreen() {
         onSelect={onSelectMonth}
         onClose={() => setMonthPickerVisible(false)}
       />
+
+      {staleSlotSheetVisible ? (
+        <FloatingSheet
+          ref={staleSlotSheetRef}
+          snapHeights={[260]}
+          showBackdrop
+          onClose={() => setStaleSlotSheetVisible(false)}
+          renderInModal={false}
+        >
+          <View style={styles.staleSheetContent}>
+            <Text size="lg" weight="bold" color="#0F172A" center>
+              This time slot is no longer available
+            </Text>
+            <Text size="sm" weight="regular" color="#6B7280" center>
+              Choose another date, time, or mechanic to continue.
+            </Text>
+            <Button
+              style={styles.staleSheetButton}
+              onPress={() => staleSlotSheetRef.current?.close()}
+              fullWidth
+              backgroundColor="#5299FE"
+              borderRadius={12}
+              accessibilityLabel="Choose another time"
+            >
+              Choose another time
+            </Button>
+          </View>
+        </FloatingSheet>
+      ) : null}
     </View>
   );
 }
@@ -608,6 +778,11 @@ function toIsoDate(d: Date): string {
 function isoToDate(iso: string): Date {
   const [y, m, d] = iso.split("-").map((s) => parseInt(s, 10));
   return new Date(y, m - 1, d);
+}
+
+function formatDateHeader(iso: string): string {
+  const date = isoToDate(iso);
+  return `${DAY_OF_WEEK[date.getDay()]}, ${MONTH_LABELS_LONG[date.getMonth()]} ${date.getDate()}`;
 }
 
 /** Later of two "YYYY-MM-DD" + "HH:MM" pairs — both are lexically sortable,
@@ -651,6 +826,27 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: 0,
     gap: 22,
+  },
+  autoConfirmLoading: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 14,
+    paddingHorizontal: 32,
+  },
+  staleSheetContent: {
+    flex: 1,
+    justifyContent: "center",
+    gap: 16,
+    paddingHorizontal: 24,
+    paddingBottom: 20,
+  },
+  staleSheetButton: {
+    minHeight: 48,
+    borderRadius: 12,
+    backgroundColor: "#5299FE",
+    alignItems: "center",
+    justifyContent: "center",
   },
   topRow: {
     flexDirection: "row",

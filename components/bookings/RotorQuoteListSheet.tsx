@@ -46,6 +46,7 @@ interface RawRotorQuoteResponse {
   pad_quantity?: number;
   availability: { date: string; time: string };
   estimated_duration_minutes?: number;
+  earliest_slot_available?: boolean;
   shop: {
     _id: string;
     name: string;
@@ -149,7 +150,7 @@ export const RotorQuoteListSheet = forwardRef<RotorQuoteListSheetRef, Props>(
       return { best: b, others: rest };
     }, [adapted]);
 
-    const handleChooseTime = (responseId: string) => {
+    const handleChooseTime = (responseId: string, autoConfirmEarliest = false) => {
       if (!bookingId || !responses) return;
       const response = (responses as RawRotorQuoteResponse[]).find((r) => r._id === responseId);
       if (!response) return;
@@ -195,8 +196,18 @@ export const RotorQuoteListSheet = forwardRef<RotorQuoteListSheetRef, Props>(
       const shopId = response.shop?._id ?? response.shop_id;
       setVisible(false);
       onClose?.();
-      router.push({ pathname: "/(booking-flow)/pick-datetime", params: { shopId } });
+      router.push({
+        pathname: "/(booking-flow)/pick-datetime",
+        params: { shopId, ...(autoConfirmEarliest ? { autoConfirmEarliest: "1" } : {}) },
+      });
     };
+
+    const handleBookEarliest = (responseId: string) =>
+      handleChooseTime(responseId, true);
+
+    const canBookEarliest = (responseId: string) =>
+      (responses as RawRotorQuoteResponse[] | undefined)?.find((r) => r._id === responseId)
+        ?.earliest_slot_available === true;
 
     const isLoading = bookingId != null && responses === undefined;
 
@@ -243,6 +254,9 @@ export const RotorQuoteListSheet = forwardRef<RotorQuoteListSheetRef, Props>(
                     quote={best}
                     variant="primary"
                     onBook={() => handleChooseTime(best.id)}
+                    onBookEarliest={
+                      canBookEarliest(best.id) ? () => handleBookEarliest(best.id) : undefined
+                    }
                   />
                 ) : null}
 
@@ -262,6 +276,9 @@ export const RotorQuoteListSheet = forwardRef<RotorQuoteListSheetRef, Props>(
                         quote={q}
                         variant="secondary"
                         onBook={() => handleChooseTime(q.id)}
+                        onBookEarliest={
+                          canBookEarliest(q.id) ? () => handleBookEarliest(q.id) : undefined
+                        }
                       />
                     ))}
                   </>
