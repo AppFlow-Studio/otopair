@@ -395,25 +395,30 @@ function ApprovalDecisionView({
      total and a delta and then jump to inspection findings, so the customer was
      asked to approve a number on trust — at the one moment trust is most
      expensive: not at the shop, car on a lift, declining awkward. */
-  // `api as any` because the vendored convex/_generated types predate the
-  // custom-jobs module — same pattern the rec screens use. Needs the backend
-  // deploy before it resolves; see the branch's PR.
-  const midJobAdditions = useQuery(
-    (api as any).customJobs.listMidJobAdditionsForCustomer,
+  // `customJobs.listMidJobAdditionsForCustomer` never existed on any
+  // deployment. `(api as any)` hid that from the compiler, convex/react
+  // throws "Could not find public function" straight out of useQuery, and
+  // nothing here caught it — so this screen (and then the whole app, since
+  // the root boundary's only action is a no-op on iOS) went white. That is
+  // the freeze. The real query is listAddedServicesForCustomer, and the
+  // generated types DO carry customJobs, so the cast goes too: typed, the
+  // compiler catches the next rename instead of the customer.
+  const addedServices = useQuery(
+    api.customJobs.listAddedServicesForCustomer,
     { bookingId },
-  ) as
-    | Array<{
-        _id: string;
-        name: string;
-        complaint: string | null;
-        estimated_minutes: number | null;
-        parts: Array<{
-          part_name: string;
-          oem_number: string | null;
-          quantity: number;
-        }>;
-      }>
-    | undefined;
+  );
+
+  // Show only the additions belonging to the approval being decided, which
+  // is what the backend query documents its callers must do: a pre-job
+  // approval lists pre-job lines, a mid-job (or post-job settle-up) lists
+  // what was added once work started. Unfiltered, already-approved pre-job
+  // work would reappear under "Added after work started" and read as fresh
+  // justification for the extra money.
+  const midJobAdditions = useMemo(() => {
+    if (!addedServices) return undefined;
+    const cycle = approval?.cycle === "pre_job" ? "pre_job" : "mid_job";
+    return addedServices.filter((item) => item.source === cycle);
+  }, [addedServices, approval?.cycle]);
 
   const handleAccept = useCallback(
     async (amountCents: number, postJob: boolean) => {
@@ -658,7 +663,9 @@ function ApprovalDecisionView({
               What your mechanic found
             </Text>
             <Text style={styles.inspectionIntro}>
-              Added after work started. This is what the extra cost is for.
+              {approval.cycle === "pre_job"
+                ? "Included in this estimate. This is what the cost is for."
+                : "Added after work started. This is what the extra cost is for."}
             </Text>
             {midJobAdditions.map((item, index) => (
               <View
