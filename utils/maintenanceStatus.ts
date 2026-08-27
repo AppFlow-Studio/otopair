@@ -533,21 +533,37 @@ export function computeFromOdometerStatus(input: FromOdometerInput): StatusResul
   const remaining = Math.max(0, interval_miles - used);
 
   const label = serviceName ?? "This service";
+  // With no stored last-service mileage the interval is measured from zero —
+  // i.e. as though the service had never been done. That is an assumption
+  // drawn from the ABSENCE of a record, not a measurement, so the copy must
+  // not assert it as fact. Saying "115,000 mi past interval — overdue" on a
+  // car we simply hold no record for reads as a hard finding, and sits badly
+  // next to a score that (correctly) ignores it: these rows never deduct,
+  // because only a mechanic's grade may condemn a non-core service.
+  const inferredFromAbsence = lastServiceMileage == null;
   let status: MaintenanceStatus;
   let description: string;
 
   if (percentUsed >= 100) {
     status = "overdue";
-    description = `${formatMileage(used - interval_miles)} past interval — ${label} overdue`;
+    description = inferredFromAbsence
+      ? `No service record on file — likely due`
+      : `${formatMileage(used - interval_miles)} past interval — ${label} overdue`;
   } else if (percentUsed >= 90) {
     status = "due_soon";
-    description = `About ${formatMileage(remaining)} until due`;
+    description = inferredFromAbsence
+      ? `No service record on file — may be due soon`
+      : `About ${formatMileage(remaining)} until due`;
   } else if (percentUsed >= 70) {
     status = "needs_attention";
-    description = `About ${formatMileage(remaining)} until due`;
+    description = inferredFromAbsence
+      ? `No service record on file — may be due soon`
+      : `About ${formatMileage(remaining)} until due`;
   } else {
     status = "on_time";
-    description = `${formatMileage(remaining)} of interval remaining`;
+    description = inferredFromAbsence
+      ? `No service record on file — not due yet`
+      : `${formatMileage(remaining)} of interval remaining`;
   }
 
   // Detail feeds the signal-pill row (Behavior #1: cite the axis).
