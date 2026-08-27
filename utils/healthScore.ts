@@ -298,9 +298,9 @@ export function computeVehicleHealthScore(
 
   // ── Maintenance component (category-weighted) ─────────────────
   // For each present item, score it and weight it by its category's
-  // share. Unknown items use the mileage-aware inference curve (so a
-  // brand-new car stays healthy, an old car gets appropriate suspicion).
-  // Categories with no item drop out of the denominator — their weight
+  // share. Items we hold no record for ("unknown") are skipped outright —
+  // §08: mileage alone never deducts. Categories with no item drop out of
+  // the denominator as well — their weight
   // redistributes naturally across the remaining ones. An item with a
   // precomputed `rawScore` (brakes' per-corner blend today) uses that float
   // directly instead of the 4-value STATUS_SCORE lookup.
