@@ -1987,12 +1987,18 @@ export default function CarsHomeScreen() {
 
         {/* Quick Read intro card — shown when pre-onboarding done but onboarding not yet complete */}
         {isPreOnboardingComplete && !isOnboardingComplete && !isNewVehicle && (() => {
-          const estScore = (activeOwnership?.health_score as number | undefined) ?? computedHealthScore;
+          // No score is shown here. Pre-onboarding there are no service
+          // records, and utils/mergedMaintenance.ts fills the gap with assumed
+          // statuses — brakes/tires/battery "on time", oil "due soon" — which
+          // produced a fixed 93 for EVERY vehicle regardless of age or
+          // mileage (odometerMiles is not even an input to the score). It
+          // could only fall from there: this Q5 goes 93 → 24 once the user
+          // answers honestly, which punished them for telling us the truth at
+          // the exact moment we were asking for it. Ahmad, 2026-08-27.
           const ringSize = 120;
           const strokeWidth = 10;
           const radius = (ringSize - strokeWidth) / 2;
           const circumference = 2 * Math.PI * radius;
-          const strokeDashoffset = circumference * (1 - estScore / 100);
           const center = ringSize / 2;
           return (
           // key on vin so swiping between two no-tracker cars
@@ -2005,28 +2011,18 @@ export default function CarsHomeScreen() {
               <View style={{ width: ringSize, height: ringSize, alignItems: "center", justifyContent: "center" }}>
                 <Svg width={ringSize} height={ringSize}>
                   <Circle cx={center} cy={center} r={radius} stroke="rgba(0,0,0,0.06)" strokeWidth={strokeWidth} fill="none" />
-                  <Circle
-                    cx={center} cy={center} r={radius}
-                    stroke="#94A3B8"
-                    strokeWidth={strokeWidth}
-                    fill="none"
-                    strokeLinecap="round"
-                    strokeDasharray={circumference}
-                    strokeDashoffset={strokeDashoffset}
-                    transform={`rotate(-90 ${center} ${center})`}
-                  />
                 </Svg>
                 <View style={{ position: "absolute", alignItems: "center" }}>
-                  <Text weight="bold" size="2xl" color="#1F2937">{estScore}</Text>
-                  <Text weight="medium" size="xs" color="#94A3B8">Estimated</Text>
+                  <Text weight="bold" size="2xl" color="#94A3B8">· · ·</Text>
+                  <Text weight="medium" size="xs" color="#94A3B8">Not scored yet</Text>
                 </View>
               </View>
             </View>
             <Text weight="bold" size="lg" color="#0F172A" style={{ textAlign: "center" }}>
-              Here&apos;s an estimate of where your {activeVehicle?.make && activeVehicle?.model ? `${activeVehicle.make} ${activeVehicle.model}` : "vehicle"} stands
+              Let&apos;s score your {activeVehicle?.make && activeVehicle?.model ? `${activeVehicle.make} ${activeVehicle.model}` : "vehicle"}
             </Text>
             <Text weight="medium" size="sm" color="#829BAD" style={{ textAlign: "center", marginTop: scale(6) }}>
-              Five quick checks to understand your vehicle&apos;s current condition.
+              We don&apos;t have your service history yet. Five quick checks and you&apos;ll have a real health score.
             </Text>
             <View style={styles.quickReadBenefits}>
               {["Brake health assessment", "Tire life estimation", "Oil service status", "Battery condition check", "Warning light detection"].map((b) => (
@@ -2643,7 +2639,10 @@ export default function CarsHomeScreen() {
                     const strokeWidth = 10;
                     const radius = (ringSize - strokeWidth) / 2;
                     const circumference = 2 * Math.PI * radius;
-                    const strokeDashoffset = circumference * (1 - ringProgress / 100);
+                    // Empty arc in the estimated state — drawing progress would
+                    // trace a score that does not exist yet.
+                    const strokeDashoffset =
+                      circumference * (1 - (healthSheetMode === 'estimated' ? 0 : ringProgress) / 100);
                     const center = ringSize / 2;
                     return (
                       <View style={{ width: ringSize, height: ringSize, alignItems: "center", justifyContent: "center" }}>
@@ -2660,8 +2659,21 @@ export default function CarsHomeScreen() {
                           <Circle cx={center} cy={center} r={radius} stroke={ringColor} strokeWidth={strokeWidth + 4} fill="none" strokeDasharray={circumference} strokeDashoffset={strokeDashoffset} strokeLinecap="round" rotation={-90} origin={`${center}, ${center}`} opacity={0.2} />
                         </Svg>
                         <View style={healthSheetStyles.ringCenterLabel}>
-                          <Text weight="bold" size="3xl" color="#1F2937">{activeOwnership?.health_score_is_estimated ? "~" : ""}{displayedScore}</Text>
-                          <Text weight="semiBold" size="xs" color="#9CA3AF" style={{ marginTop: scale(-2) }}>{activeOwnership?.health_score_is_estimated ? "estimated" : "out of 100"}</Text>
+                          {/* `healthSheetMode === 'estimated'` means onboarding is
+                              incomplete — no records, so nothing to score. That is a
+                              different thing from `health_score_is_estimated`, which
+                              marks a REAL score gone stale (check-in 30+ days overdue)
+                              and keeps its "~" qualifier. */}
+                          <Text weight="bold" size="3xl" color={healthSheetMode === 'estimated' ? "#9CA3AF" : "#1F2937"}>
+                            {healthSheetMode === 'estimated'
+                              ? "· · ·"
+                              : `${activeOwnership?.health_score_is_estimated ? "~" : ""}${displayedScore}`}
+                          </Text>
+                          <Text weight="semiBold" size="xs" color="#9CA3AF" style={{ marginTop: scale(-2) }}>
+                            {healthSheetMode === 'estimated'
+                              ? "not scored yet"
+                              : activeOwnership?.health_score_is_estimated ? "estimated" : "out of 100"}
+                          </Text>
                         </View>
                       </View>
                     );
@@ -2675,7 +2687,7 @@ export default function CarsHomeScreen() {
               <Animated.View style={{ opacity: titleFade, marginTop: healthSheetMode === 'confirmed' ? scale(50) : 0, transform: [{ translateY: titleFade.interpolate({ inputRange: [0, 1], outputRange: [scale(12), 0] }) }] }}>
                 <Text weight="bold" size="xl" color="#1F2937" style={healthSheetStyles.title}>
                   {healthSheetMode === 'estimated'
-                    ? `Here's where your ${activeVehicle?.make ?? "vehicle"} stands`
+                    ? `Let's score your ${activeVehicle?.make ?? "vehicle"}`
                     : computedHealthScore >= 80
                       ? `Your ${activeVehicle?.make ?? "vehicle"} is in great shape`
                       : computedHealthScore >= 60
@@ -2688,7 +2700,7 @@ export default function CarsHomeScreen() {
               <Animated.View style={{ opacity: subtitleFade, transform: [{ translateY: subtitleFade.interpolate({ inputRange: [0, 1], outputRange: [scale(12), 0] }) }] }}>
                 <Text weight="medium" size="sm" color="#6B7280" style={healthSheetStyles.subtitle}>
                   {healthSheetMode === 'estimated'
-                    ? "Answer a few quick questions to get your confirmed health score."
+                    ? "We don't have your service history yet, so there's nothing to score. Answer a few quick questions and you'll have a real one."
                     : computedHealthScore >= 80
                       ? "You're clearly someone who takes care of their ride. We'll make sure it stays that way."
                       : computedHealthScore >= 60

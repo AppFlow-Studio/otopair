@@ -681,7 +681,9 @@ const VehicleHealthModal = ({
   
   // Use calculated condition as the overall health score (animated value)
   const overallPercentage = animatedService;
-  const strokeDashoffset = circumference * (1 - overallPercentage / 100);
+  // Pre-onboarding there is no measured score to draw, so the arc reads empty
+  // rather than tracing a number we invented. See the ring label below.
+  const strokeDashoffset = circumference * (1 - (isEstimated ? 0 : overallPercentage) / 100);
   
   // Determine ring color based on calculated condition
   const getRingColor = () => {
@@ -720,15 +722,20 @@ const VehicleHealthModal = ({
         </Svg>
       </Animated.View>
       
-      {/* The number to hand is pre-service until the deferred write lands, so
-          it is withheld rather than presented as current. Deliberately not
-          replaced with a predicted score — the real result isn't known yet. */}
+      {/* Two states withhold the number, for different reasons. `pending`: the
+          value to hand is pre-service until the deferred write lands, so it is
+          withheld rather than shown as current. `isEstimated`: onboarding
+          isn't finished, so there is no service history to score at all — the
+          number that used to sit here was a constant assembled from assumed
+          statuses ("no brake concerns reported" on a car we know nothing
+          about), identical for every vehicle and only ever able to fall once
+          the user answered honestly. Neither state gets a predicted score. */}
       <View style={modalStyles.ringCenterContent}>
         <Text style={modalStyles.percentageText}>
-          {pending ? '· · ·' : Math.round(overallPercentage)}
+          {pending || isEstimated ? '· · ·' : Math.round(overallPercentage)}
         </Text>
         <Text style={modalStyles.ringSubLabel}>
-          {pending ? 'updating' : 'out of 100'}
+          {pending ? 'updating' : isEstimated ? 'not scored yet' : 'out of 100'}
         </Text>
       </View>
     </View>
@@ -825,7 +832,7 @@ const VehicleHealthModal = ({
                   "we're applying your mechanic's findings" is the more
                   specific and more time-sensitive of the two. */}
               <Text style={modalStyles.estimatedLabel}>
-                {pending ? 'Updating After Your Service' : 'Estimated Score'}
+                {pending ? 'Updating After Your Service' : 'No Score Yet'}
               </Text>
               {/* This state means onboarding is incomplete (isEstimatedScore =
                   isPreOnboardingComplete && !isOnboardingComplete), so the
@@ -834,7 +841,7 @@ const VehicleHealthModal = ({
               <Text style={modalStyles.estimatedSubtitle}>
                 {pending
                   ? "Your mechanic's findings are still being applied. Your score and any new recommendations will appear together shortly."
-                  : "An estimate — we don't have your full service history yet."}
+                  : "We don't have your service history yet, so there's nothing to score. Five quick questions and you'll have a real one."}
               </Text>
 
               <Pressable
@@ -842,7 +849,7 @@ const VehicleHealthModal = ({
                 onPress={() => { onClose(); setTimeout(() => onResumeCheckin?.(), 350); }}
               >
                 <Text style={modalStyles.resumeCheckinText}>
-                  Get my complete score
+                  Get my score
                 </Text>
               </Pressable>
             </View>
