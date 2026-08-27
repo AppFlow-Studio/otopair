@@ -744,10 +744,7 @@ export default function PickDateTimeScreen() {
         >
           <View style={styles.staleSheetContent}>
             <Text size="lg" weight="bold" color="#0F172A" center>
-              That time is no longer available
-            </Text>
-            <Text size="sm" weight="regular" color="#6B7280" center>
-              {"The shop's earliest appointment was just taken. Choose another date, time, or mechanic to continue."}
+              This time slot is no longer available
             </Text>
             <Button
               style={styles.staleSheetButton}

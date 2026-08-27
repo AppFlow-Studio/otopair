@@ -32,8 +32,8 @@ test("both quote sheets pass the server availability flag into the fast path", (
 test("picker recovers from a stale earliest slot with the shared floating sheet", () => {
   const picker = source("app/(booking-flow)/pick-datetime.tsx");
   expect(picker).toContain("FloatingSheet");
-  expect(picker).toContain("That time is no longer available");
-  expect(picker).toContain("The shop's earliest appointment was just taken");
+  expect(picker).toContain("This time slot is no longer available");
+  expect(picker).not.toContain("The shop's earliest appointment was just taken");
   expect(picker).toContain("autoConfirmEarliest");
   expect(picker).toContain("quote_context");
 });
