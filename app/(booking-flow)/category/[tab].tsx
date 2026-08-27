@@ -36,7 +36,7 @@ import {
 
 import { categoryTitleTransition } from "@/components/booking-flow/CategoryListRow";
 import { FlyToCartGhost } from "@/components/booking-flow/FlyToCartGhost";
-import { useFocusEffect, useLocalSearchParams, useNavigation } from "expo-router";
+import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 
 import { Text } from "@/components/shared-ui";
@@ -110,7 +110,6 @@ const VALID_TABS = new Set<TaxonomyTab>([
 
 export default function CategoryDetailScreen() {
   const router = useRouter();
-  const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   // The sheet is bottom-anchored at 92% height, so its top edge lands
   // right at the notch. Pad the scroll content past the safe-area inset
@@ -498,34 +497,27 @@ export default function CategoryDetailScreen() {
       .trim();
   }, [selectedVehicle]);
 
-  // Back behavior: if the user entered the booking flow on this
-  // screen directly (e.g. Quick Book pushed straight to Choose
-  // Mechanic, or a category card on home pushed straight here),
-  // the (booking-flow) stack has us as its only route. In that
-  // case "back" should land on Screen 1, NOT pop out of the flow
-  // entirely to wherever they came from.
+  // Back means "the screen I was actually just on" — including when that
+  // screen is outside this flow. Most entry points land the user mid-flow:
+  // Home and Cars push straight to Choose Mechanic when the tapped item
+  // pre-resolves to a service, the Bookings tab's quote sheet pushes
+  // straight to Pick Date & Time, and Quick Book / category cards push
+  // straight to a category tab. All of those leave this stack one route
+  // deep, and router.back() then pops the whole (booking-flow) group and
+  // lands where they came from, which is correct.
   //
-  // We detect this by looking at the booking-flow stack's
-  // routes — length > 1 means there's a real in-flow back; length
-  // 1 means we're the first in the flow. For that case we use
-  // `navigation.reset` (not router.replace) — replace within the
-  // same Stack occasionally no-op'd, where reset deterministically
-  // rebuilds the stack to a single select-services route.
+  // This previously normalized that one-route case to Screen 1 via
+  // navigation.reset. It made back land on a service picker the user had
+  // never seen, discarding the real previous screen — the flow's entry
+  // points deliberately SKIP Screen 1, and this handler deliberately
+  // returned to it, so the two composed into a dead end. Ahmad, 2026-08-27.
   const onBack = () => {
-    const state = navigation.getState?.();
-    const stackLength = state?.routes?.length ?? 0;
-    if (stackLength > 1) {
+    if (router.canGoBack()) {
       router.back();
       return;
     }
-    // Cast: navigation.reset's route-name type is inferred from the
-    // parent navigator's route map and lands as `never` for the
-    // top-level useNavigation() here. The string is correct at
-    // runtime; cast to silence the generic constraint.
-    (navigation.reset as ((state: { index: number; routes: { name: string }[] }) => void) | undefined)?.({
-      index: 0,
-      routes: [{ name: "select-services" }],
-    });
+    // Cold-start deep link straight into the flow: nothing to pop.
+    router.replace("/(main-tabs)/home");
   };
 
   return (

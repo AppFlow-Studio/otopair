@@ -27,7 +27,7 @@ import {
 // composes with the shop pager on Android (see the android-gestures
 // source test).
 import { ScrollView } from "react-native-gesture-handler";
-import { useFocusEffect, useNavigation } from "expo-router";
+import { useFocusEffect } from "expo-router";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import BottomSheet, { BottomSheetView } from "@gorhom/bottom-sheet";
@@ -76,7 +76,6 @@ const SNAP_POINTS = ["56%"] as const;
 
 export default function ChooseMechanicScreen() {
   const router = useRouter();
-  const navigation = useNavigation();
   const insets = useSafeAreaInsets();
 
   const selectedServiceIds = useBookingStore((s) => s.selectedServiceIds);
@@ -485,23 +484,27 @@ export default function ChooseMechanicScreen() {
 
   const activeDistanceMi = nearbyShops[activeIndex]?.distanceMi ?? 0;
 
-  // Back normalizes to Screen 1 when we're the first route in the
-  // (booking-flow) stack — i.e. the user got here via a direct
-  // entry point (Most Booked card, Quick Book, etc.) rather than
-  // walking 1 → 2 → 3. Length > 1 means a real in-flow back exists.
-  // For the reset path we use navigation.reset (not router.replace)
-  // since replace within the same Stack occasionally no-op'd.
+  // Back means "the screen I was actually just on" — including when that
+  // screen is outside this flow. Most entry points land the user mid-flow:
+  // Home and Cars push straight to Choose Mechanic when the tapped item
+  // pre-resolves to a service, the Bookings tab's quote sheet pushes
+  // straight to Pick Date & Time, and Quick Book / category cards push
+  // straight to a category tab. All of those leave this stack one route
+  // deep, and router.back() then pops the whole (booking-flow) group and
+  // lands where they came from, which is correct.
+  //
+  // This previously normalized that one-route case to Screen 1 via
+  // navigation.reset. It made back land on a service picker the user had
+  // never seen, discarding the real previous screen — the flow's entry
+  // points deliberately SKIP Screen 1, and this handler deliberately
+  // returned to it, so the two composed into a dead end. Ahmad, 2026-08-27.
   const onBack = () => {
-    const state = navigation.getState?.();
-    const stackLength = state?.routes?.length ?? 0;
-    if (stackLength > 1) {
+    if (router.canGoBack()) {
       router.back();
       return;
     }
-    (navigation.reset as ((state: { index: number; routes: { name: string }[] }) => void) | undefined)?.({
-      index: 0,
-      routes: [{ name: "select-services" }],
-    });
+    // Cold-start deep link straight into the flow: nothing to pop.
+    router.replace("/(main-tabs)/home");
   };
 
   const onContinue = () => {
