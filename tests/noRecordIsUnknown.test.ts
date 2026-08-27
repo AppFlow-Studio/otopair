@@ -19,7 +19,14 @@
  */
 import { describe, expect, it } from "vitest";
 import { healthySectionChip } from "@/utils/healthySection";
-import { computeMaintenanceStatus } from "@/utils/maintenanceStatus";
+import {
+  extractMaintenanceType,
+  MAINTENANCE_TYPE_TO_SLUG,
+} from "@/lib/maintenanceServiceMapping";
+import {
+  computeFromOdometerStatus,
+  computeMaintenanceStatus,
+} from "@/utils/maintenanceStatus";
 import { buildMergedMaintenanceItems } from "@/utils/mergedMaintenance";
 import { computeVehicleHealthScore } from "@/utils/healthScore";
 
@@ -131,5 +138,48 @@ describe('"I\'m not sure" never becomes a finding', () => {
     // it, so age-from-model-year still applies and still scores.
     const r = statusFor("tires", { tireOriginal: "yes", tireReplaced: "original" });
     expect(r.status).not.toBe("unknown");
+  });
+});
+
+describe("catalog-inferred rows claim nothing", () => {
+  // The odometer pass walks every OEM interval and measures usage from
+  // lastServiceMileage ?? 0 — as though the service had never been done. On a
+  // 300,000-mile car every interval "expires", which put brake fluid, filters,
+  // spark plugs and transmission fluid under SOON with Book Service buttons
+  // for work that may well have been done twice. Ahmad, 2026-08-27: "it's
+  // weird that it says due soon if we actually have no clue if it's due."
+  it("no record on file -> unknown, at any mileage", () => {
+    for (const currentOdometer of [5_000, 60_000, 150_000, 300_000]) {
+      const r = computeFromOdometerStatus({
+        interval_miles: 40_000,
+        currentOdometer,
+        serviceName: "Brake fluid flush",
+      });
+      expect(r.status, `at ${currentOdometer} mi`).toBe("unknown");
+      // Forced to 0 so urgency ranking can't float an inference above a
+      // finding that has real evidence behind it.
+      expect(r.percentUsed).toBe(0);
+      expect(r.description).not.toMatch(/due|overdue/i);
+    }
+  });
+
+  it("a stored last-service mileage is real evidence and still scores", () => {
+    const at = (currentOdometer: number) =>
+      computeFromOdometerStatus({
+        interval_miles: 40_000,
+        currentOdometer,
+        lastServiceMileage: 100_000,
+        serviceName: "Brake fluid flush",
+      }).status;
+    expect(at(110_000)).toBe("on_time");
+    expect(at(139_000)).toBe("due_soon");
+    expect(at(160_000)).toBe("overdue");
+  });
+
+  it("the section CTA id routes to a diagnostic scan", () => {
+    // HealthySection passes this to onBookNow; cars/index.tsx runs it through
+    // extractMaintenanceType → MAINTENANCE_TYPE_TO_SLUG with no special case.
+    const type = extractMaintenanceType("warning-unknown-scan");
+    expect(MAINTENANCE_TYPE_TO_SLUG[type]).toBe("diagnostic_scan");
   });
 });

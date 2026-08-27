@@ -544,26 +544,41 @@ export function computeFromOdometerStatus(input: FromOdometerInput): StatusResul
   let status: MaintenanceStatus;
   let description: string;
 
+  if (inferredFromAbsence) {
+    // Measured from zero — i.e. as though the service had never been done —
+    // because we hold no record, not because we observed anything. Every
+    // interval on a high-mileage car therefore "expires", which is how a
+    // 300,000-mile Q5 got four SOON cards (brake fluid, filters, spark plugs,
+    // transmission fluid) for services that may well have been done twice.
+    //
+    // Ahmad, 2026-08-27: "it's weird that it says due soon if we actually
+    // have no clue if it's due or not." So it reports unknown — the same
+    // answer every other no-record path now gives — and the section's
+    // diagnostic-scan CTA is what turns it into a real answer.
+    //
+    // percentUsed is forced to 0 so urgency ranking can't float these above
+    // findings that have actual evidence behind them.
+    return {
+      status: "unknown",
+      percentUsed: 0,
+      description: `No service record on file — a scan can confirm`,
+      detail: "Not on file",
+      milesRemaining: remaining,
+    };
+  }
+
   if (percentUsed >= 100) {
     status = "overdue";
-    description = inferredFromAbsence
-      ? `No service record on file — likely due`
-      : `${formatMileage(used - interval_miles)} past interval — ${label} overdue`;
+    description = `${formatMileage(used - interval_miles)} past interval — ${label} overdue`;
   } else if (percentUsed >= 90) {
     status = "due_soon";
-    description = inferredFromAbsence
-      ? `No service record on file — may be due soon`
-      : `About ${formatMileage(remaining)} until due`;
+    description = `About ${formatMileage(remaining)} until due`;
   } else if (percentUsed >= 70) {
     status = "needs_attention";
-    description = inferredFromAbsence
-      ? `No service record on file — may be due soon`
-      : `About ${formatMileage(remaining)} until due`;
+    description = `About ${formatMileage(remaining)} until due`;
   } else {
     status = "on_time";
-    description = inferredFromAbsence
-      ? `No service record on file — not due yet`
-      : `${formatMileage(remaining)} of interval remaining`;
+    description = `${formatMileage(remaining)} of interval remaining`;
   }
 
   // Detail feeds the signal-pill row (Behavior #1: cite the axis).

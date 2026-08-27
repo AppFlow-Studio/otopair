@@ -782,10 +782,14 @@ function HealthySection({
   items,
   isDarkBg = false,
   cascadeStartDelay = 0,
+  onBookNow,
+  isEnriching = false,
 }: {
   items: MaintenanceItem[];
   isDarkBg?: boolean;
   cascadeStartDelay?: number;
+  onBookNow?: (id: string) => void;
+  isEnriching?: boolean;
 }) {
   // Expanded by default — Ahmad prefers HEALTHY visible on first paint.
   // Chevron still lets users collapse if they want.
@@ -831,11 +835,83 @@ function HealthySection({
       </Animated.View>
 
       {expanded && (
-        <HealthyItemsCard items={items} cascadeStartDelay={cascadeStartDelay} />
+        <>
+          <HealthyItemsCard items={items} cascadeStartDelay={cascadeStartDelay} />
+          {/* Every unknown is a question only a mechanic can close. Rather than
+              a CTA per blank row, one scan covers the lot — that is exactly
+              what a diagnostic scan buys, and it is the honest alternative to
+              the "Book Service" buttons these rows used to carry when they
+              were dressed up as SOON findings. Ahmad, 2026-08-27: "whenever
+              anything at all is unknown we recommend a diagnostic scan so the
+              mechanic will be the one to turn those unknowns into knowns." */}
+          {items.length - knownHealthy > 0 && onBookNow && (
+            <Animated.View entering={FadeInUp.duration(450).delay(cascadeStartDelay + 120)}>
+              <Pressable
+                onPress={() => {
+                  if (isEnriching) return;
+                  // extractMaintenanceType → "warning" → MAINTENANCE_TYPE_TO_SLUG
+                  // → diagnostic_scan, so this reuses the normal booking
+                  // handoff with no special case at the call site.
+                  onBookNow('warning-unknown-scan');
+                }}
+                disabled={isEnriching}
+                style={({ pressed }) => [
+                  scanCtaStyles.button,
+                  isEnriching && scanCtaStyles.buttonDisabled,
+                  pressed && !isEnriching && { opacity: 0.85 },
+                ]}
+              >
+                <Ionicons
+                  name="search-outline"
+                  size={16}
+                  color={isEnriching ? '#9CA3AF' : '#5299FE'}
+                />
+                <Text
+                  weight="semiBold"
+                  style={[scanCtaStyles.text, isEnriching && scanCtaStyles.textDisabled]}
+                >
+                  {isEnriching ? 'Setting up…' : 'Book a diagnostic scan'}
+                </Text>
+              </Pressable>
+              <Text style={scanCtaStyles.caption}>
+                A mechanic can check what we have no record of.
+              </Text>
+            </Animated.View>
+          )}
+        </>
       )}
     </View>
   );
 }
+
+const scanCtaStyles = StyleSheet.create({
+  button: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: scale(6),
+    marginTop: scale(10),
+    paddingVertical: scale(11),
+    borderRadius: moderateScale(12),
+    backgroundColor: '#EFF6FF',
+  },
+  buttonDisabled: {
+    backgroundColor: '#F3F4F6',
+  },
+  text: {
+    fontSize: moderateScale(14),
+    color: '#5299FE',
+  },
+  textDisabled: {
+    color: '#9CA3AF',
+  },
+  caption: {
+    marginTop: scale(6),
+    textAlign: 'center',
+    fontSize: moderateScale(12),
+    color: '#9CA3AF',
+  },
+});
 
 // ============================================================================
 // COMPONENT
@@ -1050,6 +1126,8 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
             items={tieredItems.resting.map((r) => r.item)}
             isDarkBg={isDarkBg}
             cascadeStartDelay={restingDelay}
+            onBookNow={onBookNow}
+            isEnriching={isEnriching}
           />
         </>
       ) : (
