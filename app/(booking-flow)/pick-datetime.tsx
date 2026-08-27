@@ -497,10 +497,15 @@ export default function PickDateTimeScreen() {
     });
     selectMechanic(selectedMechanicId);
 
-    router.push({
-      pathname: "/booking/mechanic/[id]/payment",
+    const paymentRoute = {
+      pathname: "/booking/mechanic/[id]/payment" as const,
       params: { id: urlMechanicId },
-    });
+    };
+    if (isAutoAttempt) {
+      router.replace(paymentRoute);
+    } else {
+      router.push(paymentRoute);
+    }
   };
 
   const onConfirmRef = useRef(onConfirm);

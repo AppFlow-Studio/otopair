@@ -38,6 +38,12 @@ test("picker recovers from a stale earliest slot with the shared floating sheet"
   expect(picker).toContain("quote_context");
 });
 
+test("successful earliest-time checks replace the transient picker route", () => {
+  const picker = source("app/(booking-flow)/pick-datetime.tsx");
+  expect(picker).toMatch(/if \(isAutoAttempt\) \{\s*router\.replace\(/);
+  expect(picker).toMatch(/else \{\s*router\.push\(/);
+});
+
 test("quote acceptance receives the active checkout hold", () => {
   const confirming = source("app/booking/mechanic/[id]/confirming.tsx");
   expect(confirming).toContain("hold_id");
