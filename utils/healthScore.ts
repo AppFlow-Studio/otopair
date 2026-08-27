@@ -118,21 +118,6 @@ const SCORING_TYPES: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Does this item contribute to the Upkeep term?
- *
- * Two kinds of row are shown to the driver but must never move the score:
- *  - recommendation cards (`sourceRecommendationId`) — the matching core or
- *    minor tile already scores that finding, and the Open-recs penalty covers
- *    it a second time; counting the card would be a third.
- *  - catalog-inference rows (`excludeFromScore`) — derived from an OEM
- *    interval and an odometer alone, with no record and no mechanic behind
- *    them. Only the five core tiles score by default.
- *
- * Exported so any UI that *describes* the score (the x/y maintenance counter)
- * filters on exactly the same rule the score itself uses, instead of keeping a
- * second definition that drifts.
- */
-/**
  * How full the Warning Lights reserve still is, 0–100, for ring display.
  * The reserve starts full and drains by warningLightPenalty; `reserveWeight`
  * is the director-set Warning Lights budget (default 15) so the ring tracks
@@ -147,6 +132,21 @@ export function warningLightsReservePct(
   return Math.round((remaining / reserveWeight) * 100);
 }
 
+/**
+ * Does this item contribute to the Upkeep term?
+ *
+ * Two kinds of row are shown to the driver but must never move the score:
+ *  - recommendation cards (`sourceRecommendationId`) — the matching core or
+ *    minor tile already scores that finding, and the Open-recs penalty covers
+ *    it a second time; counting the card would be a third.
+ *  - catalog-inference rows (`excludeFromScore`) — derived from an OEM
+ *    interval and an odometer alone, with no record and no mechanic behind
+ *    them. Only the five core tiles score by default.
+ *
+ * Exported so any UI that *describes* the score (the x/y maintenance counter)
+ * filters on exactly the same rule the score itself uses, instead of keeping a
+ * second definition that drifts.
+ */
 export function isScorableMaintenanceItem(item: {
   id?: string;
   sourceRecommendationId?: string;
