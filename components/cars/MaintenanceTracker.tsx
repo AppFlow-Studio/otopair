@@ -476,21 +476,6 @@ function ShowMoreButton({
   );
 }
 
-/** Action Engine "Soon-ish" tier label — static blue dot, no pulse.
- *  Spec §3.2: "Visible on Home, never pings" — calmer visual cue. */
-function OnTheHorizonLabel() {
-  return (
-    <View style={groupLabelStyles.row}>
-      <View style={[groupLabelStyles.chip, groupLabelStyles.chipHorizon]}>
-        <View style={groupLabelStyles.onTheHorizonDot} />
-        <Text weight="bold" style={groupLabelStyles.chipTextHorizon}>
-          ON THE HORIZON
-        </Text>
-      </View>
-    </View>
-  );
-}
-
 function NeedsAttentionLabel() {
   const pulseStyle = useAnimatedStyle(() => ({
     opacity: withRepeat(
@@ -790,18 +775,13 @@ function HealthySection({
   items,
   isDarkBg = false,
   cascadeStartDelay = 0,
-  variant = 'resting',
 }: {
   items: MaintenanceItem[];
   isDarkBg?: boolean;
   cascadeStartDelay?: number;
-  /** Drives header text + dot color. 'resting' keeps the existing green
-   *  "N items healthy" treatment; 'soonish' shows blue + "N items on the
-   *  horizon" for Action Engine Soon-ish tier items. */
-  variant?: 'resting' | 'soonish';
 }) {
-  // Expanded by default — Ahmad prefers HORIZON / HEALTHY visible on
-  // first paint. Chevron still lets users collapse if they want.
+  // Expanded by default — Ahmad prefers HEALTHY visible on first paint.
+  // Chevron still lets users collapse if they want.
   const [expanded, setExpanded] = useState(true);
   const chevronRotation = useSharedValue(1);
 
@@ -816,32 +796,20 @@ function HealthySection({
     transform: [{ rotate: `${chevronRotation.value * 90}deg` }],
   }));
 
-  const isSoonish = variant === 'soonish';
-
   return (
     <View>
       <Animated.View entering={FadeInUp.duration(450).delay(cascadeStartDelay)}>
         <Pressable onPress={toggle} style={({ pressed }) => pressed && { opacity: 0.7 }}>
           {/* Header treatment matches the NOW / SOON labels above:
-              tiny dot + bold uppercase text + count in the tier's
-              color. Soonish = blue "ON THE HORIZON", resting = green
-              "HEALTHY". Chevron reveals/hides the list. */}
+              tiny green dot + bold uppercase text + count. Chevron
+              reveals/hides the list. */}
           <View style={summaryStyles.headerRow}>
-            {isSoonish ? (
-              <View style={[groupLabelStyles.chip, groupLabelStyles.chipHorizon]}>
-                <View style={groupLabelStyles.onTheHorizonDot} />
-                <Text weight="bold" style={groupLabelStyles.chipTextHorizon}>
-                  {`ON THE HORIZON · ${items.length}`}
-                </Text>
-              </View>
-            ) : (
-              <View style={summaryStyles.chip}>
-                <View style={summaryStyles.dot} />
-                <Text weight="bold" style={summaryStyles.chipText}>
-                  {`HEALTHY · ${items.length}`}
-                </Text>
-              </View>
-            )}
+            <View style={summaryStyles.chip}>
+              <View style={summaryStyles.dot} />
+              <Text weight="bold" style={summaryStyles.chipText}>
+                {`HEALTHY · ${items.length}`}
+              </Text>
+            </View>
             <View style={{ flex: 1 }} />
             <Animated.View style={chevronStyle}>
               <Ionicons name="chevron-forward" size={16} color="#C7C7CC" />
@@ -933,11 +901,10 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
   const healthyDelay = healthyItems.length > 0 ? cascadeStep * STEP_MS : 0;
 
   // Tier-path cascade (Yassin v1.1 §3.2). Mirrors the legacy cascade above
-  // but slotted for Now / Soon / Soon-ish / Resting in render order. Only
-  // consumed when `tieredItems` is provided.
+  // but slotted for Now / Soon / Resting in render order. Only consumed
+  // when `tieredItems` is provided.
   const nowCount = tieredItems?.now.length ?? 0;
   const soonCount = tieredItems?.soon.length ?? 0;
-  const soonishCount = tieredItems?.soonish.length ?? 0;
   let tierStep = 1; // title consumed slot 0
   const nowLabelDelay = nowCount > 0 ? tierStep++ * STEP_MS : 0;
   const nowBaseDelay = nowCount > 0 ? tierStep * STEP_MS : 0;
@@ -945,7 +912,6 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
   const soonLabelDelay = soonCount > 0 ? tierStep++ * STEP_MS : 0;
   const soonBaseDelay = soonCount > 0 ? tierStep * STEP_MS : 0;
   tierStep += soonCount;
-  const soonishDelay = soonishCount > 0 ? tierStep++ * STEP_MS : 0;
   const restingDelay = tierStep * STEP_MS;
 
 
@@ -1067,23 +1033,11 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
             </>
           )}
 
-          {/* Soon-ish — HealthySection renders its own horizon
-              header + chevron (collapsed by default). */}
-          {soonishCount > 0 && (
-            <HealthySection
-              items={tieredItems.soonish.map((r) => r.item)}
-              isDarkBg={isDarkBg}
-              cascadeStartDelay={soonishDelay}
-              variant="soonish"
-            />
-          )}
-
           {/* Resting — silent green. Always renders (returns null if empty). */}
           <HealthySection
             items={tieredItems.resting.map((r) => r.item)}
             isDarkBg={isDarkBg}
             cascadeStartDelay={restingDelay}
-            variant="resting"
           />
         </>
       ) : (
@@ -1407,18 +1361,6 @@ const groupLabelStyles = StyleSheet.create({
     letterSpacing: 0.8,
     textTransform: 'uppercase',
   },
-  onTheHorizonDot: {
-    width: scale(8),
-    height: scale(8),
-    borderRadius: moderateScale(4),
-    backgroundColor: '#5299FE',
-  },
-  onTheHorizonText: {
-    fontSize: moderateScale(11),
-    color: '#5299FE',
-    letterSpacing: 0.8,
-    textTransform: 'uppercase',
-  },
   // Chip variant used by SOON per PM spec — pill sits inside the
   // row's indent, groups the pulsing dot + label so the whole thing
   // reads on any background tint (previously raw text was nearly
@@ -1449,18 +1391,6 @@ const groupLabelStyles = StyleSheet.create({
   chipTextNow: {
     fontSize: moderateScale(11),
     color: '#B91C1C',
-    letterSpacing: 0.66,
-    textTransform: 'uppercase',
-  },
-  // ON THE HORIZON chip variant — blue-50 bg with blue-700 text so
-  // the calmer soonish tier reads at the same weight as the other
-  // chips (NOW / SOON / HEALTHY) without stealing focus.
-  chipHorizon: {
-    backgroundColor: '#EFF6FF',
-  },
-  chipTextHorizon: {
-    fontSize: moderateScale(11),
-    color: '#1D4ED8',
     letterSpacing: 0.66,
     textTransform: 'uppercase',
   },

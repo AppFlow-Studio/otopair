@@ -79,6 +79,13 @@ export const DEFAULT_UPKEEP_SPLIT = 85;
 // Urgency-engine constants — read by Change 3 (utils/urgency.ts).
 export const URGENCY_WEIGHTS = { severity: 0.50, proximity: 0.35 } as const;
 export const URGENCY_TIEBREAKER_WINDOW = 5;
+/** Three tiers ship (NOW / SOON / HEALTHY) but four cutoffs are kept.
+ *  `now` (75) is the NOW floor and `soonish` (25) is the SOON floor —
+ *  everything below 25 rests. `soon` (55) no longer splits anything; it is
+ *  retained so the 75/55/25 thresholds logged to urgency_tier_events stay
+ *  comparable across the tier change and remain available if the middle
+ *  band is ever re-separated. Key names are shared with the web repo — do
+ *  not rename without porting. */
 export const URGENCY_TIER_CUTOFFS = { now: 75, soon: 55, soonish: 25 } as const;
 
 /** Resolve a maintenance item's id to the CATEGORY_WEIGHTS bucket. Items
