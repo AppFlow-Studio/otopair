@@ -54,7 +54,10 @@ export const LIGHT_LABELS: Record<CanonicalWarningLight, string> = {
   airbag_srs: "Airbag",
   transmission: "Transmission",
   check_engine: "Check engine",
-  not_sure_which: "Unknown warning",
+  // Bare adjective, no "warning": every consumer appends its own noun
+  // ("… warning light is on"). "Unknown warning" produced "Unknown warning
+  // warning light is on".
+  not_sure_which: "Unidentified",
 };
 
 export interface BuildWarningLightItemArgs {
