@@ -17,6 +17,7 @@
 import { create } from "zustand";
 import { SERVICE_CATEGORIES, type ServiceCategoryItem } from "@/constants/services";
 import { filterSelectableServicesForVehicle } from "@/lib/serviceBookability";
+import { resolveBasketVehicleVin } from "@/utils/bookingVehicle";
 import { useVehicleStore } from "./useVehicleStore";
 import type { DiagnosticSystem } from "@/lib/diagnostic-checklist-templates";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -63,6 +64,7 @@ export interface SelectedMechanicSlot {
  *  re-read server-side from the quote response row at accept time. */
 export interface QuoteAcceptContext {
   bookingId: Id<"bookings">;
+  vehicleVin: string;
   quoteType: "tire" | "rotor";
   responseId: string;
   shopId: string;
@@ -565,16 +567,17 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
       // service so the Resume Booking card on home stays locked to that
       // vehicle. Cross-clear when the cart empties so a fresh booking
       // re-snapshots the (possibly different) active vehicle next time.
-      let nextVin = state.selectedVehicleVin;
-      if (nextIds.length > 0 && !state.selectedVehicleVin) {
-        nextVin = useVehicleStore.getState().selectedVehicleId ?? null;
-      } else if (nextIds.length === 0) {
-        nextVin = null;
-      }
+      const nextVin = resolveBasketVehicleVin({
+        previousServiceCount: state.selectedServiceIds.length,
+        nextServiceCount: nextIds.length,
+        basketVehicleVin: state.selectedVehicleVin,
+        activeVehicleVin: useVehicleStore.getState().selectedVehicleId ?? null,
+      });
 
       return {
         selectedServiceIds: nextIds,
         selectedVehicleVin: nextVin,
+        quoteAcceptContext: null,
       };
     }),
 
@@ -588,6 +591,7 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
       return {
         selectedServiceIds: nextIds,
         selectedVehicleVin: nextIds.length > 0 ? useVehicleStore.getState().selectedVehicleId ?? null : null,
+        quoteAcceptContext: null,
       };
     }),
 

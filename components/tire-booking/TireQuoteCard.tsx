@@ -93,13 +93,14 @@ export function TireQuoteCard({ quote, variant, onBook, onBookEarliest }: Props)
         </View>
       </View>
 
-      {/* Availability */}
-      <View style={styles.availabilityRow}>
-        <CalendarClock size={14} color="#6B7280" strokeWidth={2.2} />
-        <Text size="xs" weight="medium" color="#6B7280">
-          Earliest: {quote.availability}
-        </Text>
-      </View>
+      {onBookEarliest ? (
+        <View style={styles.availabilityRow}>
+          <CalendarClock size={14} color="#6B7280" strokeWidth={2.2} />
+          <Text size="xs" weight="medium" color="#6B7280">
+            Earliest: {quote.availability}
+          </Text>
+        </View>
+      ) : null}
 
       <View style={styles.actions}>
         {onBookEarliest ? (

@@ -71,7 +71,7 @@ function formatAvailability(date: string, time: string): string {
 }
 
 export interface RotorQuoteListSheetRef {
-  open: (bookingId: string) => void;
+  open: (bookingId: string, vehicleVin: string) => void;
   close: () => void;
 }
 
@@ -84,6 +84,7 @@ export const RotorQuoteListSheet = forwardRef<RotorQuoteListSheetRef, Props>(
     const insets = useSafeAreaInsets();
     const [visible, setVisible] = useState(false);
     const [bookingId, setBookingId] = useState<string | null>(null);
+    const [vehicleVin, setVehicleVin] = useState<string | null>(null);
 
     const router = useRouter();
     const setQuoteAcceptContext = useBookingStore((s) => s.setQuoteAcceptContext);
@@ -94,8 +95,9 @@ export const RotorQuoteListSheet = forwardRef<RotorQuoteListSheetRef, Props>(
     );
 
     useImperativeHandle(ref, () => ({
-      open: (id) => {
+      open: (id, vin) => {
         setBookingId(id);
+        setVehicleVin(vin);
         setVisible(true);
       },
       close: () => {
@@ -151,7 +153,7 @@ export const RotorQuoteListSheet = forwardRef<RotorQuoteListSheetRef, Props>(
     }, [adapted]);
 
     const handleChooseTime = (responseId: string, autoConfirmEarliest = false) => {
-      if (!bookingId || !responses) return;
+      if (!bookingId || !vehicleVin || !responses) return;
       const response = (responses as RawRotorQuoteResponse[]).find((r) => r._id === responseId);
       if (!response) return;
 
@@ -172,6 +174,7 @@ export const RotorQuoteListSheet = forwardRef<RotorQuoteListSheetRef, Props>(
 
       setQuoteAcceptContext({
         bookingId: bookingId as Id<"bookings">,
+        vehicleVin,
         quoteType: "rotor",
         responseId: response._id,
         shopId: response.shop?._id ?? response.shop_id,

@@ -87,6 +87,47 @@ export function isQuotedSlotBookable(
   return time >= minBookableHHMM(now);
 }
 
+export interface DateTimeFloor {
+  date: string;
+  time: string;
+}
+
+/** Initial mechanic for the picker; only the earliest-time fast path inherits the quote mechanic. */
+export function getPickerInitialMechanicId({
+  autoConfirmEarliest,
+  quoteMechanicId,
+  routeMechanicId,
+}: {
+  autoConfirmEarliest: boolean;
+  quoteMechanicId: string | null | undefined;
+  routeMechanicId: string | null | undefined;
+}): string | null {
+  return autoConfirmEarliest ? quoteMechanicId ?? null : routeMechanicId ?? null;
+}
+
+/** Manual scheduling starts from current availability; the fast path must honor the quoted floor. */
+export function getPickerFloor(
+  currentFloor: DateTimeFloor,
+  quoteFloor: DateTimeFloor | null,
+  autoConfirmEarliest: boolean,
+): DateTimeFloor {
+  if (!autoConfirmEarliest || !quoteFloor) return currentFloor;
+  if (currentFloor.date !== quoteFloor.date) {
+    return currentFloor.date > quoteFloor.date ? currentFloor : quoteFloor;
+  }
+  return currentFloor.time >= quoteFloor.time ? currentFloor : quoteFloor;
+}
+
+/** First candidate date that the availability queries explicitly returned. */
+export function findFirstAvailableDate(
+  candidateDates: string[],
+  availableDates: string[],
+  floorDate: string,
+): string | null {
+  const available = new Set(availableDates);
+  return candidateDates.find((date) => date >= floorDate && available.has(date)) ?? null;
+}
+
 const DAY_ABBREV = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 /** Parse YYYY-MM-DD and return { dayOfWeek, day } for display */
