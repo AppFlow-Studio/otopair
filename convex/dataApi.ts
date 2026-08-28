@@ -75,6 +75,9 @@ export type KeyAuth = {
   scopes: string[];
   rate_limit_per_min: number;
   revoked: boolean;
+  // Set for self-serve dev-portal keys; null for team-minted keys (which carry
+  // created_by instead). Lets enrich record a per-owner run + email the owner.
+  ownerUserId: Id<"users"> | null;
 };
 
 export const lookupKeyByHash = internalQuery({
@@ -91,6 +94,7 @@ export const lookupKeyByHash = internalQuery({
       scopes: key.scopes,
       rate_limit_per_min: key.rate_limit_per_min,
       revoked: key.revoked_at != null,
+      ownerUserId: key.owner_user_id ?? null,
     };
   },
 });

@@ -1238,12 +1238,35 @@ http.route({
       if (result.status === "vehicle_upsert_failed") {
         return { status: 500, body: { error: "internal_error", message: "Vehicle row creation failed — retry later." } };
       }
+
+      // Ledger + "queued" email for self-serve dev keys (team keys carry no
+      // owner and have no dashboard). Best-effort: a failure here must not sink
+      // an otherwise-scheduled 202.
+      let runId: string | undefined;
+      if (key.ownerUserId) {
+        try {
+          runId = await ctx.runMutation(internal.dataApiEnrich.recordEnrichRunQueued, {
+            owner_user_id: key.ownerUserId,
+            api_key_id: key.keyId,
+            vin,
+            vehicle_id: result.vehicleId,
+            year: result.year,
+            make: result.make,
+            model: result.model,
+            trim: result.trim ?? undefined,
+          });
+        } catch (e) {
+          console.error("[/v0/enrich] recordEnrichRunQueued failed:", e);
+        }
+      }
+
       return {
         status: 202,
         body: {
           object: "enrichment",
           status: "queued",
           vin,
+          run_id: runId,
           poll: {
             method: "GET",
             url: `/v0/enrich?vin=${vin}`,
