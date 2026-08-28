@@ -29,7 +29,7 @@ import { TireQuoteCard } from "@/components/tire-booking/TireQuoteCard";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { TireQuote } from "@/constants/tireFlow";
-import { hhmmToDisplayTime } from "@/utils/timeSlotUtils";
+import { hhmmToDisplayTime, isQuotedSlotBookable } from "@/utils/timeSlotUtils";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { useBookingStore } from "@/stores/useBookingStore";
 
@@ -199,9 +199,18 @@ export const QuoteListSheet = forwardRef<QuoteListSheetRef, Props>(
     const handleBookEarliest = (responseId: string) =>
       handleChooseTime(responseId, true);
 
-    const canBookEarliest = (responseId: string) =>
-      (responses as RawTireQuoteResponse[] | undefined)?.find((r) => r._id === responseId)
-        ?.earliest_slot_available === true;
+    const canBookEarliest = (responseId: string) => {
+      const response = (responses as RawTireQuoteResponse[] | undefined)?.find(
+        (r) => r._id === responseId,
+      );
+      return response
+        ? isQuotedSlotBookable(
+            response.availability.date,
+            response.availability.time,
+            response.earliest_slot_available === true,
+          )
+        : false;
+    };
 
     const isLoading = bookingId != null && responses === undefined;
 

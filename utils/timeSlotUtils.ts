@@ -28,8 +28,7 @@ export function hhmmToDisplayTime(hhmm: string): string {
 }
 
 /** Today's date as "YYYY-MM-DD" in the device's local timezone. */
-export function todayLocalISO(): string {
-  const now = new Date();
+export function todayLocalISO(now = new Date()): string {
   const y = now.getFullYear();
   const m = String(now.getMonth() + 1).padStart(2, "0");
   const d = String(now.getDate()).padStart(2, "0");
@@ -56,8 +55,7 @@ export const MIN_ADVANCE_NOTICE_LABEL = "Bookings require at least 1 hour's noti
  * ever pushes later, so the guarantee stays "at least 1 hour." Can exceed
  * 1440 late at night — callers treat that as "nothing bookable today."
  */
-export function minBookableMinutes(): number {
-  const now = new Date();
+export function minBookableMinutes(now = new Date()): number {
   const raw = now.getHours() * 60 + now.getMinutes() + MIN_ADVANCE_NOTICE_MINUTES;
   return Math.ceil(raw / 15) * 15;
 }
@@ -68,12 +66,25 @@ export function minBookableMinutes(): number {
  * lexically chronological). Returns "24:00" when the window runs past
  * midnight (all of today's slots fall within the lead time).
  */
-export function minBookableHHMM(): string {
-  const rounded = minBookableMinutes();
+export function minBookableHHMM(now = new Date()): string {
+  const rounded = minBookableMinutes(now);
   if (rounded >= 1440) return "24:00";
   const hh = String(Math.floor(rounded / 60)).padStart(2, "0");
   const mm = String(rounded % 60).padStart(2, "0");
   return `${hh}:${mm}`;
+}
+
+/** Whether a shop's quoted earliest slot may be offered as a fast path. */
+export function isQuotedSlotBookable(
+  date: string,
+  time: string,
+  serverAvailable: boolean,
+  now = new Date(),
+): boolean {
+  if (!serverAvailable) return false;
+  const today = todayLocalISO(now);
+  if (date !== today) return date > today;
+  return time >= minBookableHHMM(now);
 }
 
 const DAY_ABBREV = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];

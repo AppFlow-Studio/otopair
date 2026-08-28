@@ -23,7 +23,7 @@ import { RotorQuoteCard } from "@/components/rotor-booking/RotorQuoteCard";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { formatPadTypeLabel, type RotorQuote } from "@/constants/rotorFlow";
-import { hhmmToDisplayTime } from "@/utils/timeSlotUtils";
+import { hhmmToDisplayTime, isQuotedSlotBookable } from "@/utils/timeSlotUtils";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { useBookingStore } from "@/stores/useBookingStore";
 
@@ -205,9 +205,18 @@ export const RotorQuoteListSheet = forwardRef<RotorQuoteListSheetRef, Props>(
     const handleBookEarliest = (responseId: string) =>
       handleChooseTime(responseId, true);
 
-    const canBookEarliest = (responseId: string) =>
-      (responses as RawRotorQuoteResponse[] | undefined)?.find((r) => r._id === responseId)
-        ?.earliest_slot_available === true;
+    const canBookEarliest = (responseId: string) => {
+      const response = (responses as RawRotorQuoteResponse[] | undefined)?.find(
+        (r) => r._id === responseId,
+      );
+      return response
+        ? isQuotedSlotBookable(
+            response.availability.date,
+            response.availability.time,
+            response.earliest_slot_available === true,
+          )
+        : false;
+    };
 
     const isLoading = bookingId != null && responses === undefined;
 
