@@ -21,3 +21,24 @@ export function resolveBasketVehicleVin({
   if (previousServiceCount === 0) return activeVehicleVin;
   return basketVehicleVin;
 }
+
+/** True only when every cart item is attached to the same vehicle VIN. */
+export function hasConsistentBasketVehicle({
+  serviceIds,
+  serviceVehicleVins,
+  basketVehicleVin,
+}: {
+  serviceIds: readonly string[];
+  serviceVehicleVins: Readonly<Record<string, string | null | undefined>>;
+  basketVehicleVin: string | null;
+}): boolean {
+  const vehicleVins = new Set<string>();
+
+  for (const serviceId of serviceIds) {
+    const vehicleVin = serviceVehicleVins[serviceId] ?? basketVehicleVin;
+    if (!vehicleVin) return false;
+    vehicleVins.add(vehicleVin);
+  }
+
+  return vehicleVins.size <= 1;
+}

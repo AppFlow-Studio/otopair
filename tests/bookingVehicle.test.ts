@@ -2,7 +2,11 @@ import { describe, expect, test } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { resolveBasketVehicleVin, resolveBookingVehicleVin } from "../utils/bookingVehicle";
+import {
+  hasConsistentBasketVehicle,
+  resolveBasketVehicleVin,
+  resolveBookingVehicleVin,
+} from "../utils/bookingVehicle";
 
 const root = process.cwd();
 const read = (relativePath: string) => readFileSync(resolve(root, relativePath), "utf8");
@@ -53,6 +57,31 @@ describe("resolveBasketVehicleVin", () => {
         activeVehicleVin: "MERCEDES-VIN",
       }),
     ).toBeNull();
+  });
+});
+
+describe("hasConsistentBasketVehicle", () => {
+  test("rejects a cart whose services were selected for different vehicles", () => {
+    expect(
+      hasConsistentBasketVehicle({
+        serviceIds: ["oil-change", "battery-test"],
+        serviceVehicleVins: {
+          "oil-change": "HONDA-VIN",
+          "battery-test": "MERCEDES-VIN",
+        },
+        basketVehicleVin: "HONDA-VIN",
+      }),
+    ).toBe(false);
+  });
+
+  test("treats legacy services without an individual VIN as belonging to the cart vehicle", () => {
+    expect(
+      hasConsistentBasketVehicle({
+        serviceIds: ["oil-change", "battery-test"],
+        serviceVehicleVins: {},
+        basketVehicleVin: "HONDA-VIN",
+      }),
+    ).toBe(true);
   });
 });
 

@@ -124,6 +124,8 @@ interface BookingState {
   serviceCategories: ServiceCategoryItem[];
   /** Currently selected service IDs for booking */
   selectedServiceIds: string[];
+  /** VIN captured individually when each service enters the cart. */
+  selectedServiceVehicleVins: Record<string, string | null>;
   /**
    * VIN of the vehicle this in-flight booking belongs to. Captured the
    * moment the cart goes from empty → first service (snapshotted from
@@ -472,6 +474,7 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
   availableServices: MOCK_SERVICES,
   serviceCategories: [],
   selectedServiceIds: [],
+  selectedServiceVehicleVins: {},
   selectedVehicleVin: null,
   skipServiceRemovalConfirm: false,
   bookingStage: "discovery",
@@ -562,6 +565,13 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
       const nextIds = isSelected
         ? state.selectedServiceIds.filter((id) => id !== serviceId)
         : [...state.selectedServiceIds, serviceId];
+      const activeVehicleVin = useVehicleStore.getState().selectedVehicleId ?? null;
+      const nextServiceVehicleVins = { ...state.selectedServiceVehicleVins };
+      if (isSelected) {
+        delete nextServiceVehicleVins[serviceId];
+      } else {
+        nextServiceVehicleVins[serviceId] = activeVehicleVin;
+      }
 
       // Snapshot the active VIN the moment the cart goes empty → first
       // service so the Resume Booking card on home stays locked to that
@@ -571,11 +581,12 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
         previousServiceCount: state.selectedServiceIds.length,
         nextServiceCount: nextIds.length,
         basketVehicleVin: state.selectedVehicleVin,
-        activeVehicleVin: useVehicleStore.getState().selectedVehicleId ?? null,
+        activeVehicleVin,
       });
 
       return {
         selectedServiceIds: nextIds,
+        selectedServiceVehicleVins: nextServiceVehicleVins,
         selectedVehicleVin: nextVin,
         quoteAcceptContext: null,
       };
@@ -587,10 +598,14 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
         ownershipId: options?.ownershipId,
         bookableIds: options?.bookableIds,
       }).map((service) => service.id);
+      const activeVehicleVin = useVehicleStore.getState().selectedVehicleId ?? null;
 
       return {
         selectedServiceIds: nextIds,
-        selectedVehicleVin: nextIds.length > 0 ? useVehicleStore.getState().selectedVehicleId ?? null : null,
+        selectedServiceVehicleVins: Object.fromEntries(
+          nextIds.map((serviceId) => [serviceId, activeVehicleVin]),
+        ),
+        selectedVehicleVin: nextIds.length > 0 ? activeVehicleVin : null,
         quoteAcceptContext: null,
       };
     }),
@@ -598,6 +613,7 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
   clearSelectedServices: () =>
     set({
       selectedServiceIds: [],
+      selectedServiceVehicleVins: {},
       selectedVehicleVin: null,
       selectedServiceOptions: {},
       selectedDiagnosticSystem: null,
@@ -771,6 +787,7 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
       bookingStage: "discovery",
       transitionDirection: "backward",
       selectedServiceIds: [],
+      selectedServiceVehicleVins: {},
       selectedVehicleVin: null,
       selectedMechanicId: null,
       selectedServiceCategory: null,
