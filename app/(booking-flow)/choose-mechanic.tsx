@@ -30,8 +30,12 @@ import { ScrollView } from "react-native-gesture-handler";
 import { useFocusEffect, useNavigation } from "expo-router";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import BottomSheet, { BottomSheetView } from "@gorhom/bottom-sheet";
-import { ArrowLeft, Crosshair, Minus, Plus } from "lucide-react-native";
+import BottomSheet, {
+  BottomSheetFooter,
+  BottomSheetView,
+  type BottomSheetFooterProps,
+} from "@gorhom/bottom-sheet";
+import { ArrowLeft, ArrowRight, Crosshair, Minus, Plus } from "lucide-react-native";
 import MapView, { Marker, PROVIDER_DEFAULT } from "react-native-maps";
 import Animated, {
   Extrapolation,
@@ -44,10 +48,8 @@ import { Text } from "@/components/shared-ui";
 import { useBookingFlowMap } from "@/components/booking-flow/BookingFlowMap";
 import { MapBrowseShopCard } from "@/components/booking-flow/MapBrowseShopCard";
 import { MapShopCard } from "@/components/booking-flow/MapShopCard";
-import { MapSwipeHint } from "@/components/booking-flow/MapSwipeHint";
 import { RatingMarkerPill } from "@/components/booking-flow/RatingMarkerPill";
 import { ShopPage } from "@/components/booking-flow/ShopPage";
-import { StickyContinueBar } from "@/components/booking-flow/StickyContinueBar";
 import { VehiclePuck } from "@/components/booking-flow/VehiclePuck";
 import { useMechanicStore } from "@/stores/useMechanicStore";
 import { useShopStore } from "@/stores/useShopStore";
@@ -63,16 +65,23 @@ import { useVehicleStore } from "@/stores/useVehicleStore";
 import { buildShopPriceLabel } from "@/lib/shopPriceLabel";
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
-// Single snap point (~56%, tall enough that the horizontal-carousel
-// page-indicator dots land above the Continue bar). The content here is
-// fixed-height (summary card + a horizontal-paged mechanic carousel), so
-// the old second "expanded" snap (82%) just opened a wall of empty white
-// space above it — removed. With `enablePanDownToClose`, the user can
-// still drag the sheet OUT of view entirely — at which point
-// `sheetIndex === -1` and the screen swaps to the browse-card carousel
-// (ChatGPT-style "shops on a map" mode). Tap a card to bring the sheet
-// back to index 0.
+// The sheet is a floating detached card inset from the screen edges, so its
+// inner width (and therefore the paged shop carousel's page width) is the
+// screen minus the side insets — NOT the full screen width. The external
+// browse-card carousel still spans the full screen, so it keeps SCREEN_WIDTH.
+const SHEET_SIDE_INSET = 12;
+const SHEET_WIDTH = SCREEN_WIDTH - SHEET_SIDE_INSET * 2;
+// Single low snap point (~56%) — sits low enough that the floating shop
+// card above it stays visible, while fitting the shop content above the
+// pinned Continue footer. With `enablePanDownToClose`, the user can still
+// drag the sheet OUT of view entirely — at which point `sheetIndex === -1`
+// and the screen swaps to the browse-card carousel (ChatGPT-style "shops on
+// a map" mode). Tap a card to bring the sheet back to index 0.
 const SNAP_POINTS = ["56%"] as const;
+// Height reserved at the bottom of the sheet for the pinned Continue footer
+// (paddingTop 10 + 56 button + paddingBottom 16). The sheet content pads by
+// this so its last row clears the footer.
+const SHEET_FOOTER_HEIGHT = 82;
 
 export default function ChooseMechanicScreen() {
   const router = useRouter();
@@ -292,14 +301,6 @@ export default function ChooseMechanicScreen() {
   // bar's fade so the bar tracks the sheet's drag continuously
   // instead of popping in/out at the snap-change boundary.
   const sheetAnimatedIndex = useSharedValue(0);
-  const continueBarStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(
-      sheetAnimatedIndex.value,
-      [-1, 0],
-      [0, 1],
-      Extrapolation.CLAMP,
-    ),
-  }));
   // Browse-card strip fades in as the sheet fades out — same
   // shared value, inverted curve. Always-mounted so the
   // ScrollView holds its scroll position across open/close
@@ -350,7 +351,7 @@ export default function ChooseMechanicScreen() {
       if (idx < 0 || idx >= nearbyShops.length) return;
       setActiveIndex(idx);
       pagerScrollRef.current?.scrollTo({
-        x: idx * SCREEN_WIDTH,
+        x: idx * SHEET_WIDTH,
         animated: true,
       });
       browseScrollRef.current?.scrollTo({
@@ -369,7 +370,7 @@ export default function ChooseMechanicScreen() {
     (e: NativeSyntheticEvent<NativeScrollEvent>) => {
       const idx = Math.round(e.nativeEvent.contentOffset.x / SCREEN_WIDTH);
       setActiveIndex(idx);
-      pagerScrollRef.current?.scrollTo({ x: idx * SCREEN_WIDTH, animated: false });
+      pagerScrollRef.current?.scrollTo({ x: idx * SHEET_WIDTH, animated: false });
     },
     [],
   );
@@ -478,13 +479,13 @@ export default function ChooseMechanicScreen() {
     return { selectedCount: selectedServices.length, totalMinutes: mins };
   }, [selectedServices, laborHoursMap]);
 
-  // Horizontal-paged scroll handler. Pages snap by screen width so
-  // every page lines up edge-to-edge inside the sheet. Also pushes
-  // the same page index into the (always-mounted but invisible)
-  // browse carousel so it's already on the right shop when the
-  // user swipes the sheet closed.
+  // Horizontal-paged scroll handler. Pages snap by the card's inner width
+  // (the sheet is inset from the screen edges) so every page lines up inside
+  // the card. Also pushes the same page index into the (always-mounted but
+  // invisible) full-width browse carousel so it's already on the right shop
+  // when the user swipes the sheet closed.
   const onPageChange = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const idx = Math.round(e.nativeEvent.contentOffset.x / SCREEN_WIDTH);
+    const idx = Math.round(e.nativeEvent.contentOffset.x / SHEET_WIDTH);
     setActiveIndex(idx);
     browseScrollRef.current?.scrollTo({ x: idx * SCREEN_WIDTH, animated: false });
   }, []);
@@ -535,6 +536,38 @@ export default function ChooseMechanicScreen() {
       },
     });
   };
+
+  // Continue button as a gorhom sticky footer — pinned to the sheet's bottom
+  // edge regardless of how tall the shop content is, so it can never spill out
+  // below the sheet. `bottomInset={0}` because the detached sheet already
+  // floats above the home indicator.
+  const renderFooter = useCallback(
+    (props: BottomSheetFooterProps) => (
+      <BottomSheetFooter {...props} bottomInset={0}>
+        <View style={styles.sheetFooter}>
+          <Pressable
+            style={styles.continuePill}
+            onPress={onContinue}
+            accessibilityRole="button"
+            accessibilityLabel={continueLabel}
+          >
+            <Text
+              size="md"
+              weight="semiBold"
+              color="#FFFFFF"
+              style={styles.continueLabel}
+            >
+              {continueLabel}
+            </Text>
+            <ArrowRight size={20} color="#FFFFFF" strokeWidth={2} />
+          </Pressable>
+        </View>
+      </BottomSheetFooter>
+    ),
+    // onContinue/continueLabel are recreated each render; the footer is cheap
+    // to re-render, so we intentionally rebuild it when they change.
+    [onContinue, continueLabel],
+  );
 
   return (
     <View style={styles.root} pointerEvents="box-none">
@@ -599,12 +632,13 @@ export default function ChooseMechanicScreen() {
         </MapView>
       ) : null}
 
-      {/* Top floating chrome */}
+      {/* Top floating chrome — back + vehicle puck float directly on the
+          map (no pill, no title) so the sheet gets maximum vertical room. */}
       <View
         style={[styles.topStack, { paddingTop: insets.top + 8 }]}
         pointerEvents="box-none"
       >
-        <View style={styles.headerPill}>
+        <View style={styles.headerRow}>
           <Pressable
             style={styles.iconBtn}
             onPress={onBack}
@@ -613,9 +647,6 @@ export default function ChooseMechanicScreen() {
           >
             <ArrowLeft size={20} color="#1F2937" strokeWidth={2} />
           </Pressable>
-          <Text size="md" weight="bold" color="#0F172A" style={styles.headerTitle}>
-            Choose Mechanic
-          </Text>
           <VehiclePuck />
         </View>
       </View>
@@ -710,35 +741,36 @@ export default function ChooseMechanicScreen() {
         </Pressable>
       </View>
 
-      {/* Bottom sheet — plain white. Horizontal-paged ShopPage
-          carousel lives inside it; vertical drag of the handle still
-          resizes the sheet (gorhom's vertical pan + our horizontal
-          ScrollView don't conflict). */}
+      {/* Bottom sheet — floating detached card, NO backdrop. It sits over
+          the map as a plain floating sheet (the map above stays bright and
+          interactive) rather than a dimmed modal overlay. Inset from the
+          screen edges, lifted above the home indicator, all four corners
+          rounded. Compact (~56%): the horizontal-paged ShopPage carousel
+          lives inside it, with the "Continue" button pinned as a sticky
+          footer (see `renderFooter`) so it can't spill below the sheet.
+          Vertical drag of the handle still resizes the sheet. Swipe down past
+          index 0 → sheet closes entirely (`sheetIndex === -1`) and the
+          browse-card carousel takes over. */}
       <BottomSheet
         ref={bottomSheetRef}
         snapPoints={SNAP_POINTS as unknown as string[]}
-        // Start at index 0 = standard 53% peek. Swipe down past
-        // index 0 → sheet closes entirely (`sheetIndex === -1`)
-        // and the browse-card carousel takes over the bottom of
-        // the screen.
         index={0}
         onChange={setSheetIndex}
         animatedIndex={sheetAnimatedIndex}
         enablePanDownToClose
         enableDynamicSizing={false}
+        detached
+        // Tuck the card just above the home indicator (lower than the
+        // default float) so it sits closer to the bottom edge.
+        bottomInset={Math.max(insets.bottom, 8)}
+        style={styles.sheetFloat}
         backgroundStyle={styles.sheetBackground}
         handleIndicatorStyle={styles.sheetHandleIndicator}
+        footerComponent={renderFooter}
       >
         <BottomSheetView
-          style={[
-            styles.sheetContent,
-            { paddingBottom: insets.bottom + 120 },
-          ]}
+          style={[styles.sheetContent, { paddingBottom: SHEET_FOOTER_HEIGHT }]}
         >
-          {/* Tell the user the sheet swipes down to reveal the
-              map underneath. Only renders inside the sheet body,
-              so it's automatically gone once the sheet is hidden. */}
-          <MapSwipeHint />
           {nearbyShops.length === 0 ? (
             <View style={styles.empty}>
               <Text size="md" weight="medium" color="#9CA3AF" center>
@@ -759,7 +791,7 @@ export default function ChooseMechanicScreen() {
                 <ShopPage
                   key={r.shop.id}
                   shop={r.shop}
-                  pageWidth={SCREEN_WIDTH}
+                  pageWidth={SHEET_WIDTH}
                   totalMinutes={totalMinutes}
                   selectedCount={selectedCount}
                   selectedServices={selectedServicesForPricing}
@@ -797,21 +829,6 @@ export default function ChooseMechanicScreen() {
           ) : null}
         </BottomSheetView>
       </BottomSheet>
-
-      {/* Continue bar fades in/out with the sheet's drag instead
-          of popping at the snap boundary. Opacity is driven by
-          `animatedIndex` so the fade is fully synced with the
-          finger — 1 at the 53% snap, 0 once the sheet has
-          fully closed.
-          pointerEvents flip to "none" once the React state catches
-          up so the (invisible) bar can't intercept taps on the
-          browse-card carousel underneath. */}
-      <Animated.View
-        style={[styles.continueLayer, continueBarStyle]}
-        pointerEvents={isSheetHidden ? "none" : "box-none"}
-      >
-        <StickyContinueBar count={1} label={continueLabel} onPress={onContinue} />
-      </Animated.View>
     </View>
   );
 }
@@ -829,31 +846,23 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     gap: 10,
   },
-  headerPill: {
+  headerRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-    backgroundColor: "rgba(255, 255, 255, 0.92)",
-    borderRadius: 999,
-    paddingVertical: 8,
-    paddingHorizontal: 8,
+    justifyContent: "space-between",
+  },
+  iconBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "rgba(255, 255, 255, 0.95)",
+    alignItems: "center",
+    justifyContent: "center",
     shadowColor: "#0F172A",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.1,
-    shadowRadius: 10,
-    elevation: 4,
-  },
-  headerTitle: {
-    flex: 1,
-    textAlign: "center",
-  },
-  iconBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: "rgba(15, 23, 42, 0.08)",
-    alignItems: "center",
-    justifyContent: "center",
+    shadowRadius: 8,
+    elevation: 3,
   },
   shopCardWrap: {
     position: "absolute",
@@ -870,15 +879,6 @@ const styles = StyleSheet.create({
     bottom: 40,
     left: 0,
     right: 0,
-  },
-  continueLayer: {
-    // Animated wrapper that drives only opacity — the
-    // StickyContinueBar inside is already `position: absolute,
-    // bottom: 0`, so this layer doesn't need to take any space.
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 0,
   },
   browseCardSlot: {
     width: SCREEN_WIDTH,
@@ -904,8 +904,14 @@ const styles = StyleSheet.create({
   },
   sheetBackground: {
     backgroundColor: "#FFFFFF",
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
+    // All four corners rounded — the sheet floats (detached) above the
+    // bottom edge, so its bottom curves are visible too.
+    borderRadius: 32,
+  },
+  sheetFloat: {
+    // Side inset so the card doesn't touch the screen edges. The bottom
+    // inset comes from the BottomSheet's bottomInset prop.
+    marginHorizontal: SHEET_SIDE_INSET,
   },
   sheetHandleIndicator: {
     backgroundColor: "rgba(15, 23, 42, 0.2)",
@@ -914,6 +920,25 @@ const styles = StyleSheet.create({
   sheetContent: {
     flex: 1,
     paddingTop: 0,
+  },
+  sheetFooter: {
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingBottom: 16,
+  },
+  continuePill: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    minHeight: 56,
+    paddingVertical: 16,
+    paddingHorizontal: 22,
+    borderRadius: 999,
+    backgroundColor: "#5299FE",
+  },
+  continueLabel: {
+    flex: 1,
+    textAlign: "center",
   },
   empty: {
     paddingVertical: 40,
