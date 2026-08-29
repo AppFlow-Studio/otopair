@@ -44,6 +44,7 @@ import { getBookingConfirmingCopy, isBookingRescheduleMode } from "@/lib/resched
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
 import { usePaymentStore } from "@/stores/usePaymentStore";
+import { resolveBookingVehicleVin } from "@/utils/bookingVehicle";
 import { displayTimeToHHMM } from "@/utils/timeSlotUtils";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -110,6 +111,7 @@ export default function BookingConfirmingScreen() {
   const selectedMechanicSlot = useBookingStore((s) => s.selectedMechanicSlot);
   const scheduledAppointment = useBookingStore((s) => s.scheduledAppointment);
   const bookingType = useBookingStore((s) => s.bookingType);
+  const selectedVehicleVin = useBookingStore((s) => s.selectedVehicleVin);
   const quoteAcceptContext = useBookingStore((s) => s.quoteAcceptContext);
   const holdId = useBookingStore((s) => s.holdId);
   const holdSessionId = useBookingStore((s) => s.holdSessionId);
@@ -137,6 +139,10 @@ export default function BookingConfirmingScreen() {
   const isCompactLayout = windowHeight < 860;
   const isVeryCompactLayout = windowHeight < 760;
   const isReschedule = isBookingRescheduleMode(mode);
+  const bookingVehicleVin = resolveBookingVehicleVin(
+    quoteAcceptContext?.vehicleVin,
+    selectedVehicleVin,
+  );
   const confirmingCopy = getBookingConfirmingCopy(isReschedule);
   const confirmLayout = calculateBookingConfirmLayout({
     width: windowWidth,
@@ -354,7 +360,13 @@ export default function BookingConfirmingScreen() {
       if (quoteAcceptContext) setQuoteAcceptContext(null);
       router.replace({
         pathname: "/booking/mechanic/[id]/confirmation",
-        params: resultBookingId ? { id, bookingDbId: resultBookingId } : { id },
+        params: resultBookingId
+          ? {
+              id,
+              bookingDbId: resultBookingId,
+              ...(bookingVehicleVin ? { bookingVehicleVin } : {}),
+            }
+          : { id },
       });
     } catch (err) {
       if (preauthorizedPaymentIntentId) {
@@ -405,6 +417,7 @@ export default function BookingConfirmingScreen() {
     rollbackFailedBookingCreation,
     customerRequestReschedule,
     quoteAcceptContext,
+    bookingVehicleVin,
     holdId,
     holdSessionId,
     setQuoteAcceptContext,

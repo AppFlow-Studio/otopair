@@ -54,6 +54,8 @@ interface Props {
   onViewBooking: () => void;
   /** Called after the sheet finishes its close animation (swipe or CTA). */
   onClose?: () => void;
+  /** VIN captured when this quote request started. */
+  vehicleVin: string | null;
 }
 
 // ============================================================================
@@ -61,7 +63,7 @@ interface Props {
 // ============================================================================
 
 export const QuoteRequestConfirmationSheet = forwardRef<QuoteRequestConfirmationSheetRef, Props>(
-  ({ onViewBooking, onClose }, ref) => {
+  ({ onViewBooking, onClose, vehicleVin }, ref) => {
     const insets = useSafeAreaInsets();
 
     // Plain full-screen <Modal> with native slide animation — no FloatingSheet
@@ -87,8 +89,8 @@ export const QuoteRequestConfirmationSheet = forwardRef<QuoteRequestConfirmation
     const tireType = useTireBookingStore((s) => s.tireType);
     const tier = useTireBookingStore((s) => s.tier);
     const selectedCount = useTireBookingStore((s) => s.selectedTirePositions.length);
-    const selectedVehicle = useVehicleStore((s) =>
-      s.selectedVehicleId ? s.vehicles[s.selectedVehicleId] : undefined,
+    const requestVehicle = useVehicleStore((s) =>
+      vehicleVin ? s.vehicles[vehicleVin] : undefined,
     );
 
     // Pin the ETA range on mount so it doesn't drift while the sheet is open.
@@ -100,8 +102,8 @@ export const QuoteRequestConfirmationSheet = forwardRef<QuoteRequestConfirmation
       return `${formatClock(start)} – ${formatClock(end)}`;
     }, []);
 
-    const vehicleLabel = selectedVehicle
-      ? `${selectedVehicle.year} ${selectedVehicle.make} ${selectedVehicle.model}`
+    const vehicleLabel = requestVehicle
+      ? `${requestVehicle.year} ${requestVehicle.make} ${requestVehicle.model}`
       : "Your vehicle";
     const tierLabel = TIRE_TIERS.find((t) => t.id === tier)?.label ?? "";
     const typeLabel = TIRE_TYPES.find((t) => t.id === tireType)?.label ?? "";

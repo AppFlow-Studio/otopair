@@ -4,6 +4,9 @@ import { resolve } from "node:path";
 
 import { resolveBasketVehicleVin, resolveBookingVehicleVin } from "../utils/bookingVehicle";
 
+const root = process.cwd();
+const read = (relativePath: string) => readFileSync(resolve(root, relativePath), "utf8");
+
 describe("resolveBookingVehicleVin", () => {
   test("uses the original quote vehicle while accepting a quote", () => {
     expect(resolveBookingVehicleVin("HONDA-VIN", "MERCEDES-VIN")).toBe("HONDA-VIN");
@@ -72,5 +75,24 @@ describe("checkout vehicle enforcement", () => {
     );
 
     expect(hook).toContain("if (!vin || !bookingVehicle)");
+  });
+
+  test("appointment confirmation screens use the booking VIN instead of the live vehicle", () => {
+    const confirmingStatus = read("components/booking/BookingConfirmStatus.tsx");
+    const confirmation = read("app/booking/mechanic/[id]/confirmation.tsx");
+
+    expect(confirmingStatus).toContain('import { resolveBookingVehicleVin } from "@/utils/bookingVehicle"');
+    expect(confirmingStatus).toContain("selectedVehicleVin");
+    expect(confirmation).toContain("bookingVehicleVin");
+  });
+
+  test("quote-request status and success screens receive a request VIN snapshot", () => {
+    const tireRequesting = read("app/(tire-booking)/requesting.tsx");
+    const rotorRequesting = read("app/(rotor-booking)/requesting.tsx");
+    const requestConfirmation = read("components/bookings/QuoteRequestConfirmationSheet.tsx");
+
+    expect(tireRequesting).toContain("requestVehicleVin");
+    expect(rotorRequesting).toContain("requestVehicleVin");
+    expect(requestConfirmation).toContain("vehicleVin: string | null");
   });
 });
