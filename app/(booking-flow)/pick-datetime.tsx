@@ -43,6 +43,7 @@ import { useCalendarAvailabilityForShop } from "@/hooks/useCalendarAvailabilityF
 import { useNextAvailabilityForShop } from "@/hooks/useNextAvailabilityForShop";
 import { useNextAvailabilityPerMechanicForShop } from "@/hooks/useNextAvailabilityPerMechanicForShop";
 import { useTimeSlotsForShop, type QuoteHoldContext } from "@/hooks/useTimeSlotsForShop";
+import { readQuoteUnavailableReason } from "@/utils/quoteAvailability";
 import { useToast } from "@/hooks/useToast";
 import { useUserFromConvex } from "@/hooks/useUserFromConvex";
 import { buildMechanicCarouselItems } from "@/lib/buildMechanicCarouselItems";
@@ -141,10 +142,12 @@ export default function PickDateTimeScreen() {
       ? {
           quote_type: "tire",
           response_id: quoteAcceptContext.responseId as Id<"tire_quote_responses">,
+          revision: quoteAcceptContext.revision,
         }
       : {
           quote_type: "rotor",
           response_id: quoteAcceptContext.responseId as Id<"rotor_quote_responses">,
+          revision: quoteAcceptContext.revision,
         };
   }, [quoteAcceptContext]);
   const [autoConfirmPending, setAutoConfirmPending] = useState(
@@ -492,7 +495,16 @@ export default function PickDateTimeScreen() {
           ? { holdId: res.holdId, expiresAt: res.expiresAt }
           : null,
       );
-    } catch {
+    } catch (error) {
+      const quoteUnavailableReason = readQuoteUnavailableReason(error);
+      if (quoteUnavailableReason) {
+        setQuoteAcceptContext(null);
+        router.replace({
+          pathname: "/(main-tabs)/bookings",
+          params: { tab: "quotes", quoteUnavailable: quoteUnavailableReason },
+        });
+        return;
+      }
       if (isAutoAttempt) {
         showStaleSlotSheet();
         return;

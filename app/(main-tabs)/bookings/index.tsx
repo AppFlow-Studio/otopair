@@ -28,6 +28,7 @@ import {
   type RotorQuoteListSheetRef,
 } from "@/components/bookings/RotorQuoteListSheet";
 import { BookingDetailsSheet, type BookingDetailsSheetRef } from "@/components/bookings/BookingDetailsSheet";
+import { QuoteUnavailableSheet } from "@/components/bookings/QuoteUnavailableSheet";
 import { AvailabilityModal } from "@/components/booking/modals/AvailabilityModal";
 import { ScrollDrivenGradientBackground, Text } from "@/components/shared-ui";
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
@@ -42,6 +43,7 @@ import { useMutationWithToast } from "@/hooks/useMutationWithToast";
 import { formatFeeCents } from "@/constants/bookingActionPolicy";
 import { useToast } from "@/hooks/useToast";
 import type { Id } from "@/convex/_generated/dataModel";
+import type { QuoteUnavailableReason } from "@/utils/quoteAvailability";
 import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { Calendar, CalendarX, Check, ChevronRight, LayoutGrid, ListFilter, Star } from "lucide-react-native";
@@ -104,15 +106,17 @@ export default function BookingsScreen() {
   } = useMyBookingsWithDetails();
   const router = useRouter();
 
-  const { tab: tabParam, bookingId: bookingIdParam, rescheduleError } = useLocalSearchParams<{
+  const { tab: tabParam, bookingId: bookingIdParam, rescheduleError, quoteUnavailable } = useLocalSearchParams<{
     tab?: string;
     bookingId?: string;
     rescheduleError?: string;
+    quoteUnavailable?: string;
   }>();
   const initialTab: TabType = TAB_ORDER.includes(tabParam as TabType)
     ? (tabParam as TabType)
     : "bookings";
   const [activeTab, setActiveTab] = useState<TabType>(initialTab);
+  const [quoteUnavailableReason, setQuoteUnavailableReason] = useState<QuoteUnavailableReason | null>(null);
   // If we land on the screen again with a new `tab` param (e.g. from the
   // tire flow completing), switch to the requested tab.
   useEffect(() => {
@@ -120,6 +124,16 @@ export default function BookingsScreen() {
       setActiveTab(tabParam as TabType);
     }
   }, [tabParam]);
+  useEffect(() => {
+    if (
+      quoteUnavailable === "expired" ||
+      quoteUnavailable === "cancelled" ||
+      quoteUnavailable === "modified" ||
+      quoteUnavailable === "unavailable"
+    ) {
+      setQuoteUnavailableReason(quoteUnavailable);
+    }
+  }, [quoteUnavailable]);
 
   // Mark the Bookings tab as seen whenever it gains focus — clears the
   // red badge on the bottom-nav Bookings icon. (Tied to focus instead of
@@ -603,6 +617,15 @@ export default function BookingsScreen() {
     <QuoteListSheet ref={quoteListSheetRef} />
 
     <RotorQuoteListSheet ref={rotorQuoteListSheetRef} />
+
+    <QuoteUnavailableSheet
+      visible={quoteUnavailableReason != null}
+      reason={quoteUnavailableReason ?? "unavailable"}
+      onDismiss={() => {
+        setQuoteUnavailableReason(null);
+        router.setParams({ quoteUnavailable: "" });
+      }}
+    />
 
     {/* Vehicle picker sheet — drives the filter button above.
         showBackdrop dims + blurs the page behind it. */}

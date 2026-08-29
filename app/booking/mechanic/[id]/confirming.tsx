@@ -57,6 +57,7 @@ const COPY_FADE_DURATION_MS = 600;
 type AcceptQuoteArgs<ResponseTable extends "tire_quote_responses" | "rotor_quote_responses"> = {
   booking_id: Id<"bookings">;
   response_id: Id<ResponseTable>;
+  quote_revision: number;
   scheduled_date: string;
   scheduled_time: string;
   mechanic_id?: Id<"mechanics">;
@@ -322,6 +323,7 @@ export default function BookingConfirmingScreen() {
             ? await acceptRotorQuote({
                 booking_id: quoteAcceptContext.bookingId,
                 response_id: quoteAcceptContext.responseId as Id<"rotor_quote_responses">,
+                quote_revision: quoteAcceptContext.revision,
                 scheduled_date: scheduledAppointment.date,
                 scheduled_time: scheduledTime,
                 mechanic_id: mechanicIdArg,
@@ -331,6 +333,7 @@ export default function BookingConfirmingScreen() {
             : await acceptTireQuote({
                 booking_id: quoteAcceptContext.bookingId,
                 response_id: quoteAcceptContext.responseId as Id<"tire_quote_responses">,
+                quote_revision: quoteAcceptContext.revision,
                 scheduled_date: scheduledAppointment.date,
                 scheduled_time: scheduledTime,
                 mechanic_id: mechanicIdArg,

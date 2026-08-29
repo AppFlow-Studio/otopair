@@ -38,8 +38,8 @@ type TimeSlotRow = {
 };
 
 export type QuoteHoldContext =
-  | { quote_type: "tire"; response_id: Id<"tire_quote_responses"> }
-  | { quote_type: "rotor"; response_id: Id<"rotor_quote_responses"> };
+  | { quote_type: "tire"; response_id: Id<"tire_quote_responses">; revision: number }
+  | { quote_type: "rotor"; response_id: Id<"rotor_quote_responses">; revision: number };
 
 type QuoteAwareTimeSlotArgs = {
   shopId: Id<"shops">;
