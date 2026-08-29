@@ -11,13 +11,21 @@ export function resolveBasketVehicleVin({
   nextServiceCount,
   basketVehicleVin,
   activeVehicleVin,
+  remainingServiceVehicleVins,
 }: {
   previousServiceCount: number;
   nextServiceCount: number;
   basketVehicleVin: string | null;
   activeVehicleVin: string | null;
+  remainingServiceVehicleVins?: readonly (string | null | undefined)[];
 }): string | null {
   if (nextServiceCount === 0) return null;
+
+  const remainingVins = new Set(
+    remainingServiceVehicleVins?.filter((vin): vin is string => Boolean(vin)) ?? [],
+  );
+  if (remainingVins.size === 1) return remainingVins.values().next().value ?? null;
+
   if (previousServiceCount === 0) return activeVehicleVin;
   return basketVehicleVin;
 }

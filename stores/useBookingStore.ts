@@ -582,6 +582,9 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
         nextServiceCount: nextIds.length,
         basketVehicleVin: state.selectedVehicleVin,
         activeVehicleVin,
+        remainingServiceVehicleVins: nextIds.map(
+          (id) => nextServiceVehicleVins[id] ?? state.selectedVehicleVin,
+        ),
       });
 
       return {

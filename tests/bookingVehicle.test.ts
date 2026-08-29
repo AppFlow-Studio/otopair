@@ -58,6 +58,18 @@ describe("resolveBasketVehicleVin", () => {
       }),
     ).toBeNull();
   });
+
+  test("moves the cart to the sole remaining service vehicle", () => {
+    expect(
+      resolveBasketVehicleVin({
+        previousServiceCount: 2,
+        nextServiceCount: 1,
+        basketVehicleVin: "HONDA-VIN",
+        activeVehicleVin: "MERCEDES-VIN",
+        remainingServiceVehicleVins: ["MERCEDES-VIN"],
+      }),
+    ).toBe("MERCEDES-VIN");
+  });
 });
 
 describe("hasConsistentBasketVehicle", () => {
