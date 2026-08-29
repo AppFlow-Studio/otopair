@@ -87,10 +87,10 @@ export function ShopPage({
   );
 
   // Next slot for the shop overall (for the Any-mechanic earliest).
-  const { slots: shopSlots } = useNextAvailabilityForShop(shop.id, null, 1);
+  const { slots: shopSlots } = useNextAvailabilityForShop(shop.id, null, 1, totalMinutes);
 
   // Per-mechanic earliest slots → carousel labels.
-  const { slotsByMechanicId } = useNextAvailabilityPerMechanicForShop(shop.id);
+  const { slotsByMechanicId } = useNextAvailabilityPerMechanicForShop(shop.id, undefined, totalMinutes);
   const allMechanicsMap = useMechanicStore((s) => s.mechanics);
 
   const carouselItems = useMemo<MechanicCarouselItem[]>(() => {

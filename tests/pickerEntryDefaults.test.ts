@@ -1,4 +1,6 @@
 import { describe, expect, test } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
 import {
   findFirstAvailableDate,
@@ -76,4 +78,35 @@ describe("date and mechanic picker entry defaults", () => {
       ),
     ).toBeNull();
   });
+});
+
+test("mechanic-card availability uses the booking duration", () => {
+  const picker = readFileSync(
+    resolve(process.cwd(), "app/(booking-flow)/pick-datetime.tsx"),
+    "utf8",
+  );
+
+  expect(picker).toContain(
+    "const availabilityDurationMinutes = totalMinutes > 0 ? totalMinutes : undefined",
+  );
+  expect(picker).toMatch(
+    /useNextAvailabilityForShop\([\s\S]*?availabilityDurationMinutes[\s\S]*?\)/,
+  );
+  expect(picker).toMatch(
+    /useNextAvailabilityPerMechanicForShop\([\s\S]*?availabilityDurationMinutes[\s\S]*?\)/,
+  );
+});
+
+test("Choose Mechanic availability labels use the selected services duration", () => {
+  const shopPage = readFileSync(
+    resolve(process.cwd(), "components/booking-flow/ShopPage.tsx"),
+    "utf8",
+  );
+
+  expect(shopPage).toMatch(
+    /useNextAvailabilityForShop\(shop\.id, null, 1, totalMinutes\)/,
+  );
+  expect(shopPage).toMatch(
+    /useNextAvailabilityPerMechanicForShop\(shop\.id, undefined, totalMinutes\)/,
+  );
 });

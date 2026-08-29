@@ -188,25 +188,6 @@ export default function PickDateTimeScreen() {
   );
   const { laborHoursMap } = useBookingLaborHoursMap(ownershipId, selectedServiceIds);
 
-  // ── Mechanic strip data ─────────────────────────────────────────────
-  // Same shape ShopPage uses: shop-wide "next slot" feeds the "Any"
-  // card's subtitle, per-mechanic "next slots" feed the individual
-  // mechanic cards. `buildMechanicCarouselItems` is the shared util
-  // so the carousel reads identically here and on the legacy Choose
-  // Mechanic surface.
-  const { slots: shopNextSlots } = useNextAvailabilityForShop(shopId, null, 1);
-  const { slotsByMechanicId } = useNextAvailabilityPerMechanicForShop(shopId);
-  const allMechanicsMap = useMechanicStore((s) => s.mechanics);
-  const mechanicCarouselItems = useMemo(
-    () =>
-      buildMechanicCarouselItems({
-        slotsByMechanicId,
-        mechanicsMap: allMechanicsMap,
-        shopHasAnySlot: shopNextSlots.length > 0,
-      }),
-    [slotsByMechanicId, allMechanicsMap, shopNextSlots.length],
-  );
-
   // Selection summary — services count + total minutes for the card.
   // Quote acceptance has no service-selection cart; duration comes straight
   // from the quote's estimate instead.
@@ -222,6 +203,32 @@ export default function PickDateTimeScreen() {
     }
     return { selectedCount: selected.length, totalMinutes: mins };
   }, [availableServices, selectedServiceIds, laborHoursMap, isQuoteAccept, quoteAcceptContext]);
+
+  // The mechanic labels must use the same job duration as the date and time
+  // queries; otherwise a short closing-time window can look bookable here
+  // even though the picker correctly rejects it.
+  const availabilityDurationMinutes = totalMinutes > 0 ? totalMinutes : undefined;
+  const { slots: shopNextSlots } = useNextAvailabilityForShop(
+    shopId,
+    null,
+    1,
+    availabilityDurationMinutes,
+  );
+  const { slotsByMechanicId } = useNextAvailabilityPerMechanicForShop(
+    shopId,
+    undefined,
+    availabilityDurationMinutes,
+  );
+  const allMechanicsMap = useMechanicStore((s) => s.mechanics);
+  const mechanicCarouselItems = useMemo(
+    () =>
+      buildMechanicCarouselItems({
+        slotsByMechanicId,
+        mechanicsMap: allMechanicsMap,
+        shopHasAnySlot: shopNextSlots.length > 0,
+      }),
+    [slotsByMechanicId, allMechanicsMap, shopNextSlots.length],
+  );
 
   // Manual scheduling starts at today's notice floor. The quoted floor is
   // used only while the earliest-time fast path is being checked.
