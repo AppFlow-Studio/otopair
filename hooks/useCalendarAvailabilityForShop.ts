@@ -68,11 +68,13 @@ export function useCalendarAvailabilityForShop(
 
   return useMemo(() => {
     if (!result) {
-      return { availableDayNumbers: [], bookedDayNumbers: [], isLoading: true };
+      return { availableDates: [], bookedDates: [], availableDayNumbers: [], bookedDayNumbers: [], isLoading: true };
     }
     const availableDayNumbers = result.availableDates.map((d) => parseInt(d.split("-")[2], 10));
     const bookedDayNumbers = result.bookedDates.map((d) => parseInt(d.split("-")[2], 10));
     return {
+      availableDates: result.availableDates,
+      bookedDates: result.bookedDates,
       availableDayNumbers,
       bookedDayNumbers,
       isLoading: false,

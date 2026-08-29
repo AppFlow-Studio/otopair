@@ -24,6 +24,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // 3. Shared UI (design system)
 import { BorderRadius, BrandColors, Shadows, Spacing, Text } from "@/components/shared-ui";
+import { SemanticColors } from "@/constants/theme";
 
 // ============================================================================
 // TYPES
@@ -64,6 +65,8 @@ export function BookingPageHeader({
                 {/* Back Button */}
                 <Pressable
                     onPress={onBack}
+                    accessibilityRole="button"
+                    accessibilityLabel="Go back"
                     hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                     style={styles.backButtonWrapper}
                 >
@@ -73,7 +76,7 @@ export function BookingPageHeader({
                 </Pressable>
 
                 {/* Title */}
-                <View style={styles.titleContainer}>
+                <View pointerEvents="none" style={styles.titleContainer}>
                     <Text size="lg" weight="bold" color={BrandColors.primary} numberOfLines={1}>
                         {title}
                     </Text>
@@ -99,13 +102,14 @@ const styles = StyleSheet.create({
     },
     withBorder: {
         borderBottomWidth: 1,
-        borderBottomColor: "#E5E7EB",
+        borderBottomColor: SemanticColors.border,
     },
     content: {
         flexDirection: "row",
         alignItems: "center",
         justifyContent: "space-between",
         paddingHorizontal: Spacing.lg,
+        position: "relative",
     },
     backButtonWrapper: {
         zIndex: 10,
@@ -120,13 +124,17 @@ const styles = StyleSheet.create({
         ...Shadows.sm,
     },
     titleContainer: {
-        flex: 1,
+        position: "absolute",
+        left: 0,
+        right: 0,
+        height: 40,
         alignItems: "center",
-        marginHorizontal: Spacing.md,
+        justifyContent: "center",
     },
     rightContainer: {
         minWidth: 40,
         alignItems: "flex-end",
+        zIndex: 10,
     },
     spacer: {
         width: 40,

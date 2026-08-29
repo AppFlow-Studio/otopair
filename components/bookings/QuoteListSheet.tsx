@@ -29,7 +29,7 @@ import { TireQuoteCard } from "@/components/tire-booking/TireQuoteCard";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { TireQuote } from "@/constants/tireFlow";
-import { hhmmToDisplayTime } from "@/utils/timeSlotUtils";
+import { hhmmToDisplayTime, isQuotedSlotBookable } from "@/utils/timeSlotUtils";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { useBookingStore } from "@/stores/useBookingStore";
 
@@ -74,7 +74,7 @@ function formatAvailability(date: string, time: string): string {
 
 export interface QuoteListSheetRef {
   /** Open the sheet with quotes for the given booking. */
-  open: (bookingId: string) => void;
+  open: (bookingId: string, vehicleVin: string) => void;
   close: () => void;
 }
 
@@ -88,6 +88,7 @@ export const QuoteListSheet = forwardRef<QuoteListSheetRef, Props>(
     const insets = useSafeAreaInsets();
     const [visible, setVisible] = useState(false);
     const [bookingId, setBookingId] = useState<string | null>(null);
+    const [vehicleVin, setVehicleVin] = useState<string | null>(null);
 
     const router = useRouter();
     const setQuoteAcceptContext = useBookingStore((s) => s.setQuoteAcceptContext);
@@ -98,8 +99,9 @@ export const QuoteListSheet = forwardRef<QuoteListSheetRef, Props>(
     );
 
     useImperativeHandle(ref, () => ({
-      open: (id) => {
+      open: (id, vin) => {
         setBookingId(id);
+        setVehicleVin(vin);
         setVisible(true);
       },
       close: () => {
@@ -153,7 +155,7 @@ export const QuoteListSheet = forwardRef<QuoteListSheetRef, Props>(
     }, [adapted]);
 
     const handleChooseTime = (responseId: string, autoConfirmEarliest = false) => {
-      if (!bookingId || !responses) return;
+      if (!bookingId || !vehicleVin || !responses) return;
       const response = (responses as RawTireQuoteResponse[]).find((r) => r._id === responseId);
       if (!response) return;
 
@@ -163,6 +165,7 @@ export const QuoteListSheet = forwardRef<QuoteListSheetRef, Props>(
         : response.tire_brand;
       setQuoteAcceptContext({
         bookingId: bookingId as Id<"bookings">,
+        vehicleVin,
         quoteType: "tire",
         responseId: response._id,
         shopId: response.shop?._id ?? response.shop_id,
@@ -199,9 +202,18 @@ export const QuoteListSheet = forwardRef<QuoteListSheetRef, Props>(
     const handleBookEarliest = (responseId: string) =>
       handleChooseTime(responseId, true);
 
-    const canBookEarliest = (responseId: string) =>
-      (responses as RawTireQuoteResponse[] | undefined)?.find((r) => r._id === responseId)
-        ?.earliest_slot_available === true;
+    const canBookEarliest = (responseId: string) => {
+      const response = (responses as RawTireQuoteResponse[] | undefined)?.find(
+        (r) => r._id === responseId,
+      );
+      return response
+        ? isQuotedSlotBookable(
+            response.availability.date,
+            response.availability.time,
+            response.earliest_slot_available === true,
+          )
+        : false;
+    };
 
     const isLoading = bookingId != null && responses === undefined;
 

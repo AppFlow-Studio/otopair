@@ -301,10 +301,11 @@ export default function BookingsScreen() {
   const rotorQuoteListSheetRef = useRef<RotorQuoteListSheetRef>(null);
   const handleViewQuotes = (bookingId: string) => {
     const booking = allBookings.find((b) => b.id === bookingId);
-    if (booking?.quoteType === "rotor") {
-      rotorQuoteListSheetRef.current?.open(bookingId);
+    if (!booking?.vin) return;
+    if (booking.quoteType === "rotor") {
+      rotorQuoteListSheetRef.current?.open(bookingId, booking.vin);
     } else {
-      quoteListSheetRef.current?.open(bookingId);
+      quoteListSheetRef.current?.open(bookingId, booking.vin);
     }
   };
 
