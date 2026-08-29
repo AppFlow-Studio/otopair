@@ -11,9 +11,9 @@
 
 import { CalendarClock, CheckCircle2 } from "lucide-react-native";
 import React from "react";
-import { StyleSheet, TouchableOpacity, View } from "react-native";
+import { StyleSheet, View } from "react-native";
 
-import { Text } from "@/components/shared-ui";
+import { Button, Text } from "@/components/shared-ui";
 import { formatPadTypeLabel, type RotorQuote } from "@/constants/rotorFlow";
 import { useDistanceUnit } from "@/hooks/useDistanceUnit";
 import { formatProximityDistanceFromMiles } from "@/utils/geo";
@@ -22,6 +22,7 @@ interface Props {
   quote: RotorQuote;
   variant: "primary" | "secondary";
   onBook: () => void;
+  onBookEarliest?: () => void;
 }
 
 const BEST_MATCH_ACCENT = "#C8972E";
@@ -31,7 +32,7 @@ function formatMoney(n: number): string {
   return `$${n.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 }
 
-export function RotorQuoteCard({ quote, variant, onBook }: Props) {
+export function RotorQuoteCard({ quote, variant, onBook, onBookEarliest }: Props) {
   const distanceUnit = useDistanceUnit();
   const isPrimary = variant === "primary";
   const perRotorLabel = `${formatMoney(quote.perRotorPrice)} × ${quote.quantity}`;
@@ -94,18 +95,41 @@ export function RotorQuoteCard({ quote, variant, onBook }: Props) {
         </View>
       </View>
 
-      <View style={styles.availabilityRow}>
-        <CalendarClock size={14} color="#6B7280" strokeWidth={2.2} />
-        <Text size="xs" weight="medium" color="#6B7280">
-          Earliest: {quote.availability}
-        </Text>
-      </View>
+      {onBookEarliest ? (
+        <View style={styles.availabilityRow}>
+          <CalendarClock size={14} color="#6B7280" strokeWidth={2.2} />
+          <Text size="xs" weight="medium" color="#6B7280">
+            Earliest: {quote.availability}
+          </Text>
+        </View>
+      ) : null}
 
-      <TouchableOpacity style={styles.bookButton} onPress={onBook} activeOpacity={0.85}>
-        <Text size="md" weight="semiBold" color="#FFFFFF">
-          Choose time
-        </Text>
-      </TouchableOpacity>
+      <View style={styles.actions}>
+        {onBookEarliest ? (
+          <Button
+            style={styles.bookButton}
+            onPress={onBookEarliest}
+            fullWidth
+            backgroundColor={BOOK_BLUE}
+            borderRadius={12}
+            accessibilityLabel="Book earliest time"
+          >
+            Book earliest time
+          </Button>
+        ) : null}
+        <Button
+          variant={onBookEarliest ? "secondary" : "primary"}
+          style={[styles.bookButton, onBookEarliest ? styles.secondaryButton : null]}
+          onPress={onBook}
+          fullWidth
+          backgroundColor={onBookEarliest ? "#FFFFFF" : BOOK_BLUE}
+          textColor={onBookEarliest ? BOOK_BLUE : "#FFFFFF"}
+          borderRadius={12}
+          accessibilityLabel={onBookEarliest ? "Choose a different time" : "Choose time"}
+        >
+          {onBookEarliest ? "Choose a different time" : "Choose time"}
+        </Button>
+      </View>
     </View>
   );
 }
@@ -202,11 +226,19 @@ const styles = StyleSheet.create({
     alignSelf: "flex-start",
   },
   bookButton: {
-    marginTop: 14,
     height: 48,
     borderRadius: 12,
     backgroundColor: BOOK_BLUE,
     alignItems: "center",
     justifyContent: "center",
+  },
+  actions: {
+    marginTop: 14,
+    gap: 10,
+  },
+  secondaryButton: {
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: BOOK_BLUE,
   },
 });

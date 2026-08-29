@@ -29,7 +29,7 @@ import { TireQuoteCard } from "@/components/tire-booking/TireQuoteCard";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { TireQuote } from "@/constants/tireFlow";
-import { hhmmToDisplayTime } from "@/utils/timeSlotUtils";
+import { hhmmToDisplayTime, isQuotedSlotBookable } from "@/utils/timeSlotUtils";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { useBookingStore } from "@/stores/useBookingStore";
 
@@ -48,6 +48,7 @@ interface RawTireQuoteResponse {
   total: number;
   availability: { date: string; time: string };
   estimated_duration_minutes?: number;
+  earliest_slot_available?: boolean;
   shop: {
     _id: string;
     name: string;
@@ -73,7 +74,7 @@ function formatAvailability(date: string, time: string): string {
 
 export interface QuoteListSheetRef {
   /** Open the sheet with quotes for the given booking. */
-  open: (bookingId: string) => void;
+  open: (bookingId: string, vehicleVin: string) => void;
   close: () => void;
 }
 
@@ -87,6 +88,7 @@ export const QuoteListSheet = forwardRef<QuoteListSheetRef, Props>(
     const insets = useSafeAreaInsets();
     const [visible, setVisible] = useState(false);
     const [bookingId, setBookingId] = useState<string | null>(null);
+    const [vehicleVin, setVehicleVin] = useState<string | null>(null);
 
     const router = useRouter();
     const setQuoteAcceptContext = useBookingStore((s) => s.setQuoteAcceptContext);
@@ -97,8 +99,9 @@ export const QuoteListSheet = forwardRef<QuoteListSheetRef, Props>(
     );
 
     useImperativeHandle(ref, () => ({
-      open: (id) => {
+      open: (id, vin) => {
         setBookingId(id);
+        setVehicleVin(vin);
         setVisible(true);
       },
       close: () => {
@@ -151,8 +154,8 @@ export const QuoteListSheet = forwardRef<QuoteListSheetRef, Props>(
       return { best: b, others: rest };
     }, [adapted]);
 
-    const handleChooseTime = (responseId: string) => {
-      if (!bookingId || !responses) return;
+    const handleChooseTime = (responseId: string, autoConfirmEarliest = false) => {
+      if (!bookingId || !vehicleVin || !responses) return;
       const response = (responses as RawTireQuoteResponse[]).find((r) => r._id === responseId);
       if (!response) return;
 
@@ -162,6 +165,7 @@ export const QuoteListSheet = forwardRef<QuoteListSheetRef, Props>(
         : response.tire_brand;
       setQuoteAcceptContext({
         bookingId: bookingId as Id<"bookings">,
+        vehicleVin,
         quoteType: "tire",
         responseId: response._id,
         shopId: response.shop?._id ?? response.shop_id,
@@ -189,7 +193,26 @@ export const QuoteListSheet = forwardRef<QuoteListSheetRef, Props>(
       const shopId = response.shop?._id ?? response.shop_id;
       setVisible(false);
       onClose?.();
-      router.push({ pathname: "/(booking-flow)/pick-datetime", params: { shopId } });
+      router.push({
+        pathname: "/(booking-flow)/pick-datetime",
+        params: { shopId, ...(autoConfirmEarliest ? { autoConfirmEarliest: "1" } : {}) },
+      });
+    };
+
+    const handleBookEarliest = (responseId: string) =>
+      handleChooseTime(responseId, true);
+
+    const canBookEarliest = (responseId: string) => {
+      const response = (responses as RawTireQuoteResponse[] | undefined)?.find(
+        (r) => r._id === responseId,
+      );
+      return response
+        ? isQuotedSlotBookable(
+            response.availability.date,
+            response.availability.time,
+            response.earliest_slot_available === true,
+          )
+        : false;
     };
 
     const isLoading = bookingId != null && responses === undefined;
@@ -238,6 +261,9 @@ export const QuoteListSheet = forwardRef<QuoteListSheetRef, Props>(
                     quote={best}
                     variant="primary"
                     onBook={() => handleChooseTime(best.id)}
+                    onBookEarliest={
+                      canBookEarliest(best.id) ? () => handleBookEarliest(best.id) : undefined
+                    }
                   />
                 ) : null}
 
@@ -257,6 +283,9 @@ export const QuoteListSheet = forwardRef<QuoteListSheetRef, Props>(
                         quote={q}
                         variant="secondary"
                         onBook={() => handleChooseTime(q.id)}
+                        onBookEarliest={
+                          canBookEarliest(q.id) ? () => handleBookEarliest(q.id) : undefined
+                        }
                       />
                     ))}
                   </>

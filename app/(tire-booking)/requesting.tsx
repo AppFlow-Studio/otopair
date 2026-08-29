@@ -36,6 +36,7 @@ import { TIRE_TIERS, TIRE_TYPES } from "@/constants/tireFlow";
 import { useCreateTireQuoteRequest } from "@/hooks/useCreateTireQuoteRequest";
 import { calculateBookingConfirmLayout } from "@/lib/bookingConfirmSheet";
 import { useTireBookingStore } from "@/stores/useTireBookingStore";
+import { useVehicleStore } from "@/stores/useVehicleStore";
 
 interface TireRequestingScreenProps {
   /** Modal-mode close — when set, "Go back" closes the outer modal entirely. */
@@ -52,6 +53,10 @@ export default function TireRequestingScreen({ onClose, onConfirmed }: TireReque
   const statusSheetRef = useRef<FloatingSheetRef>(null);
   const confirmSheetRef = useRef<QuoteRequestConfirmationSheetRef>(null);
   const confirmedRef = useRef(false);
+  const requestVehicleVinRef = useRef<string | null>(
+    useTireBookingStore.getState().vehicleId ?? useVehicleStore.getState().selectedVehicleId,
+  );
+  const requestVehicleVin = requestVehicleVinRef.current;
   const isCompactLayout = windowHeight < 860;
   const isVeryCompactLayout = windowHeight < 760;
   const confirmLayout = useMemo(
@@ -114,6 +119,7 @@ export default function TireRequestingScreen({ onClose, onConfirmed }: TireReque
 
     void createTireQuoteRequest({
       tiresLabel,
+      vehicleVin: requestVehicleVin,
       tireSpecs: {
         size: tireSize ?? "",
         type: typeLabel,
@@ -129,7 +135,7 @@ export default function TireRequestingScreen({ onClose, onConfirmed }: TireReque
     setTimeout(() => {
       confirmSheetRef.current?.open();
     }, 250);
-  }, [createTireQuoteRequest, selectedTirePositions, tier, tireSize, tireType]);
+  }, [createTireQuoteRequest, requestVehicleVin, selectedTirePositions, tier, tireSize, tireType]);
 
   const handleBackToBooking = useCallback(() => {
     confirmSheetRef.current?.close();
@@ -188,12 +194,14 @@ export default function TireRequestingScreen({ onClose, onConfirmed }: TireReque
         <QuoteRequestStatus
           onGoBack={handleGoBack}
           onViewUpcoming={handleViewUpcoming}
+          vehicleVin={requestVehicleVin}
         />
       </FloatingSheet>
 
       <QuoteRequestConfirmationSheet
         ref={confirmSheetRef}
         onViewBooking={handleBackToBooking}
+        vehicleVin={requestVehicleVin}
       />
     </View>
   );

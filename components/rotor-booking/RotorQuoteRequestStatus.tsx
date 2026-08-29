@@ -37,13 +37,15 @@ function formatClock(d: Date): string {
 interface Props {
   onViewUpcoming: () => void;
   onGoBack: () => void;
+  /** VIN captured when this quote request started. */
+  vehicleVin: string | null;
 }
 
-export function RotorQuoteRequestStatus({ onViewUpcoming, onGoBack }: Props) {
+export function RotorQuoteRequestStatus({ onViewUpcoming, onGoBack, vehicleVin }: Props) {
   const axle = useRotorBookingStore((s) => s.axle);
   const brakeSystemType = useRotorBookingStore((s) => s.brakeSystemType);
-  const selectedVehicle = useVehicleStore((s) =>
-    s.selectedVehicleId ? s.vehicles[s.selectedVehicleId] : undefined,
+  const requestVehicle = useVehicleStore((s) =>
+    vehicleVin ? s.vehicles[vehicleVin] : undefined,
   );
 
   const etaLabel = useMemo(() => {
@@ -53,8 +55,8 @@ export function RotorQuoteRequestStatus({ onViewUpcoming, onGoBack }: Props) {
     return `${formatClock(start)} – ${formatClock(end)}`;
   }, []);
 
-  const vehicleLabel = selectedVehicle
-    ? `${selectedVehicle.year} ${selectedVehicle.make} ${selectedVehicle.model}`
+  const vehicleLabel = requestVehicle
+    ? `${requestVehicle.year} ${requestVehicle.make} ${requestVehicle.model}`
     : "Selected vehicle";
 
   const rotorsLabel =
@@ -76,7 +78,7 @@ export function RotorQuoteRequestStatus({ onViewUpcoming, onGoBack }: Props) {
         <InfoRow
           icon={<Car size={20} color="#4B5563" strokeWidth={2} />}
           primary={vehicleLabel}
-          secondary={selectedVehicle?.vin ? `VIN · ${selectedVehicle.vin}` : undefined}
+          secondary={requestVehicle?.vin ? `VIN · ${requestVehicle.vin}` : undefined}
         />
         <Divider />
         <InfoRow

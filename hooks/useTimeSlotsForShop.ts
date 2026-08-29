@@ -8,6 +8,7 @@
  */
 
 import { useQuery } from "convex/react";
+import type { FunctionReference } from "convex/server";
 import { useMemo } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -36,24 +37,45 @@ type TimeSlotRow = {
   end_time: string;
 };
 
+export type QuoteHoldContext =
+  | { quote_type: "tire"; response_id: Id<"tire_quote_responses"> }
+  | { quote_type: "rotor"; response_id: Id<"rotor_quote_responses"> };
+
+type QuoteAwareTimeSlotArgs = {
+  shopId: Id<"shops">;
+  date: string;
+  mechanicId?: Id<"mechanics">;
+  durationMinutes?: number;
+  quote_context?: QuoteHoldContext;
+};
+
+const getQuoteAwareTimeSlots = api.time_slots.getByShopAndDate as FunctionReference<
+  "query",
+  "public",
+  QuoteAwareTimeSlotArgs,
+  TimeSlotRow[]
+>;
+
 export function useTimeSlotsForShop(
   shopId: string | null,
   date: string | null,
   mechanicId?: string | null,
   durationMinutes?: number,
+  quoteContext?: QuoteHoldContext,
 ) {
   // Skip query for mock IDs (e.g. "1", "2") — only call Convex with real IDs
   const isRealShopId = shopId != null && shopId.length > 10;
   const isRealMechanicId = mechanicId != null && mechanicId.length > 10;
 
   const slots = useQuery(
-    api.time_slots.getByShopAndDate,
+    getQuoteAwareTimeSlots,
     isRealShopId && date
       ? {
           shopId: shopId as Id<"shops">,
           date,
           mechanicId: isRealMechanicId ? (mechanicId as Id<"mechanics">) : undefined,
           durationMinutes,
+          quote_context: quoteContext,
         }
       : "skip",
   );
