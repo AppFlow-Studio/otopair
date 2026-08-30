@@ -52,6 +52,7 @@ import type { QuestionDef } from "@/components/cars/QuestionOverlay";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { scale, verticalScale, moderateScale } from '@/utils/responsive';
+import { firedTiles, type QuickCheckTileId } from "@/utils/quickCheckFiring";
 
 
 // ============================================================================
@@ -105,6 +106,18 @@ interface CarInfoStepperProps {
    *  grid rehydrates already-answered cards as complete. See
    *  `vehicle_owners.serviceHistoryDraft`. */
   initialDraft?: ServiceHistoryDraft | null;
+  /** Current odometer, from `vehicle_owners.mileage`. Drives the miles half of
+   *  the firing rules (Quick Check Spec v2 §4). Null is honest — the miles arm
+   *  simply never fires and tiles come from age alone. Note callers must pass
+   *  the raw ownership mileage, NOT the Cars tab's `currentOdometer`, which is
+   *  deliberately null until onboarding completes. */
+  currentMiles?: number | null;
+  /** `vehicle_owners.avgMonthlyDriving` — turns a month/year answer into a
+   *  mileage anchor when the driver doesn't type one. */
+  avgMonthlyDriving?: string | null;
+  /** Resolved Convex config for this vehicle. Feeds OEM intervals + the
+   *  vehicle-class profile that Bigger Services assembles from. */
+  vehicleConfigId?: Id<"vehicle_configs"> | null;
 }
 
 interface ServiceHistoryDraft {
@@ -539,9 +552,30 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
   onBack,
   initialDraft,
   onAllDoneChange,
+  currentMiles = null,
+  avgMonthlyDriving = null,
+  vehicleConfigId = null,
 }: CarInfoStepperProps, ref) {
-  console.log('[CarInfoStepper] rendering — vehicleOwnerId:', vehicleOwnerId);
   const insets = useSafeAreaInsets();
+
+  // Which tiles this specific car is worth asking about — Quick Check Spec v2
+  // §4. Single source of truth: the grid, the "N of M" counter, canGoNext,
+  // allDone and both write loops all read this, so they cannot disagree the way
+  // the hardcoded ALL_CARD_IDS list let them.
+  //
+  // biggerServiceCandidates is 0 until that tile is built (step 8) — the tile
+  // simply doesn't render, which is exactly the spec's behaviour when nothing
+  // qualifies.
+  const fired = useMemo(
+    () =>
+      firedTiles({
+        currentMiles,
+        modelYear: vehicleYear ?? null,
+        biggerServiceCandidates: 0,
+      }),
+    [currentMiles, vehicleYear],
+  );
+  const firedSet = useMemo(() => new Set<QuickCheckTileId>(fired), [fired]);
   const saveField = useMutation(api.vehicles.saveOnboardingField);
   const saveServiceHistoryDraft = useMutation(api.vehicle_owners.saveServiceHistoryDraft);
   const markComplete = useMutation(api.vehicle_owners.markOnboardingComplete);

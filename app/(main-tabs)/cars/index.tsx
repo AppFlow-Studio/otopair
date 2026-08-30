@@ -2723,6 +2723,12 @@ export default function CarsHomeScreen() {
                   vehicleModel={activeVehicle?.model ?? ''}
                   vehicleYear={activeVehicle?.year ?? 0}
                   initialDraft={activeOwnership?.serviceHistoryDraft ?? null}
+              // Raw ownership mileage, NOT currentOdometer — that one is
+              // deliberately null until onboarding completes (L1262), which is
+              // precisely while this stepper is on screen.
+              currentMiles={activeOwnershipMileage ?? null}
+              avgMonthlyDriving={(activeOwnership?.avgMonthlyDriving as string | undefined) ?? null}
+              vehicleConfigId={activeVehicleConfigId ?? null}
                   onAllDoneChange={setStepperAllDone}
                   skipIntro
                   onBack={closeHealthSheet}
