@@ -129,6 +129,9 @@ export function findFirstAvailableDate(
 }
 
 const DAY_ABBREV = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const DAY_LONG = [
+  "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
+];
 
 /** Parse YYYY-MM-DD and return { dayOfWeek, day } for display */
 export function dateToDayDisplay(dateStr: string): {
@@ -141,4 +144,10 @@ export function dateToDayDisplay(dateStr: string): {
     dayOfWeek: DAY_ABBREV[date.getDay()],
     day: String(date.getDate()),
   };
+}
+
+/** Parse YYYY-MM-DD and return the full weekday name ("Friday"). */
+export function weekdayLongFromISO(dateStr: string): string {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  return DAY_LONG[new Date(y, m - 1, d).getDay()];
 }

@@ -42,7 +42,8 @@ import { Spacing } from '@/constants/theme';
 import { api } from '@/convex/_generated/api';
 import { Id } from '@/convex/_generated/dataModel';
 import { scale, verticalScale, moderateScale } from '@/utils/responsive';
-import { classifyColorFamily, fetchVehicleImageUrl, pickBestVdbTrim, pickSilhouetteVariant, useVdbColorsForVin, useVdbVariants, type VdbVariant } from '@/utils/vehicleImage';
+import { classifyColorFamily, fetchVehicleImageUrl, pickBestVdbTrim, pickSilhouetteVariant, useVdbColorsForVin } from '@/utils/vehicleImage';
+import { useYmmTrims } from '@/hooks/useYmmTrims';
 import { COLOR_GRADIENTS } from '@/constants/colorGradients';
 import { ColorSwatchSkeletonRow, VehicleImageSkeleton } from '@/components/shared-ui/ColorSwatchSkeleton';
 import { FloatingSheet, type FloatingSheetRef } from '@/components/shared-ui/FloatingSheet';
@@ -183,32 +184,26 @@ export default function AddVehicleReviewScreen() {
   type ColorOption = { id: string; label: string; hex: string };
   const yearNum = params.year ? parseInt(params.year, 10) : undefined;
 
-  // Canonical trim picker. VDB's `ymm-specs/options/v3/trim` returns the
-  // exact trim strings the vehicle-images endpoint accepts; the VIN decode
-  // only gives the base trim, so we let the user override here. Defaults to
-  // the canonical entry that best matches the decoded trim.
-  const { variants: vdbVariants } = useVdbVariants(yearNum, params.make ?? '', params.model ?? '', {
-    vdbDecodedModel: params.vdbDecodedModel,
-    nhtsaModel: params.nhtsaModel,
-    nhtsaSeries: params.nhtsaSeries,
-    nhtsaTrim: params.nhtsaTrim,
-    trim: params.trim,
-  });
-  const [selectedVariant, setSelectedVariant] = useState<VdbVariant | null>(null);
+  // Trim picker — trims now come from the premium Car API + MarketCheck
+  // (via ymmtCatalog.resolveTrimsForYmm), not VDB. The VIN decode only gives
+  // the base trim, so we let the user override here, defaulting to the entry
+  // that best matches the decoded trim. Images/colors below stay on VDB and
+  // resolve primarily by VIN, so the trim source swap doesn't affect them.
+  const { trims: ymmTrims } = useYmmTrims(yearNum, params.make ?? '', params.model ?? '');
+  const [selectedTrim, setSelectedTrim] = useState<string | null>(null);
   const [showTrimSheet, setShowTrimSheet] = useState(false);
   const trimSheetRef = useRef<FloatingSheetRef>(null);
   useEffect(() => {
-    if (selectedVariant || vdbVariants.length === 0) return;
-    const trimLabels = vdbVariants.map((v) => v.trim);
-    const bestTrim = pickBestVdbTrim(trimLabels, [params.trim, params.nhtsaTrim]);
-    const match = vdbVariants.find((v) => v.trim === bestTrim) ?? vdbVariants[0];
-    setSelectedVariant(match);
-  }, [vdbVariants, selectedVariant, params.trim, params.nhtsaTrim]);
-  // Each variant carries its catalog model — critical for makes that
-  // split engine variants into separate models (Mercedes GLE 350 vs GLE
-  // 580). Fall back to the merged params model when nothing's resolved.
-  const effectiveModel = selectedVariant?.model ?? params.model;
-  const effectiveTrim = selectedVariant?.trim ?? params.trim;
+    if (selectedTrim || ymmTrims.length === 0) return;
+    const bestTrim = pickBestVdbTrim(ymmTrims, [params.trim, params.nhtsaTrim]);
+    const match = ymmTrims.find((t) => t === bestTrim) ?? ymmTrims[0];
+    setSelectedTrim(match);
+  }, [ymmTrims, selectedTrim, params.trim, params.nhtsaTrim]);
+  // The VDB catalog model for images is resolved inside useVdbColorsForVin
+  // from the decode hints below, so we no longer need a per-trim model here —
+  // the merged params model is the correct persisted identity.
+  const effectiveModel = params.model;
+  const effectiveTrim = selectedTrim ?? params.trim;
   useEffect(() => {
     if (showTrimSheet) trimSheetRef.current?.open();
   }, [showTrimSheet]);
@@ -646,10 +641,10 @@ export default function AddVehicleReviewScreen() {
             {params.make} {params.model}
           </Text>
           <Pressable
-            onPress={() => { if (vdbVariants.length > 0) setShowTrimSheet(true); }}
+            onPress={() => { if (ymmTrims.length > 0) setShowTrimSheet(true); }}
             hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
             style={({ pressed }) => [styles.trimPill, pressed && { opacity: 0.85 }]}
-            disabled={vdbVariants.length === 0}
+            disabled={ymmTrims.length === 0}
           >
             <View style={styles.trimPillIcon}>
               <Car size={scale(13)} color="#5299FE" strokeWidth={2.2} />
@@ -663,7 +658,7 @@ export default function AddVehicleReviewScreen() {
             >
               {effectiveTrim || 'Base'}
             </Text>
-            {vdbVariants.length > 0 && (
+            {ymmTrims.length > 0 && (
               <ChevronDown size={scale(14)} color="#5299FE" strokeWidth={2.2} />
             )}
           </Pressable>
@@ -799,11 +794,11 @@ export default function AddVehicleReviewScreen() {
       </ScrollView>
 
       {/* Trim picker sheet — opens when the user taps the trim pill above.
-          Lists VDB's canonical trims for this YMM; selecting one updates
-          `selectedTrim` which re-keys the colors/image fetch. */}
+          Lists the Car API + MarketCheck trims for this YMM; selecting one
+          updates `selectedTrim` which re-keys the colors/image fetch. */}
       <FloatingSheet
         ref={trimSheetRef}
-        snapHeights={[Math.min(500, 140 + vdbVariants.length * 72)]}
+        snapHeights={[Math.min(500, 140 + ymmTrims.length * 72)]}
         showBackdrop
         backdropMode="blur"
         onClose={() => setShowTrimSheet(false)}
@@ -835,16 +830,13 @@ export default function AddVehicleReviewScreen() {
           contentContainerStyle={styles.trimSheetBody}
           showsVerticalScrollIndicator={false}
         >
-          {vdbVariants.map((variant) => {
-            const isSelected =
-              !!selectedVariant &&
-              selectedVariant.model === variant.model &&
-              selectedVariant.trim === variant.trim;
+          {ymmTrims.map((trimName, idx) => {
+            const isSelected = selectedTrim === trimName;
             return (
               <Pressable
-                key={`${variant.model}|${variant.trim}`}
+                key={`${trimName}-${idx}`}
                 onPress={() => {
-                  setSelectedVariant(variant);
+                  setSelectedTrim(trimName);
                   trimSheetRef.current?.close();
                 }}
                 style={({ pressed }) => [
@@ -862,7 +854,7 @@ export default function AddVehicleReviewScreen() {
                   numberOfLines={2}
                   style={styles.trimRowLabel}
                 >
-                  {variant.trim}
+                  {trimName}
                 </Text>
                 {isSelected ? (
                   <View style={styles.trimRowCheckPill}>

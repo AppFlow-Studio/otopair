@@ -16,6 +16,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   Dimensions,
   Pressable,
   StyleSheet,
@@ -23,6 +24,8 @@ import {
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from "react-native";
+import { useMutation } from "convex/react";
+import type { FunctionReference } from "convex/server";
 // gesture-handler ScrollView so the nested mechanic-carousel swipe
 // composes with the shop pager on Android (see the android-gestures
 // source test).
@@ -33,16 +36,21 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import BottomSheet, {
   BottomSheetFooter,
   BottomSheetView,
+  useBottomSheetTimingConfigs,
   type BottomSheetFooterProps,
 } from "@gorhom/bottom-sheet";
-import { ArrowLeft, ArrowRight, Crosshair, Minus, Plus } from "lucide-react-native";
+import { ArrowLeft, ArrowRight, Calendar, Crosshair, Minus, Plus } from "lucide-react-native";
 import MapView, { Marker, PROVIDER_DEFAULT } from "react-native-maps";
 import Animated, {
+  Easing,
   Extrapolation,
   interpolate,
   useAnimatedStyle,
   useSharedValue,
 } from "react-native-reanimated";
+
+import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 
 import { Text } from "@/components/shared-ui";
 import { useBookingFlowMap } from "@/components/booking-flow/BookingFlowMap";
@@ -60,28 +68,73 @@ import { useNextAvailabilityForShop } from "@/hooks/useNextAvailabilityForShop";
 import { useBookingLaborHoursMap } from "@/hooks/useBookingLaborHoursMap";
 import { useBookingPartsBreakdown } from "@/hooks/useBookingPartsBreakdown";
 import { useShopFixedPricesForServices } from "@/hooks/useShopFixedPricesForServices";
+import { useToast } from "@/hooks/useToast";
+import { useUserFromConvex } from "@/hooks/useUserFromConvex";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 import { buildShopPriceLabel } from "@/lib/shopPriceLabel";
+import { weekdayLongFromISO } from "@/utils/timeSlotUtils";
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
+const SCREEN_HEIGHT = Dimensions.get("window").height;
 // The sheet is a floating detached card inset from the screen edges, so its
 // inner width (and therefore the paged shop carousel's page width) is the
 // screen minus the side insets — NOT the full screen width. The external
 // browse-card carousel still spans the full screen, so it keeps SCREEN_WIDTH.
 const SHEET_SIDE_INSET = 12;
 const SHEET_WIDTH = SCREEN_WIDTH - SHEET_SIDE_INSET * 2;
-// Single low snap point (~56%) — sits low enough that the floating shop
-// card above it stays visible, while fitting the shop content above the
-// pinned Continue footer. With `enablePanDownToClose`, the user can still
-// drag the sheet OUT of view entirely — at which point `sheetIndex === -1`
-// and the screen swaps to the browse-card carousel (ChatGPT-style "shops on
-// a map" mode). Tap a card to bring the sheet back to index 0.
-const SNAP_POINTS = ["56%"] as const;
-// Height reserved at the bottom of the sheet for the pinned Continue footer
-// (paddingTop 10 + 56 button + paddingBottom 16). The sheet content pads by
-// this so its last row clears the footer.
+// The sheet is dynamically sized (`enableDynamicSizing`): its height tracks
+// the measured content, so it stays as short as the one-decision card needs
+// and grows only when the mechanic picker accordion opens. Capped below screen
+// so a shop with many mechanics can't push the sheet past the top. With
+// `enablePanDownToClose`, the user can still drag it OUT of view entirely — at
+// which point `sheetIndex === -1` and the screen swaps to the browse-card
+// carousel (ChatGPT-style "shops on a map" mode). Tap a card to reopen it.
+const SHEET_MAX_HEIGHT = Math.round(SCREEN_HEIGHT * 0.88);
+// Height reserved at the bottom of the sheet for the pinned footer (paddingTop
+// 10 + 56 button + paddingBottom 16). The sheet content pads by this so its
+// last row clears the footer, and — since the footer floats over the measured
+// content — this reserve is what makes the dynamic height include it.
 const SHEET_FOOTER_HEIGHT = 82;
+
+// Slot-hold mutation — reserve the earliest slot the instant the customer taps
+// the Book CTA, before the payment hop, so it can't be double-booked during
+// checkout (same reservation the manual pick-datetime path performs).
+type HoldSlotArgs = {
+  shop_id: Id<"shops">;
+  mechanic_id?: Id<"mechanics">;
+  date: string;
+  start_time: string;
+  duration_minutes: number;
+  session_id: string;
+  held_by?: Id<"users">;
+};
+type HoldSlotResult = {
+  holdId: Id<"slot_holds"> | null;
+  mechanicId: Id<"mechanics"> | null;
+  expiresAt: number | null;
+  disabled?: boolean;
+};
+const holdSlotRef = api.slotHolds.holdSlot as FunctionReference<
+  "mutation",
+  "public",
+  HoldSlotArgs,
+  HoldSlotResult
+>;
+
+const DAY_ABBREV = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const MONTH_LONG = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+
+// "Fri, June 9" — the display date payment/confirmation read off the booking
+// store (mirrors pick-datetime's formatDateHeader so both entry paths match).
+function formatBookingDate(iso: string): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  const dt = new Date(y, m - 1, d);
+  return `${DAY_ABBREV[dt.getDay()]}, ${MONTH_LONG[dt.getMonth()]} ${dt.getDate()}`;
+}
 
 export default function ChooseMechanicScreen() {
   const router = useRouter();
@@ -97,6 +150,22 @@ export default function ChooseMechanicScreen() {
   // `clearPreSelections` (booking store) on flow reset.
   const preSelectedShopId = useBookingStore((s) => s.preSelectedShopId);
   const ownershipId = useVehicleStore((s) => s.getSelectedVehicle())?.ownershipId;
+
+  // Booking-store writers + the slot hold, for the Book CTA's straight-to-pay
+  // fast path (hold the earliest slot, seed the store, push Review & Pay — the
+  // same handoff pick-datetime does, minus the calendar).
+  const ensureHoldSessionId = useBookingStore((s) => s.ensureHoldSessionId);
+  const setSlotHold = useBookingStore((s) => s.setSlotHold);
+  const setSelectedMechanicSlot = useBookingStore((s) => s.setSelectedMechanicSlot);
+  const setScheduledAppointment = useBookingStore((s) => s.setScheduledAppointment);
+  const selectMechanic = useBookingStore((s) => s.selectMechanic);
+  const getMechanicById = useMechanicStore((s) => s.getMechanicById);
+  const holdSlot = useMutation(holdSlotRef);
+  const { userId } = useUserFromConvex();
+  const toast = useToast();
+  // Guards against a double-tap / shows a spinner in the CTA while the hold
+  // round-trips before we navigate to payment.
+  const [isBookingEarliest, setIsBookingEarliest] = useState(false);
 
   // Engine-adjusted + director-rounded labor (empirical → book →
   // engine-tier → catalog-default) — same source as Review & Pay so the
@@ -213,11 +282,6 @@ export default function ChooseMechanicScreen() {
   const [activeIndex, setActiveIndex] = useState(0);
   const activeShop = nearbyShops[activeIndex]?.shop ?? null;
 
-  // Android gesture fix: while the user is touching the mechanic
-  // carousel inside a ShopPage, disable the outer shop pager so the
-  // horizontal swipe isn't hijacked by the parent ScrollView.
-  const [isMechanicCarouselInteracting, setIsMechanicCarouselInteracting] = useState(false);
-
   // Bottom-sheet snap index. Drives the chrome swap when the user
   // swipes the sheet fully closed (`sheetIndex === -1`): hide the
   // Continue CTA + the rich MapShopCard, show the
@@ -225,6 +289,21 @@ export default function ChooseMechanicScreen() {
   // is the focus while the user browses pins.
   const [sheetIndex, setSheetIndex] = useState(0);
   const isSheetHidden = sheetIndex === -1;
+
+  // Mechanic-picker accordion state. Expanding it adds rows to the page; the
+  // dynamically-sized sheet grows to fit automatically (no snap juggling).
+  const [mechanicPickerExpanded, setMechanicPickerExpanded] = useState(false);
+
+  // Measured natural height of each shop page (keyed by index). The horizontal
+  // pager has no intrinsic height, so we drive its height — and, through it,
+  // the dynamic sheet — from the tallest measured page. Max keeps the height
+  // stable across swipes (pages are near-identical) and grows when the shared
+  // accordion opens.
+  const [pageHeights, setPageHeights] = useState<Record<number, number>>({});
+  const pagerHeight = useMemo(() => {
+    const vals = Object.values(pageHeights);
+    return vals.length > 0 ? Math.max(...vals) : null;
+  }, [pageHeights]);
 
   // Per-(shop, service, tier) flat-price overrides for the active shop.
   // When a service is offered at a fixed rate the price renders as a
@@ -257,17 +336,12 @@ export default function ChooseMechanicScreen() {
     ? selectedMechanicByShop[activeShop.id] ?? null
     : null;
 
-  const allMechanicsMap = useMechanicStore((s) => s.mechanics);
-  const selectedMechanic = selectedMechanicId
-    ? allMechanicsMap[selectedMechanicId] ?? null
-    : null;
   // When the user arrives with an empty cart (e.g. the Home map-browse
   // entry), the sheet doubles as a shop browser and the CTA becomes a
-  // "pick services" affordance instead of advancing to date/time.
+  // "pick services" affordance instead of advancing to booking. The
+  // per-mechanic CTA label lives in `bookCtaLabel` (computed once the active
+  // shop's earliest slot resolves, below).
   const hasServices = selectedServiceIds.length > 0;
-  const continueLabel = hasServices
-    ? `Continue with ${selectedMechanic?.name ?? "Any"}`
-    : "Select services";
 
   // Map setup. We mount a LOCAL MapView as a direct child of this
   // screen (see render below) instead of driving the shared
@@ -297,10 +371,30 @@ export default function ChooseMechanicScreen() {
   // re-open it (snapToIndex(0)).
   const bottomSheetRef = useRef<BottomSheet | null>(null);
   // gorhom's `animatedIndex` shared value. -1 = fully closed, 0 =
-  // first snap (53%), 1 = second snap (82%). Drives the Continue
-  // bar's fade so the bar tracks the sheet's drag continuously
+  // first snap (56%), 1 = second snap (86%). Drives the footer +
+  // shop-card fade so they track the sheet's drag continuously
   // instead of popping in/out at the snap-change boundary.
   const sheetAnimatedIndex = useSharedValue(0);
+
+  // Expand/collapse the mechanic picker. Just a state flip — the dynamic sheet
+  // resizes to the new content height on its own.
+  const onToggleMechanicPicker = useCallback((next: boolean) => {
+    setMechanicPickerExpanded(next);
+  }, []);
+  const onSheetChange = useCallback((idx: number) => {
+    setSheetIndex(idx);
+    // Dragged fully closed → collapse the picker so it reopens compact.
+    if (idx < 0) setMechanicPickerExpanded(false);
+  }, []);
+
+  // Smooth, non-bouncy timing for every sheet motion — including the dynamic
+  // resize when the mechanic picker opens/closes. A spring here overshoots and
+  // reads as the content "popping up under" the card; a short ease-out grows
+  // the sheet in lockstep with the rows fading in (see ShopPage).
+  const sheetAnimationConfigs = useBottomSheetTimingConfigs({
+    duration: 280,
+    easing: Easing.out(Easing.cubic),
+  });
   // Browse-card strip fades in as the sheet fades out — same
   // shared value, inverted curve. Always-mounted so the
   // ScrollView holds its scroll position across open/close
@@ -490,16 +584,25 @@ export default function ChooseMechanicScreen() {
     browseScrollRef.current?.scrollTo({ x: idx * SCREEN_WIDTH, animated: false });
   }, []);
 
-  const { slots: activeShopSlots } = useNextAvailabilityForShop(
+  // Earliest bookable slot for the active shop + current mechanic choice —
+  // drives the "Book <day time>" CTA label (and the recommended slot the big
+  // CTA books). "Any" (null) resolves to the shop's overall next slot. Same
+  // duration the ShopPage body uses, so the CTA and the RECOMMENDED row agree.
+  const { slots: activeEarliestSlots } = useNextAvailabilityForShop(
     activeShop?.id ?? null,
-    null,
+    selectedMechanicId,
     1,
+    totalMinutes,
   );
-  const activeNextSlotLabel = useMemo(() => {
-    if (activeShopSlots.length === 0) return null;
-    const s = activeShopSlots[0];
-    return `Next: ${s.dayOfWeek} ${s.time}`;
-  }, [activeShopSlots]);
+  const activeEarliestSlot = activeEarliestSlots[0] ?? null;
+  const bookCtaLabel = useMemo(() => {
+    if (!hasServices) return "Select services";
+    if (!activeEarliestSlot) return "See available times";
+    const day = activeEarliestSlot.scheduledDate
+      ? weekdayLongFromISO(activeEarliestSlot.scheduledDate)
+      : activeEarliestSlot.dayOfWeek;
+    return `Book ${day} ${activeEarliestSlot.time}`;
+  }, [hasServices, activeEarliestSlot]);
 
   const activeDistanceMi = nearbyShops[activeIndex]?.distanceMi ?? 0;
 
@@ -522,11 +625,15 @@ export default function ChooseMechanicScreen() {
     });
   };
 
-  const onContinue = () => {
-    if (!hasServices) {
-      router.push("/(booking-flow)/select-services");
-      return;
-    }
+  // Empty-cart affordance — the sheet is a shop browser, so the CTA sends the
+  // user to pick services rather than advancing a booking.
+  const onSelectServices = useCallback(() => {
+    router.push("/(booking-flow)/select-services");
+  }, [router]);
+
+  // Calendar icon → the full "Pick a date & time" screen (manual scheduling),
+  // seeded with the active shop + current mechanic choice.
+  const onOpenCalendar = useCallback(() => {
     if (!activeShop) return;
     router.push({
       pathname: "/(booking-flow)/pick-datetime",
@@ -535,38 +642,175 @@ export default function ChooseMechanicScreen() {
         mechanicId: selectedMechanicId ?? "",
       },
     });
-  };
+  }, [router, activeShop, selectedMechanicId]);
 
-  // Continue button as a gorhom sticky footer — pinned to the sheet's bottom
-  // edge regardless of how tall the shop content is, so it can never spill out
-  // below the sheet. `bottomInset={0}` because the detached sheet already
-  // floats above the home indicator.
+  // Big CTA → book the earliest slot and go STRAIGHT to Review & Pay, skipping
+  // the calendar entirely. We hold the slot + seed the booking store here (the
+  // same handoff pick-datetime's Confirm does) and `router.push` payment on top
+  // of THIS map screen — so Back from Review & Pay returns to the map, not the
+  // calendar or home. When the user left it on "Any", auto-assign the mechanic
+  // who actually owns that earliest slot. No slot resolved → fall back to the
+  // manual calendar. On a hold conflict (slot just taken) → toast + calendar.
+  const onBookEarliest = useCallback(async () => {
+    if (!activeShop) return;
+    const slot = activeEarliestSlot;
+    if (!slot || !slot.scheduledDate || !slot.scheduledTime) {
+      onOpenCalendar();
+      return;
+    }
+    if (isBookingEarliest) return;
+
+    const bookMechanicId = selectedMechanicId ?? slot.mechanicId ?? null;
+    const mechanicName = bookMechanicId
+      ? getMechanicById(bookMechanicId)?.name ?? null
+      : null;
+    const scheduledDate = slot.scheduledDate;
+    const startHHMM = slot.scheduledTime;
+
+    setIsBookingEarliest(true);
+    const sessionId = ensureHoldSessionId();
+    const holdDurationMinutes = totalMinutes > 0 ? totalMinutes : 60;
+    try {
+      const res = await holdSlot({
+        shop_id: activeShop.id as Id<"shops">,
+        mechanic_id: bookMechanicId ? (bookMechanicId as Id<"mechanics">) : undefined,
+        date: scheduledDate,
+        start_time: startHHMM,
+        duration_minutes: holdDurationMinutes,
+        session_id: sessionId,
+        held_by: userId ?? undefined,
+      });
+      setSlotHold(
+        res?.holdId && res.expiresAt != null
+          ? { holdId: res.holdId, expiresAt: res.expiresAt }
+          : null,
+      );
+    } catch {
+      setIsBookingEarliest(false);
+      toast.error("That time was just taken", "Pick another slot to continue.");
+      onOpenCalendar();
+      return;
+    }
+
+    setSelectedMechanicSlot({
+      shopId: activeShop.id,
+      shopName: activeShop.name,
+      mechanicId: bookMechanicId,
+      mechanicName,
+      slot: {
+        dayOfWeek: slot.dayOfWeek,
+        day: slot.day,
+        time: slot.time,
+        timeSlotId: slot.timeSlotId,
+        scheduledDate,
+        scheduledTime: startHHMM,
+        mechanicId: bookMechanicId ?? undefined,
+      },
+      timeSlotId: slot.timeSlotId,
+      scheduledDate,
+      scheduledTime: startHHMM,
+    });
+    setScheduledAppointment({
+      date: scheduledDate,
+      time: slot.time,
+      displayDate: formatBookingDate(scheduledDate),
+    });
+    selectMechanic(bookMechanicId);
+
+    setIsBookingEarliest(false);
+    router.push({
+      pathname: "/booking/mechanic/[id]/payment",
+      params: { id: bookMechanicId ?? activeShop.id },
+    });
+  }, [
+    activeShop,
+    activeEarliestSlot,
+    selectedMechanicId,
+    isBookingEarliest,
+    totalMinutes,
+    userId,
+    holdSlot,
+    getMechanicById,
+    ensureHoldSessionId,
+    setSlotHold,
+    setSelectedMechanicSlot,
+    setScheduledAppointment,
+    selectMechanic,
+    toast,
+    onOpenCalendar,
+    router,
+  ]);
+
+  // Footer as a gorhom sticky footer — pinned to the sheet's bottom edge
+  // regardless of how tall the content is, so it can never spill out below the
+  // sheet. `bottomInset={0}` because the detached sheet already floats above
+  // the home indicator. Empty cart → a single "Select services" pill; with
+  // services → a calendar icon (manual pick) beside the big "Book <day time>"
+  // CTA (earliest-slot fast path).
   const renderFooter = useCallback(
     (props: BottomSheetFooterProps) => (
       <BottomSheetFooter {...props} bottomInset={0}>
         <View style={styles.sheetFooter}>
-          <Pressable
-            style={styles.continuePill}
-            onPress={onContinue}
-            accessibilityRole="button"
-            accessibilityLabel={continueLabel}
-          >
-            <Text
-              size="md"
-              weight="semiBold"
-              color="#FFFFFF"
-              style={styles.continueLabel}
+          {!hasServices ? (
+            <Pressable
+              style={styles.continuePill}
+              onPress={onSelectServices}
+              accessibilityRole="button"
+              accessibilityLabel="Select services"
             >
-              {continueLabel}
-            </Text>
-            <ArrowRight size={20} color="#FFFFFF" strokeWidth={2} />
-          </Pressable>
+              <Text
+                size="md"
+                weight="semiBold"
+                color="#FFFFFF"
+                style={styles.continueLabel}
+              >
+                Select services
+              </Text>
+              <ArrowRight size={20} color="#FFFFFF" strokeWidth={2} />
+            </Pressable>
+          ) : (
+            <View style={styles.footerRow}>
+              <Pressable
+                style={styles.calendarBtn}
+                onPress={onOpenCalendar}
+                accessibilityRole="button"
+                accessibilityLabel="Pick a date & time"
+              >
+                <Calendar size={22} color="#1F2937" strokeWidth={2} />
+              </Pressable>
+              <Pressable
+                style={styles.bookPill}
+                onPress={() => void onBookEarliest()}
+                disabled={isBookingEarliest}
+                accessibilityRole="button"
+                accessibilityState={{ disabled: isBookingEarliest, busy: isBookingEarliest }}
+                accessibilityLabel={bookCtaLabel}
+              >
+                {isBookingEarliest ? (
+                  <ActivityIndicator color="#FFFFFF" style={styles.continueLabel} />
+                ) : (
+                  <>
+                    <Text
+                      size="md"
+                      weight="semiBold"
+                      color="#FFFFFF"
+                      style={styles.continueLabel}
+                      numberOfLines={1}
+                    >
+                      {bookCtaLabel}
+                    </Text>
+                    <ArrowRight size={20} color="#FFFFFF" strokeWidth={2} />
+                  </>
+                )}
+              </Pressable>
+            </View>
+          )}
         </View>
       </BottomSheetFooter>
     ),
-    // onContinue/continueLabel are recreated each render; the footer is cheap
-    // to re-render, so we intentionally rebuild it when they change.
-    [onContinue, continueLabel],
+    // Handlers/labels are recreated each render; the footer is cheap to
+    // re-render, so we intentionally rebuild it when they change.
+    [hasServices, bookCtaLabel, isBookingEarliest, onSelectServices, onOpenCalendar, onBookEarliest],
   );
 
   return (
@@ -652,8 +896,8 @@ export default function ChooseMechanicScreen() {
       </View>
 
       {/* Floating shop card. Two layouts by sheet state:
-          - Sheet open (53% / 82%) → the rich MapShopCard with
-            estimated price + next slot, anchored at top 30%.
+          - Sheet open (56% / 86%) → the rich MapShopCard with
+            estimated price, anchored at top 26%.
           - Sheet hidden → a horizontal pager of minimal
             MapBrowseShopCards (image + name + rating + open
             status), ChatGPT-style. Swiping the pager changes
@@ -676,7 +920,6 @@ export default function ChooseMechanicScreen() {
             priceRange={activePriceLabel.text}
             isFixed={activePriceLabel.isFixed}
             isLaborOnly={activePriceLabel.isLaborOnly}
-            nextSlotLabel={activeNextSlotLabel}
           />
         </Animated.View>
       ) : null}
@@ -745,20 +988,20 @@ export default function ChooseMechanicScreen() {
           the map as a plain floating sheet (the map above stays bright and
           interactive) rather than a dimmed modal overlay. Inset from the
           screen edges, lifted above the home indicator, all four corners
-          rounded. Compact (~56%): the horizontal-paged ShopPage carousel
-          lives inside it, with the "Continue" button pinned as a sticky
-          footer (see `renderFooter`) so it can't spill below the sheet.
-          Vertical drag of the handle still resizes the sheet. Swipe down past
-          index 0 → sheet closes entirely (`sheetIndex === -1`) and the
-          browse-card carousel takes over. */}
+          rounded. Dynamically sized: the sheet hugs the horizontal-paged
+          ShopPage content (as short as the one-decision card needs), growing
+          when the mechanic picker opens, with the footer pinned as a sticky
+          overlay (see `renderFooter`). Swipe down → sheet closes entirely
+          (`sheetIndex === -1`) and the browse-card carousel takes over. */}
       <BottomSheet
         ref={bottomSheetRef}
-        snapPoints={SNAP_POINTS as unknown as string[]}
         index={0}
-        onChange={setSheetIndex}
+        onChange={onSheetChange}
         animatedIndex={sheetAnimatedIndex}
         enablePanDownToClose
-        enableDynamicSizing={false}
+        enableDynamicSizing
+        maxDynamicContentSize={SHEET_MAX_HEIGHT}
+        animationConfigs={sheetAnimationConfigs}
         detached
         // Tuck the card just above the home indicator (lower than the
         // default float) so it sits closer to the bottom edge.
@@ -785,9 +1028,14 @@ export default function ChooseMechanicScreen() {
               showsHorizontalScrollIndicator={false}
               onMomentumScrollEnd={onPageChange}
               decelerationRate="fast"
-              scrollEnabled={!isMechanicCarouselInteracting}
+              // The pager has no intrinsic height — pin it to the tallest
+              // measured page (fallback while the first measure lands) so the
+              // dynamic sheet can size to it. `flex-start` keeps each page at
+              // its natural height so `onMeasureHeight` reports true content.
+              style={{ height: pagerHeight ?? 260 }}
+              contentContainerStyle={styles.pagerContent}
             >
-              {nearbyShops.map((r) => (
+              {nearbyShops.map((r, idx) => (
                 <ShopPage
                   key={r.shop.id}
                   shop={r.shop}
@@ -807,7 +1055,13 @@ export default function ChooseMechanicScreen() {
                       [r.shop.id]: mId,
                     }))
                   }
-                  onMechanicCarouselInteractionChange={setIsMechanicCarouselInteracting}
+                  expanded={mechanicPickerExpanded}
+                  onToggleExpanded={onToggleMechanicPicker}
+                  onMeasureHeight={(h) =>
+                    setPageHeights((prev) =>
+                      prev[idx] === h ? prev : { ...prev, [idx]: h },
+                    )
+                  }
                 />
               ))}
             </ScrollView>
@@ -912,14 +1166,26 @@ const styles = StyleSheet.create({
     // Side inset so the card doesn't touch the screen edges. The bottom
     // inset comes from the BottomSheet's bottomInset prop.
     marginHorizontal: SHEET_SIDE_INSET,
+    // Clip to the animated sheet bounds so, as the sheet grows to fit the
+    // opening accordion, the not-yet-covered rows are revealed cleanly from
+    // the top edge instead of briefly floating over the map below it.
+    borderRadius: 32,
+    overflow: "hidden",
   },
   sheetHandleIndicator: {
     backgroundColor: "rgba(15, 23, 42, 0.2)",
     width: 44,
   },
   sheetContent: {
-    flex: 1,
+    // No flex:1 — the sheet is dynamically sized, so this View must wrap its
+    // content height (the measured pager + dots + footer reserve) for gorhom
+    // to size the sheet to it.
     paddingTop: 0,
+  },
+  pagerContent: {
+    // Keep each page at its natural height (don't stretch to the tallest) so
+    // every page's onLayout reports true content height for the pager sizing.
+    alignItems: "flex-start",
   },
   sheetFooter: {
     paddingHorizontal: 16,
@@ -939,6 +1205,30 @@ const styles = StyleSheet.create({
   continueLabel: {
     flex: 1,
     textAlign: "center",
+  },
+  footerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  calendarBtn: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: "rgba(15, 23, 42, 0.06)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  bookPill: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    minHeight: 56,
+    paddingVertical: 16,
+    paddingHorizontal: 22,
+    borderRadius: 999,
+    backgroundColor: "#5299FE",
   },
   empty: {
     paddingVertical: 40,
