@@ -184,6 +184,8 @@ interface MaintenanceTrackerProps {
    *  card. Routes to the recommendation detail screen. When omitted, the card
    *  falls back to the legacy onBookNow behavior. */
   onTakeAction?: (item: MaintenanceItem) => void;
+  /** Advisory only — see UrgentCardProps.onMarkDone. */
+  onMarkDone?: (item: MaintenanceItem) => void;
   onAddInfo?: (id: string) => void;
   onEditPressed?: () => void;
   /** Parent has determined the page bg is dark enough that the
@@ -611,6 +613,9 @@ interface UrgentCardProps {
   healthScoreInput?: HealthScoreInput;
   onBookNow?: (id: string) => void;
   onTakeAction?: (item: MaintenanceItem) => void;
+  /** Advisory only: the driver had this done outside Otopair. Closes the
+   *  recommendation and offers to attach the receipt. */
+  onMarkDone?: (item: MaintenanceItem) => void;
   onAddInfo?: (id: string) => void;
   onCardPress?: (item: MaintenanceItem) => void;
   /** When true, the "Book Service" CTA is disabled — the vehicle is still
@@ -618,7 +623,7 @@ interface UrgentCardProps {
   isEnriching?: boolean;
 }
 
-function UrgentCard({ item, entryDelay, vehicleCondition, healthScoreInput, onBookNow, onTakeAction, onCardPress, isEnriching = false }: UrgentCardProps) {
+function UrgentCard({ item, entryDelay, vehicleCondition, healthScoreInput, onBookNow, onTakeAction, onMarkDone, onCardPress, isEnriching = false }: UrgentCardProps) {
   // Mechanic-recommended items get the new single "Take Action" CTA that
   // routes to the detail screen. Algorithmic items keep the legacy two-button
   // layout (Book Service + View Details).
@@ -631,23 +636,25 @@ function UrgentCard({ item, entryDelay, vehicleCondition, healthScoreInput, onBo
   // scan" so the CTA lives INSIDE the tier rather than replacing it.
   const isAnchorless = item.triggeredBy === "none";
   const primaryLabel = isAdvisory
-    // "Take Action" promises a flow that ends in a booking. An advisory has no
-    // service to book, so the honest CTA is the one that just shows the detail.
-    ? "View suggestion"
+    // Advisory = the mechanic recommended work Otopair does not sell. We
+    // deliberately do not try to book it: the driver is expected to get it
+    // done elsewhere and tell us afterwards, at which point we ask for the
+    // receipt. Product call, Ahmad + colleague, 2026-08-30.
+    ? "Mark as Done"
     : isAnchorless
       ? "Book diagnostic scan"
       : "Book Service";
   // Only the algorithmic Book Service CTA is coverage-gated — mechanic "Take
   // Action" routes to its own rec flow with the parts the shop already picked.
-  const bookDisabled = isEnriching && !isMechanicRec;
+  const bookDisabled = isEnriching && !isMechanicRec && !isAdvisory;
   const handlePrimary = () => {
     if (bookDisabled) return;
-    // An advisory has nothing bookable behind it, so its CTA opens the
-    // recommendation screen. Everything else books — including a mechanic's
-    // recommendation, which used to route to that screen under a "Take
-    // Action" label and left the driver to find a second button there.
-    // Ahmad, 2026-08-30: a rec should behave like every other card.
-    if (isAdvisory && onTakeAction) onTakeAction(item);
+    // An advisory is closed out, not booked. Everything else books —
+    // including a mechanic's recommendation, which used to route to the
+    // detail screen under a "Take Action" label and left the driver to find
+    // a second button there. Ahmad, 2026-08-30: a rec should behave like
+    // every other card.
+    if (isAdvisory) onMarkDone?.(item);
     else onBookNow?.(item.id);
   };
   const colors = CARD_COLORS[item.status] ?? { statusColor: '#5299FE', iconBg: 'rgba(82,153,254,0.07)' };
@@ -959,7 +966,7 @@ function HealthySection({
 // Resets naturally on car swap (tracker keyed by VIN in cars/index.tsx).
 const CAP_PER_URGENT_TIER = 3;
 
-export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, vehicleLabel, onBookNow, onTakeAction, onAddInfo, onEditPressed, isDarkBg = false, tieredItems, openItemId, isEnriching = false }: MaintenanceTrackerProps) {
+export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, vehicleLabel, onBookNow, onTakeAction, onMarkDone, onAddInfo, onEditPressed, isDarkBg = false, tieredItems, openItemId, isEnriching = false }: MaintenanceTrackerProps) {
   const [selectedItem, setSelectedItem] = useState<MaintenanceItem | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [showAllNow, setShowAllNow] = useState(false);
@@ -1118,6 +1125,7 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
                     healthScoreInput={healthScoreInput}
                     onBookNow={onBookNow}
                     onTakeAction={onTakeAction}
+                    onMarkDone={onMarkDone}
                     onAddInfo={onAddInfo}
                     onCardPress={handleCardPress}
                     isEnriching={isEnriching}
@@ -1151,6 +1159,7 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
                     healthScoreInput={healthScoreInput}
                     onBookNow={onBookNow}
                     onTakeAction={onTakeAction}
+                    onMarkDone={onMarkDone}
                     onAddInfo={onAddInfo}
                     onCardPress={handleCardPress}
                     isEnriching={isEnriching}
@@ -1222,6 +1231,7 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
                     healthScoreInput={healthScoreInput}
                     onBookNow={onBookNow}
                     onTakeAction={onTakeAction}
+                    onMarkDone={onMarkDone}
                     onAddInfo={onAddInfo}
                     onCardPress={handleCardPress}
                     isEnriching={isEnriching}
@@ -1247,6 +1257,7 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
                     healthScoreInput={healthScoreInput}
                     onBookNow={onBookNow}
                     onTakeAction={onTakeAction}
+                    onMarkDone={onMarkDone}
                     onAddInfo={onAddInfo}
                     onCardPress={handleCardPress}
                     isEnriching={isEnriching}

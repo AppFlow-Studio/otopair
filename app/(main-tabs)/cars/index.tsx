@@ -40,6 +40,7 @@ const isMenuViewAvailable = !!UIManager.getViewManagerConfig?.("MenuView");
 
 import { haptics } from "@/lib/haptics";
 import { useToast } from "@/hooks/useToast";
+import { useServiceRecordUpload } from "@/hooks/useServiceRecordUpload";
 import { useUpdateMileage } from "@/hooks/useUpdateMileage";
 import Svg, { Circle, Defs, LinearGradient as SvgLinearGradient, Stop } from "react-native-svg";
 
@@ -1042,6 +1043,20 @@ export default function CarsHomeScreen() {
   // "Setting up your car…". Once data exists, surfaces a CTA for any
   // unanswered package questions; answers persist to vehicle_owner_specs.
   const vehicleReadiness = useVehicleReadiness(activeOwnershipId);
+
+  // Advisory close-out: the mechanic recommended work Otopair does not sell,
+  // so the driver gets it done elsewhere and tells us afterwards. Reuses
+  // dismissRecFromDriver with reason "fixed" — that already cancels the
+  // linked follow-up so reminders stop, and recomputes the open-rec penalty,
+  // which "hidden_by_driver" deliberately does not.
+  const dismissRecFromDriver = useMutation(api.jobRecommendations.dismissRecFromDriver);
+  const { pickAndUpload: pickServiceRecord } = useServiceRecordUpload(
+    { vehicleOwnerId: activeOwnershipId, vin: activeVehicle?.vin },
+    {
+      onUploaded: () =>
+        toast.success("Receipt added", "We're pulling out the details now."),
+    },
+  );
   const [showPackageQuestionsSheet, setShowPackageQuestionsSheet] = useState(false);
 
   // Completion toast — fires when readiness transitions from
@@ -2278,6 +2293,45 @@ export default function CarsHomeScreen() {
                 if (vin) useVehicleStore.getState().selectVehicle(vin.toUpperCase().trim());
                 if (!item.sourceRecommendationId) return;
                 router.push(`/recommendation/${item.sourceRecommendationId}`);
+              }}
+              onMarkDone={(item) => {
+                const recId = item.sourceRecommendationId;
+                if (!recId) return;
+                // Confirm first: this closes the recommendation and stops its
+                // reminders, and there is no undo on the card once it's gone.
+                Alert.alert(
+                  `${item.serviceName} done?`,
+                  "We'll close this out. Otopair doesn't book this service, so we're taking your word for it.",
+                  [
+                    { text: "Not yet", style: "cancel" },
+                    {
+                      text: "Yes, it's done",
+                      onPress: async () => {
+                        try {
+                          await dismissRecFromDriver({
+                            recommendationId: recId as Id<"job_recommendations">,
+                            reason: "fixed",
+                          });
+                        } catch {
+                          toast.error("Couldn't save that", "Please try again.");
+                          return;
+                        }
+                        // Ask for the receipt second, never as a condition of
+                        // the first step — the record is a bonus, and a driver
+                        // who has no paperwork must still be able to close the
+                        // item without feeling they failed a requirement.
+                        Alert.alert(
+                          "Got a receipt?",
+                          "Add it and we'll pull the details into your service history.",
+                          [
+                            { text: "Not now", style: "cancel" },
+                            { text: "Upload", onPress: () => { void pickServiceRecord(); } },
+                          ],
+                        );
+                      },
+                    },
+                  ],
+                );
               }}
               onAddInfo={(id) => {
                 const type = id.replace(/^(unknown-|user-)/, "") as MaintenanceType;
