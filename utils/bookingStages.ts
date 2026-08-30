@@ -51,6 +51,9 @@ export function getBookingStageView(
   if (status === "quotes_ready") {
     return { stages: QUOTE_STAGES, currentIndex: 1 };
   }
+  if (status === "quote_expired") {
+    return { stages: ["Request Sent", "Quote Expired", "Accepted"], currentIndex: 1 };
+  }
 
   // Service flow — five segments.
   if (status === "pending" || status === "pending_shop_acceptance") {

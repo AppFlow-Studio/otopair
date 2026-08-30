@@ -63,6 +63,7 @@ export interface MessageShopSheetRef {
 
 interface OpenParams {
   bookingId: string;
+  shopId?: string;
   status: BookingStatus;
   mechanicName: string;
   shopName: string;
@@ -179,6 +180,13 @@ export const MessageShopSheet = forwardRef<MessageShopSheetRef>((_props, ref) =>
     setActiveTicketId(null);
     setDraft('');
   }, []);
+
+  // A quote request has no shop until the customer accepts a quote. If this
+  // sheet is opened from such a request, return to booking details before any
+  // ticket action can run.
+  useEffect(() => {
+    if (visible && !params?.shopId) close();
+  }, [visible, params?.shopId, close]);
 
   useImperativeHandle(ref, () => ({ open, close }));
 

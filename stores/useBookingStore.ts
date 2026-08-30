@@ -67,6 +67,8 @@ export interface QuoteAcceptContext {
   vehicleVin: string;
   quoteType: "tire" | "rotor";
   responseId: string;
+  /** Internal quote version used only for server-side freshness checks. */
+  revision: number;
   shopId: string;
   shopName: string;
   mechanicId: string | null; // null = "Any"

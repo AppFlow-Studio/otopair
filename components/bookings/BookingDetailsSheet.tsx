@@ -313,9 +313,10 @@ export const BookingDetailsSheet = forwardRef<BookingDetailsSheetRef, BookingDet
     );
 
     const handleOpenChat = useCallback(() => {
-      if (!booking) return;
+      if (!booking?.shopId) return;
       chatSheetRef.current?.open({
         bookingId: booking.id,
+        shopId: booking.shopId,
         status: booking.status,
         mechanicName: booking.mechanicName,
         shopName: booking.shopName,
