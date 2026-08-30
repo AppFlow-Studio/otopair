@@ -227,6 +227,13 @@ export default function BookingsScreen() {
       title: ctx.error.message || "Couldn't cancel this booking. Try again.",
     }),
   });
+  const cancelQuoteRequest = useMutationWithToast(api.bookings.cancelBooking, {
+    success: "Quote request cancelled.",
+    successIcon: CalendarX,
+    error: (ctx) => ({
+      title: ctx.error.message || "Couldn't cancel this quote request. Try again.",
+    }),
+  });
   const dismissExpiredQuoteRequest = (api.bookings as unknown as {
     dismissExpiredQuoteRequest: FunctionReference<
       "mutation",
@@ -266,6 +273,19 @@ export default function BookingsScreen() {
       }
     },
     [cancelConvexBooking, cancelLocalBooking, toast],
+  );
+  const handleCancelQuoteRequest = useCallback(
+    async (bookingId: string) => {
+      const isLocalId = bookingId.startsWith("tire_quote_") || bookingId.startsWith("booking_");
+      if (isLocalId) {
+        cancelLocalBooking(bookingId);
+        toast.success("Quote request cancelled.", undefined, { icon: CalendarX });
+        return;
+      }
+
+      await cancelQuoteRequest({ bookingId: bookingId as Id<"bookings"> });
+    },
+    [cancelLocalBooking, cancelQuoteRequest, toast],
   );
   const handleDismissExpiredQuote = useCallback(
     async (bookingId: string) => {
@@ -607,7 +627,7 @@ export default function BookingsScreen() {
                           booking={booking}
                           onPress={handleViewDetails}
                           onViewQuotes={handleViewQuotes}
-                          onCancel={handleCancelBooking}
+                          onCancel={handleCancelQuoteRequest}
                           onDismiss={handleDismissExpiredQuote}
                           isCheckingQuotes={checkingQuoteId === booking.id}
                         />

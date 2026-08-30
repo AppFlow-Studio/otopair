@@ -6,7 +6,7 @@
  *
  *          status === "pending_quote"  (Upcoming tab)
  *            - Tag: Pending Quote (amber)
- *            - Action: View Details (opens booking sheet) + Cancel Request
+ *            - Action: Cancel Request
  *
  *          status === "quotes_ready"   (Quotes tab)
  *            - Tag: Quotes Ready (blue)
@@ -122,6 +122,7 @@ export function PendingQuoteCard({
   const isRotor = booking.quoteType === "rotor";
   const tireSpecs = !isRotor ? parseTireSpecs(booking.notes) : null;
   const rotorSpecs = isRotor ? parseRotorSpecs(booking.notes) : null;
+  const isPendingQuote = booking.status === "pending_quote";
   const isReady = booking.status === "quotes_ready";
   const isExpired = booking.status === "quote_expired";
   const stageView = getBookingStageView(booking.status, booking.liveStage);
@@ -303,19 +304,21 @@ export function PendingQuoteCard({
         </View>
       ) : (
         <View style={styles.actionRow}>
-          <Pressable
-            onPress={(e) => {
-              e.stopPropagation?.();
-              if (isCancelling) return;
-              onPress?.(booking.id);
-            }}
-            disabled={isCancelling}
-            style={({ pressed }) => [styles.viewButton, pressed && styles.viewButtonPressed]}
-          >
-            <Text size="sm" weight="semiBold" color="#FFFFFF">
-              View Details
-            </Text>
-          </Pressable>
+          {isPendingQuote ? null : (
+            <Pressable
+              onPress={(e) => {
+                e.stopPropagation?.();
+                if (isCancelling) return;
+                onPress?.(booking.id);
+              }}
+              disabled={isCancelling}
+              style={({ pressed }) => [styles.viewButton, pressed && styles.viewButtonPressed]}
+            >
+              <Text size="sm" weight="semiBold" color="#FFFFFF">
+                View Details
+              </Text>
+            </Pressable>
+          )}
           {onCancel && booking.status !== "cancelled" ? (
             <Pressable
               onPress={(e) => {
