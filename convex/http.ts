@@ -1710,6 +1710,22 @@ http.route({
   ),
 });
 
+// ── /v1/catalog — the enriched catalog: every config we hold, complete/verified
+//    (config_key + year/make/model/trim + engine + fill_rate). Powers discovery
+//    and the try-it sandbox's autocomplete. Read-scoped; no VINs. ?limit= caps.
+http.route({
+  path: "/v1/catalog",
+  method: "GET",
+  handler: httpAction(async (ctx, request) =>
+    withApiKey(ctx, request, "/v1/catalog", "maintenance:read", async (params) => {
+      const raw = Number(params.get("limit"));
+      const limit = Number.isFinite(raw) && raw > 0 ? raw : undefined;
+      const configs = await ctx.runQuery(internal.dataApi.listEnrichedCatalog, { limit });
+      return { status: 200, body: { object: "config_catalog", count: configs.length, configs } };
+    }),
+  ),
+});
+
 // ── /v1/openapi.json — the machine-readable spec (public, no key). Powers the
 //    interactive reference at /developers/docs and is pullable by integrators,
 //    Postman, SDK generators, and agents. Server URL is injected from the
@@ -1738,6 +1754,7 @@ for (const path of [
   "/v1/parts",
   "/v1/decode",
   "/v1/configs",
+  "/v1/catalog",
   "/v1/openapi.json",
 ]) {
   http.route({ path, method: "OPTIONS", handler: httpAction(async () => corsOptions()) });
