@@ -861,7 +861,7 @@ function HealthyItemRow({
             hitSlop={10}
             style={({ pressed }) => [summaryStyles.answerBtn, pressed && { opacity: 0.7 }]}
           >
-            <Text weight="semiBold" style={summaryStyles.answerBtnText}>Add date</Text>
+            <Text weight="semiBold" style={summaryStyles.answerBtnText}>Add info</Text>
           </Pressable>
         ) : item.status === 'unknown' ? (
           <Ionicons name="ellipse-outline" size={18} color="#C7C7CC" />
