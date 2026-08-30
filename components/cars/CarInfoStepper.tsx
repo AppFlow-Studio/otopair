@@ -156,7 +156,6 @@ const SERVICE_ICON_COMPONENTS: Record<ServiceCardId, React.FC<{ size?: number; c
   warningLights: WarningIcon,
 };
 
-const ALL_CARD_IDS: ServiceCardId[] = ["brakes", "tires", "oil", "battery", "warningLights"];
 
 const STEP_META: Record<StepId, { title: string; subtitle: string }> = {
   serviceGrid: { title: "Service History", subtitle: "Tap each item to tell us what you know." },
@@ -290,13 +289,17 @@ const SERVICE_QUESTIONS: Record<ServiceCardId, QuestionDef[]> = {
 // CardGridItem (with completion animation)
 // ============================================================================
 
-function CardGridItem({ cardId, isDone, isJustCompleted, progress, onPress, isWide }: {
+function CardGridItem({ cardId, isDone, isJustCompleted, progress, onPress, isWide, subtitle }: {
   cardId: ServiceCardId;
   isDone: boolean;
   isJustCompleted: boolean;
   progress: number;
   onPress: () => void;
   isWide?: boolean;
+  /** Second line under the label on a wide card. Was hardcoded to the warning
+   *  lights copy off `isWide` — fine while Warning Lights was the only wide
+   *  card, wrong now that Bigger Services is one too. */
+  subtitle?: string;
 }) {
   const pressScale = useSharedValue(1);
   const card = SERVICE_CARDS[cardId];
@@ -438,16 +441,16 @@ function CardGridItem({ cardId, isDone, isJustCompleted, progress, onPress, isWi
                     >
                       {card.label}
                     </Text>
-                    {isWide && (
+                    {isWide && subtitle ? (
                       <Text
                         weight="medium"
                         size="xs"
                         color={labelColor}
                         style={{ fontSize: moderateScale(11.5), opacity: isCompleted ? 0.7 : 0.55, marginTop: scale(2), textAlign: "center" }}
                       >
-                        Any dashboard warnings on?
+                        {subtitle}
                       </Text>
-                    )}
+                    ) : null}
                   </View>
                 </View>
 
@@ -471,16 +474,16 @@ function CardGridItem({ cardId, isDone, isJustCompleted, progress, onPress, isWi
                       >
                         {card.label}
                       </Text>
-                      {isWide && (
+                      {isWide && subtitle ? (
                         <Text
                           weight="medium"
                           size="xs"
                           color="#FFFFFF"
                           style={{ fontSize: moderateScale(11.5), opacity: 0.7, marginTop: scale(2), textAlign: "center" }}
                         >
-                          Any dashboard warnings on?
+                          {subtitle}
                         </Text>
-                      )}
+                      ) : null}
                     </View>
                   </LinearGradient>
                 </ReAnimated.View>
@@ -736,10 +739,10 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
 
   const canGoNext = useCallback((): boolean => {
     switch (currentStepId) {
-      case "serviceGrid": return completedCards.size === ALL_CARD_IDS.length;
+      case "serviceGrid": return fired.every((id) => completedCards.has(id as ServiceCardId));
       default: return false;
     }
-  }, [currentStepId, completedCards]);
+  }, [fired, currentStepId, completedCards]);
 
   const handleGetStarted = useCallback(() => {
     animateSlide("forward", "stepping", 0);
@@ -798,7 +801,7 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
   const handleComplete = useCallback(async () => {
     setSaving(true);
     try {
-      for (const cardId of ALL_CARD_IDS) {
+      for (const cardId of fired as ServiceCardId[]) {
         const answers = serviceAnswers[cardId];
         if (answers && Object.keys(answers).length > 0) {
           await saveField({ vehicleOwnerId, field: cardId, value: answers });
@@ -812,7 +815,7 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
     } finally {
       setSaving(false);
     }
-  }, [vehicleOwnerId, serviceAnswers, saveField, markComplete, onComplete]);
+  }, [fired, vehicleOwnerId, serviceAnswers, saveField, markComplete, onComplete]);
 
   // ── Finish-for-now handler (partial exit) ──────────────────────────
   // Saves any answered fields (so progress isn't lost on re-open) but
@@ -825,7 +828,7 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
   const handleFinishForNow = useCallback(async () => {
     setSaving(true);
     try {
-      for (const cardId of ALL_CARD_IDS) {
+      for (const cardId of fired as ServiceCardId[]) {
         const answers = serviceAnswers[cardId];
         if (answers && Object.keys(answers).length > 0) {
           await saveField({ vehicleOwnerId, field: cardId, value: answers });
@@ -850,10 +853,12 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
     } finally {
       setSaving(false);
     }
-  }, [vehicleOwnerId, serviceAnswers, serviceQuestionIndex, serviceProgress, displayedCompleted, saveField, saveServiceHistoryDraft, onFinishForNow, onComplete]);
+  }, [fired, vehicleOwnerId, serviceAnswers, serviceQuestionIndex, serviceProgress, displayedCompleted, saveField, saveServiceHistoryDraft, onFinishForNow, onComplete]);
 
   // ── All-done state ──────────────────────────────────────────
-  const allDone = completedCards.size === ALL_CARD_IDS.length;
+  // Every tile this car was actually asked. A one-tile car is "all done" after
+  // one answer — counting to five would leave it permanently incomplete.
+  const allDone = fired.every((id) => completedCards.has(id as ServiceCardId));
   const allDoneTriggered = useRef(false);
   const lottieOpacity = useSharedValue(0);
   const lottieTranslateY = useSharedValue(-20);
@@ -888,7 +893,10 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
 
   // ── Render the service grid ─────────────────────────────────
   const renderServiceGrid = () => {
-    const squareCards: ServiceCardId[] = ["brakes", "tires", "oil", "battery"];
+    // Spec §3 order: Warning Lights full-width on top, then the squares, then
+    // Bigger Services full-width at the bottom. Only fired tiles render.
+    const squareCards = (["oil", "tires", "brakes", "battery"] as ServiceCardId[])
+      .filter((id) => firedSet.has(id as QuickCheckTileId));
     return (
       <View style={{ flex: 1 }}>
         {allDone && (
@@ -904,18 +912,7 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
           </ReAnimated.View>
         )}
         {!allDone && <ReAnimated.View style={[s.cardGrid, { flex: 1 }, gridFadeStyle]}>
-          <View style={s.cardGridSquares}>
-            {squareCards.map(cardId => (
-              <CardGridItem
-                key={cardId}
-                cardId={cardId}
-                isDone={completedCards.has(cardId)}
-                isJustCompleted={justCompletedId === cardId}
-                progress={serviceProgress[cardId] ?? (completedCards.has(cardId) ? 1 : 0)}
-                onPress={() => handleCardTap(cardId)}
-              />
-            ))}
-          </View>
+          {/* Always first, always present — the only live-malfunction signal. */}
           <CardGridItem
             key="warningLights"
             cardId="warningLights"
@@ -924,7 +921,22 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
             progress={serviceProgress["warningLights"] ?? (completedCards.has("warningLights") ? 1 : 0)}
             onPress={() => handleCardTap("warningLights")}
             isWide
+            subtitle="Any dashboard warnings on?"
           />
+          {squareCards.length > 0 && (
+            <View style={s.cardGridSquares}>
+              {squareCards.map(cardId => (
+                <CardGridItem
+                  key={cardId}
+                  cardId={cardId}
+                  isDone={completedCards.has(cardId)}
+                  isJustCompleted={justCompletedId === cardId}
+                  progress={serviceProgress[cardId] ?? (completedCards.has(cardId) ? 1 : 0)}
+                  onPress={() => handleCardTap(cardId)}
+                />
+              ))}
+            </View>
+          )}
         </ReAnimated.View>}
       </View>
     );
@@ -983,6 +995,14 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
         <View style={s.steppingPage}>
           {/* Header */}
           <Animated.View style={[s.steppingHeader, { opacity: mountHeaderFade }]}>
+            {/* Long-form vehicle name above the title — spec §3. Grounds the
+                questions in the specific car, which matters now that the tile
+                set differs per vehicle. */}
+            {vehicleYear && vehicleMake ? (
+              <Text weight="bold" size="xs" color="#5299FE" style={s.steppingEyebrow}>
+                {`YOUR ${vehicleYear} ${vehicleMake} ${vehicleModel}`.trim().toUpperCase()}
+              </Text>
+            ) : null}
             <Text weight="bold" size="xl" color="#0F172A" style={s.steppingTitle}>
               {meta.title}
             </Text>
@@ -1019,11 +1039,11 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
           <Animated.View style={[s.steppingFooter, { paddingBottom: scale(20), opacity: mountFooterFade }]}>
             {/* Progress dots */}
             <View style={s.dotsRow}>
-              {ALL_CARD_IDS.map((id) => (
-                <FooterDot key={id} isDone={displayedCompleted.has(id)} />
+              {fired.map((id) => (
+                <FooterDot key={id} isDone={displayedCompleted.has(id as ServiceCardId)} />
               ))}
               <Text weight="semiBold" size="xs" color="#829BAD" style={s.dotsCounter}>
-                {displayedCompleted.size} of 5
+                {displayedCompleted.size} of {fired.length}
               </Text>
             </View>
 
@@ -1197,6 +1217,12 @@ const s = StyleSheet.create({
     justifyContent: "center",
     alignItems: "flex-start",
     zIndex: 10,
+  },
+  steppingEyebrow: {
+    textAlign: "center",
+    letterSpacing: 0.8,
+    marginBottom: scale(4),
+    fontSize: moderateScale(11),
   },
   steppingTitle: {
     fontSize: moderateScale(24),
