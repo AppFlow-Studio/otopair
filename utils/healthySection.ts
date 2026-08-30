@@ -1,25 +1,29 @@
 /**
- * Label for the quiet bottom section of the maintenance tracker.
+ * Chip label for the tracker's two quiet sections.
  *
- * "HEALTHY · N" is a claim, so N counts only items actually observed to be
- * fine. Items with no record on file share this section — they are equally
- * un-urgent, and the three-tier rule (NOW / SOON / HEALTHY) means they get no
- * heading of their own — but an absence of data is not evidence of health and
- * must not be counted as such. When the section holds nothing but blanks, the
- * chip says exactly that instead of calling them healthy.
- *
- * Lives here rather than in the component so it can be unit-tested: importing
- * MaintenanceTracker.tsx pulls in react-native, which the test runner can't
- * parse. This is a health claim, so it is worth asserting on directly.
+ * HEALTHY and UNKNOWN are separate sections, not one mixed list. "Healthy"
+ * is a claim — we looked and it was fine — and an item with no record on
+ * file is not evidence of that, so the two must not share a heading or a
+ * count. Ahmad, 2026-08-30: "I don't like healthy and unknown being bunched
+ * up, they should be separate."
  */
+export type QuietSectionVariant = "healthy" | "unknown";
+
 export function healthySectionChip(
-  items: readonly { status: string }[],
-): { label: string; knownHealthy: number } {
-  const knownHealthy = items.filter((i) => i.status !== "unknown").length;
-  const notOnFile = items.length - knownHealthy;
-  const label =
-    knownHealthy > 0
-      ? `HEALTHY · ${knownHealthy}${notOnFile > 0 ? ` · ${notOnFile} UNKNOWN` : ""}`
-      : `UNKNOWN · ${notOnFile}`;
-  return { label, knownHealthy };
+  variant: QuietSectionVariant,
+  count: number,
+): string {
+  return `${variant === "healthy" ? "HEALTHY" : "UNKNOWN"} · ${count}`;
+}
+
+/** Split a tier's items into the two quiet sections. */
+export function splitQuietItems<T extends { status: string }>(
+  items: readonly T[],
+): { healthy: T[]; unknown: T[] } {
+  const healthy: T[] = [];
+  const unknown: T[] = [];
+  for (const item of items) {
+    (item.status === "unknown" ? unknown : healthy).push(item);
+  }
+  return { healthy, unknown };
 }

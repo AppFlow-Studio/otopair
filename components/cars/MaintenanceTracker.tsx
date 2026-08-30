@@ -64,7 +64,7 @@ import { OilIcon, BrakesIcon, TireIcon, BatteryIcon, WarningIcon } from '@/compo
 import MaintenanceDetailView from '@/components/cars/MaintenanceDetailView';
 
 // 5. Constants, hooks, types
-import { healthySectionChip } from '@/utils/healthySection';
+import { healthySectionChip, splitQuietItems, type QuietSectionVariant } from '@/utils/healthySection';
 import { computeProjectedHealthScore, type HealthScoreInput } from '@/utils/healthScore';
 import { scale, moderateScale } from '@/utils/responsive';
 import type { RankedMaintenanceItem } from '@/hooks/useUrgencyRankedItems';
@@ -454,6 +454,99 @@ function SoonLabel() {
   );
 }
 
+/** RECOMMENDED tier label. Static blue dot, no pulse: this is a suggestion
+ *  we are making, not a finding pressing on the driver. */
+function RecommendedLabel() {
+  return (
+    <View style={groupLabelStyles.row}>
+      <View style={[groupLabelStyles.chip, groupLabelStyles.chipRecommended]}>
+        <View style={groupLabelStyles.recommendedDot} />
+        <Text weight="bold" style={groupLabelStyles.chipTextRecommended}>RECOMMENDED</Text>
+      </View>
+    </View>
+  );
+}
+
+/** The one card in the RECOMMENDED tier: book a diagnostic scan to close the
+ *  UNKNOWN list. Deliberately built on UrgentCard's shell — same icon well,
+ *  same title/subtitle column, same CTA row — because it asks for the same
+ *  kind of action and should not read as a lesser control. It carries no
+ *  score delta: a scan turns unknowns into knowns, and which way the score
+ *  then moves is exactly what we do not know yet. */
+function DiagnosticScanCard({
+  unknownCount,
+  entryDelay,
+  onBookNow,
+  isEnriching = false,
+}: {
+  unknownCount: number;
+  entryDelay: number;
+  onBookNow?: (id: string) => void;
+  isEnriching?: boolean;
+}) {
+  const opacity = useSharedValue(0);
+  const translateY = useSharedValue(18);
+  useEffect(() => {
+    opacity.value = withDelay(
+      entryDelay,
+      withTiming(1, { duration: 550, easing: REasing.bezier(0.16, 1, 0.3, 1) }),
+    );
+    translateY.value = withDelay(
+      entryDelay,
+      withTiming(0, { duration: 550, easing: REasing.bezier(0.16, 1, 0.3, 1) }),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const entryStyle = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+    transform: [{ translateY: translateY.value }],
+  }));
+
+  const handlePress = () => {
+    if (isEnriching) return;
+    // extractMaintenanceType → "warning" → MAINTENANCE_TYPE_TO_SLUG →
+    // diagnostic_scan, so this reuses the normal booking handoff with no
+    // special case at the call site.
+    onBookNow?.('warning-unknown-scan');
+  };
+
+  return (
+    <Animated.View style={[cardStyles.container, entryStyle]}>
+      <View style={cardStyles.topRow}>
+        <View style={[cardStyles.iconContainer, { backgroundColor: 'rgba(82,153,254,0.07)' }]}>
+          <Ionicons name="search-outline" size={24} color="#5299FE" />
+        </View>
+        <View style={cardStyles.textColumn}>
+          <Text weight="bold" style={cardStyles.title}>Diagnostic scan</Text>
+          <Text style={cardStyles.subtitle}>
+            {unknownCount === 1
+              ? 'One service has no record on file. A scan confirms what it actually needs.'
+              : `${unknownCount} services have no record on file. A scan confirms what they actually need.`}
+          </Text>
+        </View>
+      </View>
+      <View style={cardStyles.buttonRow}>
+        <Pressable
+          style={({ pressed }) => [
+            cardStyles.bookServiceBtn,
+            isEnriching && cardStyles.bookServiceBtnDisabled,
+            pressed && !isEnriching && { opacity: 0.85 },
+          ]}
+          onPress={handlePress}
+          disabled={isEnriching}
+        >
+          <Text
+            weight="semiBold"
+            style={[cardStyles.bookServiceText, isEnriching && cardStyles.bookServiceTextDisabled]}
+          >
+            {isEnriching ? 'Setting up…' : 'Book Service'}
+          </Text>
+        </Pressable>
+      </View>
+    </Animated.View>
+  );
+}
+
 /** "Show N more" / "Show less" pressable rendered at the bottom of
  *  NOW / SOON tiers when the ranked list exceeds CAP_PER_URGENT_TIER.
  *  Text-only, right-aligned, tier-colored. */
@@ -780,50 +873,57 @@ function HealthyItemsCard({
 
 function HealthySection({
   items,
-  isDarkBg = false,
+  variant,
   cascadeStartDelay = 0,
-  onBookNow,
-  isEnriching = false,
 }: {
   items: MaintenanceItem[];
-  isDarkBg?: boolean;
+  /** 'healthy' = observed fine (green). 'unknown' = no record on file
+   *  (grey). Separate sections on purpose — see healthySectionChip. */
+  variant: QuietSectionVariant;
   cascadeStartDelay?: number;
-  onBookNow?: (id: string) => void;
-  isEnriching?: boolean;
 }) {
-  // Expanded by default — Ahmad prefers HEALTHY visible on first paint.
+  // Expanded by default — Ahmad prefers these visible on first paint.
   // Chevron still lets users collapse if they want.
   const [expanded, setExpanded] = useState(true);
   const chevronRotation = useSharedValue(1);
 
+  const chevronStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${chevronRotation.value * 90}deg` }],
+  }));
+
+  // Every hook runs before this bails. The early return used to sit above
+  // useAnimatedStyle, which was fine while there was one HealthySection whose
+  // emptiness never changed — but the split into HEALTHY and UNKNOWN gives us
+  // two, and either can flip between empty and non-empty as items load. React
+  // then sees a different number of hooks between renders and throws
+  // "Rendered more hooks than during the previous render", taking the whole
+  // Cars tab down. This was the standing react-hooks/rules-of-hooks lint
+  // error in this file; it was latent, not harmless.
   if (items.length === 0) return null;
 
-  const { label: chipLabel, knownHealthy } = healthySectionChip(items);
+  const isUnknown = variant === 'unknown';
 
   const toggle = () => {
     setExpanded(prev => !prev);
     chevronRotation.value = withTiming(expanded ? 0 : 1, { duration: 200 });
   };
 
-  const chevronStyle = useAnimatedStyle(() => ({
-    transform: [{ rotate: `${chevronRotation.value * 90}deg` }],
-  }));
-
   return (
     <View>
       <Animated.View entering={FadeInUp.duration(450).delay(cascadeStartDelay)}>
         <Pressable onPress={toggle} style={({ pressed }) => pressed && { opacity: 0.7 }}>
-          {/* Header treatment matches the NOW / SOON labels above:
-              tiny green dot + bold uppercase text + count. Chevron
-              reveals/hides the list. */}
+          {/* Header treatment matches the NOW / SOON labels above: tiny dot +
+              bold uppercase text + count. Green for observed-healthy, grey
+              for unknown — green is the app's "we checked and it's fine"
+              colour and an absence of data has not earned it. */}
           <View style={summaryStyles.headerRow}>
-            <View style={[summaryStyles.chip, knownHealthy === 0 && summaryStyles.chipNeutral]}>
-              <View style={[summaryStyles.dot, knownHealthy === 0 && summaryStyles.dotNeutral]} />
+            <View style={[summaryStyles.chip, isUnknown && summaryStyles.chipNeutral]}>
+              <View style={[summaryStyles.dot, isUnknown && summaryStyles.dotNeutral]} />
               <Text
                 weight="bold"
-                style={[summaryStyles.chipText, knownHealthy === 0 && summaryStyles.chipTextNeutral]}
+                style={[summaryStyles.chipText, isUnknown && summaryStyles.chipTextNeutral]}
               >
-                {chipLabel}
+                {healthySectionChip(variant, items.length)}
               </Text>
             </View>
             <View style={{ flex: 1 }} />
@@ -837,76 +937,9 @@ function HealthySection({
       {expanded && (
         <HealthyItemsCard items={items} cascadeStartDelay={cascadeStartDelay} />
       )}
-
-      {/* Outside the `expanded` branch on purpose: collapsing the list hides
-          detail, it does not withdraw the recommendation. */}
-        {items.length - knownHealthy > 0 && onBookNow && (
-          <Animated.View entering={FadeInUp.duration(450).delay(cascadeStartDelay + 120)}>
-            <Pressable
-              onPress={() => {
-                if (isEnriching) return;
-                // extractMaintenanceType → "warning" → MAINTENANCE_TYPE_TO_SLUG
-                // → diagnostic_scan, so this reuses the normal booking
-                // handoff with no special case at the call site.
-                onBookNow('warning-unknown-scan');
-              }}
-              disabled={isEnriching}
-              style={({ pressed }) => [
-                scanCtaStyles.button,
-                isEnriching && scanCtaStyles.buttonDisabled,
-                pressed && !isEnriching && { opacity: 0.85 },
-              ]}
-            >
-              <Ionicons
-                name="search-outline"
-                size={16}
-                color={isEnriching ? '#9CA3AF' : '#5299FE'}
-              />
-              <Text
-                weight="semiBold"
-                style={[scanCtaStyles.text, isEnriching && scanCtaStyles.textDisabled]}
-              >
-                {isEnriching ? 'Setting up…' : 'Book a diagnostic scan'}
-              </Text>
-            </Pressable>
-            <Text style={scanCtaStyles.caption}>
-              A mechanic can check what we have no record of.
-            </Text>
-          </Animated.View>
-        )}
-
     </View>
   );
 }
-
-const scanCtaStyles = StyleSheet.create({
-  button: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: scale(6),
-    marginTop: scale(10),
-    paddingVertical: scale(11),
-    borderRadius: moderateScale(12),
-    backgroundColor: '#EFF6FF',
-  },
-  buttonDisabled: {
-    backgroundColor: '#F3F4F6',
-  },
-  text: {
-    fontSize: moderateScale(14),
-    color: '#5299FE',
-  },
-  textDisabled: {
-    color: '#9CA3AF',
-  },
-  caption: {
-    marginTop: scale(6),
-    textAlign: 'center',
-    fontSize: moderateScale(12),
-    color: '#9CA3AF',
-  },
-});
 
 // ============================================================================
 // COMPONENT
@@ -965,6 +998,7 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
   const healthyItems = items
     .filter(i => i.status === 'on_time' || i.status === 'unknown')
     .sort((a, b) => STATUS_PRIORITY[a.status] - STATUS_PRIORITY[b.status]);
+  const { healthy: legacyHealthy, unknown: legacyUnknown } = splitQuietItems(healthyItems);
 
   // Cascade-in: each visible section gets its own delay slot so the tracker
   // animates in top-to-bottom on mount. Missing sections (no overdue / no
@@ -995,7 +1029,16 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
   const soonLabelDelay = soonCount > 0 ? tierStep++ * STEP_MS : 0;
   const soonBaseDelay = soonCount > 0 ? tierStep * STEP_MS : 0;
   tierStep += soonCount;
-  const restingDelay = tierStep * STEP_MS;
+  // RECOMMENDED sits between SOON and the quiet sections, so it takes its
+  // cascade slots there; HEALTHY and UNKNOWN each get their own.
+  const { healthy: restingHealthy, unknown: restingUnknown } = splitQuietItems(
+    (tieredItems?.resting ?? []).map((r) => r.item),
+  );
+  const hasRecommended = restingUnknown.length > 0;
+  const recommendedLabelDelay = hasRecommended ? tierStep++ * STEP_MS : 0;
+  const recommendedCardDelay = hasRecommended ? tierStep++ * STEP_MS : 0;
+  const healthyRestDelay = restingHealthy.length > 0 ? tierStep++ * STEP_MS : 0;
+  const unknownRestDelay = restingUnknown.length > 0 ? tierStep++ * STEP_MS : 0;
 
 
   return (
@@ -1116,13 +1159,35 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
             </>
           )}
 
-          {/* Resting — silent green. Always renders (returns null if empty). */}
+          {/* RECOMMENDED — the scan that closes the UNKNOWN list. A full card
+              with the same weight as NOW / SOON because it asks for the same
+              kind of action; it sits above the quiet sections so the one
+              actionable thing here is not buried under them. */}
+          {restingUnknown.length > 0 && onBookNow && (
+            <>
+              <Animated.View entering={FadeInUp.duration(450).delay(recommendedLabelDelay)}>
+                <RecommendedLabel />
+              </Animated.View>
+              <DiagnosticScanCard
+                unknownCount={restingUnknown.length}
+                entryDelay={recommendedCardDelay}
+                onBookNow={onBookNow}
+                isEnriching={isEnriching}
+              />
+            </>
+          )}
+
+          {/* Two quiet sections, never merged: "healthy" is a claim we can
+              back, "unknown" is the absence of one. */}
           <HealthySection
-            items={tieredItems.resting.map((r) => r.item)}
-            isDarkBg={isDarkBg}
-            cascadeStartDelay={restingDelay}
-            onBookNow={onBookNow}
-            isEnriching={isEnriching}
+            items={restingHealthy}
+            variant="healthy"
+            cascadeStartDelay={healthyRestDelay}
+          />
+          <HealthySection
+            items={restingUnknown}
+            variant="unknown"
+            cascadeStartDelay={unknownRestDelay}
           />
         </>
       ) : (
@@ -1180,12 +1245,28 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
           {/* Healthy items (expandable). Always expanded by default; user
               can collapse with the chevron. The section handles its own
               per-item cascade animation internally. */}
+          {legacyUnknown.length > 0 && onBookNow && (
+            <>
+              <Animated.View entering={FadeInUp.duration(ENTRY_DURATION).delay(healthyDelay)}>
+                <RecommendedLabel />
+              </Animated.View>
+              <DiagnosticScanCard
+                unknownCount={legacyUnknown.length}
+                entryDelay={healthyDelay + STEP_MS}
+                onBookNow={onBookNow}
+                isEnriching={isEnriching}
+              />
+            </>
+          )}
           <HealthySection
-            items={healthyItems}
-            isDarkBg={isDarkBg}
-            cascadeStartDelay={healthyDelay}
-            onBookNow={onBookNow}
-            isEnriching={isEnriching}
+            items={legacyHealthy}
+            variant="healthy"
+            cascadeStartDelay={healthyDelay + STEP_MS * 2}
+          />
+          <HealthySection
+            items={legacyUnknown}
+            variant="unknown"
+            cascadeStartDelay={healthyDelay + STEP_MS * 3}
           />
         </>
       )}
@@ -1462,6 +1543,23 @@ const groupLabelStyles = StyleSheet.create({
   },
   chipSoon: {
     backgroundColor: '#FFFBEB',
+  },
+  // RECOMMENDED — blue, matching the diagnostic-scan card's accent. Static,
+  // never pulsing: a suggestion, not an alarm.
+  recommendedDot: {
+    width: scale(8),
+    height: scale(8),
+    borderRadius: moderateScale(4),
+    backgroundColor: '#5299FE',
+  },
+  chipRecommended: {
+    backgroundColor: '#EFF6FF',
+  },
+  chipTextRecommended: {
+    fontSize: moderateScale(11),
+    color: '#1D4ED8',
+    letterSpacing: 0.66,
+    textTransform: 'uppercase',
   },
   chipTextSoon: {
     fontSize: moderateScale(11),

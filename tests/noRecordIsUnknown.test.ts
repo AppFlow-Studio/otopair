@@ -18,7 +18,7 @@
  * wording. Holding no record at all must not read as better news.
  */
 import { describe, expect, it } from "vitest";
-import { healthySectionChip } from "@/utils/healthySection";
+import { healthySectionChip, splitQuietItems } from "@/utils/healthySection";
 import {
   extractMaintenanceType,
   MAINTENANCE_TYPE_TO_SLUG,
@@ -87,25 +87,36 @@ describe("a vehicle with no records", () => {
   });
 });
 
-describe("the quiet section's chip", () => {
-  const chip = (statuses: string[]) =>
-    healthySectionChip(statuses.map((status) => ({ status })) as any).label;
-
-  it("counts only observed-healthy items as healthy", () => {
-    expect(chip(["on_time", "on_time", "on_time"])).toBe("HEALTHY · 3");
+describe("the two quiet sections", () => {
+  // HEALTHY and UNKNOWN are separate sections now, not one mixed list with a
+  // compound label. "Healthy" is a claim we can back; an item with no record
+  // on file is not evidence of it, so they never share a heading or a count.
+  it("labels each section for what it is", () => {
+    expect(healthySectionChip("healthy", 3)).toBe("HEALTHY · 3");
+    expect(healthySectionChip("unknown", 4)).toBe("UNKNOWN · 4");
   });
 
-  it("does not fold unknowns into the healthy count", () => {
-    expect(chip(["on_time", "unknown", "unknown"])).toBe("HEALTHY · 1 · 2 UNKNOWN");
+  it("never labels unknowns as healthy", () => {
+    expect(healthySectionChip("unknown", 4)).not.toContain("HEALTHY");
   });
 
-  it("claims nothing when every row is a blank", () => {
-    // The record-less vehicle case: four core types, nothing known about any.
-    expect(chip(["unknown", "unknown", "unknown", "unknown"])).toBe("UNKNOWN · 4");
+  it("splits a mixed tier into the two sections", () => {
+    const { healthy, unknown } = splitQuietItems([
+      { status: "on_time" },
+      { status: "unknown" },
+      { status: "unknown" },
+    ]);
+    expect(healthy).toHaveLength(1);
+    expect(unknown).toHaveLength(2);
   });
 
-  it("never labels a section of pure unknowns as healthy", () => {
-    expect(chip(["unknown"])).not.toContain("HEALTHY");
+  it("puts nothing in the healthy bucket when every row is a blank", () => {
+    const { healthy, unknown } = splitQuietItems([
+      { status: "unknown" }, { status: "unknown" },
+      { status: "unknown" }, { status: "unknown" },
+    ]);
+    expect(healthy).toEqual([]);
+    expect(unknown).toHaveLength(4);
   });
 });
 
