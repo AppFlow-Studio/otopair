@@ -146,7 +146,10 @@ export function useMyBookingsWithDetails() {
           ),
         };
       })
-      .filter((row) => row.quote_tile_state !== "hidden");
+      .filter(
+        (row) =>
+          row.quote_tile_state !== "hidden" && row.quote_dismissed_at_ms == null,
+      );
 
     const upcomingBookings: BookingCardBooking[] = serviceRows
       .sort((a, b) => (a.scheduled_date ?? "").localeCompare(b.scheduled_date ?? ""))

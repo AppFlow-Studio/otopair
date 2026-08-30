@@ -104,6 +104,7 @@ export interface ConvexBookingWithDetails {
   pickupRespondedAtMs?: number | null;
   quote_state?: "pending" | "ready" | "expired" | "cancelled" | null;
   quote_expires_at?: number | null;
+  quote_dismissed_at_ms?: number | null;
   quote_tile_state?: "pending" | "ready" | "expired" | "hidden";
 }
 

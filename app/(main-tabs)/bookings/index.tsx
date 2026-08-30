@@ -44,6 +44,7 @@ import { useQuoteRequestAvailability } from "@/hooks/useQuoteRequestAvailability
 import { formatFeeCents } from "@/constants/bookingActionPolicy";
 import { useToast } from "@/hooks/useToast";
 import type { Id } from "@/convex/_generated/dataModel";
+import type { FunctionReference } from "convex/server";
 import type { QuoteUnavailableReason } from "@/utils/quoteAvailability";
 import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
@@ -204,6 +205,7 @@ export default function BookingsScreen() {
   // `tire_quote_*` id format; real
   // Convex ids are base32 and never start with that prefix.
   const cancelLocalBooking = useBookingStore((s) => s.cancelBooking);
+  const removeLocalBooking = useBookingStore((s) => s.removeBooking);
   // Notifications bell. The sheet is global; Bookings only needs a trigger.
   // It lives here as well as on Home because pickup-request responses land in
   // the outbox while the customer is sitting on this screen watching the card
@@ -225,8 +227,15 @@ export default function BookingsScreen() {
       title: ctx.error.message || "Couldn't cancel this booking. Try again.",
     }),
   });
-  const dismissExpiredQuote = useMutationWithToast(api.bookings.cancelBooking, {
-    success: "Quote dismissed.",
+  const dismissExpiredQuoteRequest = (api.bookings as unknown as {
+    dismissExpiredQuoteRequest: FunctionReference<
+      "mutation",
+      "public",
+      { bookingId: Id<"bookings"> },
+      { dismissed: boolean }
+    >;
+  }).dismissExpiredQuoteRequest;
+  const dismissExpiredQuote = useMutationWithToast(dismissExpiredQuoteRequest, {
     error: "Couldn't dismiss this quote. Try again.",
   });
   const requestPickupConvex = useMutationWithToast(
@@ -261,16 +270,14 @@ export default function BookingsScreen() {
   const handleDismissExpiredQuote = useCallback(
     async (bookingId: string) => {
       if (bookingId.startsWith("tire_quote_") || bookingId.startsWith("booking_")) {
-        cancelLocalBooking(bookingId);
-        toast.success("Quote dismissed.");
+        removeLocalBooking(bookingId);
         return;
       }
       await dismissExpiredQuote({
         bookingId: bookingId as Id<"bookings">,
-        reason: "quote_expired_dismissed",
       });
     },
-    [cancelLocalBooking, dismissExpiredQuote, toast],
+    [dismissExpiredQuote, removeLocalBooking],
   );
   const handleRequestPickup = useCallback(
     (bookingId: string) => {
@@ -592,7 +599,9 @@ export default function BookingsScreen() {
                   <CustomerLateBanner onReschedule={(bookingId) => handleReschedule(String(bookingId))} />
                   {bookings.length > 0 ? (
                     bookings.map((booking) =>
-                      booking.status === "pending_quote" || booking.status === "quotes_ready" ? (
+                      booking.status === "pending_quote" ||
+                      booking.status === "quotes_ready" ||
+                      booking.status === "quote_expired" ? (
                         <PendingQuoteCard
                           key={booking.id}
                           booking={booking}

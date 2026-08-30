@@ -129,6 +129,7 @@ export function PendingQuoteCard({
   // Local "just cancelled" state. Mirrors BookingCard — see that file's
   // pattern for the rationale.
   const [isCancelling, setIsCancelling] = useState(false);
+  const [isDismissing, setIsDismissing] = useState(false);
   const dim = useSharedValue(1);
   useEffect(() => {
     if (isCancelling) {
@@ -256,9 +257,9 @@ export function PendingQuoteCard({
           <Pressable
             onPress={(e) => {
               e.stopPropagation?.();
-              void runAction(() => onDismiss?.(booking.id));
+              void runDismiss(() => onDismiss?.(booking.id));
             }}
-            disabled={isCancelling}
+            disabled={isDismissing}
             accessibilityRole="button"
             accessibilityLabel="Dismiss expired quote request"
             style={({ pressed }) => [styles.viewButton, pressed && styles.viewButtonPressed]}
@@ -363,6 +364,17 @@ export function PendingQuoteCard({
       // interactive so the customer can retry instead of leaving it dimmed.
     } finally {
       setIsCancelling(false);
+    }
+  }
+
+  async function runDismiss(action: () => Promise<void> | void | undefined) {
+    if (isDismissing) return;
+    setIsDismissing(true);
+    try {
+      await action();
+    } catch {
+      // The mutation wrapper already presents the error toast.
+      setIsDismissing(false);
     }
   }
 }
