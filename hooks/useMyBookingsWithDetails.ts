@@ -9,7 +9,7 @@
  */
 
 import { useQuery } from "convex/react";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Booking as BookingCardBooking } from "@/components/bookings/BookingCard";
 import {
@@ -18,6 +18,7 @@ import {
 } from "@/utils/bookingAdapter";
 import { useSessionCachedQuery } from "@/lib/offlineSessionCache";
 import { useUserFromConvex } from "./useUserFromConvex";
+import { getQuoteTileState } from "@/utils/quoteAvailability";
 
 // Approval cycles that mean the customer still owes a decision (or the
 // mechanic is mid-cycle awaiting one). A booking in any of these states
@@ -79,7 +80,10 @@ function isHistory(row: ConvexBookingWithDetails): boolean {
 
 export function useMyBookingsWithDetails() {
   const { userId } = useUserFromConvex();
-  const liveRows = useQuery(api.bookings.getByUserIdWithDetails, userId ? { userId } : "skip");
+  const liveRows = useQuery(
+    api.bookings.getByUserIdWithDetails,
+    userId ? { userId } : "skip",
+  ) as unknown as ConvexBookingWithDetails[] | undefined;
   const liveReviewedIds = useQuery(
     api.reviews.listReviewedBookingIdsForUser,
     userId ? { userId } : "skip",
@@ -99,6 +103,24 @@ export function useMyBookingsWithDetails() {
     liveReviewedIds,
   );
 
+  const [quoteClock, setQuoteClock] = useState(() => Date.now());
+  useEffect(() => {
+    const nextBoundary = (rows ?? [])
+      .flatMap((row) =>
+        row.quote_expires_at == null
+          ? []
+          : [row.quote_expires_at, row.quote_expires_at + 24 * 60 * 60_000],
+      )
+      .filter((value) => value > quoteClock)
+      .sort((a, b) => a - b)[0];
+    if (nextBoundary == null) return;
+    const timer = setTimeout(
+      () => setQuoteClock(Date.now()),
+      Math.max(0, nextBoundary - Date.now() + 50),
+    );
+    return () => clearTimeout(timer);
+  }, [quoteClock, rows]);
+
   return useMemo(() => {
     const list = rows ?? [];
     const liveRows = list.filter(isLive);
@@ -111,7 +133,20 @@ export function useMyBookingsWithDetails() {
     const isQuoteStage = (row: ConvexBookingWithDetails) =>
       row.status === "pending_quote" || row.status === "quotes_ready";
     const serviceRows = [...liveRows, ...upcomingRows.filter((row) => !isQuoteStage(row))];
-    const quoteRows = upcomingRows.filter(isQuoteStage);
+    const quoteRows = upcomingRows
+      .filter(isQuoteStage)
+      .map((row) => {
+        const fallbackState = row.status === "quotes_ready" ? "ready" : "pending";
+        return {
+          ...row,
+          quote_tile_state: getQuoteTileState(
+            row.quote_state ?? fallbackState,
+            row.quote_expires_at ?? null,
+            quoteClock,
+          ),
+        };
+      })
+      .filter((row) => row.quote_tile_state !== "hidden");
 
     const upcomingBookings: BookingCardBooking[] = serviceRows
       .sort((a, b) => (a.scheduled_date ?? "").localeCompare(b.scheduled_date ?? ""))
@@ -150,5 +185,5 @@ export function useMyBookingsWithDetails() {
       /** True when the data shown is the offline session cache, not live. */
       isFromCache,
     };
-  }, [rows, reviewedBookingIds, isFromCache]);
+  }, [rows, reviewedBookingIds, isFromCache, quoteClock]);
 }

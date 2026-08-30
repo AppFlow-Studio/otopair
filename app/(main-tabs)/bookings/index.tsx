@@ -40,6 +40,7 @@ import { useBookingsBadgeStore } from "@/stores/useBookingsBadgeStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 import { api } from "@/convex/_generated/api";
 import { useMutationWithToast } from "@/hooks/useMutationWithToast";
+import { useQuoteRequestAvailability } from "@/hooks/useQuoteRequestAvailability";
 import { formatFeeCents } from "@/constants/bookingActionPolicy";
 import { useToast } from "@/hooks/useToast";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -224,6 +225,10 @@ export default function BookingsScreen() {
       title: ctx.error.message || "Couldn't cancel this booking. Try again.",
     }),
   });
+  const dismissExpiredQuote = useMutationWithToast(api.bookings.cancelBooking, {
+    success: "Quote dismissed.",
+    error: "Couldn't dismiss this quote. Try again.",
+  });
   const requestPickupConvex = useMutationWithToast(
     api.bookings.requestCancellationAtShop,
     {
@@ -239,19 +244,33 @@ export default function BookingsScreen() {
     }
   }, [rescheduleError, toast]);
   const handleCancelBooking = useCallback(
-    (bookingId: string, feeAcknowledgedCents?: number) => {
+    async (bookingId: string, feeAcknowledgedCents?: number) => {
       const isLocalId = bookingId.startsWith("tire_quote_") || bookingId.startsWith("booking_");
       if (isLocalId) {
         cancelLocalBooking(bookingId);
         toast.success("Booking cancelled.", undefined, { icon: CalendarX });
       } else {
-        void cancelConvexBooking({
+        await cancelConvexBooking({
           bookingId: bookingId as Id<"bookings">,
           feeAcknowledgedCents,
         });
       }
     },
     [cancelConvexBooking, cancelLocalBooking, toast],
+  );
+  const handleDismissExpiredQuote = useCallback(
+    async (bookingId: string) => {
+      if (bookingId.startsWith("tire_quote_") || bookingId.startsWith("booking_")) {
+        cancelLocalBooking(bookingId);
+        toast.success("Quote dismissed.");
+        return;
+      }
+      await dismissExpiredQuote({
+        bookingId: bookingId as Id<"bookings">,
+        reason: "quote_expired_dismissed",
+      });
+    },
+    [cancelLocalBooking, dismissExpiredQuote, toast],
   );
   const handleRequestPickup = useCallback(
     (bookingId: string) => {
@@ -313,13 +332,29 @@ export default function BookingsScreen() {
 
   const quoteListSheetRef = useRef<QuoteListSheetRef>(null);
   const rotorQuoteListSheetRef = useRef<RotorQuoteListSheetRef>(null);
-  const handleViewQuotes = (bookingId: string) => {
+  const checkQuoteRequestAvailability = useQuoteRequestAvailability();
+  const [checkingQuoteId, setCheckingQuoteId] = useState<string | null>(null);
+  const handleViewQuotes = async (bookingId: string) => {
     const booking = allBookings.find((b) => b.id === bookingId);
     if (!booking?.vin) return;
-    if (booking.quoteType === "rotor") {
-      rotorQuoteListSheetRef.current?.open(bookingId, booking.vin);
-    } else {
-      quoteListSheetRef.current?.open(bookingId, booking.vin);
+    setCheckingQuoteId(bookingId);
+    try {
+      const availability = await checkQuoteRequestAvailability(
+        bookingId as Id<"bookings">,
+      );
+      if (!availability.available) {
+        setQuoteUnavailableReason(availability.reason);
+        return;
+      }
+      if (booking.quoteType === "rotor") {
+        rotorQuoteListSheetRef.current?.open(bookingId, booking.vin);
+      } else {
+        quoteListSheetRef.current?.open(bookingId, booking.vin);
+      }
+    } catch {
+      toast.error("Couldn't check this quote", "Please try again.");
+    } finally {
+      setCheckingQuoteId(null);
     }
   };
 
@@ -564,6 +599,8 @@ export default function BookingsScreen() {
                           onPress={handleViewDetails}
                           onViewQuotes={handleViewQuotes}
                           onCancel={handleCancelBooking}
+                          onDismiss={handleDismissExpiredQuote}
+                          isCheckingQuotes={checkingQuoteId === booking.id}
                         />
                       ) : (
                         <BookingCard

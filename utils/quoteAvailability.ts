@@ -4,6 +4,23 @@ export type QuoteUnavailableReason =
   | "modified"
   | "unavailable";
 
+export type QuoteLifecycleState = "pending" | "ready" | "expired" | "cancelled";
+export type QuoteTileState = "pending" | "ready" | "expired" | "hidden";
+
+const EXPIRED_QUOTE_VISIBLE_MS = 24 * 60 * 60_000;
+
+export function getQuoteTileState(
+  state: QuoteLifecycleState,
+  expiresAt: number | null,
+  now = Date.now(),
+): QuoteTileState {
+  if (state === "cancelled") return "hidden";
+  if (state === "pending") return "pending";
+  if (expiresAt == null) return state;
+  if (now >= expiresAt + EXPIRED_QUOTE_VISIBLE_MS) return "hidden";
+  return now >= expiresAt ? "expired" : "ready";
+}
+
 export function getQuoteUnavailableCopy(reason: QuoteUnavailableReason) {
   const message =
     reason === "expired"
@@ -14,7 +31,7 @@ export function getQuoteUnavailableCopy(reason: QuoteUnavailableReason) {
   return {
     title: "This quote is no longer available",
     message,
-    actionLabel: "Back to quotes",
+    actionLabel: "Continue",
   };
 }
 

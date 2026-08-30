@@ -21,7 +21,7 @@
 import React, { useEffect, useState } from "react";
 import { Alert, Image, Pressable, StyleSheet, View } from "react-native";
 
-import { ArrowRight, Car } from "lucide-react-native";
+import { ArrowRight } from "lucide-react-native";
 import Animated, { FadeOut, LinearTransition, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 
 import { Text } from "@/components/shared-ui";
@@ -32,7 +32,7 @@ import { LinearGradient } from "expo-linear-gradient";
 // Same navy every other booking card carries — a quote request is a booking
 // at an earlier stage, so it wears the same surface.
 import { HERO_SURFACE, HERO_SURFACE_DEEP } from "@/components/home/UpcomingAppointmentHero";
-import { BookingCardOnNavy as P } from "@/constants/theme";
+import { BookingCardOnNavy as P, SemanticColors } from "@/constants/theme";
 
 // ============================================================================
 // HELPERS
@@ -103,7 +103,10 @@ interface Props {
   onViewQuotes?: (bookingId: string) => void;
   /** Soft-deletes the booking by flipping its status to "cancelled".
    *  Triggered by the "Cancel Request" button. */
-  onCancel?: (bookingId: string) => void;
+  onCancel?: (bookingId: string) => Promise<void> | void;
+  /** Removes an expired quote request from the customer's list. */
+  onDismiss?: (bookingId: string) => Promise<void> | void;
+  isCheckingQuotes?: boolean;
 }
 
 export function PendingQuoteCard({
@@ -111,6 +114,8 @@ export function PendingQuoteCard({
   onPress,
   onViewQuotes,
   onCancel,
+  onDismiss,
+  isCheckingQuotes = false,
 }: Props) {
   const vehicleLabel =
     booking.carModel && booking.carModel !== "Vehicle" ? booking.carModel : "Vehicle";
@@ -118,6 +123,7 @@ export function PendingQuoteCard({
   const tireSpecs = !isRotor ? parseTireSpecs(booking.notes) : null;
   const rotorSpecs = isRotor ? parseRotorSpecs(booking.notes) : null;
   const isReady = booking.status === "quotes_ready";
+  const isExpired = booking.status === "quote_expired";
   const stageView = getBookingStageView(booking.status, booking.liveStage);
 
   // Local "just cancelled" state. Mirrors BookingCard — see that file's
@@ -140,7 +146,7 @@ export function PendingQuoteCard({
     <Pressable
       style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
       onPress={() => {
-        if (isCancelling) return;
+        if (isCancelling || isExpired) return;
         onPress?.(booking.id);
       }}
     >
@@ -197,6 +203,8 @@ export function PendingQuoteCard({
               ? styles.tagCancelled
               : isReady
                 ? styles.tagReady
+                : isExpired
+                  ? styles.tagExpired
                 : styles.tagPending,
           ]}
         >
@@ -205,7 +213,13 @@ export function PendingQuoteCard({
             weight="bold"
             color={isCancelling ? P.danger : isReady ? P.accent : P.amber}
           >
-            {isCancelling ? "Cancelled" : isReady ? "Quotes Ready" : "Pending Quote"}
+            {isCancelling
+              ? "Cancelling..."
+              : isReady
+                ? "Quotes Ready"
+                : isExpired
+                  ? "Quote Expired"
+                  : "Pending Quote"}
           </Text>
         </View>
       </View>
@@ -237,19 +251,39 @@ export function PendingQuoteCard({
       </View>
 
       {/* Mode-specific footer/action */}
-      {isReady ? (
+      {isExpired ? (
+        <View style={styles.actionRow}>
+          <Pressable
+            onPress={(e) => {
+              e.stopPropagation?.();
+              void runAction(() => onDismiss?.(booking.id));
+            }}
+            disabled={isCancelling}
+            accessibilityRole="button"
+            accessibilityLabel="Dismiss expired quote request"
+            style={({ pressed }) => [styles.viewButton, pressed && styles.viewButtonPressed]}
+          >
+            <Text size="sm" weight="semiBold" color="#FFFFFF">
+              Dismiss
+            </Text>
+          </Pressable>
+        </View>
+      ) : isReady ? (
         <View style={styles.actionRow}>
           <Pressable
             onPress={(e) => {
               e.stopPropagation?.();
               onViewQuotes?.(booking.id);
             }}
+            disabled={isCheckingQuotes}
+            accessibilityRole="button"
+            accessibilityLabel="View quotes"
             style={({ pressed }) => [styles.viewButton, pressed && styles.viewButtonPressed]}
           >
             <Text size="sm" weight="semiBold" color="#FFFFFF">
-              View quotes
+              {isCheckingQuotes ? "Checking..." : "View quotes"}
             </Text>
-            <ArrowRight size={16} color="#FFFFFF" strokeWidth={2.4} />
+            {isCheckingQuotes ? null : <ArrowRight size={16} color="#FFFFFF" strokeWidth={2.4} />}
           </Pressable>
           {onCancel && booking.status !== "cancelled" ? (
             <Pressable
@@ -312,14 +346,24 @@ export function PendingQuoteCard({
           text: "Cancel Request",
           style: "destructive",
           onPress: () => {
-            // In-card visual first, then fire the mutation. The data-source
-            // removal triggers FadeOut + LinearTransition shift on siblings.
-            setIsCancelling(true);
-            setTimeout(() => onCancel?.(booking.id), 450);
+            void runAction(() => onCancel?.(booking.id));
           },
         },
       ],
     );
+  }
+
+  async function runAction(action: () => Promise<void> | void | undefined) {
+    if (isCancelling) return;
+    setIsCancelling(true);
+    try {
+      await action();
+    } catch {
+      // The mutation wrapper already presents the error toast. Keep the card
+      // interactive so the customer can retry instead of leaving it dimmed.
+    } finally {
+      setIsCancelling(false);
+    }
   }
 }
 
@@ -398,6 +442,9 @@ const styles = StyleSheet.create({
   },
   tagReady: {
     backgroundColor: "rgba(255,255,255,0.10)",
+  },
+  tagExpired: {
+    backgroundColor: SemanticColors.warningAmberDarkBg,
   },
   tagCancelled: {
     backgroundColor: "rgba(252,165,165,0.32)",
