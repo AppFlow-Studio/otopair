@@ -14,6 +14,7 @@ import {
   assertMechanicAvailableForWindow,
   isMechanicAvailableForWindow,
 } from "./lib/timeSlotAvailability";
+import { notifyCustomerQuoteReceived } from "./lib/quoteNotifications";
 import { requireOwnedQuoteBooking } from "./lib/quoteHoldOwnership";
 
 // ============================================================================
@@ -101,6 +102,14 @@ export const create = mutation({
         updated_at: now,
       });
     }
+
+    // Notify the customer (in-app feed + push) that a shop just quoted.
+    await notifyCustomerQuoteReceived(ctx, {
+      booking,
+      shopId: args.shop_id,
+      kind: "tire",
+      total: args.total,
+    });
 
     return responseId;
   },
