@@ -634,17 +634,20 @@ function UrgentCard({ item, entryDelay, vehicleCondition, healthScoreInput, onBo
     // "Take Action" promises a flow that ends in a booking. An advisory has no
     // service to book, so the honest CTA is the one that just shows the detail.
     ? "View suggestion"
-    : isMechanicRec
-      ? "Take Action"
-      : isAnchorless
-        ? "Book diagnostic scan"
-        : "Book Service";
+    : isAnchorless
+      ? "Book diagnostic scan"
+      : "Book Service";
   // Only the algorithmic Book Service CTA is coverage-gated — mechanic "Take
   // Action" routes to its own rec flow with the parts the shop already picked.
   const bookDisabled = isEnriching && !isMechanicRec;
   const handlePrimary = () => {
     if (bookDisabled) return;
-    if (isMechanicRec && onTakeAction) onTakeAction(item);
+    // An advisory has nothing bookable behind it, so its CTA opens the
+    // recommendation screen. Everything else books — including a mechanic's
+    // recommendation, which used to route to that screen under a "Take
+    // Action" label and left the driver to find a second button there.
+    // Ahmad, 2026-08-30: a rec should behave like every other card.
+    if (isAdvisory && onTakeAction) onTakeAction(item);
     else onBookNow?.(item.id);
   };
   const colors = CARD_COLORS[item.status] ?? { statusColor: '#5299FE', iconBg: 'rgba(82,153,254,0.07)' };
@@ -747,10 +750,16 @@ function UrgentCard({ item, entryDelay, vehicleCondition, healthScoreInput, onBo
               {bookDisabled ? 'Setting up…' : primaryLabel}
             </Text>
           </Pressable>
-          {!isMechanicRec && (
+          {!isAdvisory && (
             <Pressable
               style={({ pressed }) => [cardStyles.viewDetailsBtn, pressed && { opacity: 0.85 }]}
-              onPress={() => onCardPress?.(item)}
+              // A mechanic rec has a richer detail screen than the generic
+              // sheet — who suggested it, why, impact, and the Dismiss
+              // affordance — so it keeps that as its details view.
+              onPress={() => {
+                if (isMechanicRec && onTakeAction) onTakeAction(item);
+                else onCardPress?.(item);
+              }}
             >
               <Text weight="semiBold" style={cardStyles.viewDetailsText}>View Details</Text>
             </Pressable>

@@ -2240,9 +2240,19 @@ export default function CarsHomeScreen() {
                 // Inspection" from "have brakes inspected soon"). Falls back
                 // to the slug default for the type when the description
                 // doesn't literally name a catalog service.
-                const explicit = tapped?.description
-                  ? findServiceFromDescription(tapped.description, store.availableServices)
+                // A mechanic's recommendation names its catalog service
+                // outright (job_recommendations.service_id), so use that
+                // rather than guessing. Without it a rec fell through to
+                // description matching — extractMaintenanceType("rec-<id>")
+                // yields "rec", which maps to no slug — so "Coolant Flush
+                // flagged on eye-check (monitor)" had to happen to contain a
+                // catalog name or the user landed on the empty service picker.
+                const fromRec = tapped?.serviceId
+                  ? store.availableServices.find((sv) => sv.id === tapped.serviceId)
                   : undefined;
+                const explicit = fromRec ?? (tapped?.description
+                  ? findServiceFromDescription(tapped.description, store.availableServices)
+                  : undefined);
                 const matched = explicit ?? findServiceForMaintenanceType(itemType, store.availableServices);
                 // Use the matched service's own category for the tab —
                 // important when the matcher picks across categories (e.g.
