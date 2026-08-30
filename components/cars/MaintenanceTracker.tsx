@@ -1168,12 +1168,17 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
               <Animated.View entering={FadeInUp.duration(450).delay(recommendedLabelDelay)}>
                 <RecommendedLabel />
               </Animated.View>
-              <DiagnosticScanCard
-                unknownCount={restingUnknown.length}
-                entryDelay={recommendedCardDelay}
-                onBookNow={onBookNow}
-                isEnriching={isEnriching}
-              />
+              {/* Same wrapper the NOW / SOON tiers use — it carries the
+                  20pt horizontal inset, without which this card runs 40pt
+                  wider than every other card in the tracker. */}
+              <View style={styles.urgentGroup}>
+                <DiagnosticScanCard
+                  unknownCount={restingUnknown.length}
+                  entryDelay={recommendedCardDelay}
+                  onBookNow={onBookNow}
+                  isEnriching={isEnriching}
+                />
+              </View>
             </>
           )}
 
@@ -1250,12 +1255,14 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
               <Animated.View entering={FadeInUp.duration(ENTRY_DURATION).delay(healthyDelay)}>
                 <RecommendedLabel />
               </Animated.View>
-              <DiagnosticScanCard
-                unknownCount={legacyUnknown.length}
-                entryDelay={healthyDelay + STEP_MS}
-                onBookNow={onBookNow}
-                isEnriching={isEnriching}
-              />
+              <View style={styles.urgentGroup}>
+                <DiagnosticScanCard
+                  unknownCount={legacyUnknown.length}
+                  entryDelay={healthyDelay + STEP_MS}
+                  onBookNow={onBookNow}
+                  isEnriching={isEnriching}
+                />
+              </View>
             </>
           )}
           <HealthySection
