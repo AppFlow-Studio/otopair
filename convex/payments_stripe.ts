@@ -1399,9 +1399,12 @@ export const resumeReauthFromMobile = action({
       internal.payments_stripe._getPaymentByBookingId,
       { bookingId: args.bookingId },
     );
-    if (!payment) {
-      throw new Error("No payment row found for this booking.");
-    }
+    // A missing row is the FIRST-hold case: a quote-originated booking
+    // (acceptTireQuote/acceptRotorQuote) confirms WITHOUT preauthorizing a
+    // deposit, so a quote → job → added-scope booking reaches reauth_required
+    // with no row to replace. Create it below instead of failing. Same
+    // first-hold path as approveAndAuthorizeHold.
+    const isFirstHold = payment == null;
 
     const targetCents = Math.max(
       booking.mechanic_set_price_cents ?? 0,
@@ -1421,10 +1424,23 @@ export const resumeReauthFromMobile = action({
       throw new Error("This card doesn't belong to you.");
     }
 
+    // First hold: reserve the payments row BEFORE the Stripe call (mirrors
+    // createPaymentIntentForBooking) so a failed/transient PI still leaves a row.
+    const firstHoldIdempotencyKey = `reauth_pi:${args.bookingId}`;
+    if (isFirstHold) {
+      await ctx.runMutation(internal.payments_stripe._reservePaymentRow, {
+        bookingId: args.bookingId,
+        userId: user._id,
+        shopId: shop._id,
+        amount: booking.total_cost ?? targetCents / 100,
+        idempotencyKey: firstHoldIdempotencyKey,
+      });
+    }
+
     // Step 1: cancel the old PI (releases stale auth). Tolerate "already
     // cancelled / captured / etc." — those are fine, we'll create a new
-    // PI either way.
-    const oldPiId = payment.stripe_payment_intent_id;
+    // PI either way. A first hold has none to cancel.
+    const oldPiId = payment?.stripe_payment_intent_id;
     if (oldPiId) {
       try {
         await stripe.paymentIntents.cancel(oldPiId);
@@ -1460,19 +1476,45 @@ export const resumeReauthFromMobile = action({
       throw new Error(err?.message ?? "Card authorization failed.");
     }
 
-    // Step 3: record the new PI on the payments row (swaps the active PI
-    // id so capture/refund target the replacement).
-    await ctx.runMutation(
-      internal.payments_stripe._recordAuthorizationAdjustment,
-      {
+    // Step 3: record the new PI. First hold → write the full payments row
+    // (mirrors createPaymentIntentForBooking) so capture/refund/settlement can
+    // find it; _recordAuthorizationAdjustment only patches an existing row and
+    // would silently orphan the PI. Otherwise swap the active PI id in place.
+    if (isFirstHold) {
+      const mapped =
+        newPi.status === "requires_capture" ||
+        newPi.status === "succeeded" ||
+        newPi.status === "requires_action"
+          ? "processing"
+          : newPi.status === "canceled"
+            ? "cancelled"
+            : "pending";
+      await ctx.runMutation(internal.payments_stripe._recordPaymentIntent, {
         bookingId: args.bookingId,
-        incrementedTotalCents: targetCents,
-        reauthPaymentIntentId: newPi.id,
+        userId: user._id,
+        shopId: shop._id,
+        amount: booking.total_cost ?? targetCents / 100,
+        stripePaymentIntentId: newPi.id,
+        status: mapped,
+        idempotencyKey: firstHoldIdempotencyKey,
+        holdAmountCents: targetCents,
         ...(args.paymentOrigin != null
           ? { paymentOrigin: args.paymentOrigin }
           : {}),
-      },
-    );
+      });
+    } else {
+      await ctx.runMutation(
+        internal.payments_stripe._recordAuthorizationAdjustment,
+        {
+          bookingId: args.bookingId,
+          incrementedTotalCents: targetCents,
+          reauthPaymentIntentId: newPi.id,
+          ...(args.paymentOrigin != null
+            ? { paymentOrigin: args.paymentOrigin }
+            : {}),
+        },
+      );
+    }
     await ctx.runMutation(internal.payments_stripe._stampApprovalStripeAction, {
       bookingId: args.bookingId,
       stripeAction: "reauth_from_mobile",
@@ -1582,7 +1624,13 @@ export const approveAndAuthorizeHold = action({
       internal.payments_stripe._getPaymentByBookingId,
       { bookingId: args.bookingId },
     );
-    if (!payment) throw new Error("No payment row found for this booking.");
+    // A missing row is the wallet (Apple/Google Pay) FIRST-hold case: those
+    // bookings never place the off-session $20 deposit (a wallet can't authorize
+    // off-session), so THIS approval is the booking's first hold — there's no
+    // stale row to replace. Create it below instead of failing. A saved-card
+    // booking normally arrives here with its deposit row already present.
+    // (This is the path 953166c's lazy-customer change opened up.)
+    const isFirstHold = payment == null;
 
     const targetCents = Math.max(
       afterBooking.mechanic_set_price_cents ?? 0,
@@ -1601,8 +1649,23 @@ export const approveAndAuthorizeHold = action({
       throw new Error("This card doesn't belong to you.");
     }
 
-    // Cancel the stale hold (tolerate an already-terminal PI).
-    const oldPiId = payment.stripe_payment_intent_id;
+    // First hold: reserve the payments row BEFORE the Stripe call (mirrors
+    // createPaymentIntentForBooking) so a failed/transient PI still leaves a row
+    // the FSM hooks can act on. `amount` is dollars; the hold amount is cents.
+    const firstHoldIdempotencyKey = `approve_hold_pi:${args.bookingId}`;
+    if (isFirstHold) {
+      await ctx.runMutation(internal.payments_stripe._reservePaymentRow, {
+        bookingId: args.bookingId,
+        userId: user._id,
+        shopId: shop._id,
+        amount: afterBooking.total_cost ?? targetCents / 100,
+        idempotencyKey: firstHoldIdempotencyKey,
+      });
+    }
+
+    // Cancel the stale hold (tolerate an already-terminal PI). A first hold has
+    // none to cancel.
+    const oldPiId = payment?.stripe_payment_intent_id;
     if (oldPiId) {
       try {
         await stripe.paymentIntents.cancel(oldPiId);
@@ -1635,17 +1698,45 @@ export const approveAndAuthorizeHold = action({
       throw new Error(err?.message ?? "Card authorization failed.");
     }
 
-    await ctx.runMutation(
-      internal.payments_stripe._recordAuthorizationAdjustment,
-      {
+    if (isFirstHold) {
+      // First hold: record the full payments row (mirrors
+      // createPaymentIntentForBooking) so capture / void / settlement can find
+      // it. _recordAuthorizationAdjustment only PATCHES an existing row — it
+      // would silently no-op here and orphan the PI.
+      const mapped =
+        newPi.status === "requires_capture" ||
+        newPi.status === "succeeded" ||
+        newPi.status === "requires_action"
+          ? "processing"
+          : newPi.status === "canceled"
+            ? "cancelled"
+            : "pending";
+      await ctx.runMutation(internal.payments_stripe._recordPaymentIntent, {
         bookingId: args.bookingId,
-        incrementedTotalCents: targetCents,
-        reauthPaymentIntentId: newPi.id,
+        userId: user._id,
+        shopId: shop._id,
+        amount: afterBooking.total_cost ?? targetCents / 100,
+        stripePaymentIntentId: newPi.id,
+        status: mapped,
+        idempotencyKey: firstHoldIdempotencyKey,
+        holdAmountCents: targetCents,
         ...(args.paymentOrigin != null
           ? { paymentOrigin: args.paymentOrigin }
           : {}),
-      },
-    );
+      });
+    } else {
+      await ctx.runMutation(
+        internal.payments_stripe._recordAuthorizationAdjustment,
+        {
+          bookingId: args.bookingId,
+          incrementedTotalCents: targetCents,
+          reauthPaymentIntentId: newPi.id,
+          ...(args.paymentOrigin != null
+            ? { paymentOrigin: args.paymentOrigin }
+            : {}),
+        },
+      );
+    }
     await ctx.runMutation(internal.payments_stripe._stampApprovalStripeAction, {
       bookingId: args.bookingId,
       stripeAction: "approve_and_hold",
