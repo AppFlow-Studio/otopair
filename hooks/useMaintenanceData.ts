@@ -18,6 +18,8 @@
 
 import { useQuery } from "convex/react";
 import { useMemo } from "react";
+
+import { useBookingStore } from "@/stores/useBookingStore";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useSessionCachedQuery } from "@/lib/offlineSessionCache";
@@ -136,6 +138,19 @@ export function useMergedMaintenance(
   // MAKE_OVERRIDES / DEFAULT_INTERVALS when undefined or empty.
   oemIntervals?: OemServiceIntervalsInput,
 ) {
+  // Resolves a rec's service_id to its taxonomy slug so the merge can tell
+  // when a recommendation and an eye-check tile are the same finding. Reads
+  // the catalog the booking flow already loads; identity is stable per
+  // catalog so the memo below doesn't thrash.
+  const availableServices = useBookingStore((st) => st.availableServices);
+  const serviceSlugById = useMemo(() => {
+    const bySlug = new Map<string, string>();
+    for (const svc of availableServices) {
+      if (svc.id && svc.slug) bySlug.set(String(svc.id), String(svc.slug));
+    }
+    return (serviceId: string) => bySlug.get(serviceId);
+  }, [availableServices]);
+
   const { records, items: userItems } = useMaintenanceRecords(vehicleOwnerId, currentOdometer, make, drivingConditions, avgMonthlyDriving, knownIssues, vehicleYear, oemIntervals);
 
   // Merge via the single shared builder — the SAME function Oto's
@@ -155,12 +170,14 @@ export function useMergedMaintenance(
         // omits both and keeps the anchored-only item set.
         currentOdometer,
         oemIntervals,
+        serviceSlugById,
       }),
     [
       userItems,
       records,
       knownIssues,
       vehicleYear,
+      serviceSlugById,
       driverRecommendations,
       vehicleOwnerId,
       currentOdometer,

@@ -158,6 +158,10 @@ export interface MaintenanceItem {
   /** Canonical service id behind the rec — surfaced for the booking flow
    *  pre-fill from the detail screen. */
   serviceId?: string | null;
+  /** Taxonomy slug of the service that fixes this item. Set on minor
+   *  eye-check items, whose card is named for the inspection line rather
+   *  than the remedy the catalog sells. */
+  serviceSlug?: string | null;
   /** Per-axis copy for the signal-pill row. */
   signals?: {
     time?: string;

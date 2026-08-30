@@ -2265,7 +2265,17 @@ export default function CarsHomeScreen() {
                 const fromRec = tapped?.serviceId
                   ? store.availableServices.find((sv) => sv.id === tapped.serviceId)
                   : undefined;
-                const explicit = fromRec ?? (tapped?.description
+                // Minor eye-check tiles name the inspection line ("Coolant
+                // Condition"), not the remedy the catalog sells ("Coolant
+                // flush"), so they carry the remedy's slug explicitly.
+                const fromSlug = tapped?.serviceSlug
+                  ? store.availableServices.find(
+                      (sv) =>
+                        String(sv.slug ?? "").toLowerCase().replace(/-/g, "_") ===
+                        String(tapped.serviceSlug).toLowerCase().replace(/-/g, "_"),
+                    )
+                  : undefined;
+                const explicit = fromRec ?? fromSlug ?? (tapped?.description
                   ? findServiceFromDescription(tapped.description, store.availableServices)
                   : undefined);
                 const matched = explicit ?? findServiceForMaintenanceType(itemType, store.availableServices);

@@ -204,24 +204,61 @@ export interface MergeRecordLike {
  *  (utils/healthScore.ts) can't accidentally match one to a real category.
  *  Written by convex/lib/inspectionHealth.ts's deriveCoreGrades via
  *  convex/maintenance.ts's mergeMechanicGradeIntoRecord. */
-export const MINOR_ITEM_RECORD_TYPES: ReadonlyArray<{ type: string; label: string }> = [
-  { type: "minor_cool_condition", label: "Coolant Condition" },
-  { type: "minor_trans", label: "Transmission Fluid" },
-  { type: "minor_ps", label: "Power Steering Fluid" },
-  { type: "minor_filter", label: "Air / Cabin Filter" },
-  { type: "minor_bf_condition", label: "Brake Fluid Condition" },
+/**
+ * The five minor eye-check items, each with the catalog service that FIXES it.
+ *
+ * The card is named for the inspection line a mechanic grades ("coolant
+ * condition — how does the fluid look?"); the catalog sells the remedy
+ * ("coolant flush"). Nothing connected the two, which caused both bugs here:
+ *
+ *  - Book Service fell through to matching the mechanic's free-text reason
+ *    against service names. That worked for 2 of the 5 by luck and dropped
+ *    the other 3 on an empty service picker.
+ *  - When the same eye-check ALSO produced a job recommendation, the driver
+ *    got two cards for one physical finding — "Coolant Flush · Suggested by
+ *    James Bond" directly above "Coolant Condition · Flagged by Chelala".
+ *
+ * `remedySlug` is the taxonomy slug, which is the project's binding key for
+ * services (REFERENCES.md decision log, v9). Names are display text and drift:
+ * transmission_service reads "Transmission fluid change" in the taxonomy and
+ * "Transmission Service" in the catalog, so matching on names would have
+ * reproduced the same class of bug this replaces.
+ */
+export const MINOR_ITEM_RECORD_TYPES: ReadonlyArray<{
+  type: string;
+  label: string;
+  remedySlug: string;
+}> = [
+  { type: "minor_cool_condition", label: "Coolant Condition", remedySlug: "coolant_flush" },
+  { type: "minor_trans", label: "Transmission Fluid", remedySlug: "transmission_service" },
+  { type: "minor_ps", label: "Power Steering Fluid", remedySlug: "power_steering_flush" },
+  { type: "minor_filter", label: "Air / Cabin Filter", remedySlug: "filter_replacement" },
+  { type: "minor_bf_condition", label: "Brake Fluid Condition", remedySlug: "brake_fluid_flush" },
 ];
 
 /** Build the extra weight-10 minor-item cards from raw records — one per
  *  flagged (yellow/red) catalog-matched minor field, none for green
  *  (absent) or unmatched (freeform, never written here at all) findings. */
-function buildMinorItems(records: readonly MergeRecordLike[] | undefined): MaintenanceItem[] {
+function buildMinorItems(
+  records: readonly MergeRecordLike[] | undefined,
+  /** Remedy slugs already represented by a mechanic recommendation. A minor
+   *  item whose fix is in here is suppressed: one physical finding, one card.
+   *  Empty when the caller cannot resolve slugs (Oto's server-side merge),
+   *  which degrades to today's behaviour rather than to a wrong answer. */
+  coveredRemedySlugs: ReadonlySet<string>,
+): MaintenanceItem[] {
   if (!records?.length) return [];
   const out: MaintenanceItem[] = [];
-  for (const { type, label } of MINOR_ITEM_RECORD_TYPES) {
+  for (const { type, label, remedySlug } of MINOR_ITEM_RECORD_TYPES) {
     const record = records.find((r) => r.type === type);
     const grade = record?.customInputs?.mechanicGrade as "g" | "y" | "r" | undefined;
     if (!grade || grade === "g") continue;
+    // The recommendation card wins: it carries the mechanic's own framing, a
+    // service id that books reliably, and the dismiss / follow-up lifecycle.
+    // Scoring is unaffected — recs are excluded from Upkeep precisely because
+    // the matching tile scores them (see isScorableMaintenanceItem), so the
+    // finding still costs exactly what it did.
+    if (coveredRemedySlugs.has(remedySlug)) continue;
     const reason = (record?.customInputs?.mechanicGradeReason as string | undefined)
       ?? `${label} flagged on eye-check`;
     const shopName = (record?.customInputs?.mechanicGradeSource as string | undefined) ?? null;
@@ -235,6 +272,9 @@ function buildMinorItems(records: readonly MergeRecordLike[] | undefined): Maint
       // A minor item only exists because a mechanic graded it yellow or red,
       // so it always has a source worth showing.
       mechanicFlag: shopName || gradedAt ? { shopName, gradedAt } : undefined,
+      // The fix, so Book Service lands on Choose Mechanic with the right
+      // service attached instead of an empty picker.
+      serviceSlug: remedySlug,
     });
   }
   return out;
@@ -262,6 +302,12 @@ export interface BuildMergedMaintenanceInput {
   /** Slug-keyed OEM intervals from the v3 enrichment pipeline. Drives the
    *  interval signal pill and the catalog coverage pass (Behaviors #6/#7). */
   oemIntervals?: OemServiceIntervalsInput;
+  /** Resolve a catalog service id to its taxonomy slug. Supplied by the app
+   *  (which has the services catalog in the booking store) and omitted by
+   *  Oto's server-side merge. Used only to suppress a minor eye-check card
+   *  when a recommendation already covers the same remedy — without it, both
+   *  cards render, which is the pre-existing behaviour. */
+  serviceSlugById?: (serviceId: string) => string | undefined;
 }
 
 /**
@@ -275,6 +321,7 @@ export function buildMergedMaintenanceItems(
   input: BuildMergedMaintenanceInput,
 ): MaintenanceItem[] {
   const { userItems, records, knownIssues, vehicleYear, driverRecommendations, scopeId } = input;
+  const { serviceSlugById } = input;
   const { currentOdometer, oemIntervals } = input;
   const now = input.now ?? Date.now();
   const result: MaintenanceItem[] = [];
@@ -393,7 +440,17 @@ export function buildMergedMaintenanceItems(
 
   // Consolidated Upkeep scoring model — catalog-matched minor fields
   // flagged yellow/red (see buildMinorItems above).
-  result.push(...buildMinorItems(records));
+  // Remedies a mechanic has already recommended — those recommendations own
+  // the card, so the matching eye-check tile stays silent.
+  const coveredRemedySlugs = new Set<string>();
+  if (serviceSlugById && driverRecommendations) {
+    for (const rec of driverRecommendations) {
+      if (!rec.service_id) continue;
+      const slug = serviceSlugById(rec.service_id);
+      if (slug) coveredRemedySlugs.add(slug);
+    }
+  }
+  result.push(...buildMinorItems(records, coveredRemedySlugs));
 
   // ── Catalog coverage via from-odometer inference (Behavior #7) ──
   // Only runs for callers that supply both an odometer and OEM intervals;
