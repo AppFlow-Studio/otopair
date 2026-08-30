@@ -372,6 +372,10 @@ export default function PickDateTimeScreen() {
     selectedMechanicId,
     totalMinutes > 0 ? totalMinutes : undefined,
     quoteHoldContext,
+    // Earliest-time fast path: surface the shop's held slot even if it's inside
+    // today's 1-hour notice window (floor.time is the quoted time here — see
+    // getPickerFloor). Manual scheduling keeps the hook's default lead time.
+    autoConfirmPending ? floor.time : undefined,
   );
   const slots = useMemo(() => {
     // On the floor date, hide any slot earlier than the floor time (today's

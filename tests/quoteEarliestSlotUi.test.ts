@@ -39,6 +39,16 @@ test("picker recovers from a stale earliest slot with the shared floating sheet"
   expect(picker).toContain("quote_context");
 });
 
+test("earliest-time fast path relaxes the time-slot notice filter to the quoted floor", () => {
+  // A shop-held slot inside today's 1-hour notice window must survive
+  // useTimeSlotsForShop's same-day filter, so the fast path passes floor.time
+  // as the min-time override (undefined for manual scheduling).
+  const picker = source("app/(booking-flow)/pick-datetime.tsx");
+  expect(picker).toMatch(
+    /useTimeSlotsForShop\([\s\S]*?autoConfirmPending \? floor\.time : undefined/,
+  );
+});
+
 test("successful earliest-time checks replace the transient picker route", () => {
   const picker = source("app/(booking-flow)/pick-datetime.tsx");
   expect(picker).toMatch(/if \(isAutoAttempt\) \{\s*router\.replace\(/);
