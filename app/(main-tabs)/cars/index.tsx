@@ -41,6 +41,9 @@ const isMenuViewAvailable = !!UIManager.getViewManagerConfig?.("MenuView");
 import { haptics } from "@/lib/haptics";
 import { useToast } from "@/hooks/useToast";
 import { useServiceRecordUpload } from "@/hooks/useServiceRecordUpload";
+import { catalogRecordType } from "@/utils/mergedMaintenance";
+import type { MaintenanceItem } from "@/components/cars/MaintenanceTracker";
+import { ServiceRecencySheet, type RecencyAnswer } from "@/components/cars/ServiceRecencySheet";
 import { useUpdateMileage } from "@/hooks/useUpdateMileage";
 import Svg, { Circle, Defs, LinearGradient as SvgLinearGradient, Stop } from "react-native-svg";
 
@@ -63,7 +66,8 @@ import {
 import { useTireBookingStore } from "@/stores/useTireBookingStore";
 import type { Id } from "@/convex/_generated/dataModel";
 import { isPseudoVin } from "@/convex/lib/vinIdentity";
-import { ALL_MAINTENANCE_TYPES, MAINTENANCE_LABELS, type MaintenanceType } from "@/utils/maintenanceStatus";
+import {
+  estimateServiceAnchorFromRecency, ALL_MAINTENANCE_TYPES, MAINTENANCE_LABELS, type MaintenanceType } from "@/utils/maintenanceStatus";
 import { computeVehicleHealthScore, type HealthScoreInput } from "@/utils/healthScore";
 
 // 4. Shared UI
@@ -1049,6 +1053,11 @@ export default function CarsHomeScreen() {
   // dismissRecFromDriver with reason "fixed" — that already cancels the
   // linked follow-up so reminders stop, and recomputes the open-rec penalty,
   // which "hidden_by_driver" deliberately does not.
+  // "When was this last done?" on an unknown tracker row. Optional — the row
+  // is equally valid left unanswered, which is why nothing here blocks.
+  const [recencyItem, setRecencyItem] = useState<MaintenanceItem | null>(null);
+  const upsertMaintenanceRecord = useMutation(api.maintenance.upsertRecord);
+
   const dismissRecFromDriver = useMutation(api.jobRecommendations.dismissRecFromDriver);
   const { pickAndUpload: pickServiceRecord } = useServiceRecordUpload(
     { vehicleOwnerId: activeOwnershipId, vin: activeVehicle?.vin },
@@ -1993,6 +2002,55 @@ export default function CarsHomeScreen() {
           />
         </View>
 
+        <ServiceRecencySheet
+          visible={recencyItem !== null}
+          serviceName={recencyItem?.serviceName ?? ""}
+          onClose={() => setRecencyItem(null)}
+          onSubmit={async (answer: RecencyAnswer) => {
+            const item = recencyItem;
+            setRecencyItem(null);
+            if (!item?.serviceSlug || !activeOwnershipId) return;
+            // "Not sure" is a real choice: record it so we stop asking as
+            // insistently, but write no anchor — the row stays unknown and
+            // keeps scoring nothing, per §08.
+            const anchorPoint = estimateServiceAnchorFromRecency({
+              recency: answer.recency,
+              currentOdometer: currentOdometer ?? activeVehicle?.mileage ?? 0,
+              avgMonthlyDriving: activeOwnership?.avgMonthlyDriving as string | undefined,
+              exactDate: answer.exactDate,
+              vehicleYear: activeVehicle?.year,
+            });
+            try {
+              await upsertMaintenanceRecord({
+                vehicleOwnerId: activeOwnershipId,
+                type: catalogRecordType(item.serviceSlug),
+                ...(anchorPoint
+                  ? {
+                      lastServiceDate: anchorPoint.lastServiceDate,
+                      lastServiceMileage: anchorPoint.lastServiceMileage,
+                    }
+                  : {}),
+                customInputs: {
+                  recency: answer.recency,
+                  ...(answer.exactDate ? { exactDate: answer.exactDate } : {}),
+                  // Marks the anchor as the driver's own estimate, not a
+                  // shop's record — the tracker and Oto both read this.
+                  source: "driver_self_report",
+                },
+                confidence: "self_reported",
+              });
+              toast.success(
+                anchorPoint ? "Thanks — updated" : "Noted",
+                anchorPoint
+                  ? `We'll track ${item.serviceName.toLowerCase()} from there.`
+                  : "We'll leave that one open for now.",
+              );
+            } catch {
+              toast.error("Couldn't save that", "Please try again.");
+            }
+          }}
+        />
+
         {/* Reduced-accuracy notice for 2012-or-older vehicles (self-hides otherwise) */}
         <DataAccuracyDisclaimer
           year={activeVehicle?.year ?? 0}
@@ -2304,6 +2362,7 @@ export default function CarsHomeScreen() {
                 if (!item.sourceRecommendationId) return;
                 router.push(`/recommendation/${item.sourceRecommendationId}`);
               }}
+              onAnswerRecency={(item) => setRecencyItem(item)}
               onMarkDone={(item) => {
                 const recId = item.sourceRecommendationId;
                 if (!recId) return;

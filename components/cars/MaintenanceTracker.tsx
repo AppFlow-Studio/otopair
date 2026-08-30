@@ -190,6 +190,8 @@ interface MaintenanceTrackerProps {
   onTakeAction?: (item: MaintenanceItem) => void;
   /** Advisory only — see UrgentCardProps.onMarkDone. */
   onMarkDone?: (item: MaintenanceItem) => void;
+  /** Unknown rows only: driver answers "when was this last done?". */
+  onAnswerRecency?: (item: MaintenanceItem) => void;
   onAddInfo?: (id: string) => void;
   onEditPressed?: () => void;
   /** Parent has determined the page bg is dark enough that the
@@ -799,10 +801,12 @@ function HealthyItemRow({
   item,
   showSeparator,
   entryDelay,
+  onAnswerRecency,
 }: {
   item: MaintenanceItem;
   showSeparator: boolean;
   entryDelay: number;
+  onAnswerRecency?: (item: MaintenanceItem) => void;
 }) {
   const opacity = useSharedValue(0);
   const translateY = useSharedValue(18);
@@ -841,9 +845,25 @@ function HealthyItemRow({
             </Text>
           )}
         </View>
-        {/* A check mark asserts we looked and it was fine. For an item with no
-            record on file we did neither, so it gets a neutral outline. */}
-        {item.status === 'unknown' ? (
+        {/* An unknown row is a question we can just ask. The driver often
+            knows when this was last done, and answering is faster than
+            booking a scan — so the row offers it rather than only showing a
+            neutral outline. Optional: nothing here is required.
+            Gated on serviceSlug, which only catalog rows carry. The five core
+            tiles (unknown-oil, unknown-brakes, …) are answered through the
+            stepper, whose per-type questions ask more than recency — brake
+            feel, tire origin, battery replacement — and writing a bare recency
+            over those records would be a worse answer than none. A dead
+            button on those rows would be worse still. */}
+        {item.status === 'unknown' && onAnswerRecency && item.serviceSlug ? (
+          <Pressable
+            onPress={() => onAnswerRecency(item)}
+            hitSlop={10}
+            style={({ pressed }) => [summaryStyles.answerBtn, pressed && { opacity: 0.7 }]}
+          >
+            <Text weight="semiBold" style={summaryStyles.answerBtnText}>Add date</Text>
+          </Pressable>
+        ) : item.status === 'unknown' ? (
           <Ionicons name="ellipse-outline" size={18} color="#C7C7CC" />
         ) : (
           <Ionicons name="checkmark-circle" size={18} color="#5299FE" />
@@ -861,9 +881,11 @@ function HealthyItemRow({
 function HealthyItemsCard({
   items,
   cascadeStartDelay,
+  onAnswerRecency,
 }: {
   items: MaintenanceItem[];
   cascadeStartDelay: number;
+  onAnswerRecency?: (item: MaintenanceItem) => void;
 }) {
   const shellOpacity = useSharedValue(0);
   useEffect(() => {
@@ -885,6 +907,7 @@ function HealthyItemsCard({
           item={item}
           showSeparator={index < items.length - 1}
           entryDelay={cascadeStartDelay + (index + 1) * HEALTHY_ITEM_STEP_MS}
+          onAnswerRecency={onAnswerRecency}
         />
       ))}
     </Animated.View>
@@ -895,12 +918,14 @@ function HealthySection({
   items,
   variant,
   cascadeStartDelay = 0,
+  onAnswerRecency,
 }: {
   items: MaintenanceItem[];
   /** 'healthy' = observed fine (green). 'unknown' = no record on file
    *  (grey). Separate sections on purpose — see healthySectionChip. */
   variant: QuietSectionVariant;
   cascadeStartDelay?: number;
+  onAnswerRecency?: (item: MaintenanceItem) => void;
 }) {
   // Expanded by default — Ahmad prefers these visible on first paint.
   // Chevron still lets users collapse if they want.
@@ -955,7 +980,11 @@ function HealthySection({
       </Animated.View>
 
       {expanded && (
-        <HealthyItemsCard items={items} cascadeStartDelay={cascadeStartDelay} />
+        <HealthyItemsCard
+          items={items}
+          cascadeStartDelay={cascadeStartDelay}
+          onAnswerRecency={onAnswerRecency}
+        />
       )}
     </View>
   );
@@ -970,7 +999,7 @@ function HealthySection({
 // Resets naturally on car swap (tracker keyed by VIN in cars/index.tsx).
 const CAP_PER_URGENT_TIER = 3;
 
-export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, vehicleLabel, onBookNow, onTakeAction, onMarkDone, onAddInfo, onEditPressed, isDarkBg = false, tieredItems, openItemId, isEnriching = false }: MaintenanceTrackerProps) {
+export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, vehicleLabel, onBookNow, onTakeAction, onMarkDone, onAnswerRecency, onAddInfo, onEditPressed, isDarkBg = false, tieredItems, openItemId, isEnriching = false }: MaintenanceTrackerProps) {
   const [selectedItem, setSelectedItem] = useState<MaintenanceItem | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [showAllNow, setShowAllNow] = useState(false);
@@ -1215,6 +1244,7 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
             items={restingUnknown}
             variant="unknown"
             cascadeStartDelay={unknownRestDelay}
+            onAnswerRecency={onAnswerRecency}
           />
         </>
       ) : (
@@ -1298,6 +1328,7 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
             items={legacyUnknown}
             variant="unknown"
             cascadeStartDelay={healthyDelay + STEP_MS * 3}
+            onAnswerRecency={onAnswerRecency}
           />
         </>
       )}
@@ -1676,6 +1707,16 @@ const summaryStyles = StyleSheet.create({
   // copy is there to avoid.
   chipNeutral: {
     backgroundColor: '#F3F4F6',
+  },
+  answerBtn: {
+    paddingHorizontal: scale(10),
+    paddingVertical: scale(6),
+    borderRadius: moderateScale(999),
+    backgroundColor: '#EFF6FF',
+  },
+  answerBtnText: {
+    fontSize: moderateScale(12),
+    color: '#5299FE',
   },
   dotNeutral: {
     backgroundColor: '#9CA3AF',

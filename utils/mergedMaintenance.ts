@@ -224,6 +224,13 @@ export interface MergeRecordLike {
  * "Transmission Service" in the catalog, so matching on names would have
  * reproduced the same class of bug this replaces.
  */
+/** maintenance_records.type for a driver's answer about a catalog service.
+ *  Prefixed so it can never collide with the five core types or the minor_*
+ *  eye-check rows, and so the answers are trivially greppable later. */
+export function catalogRecordType(slug: string): string {
+  return `catalog_${slug}`;
+}
+
 export const MINOR_ITEM_RECORD_TYPES: ReadonlyArray<{
   type: string;
   label: string;
@@ -493,9 +500,20 @@ export function buildMergedMaintenanceItems(
         continue;
       }
 
+      // The driver may have answered "when was this last done?" on the card.
+      // That answer is a fact they gave us, so it anchors the interval and the
+      // row leaves the unknown set — unlike the measured-from-zero default,
+      // which is an assumption and deliberately scores nothing.
+      const answered = records?.find((r) => r.type === catalogRecordType(slug));
+      const answeredMileage =
+        typeof answered?.lastServiceMileage === "number"
+          ? answered.lastServiceMileage
+          : undefined;
+
       const status = computeFromOdometerStatus({
         interval_miles: bounded,
         currentOdometer,
+        lastServiceMileage: answeredMileage,
         serviceName: entry.label,
       });
 
@@ -506,12 +524,17 @@ export function buildMergedMaintenanceItems(
         detail: status.detail,
         status: status.status,
         percentUsed: status.percentUsed,
-        triggeredBy: "inference",
-        // Inferred from an OEM interval and the odometer, measured from
-        // lastServiceMileage ?? 0 — i.e. as though the service had never been
-        // done. Useful as an upcoming-service hint and for urgency ranking,
-        // but it must not move the score. See MaintenanceItem.excludeFromScore.
+        triggeredBy: answeredMileage != null ? "mileage" : "inference",
+        // Still excluded from scoring even once answered. SCORING_TYPES is
+        // explicit that catalog rows "must never score without a mechanic
+        // behind them", and a driver's self-report is not a mechanic — that
+        // gate was added deliberately after these rows started costing people
+        // points for the passage of time. The answer changes what the row
+        // SAYS and which tier it sits in; it does not move the score.
         excludeFromScore: true,
+        // Lets the row's "when was this done?" button write back to the right
+        // record, and lets Book Service resolve the service.
+        serviceSlug: slug,
         signals: {
           mileage: `${formatMileage(currentOdometer)} (current)`,
           interval: `${formatMileage(bounded)} (OEM)`,
