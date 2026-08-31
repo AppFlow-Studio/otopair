@@ -1298,8 +1298,13 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
           </Animated.View>
         </View>
 
-        {/* Bigger Services — the list, and the question sheet it opens. */}
-        <BiggerServicesSheet
+        {/* Bigger Services — the list, and the question sheet it opens.
+            Unmounted entirely while a row's question is up, rather than merely
+            hidden: each FloatingSheet presents a native Modal, and leaving
+            this one mounted underneath stacked two of them. The lower Modal
+            then swallowed every touch — the sheet rendered perfectly and
+            nothing in it responded, not even the backdrop. */}
+        {activeBigger === null && <BiggerServicesSheet
           candidates={biggerServices}
           visible={activeCard === "biggerServices" && activeBigger === null}
           onClose={() => setActiveCard(null)}
@@ -1312,7 +1317,7 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
             setJustCompletedId("biggerServices");
             setActiveCard(null);
           }}
-        />
+        />}
 
         <QuickCheckSheet
           spec={

@@ -65,13 +65,6 @@ export function BiggerServicesSheet({
       showBackdrop
       liftWithKeyboard
       floatBottomInset={12}
-      // Rendered inline, not in a native Modal. This sheet opens from inside
-      // the stepper, which is ITSELF presented in a Modal, and a
-      // modal-over-modal on iOS came up visible but completely inert — no row,
-      // no button, not even the backdrop responded to a touch. There is no tab
-      // bar behind the stepper for the Modal to sit above, which is the only
-      // thing it buys.
-      renderInModal={false}
       onClose={onClose}
     >
       <ScrollView
