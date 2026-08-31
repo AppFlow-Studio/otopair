@@ -48,8 +48,13 @@ import { useServiceRecordUpload } from "@/hooks/useServiceRecordUpload";
 import { catalogRecordType } from "@/utils/mergedMaintenance";
 import type { MaintenanceItem } from "@/components/cars/MaintenanceTracker";
 import { QuickCheckSheet } from "@/components/cars/quickcheck/QuickCheckSheet";
-import { catalogTileSpec, type QuickCheckAnswer } from "@/components/cars/quickcheck/tileSpecs";
-import { resolveQuickCheckAnchor } from "@/utils/quickCheckAnchor";
+import { TILE_SPECS, catalogTileSpec, type QuickCheckAnswer } from "@/components/cars/quickcheck/tileSpecs";
+import {
+  TILE_RECORD_TYPE,
+  quickCheckRecordWrites,
+  resolveQuickCheckAnchor,
+  type QuickCheckServiceTile,
+} from "@/utils/quickCheckAnchor";
 import { useUpdateMileage } from "@/hooks/useUpdateMileage";
 import Svg, { Circle, Defs, LinearGradient as SvgLinearGradient, Stop } from "react-native-svg";
 
@@ -1410,6 +1415,15 @@ export default function CarsHomeScreen() {
   // to say "Five quick checks" everywhere, which was true while every car got
   // every question. It is not true now: a genuinely new vehicle is asked one.
   // Same pure helper the stepper uses, so the promise and the screen agree.
+  // Which of the five core tiles this unknown row is, if any. `unknown-brakes`
+  // → "brakes". Catalog rows return a slug that is not a tile id and fall
+  // through to null.
+  const recencyTile = useMemo<QuickCheckServiceTile | null>(() => {
+    if (!recencyItem) return null;
+    const t = extractMaintenanceType(recencyItem.id);
+    return t in TILE_RECORD_TYPE ? (t as QuickCheckServiceTile) : null;
+  }, [recencyItem]);
+
   // Which services this vehicle can actually book RIGHT NOW. The tracker used
   // to disable every CTA on a single vehicle-level "enriching" flag, which is
   // stricter than the service selector: a diagnostic scan and a battery test
@@ -2085,16 +2099,50 @@ export default function CarsHomeScreen() {
             onboarding does, and the answer lands as a real anchor. */}
         <QuickCheckSheet
           spec={
-            recencyItem?.serviceSlug
-              ? catalogTileSpec(recencyItem.serviceSlug, recencyItem.serviceName)
+            // A core tile gets its REAL spec — the same question, symptom row
+            // and filters toggle onboarding asks — so answering from the
+            // tracker records as much as answering from the stepper. Anything
+            // else is a catalog row and gets the generic one.
+            recencyItem
+              ? (recencyTile
+                  ? TILE_SPECS[recencyTile]
+                  : recencyItem.serviceSlug
+                    ? catalogTileSpec(recencyItem.serviceSlug, recencyItem.serviceName)
+                    : null)
               : null
           }
           visible={recencyItem !== null}
           onClose={() => setRecencyItem(null)}
           onSubmit={async (slug: string, answer: QuickCheckAnswer) => {
             const item = recencyItem;
+            const tile = recencyTile;
             setRecencyItem(null);
-            if (!item?.serviceSlug || !activeOwnershipId) return;
+            if (!activeOwnershipId) return;
+
+            // Core tile: write exactly what the stepper writes, both record
+            // vocabularies and the oil filter row included.
+            if (tile) {
+              try {
+                for (const w of quickCheckRecordWrites(tile, answer, {
+                  currentOdometer: activeOwnershipMileage ?? null,
+                  avgMonthlyDriving: activeOwnership?.avgMonthlyDriving as string | undefined,
+                  vehicleYear: activeVehicle?.year,
+                })) {
+                  await upsertMaintenanceRecord({ vehicleOwnerId: activeOwnershipId, ...w });
+                }
+                toast.success(
+                  answer.answerType === "unsure" ? "Noted" : "Thanks — updated",
+                  answer.answerType === "unsure"
+                    ? "We'll leave that one open for now."
+                    : `We'll track ${item?.serviceName.toLowerCase() ?? "it"} from there.`,
+                );
+              } catch {
+                toast.error("Couldn't save that", "Please try again.");
+              }
+              return;
+            }
+
+            if (!item?.serviceSlug) return;
             // "Not sure" is a real choice: record it so we stop asking as
             // insistently, but write no anchor — the row stays unknown and
             // keeps scoring nothing, per §08.

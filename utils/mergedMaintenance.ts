@@ -536,10 +536,17 @@ export function buildMergedMaintenanceItems(
           description:
             "Not enough info to say — book a diagnostic scan to firm this up.",
           detail: "No data",
-          status: "on_time",
+          // UNKNOWN, not HEALTHY. The row's own copy admits we cannot say, and
+          // filing that under "healthy" told the driver the opposite of what
+          // it said. `unknown` is the tier for everything we have no answer
+          // to, whoever left it unanswered.
+          status: "unknown",
           triggeredBy: "none",
           // Informational only — see MaintenanceItem.excludeFromScore.
           excludeFromScore: true,
+          // Carries the slug so the row gets an "Add info" control like every
+          // other unknown: the driver may simply know the answer.
+          serviceSlug: slug,
         });
         continue;
       }

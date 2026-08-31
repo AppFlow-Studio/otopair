@@ -893,13 +893,16 @@ function HealthyItemRow({
             knows when this was last done, and answering is faster than
             booking a scan — so the row offers it rather than only showing a
             neutral outline. Optional: nothing here is required.
-            Gated on serviceSlug, which only catalog rows carry. The five core
-            tiles (unknown-oil, unknown-brakes, …) are answered through the
-            stepper, whose per-type questions ask more than recency — brake
-            feel, tire origin, battery replacement — and writing a bare recency
-            over those records would be a worse answer than none. A dead
-            button on those rows would be worse still. */}
-        {item.status === 'unknown' && onAnswerRecency && item.serviceSlug ? (
+            Every unknown row gets one, core tiles included. This used to be
+            gated on `serviceSlug` — catalog rows only — because the sheet
+            behind it asked recency and nothing else, and writing a bare
+            recency over a brake record (which also wants brake feel) would
+            have been a worse answer than none. That sheet is gone: the tracker
+            now opens the same QuickCheckSheet the stepper does, with the
+            per-type spec when the row is a core tile. The objection went with
+            it, and "no answer on file" with no way to give one was always the
+            odder half of the pair. */}
+        {item.status === 'unknown' && onAnswerRecency ? (
           <Pressable
             onPress={() => onAnswerRecency(item)}
             hitSlop={10}
