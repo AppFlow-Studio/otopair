@@ -20,6 +20,7 @@ import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams } from "expo-router";
 import { firedTiles } from "@/utils/quickCheckFiring";
+import { biggerServiceCandidates } from "@/utils/quickCheckBiggerServices";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 
 // Native iOS 26 liquid glass (optional). Mirrors the home / map-controls
@@ -1407,13 +1408,32 @@ export default function CarsHomeScreen() {
   // to say "Five quick checks" everywhere, which was true while every car got
   // every question. It is not true now: a genuinely new vehicle is asked one.
   // Same pure helper the stepper uses, so the promise and the screen agree.
+  // Same candidate rule the stepper uses, so the promise and the screen agree.
+  const quickCheckBiggerCount = useMemo(
+    () =>
+      biggerServiceCandidates({
+        currentOdometer: activeOwnershipMileage ?? null,
+        modelYear: activeVehicle?.year ?? null,
+        vehicleClass: vehicleFallbackProfile?.vehicleClass ?? null,
+        classOptions: {
+          turbo: vehicleFallbackProfile?.turbo,
+          drivetrain: vehicleFallbackProfile?.drivetrain,
+          hasDifferential: vehicleFallbackProfile?.hasDifferential,
+        },
+        oemIntervals,
+      }).length,
+    [activeOwnershipMileage, activeVehicle?.year, vehicleFallbackProfile, oemIntervals],
+  );
+
   const quickCheckCount = useMemo(
     () => firedTiles({
       currentMiles: activeOwnershipMileage ?? null,
       modelYear: activeVehicle?.year ?? null,
-      biggerServiceCandidates: 0,
+      // The count has to include the Bigger Services tile or the card promises
+      // five checks and the stepper then asks six.
+      biggerServiceCandidates: quickCheckBiggerCount,
     }).length,
-    [activeOwnershipMileage, activeVehicle?.year],
+    [activeOwnershipMileage, activeVehicle?.year, quickCheckBiggerCount],
   );
   const quickCheckCountWord = quickCheckCount === 1 ? "One" : NUMBER_WORDS[quickCheckCount] ?? String(quickCheckCount);
   const quickCheckNoun = quickCheckCount === 1 ? "quick check" : "quick checks";

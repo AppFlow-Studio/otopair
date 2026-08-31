@@ -30,7 +30,12 @@ import {
 import { enrichUrgentItem } from "@/utils/maintenanceEnrichment";
 import { buildWarningLightItem } from "@/lib/warningLightItems";
 import { canonicalWarningLights } from "@/lib/warningLightVocab";
-import { safeInterval } from "@/utils/serviceIntervalGuardrails";
+import {
+  clampClassIntervalToBounds,
+  safeInterval,
+} from "@/utils/serviceIntervalGuardrails";
+import { CLASS_INTERVAL_SLUGS, classInterval } from "@/utils/classIntervals";
+import type { IntervalClassContext } from "@/utils/maintenanceStatus";
 import { TAXONOMY } from "@/constants/serviceTaxonomy";
 import { formatMileage } from "@/lib/vehicle-passport";
 
@@ -315,6 +320,10 @@ export interface BuildMergedMaintenanceInput {
    *  when a recommendation already covers the same remedy — without it, both
    *  cards render, which is the pre-existing behaviour. */
   serviceSlugById?: (serviceId: string) => string | undefined;
+  /** Vehicle class + turbo/drivetrain, so the catalog pass can fall back to
+   *  the class default table when enrichment has not produced an interval.
+   *  Omit (as Oto's server-side merge does) to keep the enrichment-only set. */
+  classCtx?: IntervalClassContext;
 }
 
 /**
@@ -329,7 +338,7 @@ export function buildMergedMaintenanceItems(
 ): MaintenanceItem[] {
   const { userItems, records, knownIssues, vehicleYear, driverRecommendations, scopeId } = input;
   const { serviceSlugById } = input;
-  const { currentOdometer, oemIntervals } = input;
+  const { currentOdometer, oemIntervals, classCtx } = input;
   const now = input.now ?? Date.now();
   const result: MaintenanceItem[] = [];
 
@@ -462,8 +471,18 @@ export function buildMergedMaintenanceItems(
   // ── Catalog coverage via from-odometer inference (Behavior #7) ──
   // Only runs for callers that supply both an odometer and OEM intervals;
   // Oto's server-side score passes neither and keeps the anchored-only set.
-  if (oemIntervals && currentOdometer != null && currentOdometer > 0) {
-    for (const [slug, interval] of Object.entries(oemIntervals)) {
+  if ((oemIntervals || classCtx) && currentOdometer != null && currentOdometer > 0) {
+    // The union, not just enrichment. This pass used to iterate `oemIntervals`
+    // alone, so a car whose enrichment had not finished showed NO bigger
+    // services at all — no air/cabin filter, no brake fluid flush — even
+    // though the class default table has both. That undercut the whole reason
+    // the class table is the default rather than a fallback: a car is supposed
+    // to get its intervals at add-car time with zero enrichment.
+    const slugs = new Set<string>(Object.keys(oemIntervals ?? {}));
+    if (classCtx?.vehicleClass) for (const slug of CLASS_INTERVAL_SLUGS) slugs.add(slug);
+
+    for (const slug of slugs) {
+      const interval = oemIntervals?.[slug];
       if (CATALOG_SLUGS_TO_SKIP.has(slug)) continue;
       const entry = TAXONOMY[slug];
       if (!entry) continue;
@@ -472,16 +491,34 @@ export function buildMergedMaintenanceItems(
       // fields (`confidence`, `mechanic_verified`) beyond what the narrow
       // `OemServiceIntervalsInput` type surfaces; cast for the guardrail
       // call rather than leaking those fields into the general type.
-      const enrichedInterval = interval as OemServiceIntervalsInput[string] & {
+      const enrichedInterval = interval as (OemServiceIntervalsInput[string] & {
         confidence?: number | null;
         mechanic_verified?: boolean;
-      };
-      const bounded = safeInterval({
-        slug,
-        interval_miles: enrichedInterval.interval_miles,
-        confidence: enrichedInterval.confidence,
-        mechanic_verified: enrichedInterval.mechanic_verified,
-      });
+      }) | undefined;
+
+      // OEM first, class default second — the same two tiers `getInterval` and
+      // the Bigger Services tile use, so all three agree about one service on
+      // one car.
+      //
+      // The class value does NOT go through `safeInterval`. That helper treats
+      // a value carrying no confidence score as untrusted and snaps it to the
+      // bounds FLOOR, which would turn Class A spark plugs from 90,000 miles
+      // into 20,000. The confidence machinery defends against bad scraped
+      // data, not against our own engineering constants; the bounds still
+      // apply, the trust gate does not.
+      const bounded = enrichedInterval?.interval_miles
+        ? safeInterval({
+            slug,
+            interval_miles: enrichedInterval.interval_miles,
+            confidence: enrichedInterval.confidence,
+            mechanic_verified: enrichedInterval.mechanic_verified,
+          })
+        : clampClassIntervalToBounds(
+            slug,
+            classCtx?.vehicleClass
+              ? classInterval(slug, classCtx.vehicleClass, classCtx)?.miles ?? null
+              : null,
+          );
 
       // Anchorless — no stored interval AND no conservative default.
       // Row surfaces soft with the diagnostic-scan CTA (Behavior #6).
@@ -537,7 +574,11 @@ export function buildMergedMaintenanceItems(
         serviceSlug: slug,
         signals: {
           mileage: `${formatMileage(currentOdometer)} (current)`,
-          interval: `${formatMileage(bounded)} (OEM)`,
+          // Says which tier the number came from. "Typical" rather than "OEM"
+          // when it is our class default, because claiming a manufacturer
+          // schedule we do not have is the kind of false precision the
+          // confidence hold exists to avoid.
+          interval: `${formatMileage(bounded)} (${enrichedInterval?.interval_miles ? "OEM" : "typical"})`,
         },
       });
     }

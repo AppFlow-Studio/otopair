@@ -89,3 +89,27 @@ export function safeInterval(input: SafeIntervalInput): number | null {
   if (interval_miles > ceiling) return ceiling;
   return interval_miles;
 }
+
+/**
+ * Bounds-clamp an interval WITHOUT the trust gate.
+ *
+ * `safeInterval` above is built for enrichment output: a value carrying no
+ * confidence score is treated as untrusted and snapped to the bounds FLOOR.
+ * That is right for scraped data and wrong for the class default table — run
+ * Class A spark plugs (90,000 miles) through it and they come back 20,000,
+ * which would flag every driver's plugs at 16,000 miles.
+ *
+ * The bounds themselves still apply, so no interval is ever out of range. Only
+ * the trust gate is skipped, because our own engineering constants are not the
+ * thing that gate defends against.
+ */
+export function clampClassIntervalToBounds(
+  slug: string,
+  miles: number | null,
+): number | null {
+  if (miles == null || miles <= 0) return null;
+  const bounds = SERVICE_INTERVAL_BOUNDS_MI[slug];
+  if (!bounds) return miles;
+  const [floor, ceiling] = bounds;
+  return Math.min(ceiling, Math.max(floor, miles));
+}

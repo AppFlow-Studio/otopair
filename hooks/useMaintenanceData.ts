@@ -190,6 +190,10 @@ export function useMergedMaintenance(
         // omits both and keeps the anchored-only item set.
         currentOdometer,
         oemIntervals,
+        // Lets the catalog pass fall back to the class default table, so a car
+        // gets its bigger services before enrichment finishes rather than
+        // after.
+        classCtx,
         serviceSlugById,
       }),
     [

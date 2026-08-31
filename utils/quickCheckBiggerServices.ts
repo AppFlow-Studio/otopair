@@ -23,7 +23,7 @@ import { ageMonths } from "@/utils/quickCheckFiring";
 import { classInterval, type ClassIntervalOptions } from "@/utils/classIntervals";
 import type { VehicleClass } from "@/utils/vehicleClass";
 import {
-  SERVICE_INTERVAL_BOUNDS_MI,
+  clampClassIntervalToBounds,
   safeInterval,
 } from "@/utils/serviceIntervalGuardrails";
 import { TAXONOMY } from "@/constants/serviceTaxonomy";
@@ -47,25 +47,6 @@ export const BIGGER_SERVICE_POOL: readonly string[] = [
   "differential_service",
 ];
 
-/**
- * Bounds-clamp a class default WITHOUT the trust gate.
- *
- * `safeInterval` is built for enrichment output: a value carrying no
- * confidence score is treated as untrusted and snapped to the bounds FLOOR.
- * Run the class table through it and Class A spark plugs go from 90,000 miles
- * to 20,000, which would ask every driver about their plugs at 16,000 miles.
- *
- * The confidence machinery is a defence against bad scraped data, not against
- * our own engineering constants. The bounds themselves still apply — no
- * interval is ever out of range — but the trust gate does not.
- */
-function clampToBounds(slug: string, miles: number | null): number | null {
-  if (miles == null || miles <= 0) return null;
-  const bounds = SERVICE_INTERVAL_BOUNDS_MI[slug];
-  if (!bounds) return miles;
-  const [floor, ceiling] = bounds;
-  return Math.min(ceiling, Math.max(floor, miles));
-}
 
 export interface BiggerServiceCandidate {
   slug: string;
@@ -150,7 +131,7 @@ export function biggerServiceCandidates(
           confidence: oem.confidence,
           mechanic_verified: oem.mechanic_verified,
         })
-      : clampToBounds(slug, fromClass?.miles ?? null);
+      : clampClassIntervalToBounds(slug, fromClass?.miles ?? null);
     const months = fromClass?.months ?? null;
     if ((miles == null || miles <= 0) && (months == null || months <= 0)) continue;
 
