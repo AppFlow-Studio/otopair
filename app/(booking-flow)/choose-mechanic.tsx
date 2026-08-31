@@ -1006,7 +1006,7 @@ export default function ChooseMechanicScreen() {
         // TEMP: 0 pins the card flush to the bottom edge to confirm the
         // mechanism; raise to the final resting gap (e.g. 8) to tuck it just
         // above the home indicator.
-        bottomInset={8}
+        bottomInset={7}
         style={styles.sheetFloat}
         backgroundStyle={styles.sheetBackground}
         handleIndicatorStyle={styles.sheetHandleIndicator}
