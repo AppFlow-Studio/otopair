@@ -7,6 +7,10 @@ Read the two ⚠️ items first — they are already live on the shared Convex
 deployment (`adamant-guineapig-82`), so web's copies are stale **right now**
 and pushing web's `convex/` before porting them will silently revert both.
 
+**Status 2026-08-31:** §1, §2, §3 and §5 are ported and byte-identical. §4 is
+the only piece left, and §8 no longer blocks it. `tests/webIntervalParity.test.ts`
+(mobile) is the port harness — run it and work the mismatch list.
+
 ---
 
 ## ⚠️ 1. Convex — already deployed, will revert if you push first
@@ -116,9 +120,9 @@ their shares. A held item must stay in the denominator at factor 1.00.
   the table (`toyota.oil = 5000/6` vs Class A 7,500/12).
 - **Driving-condition multipliers only apply when `source !== "oem"`.** A
   manufacturer's own severe-service schedule already accounts for city driving.
-  ⚠️ This is the most user-visible number in the change: a city-driven Toyota's
-  oil interval goes from `5000 × 0.8 = 4,000` to `7500 × 0.8 = 6,000` miles.
-  Yassin has not signed this off — see the open questions below.
+  A city-driven Toyota's oil interval goes from `5000 × 0.8 = 4,000` to
+  `7500 × 0.8 = 6,000` miles — settled, see §8.1 for why that is severity
+  counted correctly rather than a relaxation.
 - **`getInterval` returns `{...interval, source}`** and `ratioToStatus` is
   deleted in favour of `ratioToBand` from the new `intervalBands` module.
 - **`getMonthlyMiles` is exported** so `quickCheckAnchor` shares the one
@@ -187,14 +191,29 @@ harness uses.
 
 ---
 
-## 8. Open with Yassin, not with us
+## 8. Decided — §4 is unblocked
 
-Ten spec-vs-code conflicts came out of this build. Two change what drivers see
-and neither is signed off:
+Ten spec-vs-code conflicts came out of this build. Ahmad ruled on the three
+that needed a decision (2026-08-31); the rest were already handled in code.
 
-1. **Driving conditions × the class table** — the 4,000 → 6,000 mile oil
-   interval above. The spec is silent on driving conditions entirely.
-2. **Engine-air and cabin filters share one taxonomy slug.**
-   `filter_replacement` covers both, so the spec's separate 30,000/40,000/20,000
-   and flat-20,000 intervals are not expressible. Shipped at the stricter value
-   (20,000/24 — cabin wins) pending a spec amendment.
+1. **Driving conditions × the class table — SETTLED, keep as built.**
+   Multipliers apply to a class default and not to a manufacturer's own
+   interval. The scary framing — a city Toyota's oil interval going 4,000 →
+   6,000 miles — is misleading: v1 used 5,000 as the BASE, which is Toyota's
+   own severe-service number, so multiplying it by 0.80 for city driving
+   counted severity twice. v2 starts from a normal-usage 7,500 and applies
+   severity once. An OEM interval is not discounted because a manufacturer's
+   schedule already contains its severe column. Pinned by
+   `tests/drivingConditionsInteraction.test.ts` with the full reasoning — read
+   that before touching this in `getInterval`.
+
+2. **Combined filter row — SETTLED, no split.** `filter_replacement` stays one
+   slug covering engine-air and cabin, at the stricter 20,000/24. No taxonomy
+   change, no seed-data change, nothing for you to port.
+
+3. **Performance variants stay Class C — CONFIRMED.** A Lexus LC or Acura Type
+   S resolves as performance first, so the Class A make override never drags
+   it onto a mainstream oil interval. `utils/vehicleClass.ts` already encodes
+   this; it is what Yassin meant.
+
+Nothing here blocks §4 any more.
