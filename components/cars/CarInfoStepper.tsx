@@ -22,7 +22,6 @@ import {
   Keyboard,
   Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   View,
 } from "react-native";
@@ -201,7 +200,7 @@ const STEP_META: Record<StepId, { title: string; subtitle: string }> = {
 // CardGridItem (with completion animation)
 // ============================================================================
 
-function CardGridItem({ cardId, isDone, isJustCompleted, progress, onPress, isWide, subtitle, height }: {
+function CardGridItem({ cardId, isDone, isJustCompleted, progress, onPress, isWide, subtitle, height, compact }: {
   cardId: ServiceCardId;
   isDone: boolean;
   isJustCompleted: boolean;
@@ -216,6 +215,10 @@ function CardGridItem({ cardId, isDone, isJustCompleted, progress, onPress, isWi
    *  tile count is per-vehicle now, so a fixed CARD_H that fit four tiles
    *  overflows at five and would overflow further at six. */
   height?: number;
+  /** Lays a wide card out horizontally — icon left, text right — instead of
+   *  the icon-over-label stack. Two full-height wide cards plus four squares
+   *  do not fit a 6.3" screen, and compressing is the call over scrolling. */
+  compact?: boolean;
 }) {
   const pressScale = useSharedValue(1);
   const card = SERVICE_CARDS[cardId];
@@ -344,16 +347,40 @@ function CardGridItem({ cardId, isDone, isJustCompleted, progress, onPress, isWi
                 <SquircleRing width={outerW} height={outerH} rx={CARD_RX} progress={progress} isDone={isCompleted} />
 
                 {/* Default glass card */}
-                <View style={[s.card, { width: innerW, height: innerH, borderRadius: CARD_RX, flexDirection: "column" }]}>
-                  <View style={{ flex: 1, alignItems: "center", justifyContent: "center", marginTop: isWide ? 0 : scale(25) }}>
-                    <IconComponent size={isWide ? scale(46) : scale(42)} />
+                <View style={[
+                  s.card,
+                  { width: innerW, height: innerH, borderRadius: CARD_RX },
+                  compact
+                    ? { flexDirection: "row", alignItems: "center", paddingHorizontal: scale(20), gap: scale(14) }
+                    : { flexDirection: "column" },
+                ]}>
+                  <View style={
+                    compact
+                      ? { alignItems: "center", justifyContent: "center" }
+                      : {
+                          flex: 1,
+                          alignItems: "center",
+                          justifyContent: "center",
+                          // Was a flat scale(25) nudge, which does not shrink:
+                          // on a short card it pushed the icon down onto the
+                          // label. Proportional keeps the optical centring at
+                          // full height and simply stops mattering as the card
+                          // compresses.
+                          marginTop: isWide ? 0 : Math.min(scale(25), innerH * 0.16),
+                        }
+                  }>
+                    <IconComponent size={compact ? scale(34) : isWide ? scale(46) : Math.min(scale(42), innerH * 0.34)} />
                   </View>
-                  <View style={{ paddingBottom: isWide ? scale(12) : scale(14), marginTop: isWide ? scale(-6) : 0, alignItems: "center" }}>
+                  <View style={
+                    compact
+                      ? { flex: 1, alignItems: "flex-start" }
+                      : { paddingBottom: isWide ? scale(12) : scale(14), marginTop: isWide ? scale(-6) : 0, alignItems: "center" }
+                  }>
                     <Text
                       weight="semiBold"
                       size="sm"
                       color={labelColor}
-                      style={{ fontSize: moderateScale(17), textAlign: "center" }}
+                      style={{ fontSize: moderateScale(17), textAlign: compact ? "left" : "center" }}
                     >
                       {card.label}
                     </Text>
@@ -362,7 +389,7 @@ function CardGridItem({ cardId, isDone, isJustCompleted, progress, onPress, isWi
                         weight="medium"
                         size="xs"
                         color={labelColor}
-                        style={{ fontSize: moderateScale(11.5), opacity: isCompleted ? 0.7 : 0.55, marginTop: scale(2), textAlign: "center" }}
+                        style={{ fontSize: moderateScale(11.5), opacity: isCompleted ? 0.7 : 0.55, marginTop: scale(2), textAlign: compact ? "left" : "center" }}
                       >
                         {subtitle}
                       </Text>
@@ -376,17 +403,40 @@ function CardGridItem({ cardId, isDone, isJustCompleted, progress, onPress, isWi
                     colors={["#5299FE", "#70B7FF"]}
                     start={{ x: 0.5, y: 0 }}
                     end={{ x: 0.5, y: 1 }}
-                    style={{ width: innerW, height: innerH, alignItems: "center", justifyContent: "center", borderRadius: CARD_RX, flexDirection: "column" }}
+                    // The completed card is a SECOND render of the same
+                    // layout, so every sizing rule above has to be mirrored
+                    // here — an answered wide card was still stacking (and
+                    // overflowing) at the compact height because this branch
+                    // was missed.
+                    style={[
+                      { width: innerW, height: innerH, borderRadius: CARD_RX },
+                      compact
+                        ? { flexDirection: "row", alignItems: "center", paddingHorizontal: scale(20), gap: scale(14) }
+                        : { flexDirection: "column", alignItems: "center", justifyContent: "center" },
+                    ]}
                   >
-                    <View style={{ flex: 1, alignItems: "center", justifyContent: "center", marginTop: isWide ? 0 : scale(25) }}>
-                      <IconComponent size={isWide ? scale(46) : scale(42)} color="#FFFFFF" />
+                    <View style={
+                      compact
+                        ? { alignItems: "center", justifyContent: "center" }
+                        : {
+                            flex: 1,
+                            alignItems: "center",
+                            justifyContent: "center",
+                            marginTop: isWide ? 0 : Math.min(scale(25), innerH * 0.16),
+                          }
+                    }>
+                      <IconComponent size={compact ? scale(34) : isWide ? scale(46) : Math.min(scale(42), innerH * 0.34)} color="#FFFFFF" />
                     </View>
-                    <View style={{ paddingBottom: isWide ? scale(12) : scale(14), marginTop: isWide ? scale(-6) : 0, alignItems: "center" }}>
+                    <View style={
+                      compact
+                        ? { flex: 1, alignItems: "flex-start" }
+                        : { paddingBottom: isWide ? scale(12) : scale(14), marginTop: isWide ? scale(-6) : 0, alignItems: "center" }
+                    }>
                       <Text
                         weight="semiBold"
                         size="sm"
                         color="#FFFFFF"
-                        style={{ fontSize: moderateScale(17), textAlign: "center" }}
+                        style={{ fontSize: moderateScale(17), textAlign: compact ? "left" : "center" }}
                       >
                         {card.label}
                       </Text>
@@ -1007,14 +1057,20 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
     // it carries a count rather than an icon-led prompt, and two full-height
     // wide cards plus four squares do not fit a 6.3" screen.
     const hasBigger = firedSet.has("biggerServices");
+
+    // Six tiles do not fit a 6.3" screen at full size, and Ahmad's call is to
+    // compress rather than scroll. So when Bigger Services fires, BOTH wide
+    // cards switch to the horizontal icon-left layout: that is where the space
+    // is, because a stacked wide card spends 160pt to say two words.
+    const compactWides = hasBigger;
+    const wideCardHeight = compactWides ? scale(92) : WIDE_CARD_H;
     const biggerCardHeight = scale(84);
-    // The floor is the height at which a square card still READS — below it
-    // the label rides up over the icon. Shrinking past legibility is not a
-    // fit, so when the floor binds the grid scrolls instead (see
-    // `gridOverflows`). Six tiles is simply more than the screen holds.
-    const SQUARE_MIN_H = scale(112);
+
+    // The floor is the height at which a square card still reads. With the
+    // wides compacted there is room to stay above it.
+    const SQUARE_MIN_H = scale(96);
     const wideBlock =
-      WIDE_CARD_H + GRID_GAP + (hasBigger ? biggerCardHeight + GRID_GAP : 0);
+      wideCardHeight + GRID_GAP + (hasBigger ? biggerCardHeight + GRID_GAP : 0);
     const squareBudget = gridHeight
       ? gridHeight - scale(8) - wideBlock - (squareRows - 1) * GRID_GAP
       : 0;
@@ -1022,8 +1078,6 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
       if (!gridHeight || squareRows === 0) return CARD_H;
       return Math.max(SQUARE_MIN_H, Math.min(CARD_H, Math.floor(squareBudget / squareRows)));
     })();
-    const gridOverflows =
-      !!gridHeight && squareRows > 0 && squareBudget / squareRows < SQUARE_MIN_H;
 
     return (
       <View style={{ flex: 1 }}>
@@ -1040,13 +1094,8 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
           </ReAnimated.View>
         )}
         {!allDone && <ReAnimated.View
-          style={[{ flex: 1 }, gridFadeStyle]}
+          style={[s.cardGrid, { flex: 1 }, gridFadeStyle]}
           onLayout={e => setGridHeight(e.nativeEvent.layout.height)}
-        >
-        <ScrollView
-          contentContainerStyle={s.cardGrid}
-          showsVerticalScrollIndicator={false}
-          scrollEnabled={gridOverflows}
         >
           {/* Always first, always present — the only live-malfunction signal. */}
           <CardGridItem
@@ -1057,6 +1106,8 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
             progress={serviceProgress["warningLights"] ?? (completedCards.has("warningLights") ? 1 : 0)}
             onPress={() => handleCardTap("warningLights")}
             isWide
+            compact={compactWides}
+            height={wideCardHeight}
             subtitle="Any dashboard warnings on?"
           />
           {/* Spec §3: Bigger Services is a second wide card, below the
@@ -1086,11 +1137,11 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
               progress={serviceProgress["biggerServices"] ?? (completedCards.has("biggerServices") ? 1 : 0)}
               onPress={() => handleCardTap("biggerServices")}
               isWide
+              compact
               height={biggerCardHeight}
               subtitle={`${biggerServices.length} may be coming up`}
             />
           )}
-        </ScrollView>
         </ReAnimated.View>}
       </View>
     );
