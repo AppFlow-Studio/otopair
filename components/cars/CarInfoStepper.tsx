@@ -1436,10 +1436,11 @@ const s = StyleSheet.create({
     paddingHorizontal: scale(24),
   },
   steppingHeader: {
-    // Negative: pulls the title up into the space the vehicle eyebrow used to
-    // occupy, so removing it moves the content up rather than leaving a hole.
-    marginTop: scale(-14),
+    // Clears the absolutely-positioned back button. Centred text would
+    // otherwise run under it on the left.
+    marginTop: scale(30),
     marginBottom: scale(8),
+    alignItems: "center",
   },
   backButton: {
     position: "absolute",
@@ -1454,10 +1455,12 @@ const s = StyleSheet.create({
   steppingTitle: {
     fontSize: moderateScale(24),
     letterSpacing: -0.3,
+    textAlign: "center",
   },
   steppingSubtitle: {
     fontSize: moderateScale(15),
     marginTop: scale(4),
+    textAlign: "center",
   },
   steppingBody: {
     flex: 1,
