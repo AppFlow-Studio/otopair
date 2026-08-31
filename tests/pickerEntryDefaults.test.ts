@@ -78,7 +78,7 @@ describe("date and mechanic picker entry defaults", () => {
   });
 });
 
-test("mechanic-card availability uses the booking duration", () => {
+test("mechanic-card availability uses the picker floor as well as booking duration", () => {
   const picker = readFileSync(
     resolve(process.cwd(), "app/(booking-flow)/pick-datetime.tsx"),
     "utf8",
@@ -88,10 +88,10 @@ test("mechanic-card availability uses the booking duration", () => {
     "const availabilityDurationMinutes = totalMinutes > 0 ? totalMinutes : undefined",
   );
   expect(picker).toMatch(
-    /useNextAvailabilityForShop\([\s\S]*?availabilityDurationMinutes[\s\S]*?\)/,
+    /useNextAvailabilityForShop\(\s*shopId,\s*null,\s*1,\s*availabilityDurationMinutes,\s*floor,\s*\)/,
   );
   expect(picker).toMatch(
-    /useNextAvailabilityPerMechanicForShop\([\s\S]*?availabilityDurationMinutes[\s\S]*?\)/,
+    /useNextAvailabilityPerMechanicForShop\(\s*shopId,\s*undefined,\s*availabilityDurationMinutes,\s*floor,\s*\)/,
   );
   expect(picker).toContain("return getPickerFloor(todayFloor, quoteFloor);");
   expect(picker).toContain("if (!quoteAcceptContext?.minDate) return null;");

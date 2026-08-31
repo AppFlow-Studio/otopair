@@ -207,20 +207,31 @@ export default function PickDateTimeScreen() {
     return { selectedCount: selected.length, totalMinutes: mins };
   }, [availableServices, selectedServiceIds, laborHoursMap, isQuoteAccept, quoteAcceptContext]);
 
-  // The mechanic labels must use the same job duration as the date and time
-  // queries; otherwise a short closing-time window can look bookable here
-  // even though the picker correctly rejects it.
+  // Quote scheduling starts no earlier than the shop's quoted date/time.
+  // Normal bookings use only today's booking-notice floor.
+  const floor = useMemo(() => {
+    const todayFloor = { date: todayLocalISO(), time: minBookableHHMM() };
+    const quoteFloor = quoteAcceptContext
+      ? { date: quoteAcceptContext.minDate, time: quoteAcceptContext.minTime }
+      : null;
+    return getPickerFloor(todayFloor, quoteFloor);
+  }, [quoteAcceptContext]);
+
+  // The mechanic labels use the same duration and minimum slot as the date
+  // and time picker, so they cannot advertise availability before this quote.
   const availabilityDurationMinutes = totalMinutes > 0 ? totalMinutes : undefined;
   const { slots: shopNextSlots } = useNextAvailabilityForShop(
     shopId,
     null,
     1,
     availabilityDurationMinutes,
+    floor,
   );
   const { slotsByMechanicId } = useNextAvailabilityPerMechanicForShop(
     shopId,
     undefined,
     availabilityDurationMinutes,
+    floor,
   );
   const allMechanicsMap = useMechanicStore((s) => s.mechanics);
   const mechanicCarouselItems = useMemo(
@@ -232,16 +243,6 @@ export default function PickDateTimeScreen() {
       }),
     [slotsByMechanicId, allMechanicsMap, shopNextSlots.length],
   );
-
-  // Quote scheduling starts no earlier than the shop's quoted date/time.
-  // Normal bookings use only today's booking-notice floor.
-  const floor = useMemo(() => {
-    const todayFloor = { date: todayLocalISO(), time: minBookableHHMM() };
-    const quoteFloor = quoteAcceptContext
-      ? { date: quoteAcceptContext.minDate, time: quoteAcceptContext.minTime }
-      : null;
-    return getPickerFloor(todayFloor, quoteFloor);
-  }, [quoteAcceptContext]);
 
   // Which month the day picker is showing. null = the default
   // today-anchored view (current month). A non-null value comes from
