@@ -46,8 +46,8 @@ import { ArrowLeft } from "lucide-react-native";
 import { Text } from "@/components/shared-ui";
 import { BrakesIcon, TireIcon, OilIcon, BatteryIcon, WarningIcon } from "@/components/cars/ServiceIcons";
 import SquircleRing from "@/components/cars/SquircleRing";
-import QuestionOverlay from "@/components/cars/QuestionOverlay";
-import type { QuestionDef } from "@/components/cars/QuestionOverlay";
+import { QuickCheckSheet } from "@/components/cars/quickcheck/QuickCheckSheet";
+import type { QuickCheckAnswer } from "@/components/cars/quickcheck/tileSpecs";
 
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -161,135 +161,18 @@ const STEP_META: Record<StepId, { title: string; subtitle: string }> = {
   serviceGrid: { title: "Service History", subtitle: "Tap each item to tell us what you know." },
 };
 
-const WARNING_LIGHT_TYPE_OPTIONS = [
-  { id: "tpms" as const, label: "Tire pressure (TPMS)", icon: "speedometer-outline" as const },
-  { id: "battery_charging" as const, label: "Battery / charging", icon: "battery-half-outline" as const },
-  { id: "temperature" as const, label: "Temperature / overheating", icon: "thermometer-outline" as const },
-  { id: "oil_pressure" as const, label: "Oil pressure", icon: "water-outline" as const },
-  { id: "abs" as const, label: "ABS / braking system", icon: "warning-outline" as const },
-  { id: "airbag_srs" as const, label: "Airbag / SRS", icon: "shield-outline" as const },
-  { id: "transmission" as const, label: "Transmission", icon: "cog-outline" as const },
-  { id: "not_sure_which" as const, label: "I\u2019m not sure which one", icon: "help-circle-outline" as const },
-];
 
 // ============================================================================
 // DECLARATIVE QUESTION DATA
 // ============================================================================
 
-const SERVICE_QUESTIONS: Record<ServiceCardId, QuestionDef[]> = {
-  brakes: [
-    {
-      key: "recency",
-      text: "When were your brakes last serviced?",
-      options: [
-        { id: "recently", label: "Recently" },
-        { id: "few_months", label: "A few months ago" },
-        { id: "over_6mo", label: "Over 6 months ago" },
-        { id: "exact_date", label: "Specific date" },
-        { id: "never", label: "Never" },
-        { id: "not_sure", label: "I\u2019m not sure" },
-      ],
-      triggerFollowUp: "not_sure",
-    },
-    {
-      key: "feel",
-      text: "How do your brakes feel?",
-      options: [
-        { id: "fine", label: "Fine" },
-        { id: "noise", label: "They make noise" },
-        { id: "soft_slow", label: "They feel soft or slow" },
-      ],
-    },
-  ],
-  tires: [
-    {
-      key: "recency",
-      text: "When were your tires last replaced?",
-      options: [
-        { id: "recently", label: "Recently" },
-        { id: "few_months", label: "A few months ago" },
-        { id: "over_6mo", label: "Over 6 months ago" },
-        { id: "exact_date", label: "Specific date" },
-        { id: "never", label: "Never" },
-        { id: "not_sure", label: "I\u2019m not sure" },
-      ],
-      triggerFollowUp: "not_sure",
-    },
-    {
-      key: "original",
-      text: "Are these the original tires?",
-      options: [
-        { id: "yes", label: "Yes" },
-        { id: "no", label: "No" },
-        { id: "not_sure", label: "Not sure" },
-      ],
-    },
-  ],
-  oil: [
-    {
-      key: "recency",
-      text: "Know when your last oil change was?",
-      options: [
-        { id: "recently", label: "Recently" },
-        { id: "few_months", label: "A few months ago" },
-        { id: "over_6mo", label: "Over 6 months ago" },
-        { id: "exact_date", label: "Specific date" },
-        { id: "never", label: "Never" },
-        { id: "not_sure", label: "Not sure" },
-      ],
-    },
-  ],
-  battery: [
-    {
-      key: "recency",
-      text: "When was your battery last replaced?",
-      options: [
-        { id: "recently", label: "Recently" },
-        { id: "few_months", label: "A few months ago" },
-        { id: "over_6mo", label: "Over 6 months ago" },
-        { id: "exact_date", label: "Specific date" },
-        { id: "never", label: "Never" },
-        { id: "not_sure", label: "I\u2019m not sure" },
-      ],
-      triggerFollowUp: "not_sure",
-    },
-    {
-      key: "replaced",
-      text: "Has your battery ever been replaced?",
-      options: [
-        { id: "yes", label: "Yes" },
-        { id: "no", label: "No" },
-        { id: "not_sure", label: "Not sure" },
-      ],
-    },
-  ],
-  warningLights: [
-    {
-      key: "status",
-      text: "Any dashboard warning lights on right now?",
-      options: [
-        { id: "no_all_clear", label: "No, all clear" },
-        { id: "check_engine", label: "Yes, check engine" },
-        { id: "other", label: "Yes, something else" },
-        { id: "not_sure", label: "Not sure" },
-      ],
-      triggerFollowUp: "other",
-    },
-    {
-      key: "lightTypes",
-      text: "Which warning lights are on?",
-      multiSelect: true,
-      options: WARNING_LIGHT_TYPE_OPTIONS.map((o) => ({ id: o.id, label: o.label, icon: o.icon })),
-    },
-  ],
-};
 
 
 // ============================================================================
 // CardGridItem (with completion animation)
 // ============================================================================
 
-function CardGridItem({ cardId, isDone, isJustCompleted, progress, onPress, isWide, subtitle }: {
+function CardGridItem({ cardId, isDone, isJustCompleted, progress, onPress, isWide, subtitle, height }: {
   cardId: ServiceCardId;
   isDone: boolean;
   isJustCompleted: boolean;
@@ -300,6 +183,10 @@ function CardGridItem({ cardId, isDone, isJustCompleted, progress, onPress, isWi
    *  lights copy off `isWide` — fine while Warning Lights was the only wide
    *  card, wrong now that Bigger Services is one too. */
   subtitle?: string;
+  /** Shrinks a square card so the grid fits the space it actually has. The
+   *  tile count is per-vehicle now, so a fixed CARD_H that fit four tiles
+   *  overflows at five and would overflow further at six. */
+  height?: number;
 }) {
   const pressScale = useSharedValue(1);
   const card = SERVICE_CARDS[cardId];
@@ -307,9 +194,9 @@ function CardGridItem({ cardId, isDone, isJustCompleted, progress, onPress, isWi
   const isCompleted = isDone || isJustCompleted;
 
   const outerW = isWide ? WIDE_CARD_W : CARD_W;
-  const outerH = isWide ? WIDE_CARD_H : CARD_H;
+  const outerH = height ?? (isWide ? WIDE_CARD_H : CARD_H);
   const innerW = isWide ? WIDE_INNER_W : CARD_INNER_W;
-  const innerH = isWide ? WIDE_INNER_H : CARD_INNER_H;
+  const innerH = outerH - CARD_RING_INSET * 2;
 
   const completionAnim = useSharedValue(isDone ? 1 : 0);
   const pulseScale = useSharedValue(1);
@@ -642,6 +529,10 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
   const slideX = useRef(new Animated.Value(0)).current;
   const isAnimating = useRef(false);
   const [cardWidth, setCardWidth] = useState(DEFAULT_CARD_WIDTH);
+  // Height the grid actually has. Measured rather than assumed because the
+  // fired tile count varies per vehicle — four squares under the wide Warning
+  // Lights card overflowed the footer on a 6.3" screen at the fixed CARD_H.
+  const [gridHeight, setGridHeight] = useState(0);
 
   // ── Grid / overlay state ──────────────────────────────────
   const [activeCard, setActiveCard] = useState<ServiceCardId | null>(null);
@@ -769,24 +660,23 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
     setActiveCard(cardId);
   }, []);
 
-  // ── Overlay callbacks ──────────────────────────────────────
-  const handleOverlayAnswer = useCallback((
-    answers: Record<string, string | number | string[]>,
-    questionIndex: number,
-    progress: number,
+  // ── Sheet callbacks ────────────────────────────────────────
+  // One save per tile now, rather than the old per-question answer stream —
+  // the v2 sheet is a single screen with a single Save, so there is no
+  // question index to track.
+  const handleTileSave = useCallback((
+    tileId: ServiceCardId,
+    answer: QuickCheckAnswer,
   ) => {
-    if (!activeCard) return;
-    setServiceAnswers(prev => ({ ...prev, [activeCard]: answers }));
-    setServiceQuestionIndex(prev => ({ ...prev, [activeCard]: questionIndex }));
-    setServiceProgress(prev => ({ ...prev, [activeCard]: progress }));
-  }, [activeCard]);
-
-  const handleOverlayComplete = useCallback(() => {
-    if (!activeCard) return;
-    setServiceProgress(prev => ({ ...prev, [activeCard]: 1 }));
-    setJustCompletedId(activeCard);
-    setActiveCard(null);
-  }, [activeCard]);
+    setServiceAnswers(prev => ({
+      ...prev,
+      [tileId]: answer as unknown as Record<string, string | number | string[]>,
+    }));
+    setServiceProgress(prev => ({ ...prev, [tileId]: 1 }));
+    setJustCompletedId(tileId);
+    // Deliberately NOT clearing activeCard here. The sheet fires onClose after
+    // its 280ms slide-down; clearing now would unmount it mid-animation.
+  }, []);
 
   const handleOverlayDismiss = useCallback(() => {
     setActiveCard(null);
@@ -897,6 +787,19 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
     // Bigger Services full-width at the bottom. Only fired tiles render.
     const squareCards = (["oil", "tires", "brakes", "battery"] as ServiceCardId[])
       .filter((id) => firedSet.has(id as QuickCheckTileId));
+
+    // Squares shrink to fit whatever the grid was given, never grow past the
+    // designed CARD_H, and stop at a floor where the icon + label still read.
+    // Before the first layout `gridHeight` is 0, so the full height applies —
+    // the same as the old fixed behaviour.
+    const squareRows = Math.ceil(squareCards.length / 2);
+    const squareCardHeight = (() => {
+      if (!gridHeight || squareRows === 0) return CARD_H;
+      const wideBlock = WIDE_CARD_H + GRID_GAP;
+      const avail = gridHeight - scale(8) - wideBlock - (squareRows - 1) * GRID_GAP;
+      return Math.max(scale(112), Math.min(CARD_H, Math.floor(avail / squareRows)));
+    })();
+
     return (
       <View style={{ flex: 1 }}>
         {allDone && (
@@ -911,7 +814,10 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
             <Text weight="medium" size="md" color="#829BAD">Your vehicle health score is ready.</Text>
           </ReAnimated.View>
         )}
-        {!allDone && <ReAnimated.View style={[s.cardGrid, { flex: 1 }, gridFadeStyle]}>
+        {!allDone && <ReAnimated.View
+          style={[s.cardGrid, { flex: 1 }, gridFadeStyle]}
+          onLayout={e => setGridHeight(e.nativeEvent.layout.height)}
+        >
           {/* Always first, always present — the only live-malfunction signal. */}
           <CardGridItem
             key="warningLights"
@@ -933,6 +839,7 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
                   isJustCompleted={justCompletedId === cardId}
                   progress={serviceProgress[cardId] ?? (completedCards.has(cardId) ? 1 : 0)}
                   onPress={() => handleCardTap(cardId)}
+                  height={squareCardHeight}
                 />
               ))}
             </View>
@@ -1085,24 +992,13 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
         </View>
 
         {/* Question overlay */}
-        {activeCard && (() => {
-          const HeroIcon = SERVICE_ICON_COMPONENTS[activeCard];
-          return (
-            <QuestionOverlay
-              serviceId={activeCard}
-              serviceName={SERVICE_CARDS[activeCard].label}
-              heroIcon={<HeroIcon size={scale(40)} color="#FFFFFF" />}
-              questions={SERVICE_QUESTIONS[activeCard]}
-              // A completed card reopens for review from question one; an
-              // in-progress draft resumes where the user left off.
-              initialQuestionIndex={completedCards.has(activeCard) ? 0 : (serviceQuestionIndex[activeCard] ?? 0)}
-              initialAnswers={serviceAnswers[activeCard] ?? {}}
-              onAnswerUpdate={handleOverlayAnswer}
-              onComplete={handleOverlayComplete}
-              onDismiss={handleOverlayDismiss}
-            />
-          );
-        })()}
+        <QuickCheckSheet
+          tileId={activeCard}
+          visible={activeCard !== null}
+          vehicleYear={vehicleYear}
+          onClose={handleOverlayDismiss}
+          onSubmit={handleTileSave}
+        />
       </View>
     );
   };
