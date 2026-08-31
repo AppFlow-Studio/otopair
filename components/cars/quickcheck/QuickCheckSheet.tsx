@@ -51,7 +51,7 @@ const SHEET_CHROME = 34;
 type RowId = "when" | "never" | "unsure";
 
 export function QuickCheckSheet({
-  tileId,
+  spec,
   visible,
   vehicleYear,
   /** Guided shows the sheet subtitles; Confident hides them (§3). Nothing
@@ -60,12 +60,15 @@ export function QuickCheckSheet({
   onClose,
   onSubmit,
 }: {
-  tileId: TileSpec["id"] | null;
+  /** The question to ask. Null closes the sheet. Callers pass either a fixed
+   *  `TILE_SPECS` entry or a `catalogTileSpec` built from a taxonomy slug —
+   *  the sheet does not care which. */
+  spec: TileSpec | null;
   visible: boolean;
   vehicleYear?: number | null;
   guided?: boolean;
   onClose: () => void;
-  onSubmit: (tileId: TileSpec["id"], answer: QuickCheckAnswer) => void;
+  onSubmit: (id: string, answer: QuickCheckAnswer) => void;
 }) {
   const sheetRef = useRef<FloatingSheetRef>(null);
   const [row, setRow] = useState<RowId | null>(null);
@@ -84,8 +87,7 @@ export function QuickCheckSheet({
   // ones (which is exactly what the fixed 560 did).
   const [contentHeight, setContentHeight] = useState(SHEET_MIN);
 
-  const spec = tileId ? TILE_SPECS[tileId] : null;
-  const isLights = tileId === "warningLights";
+  const isLights = spec?.id === "warningLights";
 
   useEffect(() => {
     if (!visible) return;
@@ -97,7 +99,7 @@ export function QuickCheckSheet({
     setSymptom(SYMPTOM_NONE);
     setLights([]);
     sheetRef.current?.open();
-  }, [visible, tileId]);
+  }, [visible, spec?.id]);
 
   const needsDate = row === "when" && !isLights;
   const needsLights = isLights && row === "when";

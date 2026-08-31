@@ -44,7 +44,9 @@ import { useToast } from "@/hooks/useToast";
 import { useServiceRecordUpload } from "@/hooks/useServiceRecordUpload";
 import { catalogRecordType } from "@/utils/mergedMaintenance";
 import type { MaintenanceItem } from "@/components/cars/MaintenanceTracker";
-import { ServiceRecencySheet, type RecencyAnswer } from "@/components/cars/ServiceRecencySheet";
+import { QuickCheckSheet } from "@/components/cars/quickcheck/QuickCheckSheet";
+import { catalogTileSpec, type QuickCheckAnswer } from "@/components/cars/quickcheck/tileSpecs";
+import { resolveQuickCheckAnchor } from "@/utils/quickCheckAnchor";
 import { useUpdateMileage } from "@/hooks/useUpdateMileage";
 import Svg, { Circle, Defs, LinearGradient as SvgLinearGradient, Stop } from "react-native-svg";
 
@@ -68,7 +70,7 @@ import { useTireBookingStore } from "@/stores/useTireBookingStore";
 import type { Id } from "@/convex/_generated/dataModel";
 import { isPseudoVin } from "@/convex/lib/vinIdentity";
 import {
-  estimateServiceAnchorFromRecency, ALL_MAINTENANCE_TYPES, MAINTENANCE_LABELS, type MaintenanceType } from "@/utils/maintenanceStatus";
+  ALL_MAINTENANCE_TYPES, MAINTENANCE_LABELS, type MaintenanceType } from "@/utils/maintenanceStatus";
 import { computeVehicleHealthScore, type HealthScoreInput } from "@/utils/healthScore";
 
 // 4. Shared UI
@@ -2035,37 +2037,44 @@ export default function CarsHomeScreen() {
           />
         </View>
 
-        <ServiceRecencySheet
+        {/* The same sheet the Quick Check uses, on purpose. This row used to
+            open `ServiceRecencySheet` and its six recency buckets — the v1
+            vocabulary, where every answer collapsed to a guessed date. Asking
+            one question two ways on two screens is what the spec set out to
+            remove, so an unknown tracker row now asks it exactly as
+            onboarding does, and the answer lands as a real anchor. */}
+        <QuickCheckSheet
+          spec={
+            recencyItem?.serviceSlug
+              ? catalogTileSpec(recencyItem.serviceSlug, recencyItem.serviceName)
+              : null
+          }
           visible={recencyItem !== null}
-          serviceName={recencyItem?.serviceName ?? ""}
           onClose={() => setRecencyItem(null)}
-          onSubmit={async (answer: RecencyAnswer) => {
+          onSubmit={async (slug: string, answer: QuickCheckAnswer) => {
             const item = recencyItem;
             setRecencyItem(null);
             if (!item?.serviceSlug || !activeOwnershipId) return;
             // "Not sure" is a real choice: record it so we stop asking as
             // insistently, but write no anchor — the row stays unknown and
             // keeps scoring nothing, per §08.
-            const anchorPoint = estimateServiceAnchorFromRecency({
-              recency: answer.recency,
-              currentOdometer: currentOdometer ?? activeVehicle?.mileage ?? 0,
+            const anchorPoint = resolveQuickCheckAnchor({
+              answer,
+              currentOdometer: currentOdometer ?? activeVehicle?.mileage ?? null,
               avgMonthlyDriving: activeOwnership?.avgMonthlyDriving as string | undefined,
-              exactDate: answer.exactDate,
               vehicleYear: activeVehicle?.year,
             });
+            const anchored = anchorPoint.lastServiceDate != null;
             try {
               await upsertMaintenanceRecord({
                 vehicleOwnerId: activeOwnershipId,
-                type: catalogRecordType(item.serviceSlug),
-                ...(anchorPoint
-                  ? {
-                      lastServiceDate: anchorPoint.lastServiceDate,
-                      lastServiceMileage: anchorPoint.lastServiceMileage,
-                    }
-                  : {}),
+                type: catalogRecordType(slug),
+                ...anchorPoint,
                 customInputs: {
-                  recency: answer.recency,
-                  ...(answer.exactDate ? { exactDate: answer.exactDate } : {}),
+                  answerType: answer.answerType,
+                  ...(answer.month != null ? { answerMonth: answer.month } : {}),
+                  ...(answer.year != null ? { answerYear: answer.year } : {}),
+                  ...(answer.miles != null ? { answerMiles: answer.miles } : {}),
                   // Marks the anchor as the driver's own estimate, not a
                   // shop's record — the tracker and Oto both read this.
                   source: "driver_self_report",
@@ -2073,8 +2082,8 @@ export default function CarsHomeScreen() {
                 confidence: "self_reported",
               });
               toast.success(
-                anchorPoint ? "Thanks — updated" : "Noted",
-                anchorPoint
+                anchored ? "Thanks — updated" : "Noted",
+                anchored
                   ? `We'll track ${item.serviceName.toLowerCase()} from there.`
                   : "We'll leave that one open for now.",
               );

@@ -20,7 +20,11 @@ export type QuickCheckAnswerType = "when" | "never" | "unsure";
  *  a real and useful answer. `unsure` is worded identically everywhere on
  *  purpose: it is the row the diagnostic prompt hangs off. */
 export interface TileSpec {
-  id: Exclude<QuickCheckTileId, "biggerServices">;
+  /** A tile id for the five fixed tiles, or a taxonomy slug for a catalog
+   *  service asked through the same sheet. Widened to `string` when Bigger
+   *  Services and the tracker's UNKNOWN rows converged onto this component —
+   *  one control, one vocabulary, three surfaces. */
+  id: string;
   /** Sheet title. */
   question: string;
   /** Shown in Guided mode only. */
@@ -45,7 +49,9 @@ export interface TileSpec {
  *  nothing should not have to say so explicitly. */
 export const SYMPTOM_NONE = "none";
 
-export const TILE_SPECS: Record<TileSpec["id"], TileSpec> = {
+export type FixedTileId = Exclude<QuickCheckTileId, "biggerServices">;
+
+export const TILE_SPECS: Record<FixedTileId, TileSpec> = {
   warningLights: {
     id: "warningLights",
     question: "Any lights on your dash right now?",
@@ -138,4 +144,28 @@ export interface QuickCheckAnswer {
   symptom?: string;
   /** Warning lights only: the canonical light ids that are on. */
   lights?: string[];
+}
+
+/**
+ * A spec for any catalog service, built from its taxonomy label.
+ *
+ * This is what replaced `ServiceRecencySheet`'s six recency buckets. Those
+ * buckets were the v1 vocabulary — "Recently", "A few months ago", "Over 6
+ * months ago" — and every one of them collapsed to a guessed date. Asking the
+ * same question two different ways on two different screens is exactly what
+ * the spec set out to remove, so Bigger Services and the tracker's UNKNOWN
+ * rows now ask it the way the Quick Check does.
+ *
+ * No symptom row and no filters toggle: those are properties of the four fixed
+ * tiles, not of a service in general.
+ */
+export function catalogTileSpec(slug: string, label: string): TileSpec {
+  return {
+    id: slug,
+    question: `When was your ${label.toLowerCase()} last done?`,
+    subtitle: "Your answer replaces our estimate.",
+    whenLabel: "I know roughly when",
+    neverLabel: "Never on this car",
+    showMilesField: true,
+  };
 }

@@ -22,10 +22,11 @@ import {
   Keyboard,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   View,
 } from "react-native";
-import { useMutation } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
@@ -45,13 +46,26 @@ import ReAnimated, {
 import { ArrowLeft } from "lucide-react-native";
 import { Text } from "@/components/shared-ui";
 import { BrakesIcon, TireIcon, OilIcon, BatteryIcon, WarningIcon } from "@/components/cars/ServiceIcons";
+import { Wrench } from "lucide-react-native";
+import { TAXONOMY } from "@/constants/serviceTaxonomy";
 import SquircleRing from "@/components/cars/SquircleRing";
 import { QuickCheckSheet } from "@/components/cars/quickcheck/QuickCheckSheet";
-import type { QuickCheckAnswer } from "@/components/cars/quickcheck/tileSpecs";
+import { TILE_SPECS, catalogTileSpec, type QuickCheckAnswer } from "@/components/cars/quickcheck/tileSpecs";
+import { BiggerServicesSheet } from "@/components/cars/quickcheck/BiggerServicesSheet";
 import {
   quickCheckRecordWrites,
+  resolveQuickCheckAnchor,
   type QuickCheckServiceTile,
 } from "@/utils/quickCheckAnchor";
+import {
+  biggerServiceCandidates,
+  type BiggerServiceCandidate,
+} from "@/utils/quickCheckBiggerServices";
+import {
+  useOemServiceIntervals,
+  useVehicleFallbackProfile,
+} from "@/hooks/useOemServiceIntervals";
+import { useBookableServices } from "@/hooks/useBookableServices";
 
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -135,7 +149,10 @@ type Phase = "intro" | "stepping";
 
 type StepId = "serviceGrid";
 
-type ServiceCardId = "brakes" | "tires" | "oil" | "battery" | "warningLights";
+// Mirrors `QuickCheckTileId` — every tile that can render a card in the grid,
+// Bigger Services included. The four that write a per-type maintenance record
+// are narrower and live in `TILE_RECORD_TYPE`.
+type ServiceCardId = "brakes" | "tires" | "oil" | "battery" | "warningLights" | "biggerServices";
 
 const SERVICE_CARD_IMAGES: Partial<Record<ServiceCardId, any>> = {
   brakes:  require("@/assets/images/services/newIcons/brakesicon.png"),
@@ -150,6 +167,7 @@ const SERVICE_CARDS: Record<ServiceCardId, { label: string; icon: string; color:
   oil:           { label: "Oil",            icon: "water-outline",            color: "#5299FE" },
   battery:       { label: "Battery",        icon: "battery-charging-outline", color: "#5299FE" },
   warningLights: { label: "Warning Lights", icon: "warning-outline",          color: "#5299FE" },
+  biggerServices:{ label: "Bigger Services", icon: "construct-outline",       color: "#5299FE" },
 };
 
 const SERVICE_ICON_COMPONENTS: Record<ServiceCardId, React.FC<{ size?: number; color?: string }>> = {
@@ -158,6 +176,13 @@ const SERVICE_ICON_COMPONENTS: Record<ServiceCardId, React.FC<{ size?: number; c
   oil: OilIcon,
   battery: BatteryIcon,
   warningLights: WarningIcon,
+  // ServiceIcons has no wrench and this tile is a grouping rather than one
+  // component, so lucide's does the job without inventing a custom glyph.
+  // Defaults to the same blue the ServiceIcons set use internally — the grid
+  // renders an un-completed icon with no colour prop and expects blue.
+  biggerServices: ({ size, color }) => (
+    <Wrench size={size} color={color ?? "#5299FE"} strokeWidth={1.6} />
+  ),
 };
 
 
@@ -460,14 +485,76 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
   // biggerServiceCandidates is 0 until that tile is built (step 8) — the tile
   // simply doesn't render, which is exactly the spec's behaviour when nothing
   // qualifies.
+  // Fetched here rather than prop-drilled: `ServiceBottomSheet` is one of
+  // three call sites and has never needed either query.
+  const oemIntervals = useOemServiceIntervals(vehicleConfigId);
+  const profile = useVehicleFallbackProfile(vehicleConfigId);
+  // `useBookableServices` speaks Convex service ids; the interval tables are
+  // slug-keyed. Translate rather than re-deriving fitment client-side —
+  // `convex/services.ts` already ran `lib/serviceApplicability`, and a second
+  // implementation is how the two answers drift apart.
+  const { applicableIds, missingDataIds } = useBookableServices(vehicleOwnerId);
+  const allServices = useQuery(api.services.list);
+  const applicableSlugs = useMemo(() => {
+    const fitted = new Set([...applicableIds, ...missingDataIds]);
+    if (!allServices || fitted.size === 0) return undefined;
+    const out = new Set<string>();
+    for (const doc of allServices as Array<{ _id: string; slug?: string }>) {
+      if (!fitted.has(doc._id)) continue;
+      // The DB still holds hyphenated legacy slugs for some rows; TAXONOMY
+      // accepts either form and hands back the canonical one.
+      const canonical = doc.slug ? TAXONOMY[doc.slug]?.slug : undefined;
+      if (canonical) out.add(canonical);
+    }
+    return out;
+    // `missing_data` is folded in on purpose. That state means the backend
+    // could not produce parts data — a reason we cannot SELL the service, not
+    // evidence the car lacks the component. A service the vehicle genuinely
+    // does not have is absent from every bucket. Excluding missing_data left a
+    // 300,000-mile Q5 with one Bigger Service instead of five, because its
+    // enrichment had not finished.
+  }, [allServices, applicableIds, missingDataIds]);
+  const existingRecords = useQuery(
+    api.maintenance.getRecordsByVehicle,
+    vehicleOwnerId ? { vehicleOwnerId } : "skip",
+  );
+
+  const answeredSlugs = useMemo(() => {
+    const out = new Set<string>();
+    for (const r of existingRecords ?? []) {
+      if (typeof r.type === "string" && r.type.startsWith("catalog_")) {
+        out.add(r.type.slice("catalog_".length));
+      }
+    }
+    return out;
+  }, [existingRecords]);
+
+  const biggerServices = useMemo(
+    () =>
+      biggerServiceCandidates({
+        currentOdometer: currentMiles ?? null,
+        modelYear: vehicleYear ?? null,
+        vehicleClass: profile?.vehicleClass ?? null,
+        classOptions: {
+          turbo: profile?.turbo,
+          drivetrain: profile?.drivetrain,
+          hasDifferential: profile?.hasDifferential,
+        },
+        oemIntervals,
+        applicableSlugs,
+        answeredSlugs,
+      }),
+    [currentMiles, vehicleYear, profile, oemIntervals, applicableSlugs, answeredSlugs],
+  );
+
   const fired = useMemo(
     () =>
       firedTiles({
         currentMiles,
         modelYear: vehicleYear ?? null,
-        biggerServiceCandidates: 0,
+        biggerServiceCandidates: biggerServices.length,
       }),
-    [currentMiles, vehicleYear],
+    [currentMiles, vehicleYear, biggerServices.length],
   );
   const firedSet = useMemo(() => new Set<QuickCheckTileId>(fired), [fired]);
   const saveField = useMutation(api.vehicles.saveOnboardingField);
@@ -541,6 +628,11 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
 
   // ── Grid / overlay state ──────────────────────────────────
   const [activeCard, setActiveCard] = useState<ServiceCardId | null>(null);
+  // Which Bigger Service row is currently being asked about. Separate from
+  // `activeCard` because the list sheet and the question sheet are two levels
+  // of the same tile — answering a row returns to the list rather than
+  // closing the tile.
+  const [activeBigger, setActiveBigger] = useState<BiggerServiceCandidate | null>(null);
   const [completedCards, setCompletedCards] = useState<Set<ServiceCardId>>(new Set());
   const [justCompletedId, setJustCompletedId] = useState<ServiceCardId | null>(null);
   const [serviceAnswers, setServiceAnswers] = useState<
@@ -669,10 +761,50 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
   // One save per tile now, rather than the old per-question answer stream —
   // the v2 sheet is a single screen with a single Save, so there is no
   // question index to track.
-  const handleTileSave = useCallback((
-    tileId: ServiceCardId,
+  /**
+   * A Bigger Service answer. Writes straight through rather than waiting for
+   * Complete: the row is a catalog service, not one of the five tiles, so
+   * there is no batch to join and the driver returns to the list expecting it
+   * to say "Answered".
+   */
+  const handleBiggerSave = useCallback(async (
+    slug: string,
     answer: QuickCheckAnswer,
   ) => {
+    setActiveBigger(null);
+    const anchor = resolveQuickCheckAnchor({
+      answer,
+      currentOdometer: currentMiles ?? null,
+      avgMonthlyDriving,
+      vehicleYear,
+    });
+    try {
+      await upsertRecord({
+        vehicleOwnerId,
+        type: `catalog_${slug}`,
+        ...anchor,
+        customInputs: {
+          source: "quick_check_v2",
+          answerType: answer.answerType,
+          ...(answer.month != null ? { answerMonth: answer.month } : {}),
+          ...(answer.year != null ? { answerYear: answer.year } : {}),
+          ...(answer.miles != null ? { answerMiles: answer.miles } : {}),
+        },
+      });
+    } catch (err) {
+      console.warn("[CarInfoStepper] Bigger Service save failed:", err);
+    }
+  }, [vehicleOwnerId, currentMiles, avgMonthlyDriving, vehicleYear, upsertRecord]);
+
+  const handleTileSave = useCallback((
+    id: string,
+    answer: QuickCheckAnswer,
+  ) => {
+    if (activeBigger) {
+      void handleBiggerSave(id, answer);
+      return;
+    }
+    const tileId = id as ServiceCardId;
     setServiceAnswers(prev => ({
       ...prev,
       [tileId]: answer as unknown as Record<string, string | number | string[]>,
@@ -681,11 +813,17 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
     setJustCompletedId(tileId);
     // Deliberately NOT clearing activeCard here. The sheet fires onClose after
     // its 280ms slide-down; clearing now would unmount it mid-animation.
-  }, []);
+  }, [activeBigger, handleBiggerSave]);
 
   const handleOverlayDismiss = useCallback(() => {
+    // Closing a Bigger Service question returns to its list, not out of the
+    // tile — `activeCard` stays "biggerServices".
+    if (activeBigger) {
+      setActiveBigger(null);
+      return;
+    }
     setActiveCard(null);
-  }, []);
+  }, [activeBigger]);
 
   useImperativeHandle(ref, () => ({
     isExpanded: () => !!activeCard,
@@ -865,12 +1003,27 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
     // Before the first layout `gridHeight` is 0, so the full height applies —
     // the same as the old fixed behaviour.
     const squareRows = Math.ceil(squareCards.length / 2);
+    // Bigger Services is a second wide card when it fires, and a shorter one:
+    // it carries a count rather than an icon-led prompt, and two full-height
+    // wide cards plus four squares do not fit a 6.3" screen.
+    const hasBigger = firedSet.has("biggerServices");
+    const biggerCardHeight = scale(84);
+    // The floor is the height at which a square card still READS — below it
+    // the label rides up over the icon. Shrinking past legibility is not a
+    // fit, so when the floor binds the grid scrolls instead (see
+    // `gridOverflows`). Six tiles is simply more than the screen holds.
+    const SQUARE_MIN_H = scale(112);
+    const wideBlock =
+      WIDE_CARD_H + GRID_GAP + (hasBigger ? biggerCardHeight + GRID_GAP : 0);
+    const squareBudget = gridHeight
+      ? gridHeight - scale(8) - wideBlock - (squareRows - 1) * GRID_GAP
+      : 0;
     const squareCardHeight = (() => {
       if (!gridHeight || squareRows === 0) return CARD_H;
-      const wideBlock = WIDE_CARD_H + GRID_GAP;
-      const avail = gridHeight - scale(8) - wideBlock - (squareRows - 1) * GRID_GAP;
-      return Math.max(scale(112), Math.min(CARD_H, Math.floor(avail / squareRows)));
+      return Math.max(SQUARE_MIN_H, Math.min(CARD_H, Math.floor(squareBudget / squareRows)));
     })();
+    const gridOverflows =
+      !!gridHeight && squareRows > 0 && squareBudget / squareRows < SQUARE_MIN_H;
 
     return (
       <View style={{ flex: 1 }}>
@@ -887,8 +1040,13 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
           </ReAnimated.View>
         )}
         {!allDone && <ReAnimated.View
-          style={[s.cardGrid, { flex: 1 }, gridFadeStyle]}
+          style={[{ flex: 1 }, gridFadeStyle]}
           onLayout={e => setGridHeight(e.nativeEvent.layout.height)}
+        >
+        <ScrollView
+          contentContainerStyle={s.cardGrid}
+          showsVerticalScrollIndicator={false}
+          scrollEnabled={gridOverflows}
         >
           {/* Always first, always present — the only live-malfunction signal. */}
           <CardGridItem
@@ -901,6 +1059,9 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
             isWide
             subtitle="Any dashboard warnings on?"
           />
+          {/* Spec §3: Bigger Services is a second wide card, below the
+              squares. It renders only when something actually qualified —
+              `fired` already excludes it at zero candidates. */}
           {squareCards.length > 0 && (
             <View style={s.cardGridSquares}>
               {squareCards.map(cardId => (
@@ -916,6 +1077,20 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
               ))}
             </View>
           )}
+          {firedSet.has("biggerServices") && (
+            <CardGridItem
+              key="biggerServices"
+              cardId="biggerServices"
+              isDone={completedCards.has("biggerServices")}
+              isJustCompleted={justCompletedId === "biggerServices"}
+              progress={serviceProgress["biggerServices"] ?? (completedCards.has("biggerServices") ? 1 : 0)}
+              onPress={() => handleCardTap("biggerServices")}
+              isWide
+              height={biggerCardHeight}
+              subtitle={`${biggerServices.length} may be coming up`}
+            />
+          )}
+        </ScrollView>
         </ReAnimated.View>}
       </View>
     );
@@ -1066,10 +1241,31 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
           </Animated.View>
         </View>
 
-        {/* Question overlay */}
+        {/* Bigger Services — the list, and the question sheet it opens. */}
+        <BiggerServicesSheet
+          candidates={biggerServices}
+          visible={activeCard === "biggerServices" && activeBigger === null}
+          onClose={() => setActiveCard(null)}
+          onPick={setActiveBigger}
+          onDone={() => {
+            // Nothing here is required, so "done" means the driver looked —
+            // that is enough for the tile to count towards the progress
+            // counter and unblock Complete.
+            setServiceProgress(prev => ({ ...prev, biggerServices: 1 }));
+            setJustCompletedId("biggerServices");
+            setActiveCard(null);
+          }}
+        />
+
         <QuickCheckSheet
-          tileId={activeCard}
-          visible={activeCard !== null}
+          spec={
+            activeBigger
+              ? catalogTileSpec(activeBigger.slug, activeBigger.label)
+              : activeCard && activeCard !== "biggerServices"
+                ? TILE_SPECS[activeCard]
+                : null
+          }
+          visible={activeBigger !== null || (activeCard !== null && activeCard !== "biggerServices")}
           vehicleYear={vehicleYear}
           onClose={handleOverlayDismiss}
           onSubmit={handleTileSave}
