@@ -116,7 +116,10 @@ export function QuickReadGateSheet({
                 color="#6B7280"
                 style={styles.subheadline}
               >
-                We don&apos;t have your service history yet. Five quick checks and you&apos;ll have a real health score.
+                {/* Count-agnostic on purpose. The number of checks is
+                    per-vehicle now, and this sheet is handed a label rather
+                    than the mileage and model year the firing rules need. */}
+                We don&apos;t have your service history yet. A few quick checks and you&apos;ll have a real health score.
               </Text>
 
               {/* Bullet list */}

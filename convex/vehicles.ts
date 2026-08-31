@@ -1850,11 +1850,22 @@ export const saveOnboardingField = mutation({
 });
 
 /**
- * Auto-complete onboarding for brand-new vehicles (≤1,000 miles).
+ * Seed factory-fresh maintenance records for a genuinely new vehicle.
  *
- * Creates healthy-default maintenance records for brakes and tires,
- * sets knownIssues to "no_all_clear", and marks onboardingComplete.
- * The user can still edit any of these via the maintenance input modal.
+ * Despite the name this no longer completes onboarding, and it is kept only
+ * because the client and the pre-onboarding pipeline skip both reference it.
+ * It writes healthy-default records — and nothing else. The driver still
+ * answers the Quick Check, which is the point: the warning-lights question is
+ * asked for every car, always (Quick Check v2 §3).
+ *
+ * Two guards, both learned the hard way:
+ *   - it seeds only when `vehicle_age_years <= 1`, because "under 1,000 miles"
+ *     caught eight-year-old low-mileage cars and invented a service history
+ *     for them;
+ *   - it no-ops when records already exist, because it is no longer a one-shot
+ *     now that `onboardingComplete` stays false.
+ *
+ * Callers should treat `seeded: false` as "nothing was written", not failure.
  */
 export const autoCompleteNewVehicleOnboarding = mutation({
   args: {
@@ -1864,7 +1875,20 @@ export const autoCompleteNewVehicleOnboarding = mutation({
     const { vehicleOwnerId } = args;
     const owner = await ctx.db.get(vehicleOwnerId);
     if (!owner) throw new Error("Vehicle owner not found");
-    if (owner.onboardingComplete) return { success: true };
+    if (owner.onboardingComplete) return { success: true, seeded: false };
+
+    // This used to be a one-shot because it set `onboardingComplete` itself.
+    // It no longer does, so the client can reach it again on a later mount —
+    // and a second run would re-stamp every anchor to "today", quietly making
+    // an aging car look freshly serviced. An existing record means seeding
+    // already happened.
+    const alreadySeeded = await ctx.db
+      .query("maintenance_records")
+      .withIndex("by_vehicle_and_type", (q) =>
+        q.eq("vehicleOwnerId", vehicleOwnerId).eq("type", "oil")
+      )
+      .unique();
+    if (alreadySeeded) return { success: true, seeded: false };
 
     const now = Date.now();
 
@@ -1897,6 +1921,24 @@ export const autoCompleteNewVehicleOnboarding = mutation({
 
     const mileage = owner.mileage ?? 0;
 
+    // Under 1,000 miles is not the same as new. A 2018 Jetta with 1,000 miles
+    // on it is an eight-year-old car, and stamping "serviced today" across ten
+    // record types invents a service history it does not have — the tracker
+    // then reports a fresh oil change that never happened. Age is what makes a
+    // car factory-fresh, so seed only when the car is genuinely new and let
+    // everything else answer for itself in the Quick Check.
+    const ageYears = owner.vehicle_age_years;
+    const seeded = ageYears != null && ageYears <= 1;
+
+    if (!seeded) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.maintenance_pipeline.runPipeline,
+        { vehicleOwnerId, triggeredBy: "onboarding" }
+      );
+      return { success: true, seeded };
+    }
+
     // Factory-fresh records for all service types
     await upsertRecord("oil", now, mileage);
     await upsertRecord("brakes", now, mileage, {
@@ -1917,29 +1959,30 @@ export const autoCompleteNewVehicleOnboarding = mutation({
     const expirationDate = now + 12 * 30.44 * 24 * 60 * 60 * 1000;
     await upsertRecord("inspection", now, undefined, { expirationDate });
 
-    // Warning lights: all clear
-    await ctx.db.patch(vehicleOwnerId, {
-      knownIssues: ["no_all_clear"],
-      onboardingComplete: true,
-    });
+    // Deliberately NOT written here any more:
+    //
+    //   knownIssues: ["no_all_clear"]  — this answered the warning-lights
+    //     question on the driver's behalf. Quick Check v2 §3 says that
+    //     question is always asked, for every car, and a fabricated "all
+    //     clear" is worse than no answer: a genuinely lit dash scores as a
+    //     clean one and nothing corrects it until a mechanic sees the car.
+    //   onboardingComplete: true       — with the lights question still
+    //     outstanding, onboarding is not complete. It is set the normal way,
+    //     when the driver finishes the Quick Check.
+    //   the +5 HP profile_complete award — it belongs to real completion.
+    //     Awarding it here would burn the `oneTimeKey` and silently deny the
+    //     driver the points when they actually finish.
 
-    // One-time +5 HP for the auto-complete path (same event as the
-    // organic completion in saveOnboardingField; `oneTimeKey` dedupes).
-    await awardPointsImpl(ctx, {
-      vin: owner.vin,
-      userId: owner.user_id,
-      delta: 5,
-      oneTimeKey: "profile_complete",
-    });
-
-    // Trigger the pipeline now that records exist
+    // Runs whether or not records were seeded: pre-onboarding skips its own
+    // pipeline trigger for <=1,000-mile cars (see saveVehicleDetails) on the
+    // understanding that this path fires it instead.
     await ctx.scheduler.runAfter(
       0,
       internal.maintenance_pipeline.runPipeline,
       { vehicleOwnerId, triggeredBy: "onboarding" }
     );
 
-    return { success: true };
+    return { success: true, seeded };
   },
 });
 

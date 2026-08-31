@@ -19,6 +19,7 @@ import * as Clipboard from "expo-clipboard";
 import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams } from "expo-router";
+import { firedTiles } from "@/utils/quickCheckFiring";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 
 // Native iOS 26 liquid glass (optional). Mirrors the home / map-controls
@@ -258,6 +259,12 @@ const { width: SCREEN_WIDTH } = Dimensions.get("window");
 // ============================================================================
 // MAIN COMPONENT
 // ============================================================================
+
+/** Spelled-out counts for the Quick Read copy. The grid tops out at six
+ *  tiles, so the table is short and complete by construction. */
+const NUMBER_WORDS: Record<number, string> = {
+  0: "A few", 1: "One", 2: "Two", 3: "Three", 4: "Four", 5: "Five", 6: "Six",
+};
 
 export default function CarsHomeScreen() {
   const toast = useToast();
@@ -1234,31 +1241,33 @@ export default function CarsHomeScreen() {
     showRoleSheet,
   ]);
   const activeOwnershipMileage = activeOwnership?.mileage as number | undefined;
-  const isNewVehicle = isPreOnboardingComplete && !isOnboardingComplete
+  const maySeedFactoryFresh = isPreOnboardingComplete && !isOnboardingComplete
     && activeOwnershipMileage != null && activeOwnershipMileage <= 1000;
 
-  // Auto-complete onboarding for brand-new vehicles (≤1,000 mi) — skip the Quick Read
-  const autoCompleteFired = useRef(false);
+  // Seed factory-fresh records for a low-mileage car. This used to skip the
+  // Quick Check outright and run the completion celebration, which meant a
+  // brand-new car was never asked about its dashboard lights — and an
+  // eight-year-old car with 1,000 miles on it got the same treatment. The
+  // mutation decides from the car's AGE whether seeding is honest at all; the
+  // screen's job is only to offer it the chance. Onboarding completes the
+  // normal way, when the driver finishes the Quick Check.
+  const seedFired = useRef(false);
   useEffect(() => {
-    if (!isNewVehicle || !activeOwnershipId || autoCompleteFired.current) return;
-    autoCompleteFired.current = true;
+    if (!maySeedFactoryFresh || !activeOwnershipId || seedFired.current) return;
+    seedFired.current = true;
     (async () => {
       try {
         await autoCompleteNewVehicle({ vehicleOwnerId: activeOwnershipId });
-        setOnboardingDoneForId(activeOwnershipId);
-        celebrationFlowActive.current = true;
-        setCelebrationActive(true);
-        setPendingHealthSheet(true);
       } catch (err) {
-        console.warn("[AutoComplete] Failed for new vehicle:", err);
-        autoCompleteFired.current = false;
+        console.warn("[FactoryFreshSeed] Failed for new vehicle:", err);
+        seedFired.current = false;
         toast.error(
           "Couldn't auto-fill vehicle details.",
           "Enter them manually below.",
         );
       }
     })();
-  }, [isNewVehicle, activeOwnershipId, autoCompleteNewVehicle]);
+  }, [maySeedFactoryFresh, activeOwnershipId, autoCompleteNewVehicle]);
 
   const activeOwnershipDrivingConditions = activeOwnership?.drivingConditions as string | undefined;
   const activeOwnershipAvgMonthlyDriving = activeOwnership?.avgMonthlyDriving as string | undefined;
@@ -1386,7 +1395,26 @@ export default function CarsHomeScreen() {
   }, [healthScoreInput, healthScoreWeights]);
 
   // Pulse animation for inline Quick Read health ring
-  const showQuickReadCard = isPreOnboardingComplete && !isOnboardingComplete && !isNewVehicle;
+  // No `!isNewVehicle` term any more: a low-mileage car sees the Quick Check
+  // like every other car. Seeding factory-fresh records answers the service
+  // questions for a genuinely new vehicle; it does not answer the
+  // warning-lights one, and that is the question this card leads to.
+  const showQuickReadCard = isPreOnboardingComplete && !isOnboardingComplete;
+
+  // How many tiles this particular car will actually be asked. The copy used
+  // to say "Five quick checks" everywhere, which was true while every car got
+  // every question. It is not true now: a genuinely new vehicle is asked one.
+  // Same pure helper the stepper uses, so the promise and the screen agree.
+  const quickCheckCount = useMemo(
+    () => firedTiles({
+      currentMiles: activeOwnershipMileage ?? null,
+      modelYear: activeVehicle?.year ?? null,
+      biggerServiceCandidates: 0,
+    }).length,
+    [activeOwnershipMileage, activeVehicle?.year],
+  );
+  const quickCheckCountWord = quickCheckCount === 1 ? "One" : NUMBER_WORDS[quickCheckCount] ?? String(quickCheckCount);
+  const quickCheckNoun = quickCheckCount === 1 ? "quick check" : "quick checks";
   useEffect(() => {
     if (!showQuickReadCard) return;
     const loop = Animated.loop(
@@ -2064,7 +2092,7 @@ export default function CarsHomeScreen() {
         />
 
         {/* Quick Read intro card — shown when pre-onboarding done but onboarding not yet complete */}
-        {isPreOnboardingComplete && !isOnboardingComplete && !isNewVehicle && (() => {
+        {showQuickReadCard && (() => {
           // No score is shown here. Pre-onboarding there are no service
           // records, and utils/mergedMaintenance.ts fills the gap with assumed
           // statuses — brakes/tires/battery "on time", oil "due soon" — which
@@ -2100,7 +2128,7 @@ export default function CarsHomeScreen() {
               Let&apos;s score your {activeVehicle?.make && activeVehicle?.model ? `${activeVehicle.make} ${activeVehicle.model}` : "vehicle"}
             </Text>
             <Text weight="medium" size="sm" color="#829BAD" style={{ textAlign: "center", marginTop: scale(6) }}>
-              We don&apos;t have your service history yet. Five quick checks and you&apos;ll have a real health score.
+              We don&apos;t have your service history yet. {quickCheckCountWord} {quickCheckNoun} and you&apos;ll have a real health score.
             </Text>
             <View style={styles.quickReadBenefits}>
               {["Brake health assessment", "Tire life estimation", "Oil service status", "Battery condition check", "Warning light detection"].map((b) => (
@@ -2864,7 +2892,7 @@ export default function CarsHomeScreen() {
                       Let&apos;s get a quick read on your {activeVehicle?.make ?? "vehicle"}
                     </Text>
                     <Text weight="medium" size="sm" color="#6B7280" style={{ marginTop: scale(4), textAlign: "center" }}>
-                      Five quick checks to understand your vehicle&apos;s current condition.
+                      {quickCheckCountWord} {quickCheckNoun} to understand your vehicle&apos;s current condition.
                     </Text>
                     <View style={healthSheetStyles.introBenefits}>
                       {["Brake health assessment", "Tire life estimation", "Oil service status", "Battery condition check", "Warning light detection"].map((b) => (
