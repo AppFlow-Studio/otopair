@@ -57,9 +57,9 @@ import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/Flo
 import {
   fetchVehicleImageUrl,
   useVdbColorsForVin,
-  useVdbVariants,
   useVehicleImage,
 } from "@/utils/vehicleImage";
+import { useYmmTrims } from "@/hooks/useYmmTrims";
 import { ColorSwatchSkeletonList } from "@/components/shared-ui/ColorSwatchSkeleton";
 
 // 5. Constants
@@ -307,29 +307,25 @@ export default function AddVehicleDetailsScreen() {
   const pickerSheetRef = useRef<FloatingSheetRef>(null);
 
   // ── YMMT catalog — makes/models backed by `convex/ymmtCatalog.ts`
-  // (shared with otopair-web), trims backed by VDB's ymm-specs
-  // options endpoint. We pulled trims off NHTSA because NHTSA returns
-  // empty for most modern vehicles and its strings are marketing
-  // names VDB's image endpoint rejects. VDB's canonical trim strings
-  // double as valid image-lookup keys.
+  // (shared with otopair-web). Trims now come from the premium Car API +
+  // MarketCheck via `resolveTrimsForYmm` (VDB is dropped for trims). NHTSA
+  // returns empty trims for most modern vehicles, which is why the picker
+  // needs a real provider here.
   const makes = useMakes();
   const { models: ymmtModels, loading: modelsLoading } = useModels(brand, year);
   const yearNum = year ? parseInt(year, 10) : undefined;
-  const { variants: vdbVariants, isLoading: trimsLoading } = useVdbVariants(yearNum, brand, model);
-  // Backward-compat: existing picker UI and sheet logic expects an array
-  // of trim strings. Variants carry the model too — we look that up below.
-  const vdbTrims = useMemo(() => vdbVariants.map((v) => v.trim), [vdbVariants]);
+  const { trims: ymmTrims, isLoading: trimsLoading } = useYmmTrims(yearNum, brand, model);
 
   // Use the user's explicit picker selection when they've made one,
-  // otherwise fall back to the first VDB trim so the image still
-  // resolves on year+brand+model alone.
-  const effectiveTrim = trim || vdbTrims[0] || undefined;
-  // Critical for makes that split engine variants into separate top-level
-  // models (Mercedes GLE → GLE 350 / 450 / 580). The variant tells us the
-  // CATALOG model to use for image/colors lookup, even when the user
-  // picked a family-level model name like "GLE-Class".
-  const effectiveModel =
-    vdbVariants.find((v) => v.trim === effectiveTrim)?.model ?? model;
+  // otherwise fall back to the first trim so the image still resolves on
+  // year+brand+model alone.
+  const effectiveTrim = trim || ymmTrims[0] || undefined;
+  // The user-entered model drives the VDB image/color lookup (images stay on
+  // VDB). Note: for makes that split engine variants into separate catalog
+  // models (Mercedes GLE 350/450/580), the image may fall back to the generic
+  // placeholder when the family-level name doesn't match VDB's catalog — an
+  // accepted tradeoff while VDB is kept only for images.
+  const effectiveModel = model;
 
   // Bumped by the failure-state "Retry" button to force a fresh image fetch
   // with the same inputs.
@@ -658,11 +654,11 @@ export default function AddVehicleDetailsScreen() {
       case "year": return YEARS;
       case "color": return activeColors;
       case "bodyStyle": return BODY_STYLES;
-      case "trim": return vdbTrims;
+      case "trim": return ymmTrims;
       case "drivetrain": return DRIVETRAINS;
       default: return [];
     }
-  }, [sheetMode, makes, ymmtModels, vdbTrims]);
+  }, [sheetMode, makes, ymmtModels, ymmTrims]);
 
   // Search-filtered view of the active list. Case-insensitive substring
   // match on each row's label (string rows match themselves; color /
@@ -1115,8 +1111,8 @@ export default function AddVehicleDetailsScreen() {
         <View style={styles.sheetWrapper}>
           <View style={styles.sheetHeader}>
             <Text
-              weight="bold"
-              size="lg"
+              size={28}
+              weight="extraBold"
               color={BrandColors.primary}
               numberOfLines={1}
               style={styles.sheetTitle}

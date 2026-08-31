@@ -17,10 +17,10 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useBookingLaborHours } from "./useBookingLaborHours";
 import { useBookingPartsBreakdown } from "./useBookingPartsBreakdown";
+import { useBookingQuoteFallback } from "./useBookingQuoteFallback";
 import { positionFromOption } from "@/constants/serviceVariants";
 import { useUserFromConvex } from "./useUserFromConvex";
 import { useToast } from "./useToast";
-import { useVehicleOwnershipFromConvex } from "./useVehicleOwnershipFromConvex";
 import { computeBookingTax } from "@/lib/tax";
 import { computePlatformFeeDollars } from "@/lib/platformFee";
 import { useMechanicStore } from "@/stores/useMechanicStore";
@@ -44,11 +44,11 @@ export function useCreateBookingConvex() {
   const confirmPreauthorizedBatch = useAction(api.bookings.confirmPreauthorizedBatch);
   const toast = useToast();
   const { userId } = useUserFromConvex();
-  const { primaryVin } = useVehicleOwnershipFromConvex();
   const getMechanicById = useMechanicStore((s) => s.getMechanicById);
   const getShopById = useShopStore((s) => s.getShopById);
 
   const selectedServiceIds = useBookingStore((s) => s.selectedServiceIds);
+  const selectedVehicleVin = useBookingStore((s) => s.selectedVehicleVin);
   const selectedMechanicId = useBookingStore((s) => s.selectedMechanicId);
   const availableServices = useBookingStore((s) => s.availableServices);
   const selectedMechanicSlot = useBookingStore((s) => s.selectedMechanicSlot);
@@ -98,15 +98,10 @@ export function useCreateBookingConvex() {
     [selectedMechanicSlot?.timeSlotId, slotsForShopAndTime, selectedMechanicId],
   );
 
-  const getSelectedVehicle = useVehicleStore((s) => s.getSelectedVehicle);
-  // Subscribe to selectedVehicleId so vehicleOwnershipId stays reactive when the
-  // user switches cars mid-flow — `getSelectedVehicle` alone is a stable ref.
-  const selectedVehicleId = useVehicleStore((s) => s.selectedVehicleId);
-  const vehicleOwnershipId = useMemo(
-    () => getSelectedVehicle()?.ownershipId,
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [selectedVehicleId, getSelectedVehicle],
+  const bookingVehicle = useVehicleStore((s) =>
+    selectedVehicleVin ? s.vehicles[selectedVehicleVin] : undefined,
   );
+  const vehicleOwnershipId = bookingVehicle?.ownershipId;
 
   // Mirror ReviewPayContent: prefer vehicle-specific `labor_times.book_hours`
   // over `services.default_labor_hours` so the booking row records the same
@@ -139,6 +134,42 @@ export function useCreateBookingConvex() {
     return map;
   }, [pricedPartsByService]);
 
+  // Per-service axle/position picks (per_axle services), so the engine scales
+  // labor + parts to the same axles the customer picked on Review & Pay.
+  const servicePositions = useMemo(() => {
+    const rec: Record<string, "front" | "rear" | "both"> = {};
+    for (const sid of selectedServiceIds) {
+      const pos = positionFromOption(selectedServiceOptions[sid]);
+      if (pos === "front" || pos === "rear" || pos === "both") {
+        rec[String(sid)] = pos;
+      }
+    }
+    return rec;
+  }, [selectedServiceIds, selectedServiceOptions]);
+
+  // Tier-aware labor from the Pricing v2 engine — the SAME source
+  // ReviewPayContent renders and the SAME number the server bills. Submitting
+  // this (instead of flat shop.labor_rate × hours) is what stops the server's
+  // createBatch labor-cost guard from rejecting high-tier vehicles with
+  // LABOR_COST_TIER_MISMATCH. Keyed service id → labor $; refused/absent lines
+  // fall back to the flat computation below (which is exactly when the server
+  // also skips its cost check, so the two never disagree in a rejecting way).
+  const engineQuote = useBookingQuoteFallback(
+    effectiveShopId,
+    vehicleOwnershipId,
+    selectedServiceIds,
+    servicePositions,
+  );
+  const engineLaborCostMap = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const [sid, line] of engineQuote.byService) {
+      if (!line.refused && line.laborCost != null) {
+        map.set(String(sid), Math.max(0, line.laborCost));
+      }
+    }
+    return map;
+  }, [engineQuote.byService]);
+
   const createBookingConvex = useCallback(
     async (
       mechanicId: string | null | undefined,
@@ -147,16 +178,17 @@ export function useCreateBookingConvex() {
     ): Promise<string[]> => {
       const shopId = effectiveShopId;
       const legacyTimeSlotId = resolveLegacyTimeSlotId(mechanicId);
-      // Prefer the user's currently selected vehicle in the booking flow.
-      // `primaryVin` is the user's default car and is only useful as a
-      // fallback for entry points that don't explicitly switch cars
-      // (e.g., AI chat). Otherwise picking BMW would still write the VW's
-      // VIN whenever the VW is marked primary.
-      const vin = getSelectedVehicle()?.vin ?? primaryVin;
+      // Services and vehicle are one checkout unit. Never substitute the live
+      // main vehicle if it changes after the basket was created.
+      const vin = selectedVehicleVin;
+      if (!vin || !bookingVehicle) {
+        throw new Error("This booking is no longer attached to a vehicle. Please reselect the services and try again.");
+      }
+      if (!userId) {
+        throw new Error("Your account is still loading. Please try again.");
+      }
 
       const missingFields = [
-        !userId ? "user" : null,
-        !vin ? "vehicle VIN" : null,
         !shopId ? "shop" : null,
         !scheduledAppointment?.date || !scheduledAppointment?.time ? "time slot" : null,
         selectedServiceIds.length === 0 ? "selected services" : null,
@@ -190,7 +222,10 @@ export function useCreateBookingConvex() {
       const services = selectedServices.map((s) => {
         const variantHours = laborHoursMap.get(String(s.id));
         const hours = typeof variantHours === "number" ? variantHours : (s.default_labor_hours ?? 0);
-        const laborCost = laborRate * hours;
+        // Tier-aware engine labor when available; flat rate only as the
+        // refuse/unenrolled fallback (server skips its check there too).
+        const engineLabor = engineLaborCostMap.get(String(s.id));
+        const laborCost = engineLabor != null ? engineLabor : laborRate * hours;
         const pricedParts = pricedPartsTotalMap.get(String(s.id));
         const partsCost = typeof pricedParts === "number" ? pricedParts : (s.default_parts_estimate ?? 0);
         return {
@@ -336,13 +371,14 @@ export function useCreateBookingConvex() {
     },
     [
       userId,
-      primaryVin,
-      getSelectedVehicle,
+      selectedVehicleVin,
+      bookingVehicle,
       effectiveShopId,
       selectedServiceIds,
       availableServices,
       laborHoursMap,
       pricedPartsTotalMap,
+      engineLaborCostMap,
       scheduledAppointment,
       getShopById,
       createBatch,

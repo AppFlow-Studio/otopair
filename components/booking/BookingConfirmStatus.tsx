@@ -20,6 +20,7 @@ import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
 import { useShopStore } from "@/stores/useShopStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
+import { resolveBookingVehicleVin } from "@/utils/bookingVehicle";
 
 interface Props {
   /** Fires once - either via user tap or the 8s countdown auto-fire.
@@ -47,12 +48,18 @@ export function BookingConfirmStatus({
   const scheduledAppointment = useBookingStore((s) => s.scheduledAppointment);
   const selectedMechanicId = useBookingStore((s) => s.selectedMechanicId);
   const selectedMechanicSlot = useBookingStore((s) => s.selectedMechanicSlot);
+  const selectedVehicleVin = useBookingStore((s) => s.selectedVehicleVin);
+  const quoteAcceptContext = useBookingStore((s) => s.quoteAcceptContext);
   const disclosedRangeFormatted = useBookingStore((s) => s.disclosedRangeFormatted);
   const disclosedRangeIsFixedPrice = useBookingStore((s) => s.disclosedRangeIsFixedPrice);
   const getMechanicById = useMechanicStore((s) => s.getMechanicById);
   const getShopById = useShopStore((s) => s.getShopById);
-  const selectedVehicle = useVehicleStore((s) =>
-    s.selectedVehicleId ? s.vehicles[s.selectedVehicleId] : undefined,
+  const bookingVehicleVin = resolveBookingVehicleVin(
+    quoteAcceptContext?.vehicleVin,
+    selectedVehicleVin,
+  );
+  const bookingVehicle = useVehicleStore((s) =>
+    bookingVehicleVin ? s.vehicles[bookingVehicleVin] : undefined,
   );
 
   const mechanic = getMechanicById(selectedMechanicId ?? mechanicId ?? "");
@@ -63,8 +70,8 @@ export function BookingConfirmStatus({
     ? `${scheduledAppointment.displayDate || scheduledAppointment.date} - ${scheduledAppointment.time}`
     : "Time TBD";
 
-  const vehicleLabel = selectedVehicle
-    ? `${selectedVehicle.year} ${selectedVehicle.make} ${selectedVehicle.model}`
+  const vehicleLabel = bookingVehicle
+    ? `${bookingVehicle.year} ${bookingVehicle.make} ${bookingVehicle.model}`
     : "Selected vehicle";
 
   const mechanicLabel = mechanic
@@ -96,7 +103,7 @@ export function BookingConfirmStatus({
         <InfoRow
           icon={<Car size={20} color="#4B5563" strokeWidth={2} />}
           primary={vehicleLabel}
-          secondary={selectedVehicle?.vin ? `VIN - ${selectedVehicle.vin}` : undefined}
+          secondary={bookingVehicle?.vin ? `VIN - ${bookingVehicle.vin}` : undefined}
           compact={isCompactLayout}
           veryCompact={isVeryCompactLayout}
         />

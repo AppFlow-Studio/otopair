@@ -102,6 +102,10 @@ export interface ConvexBookingWithDetails {
   pickupRequestedAtMs?: number | null;
   pickupResponse?: "acknowledged" | "bringing_out" | "declined" | null;
   pickupRespondedAtMs?: number | null;
+  quote_state?: "pending" | "ready" | "expired" | "cancelled" | null;
+  quote_expires_at?: number | null;
+  quote_dismissed_at_ms?: number | null;
+  quote_tile_state?: "pending" | "ready" | "expired" | "hidden";
 }
 
 interface BookingAdapterParams {
@@ -228,7 +232,10 @@ export function adaptConvexBookingWithDetailsToCard(row: ConvexBookingWithDetail
   // derivation compared now vs the scheduled *start*, so any started job
   // flipped to "Delayed" within minutes — see delayMinutes in
   // getByUserIdWithDetails, which is now unused by the client.
-  const status = row.status as BookingCardBooking["status"];
+  const status =
+    row.quote_tile_state === "expired"
+      ? "quote_expired"
+      : (row.status as BookingCardBooking["status"]);
 
   // For tire-quote bookings, synthesize the same notes string the local
   // PendingQuoteCard parser expects ("4 Premium All-Season · 225/45R18").

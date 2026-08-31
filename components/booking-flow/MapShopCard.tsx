@@ -2,8 +2,8 @@
  * MapShopCard — floating white card anchored over the map on Screen 3.
  *
  * Shows the default shop the booking will route through: name +
- * chevron, ⭐ rating + distance, estimated price range, and the
- * next available slot for that shop. Tap → shop detail page.
+ * chevron, ⭐ rating + distance, and estimated price range. Tap →
+ * shop detail page.
  *
  * Spec: ~/Downloads/<figma frames> Screen 3.
  */
@@ -28,11 +28,14 @@ interface MapShopCardProps {
   imageUrl?: string | null;
   rating: number | null;
   distanceMi: number;
-  priceRange: string | null; // e.g. "~$92 – $108" or "$120" (fixed); null while loading
+  priceRange: string | null; // e.g. "~$92 – $108", "$120" (fixed), "From $52" (labor only); null while loading
   /** True when the price is a guaranteed fixed rate (no range) — swaps
    *  the "Estimated price" eyebrow for "Fixed price". */
   isFixed?: boolean;
-  nextSlotLabel: string | null; // e.g. "Next: Mon 9:00 AM"; null while loading
+  /** True when a selected service needs parts but has NONE priced for this
+   *  vehicle (State 2). Swaps the eyebrow to "LABOR ESTIMATE" + amber badge;
+   *  `priceRange` is already a "From $X" floor from buildShopPriceLabel. */
+  isLaborOnly?: boolean;
 }
 
 export function MapShopCard({
@@ -43,7 +46,7 @@ export function MapShopCard({
   distanceMi,
   priceRange,
   isFixed = false,
-  nextSlotLabel,
+  isLaborOnly = false,
 }: MapShopCardProps) {
   const router = useRouter();
 
@@ -93,18 +96,17 @@ export function MapShopCard({
         </Text>
       </View>
 
-      <Text size="xs" weight="semiBold" color="#6B7280" style={styles.eyebrow}>
-        {isFixed ? "FIXED PRICE" : "ESTIMATED PRICE"}
-      </Text>
+      <View style={styles.eyebrowRow}>
+        {/* Eyebrow only — the "Labor only" pill lives solely on the sheet's
+            ShopPage now, so it isn't duplicated across the map card too. */}
+        <Text size="xs" weight="semiBold" color="#6B7280" style={styles.eyebrow}>
+          {isLaborOnly ? "LABOR ESTIMATE" : isFixed ? "FIXED PRICE" : "ESTIMATED PRICE"}
+        </Text>
+      </View>
       <View style={styles.priceRow}>
         <Text size="xl" weight="bold" color="#0F172A" style={styles.price}>
           {priceRange ?? "—"}
         </Text>
-        {nextSlotLabel ? (
-          <Text size="xs" weight="medium" color="#6B7280" style={styles.nextSlot}>
-            {nextSlotLabel}
-          </Text>
-        ) : null}
       </View>
     </Pressable>
   );
@@ -156,9 +158,14 @@ const styles = StyleSheet.create({
     gap: 4,
     marginBottom: 8,
   },
+  eyebrowRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 2,
+  },
   eyebrow: {
     letterSpacing: 0.7,
-    marginBottom: 2,
   },
   priceRow: {
     flexDirection: "row",
@@ -169,8 +176,5 @@ const styles = StyleSheet.create({
   price: {
     fontSize: 20,
     lineHeight: 24,
-  },
-  nextSlot: {
-    marginBottom: 2,
   },
 });

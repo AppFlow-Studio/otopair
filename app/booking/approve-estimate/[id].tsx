@@ -34,17 +34,13 @@ import {
   ShieldCheck,
   Wrench,
   CreditCard,
+  CircleCheck,
   FileCheck,
   FileX,
   Wallet,
   X,
 } from "lucide-react-native";
-import {
-  PlatformPay,
-  PlatformPayError,
-  useStripe,
-  usePlatformPay,
-} from "@stripe/stripe-react-native";
+import { useStripe } from "@stripe/stripe-react-native";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { Text } from "@/components/shared-ui";
@@ -58,6 +54,8 @@ import {
 import { useOpenApprovalForBooking } from "@/hooks/useOpenApprovalForBooking";
 import { useConfirmHold } from "@/hooks/useConfirmHold";
 import { PaymentMethodModal } from "@/components/booking/modals/PaymentMethodModal";
+import { PaymentMethodBlock } from "@/components/booking/PaymentMethodBlock";
+import { AppleIcon } from "@/components/icons/apple";
 import { useOfflineGuard } from "@/hooks/useOfflineGuard";
 import { useToast } from "@/hooks/useToast";
 import { useBookingActions } from "@/hooks/useBookingActions";
@@ -75,6 +73,68 @@ function formatUsd(cents: number | undefined | null): string {
   return `$${v}`;
 }
 
+/**
+ * Appointment "when" line for the already-confirmed recap. `scheduledDate` is
+ * an ISO-ish string; render it friendly (Mon, Aug 7) and append the raw time
+ * slot when present. Falls back to the raw date string if it won't parse.
+ */
+function formatApptWhen(
+  date: string | null | undefined,
+  time: string | null | undefined,
+): string | null {
+  let d: string | null = null;
+  if (date) {
+    const parsed = new Date(date);
+    d = Number.isNaN(parsed.getTime())
+      ? date
+      : parsed.toLocaleDateString(undefined, {
+          weekday: "short",
+          month: "short",
+          day: "numeric",
+        });
+  }
+  const parts = [d, time].filter(Boolean);
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
+
+/** Title-case a raw status like `in_progress` → `In Progress`. */
+function statusLabel(status: string | null | undefined): string | null {
+  if (!status) return null;
+  return status
+    .split("_")
+    .map((w) => (w.length ? w[0].toUpperCase() + w.slice(1) : w))
+    .join(" ");
+}
+
+/**
+ * Collapse a mechanic-added service's parts down to the ones actually being
+ * used and quoted.
+ *
+ * A catalog service (e.g. "Oil Change") seeds its parts from the OEM catalog,
+ * which lists every fitment candidate — two drain-plug gaskets, two engine
+ * oils — when only one of each goes on the job. Keep one row per part name,
+ * preferring the candidate whose OEM number appears on the approval's quoted
+ * parts (`quotedOemNumbers`); fall back to the first when the quote names none
+ * of them. Insertion order is preserved so the list still reads top-down.
+ */
+function usedAndQuotedParts<
+  T extends { part_name: string; oem_number: string | null; quantity: number },
+>(parts: T[], quotedOemNumbers: Set<string>): T[] {
+  const isQuoted = (oem: string | null) =>
+    !!oem && quotedOemNumbers.has(oem.trim().toLowerCase());
+  const byRole = new Map<string, T>();
+  for (const part of parts) {
+    const role = part.part_name.trim().toLowerCase().replace(/\s+/g, " ");
+    const existing = byRole.get(role);
+    if (!existing) {
+      byRole.set(role, part);
+    } else if (isQuoted(part.oem_number) && !isQuoted(existing.oem_number)) {
+      byRole.set(role, part);
+    }
+  }
+  return [...byRole.values()];
+}
+
 const HEADER_BY_CYCLE: Record<string, string> = {
   pre_job: "Your car needs a little more than expected",
   mid_job: "An update from your mechanic",
@@ -88,6 +148,22 @@ const SUBTITLE_BY_CYCLE: Record<string, string> = {
     "While working, your mechanic found additional scope. Review the updated total below and approve to continue.",
   post_job:
     "The work is done. Here's the final breakdown before your card is charged.",
+};
+
+// Heading + intro for the "recommended service" card that sits under the
+// Original Estimate Card. Keyed by the approval cycle so the pre-job estimate
+// (work found during inspection) and the mid-job change (work found while
+// running) each read in their own tense. post_job has no additions of its own,
+// so it's absent — the card never renders there.
+const ADDED_SERVICES_COPY: Record<string, { title: string; intro: string }> = {
+  pre_job: {
+    title: "Recommended by your mechanic",
+    intro: "Found during inspection, before work begins.",
+  },
+  mid_job: {
+    title: "What your mechanic found",
+    intro: "Added after work started. This is what the extra cost is for.",
+  },
 };
 
 /**
@@ -391,34 +467,35 @@ function ApprovalDecisionView({
     () => buildInspectionFindingRows(approval?.inspection_snapshot),
     [approval?.inspection_snapshot],
   );
-  /* What the mechanic actually added after starting. The screen used to show a
-     total and a delta and then jump to inspection findings, so the customer was
-     asked to approve a number on trust — at the one moment trust is most
-     expensive: not at the shop, car on a lift, declining awkward. */
-  // `customJobs.listMidJobAdditionsForCustomer` never existed on any
-  // deployment. `(api as any)` hid that from the compiler, convex/react
-  // throws "Could not find public function" straight out of useQuery, and
-  // nothing here caught it — so this screen (and then the whole app, since
-  // the root boundary's only action is a no-op on iOS) went white. That is
-  // the freeze. The real query is listAddedServicesForCustomer, and the
-  // generated types DO carry customJobs, so the cast goes too: typed, the
-  // compiler catches the next rename instead of the customer.
+  /* The off-catalog work the mechanic added — before starting (pre-job) or
+     while working (mid-job). The screen used to show a total and a delta and
+     then jump to inspection findings, so the customer was asked to approve a
+     number on trust — at the one moment trust is most expensive: not at the
+     shop, car on a lift, declining awkward. Each row carries its `source` so we
+     render only the additions for the cycle being approved. */
+  // Typed, not `(api as any)`. The cast is what hid
+  // `listMidJobAdditionsForCustomer` not existing on any deployment:
+  // convex/react throws straight out of useQuery, nothing caught it, and
+  // the screen — then the whole app, since the root error boundary's only
+  // action is a no-op on iOS — went white. Typed, the compiler catches the
+  // next rename instead of the customer.
   const addedServices = useQuery(
     api.customJobs.listAddedServicesForCustomer,
     { bookingId },
-  );
-
-  // Show only the additions belonging to the approval being decided, which
-  // is what the backend query documents its callers must do: a pre-job
-  // approval lists pre-job lines, a mid-job (or post-job settle-up) lists
-  // what was added once work started. Unfiltered, already-approved pre-job
-  // work would reappear under "Added after work started" and read as fresh
-  // justification for the extra money.
-  const midJobAdditions = useMemo(() => {
-    if (!addedServices) return undefined;
-    const cycle = approval?.cycle === "pre_job" ? "pre_job" : "mid_job";
-    return addedServices.filter((item) => item.source === cycle);
-  }, [addedServices, approval?.cycle]);
+  ) as
+    | Array<{
+        _id: string;
+        name: string;
+        source: "pre_job" | "mid_job";
+        complaint: string | null;
+        estimated_minutes: number | null;
+        parts: Array<{
+          part_name: string;
+          oem_number: string | null;
+          quantity: number;
+        }>;
+      }>
+    | undefined;
 
   const handleAccept = useCallback(
     async (amountCents: number, postJob: boolean) => {
@@ -601,6 +678,25 @@ function ApprovalDecisionView({
   const isWalletMethod =
     methodKind === "apple_pay" || methodKind === "google_pay";
 
+  // Recommended-service card: only the additions the mechanic added in THIS
+  // cycle (pre-job's inspection finds on the pre-job estimate, mid-job's on the
+  // mid-job change) — a prior cycle's already-approved work must not resurface.
+  const addedCopy = ADDED_SERVICES_COPY[approval.cycle];
+  const cycleAdditions = (addedServices ?? []).filter(
+    (a) => a.source === approval.cycle,
+  );
+  // OEM numbers actually on the quote (the parts_snapshot behind the total),
+  // minus declined and customer-supplied lines. Lets the "what your mechanic
+  // found" card keep only the seeded candidate per role that's really quoted.
+  const quotedOemNumbers = new Set(
+    breakdown.parts
+      .filter((p: any) => !p?.not_used && p?.supplied_by !== "customer")
+      .map((p: any) =>
+        p?.oem_number ? String(p.oem_number).trim().toLowerCase() : "",
+      )
+      .filter((s: string) => s.length > 0),
+  );
+
   return (
     <View style={[styles.root, { paddingTop: insets.top + Spacing.lg }]}>
       <Pressable onPress={() => router.back()} style={styles.backBtn} hitSlop={8}>
@@ -657,17 +753,13 @@ function ApprovalDecisionView({
           )}
         </View>
 
-        {midJobAdditions && midJobAdditions.length > 0 ? (
+        {addedCopy && cycleAdditions.length > 0 ? (
           <View style={styles.card}>
             <Text weight="semiBold" style={styles.sectionLabel}>
-              What your mechanic found
+              {addedCopy.title}
             </Text>
-            <Text style={styles.inspectionIntro}>
-              {approval.cycle === "pre_job"
-                ? "Included in this estimate. This is what the cost is for."
-                : "Added after work started. This is what the extra cost is for."}
-            </Text>
-            {midJobAdditions.map((item, index) => (
+            <Text style={styles.inspectionIntro}>{addedCopy.intro}</Text>
+            {cycleAdditions.map((item, index) => (
               <View
                 key={item._id}
                 style={[
@@ -683,8 +775,10 @@ function ApprovalDecisionView({
                 {item.complaint ? (
                   <Text style={styles.addedWhy}>{item.complaint}</Text>
                 ) : null}
-                {/* Named parts justify a figure better than any summary line. */}
-                {item.parts.map((part, partIndex) => (
+                {/* Named parts justify a figure better than any summary line.
+                    Deduped to one row per role so the seeded OEM candidates
+                    (two gaskets, two oils) don't read as extra parts. */}
+                {usedAndQuotedParts(item.parts, quotedOemNumbers).map((part, partIndex) => (
                   <Text
                     key={`${item._id}-${partIndex}`}
                     style={styles.addedPart}
@@ -699,39 +793,7 @@ function ApprovalDecisionView({
           </View>
         ) : null}
 
-        {inspectionFindings.length > 0 ? (
-          <View style={styles.card}>
-            <Text weight="semiBold" style={styles.sectionLabel}>
-              Inspection findings
-            </Text>
-            <Text style={styles.inspectionIntro}>
-              Measurements recorded before work began.
-            </Text>
-            {inspectionFindings.map((section, sectionIndex) => (
-              <View
-                key={section.title}
-                style={[
-                  styles.inspectionGroup,
-                  sectionIndex > 0 && styles.inspectionGroupBorder,
-                ]}
-              >
-                <Text weight="semiBold" style={styles.inspectionGroupTitle}>
-                  {section.title}
-                </Text>
-                <View style={styles.inspectionGrid}>
-                  {section.values.map((row) => (
-                    <View key={row.label} style={styles.inspectionCell}>
-                      <Text style={styles.inspectionLabel}>{row.label}</Text>
-                      <Text weight="semiBold" style={styles.inspectionValue}>
-                        {row.value}
-                      </Text>
-                    </View>
-                  ))}
-                </View>
-              </View>
-            ))}
-          </View>
-        ) : null}
+      
 
         <View style={styles.card}>
           <Text weight="semiBold" style={styles.sectionLabel}>
@@ -859,6 +921,40 @@ function ApprovalDecisionView({
             </View>
           </View>
         </View>
+        
+  {inspectionFindings.length > 0 ? (
+          <View style={styles.card}>
+            <Text weight="semiBold" style={styles.sectionLabel}>
+              Inspection findings
+            </Text>
+            <Text style={styles.inspectionIntro}>
+              Measurements recorded before work began.
+            </Text>
+            {inspectionFindings.map((section, sectionIndex) => (
+              <View
+                key={section.title}
+                style={[
+                  styles.inspectionGroup,
+                  sectionIndex > 0 && styles.inspectionGroupBorder,
+                ]}
+              >
+                <Text weight="semiBold" style={styles.inspectionGroupTitle}>
+                  {section.title}
+                </Text>
+                <View style={styles.inspectionGrid}>
+                  {section.values.map((row) => (
+                    <View key={row.label} style={styles.inspectionCell}>
+                      <Text style={styles.inspectionLabel}>{row.label}</Text>
+                      <Text weight="semiBold" style={styles.inspectionValue}>
+                        {row.value}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              </View>
+            ))}
+          </View>
+        ) : null}
 
         <View style={styles.card}>
           <Text weight="semiBold" style={styles.sectionLabel}>
@@ -876,7 +972,9 @@ function ApprovalDecisionView({
 
           <View style={[styles.payRow, styles.payRowBorder]}>
             <View style={styles.payCardLeft}>
-              {isWalletMethod ? (
+              {methodKind === "apple_pay" ? (
+                <AppleIcon size={18} color={SemanticColors.textMuted} />
+              ) : isWalletMethod ? (
                 <Wallet size={18} color={SemanticColors.textMuted} />
               ) : (
                 <CreditCard size={18} color={SemanticColors.textMuted} />
@@ -1081,7 +1179,6 @@ function ReauthView({
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { handleNextAction } = useStripe();
-  const { createPlatformPayPaymentMethod } = usePlatformPay();
   // Reauth uses a dedicated action (NOT createPaymentIntentForBooking):
   // the public booking action short-circuits when a PI already exists for
   // the booking and just returns it — useless here because the existing
@@ -1089,19 +1186,31 @@ function ReauthView({
   // PI and creates a fresh one at the new approved ceiling, on-session,
   // so Stripe can surface 3DS via `requires_action` for `handleNextAction`.
   const resumeReauth = useAction(api.payments_stripe.resumeReauthFromMobile);
-  const selectedPaymentMethodId = usePaymentStore(
-    (s) => s.selectedPaymentMethodId,
-  );
-  const paymentMethods = usePaymentStore((s) => s.paymentMethods);
-  // Originating payment method (card vs. wallet) for this booking. Wallets
-  // can't silently reauth — we must re-prompt the customer for a fresh
-  // PlatformPay token because the original one-time PM is no longer valid.
-  const paymentOrigin = useQuery(
-    api.payments_stripe.getPaymentOriginForBooking,
-    { bookingId },
-  );
-  const isWalletOrigin =
-    paymentOrigin === "apple_pay" || paymentOrigin === "google_pay";
+
+  // Resolve the method backing the new hold the same way the merged
+  // approve-and-hold screen does: an explicit pick (wallet intent / a selected
+  // saved card) wins over the booking's original origin, then any saved card.
+  // `resolvePaymentMethod` mints (wallet) or resolves (card) the concrete PM to
+  // hand to `resumeReauth`, so picking "Use a different card" actually takes
+  // effect instead of re-authorizing the original method.
+  const {
+    newHoldCents,
+    methodKind,
+    methodLabel,
+    canConfirm,
+    originLoading,
+    applePaySupported,
+    googlePaySupported,
+    resolvePaymentMethod,
+  } = useConfirmHold(bookingId, booking);
+  // Start from the booking's own method and don't leak the wallet choice made
+  // here into other flows: clear any stale intent on entry, and on exit.
+  const setWalletIntent = usePaymentStore((s) => s.setWalletIntent);
+  useEffect(() => {
+    setWalletIntent(null);
+    return () => setWalletIntent(null);
+  }, [setWalletIntent]);
+
   // Itemized breakdown of what makes up the hold — the approved estimate
   // that set the ceiling, or the booking's original quote as fallback.
   // `undefined` = loading, `null` = no source (legacy booking).
@@ -1110,6 +1219,8 @@ function ReauthView({
     { bookingId },
   );
   const [submitting, setSubmitting] = useState(false);
+  // Payment picker (Apple Pay / Google Pay / saved cards / add card).
+  const [pickerVisible, setPickerVisible] = useState(false);
   const toast = useToast();
   // Phase policy — same source of truth as the booking card / details sheet.
   // Drives whether "Cancel booking" shows here and what it does. A completed
@@ -1124,114 +1235,43 @@ function ReauthView({
   const isCompleted = booking?.status === "completed";
 
   const isBookingLoading = booking === undefined;
-  // Prefer the approved ceiling (what backend will re-auth to). Fall back
-  // to mechanic_set_price_cents for older bookings that haven't been
-  // through the new approval cycle yet.
-  const newHoldCents: number =
-    booking?.running_approved_ceiling_cents ??
-    booking?.mechanic_set_price_cents ??
-    0;
   const stillReauth = booking?.payment_approval_state === "reauth_required";
 
-  // Resolve which PM to charge. Prefer the user's current selection
-  // (which `AddPaymentScreen` updates after a save), then default,
-  // then the first saved card.
-  const pmId = useMemo<string | null>(() => {
-    if (selectedPaymentMethodId) return selectedPaymentMethodId;
-    const def = paymentMethods.find((pm) => pm.isDefault);
-    if (def) return def.id;
-    return paymentMethods[0]?.id ?? null;
-  }, [paymentMethods, selectedPaymentMethodId]);
+  // When the hold is already confirmed there's nothing to do here — pull the
+  // enriched booking so we can show the appointment recap instead of a
+  // dead-end message. Skipped while an action is still pending.
+  const bookingInfo = useQuery(
+    api.bookings.getBookingByIdForCustomer,
+    stillReauth ? "skip" : { bookingId },
+  );
 
   const handleConfirmHold = useCallback(async () => {
     if (submitting) return;
-    let pmIdToCharge: string | null = null;
-    let originForRow: "card" | "apple_pay" | "google_pay" | undefined;
-
-    if (isWalletOrigin) {
-      // Wallet origin → re-present the same wallet sheet to mint a fresh
-      // one-time PM. The original wallet token is invalid for re-use; only
-      // the user's biometric / device auth on a new sheet can produce a
-      // valid PM. iOS shows Apple Pay; Android shows Google Pay.
-      setSubmitting(true);
-      try {
-        const { paymentMethod, error } =
-          paymentOrigin === "apple_pay"
-            ? await createPlatformPayPaymentMethod({
-                applePay: {
-                  cartItems: [
-                    {
-                      paymentType: PlatformPay.PaymentType.Immediate,
-                      label: "OtoPair booking",
-                      amount: ((newHoldCents ?? 0) / 100).toFixed(2),
-                    },
-                  ],
-                  merchantCountryCode: "US",
-                  currencyCode: "USD",
-                },
-              })
-            : await createPlatformPayPaymentMethod({
-                googlePay: {
-                  testEnv: __DEV__,
-                  merchantCountryCode: "US",
-                  currencyCode: "USD",
-                  merchantName: "OtoPair",
-                },
-              });
-        if (error) {
-          if (error.code !== PlatformPayError.Canceled) {
-            Alert.alert(
-              "Couldn't confirm hold",
-              error.message ?? "Wallet authorization failed.",
-            );
-          }
-          setSubmitting(false);
-          return;
-        }
-        if (!paymentMethod) {
-          Alert.alert(
-            "Couldn't confirm hold",
-            "Wallet didn't return a payment method.",
-          );
-          setSubmitting(false);
-          return;
-        }
-        pmIdToCharge = paymentMethod.id;
-        originForRow = paymentOrigin;
-      } catch (err: any) {
-        Alert.alert(
-          "Couldn't confirm hold",
-          err?.message ?? "Wallet authorization failed.",
-        );
+    if (!canConfirm) {
+      Alert.alert(
+        "Choose a payment method",
+        "Tap 'Use a different card' to pick Apple Pay, Google Pay, or a card first.",
+      );
+      return;
+    }
+    setSubmitting(true);
+    try {
+      // Mint (wallet) or resolve (card) the concrete PM. Wallets re-present the
+      // sheet; a cancelled sheet is a soft exit, not an error.
+      const resolved = await resolvePaymentMethod();
+      if (resolved === "cancelled") {
         setSubmitting(false);
         return;
       }
-    } else {
-      // Card origin (or origin not yet recorded — legacy bookings).
-      if (!pmId) {
-        Alert.alert(
-          "Add a card first",
-          "You don't have a saved card. Tap 'Use a different card' to add one.",
-        );
-        return;
-      }
-      pmIdToCharge = pmId;
-      originForRow = "card";
-      setSubmitting(true);
-    }
-
-    try {
       const pi = await resumeReauth({
         bookingId,
-        paymentMethodId: pmIdToCharge!,
-        ...(originForRow ? { paymentOrigin: originForRow } : {}),
+        paymentMethodId: resolved.paymentMethodId,
+        paymentOrigin: resolved.paymentOrigin,
       });
       if (pi.requiresAction) {
         const { error } = await handleNextAction(pi.clientSecret);
         if (error) {
-          throw new Error(
-            error.message ?? "Card authorization failed.",
-          );
+          throw new Error(error.message ?? "Card authorization failed.");
         }
         // 3DS succeeded. The `amount_capturable_updated` webhook in
         // otopair-web/convex/http.ts clears `payment_approval_state` from
@@ -1255,21 +1295,20 @@ function ReauthView({
     }
   }, [
     submitting,
-    pmId,
-    isWalletOrigin,
-    paymentOrigin,
-    newHoldCents,
-    createPlatformPayPaymentMethod,
+    canConfirm,
+    resolvePaymentMethod,
     resumeReauth,
     bookingId,
     handleNextAction,
     router,
   ]);
 
+  // Open the picker (saved cards + wallets + add card) rather than jumping
+  // straight to add-card — so a customer with a saved method can just pick it.
   const handleUseDifferentCard = useCallback(() => {
     if (submitting) return;
-    router.push({ pathname: "/add-payment" } as any);
-  }, [submitting, router]);
+    setPickerVisible(true);
+  }, [submitting]);
 
   const handleCancelBooking = useCallback(() => {
     if (submitting || !bookingActions.canCancel) return;
@@ -1348,20 +1387,81 @@ function ReauthView({
     );
   }
 
-  // State may have cleared in flight (background webhook resolved). Show a
-  // calm confirmation rather than the scary "couldn't confirm" alert.
+  // State may have cleared in flight (background webhook resolved). No action
+  // is needed — rather than a dead-end message, show a calm confirmation banner
+  // over the booking's details so the tap still lands somewhere useful.
   if (!stillReauth) {
+    const services = bookingInfo?.serviceNames ?? [];
+    const whenLabel = formatApptWhen(
+      bookingInfo?.scheduledDate,
+      bookingInfo?.scheduledTime,
+    );
+    const details: { label: string; value: string }[] = [];
+    if (bookingInfo?.vehicleDisplay)
+      details.push({ label: "Vehicle", value: bookingInfo.vehicleDisplay });
+    if (bookingInfo?.shopName)
+      details.push({ label: "Shop", value: bookingInfo.shopName });
+    if (bookingInfo?.mechanicName)
+      details.push({ label: "Mechanic", value: bookingInfo.mechanicName });
+    if (whenLabel) details.push({ label: "When", value: whenLabel });
+    if (services.length > 0)
+      details.push({ label: "Services", value: services.join(", ") });
+    const status = statusLabel(bookingInfo?.status);
+    if (status) details.push({ label: "Status", value: status });
+
     return (
       <View style={[styles.root, { paddingTop: insets.top + Spacing.lg }]}>
-        <Pressable onPress={() => router.back()} style={styles.backBtn}>
+        <Pressable
+          onPress={() => router.back()}
+          style={styles.backBtn}
+          hitSlop={8}
+        >
           <ChevronLeft size={24} color={BrandColors.primary} />
           <Text style={styles.backLabel}>Back</Text>
         </Pressable>
-        <View style={styles.center}>
-          <Text style={{ color: SemanticColors.textMuted, textAlign: "center", paddingHorizontal: Spacing.xl }}>
-            Your card hold is already confirmed. No action needed.
-          </Text>
-        </View>
+
+        <ScrollView
+          contentContainerStyle={{
+            paddingHorizontal: Spacing.lg,
+            paddingBottom: Spacing["2xl"] + insets.bottom,
+          }}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.confirmedBanner}>
+            <CircleCheck size={20} color={SemanticColors.successGreen} />
+            <Text weight="semiBold" style={styles.confirmedBannerText}>
+              Your card hold is already confirmed. No action needed.
+            </Text>
+          </View>
+
+          {bookingInfo === undefined ? (
+            <View
+              style={[
+                styles.card,
+                { alignItems: "center", paddingVertical: Spacing["3xl"] },
+              ]}
+            >
+              <Text style={{ color: SemanticColors.textMuted }}>
+                Loading booking…
+              </Text>
+            </View>
+          ) : bookingInfo === null || details.length === 0 ? null : (
+            <View style={styles.card}>
+              <Text weight="bold" style={styles.detailsTitle}>
+                Booking details
+              </Text>
+              {details.map((d, i) => (
+                <View
+                  key={d.label}
+                  style={[styles.detailRow, i > 0 && styles.detailRowBorder]}
+                >
+                  <Text style={styles.detailLabel}>{d.label}</Text>
+                  <Text style={styles.detailValue}>{d.value}</Text>
+                </View>
+              ))}
+            </View>
+          )}
+        </ScrollView>
       </View>
     );
   }
@@ -1376,7 +1476,9 @@ function ReauthView({
       <ScrollView
         contentContainerStyle={{
           paddingHorizontal: Spacing.lg,
-          paddingBottom: 240 + insets.bottom,
+          // Clears the floating accept bar so the bottom links come to rest
+          // just above it at max scroll.
+          paddingBottom: 96 + insets.bottom,
         }}
         showsVerticalScrollIndicator={false}
       >
@@ -1390,11 +1492,11 @@ function ReauthView({
           <Text style={styles.subtitle}>
             {isCompleted
               ? "Your work is complete, but we couldn't finish charging your card. Confirm below to settle the final amount — you may be asked to authenticate — or use a different card."
-              : isWalletOrigin
-                ? paymentOrigin === "apple_pay"
-                  ? "We couldn't extend the hold on your Apple Pay automatically. Confirm below to re-authorize and keep your booking moving."
-                  : "We couldn't extend the hold on your Google Pay automatically. Confirm below to re-authorize and keep your booking moving."
-                : "Your bank needs to verify the updated hold before work can begin. Confirm below — you may be asked to authenticate — or use a different card."}
+              : methodKind === "apple_pay"
+                ? "We couldn't extend the hold on your Apple Pay automatically. Confirm below to re-authorize and keep your booking moving."
+                : methodKind === "google_pay"
+                  ? "We couldn't extend the hold on your Google Pay automatically. Confirm below to re-authorize and keep your booking moving."
+                  : "Your bank needs to verify the updated hold before work can begin. Confirm below — you may be asked to authenticate — or use a different card."}
           </Text>
         </View>
 
@@ -1519,65 +1621,25 @@ function ReauthView({
             </View>
           </View>
         ) : null}
-      </ScrollView>
+        {/* Which card / wallet backs the hold — reflects the resolved / picked
+            method. Read-only here; changing it lives in the bottom links below,
+            matching "Use a different card". */}
+        <PaymentMethodBlock
+          kind={methodKind === "none" ? "card" : methodKind}
+          label={methodLabel}
+        />
 
-      <View
-        style={[
-          styles.footer,
-          styles.footerStack,
-          { paddingBottom: insets.bottom + Spacing.md },
-        ]}
-      >
-        <Pressable
-          onPress={handleConfirmHold}
-          // paymentOrigin === undefined means the query is in flight —
-          // disable so the user doesn't tap and fall through to the card
-          // branch before the origin lands.
-          disabled={submitting || paymentOrigin === undefined}
-          style={[
-            styles.btn,
-            styles.btnApprove,
-            styles.btnFull,
-            (submitting || paymentOrigin === undefined) && { opacity: 0.7 },
-          ]}
-        >
-          <View style={styles.btnApproveStack}>
-            <Text weight="semiBold" style={styles.btnApproveLabel}>
-              {submitting
-                ? "Confirming…"
-                : isWalletOrigin
-                  ? paymentOrigin === "apple_pay"
-                    ? "Confirm with Apple Pay"
-                    : "Confirm with Google Pay"
-                  : isCompleted
-                    ? "Confirm payment of"
-                    : "Confirm hold of"}
-            </Text>
-            {!submitting && (
-              <Text
-                weight="bold"
-                style={styles.btnApproveAmount}
-                numberOfLines={1}
-                adjustsFontSizeToFit
-                minimumFontScale={0.7}
-              >
-                {formatUsd(newHoldCents)}
-              </Text>
-            )}
-          </View>
-        </Pressable>
-
+        {/* Secondary actions demoted to quiet links beneath the payment block,
+            mirroring the approve-estimate "Decline this update" treatment:
+            confirming is the primary path (the floating bar), these are the
+            deliberate exceptions. */}
         <Pressable
           onPress={handleUseDifferentCard}
           disabled={submitting}
-          style={[
-            styles.btn,
-            styles.btnSecondary,
-            styles.btnFull,
-            submitting && { opacity: 0.5 },
-          ]}
+          hitSlop={8}
+          style={[styles.declineLinkWrap, submitting && { opacity: 0.5 }]}
         >
-          <Text weight="semiBold" style={styles.btnSecondaryText}>
+          <Text weight="semiBold" style={styles.declineLinkText}>
             Use a different card
           </Text>
         </Pressable>
@@ -1594,7 +1656,77 @@ function ReauthView({
             </Text>
           </Pressable>
         )}
+      </ScrollView>
+
+      {/* Floating single accept bar — "Confirm hold │ $220.43" laid out inline
+          over the canvas, matching the approve-estimate accept treatment. */}
+      <View
+        style={[
+          styles.footer,
+          styles.footerStack,
+          styles.footerTransparent,
+          { paddingBottom: insets.bottom + Spacing.md },
+        ]}
+      >
+        <Pressable
+          onPress={handleConfirmHold}
+          // originLoading = the booking's origin is still resolving; !canConfirm
+          // = no usable method yet. Disable so a tap can't fall through before
+          // the method the hold will ride on is known.
+          disabled={submitting || originLoading || !canConfirm}
+          style={[
+            styles.btn,
+            styles.btnApprove,
+            styles.btnFull,
+            (submitting || originLoading || !canConfirm) && { opacity: 0.7 },
+          ]}
+        >
+          {submitting ? (
+            <Text weight="semiBold" style={styles.btnApproveLabelInline}>
+              Confirming…
+            </Text>
+          ) : (
+            <View style={styles.btnApproveRow}>
+              <Text
+                weight="semiBold"
+                style={styles.btnApproveLabelInline}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.8}
+              >
+                {methodKind === "apple_pay"
+                  ? "Confirm with Apple Pay"
+                  : methodKind === "google_pay"
+                    ? "Confirm with Google Pay"
+                    : isCompleted
+                      ? "Confirm payment"
+                      : "Confirm hold"}
+              </Text>
+              <View style={styles.btnApproveDivider} />
+              <Text
+                weight="bold"
+                style={styles.btnApproveAmountInline}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.7}
+              >
+                {formatUsd(newHoldCents)}
+              </Text>
+            </View>
+          )}
+        </Pressable>
       </View>
+
+      <PaymentMethodModal
+        visible={pickerVisible}
+        onClose={() => setPickerVisible(false)}
+        totalAmount={newHoldCents / 100}
+        serviceSummary={isCompleted ? "Final payment" : "Secure hold"}
+        mechanicName="OtoPair"
+        applePaySupported={applePaySupported}
+        googlePaySupported={googlePaySupported}
+        onAddCard={() => router.push({ pathname: "/add-payment" } as any)}
+      />
     </View>
   );
 }
@@ -1657,6 +1789,47 @@ const styles = StyleSheet.create({
     height: StyleSheet.hairlineWidth,
     backgroundColor: SemanticColors.border,
     marginVertical: Spacing.lg,
+  },
+
+  // ── Already-confirmed recap (no-action state) ─────────────────────────
+  confirmedBanner: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    backgroundColor: SemanticColors.successGreenLight,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.md,
+    borderRadius: 16,
+    marginTop: Spacing.xs,
+    marginBottom: Spacing.md,
+  },
+  confirmedBannerText: {
+    flex: 1,
+    color: SemanticColors.successGreen,
+    fontSize: 14,
+    lineHeight: 19,
+  },
+  detailsTitle: {
+    fontSize: 16,
+    color: BrandColors.primary,
+    marginBottom: Spacing.xs,
+  },
+  detailRow: { paddingVertical: Spacing.md },
+  detailRowBorder: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: SemanticColors.border,
+  },
+  detailLabel: {
+    color: SemanticColors.textMuted,
+    fontSize: 12,
+    letterSpacing: 0.3,
+    textTransform: "uppercase",
+    marginBottom: 3,
+  },
+  detailValue: {
+    color: BrandColors.primary,
+    fontSize: 15,
+    lineHeight: 20,
   },
 
   // ── Price summary ─────────────────────────────────────────────────────
@@ -1935,14 +2108,6 @@ const styles = StyleSheet.create({
   },
   btnApprove: { backgroundColor: BrandColors.secondary, flex: 1.5 },
   btnApproveText: { color: "#FFFFFF", fontSize: 16 },
-  btnApproveStack: {
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 1,
-    paddingHorizontal: Spacing.sm,
-  },
-  btnApproveLabel: { color: "#FFFFFF", fontSize: 12, opacity: 0.9 },
-  btnApproveAmount: { color: "#FFFFFF", fontSize: 18 },
   // Single-bar accept: "Accept & update hold │ $495.74" laid out inline with a
   // hairline divider between label and price (Review & Pay grammar).
   btnApproveRow: {
@@ -1976,8 +2141,6 @@ const styles = StyleSheet.create({
   // ── Reauth footer additions ───────────────────────────────────────────
   footerStack: { flexDirection: "column", gap: Spacing.sm },
   btnFull: { width: "100%", flex: 0 },
-  btnSecondary: { backgroundColor: "#F2F2F7" },
-  btnSecondaryText: { color: BrandColors.primary, fontSize: 15 },
   tertiaryLinkWrap: {
     paddingVertical: Spacing.sm,
     alignItems: "center",

@@ -30,6 +30,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import RotorRequestingScreen from "@/app/(rotor-booking)/requesting";
 import { Text } from "@/components/shared-ui";
+import { BrandColors } from "@/constants/theme";
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
 import { BrakeSystemCard } from "@/components/rotor-booking/BrakeSystemCard";
 import { IncludePadsRow } from "@/components/rotor-booking/IncludePadsRow";
@@ -329,7 +330,7 @@ export default function RotorBookingScreen({ onClose, onConfirmed }: RotorBookin
         showBackdrop
       >
         <View style={styles.sheetContent}>
-          <Text size="lg" weight="bold" color="#1A1A1A" style={styles.sheetTitle}>
+          <Text size={28} weight="extraBold" color={BrandColors.primary} style={styles.sheetTitle}>
             Which vehicle?
           </Text>
           <ScrollView>

@@ -101,9 +101,27 @@ export function CustomerLateBanner({ onReschedule }: Props) {
   const acknowledge = useMutation((api as any).bookings.acknowledgeCustomerLate);
   const resolve = useMutation(api.notifications.resolveNotification);
 
-  const lateRow = notifications?.find((n) => n.category === LATE_CATEGORY) ?? null;
+  // Hide a card the instant the customer taps an action, independent of how
+  // fast (or whether) the server-side resolve round-trips. Without this, a slow
+  // or silently-failing mutation leaves the card stuck on screen after "Got it"
+  // / "Reschedule" — which is exactly the "doesn't close" bug. The reactive
+  // feed still drops the row for good once `resolved_at` lands.
+  const [dismissedIds, setDismissedIds] = React.useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const dismiss = React.useCallback((id: string) => {
+    setDismissedIds((prev) => {
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
+  }, []);
+
+  const notDismissed = (n: any) => !dismissedIds.has(String(n._id));
+  const lateRow =
+    notifications?.find((n) => n.category === LATE_CATEGORY && notDismissed(n)) ?? null;
   const resolutionRow =
-    notifications?.find((n) => n.category === RESOLUTION_CATEGORY) ?? null;
+    notifications?.find((n) => n.category === RESOLUTION_CATEGORY && notDismissed(n)) ?? null;
 
   if (!lateRow && !resolutionRow) return null;
 
@@ -119,9 +137,9 @@ export function CustomerLateBanner({ onReschedule }: Props) {
           />
           <View style={styles.heroContent}>
             <View style={styles.heroHeader}>
-              <View style={styles.clockChip}>
+              {/* <View style={styles.clockChip}>
                 <Clock size={20} color={ACCENT} strokeWidth={2.4} />
-              </View>
+              </View> */}
               <Text
                 weight="bold"
                 style={styles.heroTitle}
@@ -179,7 +197,7 @@ export function CustomerLateBanner({ onReschedule }: Props) {
                 }}
               >
                 <Navigation
-                  size={16}
+                  size={11}
                   color={BrandColors.white}
                   fill={BrandColors.white}
                   strokeWidth={2}
@@ -253,6 +271,9 @@ export function CustomerLateBanner({ onReschedule }: Props) {
                   pressed && styles.pressed,
                 ]}
                 onPress={() => {
+                  // Close immediately, then navigate. The banner clears for
+                  // good server-side when the reschedule lands / booking moves.
+                  dismiss(String(resolutionRow._id));
                   if (resolutionRow.booking_id && onReschedule)
                     onReschedule(resolutionRow.booking_id);
                 }}
@@ -267,7 +288,11 @@ export function CustomerLateBanner({ onReschedule }: Props) {
                   styles.resBtnOutline,
                   pressed && styles.pressed,
                 ]}
-                onPress={() => resolve({ notificationId: resolutionRow._id })}
+                onPress={() => {
+                  // Hide now (optimistic) and archive the notification.
+                  dismiss(String(resolutionRow._id));
+                  void resolve({ notificationId: resolutionRow._id }).catch(() => {});
+                }}
               >
                 <Text
                   size="sm"

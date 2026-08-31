@@ -34,7 +34,7 @@ import {
   View,
 } from "react-native";
 import { BlurView } from "expo-blur";
-import { Clock, Trash2, X } from "lucide-react-native";
+import { ArrowRight, Clock, Trash2, X } from "lucide-react-native";
 
 import { Text } from "@/components/shared-ui";
 import {
@@ -43,8 +43,12 @@ import {
 } from "@/components/shared-ui/FloatingSheet";
 import { getServiceIcon } from "@/components/booking-flow/serviceIcons";
 import { TAXONOMY } from "@/constants/serviceTaxonomy";
-import { CardShadow } from "@/constants/theme";
+import { BrandColors, CardShadow } from "@/constants/theme";
+import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
+import { useToast } from "@/hooks/useToast";
+import { routeToNextBookingStep } from "@/lib/bookingFlowNext";
 import { useBookingStore } from "@/stores/useBookingStore";
+import { hasConsistentBasketVehicle } from "@/utils/bookingVehicle";
 
 const INK = "#0F172A";
 const MUTED = "#6B7280";
@@ -59,11 +63,13 @@ const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 // the scroll view soaking up the overflow.
 const HEADER_BLOCK = 108; // title row + subtitle + paddings + handle clearance
 const ROW_HEIGHT = 110; // Screen 2 row aesthetic: label + subtitle + meta
-const FLOOR = 280;
+const FOOTER_BLOCK = 88; // sticky Checkout button + its top margin
+const FLOOR = 320;
 const CEILING = Math.min(SCREEN_HEIGHT * 0.76, 680);
 
 function computeSheetHeight(rowCount: number): number {
-  const target = HEADER_BLOCK + Math.max(rowCount, 1) * ROW_HEIGHT;
+  const target =
+    HEADER_BLOCK + Math.max(rowCount, 1) * ROW_HEIGHT + FOOTER_BLOCK;
   return Math.max(FLOOR, Math.min(CEILING, target));
 }
 
@@ -82,6 +88,15 @@ export const SelectedServicesSheet = forwardRef<SelectedServicesSheetRef>(
     const toggleServiceSelection = useBookingStore(
       (s) => s.toggleServiceSelection,
     );
+    // Reads for the Checkout action — mirror category/[tab].tsx's
+    // Continue handler so the cart advances the flow identically.
+    const selectedServiceVehicleVins = useBookingStore(
+      (s) => s.selectedServiceVehicleVins,
+    );
+    const selectedVehicleVin = useBookingStore((s) => s.selectedVehicleVin);
+    const preSelectedShopId = useBookingStore((s) => s.preSelectedShopId);
+    const router = useRouter();
+    const toast = useToast();
 
     useImperativeHandle(ref, () => ({
       open: () => setMounted(true),
@@ -141,6 +156,36 @@ export const SelectedServicesSheet = forwardRef<SelectedServicesSheetRef>(
       [toggleServiceSelection],
     );
 
+    // Checkout — same gate + routing as Screen 2's Continue bar
+    // (category/[tab].tsx handleContinue → routeToNextBookingStep).
+    // Blocks a mixed-vehicle cart with a toast; otherwise closes the
+    // sheet and advances to Choose Mechanic (or straight to
+    // pick-datetime when a shop was pre-pinned).
+    const handleCheckout = useCallback(() => {
+      if (
+        !hasConsistentBasketVehicle({
+          serviceIds: selectedServiceIds,
+          serviceVehicleVins: selectedServiceVehicleVins,
+          basketVehicleVin: selectedVehicleVin,
+        })
+      ) {
+        toast.error(
+          "Services are for different vehicles",
+          "Please select services for one vehicle before continuing.",
+        );
+        return;
+      }
+      sheetRef.current?.close();
+      routeToNextBookingStep(router, preSelectedShopId);
+    }, [
+      selectedServiceIds,
+      selectedServiceVehicleVins,
+      selectedVehicleVin,
+      preSelectedShopId,
+      router,
+      toast,
+    ]);
+
     // Snap-height tracks the row count — FloatingSheet animates
     // between snap heights when `snapHeights` changes, so removing
     // a row also smoothly shrinks the sheet down.
@@ -165,7 +210,7 @@ export const SelectedServicesSheet = forwardRef<SelectedServicesSheetRef>(
         <View style={styles.body}>
           <View style={styles.titleRow}>
             <View style={styles.titleCol}>
-              <Text weight="bold" size="lg" color={INK}>
+              <Text size={28} weight="extraBold" color={BrandColors.primary}>
                 Your cart
               </Text>
               <Text
@@ -199,6 +244,7 @@ export const SelectedServicesSheet = forwardRef<SelectedServicesSheetRef>(
             </View>
           ) : (
             <ScrollView
+              style={styles.scroll}
               showsVerticalScrollIndicator={false}
               contentContainerStyle={styles.list}
             >
@@ -261,6 +307,30 @@ export const SelectedServicesSheet = forwardRef<SelectedServicesSheetRef>(
               })}
             </ScrollView>
           )}
+
+          {rows.length > 0 ? (
+            <Pressable
+              style={({ pressed }) => [
+                styles.checkoutBtn,
+                pressed && styles.checkoutBtnPressed,
+              ]}
+              onPress={handleCheckout}
+              accessibilityRole="button"
+              accessibilityLabel={`Checkout, ${rows.length} service${
+                rows.length === 1 ? "" : "s"
+              }`}
+            >
+              <Text
+                size="md"
+                weight="semiBold"
+                color="#FFFFFF"
+                style={styles.checkoutLabel}
+              >
+                Checkout · {rows.length} service{rows.length === 1 ? "" : "s"}
+              </Text>
+              <ArrowRight size={20} color="#FFFFFF" strokeWidth={2} />
+            </Pressable>
+          ) : null}
         </View>
       </FloatingSheet>
     );
@@ -301,6 +371,11 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(15, 23, 42, 0.06)",
     alignItems: "center",
     justifyContent: "center",
+  },
+  scroll: {
+    // Flex so the list soaks up the space between the title and the
+    // sticky Checkout footer, keeping the button pinned at the bottom.
+    flex: 1,
   },
   list: {
     paddingBottom: 12,
@@ -364,5 +439,25 @@ const styles = StyleSheet.create({
   empty: {
     paddingVertical: 28,
     paddingHorizontal: 16,
+  },
+  // Accent-blue pill mirroring StickyContinueBar so the cart's
+  // primary action reads the same as Screen 2's Continue.
+  checkoutBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    minHeight: 54,
+    paddingVertical: 14,
+    paddingHorizontal: 22,
+    borderRadius: 999,
+    backgroundColor: "#5299FE",
+    marginTop: 12,
+  },
+  checkoutBtnPressed: {
+    backgroundColor: "#3F84E8",
+  },
+  checkoutLabel: {
+    flex: 1,
+    textAlign: "center",
   },
 });

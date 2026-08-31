@@ -39,6 +39,11 @@ import { CLASS_INTERVAL_SLUGS, classInterval } from "@/utils/classIntervals";
 import type { IntervalClassContext } from "@/utils/maintenanceStatus";
 import { TAXONOMY } from "@/constants/serviceTaxonomy";
 import { formatMileage } from "@/lib/vehicle-passport";
+// Slug → its slug-specific "minor" anchor. Single source of truth (same map
+// booking completion writes back to), so a from-odometer inference item closes
+// out against the exact service that was done. Client already imports from
+// @/convex/lib elsewhere (see cars/index.tsx → vinIdentity).
+import { minorRecordTypeForServiceSlug } from "@/convex/lib/serviceRecordType";
 
 /** Minimal shape of a driver-visible mechanic recommendation, mirrored from
  *  api.jobRecommendations.getDriverVisibleRecsForVehicle. */
@@ -199,6 +204,14 @@ export interface MergeRecordLike {
   lastServiceMileage?: number;
   /** Read only for the minor-item types below (Consolidated model). */
   customInputs?: Record<string, unknown> | null;
+  /** Set by booking completion (bookings.ts markServiced) when a service —
+   *  originally-booked or an added catalog service — closed this anchor. Drives
+   *  the Cars-tab "Resolved by [shop] →" overlay; lastServiceShopName is
+   *  resolved server-side in maintenance.getRecordsByVehicle. The overlay shows
+   *  until resolutionAckedAt catches up to lastServiceDate (tapped once). */
+  lastServiceBookingId?: string;
+  resolutionAckedAt?: number;
+  lastServiceShopName?: string | null;
 }
 
 /** Consolidated Upkeep scoring model: catalog-matched minor inspection
@@ -511,8 +524,16 @@ export function buildMergedMaintenanceItems(
       // `default_fallback` rows at confidence 0.5; `safeInterval` snaps those
       // to the bounds floor, and a floored guess is worse information than the
       // class table. Same rule as the Bigger Services tile so the two agree.
+      const classMiles = classCtx?.vehicleClass
+        ? classInterval(slug, classCtx.vehicleClass, classCtx)?.miles ?? null
+        : null;
+      // Prefer the class table over an UNTRUSTED enrichment value — but only
+      // when there is a class value to prefer. With nothing to fall back to,
+      // a floored guess still beats no row at all: the point of the gate is
+      // to rank two numbers, not to discard the only one we have.
       const useOem =
-        !!enrichedInterval?.interval_miles && isTrustedInterval(enrichedInterval);
+        !!enrichedInterval?.interval_miles &&
+        (isTrustedInterval(enrichedInterval) || classMiles == null);
       const bounded = useOem
         ? safeInterval({
             slug,
@@ -520,12 +541,7 @@ export function buildMergedMaintenanceItems(
             confidence: enrichedInterval!.confidence,
             mechanic_verified: enrichedInterval!.mechanic_verified,
           })
-        : clampClassIntervalToBounds(
-            slug,
-            classCtx?.vehicleClass
-              ? classInterval(slug, classCtx.vehicleClass, classCtx)?.miles ?? null
-              : null,
-          );
+        : clampClassIntervalToBounds(slug, classMiles);
 
       // Anchorless — no stored interval AND no conservative default.
       // Row surfaces soft with the diagnostic-scan CTA (Behavior #6).
@@ -551,20 +567,46 @@ export function buildMergedMaintenanceItems(
         continue;
       }
 
-      // The driver may have answered "when was this last done?" on the card.
-      // That answer is a fact they gave us, so it anchors the interval and the
-      // row leaves the unknown set — unlike the measured-from-zero default,
-      // which is an assumption and deliberately scores nothing.
+      // Two ways a catalog row can pick up a real anchor, and both count.
+      //
+      //   - the driver answered "when was this last done?" on the card
+      //     (`catalog_<slug>`), which is a fact they gave us; and
+      //   - a booking completion stamped the slug-specific `minor_<slug>` row,
+      //     which is a shop actually doing the work.
+      //
+      // Temur added the second; the first came from Quick Check v2. Without
+      // either, the row measures from new — an assumption, which is why it
+      // scores nothing. Only the slug-specific minor anchor is safe: the
+      // shared aggregates ("fluids" / "engine_parts") would falsely retire
+      // every sibling service.
       const answered = records?.find((r) => r.type === catalogRecordType(slug));
+      const minorType = minorRecordTypeForServiceSlug(slug);
+      const minorAnchor = minorType
+        ? records?.find((r) => r.type === minorType)
+        : undefined;
+
       const answeredMileage =
         typeof answered?.lastServiceMileage === "number"
           ? answered.lastServiceMileage
           : undefined;
+      const minorMileage =
+        typeof minorAnchor?.lastServiceMileage === "number"
+          ? minorAnchor.lastServiceMileage
+          : undefined;
+
+      // The LATER of the two wins rather than one source outranking the other.
+      // A shop record is better evidence than a recollection, but a driver
+      // answering after that visit is newer information — and "most recent
+      // service" is the question the interval is actually asking.
+      const anchorLastServiceMileage =
+        answeredMileage != null && minorMileage != null
+          ? Math.max(answeredMileage, minorMileage)
+          : answeredMileage ?? minorMileage;
 
       const status = computeFromOdometerStatus({
         interval_miles: bounded,
         currentOdometer,
-        lastServiceMileage: answeredMileage,
+        lastServiceMileage: anchorLastServiceMileage,
         serviceName: entry.label,
       });
 
@@ -575,7 +617,9 @@ export function buildMergedMaintenanceItems(
         detail: status.detail,
         status: status.status,
         percentUsed: status.percentUsed,
-        triggeredBy: answeredMileage != null ? "mileage" : "inference",
+        // Either anchor makes this a real measurement rather than an
+        // inference from new.
+        triggeredBy: anchorLastServiceMileage != null ? "mileage" : "inference",
         // Still excluded from scoring even once answered. SCORING_TYPES is
         // explicit that catalog rows "must never score without a mechanic
         // behind them", and a driver's self-report is not a mechanic — that
@@ -636,7 +680,31 @@ export function buildMergedMaintenanceItems(
     return { ...item, status: "overdue" as const, percentUsed: 100 };
   });
 
-  const enriched = escalated.map(enrichUrgentItem);
+  const enriched = escalated.map(enrichUrgentItem).map((item) => {
+    // "Resolved by this booking" overlay — booking completion stamped this
+    // anchor's record with the booking that closed it (an originally-booked OR
+    // an added catalog service). Surface the resolved card until the driver taps
+    // it once (resolutionAckedAt catches up to lastServiceDate), then it folds
+    // back into Healthy. `resolvedRecordType` is the row the ack must patch:
+    // anchored/minor items embed it in the id, but a `catalog-<slug>` inference
+    // item resolves via its slug-specific minor anchor instead.
+    const recordType = item.id.startsWith("catalog-")
+      ? minorRecordTypeForServiceSlug(item.id.slice("catalog-".length))
+      : item.id.replace(/^(unknown-|user-|smartcar-)/, "");
+    if (!recordType) return item;
+    const rec = records?.find((r) => r.type === recordType);
+    if (!rec?.lastServiceBookingId) return item;
+    const serviced =
+      typeof rec.lastServiceDate === "number" ? rec.lastServiceDate : 0;
+    if (!serviced || (rec.resolutionAckedAt ?? 0) >= serviced) return item;
+    return {
+      ...item,
+      resolvedByBookingId: String(rec.lastServiceBookingId),
+      resolvedShopName: rec.lastServiceShopName ?? null,
+      resolvedAt: serviced,
+      resolvedRecordType: recordType,
+    };
+  });
 
   // Consolidated unpaired-light item — appended AFTER enrichment so its
   // hand-tuned copy isn't clobbered by the generic URGENT_DETAILS fallback.

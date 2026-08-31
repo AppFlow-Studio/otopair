@@ -21,6 +21,7 @@ import Animated, {
 } from "react-native-reanimated";
 
 import { Text } from "@/components/shared-ui";
+import { BrandColors } from "@/constants/theme";
 import { formatRotorsLabel } from "@/constants/rotorFlow";
 import { useRotorBookingStore } from "@/stores/useRotorBookingStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
@@ -37,13 +38,15 @@ function formatClock(d: Date): string {
 interface Props {
   onViewUpcoming: () => void;
   onGoBack: () => void;
+  /** VIN captured when this quote request started. */
+  vehicleVin: string | null;
 }
 
-export function RotorQuoteRequestStatus({ onViewUpcoming, onGoBack }: Props) {
+export function RotorQuoteRequestStatus({ onViewUpcoming, onGoBack, vehicleVin }: Props) {
   const axle = useRotorBookingStore((s) => s.axle);
   const brakeSystemType = useRotorBookingStore((s) => s.brakeSystemType);
-  const selectedVehicle = useVehicleStore((s) =>
-    s.selectedVehicleId ? s.vehicles[s.selectedVehicleId] : undefined,
+  const requestVehicle = useVehicleStore((s) =>
+    vehicleVin ? s.vehicles[vehicleVin] : undefined,
   );
 
   const etaLabel = useMemo(() => {
@@ -53,8 +56,8 @@ export function RotorQuoteRequestStatus({ onViewUpcoming, onGoBack }: Props) {
     return `${formatClock(start)} – ${formatClock(end)}`;
   }, []);
 
-  const vehicleLabel = selectedVehicle
-    ? `${selectedVehicle.year} ${selectedVehicle.make} ${selectedVehicle.model}`
+  const vehicleLabel = requestVehicle
+    ? `${requestVehicle.year} ${requestVehicle.make} ${requestVehicle.model}`
     : "Selected vehicle";
 
   const rotorsLabel =
@@ -62,7 +65,7 @@ export function RotorQuoteRequestStatus({ onViewUpcoming, onGoBack }: Props) {
 
   return (
     <View style={styles.container}>
-      <Text size="xl" weight="bold" color="#1A1A1A" style={styles.title}>
+      <Text size={28} weight="extraBold" color={BrandColors.primary} style={styles.title}>
         Reaching out to shops…
       </Text>
 
@@ -76,7 +79,7 @@ export function RotorQuoteRequestStatus({ onViewUpcoming, onGoBack }: Props) {
         <InfoRow
           icon={<Car size={20} color="#4B5563" strokeWidth={2} />}
           primary={vehicleLabel}
-          secondary={selectedVehicle?.vin ? `VIN · ${selectedVehicle.vin}` : undefined}
+          secondary={requestVehicle?.vin ? `VIN · ${requestVehicle.vin}` : undefined}
         />
         <Divider />
         <InfoRow

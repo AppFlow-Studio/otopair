@@ -187,7 +187,7 @@ function MechanicReviewsContent({ mechanic }: MechanicReviewsContentProps) {
             </View>
           )}
         </View>
-        <Text size="xl" weight="bold" color={BrandColors.primary}>
+        <Text size={28} weight="extraBold" color={BrandColors.primary}>
           {mechanic.name}
         </Text>
         {mechanic.title ? (

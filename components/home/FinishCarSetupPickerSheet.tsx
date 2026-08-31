@@ -18,6 +18,7 @@ import { Car, ChevronRight } from "lucide-react-native";
 
 import { Text } from "@/components/shared-ui";
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
+import { BrandColors } from "@/constants/theme";
 import { formatMake } from "@/utils/formatMake";
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
@@ -65,7 +66,7 @@ export const FinishCarSetupPickerSheet = forwardRef<FinishCarSetupPickerSheetRef
     return (
       <FloatingSheet ref={sheetRef} snapHeights={[sheetHeight]} showBackdrop>
         <View style={styles.content}>
-          <Text size="lg" weight="bold" color="#1A1A1A" style={styles.title}>
+          <Text size={28} weight="extraBold" color={BrandColors.primary} style={styles.title}>
             Which car?
           </Text>
           <Text size="sm" weight="regular" color="#6B7280" style={styles.subtitle}>

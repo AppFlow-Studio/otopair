@@ -183,6 +183,17 @@ export interface MaintenanceItem {
   intervalSource?: "oem" | "class_default" | "legacy_default" | "none";
   /** The factor the score used, after the hold. */
   factorApplied?: number;
+  /** "Resolved by this booking" overlay (set in utils/mergedMaintenance). When
+   *  present, a completed booking (originally-booked OR added catalog service)
+   *  closed this item out; the card renders the green resolved treatment that
+   *  deep-links to the past-service detail. Cleared once the driver taps it. */
+  resolvedByBookingId?: string;
+  resolvedShopName?: string | null;
+  resolvedAt?: number;
+  /** The maintenance_records `type` the ack must patch. Usually derivable from
+   *  the item id, but a `catalog-<slug>` inference item resolves via its
+   *  slug-specific minor anchor, so it's carried explicitly. */
+  resolvedRecordType?: string;
 }
 
 interface MaintenanceTrackerProps {
@@ -202,6 +213,9 @@ interface MaintenanceTrackerProps {
   /** Unknown rows only: driver answers "when was this last done?". */
   onAnswerRecency?: (item: MaintenanceItem) => void;
   onAddInfo?: (id: string) => void;
+  /** Tapped a resolved-by-booking card — acks the resolution and deep-links to
+   *  the past-service that closed the item out. */
+  onResolvedPress?: (item: MaintenanceItem) => void;
   onEditPressed?: () => void;
   /** Parent has determined the page bg is dark enough that the
    *  "Maintenance Tracker" header must flip to light to stay readable. */
@@ -212,6 +226,10 @@ interface MaintenanceTrackerProps {
    *  Falls back to status-bucketed rendering when undefined so other
    *  callers (e.g. legacy preview paths) keep working. */
   tieredItems?: Record<UrgencyTier, RankedMaintenanceItem[]>;
+  /** Items just closed out by a booking, surfaced in their own dynamic
+   *  "Resolved" section (kept out of the urgency tiers so they don't crowd NOW).
+   *  Each renders the green "Resolved by [shop] →" card. */
+  resolvedItems?: MaintenanceItem[];
   /** Deep-link: when this matches an item's id on mount, the detail
    *  modal opens automatically for that item exactly once. Lets
    *  Home's NowTierCallout route a tap straight into the detail view
@@ -277,6 +295,15 @@ const CARD_COLORS: Partial<Record<MaintenanceStatus, { statusColor: string; icon
     iconBg: 'rgba(82, 153, 254, 0.07)',
   },
 };
+
+const RESOLVED_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+/** "Aug 18" for the resolved-by-booking subtitle. Manual format so it doesn't
+ *  depend on Intl being present on the JS engine. */
+function formatResolvedDate(ms?: number): string | null {
+  if (!ms) return null;
+  const d = new Date(ms);
+  return `${RESOLVED_MONTHS[d.getMonth()]} ${d.getDate()}`;
+}
 
 function getServiceIcon(itemId: string, size: number, color: string) {
   const type = itemId.replace(/^(unknown-|user-)/, '');
@@ -616,6 +643,20 @@ function ShowMoreButton({
   );
 }
 
+// Header for the dynamic "Resolved" section — a green pill with a check,
+// distinct from the plain-dot HEALTHY chip so a freshly-closed-out item reads
+// as an action's result, not just an on-time item.
+function ResolvedLabel({ count }: { count: number }) {
+  return (
+    <View style={summaryStyles.headerRow}>
+      <View style={summaryStyles.chip}>
+        <Ionicons name="checkmark-circle" size={moderateScale(12)} color="#059669" />
+        <Text weight="bold" style={summaryStyles.chipText}>{`RESOLVED · ${count}`}</Text>
+      </View>
+    </View>
+  );
+}
+
 function NeedsAttentionLabel() {
   const pulseStyle = useAnimatedStyle(() => ({
     opacity: withRepeat(
@@ -662,13 +703,16 @@ interface UrgentCardProps {
   onMarkDone?: (item: MaintenanceItem) => void;
   onAddInfo?: (id: string) => void;
   onCardPress?: (item: MaintenanceItem) => void;
+  /** Tapped a "Resolved by [shop]" card — acknowledges the resolution and
+   *  deep-links to the past-service detail that closed the item out. */
+  onResolvedPress?: (item: MaintenanceItem) => void;
   /** When true, the "Book Service" CTA is disabled — the vehicle is still
    *  enriching so we don't yet know the parts to book. */
   isEnriching?: boolean;
   bookableSlugs?: Set<string>;
 }
 
-function UrgentCard({ item, entryDelay, vehicleCondition, healthScoreInput, onBookNow, onTakeAction, onMarkDone, onCardPress, isEnriching = false, bookableSlugs }: UrgentCardProps) {
+function UrgentCard({ item, entryDelay, vehicleCondition, healthScoreInput, onBookNow, onTakeAction, onMarkDone, onCardPress, onResolvedPress, isEnriching = false, bookableSlugs }: UrgentCardProps) {
   // Mechanic-recommended items get the new single "Take Action" CTA that
   // routes to the detail screen. Algorithmic items keep the legacy two-button
   // layout (Book Service + View Details).
@@ -736,6 +780,39 @@ function UrgentCard({ item, entryDelay, vehicleCondition, healthScoreInput, onBo
     opacity: entryOpacity.value,
     transform: [{ translateY: entryTranslateY.value }, { scale: cardScale.value }],
   }));
+
+  // ─── RESOLVED-BY-BOOKING CARD ──────────────────────────────────────────
+  // A completed booking (originally-booked OR an added catalog service) closed
+  // this item out. Show it in place as a green "Resolved by [shop] →" card
+  // rather than silently folding it into Healthy; tapping deep-links to the
+  // past-service that closed it and acks the resolution. Placed after the hooks
+  // above so the resolved→acked transition never changes hook order.
+  if (item.resolvedByBookingId) {
+    const resolvedDate = formatResolvedDate(item.resolvedAt);
+    const shop = item.resolvedShopName ?? 'your shop';
+    return (
+      <Pressable
+        onPressIn={() => { cardScale.value = withSpring(0.98, { damping: 20, stiffness: 300 }); }}
+        onPressOut={() => { cardScale.value = withSpring(1, { damping: 20, stiffness: 300 }); }}
+        onPress={() => onResolvedPress?.(item)}
+      >
+        <Animated.View style={[cardStyles.container, cardStyles.resolvedContainer, entryStyle]}>
+          <View style={cardStyles.topRow}>
+            <View style={[cardStyles.iconContainer, { backgroundColor: 'rgba(52,199,89,0.10)' }]}>
+              <Ionicons name="checkmark-circle" size={scale(26)} color="#34C759" />
+            </View>
+            <View style={cardStyles.textColumn}>
+              <Text weight="bold" style={cardStyles.title}>{item.serviceName}</Text>
+              <Text style={cardStyles.resolvedSubtitle}>
+                Resolved by {shop}{resolvedDate ? ` · ${resolvedDate}` : ''}
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={scale(20)} color="#34C759" />
+          </View>
+        </Animated.View>
+      </Pressable>
+    );
+  }
 
   return (
     <Pressable
@@ -978,7 +1055,10 @@ function HealthySection({
   // Chevron still lets users collapse if they want.
   const [expanded, setExpanded] = useState(true);
   const chevronRotation = useSharedValue(1);
-
+  // Declared BEFORE the empty-list early return — otherwise a section that
+  // flips from non-empty to empty (e.g. its only item was pinned into NOW as a
+  // resolved card) renders fewer hooks than the prior pass and React throws
+  // "Rendered fewer hooks than expected."
   const chevronStyle = useAnimatedStyle(() => ({
     transform: [{ rotate: `${chevronRotation.value * 90}deg` }],
   }));
@@ -1046,11 +1126,12 @@ function HealthySection({
 // Resets naturally on car swap (tracker keyed by VIN in cars/index.tsx).
 const CAP_PER_URGENT_TIER = 3;
 
-export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, vehicleLabel, onBookNow, onTakeAction, onMarkDone, onAnswerRecency, onAddInfo, onEditPressed, isDarkBg = false, tieredItems, openItemId, isEnriching = false, bookableSlugs }: MaintenanceTrackerProps) {
+export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, vehicleLabel, onBookNow, onTakeAction, onMarkDone, onAnswerRecency, onAddInfo, onResolvedPress, onEditPressed, isDarkBg = false, tieredItems, resolvedItems, openItemId, isEnriching = false, bookableSlugs }: MaintenanceTrackerProps) {
   const [selectedItem, setSelectedItem] = useState<MaintenanceItem | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [showAllNow, setShowAllNow] = useState(false);
   const [showAllSoon, setShowAllSoon] = useState(false);
+  const [showAllResolved, setShowAllResolved] = useState(false);
 
   const handleCardPress = (item: MaintenanceItem) => {
     setSelectedItem(item);
@@ -1189,6 +1270,37 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
         // cascade delay is precomputed above so missing tiers collapse
         // out of the rhythm — no dead beats.
         <>
+          {/* Resolved — dynamic; only shows while there are freshly closed-out
+              items awaiting a tap. Kept in its own section so it never eats the
+              NOW cap or pushes urgent repairs out of view. */}
+          {resolvedItems && resolvedItems.length > 0 && (
+            <>
+              <Animated.View entering={FadeInUp.duration(ENTRY_DURATION)}>
+                <ResolvedLabel count={resolvedItems.length} />
+              </Animated.View>
+              <View style={styles.urgentGroup}>
+                {(showAllResolved ? resolvedItems : resolvedItems.slice(0, CAP_PER_URGENT_TIER)).map((item, index) => (
+                  <UrgentCard
+                    key={item.id}
+                    item={item}
+                    entryDelay={index * STEP_MS}
+                    vehicleCondition={vehicleCondition ?? 0}
+                    healthScoreInput={healthScoreInput}
+                    onResolvedPress={onResolvedPress}
+                  />
+                ))}
+                {resolvedItems.length > CAP_PER_URGENT_TIER && (
+                  <ShowMoreButton
+                    hidden={resolvedItems.length - CAP_PER_URGENT_TIER}
+                    expanded={showAllResolved}
+                    color="#059669"
+                    onPress={() => setShowAllResolved((v) => !v)}
+                  />
+                )}
+              </View>
+            </>
+          )}
+
           {/* Now — assertive */}
           {nowCount > 0 && (
             <>
@@ -1208,6 +1320,7 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
                     onMarkDone={onMarkDone}
                     onAddInfo={onAddInfo}
                     onCardPress={handleCardPress}
+                    onResolvedPress={onResolvedPress}
                     isEnriching={isEnriching}
                     bookableSlugs={bookableSlugs}
                   />
@@ -1243,6 +1356,7 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
                     onMarkDone={onMarkDone}
                     onAddInfo={onAddInfo}
                     onCardPress={handleCardPress}
+                    onResolvedPress={onResolvedPress}
                     isEnriching={isEnriching}
                     bookableSlugs={bookableSlugs}
                   />
@@ -1318,6 +1432,7 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
                     onMarkDone={onMarkDone}
                     onAddInfo={onAddInfo}
                     onCardPress={handleCardPress}
+                    onResolvedPress={onResolvedPress}
                     isEnriching={isEnriching}
                     bookableSlugs={bookableSlugs}
                   />
@@ -1345,6 +1460,7 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
                     onMarkDone={onMarkDone}
                     onAddInfo={onAddInfo}
                     onCardPress={handleCardPress}
+                    onResolvedPress={onResolvedPress}
                     isEnriching={isEnriching}
                     bookableSlugs={bookableSlugs}
                   />
@@ -1530,6 +1646,16 @@ const cardStyles = StyleSheet.create({
     fontSize: moderateScale(12),
     color: '#757c7d',
     marginTop: 1,
+  },
+  // Resolved-by-booking card: a soft green edge + green subtitle mark it as a
+  // closed-out item distinct from the actionable blue cards around it.
+  resolvedContainer: {
+    borderColor: 'rgba(52,199,89,0.35)',
+  },
+  resolvedSubtitle: {
+    fontSize: moderateScale(12),
+    color: '#34C759',
+    marginTop: 2,
   },
   provenance: {
     fontSize: moderateScale(11),

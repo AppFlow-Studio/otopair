@@ -59,8 +59,14 @@ describe("booking-flow back navigation", () => {
 
   it("mid-flow back handlers delegate to router.back", () => {
     for (const [name, body] of Object.entries(MID_FLOW)) {
+      // Deliberately NOT anchored to the first statement of the handler.
+      // pick-datetime clears its quote-accept context on the way out before
+      // deciding where to go, which is unrelated bookkeeping and fine. What
+      // this guards is the DESTINATION rule — canGoBack/back, never a rebuilt
+      // stack — so it asserts both calls are present, and the sibling test
+      // below asserts stack depth is not consulted.
       expect(
-        /const onBack = \(\) => \{\s*if \(router\.canGoBack\(\)\) \{\s*router\.back\(\);/.test(body),
+        /const onBack = \(\) => \{[\s\S]*?if \(router\.canGoBack\(\)\) \{\s*router\.back\(\);/.test(body),
         `${name} should route back through router.canGoBack() / router.back()`,
       ).toBe(true);
     }

@@ -30,6 +30,7 @@ import { formatRotorsLabel } from "@/constants/rotorFlow";
 import { useCreateRotorQuoteRequest } from "@/hooks/useCreateRotorQuoteRequest";
 import { calculateBookingConfirmLayout } from "@/lib/bookingConfirmSheet";
 import { useRotorBookingStore } from "@/stores/useRotorBookingStore";
+import { useVehicleStore } from "@/stores/useVehicleStore";
 
 interface RotorRequestingScreenProps {
   onClose?: () => void;
@@ -45,6 +46,10 @@ export default function RotorRequestingScreen({
   const statusSheetRef = useRef<FloatingSheetRef>(null);
   const confirmSheetRef = useRef<QuoteRequestConfirmationSheetRef>(null);
   const confirmedRef = useRef(false);
+  const requestVehicleVinRef = useRef<string | null>(
+    useRotorBookingStore.getState().vehicleId ?? useVehicleStore.getState().selectedVehicleId,
+  );
+  const requestVehicleVin = requestVehicleVinRef.current;
   const isCompactLayout = windowHeight < 860;
   const isVeryCompactLayout = windowHeight < 760;
   const confirmLayout = useMemo(
@@ -92,6 +97,7 @@ export default function RotorRequestingScreen({
 
     void createRotorQuoteRequest({
       rotorsLabel,
+      vehicleVin: requestVehicleVin,
       rotorSpecs: {
         brake_system_type: brakeSystemType,
         axle,
@@ -104,7 +110,7 @@ export default function RotorRequestingScreen({
     setTimeout(() => {
       confirmSheetRef.current?.open();
     }, 250);
-  }, [brakeSystemType, axle, includePads, padType, createRotorQuoteRequest]);
+  }, [brakeSystemType, axle, includePads, padType, createRotorQuoteRequest, requestVehicleVin]);
 
   const handleBackToBooking = useCallback(() => {
     confirmSheetRef.current?.close();
@@ -166,12 +172,14 @@ export default function RotorRequestingScreen({
         <RotorQuoteRequestStatus
           onGoBack={handleGoBack}
           onViewUpcoming={handleViewUpcoming}
+          vehicleVin={requestVehicleVin}
         />
       </FloatingSheet>
 
       <QuoteRequestConfirmationSheet
         ref={confirmSheetRef}
         onViewBooking={handleBackToBooking}
+        vehicleVin={requestVehicleVin}
       />
     </View>
   );

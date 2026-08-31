@@ -37,6 +37,7 @@ import { ChevronLeft, Star } from "lucide-react-native";
 
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
 import { Text } from "@/components/shared-ui";
+import { BrandColors } from "@/constants/theme";
 import { OfflineActionsNotice } from "@/components/connection/OfflineActionsNotice";
 import { useConnection } from "@/hooks/useConnection";
 import { isBookingActionAllowed } from "@/lib/connection/offlineBookingActions";
@@ -384,7 +385,7 @@ export const LeaveReviewSheet = forwardRef<LeaveReviewSheetRef, Props>(
             // ── STEP 1 — mechanic ──────────────────────────────────────
             <>
               <View style={styles.header}>
-                <Text size="2xl" weight="bold" color="#141C24" style={styles.title}>
+                <Text size={28} weight="extraBold" color={BrandColors.primary} style={styles.title}>
                   How was your mechanic?
                 </Text>
                 <Text size="sm" weight="regular" color="#6B7280" style={styles.subtitle}>
@@ -485,7 +486,7 @@ export const LeaveReviewSheet = forwardRef<LeaveReviewSheetRef, Props>(
             // ── STEP 2 — shop ──────────────────────────────────────────
             <>
               <View style={styles.header}>
-                <Text size="2xl" weight="bold" color="#141C24" style={styles.title}>
+                <Text size={28} weight="extraBold" color={BrandColors.primary} style={styles.title}>
                   How was the shop?
                 </Text>
                 <Text size="sm" weight="regular" color="#6B7280" style={styles.subtitle}>

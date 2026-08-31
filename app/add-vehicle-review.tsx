@@ -33,16 +33,17 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
 import { useLocalSearchParams } from 'expo-router';
 import { useGuardedRouter as useRouter } from '@/hooks/useGuardedRouter';
-import { ArrowLeft, Bell, Car, Check, ChevronDown, CircleDot, Cog, Fuel, Gauge, History, MapPin, Wrench, X } from 'lucide-react-native';
+import { ArrowLeft, Bell, Car, Check, ChevronDown, CircleDot, Cog, Droplet, Fuel, Gauge, History, MapPin, Wrench, X } from 'lucide-react-native';
 import { useAction, useMutation, useQuery } from 'convex/react';
 
 // 3. App imports
 import { Text } from '@/components/shared-ui';
-import { Spacing } from '@/constants/theme';
+import { BrandColors, Spacing } from '@/constants/theme';
 import { api } from '@/convex/_generated/api';
 import { Id } from '@/convex/_generated/dataModel';
 import { scale, verticalScale, moderateScale } from '@/utils/responsive';
-import { classifyColorFamily, fetchVehicleImageUrl, pickBestVdbTrim, pickSilhouetteVariant, useVdbColorsForVin, useVdbVariants, type VdbVariant } from '@/utils/vehicleImage';
+import { classifyColorFamily, fetchVehicleImageUrl, pickBestVdbTrim, pickSilhouetteVariant, useVdbColorsForVin } from '@/utils/vehicleImage';
+import { useYmmTrims } from '@/hooks/useYmmTrims';
 import { COLOR_GRADIENTS } from '@/constants/colorGradients';
 import { ColorSwatchSkeletonRow, VehicleImageSkeleton } from '@/components/shared-ui/ColorSwatchSkeleton';
 import { FloatingSheet, type FloatingSheetRef } from '@/components/shared-ui/FloatingSheet';
@@ -53,6 +54,19 @@ import { formatEngineLiters } from '@/utils/vehicleDisplay';
 // ============================================================================
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
+
+// Specs fetched on-demand for the review card (EPA MPG + wheel-size tires),
+// front-running the enrichment pipeline so MPG/Tires aren't blank "—".
+type CardSpecs = {
+  mpgCity: number | null;
+  mpgHighway: number | null;
+  mpgCombined: number | null;
+  fuelCostPerYearUsd: number | null;
+  frontTireSize: string | null;
+  rearTireSize: string | null;
+  frontTirePressure: number | null;
+  rearTirePressure: number | null;
+};
 
 // One swatch in the color picker — owns its own scale animation so the
 // parent doesn't need to manage N shared values. Springs to 1.08 on
@@ -175,6 +189,7 @@ export default function AddVehicleReviewScreen() {
   const confirmVehicle = useAction(api.vehicle_pipeline.confirmVehicleForUser);
   const saveVehicleImageUrl = useMutation(api.vehicles.saveVehicleImageUrl);
   const attachRealVin = useMutation(api.vehicles.attachRealVinToManualVehicle);
+  const getCardSpecs = useAction(api.decodeCardSpecs.getDecodeCardSpecs);
 
   // We only ever show the colors VDB actually has for this vehicle.
   // No generic fallback palette — if VDB has no color variants for this
@@ -183,32 +198,26 @@ export default function AddVehicleReviewScreen() {
   type ColorOption = { id: string; label: string; hex: string };
   const yearNum = params.year ? parseInt(params.year, 10) : undefined;
 
-  // Canonical trim picker. VDB's `ymm-specs/options/v3/trim` returns the
-  // exact trim strings the vehicle-images endpoint accepts; the VIN decode
-  // only gives the base trim, so we let the user override here. Defaults to
-  // the canonical entry that best matches the decoded trim.
-  const { variants: vdbVariants } = useVdbVariants(yearNum, params.make ?? '', params.model ?? '', {
-    vdbDecodedModel: params.vdbDecodedModel,
-    nhtsaModel: params.nhtsaModel,
-    nhtsaSeries: params.nhtsaSeries,
-    nhtsaTrim: params.nhtsaTrim,
-    trim: params.trim,
-  });
-  const [selectedVariant, setSelectedVariant] = useState<VdbVariant | null>(null);
+  // Trim picker — trims now come from the premium Car API + MarketCheck
+  // (via ymmtCatalog.resolveTrimsForYmm), not VDB. The VIN decode only gives
+  // the base trim, so we let the user override here, defaulting to the entry
+  // that best matches the decoded trim. Images/colors below stay on VDB and
+  // resolve primarily by VIN, so the trim source swap doesn't affect them.
+  const { trims: ymmTrims } = useYmmTrims(yearNum, params.make ?? '', params.model ?? '');
+  const [selectedTrim, setSelectedTrim] = useState<string | null>(null);
   const [showTrimSheet, setShowTrimSheet] = useState(false);
   const trimSheetRef = useRef<FloatingSheetRef>(null);
   useEffect(() => {
-    if (selectedVariant || vdbVariants.length === 0) return;
-    const trimLabels = vdbVariants.map((v) => v.trim);
-    const bestTrim = pickBestVdbTrim(trimLabels, [params.trim, params.nhtsaTrim]);
-    const match = vdbVariants.find((v) => v.trim === bestTrim) ?? vdbVariants[0];
-    setSelectedVariant(match);
-  }, [vdbVariants, selectedVariant, params.trim, params.nhtsaTrim]);
-  // Each variant carries its catalog model — critical for makes that
-  // split engine variants into separate models (Mercedes GLE 350 vs GLE
-  // 580). Fall back to the merged params model when nothing's resolved.
-  const effectiveModel = selectedVariant?.model ?? params.model;
-  const effectiveTrim = selectedVariant?.trim ?? params.trim;
+    if (selectedTrim || ymmTrims.length === 0) return;
+    const bestTrim = pickBestVdbTrim(ymmTrims, [params.trim, params.nhtsaTrim]);
+    const match = ymmTrims.find((t) => t === bestTrim) ?? ymmTrims[0];
+    setSelectedTrim(match);
+  }, [ymmTrims, selectedTrim, params.trim, params.nhtsaTrim]);
+  // The VDB catalog model for images is resolved inside useVdbColorsForVin
+  // from the decode hints below, so we no longer need a per-trim model here —
+  // the merged params model is the correct persisted identity.
+  const effectiveModel = params.model;
+  const effectiveTrim = selectedTrim ?? params.trim;
   useEffect(() => {
     if (showTrimSheet) trimSheetRef.current?.open();
   }, [showTrimSheet]);
@@ -478,12 +487,12 @@ export default function AddVehicleReviewScreen() {
   // Feature preview shown below the color picker so the page has
   // substance instead of empty space after Smartcar's "Connect your
   // car" section was removed.
-  const FEATURES = [
-    { icon: Wrench, label: 'Track maintenance & service intervals' },
-    { icon: History, label: 'Log every service in one place' },
-    { icon: Bell, label: 'Get reminders before things go wrong' },
-    { icon: MapPin, label: 'Book trusted local mechanics' },
-  ] as const;
+  // const FEATURES = [
+  //   { icon: Wrench, label: 'Track maintenance & service intervals' },
+  //   { icon: History, label: 'Log every service in one place' },
+  //   { icon: Bell, label: 'Get reminders before things go wrong' },
+  //   { icon: MapPin, label: 'Book trusted local mechanics' },
+  // ] as const;
 
   // Specs card data. Build display strings from router params; empty
   // string from the parent means "unknown" → render as em-dash.
@@ -508,13 +517,49 @@ export default function AddVehicleReviewScreen() {
   const drivetrain = (params.drivetrain && params.drivetrain !== 'unknown')
     ? params.drivetrain
     : '';
-  const mpgCity = parseOptionalNum(params.mpgCity);
-  const mpgHighway = parseOptionalNum(params.mpgHighway);
-  const mpgCombined = parseOptionalNum(params.mpgCombined);
-  const frontTireSize = params.frontTireSize || '';
-  const rearTireSize = params.rearTireSize || '';
-  const frontPsi = parseOptionalNum(params.frontTirePressure);
-  const rearPsi = parseOptionalNum(params.rearTirePressure);
+  // Front-run the enrichment sources (EPA fuel economy + wheel-size tires) so
+  // the card shows MPG + Tires now instead of "—" until post-confirm enrichment
+  // runs. Fail-open: any miss leaves the tile "—". Refetches when the user
+  // switches trim — tire fitment + MPG can differ by trim.
+  const [cardSpecs, setCardSpecs] = useState<CardSpecs | null>(null);
+  const [cardSpecsLoading, setCardSpecsLoading] = useState(false);
+  useEffect(() => {
+    if (!params.make || !effectiveModel || !yearNum) return;
+    let cancelled = false;
+    setCardSpecsLoading(true);
+    getCardSpecs({
+      year: yearNum,
+      make: params.make,
+      model: effectiveModel,
+      trim: effectiveTrim || undefined,
+      displacementL:
+        parseOptionalNum(params.engineDisplacementLiters) ??
+        parseOptionalNum(params.displacement) ??
+        undefined,
+      cylinders: parseOptionalNum(params.cylinders) ?? undefined,
+      transType: params.transType || undefined,
+      drivetrain:
+        params.drivetrain && params.drivetrain !== 'unknown' ? params.drivetrain : undefined,
+    })
+      .then((r) => { if (!cancelled) setCardSpecs(r); })
+      .catch(() => { if (!cancelled) setCardSpecs(null); })
+      .finally(() => { if (!cancelled) setCardSpecsLoading(false); });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [yearNum, params.make, effectiveModel, effectiveTrim]);
+
+  // Merge: async enrichment values win; fall back to whatever the decode gave.
+  const mpgCity = cardSpecs?.mpgCity ?? parseOptionalNum(params.mpgCity);
+  const mpgHighway = cardSpecs?.mpgHighway ?? parseOptionalNum(params.mpgHighway);
+  const mpgCombined = cardSpecs?.mpgCombined ?? parseOptionalNum(params.mpgCombined);
+  const fuelCostPerYear = cardSpecs?.fuelCostPerYearUsd ?? null;
+  const frontTireSize = cardSpecs?.frontTireSize ?? params.frontTireSize ?? '';
+  const rearTireSize = cardSpecs?.rearTireSize ?? params.rearTireSize ?? '';
+  const frontPsi = cardSpecs?.frontTirePressure ?? parseOptionalNum(params.frontTirePressure);
+  const rearPsi = cardSpecs?.rearTirePressure ?? parseOptionalNum(params.rearTirePressure);
+  // Spinner only while genuinely still loading AND nothing to show yet.
+  const mpgLoading = cardSpecsLoading && mpgCity == null && mpgHighway == null && mpgCombined == null;
+  const tiresLoading = cardSpecsLoading && !frontTireSize && !rearTireSize;
 
   // Engine tile: "2.0L I-4" primary, "272 hp" secondary.
   const engineLine1 =
@@ -548,11 +593,29 @@ export default function AddVehicleReviewScreen() {
       ? `F ${frontPsi ?? DASH} · R ${rearPsi ?? DASH} psi`
       : DASH;
 
-  const specsTiles = [
+  // Fuel tile: fuel type primary, EPA est. annual fuel cost secondary.
+  const fuelLine1 = params.fuelType || DASH;
+  const fuelLine2 = fuelCostPerYear
+    ? `~$${Math.round(fuelCostPerYear).toLocaleString()}/yr`
+    : DASH;
+
+  // Engine-code tile: OEM engine code primary, body class secondary.
+  const engineCodeLine1 = params.engineCode || DASH;
+  const bodyClassLine = params.bodyClass || DASH;
+
+  const specsTiles: {
+    icon: typeof Gauge;
+    label: string;
+    line1: string;
+    line2: string;
+    loading?: boolean;
+  }[] = [
     { icon: Gauge, label: 'Engine', line1: engineLine1, line2: engineLine2 },
     { icon: Cog, label: 'Transmission', line1: transLine1, line2: transLine2 },
-    { icon: Fuel, label: 'MPG', line1: mpgLine1, line2: mpgLine2 },
-    { icon: CircleDot, label: 'Tires', line1: tireSizeLine, line2: tirePsiLine },
+    { icon: Fuel, label: 'MPG', line1: mpgLine1, line2: mpgLine2, loading: mpgLoading },
+    { icon: CircleDot, label: 'Tires', line1: tireSizeLine, line2: tirePsiLine, loading: tiresLoading },
+    { icon: Droplet, label: 'Fuel', line1: fuelLine1, line2: fuelLine2 },
+    { icon: Wrench, label: 'Engine code', line1: engineCodeLine1, line2: bodyClassLine },
   ];
 
   return (
@@ -646,10 +709,10 @@ export default function AddVehicleReviewScreen() {
             {params.make} {params.model}
           </Text>
           <Pressable
-            onPress={() => { if (vdbVariants.length > 0) setShowTrimSheet(true); }}
+            onPress={() => { if (ymmTrims.length > 0) setShowTrimSheet(true); }}
             hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
             style={({ pressed }) => [styles.trimPill, pressed && { opacity: 0.85 }]}
-            disabled={vdbVariants.length === 0}
+            disabled={ymmTrims.length === 0}
           >
             <View style={styles.trimPillIcon}>
               <Car size={scale(13)} color="#5299FE" strokeWidth={2.2} />
@@ -663,7 +726,7 @@ export default function AddVehicleReviewScreen() {
             >
               {effectiveTrim || 'Base'}
             </Text>
-            {vdbVariants.length > 0 && (
+            {ymmTrims.length > 0 && (
               <ChevronDown size={scale(14)} color="#5299FE" strokeWidth={2.2} />
             )}
           </Pressable>
@@ -724,7 +787,7 @@ export default function AddVehicleReviewScreen() {
             Specs
           </Text>
           <View style={styles.specsGrid}>
-            {specsTiles.map(({ icon: Icon, label, line1, line2 }) => (
+            {specsTiles.map(({ icon: Icon, label, line1, line2, loading }) => (
               <View key={label} style={styles.specsTile}>
                 <View style={styles.specsTileHeader}>
                   <Icon size={scale(16)} color="#5299FE" strokeWidth={2} />
@@ -732,29 +795,37 @@ export default function AddVehicleReviewScreen() {
                     {label}
                   </Text>
                 </View>
-                <Text
-                  size="md"
-                  weight="semiBold"
-                  color="#111827"
-                  numberOfLines={1}
-                  style={styles.specsTileLine1}
-                >
-                  {line1}
-                </Text>
-                <Text
-                  size="xs"
-                  color="#6B7280"
-                  numberOfLines={1}
-                >
-                  {line2}
-                </Text>
+                {loading ? (
+                  <View style={styles.specsTileLoading}>
+                    <ActivityIndicator size="small" color="#9CA3AF" />
+                  </View>
+                ) : (
+                  <>
+                    <Text
+                      size="md"
+                      weight="semiBold"
+                      color="#111827"
+                      numberOfLines={1}
+                      style={styles.specsTileLine1}
+                    >
+                      {line1}
+                    </Text>
+                    <Text
+                      size="xs"
+                      color="#6B7280"
+                      numberOfLines={1}
+                    >
+                      {line2}
+                    </Text>
+                  </>
+                )}
               </View>
             ))}
           </View>
         </View>
 
         {/* Feature preview */}
-        <View style={styles.featureList}>
+        {/* <View style={styles.featureList}>
           {FEATURES.map(({ icon: Icon, label }) => (
             <View key={label} style={styles.featureRow}>
               <View style={styles.featureIcon}>
@@ -765,7 +836,7 @@ export default function AddVehicleReviewScreen() {
               </Text>
             </View>
           ))}
-        </View>
+        </View> */}
 
         {/* Error */}
         {displayError ? (
@@ -799,18 +870,18 @@ export default function AddVehicleReviewScreen() {
       </ScrollView>
 
       {/* Trim picker sheet — opens when the user taps the trim pill above.
-          Lists VDB's canonical trims for this YMM; selecting one updates
-          `selectedTrim` which re-keys the colors/image fetch. */}
+          Lists the Car API + MarketCheck trims for this YMM; selecting one
+          updates `selectedTrim` which re-keys the colors/image fetch. */}
       <FloatingSheet
         ref={trimSheetRef}
-        snapHeights={[Math.min(500, 140 + vdbVariants.length * 72)]}
+        snapHeights={[Math.min(500, 140 + ymmTrims.length * 72)]}
         showBackdrop
         backdropMode="blur"
         onClose={() => setShowTrimSheet(false)}
       >
         <View style={styles.trimSheetHeader}>
           <View style={styles.trimSheetTitleCol}>
-            <Text weight="bold" size="lg" color="#0F172A">
+            <Text size={28} weight="extraBold" color={BrandColors.primary}>
               Pick your trim
             </Text>
             <Text
@@ -835,16 +906,13 @@ export default function AddVehicleReviewScreen() {
           contentContainerStyle={styles.trimSheetBody}
           showsVerticalScrollIndicator={false}
         >
-          {vdbVariants.map((variant) => {
-            const isSelected =
-              !!selectedVariant &&
-              selectedVariant.model === variant.model &&
-              selectedVariant.trim === variant.trim;
+          {ymmTrims.map((trimName, idx) => {
+            const isSelected = selectedTrim === trimName;
             return (
               <Pressable
-                key={`${variant.model}|${variant.trim}`}
+                key={`${trimName}-${idx}`}
                 onPress={() => {
-                  setSelectedVariant(variant);
+                  setSelectedTrim(trimName);
                   trimSheetRef.current?.close();
                 }}
                 style={({ pressed }) => [
@@ -862,7 +930,7 @@ export default function AddVehicleReviewScreen() {
                   numberOfLines={2}
                   style={styles.trimRowLabel}
                 >
-                  {variant.trim}
+                  {trimName}
                 </Text>
                 {isSelected ? (
                   <View style={styles.trimRowCheckPill}>
@@ -1173,6 +1241,14 @@ const styles = StyleSheet.create({
   },
   specsTileLine1: {
     marginTop: scale(2),
+  },
+  // Reserves ~the two-line content height so a tile doesn't jump when its
+  // async value (MPG/Tires) resolves from the spinner.
+  specsTileLoading: {
+    minHeight: scale(38),
+    justifyContent: 'center',
+    alignItems: 'flex-start',
+    paddingVertical: scale(4),
   },
   connectSection: {
     marginTop: scale(28),

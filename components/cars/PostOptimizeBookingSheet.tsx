@@ -21,6 +21,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Text } from "@/components/shared-ui";
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
 import { HealthSheetBookingCards } from "@/components/cars/HealthSheetBookingCards";
+import { BrandColors } from "@/constants/theme";
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 
@@ -72,9 +73,9 @@ export function PostOptimizeBookingSheet({
     >
       <View style={styles.content}>
         <Text
-          size="lg"
-          weight="bold"
-          color="#0F172A"
+          size={28}
+          weight="extraBold"
+          color={BrandColors.primary}
           style={styles.title}
           onTextLayout={(e) => {
             const lines = e.nativeEvent.lines.length;

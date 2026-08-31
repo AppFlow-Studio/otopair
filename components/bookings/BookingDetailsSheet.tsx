@@ -61,7 +61,7 @@ import { buildCancelCopy, isLocalBookingId } from "@/constants/bookingActionPoli
 import { buildBookingCalendarEvent, formatBookingReference } from "@/lib/booking-calendar";
 import { useBookingStore } from "@/stores/useBookingStore";
 import type { Booking } from "./BookingCard";
-import { MechanicChatSheet, type MechanicChatSheetRef } from "./MechanicChatSheet";
+import { MessageShopSheet, type MessageShopSheetRef } from "./MessageShopSheet";
 import { RescheduleSheet, type RescheduleSheetRef } from "./RescheduleSheet";
 import { ApprovalBanner } from "@/components/booking/ApprovalBanner";
 import { PaymentBreakdown } from "@/components/booking/PaymentBreakdown";
@@ -303,7 +303,7 @@ export const BookingDetailsSheet = forwardRef<BookingDetailsSheetRef, BookingDet
     const startHeight = useSharedValue(0);
 
     const rescheduleSheetRef = useRef<RescheduleSheetRef>(null);
-    const chatSheetRef = useRef<MechanicChatSheetRef>(null);
+    const chatSheetRef = useRef<MessageShopSheetRef>(null);
 
     const handleRequestReschedule = useCallback(
       (bookingId: string, date: string, time: string) => {
@@ -313,12 +313,17 @@ export const BookingDetailsSheet = forwardRef<BookingDetailsSheetRef, BookingDet
     );
 
     const handleOpenChat = useCallback(() => {
-      if (!booking) return;
+      if (!booking?.shopId) return;
       chatSheetRef.current?.open({
         bookingId: booking.id,
+        shopId: booking.shopId,
+        status: booking.status,
         mechanicName: booking.mechanicName,
         shopName: booking.shopName,
         mechanicImage: booking.mechanicImage,
+        vehicleLabel:
+          [booking.carYear, booking.carModel].filter(Boolean).join(" ") || undefined,
+        serviceLabel: (booking.services ?? []).join(" · ") || undefined,
       });
     }, [booking]);
 
@@ -464,8 +469,13 @@ export const BookingDetailsSheet = forwardRef<BookingDetailsSheetRef, BookingDet
       });
     }, [detentJs, midOpacity, fullOpacity]);
 
-    // Pan gesture: drag handle up to grow, down to shrink/dismiss.
-    const dragGesture = useMemo(
+    // Pan gesture: drag up to grow, down to shrink/dismiss. We build two
+    // identical instances — one on the grabber, one over the whole mid-view
+    // body — because a single RNGH Gesture can't attach to two
+    // GestureDetectors. Wiring it to the mid body means swiping/scrolling
+    // anywhere on the summary grows the sheet to full instead of scrolling
+    // the content internally.
+    const buildDragGesture = useCallback(
       () =>
         Gesture.Pan()
           .onBegin(() => {
@@ -502,6 +512,9 @@ export const BookingDetailsSheet = forwardRef<BookingDetailsSheetRef, BookingDet
           }),
       [H_FULL, H_MED, close, sheetHeight, startHeight],
     );
+
+    const dragGesture = useMemo(() => buildDragGesture(), [buildDragGesture]);
+    const midDragGesture = useMemo(() => buildDragGesture(), [buildDragGesture]);
 
     const sheetAnimStyle = useAnimatedStyle(() => {
       const progress = interpolate(
@@ -600,20 +613,25 @@ export const BookingDetailsSheet = forwardRef<BookingDetailsSheetRef, BookingDet
 
             {/* Two stacked content layers, crossfaded on detent change */}
             <View style={styles.contentStack}>
-              <Animated.View
-                style={[styles.contentLayer, midAnimStyle]}
-                pointerEvents={detentJs === 0 ? "auto" : "none"}
-              >
-                <MidContent
-                  booking={booking}
-                  mechanicRating={mechanicRating}
-                  statusConfig={statusConfig}
-                  shopAddress={resolvedShopAddress}
-                  shopPhone={resolvedShopPhone}
-                  onClose={close}
-                  onOpenChat={handleOpenChat}
-                />
-              </Animated.View>
+              {/* Mid layer is wrapped in its own drag gesture so swiping the
+                  summary body grows the sheet to full (it no longer scrolls
+                  internally). Disabled in full via pointerEvents="none". */}
+              <GestureDetector gesture={midDragGesture}>
+                <Animated.View
+                  style={[styles.contentLayer, midAnimStyle]}
+                  pointerEvents={detentJs === 0 ? "auto" : "none"}
+                >
+                  <MidContent
+                    booking={booking}
+                    mechanicRating={mechanicRating}
+                    statusConfig={statusConfig}
+                    shopAddress={resolvedShopAddress}
+                    shopPhone={resolvedShopPhone}
+                    onClose={close}
+                    onOpenChat={handleOpenChat}
+                  />
+                </Animated.View>
+              </GestureDetector>
 
               <Animated.View
                 style={[styles.contentLayer, fullAnimStyle]}
@@ -644,8 +662,8 @@ export const BookingDetailsSheet = forwardRef<BookingDetailsSheetRef, BookingDet
         {/* Reschedule picker — renders above the sheet when opened */}
         <RescheduleSheet ref={rescheduleSheetRef} onConfirm={handleConfirmReschedule} />
 
-        {/* Chat thread with the mechanic */}
-        <MechanicChatSheet ref={chatSheetRef} />
+        {/* Message Shop — support-ticket flow + open-chat fallback */}
+        <MessageShopSheet ref={chatSheetRef} />
       </View>
       </Modal>
     );
@@ -716,11 +734,9 @@ function MidContent({
   const contactDisabled = !shopPhone;
 
   return (
-    <ScrollView
-      style={styles.midScroll}
-      contentContainerStyle={styles.midContainer}
-      showsVerticalScrollIndicator={false}
-    >
+    // Non-scrolling: the parent GestureDetector turns any vertical swipe here
+    // into a sheet grow-to-full instead of an internal scroll.
+    <View style={styles.midContainer}>
       {/* Top block — pushed to top */}
       <View>
         <SheetHeader onClose={onClose} />
@@ -837,7 +853,7 @@ function MidContent({
           Swipe up for full details
         </Text>
       </View>
-    </ScrollView>
+    </View>
   );
 }
 
@@ -2016,12 +2032,10 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
   },
 
-  // Mid content
-  midScroll: {
-    flex: 1,
-  },
+  // Mid content — non-scrolling; fills the layer so the top/bottom blocks
+  // spread via space-between. Vertical swipes here grow the sheet to full.
   midContainer: {
-    flexGrow: 1,
+    flex: 1,
     paddingHorizontal: 20,
     paddingBottom: 24,
     justifyContent: "space-between",

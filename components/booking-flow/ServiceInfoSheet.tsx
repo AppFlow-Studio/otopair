@@ -34,7 +34,7 @@ import {
   type ServiceTierCopy,
 } from "@/constants/serviceCopy";
 import { useServiceCopyTier } from "@/hooks/useServiceCopyTier";
-import { CardShadow } from "@/constants/theme";
+import { BrandColors, CardShadow } from "@/constants/theme";
 
 interface ServiceInfoSheetProps {
   slug: string;
@@ -166,8 +166,9 @@ function ServiceHeader({
           {tabLabel.toUpperCase()}
         </Text>
         <Text
-          weight="bold"
-          color="#0F172A"
+          size={28}
+          weight="extraBold"
+          color={BrandColors.primary}
           style={styles.headerTitle}
           numberOfLines={2}
         >
@@ -268,8 +269,6 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   headerTitle: {
-    fontSize: 22,
-    lineHeight: 28,
   },
 
   // ── Quick look card ──────────────────────────────────────

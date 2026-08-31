@@ -65,7 +65,8 @@ import { useUserFromConvex } from "@/hooks/useUserFromConvex";
 import { useVehicleOwnershipFromConvex } from "@/hooks/useVehicleOwnershipFromConvex";
 import { useMergedMaintenance } from "@/hooks/useMaintenanceData";
 import { useOemServiceIntervals, useVehicleFallbackProfile } from "@/hooks/useOemServiceIntervals";
-import { useUrgencyRankedItems } from "@/hooks/useUrgencyRankedItems";
+import { useUrgencyRankedItems, type RankedMaintenanceItem } from "@/hooks/useUrgencyRankedItems";
+
 import { useDriverRecommendationsFromConvex } from "@/hooks/useDriverRecommendationsFromConvex";
 import { useBookingStore } from "@/stores/useBookingStore";
 import {
@@ -818,6 +819,9 @@ export default function CarsHomeScreen() {
   const autoCompleteNewVehicle = useMutation(api.vehicles.autoCompleteNewVehicleOnboarding);
   const saveVehicleImageUrl = useMutation(api.vehicles.saveVehicleImageUrl);
   const clearVehicleImageUrl = useMutation(api.vehicles.clearVehicleImageUrl);
+  // Marks a resolved maintenance item as seen when the driver taps its
+  // "Resolved by [shop]" card, so it folds back into Healthy afterward.
+  const acknowledgeResolution = useMutation(api.maintenance.acknowledgeResolution);
   const [vehicleImageUrls, setVehicleImageUrls] = useState<Record<string, string>>({});
 
   // Use cached image_url from Convex, or fetch from API and save it
@@ -1315,6 +1319,28 @@ export default function CarsHomeScreen() {
     mergedMaintenanceItems,
     activeVehicle?.vin,
   );
+
+  // Split resolved-by-booking items out of the urgency tiers into their own list
+  // so the tracker can render a dedicated "Resolved" section instead of crowding
+  // NOW. Once a booking closes an item out its urgency drops (it would otherwise
+  // sink into Resting), but we want the driver to SEE the green "Resolved by
+  // [shop] →" card before it folds into Healthy (after they tap it). Leaves the
+  // urgency math (utils/urgency.ts) untouched.
+  const { tieredItems: tieredItemsNoResolved, resolvedItems } = useMemo(() => {
+    const buckets = urgencyTierBuckets;
+    const resolved: RankedMaintenanceItem[] = [];
+    const rebuilt = {} as typeof buckets;
+    for (const tier of Object.keys(buckets) as (keyof typeof buckets)[]) {
+      rebuilt[tier] = buckets[tier].filter((r) => {
+        if (r.item.resolvedByBookingId) {
+          resolved.push(r);
+          return false;
+        }
+        return true;
+      });
+    }
+    return { tieredItems: rebuilt, resolvedItems: resolved };
+  }, [urgencyTierBuckets]);
 
   // HP buffer for the active vehicle — every 15 HP yields +1 on the
   // displayed score, capped at +3 (Rewards Framework v3 §11).
@@ -2416,7 +2442,8 @@ export default function CarsHomeScreen() {
             <MaintenanceTracker
               key={activeVehicle?.vin ?? "no-vehicle"}
               items={mergedMaintenanceItems}
-              tieredItems={urgencyTierBuckets}
+              tieredItems={tieredItemsNoResolved}
+              resolvedItems={resolvedItems.map((r) => r.item)}
               openItemId={params.openItemDetail}
               vehicleCondition={computedHealthScore}
               healthScoreInput={healthScoreInput}
@@ -2537,6 +2564,25 @@ export default function CarsHomeScreen() {
                 const type = id.replace(/^(unknown-|user-)/, "") as MaintenanceType;
                 setMaintenanceModalType(type);
                 setMaintenanceModalVisible(true);
+              }}
+              onResolvedPress={(item) => {
+                const bookingId = item.resolvedByBookingId;
+                if (!bookingId) return;
+                // Ack so it folds into Healthy on the next render, then open the
+                // past-service that closed it out.
+                if (activeOwnershipId) {
+                  void acknowledgeResolution({
+                    vehicleOwnerId: activeOwnershipId,
+                    // resolvedRecordType is the exact anchor row (e.g.
+                    // minor_cool_condition for a catalog-coolant_flush card);
+                    // fall back to the id-derived type for anchored items.
+                    type: item.resolvedRecordType ?? extractMaintenanceType(item.id),
+                  });
+                }
+                router.push({
+                  pathname: "/settings/past-service/[bookingId]",
+                  params: { bookingId },
+                });
               }}
               onEditPressed={() => openEditPicker()}
             />

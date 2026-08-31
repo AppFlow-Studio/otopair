@@ -67,12 +67,14 @@ import { useBookableServices } from "@/hooks/useBookableServices";
 import { useBookingLaborHoursMap } from "@/hooks/useBookingLaborHoursMap";
 import { useServiceVehicleSpecsForEngine } from "@/hooks/useServiceVehicleSpecsForEngine";
 import { useVehicleReadiness } from "@/hooks/useVehicleReadiness";
+import { useToast } from "@/hooks/useToast";
 import { formatDurationForCar } from "@/lib/formatDuration";
 import { isApplicable } from "@/lib/serviceApplicability";
 import type { Service } from "@/stores/types/store.types";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 import { useShopStore } from "@/stores/useShopStore";
+import { hasConsistentBasketVehicle } from "@/utils/bookingVehicle";
 
 // Fixed-height frosted sheet — content scrolls inside, sheet itself
 // doesn't move. Mirrors Screen 1 (select-services.tsx). Previously a
@@ -150,6 +152,8 @@ export default function CategoryDetailScreen() {
 
   // Booking-store reads
   const selectedServiceIds = useBookingStore((s) => s.selectedServiceIds);
+  const selectedServiceVehicleVins = useBookingStore((s) => s.selectedServiceVehicleVins);
+  const selectedVehicleVin = useBookingStore((s) => s.selectedVehicleVin);
   const toggleServiceSelection = useBookingStore((s) => s.toggleServiceSelection);
   const availableServices = useBookingStore((s) => s.availableServices);
   const selectedDiagnosticSystem = useBookingStore((s) => s.selectedDiagnosticSystem);
@@ -161,6 +165,7 @@ export default function CategoryDetailScreen() {
   //   2. The service list below is filtered to what the shop offers
   //      so the user can't pick something unbookable here.
   const preSelectedShopId = useBookingStore((s) => s.preSelectedShopId);
+  const toast = useToast();
   const getShopById = useShopStore((s) => s.getShopById);
   const shopServiceIdSet = useMemo(() => {
     if (!preSelectedShopId) return null;
@@ -168,6 +173,29 @@ export default function CategoryDetailScreen() {
     if (!shop) return null;
     return new Set(shop.serviceIds);
   }, [preSelectedShopId, getShopById]);
+
+  const handleContinue = useCallback(() => {
+    if (!hasConsistentBasketVehicle({
+      serviceIds: selectedServiceIds,
+      serviceVehicleVins: selectedServiceVehicleVins,
+      basketVehicleVin: selectedVehicleVin,
+    })) {
+      toast.error(
+        "Services are for different vehicles",
+        "Please select services for one vehicle before continuing.",
+      );
+      return;
+    }
+
+    routeToNextBookingStep(router, preSelectedShopId);
+  }, [
+    preSelectedShopId,
+    router,
+    selectedServiceIds,
+    selectedServiceVehicleVins,
+    selectedVehicleVin,
+    toast,
+  ]);
 
   // Service-option sheets — opened on tap for services that need a choice
   // before they enter the cart (brake pads → Front/Rear/Both, battery →
@@ -656,7 +684,7 @@ export default function CategoryDetailScreen() {
       {/* Sticky Continue bar (over the sheet) */}
       <StickyContinueBar
         count={selectedServiceIds.length}
-        onPress={() => routeToNextBookingStep(router, preSelectedShopId)}
+        onPress={handleContinue}
       />
 
       {/* Cart review FAB — sits above the Continue pill at the

@@ -129,7 +129,12 @@ export function biggerServiceCandidates(
     // snapped to the bounds floor by `safeInterval`, and a floored guess is
     // worse than the class table — that is what produced "brake fluid every
     // 15,000 miles" (the floor) on a car whose class says 24 months.
-    const useOem = !!oem?.interval_miles && isTrustedInterval(oem);
+    // Same rule as the tracker's catalog pass: prefer the class table over an
+    // untrusted enrichment value, but only when there IS a class value. With
+    // nothing to fall back to, a floored guess beats dropping the row.
+    const useOem =
+      !!oem?.interval_miles &&
+      (isTrustedInterval(oem) || (fromClass?.miles ?? null) == null);
     const miles = useOem
       ? safeInterval({
           slug,

@@ -8,7 +8,7 @@ const vehicleStore = readFileSync(join(root, "stores/useVehicleStore.ts"), "utf8
 
 describe("vehicle switch clears booking service state", () => {
   test("clearSelectedServices clears selected services, options, and diagnostic state", () => {
-    expect(bookingStore).toMatch(/clearSelectedServices:\s*\(\)\s*=>\s*\n\s*set\(\{\s*selectedServiceIds:\s*\[\],\s*selectedVehicleVin:\s*null,\s*selectedServiceOptions:\s*\{\},\s*selectedDiagnosticSystem:\s*null,\s*customerNotes:\s*""/s);
+    expect(bookingStore).toMatch(/clearSelectedServices:\s*\(\)\s*=>\s*\n\s*set\(\{\s*selectedServiceIds:\s*\[\],\s*selectedServiceVehicleVins:\s*\{\},\s*selectedVehicleVin:\s*null,\s*selectedServiceOptions:\s*\{\},\s*selectedDiagnosticSystem:\s*null,\s*customerNotes:\s*""/s);
   });
 
   test("selectVehicle clears booking services only when the vehicle changes", () => {

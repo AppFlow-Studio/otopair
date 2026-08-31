@@ -61,6 +61,22 @@ interface MaintenanceRecord {
  * Fetches all maintenance_records for a vehicle and converts each to a MaintenanceItem
  * using the status calculation logic.
  */
+/**
+ * `maintenance_records.lastServiceDate` is `v.union(v.string(), v.number())`
+ * in the schema, but every consumer treats it as an epoch and does arithmetic
+ * on it — `now - lastServiceDate`. A string reaching that maths yields NaN and
+ * an item silently scores as though it had no anchor at all.
+ *
+ * So the coercion happens once, here, where the database shape meets ours,
+ * rather than being defended against in each of the dozen readers.
+ */
+function toEpoch(v: string | number | undefined): number | undefined {
+  if (v == null) return undefined;
+  if (typeof v === "number") return Number.isFinite(v) ? v : undefined;
+  const parsed = Date.parse(v);
+  return Number.isNaN(parsed) ? undefined : parsed;
+}
+
 export function useMaintenanceRecords(
   vehicleOwnerId: Id<"vehicle_owners"> | undefined,
   currentOdometer: number | null,
@@ -96,7 +112,7 @@ export function useMaintenanceRecords(
     return buildMaintenanceItems(
       records.map((rec) => ({
         type: rec.type,
-        lastServiceDate: rec.lastServiceDate ?? undefined,
+        lastServiceDate: toEpoch(rec.lastServiceDate),
         lastServiceMileage: rec.lastServiceMileage ?? undefined,
         customInputs: rec.customInputs as Record<string, unknown> | undefined,
         confirmedHealthyAt: rec.confirmedHealthyAt ?? undefined,
@@ -180,7 +196,8 @@ export function useMergedMaintenance(
     () =>
       buildMergedMaintenanceItems({
         userItems,
-        records: records ?? undefined,
+        // Same epoch coercion as above: the merge path reads the raw rows.
+        records: records?.map((r) => ({ ...r, lastServiceDate: toEpoch(r.lastServiceDate) })),
         knownIssues,
         vehicleYear,
         driverRecommendations,

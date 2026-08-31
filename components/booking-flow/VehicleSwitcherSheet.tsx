@@ -24,6 +24,7 @@ import { Text } from "@/components/shared-ui";
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
 import { GlassSheetBackground } from "@/components/booking-flow/GlassSheet";
 import { useVehicleStore } from "@/stores/useVehicleStore";
+import { BrandColors } from "@/constants/theme";
 import {
   getCappedSheetHeight,
   getOverlayClearance,
@@ -83,7 +84,7 @@ export function VehicleSwitcherSheet({ onClose }: VehicleSwitcherSheetProps) {
       backgroundElement={<GlassSheetBackground style={StyleSheet.absoluteFill} />}
     >
       <View style={styles.body}>
-        <Text size="xl" weight="bold" color="#0F172A" style={styles.title}>
+        <Text size={28} weight="extraBold" color={BrandColors.primary} style={styles.title}>
           Choose a vehicle
         </Text>
         {vehicleIds.length === 0 ? (
@@ -156,8 +157,6 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   title: {
-    fontSize: 20,
-    lineHeight: 24,
     marginBottom: 14,
   },
   empty: {
