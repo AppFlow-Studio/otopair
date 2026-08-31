@@ -8,8 +8,11 @@
  * last touched it:
  *   • LEGACY sentinel-prefixed — `[status, ...lights]` where `status` is one of
  *     `no_all_clear | check_engine | other | not_sure | different_light`.
- *     Written by the onboarding stepper (convex/vehicles.ts) +
- *     autoCompleteNewVehicleOnboarding.
+ *     Written by the onboarding stepper (convex/vehicles.ts). Historical
+ *     note: `autoCompleteNewVehicleOnboarding` also used to write
+ *     `["no_all_clear"]` on the driver's behalf; that was removed by
+ *     Quick Check v2 §3 — the lights question is now always asked, for
+ *     every car.
  *   • FLAT code-set — a bare list of light-id codes, no sentinel. Written by the
  *     quarterly check-in (convex/checkin.ts) and by Oto (convex/vehicleTruth.ts
  *     applyVehicleTruth, which raw-appends).
