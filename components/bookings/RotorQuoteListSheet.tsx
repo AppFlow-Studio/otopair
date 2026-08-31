@@ -11,7 +11,7 @@
  * USED IN: app/(main-tabs)/bookings/index.tsx
  */
 
-import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useState } from "react";
+import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from "react";
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
 
 import { X } from "lucide-react-native";
@@ -27,7 +27,6 @@ import { formatPadTypeLabel, type RotorQuote } from "@/constants/rotorFlow";
 import { hhmmToDisplayTime, isQuotedSlotBookable } from "@/utils/timeSlotUtils";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { useBookingStore } from "@/stores/useBookingStore";
-import { QuoteUnavailableSheet } from "@/components/bookings/QuoteUnavailableSheet";
 import type { QuoteUnavailableReason } from "@/utils/quoteAvailability";
 import { useToast } from "@/hooks/useToast";
 
@@ -102,16 +101,16 @@ export interface RotorQuoteListSheetRef {
 
 interface Props {
   onClose?: () => void;
+  /** Returns to the Quotes screen before showing the unavailable-quote message. */
+  onQuoteUnavailable?: (reason: QuoteUnavailableReason) => void;
 }
 
 export const RotorQuoteListSheet = forwardRef<RotorQuoteListSheetRef, Props>(
-  ({ onClose }, ref) => {
+  ({ onClose, onQuoteUnavailable }, ref) => {
     const insets = useSafeAreaInsets();
     const [visible, setVisible] = useState(false);
     const [bookingId, setBookingId] = useState<string | null>(null);
     const [vehicleVin, setVehicleVin] = useState<string | null>(null);
-    const [unavailableReason, setUnavailableReason] = useState<QuoteUnavailableReason | null>(null);
-
     const router = useRouter();
     const convex = useConvex();
     const toast = useToast();
@@ -124,7 +123,6 @@ export const RotorQuoteListSheet = forwardRef<RotorQuoteListSheetRef, Props>(
 
     useImperativeHandle(ref, () => ({
       open: (id, vin) => {
-        setUnavailableReason(null);
         setBookingId(id);
         setVehicleVin(vin);
         setVisible(true);
@@ -139,6 +137,15 @@ export const RotorQuoteListSheet = forwardRef<RotorQuoteListSheetRef, Props>(
       setVisible(false);
       onClose?.();
     };
+
+    const handleQuoteUnavailable = useCallback(
+      (reason: QuoteUnavailableReason) => {
+        setVisible(false);
+        onClose?.();
+        onQuoteUnavailable?.(reason);
+      },
+      [onClose, onQuoteUnavailable],
+    );
 
     const adapted = useMemo<RotorQuote[]>(() => {
       if (!responses || responses.length === 0) return [];
@@ -185,10 +192,10 @@ export const RotorQuoteListSheet = forwardRef<RotorQuoteListSheetRef, Props>(
           result?.available === false,
         );
       if (unavailable.length === 0) return;
-      setUnavailableReason(
+      handleQuoteUnavailable(
         unavailable.every((result) => result.reason === "expired") ? "expired" : "cancelled",
       );
-    }, [adapted.length, responses, visible]);
+    }, [adapted.length, handleQuoteUnavailable, responses, visible]);
 
     const { best, others } = useMemo(() => {
       if (adapted.length === 0) return { best: null, others: [] as RotorQuote[] };
@@ -214,7 +221,7 @@ export const RotorQuoteListSheet = forwardRef<RotorQuoteListSheetRef, Props>(
         return;
       }
       if (!availability.available) {
-        setUnavailableReason(availability.reason);
+        handleQuoteUnavailable(availability.reason);
         return;
       }
 
@@ -360,12 +367,6 @@ export const RotorQuoteListSheet = forwardRef<RotorQuoteListSheetRef, Props>(
               </>
             )}
           </ScrollView>
-          <QuoteUnavailableSheet
-            visible={unavailableReason != null}
-            reason={unavailableReason ?? "unavailable"}
-            onDismiss={() => setUnavailableReason(null)}
-            renderInModal={false}
-          />
         </View>
       </Modal>
     );
