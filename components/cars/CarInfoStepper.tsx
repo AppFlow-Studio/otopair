@@ -48,6 +48,10 @@ import { BrakesIcon, TireIcon, OilIcon, BatteryIcon, WarningIcon } from "@/compo
 import SquircleRing from "@/components/cars/SquircleRing";
 import { QuickCheckSheet } from "@/components/cars/quickcheck/QuickCheckSheet";
 import type { QuickCheckAnswer } from "@/components/cars/quickcheck/tileSpecs";
+import {
+  quickCheckRecordWrites,
+  type QuickCheckServiceTile,
+} from "@/utils/quickCheckAnchor";
 
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -467,6 +471,7 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
   );
   const firedSet = useMemo(() => new Set<QuickCheckTileId>(fired), [fired]);
   const saveField = useMutation(api.vehicles.saveOnboardingField);
+  const upsertRecord = useMutation(api.maintenance.upsertRecord);
   const saveServiceHistoryDraft = useMutation(api.vehicle_owners.saveServiceHistoryDraft);
   const markComplete = useMutation(api.vehicle_owners.markOnboardingComplete);
 
@@ -687,16 +692,79 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
     goBack: () => { if (activeCard) handleOverlayDismiss(); },
   }), [activeCard, handleOverlayDismiss]);
 
-  // ── Complete handler (all 5 answered → "Complete" button) ──────────
+  /**
+   * Write every answered tile.
+   *
+   * Two things about the order matter, both load-bearing:
+   *
+   * 1. Service records go through `api.maintenance.upsertRecord` rather than
+   *    `saveOnboardingField`. The latter parses the v1 answer shape — recency
+   *    buckets and per-tile follow-up ids — which v2 no longer produces, so it
+   *    would quietly write nothing. `upsertRecord` takes the anchor directly.
+   *
+   * 2. Warning lights are written LAST, after every record. `upsertRecord`
+   *    clears the matching light from `knownIssues` when a service is recorded
+   *    done (convex/maintenance.ts) — so "oil changed in March" wipes an
+   *    active oil-pressure light. Writing the driver's own lights answer after
+   *    all of them makes the driver's answer the one that survives.
+   *
+   * Sequential `await`s on purpose: `upsertRecord` schedules the maintenance
+   * pipeline on every call, and awaiting lets the scheduler coalesce them
+   * instead of firing one run per record.
+   */
+  const persistAnswers = useCallback(async () => {
+    // Explicit list rather than `fired` itself: `fired` also carries
+    // `biggerServices`, which writes catalog rows through its own path.
+    const serviceTiles: QuickCheckServiceTile[] = ["oil", "tires", "brakes", "battery"];
+    for (const tileId of serviceTiles) {
+      if (!firedSet.has(tileId)) continue;
+      const answer = serviceAnswers[tileId] as unknown as QuickCheckAnswer | undefined;
+      if (!answer?.answerType) continue;
+
+      const writes = quickCheckRecordWrites(
+        tileId,
+        answer,
+        {
+          currentOdometer: currentMiles ?? null,
+          avgMonthlyDriving,
+          vehicleYear,
+        },
+      );
+      for (const w of writes) {
+        await upsertRecord({ vehicleOwnerId, ...w });
+      }
+    }
+
+    // Lights last. See (2) above.
+    const lights = serviceAnswers["warningLights"] as unknown as QuickCheckAnswer | undefined;
+    if (lights?.answerType) {
+      // The `knownIssues` field rather than `warningLights`: the latter
+      // prepends a `status` sentinel to whatever lights are listed, and v2 has
+      // no sentinel that means "yes, and here they are" — every candidate
+      // (`other`, `different_light`) is itself a bare marker, so it would ride
+      // along as a phantom sixth issue. Writing the array directly says
+      // exactly what the driver said.
+      //
+      // `no_all_clear` is the canonical "nothing lit" marker; `not_sure` is
+      // its own answer and deliberately NOT a lit light — conflating them is
+      // the bug where "not sure if one is on" scored as a confirmed
+      // unidentified light.
+      const issues =
+        lights.answerType === "when" ? (lights.lights ?? [])
+          : lights.answerType === "never" ? ["no_all_clear"]
+            : ["not_sure"];
+      await saveField({ vehicleOwnerId, field: "knownIssues", value: issues });
+    }
+  }, [
+    firedSet, serviceAnswers, vehicleOwnerId, currentMiles,
+    avgMonthlyDriving, vehicleYear, upsertRecord, saveField,
+  ]);
+
+  // ── Complete handler (all tiles answered → "Complete" button) ──────
   const handleComplete = useCallback(async () => {
     setSaving(true);
     try {
-      for (const cardId of fired as ServiceCardId[]) {
-        const answers = serviceAnswers[cardId];
-        if (answers && Object.keys(answers).length > 0) {
-          await saveField({ vehicleOwnerId, field: cardId, value: answers });
-        }
-      }
+      await persistAnswers();
       await markComplete({ vehicleOwnerId });
       onComplete();
     } catch (err) {
@@ -705,7 +773,7 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
     } finally {
       setSaving(false);
     }
-  }, [fired, vehicleOwnerId, serviceAnswers, saveField, markComplete, onComplete]);
+  }, [persistAnswers, vehicleOwnerId, markComplete, onComplete]);
 
   // ── Finish-for-now handler (partial exit) ──────────────────────────
   // Saves any answered fields (so progress isn't lost on re-open) but
@@ -718,12 +786,7 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
   const handleFinishForNow = useCallback(async () => {
     setSaving(true);
     try {
-      for (const cardId of fired as ServiceCardId[]) {
-        const answers = serviceAnswers[cardId];
-        if (answers && Object.keys(answers).length > 0) {
-          await saveField({ vehicleOwnerId, field: cardId, value: answers });
-        }
-      }
+      await persistAnswers();
       // Persist the raw draft so re-opening the sheet rehydrates the
       // already-answered cards as complete. `displayedCompleted` folds in
       // any card mid-settle so nothing is dropped if the user exits fast.
@@ -743,7 +806,7 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
     } finally {
       setSaving(false);
     }
-  }, [fired, vehicleOwnerId, serviceAnswers, serviceQuestionIndex, serviceProgress, displayedCompleted, saveField, saveServiceHistoryDraft, onFinishForNow, onComplete]);
+  }, [persistAnswers, vehicleOwnerId, serviceAnswers, serviceQuestionIndex, serviceProgress, displayedCompleted, saveServiceHistoryDraft, onFinishForNow, onComplete]);
 
   // ── All-done state ──────────────────────────────────────────
   // Every tile this car was actually asked. A one-tile car is "all done" after

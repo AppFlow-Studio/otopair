@@ -89,8 +89,11 @@ const AVG_MONTHLY_DRIVING_MAP: Record<string, number> = {
   heavy: 1500,   // ~18,000 mi/year
 };
 
-/** Resolve the user-selected driving level to miles/month. Falls back to 1000. */
-function getMonthlyMiles(avgMonthlyDriving?: string): number {
+/** Resolve the user-selected driving level to miles/month. Falls back to 1000.
+ *  Exported for `utils/quickCheckAnchor.ts`, which converts a Quick Check date
+ *  answer into an odometer reading and must use the same three numbers — a
+ *  second copy of the map is a silent drift waiting to happen. */
+export function getMonthlyMiles(avgMonthlyDriving?: string): number {
   if (!avgMonthlyDriving) return 1000;
   return AVG_MONTHLY_DRIVING_MAP[avgMonthlyDriving.toLowerCase()] ?? 1000;
 }
@@ -1125,6 +1128,31 @@ function computeTireStatusCore(
         detail: formatRelativeTime(record.lastServiceDate, now),
       };
     }
+  }
+
+  // Quick Check v2: "losing air" is a live symptom, and the v1 vocabulary has
+  // no field for it — `tireRepaired` means a puncture was already patched,
+  // which is a different thing with different copy. Handled the same way
+  // though: a symptom outranks a healthy interval, because a tire that is
+  // losing air now does not care how new it is.
+  const tireSymptom = record.customInputs?.symptom as string | undefined;
+  if (tireSymptom === "losing_air" || tireSymptom === "vibration") {
+    const intervalResult = record.lastServiceDate
+      ? computeHybridStatus("tires", record, currentOdometer, make, now, drivingConditions, avgMonthlyDriving, oemIntervals, classCtx)
+      : null;
+    const label = tireSymptom === "losing_air" ? "Losing air" : "Vibration";
+    const worstStatus: MaintenanceStatus =
+      intervalResult && (intervalResult.status === "overdue" || intervalResult.status === "due_soon")
+        ? intervalResult.status
+        : "needs_attention";
+    return {
+      status: worstStatus,
+      percentUsed: Math.max(60, intervalResult?.percentUsed ?? 0),
+      description: intervalResult
+        ? `${label} · ${intervalResult.description}`
+        : `${label} — inspection recommended`,
+      detail: "Check soon",
+    };
   }
 
   // Quick Read: patched/plugged tire — flag regardless of interval status
