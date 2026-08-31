@@ -149,6 +149,28 @@ describe("interval source", () => {
     expect(c?.intervalMiles).toBe(40_000);
   });
 
+  it("ignores an UNTRUSTED enrichment interval in favour of the class table", () => {
+    // The pipeline writes `default_fallback` rows at confidence 0.5.
+    // safeInterval snaps those to the bounds floor, which produced "brake
+    // fluid every 15,000 mi" — the floor itself — on a Class B car whose table
+    // says 24 months. A floored guess is worse than our own constant.
+    const plugs = biggerServiceCandidates(A({
+      currentOdometer: 100_000,
+      oemIntervals: { spark_plugs: { interval_miles: 60_000, confidence: 0.5 } },
+    })).find((c) => c.slug === "spark_plugs");
+    expect(plugs?.intervalMiles).toBe(90_000);
+  });
+
+  it("accepts a mechanic-verified interval however low its confidence", () => {
+    const plugs = biggerServiceCandidates(A({
+      currentOdometer: 100_000,
+      oemIntervals: {
+        spark_plugs: { interval_miles: 60_000, confidence: 0, mechanic_verified: true },
+      },
+    })).find((c) => c.slug === "spark_plugs");
+    expect(plugs?.intervalMiles).toBe(60_000);
+  });
+
   it("skips a service with no interval from either tier", () => {
     const none = biggerServiceCandidates(A({ vehicleClass: null }));
     expect(none).toEqual([]);

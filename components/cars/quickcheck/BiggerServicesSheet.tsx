@@ -11,7 +11,7 @@
  * services we are least entitled to expect an answer about.
  */
 import React, { useEffect, useRef } from "react";
-import { Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { Dimensions, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { Check, ChevronRight } from "lucide-react-native";
 
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
@@ -28,6 +28,7 @@ const TEXT_SECONDARY = "#6B7280";
 const TEXT_MUTED = "#9CA3AF";
 
 const SHEET_MIN = 300;
+const SHEET_MAX = Math.round(Dimensions.get("window").height * 0.82);
 const SHEET_CHROME = 34;
 
 function formatMiles(n: number): string {
@@ -64,14 +65,23 @@ export function BiggerServicesSheet({
   return (
     <FloatingSheet
       ref={sheetRef}
-      snapHeights={[Math.max(SHEET_MIN, contentHeight + SHEET_CHROME)]}
+      snapHeights={[Math.min(SHEET_MAX, Math.max(SHEET_MIN, contentHeight + SHEET_CHROME))]}
       showBackdrop
+      liftWithKeyboard
       floatBottomInset={12}
+      // Rendered inline, not in a native Modal. This sheet opens from inside
+      // the stepper, which is ITSELF presented in a Modal, and a
+      // modal-over-modal on iOS came up visible but completely inert — no row,
+      // no button, not even the backdrop responded to a touch. There is no tab
+      // bar behind the stepper for the Modal to sit above, which is the only
+      // thing it buys.
+      renderInModal={false}
       onClose={onClose}
     >
       <ScrollView
         contentContainerStyle={styles.body}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
         onContentSizeChange={(_w, h) => setContentHeight(h)}
       >
         <Text weight="bold" size="xl" color={TEXT_PRIMARY}>

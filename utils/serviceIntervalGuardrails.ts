@@ -75,7 +75,7 @@ export function safeInterval(input: SafeIntervalInput): number | null {
   // fall back to the conservative default; else return the raw value
   // (best effort — nothing safer available).
   const conf = confidence ?? 0;
-  const trusted = mechanic_verified === true || conf >= 0.75;
+  const trusted = isTrustedInterval(input);
   if (!trusted) {
     if (bounds) return bounds[0];
     return CONSERVATIVE_DEFAULTS_MI[slug] ?? interval_miles;
@@ -112,4 +112,24 @@ export function clampClassIntervalToBounds(
   if (!bounds) return miles;
   const [floor, ceiling] = bounds;
   return Math.min(ceiling, Math.max(floor, miles));
+}
+
+/**
+ * Is a stored interval trustworthy enough to use as-is?
+ *
+ * The same test `safeInterval` applies internally, exported because callers
+ * need to make a DIFFERENT decision with the answer. `safeInterval` responds
+ * to an untrusted value by snapping it to the bounds floor, which is the right
+ * move when that value is all you have. It is the wrong move when a class
+ * default is also available: the pipeline writes `default_fallback` rows at
+ * confidence 0.5, and flooring one gave "brake fluid every 15,000 miles" —
+ * the floor itself — on a car whose class says 24 months. A floored guess is
+ * worse information than our own engineering table, so callers with both
+ * should prefer the table.
+ */
+export function isTrustedInterval(input: {
+  confidence?: number | null;
+  mechanic_verified?: boolean;
+}): boolean {
+  return input.mechanic_verified === true || (input.confidence ?? 0) >= 0.75;
 }

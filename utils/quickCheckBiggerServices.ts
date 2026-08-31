@@ -24,6 +24,7 @@ import { classInterval, type ClassIntervalOptions } from "@/utils/classIntervals
 import type { VehicleClass } from "@/utils/vehicleClass";
 import {
   clampClassIntervalToBounds,
+  isTrustedInterval,
   safeInterval,
 } from "@/utils/serviceIntervalGuardrails";
 import { TAXONOMY } from "@/constants/serviceTaxonomy";
@@ -124,12 +125,17 @@ export function biggerServiceCandidates(
     // must disappear rather than fall through to a default.
     if (fromClass === null && !oem?.interval_miles) continue;
 
-    const miles = oem?.interval_miles
+    // Enrichment wins only when it is trustworthy. An untrusted row gets
+    // snapped to the bounds floor by `safeInterval`, and a floored guess is
+    // worse than the class table — that is what produced "brake fluid every
+    // 15,000 miles" (the floor) on a car whose class says 24 months.
+    const useOem = !!oem?.interval_miles && isTrustedInterval(oem);
+    const miles = useOem
       ? safeInterval({
           slug,
-          interval_miles: oem.interval_miles,
-          confidence: oem.confidence,
-          mechanic_verified: oem.mechanic_verified,
+          interval_miles: oem!.interval_miles!,
+          confidence: oem!.confidence,
+          mechanic_verified: oem!.mechanic_verified,
         })
       : clampClassIntervalToBounds(slug, fromClass?.miles ?? null);
     const months = fromClass?.months ?? null;

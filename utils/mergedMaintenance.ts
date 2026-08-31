@@ -32,6 +32,7 @@ import { buildWarningLightItem } from "@/lib/warningLightItems";
 import { canonicalWarningLights } from "@/lib/warningLightVocab";
 import {
   clampClassIntervalToBounds,
+  isTrustedInterval,
   safeInterval,
 } from "@/utils/serviceIntervalGuardrails";
 import { CLASS_INTERVAL_SLUGS, classInterval } from "@/utils/classIntervals";
@@ -506,12 +507,18 @@ export function buildMergedMaintenanceItems(
       // into 20,000. The confidence machinery defends against bad scraped
       // data, not against our own engineering constants; the bounds still
       // apply, the trust gate does not.
-      const bounded = enrichedInterval?.interval_miles
+      // ...and only when it is trustworthy. The pipeline writes
+      // `default_fallback` rows at confidence 0.5; `safeInterval` snaps those
+      // to the bounds floor, and a floored guess is worse information than the
+      // class table. Same rule as the Bigger Services tile so the two agree.
+      const useOem =
+        !!enrichedInterval?.interval_miles && isTrustedInterval(enrichedInterval);
+      const bounded = useOem
         ? safeInterval({
             slug,
-            interval_miles: enrichedInterval.interval_miles,
-            confidence: enrichedInterval.confidence,
-            mechanic_verified: enrichedInterval.mechanic_verified,
+            interval_miles: enrichedInterval!.interval_miles,
+            confidence: enrichedInterval!.confidence,
+            mechanic_verified: enrichedInterval!.mechanic_verified,
           })
         : clampClassIntervalToBounds(
             slug,
@@ -578,7 +585,7 @@ export function buildMergedMaintenanceItems(
           // when it is our class default, because claiming a manufacturer
           // schedule we do not have is the kind of false precision the
           // confidence hold exists to avoid.
-          interval: `${formatMileage(bounded)} (${enrichedInterval?.interval_miles ? "OEM" : "typical"})`,
+          interval: `${formatMileage(bounded)} (${useOem ? "OEM" : "typical"})`,
         },
       });
     }

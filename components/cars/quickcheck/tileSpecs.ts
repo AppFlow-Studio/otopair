@@ -162,7 +162,11 @@ export interface QuickCheckAnswer {
 export function catalogTileSpec(slug: string, label: string): TileSpec {
   return {
     id: slug,
-    question: `When was your ${label.toLowerCase()} last done?`,
+    // "When did you last have a brake fluid flush?" rather than "When was your
+    // brake fluid flush last done?" — the labels are already noun phrases for
+    // the work itself, so this is the phrasing that reads naturally across all
+    // of them.
+    question: `When did you last have a ${label.toLowerCase()}?`,
     subtitle: "Your answer replaces our estimate.",
     whenLabel: "I know roughly when",
     neverLabel: "Never on this car",

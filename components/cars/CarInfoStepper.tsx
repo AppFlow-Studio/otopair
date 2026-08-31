@@ -60,6 +60,7 @@ import {
   biggerServiceCandidates,
   type BiggerServiceCandidate,
 } from "@/utils/quickCheckBiggerServices";
+import { hydrateServiceHistoryDraft } from "@/utils/quickCheckDraft";
 import {
   useOemServiceIntervals,
   useVehicleFallbackProfile,
@@ -137,9 +138,11 @@ interface CarInfoStepperProps {
   vehicleConfigId?: Id<"vehicle_configs"> | null;
 }
 
+/** What this component writes. Reading is deliberately looser — see
+ *  `ServiceHistoryDraftRaw`, which is what actually comes back off a row that
+ *  may have been written by any earlier version. */
 interface ServiceHistoryDraft {
   answers?: Partial<Record<ServiceCardId, Record<string, string | number | string[]>>>;
-  questionIndex?: Partial<Record<ServiceCardId, number>>;
   progress?: Partial<Record<ServiceCardId, number>>;
   completed?: ServiceCardId[];
 }
@@ -688,9 +691,6 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
   const [serviceAnswers, setServiceAnswers] = useState<
     Partial<Record<ServiceCardId, Record<string, string | number | string[]>>>
   >({});
-  const [serviceQuestionIndex, setServiceQuestionIndex] = useState<
-    Partial<Record<ServiceCardId, number>>
-  >({});
   const [serviceProgress, setServiceProgress] = useState<
     Partial<Record<ServiceCardId, number>>
   >({});
@@ -702,12 +702,19 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
   const hydratedDraftRef = useRef(false);
   useEffect(() => {
     if (hydratedDraftRef.current || !initialDraft) return;
+    // Wait for the firing set — hydrating against an empty `fired` would
+    // discard everything.
+    if (fired.length === 0) return;
     hydratedDraftRef.current = true;
-    if (initialDraft.answers) setServiceAnswers(initialDraft.answers);
-    if (initialDraft.questionIndex) setServiceQuestionIndex(initialDraft.questionIndex);
-    if (initialDraft.progress) setServiceProgress(initialDraft.progress);
-    if (initialDraft.completed?.length) setCompletedCards(new Set(initialDraft.completed));
-  }, [initialDraft]);
+    // The draft is `v.any()` and outlives the code that wrote it, so every
+    // entry has to prove it is a v2 answer for a tile this car is still being
+    // asked about. A v1 draft otherwise rehydrates as ticked tiles that write
+    // nothing on Complete.
+    const hydrated = hydrateServiceHistoryDraft<ServiceCardId>(initialDraft, fired as ServiceCardId[]);
+    setServiceAnswers(hydrated.answers as typeof serviceAnswers);
+    setServiceProgress(hydrated.progress);
+    setCompletedCards(new Set(hydrated.completed));
+  }, [initialDraft, fired]);
 
   // ── Finalize completion after animation ─────────────────────
   useEffect(() => {
@@ -991,7 +998,6 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
         vehicleOwnerId,
         draft: {
           answers: serviceAnswers,
-          questionIndex: serviceQuestionIndex,
           progress: serviceProgress,
           completed: [...displayedCompleted],
         },
@@ -1003,7 +1009,7 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
     } finally {
       setSaving(false);
     }
-  }, [persistAnswers, vehicleOwnerId, serviceAnswers, serviceQuestionIndex, serviceProgress, displayedCompleted, saveServiceHistoryDraft, onFinishForNow, onComplete]);
+  }, [persistAnswers, vehicleOwnerId, serviceAnswers, serviceProgress, displayedCompleted, saveServiceHistoryDraft, onFinishForNow, onComplete]);
 
   // ── All-done state ──────────────────────────────────────────
   // Every tile this car was actually asked. A one-tile car is "all done" after
