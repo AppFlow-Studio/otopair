@@ -327,9 +327,65 @@ export const getVehicleBookingInfo = query({
  * recorded brand/model/run-flat so the mobile UI can pre-select tier hints.
  */
 export const getTireOptionsForVehicle = query({
-  args: { vin: v.string() },
+  args: {
+    vin: v.string(),
+    // Optional so unauthenticated / demo callers still get OEM sizes.
+    // When present, we also surface the tire set actually mounted on
+    // this owner's car so the Shop Tires screen can pre-select it.
+    vehicleOwnerId: v.optional(v.id("vehicle_owners")),
+  },
   handler: async (ctx, args) => {
-    return await resolveTireSizesForVin(ctx, args.vin);
+    const profile = await resolveTireSizesForVin(ctx, args.vin);
+
+    // "Mounted" = the tire set on the car right now (or last recorded).
+    // Prefer the owner-confirmed record (vehicle_owner_specs.tire_setup,
+    // written by recordTireSetup); fall back to the verified passport
+    // entry that resolveTireSizesForVin already surfaced. Null when we
+    // know nothing beyond the OEM defaults.
+    let mounted:
+      | {
+          sizeFront: string | null;
+          sizeRear: string | null;
+          brand: string | null;
+          model: string | null;
+        }
+      | null = null;
+
+    const ownerId = args.vehicleOwnerId;
+    if (ownerId) {
+      const specs = await ctx.db
+        .query("vehicle_owner_specs")
+        .withIndex("by_vehicle_owner", (q) =>
+          q.eq("vehicle_owner_id", ownerId),
+        )
+        .first();
+      const setup = specs?.tire_setup;
+      if (setup && (setup.front || setup.rear)) {
+        const front = setup.front?.size?.trim() || null;
+        const rear = setup.rear?.size?.trim() || null;
+        mounted = {
+          sizeFront: front,
+          // Collapse a rear that equals the front to a square setup.
+          sizeRear: rear && rear !== front ? rear : null,
+          brand: setup.front?.brand?.trim() || setup.rear?.brand?.trim() || null,
+          model: setup.front?.model?.trim() || setup.rear?.model?.trim() || null,
+        };
+      }
+    }
+
+    if (!mounted) {
+      const verified = profile.sizes.find((s) => s.source === "verified");
+      if (verified || profile.lastKnown.brand || profile.lastKnown.model) {
+        mounted = {
+          sizeFront: verified?.size ?? null,
+          sizeRear: verified?.sizeRear ?? null,
+          brand: profile.lastKnown.brand,
+          model: profile.lastKnown.model,
+        };
+      }
+    }
+
+    return { ...profile, mounted };
   },
 });
 
@@ -1861,18 +1917,16 @@ export const saveOnboardingField = mutation({
 });
 
 /**
- * Seed factory-fresh maintenance records for a genuinely new vehicle.
+ * Auto-seed factory-fresh maintenance records for genuinely new vehicles.
  *
- * Despite the name this no longer completes onboarding, and it is kept only
- * because the client and the pre-onboarding pipeline skip both reference it.
- * It writes healthy-default records — and nothing else. The driver still
- * answers the Quick Check, which is the point: the warning-lights question is
- * asked for every car, always (Quick Check v2 §3).
- *
- * Two guards, both learned the hard way:
- *   - it seeds only when `vehicle_age_years <= 1`, because "under 1,000 miles"
- *     caught eight-year-old low-mileage cars and invented a service history
- *     for them;
+ * This used to also write knownIssues:["no_all_clear"] and set
+ * onboardingComplete + award +5 HP. All three of those were removed:
+ *   - a fabricated "all clear" answered the warning-lights question on the
+ *     driver's behalf, so a genuinely lit dash scored as a clean one;
+ *   - burning `profile_complete` here denied the driver the points when they
+ *     actually finished the Quick Check;
+ *   - gating on `<=1000 miles` was catching eight-year-old low-mileage cars
+ *     and inventing ten factory-fresh service records for them;
  *   - it no-ops when records already exist, because it is no longer a one-shot
  *     now that `onboardingComplete` stays false.
  *
@@ -1938,7 +1992,7 @@ export const autoCompleteNewVehicleOnboarding = mutation({
     // then reports a fresh oil change that never happened. Age is what makes a
     // car factory-fresh, so seed only when the car is genuinely new and let
     // everything else answer for itself in the Quick Check.
-    const ageYears = owner.vehicle_age_years;
+    const ageYears = (owner as any).vehicle_age_years;
     const seeded = ageYears != null && ageYears <= 1;
 
     if (!seeded) {
