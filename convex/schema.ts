@@ -2887,6 +2887,16 @@ export default defineSchema({
         v.object({
           name: v.string(),
           duration_minutes: v.optional(v.float64()),
+          // Axle scope for a brake/rotor line added off-catalog. Originally-booked
+          // brake work carries its axle in selected_service_options; a line added
+          // mid-inspection has no such option, so the inspection's brake-axle
+          // scope (resolveBrakeScopeForBooking) reads it here instead. Defaults to
+          // "both" at add time for brake/rotor lines so the inspection never
+          // dead-ends on a missing axle; the mechanic can narrow it in the add UI.
+          // Absent on non-brake lines and on rows written before this shipped.
+          axle: v.optional(
+            v.union(v.literal("front"), v.literal("rear"), v.literal("both")),
+          ),
           // True while this off-catalog line is STAGED but not yet confirmed by
           // the customer — i.e. added mid-inspection ("Add to this job") / as
           // unforeseen scope, and awaiting approval of the pre_job / mid_job
@@ -4222,6 +4232,44 @@ export default defineSchema({
     .index("by_key_and_time", ["api_key_id", "created_at"])
     .index("by_created_at", ["created_at"]),
 
+  // Per-owner enrichment-run tracker for the self-serve Data API (OtoIndex
+  // /developers dashboard). One row per POST /v0/enrich that ACTUALLY schedules
+  // a run (202) — cache hits (200) never create a row. Drives (a) the live
+  // "Enrichment runs" card on the dashboard and (b) the queued/complete/failed
+  // emails. Status is reconciled off the config's enrichment_status by the
+  // `reconcile-data-api-enrich-runs` cron (see dataApiEnrich.ts) — this table
+  // is a view/notification ledger, NOT the pipeline's source of truth.
+  data_api_enrich_runs: defineTable({
+    owner_user_id: v.id("users"),
+    api_key_id: v.id("api_keys"),
+    vin: v.string(),
+    vehicle_id: v.optional(v.id("vehicles")),
+    config_key: v.optional(v.string()),
+    status: v.union(
+      v.literal("queued"),
+      v.literal("enriching"),
+      v.literal("complete"),
+      v.literal("failed"),
+    ),
+    // Denormalized identity for display + email (decoded at schedule time).
+    year: v.optional(v.number()),
+    make: v.optional(v.string()),
+    model: v.optional(v.string()),
+    trim: v.optional(v.string()),
+    fill_rate: v.optional(v.number()),
+    error: v.optional(v.string()),
+    queued_at: v.number(),
+    last_status_at: v.number(),
+    completed_at: v.optional(v.number()),
+    // Idempotency guards for the two emails (queued email fires at insert time,
+    // completion email once the reconcile cron sees a terminal status).
+    notified_queued: v.boolean(),
+    notified_complete: v.boolean(),
+  })
+    .index("by_owner", ["owner_user_id", "queued_at"])
+    .index("by_status", ["status"])
+    .index("by_vin", ["vin"]),
+
   // ── Otofacts Car Data API billing (spec: convex/CARDATA_BILLING_SPEC.md) ────
   // One row per billing subject (Clerk user). The LIVE source of truth for what
   // a self-serve key may do — dataApi.withApiKey resolves key → owner_user_id →
@@ -5091,6 +5139,16 @@ export default defineSchema({
     // service; a row WITHOUT it is genuine off-catalog work and stays isolated.
     // Null on all pre-existing rows and on every truly off-catalog job.
     catalog_service_id: v.optional(v.id("services")),
+
+    // Axle scope for a brake/rotor line (front/rear/both). Mirrors the axle
+    // stamped on the booking's custom_services entry — kept here too so the
+    // structured custom_jobs record is self-describing for the parts/labor
+    // reads that scan this table without loading the booking. Defaulted to
+    // "both" for brake/rotor lines at add time; absent on non-brake lines and
+    // on rows written before this shipped.
+    axle: v.optional(
+      v.union(v.literal("front"), v.literal("rear"), v.literal("both")),
+    ),
 
     // The reasoning. `complaint` is why the work happened, `resolution` is what
     // was actually done, `resolved_complaint` is whether it worked.

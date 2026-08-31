@@ -74,7 +74,29 @@ export function minBookableHHMM(now = new Date()): string {
   return `${hh}:${mm}`;
 }
 
-/** Whether a shop's quoted earliest slot may be offered as a fast path. */
+/**
+ * Current local wall-clock time as "HH:MM" (zero-padded, so a lexical string
+ * compare is chronological). This is the floor for a shop-held quoted slot,
+ * which is exempt from the customer's advance-notice window — see
+ * {@link isQuotedSlotBookable}.
+ */
+export function currentHHMM(now = new Date()): string {
+  const hh = String(now.getHours()).padStart(2, "0");
+  const mm = String(now.getMinutes()).padStart(2, "0");
+  return `${hh}:${mm}`;
+}
+
+/**
+ * Whether a shop's quoted earliest slot may be offered as a one-tap fast path.
+ *
+ * `serverAvailable` is the backend's `earliest_slot_available` flag: the quote
+ * is live, a mechanic is assigned, and that mechanic is free for the exact
+ * quoted window. That makes the slot a shop commitment, so it is deliberately
+ * exempt from the customer's 1-hour advance-notice window ({@link minBookableHHMM}),
+ * which only governs customer-initiated manual scheduling. The sole same-day
+ * gate is that the slot has not already started — the shop can offer, and the
+ * customer can accept, a held slot less than an hour out.
+ */
 export function isQuotedSlotBookable(
   date: string,
   time: string,
@@ -84,7 +106,7 @@ export function isQuotedSlotBookable(
   if (!serverAvailable) return false;
   const today = todayLocalISO(now);
   if (date !== today) return date > today;
-  return time >= minBookableHHMM(now);
+  return time >= currentHHMM(now);
 }
 
 export interface DateTimeFloor {
@@ -114,7 +136,10 @@ export function getPickerFloor(
   if (currentFloor.date !== quoteFloor.date) {
     return currentFloor.date > quoteFloor.date ? currentFloor : quoteFloor;
   }
-  return currentFloor.time >= quoteFloor.time ? currentFloor : quoteFloor;
+  // Same day: honor the shop's quoted time exactly, even when it falls inside
+  // the customer's advance-notice window. The shop held this slot, so the fast
+  // path must not clamp it up to today's manual-booking floor (minBookableHHMM).
+  return quoteFloor;
 }
 
 /** First candidate date that the availability queries explicitly returned. */

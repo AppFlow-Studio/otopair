@@ -62,6 +62,14 @@ export function useTimeSlotsForShop(
   mechanicId?: string | null,
   durationMinutes?: number,
   quoteContext?: QuoteHoldContext,
+  /**
+   * Overrides today's advance-notice floor for the same-day filter below.
+   * The earliest-time quote fast path passes the shop's quoted time here so a
+   * shop-held slot inside the 1-hour window still surfaces — see
+   * {@link isQuotedSlotBookable}. Omit it for manual scheduling to keep the
+   * default 1-hour lead time.
+   */
+  minStartTimeOverride?: string,
 ) {
   // Skip query for mock IDs (e.g. "1", "2") — only call Convex with real IDs
   const isRealShopId = shopId != null && shopId.length > 10;
@@ -89,7 +97,7 @@ export function useTimeSlotsForShop(
     // are unaffected. Keeping the rule here means no picker has to
     // re-implement it.
     const isToday = date === todayLocalISO();
-    const minTime = minBookableHHMM();
+    const minTime = minStartTimeOverride ?? minBookableHHMM();
     return (slots as TimeSlotRow[])
       .filter((s) => s.is_available)
       .filter((s) => !isToday || s.start_time >= minTime)
@@ -99,7 +107,7 @@ export function useTimeSlotsForShop(
         endTime: s.end_time,
         displayTime: hhmmToDisplayTime(s.start_time),
       }));
-  }, [slots, date]);
+  }, [slots, date, minStartTimeOverride]);
 
   // Sort by 24-hour `startTime` (HH:MM is lexically chronological) so the
   // list reads store-open → close. A naive sort on `displayTime` puts

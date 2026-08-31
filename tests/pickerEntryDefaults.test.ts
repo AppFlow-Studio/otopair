@@ -57,6 +57,18 @@ describe("date and mechanic picker entry defaults", () => {
     ).toEqual({ date: "2026-09-01", time: "17:00" });
   });
 
+  test("earliest-time fast path honors a same-day held slot inside the notice window", () => {
+    // Shop held a slot earlier than today's 1-hour manual-booking floor. The
+    // fast path must keep the shop's quoted time, not clamp it up.
+    expect(
+      getPickerFloor(
+        { date: "2026-08-28", time: "13:00" }, // today's notice floor (now + 1h)
+        { date: "2026-08-28", time: "12:30" }, // shop's held slot, 30 min out
+        true,
+      ),
+    ).toEqual({ date: "2026-08-28", time: "12:30" });
+  });
+
   test("selects the true first available date across a month boundary", () => {
     expect(
       findFirstAvailableDate(
