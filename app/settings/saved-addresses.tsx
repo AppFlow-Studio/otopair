@@ -289,7 +289,7 @@ export default function SavedAddressesScreen() {
         <View style={styles.sheetWrap}>
           <View style={styles.sheetHeader}>
             <View style={styles.sheetHeaderSide} />
-            <Text weight="bold" size="lg" color={BrandColors.primary}>
+            <Text size={28} weight="extraBold" color={BrandColors.primary}>
               {isEditMode ? "Edit Address" : "Add Address"}
             </Text>
             <Pressable

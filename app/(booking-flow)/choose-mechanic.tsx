@@ -1003,9 +1003,10 @@ export default function ChooseMechanicScreen() {
         maxDynamicContentSize={SHEET_MAX_HEIGHT}
         animationConfigs={sheetAnimationConfigs}
         detached
-        // Tuck the card just above the home indicator (lower than the
-        // default float) so it sits closer to the bottom edge.
-        bottomInset={Math.max(insets.bottom, 8)}
+        // TEMP: 0 pins the card flush to the bottom edge to confirm the
+        // mechanism; raise to the final resting gap (e.g. 8) to tuck it just
+        // above the home indicator.
+        bottomInset={8}
         style={styles.sheetFloat}
         backgroundStyle={styles.sheetBackground}
         handleIndicatorStyle={styles.sheetHandleIndicator}
@@ -1159,8 +1160,9 @@ const styles = StyleSheet.create({
   sheetBackground: {
     backgroundColor: "#FFFFFF",
     // All four corners rounded — the sheet floats (detached) above the
-    // bottom edge, so its bottom curves are visible too.
-    borderRadius: 32,
+    // bottom edge, so its bottom curves are visible too. Matches the shared
+    // FloatingSheet CORNER_RADIUS (46) so sheets across the app feel uniform.
+    borderRadius: 46,
   },
   sheetFloat: {
     // Side inset so the card doesn't touch the screen edges. The bottom
@@ -1169,7 +1171,8 @@ const styles = StyleSheet.create({
     // Clip to the animated sheet bounds so, as the sheet grows to fit the
     // opening accordion, the not-yet-covered rows are revealed cleanly from
     // the top edge instead of briefly floating over the map below it.
-    borderRadius: 32,
+    // 46 matches the shared FloatingSheet CORNER_RADIUS for a uniform look.
+    borderRadius: 46,
     overflow: "hidden",
   },
   sheetHandleIndicator: {

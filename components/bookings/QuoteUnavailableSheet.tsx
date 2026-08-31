@@ -38,7 +38,7 @@ export function QuoteUnavailableSheet({
       onClose={onDismiss}
     >
       <View style={styles.content}>
-        <Text size="lg" weight="bold" color={SemanticColors.textPrimary} center>
+        <Text size={28} weight="extraBold" color={BrandColors.primary} center>
           {copy.title}
         </Text>
         <Text size="sm" weight="regular" color={SemanticColors.textMuted} center style={styles.message}>

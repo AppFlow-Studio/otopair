@@ -48,7 +48,14 @@ import { useReanimatedKeyboardAnimation } from "react-native-keyboard-controller
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 
 const SIDE_INSET_MAX = 10;
-const FLOAT_BOTTOM = 12;
+// Resting float above the physical bottom edge. Every FloatingSheet tucks to
+// this same gap at its small/mid detent — single- or multi-snap — so the app's
+// sheets sit consistently close to the bottom instead of some floating higher
+// than others. Consumers can still override per-sheet via `floatBottomInset`;
+// the full detent still flattens this to 0.
+// TEMP: set to 0 to confirm the sheet touches the bottom edge, then raise to
+// the final resting gap (e.g. 8–12).
+const FLOAT_BOTTOM = 8;
 const CORNER_RADIUS = 46;
 
 const FLING_VELOCITY = 550;
@@ -159,7 +166,7 @@ export const FloatingSheet = forwardRef<FloatingSheetRef, FloatingSheetProps>(
     // Full-screen height cap — if the caller passes a H_MAX greater than
     // this, we still allow it (e.g. full snap pins to screen edges). The
     // floating progress interpolation is between H_MIN and H_MAX.
-    const FULL_HEIGHT = SCREEN_HEIGHT - Math.max(insets.top, 12) - 8;
+    const FULL_HEIGHT = SCREEN_HEIGHT - Math.max(12) - 50;
 
     const sheetHeight = useSharedValue(0);
     const startHeight = useSharedValue(0);
@@ -211,10 +218,7 @@ export const FloatingSheet = forwardRef<FloatingSheetRef, FloatingSheetProps>(
         // Full resting height immediately, then slide the sheet up from
         // fully below the screen — a rigid translate, so the content never
         // reflows and there's no "growing from a line" seam.
-        const singleSnap = snaps.length === 1;
-        const restingBottom = singleSnap
-          ? (floatBottomInset ?? Math.max(insets.bottom / 2, 4))
-          : (floatBottomInset ?? FLOAT_BOTTOM);
+        const restingBottom = floatBottomInset ?? FLOAT_BOTTOM;
         const offscreen = target + restingBottom + 48;
         entranceDistance.value = offscreen;
         sheetHeight.value = target;
@@ -298,13 +302,10 @@ export const FloatingSheet = forwardRef<FloatingSheetRef, FloatingSheetProps>(
     // Animated sheet chrome — insets + radius respond to how close we are
     // to the max snap. At max, bottom corners flatten and the sheet pins to
     // screen edges (if H_MAX is tall enough).
-    // Single-snap floating bottom — partial home-indicator clearance so the
-    // sheet tucks close to the bottom edge. Full `insets.bottom` felt too
-    // lifted on the requesting sheet; half gives a tight tuck while still
-    // floating visibly above the edge.
-    // Defaults to a half-home-indicator tuck; callers can pass
-    // `floatBottomInset` to sit the sheet lower (closer to the edge).
-    const singleSnapBottomInset = floatBottomInset ?? Math.max(insets.bottom / 2, 4);
+    // Single-snap floating bottom — the same ~20pt tuck used by multi-snap
+    // resting, so every sheet sits the same distance above the bottom edge.
+    // Callers can pass `floatBottomInset` to sit the sheet lower/higher.
+    const singleSnapBottomInset = floatBottomInset ?? FLOAT_BOTTOM;
 
     const sheetAnimStyle = useAnimatedStyle(() => {
       if (isSingleSnap) {

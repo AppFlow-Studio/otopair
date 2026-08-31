@@ -31,6 +31,7 @@ import { BookingDetailsSheet, type BookingDetailsSheetRef } from "@/components/b
 import { QuoteUnavailableSheet } from "@/components/bookings/QuoteUnavailableSheet";
 import { AvailabilityModal } from "@/components/booking/modals/AvailabilityModal";
 import { ScrollDrivenGradientBackground, Text } from "@/components/shared-ui";
+import { BrandColors } from "@/constants/theme";
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
 import { useMyBookingsWithDetails } from "@/hooks/useMyBookingsWithDetails";
 import { CustomerLateBanner } from "@/components/bookings/CustomerLateBanner";
@@ -708,7 +709,7 @@ export default function BookingsScreen() {
       showBackdrop
     >
       <View style={styles.sheetContent}>
-        <Text size="lg" weight="bold" color="#1A1A1A" style={styles.sheetTitle}>
+        <Text size={28} weight="extraBold" color={BrandColors.primary} style={styles.sheetTitle}>
           Choose a vehicle
         </Text>
         <ScrollView showsVerticalScrollIndicator={false}>

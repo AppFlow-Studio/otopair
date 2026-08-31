@@ -24,6 +24,7 @@ import Animated, {
 } from "react-native-reanimated";
 
 import { Text } from "@/components/shared-ui";
+import { BrandColors } from "@/constants/theme";
 import { TIRE_TIERS, TIRE_TYPES } from "@/constants/tireFlow";
 import { useTireBookingStore } from "@/stores/useTireBookingStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
@@ -86,7 +87,7 @@ export function QuoteRequestStatus({ onViewUpcoming, onGoBack, vehicleVin }: Pro
 
   return (
     <View style={styles.container}>
-      <Text size="xl" weight="bold" color="#1A1A1A" style={styles.title}>
+      <Text size={28} weight="extraBold" color={BrandColors.primary} style={styles.title}>
         Reaching out to shops…
       </Text>
 

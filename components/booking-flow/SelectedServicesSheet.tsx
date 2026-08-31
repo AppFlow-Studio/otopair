@@ -43,7 +43,7 @@ import {
 } from "@/components/shared-ui/FloatingSheet";
 import { getServiceIcon } from "@/components/booking-flow/serviceIcons";
 import { TAXONOMY } from "@/constants/serviceTaxonomy";
-import { CardShadow } from "@/constants/theme";
+import { BrandColors, CardShadow } from "@/constants/theme";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { useToast } from "@/hooks/useToast";
 import { routeToNextBookingStep } from "@/lib/bookingFlowNext";
@@ -210,7 +210,7 @@ export const SelectedServicesSheet = forwardRef<SelectedServicesSheetRef>(
         <View style={styles.body}>
           <View style={styles.titleRow}>
             <View style={styles.titleCol}>
-              <Text weight="bold" size="lg" color={INK}>
+              <Text size={28} weight="extraBold" color={BrandColors.primary}>
                 Your cart
               </Text>
               <Text

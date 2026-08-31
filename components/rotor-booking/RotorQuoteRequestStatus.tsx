@@ -21,6 +21,7 @@ import Animated, {
 } from "react-native-reanimated";
 
 import { Text } from "@/components/shared-ui";
+import { BrandColors } from "@/constants/theme";
 import { formatRotorsLabel } from "@/constants/rotorFlow";
 import { useRotorBookingStore } from "@/stores/useRotorBookingStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
@@ -64,7 +65,7 @@ export function RotorQuoteRequestStatus({ onViewUpcoming, onGoBack, vehicleVin }
 
   return (
     <View style={styles.container}>
-      <Text size="xl" weight="bold" color="#1A1A1A" style={styles.title}>
+      <Text size={28} weight="extraBold" color={BrandColors.primary} style={styles.title}>
         Reaching out to shops…
       </Text>
 

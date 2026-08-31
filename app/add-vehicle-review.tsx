@@ -38,7 +38,7 @@ import { useAction, useMutation, useQuery } from 'convex/react';
 
 // 3. App imports
 import { Text } from '@/components/shared-ui';
-import { Spacing } from '@/constants/theme';
+import { BrandColors, Spacing } from '@/constants/theme';
 import { api } from '@/convex/_generated/api';
 import { Id } from '@/convex/_generated/dataModel';
 import { scale, verticalScale, moderateScale } from '@/utils/responsive';
@@ -473,12 +473,12 @@ export default function AddVehicleReviewScreen() {
   // Feature preview shown below the color picker so the page has
   // substance instead of empty space after Smartcar's "Connect your
   // car" section was removed.
-  const FEATURES = [
-    { icon: Wrench, label: 'Track maintenance & service intervals' },
-    { icon: History, label: 'Log every service in one place' },
-    { icon: Bell, label: 'Get reminders before things go wrong' },
-    { icon: MapPin, label: 'Book trusted local mechanics' },
-  ] as const;
+  // const FEATURES = [
+  //   { icon: Wrench, label: 'Track maintenance & service intervals' },
+  //   { icon: History, label: 'Log every service in one place' },
+  //   { icon: Bell, label: 'Get reminders before things go wrong' },
+  //   { icon: MapPin, label: 'Book trusted local mechanics' },
+  // ] as const;
 
   // Specs card data. Build display strings from router params; empty
   // string from the parent means "unknown" → render as em-dash.
@@ -749,7 +749,7 @@ export default function AddVehicleReviewScreen() {
         </View>
 
         {/* Feature preview */}
-        <View style={styles.featureList}>
+        {/* <View style={styles.featureList}>
           {FEATURES.map(({ icon: Icon, label }) => (
             <View key={label} style={styles.featureRow}>
               <View style={styles.featureIcon}>
@@ -760,7 +760,7 @@ export default function AddVehicleReviewScreen() {
               </Text>
             </View>
           ))}
-        </View>
+        </View> */}
 
         {/* Error */}
         {displayError ? (
@@ -805,7 +805,7 @@ export default function AddVehicleReviewScreen() {
       >
         <View style={styles.trimSheetHeader}>
           <View style={styles.trimSheetTitleCol}>
-            <Text weight="bold" size="lg" color="#0F172A">
+            <Text size={28} weight="extraBold" color={BrandColors.primary}>
               Pick your trim
             </Text>
             <Text

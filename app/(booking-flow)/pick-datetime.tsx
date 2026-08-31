@@ -29,6 +29,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 
 import { Button, Text } from "@/components/shared-ui";
+import { BrandColors } from "@/constants/theme";
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
 import { ConfirmBookingBar } from "@/components/booking-flow/ConfirmBookingBar";
 import { DateChipRow, type DateChipItem } from "@/components/booking-flow/DateChipRow";
@@ -809,7 +810,7 @@ export default function PickDateTimeScreen() {
           renderInModal={false}
         >
           <View style={styles.staleSheetContent}>
-            <Text size="lg" weight="bold" color="#0F172A" center>
+            <Text size={28} weight="extraBold" color={BrandColors.primary} center>
               This time slot is no longer available
             </Text>
             <Text size="sm" weight="regular" color="#6B7280" center>

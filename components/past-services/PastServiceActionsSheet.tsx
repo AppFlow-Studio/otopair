@@ -18,6 +18,7 @@ import { AlertCircle, Store, Trash2, X } from "lucide-react-native";
 
 import { Text } from "@/components/shared-ui";
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
+import { BrandColors } from "@/constants/theme";
 
 const INK = "#0F172A";
 const MUTED = "#6B7280";
@@ -93,7 +94,7 @@ export const PastServiceActionsSheet = forwardRef<
     >
       <View style={styles.body}>
         <View style={styles.titleRow}>
-          <Text weight="bold" size="lg" color={INK}>
+          <Text size={28} weight="extraBold" color={BrandColors.primary}>
             Your service
           </Text>
           <Pressable

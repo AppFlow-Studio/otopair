@@ -31,6 +31,7 @@ import {
   type FloatingSheetRef,
 } from "@/components/shared-ui/FloatingSheet";
 import { Text } from "@/components/shared-ui";
+import { BrandColors } from "@/constants/theme";
 import { useToast } from "@/hooks/useToast";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -115,7 +116,7 @@ export const FileDisputeSheet = forwardRef<FileDisputeSheetRef, Props>(
           ]}
           keyboardShouldPersistTaps="handled"
         >
-          <Text size="xl" weight="bold" color="#141C24">
+          <Text size={28} weight="extraBold" color={BrandColors.primary}>
             What went wrong?
           </Text>
           <Text size="sm" weight="regular" color="#6B7280" style={styles.subtitle}>
