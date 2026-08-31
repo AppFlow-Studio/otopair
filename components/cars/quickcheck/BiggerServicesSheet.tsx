@@ -31,10 +31,6 @@ const SHEET_MIN = 300;
 const SHEET_MAX = Math.round(Dimensions.get("window").height * 0.82);
 const SHEET_CHROME = 34;
 
-function formatMiles(n: number): string {
-  return n.toLocaleString("en-US");
-}
-
 export function BiggerServicesSheet({
   candidates,
   visible,
@@ -108,17 +104,15 @@ export function BiggerServicesSheet({
               <Text weight="semiBold" size="md" color={TEXT_PRIMARY}>
                 {c.label}
               </Text>
-              <Text size="xs" color={TEXT_MUTED} style={styles.rowMeta}>
-                {c.answered
-                  ? "Answered"
-                  : c.intervalMiles
-                    ? `Typically every ${formatMiles(c.intervalMiles)} mi`
-                    // Some services are timed, not driven — Class B brake
-                    // fluid is 24 months and no mileage at all.
-                    : c.intervalMonths
-                      ? `Typically every ${c.intervalMonths} months`
-                      : "Worth checking"}
-              </Text>
+              {/* No interval line. It was ours, not the driver's — a number
+                  they cannot check and did not ask for, and on a row whose
+                  whole point is to ask THEM. "Answered" is the only state
+                  worth spelling out. */}
+              {c.answered ? (
+                <Text size="xs" color={TEXT_MUTED} style={styles.rowMeta}>
+                  Answered
+                </Text>
+              ) : null}
             </View>
             {c.answered ? (
               <View style={styles.tick}>
