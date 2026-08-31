@@ -47,6 +47,7 @@ import { useRescheduleDecisionOverlayStore } from '@/stores/useRescheduleDecisio
 import { useBookingActions } from '@/hooks/useBookingActions';
 import { buildCancelCopy } from '@/constants/bookingActionPolicy';
 import type { Id } from '@/convex/_generated/dataModel';
+import { SemanticColors } from '@/constants/theme';
 
 // Android's Reanimated FadeOut exit on this card janks/crashes during the
 // list re-layout after cancel; skip the exit animation there and keep it
@@ -57,7 +58,7 @@ const CARD_EXIT_ANIMATION = Platform.OS === 'android' ? undefined : FadeOut.dura
 // TYPES
 // ============================================================================
 
-export type BookingStatus = 'pending_shop_acceptance' | 'pending' | 'pending_quote' | 'quotes_ready' | 'pending_customer_acceptance' | 'confirmed' | 'vehicle_at_shop' | 'in_progress' | 'completed' | 'cancelled' | 'delayed' | 'no_show';
+export type BookingStatus = 'pending_shop_acceptance' | 'pending' | 'pending_quote' | 'quotes_ready' | 'quote_expired' | 'pending_customer_acceptance' | 'confirmed' | 'vehicle_at_shop' | 'in_progress' | 'completed' | 'cancelled' | 'delayed' | 'no_show';
 
 export interface Booking {
   id: string;
@@ -236,6 +237,11 @@ export const STATUS_CONFIG: Record<BookingStatus, { label: string; bgColor: stri
     label: 'Quotes Ready',
     bgColor: '#E3F0FF',
     textColor: '#2F6DCC',
+  },
+  quote_expired: {
+    label: 'Quote Expired',
+    bgColor: SemanticColors.warningAmberLight,
+    textColor: SemanticColors.warningAmber,
   },
   pending_customer_acceptance: {
     label: 'Rescheduled',

@@ -28,6 +28,7 @@ import {
   type RotorQuoteListSheetRef,
 } from "@/components/bookings/RotorQuoteListSheet";
 import { BookingDetailsSheet, type BookingDetailsSheetRef } from "@/components/bookings/BookingDetailsSheet";
+import { QuoteUnavailableSheet } from "@/components/bookings/QuoteUnavailableSheet";
 import { AvailabilityModal } from "@/components/booking/modals/AvailabilityModal";
 import { ScrollDrivenGradientBackground, Text } from "@/components/shared-ui";
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
@@ -39,9 +40,12 @@ import { useBookingsBadgeStore } from "@/stores/useBookingsBadgeStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 import { api } from "@/convex/_generated/api";
 import { useMutationWithToast } from "@/hooks/useMutationWithToast";
+import { useQuoteRequestAvailability } from "@/hooks/useQuoteRequestAvailability";
 import { formatFeeCents } from "@/constants/bookingActionPolicy";
 import { useToast } from "@/hooks/useToast";
 import type { Id } from "@/convex/_generated/dataModel";
+import type { FunctionReference } from "convex/server";
+import type { QuoteUnavailableReason } from "@/utils/quoteAvailability";
 import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { Calendar, CalendarX, Check, ChevronRight, LayoutGrid, ListFilter, Star } from "lucide-react-native";
@@ -104,15 +108,17 @@ export default function BookingsScreen() {
   } = useMyBookingsWithDetails();
   const router = useRouter();
 
-  const { tab: tabParam, bookingId: bookingIdParam, rescheduleError } = useLocalSearchParams<{
+  const { tab: tabParam, bookingId: bookingIdParam, rescheduleError, quoteUnavailable } = useLocalSearchParams<{
     tab?: string;
     bookingId?: string;
     rescheduleError?: string;
+    quoteUnavailable?: string;
   }>();
   const initialTab: TabType = TAB_ORDER.includes(tabParam as TabType)
     ? (tabParam as TabType)
     : "bookings";
   const [activeTab, setActiveTab] = useState<TabType>(initialTab);
+  const [quoteUnavailableReason, setQuoteUnavailableReason] = useState<QuoteUnavailableReason | null>(null);
   // If we land on the screen again with a new `tab` param (e.g. from the
   // tire flow completing), switch to the requested tab.
   useEffect(() => {
@@ -120,6 +126,16 @@ export default function BookingsScreen() {
       setActiveTab(tabParam as TabType);
     }
   }, [tabParam]);
+  useEffect(() => {
+    if (
+      quoteUnavailable === "expired" ||
+      quoteUnavailable === "cancelled" ||
+      quoteUnavailable === "modified" ||
+      quoteUnavailable === "unavailable"
+    ) {
+      setQuoteUnavailableReason(quoteUnavailable);
+    }
+  }, [quoteUnavailable]);
 
   // Mark the Bookings tab as seen whenever it gains focus — clears the
   // red badge on the bottom-nav Bookings icon. (Tied to focus instead of
@@ -189,6 +205,7 @@ export default function BookingsScreen() {
   // `tire_quote_*` id format; real
   // Convex ids are base32 and never start with that prefix.
   const cancelLocalBooking = useBookingStore((s) => s.cancelBooking);
+  const removeLocalBooking = useBookingStore((s) => s.removeBooking);
   // Notifications bell. The sheet is global; Bookings only needs a trigger.
   // It lives here as well as on Home because pickup-request responses land in
   // the outbox while the customer is sitting on this screen watching the card
@@ -210,6 +227,24 @@ export default function BookingsScreen() {
       title: ctx.error.message || "Couldn't cancel this booking. Try again.",
     }),
   });
+  const cancelQuoteRequest = useMutationWithToast(api.bookings.cancelBooking, {
+    success: "Quote request cancelled.",
+    successIcon: CalendarX,
+    error: (ctx) => ({
+      title: ctx.error.message || "Couldn't cancel this quote request. Try again.",
+    }),
+  });
+  const dismissExpiredQuoteRequest = (api.bookings as unknown as {
+    dismissExpiredQuoteRequest: FunctionReference<
+      "mutation",
+      "public",
+      { bookingId: Id<"bookings"> },
+      { dismissed: boolean }
+    >;
+  }).dismissExpiredQuoteRequest;
+  const dismissExpiredQuote = useMutationWithToast(dismissExpiredQuoteRequest, {
+    error: "Couldn't dismiss this quote. Try again.",
+  });
   const requestPickupConvex = useMutationWithToast(
     api.bookings.requestCancellationAtShop,
     {
@@ -225,19 +260,44 @@ export default function BookingsScreen() {
     }
   }, [rescheduleError, toast]);
   const handleCancelBooking = useCallback(
-    (bookingId: string, feeAcknowledgedCents?: number) => {
+    async (bookingId: string, feeAcknowledgedCents?: number) => {
       const isLocalId = bookingId.startsWith("tire_quote_") || bookingId.startsWith("booking_");
       if (isLocalId) {
         cancelLocalBooking(bookingId);
         toast.success("Booking cancelled.", undefined, { icon: CalendarX });
       } else {
-        void cancelConvexBooking({
+        await cancelConvexBooking({
           bookingId: bookingId as Id<"bookings">,
           feeAcknowledgedCents,
         });
       }
     },
     [cancelConvexBooking, cancelLocalBooking, toast],
+  );
+  const handleCancelQuoteRequest = useCallback(
+    async (bookingId: string) => {
+      const isLocalId = bookingId.startsWith("tire_quote_") || bookingId.startsWith("booking_");
+      if (isLocalId) {
+        cancelLocalBooking(bookingId);
+        toast.success("Quote request cancelled.", undefined, { icon: CalendarX });
+        return;
+      }
+
+      await cancelQuoteRequest({ bookingId: bookingId as Id<"bookings"> });
+    },
+    [cancelLocalBooking, cancelQuoteRequest, toast],
+  );
+  const handleDismissExpiredQuote = useCallback(
+    async (bookingId: string) => {
+      if (bookingId.startsWith("tire_quote_") || bookingId.startsWith("booking_")) {
+        removeLocalBooking(bookingId);
+        return;
+      }
+      await dismissExpiredQuote({
+        bookingId: bookingId as Id<"bookings">,
+      });
+    },
+    [dismissExpiredQuote, removeLocalBooking],
   );
   const handleRequestPickup = useCallback(
     (bookingId: string) => {
@@ -299,12 +359,29 @@ export default function BookingsScreen() {
 
   const quoteListSheetRef = useRef<QuoteListSheetRef>(null);
   const rotorQuoteListSheetRef = useRef<RotorQuoteListSheetRef>(null);
-  const handleViewQuotes = (bookingId: string) => {
+  const checkQuoteRequestAvailability = useQuoteRequestAvailability();
+  const [checkingQuoteId, setCheckingQuoteId] = useState<string | null>(null);
+  const handleViewQuotes = async (bookingId: string) => {
     const booking = allBookings.find((b) => b.id === bookingId);
-    if (booking?.quoteType === "rotor") {
-      rotorQuoteListSheetRef.current?.open(bookingId);
-    } else {
-      quoteListSheetRef.current?.open(bookingId);
+    if (!booking?.vin) return;
+    setCheckingQuoteId(bookingId);
+    try {
+      const availability = await checkQuoteRequestAvailability(
+        bookingId as Id<"bookings">,
+      );
+      if (!availability.available) {
+        setQuoteUnavailableReason(availability.reason);
+        return;
+      }
+      if (booking.quoteType === "rotor") {
+        rotorQuoteListSheetRef.current?.open(bookingId, booking.vin);
+      } else {
+        quoteListSheetRef.current?.open(bookingId, booking.vin);
+      }
+    } catch {
+      toast.error("Couldn't check this quote", "Please try again.");
+    } finally {
+      setCheckingQuoteId(null);
     }
   };
 
@@ -542,13 +619,17 @@ export default function BookingsScreen() {
                   <CustomerLateBanner onReschedule={(bookingId) => handleReschedule(String(bookingId))} />
                   {bookings.length > 0 ? (
                     bookings.map((booking) =>
-                      booking.status === "pending_quote" || booking.status === "quotes_ready" ? (
+                      booking.status === "pending_quote" ||
+                      booking.status === "quotes_ready" ||
+                      booking.status === "quote_expired" ? (
                         <PendingQuoteCard
                           key={booking.id}
                           booking={booking}
                           onPress={handleViewDetails}
                           onViewQuotes={handleViewQuotes}
-                          onCancel={handleCancelBooking}
+                          onCancel={handleCancelQuoteRequest}
+                          onDismiss={handleDismissExpiredQuote}
+                          isCheckingQuotes={checkingQuoteId === booking.id}
                         />
                       ) : (
                         <BookingCard
@@ -602,6 +683,15 @@ export default function BookingsScreen() {
     <QuoteListSheet ref={quoteListSheetRef} />
 
     <RotorQuoteListSheet ref={rotorQuoteListSheetRef} />
+
+    <QuoteUnavailableSheet
+      visible={quoteUnavailableReason != null}
+      reason={quoteUnavailableReason ?? "unavailable"}
+      onDismiss={() => {
+        setQuoteUnavailableReason(null);
+        router.setParams({ quoteUnavailable: "" });
+      }}
+    />
 
     {/* Vehicle picker sheet — drives the filter button above.
         showBackdrop dims + blurs the page behind it. */}

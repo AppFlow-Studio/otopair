@@ -27,6 +27,8 @@ interface CreateArgs {
     quantity: number;
     positions: TirePosition[];
   };
+  /** VIN snapshotted when the quote-request countdown starts. */
+  vehicleVin?: string | null;
 }
 
 export function useCreateTireQuoteRequest() {
@@ -35,16 +37,14 @@ export function useCreateTireQuoteRequest() {
   const getSelectedVehicle = useVehicleStore((s) => s.getSelectedVehicle);
 
   return useCallback(
-    async ({ tireSpecs }: CreateArgs): Promise<string> => {
-      const vehicle = getSelectedVehicle();
-      const vin = vehicle?.vin;
+    async ({ tireSpecs, vehicleVin }: CreateArgs): Promise<string> => {
+      const vin = vehicleVin ?? getSelectedVehicle()?.vin;
 
-      const missingFields = [
-        !userId ? "user" : null,
-        !vin ? "vehicle VIN" : null,
-      ].filter((field): field is string => field != null);
-
-      if (missingFields.length > 0) {
+      if (!userId || !vin) {
+        const missingFields = [
+          !userId ? "user" : null,
+          !vin ? "vehicle VIN" : null,
+        ].filter((field): field is string => field != null);
         throw new Error(
           `We couldn't request tire quotes because the ${missingFields.join(", ")} ${missingFields.length === 1 ? "is" : "are"} still loading. Please reselect your vehicle and try again.`,
         );

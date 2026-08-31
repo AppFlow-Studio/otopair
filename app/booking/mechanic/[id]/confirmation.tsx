@@ -52,6 +52,7 @@ import { useMechanicStore } from "@/stores/useMechanicStore";
 import { useSettingsOverlayStore } from "@/stores/useSettingsOverlayStore";
 import { useShopStore } from "@/stores/useShopStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
+import { resolveBookingVehicleVin } from "@/utils/bookingVehicle";
 import { openMapsForAddress, openPhone } from "@/utils/linking";
 
 // ============================================================================
@@ -218,10 +219,11 @@ export default function ConfirmationScreen() {
   const insets = useSafeAreaInsets();
   const toast = useToast();
   const { height: windowHeight } = useWindowDimensions();
-  const { id: bookingId, bookingDbId, mode } = useLocalSearchParams<{
+  const { id: bookingId, bookingDbId, mode, bookingVehicleVin: routeBookingVehicleVin } = useLocalSearchParams<{
     id: string;
     bookingDbId?: string;
     mode?: string;
+    bookingVehicleVin?: string;
   }>();
   const isReschedule = isBookingRescheduleMode(mode);
   const isCompactLayout = windowHeight < 860;
@@ -242,13 +244,14 @@ export default function ConfirmationScreen() {
   const selectedMechanicId = useBookingStore((state) => state.selectedMechanicId);
   const selectedMechanicSlot = useBookingStore((state) => state.selectedMechanicSlot);
   const selectedServiceIds = useBookingStore((state) => state.selectedServiceIds);
+  const selectedVehicleVin = useBookingStore((state) => state.selectedVehicleVin);
+  const quoteAcceptContext = useBookingStore((state) => state.quoteAcceptContext);
   const scheduledAppointment = useBookingStore((state) => state.scheduledAppointment);
   const resetBookingFlow = useBookingStore((state) => state.resetBookingFlow);
   const getBookingById = useBookingStore((state) => state.getBookingById);
   const availableServices = useBookingStore((state) => state.availableServices);
   const getMechanicById = useMechanicStore((state) => state.getMechanicById);
   const getMechanicsByShopId = useMechanicStore((state) => state.getMechanicsByShopId);
-  const getSelectedVehicle = useVehicleStore((state) => state.getSelectedVehicle);
   const getShopById = useShopStore((state) => state.getShopById);
   const settingsOverlayOpen = useSettingsOverlayStore((s) => s.isOpen);
   const requestCloseSettingsOverlay = useSettingsOverlayStore((s) => s.requestClose);
@@ -318,14 +321,21 @@ export default function ConfirmationScreen() {
   }, [shop, rawShopId, getShopById]);
 
   const getVehicleById = useVehicleStore((state) => state.getVehicleById);
+  const bookingVehicleVin = resolveBookingVehicleVin(
+    routeBookingVehicleVin ?? quoteAcceptContext?.vehicleVin,
+    selectedVehicleVin,
+  );
+  const bookingVehicle = useVehicleStore((state) =>
+    bookingVehicleVin ? state.vehicles[bookingVehicleVin] : undefined,
+  );
 
-  // Try selected vehicle first, then look up by booking's vehicleId
+  // The success screen must keep showing the vehicle attached to this booking,
+  // even if the user changed their main vehicle while checkout was open.
   const selectedVehicle = useMemo(() => {
-    const active = getSelectedVehicle();
-    if (active) return active;
+    if (bookingVehicle) return bookingVehicle;
     if (localBooking?.vehicleId) return getVehicleById(localBooking.vehicleId);
     return undefined;
-  }, [getSelectedVehicle, localBooking, getVehicleById]);
+  }, [bookingVehicle, localBooking, getVehicleById]);
 
   const fullAddress = useMemo(() => {
     if (shop) return [shop.address, shop.city, shop.state, shop.zip].filter(Boolean).join(", ");

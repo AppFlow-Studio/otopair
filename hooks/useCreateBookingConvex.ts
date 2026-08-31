@@ -21,7 +21,6 @@ import { useBookingQuoteFallback } from "./useBookingQuoteFallback";
 import { positionFromOption } from "@/constants/serviceVariants";
 import { useUserFromConvex } from "./useUserFromConvex";
 import { useToast } from "./useToast";
-import { useVehicleOwnershipFromConvex } from "./useVehicleOwnershipFromConvex";
 import { computeBookingTax } from "@/lib/tax";
 import { computePlatformFeeDollars } from "@/lib/platformFee";
 import { useMechanicStore } from "@/stores/useMechanicStore";
@@ -45,11 +44,11 @@ export function useCreateBookingConvex() {
   const confirmPreauthorizedBatch = useAction(api.bookings.confirmPreauthorizedBatch);
   const toast = useToast();
   const { userId } = useUserFromConvex();
-  const { primaryVin } = useVehicleOwnershipFromConvex();
   const getMechanicById = useMechanicStore((s) => s.getMechanicById);
   const getShopById = useShopStore((s) => s.getShopById);
 
   const selectedServiceIds = useBookingStore((s) => s.selectedServiceIds);
+  const selectedVehicleVin = useBookingStore((s) => s.selectedVehicleVin);
   const selectedMechanicId = useBookingStore((s) => s.selectedMechanicId);
   const availableServices = useBookingStore((s) => s.availableServices);
   const selectedMechanicSlot = useBookingStore((s) => s.selectedMechanicSlot);
@@ -99,15 +98,10 @@ export function useCreateBookingConvex() {
     [selectedMechanicSlot?.timeSlotId, slotsForShopAndTime, selectedMechanicId],
   );
 
-  const getSelectedVehicle = useVehicleStore((s) => s.getSelectedVehicle);
-  // Subscribe to selectedVehicleId so vehicleOwnershipId stays reactive when the
-  // user switches cars mid-flow — `getSelectedVehicle` alone is a stable ref.
-  const selectedVehicleId = useVehicleStore((s) => s.selectedVehicleId);
-  const vehicleOwnershipId = useMemo(
-    () => getSelectedVehicle()?.ownershipId,
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [selectedVehicleId, getSelectedVehicle],
+  const bookingVehicle = useVehicleStore((s) =>
+    selectedVehicleVin ? s.vehicles[selectedVehicleVin] : undefined,
   );
+  const vehicleOwnershipId = bookingVehicle?.ownershipId;
 
   // Mirror ReviewPayContent: prefer vehicle-specific `labor_times.book_hours`
   // over `services.default_labor_hours` so the booking row records the same
@@ -184,16 +178,17 @@ export function useCreateBookingConvex() {
     ): Promise<string[]> => {
       const shopId = effectiveShopId;
       const legacyTimeSlotId = resolveLegacyTimeSlotId(mechanicId);
-      // Prefer the user's currently selected vehicle in the booking flow.
-      // `primaryVin` is the user's default car and is only useful as a
-      // fallback for entry points that don't explicitly switch cars
-      // (e.g., AI chat). Otherwise picking BMW would still write the VW's
-      // VIN whenever the VW is marked primary.
-      const vin = getSelectedVehicle()?.vin ?? primaryVin;
+      // Services and vehicle are one checkout unit. Never substitute the live
+      // main vehicle if it changes after the basket was created.
+      const vin = selectedVehicleVin;
+      if (!vin || !bookingVehicle) {
+        throw new Error("This booking is no longer attached to a vehicle. Please reselect the services and try again.");
+      }
+      if (!userId) {
+        throw new Error("Your account is still loading. Please try again.");
+      }
 
       const missingFields = [
-        !userId ? "user" : null,
-        !vin ? "vehicle VIN" : null,
         !shopId ? "shop" : null,
         !scheduledAppointment?.date || !scheduledAppointment?.time ? "time slot" : null,
         selectedServiceIds.length === 0 ? "selected services" : null,
@@ -376,8 +371,8 @@ export function useCreateBookingConvex() {
     },
     [
       userId,
-      primaryVin,
-      getSelectedVehicle,
+      selectedVehicleVin,
+      bookingVehicle,
       effectiveShopId,
       selectedServiceIds,
       availableServices,

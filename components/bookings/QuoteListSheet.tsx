@@ -17,11 +17,12 @@
  * OWNER: Ahmad Hamoudeh
  */
 
-import React, { forwardRef, useImperativeHandle, useMemo, useState } from "react";
+import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useState } from "react";
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
 
 import { X } from "lucide-react-native";
-import { useQuery } from "convex/react";
+import { useConvex, useQuery } from "convex/react";
+import type { FunctionReference } from "convex/server";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Text } from "@/components/shared-ui";
@@ -29,9 +30,29 @@ import { TireQuoteCard } from "@/components/tire-booking/TireQuoteCard";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { TireQuote } from "@/constants/tireFlow";
-import { hhmmToDisplayTime } from "@/utils/timeSlotUtils";
+import { hhmmToDisplayTime, isQuotedSlotBookable } from "@/utils/timeSlotUtils";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { useBookingStore } from "@/stores/useBookingStore";
+import { QuoteUnavailableSheet } from "@/components/bookings/QuoteUnavailableSheet";
+import type { QuoteUnavailableReason } from "@/utils/quoteAvailability";
+import { useToast } from "@/hooks/useToast";
+
+type ValidateQuoteArgs = {
+  booking_id: Id<"bookings">;
+  response_id: Id<"tire_quote_responses">;
+  expected_revision: number;
+};
+type ValidateQuoteResult =
+  | { available: true }
+  | { available: false; reason: QuoteUnavailableReason };
+const validateTireQuoteForCheckout = (api as unknown as {
+  tire_quote_responses: { validateForCheckout: FunctionReference<
+  "query",
+  "public",
+  ValidateQuoteArgs,
+  ValidateQuoteResult
+  > };
+}).tire_quote_responses.validateForCheckout;
 
 /** Raw shape of a `tire_quote_responses.listForBookingWithShops` row —
  *  carries the fields the adapted `TireQuote` display shape drops
@@ -48,6 +69,11 @@ interface RawTireQuoteResponse {
   total: number;
   availability: { date: string; time: string };
   estimated_duration_minutes?: number;
+  earliest_slot_available?: boolean;
+  revision?: number;
+  quote_availability?:
+    | { available: true }
+    | { available: false; reason: QuoteUnavailableReason };
   shop: {
     _id: string;
     name: string;
@@ -73,7 +99,7 @@ function formatAvailability(date: string, time: string): string {
 
 export interface QuoteListSheetRef {
   /** Open the sheet with quotes for the given booking. */
-  open: (bookingId: string) => void;
+  open: (bookingId: string, vehicleVin: string) => void;
   close: () => void;
 }
 
@@ -87,8 +113,12 @@ export const QuoteListSheet = forwardRef<QuoteListSheetRef, Props>(
     const insets = useSafeAreaInsets();
     const [visible, setVisible] = useState(false);
     const [bookingId, setBookingId] = useState<string | null>(null);
+    const [vehicleVin, setVehicleVin] = useState<string | null>(null);
+    const [unavailableReason, setUnavailableReason] = useState<QuoteUnavailableReason | null>(null);
 
     const router = useRouter();
+    const convex = useConvex();
+    const toast = useToast();
     const setQuoteAcceptContext = useBookingStore((s) => s.setQuoteAcceptContext);
 
     const responses = useQuery(
@@ -97,8 +127,10 @@ export const QuoteListSheet = forwardRef<QuoteListSheetRef, Props>(
     );
 
     useImperativeHandle(ref, () => ({
-      open: (id) => {
+      open: (id, vin) => {
+        setUnavailableReason(null);
         setBookingId(id);
+        setVehicleVin(vin);
         setVisible(true);
       },
       close: () => {
@@ -116,7 +148,10 @@ export const QuoteListSheet = forwardRef<QuoteListSheetRef, Props>(
     // "Best match" picks the lowest total — heuristic until ranking lands.
     const adapted = useMemo<TireQuote[]>(() => {
       if (!responses || responses.length === 0) return [];
-      const list = responses as RawTireQuoteResponse[];
+      const list = (responses as RawTireQuoteResponse[]).filter(
+        (response) => response.quote_availability?.available !== false,
+      );
+      if (list.length === 0) return [];
       const lowestTotal = list.reduce(
         (min, r) => (r.total < min ? r.total : min),
         list[0].total,
@@ -144,6 +179,19 @@ export const QuoteListSheet = forwardRef<QuoteListSheetRef, Props>(
       });
     }, [responses]);
 
+    useEffect(() => {
+      if (!visible || !responses || responses.length === 0 || adapted.length > 0) return;
+      const unavailable = (responses as RawTireQuoteResponse[])
+        .map((response) => response.quote_availability)
+        .filter((result): result is { available: false; reason: QuoteUnavailableReason } =>
+          result?.available === false,
+        );
+      if (unavailable.length === 0) return;
+      setUnavailableReason(
+        unavailable.every((result) => result.reason === "expired") ? "expired" : "cancelled",
+      );
+    }, [adapted.length, responses, visible]);
+
     const { best, others } = useMemo(() => {
       if (adapted.length === 0) return { best: null, others: [] as TireQuote[] };
       const b = adapted.find((q) => q.isBestMatch) ?? adapted[0];
@@ -151,10 +199,26 @@ export const QuoteListSheet = forwardRef<QuoteListSheetRef, Props>(
       return { best: b, others: rest };
     }, [adapted]);
 
-    const handleChooseTime = (responseId: string) => {
-      if (!bookingId || !responses) return;
+    const handleChooseTime = async (responseId: string, autoConfirmEarliest = false) => {
+      if (!bookingId || !vehicleVin || !responses) return;
       const response = (responses as RawTireQuoteResponse[]).find((r) => r._id === responseId);
       if (!response) return;
+
+      let availability: ValidateQuoteResult;
+      try {
+        availability = await convex.query(validateTireQuoteForCheckout, {
+          booking_id: bookingId as Id<"bookings">,
+          response_id: response._id as Id<"tire_quote_responses">,
+          expected_revision: response.revision ?? 1,
+        });
+      } catch {
+        toast.error("Couldn't check this quote", "Please try again.");
+        return;
+      }
+      if (!availability.available) {
+        setUnavailableReason(availability.reason);
+        return;
+      }
 
       const partsCost = response.per_tire_price * response.quantity;
       const tireLabel = response.tire_model
@@ -162,8 +226,10 @@ export const QuoteListSheet = forwardRef<QuoteListSheetRef, Props>(
         : response.tire_brand;
       setQuoteAcceptContext({
         bookingId: bookingId as Id<"bookings">,
+        vehicleVin,
         quoteType: "tire",
         responseId: response._id,
+        revision: response.revision ?? 1,
         shopId: response.shop?._id ?? response.shop_id,
         shopName: response.shop?.name ?? "Unknown shop",
         mechanicId: response.mechanic_id ?? null,
@@ -189,7 +255,26 @@ export const QuoteListSheet = forwardRef<QuoteListSheetRef, Props>(
       const shopId = response.shop?._id ?? response.shop_id;
       setVisible(false);
       onClose?.();
-      router.push({ pathname: "/(booking-flow)/pick-datetime", params: { shopId } });
+      router.push({
+        pathname: "/(booking-flow)/pick-datetime",
+        params: { shopId, ...(autoConfirmEarliest ? { autoConfirmEarliest: "1" } : {}) },
+      });
+    };
+
+    const handleBookEarliest = (responseId: string) =>
+      void handleChooseTime(responseId, true);
+
+    const canBookEarliest = (responseId: string) => {
+      const response = (responses as RawTireQuoteResponse[] | undefined)?.find(
+        (r) => r._id === responseId,
+      );
+      return response
+        ? isQuotedSlotBookable(
+            response.availability.date,
+            response.availability.time,
+            response.earliest_slot_available === true,
+          )
+        : false;
     };
 
     const isLoading = bookingId != null && responses === undefined;
@@ -237,7 +322,10 @@ export const QuoteListSheet = forwardRef<QuoteListSheetRef, Props>(
                   <TireQuoteCard
                     quote={best}
                     variant="primary"
-                    onBook={() => handleChooseTime(best.id)}
+                    onBook={() => void handleChooseTime(best.id)}
+                    onBookEarliest={
+                      canBookEarliest(best.id) ? () => handleBookEarliest(best.id) : undefined
+                    }
                   />
                 ) : null}
 
@@ -256,7 +344,10 @@ export const QuoteListSheet = forwardRef<QuoteListSheetRef, Props>(
                         key={q.id}
                         quote={q}
                         variant="secondary"
-                        onBook={() => handleChooseTime(q.id)}
+                        onBook={() => void handleChooseTime(q.id)}
+                        onBookEarliest={
+                          canBookEarliest(q.id) ? () => handleBookEarliest(q.id) : undefined
+                        }
                       />
                     ))}
                   </>
@@ -264,6 +355,12 @@ export const QuoteListSheet = forwardRef<QuoteListSheetRef, Props>(
               </>
             )}
           </ScrollView>
+          <QuoteUnavailableSheet
+            visible={unavailableReason != null}
+            reason={unavailableReason ?? "unavailable"}
+            onDismiss={() => setUnavailableReason(null)}
+            renderInModal={false}
+          />
         </View>
       </Modal>
     );

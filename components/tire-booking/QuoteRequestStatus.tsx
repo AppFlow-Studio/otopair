@@ -51,17 +51,19 @@ interface Props {
   onViewUpcoming: () => void;
   /** Dismiss this sheet and return to the tire config page. Request continues. */
   onGoBack: () => void;
+  /** VIN captured when this quote request started. */
+  vehicleVin: string | null;
 }
 
-export function QuoteRequestStatus({ onViewUpcoming, onGoBack }: Props) {
+export function QuoteRequestStatus({ onViewUpcoming, onGoBack, vehicleVin }: Props) {
   // Tire + vehicle selections — subscribed so the sheet reflects the request
   // that was just submitted.
   const tireSize = useTireBookingStore((s) => s.tireSize);
   const tireType = useTireBookingStore((s) => s.tireType);
   const tier = useTireBookingStore((s) => s.tier);
   const selectedCount = useTireBookingStore((s) => s.selectedTirePositions.length);
-  const selectedVehicle = useVehicleStore((s) =>
-    s.selectedVehicleId ? s.vehicles[s.selectedVehicleId] : undefined,
+  const requestVehicle = useVehicleStore((s) =>
+    vehicleVin ? s.vehicles[vehicleVin] : undefined,
   );
 
   // Pin the ETA range on mount. Window: 5–10 min from submit.
@@ -72,8 +74,8 @@ export function QuoteRequestStatus({ onViewUpcoming, onGoBack }: Props) {
     return `${formatClock(start)} – ${formatClock(end)}`;
   }, []);
 
-  const vehicleLabel = selectedVehicle
-    ? `${selectedVehicle.year} ${selectedVehicle.make} ${selectedVehicle.model}`
+  const vehicleLabel = requestVehicle
+    ? `${requestVehicle.year} ${requestVehicle.make} ${requestVehicle.model}`
     : "Selected vehicle";
 
   const tierLabel = TIRE_TIERS.find((t) => t.id === tier)?.label ?? "";
@@ -98,7 +100,7 @@ export function QuoteRequestStatus({ onViewUpcoming, onGoBack }: Props) {
         <InfoRow
           icon={<Car size={20} color="#4B5563" strokeWidth={2} />}
           primary={vehicleLabel}
-          secondary={selectedVehicle?.vin ? `VIN · ${selectedVehicle.vin}` : undefined}
+          secondary={requestVehicle?.vin ? `VIN · ${requestVehicle.vin}` : undefined}
         />
         <Divider />
         <InfoRow

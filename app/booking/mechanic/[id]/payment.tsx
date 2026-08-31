@@ -59,6 +59,7 @@ import { useMechanicStore } from "@/stores/useMechanicStore";
 import { usePaymentStore } from "@/stores/usePaymentStore";
 import { useShopStore } from "@/stores/useShopStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
+import { resolveBookingVehicleVin } from "@/utils/bookingVehicle";
 
 // ============================================================================
 // CONSTANTS
@@ -81,6 +82,7 @@ export default function PaymentScreen() {
 
   // ═══════════════ BOOKING STORE ═══════════════
   const selectedServiceIds = useBookingStore((state) => state.selectedServiceIds);
+  const selectedVehicleVin = useBookingStore((state) => state.selectedVehicleVin);
   const availableServices = useBookingStore((state) => state.availableServices);
   const selectedServiceOptions = useBookingStore((state) => state.selectedServiceOptions);
   const selectedMechanicId = useBookingStore((state) => state.selectedMechanicId);
@@ -146,7 +148,7 @@ export default function PaymentScreen() {
   const getShopById = useShopStore((state) => state.getShopById);
 
   // ═══════════════ VEHICLE STORE ═══════════════
-  const getSelectedVehicle = useVehicleStore((state) => state.getSelectedVehicle);
+  const vehicles = useVehicleStore((state) => state.vehicles);
 
   // ═══════════════ PAYMENT STORE ═══════════════
   // Subscribe to the data directly (not the helper functions) so this screen
@@ -161,7 +163,11 @@ export default function PaymentScreen() {
   // ═══════════════ COMPUTED ═══════════════
   const appointmentDate = getFormattedAppointmentDate();
   const appointmentTime = getFormattedAppointmentTime();
-  const selectedVehicle = getSelectedVehicle();
+  const bookingVehicleVin = resolveBookingVehicleVin(
+    quoteAcceptContext?.vehicleVin,
+    selectedVehicleVin,
+  );
+  const selectedVehicle = bookingVehicleVin ? vehicles[bookingVehicleVin] : undefined;
 
   const mechanic = useMemo(() => {
     if (!selectedMechanicId) return null;
@@ -733,6 +739,11 @@ export default function PaymentScreen() {
   const handleConfirmPayment = useCallback(() => {
     if (!canWrite) return;
     if (!selectedMechanicId && !selectedMechanicSlot?.shopId) return;
+    if (!bookingVehicleVin || !selectedVehicle) {
+      setErrorMessage("This booking is no longer attached to a vehicle. Please reselect the services and try again.");
+      setErrorModalVisible(true);
+      return;
+    }
     if (!hasPayment || !selectedPaymentMethod) {
       setErrorMessage("Add a payment method to confirm this booking.");
       setErrorModalVisible(true);
@@ -742,7 +753,7 @@ export default function PaymentScreen() {
     // a minimum-display timer for the Lottie loading animation, then
     // routes forward to /confirmation (or back here with an error param).
     router.push(`/booking/mechanic/${id}/confirming`);
-  }, [router, id, selectedMechanicId, selectedMechanicSlot?.shopId, hasPayment, selectedPaymentMethod, canWrite]);
+  }, [router, id, selectedMechanicId, selectedMechanicSlot?.shopId, bookingVehicleVin, selectedVehicle, hasPayment, selectedPaymentMethod, canWrite]);
 
   // Apple Pay / Google Pay handlers. The wallet sheet shows the $20 hold
   // (matches the "$20 hold placed today" disclosure on the screen). The
@@ -782,6 +793,11 @@ export default function PaymentScreen() {
   const handleAuthorize = useCallback(() => {
     if (!canWrite) return;
     if (!selectedMechanicId && !selectedMechanicSlot?.shopId) return;
+    if (!bookingVehicleVin || !selectedVehicle) {
+      setErrorMessage("This booking is no longer attached to a vehicle. Please reselect the services and try again.");
+      setErrorModalVisible(true);
+      return;
+    }
     if (walletIntent === "apple_pay" && applePaySupported) {
       handleApplePay();
       return;
@@ -795,6 +811,8 @@ export default function PaymentScreen() {
     canWrite,
     selectedMechanicId,
     selectedMechanicSlot?.shopId,
+    bookingVehicleVin,
+    selectedVehicle,
     walletIntent,
     applePaySupported,
     googlePaySupported,

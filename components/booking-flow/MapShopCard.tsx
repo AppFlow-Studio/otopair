@@ -2,8 +2,8 @@
  * MapShopCard — floating white card anchored over the map on Screen 3.
  *
  * Shows the default shop the booking will route through: name +
- * chevron, ⭐ rating + distance, estimated price range, and the
- * next available slot for that shop. Tap → shop detail page.
+ * chevron, ⭐ rating + distance, and estimated price range. Tap →
+ * shop detail page.
  *
  * Spec: ~/Downloads/<figma frames> Screen 3.
  */
@@ -36,7 +36,6 @@ interface MapShopCardProps {
    *  vehicle (State 2). Swaps the eyebrow to "LABOR ESTIMATE" + amber badge;
    *  `priceRange` is already a "From $X" floor from buildShopPriceLabel. */
   isLaborOnly?: boolean;
-  nextSlotLabel: string | null; // e.g. "Next: Mon 9:00 AM"; null while loading
 }
 
 export function MapShopCard({
@@ -48,7 +47,6 @@ export function MapShopCard({
   priceRange,
   isFixed = false,
   isLaborOnly = false,
-  nextSlotLabel,
 }: MapShopCardProps) {
   const router = useRouter();
 
@@ -109,11 +107,6 @@ export function MapShopCard({
         <Text size="xl" weight="bold" color="#0F172A" style={styles.price}>
           {priceRange ?? "—"}
         </Text>
-        {nextSlotLabel ? (
-          <Text size="xs" weight="medium" color="#6B7280" style={styles.nextSlot}>
-            {nextSlotLabel}
-          </Text>
-        ) : null}
       </View>
     </Pressable>
   );
@@ -183,8 +176,5 @@ const styles = StyleSheet.create({
   price: {
     fontSize: 20,
     lineHeight: 24,
-  },
-  nextSlot: {
-    marginBottom: 2,
   },
 });
