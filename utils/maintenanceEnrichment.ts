@@ -11,6 +11,7 @@
  */
 
 import type { MaintenanceItem, MaintenanceStatus } from "../components/cars/MaintenanceTracker";
+import type { IntervalClassContext } from "./maintenanceStatus";
 import {
   MAINTENANCE_LABELS,
   computeMaintenanceStatus,
@@ -206,6 +207,10 @@ export function buildMaintenanceItems(
   // undefined the calc falls back to the existing chain — no behavior
   // change for callers that haven't wired this yet.
   oemIntervals?: OemServiceIntervalsInput,
+  /** Interval class + drivetrain / turbo facts. When omitted the class table
+   *  is skipped entirely and behaviour matches the pre-v2 tier order, so a
+   *  caller that hasn't wired the profile yet is unaffected. */
+  classCtx?: IntervalClassContext,
 ): Map<MaintenanceType, MaintenanceItem> {
   const map = new Map<MaintenanceType, MaintenanceItem>();
 
@@ -227,6 +232,7 @@ export function buildMaintenanceItems(
       knownIssues,
       vehicleYear,
       oemIntervals,
+      classCtx,
     );
 
     map.set(type, {
@@ -237,6 +243,11 @@ export function buildMaintenanceItems(
       status: result.status,
       percentUsed: result.percentUsed,
       rawScore: result.rawScore,
+      // Quick Check v2 §7 — the band and the applied factor travel with the
+      // item so the score, the ordering and any audit read the same numbers.
+      bandStatus: result.bandStatus,
+      intervalSource: result.intervalSource,
+      factorApplied: result.factorApplied,
       mechanicFlag: mechanicFlagFrom(rec.customInputs),
     });
   }

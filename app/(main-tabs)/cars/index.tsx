@@ -53,7 +53,7 @@ import { api } from "@/convex/_generated/api";
 import { useUserFromConvex } from "@/hooks/useUserFromConvex";
 import { useVehicleOwnershipFromConvex } from "@/hooks/useVehicleOwnershipFromConvex";
 import { useMergedMaintenance } from "@/hooks/useMaintenanceData";
-import { useOemServiceIntervals } from "@/hooks/useOemServiceIntervals";
+import { useOemServiceIntervals, useVehicleFallbackProfile } from "@/hooks/useOemServiceIntervals";
 import { useUrgencyRankedItems } from "@/hooks/useUrgencyRankedItems";
 import { useDriverRecommendationsFromConvex } from "@/hooks/useDriverRecommendationsFromConvex";
 import { useBookingStore } from "@/stores/useBookingStore";
@@ -1041,6 +1041,10 @@ export default function CarsHomeScreen() {
     [vehicleConfigIds, activeVehicleIndex],
   );
   const oemIntervals = useOemServiceIntervals(activeVehicleConfigId);
+  // Same query and args as the line above, so Convex serves both from ONE
+  // subscription — the class can never arrive in a different render than the
+  // intervals it selects a column from.
+  const vehicleFallbackProfile = useVehicleFallbackProfile(activeVehicleConfigId);
 
   // ── Vehicle readiness (status pill + package-question CTA) ──
   // See docs/TICKET_PACKAGE_QUESTIONS.md. While the pipeline runs, shows
@@ -1278,6 +1282,7 @@ export default function CarsHomeScreen() {
     activeVehicle?.year,
     driverRecommendations,
     oemIntervals,
+    vehicleFallbackProfile,
   );
 
   // Action Engine ranking (Yassin v1.1 §3): computes urgency + tier per

@@ -174,6 +174,14 @@ export interface MaintenanceItem {
    *  inspection). Only set for brakes today; every other item leaves this
    *  undefined and scores via the normal status lookup, unchanged. */
   rawScore?: number;
+  /** The four-way interval band (Quick Check v2 §7). `status` stays the
+   *  three-value display tier; this separates OVERDUE from SEVERELY OVERDUE
+   *  so the latter can lead the NOW tier without a fourth heading. */
+  bandStatus?: "on_time" | "due_soon" | "overdue" | "severely_overdue";
+  /** Where the interval came from — drives the confidence hold. */
+  intervalSource?: "oem" | "class_default" | "legacy_default" | "none";
+  /** The factor the score used, after the hold. */
+  factorApplied?: number;
 }
 
 interface MaintenanceTrackerProps {

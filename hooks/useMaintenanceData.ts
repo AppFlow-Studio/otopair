@@ -20,6 +20,8 @@ import { useQuery } from "convex/react";
 import { useMemo } from "react";
 
 import { useBookingStore } from "@/stores/useBookingStore";
+import type { VehicleFallbackProfile } from "@/convex/service_intervals_queries";
+import type { IntervalClassContext } from "@/utils/maintenanceStatus";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useSessionCachedQuery } from "@/lib/offlineSessionCache";
@@ -72,6 +74,9 @@ export function useMaintenanceRecords(
   // so the maintenance status calc can prefer per-vehicle OEM cadences
   // over the hardcoded fallback chain.
   oemIntervals?: OemServiceIntervalsInput,
+  /** Interval class + drivetrain / turbo, from `useVehicleFallbackProfile`.
+   *  Omitted → the class table is skipped and the old tier order applies. */
+  classCtx?: IntervalClassContext,
 ) {
   const liveRecords = useQuery(
     api.maintenance.getRecordsByVehicle,
@@ -103,8 +108,9 @@ export function useMaintenanceRecords(
       knownIssues,
       vehicleYear,
       oemIntervals,
+      classCtx,
     );
-  }, [records, currentOdometer, make, drivingConditions, avgMonthlyDriving, knownIssues, vehicleYear, oemIntervals]);
+  }, [records, currentOdometer, make, drivingConditions, avgMonthlyDriving, knownIssues, vehicleYear, oemIntervals, classCtx]);
 
   return { records, items };
 }
@@ -137,7 +143,21 @@ export function useMergedMaintenance(
   // computeMaintenanceStatus → getInterval. Optional; falls back to
   // MAKE_OVERRIDES / DEFAULT_INTERVALS when undefined or empty.
   oemIntervals?: OemServiceIntervalsInput,
+  /** Per-config class profile — see `useVehicleFallbackProfile`. */
+  fallbackProfile?: VehicleFallbackProfile | null,
 ) {
+  // A BEV is out of scope entirely (Fallback v2 §2): with no class the class
+  // table never runs for one, and the old tier order applies untouched.
+  const classCtx = useMemo<IntervalClassContext | undefined>(() => {
+    if (!fallbackProfile || fallbackProfile.fuelClass === "bev") return undefined;
+    return {
+      vehicleClass: fallbackProfile.vehicleClass,
+      drivetrain: fallbackProfile.drivetrain,
+      hasDifferential: fallbackProfile.hasDifferential,
+      turbo: fallbackProfile.turbo,
+    };
+  }, [fallbackProfile]);
+
   // Resolves a rec's service_id to its taxonomy slug so the merge can tell
   // when a recommendation and an eye-check tile are the same finding. Reads
   // the catalog the booking flow already loads; identity is stable per
@@ -151,7 +171,7 @@ export function useMergedMaintenance(
     return (serviceId: string) => bySlug.get(serviceId);
   }, [availableServices]);
 
-  const { records, items: userItems } = useMaintenanceRecords(vehicleOwnerId, currentOdometer, make, drivingConditions, avgMonthlyDriving, knownIssues, vehicleYear, oemIntervals);
+  const { records, items: userItems } = useMaintenanceRecords(vehicleOwnerId, currentOdometer, make, drivingConditions, avgMonthlyDriving, knownIssues, vehicleYear, oemIntervals, classCtx);
 
   // Merge via the single shared builder — the SAME function Oto's
   // get_vehicle_health uses to compute the score it quotes, so the number Oto
