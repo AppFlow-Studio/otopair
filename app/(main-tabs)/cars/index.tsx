@@ -21,6 +21,8 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams } from "expo-router";
 import { firedTiles } from "@/utils/quickCheckFiring";
 import { biggerServiceCandidates } from "@/utils/quickCheckBiggerServices";
+import { useBookableServices } from "@/hooks/useBookableServices";
+import { TAXONOMY } from "@/constants/serviceTaxonomy";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 
 // Native iOS 26 liquid glass (optional). Mirrors the home / map-controls
@@ -1408,6 +1410,24 @@ export default function CarsHomeScreen() {
   // to say "Five quick checks" everywhere, which was true while every car got
   // every question. It is not true now: a genuinely new vehicle is asked one.
   // Same pure helper the stepper uses, so the promise and the screen agree.
+  // Which services this vehicle can actually book RIGHT NOW. The tracker used
+  // to disable every CTA on a single vehicle-level "enriching" flag, which is
+  // stricter than the service selector: a diagnostic scan and a battery test
+  // are bookable while enrichment runs, and the scan is exactly what a driver
+  // needs when we know nothing about the car yet.
+  const { bookableIds: trackerBookableIds } = useBookableServices(activeOwnershipId);
+  const allServicesForBooking = useQuery(api.services.list);
+  const bookableSlugs = useMemo(() => {
+    if (!allServicesForBooking || trackerBookableIds.size === 0) return undefined;
+    const out = new Set<string>();
+    for (const doc of allServicesForBooking as Array<{ _id: string; slug?: string }>) {
+      if (!trackerBookableIds.has(doc._id)) continue;
+      const canonical = doc.slug ? TAXONOMY[doc.slug]?.slug : undefined;
+      if (canonical) out.add(canonical);
+    }
+    return out;
+  }, [allServicesForBooking, trackerBookableIds]);
+
   // Same candidate rule the stepper uses, so the promise and the screen agree.
   const quickCheckBiggerCount = useMemo(
     () =>
@@ -2355,6 +2375,7 @@ export default function CarsHomeScreen() {
               vehicleLabel={activeVehicle?.model ?? undefined}
               isDarkBg={isDarkBg}
               isEnriching={vehicleReadiness.status === "enriching"}
+              bookableSlugs={bookableSlugs}
               onBookNow={(id) => {
                 // Backstop for the disabled CTAs above — never open the booking
                 // flow while the vehicle is still enriching (no parts data yet).

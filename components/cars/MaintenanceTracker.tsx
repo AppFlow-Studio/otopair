@@ -29,6 +29,7 @@ import { Platform, Pressable, StyleSheet, View } from 'react-native';
 // 2. Expo & Third-party
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
+import { SLUG_DIAGNOSTIC_SCAN } from "@/constants/serviceTaxonomy";
 import { Ionicons } from '@expo/vector-icons';
 import Svg, { Circle } from 'react-native-svg';
 
@@ -216,10 +217,33 @@ interface MaintenanceTrackerProps {
    *  Home's NowTierCallout route a tap straight into the detail view
    *  for the urgent item, instead of just landing on the cars page. */
   openItemId?: string;
-  /** True while the vehicle's enrichment pipeline is still running. Booking
-   *  CTAs are disabled until parts data exists — same coverage gate as the
-   *  service selector (see ServiceSelectionContent). */
+  /** True while the vehicle's enrichment pipeline is still running. */
   isEnriching?: boolean;
+  /** Taxonomy slugs the vehicle can book RIGHT NOW, from
+   *  `useBookableServices`. Enrichment is not all-or-nothing: a diagnostic
+   *  scan and a battery test are bookable while it runs, and the scan is
+   *  precisely what a driver needs when we know nothing about the car. Gating
+   *  every CTA on the vehicle-level flag was stricter than the service
+   *  selector and greyed out the one card that could have helped.
+   *  Undefined means the query has not resolved — fall back to the flag. */
+  bookableSlugs?: Set<string>;
+}
+
+/**
+ * Is this specific service still un-bookable?
+ *
+ * `isEnriching` alone is a vehicle-level answer to a per-service question.
+ * Once the bookable set has resolved it is authoritative: a slug in it can be
+ * booked whatever the pipeline is doing.
+ */
+function isBookingBlocked(
+  isEnriching: boolean,
+  bookableSlugs: Set<string> | undefined,
+  slug: string | null | undefined,
+): boolean {
+  if (!isEnriching) return false;
+  if (!bookableSlugs || !slug) return true;
+  return !bookableSlugs.has(slug);
 }
 
 // ============================================================================
@@ -494,12 +518,18 @@ function DiagnosticScanCard({
   entryDelay,
   onBookNow,
   isEnriching = false,
+  bookableSlugs,
 }: {
   unknownCount: number;
   entryDelay: number;
   onBookNow?: (id: string) => void;
   isEnriching?: boolean;
+  bookableSlugs?: Set<string>;
 }) {
+  // A scan is bookable during enrichment — it needs no parts data, and it is
+  // the whole point of this card. Greying it out while the car is unknown was
+  // exactly backwards.
+  const scanBlocked = isBookingBlocked(isEnriching, bookableSlugs, SLUG_DIAGNOSTIC_SCAN);
   const opacity = useSharedValue(0);
   const translateY = useSharedValue(18);
   useEffect(() => {
@@ -519,7 +549,7 @@ function DiagnosticScanCard({
   }));
 
   const handlePress = () => {
-    if (isEnriching) return;
+    if (scanBlocked) return;
     // extractMaintenanceType → "warning" → MAINTENANCE_TYPE_TO_SLUG →
     // diagnostic_scan, so this reuses the normal booking handoff with no
     // special case at the call site.
@@ -545,17 +575,17 @@ function DiagnosticScanCard({
         <Pressable
           style={({ pressed }) => [
             cardStyles.bookServiceBtn,
-            isEnriching && cardStyles.bookServiceBtnDisabled,
-            pressed && !isEnriching && { opacity: 0.85 },
+            scanBlocked && cardStyles.bookServiceBtnDisabled,
+            pressed && !scanBlocked && { opacity: 0.85 },
           ]}
           onPress={handlePress}
-          disabled={isEnriching}
+          disabled={scanBlocked}
         >
           <Text
             weight="semiBold"
-            style={[cardStyles.bookServiceText, isEnriching && cardStyles.bookServiceTextDisabled]}
+            style={[cardStyles.bookServiceText, scanBlocked && cardStyles.bookServiceTextDisabled]}
           >
-            {isEnriching ? 'Setting up…' : 'Book Service'}
+            {scanBlocked ? 'Setting up…' : 'Book Service'}
           </Text>
         </Pressable>
       </View>
@@ -635,9 +665,10 @@ interface UrgentCardProps {
   /** When true, the "Book Service" CTA is disabled — the vehicle is still
    *  enriching so we don't yet know the parts to book. */
   isEnriching?: boolean;
+  bookableSlugs?: Set<string>;
 }
 
-function UrgentCard({ item, entryDelay, vehicleCondition, healthScoreInput, onBookNow, onTakeAction, onMarkDone, onCardPress, isEnriching = false }: UrgentCardProps) {
+function UrgentCard({ item, entryDelay, vehicleCondition, healthScoreInput, onBookNow, onTakeAction, onMarkDone, onCardPress, isEnriching = false, bookableSlugs }: UrgentCardProps) {
   // Mechanic-recommended items get the new single "Take Action" CTA that
   // routes to the detail screen. Algorithmic items keep the legacy two-button
   // layout (Book Service + View Details).
@@ -660,7 +691,12 @@ function UrgentCard({ item, entryDelay, vehicleCondition, healthScoreInput, onBo
       : "Book Service";
   // Only the algorithmic Book Service CTA is coverage-gated — mechanic "Take
   // Action" routes to its own rec flow with the parts the shop already picked.
-  const bookDisabled = isEnriching && !isMechanicRec && !isAdvisory;
+  // Per service, not per vehicle: an item whose slug is bookable now stays
+  // bookable even mid-enrichment.
+  const bookDisabled =
+    !isMechanicRec &&
+    !isAdvisory &&
+    isBookingBlocked(isEnriching, bookableSlugs, item.serviceSlug);
   const handlePrimary = () => {
     if (bookDisabled) return;
     // An advisory is closed out, not booked. Everything else books —
@@ -1007,7 +1043,7 @@ function HealthySection({
 // Resets naturally on car swap (tracker keyed by VIN in cars/index.tsx).
 const CAP_PER_URGENT_TIER = 3;
 
-export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, vehicleLabel, onBookNow, onTakeAction, onMarkDone, onAnswerRecency, onAddInfo, onEditPressed, isDarkBg = false, tieredItems, openItemId, isEnriching = false }: MaintenanceTrackerProps) {
+export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, vehicleLabel, onBookNow, onTakeAction, onMarkDone, onAnswerRecency, onAddInfo, onEditPressed, isDarkBg = false, tieredItems, openItemId, isEnriching = false, bookableSlugs }: MaintenanceTrackerProps) {
   const [selectedItem, setSelectedItem] = useState<MaintenanceItem | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [showAllNow, setShowAllNow] = useState(false);
@@ -1170,6 +1206,7 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
                     onAddInfo={onAddInfo}
                     onCardPress={handleCardPress}
                     isEnriching={isEnriching}
+                    bookableSlugs={bookableSlugs}
                   />
                 ))}
                 {nowCount > CAP_PER_URGENT_TIER && (
@@ -1204,6 +1241,7 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
                     onAddInfo={onAddInfo}
                     onCardPress={handleCardPress}
                     isEnriching={isEnriching}
+                    bookableSlugs={bookableSlugs}
                   />
                 ))}
                 {soonCount > CAP_PER_URGENT_TIER && (
@@ -1236,6 +1274,7 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
                   entryDelay={recommendedCardDelay}
                   onBookNow={onBookNow}
                   isEnriching={isEnriching}
+                  bookableSlugs={bookableSlugs}
                 />
               </View>
             </>
@@ -1277,6 +1316,7 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
                     onAddInfo={onAddInfo}
                     onCardPress={handleCardPress}
                     isEnriching={isEnriching}
+                    bookableSlugs={bookableSlugs}
                   />
                 ))}
               </View>
@@ -1303,6 +1343,7 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
                     onAddInfo={onAddInfo}
                     onCardPress={handleCardPress}
                     isEnriching={isEnriching}
+                    bookableSlugs={bookableSlugs}
                   />
                 ))}
               </View>
@@ -1323,6 +1364,7 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
                   entryDelay={healthyDelay + STEP_MS}
                   onBookNow={onBookNow}
                   isEnriching={isEnriching}
+                  bookableSlugs={bookableSlugs}
                 />
               </View>
             </>
