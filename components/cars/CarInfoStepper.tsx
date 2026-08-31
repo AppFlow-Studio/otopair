@@ -1206,14 +1206,9 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
         <View style={s.steppingPage}>
           {/* Header */}
           <Animated.View style={[s.steppingHeader, { opacity: mountHeaderFade }]}>
-            {/* Long-form vehicle name above the title — spec §3. Grounds the
-                questions in the specific car, which matters now that the tile
-                set differs per vehicle. */}
-            {vehicleYear && vehicleMake ? (
-              <Text weight="bold" size="xs" color="#5299FE" style={s.steppingEyebrow}>
-                {`YOUR ${vehicleYear} ${vehicleMake} ${vehicleModel}`.trim().toUpperCase()}
-              </Text>
-            ) : null}
+            {/* No vehicle eyebrow. The car is already named on the screen the
+                driver came from, and repeating it here only pushed the actual
+                question further down the page. */}
             <Text weight="bold" size="xl" color="#0F172A" style={s.steppingTitle}>
               {meta.title}
             </Text>
@@ -1307,7 +1302,13 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
         {activeBigger === null && <BiggerServicesSheet
           candidates={biggerServices}
           visible={activeCard === "biggerServices" && activeBigger === null}
-          onClose={() => setActiveCard(null)}
+          onClose={() => {
+            // Clears BOTH. A drag-down can land its touch-up on a row, which
+            // fired that row's onPress and re-opened the sheet as a question —
+            // dismissing the list should dismiss it, full stop.
+            setActiveBigger(null);
+            setActiveCard(null);
+          }}
           onPick={setActiveBigger}
           onDone={() => {
             // Nothing here is required, so "done" means the driver looked —
@@ -1435,6 +1436,9 @@ const s = StyleSheet.create({
     paddingHorizontal: scale(24),
   },
   steppingHeader: {
+    // Negative: pulls the title up into the space the vehicle eyebrow used to
+    // occupy, so removing it moves the content up rather than leaving a hole.
+    marginTop: scale(-14),
     marginBottom: scale(8),
   },
   backButton: {
@@ -1446,12 +1450,6 @@ const s = StyleSheet.create({
     justifyContent: "center",
     alignItems: "flex-start",
     zIndex: 10,
-  },
-  steppingEyebrow: {
-    textAlign: "center",
-    letterSpacing: 0.8,
-    marginBottom: scale(4),
-    fontSize: moderateScale(11),
   },
   steppingTitle: {
     fontSize: moderateScale(24),

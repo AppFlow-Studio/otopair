@@ -86,6 +86,11 @@ export function BiggerServicesSheet({
         {candidates.map((c) => (
           <Pressable
             key={c.slug}
+            // Deliberately does NOT call close(): the parent unmounts this
+            // sheet when a row is picked, and FloatingSheet's close runs its
+            // dismissal on a 280ms setTimeout that unmounting does not cancel.
+            // It would fire against the already-gone sheet and clear the
+            // parent's selection, shutting the question sheet it just opened.
             onPress={() => onPick(c)}
             style={({ pressed }) => [
               styles.row,
@@ -118,7 +123,14 @@ export function BiggerServicesSheet({
         ))}
 
         <Pressable
-          onPress={onDone}
+          // Close FIRST, then hand up. `onDone` only sets parent state, and
+          // state alone does not dismiss a FloatingSheet — it has to be told.
+          // Without this the button marked the tile complete and the sheet
+          // just sat there.
+          onPress={() => {
+            sheetRef.current?.close();
+            onDone();
+          }}
           style={({ pressed }) => [styles.done, pressed && styles.pressed]}
         >
           <Text weight="bold" size="md" color="#FFFFFF">
