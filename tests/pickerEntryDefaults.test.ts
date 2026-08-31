@@ -39,24 +39,22 @@ describe("date and mechanic picker entry defaults", () => {
     ).toBe("LUKE");
   });
 
-  test("manual quote scheduling ignores the quoted date-time floor", () => {
+  test("manual quote scheduling keeps the shop's quoted date-time floor", () => {
     expect(
       getPickerFloor(
         { date: "2026-08-28", time: "14:00" },
         { date: "2026-09-01", time: "16:15" },
-        false,
-      ),
-    ).toEqual({ date: "2026-08-28", time: "14:00" });
-  });
-
-  test("earliest-time fast path keeps the later quote floor", () => {
-    expect(
-      getPickerFloor(
-        { date: "2026-08-28", time: "14:00" },
-        { date: "2026-09-01", time: "16:15" },
-        true,
       ),
     ).toEqual({ date: "2026-09-01", time: "16:15" });
+  });
+
+  test("uses today's later notice floor when it is after the quoted time", () => {
+    expect(
+      getPickerFloor(
+        { date: "2026-09-01", time: "17:00" },
+        { date: "2026-09-01", time: "16:15" },
+      ),
+    ).toEqual({ date: "2026-09-01", time: "17:00" });
   });
 
   test("selects the true first available date across a month boundary", () => {
@@ -95,6 +93,8 @@ test("mechanic-card availability uses the booking duration", () => {
   expect(picker).toMatch(
     /useNextAvailabilityPerMechanicForShop\([\s\S]*?availabilityDurationMinutes[\s\S]*?\)/,
   );
+  expect(picker).toContain("return getPickerFloor(todayFloor, quoteFloor);");
+  expect(picker).toContain("if (!quoteAcceptContext?.minDate) return null;");
 });
 
 test("Choose Mechanic availability labels use the selected services duration", () => {

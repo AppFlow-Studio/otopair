@@ -233,21 +233,21 @@ export default function PickDateTimeScreen() {
     [slotsByMechanicId, allMechanicsMap, shopNextSlots.length],
   );
 
-  // Manual scheduling starts at today's notice floor. The quoted floor is
-  // used only while the earliest-time fast path is being checked.
+  // Quote scheduling starts no earlier than the shop's quoted date/time.
+  // Normal bookings use only today's booking-notice floor.
   const floor = useMemo(() => {
     const todayFloor = { date: todayLocalISO(), time: minBookableHHMM() };
     const quoteFloor = quoteAcceptContext
       ? { date: quoteAcceptContext.minDate, time: quoteAcceptContext.minTime }
       : null;
-    return getPickerFloor(todayFloor, quoteFloor, autoConfirmPending);
-  }, [autoConfirmPending, quoteAcceptContext]);
+    return getPickerFloor(todayFloor, quoteFloor);
+  }, [quoteAcceptContext]);
 
   // Which month the day picker is showing. null = the default
   // today-anchored view (current month). A non-null value comes from
   // the month picker and jumps the row forward into a future month.
   const [viewMonth, setViewMonth] = useState<MonthOption | null>(() => {
-    if (!autoConfirmPending || !quoteAcceptContext?.minDate) return null;
+    if (!quoteAcceptContext?.minDate) return null;
     const year = Number(quoteAcceptContext.minDate.slice(0, 4));
     const month = Number(quoteAcceptContext.minDate.slice(5, 7));
     const today = new Date();
