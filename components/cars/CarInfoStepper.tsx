@@ -711,8 +711,17 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
    * Sequential `await`s on purpose: `upsertRecord` schedules the maintenance
    * pipeline on every call, and awaiting lets the scheduler coalesce them
    * instead of firing one run per record.
+   *
+   * `includeLights` is false on the Finish-for-now path. Writing `knownIssues`
+   * is what trips `saveOnboardingField`'s auto-complete branch — it flips
+   * `onboardingComplete` on `mileage > 0 && knownIssues != null` alone — so
+   * answering one tile and bailing would finish onboarding, bank the +5 HP,
+   * and clear the mandatory booking check-in gate. The service records are
+   * still written: they are facts the driver gave us, `upsertRecord` has no
+   * auto-complete branch, and the score stays hidden until onboarding really
+   * completes. Only the lights wait, and the draft carries them until then.
    */
-  const persistAnswers = useCallback(async () => {
+  const persistAnswers = useCallback(async (includeLights: boolean) => {
     // Explicit list rather than `fired` itself: `fired` also carries
     // `biggerServices`, which writes catalog rows through its own path.
     const serviceTiles: QuickCheckServiceTile[] = ["oil", "tires", "brakes", "battery"];
@@ -737,7 +746,7 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
 
     // Lights last. See (2) above.
     const lights = serviceAnswers["warningLights"] as unknown as QuickCheckAnswer | undefined;
-    if (lights?.answerType) {
+    if (includeLights && lights?.answerType) {
       // The `knownIssues` field rather than `warningLights`: the latter
       // prepends a `status` sentinel to whatever lights are listed, and v2 has
       // no sentinel that means "yes, and here they are" — every candidate
@@ -764,7 +773,7 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
   const handleComplete = useCallback(async () => {
     setSaving(true);
     try {
-      await persistAnswers();
+      await persistAnswers(true);
       await markComplete({ vehicleOwnerId });
       onComplete();
     } catch (err) {
@@ -786,7 +795,7 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
   const handleFinishForNow = useCallback(async () => {
     setSaving(true);
     try {
-      await persistAnswers();
+      await persistAnswers(false);
       // Persist the raw draft so re-opening the sheet rehydrates the
       // already-answered cards as complete. `displayedCompleted` folds in
       // any card mid-settle so nothing is dropped if the user exits fast.
@@ -1039,8 +1048,11 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
               </LinearGradient>
             </Pressable>
 
-            {/* Finish for now */}
-            {!canGoNext() && (
+            {/* Finish for now — unconditional. It used to hide once every
+                tile was answered, which is precisely when a driver might
+                still want out without committing: the escape hatch should
+                not disappear at the last step. */}
+            {(
               <Pressable
                 style={({ pressed }) => [s.finishForNowButton, pressed && { opacity: 0.7 }]}
                 onPress={handleFinishForNow}

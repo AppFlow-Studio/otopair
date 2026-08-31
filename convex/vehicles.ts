@@ -1757,15 +1757,26 @@ export const saveOnboardingField = mutation({
     }
 
     // ── Auto-compute onboardingComplete ────────────────────────────────
-    // Required: mileage (from pre-onboarding) + warningLights answered (always the last step).
-    // brakes/tires follow-up steps are conditional, so we cannot require their records here.
+    // Required: mileage (from pre-onboarding) + the warning-lights answer,
+    // which is the last thing the Quick Check writes.
+    //
+    // The branch is gated on the FIELD being saved, not just on the resulting
+    // state. Inferring completion from `knownIssues != null` alone was wrong
+    // twice over: `updateWarningLight` and the Oto chat both patch
+    // `knownIssues` directly, so a driver who reported a light mid-onboarding
+    // and then saved any unrelated field through this mutation completed
+    // their onboarding by accident — banking the +5 HP and clearing the
+    // mandatory booking check-in gate (convex/checkin.ts) without ever
+    // finishing. Saving the lights answer is an event; having lights on
+    // record is not.
     const owner = await ctx.db.get(vehicleOwnerId);
     if (!owner) return { success: true };
 
+    const answeredLightsNow = field === "warningLights" || field === "knownIssues";
     const hasMileage = owner.mileage != null && owner.mileage > 0;
     const hasWarningLights = owner.knownIssues != null;
 
-    const isComplete = hasMileage && hasWarningLights;
+    const isComplete = answeredLightsNow && hasMileage && hasWarningLights;
 
     if (isComplete && !owner.onboardingComplete) {
       await ctx.db.patch(vehicleOwnerId, { onboardingComplete: true });
