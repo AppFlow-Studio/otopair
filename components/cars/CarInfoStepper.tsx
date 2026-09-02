@@ -61,6 +61,7 @@ import {
   type BiggerServiceCandidate,
 } from "@/utils/quickCheckBiggerServices";
 import { hydrateServiceHistoryDraft } from "@/utils/quickCheckDraft";
+import { MINOR_ITEM_RECORD_TYPES } from "@/utils/mergedMaintenance";
 import {
   useOemServiceIntervals,
   useVehicleFallbackProfile,
@@ -582,6 +583,40 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
     return out;
   }, [existingRecords]);
 
+  /**
+   * What is already on record, keyed for both firing rules.
+   *
+   * Without this the Quick Check re-interrogated a car that was already set
+   * up: every rule measured from the odometer rather than from the last known
+   * service, so a car serviced at 40,000 and reading 45,000 looked 45,000 into
+   * its interval instead of 5,000. Yassin caught it as "asked me about every
+   * single service, then showed I'm 40-50k miles away from the interval".
+   *
+   * Catalog slugs take a booking close-out (`minor_<slug>`) as readily as a
+   * driver answer (`catalog_<slug>`) — either is a real anchor.
+   */
+  const tileAnchors = useMemo(() => {
+    const byTile: Partial<Record<QuickCheckTileId, { lastServiceMileage?: number | null; lastServiceDate?: number | null }>> = {};
+    const bySlug: Record<string, { lastServiceMileage?: number | null; lastServiceDate?: number | null }> = {};
+    for (const r of existingRecords ?? []) {
+      const t = typeof r.type === "string" ? r.type : "";
+      const anchor = {
+        lastServiceMileage: r.lastServiceMileage ?? null,
+        lastServiceDate: typeof r.lastServiceDate === "number" ? r.lastServiceDate : null,
+      };
+      if (anchor.lastServiceMileage == null && anchor.lastServiceDate == null) continue;
+      if (t === "oil" || t === "tires" || t === "brakes" || t === "battery") {
+        byTile[t] = anchor;
+      } else if (t.startsWith("catalog_")) {
+        bySlug[t.slice("catalog_".length)] = anchor;
+      } else if (t.startsWith("minor_")) {
+        const slug = MINOR_ITEM_RECORD_TYPES.find((m) => m.type === t)?.remedySlug;
+        if (slug && !bySlug[slug]) bySlug[slug] = anchor;
+      }
+    }
+    return { byTile, bySlug };
+  }, [existingRecords]);
+
   const biggerServices = useMemo(
     () =>
       biggerServiceCandidates({
@@ -596,8 +631,9 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
         oemIntervals,
         applicableSlugs,
         answeredSlugs,
+        anchors: tileAnchors.bySlug,
       }),
-    [currentMiles, vehicleYear, profile, oemIntervals, applicableSlugs, answeredSlugs],
+    [currentMiles, vehicleYear, profile, oemIntervals, applicableSlugs, answeredSlugs, tileAnchors],
   );
 
   const fired = useMemo(
@@ -606,8 +642,9 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
         currentMiles,
         modelYear: vehicleYear ?? null,
         biggerServiceCandidates: biggerServices.length,
+        anchors: tileAnchors.byTile,
       }),
-    [currentMiles, vehicleYear, biggerServices.length],
+    [currentMiles, vehicleYear, biggerServices.length, tileAnchors],
   );
   const firedSet = useMemo(() => new Set<QuickCheckTileId>(fired), [fired]);
   const saveField = useMutation(api.vehicles.saveOnboardingField);

@@ -279,7 +279,7 @@ describe("answers → record writes", () => {
     expect(w).toHaveLength(2);
     expect(w[1].lastServiceDate).toBeUndefined();
     expect(w[1].customInputs.answerType).toBe("unsure");
-    expect(w[1].customInputs.doneWithOilChange).toBe(false);
+    expect(w[1].customInputs.doneWithParentService).toBe(false);
   });
 
   it("writes no filter row at all when the driver did not say", () => {

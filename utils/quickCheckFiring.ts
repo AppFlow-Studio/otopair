@@ -68,8 +68,22 @@ export interface FiringInput {
   /** How many Bigger Services items qualified (see quickCheckBiggerServices).
    *  The tile is hidden entirely at zero. */
   biggerServiceCandidates?: number;
+  /** What we already know, per tile. A tile whose service is already anchored
+   *  — a booking closed it out, or the driver answered it before — is not
+   *  worth asking about again, and asking anyway is what made the Quick Check
+   *  re-interrogate a car that was already set up.
+   *
+   *  Measured from the anchor rather than from new: a car serviced at 40,000
+   *  and now reading 45,000 is 5,000 into its interval, not 45,000. */
+  anchors?: Partial<Record<QuickCheckTileId, ServiceAnchor>>;
   /** Injectable clock, for tests. */
   now?: number;
+}
+
+/** What is on record for one service. Either half may be missing. */
+export interface ServiceAnchor {
+  lastServiceMileage?: number | null;
+  lastServiceDate?: number | null;
 }
 
 const MS_PER_MONTH = 30.44 * 24 * 60 * 60 * 1000;
@@ -97,15 +111,28 @@ export function tileFires(tile: QuickCheckTileId, input: FiringInput): boolean {
   if (tile === "biggerServices") return (input.biggerServiceCandidates ?? 0) > 0;
 
   const rule = QUICK_CHECK_THRESHOLDS[tile];
-  const months = ageMonths(input.modelYear, input.now);
+  const now = input.now ?? Date.now();
+  const anchor = input.anchors?.[tile];
 
-  const byMiles =
-    rule.miles != null &&
-    input.currentMiles != null &&
-    Number.isFinite(input.currentMiles) &&
-    input.currentMiles >= rule.miles;
+  // Miles SINCE the last known service, not the odometer. With no anchor the
+  // two are the same thing — the interval has been running since the car was
+  // new — which is why this reads identically for a car we know nothing about.
+  const milesSince =
+    input.currentMiles != null && Number.isFinite(input.currentMiles)
+      ? input.currentMiles - (typeof anchor?.lastServiceMileage === "number"
+          ? anchor.lastServiceMileage
+          : 0)
+      : null;
 
-  const byAge = rule.months != null && months != null && months >= rule.months;
+  // Same for age: months since the service, falling back to months since the
+  // car was built.
+  const monthsSince =
+    typeof anchor?.lastServiceDate === "number"
+      ? Math.max(0, (now - anchor.lastServiceDate) / MS_PER_MONTH)
+      : ageMonths(input.modelYear, now);
+
+  const byMiles = rule.miles != null && milesSince != null && milesSince >= rule.miles;
+  const byAge = rule.months != null && monthsSince != null && monthsSince >= rule.months;
 
   return byMiles || byAge;
 }

@@ -78,7 +78,7 @@ export function QuickCheckSheet({
   // Three-way, not boolean: a driver who knows the filters were skipped is
   // telling us something different from one who can't remember, and step 6
   // only writes a filter record for a definite yes/no.
-  const [filtersDone, setFiltersDone] = useState<boolean | "unsure" | null>(null);
+  const [companionDone, setCompanionDone] = useState<boolean | "unsure" | null>(null);
   const [symptom, setSymptom] = useState<string>(SYMPTOM_NONE);
   const [lights, setLights] = useState<string[]>([]);
   // The sheet hugs its content rather than picking from two fixed heights.
@@ -95,7 +95,7 @@ export function QuickCheckSheet({
     setMonth(null);
     setYear(null);
     setMilesText("");
-    setFiltersDone(null);
+    setCompanionDone(null);
     setSymptom(SYMPTOM_NONE);
     setLights([]);
     sheetRef.current?.open();
@@ -118,8 +118,8 @@ export function QuickCheckSheet({
       answerType: row === "when" ? "when" : row === "never" ? "never" : "unsure",
       ...(needsDate && month != null && year != null ? { month, year } : {}),
       ...(needsDate && miles ? { miles: Number(miles) } : {}),
-      ...(spec.filtersToggle && row === "when" && typeof filtersDone === "boolean"
-        ? { filtersDone }
+      ...(spec.companion && row === "when" && typeof companionDone === "boolean"
+        ? { companionDone }
         : {}),
       ...(spec.symptoms ? { symptom } : {}),
       // "All clear" is row 2 on the lights tile, so an empty list there is the
@@ -219,10 +219,10 @@ export function QuickCheckSheet({
                     </View>
                   ) : null}
 
-                  {spec.filtersToggle ? (
+                  {spec.companion ? (
                     <View style={styles.toggleRow}>
                       <Text weight="semiBold" size="xs" color={TEXT_MUTED} style={styles.milesLabel}>
-                        FILTERS DONE WITH IT?
+                        {spec.companion.label.toUpperCase()}
                       </Text>
                       <View style={styles.toggleGroup}>
                         {([
@@ -230,11 +230,11 @@ export function QuickCheckSheet({
                           { id: false, label: "No" },
                           { id: "unsure", label: "Not sure" },
                         ] as { id: boolean | "unsure"; label: string }[]).map((opt) => {
-                          const on = filtersDone === opt.id;
+                          const on = companionDone === opt.id;
                           return (
                             <Pressable
                               key={String(opt.id)}
-                              onPress={() => setFiltersDone(opt.id)}
+                              onPress={() => setCompanionDone(opt.id)}
                               style={({ pressed }) => [
                                 styles.toggle,
                                 on && styles.toggleActive,

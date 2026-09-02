@@ -125,6 +125,19 @@ export const TILE_RECORD_TYPE = {
 
 export type QuickCheckServiceTile = keyof typeof TILE_RECORD_TYPE;
 
+/**
+ * The catalog service each tile also covers.
+ *
+ * Both pairings exist because the second service is nearly always done in the
+ * same visit as the first, so asking about it separately asks twice about one
+ * shop trip. Anything listed here is deliberately absent from
+ * `BIGGER_SERVICE_POOL`.
+ */
+export const COMPANION_SLUG: Partial<Record<QuickCheckServiceTile, string>> = {
+  oil: "filter_replacement",
+  brakes: "brake_fluid_flush",
+};
+
 /** One `api.maintenance.upsertRecord` call. */
 export interface QuickCheckRecordWrite {
   type: string;
@@ -134,7 +147,9 @@ export interface QuickCheckRecordWrite {
 }
 
 export interface QuickCheckWriteAnswer extends QuickCheckAnchorAnswer {
-  /** Oil only. Absent means the driver said "not sure". */
+  /** Was the companion service done at the same visit? Absent = not said. */
+  companionDone?: boolean;
+  /** @deprecated Older drafts wrote this. Read as `companionDone`. */
   filtersDone?: boolean;
   /** Tiles with a symptom row. `none` is the default. */
   symptom?: string;
@@ -219,14 +234,19 @@ export function quickCheckRecordWrites(
     { type: TILE_RECORD_TYPE[tile], ...anchor, customInputs: base },
   ];
 
-  if (tile === "oil" && answer.filtersDone != null) {
+  // The companion row: filters with an oil change, brake fluid with a brake
+  // service. Anchored to the same visit only on a definite yes — a "no" says
+  // the work was not done then, which is not the same as knowing when it was.
+  const companionSlug = COMPANION_SLUG[tile];
+  const companionDone = answer.companionDone ?? answer.filtersDone;
+  if (companionSlug && companionDone != null) {
     writes.push({
-      type: "catalog_filter_replacement",
-      ...(answer.filtersDone ? anchor : {}),
+      type: `catalog_${companionSlug}`,
+      ...(companionDone ? anchor : {}),
       customInputs: {
         source: "quick_check_v2",
-        answerType: answer.filtersDone ? answer.answerType : "unsure",
-        doneWithOilChange: answer.filtersDone,
+        answerType: companionDone ? answer.answerType : "unsure",
+        doneWithParentService: companionDone,
       },
     });
   }
