@@ -18,6 +18,10 @@
 
 import { useQuery } from "convex/react";
 import { useMemo } from "react";
+
+import { useBookingStore } from "@/stores/useBookingStore";
+import type { VehicleFallbackProfile } from "@/convex/service_intervals_queries";
+import type { IntervalClassContext } from "@/utils/maintenanceStatus";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useSessionCachedQuery } from "@/lib/offlineSessionCache";
@@ -57,6 +61,22 @@ interface MaintenanceRecord {
  * Fetches all maintenance_records for a vehicle and converts each to a MaintenanceItem
  * using the status calculation logic.
  */
+/**
+ * `maintenance_records.lastServiceDate` is `v.union(v.string(), v.number())`
+ * in the schema, but every consumer treats it as an epoch and does arithmetic
+ * on it — `now - lastServiceDate`. A string reaching that maths yields NaN and
+ * an item silently scores as though it had no anchor at all.
+ *
+ * So the coercion happens once, here, where the database shape meets ours,
+ * rather than being defended against in each of the dozen readers.
+ */
+function toEpoch(v: string | number | undefined): number | undefined {
+  if (v == null) return undefined;
+  if (typeof v === "number") return Number.isFinite(v) ? v : undefined;
+  const parsed = Date.parse(v);
+  return Number.isNaN(parsed) ? undefined : parsed;
+}
+
 export function useMaintenanceRecords(
   vehicleOwnerId: Id<"vehicle_owners"> | undefined,
   currentOdometer: number | null,
@@ -70,6 +90,9 @@ export function useMaintenanceRecords(
   // so the maintenance status calc can prefer per-vehicle OEM cadences
   // over the hardcoded fallback chain.
   oemIntervals?: OemServiceIntervalsInput,
+  /** Interval class + drivetrain / turbo, from `useVehicleFallbackProfile`.
+   *  Omitted → the class table is skipped and the old tier order applies. */
+  classCtx?: IntervalClassContext,
 ) {
   const liveRecords = useQuery(
     api.maintenance.getRecordsByVehicle,
@@ -89,7 +112,7 @@ export function useMaintenanceRecords(
     return buildMaintenanceItems(
       records.map((rec) => ({
         type: rec.type,
-        lastServiceDate: rec.lastServiceDate ?? undefined,
+        lastServiceDate: toEpoch(rec.lastServiceDate),
         lastServiceMileage: rec.lastServiceMileage ?? undefined,
         customInputs: rec.customInputs as Record<string, unknown> | undefined,
         confirmedHealthyAt: rec.confirmedHealthyAt ?? undefined,
@@ -101,8 +124,9 @@ export function useMaintenanceRecords(
       knownIssues,
       vehicleYear,
       oemIntervals,
+      classCtx,
     );
-  }, [records, currentOdometer, make, drivingConditions, avgMonthlyDriving, knownIssues, vehicleYear, oemIntervals]);
+  }, [records, currentOdometer, make, drivingConditions, avgMonthlyDriving, knownIssues, vehicleYear, oemIntervals, classCtx]);
 
   return { records, items };
 }
@@ -135,8 +159,35 @@ export function useMergedMaintenance(
   // computeMaintenanceStatus → getInterval. Optional; falls back to
   // MAKE_OVERRIDES / DEFAULT_INTERVALS when undefined or empty.
   oemIntervals?: OemServiceIntervalsInput,
+  /** Per-config class profile — see `useVehicleFallbackProfile`. */
+  fallbackProfile?: VehicleFallbackProfile | null,
 ) {
-  const { records, items: userItems } = useMaintenanceRecords(vehicleOwnerId, currentOdometer, make, drivingConditions, avgMonthlyDriving, knownIssues, vehicleYear, oemIntervals);
+  // A BEV is out of scope entirely (Fallback v2 §2): with no class the class
+  // table never runs for one, and the old tier order applies untouched.
+  const classCtx = useMemo<IntervalClassContext | undefined>(() => {
+    if (!fallbackProfile || fallbackProfile.fuelClass === "bev") return undefined;
+    return {
+      vehicleClass: fallbackProfile.vehicleClass,
+      drivetrain: fallbackProfile.drivetrain,
+      hasDifferential: fallbackProfile.hasDifferential,
+      turbo: fallbackProfile.turbo,
+    };
+  }, [fallbackProfile]);
+
+  // Resolves a rec's service_id to its taxonomy slug so the merge can tell
+  // when a recommendation and an eye-check tile are the same finding. Reads
+  // the catalog the booking flow already loads; identity is stable per
+  // catalog so the memo below doesn't thrash.
+  const availableServices = useBookingStore((st) => st.availableServices);
+  const serviceSlugById = useMemo(() => {
+    const bySlug = new Map<string, string>();
+    for (const svc of availableServices) {
+      if (svc.id && svc.slug) bySlug.set(String(svc.id), String(svc.slug));
+    }
+    return (serviceId: string) => bySlug.get(serviceId);
+  }, [availableServices]);
+
+  const { records, items: userItems } = useMaintenanceRecords(vehicleOwnerId, currentOdometer, make, drivingConditions, avgMonthlyDriving, knownIssues, vehicleYear, oemIntervals, classCtx);
 
   // Merge via the single shared builder — the SAME function Oto's
   // get_vehicle_health uses to compute the score it quotes, so the number Oto
@@ -145,7 +196,8 @@ export function useMergedMaintenance(
     () =>
       buildMergedMaintenanceItems({
         userItems,
-        records: records ?? undefined,
+        // Same epoch coercion as above: the merge path reads the raw rows.
+        records: records?.map((r) => ({ ...r, lastServiceDate: toEpoch(r.lastServiceDate) })),
         knownIssues,
         vehicleYear,
         driverRecommendations,
@@ -155,12 +207,18 @@ export function useMergedMaintenance(
         // omits both and keeps the anchored-only item set.
         currentOdometer,
         oemIntervals,
+        // Lets the catalog pass fall back to the class default table, so a car
+        // gets its bigger services before enrichment finishes rather than
+        // after.
+        classCtx,
+        serviceSlugById,
       }),
     [
       userItems,
       records,
       knownIssues,
       vehicleYear,
+      serviceSlugById,
       driverRecommendations,
       vehicleOwnerId,
       currentOdometer,

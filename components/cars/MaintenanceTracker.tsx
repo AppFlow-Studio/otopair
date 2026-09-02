@@ -29,6 +29,7 @@ import { Platform, Pressable, StyleSheet, View } from 'react-native';
 // 2. Expo & Third-party
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
+import { SLUG_DIAGNOSTIC_SCAN } from "@/constants/serviceTaxonomy";
 import { Ionicons } from '@expo/vector-icons';
 import Svg, { Circle } from 'react-native-svg';
 
@@ -64,6 +65,7 @@ import { OilIcon, BrakesIcon, TireIcon, BatteryIcon, WarningIcon } from '@/compo
 import MaintenanceDetailView from '@/components/cars/MaintenanceDetailView';
 
 // 5. Constants, hooks, types
+import { healthySectionChip, splitQuietItems, type QuietSectionVariant } from '@/utils/healthySection';
 import { computeProjectedHealthScore, type HealthScoreInput } from '@/utils/healthScore';
 import { scale, moderateScale } from '@/utils/responsive';
 import type { RankedMaintenanceItem } from '@/hooks/useUrgencyRankedItems';
@@ -79,6 +81,23 @@ export type MaintenanceStatus = 'on_time' | 'needs_attention' | 'due_soon' | 'ov
 /** Which axis fired an item's current status — powers the signal-pill
  *  emphasis and the anchorless-CTA branch. */
 export type MaintenanceTriggerAxis = 'time' | 'mileage' | 'both' | 'inference' | 'none';
+
+/** "Flagged by Chelala Service Center, Jul 14" — degrades to whichever half
+ *  is present rather than printing a dangling "by" or a bare date. */
+function formatMechanicFlag(flag: {
+  shopName?: string | null;
+  gradedAt?: number | null;
+}): string {
+  const when = flag.gradedAt
+    ? new Date(flag.gradedAt).toLocaleDateString(undefined, {
+        month: "short",
+        day: "numeric",
+      })
+    : null;
+  if (flag.shopName && when) return `Flagged by ${flag.shopName}, ${when}`;
+  if (flag.shopName) return `Flagged by ${flag.shopName}`;
+  return when ? `Flagged ${when}` : "";
+}
 
 export interface MaintenanceItem {
   id: string;
@@ -108,6 +127,23 @@ export interface MaintenanceItem {
    *  Threaded through the booking flow as bookings.source_recommendation_id
    *  so the rec auto-closes when the booking completes. */
   sourceRecommendationId?: string;
+  /** Item is shown to the driver but must never enter the health score.
+   *  Set by the catalog-coverage inference pass: those rows are derived from
+   *  an OEM interval and an odometer alone, with no service record and no
+   *  mechanic behind them. Only the five core tiles score by default; a minor
+   *  item earns its weight because a mechanic graded it, never because time
+   *  passed. Kept as an explicit flag rather than sniffing the `catalog-` id
+   *  prefix, matching how recommendation cards are already excluded. */
+  excludeFromScore?: boolean;
+  /** Who flagged a CORE or MINOR item and when — drives the "Flagged by
+   *  <shop>, <date>" line. Distinct from `mechanicProvenance`, which belongs
+   *  to recommendation cards and reads "Suggested by …": a grade is a finding
+   *  recorded against the vehicle, not a suggestion to book something.
+   *  Written by the inspection into the record's customInputs. */
+  mechanicFlag?: {
+    shopName?: string | null;
+    gradedAt?: number | null;
+  };
   /** Mechanic + shop provenance for recs — drives the "Suggested by …" subtitle. */
   mechanicProvenance?: {
     shopName?: string | null;
@@ -123,6 +159,10 @@ export interface MaintenanceItem {
   /** Canonical service id behind the rec — surfaced for the booking flow
    *  pre-fill from the detail screen. */
   serviceId?: string | null;
+  /** Taxonomy slug of the service that fixes this item. Set on minor
+   *  eye-check items, whose card is named for the inspection line rather
+   *  than the remedy the catalog sells. */
+  serviceSlug?: string | null;
   /** Per-axis copy for the signal-pill row. */
   signals?: {
     time?: string;
@@ -135,6 +175,14 @@ export interface MaintenanceItem {
    *  inspection). Only set for brakes today; every other item leaves this
    *  undefined and scores via the normal status lookup, unchanged. */
   rawScore?: number;
+  /** The four-way interval band (Quick Check v2 §7). `status` stays the
+   *  three-value display tier; this separates OVERDUE from SEVERELY OVERDUE
+   *  so the latter can lead the NOW tier without a fourth heading. */
+  bandStatus?: "on_time" | "due_soon" | "overdue" | "severely_overdue";
+  /** Where the interval came from — drives the confidence hold. */
+  intervalSource?: "oem" | "class_default" | "legacy_default" | "none";
+  /** The factor the score used, after the hold. */
+  factorApplied?: number;
   /** "Resolved by this booking" overlay (set in utils/mergedMaintenance). When
    *  present, a completed booking (originally-booked OR added catalog service)
    *  closed this item out; the card renders the green resolved treatment that
@@ -160,6 +208,10 @@ interface MaintenanceTrackerProps {
    *  card. Routes to the recommendation detail screen. When omitted, the card
    *  falls back to the legacy onBookNow behavior. */
   onTakeAction?: (item: MaintenanceItem) => void;
+  /** Advisory only — see UrgentCardProps.onMarkDone. */
+  onMarkDone?: (item: MaintenanceItem) => void;
+  /** Unknown rows only: driver answers "when was this last done?". */
+  onAnswerRecency?: (item: MaintenanceItem) => void;
   onAddInfo?: (id: string) => void;
   /** Tapped a resolved-by-booking card — acks the resolution and deep-links to
    *  the past-service that closed the item out. */
@@ -183,10 +235,33 @@ interface MaintenanceTrackerProps {
    *  Home's NowTierCallout route a tap straight into the detail view
    *  for the urgent item, instead of just landing on the cars page. */
   openItemId?: string;
-  /** True while the vehicle's enrichment pipeline is still running. Booking
-   *  CTAs are disabled until parts data exists — same coverage gate as the
-   *  service selector (see ServiceSelectionContent). */
+  /** True while the vehicle's enrichment pipeline is still running. */
   isEnriching?: boolean;
+  /** Taxonomy slugs the vehicle can book RIGHT NOW, from
+   *  `useBookableServices`. Enrichment is not all-or-nothing: a diagnostic
+   *  scan and a battery test are bookable while it runs, and the scan is
+   *  precisely what a driver needs when we know nothing about the car. Gating
+   *  every CTA on the vehicle-level flag was stricter than the service
+   *  selector and greyed out the one card that could have helped.
+   *  Undefined means the query has not resolved — fall back to the flag. */
+  bookableSlugs?: Set<string>;
+}
+
+/**
+ * Is this specific service still un-bookable?
+ *
+ * `isEnriching` alone is a vehicle-level answer to a per-service question.
+ * Once the bookable set has resolved it is authoritative: a slug in it can be
+ * booked whatever the pipeline is doing.
+ */
+function isBookingBlocked(
+  isEnriching: boolean,
+  bookableSlugs: Set<string> | undefined,
+  slug: string | null | undefined,
+): boolean {
+  if (!isEnriching) return false;
+  if (!bookableSlugs || !slug) return true;
+  return !bookableSlugs.has(slug);
 }
 
 // ============================================================================
@@ -446,6 +521,105 @@ function SoonLabel() {
   );
 }
 
+/** RECOMMENDED tier label. Static blue dot, no pulse: this is a suggestion
+ *  we are making, not a finding pressing on the driver. */
+function RecommendedLabel() {
+  return (
+    <View style={groupLabelStyles.row}>
+      <View style={[groupLabelStyles.chip, groupLabelStyles.chipRecommended]}>
+        <View style={groupLabelStyles.recommendedDot} />
+        <Text weight="bold" style={groupLabelStyles.chipTextRecommended}>RECOMMENDED</Text>
+      </View>
+    </View>
+  );
+}
+
+/** The one card in the RECOMMENDED tier: book a diagnostic scan to close the
+ *  UNKNOWN list. Deliberately built on UrgentCard's shell — same icon well,
+ *  same title/subtitle column, same CTA row — because it asks for the same
+ *  kind of action and should not read as a lesser control. It carries no
+ *  score delta: a scan turns unknowns into knowns, and which way the score
+ *  then moves is exactly what we do not know yet. */
+function DiagnosticScanCard({
+  unknownCount,
+  entryDelay,
+  onBookNow,
+  isEnriching = false,
+  bookableSlugs,
+}: {
+  unknownCount: number;
+  entryDelay: number;
+  onBookNow?: (id: string) => void;
+  isEnriching?: boolean;
+  bookableSlugs?: Set<string>;
+}) {
+  // A scan is bookable during enrichment — it needs no parts data, and it is
+  // the whole point of this card. Greying it out while the car is unknown was
+  // exactly backwards.
+  const scanBlocked = isBookingBlocked(isEnriching, bookableSlugs, SLUG_DIAGNOSTIC_SCAN);
+  const opacity = useSharedValue(0);
+  const translateY = useSharedValue(18);
+  useEffect(() => {
+    opacity.value = withDelay(
+      entryDelay,
+      withTiming(1, { duration: 550, easing: REasing.bezier(0.16, 1, 0.3, 1) }),
+    );
+    translateY.value = withDelay(
+      entryDelay,
+      withTiming(0, { duration: 550, easing: REasing.bezier(0.16, 1, 0.3, 1) }),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const entryStyle = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+    transform: [{ translateY: translateY.value }],
+  }));
+
+  const handlePress = () => {
+    if (scanBlocked) return;
+    // extractMaintenanceType → "warning" → MAINTENANCE_TYPE_TO_SLUG →
+    // diagnostic_scan, so this reuses the normal booking handoff with no
+    // special case at the call site.
+    onBookNow?.('warning-unknown-scan');
+  };
+
+  return (
+    <Animated.View style={[cardStyles.container, entryStyle]}>
+      <View style={cardStyles.topRow}>
+        <View style={[cardStyles.iconContainer, { backgroundColor: 'rgba(82,153,254,0.07)' }]}>
+          <Ionicons name="search-outline" size={24} color="#5299FE" />
+        </View>
+        <View style={cardStyles.textColumn}>
+          <Text weight="bold" style={cardStyles.title}>Diagnostic scan</Text>
+          <Text style={cardStyles.subtitle}>
+            {unknownCount === 1
+              ? 'One service has no record on file. A scan confirms what it actually needs.'
+              : `${unknownCount} services have no record on file. A scan confirms what they actually need.`}
+          </Text>
+        </View>
+      </View>
+      <View style={cardStyles.buttonRow}>
+        <Pressable
+          style={({ pressed }) => [
+            cardStyles.bookServiceBtn,
+            scanBlocked && cardStyles.bookServiceBtnDisabled,
+            pressed && !scanBlocked && { opacity: 0.85 },
+          ]}
+          onPress={handlePress}
+          disabled={scanBlocked}
+        >
+          <Text
+            weight="semiBold"
+            style={[cardStyles.bookServiceText, scanBlocked && cardStyles.bookServiceTextDisabled]}
+          >
+            {scanBlocked ? 'Setting up…' : 'Book Service'}
+          </Text>
+        </Pressable>
+      </View>
+    </Animated.View>
+  );
+}
+
 /** "Show N more" / "Show less" pressable rendered at the bottom of
  *  NOW / SOON tiers when the ranked list exceeds CAP_PER_URGENT_TIER.
  *  Text-only, right-aligned, tier-colored. */
@@ -466,21 +640,6 @@ function ShowMoreButton({
         {expanded ? "Show less" : `Show ${hidden} more`}
       </Text>
     </Pressable>
-  );
-}
-
-/** Action Engine "Soon-ish" tier label — static blue dot, no pulse.
- *  Spec §3.2: "Visible on Home, never pings" — calmer visual cue. */
-function OnTheHorizonLabel() {
-  return (
-    <View style={groupLabelStyles.row}>
-      <View style={[groupLabelStyles.chip, groupLabelStyles.chipHorizon]}>
-        <View style={groupLabelStyles.onTheHorizonDot} />
-        <Text weight="bold" style={groupLabelStyles.chipTextHorizon}>
-          ON THE HORIZON
-        </Text>
-      </View>
-    </View>
   );
 }
 
@@ -539,6 +698,9 @@ interface UrgentCardProps {
   healthScoreInput?: HealthScoreInput;
   onBookNow?: (id: string) => void;
   onTakeAction?: (item: MaintenanceItem) => void;
+  /** Advisory only: the driver had this done outside Otopair. Closes the
+   *  recommendation and offers to attach the receipt. */
+  onMarkDone?: (item: MaintenanceItem) => void;
   onAddInfo?: (id: string) => void;
   onCardPress?: (item: MaintenanceItem) => void;
   /** Tapped a "Resolved by [shop]" card — acknowledges the resolution and
@@ -547,9 +709,10 @@ interface UrgentCardProps {
   /** When true, the "Book Service" CTA is disabled — the vehicle is still
    *  enriching so we don't yet know the parts to book. */
   isEnriching?: boolean;
+  bookableSlugs?: Set<string>;
 }
 
-function UrgentCard({ item, entryDelay, vehicleCondition, healthScoreInput, onBookNow, onTakeAction, onCardPress, onResolvedPress, isEnriching = false }: UrgentCardProps) {
+function UrgentCard({ item, entryDelay, vehicleCondition, healthScoreInput, onBookNow, onTakeAction, onMarkDone, onCardPress, onResolvedPress, isEnriching = false, bookableSlugs }: UrgentCardProps) {
   // Mechanic-recommended items get the new single "Take Action" CTA that
   // routes to the detail screen. Algorithmic items keep the legacy two-button
   // layout (Book Service + View Details).
@@ -562,20 +725,30 @@ function UrgentCard({ item, entryDelay, vehicleCondition, healthScoreInput, onBo
   // scan" so the CTA lives INSIDE the tier rather than replacing it.
   const isAnchorless = item.triggeredBy === "none";
   const primaryLabel = isAdvisory
-    // "Take Action" promises a flow that ends in a booking. An advisory has no
-    // service to book, so the honest CTA is the one that just shows the detail.
-    ? "View suggestion"
-    : isMechanicRec
-      ? "Take Action"
-      : isAnchorless
-        ? "Book diagnostic scan"
-        : "Book Service";
+    // Advisory = the mechanic recommended work Otopair does not sell. We
+    // deliberately do not try to book it: the driver is expected to get it
+    // done elsewhere and tell us afterwards, at which point we ask for the
+    // receipt. Product call, Ahmad + colleague, 2026-08-30.
+    ? "Mark as Done"
+    : isAnchorless
+      ? "Book diagnostic scan"
+      : "Book Service";
   // Only the algorithmic Book Service CTA is coverage-gated — mechanic "Take
   // Action" routes to its own rec flow with the parts the shop already picked.
-  const bookDisabled = isEnriching && !isMechanicRec;
+  // Per service, not per vehicle: an item whose slug is bookable now stays
+  // bookable even mid-enrichment.
+  const bookDisabled =
+    !isMechanicRec &&
+    !isAdvisory &&
+    isBookingBlocked(isEnriching, bookableSlugs, item.serviceSlug);
   const handlePrimary = () => {
     if (bookDisabled) return;
-    if (isMechanicRec && onTakeAction) onTakeAction(item);
+    // An advisory is closed out, not booked. Everything else books —
+    // including a mechanic's recommendation, which used to route to the
+    // detail screen under a "Take Action" label and left the driver to find
+    // a second button there. Ahmad, 2026-08-30: a rec should behave like
+    // every other card.
+    if (isAdvisory) onMarkDone?.(item);
     else onBookNow?.(item.id);
   };
   const colors = CARD_COLORS[item.status] ?? { statusColor: '#5299FE', iconBg: 'rgba(82,153,254,0.07)' };
@@ -671,6 +844,16 @@ function UrgentCard({ item, entryDelay, vehicleCondition, healthScoreInput, onBo
                 {item.mechanicProvenance.shopName ? ` at ${item.mechanicProvenance.shopName}` : ''}
               </Text>
             )}
+            {/* Provenance for a graded finding. A driver watching points come
+                off deserves to know which shop said so and when — the plan's
+                principle that every flag carries a source and a date. Only on
+                items that are actually flagged: an on-time item may still
+                carry an old green-era grade, and "Flagged by" would misread. */}
+            {!isAdvisory && item.mechanicFlag && item.status !== 'on_time' && (
+              <Text style={cardStyles.provenance}>
+                {formatMechanicFlag(item.mechanicFlag)}
+              </Text>
+            )}
             {isAdvisory && item.advisoryDisclaimer ? (
               <Text style={cardStyles.advisoryNote}>{item.advisoryDisclaimer}</Text>
             ) : null}
@@ -701,10 +884,16 @@ function UrgentCard({ item, entryDelay, vehicleCondition, healthScoreInput, onBo
               {bookDisabled ? 'Setting up…' : primaryLabel}
             </Text>
           </Pressable>
-          {!isMechanicRec && (
+          {!isAdvisory && (
             <Pressable
               style={({ pressed }) => [cardStyles.viewDetailsBtn, pressed && { opacity: 0.85 }]}
-              onPress={() => onCardPress?.(item)}
+              // A mechanic rec has a richer detail screen than the generic
+              // sheet — who suggested it, why, impact, and the Dismiss
+              // affordance — so it keeps that as its details view.
+              onPress={() => {
+                if (isMechanicRec && onTakeAction) onTakeAction(item);
+                else onCardPress?.(item);
+              }}
             >
               <Text weight="semiBold" style={cardStyles.viewDetailsText}>View Details</Text>
             </Pressable>
@@ -733,10 +922,12 @@ function HealthyItemRow({
   item,
   showSeparator,
   entryDelay,
+  onAnswerRecency,
 }: {
   item: MaintenanceItem;
   showSeparator: boolean;
   entryDelay: number;
+  onAnswerRecency?: (item: MaintenanceItem) => void;
 }) {
   const opacity = useSharedValue(0);
   const translateY = useSharedValue(18);
@@ -765,8 +956,42 @@ function HealthyItemRow({
         <View style={summaryStyles.itemContent}>
           <Text weight="semiBold" style={summaryStyles.itemName}>{item.serviceName}</Text>
           <Text style={summaryStyles.itemDesc}>{item.description}</Text>
+          {/* Same provenance line UrgentCard carries. A graded item can land in
+              any tier — a yellow eye-check grade shows up under "on the
+              horizon", not "now" — and the driver deserves the source wherever
+              it appears, not only when it is urgent. */}
+          {item.mechanicFlag && item.status !== 'on_time' && (
+            <Text style={summaryStyles.itemProvenance}>
+              {formatMechanicFlag(item.mechanicFlag)}
+            </Text>
+          )}
         </View>
-        <Ionicons name="checkmark-circle" size={18} color="#5299FE" />
+        {/* An unknown row is a question we can just ask. The driver often
+            knows when this was last done, and answering is faster than
+            booking a scan — so the row offers it rather than only showing a
+            neutral outline. Optional: nothing here is required.
+            Every unknown row gets one, core tiles included. This used to be
+            gated on `serviceSlug` — catalog rows only — because the sheet
+            behind it asked recency and nothing else, and writing a bare
+            recency over a brake record (which also wants brake feel) would
+            have been a worse answer than none. That sheet is gone: the tracker
+            now opens the same QuickCheckSheet the stepper does, with the
+            per-type spec when the row is a core tile. The objection went with
+            it, and "no answer on file" with no way to give one was always the
+            odder half of the pair. */}
+        {item.status === 'unknown' && onAnswerRecency ? (
+          <Pressable
+            onPress={() => onAnswerRecency(item)}
+            hitSlop={10}
+            style={({ pressed }) => [summaryStyles.answerBtn, pressed && { opacity: 0.7 }]}
+          >
+            <Text weight="semiBold" style={summaryStyles.answerBtnText}>Add info</Text>
+          </Pressable>
+        ) : item.status === 'unknown' ? (
+          <Ionicons name="ellipse-outline" size={18} color="#C7C7CC" />
+        ) : (
+          <Ionicons name="checkmark-circle" size={18} color="#5299FE" />
+        )}
       </View>
       {showSeparator && <View style={summaryStyles.separator} />}
     </Animated.View>
@@ -780,9 +1005,11 @@ function HealthyItemRow({
 function HealthyItemsCard({
   items,
   cascadeStartDelay,
+  onAnswerRecency,
 }: {
   items: MaintenanceItem[];
   cascadeStartDelay: number;
+  onAnswerRecency?: (item: MaintenanceItem) => void;
 }) {
   const shellOpacity = useSharedValue(0);
   useEffect(() => {
@@ -804,6 +1031,7 @@ function HealthyItemsCard({
           item={item}
           showSeparator={index < items.length - 1}
           entryDelay={cascadeStartDelay + (index + 1) * HEALTHY_ITEM_STEP_MS}
+          onAnswerRecency={onAnswerRecency}
         />
       ))}
     </Animated.View>
@@ -812,20 +1040,19 @@ function HealthyItemsCard({
 
 function HealthySection({
   items,
-  isDarkBg = false,
+  variant,
   cascadeStartDelay = 0,
-  variant = 'resting',
+  onAnswerRecency,
 }: {
   items: MaintenanceItem[];
-  isDarkBg?: boolean;
+  /** 'healthy' = observed fine (green). 'unknown' = no record on file
+   *  (grey). Separate sections on purpose — see healthySectionChip. */
+  variant: QuietSectionVariant;
   cascadeStartDelay?: number;
-  /** Drives header text + dot color. 'resting' keeps the existing green
-   *  "N items healthy" treatment; 'soonish' shows blue + "N items on the
-   *  horizon" for Action Engine Soon-ish tier items. */
-  variant?: 'resting' | 'soonish';
+  onAnswerRecency?: (item: MaintenanceItem) => void;
 }) {
-  // Expanded by default — Ahmad prefers HORIZON / HEALTHY visible on
-  // first paint. Chevron still lets users collapse if they want.
+  // Expanded by default — Ahmad prefers these visible on first paint.
+  // Chevron still lets users collapse if they want.
   const [expanded, setExpanded] = useState(true);
   const chevronRotation = useSharedValue(1);
   // Declared BEFORE the empty-list early return — otherwise a section that
@@ -836,39 +1063,41 @@ function HealthySection({
     transform: [{ rotate: `${chevronRotation.value * 90}deg` }],
   }));
 
+  // Every hook runs before this bails. The early return used to sit above
+  // useAnimatedStyle, which was fine while there was one HealthySection whose
+  // emptiness never changed — but the split into HEALTHY and UNKNOWN gives us
+  // two, and either can flip between empty and non-empty as items load. React
+  // then sees a different number of hooks between renders and throws
+  // "Rendered more hooks than during the previous render", taking the whole
+  // Cars tab down. This was the standing react-hooks/rules-of-hooks lint
+  // error in this file; it was latent, not harmless.
   if (items.length === 0) return null;
+
+  const isUnknown = variant === 'unknown';
 
   const toggle = () => {
     setExpanded(prev => !prev);
     chevronRotation.value = withTiming(expanded ? 0 : 1, { duration: 200 });
   };
 
-  const isSoonish = variant === 'soonish';
-
   return (
     <View>
       <Animated.View entering={FadeInUp.duration(450).delay(cascadeStartDelay)}>
         <Pressable onPress={toggle} style={({ pressed }) => pressed && { opacity: 0.7 }}>
-          {/* Header treatment matches the NOW / SOON labels above:
-              tiny dot + bold uppercase text + count in the tier's
-              color. Soonish = blue "ON THE HORIZON", resting = green
-              "HEALTHY". Chevron reveals/hides the list. */}
+          {/* Header treatment matches the NOW / SOON labels above: tiny dot +
+              bold uppercase text + count. Green for observed-healthy, grey
+              for unknown — green is the app's "we checked and it's fine"
+              colour and an absence of data has not earned it. */}
           <View style={summaryStyles.headerRow}>
-            {isSoonish ? (
-              <View style={[groupLabelStyles.chip, groupLabelStyles.chipHorizon]}>
-                <View style={groupLabelStyles.onTheHorizonDot} />
-                <Text weight="bold" style={groupLabelStyles.chipTextHorizon}>
-                  {`ON THE HORIZON · ${items.length}`}
-                </Text>
-              </View>
-            ) : (
-              <View style={summaryStyles.chip}>
-                <View style={summaryStyles.dot} />
-                <Text weight="bold" style={summaryStyles.chipText}>
-                  {`HEALTHY · ${items.length}`}
-                </Text>
-              </View>
-            )}
+            <View style={[summaryStyles.chip, isUnknown && summaryStyles.chipNeutral]}>
+              <View style={[summaryStyles.dot, isUnknown && summaryStyles.dotNeutral]} />
+              <Text
+                weight="bold"
+                style={[summaryStyles.chipText, isUnknown && summaryStyles.chipTextNeutral]}
+              >
+                {healthySectionChip(variant, items.length)}
+              </Text>
+            </View>
             <View style={{ flex: 1 }} />
             <Animated.View style={chevronStyle}>
               <Ionicons name="chevron-forward" size={16} color="#C7C7CC" />
@@ -878,7 +1107,11 @@ function HealthySection({
       </Animated.View>
 
       {expanded && (
-        <HealthyItemsCard items={items} cascadeStartDelay={cascadeStartDelay} />
+        <HealthyItemsCard
+          items={items}
+          cascadeStartDelay={cascadeStartDelay}
+          onAnswerRecency={onAnswerRecency}
+        />
       )}
     </View>
   );
@@ -893,7 +1126,7 @@ function HealthySection({
 // Resets naturally on car swap (tracker keyed by VIN in cars/index.tsx).
 const CAP_PER_URGENT_TIER = 3;
 
-export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, vehicleLabel, onBookNow, onTakeAction, onAddInfo, onResolvedPress, onEditPressed, isDarkBg = false, tieredItems, resolvedItems, openItemId, isEnriching = false }: MaintenanceTrackerProps) {
+export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, vehicleLabel, onBookNow, onTakeAction, onMarkDone, onAnswerRecency, onAddInfo, onResolvedPress, onEditPressed, isDarkBg = false, tieredItems, resolvedItems, openItemId, isEnriching = false, bookableSlugs }: MaintenanceTrackerProps) {
   const [selectedItem, setSelectedItem] = useState<MaintenanceItem | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [showAllNow, setShowAllNow] = useState(false);
@@ -942,6 +1175,7 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
   const healthyItems = items
     .filter(i => i.status === 'on_time' || i.status === 'unknown')
     .sort((a, b) => STATUS_PRIORITY[a.status] - STATUS_PRIORITY[b.status]);
+  const { healthy: legacyHealthy, unknown: legacyUnknown } = splitQuietItems(healthyItems);
 
   // Cascade-in: each visible section gets its own delay slot so the tracker
   // animates in top-to-bottom on mount. Missing sections (no overdue / no
@@ -961,11 +1195,10 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
   const healthyDelay = healthyItems.length > 0 ? cascadeStep * STEP_MS : 0;
 
   // Tier-path cascade (Yassin v1.1 §3.2). Mirrors the legacy cascade above
-  // but slotted for Now / Soon / Soon-ish / Resting in render order. Only
-  // consumed when `tieredItems` is provided.
+  // but slotted for Now / Soon / Resting in render order. Only consumed
+  // when `tieredItems` is provided.
   const nowCount = tieredItems?.now.length ?? 0;
   const soonCount = tieredItems?.soon.length ?? 0;
-  const soonishCount = tieredItems?.soonish.length ?? 0;
   let tierStep = 1; // title consumed slot 0
   const nowLabelDelay = nowCount > 0 ? tierStep++ * STEP_MS : 0;
   const nowBaseDelay = nowCount > 0 ? tierStep * STEP_MS : 0;
@@ -973,8 +1206,16 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
   const soonLabelDelay = soonCount > 0 ? tierStep++ * STEP_MS : 0;
   const soonBaseDelay = soonCount > 0 ? tierStep * STEP_MS : 0;
   tierStep += soonCount;
-  const soonishDelay = soonishCount > 0 ? tierStep++ * STEP_MS : 0;
-  const restingDelay = tierStep * STEP_MS;
+  // RECOMMENDED sits between SOON and the quiet sections, so it takes its
+  // cascade slots there; HEALTHY and UNKNOWN each get their own.
+  const { healthy: restingHealthy, unknown: restingUnknown } = splitQuietItems(
+    (tieredItems?.resting ?? []).map((r) => r.item),
+  );
+  const hasRecommended = restingUnknown.length > 0;
+  const recommendedLabelDelay = hasRecommended ? tierStep++ * STEP_MS : 0;
+  const recommendedCardDelay = hasRecommended ? tierStep++ * STEP_MS : 0;
+  const healthyRestDelay = restingHealthy.length > 0 ? tierStep++ * STEP_MS : 0;
+  const unknownRestDelay = restingUnknown.length > 0 ? tierStep++ * STEP_MS : 0;
 
 
   return (
@@ -1076,10 +1317,12 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
                     healthScoreInput={healthScoreInput}
                     onBookNow={onBookNow}
                     onTakeAction={onTakeAction}
+                    onMarkDone={onMarkDone}
                     onAddInfo={onAddInfo}
                     onCardPress={handleCardPress}
                     onResolvedPress={onResolvedPress}
                     isEnriching={isEnriching}
+                    bookableSlugs={bookableSlugs}
                   />
                 ))}
                 {nowCount > CAP_PER_URGENT_TIER && (
@@ -1110,10 +1353,12 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
                     healthScoreInput={healthScoreInput}
                     onBookNow={onBookNow}
                     onTakeAction={onTakeAction}
+                    onMarkDone={onMarkDone}
                     onAddInfo={onAddInfo}
                     onCardPress={handleCardPress}
                     onResolvedPress={onResolvedPress}
                     isEnriching={isEnriching}
+                    bookableSlugs={bookableSlugs}
                   />
                 ))}
                 {soonCount > CAP_PER_URGENT_TIER && (
@@ -1128,23 +1373,42 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
             </>
           )}
 
-          {/* Soon-ish — HealthySection renders its own horizon
-              header + chevron (collapsed by default). */}
-          {soonishCount > 0 && (
-            <HealthySection
-              items={tieredItems.soonish.map((r) => r.item)}
-              isDarkBg={isDarkBg}
-              cascadeStartDelay={soonishDelay}
-              variant="soonish"
-            />
+          {/* RECOMMENDED — the scan that closes the UNKNOWN list. A full card
+              with the same weight as NOW / SOON because it asks for the same
+              kind of action; it sits above the quiet sections so the one
+              actionable thing here is not buried under them. */}
+          {restingUnknown.length > 0 && onBookNow && (
+            <>
+              <Animated.View entering={FadeInUp.duration(450).delay(recommendedLabelDelay)}>
+                <RecommendedLabel />
+              </Animated.View>
+              {/* Same wrapper the NOW / SOON tiers use — it carries the
+                  20pt horizontal inset, without which this card runs 40pt
+                  wider than every other card in the tracker. */}
+              <View style={styles.urgentGroup}>
+                <DiagnosticScanCard
+                  unknownCount={restingUnknown.length}
+                  entryDelay={recommendedCardDelay}
+                  onBookNow={onBookNow}
+                  isEnriching={isEnriching}
+                  bookableSlugs={bookableSlugs}
+                />
+              </View>
+            </>
           )}
 
-          {/* Resting — silent green. Always renders (returns null if empty). */}
+          {/* Two quiet sections, never merged: "healthy" is a claim we can
+              back, "unknown" is the absence of one. */}
           <HealthySection
-            items={tieredItems.resting.map((r) => r.item)}
-            isDarkBg={isDarkBg}
-            cascadeStartDelay={restingDelay}
-            variant="resting"
+            items={restingHealthy}
+            variant="healthy"
+            cascadeStartDelay={healthyRestDelay}
+          />
+          <HealthySection
+            items={restingUnknown}
+            variant="unknown"
+            cascadeStartDelay={unknownRestDelay}
+            onAnswerRecency={onAnswerRecency}
           />
         </>
       ) : (
@@ -1165,10 +1429,12 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
                     healthScoreInput={healthScoreInput}
                     onBookNow={onBookNow}
                     onTakeAction={onTakeAction}
+                    onMarkDone={onMarkDone}
                     onAddInfo={onAddInfo}
                     onCardPress={handleCardPress}
                     onResolvedPress={onResolvedPress}
                     isEnriching={isEnriching}
+                    bookableSlugs={bookableSlugs}
                   />
                 ))}
               </View>
@@ -1191,10 +1457,12 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
                     healthScoreInput={healthScoreInput}
                     onBookNow={onBookNow}
                     onTakeAction={onTakeAction}
+                    onMarkDone={onMarkDone}
                     onAddInfo={onAddInfo}
                     onCardPress={handleCardPress}
                     onResolvedPress={onResolvedPress}
                     isEnriching={isEnriching}
+                    bookableSlugs={bookableSlugs}
                   />
                 ))}
               </View>
@@ -1204,10 +1472,32 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
           {/* Healthy items (expandable). Always expanded by default; user
               can collapse with the chevron. The section handles its own
               per-item cascade animation internally. */}
+          {legacyUnknown.length > 0 && onBookNow && (
+            <>
+              <Animated.View entering={FadeInUp.duration(ENTRY_DURATION).delay(healthyDelay)}>
+                <RecommendedLabel />
+              </Animated.View>
+              <View style={styles.urgentGroup}>
+                <DiagnosticScanCard
+                  unknownCount={legacyUnknown.length}
+                  entryDelay={healthyDelay + STEP_MS}
+                  onBookNow={onBookNow}
+                  isEnriching={isEnriching}
+                  bookableSlugs={bookableSlugs}
+                />
+              </View>
+            </>
+          )}
           <HealthySection
-            items={healthyItems}
-            isDarkBg={isDarkBg}
-            cascadeStartDelay={healthyDelay}
+            items={legacyHealthy}
+            variant="healthy"
+            cascadeStartDelay={healthyDelay + STEP_MS * 2}
+          />
+          <HealthySection
+            items={legacyUnknown}
+            variant="unknown"
+            cascadeStartDelay={healthyDelay + STEP_MS * 3}
+            onAnswerRecency={onAnswerRecency}
           />
         </>
       )}
@@ -1480,18 +1770,6 @@ const groupLabelStyles = StyleSheet.create({
     letterSpacing: 0.8,
     textTransform: 'uppercase',
   },
-  onTheHorizonDot: {
-    width: scale(8),
-    height: scale(8),
-    borderRadius: moderateScale(4),
-    backgroundColor: '#5299FE',
-  },
-  onTheHorizonText: {
-    fontSize: moderateScale(11),
-    color: '#5299FE',
-    letterSpacing: 0.8,
-    textTransform: 'uppercase',
-  },
   // Chip variant used by SOON per PM spec — pill sits inside the
   // row's indent, groups the pulsing dot + label so the whole thing
   // reads on any background tint (previously raw text was nearly
@@ -1506,6 +1784,23 @@ const groupLabelStyles = StyleSheet.create({
   },
   chipSoon: {
     backgroundColor: '#FFFBEB',
+  },
+  // RECOMMENDED — blue, matching the diagnostic-scan card's accent. Static,
+  // never pulsing: a suggestion, not an alarm.
+  recommendedDot: {
+    width: scale(8),
+    height: scale(8),
+    borderRadius: moderateScale(4),
+    backgroundColor: '#5299FE',
+  },
+  chipRecommended: {
+    backgroundColor: '#EFF6FF',
+  },
+  chipTextRecommended: {
+    fontSize: moderateScale(11),
+    color: '#1D4ED8',
+    letterSpacing: 0.66,
+    textTransform: 'uppercase',
   },
   chipTextSoon: {
     fontSize: moderateScale(11),
@@ -1522,18 +1817,6 @@ const groupLabelStyles = StyleSheet.create({
   chipTextNow: {
     fontSize: moderateScale(11),
     color: '#B91C1C',
-    letterSpacing: 0.66,
-    textTransform: 'uppercase',
-  },
-  // ON THE HORIZON chip variant — blue-50 bg with blue-700 text so
-  // the calmer soonish tier reads at the same weight as the other
-  // chips (NOW / SOON / HEALTHY) without stealing focus.
-  chipHorizon: {
-    backgroundColor: '#EFF6FF',
-  },
-  chipTextHorizon: {
-    fontSize: moderateScale(11),
-    color: '#1D4ED8',
     letterSpacing: 0.66,
     textTransform: 'uppercase',
   },
@@ -1579,10 +1862,6 @@ const summaryStyles = StyleSheet.create({
     borderRadius: moderateScale(4),
     backgroundColor: '#059669',
   },
-  /** Override applied when HealthySection is rendering the Soon-ish tier. */
-  dotSoonish: {
-    backgroundColor: '#5299FE',
-  },
   // Chip variant per PM spec (bg #ECFDF5, text #059669, 8pt radius,
   // 8/4 padding). Wraps dot + label so it reads as a proper pill on
   // any background tint.
@@ -1600,6 +1879,29 @@ const summaryStyles = StyleSheet.create({
     color: '#059669',
     letterSpacing: 0.66, // ≈ 0.06em at 11pt
     textTransform: 'uppercase',
+  },
+  // Neutral grey variant, used when the section holds only items with no
+  // record on file. Green is the app's "we checked and it's fine" colour;
+  // spending it on an absence of data would be the same overclaim the chip
+  // copy is there to avoid.
+  chipNeutral: {
+    backgroundColor: '#F3F4F6',
+  },
+  answerBtn: {
+    paddingHorizontal: scale(10),
+    paddingVertical: scale(6),
+    borderRadius: moderateScale(999),
+    backgroundColor: '#EFF6FF',
+  },
+  answerBtnText: {
+    fontSize: moderateScale(12),
+    color: '#5299FE',
+  },
+  dotNeutral: {
+    backgroundColor: '#9CA3AF',
+  },
+  chipTextNeutral: {
+    color: '#6B7280',
   },
   // Kept for backwards-compat with any leftover references; the
   // chip variants above are what render on the Cars screen now.
@@ -1660,6 +1962,12 @@ const summaryStyles = StyleSheet.create({
   itemName: {
     fontSize: moderateScale(14),
     color: '#2d3435',
+  },
+  itemProvenance: {
+    fontFamily: 'Urbanist-Medium',
+    fontSize: scale(11),
+    color: '#9CA3AF',
+    marginTop: scale(2),
   },
   itemDesc: {
     fontSize: moderateScale(11),

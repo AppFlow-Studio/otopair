@@ -2002,6 +2002,11 @@ export function ServiceBottomSheet({
             vehicleMake={selectedVehicle.make ?? ""}
             vehicleModel={selectedVehicle.model ?? ""}
             vehicleYear={selectedVehicle.year ?? new Date().getFullYear()}
+            // Drives the Quick Check firing rules. The store carries mileage
+            // off the ownership row (useVehicleStore.ts:161); config id isn't
+            // on this shape, so Bigger Services degrades to hidden here — the
+            // gate's job is the five core tiles, not the long tail.
+            currentMiles={selectedVehicle.mileage ?? null}
             skipIntro
             onComplete={handleCheckinClose}
             onBack={handleCheckinClose}

@@ -467,34 +467,35 @@ export default function HomeScreen() {
     useShallow((s) => ({ selectedServiceIds: s.selectedServiceIds, availableServices: s.availableServices }))
   );
 
-  // The hero headlines ACTIVE jobs only: the car is at the shop or mid-service.
-  // Future bookings deliberately do NOT appear here — they live in the Bookings
-  // tab. `upcomingBooking` keeps its name (it is read in ~12 places downstream)
-  // but now means "the active job", never a scheduled one.
-  //
-  // Dropping the upcoming case also retires the local-vs-UTC `today` compare
-  // this used to need: scheduled_date was a local "YYYY-MM-DD" and comparing it
-  // against a UTC date was off-by-one in evenings west of UTC, which is what
-  // made the card randomly disappear at certain hours. Active jobs qualify on
-  // status alone, so there is no date comparison left to get wrong.
+  /*
+   * The hero headlines a job that has actually STARTED — status in_progress —
+   * and nothing else.
+   *
+   * vehicle_at_shop is deliberately excluded. It only means the car was
+   * dropped off, and nothing moves a booking off that status if work never
+   * begins, so those rows pile up and sit there indefinitely (one on this
+   * account stayed "at the shop" from June with live_stage null). The hero is
+   * a "what is happening to my car right now" surface; a car parked in a lot
+   * is not that. Future bookings live in the Bookings tab.
+   *
+   * `upcomingBooking` keeps its name — it is read in ~12 places downstream —
+   * but now means "the job in progress".
+   *
+   * Qualifying on status alone also retires the local-vs-UTC date compare this
+   * once needed: scheduled_date is a local "YYYY-MM-DD", and comparing it to a
+   * UTC-derived key was off by one in evenings west of UTC, which is what made
+   * the card randomly disappear at certain hours.
+   */
   const upcomingBooking = useMemo(() => {
     if (!allBookings) return null;
-    const isActive = (b: any) =>
-      b.status === 'in_progress' || b.status === 'vehicle_at_shop';
-    // Which single job headlines when several are live: a car actively in
-    // service outranks one merely checked in.
-    const heroRank = (b: any) => (b.status === 'in_progress' ? 0 : 1);
     return allBookings
-      .filter(isActive)
-      // Highest-priority state first, then soonest scheduled within a state.
-      .sort((a: any, b: any) => {
-        const rankDelta = heroRank(a) - heroRank(b);
-        if (rankDelta !== 0) return rankDelta;
-        return (
+      .filter((b: any) => b.status === 'in_progress')
+      // Soonest first when a customer somehow has two jobs running at once.
+      .sort(
+        (a: any, b: any) =>
           (a.scheduled_date || '').localeCompare(b.scheduled_date || '') ||
-          (a.scheduled_time || '').localeCompare(b.scheduled_time || '')
-        );
-      })[0] ?? null;
+          (a.scheduled_time || '').localeCompare(b.scheduled_time || ''),
+      )[0] ?? null;
   }, [allBookings]);
 
   // Resume booking: user has services selected in an incomplete flow
@@ -881,11 +882,57 @@ export default function HomeScreen() {
   // with N checkable rows (locked decision) instead of N cards. Items
   // inside each group sort by urgency-desc; groups sort by their top
   // item's urgency so the most urgent vehicle leads.
+  /*
+   * VINs with a job actually under way. A "Book Service" prompt for a car
+   * that is mid-service is worse than useless — the work is already
+   * happening, and the hero directly above says so. Suppressing the whole
+   * vehicle rather than just the service being worked on is deliberate: while
+   * the car is being worked on, anything else it needs is a conversation with
+   * the mechanic, not a second booking.
+   *
+   * Matches the hero on in_progress only. vehicle_at_shop was included at
+   * first, but that status never self-clears — a drop-off that was never
+   * started would have hidden that vehicle's Now items forever, silently.
+   */
+  /*
+   * VINs whose health score is mid-recompute. applyBookingStatusTransition
+   * schedules the inspection-health write two hours after a job closes and
+   * stamps health_score_pending_until for that window (see
+   * inspectionHealthDeferred). Until it lands, knownIssues still holds the
+   * pre-service warning lights — so the Now callout would otherwise sit there
+   * urging the customer to book work the shop has just finished.
+   */
+  const healthPendingVins = useMemo(() => {
+    const vins = new Set<string>();
+    const now = Date.now();
+    (listVehicles ?? []).forEach((r: any) => {
+      const until = r?.ownership?.health_score_pending_until;
+      if (typeof until === "number" && until > now) {
+        vins.add(String(r.vin).toUpperCase());
+      }
+    });
+    return vins;
+  }, [listVehicles]);
+
+  const inServiceVins = useMemo(() => {
+    const vins = new Set<string>();
+    (allBookings ?? []).forEach((b: any) => {
+      if (b.status === 'in_progress') {
+        const vin = String(b.vin ?? '').toUpperCase();
+        if (vin) vins.add(vin);
+      }
+    });
+    return vins;
+  }, [allBookings]);
+
   const allNowGroups = useMemo(() => {
     type BaseVehicle = (typeof vehicleBaseData)[number];
     type BaseNowItem = BaseVehicle["nowItems"][number];
     return vehicleBaseData
-      .filter((v: BaseVehicle) => v.nowItems.length > 0)
+      .filter(
+        (v: BaseVehicle) =>
+          v.nowItems.length > 0 && !inServiceVins.has(String(v.vin).toUpperCase()),
+      )
       .map((v: BaseVehicle) => {
         const vehicleName = v.name.replace(/\n/g, " ");
         const vehicleImageUrl = vehicleImageUrls[v.vin] || undefined;
@@ -906,13 +953,14 @@ export default function HomeScreen() {
           vehicleImageUrl,
           items,
           topUrgency: items[0]?.urgencyScore ?? 0,
+          healthPending: healthPendingVins.has(String(v.vin).toUpperCase()),
         };
       })
       .sort(
         (a: { topUrgency: number }, b: { topUrgency: number }) =>
           b.topUrgency - a.topUrgency,
       );
-  }, [vehicleBaseData, vehicleImageUrls]);
+  }, [vehicleBaseData, vehicleImageUrls, inServiceVins, healthPendingVins]);
 
   const handleSearch = (query: string) => {
     console.log("Search submitted:", query);

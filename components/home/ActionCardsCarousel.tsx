@@ -309,9 +309,14 @@ export function ActionCardsCarousel({
             style={getCardContainerStyle(cardId, index)}
             onLayout={(event) => handleCardLayout(cardId, event.nativeEvent.layout.height)}
           >
+            {/* isVisible gates the completion animation: the card plays its
+                send-off and then dismisses itself, so firing that while it is
+                parked off-screen in the carousel would delete the card without
+                the user ever seeing why. */}
             <FinishAccountSetupCard
               onPress={onAccountSetupPress}
               onDismiss={onAccountSetupDismiss}
+              isVisible={index === activeIndex}
             />
           </View>
         );

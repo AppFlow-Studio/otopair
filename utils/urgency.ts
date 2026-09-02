@@ -35,7 +35,11 @@ import {
   URGENCY_WEIGHTS,
 } from "./healthScore";
 
-export type UrgencyTier = "now" | "soon" | "soonish" | "resting";
+/** Three buckets only — NOW, SOON, and HEALTHY ("resting"). Ahmad,
+ *  2026-08-27: a fourth "on the horizon" tier read as neither urgent nor
+ *  fine and made the list harder to scan. See bucketTier for how the old
+ *  soon-ish band was folded in. */
+export type UrgencyTier = "now" | "soon" | "resting";
 
 /** Numeric severity per status — fills in the gap left by v0's
  *  SEVERITY_ORDER array (`maintenanceStatus.ts:367`), which provides
@@ -79,8 +83,17 @@ function categoryWeightForId(id: string): number {
 
 function bucketTier(score: number): UrgencyTier {
   if (score >= URGENCY_TIER_CUTOFFS.now) return "now";
-  if (score >= URGENCY_TIER_CUTOFFS.soon) return "soon";
-  if (score >= URGENCY_TIER_CUTOFFS.soonish) return "soonish";
+  // Three buckets only: NOW, SOON, HEALTHY. Ahmad, 2026-08-27 — the
+  // four-tier split put real findings under a third heading ("on the
+  // horizon") that read as neither urgent nor fine, and the extra step made
+  // the list harder to scan rather than more precise.
+  //
+  // The soonish band folds UP into SOON, not down into healthy: these are
+  // items with genuine signal behind them (a mechanic's yellow grade lands
+  // here), and filing them as healthy would understate them. The cutoff is
+  // kept in URGENCY_TIER_CUTOFFS so the boundary is still tunable and the
+  // urgency_tier_events log stays comparable.
+  if (score >= URGENCY_TIER_CUTOFFS.soonish) return "soon";
   return "resting";
 }
 

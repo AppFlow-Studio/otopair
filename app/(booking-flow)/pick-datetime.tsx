@@ -17,7 +17,9 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from "react-native";
-import { useLocalSearchParams, useNavigation } from "expo-router";
+import { useIsFocused } from "@react-navigation/native";
+import { useLocalSearchParams } from "expo-router";
+
 import { useMutation } from "convex/react";
 import type { FunctionReference } from "convex/server";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
@@ -104,7 +106,6 @@ const holdQuoteAwareSlot = api.slotHolds.holdSlot as FunctionReference<
 
 export default function PickDateTimeScreen() {
   const router = useRouter();
-  const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{
     shopId?: string;
@@ -169,10 +170,21 @@ export default function PickDateTimeScreen() {
     initialMechanicId,
   );
 
-  // Bounce home if shopId is missing / invalid.
+  // Recovery for a genuinely unusable screen: no shop means no slots to
+  // show. Only fires while this screen is the one on top, though —
+  // pick-datetime STAYS MOUNTED underneath payment / confirming /
+  // confirmation, so it keeps re-rendering after the user has moved on.
+  // Unfocused, this replace would teleport someone off Review & Pay and
+  // onto the service picker, which is the exact class of jump this flow's
+  // back handling was just fixed for. QuoteListSheet passes shopId as a
+  // route param specifically so the post-confirm clear of
+  // quoteAcceptContext can't leave it null here — the focus check makes
+  // that belt-and-braces instead of the only thing holding it.
+  const isFocused = useIsFocused();
   useEffect(() => {
+    if (!isFocused) return;
     if (!shopId) router.replace("/(booking-flow)/select-services");
-  }, [shopId, router]);
+  }, [isFocused, shopId, router]);
 
   // Offline gating for the slot grid below — temur-dev's restructure kept the
   // store reads (above) but not this, and it is still read further down.
@@ -593,23 +605,32 @@ export default function PickDateTimeScreen() {
     if (staleSlotSheetVisible) staleSlotSheetRef.current?.open();
   }, [staleSlotSheetVisible]);
 
-  // Back normalizes to Screen 1 when the user landed on Pick
-  // Date & Time without walking the rest of the flow first.
-  // Length > 1 means a real in-flow back exists. The first-in-
-  // stack case uses navigation.reset (not router.replace) since
-  // replace within the same Stack occasionally no-op'd.
+  // Back means "the screen I was actually just on" — including when that
+  // screen is outside this flow. Most entry points land the user mid-flow:
+  // Home and Cars push straight to Choose Mechanic when the tapped item
+  // pre-resolves to a service, the Bookings tab's quote sheet pushes
+  // straight to Pick Date & Time, and Quick Book / category cards push
+  // straight to a category tab. All of those leave this stack one route
+  // deep, and router.back() then pops the whole (booking-flow) group and
+  // lands where they came from, which is correct.
+  //
+  // This previously normalized that one-route case to Screen 1 via
+  // navigation.reset. It made back land on a service picker the user had
+  // never seen, discarding the real previous screen — the flow's entry
+  // points deliberately SKIP Screen 1, and this handler deliberately
+  // returned to it, so the two composed into a dead end. Ahmad, 2026-08-27.
+  //
+  // Clearing the quote-accept context on the way out is Temur's, and stays:
+  // backing out of an accept should not leave the flow believing it is
+  // still mid-accept.
   const onBack = () => {
     if (isQuoteAccept) setQuoteAcceptContext(null);
-    const state = navigation.getState?.();
-    const stackLength = state?.routes?.length ?? 0;
-    if (stackLength > 1) {
+    if (router.canGoBack()) {
       router.back();
       return;
     }
-    (navigation.reset as ((state: { index: number; routes: { name: string }[] }) => void) | undefined)?.({
-      index: 0,
-      routes: [{ name: "select-services" }],
-    });
+    // Cold-start deep link straight into the flow: nothing to pop.
+    router.replace("/(main-tabs)/home");
   };
 
   // Jump the day picker to the chosen month. Clearing the selected day

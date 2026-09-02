@@ -30,7 +30,13 @@ import {
 import { enrichUrgentItem } from "@/utils/maintenanceEnrichment";
 import { buildWarningLightItem } from "@/lib/warningLightItems";
 import { canonicalWarningLights } from "@/lib/warningLightVocab";
-import { safeInterval } from "@/utils/serviceIntervalGuardrails";
+import {
+  clampClassIntervalToBounds,
+  isTrustedInterval,
+  safeInterval,
+} from "@/utils/serviceIntervalGuardrails";
+import { CLASS_INTERVAL_SLUGS, classInterval } from "@/utils/classIntervals";
+import type { IntervalClassContext } from "@/utils/maintenanceStatus";
 import { TAXONOMY } from "@/constants/serviceTaxonomy";
 import { formatMileage } from "@/lib/vehicle-passport";
 // Slug → its slug-specific "minor" anchor. Single source of truth (same map
@@ -217,32 +223,84 @@ export interface MergeRecordLike {
  *  (utils/healthScore.ts) can't accidentally match one to a real category.
  *  Written by convex/lib/inspectionHealth.ts's deriveCoreGrades via
  *  convex/maintenance.ts's mergeMechanicGradeIntoRecord. */
-export const MINOR_ITEM_RECORD_TYPES: ReadonlyArray<{ type: string; label: string }> = [
-  { type: "minor_cool_condition", label: "Coolant Condition" },
-  { type: "minor_trans", label: "Transmission Fluid" },
-  { type: "minor_ps", label: "Power Steering Fluid" },
-  { type: "minor_filter", label: "Air / Cabin Filter" },
-  { type: "minor_bf_condition", label: "Brake Fluid Condition" },
+/**
+ * The five minor eye-check items, each with the catalog service that FIXES it.
+ *
+ * The card is named for the inspection line a mechanic grades ("coolant
+ * condition — how does the fluid look?"); the catalog sells the remedy
+ * ("coolant flush"). Nothing connected the two, which caused both bugs here:
+ *
+ *  - Book Service fell through to matching the mechanic's free-text reason
+ *    against service names. That worked for 2 of the 5 by luck and dropped
+ *    the other 3 on an empty service picker.
+ *  - When the same eye-check ALSO produced a job recommendation, the driver
+ *    got two cards for one physical finding — "Coolant Flush · Suggested by
+ *    James Bond" directly above "Coolant Condition · Flagged by Chelala".
+ *
+ * `remedySlug` is the taxonomy slug, which is the project's binding key for
+ * services (REFERENCES.md decision log, v9). Names are display text and drift:
+ * transmission_service reads "Transmission fluid change" in the taxonomy and
+ * "Transmission Service" in the catalog, so matching on names would have
+ * reproduced the same class of bug this replaces.
+ */
+/** maintenance_records.type for a driver's answer about a catalog service.
+ *  Prefixed so it can never collide with the five core types or the minor_*
+ *  eye-check rows, and so the answers are trivially greppable later. */
+export function catalogRecordType(slug: string): string {
+  return `catalog_${slug}`;
+}
+
+export const MINOR_ITEM_RECORD_TYPES: ReadonlyArray<{
+  type: string;
+  label: string;
+  remedySlug: string;
+}> = [
+  { type: "minor_cool_condition", label: "Coolant Condition", remedySlug: "coolant_flush" },
+  { type: "minor_trans", label: "Transmission Fluid", remedySlug: "transmission_service" },
+  { type: "minor_ps", label: "Power Steering Fluid", remedySlug: "power_steering_flush" },
+  { type: "minor_filter", label: "Air / Cabin Filter", remedySlug: "filter_replacement" },
+  { type: "minor_bf_condition", label: "Brake Fluid Condition", remedySlug: "brake_fluid_flush" },
 ];
 
 /** Build the extra weight-10 minor-item cards from raw records — one per
  *  flagged (yellow/red) catalog-matched minor field, none for green
  *  (absent) or unmatched (freeform, never written here at all) findings. */
-function buildMinorItems(records: readonly MergeRecordLike[] | undefined): MaintenanceItem[] {
+function buildMinorItems(
+  records: readonly MergeRecordLike[] | undefined,
+  /** Remedy slugs already represented by a mechanic recommendation. A minor
+   *  item whose fix is in here is suppressed: one physical finding, one card.
+   *  Empty when the caller cannot resolve slugs (Oto's server-side merge),
+   *  which degrades to today's behaviour rather than to a wrong answer. */
+  coveredRemedySlugs: ReadonlySet<string>,
+): MaintenanceItem[] {
   if (!records?.length) return [];
   const out: MaintenanceItem[] = [];
-  for (const { type, label } of MINOR_ITEM_RECORD_TYPES) {
+  for (const { type, label, remedySlug } of MINOR_ITEM_RECORD_TYPES) {
     const record = records.find((r) => r.type === type);
     const grade = record?.customInputs?.mechanicGrade as "g" | "y" | "r" | undefined;
     if (!grade || grade === "g") continue;
+    // The recommendation card wins: it carries the mechanic's own framing, a
+    // service id that books reliably, and the dismiss / follow-up lifecycle.
+    // Scoring is unaffected — recs are excluded from Upkeep precisely because
+    // the matching tile scores them (see isScorableMaintenanceItem), so the
+    // finding still costs exactly what it did.
+    if (coveredRemedySlugs.has(remedySlug)) continue;
     const reason = (record?.customInputs?.mechanicGradeReason as string | undefined)
       ?? `${label} flagged on eye-check`;
+    const shopName = (record?.customInputs?.mechanicGradeSource as string | undefined) ?? null;
+    const gradedAt = (record?.customInputs?.mechanicGradedAt as number | undefined) ?? null;
     out.push({
       id: `user-${type}`,
       serviceName: label,
       description: reason,
       detail: grade === "r" ? "Overdue" : "Needs attention",
       status: grade === "r" ? "overdue" : "needs_attention",
+      // A minor item only exists because a mechanic graded it yellow or red,
+      // so it always has a source worth showing.
+      mechanicFlag: shopName || gradedAt ? { shopName, gradedAt } : undefined,
+      // The fix, so Book Service lands on Choose Mechanic with the right
+      // service attached instead of an empty picker.
+      serviceSlug: remedySlug,
     });
   }
   return out;
@@ -270,6 +328,16 @@ export interface BuildMergedMaintenanceInput {
   /** Slug-keyed OEM intervals from the v3 enrichment pipeline. Drives the
    *  interval signal pill and the catalog coverage pass (Behaviors #6/#7). */
   oemIntervals?: OemServiceIntervalsInput;
+  /** Resolve a catalog service id to its taxonomy slug. Supplied by the app
+   *  (which has the services catalog in the booking store) and omitted by
+   *  Oto's server-side merge. Used only to suppress a minor eye-check card
+   *  when a recommendation already covers the same remedy — without it, both
+   *  cards render, which is the pre-existing behaviour. */
+  serviceSlugById?: (serviceId: string) => string | undefined;
+  /** Vehicle class + turbo/drivetrain, so the catalog pass can fall back to
+   *  the class default table when enrichment has not produced an interval.
+   *  Omit (as Oto's server-side merge does) to keep the enrichment-only set. */
+  classCtx?: IntervalClassContext;
 }
 
 /**
@@ -283,7 +351,8 @@ export function buildMergedMaintenanceItems(
   input: BuildMergedMaintenanceInput,
 ): MaintenanceItem[] {
   const { userItems, records, knownIssues, vehicleYear, driverRecommendations, scopeId } = input;
-  const { currentOdometer, oemIntervals } = input;
+  const { serviceSlugById } = input;
+  const { currentOdometer, oemIntervals, classCtx } = input;
   const now = input.now ?? Date.now();
   const result: MaintenanceItem[] = [];
 
@@ -363,13 +432,29 @@ export function buildMergedMaintenanceItems(
       }
     }
 
-    const fallback: Record<string, { status: MaintenanceItem["status"]; description: string; detail: string }> = {
-      oil:    { status: "due_soon",  description: "No oil change data — service recommended", detail: "Check soon" },
-      brakes: { status: "on_time",   description: "No brake concerns reported",              detail: "On time" },
-      tires:  { status: "on_time",   description: "No tire concerns reported",               detail: "On time" },
-      battery:{ status: "on_time",   description: "No battery concerns reported",            detail: "On time" },
+    // Nothing on file for this type. That is the absence of a finding, not a
+    // finding of "fine" — these previously claimed `on_time` with "No brake
+    // concerns reported" (and oil `due_soon`) for a vehicle we hold no record
+    // of at all, which meant a 300,000-mile car was told its brakes, tires and
+    // battery were in good order. Those asserted statuses also scored: they
+    // averaged to a fixed 93 for EVERY record-less vehicle, and §08 could not
+    // exclude them because they never arrived as "unknown" in the first place.
+    //
+    // Reporting them honestly is also consistent with the rest of the model —
+    // when a record EXISTS but carries no date, maintenanceStatus.ts already
+    // returns "unknown" with this same "not on file" vocabulary. Having no
+    // record at all should not read as better news than a blank one.
+    const fallback: Record<string, { description: string }> = {
+      oil:    { description: "No oil change history on file" },
+      brakes: { description: "No brake service history on file" },
+      tires:  { description: "No tire service history on file" },
+      battery:{ description: "No battery service history on file" },
     };
-    const fb = fallback[type] ?? { status: "on_time" as const, description: "No concerns reported", detail: "On time" };
+    const fb = {
+      status: "unknown" as const,
+      description: fallback[type]?.description ?? "No service history on file",
+      detail: "Not on file",
+    };
     result.push({
       id: `unknown-${type}`,
       serviceName: MAINTENANCE_LABELS[type] || type,
@@ -385,13 +470,33 @@ export function buildMergedMaintenanceItems(
 
   // Consolidated Upkeep scoring model — catalog-matched minor fields
   // flagged yellow/red (see buildMinorItems above).
-  result.push(...buildMinorItems(records));
+  // Remedies a mechanic has already recommended — those recommendations own
+  // the card, so the matching eye-check tile stays silent.
+  const coveredRemedySlugs = new Set<string>();
+  if (serviceSlugById && driverRecommendations) {
+    for (const rec of driverRecommendations) {
+      if (!rec.service_id) continue;
+      const slug = serviceSlugById(rec.service_id);
+      if (slug) coveredRemedySlugs.add(slug);
+    }
+  }
+  result.push(...buildMinorItems(records, coveredRemedySlugs));
 
   // ── Catalog coverage via from-odometer inference (Behavior #7) ──
   // Only runs for callers that supply both an odometer and OEM intervals;
   // Oto's server-side score passes neither and keeps the anchored-only set.
-  if (oemIntervals && currentOdometer != null && currentOdometer > 0) {
-    for (const [slug, interval] of Object.entries(oemIntervals)) {
+  if ((oemIntervals || classCtx) && currentOdometer != null && currentOdometer > 0) {
+    // The union, not just enrichment. This pass used to iterate `oemIntervals`
+    // alone, so a car whose enrichment had not finished showed NO bigger
+    // services at all — no air/cabin filter, no brake fluid flush — even
+    // though the class default table has both. That undercut the whole reason
+    // the class table is the default rather than a fallback: a car is supposed
+    // to get its intervals at add-car time with zero enrichment.
+    const slugs = new Set<string>(Object.keys(oemIntervals ?? {}));
+    if (classCtx?.vehicleClass) for (const slug of CLASS_INTERVAL_SLUGS) slugs.add(slug);
+
+    for (const slug of slugs) {
+      const interval = oemIntervals?.[slug];
       if (CATALOG_SLUGS_TO_SKIP.has(slug)) continue;
       const entry = TAXONOMY[slug];
       if (!entry) continue;
@@ -400,16 +505,43 @@ export function buildMergedMaintenanceItems(
       // fields (`confidence`, `mechanic_verified`) beyond what the narrow
       // `OemServiceIntervalsInput` type surfaces; cast for the guardrail
       // call rather than leaking those fields into the general type.
-      const enrichedInterval = interval as OemServiceIntervalsInput[string] & {
+      const enrichedInterval = interval as (OemServiceIntervalsInput[string] & {
         confidence?: number | null;
         mechanic_verified?: boolean;
-      };
-      const bounded = safeInterval({
-        slug,
-        interval_miles: enrichedInterval.interval_miles,
-        confidence: enrichedInterval.confidence,
-        mechanic_verified: enrichedInterval.mechanic_verified,
-      });
+      }) | undefined;
+
+      // OEM first, class default second — the same two tiers `getInterval` and
+      // the Bigger Services tile use, so all three agree about one service on
+      // one car.
+      //
+      // The class value does NOT go through `safeInterval`. That helper treats
+      // a value carrying no confidence score as untrusted and snaps it to the
+      // bounds FLOOR, which would turn Class A spark plugs from 90,000 miles
+      // into 20,000. The confidence machinery defends against bad scraped
+      // data, not against our own engineering constants; the bounds still
+      // apply, the trust gate does not.
+      // ...and only when it is trustworthy. The pipeline writes
+      // `default_fallback` rows at confidence 0.5; `safeInterval` snaps those
+      // to the bounds floor, and a floored guess is worse information than the
+      // class table. Same rule as the Bigger Services tile so the two agree.
+      const classMiles = classCtx?.vehicleClass
+        ? classInterval(slug, classCtx.vehicleClass, classCtx)?.miles ?? null
+        : null;
+      // Prefer the class table over an UNTRUSTED enrichment value — but only
+      // when there is a class value to prefer. With nothing to fall back to,
+      // a floored guess still beats no row at all: the point of the gate is
+      // to rank two numbers, not to discard the only one we have.
+      const useOem =
+        !!enrichedInterval?.interval_miles &&
+        (isTrustedInterval(enrichedInterval) || classMiles == null);
+      const bounded = useOem
+        ? safeInterval({
+            slug,
+            interval_miles: enrichedInterval!.interval_miles,
+            confidence: enrichedInterval!.confidence,
+            mechanic_verified: enrichedInterval!.mechanic_verified,
+          })
+        : clampClassIntervalToBounds(slug, classMiles);
 
       // Anchorless — no stored interval AND no conservative default.
       // Row surfaces soft with the diagnostic-scan CTA (Behavior #6).
@@ -420,26 +552,56 @@ export function buildMergedMaintenanceItems(
           description:
             "Not enough info to say — book a diagnostic scan to firm this up.",
           detail: "No data",
-          status: "on_time",
+          // UNKNOWN, not HEALTHY. The row's own copy admits we cannot say, and
+          // filing that under "healthy" told the driver the opposite of what
+          // it said. `unknown` is the tier for everything we have no answer
+          // to, whoever left it unanswered.
+          status: "unknown",
           triggeredBy: "none",
+          // Informational only — see MaintenanceItem.excludeFromScore.
+          excludeFromScore: true,
+          // Carries the slug so the row gets an "Add info" control like every
+          // other unknown: the driver may simply know the answer.
+          serviceSlug: slug,
         });
         continue;
       }
 
-      // Anchor-aware close-out: if this exact service was recorded (booking
-      // completion stamps the slug-specific `minor_*` row with lastServiceMileage),
-      // measure the interval from that service, not from new — otherwise a
-      // high-mileage car reads "overdue" forever even right after the service.
-      // Only the slug-specific minor anchor is safe here; the shared aggregate
-      // ("fluids"/"engine_parts") would falsely retire sibling services.
+      // Two ways a catalog row can pick up a real anchor, and both count.
+      //
+      //   - the driver answered "when was this last done?" on the card
+      //     (`catalog_<slug>`), which is a fact they gave us; and
+      //   - a booking completion stamped the slug-specific `minor_<slug>` row,
+      //     which is a shop actually doing the work.
+      //
+      // Temur added the second; the first came from Quick Check v2. Without
+      // either, the row measures from new — an assumption, which is why it
+      // scores nothing. Only the slug-specific minor anchor is safe: the
+      // shared aggregates ("fluids" / "engine_parts") would falsely retire
+      // every sibling service.
+      const answered = records?.find((r) => r.type === catalogRecordType(slug));
       const minorType = minorRecordTypeForServiceSlug(slug);
       const minorAnchor = minorType
         ? records?.find((r) => r.type === minorType)
         : undefined;
-      const anchorLastServiceMileage =
+
+      const answeredMileage =
+        typeof answered?.lastServiceMileage === "number"
+          ? answered.lastServiceMileage
+          : undefined;
+      const minorMileage =
         typeof minorAnchor?.lastServiceMileage === "number"
           ? minorAnchor.lastServiceMileage
           : undefined;
+
+      // The LATER of the two wins rather than one source outranking the other.
+      // A shop record is better evidence than a recollection, but a driver
+      // answering after that visit is newer information — and "most recent
+      // service" is the question the interval is actually asking.
+      const anchorLastServiceMileage =
+        answeredMileage != null && minorMileage != null
+          ? Math.max(answeredMileage, minorMileage)
+          : answeredMileage ?? minorMileage;
 
       const status = computeFromOdometerStatus({
         interval_miles: bounded,
@@ -455,10 +617,26 @@ export function buildMergedMaintenanceItems(
         detail: status.detail,
         status: status.status,
         percentUsed: status.percentUsed,
-        triggeredBy: "inference",
+        // Either anchor makes this a real measurement rather than an
+        // inference from new.
+        triggeredBy: anchorLastServiceMileage != null ? "mileage" : "inference",
+        // Still excluded from scoring even once answered. SCORING_TYPES is
+        // explicit that catalog rows "must never score without a mechanic
+        // behind them", and a driver's self-report is not a mechanic — that
+        // gate was added deliberately after these rows started costing people
+        // points for the passage of time. The answer changes what the row
+        // SAYS and which tier it sits in; it does not move the score.
+        excludeFromScore: true,
+        // Lets the row's "when was this done?" button write back to the right
+        // record, and lets Book Service resolve the service.
+        serviceSlug: slug,
         signals: {
           mileage: `${formatMileage(currentOdometer)} (current)`,
-          interval: `${formatMileage(bounded)} (OEM)`,
+          // Says which tier the number came from. "Typical" rather than "OEM"
+          // when it is our class default, because claiming a manufacturer
+          // schedule we do not have is the kind of false precision the
+          // confidence hold exists to avoid.
+          interval: `${formatMileage(bounded)} (${useOem ? "OEM" : "typical"})`,
         },
       });
     }

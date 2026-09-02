@@ -7,7 +7,7 @@
  * `if`/`else` on.
  *
  * **Maintenance tracker is reactive — DO NOT recompute manually.**
- * The cars-tab MaintenanceTracker derives its `now / soon / soonish /
+ * The cars-tab MaintenanceTracker derives its `now / soon /
  * resting` tiers from the same Convex query that backs the mileage row
  * (see `hooks/useMaintenanceData.ts` → `useMergedMaintenance` →
  * `computeMaintenanceStatus`). When this hook lands the new mileage,

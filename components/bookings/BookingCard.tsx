@@ -188,7 +188,11 @@ const ACTION_BUTTON_GAP = 10;
 const ACTION_BUTTON_HORIZONTAL_PADDING = 32;
 const ACTION_BUTTON_LABEL_MAX_SIZE = 14;
 const ACTION_BUTTON_LABEL_MIN_SIZE = 12;
-const ACTION_BUTTON_LONGEST_LABEL = 'Cancel Booking';
+// Widest label any action button can render. Drives the auto-fit font size,
+// so it has to be the true longest or the winner gets clipped at
+// numberOfLines={1} — "Pickup requested" is two characters longer than
+// "Cancel Booking".
+const ACTION_BUTTON_LONGEST_LABEL = 'Pickup requested';
 const ACTION_BUTTON_LABEL_WIDTH_RATIO = 0.66;
 
 function clamp(value: number, min: number, max: number): number {
@@ -385,6 +389,16 @@ export function BookingCard({
       router.push({ pathname: '/coming-soon', params: { serviceName: 'Booking Details' } });
     }
   };
+
+  /*
+   * Once the customer has asked for the car back there is nothing further to
+   * ask for, so the button states that instead of inviting a second request.
+   * Covers every shop response, including "declined" — that banner tells the
+   * customer to call the shop, and re-sending the same request would not
+   * change the answer.
+   */
+  const pickupAlreadyRequested =
+    actions.cancelKind === 'request_shop' && booking.pickupRequestedAtMs != null;
 
   const handleCancelBooking = () => {
     if (isCancelling) return;
@@ -738,23 +752,26 @@ export function BookingCard({
                 {actions.canCancel && (
                   <Pressable
                     onPress={handleCancelBooking}
-                    disabled={isCancelling}
+                    disabled={isCancelling || pickupAlreadyRequested}
                     style={({ pressed }) => [
                       styles.cancelButton,
-                      pressed && styles.buttonPressed,
+                      pickupAlreadyRequested && styles.cancelButtonRequested,
+                      pressed && !pickupAlreadyRequested && styles.buttonPressed,
                     ]}
                   >
                     <Text
                       weight="semiBold"
                       size={actionButtonLabelSize}
-                      color="#DC2626"
+                      color={pickupAlreadyRequested ? '#6B7280' : '#DC2626'}
                       numberOfLines={1}
                       lineHeight={1.2}
                       style={styles.actionButtonLabel}
                     >
-                      {actions.cancelKind === 'request_shop'
-                        ? 'Request pickup'
-                        : 'Cancel Booking'}
+                      {pickupAlreadyRequested
+                        ? 'Pickup requested'
+                        : actions.cancelKind === 'request_shop'
+                          ? 'Request pickup'
+                          : 'Cancel Booking'}
                     </Text>
                   </Pressable>
                 )}
@@ -1016,6 +1033,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  cancelButtonRequested: {
+    borderColor: '#E5E7EB',
+    backgroundColor: '#F9FAFB',
   },
   cancelButton: {
     flexBasis: 0,
