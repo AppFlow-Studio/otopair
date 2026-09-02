@@ -603,6 +603,12 @@ export function buildMergedMaintenanceItems(
           ? Math.max(answeredMileage, minorMileage)
           : answeredMileage ?? minorMileage;
 
+      // A definite answer, not merely a record. "Not sure" writes a row so we
+      // stop asking as insistently; it is still an absence of information and
+      // must not score.
+      const answeredType = (answered?.customInputs as { answerType?: string } | undefined)?.answerType;
+      const driverAnswered = answeredType === "when" || answeredType === "never";
+
       const status = computeFromOdometerStatus({
         interval_miles: bounded,
         currentOdometer,
@@ -620,13 +626,18 @@ export function buildMergedMaintenanceItems(
         // Either anchor makes this a real measurement rather than an
         // inference from new.
         triggeredBy: anchorLastServiceMileage != null ? "mileage" : "inference",
-        // Still excluded from scoring even once answered. SCORING_TYPES is
-        // explicit that catalog rows "must never score without a mechanic
-        // behind them", and a driver's self-report is not a mechanic — that
-        // gate was added deliberately after these rows started costing people
-        // points for the passage of time. The answer changes what the row
-        // SAYS and which tier it sits in; it does not move the score.
-        excludeFromScore: true,
+        // Scores ONLY once the driver has actually answered — Yassin,
+        // 2026-09-02: a driver's answer on a bigger service should move the
+        // number the way a mechanic's grade does.
+        //
+        // This reverses an earlier blanket exclusion, and the distinction
+        // matters: that gate went in because these rows were costing people
+        // points for the PASSAGE OF TIME, on a car nobody had said anything
+        // about. An answer is not the passage of time. Unanswered and "not
+        // sure" rows still leave the weighted average entirely, so the old
+        // failure cannot come back — and a driver who says nothing is never
+        // penalised for saying nothing.
+        excludeFromScore: !driverAnswered,
         // Lets the row's "when was this done?" button write back to the right
         // record, and lets Book Service resolve the service.
         serviceSlug: slug,

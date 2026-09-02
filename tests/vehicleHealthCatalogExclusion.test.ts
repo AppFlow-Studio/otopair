@@ -39,16 +39,32 @@ describe("§04 catalog-inference items must not score", () => {
     expect(score).toBe(100);
   });
 
-  it("catalog rows are now blocked twice over — flag AND type", () => {
-    // This used to assert 70: clearing excludeFromScore reproduced the
-    // original bug. It no longer can. SCORING_TYPES also rejects the
-    // `catalog` type, so clearing the flag alone changes nothing. Two
-    // independent guards, which is what we want for a rule that has been
-    // violated once already.
+  it("the flag is the whole gate, and clearing it is how an ANSWER scores", () => {
+    // This asserted 100 when catalog rows were blocked twice over — by the
+    // flag AND by SCORING_TYPES rejecting the `catalog` type. Ahmad removed
+    // the second guard on 2026-09-02 (Yassin's ask): a driver's answer on a
+    // bigger service should move the number the way a mechanic's grade does.
+    //
+    // So `excludeFromScore` is now the only gate, and it means exactly one
+    // thing — "nobody has answered this". `utils/mergedMaintenance.ts` clears
+    // it solely for a definite when/never answer. Clearing it here simulates
+    // that, and the score moves.
     const flagCleared = items.map((i) => ({ ...i, excludeFromScore: false }));
     expect(
       computeVehicleHealthScore(
         { maintenanceItems: flagCleared, odometerMiles: 145_000, knownIssues: [] } as any,
+      ),
+    ).toBeLessThan(100);
+  });
+
+  it("still scores nothing while the flag stands — silence is not a finding", () => {
+    // The failure this file was written for: catalog rows costing people
+    // points for the PASSAGE OF TIME on a car nobody had said anything about.
+    // That cannot come back — an unanswered row keeps the flag and leaves the
+    // weighted average entirely.
+    expect(
+      computeVehicleHealthScore(
+        { maintenanceItems: items, odometerMiles: 145_000, knownIssues: [] } as any,
       ),
     ).toBe(100);
   });
@@ -186,5 +202,58 @@ describe("§12 regression guards — what must NOT have been broken", () => {
       { maintenanceItems: items, odometerMiles: 145_000, knownIssues: [], recPenalty: 999 } as any,
     );
     expect(huge).toBe(base - 15);
+  });
+});
+
+describe("an ANSWERED bigger service scores like a mechanic's grade", () => {
+  // Yassin, 2026-09-02: "when a user answers a question for any of the bigger
+  // services, we affect the score the same way a mechanic's feedback would
+  // — but only if the user actually has an answer for it."
+  const answered = (slug: string, status: string) => ({
+    id: `catalog-${slug}`,
+    serviceName: slug,
+    status,
+    excludeFromScore: false,
+  });
+
+  it("deducts when the driver says a service is overdue", () => {
+    const clean = computeVehicleHealthScore(
+      { maintenanceItems: [core("oil", "on_time")], odometerMiles: 100_000, knownIssues: [] } as any,
+    );
+    const withOverdue = computeVehicleHealthScore(
+      {
+        maintenanceItems: [core("oil", "on_time"), answered("spark_plugs", "overdue")],
+        odometerMiles: 100_000,
+        knownIssues: [],
+      } as any,
+    );
+    expect(withOverdue).toBeLessThan(clean);
+  });
+
+  it("does not deduct when the driver says it was done", () => {
+    const withOnTime = computeVehicleHealthScore(
+      {
+        maintenanceItems: [core("oil", "on_time"), answered("spark_plugs", "on_time")],
+        odometerMiles: 100_000,
+        knownIssues: [],
+      } as any,
+    );
+    expect(withOnTime).toBe(100);
+  });
+
+  it("weighs each service at its own number, not a flat 10", () => {
+    // CATEGORY_WEIGHTS already carried these — transmission 18, spark plugs
+    // 15, differential 12 — but `catalog-spark_plugs` resolved to type
+    // "catalog" and every one of them collapsed to the generic `other`.
+    const score = (slug: string) =>
+      computeVehicleHealthScore(
+        {
+          maintenanceItems: [core("oil", "on_time"), answered(slug, "overdue")],
+          odometerMiles: 100_000,
+          knownIssues: [],
+        } as any,
+      );
+    // Heavier weight → bigger dent.
+    expect(score("transmission_service")).toBeLessThan(score("differential_service"));
   });
 });
