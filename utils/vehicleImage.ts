@@ -308,19 +308,78 @@ function discoveryCacheKey(year: number, make: string, candidate: string): strin
  * endpoint five times on every re-render, and VDB rate-limits hard enough that
  * the existing code already carries a concurrency cap and a cooldown.
  */
-const VDB_VERBOSE_TRIM_CACHE = new Map<string, string[]>();
+const VDB_VERBOSE_TRIM_CACHE = new Map<string, VdbModelTrims | null>();
 
+export interface VdbModelTrims {
+  /** The name VDB actually catalogs this variant under. */
+  model: string;
+  /** Its verbose trim strings. */
+  trims: string[];
+}
+
+/**
+ * Candidate VDB model names for one of OUR trim names.
+ *
+ * The vocabularies disagree on where AMG goes. Car API and MarketCheck put it
+ * last — "GLE 53 AMG", "GLE 63 AMG S" — and VDB puts it first, with no
+ * variant suffix: "AMG GLE 53", "AMG GLE 63". Probing our spelling returns
+ * nothing, the YMMT URLs never get built, and the image falls back to the VIN
+ * — which is the base trim. That is why 350/450/580 switched correctly and
+ * both AMGs showed the 350.
+ */
+function vdbModelCandidates(ourTrim: string): string[] {
+  const raw = ourTrim.trim().replace(/\s+/g, " ");
+  const out = [raw];
+  const amg = /\bAMG\b/i;
+  if (amg.test(raw)) {
+    const withoutAmg = raw.replace(amg, "").replace(/\s+/g, " ").trim();
+    const fronted = `AMG ${withoutAmg}`;
+    out.push(fronted);
+    // "AMG GLE 63 S" → "AMG GLE 63". VDB drops the single-letter variant
+    // suffix; the S survives in the verbose trim string instead.
+    const noSuffix = fronted.replace(/\s+[A-Za-z]$/, "");
+    if (noSuffix !== fronted) out.push(noSuffix);
+  }
+  return out;
+}
+
+/**
+ * Resolve one of OUR trim names to the VDB model that catalogs it, plus that
+ * model's verbose trim strings.
+ *
+ * Cached — including negative results — because the image call needs this per
+ * trim and the prefetch fires one per variant. Uncached, a five-trim GLE would
+ * hit the options endpoint on every render, and VDB rate-limits hard enough
+ * that this file already carries a concurrency cap and a cooldown.
+ */
 async function vdbVerboseTrimsFor(
   year: number,
   make: string,
-  trimAsModel: string,
-): Promise<string[]> {
-  const key = `${year}|${make.toLowerCase()}|${trimAsModel.toLowerCase()}`;
-  const hit = VDB_VERBOSE_TRIM_CACHE.get(key);
-  if (hit) return hit;
-  const list = await probeYmmSpecsTrims(year, make, trimAsModel);
-  VDB_VERBOSE_TRIM_CACHE.set(key, list);
-  return list;
+  ourTrim: string,
+): Promise<VdbModelTrims | null> {
+  const key = `${year}|${make.toLowerCase()}|${ourTrim.toLowerCase()}`;
+  if (VDB_VERBOSE_TRIM_CACHE.has(key)) return VDB_VERBOSE_TRIM_CACHE.get(key)!;
+  // Match against VDB's model list rather than probing each spelling blind.
+  // Blind probing cost up to three requests per trim, and the prefetch fires
+  // one per variant — a five-trim GLE burst past VDB's three-concurrent cap,
+  // earned a 429 and a ten-second cooldown, and every trim then fell back to
+  // the VIN image. Which is the bug this was meant to fix.
+  //
+  // `fetchVdbModelsForYmm` is cached per (year, make), so this is one shared
+  // request for the whole picker, then a local match.
+  const catalog = await fetchVdbModelsForYmm(year, make);
+  const norm = (v: string) => v.toLowerCase().replace(/[^a-z0-9]/g, "");
+  let resolvedModel: string | null = null;
+  for (const candidate of vdbModelCandidates(ourTrim)) {
+    const target = norm(candidate);
+    const hit = catalog.find((m) => norm(m) === target);
+    if (hit) { resolvedModel = hit; break; }
+  }
+  const found = resolvedModel
+    ? { model: resolvedModel, trims: await probeYmmSpecsTrims(year, make, resolvedModel) }
+    : null;
+  VDB_VERBOSE_TRIM_CACHE.set(key, found && found.trims.length ? found : null);
+  return VDB_VERBOSE_TRIM_CACHE.get(key)!;
 }
 
 /**
@@ -655,10 +714,10 @@ export async function fetchVehicleImageUrl(
     const ymmtUrls: string[] = [];
     if (trim && year) {
       for (const m of makes) {
-        const verbose = await vdbVerboseTrimsFor(year, m, trim);
-        for (const v of verbose) {
+        const resolved = await vdbVerboseTrimsFor(year, m, trim);
+        for (const v of resolved?.trims ?? []) {
           ymmtUrls.push(
-            `${BASE_URL}/${year}/${encodeURIComponent(m)}/${encodeURIComponent(trim)}/${encodeURIComponent(v)}`,
+            `${BASE_URL}/${year}/${encodeURIComponent(m)}/${encodeURIComponent(resolved!.model)}/${encodeURIComponent(v)}`,
           );
         }
         ymmtUrls.push(
@@ -1264,9 +1323,10 @@ export async function fetchVdbColorsForVehicle(args: {
   const ymmtUrls: string[] = [];
   if (trim && year && make) {
     for (const m of makes) {
-      for (const verbose of await vdbVerboseTrimsFor(year, m, trim)) {
+      const resolved = await vdbVerboseTrimsFor(year, m, trim);
+      for (const verbose of resolved?.trims ?? []) {
         ymmtUrls.push(
-          `${BASE_URL}/${year}/${encodeURIComponent(m)}/${encodeURIComponent(trim)}/${encodeURIComponent(verbose)}`,
+          `${BASE_URL}/${year}/${encodeURIComponent(m)}/${encodeURIComponent(resolved!.model)}/${encodeURIComponent(verbose)}`,
         );
       }
       if (model) {
