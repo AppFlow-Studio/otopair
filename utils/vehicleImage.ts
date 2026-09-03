@@ -1413,6 +1413,47 @@ function cacheKey(args: {
 }
 
 /**
+ * Warm the colour/image cache for every trim in the picker, in parallel.
+ *
+ * VDB has no "all trims" endpoint — `/vehicle-images/{year}/{make}/{model}/
+ * {trim}` takes one trim at a time — so this is N requests, fired once while
+ * the driver is still reading the screen. `useVdbColorsForVin` reads the same
+ * `COLORS_CACHE`, so by the time they open the dropdown every entry is a cache
+ * hit and switching is instant.
+ *
+ * Without it, each trim's first selection ran a full round trip and showed a
+ * loading state — and because image resolution prefers the VIN, that spinner
+ * usually resolved back to the picture already on screen. A wait for nothing.
+ *
+ * Deliberately best-effort: failures are swallowed per trim. A trim VDB does
+ * not recognise (our names come from Car API / MarketCheck, whose vocabulary
+ * differs) simply stays uncached and falls back to the VIN image, which is
+ * what it did before.
+ */
+export function prefetchVdbColorsForTrims(
+  base: Parameters<typeof fetchVdbColorsForVehicle>[0],
+  trims: readonly string[],
+): void {
+  for (const trim of trims) {
+    if (!trim) continue;
+    const args = { ...base, trim };
+    const k = cacheKey(args);
+    if (COLORS_CACHE.has(k)) continue;
+    // Mark in-flight so two renders cannot both fire the same request.
+    if (PREFETCH_INFLIGHT.has(k)) continue;
+    PREFETCH_INFLIGHT.add(k);
+    void fetchVdbColorsForVehicle(args)
+      .then((result) => {
+        if (result.length) COLORS_CACHE.set(k, result);
+      })
+      .catch(() => {})
+      .finally(() => PREFETCH_INFLIGHT.delete(k));
+  }
+}
+
+const PREFETCH_INFLIGHT = new Set<string>();
+
+/**
  * React hook that returns the VDB color options for a vehicle.
  *
  * - `colors` is the parsed picker list. Empty until the fetch resolves.

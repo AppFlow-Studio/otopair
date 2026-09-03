@@ -42,7 +42,7 @@ import { BrandColors, Spacing } from '@/constants/theme';
 import { api } from '@/convex/_generated/api';
 import { Id } from '@/convex/_generated/dataModel';
 import { scale, verticalScale, moderateScale } from '@/utils/responsive';
-import { classifyColorFamily, fetchVehicleImageUrl, pickBestVdbTrim, pickSilhouetteVariant, useVdbColorsForVin } from '@/utils/vehicleImage';
+import { classifyColorFamily, fetchVehicleImageUrl, pickBestVdbTrim, pickSilhouetteVariant, prefetchVdbColorsForTrims, useVdbColorsForVin } from '@/utils/vehicleImage';
 import { useYmmTrims } from '@/hooks/useYmmTrims';
 import { COLOR_GRADIENTS } from '@/constants/colorGradients';
 import { ColorSwatchSkeletonRow, VehicleImageSkeleton } from '@/components/shared-ui/ColorSwatchSkeleton';
@@ -218,6 +218,28 @@ export default function AddVehicleReviewScreen() {
   // the merged params model is the correct persisted identity.
   const effectiveModel = params.model;
   const effectiveTrim = selectedTrim ?? params.trim;
+
+  // Warm every trim's images the moment the list lands, so opening the picker
+  // and switching is instant rather than a round trip each time. VDB has no
+  // all-trims endpoint, so this is one request per trim, fired in parallel
+  // while the driver is still reading the page.
+  useEffect(() => {
+    if (ymmTrims.length === 0) return;
+    prefetchVdbColorsForTrims(
+      {
+        vin: params.vin,
+        year: yearNum,
+        make: params.make,
+        model: effectiveModel,
+        nhtsaModel: params.nhtsaModel,
+        nhtsaSeries: params.nhtsaSeries,
+        nhtsaTrim: params.nhtsaTrim,
+      },
+      ymmTrims,
+    );
+  }, [ymmTrims, params.vin, yearNum, params.make, effectiveModel,
+      params.nhtsaModel, params.nhtsaSeries, params.nhtsaTrim]);
+
   useEffect(() => {
     if (showTrimSheet) trimSheetRef.current?.open();
   }, [showTrimSheet]);
