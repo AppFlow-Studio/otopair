@@ -20,7 +20,8 @@ import { Bell } from "lucide-react-native";
 import { ProfileInitialsButton } from "@/components/home/ProfileInitialsButton";
 import { useNotificationsSheetStore } from "@/stores/useNotificationsSheetStore";
 import { useNotificationsFromConvex } from "@/hooks/useNotificationsFromConvex";
-import { BookingCard, type Booking } from "@/components/bookings/BookingCard";
+import { type Booking } from "@/components/bookings/BookingCard";
+import { UpcomingBookingCard } from "@/components/bookings/UpcomingBookingCard";
 import { PendingQuoteCard } from "@/components/bookings/PendingQuoteCard";
 import { QuoteListSheet, type QuoteListSheetRef } from "@/components/bookings/QuoteListSheet";
 import {
@@ -109,9 +110,10 @@ export default function BookingsScreen() {
   } = useMyBookingsWithDetails();
   const router = useRouter();
 
-  const { tab: tabParam, bookingId: bookingIdParam, rescheduleError, quoteUnavailable } = useLocalSearchParams<{
+  const { tab: tabParam, bookingId: bookingIdParam, openChat: openChatParam, rescheduleError, quoteUnavailable } = useLocalSearchParams<{
     tab?: string;
     bookingId?: string;
+    openChat?: string;
     rescheduleError?: string;
     quoteUnavailable?: string;
   }>();
@@ -354,9 +356,11 @@ export default function BookingsScreen() {
     const booking = allBookings.find((b) => b.id === bookingIdParam);
     if (booking) {
       openedBookingIdRef.current = bookingIdParam;
-      detailsSheetRef.current?.open(booking);
+      // `openChat=1` (set by a shop-reply notification) drops the user
+      // straight into the Message Shop chat once the sheet has presented.
+      detailsSheetRef.current?.open(booking, { openChat: openChatParam === "1" });
     }
-  }, [bookingIdParam, isLoading, allBookings]);
+  }, [bookingIdParam, openChatParam, isLoading, allBookings]);
 
   const quoteListSheetRef = useRef<QuoteListSheetRef>(null);
   const rotorQuoteListSheetRef = useRef<RotorQuoteListSheetRef>(null);
@@ -637,7 +641,7 @@ export default function BookingsScreen() {
                           isCheckingQuotes={checkingQuoteId === booking.id}
                         />
                       ) : (
-                        <BookingCard
+                        <UpcomingBookingCard
                           key={booking.id}
                           booking={booking}
                           variant="upcoming"
