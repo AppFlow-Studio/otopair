@@ -300,6 +300,30 @@ function discoveryCacheKey(year: number, make: string, candidate: string): strin
 }
 
 /**
+ * VDB's verbose trim strings for one of OUR trim names, treating that name as
+ * VDB's model.
+ *
+ * Cached because the image call needs it per trim and the prefetch fires one
+ * per variant — without the cache a five-trim GLE would hit the options
+ * endpoint five times on every re-render, and VDB rate-limits hard enough that
+ * the existing code already carries a concurrency cap and a cooldown.
+ */
+const VDB_VERBOSE_TRIM_CACHE = new Map<string, string[]>();
+
+async function vdbVerboseTrimsFor(
+  year: number,
+  make: string,
+  trimAsModel: string,
+): Promise<string[]> {
+  const key = `${year}|${make.toLowerCase()}|${trimAsModel.toLowerCase()}`;
+  const hit = VDB_VERBOSE_TRIM_CACHE.get(key);
+  if (hit) return hit;
+  const list = await probeYmmSpecsTrims(year, make, trimAsModel);
+  VDB_VERBOSE_TRIM_CACHE.set(key, list);
+  return list;
+}
+
+/**
  * Probe VDB's `ymm-specs/options/v3/trim` endpoint for the canonical
  * trim list for a year/make/model. Returns `[]` on any failure (non-200,
  * malformed body, network error) — callers treat "no trims" the same
@@ -617,13 +641,31 @@ export async function fetchVehicleImageUrl(
     // way to hit YMMT. We try YMMT anyway when the caller passes a
     // trim, since some flows (VIN-decoded vehicles) do have a usable
     // trim string.
-    const ymmtUrls =
-      trim && year
-        ? makes.map(
-            (m) =>
-              `${BASE_URL}/${year}/${encodeURIComponent(m)}/${encodeURIComponent(model)}/${encodeURIComponent(trim)}`,
-          )
-        : [];
+    // VDB does not file variants as trims of a family — it files each one as
+    // its own MODEL. There is no "GLE-Class" in its catalog at all; there is
+    // "GLE 350", "GLE 450", "AMG GLE 63", each with its own verbose trim list
+    // ("Base GLE 350 4dr All-Wheel Drive 4MATIC Automatic"). So our (model,
+    // trim) pair maps to VDB's (trim-as-model, verbose-trim), and building the
+    // URL as `{our model}/{our trim}` 400s every time — which is why the image
+    // silently fell back to the VIN and looked identical for every trim.
+    //
+    // Our own trim already IS VDB's model name for these families, so try it
+    // as the model and ask VDB for the verbose trim that goes with it. Falls
+    // back to the naive pairing for makes where the family model does exist.
+    const ymmtUrls: string[] = [];
+    if (trim && year) {
+      for (const m of makes) {
+        const verbose = await vdbVerboseTrimsFor(year, m, trim);
+        for (const v of verbose) {
+          ymmtUrls.push(
+            `${BASE_URL}/${year}/${encodeURIComponent(m)}/${encodeURIComponent(trim)}/${encodeURIComponent(v)}`,
+          );
+        }
+        ymmtUrls.push(
+          `${BASE_URL}/${year}/${encodeURIComponent(m)}/${encodeURIComponent(model)}/${encodeURIComponent(trim)}`,
+        );
+      }
+    }
     // YMMT first when an explicit trim is provided, so the image reflects
     // the user's trim selection. VIN URL stays as fallback.
     const urls: string[] =
