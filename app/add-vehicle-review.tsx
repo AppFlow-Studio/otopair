@@ -42,6 +42,7 @@ import { BrandColors, Spacing } from '@/constants/theme';
 import { api } from '@/convex/_generated/api';
 import { Id } from '@/convex/_generated/dataModel';
 import { scale, verticalScale, moderateScale } from '@/utils/responsive';
+import { CarSilhouette } from '@/components/shared-ui/CarSilhouette';
 import { classifyColorFamily, fetchVehicleImageUrl, pickBestVdbTrim, pickSilhouetteVariant, prefetchVdbColorsForTrims, useVdbColorsForVin } from '@/utils/vehicleImage';
 import { useYmmTrims } from '@/hooks/useYmmTrims';
 import { COLOR_GRADIENTS } from '@/constants/colorGradients';
@@ -720,8 +721,18 @@ export default function AddVehicleReviewScreen() {
               cachePolicy="memory-disk"
             />
           ) : (
-            <View style={[styles.vehicleIconContainer, { backgroundColor: carCircleBg }]}>
-              <Car size={scale(32)} color="#5299FE" strokeWidth={1.5} />
+            // A body-shaped silhouette rather than a generic car glyph. VDB's
+            // IMAGE coverage stops at 2025 while its specs run into 2026, so a
+            // 2026 car resolves a full trim list and no picture at all — there
+            // is nothing to fetch by YMMT or by VIN. Showing the right shape
+            // reads as "we know what this is, we just have no photo", which is
+            // true, where the generic icon read as a failure.
+            <View style={styles.vehiclePreviewImage}>
+              <CarSilhouette
+                width={scale(200)}
+                variant={pickSilhouetteVariant(params.bodyClass)}
+                color="#C7D2E0"
+              />
             </View>
           )}
           <Text weight="bold" size="xl" color="#333333" style={styles.vehicleYear}>

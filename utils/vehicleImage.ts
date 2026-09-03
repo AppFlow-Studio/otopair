@@ -8,7 +8,11 @@
  *   GET /vehicle-images/{vin}
  *   GET /vehicle-images/{year}/{make}/{model}/{trim}
  *
- * Coverage: 2011–2026.
+ * Coverage: images run 2011–2025. VDB's ymm-specs endpoints go further —
+ * 2026 returns a full model and trim list — but `vehicle-images` has no
+ * record for those years by YMMT or by VIN, verified 2026-09-03 against the
+ * live API. So a 2026 car resolves a working trim picker and no photograph;
+ * the review screen falls back to a body silhouette rather than a blank.
  *
  * VIN is the most reliable lookup. The YMMT path *requires trim*
  * (the prior YMM endpoint is a different, white-background API). If a
