@@ -1254,13 +1254,28 @@ export async function fetchVdbColorsForVehicle(args: {
   const normalizedVin = (vin ?? "").toUpperCase().trim();
   const makes = make ? normalizeMakes(make) : [];
 
-  const ymmtUrls =
-    trim && year && make && model
-      ? makes.map(
-          (m) =>
-            `${BASE_URL}/${year}/${encodeURIComponent(m)}/${encodeURIComponent(model)}/${encodeURIComponent(trim)}`,
-        )
-      : [];
+  // Same VDB quirk the image path hit: variants are MODELS in VDB's catalog,
+  // not trims of a family. "GLE-Class" does not exist there — "GLE 350" does,
+  // carrying its own verbose trim. Pairing our model with our trim 400s, the
+  // loop falls through to the VIN URL, and the VIN URL always returns the base
+  // trim's colours. That is why the picture never changed whichever trim was
+  // picked: this function feeds the hero image whenever VDB has colours, and
+  // it was resolving by VIN every time.
+  const ymmtUrls: string[] = [];
+  if (trim && year && make) {
+    for (const m of makes) {
+      for (const verbose of await vdbVerboseTrimsFor(year, m, trim)) {
+        ymmtUrls.push(
+          `${BASE_URL}/${year}/${encodeURIComponent(m)}/${encodeURIComponent(trim)}/${encodeURIComponent(verbose)}`,
+        );
+      }
+      if (model) {
+        ymmtUrls.push(
+          `${BASE_URL}/${year}/${encodeURIComponent(m)}/${encodeURIComponent(model)}/${encodeURIComponent(trim)}`,
+        );
+      }
+    }
+  }
   // When an explicit trim is provided, try the YMMT URLs FIRST so the
   // image/colors reflect the user's actual trim selection (the VIN URL
   // always returns the base trim regardless of `trim`). VIN URL stays as
