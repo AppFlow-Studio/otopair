@@ -13,7 +13,14 @@ import { useMemo } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { MechanicAvailabilitySlot } from "@/stores/types/store.types";
-import { dateToDayDisplay, hhmmToDisplayTime, minBookableHHMM, todayLocalISO } from "@/utils/timeSlotUtils";
+import {
+  dateToDayDisplay,
+  getPickerFloor,
+  hhmmToDisplayTime,
+  minBookableHHMM,
+  todayLocalISO,
+  type DateTimeFloor,
+} from "@/utils/timeSlotUtils";
 
 const DEFAULT_LIMIT_PER_MECHANIC = 12;
 
@@ -32,12 +39,16 @@ export function useNextAvailabilityPerMechanicForShop(
   shopId: string | null,
   limitPerMechanic: number = DEFAULT_LIMIT_PER_MECHANIC,
   durationMinutes?: number,
+  minimumSlot?: DateTimeFloor,
 ) {
   const isRealShopId = shopId != null && shopId.length > 10;
   // See useNextAvailabilityForShop: pass the user's local cutoff so the
   // server can drop past slots before slicing to `limitPerMechanic`.
-  const cutoffDate = todayLocalISO();
-  const cutoffTime = minBookableHHMM();
+  const cutoff = getPickerFloor(
+    { date: todayLocalISO(), time: minBookableHHMM() },
+    minimumSlot ?? null,
+  );
+  const { date: cutoffDate, time: cutoffTime } = cutoff;
   const convexResult = useQuery(
     api.time_slots.getNextAvailableByShopPerMechanic,
     isRealShopId
@@ -55,13 +66,14 @@ export function useNextAvailabilityPerMechanicForShop(
     if (!convexResult || !Array.isArray(convexResult)) return {};
     // Belt-and-braces — server applies the same filter, but re-check
     // here for older convex deploys.
-    const today = todayLocalISO();
-    const minTime = minBookableHHMM();
     const map: Record<string, MechanicAvailabilitySlot[]> = {};
     for (const { mechanicId, slots } of convexResult as MechanicAvailabilityGroup[]) {
       const key = mechanicId as string;
       map[key] = slots
-        .filter((s) => s.date !== today || s.start_time >= minTime)
+        .filter(
+          (s) =>
+            s.date > cutoffDate || (s.date === cutoffDate && s.start_time >= cutoffTime),
+        )
         .map((s) => {
           const { dayOfWeek, day } = dateToDayDisplay(s.date);
           return {
@@ -76,7 +88,7 @@ export function useNextAvailabilityPerMechanicForShop(
         });
     }
     return map;
-  }, [convexResult]);
+  }, [convexResult, cutoffDate, cutoffTime]);
 
   return {
     slotsByMechanicId,

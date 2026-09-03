@@ -473,11 +473,14 @@ function ApprovalDecisionView({
      number on trust — at the one moment trust is most expensive: not at the
      shop, car on a lift, declining awkward. Each row carries its `source` so we
      render only the additions for the cycle being approved. */
-  // `api as any` because the vendored convex/_generated types predate the
-  // custom-jobs module — same pattern the rec screens use. Needs the backend
-  // deploy before it resolves; see the branch's PR.
+  // Typed, not `(api as any)`. The cast is what hid
+  // `listMidJobAdditionsForCustomer` not existing on any deployment:
+  // convex/react throws straight out of useQuery, nothing caught it, and
+  // the screen — then the whole app, since the root error boundary's only
+  // action is a no-op on iOS — went white. Typed, the compiler catches the
+  // next rename instead of the customer.
   const addedServices = useQuery(
-    (api as any).customJobs.listAddedServicesForCustomer,
+    api.customJobs.listAddedServicesForCustomer,
     { bookingId },
   ) as
     | Array<{

@@ -31,6 +31,7 @@ import { BookingDetailsSheet, type BookingDetailsSheetRef } from "@/components/b
 import { QuoteUnavailableSheet } from "@/components/bookings/QuoteUnavailableSheet";
 import { AvailabilityModal } from "@/components/booking/modals/AvailabilityModal";
 import { ScrollDrivenGradientBackground, Text } from "@/components/shared-ui";
+import { BrandColors } from "@/constants/theme";
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
 import { useMyBookingsWithDetails } from "@/hooks/useMyBookingsWithDetails";
 import { CustomerLateBanner } from "@/components/bookings/CustomerLateBanner";
@@ -361,6 +362,10 @@ export default function BookingsScreen() {
   const rotorQuoteListSheetRef = useRef<RotorQuoteListSheetRef>(null);
   const checkQuoteRequestAvailability = useQuoteRequestAvailability();
   const [checkingQuoteId, setCheckingQuoteId] = useState<string | null>(null);
+  const handleQuoteUnavailable = useCallback((reason: QuoteUnavailableReason) => {
+    setActiveTab("quotes");
+    setQuoteUnavailableReason(reason);
+  }, []);
   const handleViewQuotes = async (bookingId: string) => {
     const booking = allBookings.find((b) => b.id === bookingId);
     if (!booking?.vin) return;
@@ -680,9 +685,9 @@ export default function BookingsScreen() {
 
     <BookingDetailsSheet ref={detailsSheetRef} />
 
-    <QuoteListSheet ref={quoteListSheetRef} />
+    <QuoteListSheet ref={quoteListSheetRef} onQuoteUnavailable={handleQuoteUnavailable} />
 
-    <RotorQuoteListSheet ref={rotorQuoteListSheetRef} />
+    <RotorQuoteListSheet ref={rotorQuoteListSheetRef} onQuoteUnavailable={handleQuoteUnavailable} />
 
     <QuoteUnavailableSheet
       visible={quoteUnavailableReason != null}
@@ -704,7 +709,7 @@ export default function BookingsScreen() {
       showBackdrop
     >
       <View style={styles.sheetContent}>
-        <Text size="lg" weight="bold" color="#1A1A1A" style={styles.sheetTitle}>
+        <Text size={28} weight="extraBold" color={BrandColors.primary} style={styles.sheetTitle}>
           Choose a vehicle
         </Text>
         <ScrollView showsVerticalScrollIndicator={false}>

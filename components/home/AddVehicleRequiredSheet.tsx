@@ -27,7 +27,7 @@ export const AddVehicleRequiredSheet = forwardRef<FloatingSheetRef, AddVehicleRe
             <View style={styles.noVehicleIconWrap}>
               <RNText style={styles.noVehicleIcon}>🚗</RNText>
             </View>
-            <Text style={styles.sheetTitle}>Add a vehicle first</Text>
+            <Text size={28} weight="extraBold" color={BrandColors.primary} style={styles.sheetTitle}>Add a vehicle first</Text>
           </View>
 
           <View style={styles.sheetBody}>
@@ -76,10 +76,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   sheetTitle: {
-    fontSize: 24,
-    lineHeight: 30,
-    color: "#1d1d1f",
-    fontWeight: "700",
+    textAlign: "center",
   },
   sheetBody: {
     gap: 12,

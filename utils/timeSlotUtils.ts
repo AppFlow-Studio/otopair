@@ -127,13 +127,12 @@ export function getPickerInitialMechanicId({
   return autoConfirmEarliest ? quoteMechanicId ?? null : routeMechanicId ?? null;
 }
 
-/** Manual scheduling starts from current availability; the fast path must honor the quoted floor. */
+/** Quote scheduling cannot offer a date/time before the shop's quoted floor. */
 export function getPickerFloor(
   currentFloor: DateTimeFloor,
   quoteFloor: DateTimeFloor | null,
-  autoConfirmEarliest: boolean,
 ): DateTimeFloor {
-  if (!autoConfirmEarliest || !quoteFloor) return currentFloor;
+  if (!quoteFloor) return currentFloor;
   if (currentFloor.date !== quoteFloor.date) {
     return currentFloor.date > quoteFloor.date ? currentFloor : quoteFloor;
   }

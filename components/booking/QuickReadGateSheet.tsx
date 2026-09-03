@@ -3,8 +3,10 @@
  *
  * Forced-flow prompt shown when a user taps "Add to Cart" on the Select
  * Services sheet for a vehicle that has never completed a quick-read.
- * Mirrors the "Estimated 83 / Here's an estimate of where your {vehicle}
- * stands" card from the Cars tab (`app/(main-tabs)/cars/index.tsx`).
+ * Mirrors the "Let's score your {vehicle}" card from the Cars tab
+ * (`app/(main-tabs)/cars/index.tsx`). Neither surface shows a number before
+ * the quick-read: there are no service records yet, so there is nothing to
+ * score.
  *
  * The sheet is mandatory: there is no Skip button. Dismissing via the
  * backdrop / swipe cancels the add-to-cart attempt and leaves the user
@@ -38,8 +40,6 @@ interface QuickReadGateSheetProps {
   visible: boolean;
   /** Label like "Honda Cr-v" used in the headline and CTA. */
   vehicleLabel: string;
-  /** Estimated baseline score shown in the gauge. Defaults to 83. */
-  estimatedScore?: number;
   /** When true, the only way out is the CTA — backdrop taps and the
    *  hardware back button no-op. Used by the booking gate where the
    *  quick-read is mandatory. */
@@ -51,7 +51,6 @@ interface QuickReadGateSheetProps {
 export function QuickReadGateSheet({
   visible,
   vehicleLabel,
-  estimatedScore = 83,
   mandatory = false,
   onDismiss,
   onStartQuickRead,
@@ -83,8 +82,12 @@ export function QuickReadGateSheet({
               <View style={styles.gaugeWrap}>
                 <View style={styles.gaugeOuter}>
                   <View style={styles.gaugeInner}>
-                    <Text weight="bold" size="3xl" color="#1F2937">
-                      {estimatedScore}
+                    {/* The gauge used to print a hardcoded 83 — a literal
+                        default, the same for every vehicle and unconnected to
+                        any data. Nothing is known about this car's service
+                        history at this point, so nothing is claimed. */}
+                    <Text weight="bold" size="3xl" color="#9CA3AF">
+                      · · ·
                     </Text>
                     <Text
                       weight="medium"
@@ -92,7 +95,7 @@ export function QuickReadGateSheet({
                       color="#9CA3AF"
                       style={styles.gaugeLabel}
                     >
-                      Estimated
+                      Not scored yet
                     </Text>
                   </View>
                 </View>
@@ -105,7 +108,7 @@ export function QuickReadGateSheet({
                 color="#1F2937"
                 style={styles.headline}
               >
-                Here&apos;s an estimate of where your {safeLabel} stands
+                Let&apos;s score your {safeLabel}
               </Text>
               <Text
                 weight="medium"
@@ -113,7 +116,10 @@ export function QuickReadGateSheet({
                 color="#6B7280"
                 style={styles.subheadline}
               >
-                Five quick checks to understand your vehicle&apos;s current condition.
+                {/* Count-agnostic on purpose. The number of checks is
+                    per-vehicle now, and this sheet is handed a label rather
+                    than the mileage and model year the firing rules need. */}
+                We don&apos;t have your service history yet. A few quick checks and you&apos;ll have a real health score.
               </Text>
 
               {/* Bullet list */}

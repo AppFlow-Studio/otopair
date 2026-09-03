@@ -17,7 +17,7 @@ import { Briefcase, Car, Route, Star, Sun, Users } from "lucide-react-native";
 
 import { Text } from "@/components/shared-ui";
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
-import { Spacing } from "@/constants/theme";
+import { BrandColors, Spacing } from "@/constants/theme";
 import { moderateScale, scale } from "@/utils/responsive";
 
 const SECONDARY_ROLES: Array<{ id: string; Icon: typeof Car }> = [
@@ -90,7 +90,7 @@ export function VehicleRoleSheet({
         scrollEnabled={false}
       >
         {/* Header */}
-        <Text weight="bold" size="xl" color={TEXT_PRIMARY}>
+        <Text size={28} weight="extraBold" color={BrandColors.primary}>
           Pick a role for your car
         </Text>
         {vehicleName ? (

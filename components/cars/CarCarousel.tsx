@@ -69,6 +69,9 @@ import {
   computeHealthScoreFactors,
   type CompletedBooking,
   type HealthFactor,
+  isScorableMaintenanceItem,
+  warningLightPenalty,
+  warningLightsReservePct,
 } from '@/utils/healthScore';
 import { useQuery } from 'convex/react';
 import { api } from '@/convex/_generated/api';
@@ -114,6 +117,10 @@ interface CarCarouselProps {
   healthScore?: number;
   /** True when showing the pipeline estimate (pre-onboarding done, CarInfoStepper not done) */
   isEstimatedScore?: boolean;
+  /** True while the deferred post-service health write is still queued. The
+   *  score on screen is pre-service until it lands, so surfaces say so rather
+   *  than presenting a stale number as current. */
+  healthScorePending?: boolean;
   /** Called when the user taps to resume the Quick Read from the estimated modal */
   onResumeCheckin?: () => void;
   /** Parent has determined the active vehicle's gradient top is dark
@@ -415,10 +422,13 @@ interface VehicleHealthModalProps {
   vehicleName: string;
   healthPercentage: number;
   maintenancePercentage: number;
-  servicePercentage: number;
+  /** 0–100 fullness of the Warning Lights reserve. */
+  warningLightsPercentage: number;
   maintenanceItems?: import("@/components/cars/MaintenanceTracker").MaintenanceItem[];
   currentMileage?: number;
   isEstimated?: boolean;
+  /** Deferred post-service write still queued. */
+  pending?: boolean;
   onResumeCheckin?: () => void;
   knownIssues?: string[];
   hpBuffer?: number;
@@ -431,10 +441,11 @@ const VehicleHealthModal = ({
   vehicleName,
   healthPercentage,
   maintenancePercentage,
-  servicePercentage,
+  warningLightsPercentage,
   maintenanceItems: realItems,
   currentMileage: realMileage,
   isEstimated,
+  pending = false,
   onResumeCheckin,
   knownIssues,
   hpBuffer,
@@ -465,7 +476,6 @@ const VehicleHealthModal = ({
   const [showInfoModal, setShowInfoModal] = useState(false);
 
   // Calculate overall score (average of all three)
-  const overallScore = Math.round((healthPercentage + maintenancePercentage + servicePercentage) / 3);
 
   // Score factors breakdown — same formula as the displayed score, but
   // split into "what's helping" vs "what's hurting" with pts deltas.
@@ -502,18 +512,35 @@ const VehicleHealthModal = ({
     };
   }, [realItems, realMileage, knownIssues, hpBuffer, completedBookings, healthScoreWeights]);
 
+  // Director-adjustable weights, read live. Defaults match the hardcoded
+  // constants in utils/healthScore.ts so an unconfigured deployment reads
+  // identically.
+  const upkeepWeightPct = Math.round(healthScoreWeights?.upkeepWeight ?? 85);
+  const warningLightsPct = Math.round(
+    healthScoreWeights?.warningLightsWeight ?? 100 - upkeepWeightPct,
+  );
+  const openRecsCap = Math.round(healthScoreWeights?.openIssuePenaltyMax ?? 15);
+
   // Use the unified health score passed from parent
   const calculatedCondition = healthPercentage;
 
   // Sub-scores for display breakdown
-  const knownItems = (realItems ?? []).filter((i) => i.status !== "unknown");
+  // Count only what actually drives the score. Before this filter the ratio
+  // included catalog-inference rows and recommendation cards — neither scores
+  // — so a vehicle reading 4/9 was really 4 of 5 scored tiles on time.
+  const knownItems = (realItems ?? [])
+    .filter(isScorableMaintenanceItem)
+    .filter((i) => i.status !== "unknown");
   const onTimeItems = knownItems.filter((i) => i.status === "on_time");
   const maintenanceCompleted = onTimeItems.length;
   const maintenanceTotal = Math.max(knownItems.length, 1);
   const maintenanceScore = maintenancePercentage;
 
   const vehicleMileage = realMileage ?? 0;
-  const usageScore = servicePercentage;
+  // Real reserve state, from the same function the score uses.
+  const lightsScore = warningLightsPercentage;
+  const lightsPenaltyPts = warningLightPenalty(knownIssues);
+  const litCount = (knownIssues ?? []).length;
 
   // Format mileage for display
   const formatMileage = (miles: number) => {
@@ -527,7 +554,7 @@ const VehicleHealthModal = ({
   const metrics: MetricConfig[] = [
     {
       name: 'Overall Vehicle Condition',
-      subtitle: 'Based on your maintenance and Usage',
+      subtitle: 'Upkeep, warning lights and open recommendations',
       color: '#30D158',
       percentage: calculatedCondition,
       displayValue: `${calculatedCondition}%`,
@@ -535,21 +562,26 @@ const VehicleHealthModal = ({
     },
     {
       name: 'Maintenance',
-      subtitle: 'More services completed = higher score',
+      subtitle: 'Services on time, weighted by how safety-critical they are',
       color: maintenanceScore >= 75 ? '#30D158' : maintenanceScore >= 60 ? '#FFEA00' : '#FF3B5C',
       percentage: maintenanceScore,
       displayValue: `${maintenanceCompleted}/${maintenanceTotal}`,
-      // Weighted impact: (75 - score) × 0.7 weight
-      scoreImpact: maintenanceScore >= 75 ? 0 : -Math.round((75 - maintenanceScore) * 0.7),
+      // No impact number here. The old -(75 - score) × 0.7 came from the
+      // deleted 70% Maintenance weight and reconciled with nothing. Upkeep's
+      // real contribution is a category-weighted average; the per-item
+      // breakdown below ("What's helping / hurting") already reports it from
+      // computeHealthScoreFactors, so inventing a headline figure here would
+      // only disagree with it.
+      scoreImpact: 0,
     },
     {
-      name: 'Usage & Wear',
-      subtitle: 'Lower mileage = higher score',
-      color: usageScore >= 75 ? '#30D158' : usageScore >= 60 ? '#FFEA00' : '#FF3B5C',
-      percentage: usageScore,
-      displayValue: formatMileage(vehicleMileage),
-      // Weighted impact: (75 - score) × 0.3 weight
-      scoreImpact: usageScore >= 75 ? 0 : -Math.round((75 - usageScore) * 0.3),
+      name: 'Warning Lights',
+      subtitle: 'Reserve drains as dashboard lights come on',
+      color: lightsScore >= 75 ? '#30D158' : lightsScore >= 60 ? '#FFEA00' : '#FF3B5C',
+      percentage: lightsScore,
+      displayValue: litCount === 0 ? 'None on' : `${litCount} on`,
+      // Real points off, not a fabricated curve.
+      scoreImpact: lightsPenaltyPts > 0 ? -lightsPenaltyPts : 0,
     },
   ];
 
@@ -620,8 +652,8 @@ const VehicleHealthModal = ({
       animateRing(setProgressService, calculatedCondition, 0);
       animateRing(setAnimatedHealth, maintenanceScore, 200);
       animateRing(setProgressHealth, maintenanceScore, 200);
-      animateRing(setAnimatedMaintenance, usageScore, 400);
-      animateRing(setProgressMaintenance, usageScore, 400);
+      animateRing(setAnimatedMaintenance, lightsScore, 400);
+      animateRing(setProgressMaintenance, lightsScore, 400);
     } else {
       // Close modal animation
       Animated.parallel([
@@ -638,7 +670,7 @@ const VehicleHealthModal = ({
         }),
       ]).start();
     }
-  }, [visible, calculatedCondition, maintenanceScore, usageScore]);
+  }, [visible, calculatedCondition, maintenanceScore, lightsScore]);
 
   // Single large ring configuration
   const modalRingSize = scale(180);
@@ -649,7 +681,9 @@ const VehicleHealthModal = ({
   
   // Use calculated condition as the overall health score (animated value)
   const overallPercentage = animatedService;
-  const strokeDashoffset = circumference * (1 - overallPercentage / 100);
+  // Pre-onboarding there is no measured score to draw, so the arc reads empty
+  // rather than tracing a number we invented. See the ring label below.
+  const strokeDashoffset = circumference * (1 - (isEstimated ? 0 : overallPercentage) / 100);
   
   // Determine ring color based on calculated condition
   const getRingColor = () => {
@@ -688,9 +722,21 @@ const VehicleHealthModal = ({
         </Svg>
       </Animated.View>
       
+      {/* Two states withhold the number, for different reasons. `pending`: the
+          value to hand is pre-service until the deferred write lands, so it is
+          withheld rather than shown as current. `isEstimated`: onboarding
+          isn't finished, so there is no service history to score at all — the
+          number that used to sit here was a constant assembled from assumed
+          statuses ("no brake concerns reported" on a car we know nothing
+          about), identical for every vehicle and only ever able to fall once
+          the user answered honestly. Neither state gets a predicted score. */}
       <View style={modalStyles.ringCenterContent}>
-        <Text style={modalStyles.percentageText}>{Math.round(overallPercentage)}</Text>
-        <Text style={modalStyles.ringSubLabel}>out of 100</Text>
+        <Text style={modalStyles.percentageText}>
+          {pending || isEstimated ? '· · ·' : Math.round(overallPercentage)}
+        </Text>
+        <Text style={modalStyles.ringSubLabel}>
+          {pending ? 'updating' : isEstimated ? 'not scored yet' : 'out of 100'}
+        </Text>
       </View>
     </View>
   );
@@ -782,9 +828,20 @@ const VehicleHealthModal = ({
             <View style={modalStyles.scrollContent}>
               {renderRings()}
 
-              <Text style={modalStyles.estimatedLabel}>Estimated Score</Text>
+              {/* Pending outranks estimated: both can be true at once, but
+                  "we're applying your mechanic's findings" is the more
+                  specific and more time-sensitive of the two. */}
+              <Text style={modalStyles.estimatedLabel}>
+                {pending ? 'Updating After Your Service' : 'No Score Yet'}
+              </Text>
+              {/* This state means onboarding is incomplete (isEstimatedScore =
+                  isPreOnboardingComplete && !isOnboardingComplete), so the
+                  honest reason is a missing service history — not age, mileage
+                  or driving habits, none of which are terms in the model. */}
               <Text style={modalStyles.estimatedSubtitle}>
-                Based on your vehicle's age, mileage, and driving habits.
+                {pending
+                  ? "Your mechanic's findings are still being applied. Your score and any new recommendations will appear together shortly."
+                  : "We don't have your service history yet, so there's nothing to score. Five quick questions and you'll have a real one."}
               </Text>
 
               <Pressable
@@ -792,7 +849,7 @@ const VehicleHealthModal = ({
                 onPress={() => { onClose(); setTimeout(() => onResumeCheckin?.(), 350); }}
               >
                 <Text style={modalStyles.resumeCheckinText}>
-                  Get my complete score
+                  Get my score
                 </Text>
               </Pressable>
             </View>
@@ -806,6 +863,24 @@ const VehicleHealthModal = ({
             bounces={true}
           >
             {renderRings()}
+
+            {/* Why the number is withheld. The grades, the recommendation
+                reveal and the mechanic's warning-light changes all land
+                together when the deferred job runs, so this covers the
+                breakdown below as well as the ring above — one coherent
+                "here's what changed" moment rather than a ring that says
+                updating next to a list that looks finished. */}
+            {pending && (
+              <View style={modalStyles.pendingBanner}>
+                <Text style={modalStyles.pendingBannerTitle}>
+                  Updating after your service
+                </Text>
+                <Text style={modalStyles.pendingBannerBody}>
+                  Your mechanic's findings are still being applied. Your score
+                  and any new recommendations will appear together shortly.
+                </Text>
+              </View>
+            )}
 
             <View style={modalStyles.breakdownSection}>
               <View style={modalStyles.sectionTitleRow}>
@@ -927,40 +1002,61 @@ const VehicleHealthModal = ({
               </View>
               
               <View style={modalStyles.infoModalBody}>
+                {/* Copy tracks the model in utils/healthScore.ts. The two
+                    weights and the open-recs cap are director-adjustable at
+                    runtime, so they are interpolated from the live
+                    healthScoreWeights query rather than written into the
+                    sentence — hardcoding them would go stale the moment the
+                    panel changes and would contradict the ring beside it. */}
                 <Text style={modalStyles.infoFormulaTitle}>Formula:</Text>
                 <View style={modalStyles.formulaBox}>
                   <Text style={modalStyles.formulaText}>
-                    Overall = (Maintenance × 70%) + (Usage × 30%)
+                    Upkeep (0–{upkeepWeightPct}) + Warning Lights (0–
+                    {warningLightsPct}) − Open recommendations (up to −
+                    {openRecsCap})
                   </Text>
                 </View>
-                
+
                 <View style={modalStyles.infoSection}>
-                  <Text style={modalStyles.infoLabel}>Maintenance (70% weight)</Text>
+                  <Text style={modalStyles.infoLabel}>
+                    Upkeep — up to {upkeepWeightPct} points
+                  </Text>
                   <Text style={modalStyles.infoDescription}>
-                    Based on services completed out of total scheduled. Example: 7/10 = 70%
+                    Most of your score. It reflects the state of your
+                    maintenance — whether each service is on time, due soon or
+                    overdue — not how many services you've had. Safety items
+                    carry the most weight, so brakes and tires move your score
+                    more than a filter does.
                   </Text>
                 </View>
-                
+
                 <View style={modalStyles.infoSection}>
-                  <Text style={modalStyles.infoLabel}>Usage & Wear (30% weight)</Text>
+                  <Text style={modalStyles.infoLabel}>
+                    Warning Lights — up to {warningLightsPct} points
+                  </Text>
                   <Text style={modalStyles.infoDescription}>
-                    Based on mileage:{'\n'}
-                    • 0-30k mi = 100%{'\n'}
-                    • 30k-60k mi = 90%{'\n'}
-                    • 60k-100k mi = 75%{'\n'}
-                    • 100k-150k mi = 55%{'\n'}
-                    • 150k+ mi = 35%
+                    Starts full and drains as dashboard lights come on. An oil
+                    pressure or temperature light costs the most; a tire
+                    pressure light costs the least.
                   </Text>
                 </View>
-                
-                <View style={modalStyles.infoExample}>
-                  <Text style={modalStyles.infoExampleTitle}>Example:</Text>
-                  <Text style={modalStyles.infoExampleText}>
-                    7/10 maintenance (70%) × 0.7 = 49%{'\n'}
-                    45k miles (90%) × 0.3 = 27%{'\n'}
-                    <Text style={{ fontFamily: 'Urbanist-Bold', color: '#30D158' }}>
-                      Total: 76%
-                    </Text>
+
+                <View style={modalStyles.infoSection}>
+                  <Text style={modalStyles.infoLabel}>
+                    Open recommendations — up to −{openRecsCap} points
+                  </Text>
+                  <Text style={modalStyles.infoDescription}>
+                    Work a mechanic has recommended that you haven't booked
+                    yet. It phases in over 30 days rather than landing all at
+                    once, so there's time to act before it counts in full.
+                  </Text>
+                </View>
+
+                <View style={modalStyles.infoSection}>
+                  <Text style={modalStyles.infoLabel}>Mileage</Text>
+                  <Text style={modalStyles.infoDescription}>
+                    Driving more doesn't cost you points on its own. Mileage
+                    only matters through the services it makes due.
                   </Text>
                 </View>
               </View>
@@ -972,6 +1068,25 @@ const VehicleHealthModal = ({
 };
 
 const modalStyles = StyleSheet.create({
+  pendingBanner: {
+    marginHorizontal: scale(20),
+    marginBottom: scale(16),
+    padding: scale(14),
+    borderRadius: scale(14),
+    backgroundColor: '#EAF2FF',
+  },
+  pendingBannerTitle: {
+    fontFamily: 'Urbanist-Bold',
+    fontSize: scale(14),
+    color: '#2E6BF0',
+    marginBottom: scale(4),
+  },
+  pendingBannerBody: {
+    fontFamily: 'Urbanist-Regular',
+    fontSize: scale(13),
+    lineHeight: scale(18),
+    color: '#4B5563',
+  },
   overlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
@@ -1364,24 +1479,6 @@ const modalStyles = StyleSheet.create({
     color: '#666',
     lineHeight: moderateScale(20),
   },
-  infoExample: {
-    backgroundColor: 'rgba(48, 209, 88, 0.1)',
-    borderRadius: moderateScale(12),
-    padding: scale(16),
-    marginTop: scale(8),
-  },
-  infoExampleTitle: {
-    fontSize: moderateScale(12),
-    fontFamily: 'Urbanist-SemiBold',
-    color: '#30D158',
-    marginBottom: scale(8),
-  },
-  infoExampleText: {
-    fontSize: moderateScale(13),
-    fontFamily: 'Urbanist-Medium',
-    color: '#1a1a1a',
-    lineHeight: moderateScale(22),
-  },
 });
 
 // ============================================================================
@@ -1391,12 +1488,15 @@ const modalStyles = StyleSheet.create({
 interface ActivityRingsProps {
   healthPercentage: number;
   maintenancePercentage?: number;
-  servicePercentage?: number;
+  /** 0–100 fullness of the Warning Lights reserve. */
+  warningLightsPercentage?: number;
   size?: number;
   onPress?: () => void;
   /** Flip the centered percentage to white when the page bg is dark
    *  enough that the default dark navy is unreadable. */
   isDarkBg?: boolean;
+  /** Withhold the number while the deferred post-service write is queued. */
+  pending?: boolean;
 }
 
 const ActivityRings = ({
@@ -1404,6 +1504,7 @@ const ActivityRings = ({
   size = scale(72),
   onPress,
   isDarkBg = false,
+  pending = false,
 }: ActivityRingsProps) => {
   const [animatedHealth, setAnimatedHealth] = useState(0);
 
@@ -1505,10 +1606,12 @@ const ActivityRings = ({
           opacity={0.2}
         />
       </Svg>
-      {/* Centered percentage */}
+      {/* Centered percentage. While the deferred write is queued the number
+          on hand is pre-service, so it is withheld rather than shown as
+          current — and no prediction is put in its place. */}
       <View style={activityRingStyles.centerContainer}>
         <Text style={[activityRingStyles.percentageText, { color: isDarkBg ? '#FFFFFF' : '#1F2937' }]}>
-          {Math.round(animatedHealth)}%
+          {pending ? '· · ·' : `${Math.round(animatedHealth)}%`}
         </Text>
       </View>
     </View>
@@ -1650,6 +1753,7 @@ export function CarCarousel({
   showHealthRing = true,
   healthScore: parentHealthScore,
   isEstimatedScore,
+  healthScorePending = false,
   onResumeCheckin,
   isDarkBg = false,
   groundLineTint,
@@ -1662,6 +1766,9 @@ export function CarCarousel({
   activeVehicleId,
 }: CarCarouselProps) {
   "use no memo";
+  // Director-adjustable Warning Lights budget, so the ring tracks the same
+  // reserve the score uses rather than assuming the default 15.
+  const healthScoreWeightsForRing = useQuery(api.healthScoreWeights.getWeights);
   // ↑ Opt this file out of React Compiler. The compiler was freezing
   //   ref objects (`prevStoreVinRef`, `prevActiveIndexRef`,
   //   `activeVehicleIdRef`) and refusing assignments to `.current`,
@@ -1897,7 +2004,9 @@ export function CarCarousel({
   const overallCondition = parentHealthScore ?? 0;
 
   // Sub-scores for the detail modal rings (maintenance = % of known items on_time, usage = mileage curve)
-  const knownItems = (maintenanceItems ?? []).filter((i) => i.status !== "unknown");
+  const knownItems = (maintenanceItems ?? [])
+    .filter(isScorableMaintenanceItem)
+    .filter((i) => i.status !== "unknown");
   const onTimeItems = knownItems.filter((i) => i.status === "on_time");
   const maintenanceTotal = Math.max(knownItems.length, 1);
   const maintenanceCompleted = onTimeItems.length;
@@ -1906,14 +2015,13 @@ export function CarCarousel({
     : overallCondition; // no known items → match overall so it doesn't look broken
 
   const vehicleMileage = currentMileage ?? activeVehicle?.mileage ?? 0;
-  const getMileageScoreForRing = (miles: number) => {
-    if (miles <= 30000) return 100;
-    if (miles <= 60000) return 90;
-    if (miles <= 100000) return 75;
-    if (miles <= 150000) return 55;
-    return 35;
-  };
-  const usageScoreForRing = getMileageScoreForRing(vehicleMileage);
+  // The third ring is Warning Lights, so the rings are Overall plus its two
+  // real components. The mileage curve that used to live here scored nothing —
+  // mileage has no independent term in the model.
+  const warningLightsPctForRing = warningLightsReservePct(
+    knownIssues,
+    healthScoreWeightsForRing?.warningLightsWeight,
+  );
 
   const setAnimatingTrue = useCallback(() => { isUserAnimating.current = true; }, []);
   const finishAnimation = useCallback((newIndex: number) => {
@@ -2393,9 +2501,10 @@ export function CarCarousel({
         {/* Activity Rings - Vehicle Condition (hidden until onboarding is complete) */}
         {showHealthRing && (
           <ActivityRings
+            pending={healthScorePending}
             healthPercentage={overallCondition}
             maintenancePercentage={maintenanceScoreForRing}
-            servicePercentage={usageScoreForRing}
+            warningLightsPercentage={warningLightsPctForRing}
             size={scale(72)}
             onPress={() => setShowHealthModal(true)}
             isDarkBg={isDarkBg}
@@ -2603,10 +2712,11 @@ export function CarCarousel({
         vehicleName={activeVehicle ? `${activeVehicle.make} ${activeVehicle.model}` : 'Vehicle'}
         healthPercentage={overallCondition}
         maintenancePercentage={maintenanceScoreForRing}
-        servicePercentage={usageScoreForRing}
+        warningLightsPercentage={warningLightsPctForRing}
         maintenanceItems={maintenanceItems}
         currentMileage={vehicleMileage}
         isEstimated={isEstimatedScore}
+        pending={healthScorePending}
         onResumeCheckin={onResumeCheckin}
         knownIssues={knownIssues}
         hpBuffer={hpBuffer}

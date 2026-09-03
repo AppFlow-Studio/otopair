@@ -75,7 +75,7 @@ export function safeInterval(input: SafeIntervalInput): number | null {
   // fall back to the conservative default; else return the raw value
   // (best effort — nothing safer available).
   const conf = confidence ?? 0;
-  const trusted = mechanic_verified === true || conf >= 0.75;
+  const trusted = isTrustedInterval(input);
   if (!trusted) {
     if (bounds) return bounds[0];
     return CONSERVATIVE_DEFAULTS_MI[slug] ?? interval_miles;
@@ -88,4 +88,48 @@ export function safeInterval(input: SafeIntervalInput): number | null {
   if (interval_miles < floor) return floor;
   if (interval_miles > ceiling) return ceiling;
   return interval_miles;
+}
+
+/**
+ * Bounds-clamp an interval WITHOUT the trust gate.
+ *
+ * `safeInterval` above is built for enrichment output: a value carrying no
+ * confidence score is treated as untrusted and snapped to the bounds FLOOR.
+ * That is right for scraped data and wrong for the class default table — run
+ * Class A spark plugs (90,000 miles) through it and they come back 20,000,
+ * which would flag every driver's plugs at 16,000 miles.
+ *
+ * The bounds themselves still apply, so no interval is ever out of range. Only
+ * the trust gate is skipped, because our own engineering constants are not the
+ * thing that gate defends against.
+ */
+export function clampClassIntervalToBounds(
+  slug: string,
+  miles: number | null,
+): number | null {
+  if (miles == null || miles <= 0) return null;
+  const bounds = SERVICE_INTERVAL_BOUNDS_MI[slug];
+  if (!bounds) return miles;
+  const [floor, ceiling] = bounds;
+  return Math.min(ceiling, Math.max(floor, miles));
+}
+
+/**
+ * Is a stored interval trustworthy enough to use as-is?
+ *
+ * The same test `safeInterval` applies internally, exported because callers
+ * need to make a DIFFERENT decision with the answer. `safeInterval` responds
+ * to an untrusted value by snapping it to the bounds floor, which is the right
+ * move when that value is all you have. It is the wrong move when a class
+ * default is also available: the pipeline writes `default_fallback` rows at
+ * confidence 0.5, and flooring one gave "brake fluid every 15,000 miles" —
+ * the floor itself — on a car whose class says 24 months. A floored guess is
+ * worse information than our own engineering table, so callers with both
+ * should prefer the table.
+ */
+export function isTrustedInterval(input: {
+  confidence?: number | null;
+  mechanic_verified?: boolean;
+}): boolean {
+  return input.mechanic_verified === true || (input.confidence ?? 0) >= 0.75;
 }

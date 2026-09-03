@@ -22,6 +22,16 @@
 import type { MaintenanceStatus } from "@/components/cars/MaintenanceTracker";
 import { formatMileage } from "@/lib/vehicle-passport";
 import { canonicalWarningLights } from "@/lib/warningLightVocab";
+import { classInterval, type ClassIntervalOptions } from "@/utils/classIntervals";
+import {
+  BAND_FACTOR,
+  BAND_TO_STATUS,
+  appliedFactor,
+  ratioToBand,
+  type IntervalBand,
+  type IntervalSource,
+} from "@/utils/intervalBands";
+import type { VehicleClass } from "@/utils/vehicleClass";
 
 // ============================================================================
 // TYPES
@@ -79,11 +89,15 @@ const AVG_MONTHLY_DRIVING_MAP: Record<string, number> = {
   heavy: 1500,   // ~18,000 mi/year
 };
 
-/** Resolve the user-selected driving level to miles/month. Falls back to 1000. */
-function getMonthlyMiles(avgMonthlyDriving?: string): number {
+/** Resolve the user-selected driving level to miles/month. Falls back to 1000.
+ *  Exported for `utils/quickCheckAnchor.ts`, which converts a Quick Check date
+ *  answer into an odometer reading and must use the same three numbers — a
+ *  second copy of the map is a silent drift waiting to happen. */
+export function getMonthlyMiles(avgMonthlyDriving?: string): number {
   if (!avgMonthlyDriving) return 1000;
   return AVG_MONTHLY_DRIVING_MAP[avgMonthlyDriving.toLowerCase()] ?? 1000;
 }
+
 
 // ============================================================================
 // SERVICE INTERVALS (with per-make overrides)
@@ -118,6 +132,20 @@ export type OemServiceIntervalsInput = Record<
  *  whereas these need to be the actual periodic-service rows the
  *  enrichment writes (e.g. brake-pad replacement IS the brakes
  *  cadence, brake_system_inspection is just a check-in). */
+/**
+ * Which class-table slug carries each core type's cadence. Deliberately
+ * separate from TYPE_TO_OEM_SLUG below: brakes maps to brake PADS here (the
+ * wear item the class table prices), while the OEM table keys the same idea
+ * under its own slug.
+ */
+const TYPE_TO_CLASS_SLUG: Partial<Record<MaintenanceType, string>> = {
+  oil: "oil_change",
+  brakes: "brake_pad_replacement",
+  tires: "tire_replacement",
+  battery: "battery_replacement",
+  inspection: "state_inspection",
+};
+
 const TYPE_TO_OEM_SLUG: Partial<Record<MaintenanceType, string>> = {
   oil: "oil_change",
   brakes: "brake_pad_replacement",
@@ -127,6 +155,23 @@ const TYPE_TO_OEM_SLUG: Partial<Record<MaintenanceType, string>> = {
 };
 
 /** Default intervals — used when no make-specific override exists */
+/**
+ * What `getInterval` returns: the interval plus where it came from.
+ *
+ * A structural superset of `ServiceInterval`, so every existing caller that
+ * only reads `.miles` / `.months` compiles unchanged — the provenance is
+ * opt-in for the callers that need it (the confidence hold does).
+ */
+/** Vehicle facts the class table needs, bundled so the wrapper chain grows by
+ *  one parameter rather than two. */
+export interface IntervalClassContext extends ClassIntervalOptions {
+  vehicleClass?: VehicleClass | null;
+}
+
+export interface ResolvedInterval extends ServiceInterval {
+  source: IntervalSource;
+}
+
 const DEFAULT_INTERVALS: Record<MaintenanceType, ServiceInterval> = {
   oil: { miles: 5_000, months: 6 },
   brakes: { miles: 40_000, months: 48 },
@@ -256,34 +301,73 @@ function getInterval(
   make?: string,
   drivingConditions?: string,
   oemIntervals?: OemServiceIntervalsInput,
-): ServiceInterval {
+  classCtx?: IntervalClassContext,
+): ResolvedInterval {
+  const vehicleClass = classCtx?.vehicleClass ?? null;
+  const classOptions: ClassIntervalOptions = classCtx ?? {};
   let interval: ServiceInterval;
+  let source: IntervalSource;
 
-  // Tier 1 — OEM enrichment (v3 pipeline).
+  // Tier 1 — OEM enrichment (v3 pipeline). Still wins over everything.
   const oemSlug = TYPE_TO_OEM_SLUG[type];
   const oem = oemSlug ? oemIntervals?.[oemSlug] : undefined;
+  const classSlug = TYPE_TO_CLASS_SLUG[type];
+  const classDefault =
+    vehicleClass && classSlug
+      ? classInterval(classSlug, vehicleClass, {
+          ...classOptions,
+          // Tire rotation "follows the oil interval" — resolve it against
+          // whatever tier oil actually won, enrichment included, rather than
+          // re-deriving the class number.
+          resolveFollows: (slug) =>
+            slug === "oil_change"
+              ? getInterval("oil", make, drivingConditions, oemIntervals, classCtx)
+              : null,
+        })
+      : null;
+
   if (oem && (oem.interval_miles != null || oem.interval_months != null)) {
+    // Half-fallback: one axis from OEM, the other borrowed. Still counts as
+    // OEM — the manufacturer data earned whatever deduction follows.
+    const fallback = classDefault ?? DEFAULT_INTERVALS[type];
     interval = {
-      miles: oem.interval_miles ?? DEFAULT_INTERVALS[type].miles,
-      months: oem.interval_months ?? DEFAULT_INTERVALS[type].months,
+      miles: oem.interval_miles ?? fallback.miles,
+      months: oem.interval_months ?? fallback.months,
     };
+    source = "oem";
+  } else if (classDefault) {
+    // Tier 2 — the class default table (Fallback v2 §4). Ahmad's call: this is
+    // the DEFAULT, not a fallback, because enrichment is not returning fast
+    // enough to rely on. It sits ABOVE the make overrides deliberately — all 23
+    // MAKE_OVERRIDES entries carry an `oil` key, so leaving make on top would
+    // mean the class table never reaches Toyota, Honda, BMW or Ford, i.e. most
+    // of the fleet. It also contradicts them outright (toyota.oil 5000/6 vs
+    // Class A 7500/12).
+    interval = { ...classDefault };
+    source = "class_default";
   } else if (make) {
-    // Tier 2 — per-make override.
+    // Tier 3 — per-make override. Only reached when no class is known.
     const normalized = make.toLowerCase().trim();
     const overrides = MAKE_OVERRIDES[normalized];
     if (overrides && overrides[type]) {
       interval = { ...overrides[type]! };
+      source = "legacy_default";
     } else {
-      // Tier 3 — default.
       interval = { ...DEFAULT_INTERVALS[type] };
+      source = "legacy_default";
     }
   } else {
-    // Tier 3 — default (no make signal).
+    // Tier 4 — the original defaults, as a floor.
     interval = { ...DEFAULT_INTERVALS[type] };
+    source = "legacy_default";
   }
 
-  // Apply driving conditions multiplier
-  if (drivingConditions) {
+  // Driving conditions apply to OUR numbers, never to a manufacturer's.
+  // A factory severe-service schedule already accounts for city driving, so
+  // discounting it again is unjustified; a generic class bucket genuinely
+  // should bend to usage. Ahmad signed this off 2026-08-30 — the visible
+  // effect is a city-driven Toyota going from 5000*0.8=4000 to 7500*0.8=6000.
+  if (drivingConditions && source !== "oem") {
     const multipliers = DRIVING_CONDITION_MULTIPLIERS[drivingConditions.toLowerCase()];
     if (multipliers) {
       const mult = multipliers[type];
@@ -294,7 +378,7 @@ function getInterval(
     }
   }
 
-  return interval;
+  return { ...interval, source };
 }
 
 // ============================================================================
@@ -343,6 +427,15 @@ interface StatusResult {
    *  for brakes, when a shop inspection wrote a per-corner blended float
    *  (customInputs.mechanicRawScore). See `applyMechanicGrade`. */
   rawScore?: number;
+  /** The spec's four-way band (Quick Check v2 §7 step 4). Distinct from
+   *  `status`, which stays the three-value display tier — this is what
+   *  separates OVERDUE from SEVERELY OVERDUE for ordering and for the factor. */
+  bandStatus?: IntervalBand;
+  /** Where the interval came from. Drives the confidence hold. */
+  intervalSource?: IntervalSource;
+  /** The factor the score actually used, after the hold. Equals
+   *  `BAND_FACTOR[bandStatus]` unless a class default is being held at 1.00. */
+  factorApplied?: number;
 }
 
 // ============================================================================
@@ -476,6 +569,7 @@ export function computeMaintenanceStatus(
   // down to `getInterval` which applies the tier order (OEM → MAKE →
   // DEFAULT). Optional — when undefined, behavior matches pre-v1.
   oemIntervals?: OemServiceIntervalsInput,
+  classCtx?: IntervalClassContext,
 ): StatusResult {
   const type = record.type as MaintenanceType;
 
@@ -486,21 +580,21 @@ export function computeMaintenanceStatus(
 
   // Special case: Tires — factor in tire pressure custom inputs
   if (type === "tires") {
-    return computeTireStatus(record, currentOdometer, make, now, drivingConditions, avgMonthlyDriving, knownIssues, vehicleYear, oemIntervals);
+    return computeTireStatus(record, currentOdometer, make, now, drivingConditions, avgMonthlyDriving, knownIssues, vehicleYear, oemIntervals, classCtx);
   }
 
   // Special case: Brakes — factor in symptoms + warning light
   if (type === "brakes") {
-    return computeBrakeStatus(record, currentOdometer, make, now, drivingConditions, avgMonthlyDriving, knownIssues, oemIntervals);
+    return computeBrakeStatus(record, currentOdometer, make, now, drivingConditions, avgMonthlyDriving, knownIssues, oemIntervals, classCtx);
   }
 
   // Special case: Battery — time-based with specific thresholds + slow starts
   if (type === "battery") {
-    return computeBatteryStatus(record, make, now, knownIssues, oemIntervals);
+    return computeBatteryStatus(record, make, now, knownIssues, oemIntervals, classCtx);
   }
 
   // Generic: Oil (hybrid mileage + time, whichever comes first)
-  return computeOilStatus(record, currentOdometer, make, now, drivingConditions, avgMonthlyDriving, knownIssues, oemIntervals);
+  return computeOilStatus(record, currentOdometer, make, now, drivingConditions, avgMonthlyDriving, knownIssues, oemIntervals, classCtx);
 }
 
 // ============================================================================
@@ -515,6 +609,9 @@ interface FromOdometerInput {
   /** Miles at last known service; `undefined` measures from new. */
   lastServiceMileage?: number;
   serviceName?: string;
+  /** Where the interval came from. Catalog rows are class defaults unless
+   *  enrichment supplied the number, and the hold keys off this. */
+  intervalSource?: IntervalSource;
 }
 
 /**
@@ -526,27 +623,58 @@ interface FromOdometerInput {
  * anchor until a user record lands.
  */
 export function computeFromOdometerStatus(input: FromOdometerInput): StatusResult {
-  const { interval_miles, currentOdometer, lastServiceMileage, serviceName } = input;
+  const { interval_miles, currentOdometer, lastServiceMileage, serviceName, intervalSource } = input;
   const baseline = lastServiceMileage ?? 0;
   const used = Math.max(0, currentOdometer - baseline);
   const percentUsed = Math.min(100, Math.max(0, (used / interval_miles) * 100));
   const remaining = Math.max(0, interval_miles - used);
 
   const label = serviceName ?? "This service";
+  // With no stored last-service mileage the interval is measured from zero —
+  // i.e. as though the service had never been done. That is an assumption
+  // drawn from the ABSENCE of a record, not a measurement, so the copy must
+  // not assert it as fact. Saying "115,000 mi past interval — overdue" on a
+  // car we simply hold no record for reads as a hard finding, and sits badly
+  // next to a score that (correctly) ignores it: these rows never deduct,
+  // because only a mechanic's grade may condemn a non-core service.
+  const inferredFromAbsence = lastServiceMileage == null;
   let status: MaintenanceStatus;
   let description: string;
 
-  if (percentUsed >= 100) {
-    status = "overdue";
+  if (inferredFromAbsence) {
+    // Measured from zero — i.e. as though the service had never been done —
+    // because we hold no record, not because we observed anything. Every
+    // interval on a high-mileage car therefore "expires", which is how a
+    // 300,000-mile Q5 got four SOON cards (brake fluid, filters, spark plugs,
+    // transmission fluid) for services that may well have been done twice.
+    //
+    // Ahmad, 2026-08-27: "it's weird that it says due soon if we actually
+    // have no clue if it's due or not." So it reports unknown — the same
+    // answer every other no-record path now gives — and the section's
+    // diagnostic-scan CTA is what turns it into a real answer.
+    //
+    // percentUsed is forced to 0 so urgency ranking can't float these above
+    // findings that have actual evidence behind them.
+    return {
+      status: "unknown",
+      percentUsed: 0,
+      description: `No service record on file — a scan can confirm`,
+      detail: "Not on file",
+      milesRemaining: remaining,
+    };
+  }
+
+  // Same bands as every other path now — this used to run its own ladder
+  // (>=100 / >=90 / >=70), which disagreed with ratioToStatus at every edge and
+  // was the last place an interval could emit `needs_attention`. That status
+  // now means only "a human graded this yellow".
+  const band = ratioToBand(used / interval_miles);
+  status = BAND_TO_STATUS[band];
+  if (band === "overdue" || band === "severely_overdue") {
     description = `${formatMileage(used - interval_miles)} past interval — ${label} overdue`;
-  } else if (percentUsed >= 90) {
-    status = "due_soon";
-    description = `About ${formatMileage(remaining)} until due`;
-  } else if (percentUsed >= 70) {
-    status = "needs_attention";
+  } else if (band === "due_soon") {
     description = `About ${formatMileage(remaining)} until due`;
   } else {
-    status = "on_time";
     description = `${formatMileage(remaining)} of interval remaining`;
   }
 
@@ -556,7 +684,19 @@ export function computeFromOdometerStatus(input: FromOdometerInput): StatusResul
       ? `${formatMileage(used)} since last service`
       : `${formatMileage(currentOdometer)} vs ${formatMileage(interval_miles)} interval`;
 
-  return { status, percentUsed, description, detail, milesRemaining: remaining };
+  const factorApplied = appliedFactor({ band, intervalSource: intervalSource ?? "class_default" });
+
+  return {
+    status,
+    percentUsed,
+    description,
+    detail,
+    milesRemaining: remaining,
+    bandStatus: band,
+    intervalSource: intervalSource ?? "class_default",
+    factorApplied,
+    ...(factorApplied !== BAND_FACTOR[band] ? { rawScore: factorApplied } : {}),
+  };
 }
 
 // ============================================================================
@@ -572,8 +712,9 @@ function computeOilStatus(
   avgMonthlyDriving?: string,
   knownIssues?: string[],
   oemIntervals?: OemServiceIntervalsInput,
+  classCtx?: IntervalClassContext,
 ): StatusResult {
-  const interval = computeHybridStatus("oil", record, currentOdometer, make, now, drivingConditions, avgMonthlyDriving, oemIntervals);
+  const interval = computeHybridStatus("oil", record, currentOdometer, make, now, drivingConditions, avgMonthlyDriving, oemIntervals, classCtx);
   const result = applyMechanicGrade(interval, record);
 
   // Confirmed healthy (Q4b) overrides both interval and warning-light escalation
@@ -632,8 +773,9 @@ function computeHybridStatus(
   drivingConditions?: string,
   avgMonthlyDriving?: string,
   oemIntervals?: OemServiceIntervalsInput,
+  classCtx?: IntervalClassContext,
 ): StatusResult {
-  const interval = getInterval(type, make, drivingConditions, oemIntervals);
+  const interval = getInterval(type, make, drivingConditions, oemIntervals, classCtx);
 
   // No interval defined (e.g. Tesla oil)
   if (!interval.miles && !interval.months) {
@@ -687,7 +829,18 @@ function computeHybridStatus(
   // Hybrid: whichever comes first
   const ratio = Math.max(mileageRatio, timeRatio);
   const percentUsed = Math.min(Math.round(ratio * 100), 100);
-  const status = ratioToStatus(ratio);
+
+  // Quick Check v2 §7 step 4. The band carries the spec's four-way split;
+  // `status` stays the three-value display value the tracker renders, so
+  // needs_attention keeps meaning "a human graded this yellow".
+  const band = ratioToBand(ratio);
+  const status = BAND_TO_STATUS[band];
+
+  // The conservative rule: a class default may raise a recommendation at 1.0x
+  // but must not deduct until 1.5x. `confirmed` is left false here — the
+  // per-type wrappers layer a mechanic grade on afterwards, and a "Never"
+  // answer arrives as a real anchor rather than a flag on this path.
+  const factorApplied = appliedFactor({ band, intervalSource: interval.source });
 
   // Pick the earliest due date
   let estimatedDueDate: Date | undefined;
@@ -702,7 +855,23 @@ function computeHybridStatus(
   );
   const detail = buildDetail(record.lastServiceDate);
 
-  return { status, percentUsed, description, detail, estimatedDueDate, milesRemaining, monthsRemaining };
+  return {
+    status,
+    percentUsed,
+    description,
+    detail,
+    estimatedDueDate,
+    milesRemaining,
+    monthsRemaining,
+    bandStatus: band,
+    intervalSource: interval.source,
+    factorApplied,
+    // Only set rawScore when the hold actually suppresses something. Leaving
+    // it undefined otherwise keeps STATUS_SCORE[status] as the single source
+    // for the ordinary case, and avoids shadowing the brakes per-corner blend
+    // that applyMechanicGrade writes into this same field.
+    ...(factorApplied !== BAND_FACTOR[band] ? { rawScore: factorApplied } : {}),
+  };
 }
 
 // ============================================================================
@@ -719,12 +888,13 @@ function computeTireStatus(
   knownIssues?: string[],
   vehicleYear?: number,
   oemIntervals?: OemServiceIntervalsInput,
+  classCtx?: IntervalClassContext,
 ): StatusResult {
   if (isConfirmedHealthy(record, now)) {
     return { status: "on_time", percentUsed: 0, description: "Confirmed in good shape", detail: "On time" };
   }
 
-  const core = computeTireStatusCore(record, currentOdometer, make, now, drivingConditions, avgMonthlyDriving, vehicleYear, oemIntervals);
+  const core = computeTireStatusCore(record, currentOdometer, make, now, drivingConditions, avgMonthlyDriving, vehicleYear, oemIntervals, classCtx);
   // Mechanic-grade worst-of (tread + wear only — PSI stays a separate,
   // pre-existing client signal, not part of the shop-inspection grade).
   const result = applyMechanicGrade(core, record);
@@ -745,6 +915,7 @@ function computeTireStatusCore(
   avgMonthlyDriving?: string,
   vehicleYear?: number,
   oemIntervals?: OemServiceIntervalsInput,
+  classCtx?: IntervalClassContext,
 ): StatusResult {
   const tp = record.customInputs?.tirePressure as Record<string, number | null> | undefined;
 
@@ -834,13 +1005,20 @@ function computeTireStatusCore(
     };
   }
 
-  // Quick Read: user doesn't know tire status — flag for attention
+  // Quick Read: the driver answered "I'm not sure" to when the tires were
+  // last replaced. That is an absence of information, not a finding. It used
+  // to return `due_soon` / "Tire condition uncertain — inspection
+  // recommended", which cost 26 points on a car where nothing about the tires
+  // was ever reported — the driver was penalised for admitting they didn't
+  // know. Same fix the battery path took on 2026-05-18 ("not_sure used to
+  // fabricate a due_soon urgency with no anchor"); tires was missed then
+  // because the stepper stores this answer under a different id.
   if (tireReplaced === "dont_know" && !record.lastServiceDate && !record.lastServiceMileage && !tp) {
     return {
-      status: "due_soon",
-      percentUsed: 50,
-      description: "Tire condition uncertain — inspection recommended",
-      detail: "Check soon",
+      status: "unknown",
+      percentUsed: 0,
+      description: "Tire service history not on file",
+      detail: "Not on file",
     };
   }
 
@@ -887,10 +1065,35 @@ function computeTireStatusCore(
     }
   }
 
+  // Quick Check v2: "losing air" is a live symptom, and the v1 vocabulary has
+  // no field for it — `tireRepaired` means a puncture was already patched,
+  // which is a different thing with different copy. Handled the same way
+  // though: a symptom outranks a healthy interval, because a tire that is
+  // losing air now does not care how new it is.
+  const tireSymptom = record.customInputs?.symptom as string | undefined;
+  if (tireSymptom === "losing_air" || tireSymptom === "vibration") {
+    const intervalResult = record.lastServiceDate
+      ? computeHybridStatus("tires", record, currentOdometer, make, now, drivingConditions, avgMonthlyDriving, oemIntervals, classCtx)
+      : null;
+    const label = tireSymptom === "losing_air" ? "Losing air" : "Vibration";
+    const worstStatus: MaintenanceStatus =
+      intervalResult && (intervalResult.status === "overdue" || intervalResult.status === "due_soon")
+        ? intervalResult.status
+        : "needs_attention";
+    return {
+      status: worstStatus,
+      percentUsed: Math.max(60, intervalResult?.percentUsed ?? 0),
+      description: intervalResult
+        ? `${label} · ${intervalResult.description}`
+        : `${label} — inspection recommended`,
+      detail: "Check soon",
+    };
+  }
+
   // Quick Read: patched/plugged tire — flag regardless of interval status
   if (tireRepaired === "yes") {
     const intervalResult = record.lastServiceDate
-      ? computeHybridStatus("tires", record, currentOdometer, make, now, drivingConditions, avgMonthlyDriving, oemIntervals)
+      ? computeHybridStatus("tires", record, currentOdometer, make, now, drivingConditions, avgMonthlyDriving, oemIntervals, classCtx)
       : null;
     const worstStatus: MaintenanceStatus =
       intervalResult && (intervalResult.status === "overdue" || intervalResult.status === "due_soon")
@@ -908,7 +1111,7 @@ function computeTireStatusCore(
   }
 
   // Standard hybrid interval (mileage + time)
-  return computeHybridStatus("tires", record, currentOdometer, make, now, drivingConditions, avgMonthlyDriving, oemIntervals);
+  return computeHybridStatus("tires", record, currentOdometer, make, now, drivingConditions, avgMonthlyDriving, oemIntervals, classCtx);
 }
 
 function computeBrakeStatus(
@@ -920,13 +1123,14 @@ function computeBrakeStatus(
   avgMonthlyDriving?: string,
   knownIssues?: string[],
   oemIntervals?: OemServiceIntervalsInput,
+  classCtx?: IntervalClassContext,
 ): StatusResult {
   // Confirmed healthy overrides both interval and warning-light escalation
   if (isConfirmedHealthy(record, now)) {
     return { status: "on_time", percentUsed: 0, description: "Confirmed in good shape", detail: "On time" };
   }
 
-  const core = computeBrakeStatusCore(record, currentOdometer, make, now, drivingConditions, avgMonthlyDriving, oemIntervals);
+  const core = computeBrakeStatusCore(record, currentOdometer, make, now, drivingConditions, avgMonthlyDriving, oemIntervals, classCtx);
   // Mechanic-grade worst-of + the per-corner blended rawScore (brakes-only —
   // see applyMechanicGrade). Symptom-based logic inside computeBrakeStatusCore
   // (brakeFeel/squeaking) is a separate, pre-existing client signal.
@@ -947,6 +1151,7 @@ function computeBrakeStatusCore(
   drivingConditions?: string,
   avgMonthlyDriving?: string,
   oemIntervals?: OemServiceIntervalsInput,
+  classCtx?: IntervalClassContext,
 ): StatusResult {
   // Legacy field OR Quick Read brakeFeel → unified symptom flags
   const brakeFeel = record.customInputs?.brakeFeel as string | undefined;
@@ -965,7 +1170,7 @@ function computeBrakeStatusCore(
   let intervalDescription = "No brake service history";
 
   if (hasIntervalData) {
-    const hybrid = computeHybridStatus("brakes", record, currentOdometer, make, now, drivingConditions, avgMonthlyDriving, oemIntervals);
+    const hybrid = computeHybridStatus("brakes", record, currentOdometer, make, now, drivingConditions, avgMonthlyDriving, oemIntervals, classCtx);
     intervalRatio = hybrid.percentUsed / 100;
     intervalDescription = hybrid.description;
     intervalStatus = hybrid.status;
@@ -1032,7 +1237,7 @@ function computeBrakeStatusCore(
   }
 
   // Return the hybrid result
-  return computeHybridStatus("brakes", record, currentOdometer, make, now, drivingConditions, avgMonthlyDriving, oemIntervals);
+  return computeHybridStatus("brakes", record, currentOdometer, make, now, drivingConditions, avgMonthlyDriving, oemIntervals, classCtx);
 }
 
 function computeBatteryStatus(
@@ -1041,8 +1246,9 @@ function computeBatteryStatus(
   now: number,
   knownIssues?: string[],
   oemIntervals?: OemServiceIntervalsInput,
+  classCtx?: IntervalClassContext,
 ): StatusResult {
-  const interval = computeBatteryStatusInterval(record, make, now, knownIssues, oemIntervals);
+  const interval = computeBatteryStatusInterval(record, make, now, knownIssues, oemIntervals, classCtx);
   return applyMechanicGrade(interval, record);
 }
 
@@ -1052,6 +1258,7 @@ function computeBatteryStatusInterval(
   now: number,
   knownIssues?: string[],
   oemIntervals?: OemServiceIntervalsInput,
+  classCtx?: IntervalClassContext,
 ): StatusResult {
   // Confirmed healthy overrides both interval and warning-light escalation
   if (isConfirmedHealthy(record, now)) {
@@ -1088,7 +1295,7 @@ function computeBatteryStatusInterval(
 
   // Battery thresholds from spec:
   // Flag at 3 years (36 months), urgent at 4.5 years (54 months), max ~5 years (60 months)
-  const interval = getInterval("battery", make, undefined, oemIntervals);
+  const interval = getInterval("battery", make, undefined, oemIntervals, classCtx);
   const maxMonths = interval.months ?? 60;
 
   // Pure age-based
@@ -1194,7 +1401,9 @@ function computeInspectionFromExpiration(
     // Flag at 10 months (= 2 months remaining out of 12)
     status = "due_soon";
   } else {
-    status = ratioToStatus(ratio);
+    // Same bands as everything else. Inspection's own expiry branches above
+    // take precedence; this only covers the "plenty of time left" middle.
+    status = BAND_TO_STATUS[ratioToBand(ratio)];
   }
 
   const detail = formatShortDate(expiration);
@@ -1219,11 +1428,6 @@ function computeInspectionFromExpiration(
 // SHARED HELPERS
 // ============================================================================
 
-function ratioToStatus(ratio: number): MaintenanceStatus {
-  if (ratio > 1.0) return "overdue";
-  if (ratio >= 0.75) return "due_soon";
-  return "on_time";
-}
 
 /**
  * Build a human-readable description for hybrid (mileage + time) services.

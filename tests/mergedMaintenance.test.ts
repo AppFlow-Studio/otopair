@@ -52,12 +52,17 @@ describe("buildMergedMaintenanceItems (shared Cars-page / Oto merge)", () => {
     expect(items.length).toBeGreaterThanOrEqual(ALL_MAINTENANCE_TYPES.length);
   });
 
-  it("uses the optimistic no-record fallbacks (oil -> due_soon, brakes -> on_time)", () => {
+  it("reports no-record types as unknown rather than guessing at them", () => {
+    // Was: "optimistic no-record fallbacks (oil -> due_soon, brakes -> on_time)".
+    // Those guesses told a 300,000-mile car its brakes were fine, and because
+    // they never arrived as `unknown` they slipped past §08's exclusion and
+    // scored — a fixed 93 for every record-less vehicle. Ahmad, 2026-08-27.
     const items = merge();
     const oil = items.find((i) => i.id === "unknown-oil");
     const brakes = items.find((i) => i.id === "unknown-brakes");
-    expect(oil?.status).toBe("due_soon");
-    expect(brakes?.status).toBe("on_time");
+    expect(oil?.status).toBe("unknown");
+    expect(brakes?.status).toBe("unknown");
+    expect(brakes?.description).toMatch(/not on file|history on file/i);
   });
 
   it("appends a mechanic driver recommendation as a rec-* item", () => {
@@ -105,7 +110,15 @@ describe("buildMergedMaintenanceItems (shared Cars-page / Oto merge)", () => {
     } as any;
     const currentOdometer = 171000;
 
-    // Before service: no anchor → measured from new → overdue on a high-mileage car.
+    // Before service: no anchor at all → UNKNOWN, not overdue.
+    //
+    // This assertion was "overdue" when Temur wrote it, and measuring from new
+    // was the behaviour then. Ahmad changed it during Quick Check v2: a row we
+    // have no record for is unknown, not a finding. Calling it overdue asserts
+    // wear we have not observed — the car may have had the service last month
+    // at a shop we have never heard of. The rest of this test is unchanged and
+    // still guards what it was written to guard: the close-out and the
+    // resolved overlay.
     const before = buildMergedMaintenanceItems({
       userItems: new Map(),
       records: [],
@@ -114,7 +127,7 @@ describe("buildMergedMaintenanceItems (shared Cars-page / Oto merge)", () => {
       currentOdometer,
       oemIntervals,
     });
-    expect(before.find((i) => i.id === "catalog-coolant_flush")?.status).toBe("overdue");
+    expect(before.find((i) => i.id === "catalog-coolant_flush")?.status).toBe("unknown");
 
     // After service: the minor anchor carries the completion mileage + booking →
     // on_time AND resolved (targets minor_cool_condition for the ack).

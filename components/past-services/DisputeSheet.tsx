@@ -26,6 +26,7 @@ import { Check, X } from "lucide-react-native";
 
 import { Text } from "@/components/shared-ui";
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
+import { BrandColors } from "@/constants/theme";
 import { api } from "@/convex/_generated/api";
 
 const INK = "#0F172A";
@@ -132,7 +133,7 @@ export const DisputeSheet = forwardRef<DisputeSheetRef, DisputeSheetProps>(
       >
         <View style={styles.body}>
           <View style={styles.titleRow}>
-            <Text weight="bold" size="lg" color={INK}>
+            <Text size={28} weight="extraBold" color={BrandColors.primary}>
               {sentOk ? "Report sent" : "Report an issue"}
             </Text>
             <Pressable

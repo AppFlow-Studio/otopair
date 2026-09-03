@@ -27,13 +27,12 @@ import {
   Plus,
   Receipt as ReceiptIcon,
 } from "lucide-react-native";
-import * as DocumentPicker from "expo-document-picker";
-import { useMutation } from "convex/react";
+
+import { useServiceRecordUpload } from "@/hooks/useServiceRecordUpload";
 import { Image } from "expo-image";
 
 import { Text } from "@/components/shared-ui";
 import { useToast } from "@/hooks/useToast";
-import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useMyBookingsWithDetails } from "@/hooks/useMyBookingsWithDetails";
 import {
@@ -209,13 +208,10 @@ export function VehicleServiceHistory({
   const { historyBookings, isLoading: bookingsLoading } = useMyBookingsWithDetails();
   const { rows: docRows, isLoading: docsLoading } = useVehicleDocumentsFromConvex(vin);
 
-  const generateUploadUrl = useMutation(api.vehicleDocuments.generateUploadUrl);
-  const recordUpload = useMutation(api.vehicleDocuments.recordUpload);
 
   const [selectedBookingId, setSelectedBookingId] = useState<Id<"bookings"> | null>(null);
   const [selectedDocId, setSelectedDocId] = useState<Id<"vehicle_documents"> | null>(null);
   const [expanded, setExpanded] = useState(false);
-  const [uploading, setUploading] = useState(false);
 
   const normalizedVin = vin?.toUpperCase().trim();
 
@@ -302,6 +298,22 @@ export function VehicleServiceHistory({
     [docRows, selectedDocId],
   );
 
+  // Upload lives in useServiceRecordUpload so the advisory "Mark as Done"
+  // prompt runs the exact same path — same accepted types, same error
+  // handling — rather than a second copy that can drift.
+  const { pickAndUpload, uploading } = useServiceRecordUpload(
+    { vehicleOwnerId, vin: normalizedVin },
+    {
+      onUploaded: () => {
+        // Expand so the new row is visible, and confirm receipt in plain
+        // language — the row itself then shows "Reading receipt…" while it
+        // extracts, so the user is never left wondering what happened.
+        setExpanded(true);
+        toast.success("Receipt added", "We're pulling out the details now.", { icon: ReceiptIcon });
+      },
+    },
+  );
+
   const isLoading = bookingsLoading || docsLoading;
   if (isLoading) return null;
 
@@ -309,55 +321,8 @@ export function VehicleServiceHistory({
   const canUpload = !!vehicleOwnerId && !!normalizedVin;
 
   const handleUpload = async () => {
-    if (!canUpload || uploading) return;
-    try {
-      setUploading(true);
-      const result = await DocumentPicker.getDocumentAsync({
-        type: [
-          "application/pdf",
-          "image/*",
-          "application/msword",
-          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        ],
-        multiple: false,
-        copyToCacheDirectory: true,
-      });
-      if (result.canceled || result.assets.length === 0) {
-        setUploading(false);
-        return;
-      }
-      const asset = result.assets[0];
-      const uploadUrl = await generateUploadUrl({});
-      const blob = await (await fetch(asset.uri)).blob();
-      const postRes = await fetch(uploadUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": asset.mimeType ?? "application/octet-stream",
-        },
-        body: blob,
-      });
-      if (!postRes.ok) {
-        throw new Error(`Upload failed: ${postRes.status}`);
-      }
-      const { storageId } = (await postRes.json()) as { storageId: Id<"_storage"> };
-      await recordUpload({
-        storageId,
-        vehicleOwnerId: vehicleOwnerId!,
-        vin: normalizedVin!,
-        mimeType: asset.mimeType ?? "application/octet-stream",
-        filename: asset.name,
-        sizeBytes: asset.size ?? 0,
-      });
-      // Expand so the new row is visible, and confirm receipt in plain
-      // language — the row itself then shows "Reading receipt…" while it
-      // extracts, so the user is never left wondering what happened.
-      setExpanded(true);
-      toast.success("Receipt added", "We're pulling out the details now.", { icon: ReceiptIcon });
-    } catch {
-      toast.error("Upload failed", "Something went wrong — please try again.");
-    } finally {
-      setUploading(false);
-    }
+    if (!canUpload) return;
+    await pickAndUpload();
   };
 
   const handleDocPress = (documentId: Id<"vehicle_documents">) => {

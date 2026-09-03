@@ -41,6 +41,7 @@ import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { Chip, Text } from "@/components/shared-ui";
+import { BrandColors } from "@/constants/theme";
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
 import { TierInfoSheet, type TierInfoSheetRef } from "@/components/tire-booking/TierInfoSheet";
 import { VehicleTireSelector3D } from "@/components/tire-booking/VehicleTireSelector3D";
@@ -494,7 +495,7 @@ export default function TireBookingScreen({ onClose, onConfirmed }: TireBookingS
         showBackdrop
       >
         <View style={styles.sheetContent}>
-          <Text size="lg" weight="bold" color="#1A1A1A" style={styles.sheetTitle}>
+          <Text size={28} weight="extraBold" color={BrandColors.primary} style={styles.sheetTitle}>
             Which vehicle?
           </Text>
           <ScrollView>

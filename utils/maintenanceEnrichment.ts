@@ -11,6 +11,7 @@
  */
 
 import type { MaintenanceItem, MaintenanceStatus } from "../components/cars/MaintenanceTracker";
+import type { IntervalClassContext } from "./maintenanceStatus";
 import {
   MAINTENANCE_LABELS,
   computeMaintenanceStatus,
@@ -140,6 +141,22 @@ export const URGENT_DETAILS: Record<string, Partial<Record<MaintenanceStatus, De
   },
 };
 
+/** Shop + date behind a yellow/red mechanic grade, for the "Flagged by …"
+ *  line. Returns undefined when there is no grade, when it is green — green
+ *  is inert and never changes a status, so claiming a shop flagged it would
+ *  be wrong — or when the record carries neither source nor date, so the UI
+ *  renders nothing rather than half a line. */
+function mechanicFlagFrom(
+  customInputs: Record<string, unknown> | undefined,
+): { shopName?: string | null; gradedAt?: number | null } | undefined {
+  const grade = customInputs?.mechanicGrade as "g" | "y" | "r" | undefined;
+  if (!grade || grade === "g") return undefined;
+  const shopName = (customInputs?.mechanicGradeSource as string | undefined) ?? null;
+  const gradedAt = (customInputs?.mechanicGradedAt as number | undefined) ?? null;
+  if (!shopName && !gradedAt) return undefined;
+  return { shopName, gradedAt };
+}
+
 export function enrichUrgentItem(item: MaintenanceItem): MaintenanceItem {
   const isUrgent = item.status === "overdue" || item.status === "due_soon" || item.status === "needs_attention";
   if (!isUrgent) return item;
@@ -190,6 +207,10 @@ export function buildMaintenanceItems(
   // undefined the calc falls back to the existing chain — no behavior
   // change for callers that haven't wired this yet.
   oemIntervals?: OemServiceIntervalsInput,
+  /** Interval class + drivetrain / turbo facts. When omitted the class table
+   *  is skipped entirely and behaviour matches the pre-v2 tier order, so a
+   *  caller that hasn't wired the profile yet is unaffected. */
+  classCtx?: IntervalClassContext,
 ): Map<MaintenanceType, MaintenanceItem> {
   const map = new Map<MaintenanceType, MaintenanceItem>();
 
@@ -211,6 +232,7 @@ export function buildMaintenanceItems(
       knownIssues,
       vehicleYear,
       oemIntervals,
+      classCtx,
     );
 
     map.set(type, {
@@ -221,6 +243,12 @@ export function buildMaintenanceItems(
       status: result.status,
       percentUsed: result.percentUsed,
       rawScore: result.rawScore,
+      // Quick Check v2 §7 — the band and the applied factor travel with the
+      // item so the score, the ordering and any audit read the same numbers.
+      bandStatus: result.bandStatus,
+      intervalSource: result.intervalSource,
+      factorApplied: result.factorApplied,
+      mechanicFlag: mechanicFlagFrom(rec.customInputs),
     });
   }
 

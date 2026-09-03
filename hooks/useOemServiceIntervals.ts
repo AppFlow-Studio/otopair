@@ -27,7 +27,10 @@ import { useQuery } from "convex/react";
 
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import type { OemServiceIntervalMap } from "@/convex/service_intervals_queries";
+import type {
+  OemServiceIntervalMap,
+  VehicleFallbackProfile,
+} from "@/convex/service_intervals_queries";
 import {
   CONSERVATIVE_DEFAULTS_MI,
   SERVICE_INTERVAL_BOUNDS_MI,
@@ -117,7 +120,12 @@ export function useOemServiceIntervals(
     api.service_intervals_queries.getServiceIntervalsForVehicleConfig,
     vehicleConfigId ? { vehicle_config_id: vehicleConfigId } : "skip",
   );
-  const intervals = result ?? EMPTY_MAP;
+  // The query now returns { intervals, profile } so the class data lands in
+  // the same snapshot as the intervals — see VehicleIntervalEnvelope. This
+  // hook's signature is unchanged on purpose: every existing caller wants the
+  // map, and `useVehicleFallbackProfile` below reads the SAME (query, args)
+  // pair, which Convex resolves to one shared subscription.
+  const intervals = result?.intervals ?? EMPTY_MAP;
 
   useEffect(() => {
     if (!__DEV__) return;
@@ -163,7 +171,14 @@ export function useOemServiceIntervalsBatch(
     api.service_intervals_queries.getServiceIntervalsForVehicleConfigs,
     stableIds.length > 0 ? { vehicle_config_ids: stableIds } : "skip",
   );
-  const batch = result ?? EMPTY_BATCH;
+  const batch = useMemo<Record<string, OemServiceIntervalMap>>(() => {
+    if (!result) return EMPTY_BATCH;
+    const out: Record<string, OemServiceIntervalMap> = {};
+    for (const [cfgId, envelope] of Object.entries(result)) {
+      out[cfgId] = envelope.intervals;
+    }
+    return out;
+  }, [result]);
 
   useEffect(() => {
     for (const configId of Object.keys(batch)) {
@@ -172,4 +187,24 @@ export function useOemServiceIntervalsBatch(
   }, [batch]);
 
   return batch;
+}
+
+/**
+ * The vehicle's interval-class profile — class, drivetrain, turbo, fuel.
+ *
+ * Reads the same query and args as `useOemServiceIntervals`, so Convex serves
+ * both from one subscription: no extra round trip, and the class can never
+ * arrive in a different render than the intervals it selects a column from.
+ *
+ * Returns null while loading or when the vehicle has no resolved config, which
+ * callers should treat as "no class data" and fall back rather than guess.
+ */
+export function useVehicleFallbackProfile(
+  vehicleConfigId: Id<"vehicle_configs"> | null | undefined,
+): VehicleFallbackProfile | null {
+  const result = useQuery(
+    api.service_intervals_queries.getServiceIntervalsForVehicleConfig,
+    vehicleConfigId ? { vehicle_config_id: vehicleConfigId } : "skip",
+  );
+  return result?.profile ?? null;
 }

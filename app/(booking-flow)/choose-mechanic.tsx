@@ -30,7 +30,7 @@ import type { FunctionReference } from "convex/server";
 // composes with the shop pager on Android (see the android-gestures
 // source test).
 import { ScrollView } from "react-native-gesture-handler";
-import { useFocusEffect, useNavigation } from "expo-router";
+import { useFocusEffect } from "expo-router";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import BottomSheet, {
@@ -138,7 +138,6 @@ function formatBookingDate(iso: string): string {
 
 export default function ChooseMechanicScreen() {
   const router = useRouter();
-  const navigation = useNavigation();
   const insets = useSafeAreaInsets();
 
   const selectedServiceIds = useBookingStore((s) => s.selectedServiceIds);
@@ -606,23 +605,27 @@ export default function ChooseMechanicScreen() {
 
   const activeDistanceMi = nearbyShops[activeIndex]?.distanceMi ?? 0;
 
-  // Back normalizes to Screen 1 when we're the first route in the
-  // (booking-flow) stack — i.e. the user got here via a direct
-  // entry point (Most Booked card, Quick Book, etc.) rather than
-  // walking 1 → 2 → 3. Length > 1 means a real in-flow back exists.
-  // For the reset path we use navigation.reset (not router.replace)
-  // since replace within the same Stack occasionally no-op'd.
+  // Back means "the screen I was actually just on" — including when that
+  // screen is outside this flow. Most entry points land the user mid-flow:
+  // Home and Cars push straight to Choose Mechanic when the tapped item
+  // pre-resolves to a service, the Bookings tab's quote sheet pushes
+  // straight to Pick Date & Time, and Quick Book / category cards push
+  // straight to a category tab. All of those leave this stack one route
+  // deep, and router.back() then pops the whole (booking-flow) group and
+  // lands where they came from, which is correct.
+  //
+  // This previously normalized that one-route case to Screen 1 via
+  // navigation.reset. It made back land on a service picker the user had
+  // never seen, discarding the real previous screen — the flow's entry
+  // points deliberately SKIP Screen 1, and this handler deliberately
+  // returned to it, so the two composed into a dead end. Ahmad, 2026-08-27.
   const onBack = () => {
-    const state = navigation.getState?.();
-    const stackLength = state?.routes?.length ?? 0;
-    if (stackLength > 1) {
+    if (router.canGoBack()) {
       router.back();
       return;
     }
-    (navigation.reset as ((state: { index: number; routes: { name: string }[] }) => void) | undefined)?.({
-      index: 0,
-      routes: [{ name: "select-services" }],
-    });
+    // Cold-start deep link straight into the flow: nothing to pop.
+    router.replace("/(main-tabs)/home");
   };
 
   // Empty-cart affordance — the sheet is a shop browser, so the CTA sends the
@@ -1003,9 +1006,10 @@ export default function ChooseMechanicScreen() {
         maxDynamicContentSize={SHEET_MAX_HEIGHT}
         animationConfigs={sheetAnimationConfigs}
         detached
-        // Tuck the card just above the home indicator (lower than the
-        // default float) so it sits closer to the bottom edge.
-        bottomInset={Math.max(insets.bottom, 8)}
+        // TEMP: 0 pins the card flush to the bottom edge to confirm the
+        // mechanism; raise to the final resting gap (e.g. 8) to tuck it just
+        // above the home indicator.
+        bottomInset={7}
         style={styles.sheetFloat}
         backgroundStyle={styles.sheetBackground}
         handleIndicatorStyle={styles.sheetHandleIndicator}
@@ -1159,8 +1163,9 @@ const styles = StyleSheet.create({
   sheetBackground: {
     backgroundColor: "#FFFFFF",
     // All four corners rounded — the sheet floats (detached) above the
-    // bottom edge, so its bottom curves are visible too.
-    borderRadius: 32,
+    // bottom edge, so its bottom curves are visible too. Matches the shared
+    // FloatingSheet CORNER_RADIUS (46) so sheets across the app feel uniform.
+    borderRadius: 46,
   },
   sheetFloat: {
     // Side inset so the card doesn't touch the screen edges. The bottom
@@ -1169,7 +1174,8 @@ const styles = StyleSheet.create({
     // Clip to the animated sheet bounds so, as the sheet grows to fit the
     // opening accordion, the not-yet-covered rows are revealed cleanly from
     // the top edge instead of briefly floating over the map below it.
-    borderRadius: 32,
+    // 46 matches the shared FloatingSheet CORNER_RADIUS for a uniform look.
+    borderRadius: 46,
     overflow: "hidden",
   },
   sheetHandleIndicator: {

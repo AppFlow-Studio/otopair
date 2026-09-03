@@ -39,24 +39,22 @@ describe("date and mechanic picker entry defaults", () => {
     ).toBe("LUKE");
   });
 
-  test("manual quote scheduling ignores the quoted date-time floor", () => {
+  test("manual quote scheduling keeps the shop's quoted date-time floor", () => {
     expect(
       getPickerFloor(
         { date: "2026-08-28", time: "14:00" },
         { date: "2026-09-01", time: "16:15" },
-        false,
-      ),
-    ).toEqual({ date: "2026-08-28", time: "14:00" });
-  });
-
-  test("earliest-time fast path keeps the later quote floor", () => {
-    expect(
-      getPickerFloor(
-        { date: "2026-08-28", time: "14:00" },
-        { date: "2026-09-01", time: "16:15" },
-        true,
       ),
     ).toEqual({ date: "2026-09-01", time: "16:15" });
+  });
+
+  test("uses today's later notice floor when it is after the quoted time", () => {
+    expect(
+      getPickerFloor(
+        { date: "2026-09-01", time: "17:00" },
+        { date: "2026-09-01", time: "16:15" },
+      ),
+    ).toEqual({ date: "2026-09-01", time: "17:00" });
   });
 
   test("earliest-time fast path honors a same-day held slot inside the notice window", () => {
@@ -92,7 +90,7 @@ describe("date and mechanic picker entry defaults", () => {
   });
 });
 
-test("mechanic-card availability uses the booking duration", () => {
+test("mechanic-card availability uses the picker floor as well as booking duration", () => {
   const picker = readFileSync(
     resolve(process.cwd(), "app/(booking-flow)/pick-datetime.tsx"),
     "utf8",
@@ -102,11 +100,13 @@ test("mechanic-card availability uses the booking duration", () => {
     "const availabilityDurationMinutes = totalMinutes > 0 ? totalMinutes : undefined",
   );
   expect(picker).toMatch(
-    /useNextAvailabilityForShop\([\s\S]*?availabilityDurationMinutes[\s\S]*?\)/,
+    /useNextAvailabilityForShop\(\s*shopId,\s*null,\s*1,\s*availabilityDurationMinutes,\s*floor,\s*\)/,
   );
   expect(picker).toMatch(
-    /useNextAvailabilityPerMechanicForShop\([\s\S]*?availabilityDurationMinutes[\s\S]*?\)/,
+    /useNextAvailabilityPerMechanicForShop\(\s*shopId,\s*undefined,\s*availabilityDurationMinutes,\s*floor,\s*\)/,
   );
+  expect(picker).toContain("return getPickerFloor(todayFloor, quoteFloor);");
+  expect(picker).toContain("if (!quoteAcceptContext?.minDate) return null;");
 });
 
 test("Choose Mechanic availability labels use the selected services duration", () => {

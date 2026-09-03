@@ -78,7 +78,7 @@ export function CarSelectionContent({ onClose, onAddVehicle }: CarSelectionConte
 
       {/* Header */}
       <View style={styles.header}>
-        <Text size="xl" weight="bold" color={BrandColors.primary}>
+        <Text size={28} weight="extraBold" color={BrandColors.primary}>
           Select Vehicle
         </Text>
         <Text size="sm" color="#6B7280" style={styles.subtitle}>

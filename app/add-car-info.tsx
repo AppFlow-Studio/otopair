@@ -1111,8 +1111,8 @@ export default function AddVehicleDetailsScreen() {
         <View style={styles.sheetWrapper}>
           <View style={styles.sheetHeader}>
             <Text
-              weight="bold"
-              size="lg"
+              size={28}
+              weight="extraBold"
               color={BrandColors.primary}
               numberOfLines={1}
               style={styles.sheetTitle}

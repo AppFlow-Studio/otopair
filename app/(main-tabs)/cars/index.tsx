@@ -19,6 +19,10 @@ import * as Clipboard from "expo-clipboard";
 import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams } from "expo-router";
+import { firedTiles } from "@/utils/quickCheckFiring";
+import { biggerServiceCandidates } from "@/utils/quickCheckBiggerServices";
+import { useBookableServices } from "@/hooks/useBookableServices";
+import { TAXONOMY } from "@/constants/serviceTaxonomy";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 
 // Native iOS 26 liquid glass (optional). Mirrors the home / map-controls
@@ -40,6 +44,17 @@ const isMenuViewAvailable = !!UIManager.getViewManagerConfig?.("MenuView");
 
 import { haptics } from "@/lib/haptics";
 import { useToast } from "@/hooks/useToast";
+import { useServiceRecordUpload } from "@/hooks/useServiceRecordUpload";
+import { catalogRecordType } from "@/utils/mergedMaintenance";
+import type { MaintenanceItem } from "@/components/cars/MaintenanceTracker";
+import { QuickCheckSheet } from "@/components/cars/quickcheck/QuickCheckSheet";
+import { TILE_SPECS, catalogTileSpec, type QuickCheckAnswer } from "@/components/cars/quickcheck/tileSpecs";
+import {
+  TILE_RECORD_TYPE,
+  quickCheckRecordWrites,
+  resolveQuickCheckAnchor,
+  type QuickCheckServiceTile,
+} from "@/utils/quickCheckAnchor";
 import { useUpdateMileage } from "@/hooks/useUpdateMileage";
 import Svg, { Circle, Defs, LinearGradient as SvgLinearGradient, Stop } from "react-native-svg";
 
@@ -49,8 +64,9 @@ import { api } from "@/convex/_generated/api";
 import { useUserFromConvex } from "@/hooks/useUserFromConvex";
 import { useVehicleOwnershipFromConvex } from "@/hooks/useVehicleOwnershipFromConvex";
 import { useMergedMaintenance } from "@/hooks/useMaintenanceData";
-import { useOemServiceIntervals } from "@/hooks/useOemServiceIntervals";
+import { useOemServiceIntervals, useVehicleFallbackProfile } from "@/hooks/useOemServiceIntervals";
 import { useUrgencyRankedItems, type RankedMaintenanceItem } from "@/hooks/useUrgencyRankedItems";
+
 import { useDriverRecommendationsFromConvex } from "@/hooks/useDriverRecommendationsFromConvex";
 import { useBookingStore } from "@/stores/useBookingStore";
 import {
@@ -62,7 +78,8 @@ import {
 import { useTireBookingStore } from "@/stores/useTireBookingStore";
 import type { Id } from "@/convex/_generated/dataModel";
 import { isPseudoVin } from "@/convex/lib/vinIdentity";
-import { ALL_MAINTENANCE_TYPES, MAINTENANCE_LABELS, type MaintenanceType } from "@/utils/maintenanceStatus";
+import {
+  ALL_MAINTENANCE_TYPES, MAINTENANCE_LABELS, type MaintenanceType } from "@/utils/maintenanceStatus";
 import { computeVehicleHealthScore, type HealthScoreInput } from "@/utils/healthScore";
 
 // 4. Shared UI
@@ -253,6 +270,12 @@ const { width: SCREEN_WIDTH } = Dimensions.get("window");
 // ============================================================================
 // MAIN COMPONENT
 // ============================================================================
+
+/** Spelled-out counts for the Quick Read copy. The grid tops out at six
+ *  tiles, so the table is short and complete by construction. */
+const NUMBER_WORDS: Record<number, string> = {
+  0: "A few", 1: "One", 2: "Two", 3: "Three", 4: "Four", 5: "Five", 6: "Six",
+};
 
 export default function CarsHomeScreen() {
   const toast = useToast();
@@ -1039,12 +1062,35 @@ export default function CarsHomeScreen() {
     [vehicleConfigIds, activeVehicleIndex],
   );
   const oemIntervals = useOemServiceIntervals(activeVehicleConfigId);
+  // Same query and args as the line above, so Convex serves both from ONE
+  // subscription — the class can never arrive in a different render than the
+  // intervals it selects a column from.
+  const vehicleFallbackProfile = useVehicleFallbackProfile(activeVehicleConfigId);
 
   // ── Vehicle readiness (status pill + package-question CTA) ──
   // See docs/TICKET_PACKAGE_QUESTIONS.md. While the pipeline runs, shows
   // "Setting up your car…". Once data exists, surfaces a CTA for any
   // unanswered package questions; answers persist to vehicle_owner_specs.
   const vehicleReadiness = useVehicleReadiness(activeOwnershipId);
+
+  // Advisory close-out: the mechanic recommended work Otopair does not sell,
+  // so the driver gets it done elsewhere and tells us afterwards. Reuses
+  // dismissRecFromDriver with reason "fixed" — that already cancels the
+  // linked follow-up so reminders stop, and recomputes the open-rec penalty,
+  // which "hidden_by_driver" deliberately does not.
+  // "When was this last done?" on an unknown tracker row. Optional — the row
+  // is equally valid left unanswered, which is why nothing here blocks.
+  const [recencyItem, setRecencyItem] = useState<MaintenanceItem | null>(null);
+  const upsertMaintenanceRecord = useMutation(api.maintenance.upsertRecord);
+
+  const dismissRecFromDriver = useMutation(api.jobRecommendations.dismissRecFromDriver);
+  const { pickAndUpload: pickServiceRecord } = useServiceRecordUpload(
+    { vehicleOwnerId: activeOwnershipId, vin: activeVehicle?.vin },
+    {
+      onUploaded: () =>
+        toast.success("Receipt added", "We're pulling out the details now."),
+    },
+  );
   const [showPackageQuestionsSheet, setShowPackageQuestionsSheet] = useState(false);
 
   // Completion toast — fires when readiness transitions from
@@ -1209,31 +1255,33 @@ export default function CarsHomeScreen() {
     showRoleSheet,
   ]);
   const activeOwnershipMileage = activeOwnership?.mileage as number | undefined;
-  const isNewVehicle = isPreOnboardingComplete && !isOnboardingComplete
+  const maySeedFactoryFresh = isPreOnboardingComplete && !isOnboardingComplete
     && activeOwnershipMileage != null && activeOwnershipMileage <= 1000;
 
-  // Auto-complete onboarding for brand-new vehicles (≤1,000 mi) — skip the Quick Read
-  const autoCompleteFired = useRef(false);
+  // Seed factory-fresh records for a low-mileage car. This used to skip the
+  // Quick Check outright and run the completion celebration, which meant a
+  // brand-new car was never asked about its dashboard lights — and an
+  // eight-year-old car with 1,000 miles on it got the same treatment. The
+  // mutation decides from the car's AGE whether seeding is honest at all; the
+  // screen's job is only to offer it the chance. Onboarding completes the
+  // normal way, when the driver finishes the Quick Check.
+  const seedFired = useRef(false);
   useEffect(() => {
-    if (!isNewVehicle || !activeOwnershipId || autoCompleteFired.current) return;
-    autoCompleteFired.current = true;
+    if (!maySeedFactoryFresh || !activeOwnershipId || seedFired.current) return;
+    seedFired.current = true;
     (async () => {
       try {
         await autoCompleteNewVehicle({ vehicleOwnerId: activeOwnershipId });
-        setOnboardingDoneForId(activeOwnershipId);
-        celebrationFlowActive.current = true;
-        setCelebrationActive(true);
-        setPendingHealthSheet(true);
       } catch (err) {
-        console.warn("[AutoComplete] Failed for new vehicle:", err);
-        autoCompleteFired.current = false;
+        console.warn("[FactoryFreshSeed] Failed for new vehicle:", err);
+        seedFired.current = false;
         toast.error(
           "Couldn't auto-fill vehicle details.",
           "Enter them manually below.",
         );
       }
     })();
-  }, [isNewVehicle, activeOwnershipId, autoCompleteNewVehicle]);
+  }, [maySeedFactoryFresh, activeOwnershipId, autoCompleteNewVehicle]);
 
   const activeOwnershipDrivingConditions = activeOwnership?.drivingConditions as string | undefined;
   const activeOwnershipAvgMonthlyDriving = activeOwnership?.avgMonthlyDriving as string | undefined;
@@ -1257,6 +1305,7 @@ export default function CarsHomeScreen() {
     activeVehicle?.year,
     driverRecommendations,
     oemIntervals,
+    vehicleFallbackProfile,
   );
 
   // Action Engine ranking (Yassin v1.1 §3): computes urgency + tier per
@@ -1356,12 +1405,98 @@ export default function CarsHomeScreen() {
   // (convex/oto/vehicleHealth.ts), per the "must agree" contract.
   const healthScoreWeights = useQuery(api.healthScoreWeights.getWeights);
 
+  /*
+   * True while the post-service health write is still queued.
+   *
+   * applyBookingStatusTransition schedules the inspection-health job two hours
+   * after a booking reaches a terminal state and stamps
+   * health_score_pending_until for that window; the job clears it when it
+   * lands. Until then the score on screen is pre-service — the grades, the
+   * recommendation reveal and the mechanic's warning-light changes all apply
+   * together, later.
+   *
+   * Compared against now rather than trusting the clear: if a job fails the
+   * timestamp is left behind, and a stale one must read as "not pending"
+   * rather than pinning the ring forever. A booking that re-enters a terminal
+   * state reschedules and pushes the timestamp out again, so this can
+   * legitimately return true a second time.
+   */
+  const healthScorePending = useMemo(() => {
+    const until = activeOwnership?.health_score_pending_until as number | undefined;
+    return typeof until === "number" && until > Date.now();
+  }, [activeOwnership?.health_score_pending_until]);
+
   const computedHealthScore = useMemo(() => {
     return computeVehicleHealthScore(healthScoreInput, healthScoreWeights);
   }, [healthScoreInput, healthScoreWeights]);
 
   // Pulse animation for inline Quick Read health ring
-  const showQuickReadCard = isPreOnboardingComplete && !isOnboardingComplete && !isNewVehicle;
+  // No `!isNewVehicle` term any more: a low-mileage car sees the Quick Check
+  // like every other car. Seeding factory-fresh records answers the service
+  // questions for a genuinely new vehicle; it does not answer the
+  // warning-lights one, and that is the question this card leads to.
+  const showQuickReadCard = isPreOnboardingComplete && !isOnboardingComplete;
+
+  // How many tiles this particular car will actually be asked. The copy used
+  // to say "Five quick checks" everywhere, which was true while every car got
+  // every question. It is not true now: a genuinely new vehicle is asked one.
+  // Same pure helper the stepper uses, so the promise and the screen agree.
+  // Which of the five core tiles this unknown row is, if any. `unknown-brakes`
+  // → "brakes". Catalog rows return a slug that is not a tile id and fall
+  // through to null.
+  const recencyTile = useMemo<QuickCheckServiceTile | null>(() => {
+    if (!recencyItem) return null;
+    const t = extractMaintenanceType(recencyItem.id);
+    return t in TILE_RECORD_TYPE ? (t as QuickCheckServiceTile) : null;
+  }, [recencyItem]);
+
+  // Which services this vehicle can actually book RIGHT NOW. The tracker used
+  // to disable every CTA on a single vehicle-level "enriching" flag, which is
+  // stricter than the service selector: a diagnostic scan and a battery test
+  // are bookable while enrichment runs, and the scan is exactly what a driver
+  // needs when we know nothing about the car yet.
+  const { bookableIds: trackerBookableIds } = useBookableServices(activeOwnershipId);
+  const allServicesForBooking = useQuery(api.services.list);
+  const bookableSlugs = useMemo(() => {
+    if (!allServicesForBooking || trackerBookableIds.size === 0) return undefined;
+    const out = new Set<string>();
+    for (const doc of allServicesForBooking as Array<{ _id: string; slug?: string }>) {
+      if (!trackerBookableIds.has(doc._id)) continue;
+      const canonical = doc.slug ? TAXONOMY[doc.slug]?.slug : undefined;
+      if (canonical) out.add(canonical);
+    }
+    return out;
+  }, [allServicesForBooking, trackerBookableIds]);
+
+  // Same candidate rule the stepper uses, so the promise and the screen agree.
+  const quickCheckBiggerCount = useMemo(
+    () =>
+      biggerServiceCandidates({
+        currentOdometer: activeOwnershipMileage ?? null,
+        modelYear: activeVehicle?.year ?? null,
+        vehicleClass: vehicleFallbackProfile?.vehicleClass ?? null,
+        classOptions: {
+          turbo: vehicleFallbackProfile?.turbo,
+          drivetrain: vehicleFallbackProfile?.drivetrain,
+          hasDifferential: vehicleFallbackProfile?.hasDifferential,
+        },
+        oemIntervals,
+      }).length,
+    [activeOwnershipMileage, activeVehicle?.year, vehicleFallbackProfile, oemIntervals],
+  );
+
+  const quickCheckCount = useMemo(
+    () => firedTiles({
+      currentMiles: activeOwnershipMileage ?? null,
+      modelYear: activeVehicle?.year ?? null,
+      // The count has to include the Bigger Services tile or the card promises
+      // five checks and the stepper then asks six.
+      biggerServiceCandidates: quickCheckBiggerCount,
+    }).length,
+    [activeOwnershipMileage, activeVehicle?.year, quickCheckBiggerCount],
+  );
+  const quickCheckCountWord = quickCheckCount === 1 ? "One" : NUMBER_WORDS[quickCheckCount] ?? String(quickCheckCount);
+  const quickCheckNoun = quickCheckCount === 1 ? "quick check" : "quick checks";
   useEffect(() => {
     if (!showQuickReadCard) return;
     const loop = Animated.loop(
@@ -1974,12 +2109,103 @@ export default function CarsHomeScreen() {
               ? (activeOwnership?.health_score as number | undefined) ?? computedHealthScore
               : computedHealthScore}
             isEstimatedScore={isPreOnboardingComplete && !isOnboardingComplete}
+            healthScorePending={healthScorePending}
             onResumeCheckin={openEstimatedHealthSheet}
             knownIssues={activeOwnershipKnownIssues}
             hpBuffer={activeVehicleHpBuffer}
             completedBookings={completedBookingsForVehicle}
           />
         </View>
+
+        {/* The same sheet the Quick Check uses, on purpose. This row used to
+            open `ServiceRecencySheet` and its six recency buckets — the v1
+            vocabulary, where every answer collapsed to a guessed date. Asking
+            one question two ways on two screens is what the spec set out to
+            remove, so an unknown tracker row now asks it exactly as
+            onboarding does, and the answer lands as a real anchor. */}
+        <QuickCheckSheet
+          spec={
+            // A core tile gets its REAL spec — the same question, symptom row
+            // and filters toggle onboarding asks — so answering from the
+            // tracker records as much as answering from the stepper. Anything
+            // else is a catalog row and gets the generic one.
+            recencyItem
+              ? (recencyTile
+                  ? TILE_SPECS[recencyTile]
+                  : recencyItem.serviceSlug
+                    ? catalogTileSpec(recencyItem.serviceSlug, recencyItem.serviceName)
+                    : null)
+              : null
+          }
+          visible={recencyItem !== null}
+          onClose={() => setRecencyItem(null)}
+          onSubmit={async (slug: string, answer: QuickCheckAnswer) => {
+            const item = recencyItem;
+            const tile = recencyTile;
+            setRecencyItem(null);
+            if (!activeOwnershipId) return;
+
+            // Core tile: write exactly what the stepper writes, both record
+            // vocabularies and the oil filter row included.
+            if (tile) {
+              try {
+                for (const w of quickCheckRecordWrites(tile, answer, {
+                  currentOdometer: activeOwnershipMileage ?? null,
+                  avgMonthlyDriving: activeOwnership?.avgMonthlyDriving as string | undefined,
+                  vehicleYear: activeVehicle?.year,
+                })) {
+                  await upsertMaintenanceRecord({ vehicleOwnerId: activeOwnershipId, ...w });
+                }
+                toast.success(
+                  answer.answerType === "unsure" ? "Noted" : "Thanks — updated",
+                  answer.answerType === "unsure"
+                    ? "We'll leave that one open for now."
+                    : `We'll track ${item?.serviceName.toLowerCase() ?? "it"} from there.`,
+                );
+              } catch {
+                toast.error("Couldn't save that", "Please try again.");
+              }
+              return;
+            }
+
+            if (!item?.serviceSlug) return;
+            // "Not sure" is a real choice: record it so we stop asking as
+            // insistently, but write no anchor — the row stays unknown and
+            // keeps scoring nothing, per §08.
+            const anchorPoint = resolveQuickCheckAnchor({
+              answer,
+              currentOdometer: currentOdometer ?? activeVehicle?.mileage ?? null,
+              avgMonthlyDriving: activeOwnership?.avgMonthlyDriving as string | undefined,
+              vehicleYear: activeVehicle?.year,
+            });
+            const anchored = anchorPoint.lastServiceDate != null;
+            try {
+              await upsertMaintenanceRecord({
+                vehicleOwnerId: activeOwnershipId,
+                type: catalogRecordType(slug),
+                ...anchorPoint,
+                customInputs: {
+                  answerType: answer.answerType,
+                  ...(answer.month != null ? { answerMonth: answer.month } : {}),
+                  ...(answer.year != null ? { answerYear: answer.year } : {}),
+                  ...(answer.miles != null ? { answerMiles: answer.miles } : {}),
+                  // Marks the anchor as the driver's own estimate, not a
+                  // shop's record — the tracker and Oto both read this.
+                  source: "driver_self_report",
+                },
+                confidence: "self_reported",
+              });
+              toast.success(
+                anchored ? "Thanks — updated" : "Noted",
+                anchored
+                  ? `We'll track ${item.serviceName.toLowerCase()} from there.`
+                  : "We'll leave that one open for now.",
+              );
+            } catch {
+              toast.error("Couldn't save that", "Please try again.");
+            }
+          }}
+        />
 
         {/* Reduced-accuracy notice for 2012-or-older vehicles (self-hides otherwise) */}
         <DataAccuracyDisclaimer
@@ -1989,13 +2215,19 @@ export default function CarsHomeScreen() {
         />
 
         {/* Quick Read intro card — shown when pre-onboarding done but onboarding not yet complete */}
-        {isPreOnboardingComplete && !isOnboardingComplete && !isNewVehicle && (() => {
-          const estScore = (activeOwnership?.health_score as number | undefined) ?? computedHealthScore;
+        {showQuickReadCard && (() => {
+          // No score is shown here. Pre-onboarding there are no service
+          // records, and utils/mergedMaintenance.ts fills the gap with assumed
+          // statuses — brakes/tires/battery "on time", oil "due soon" — which
+          // produced a fixed 93 for EVERY vehicle regardless of age or
+          // mileage (odometerMiles is not even an input to the score). It
+          // could only fall from there: this Q5 goes 93 → 24 once the user
+          // answers honestly, which punished them for telling us the truth at
+          // the exact moment we were asking for it. Ahmad, 2026-08-27.
           const ringSize = 120;
           const strokeWidth = 10;
           const radius = (ringSize - strokeWidth) / 2;
           const circumference = 2 * Math.PI * radius;
-          const strokeDashoffset = circumference * (1 - estScore / 100);
           const center = ringSize / 2;
           return (
           // key on vin so swiping between two no-tracker cars
@@ -2008,28 +2240,18 @@ export default function CarsHomeScreen() {
               <View style={{ width: ringSize, height: ringSize, alignItems: "center", justifyContent: "center" }}>
                 <Svg width={ringSize} height={ringSize}>
                   <Circle cx={center} cy={center} r={radius} stroke="rgba(0,0,0,0.06)" strokeWidth={strokeWidth} fill="none" />
-                  <Circle
-                    cx={center} cy={center} r={radius}
-                    stroke="#94A3B8"
-                    strokeWidth={strokeWidth}
-                    fill="none"
-                    strokeLinecap="round"
-                    strokeDasharray={circumference}
-                    strokeDashoffset={strokeDashoffset}
-                    transform={`rotate(-90 ${center} ${center})`}
-                  />
                 </Svg>
                 <View style={{ position: "absolute", alignItems: "center" }}>
-                  <Text weight="bold" size="2xl" color="#1F2937">{estScore}</Text>
-                  <Text weight="medium" size="xs" color="#94A3B8">Estimated</Text>
+                  <Text weight="bold" size="2xl" color="#94A3B8">· · ·</Text>
+                  <Text weight="medium" size="xs" color="#94A3B8">Not scored yet</Text>
                 </View>
               </View>
             </View>
             <Text weight="bold" size="lg" color="#0F172A" style={{ textAlign: "center" }}>
-              Here&apos;s an estimate of where your {activeVehicle?.make && activeVehicle?.model ? `${activeVehicle.make} ${activeVehicle.model}` : "vehicle"} stands
+              Let&apos;s score your {activeVehicle?.make && activeVehicle?.model ? `${activeVehicle.make} ${activeVehicle.model}` : "vehicle"}
             </Text>
             <Text weight="medium" size="sm" color="#829BAD" style={{ textAlign: "center", marginTop: scale(6) }}>
-              Five quick checks to understand your vehicle&apos;s current condition.
+              We don&apos;t have your service history yet. {quickCheckCountWord} {quickCheckNoun} and you&apos;ll have a real health score.
             </Text>
             <View style={styles.quickReadBenefits}>
               {["Brake health assessment", "Tire life estimation", "Oil service status", "Battery condition check", "Warning light detection"].map((b) => (
@@ -2228,6 +2450,7 @@ export default function CarsHomeScreen() {
               vehicleLabel={activeVehicle?.model ?? undefined}
               isDarkBg={isDarkBg}
               isEnriching={vehicleReadiness.status === "enriching"}
+              bookableSlugs={bookableSlugs}
               onBookNow={(id) => {
                 // Backstop for the disabled CTAs above — never open the booking
                 // flow while the vehicle is still enriching (no parts data yet).
@@ -2248,9 +2471,29 @@ export default function CarsHomeScreen() {
                 // Inspection" from "have brakes inspected soon"). Falls back
                 // to the slug default for the type when the description
                 // doesn't literally name a catalog service.
-                const explicit = tapped?.description
-                  ? findServiceFromDescription(tapped.description, store.availableServices)
+                // A mechanic's recommendation names its catalog service
+                // outright (job_recommendations.service_id), so use that
+                // rather than guessing. Without it a rec fell through to
+                // description matching — extractMaintenanceType("rec-<id>")
+                // yields "rec", which maps to no slug — so "Coolant Flush
+                // flagged on eye-check (monitor)" had to happen to contain a
+                // catalog name or the user landed on the empty service picker.
+                const fromRec = tapped?.serviceId
+                  ? store.availableServices.find((sv) => sv.id === tapped.serviceId)
                   : undefined;
+                // Minor eye-check tiles name the inspection line ("Coolant
+                // Condition"), not the remedy the catalog sells ("Coolant
+                // flush"), so they carry the remedy's slug explicitly.
+                const fromSlug = tapped?.serviceSlug
+                  ? store.availableServices.find(
+                      (sv) =>
+                        String(sv.slug ?? "").toLowerCase().replace(/-/g, "_") ===
+                        String(tapped.serviceSlug).toLowerCase().replace(/-/g, "_"),
+                    )
+                  : undefined;
+                const explicit = fromRec ?? fromSlug ?? (tapped?.description
+                  ? findServiceFromDescription(tapped.description, store.availableServices)
+                  : undefined);
                 const matched = explicit ?? findServiceForMaintenanceType(itemType, store.availableServices);
                 // Use the matched service's own category for the tab —
                 // important when the matcher picks across categories (e.g.
@@ -2276,6 +2519,46 @@ export default function CarsHomeScreen() {
                 if (vin) useVehicleStore.getState().selectVehicle(vin.toUpperCase().trim());
                 if (!item.sourceRecommendationId) return;
                 router.push(`/recommendation/${item.sourceRecommendationId}`);
+              }}
+              onAnswerRecency={(item) => setRecencyItem(item)}
+              onMarkDone={(item) => {
+                const recId = item.sourceRecommendationId;
+                if (!recId) return;
+                // Confirm first: this closes the recommendation and stops its
+                // reminders, and there is no undo on the card once it's gone.
+                Alert.alert(
+                  `${item.serviceName} done?`,
+                  "We'll close this out. Otopair doesn't book this service, so we're taking your word for it.",
+                  [
+                    { text: "Not yet", style: "cancel" },
+                    {
+                      text: "Yes, it's done",
+                      onPress: async () => {
+                        try {
+                          await dismissRecFromDriver({
+                            recommendationId: recId as Id<"job_recommendations">,
+                            reason: "fixed",
+                          });
+                        } catch {
+                          toast.error("Couldn't save that", "Please try again.");
+                          return;
+                        }
+                        // Ask for the receipt second, never as a condition of
+                        // the first step — the record is a bonus, and a driver
+                        // who has no paperwork must still be able to close the
+                        // item without feeling they failed a requirement.
+                        Alert.alert(
+                          "Got a receipt?",
+                          "Add it and we'll pull the details into your service history.",
+                          [
+                            { text: "Not now", style: "cancel" },
+                            { text: "Upload", onPress: () => { void pickServiceRecord(); } },
+                          ],
+                        );
+                      },
+                    },
+                  ],
+                );
               }}
               onAddInfo={(id) => {
                 const type = id.replace(/^(unknown-|user-)/, "") as MaintenanceType;
@@ -2617,6 +2900,12 @@ export default function CarsHomeScreen() {
                   vehicleModel={activeVehicle?.model ?? ''}
                   vehicleYear={activeVehicle?.year ?? 0}
                   initialDraft={activeOwnership?.serviceHistoryDraft ?? null}
+              // Raw ownership mileage, NOT currentOdometer — that one is
+              // deliberately null until onboarding completes (L1262), which is
+              // precisely while this stepper is on screen.
+              currentMiles={activeOwnershipMileage ?? null}
+              avgMonthlyDriving={(activeOwnership?.avgMonthlyDriving as string | undefined) ?? null}
+              vehicleConfigId={activeVehicleConfigId ?? null}
                   onAllDoneChange={setStepperAllDone}
                   skipIntro
                   onBack={closeHealthSheet}
@@ -2666,7 +2955,10 @@ export default function CarsHomeScreen() {
                     const strokeWidth = 10;
                     const radius = (ringSize - strokeWidth) / 2;
                     const circumference = 2 * Math.PI * radius;
-                    const strokeDashoffset = circumference * (1 - ringProgress / 100);
+                    // Empty arc in the estimated state — drawing progress would
+                    // trace a score that does not exist yet.
+                    const strokeDashoffset =
+                      circumference * (1 - (healthSheetMode === 'estimated' ? 0 : ringProgress) / 100);
                     const center = ringSize / 2;
                     return (
                       <View style={{ width: ringSize, height: ringSize, alignItems: "center", justifyContent: "center" }}>
@@ -2683,8 +2975,21 @@ export default function CarsHomeScreen() {
                           <Circle cx={center} cy={center} r={radius} stroke={ringColor} strokeWidth={strokeWidth + 4} fill="none" strokeDasharray={circumference} strokeDashoffset={strokeDashoffset} strokeLinecap="round" rotation={-90} origin={`${center}, ${center}`} opacity={0.2} />
                         </Svg>
                         <View style={healthSheetStyles.ringCenterLabel}>
-                          <Text weight="bold" size="3xl" color="#1F2937">{activeOwnership?.health_score_is_estimated ? "~" : ""}{displayedScore}</Text>
-                          <Text weight="semiBold" size="xs" color="#9CA3AF" style={{ marginTop: scale(-2) }}>{activeOwnership?.health_score_is_estimated ? "estimated" : "out of 100"}</Text>
+                          {/* `healthSheetMode === 'estimated'` means onboarding is
+                              incomplete — no records, so nothing to score. That is a
+                              different thing from `health_score_is_estimated`, which
+                              marks a REAL score gone stale (check-in 30+ days overdue)
+                              and keeps its "~" qualifier. */}
+                          <Text weight="bold" size="3xl" color={healthSheetMode === 'estimated' ? "#9CA3AF" : "#1F2937"}>
+                            {healthSheetMode === 'estimated'
+                              ? "· · ·"
+                              : `${activeOwnership?.health_score_is_estimated ? "~" : ""}${displayedScore}`}
+                          </Text>
+                          <Text weight="semiBold" size="xs" color="#9CA3AF" style={{ marginTop: scale(-2) }}>
+                            {healthSheetMode === 'estimated'
+                              ? "not scored yet"
+                              : activeOwnership?.health_score_is_estimated ? "estimated" : "out of 100"}
+                          </Text>
                         </View>
                       </View>
                     );
@@ -2698,7 +3003,7 @@ export default function CarsHomeScreen() {
               <Animated.View style={{ opacity: titleFade, marginTop: healthSheetMode === 'confirmed' ? scale(50) : 0, transform: [{ translateY: titleFade.interpolate({ inputRange: [0, 1], outputRange: [scale(12), 0] }) }] }}>
                 <Text weight="bold" size="xl" color="#1F2937" style={healthSheetStyles.title}>
                   {healthSheetMode === 'estimated'
-                    ? `Here's where your ${activeVehicle?.make ?? "vehicle"} stands`
+                    ? `Let's score your ${activeVehicle?.make ?? "vehicle"}`
                     : computedHealthScore >= 80
                       ? `Your ${activeVehicle?.make ?? "vehicle"} is in great shape`
                       : computedHealthScore >= 60
@@ -2711,7 +3016,7 @@ export default function CarsHomeScreen() {
               <Animated.View style={{ opacity: subtitleFade, transform: [{ translateY: subtitleFade.interpolate({ inputRange: [0, 1], outputRange: [scale(12), 0] }) }] }}>
                 <Text weight="medium" size="sm" color="#6B7280" style={healthSheetStyles.subtitle}>
                   {healthSheetMode === 'estimated'
-                    ? "Answer a few quick questions to get your confirmed health score."
+                    ? "We don't have your service history yet, so there's nothing to score. Answer a few quick questions and you'll have a real one."
                     : computedHealthScore >= 80
                       ? "You're clearly someone who takes care of their ride. We'll make sure it stays that way."
                       : computedHealthScore >= 60
@@ -2731,7 +3036,7 @@ export default function CarsHomeScreen() {
                       Let&apos;s get a quick read on your {activeVehicle?.make ?? "vehicle"}
                     </Text>
                     <Text weight="medium" size="sm" color="#6B7280" style={{ marginTop: scale(4), textAlign: "center" }}>
-                      Five quick checks to understand your vehicle&apos;s current condition.
+                      {quickCheckCountWord} {quickCheckNoun} to understand your vehicle&apos;s current condition.
                     </Text>
                     <View style={healthSheetStyles.introBenefits}>
                       {["Brake health assessment", "Tire life estimation", "Oil service status", "Battery condition check", "Warning light detection"].map((b) => (

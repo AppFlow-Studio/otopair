@@ -15,6 +15,7 @@ import { Dimensions, StyleSheet, View } from "react-native";
 
 import { Text } from "@/components/shared-ui";
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
+import { BrandColors } from "@/constants/theme";
 import { TIRE_TIERS, type TireTierId } from "@/constants/tireFlow";
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
@@ -42,7 +43,7 @@ export const TierInfoSheet = forwardRef<TierInfoSheetRef>((_, ref) => {
     <FloatingSheet ref={sheetRef} snapHeights={[Math.min(SCREEN_HEIGHT * 0.4, 280)]} showBackdrop>
       {tier ? (
         <View style={styles.content}>
-          <Text size="xl" weight="bold" color="#1A1A1A" style={styles.title}>
+          <Text size={28} weight="extraBold" color={BrandColors.primary} style={styles.title}>
             {tier.label}
           </Text>
           <Text size="sm" weight="regular" color="#4B5563" style={styles.tagline}>
