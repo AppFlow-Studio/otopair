@@ -24,6 +24,8 @@ import {
   ALL_MAINTENANCE_TYPES,
   MAINTENANCE_LABELS,
   computeFromOdometerStatus,
+  STATUS_SEVERITY_ORDER,
+  INTERVAL_SCORE_EQUIVALENT,
   type MaintenanceType,
   type OemServiceIntervalsInput,
 } from "@/utils/maintenanceStatus";
@@ -699,9 +701,63 @@ export function buildMergedMaintenanceItems(
     }
   }
 
+  // ── One physical finding, one card ────────────────────────────────────────
+  //
+  // Ahmad, 2026-09-04: a coolant flush showed twice — once as the interval row
+  // ("50,001 mi past interval") and once as the mechanic's eye-check
+  // recommendation ("flagged on eye-check (monitor)"). Both are true; two
+  // cards for one job is not.
+  //
+  // The INTERVAL ROW WINS here, which is the opposite of how the same
+  // collision is resolved for minor eye-check items above — and the asymmetry
+  // is the point. A minor item is a bare grade with no interval behind it, so
+  // the recommendation is strictly richer and takes the card. An interval row
+  // carries the mileage maths AND the driver's own answer, and unlike a
+  // recommendation it SCORES: dropping it in favour of the rec would silently
+  // raise the health score the moment a mechanic mentioned the service.
+  //
+  // So the row stays and absorbs the mechanic's attribution — the "Suggested
+  // by …" line renders off `mechanicProvenance` alone, independent of the
+  // recommendation lifecycle, so nothing else has to come with it.
+  const intervalItemBySlug = new Map<string, MaintenanceItem>();
+  for (const item of result) {
+    const slug =
+      item.serviceSlug ??
+      ANCHOR_TYPE_TO_SLUG[item.id.replace(/^(unknown-|user-|smartcar-)/, "") as MaintenanceType];
+    // First writer wins: a catalog row and a core tile never share a slug, but
+    // if they ever did the core tile is the one the driver was asked about.
+    if (slug && !intervalItemBySlug.has(slug)) intervalItemBySlug.set(slug, item);
+  }
+
   // Mechanic-submitted job recommendations as urgent cards.
   if (driverRecommendations && driverRecommendations.length > 0) {
     for (const rec of driverRecommendations) {
+      const recSlug = rec.service_id ? serviceSlugById?.(rec.service_id) : undefined;
+      const covered = recSlug ? intervalItemBySlug.get(recSlug) : undefined;
+      if (covered) {
+        covered.mechanicProvenance = {
+          shopName: rec.shop_name,
+          mechanicName: rec.mechanic_name,
+        };
+        // A mechanic's finding may make the card louder, never quieter — the
+        // same one-way rule `applyMechanicGrade` uses. Without this, a
+        // mechanic flagging something the interval calls healthy would be
+        // folded into a HEALTHY row and effectively buried.
+        const recStatus = recUrgencyToStatus(rec.urgency);
+        if (
+          STATUS_SEVERITY_ORDER.indexOf(recStatus) >
+          STATUS_SEVERITY_ORDER.indexOf(covered.status)
+        ) {
+          // Display only. `rawScore` is pinned to whatever the INTERVAL said,
+          // so the merge cannot start deducting for a recommendation —
+          // recommendations are excluded from Upkeep today
+          // (`isScorableMaintenanceItem`) and this is not the change that
+          // reverses that.
+          covered.rawScore = covered.rawScore ?? INTERVAL_SCORE_EQUIVALENT[covered.status];
+          covered.status = recStatus;
+        }
+        continue;
+      }
       result.push({
         id: `rec-${rec._id}`,
         serviceName: rec.service_name,

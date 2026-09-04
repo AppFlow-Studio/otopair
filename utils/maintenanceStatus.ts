@@ -451,7 +451,10 @@ interface StatusResult {
 // stays exclusive to the quarterly check-in / Oto "confirm your oil" flows
 // via `isConfirmedHealthy` above).
 
-const STATUS_SEVERITY_ORDER: MaintenanceStatus[] = [
+/** Exported so `mergedMaintenance` can apply the same one-way rule when it
+ *  folds a mechanic's recommendation onto an interval row: louder, never
+ *  quieter. A second copy of this order is how the two would drift apart. */
+export const STATUS_SEVERITY_ORDER: MaintenanceStatus[] = [
   "on_time",
   "unknown",
   "due_soon",
@@ -461,7 +464,7 @@ const STATUS_SEVERITY_ORDER: MaintenanceStatus[] = [
 
 /** Interval-status → 0–1 score equivalent, mirrors utils/healthScore.ts's
  *  STATUS_SCORE so the brakes rawScore blend compares like-for-like. */
-const INTERVAL_SCORE_EQUIVALENT: Partial<Record<MaintenanceStatus, number>> = {
+export const INTERVAL_SCORE_EQUIVALENT: Partial<Record<MaintenanceStatus, number>> = {
   on_time: 1.0,
   due_soon: 0.7,
   needs_attention: 0.35,
