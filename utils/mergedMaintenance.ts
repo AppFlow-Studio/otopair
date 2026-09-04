@@ -647,6 +647,12 @@ export function buildMergedMaintenanceItems(
         ageMonths: vehicleAgeMonths,
         now,
         serviceName: entry.label,
+        intervalSource: useOem ? "oem" : "class_default",
+        // A driver answer releases the confidence hold, the same way a
+        // mechanic's grade does. Yassin asked for this on 2026-09-02 after a
+        // car sat at 99 with five services the driver had said were never
+        // done; Ahmad confirmed it on 2026-09-04.
+        confirmed: driverAnswered,
       });
 
       result.push({
@@ -674,6 +680,13 @@ export function buildMergedMaintenanceItems(
         // Lets the row's "when was this done?" button write back to the right
         // record, and lets Book Service resolve the service.
         serviceSlug: slug,
+        // The spec's four-way band and the factor the score should use. These
+        // were being computed and then dropped, so every catalog row scored
+        // off `STATUS_SCORE[status]` — which meant no confidence hold at all,
+        // and an overdue row scored at the severely-overdue 0.10.
+        bandStatus: status.bandStatus,
+        factorApplied: status.factorApplied,
+        rawScore: status.rawScore,
         signals: {
           mileage: `${formatMileage(currentOdometer)} (current)`,
           // Says which tier the number came from. "Typical" rather than "OEM"

@@ -625,6 +625,15 @@ interface FromOdometerInput {
   /** Where the interval came from. Catalog rows are class defaults unless
    *  enrichment supplied the number, and the hold keys off this. */
   intervalSource?: IntervalSource;
+  /** The driver answered this service on the Quick Check. Releases the
+   *  confidence hold, so the band's own factor applies.
+   *
+   *  Yassin, 2026-09-02, and Ahmad's call on 2026-09-04: a driver's answer on
+   *  a bigger service moves the score the way a mechanic's grade does. Spec
+   *  §7 step 4 releases the hold only on a "Never" at OVERDUE; this is wider
+   *  on purpose — Yassin asked for it after seeing a car sit at 99 with five
+   *  services the driver had said were never done. */
+  confirmed?: boolean;
 }
 
 /**
@@ -653,6 +662,7 @@ export function computeFromOdometerStatus(input: FromOdometerInput): StatusResul
     ageMonths,
     serviceName,
     intervalSource,
+    confirmed,
   } = input;
   const now = input.now ?? Date.now();
   const label = serviceName ?? "This service";
@@ -771,7 +781,11 @@ export function computeFromOdometerStatus(input: FromOdometerInput): StatusResul
     detail = `${formatMileage(currentOdometer)} vs ${formatMileage(interval_miles as number)} interval`;
   }
 
-  const factorApplied = appliedFactor({ band, intervalSource: intervalSource ?? "class_default" });
+  const factorApplied = appliedFactor({
+    band,
+    intervalSource: intervalSource ?? "class_default",
+    confirmed,
+  });
 
   return {
     status,
@@ -783,7 +797,16 @@ export function computeFromOdometerStatus(input: FromOdometerInput): StatusResul
     bandStatus: band,
     intervalSource: intervalSource ?? "class_default",
     factorApplied,
-    ...(factorApplied !== BAND_FACTOR[band] ? { rawScore: factorApplied } : {}),
+    // ALWAYS carried, not only when the hold suppresses something.
+    //
+    // `BAND_TO_STATUS` collapses both overdue bands onto `overdue`, and
+    // `STATUS_SCORE.overdue` is 0.10 — the SEVERELY-overdue factor. So
+    // without this the spec's 0.35 tier is unreachable and a service 1% past
+    // its interval scores identically to one at 200%. The four factors line
+    // up with STATUS_SCORE only if you read `overdue` against
+    // `needs_attention`, and `needs_attention` is reserved for "a human
+    // graded this yellow" — nothing on this path ever emits it.
+    rawScore: factorApplied,
   };
 }
 

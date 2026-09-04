@@ -146,3 +146,60 @@ describe("what must not change", () => {
     expect(r.description).toBe("Due within about 1 month");
   });
 });
+
+/**
+ * The score side of the same rows — Quick Check v2 §7 step 4.
+ *
+ * Yassin, 2026-09-02: "for the services I didn't do on the vehicle, they didn't
+ * affect the health score at all. It's still 99." Ahmad, 2026-09-04: a driver's
+ * answer on a bigger service is treated like a mechanic's grade, so it releases
+ * the confidence hold outright. That is wider than §7 step 4 as written, which
+ * releases only on a "Never" at OVERDUE — deliberate, and Yassin's own ask.
+ */
+describe("band factors reach the score", () => {
+  const overdueByMiles = (over: Record<string, unknown> = {}) =>
+    computeFromOdometerStatus({
+      interval_miles: 80_000,
+      interval_months: 60,
+      currentOdometer: 96_000, // 1.2x — overdue, NOT severely
+      lastServiceMileage: 0,
+      lastServiceDate: new Date(2026, 2, 1).getTime(),
+      now: NOW,
+      intervalSource: "class_default",
+      serviceName: "Coolant flush",
+      ...over,
+    });
+
+  it("separates overdue from severely overdue", () => {
+    // `BAND_TO_STATUS` collapses both onto `overdue`, and STATUS_SCORE.overdue
+    // is 0.10 — the SEVERELY-overdue factor. Without rawScore carrying the
+    // band's own number, a service 1% past its interval scored the same as one
+    // at 200%, and the spec's 0.35 tier was unreachable.
+    const r = overdueByMiles({ confirmed: true });
+    expect(r.bandStatus).toBe("overdue");
+    expect(r.rawScore).toBe(0.35);
+  });
+
+  it("still bottoms out at 0.10 when it really is severely overdue", () => {
+    const r = overdueByMiles({ currentOdometer: 130_000, confirmed: true });
+    expect(r.bandStatus).toBe("severely_overdue");
+    expect(r.rawScore).toBe(0.1);
+  });
+
+  it("holds an unconfirmed class default at 1.00", () => {
+    // The conservative rule, still intact for anything the driver has not
+    // answered: a class default may raise a recommendation but must not deduct
+    // until 1.5x, because the real OEM interval may be longer.
+    const r = overdueByMiles();
+    expect(r.factorApplied).toBe(1.0);
+    expect(r.status).toBe("overdue"); // the recommendation still shows
+  });
+
+  it("releases the hold on a driver answer", () => {
+    expect(overdueByMiles({ confirmed: true }).factorApplied).toBe(0.35);
+  });
+
+  it("never holds an enrichment interval — there is nothing to be unsure about", () => {
+    expect(overdueByMiles({ intervalSource: "oem" }).factorApplied).toBe(0.35);
+  });
+});
