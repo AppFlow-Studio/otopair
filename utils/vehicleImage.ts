@@ -69,13 +69,40 @@ function isVdbCoolingDown(url: string): boolean {
 
 /**
  * Throttled wrapper around `fetch` for VDB requests. Caps concurrent
- * in-flight calls at VDB_MAX_CONCURRENT (queues the rest) and short-
- * circuits with a synthetic 429 when the endpoint is in a cooldown
- * window (just hit 429 in the last 10s).
+ * in-flight calls at VDB_MAX_CONCURRENT (queues the rest) and handles the
+ * cooldown window (just hit 429 in the last 10s).
+ *
+ * `background` is what separates the two callers, and it matters more than it
+ * looks. A cooldown short-circuit DROPS the request — no retry, nothing to
+ * await — so the caller sees "VDB has no image for this car" when the truth is
+ * "we asked too fast". That is fine for the all-trims prefetch, which is a
+ * nice-to-have and can simply not happen. It is wrong for the image the driver
+ * is looking at right now.
+ *
+ * Ahmad, 2026-09-04: every car stopped showing an image. The prefetch fires one
+ * request per trim the moment the trim list lands — ten or more for a GLE —
+ * which trips VDB's rate limit, and the resulting global 10s cooldown then
+ * short-circuited the FOREGROUND request too. The prefetch was denying service
+ * to the screen it exists to speed up.
  */
-async function vdbFetch(url: string, init?: RequestInit): Promise<Response> {
+async function vdbFetch(
+  url: string,
+  init?: RequestInit,
+  opts?: { background?: boolean },
+): Promise<Response> {
   if (isVdbCoolingDown(url)) {
-    return new Response(null, { status: 429, statusText: "vdb-cooldown" });
+    // Background work gives up; it will be re-tried the next time the screen
+    // mounts, and nothing is waiting on it.
+    if (opts?.background) {
+      return new Response(null, { status: 429, statusText: "vdb-cooldown" });
+    }
+    // Foreground waits the window out rather than reporting a false negative.
+    const until = vdbCooldownUntil.get(vdbCooldownKey(url)) ?? 0;
+    const waitMs = Math.max(0, until - Date.now());
+    if (waitMs > 0) {
+      console.warn(`[vdbThrottle] foreground request waiting ${waitMs}ms for cooldown`);
+      await new Promise<void>((resolve) => setTimeout(resolve, waitMs));
+    }
   }
   if (vdbInFlight >= VDB_MAX_CONCURRENT) {
     await new Promise<void>((resolve) => vdbWaitQueue.push(resolve));
@@ -154,6 +181,7 @@ const VDB_MODELS_CACHE = new Map<string, string[]>();
 export async function fetchVdbModelsForYmm(
   year: number,
   make: string,
+  opts?: { background?: boolean },
 ): Promise<string[]> {
   const cacheKey = `${year}|${make.toLowerCase().trim()}`;
   const cached = VDB_MODELS_CACHE.get(cacheKey);
@@ -163,7 +191,7 @@ export async function fetchVdbModelsForYmm(
     for (const mk of makes) {
       const url = `${MODEL_OPTIONS_URL}/${year}/${encodeURIComponent(mk)}`;
       console.log("[vdbModels] GET", url);
-      const response = await vdbFetch(url, { headers: { "x-AuthKey": API_KEY } });
+      const response = await vdbFetch(url, { headers: { "x-AuthKey": API_KEY } }, opts);
       console.log("[vdbModels] status", response.status);
       if (response.status === 401) {
         console.warn(
@@ -360,6 +388,7 @@ async function vdbVerboseTrimsFor(
   year: number,
   make: string,
   ourTrim: string,
+  opts?: { background?: boolean },
 ): Promise<VdbModelTrims | null> {
   const key = `${year}|${make.toLowerCase()}|${ourTrim.toLowerCase()}`;
   if (VDB_VERBOSE_TRIM_CACHE.has(key)) return VDB_VERBOSE_TRIM_CACHE.get(key)!;
@@ -371,7 +400,7 @@ async function vdbVerboseTrimsFor(
   //
   // `fetchVdbModelsForYmm` is cached per (year, make), so this is one shared
   // request for the whole picker, then a local match.
-  const catalog = await fetchVdbModelsForYmm(year, make);
+  const catalog = await fetchVdbModelsForYmm(year, make, opts);
   const norm = (v: string) => v.toLowerCase().replace(/[^a-z0-9]/g, "");
   let resolvedModel: string | null = null;
   for (const candidate of vdbModelCandidates(ourTrim)) {
@@ -380,7 +409,7 @@ async function vdbVerboseTrimsFor(
     if (hit) { resolvedModel = hit; break; }
   }
   const found = resolvedModel
-    ? { model: resolvedModel, trims: await probeYmmSpecsTrims(year, make, resolvedModel) }
+    ? { model: resolvedModel, trims: await probeYmmSpecsTrims(year, make, resolvedModel, opts) }
     : null;
   VDB_VERBOSE_TRIM_CACHE.set(key, found && found.trims.length ? found : null);
   return VDB_VERBOSE_TRIM_CACHE.get(key)!;
@@ -396,10 +425,11 @@ async function probeYmmSpecsTrims(
   year: number,
   make: string,
   model: string,
+  opts?: { background?: boolean },
 ): Promise<string[]> {
   try {
     const url = `${TRIM_OPTIONS_URL}/${year}/${encodeURIComponent(make)}/${encodeURIComponent(model)}`;
-    const response = await vdbFetch(url, { headers: { "x-AuthKey": API_KEY } });
+    const response = await vdbFetch(url, { headers: { "x-AuthKey": API_KEY } }, opts);
     if (!response.ok) return [];
     const json = await response.json();
     if (json.status !== "success" || !Array.isArray(json.data)) return [];
@@ -1307,12 +1337,17 @@ export async function fetchVdbColorsForVehicle(args: {
    *  discovery fallbacks twice (guards against an infinite loop when a
    *  ymm-specs trim has no vehicle-images record). */
   __triedDiscovery?: boolean;
+  /** Speculative warm-up rather than the image on screen. Yields to the
+   *  rate-limit cooldown instead of waiting it out — see `vdbFetch`. */
+  background?: boolean;
 }): Promise<VdbColorOption[]> {
   const {
     vin, year, make, model, trim,
     nhtsaModel, nhtsaSeries, nhtsaTrim,
     vdbDecodedModel, vdbDecodedStyle, vdbDecodedTrimAndStyle,
+    background,
   } = args;
+  const fetchOpts = background ? { background: true } : undefined;
   console.log("[vdbColors] inputs:", { vin, year, make, model, trim, nhtsaModel, nhtsaSeries, nhtsaTrim, vdbDecodedModel, vdbDecodedStyle, vdbDecodedTrimAndStyle });
   const normalizedVin = (vin ?? "").toUpperCase().trim();
   const makes = make ? normalizeMakes(make) : [];
@@ -1327,7 +1362,7 @@ export async function fetchVdbColorsForVehicle(args: {
   const ymmtUrls: string[] = [];
   if (trim && year && make) {
     for (const m of makes) {
-      const resolved = await vdbVerboseTrimsFor(year, m, trim);
+      const resolved = await vdbVerboseTrimsFor(year, m, trim, fetchOpts);
       for (const verbose of resolved?.trims ?? []) {
         ymmtUrls.push(
           `${BASE_URL}/${year}/${encodeURIComponent(m)}/${encodeURIComponent(resolved!.model)}/${encodeURIComponent(verbose)}`,
@@ -1356,7 +1391,7 @@ export async function fetchVdbColorsForVehicle(args: {
 
   for (const url of urls) {
     try {
-      const response = await vdbFetch(url, { headers: { "x-AuthKey": API_KEY } });
+      const response = await vdbFetch(url, { headers: { "x-AuthKey": API_KEY } }, fetchOpts);
       // 429 means VDB rate-limited us — every other URL in this loop
       // hits the same global limit and will also 429. Bail and let the
       // caller render the placeholder until the cooldown expires.
@@ -1421,7 +1456,7 @@ export async function fetchVdbColorsForVehicle(args: {
       const url = `${BASE_URL}/${year}/${encodeURIComponent(make)}/${encodeURIComponent(combo.model)}/${encodeURIComponent(combo.trim)}`;
       console.log("[vdbColors] combo probe", url);
       try {
-        const response = await vdbFetch(url, { headers: { "x-AuthKey": API_KEY } });
+        const response = await vdbFetch(url, { headers: { "x-AuthKey": API_KEY } }, fetchOpts);
         // Bail the entire combo matrix on 429 — same global limit applies
         // to every model/trim permutation. Caller falls through to model
         // discovery which is also gated by the cooldown.
@@ -1555,21 +1590,38 @@ export function prefetchVdbColorsForTrims(
   base: Parameters<typeof fetchVdbColorsForVehicle>[0],
   trims: readonly string[],
 ): void {
-  for (const trim of trims) {
-    if (!trim) continue;
-    const args = { ...base, trim };
-    const k = cacheKey(args);
-    if (COLORS_CACHE.has(k)) continue;
-    // Mark in-flight so two renders cannot both fire the same request.
-    if (PREFETCH_INFLIGHT.has(k)) continue;
-    PREFETCH_INFLIGHT.add(k);
-    void fetchVdbColorsForVehicle(args)
-      .then((result) => {
+  // SERIALLY, one trim at a time, and flagged background.
+  //
+  // This used to fire every trim at once. VDB caps us at 3 concurrent and
+  // answers 429 beyond that, which arms a GLOBAL 10-second cooldown on
+  // /vehicle-images — and the cooldown then short-circuited the foreground
+  // request for the image actually on screen. Ten trims of warm-up were
+  // costing the driver the one picture they were waiting for (Ahmad,
+  // 2026-09-04: "no cars images are showing").
+  //
+  // Serial keeps at most one of the three slots busy, so the screen's own
+  // request always has room, and `background: true` means that if we do trip
+  // the limit anyway, the prefetch is what gets dropped rather than the
+  // foreground fetch.
+  void (async () => {
+    for (const trim of trims) {
+      if (!trim) continue;
+      const args = { ...base, trim, background: true };
+      const k = cacheKey({ ...base, trim });
+      if (COLORS_CACHE.has(k)) continue;
+      // Mark in-flight so two renders cannot both fire the same request.
+      if (PREFETCH_INFLIGHT.has(k)) continue;
+      PREFETCH_INFLIGHT.add(k);
+      try {
+        const result = await fetchVdbColorsForVehicle(args);
         if (result.length) COLORS_CACHE.set(k, result);
-      })
-      .catch(() => {})
-      .finally(() => PREFETCH_INFLIGHT.delete(k));
-  }
+      } catch {
+        // A warm-up that fails is a warm-up that did not happen.
+      } finally {
+        PREFETCH_INFLIGHT.delete(k);
+      }
+    }
+  })();
 }
 
 const PREFETCH_INFLIGHT = new Set<string>();
