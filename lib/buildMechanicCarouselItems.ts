@@ -16,6 +16,30 @@ import type {
   MechanicAvailabilitySlot,
 } from "@/stores/types/store.types";
 
+const WEEKDAY_ABBREVIATIONS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const MONTH_ABBREVIATIONS = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
+
+export function formatMechanicAvailabilityLabel(
+  slot: Pick<MechanicAvailabilitySlot, "dayOfWeek" | "time" | "scheduledDate">,
+  today: Date = new Date(),
+): string {
+  if (!slot.scheduledDate) return `${slot.dayOfWeek} ${slot.time}`;
+
+  const [year, month, day] = slot.scheduledDate.split("-").map(Number);
+  if (!year || !month || !day) return `${slot.dayOfWeek} ${slot.time}`;
+
+  const slotDay = Date.UTC(year, month - 1, day);
+  const todayDay = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate());
+  if ((slotDay - todayDay) / 86_400_000 < 7) {
+    return `${slot.dayOfWeek} ${slot.time}`;
+  }
+
+  return `${WEEKDAY_ABBREVIATIONS[new Date(slotDay).getUTCDay()]}, ${MONTH_ABBREVIATIONS[month - 1]} ${day}\n${slot.time}`;
+}
+
 export interface BuildMechanicCarouselItemsArgs {
   /** From `useNextAvailabilityPerMechanicForShop(shopId).slotsByMechanicId`.
    *  Keys are mechanic IDs; values are sorted upcoming slots. */
@@ -47,9 +71,7 @@ export function buildMechanicCarouselItems({
     const mech = mechanicsMap[mechId];
     if (!mech) continue;
     const earliest = slotsByMechanicId[mechId]?.[0];
-    const slotLabel = earliest
-      ? `${earliest.dayOfWeek} ${earliest.time}`
-      : "TBD";
+    const slotLabel = earliest ? formatMechanicAvailabilityLabel(earliest) : "TBD";
     items.push({
       mechanicId: mechId,
       name: mech.name,
