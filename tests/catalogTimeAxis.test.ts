@@ -65,7 +65,7 @@ describe("which axis wins", () => {
   it("takes the worse of the two, like every other status path", () => {
     // 90,000 of an 80,000-mile interval is 1.13; 56 of 60 months is 0.93.
     const r = coolant({ currentOdometer: 90_000, lastServiceMileage: 0 });
-    expect(r.status).toBe("overdue");
+    expect(r.status).toBe("needs_attention"); // 1.0-1.5 band
     expect(r.description).toMatch(/mi past interval/);
   });
 
@@ -192,7 +192,7 @@ describe("band factors reach the score", () => {
     // until 1.5x, because the real OEM interval may be longer.
     const r = overdueByMiles();
     expect(r.factorApplied).toBe(1.0);
-    expect(r.status).toBe("overdue"); // the recommendation still shows
+    expect(r.status).toBe("needs_attention"); // the recommendation still shows
   });
 
   it("releases the hold on a driver answer", () => {

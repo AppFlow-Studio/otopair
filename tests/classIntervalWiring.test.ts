@@ -38,7 +38,7 @@ const CLASS_B = { vehicleClass: "B" as const };
 describe("class table sits above the make overrides", () => {
   it("without a class, a Toyota keeps its 5,000-mile make override", () => {
     // 6,000 miles since service. Old behaviour: 6000/5000 = 1.2 → overdue.
-    expect(statusAt(106_000).status).toBe("overdue");
+    expect(statusAt(106_000).status).toBe("needs_attention");
   });
 
   it("with Class A, the same car reads 7,500 and is only due soon", () => {
@@ -66,7 +66,7 @@ describe("driving conditions apply to our numbers, not the manufacturer's", () =
     // At 6,000 miles that is ratio 1.0 — overdue — where the un-adjusted
     // class interval put it exactly at due-soon.
     expect(statusAt(106_000, { classCtx: CLASS_A }).status).toBe("due_soon");
-    expect(statusAt(106_000, { classCtx: CLASS_A, conditions: "city" }).status).toBe("overdue");
+    expect(statusAt(106_000, { classCtx: CLASS_A, conditions: "city" }).status).toBe("needs_attention");
   });
 
   it("leaves an OEM interval alone", () => {
@@ -111,7 +111,7 @@ describe("bands and the hold, through the real calculator", () => {
     expect(dueSoon.factorApplied).toBe(1); // but costs nothing
 
     const overdue = statusAt(109_000, { classCtx: CLASS_A }); // 9k/7.5k = 1.2
-    expect(overdue.status).toBe("overdue");
+    expect(overdue.status).toBe("needs_attention");
     expect(overdue.factorApplied).toBe(1);
   });
 
