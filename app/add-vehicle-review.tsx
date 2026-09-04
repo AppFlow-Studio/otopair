@@ -727,11 +727,10 @@ export default function AddVehicleReviewScreen() {
             // is nothing to fetch by YMMT or by VIN. Showing the right shape
             // reads as "we know what this is, we just have no photo", which is
             // true, where the generic icon read as a failure.
-            <View style={styles.vehiclePreviewImage}>
+            <View style={[styles.vehiclePreviewImage, styles.vehiclePreviewFallback]}>
               <CarSilhouette
                 width={scale(200)}
                 variant={pickSilhouetteVariant(params.bodyClass)}
-                color="#C7D2E0"
               />
             </View>
           )}
@@ -1036,6 +1035,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: scale(16),
+  },
+  // The silhouette is narrower than the reservation box, so it has to be
+  // centred explicitly — the ExpoImage branch fills the box and never needed it.
+  vehiclePreviewFallback: {
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   vehiclePreviewImage: {
     // Wider landscape area replaces the round icon when a VDB image
