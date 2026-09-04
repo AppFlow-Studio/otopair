@@ -36,6 +36,9 @@ import {
   safeInterval,
 } from "@/utils/serviceIntervalGuardrails";
 import { CLASS_INTERVAL_SLUGS, classInterval } from "@/utils/classIntervals";
+// One definition of "months since the car was new" — the Bigger Services tile
+// measures the time axis from the same place, and the two must agree.
+import { ageMonths } from "@/utils/quickCheckFiring";
 import type { IntervalClassContext } from "@/utils/maintenanceStatus";
 import { TAXONOMY } from "@/constants/serviceTaxonomy";
 import { formatMileage } from "@/lib/vehicle-passport";
@@ -354,6 +357,9 @@ export function buildMergedMaintenanceItems(
   const { serviceSlugById } = input;
   const { currentOdometer, oemIntervals, classCtx } = input;
   const now = input.now ?? Date.now();
+  // With no record on file a time-based interval has been running since the
+  // car was built, so its age is the anchor.
+  const vehicleAgeMonths = ageMonths(vehicleYear ?? null, now);
   const result: MaintenanceItem[] = [];
 
   // Canonical dashboard lights present, folding both knownIssues shapes + the
@@ -524,9 +530,13 @@ export function buildMergedMaintenanceItems(
       // `default_fallback` rows at confidence 0.5; `safeInterval` snaps those
       // to the bounds floor, and a floored guess is worse information than the
       // class table. Same rule as the Bigger Services tile so the two agree.
-      const classMiles = classCtx?.vehicleClass
-        ? classInterval(slug, classCtx.vehicleClass, classCtx)?.miles ?? null
+      const classIv = classCtx?.vehicleClass
+        ? classInterval(slug, classCtx.vehicleClass, classCtx)
         : null;
+      const classMiles = classIv?.miles ?? null;
+      // The time side of the class interval. Enrichment only ever supplies a
+      // mileage number, so unlike `classMiles` this has no OEM tier above it.
+      const classMonths = classIv?.months ?? null;
       // Prefer the class table over an UNTRUSTED enrichment value — but only
       // when there is a class value to prefer. With nothing to fall back to,
       // a floored guess still beats no row at all: the point of the gate is
@@ -543,9 +553,13 @@ export function buildMergedMaintenanceItems(
           })
         : clampClassIntervalToBounds(slug, classMiles);
 
-      // Anchorless — no stored interval AND no conservative default.
+      // Anchorless — no stored interval AND no conservative default, on
+      // EITHER axis. The months check matters: Class B and C brake fluid is
+      // `{miles: null, months: 24}`, so a mileage-only test sent brake fluid
+      // down this path on every Euro car in the app and left it stuck on
+      // "not enough info to say" forever.
       // Row surfaces soft with the diagnostic-scan CTA (Behavior #6).
-      if (bounded == null) {
+      if (bounded == null && classMonths == null) {
         result.push({
           id: `catalog-${slug}`,
           serviceName: entry.label,
@@ -603,6 +617,18 @@ export function buildMergedMaintenanceItems(
           ? Math.max(answeredMileage, minorMileage)
           : answeredMileage ?? minorMileage;
 
+      // Same rule on the time axis. Both writers stamp a date beside the
+      // mileage — `quickCheckAnchor` for a driver answer, booking close-out
+      // for a shop visit — so the two anchors move together.
+      const answeredDate =
+        typeof answered?.lastServiceDate === "number" ? answered.lastServiceDate : undefined;
+      const minorDate =
+        typeof minorAnchor?.lastServiceDate === "number" ? minorAnchor.lastServiceDate : undefined;
+      const anchorLastServiceDate =
+        answeredDate != null && minorDate != null
+          ? Math.max(answeredDate, minorDate)
+          : answeredDate ?? minorDate;
+
       // A definite answer, not merely a record. "Not sure" writes a row so we
       // stop asking as insistently; it is still an absence of information and
       // must not score.
@@ -613,6 +639,13 @@ export function buildMergedMaintenanceItems(
         interval_miles: bounded,
         currentOdometer,
         lastServiceMileage: anchorLastServiceMileage,
+        // The time side. Without it a service whose interval is mostly about
+        // age — coolant, brake fluid — reads healthy on a low-mileage car that
+        // the Bigger Services tile has already flagged.
+        interval_months: classMonths,
+        lastServiceDate: anchorLastServiceDate,
+        ageMonths: vehicleAgeMonths,
+        now,
         serviceName: entry.label,
       });
 
