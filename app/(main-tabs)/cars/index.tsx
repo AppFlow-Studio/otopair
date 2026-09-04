@@ -2561,6 +2561,16 @@ export default function CarsHomeScreen() {
                 );
               }}
               onAddInfo={(id) => {
+                // A catalog row is not a MaintenanceType. `catalog-spark_plugs`
+                // used to fall through this regex untouched and be cast to one,
+                // so the modal opened against a type that does not exist and
+                // wrote a record nothing reads. Route it to the same sheet the
+                // UNKNOWN rows use — it writes `catalog_<slug>` correctly.
+                if (id.startsWith("catalog-")) {
+                  const item = mergedMaintenanceItems.find((i) => i.id === id);
+                  if (item?.serviceSlug) setRecencyItem(item);
+                  return;
+                }
                 const type = id.replace(/^(unknown-|user-)/, "") as MaintenanceType;
                 setMaintenanceModalType(type);
                 setMaintenanceModalVisible(true);
