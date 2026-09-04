@@ -521,6 +521,41 @@ function SoonLabel() {
   );
 }
 
+/** NEEDS ATTENTION tier label — the 1.0-1.5x band, plus anything a mechanic
+ *  graded yellow. Orange sits deliberately between NOW's red and SOON's amber:
+ *  this is past due, but not far enough past to lead the list. Pulses like the
+ *  two tiers either side of it, because it is a finding, not a suggestion. */
+function AttentionLabel() {
+  const pulseStyle = useAnimatedStyle(() => ({
+    opacity: withRepeat(
+      withSequence(
+        withTiming(0.5, { duration: 1000 }),
+        withTiming(1, { duration: 1000 }),
+      ),
+      -1,
+    ),
+    transform: [
+      {
+        scale: withRepeat(
+          withSequence(
+            withTiming(1.4, { duration: 1000 }),
+            withTiming(1, { duration: 1000 }),
+          ),
+          -1,
+        ),
+      },
+    ],
+  }));
+  return (
+    <View style={groupLabelStyles.row}>
+      <View style={[groupLabelStyles.chip, groupLabelStyles.chipAttention]}>
+        <Animated.View style={[groupLabelStyles.attentionDot, pulseStyle]} />
+        <Text weight="bold" style={groupLabelStyles.chipTextAttention}>NEEDS ATTENTION</Text>
+      </View>
+    </View>
+  );
+}
+
 /** RECOMMENDED tier label. Static blue dot, no pulse: this is a suggestion
  *  we are making, not a finding pressing on the driver. */
 function RecommendedLabel() {
@@ -1131,6 +1166,7 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
   const [modalVisible, setModalVisible] = useState(false);
   const [showAllNow, setShowAllNow] = useState(false);
   const [showAllSoon, setShowAllSoon] = useState(false);
+  const [showAllAttention, setShowAllAttention] = useState(false);
   const [showAllResolved, setShowAllResolved] = useState(false);
 
   const handleCardPress = (item: MaintenanceItem) => {
@@ -1198,11 +1234,15 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
   // but slotted for Now / Soon / Resting in render order. Only consumed
   // when `tieredItems` is provided.
   const nowCount = tieredItems?.now.length ?? 0;
+  const attentionCount = tieredItems?.attention.length ?? 0;
   const soonCount = tieredItems?.soon.length ?? 0;
   let tierStep = 1; // title consumed slot 0
   const nowLabelDelay = nowCount > 0 ? tierStep++ * STEP_MS : 0;
   const nowBaseDelay = nowCount > 0 ? tierStep * STEP_MS : 0;
   tierStep += nowCount;
+  const attentionLabelDelay = attentionCount > 0 ? tierStep++ * STEP_MS : 0;
+  const attentionBaseDelay = attentionCount > 0 ? tierStep * STEP_MS : 0;
+  tierStep += attentionCount;
   const soonLabelDelay = soonCount > 0 ? tierStep++ * STEP_MS : 0;
   const soonBaseDelay = soonCount > 0 ? tierStep * STEP_MS : 0;
   tierStep += soonCount;
@@ -1331,6 +1371,43 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
                     expanded={showAllNow}
                     color="#C0392B"
                     onPress={() => setShowAllNow((v) => !v)}
+                  />
+                )}
+              </View>
+            </>
+          )}
+
+          {/* Needs attention — past due, but not severely. Same card structure
+              as NOW and SOON; only the chip separates them. */}
+          {attentionCount > 0 && (
+            <>
+              <Animated.View entering={FadeInUp.duration(ENTRY_DURATION).delay(attentionLabelDelay)}>
+                <AttentionLabel />
+              </Animated.View>
+              <View style={styles.urgentGroup}>
+                {(showAllAttention ? tieredItems.attention : tieredItems.attention.slice(0, CAP_PER_URGENT_TIER)).map((r, index) => (
+                  <UrgentCard
+                    key={r.item.id}
+                    item={r.item}
+                    entryDelay={attentionBaseDelay + index * STEP_MS}
+                    vehicleCondition={vehicleCondition ?? 0}
+                    healthScoreInput={healthScoreInput}
+                    onBookNow={onBookNow}
+                    onTakeAction={onTakeAction}
+                    onMarkDone={onMarkDone}
+                    onAddInfo={onAddInfo}
+                    onCardPress={handleCardPress}
+                    onResolvedPress={onResolvedPress}
+                    isEnriching={isEnriching}
+                    bookableSlugs={bookableSlugs}
+                  />
+                ))}
+                {attentionCount > CAP_PER_URGENT_TIER && (
+                  <ShowMoreButton
+                    hidden={attentionCount - CAP_PER_URGENT_TIER}
+                    expanded={showAllAttention}
+                    color="#C2410C"
+                    onPress={() => setShowAllAttention((v) => !v)}
                   />
                 )}
               </View>
@@ -1784,6 +1861,23 @@ const groupLabelStyles = StyleSheet.create({
   },
   chipSoon: {
     backgroundColor: '#FFFBEB',
+  },
+  // NEEDS ATTENTION — orange-50 / orange-700, the step between NOW's red and
+  // SOON's amber. Same chip geometry as every other tier label.
+  attentionDot: {
+    width: scale(8),
+    height: scale(8),
+    borderRadius: moderateScale(4),
+    backgroundColor: '#F97316',
+  },
+  chipAttention: {
+    backgroundColor: '#FFF7ED',
+  },
+  chipTextAttention: {
+    fontSize: moderateScale(11),
+    color: '#C2410C',
+    letterSpacing: 0.66,
+    textTransform: 'uppercase',
   },
   // RECOMMENDED — blue, matching the diagnostic-scan card's accent. Static,
   // never pulsing: a suggestion, not an alarm.
