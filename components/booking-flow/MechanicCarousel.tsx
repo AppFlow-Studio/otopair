@@ -21,7 +21,7 @@ export interface MechanicCarouselItem {
   name: string;
   /** Photo URL when available. */
   photoUrl: string | null;
-  /** Earliest slot label ("Mon 9:00 AM") or "Earliest" for Any. */
+  /** Earliest slot label. Distant availability uses a date and time on two lines. */
   slotLabel: string;
   /** Show the verified check on real mechanics. */
   verified?: boolean;
@@ -130,7 +130,7 @@ export function MechanicCarousel({
               weight="medium"
               color="#6B7280"
               style={styles.slot}
-              numberOfLines={1}
+              numberOfLines={2}
             >
               {item.slotLabel}
             </Text>
