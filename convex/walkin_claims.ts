@@ -511,3 +511,122 @@ export const ensureTrackerImage = action({
     );
   },
 });
+
+/**
+ * Claim a walk-in onto the CURRENTLY SIGNED-IN account.
+ *
+ * The gap this fills. `users.getOrCreateMe` adopts a stub only when it is
+ * inserting a brand-new user — that covers a customer who has never used
+ * Otopair. It does nothing for someone who ALREADY has an account, because
+ * that mutation finds them by `clerkUserId` and returns before it ever looks
+ * for a stub. And an existing customer is the ordinary case: they walk into a
+ * shop, the shop takes a name and phone that don't match what Otopair holds,
+ * so a fresh stub is created alongside their real account.
+ *
+ * Ahmad, 2026-09-07: signed in already, followed the claim link, landed on the
+ * Cars tab with no new car. `(walk-in)/create-account.tsx` bounces a signed-in
+ * user straight to the garage, so nothing was ever claimed.
+ *
+ * Adoption cannot be used here. It patches the stub's `clerkUserId` to the real
+ * one, and the real account already holds that value — `by_clerkUserId` is read
+ * with `.unique()`, so a second row carrying it makes every one of those reads
+ * throw. This MERGES instead: the stub's rows are repointed at the signed-in
+ * user and the stub is retired.
+ */
+export const claimByToken = mutation({
+  args: { token: v.string() },
+  handler: async (ctx, args) => {
+    const me = await currentUser(ctx);
+    if (!me) throw new Error("Not authenticated");
+
+    const stub = await ctx.db
+      .query("users")
+      .withIndex("by_claim_token", (q: any) => q.eq("claim_token", args.token))
+      .first();
+    if (!stub) return { ok: false as const, reason: "not_found" as const };
+
+    // Already on this account — the deep link was opened twice, or the signup
+    // path adopted it first. Not an error; the customer has what they came for.
+    if (stub._id === me._id) return { ok: true as const, alreadyMine: true as const };
+
+    const now = Date.now();
+    const expiresAt = (stub as any).claim_token_expires_at as number | undefined;
+    if (!expiresAt || expiresAt <= now) return { ok: false as const, reason: "expired" as const };
+    if ((stub as any).walkInClaimedAt) {
+      return { ok: false as const, reason: "already_claimed" as const };
+    }
+    // Only a shop-built stub is ever mergeable. Without this the token would be
+    // a way to absorb a real person's account into your own.
+    if (!String(stub.clerkUserId ?? "").startsWith("shop-created-")) {
+      return { ok: false as const, reason: "not_claimable" as const };
+    }
+
+    // ── Vehicles ────────────────────────────────────────────────────────────
+    // Repointed rather than recreated, so the maintenance_records hanging off
+    // each `vehicle_owners._id` come across with the car.
+    const stubOwnerships = await ctx.db
+      .query("vehicle_owners")
+      .withIndex("by_user_id", (q: any) => q.eq("user_id", stub._id))
+      .collect();
+
+    let vehiclesMoved = 0;
+    for (const ownership of stubOwnerships) {
+      const mine = await ctx.db
+        .query("vehicle_owners")
+        .withIndex("by_vin_user", (q: any) =>
+          q.eq("vin", ownership.vin).eq("user_id", me._id),
+        )
+        .first();
+      if (mine) {
+        // The car is already in their garage. Retiring the stub's row rather
+        // than moving it keeps the carousel from showing the same VIN twice;
+        // the driver's own row is the one with their history on it.
+        await ctx.db.patch(ownership._id, { status: "inactive" } as any);
+        continue;
+      }
+      await ctx.db.patch(ownership._id, {
+        user_id: me._id,
+        // Never steal primary from a car they already had.
+        is_primary: stubOwnerships.length > 0 && (await hasNoActiveVehicles(ctx, me._id)),
+      } as any);
+      vehiclesMoved++;
+    }
+
+    // ── Bookings ────────────────────────────────────────────────────────────
+    const stubBookings = await ctx.db
+      .query("bookings")
+      .withIndex("by_user_id", (q: any) => q.eq("user_id", stub._id))
+      .collect();
+    for (const booking of stubBookings) {
+      await ctx.db.patch(booking._id, { user_id: me._id } as any);
+    }
+
+    // ── Retire the stub ─────────────────────────────────────────────────────
+    // Kept, not deleted: it may be referenced by rows this merge does not know
+    // about, and a dangling id is worse than a parked row. The token is cleared
+    // so the link cannot be replayed onto a different account.
+    await ctx.db.patch(stub._id, {
+      walkInClaimedAt: now,
+      claim_token: undefined,
+      claim_token_expires_at: undefined,
+      isPendingDeletion: true,
+      lastUpdated: now,
+    } as any);
+
+    return {
+      ok: true as const,
+      vehiclesMoved,
+      bookingsMoved: stubBookings.length,
+    };
+  },
+});
+
+/** True when the user has no active vehicle yet, so a merged-in car is allowed
+ *  to become their primary. */
+async function hasNoActiveVehicles(ctx: any, userId: Id<"users">): Promise<boolean> {
+  const existing = await ctx.db
+    .query("vehicle_owners")
+    .withIndex("by_user_status", (q: any) => q.eq("user_id", userId).eq("status", "active"))
+    .first();
+  return !existing;
+}

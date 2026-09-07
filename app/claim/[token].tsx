@@ -26,7 +26,8 @@
 import React, { useEffect } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useQuery } from 'convex/react';
+import { useMutation, useQuery } from 'convex/react';
+import { useAuth } from '@clerk/clerk-expo';
 
 import { api } from '@/convex/_generated/api';
 import { useWalkInClaimStore, type WalkInTracker } from '@/stores/useWalkInClaimStore';
@@ -49,6 +50,8 @@ type ClaimResult =
 export default function ClaimTokenScreen() {
   const { token } = useLocalSearchParams<{ token: string }>();
   const router = useRouter();
+  const { isSignedIn } = useAuth();
+  const claimByToken = useMutation(api.walkin_claims.claimByToken);
   const setClaim = useWalkInClaimStore((s) => s.setClaim);
   const setTracker = useWalkInClaimStore((s) => s.setTracker);
 
@@ -76,8 +79,26 @@ export default function ClaimTokenScreen() {
   useEffect(() => {
     if (!token || !isClaimable || !result) return;
     setClaim(token, result as Exclude<ClaimResult, null | { expired: true } | { alreadyClaimed: true }>);
+
+    // Signed in already? Merge the job onto this account before going anywhere.
+    //
+    // This is the entry point EVERY branch of the walk-in flow passes through,
+    // which is why the claim happens here. The screens downstream fan out —
+    // verify-phone, tracker, create-account — and only one of them was ever
+    // going to run a claim, so a customer who tapped "just watch the status"
+    // would never get their car.
+    //
+    // For a signed-out customer this is a no-op: they claim by signing up, and
+    // `users.getOrCreateMe` adopts the stub with this same token.
+    //
+    // Routing does not wait on the result. The merge is idempotent and the
+    // Cars tab is a live Convex subscription, so the car appears the moment it
+    // lands, whether or not this screen is still mounted.
+    if (isSignedIn) {
+      void claimByToken({ token }).catch(() => {});
+    }
     router.replace('/(walk-in)');
-  }, [token, isClaimable, result, setClaim, router]);
+  }, [token, isClaimable, result, setClaim, router, isSignedIn, claimByToken]);
 
   if (result === undefined) {
     return (
