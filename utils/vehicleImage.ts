@@ -1153,12 +1153,33 @@ export function classifyColorFamily(hex: string | null | undefined): string | nu
 }
 
 /**
- * Choose a paint-color family from candidate swatches (e.g. the colors
- * `react-native-image-colors` returns), passed PROMINENT-FIRST. Picks
- * the most saturated swatch above a chroma floor — so a vivid car body
- * wins over neutral wheels/glass/lighting — then classifies it by hue.
- * If nothing clears the floor (a genuinely neutral car), classifies the
- * most-prominent swatch (→ white/silver/gray/black).
+ * How many prominence slots can hold the car's BODY colour.
+ *
+ * `react-native-image-colors` returns swatches roughly most-prominent first.
+ * A car body fills most of the render; a tail light, an amber indicator, a
+ * badge or a brake caliper fills a sliver, so it lands further down the list.
+ * Two slots is enough for a two-tone body without reaching the trim.
+ */
+const BODY_PROMINENCE_SLOTS = 2;
+
+/**
+ * Choose a paint-colour family from candidate swatches (e.g. what
+ * `react-native-image-colors` returns), passed PROMINENT-FIRST.
+ *
+ * This used to take the most saturated swatch anywhere in the list, on the
+ * reasoning that a vivid body should beat neutral wheels and glass. That works
+ * for a red car and fails completely for a neutral one: a white, silver, grey
+ * or black body has almost no saturation, so ANY coloured accent outranks it.
+ *
+ * Ahmad, 2026-09-07: a white Silverado and a dark grey A6 both rendered on the
+ * pink background. Both are neutral cars, so the most saturated pixel either
+ * had was a warm indicator or reflector lens, which `classifyColorFamily`
+ * buckets into `red` (h <= 18) — and `COLOR_GRADIENTS.red` is that pink.
+ *
+ * Prominence is what separates a body from an accent, and the old rule threw
+ * that ordering away. Saturation now only decides between swatches that are
+ * ALREADY prominent enough to be the body. An accent sitting in slot three can
+ * no longer win, and a genuinely neutral car correctly classifies as neutral.
  */
 export function pickPaintFamilyFromSwatches(
   swatches: (string | null | undefined)[],
@@ -1172,15 +1193,37 @@ export function pickPaintFamilyFromSwatches(
   if (parsed.length === 0) return null;
 
   const CHROMA_FLOOR = 0.25;
-  const chromatic = parsed.filter(
+  const body = parsed.slice(0, BODY_PROMINENCE_SLOTS);
+  const chromatic = body.filter(
     (x) => x.hsl.s >= CHROMA_FLOOR && x.hsl.l > 0.12 && x.hsl.l < 0.9,
   );
   if (chromatic.length > 0) {
     const best = chromatic.reduce((a, b) => (b.hsl.s > a.hsl.s ? b : a));
     return classifyColorFamily(best.hex);
   }
-  // Neutral car — classify the most prominent (first) swatch.
-  return classifyColorFamily(parsed[0].hex);
+  // Every prominent swatch is achromatic, which is the honest answer for a
+  // white / silver / grey / black car rather than a reason to keep looking.
+  return classifyColorFamily(body[0].hex);
+}
+
+/**
+ * The paint family named by a VDB image URL, or null.
+ *
+ * VDB's per-colour renders carry the paint in the filename —
+ * `.../colors/2023/mercedes-benz/amg-gle-63/<trim>/black.jpg`, or
+ * `summit-white.jpg` — which is the manufacturer's own name for it and beats
+ * anything sampling can infer. Its generic gallery shots do not
+ * (`ext-3231303031.jpg`), and those return null so the caller falls through.
+ *
+ * Only the FILENAME is read, never the path: a path segment like
+ * `work-truck-4x4-regular-cab` is model and trim wording, and matching colour
+ * synonyms against it would invent paint colours out of body styles.
+ */
+export function colorFamilyFromImageUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  const filename = (url.split("?")[0].split("/").pop() ?? "").replace(/\.[a-z0-9]+$/i, "");
+  if (!filename) return null;
+  return inferColorFamily(filename);
 }
 
 /**
