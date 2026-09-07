@@ -53,6 +53,47 @@ export interface QuickCheckAnchor {
 }
 
 /**
+ * Miles per month for turning a date anchor into a mileage anchor.
+ *
+ * Spec §2 defines velocity as "the miles-per-year band, cross-checked against
+ * calculated velocity (miles / age)". Only the first half was implemented,
+ * which is invisible on an ordinary car — a driver who says "average" usually
+ * does about 1,000 a month — and badly wrong on the cars that need it most.
+ *
+ * Ahmad, 2026-09-07: a 2025 G-Class reading 200,000 miles, with the plugs
+ * reported done in March 2024. The band said "light" (500/mo), so we credited
+ * the car with 15,062 miles over thirty months and filed the plugs under
+ * HEALTHY with 44,938 miles of interval left. The odometer says that car
+ * covers 200,000 miles in twenty months — about 10,000 a month. We were out
+ * by a factor of twenty on a car with a genuinely overdue service.
+ *
+ * The HIGHER of the two wins (Ahmad's call, same date). A stated band is an
+ * estimate and people round down; an odometer and a model year are both
+ * facts. Taking the higher can only move a service EARLIER in its interval,
+ * never later, so an understated band can no longer hide real wear — and the
+ * failure mode it introduces (a used car carrying its previous owner's miles
+ * in the average) makes us cautious rather than complacent.
+ *
+ * Calculated velocity needs both an odometer and an age; with either missing
+ * the band stands alone, which is the old behaviour.
+ */
+function resolveVelocity(input: QuickCheckAnchorInput, now: number): number {
+  const band = getMonthlyMiles(input.avgMonthlyDriving ?? undefined);
+  const { currentOdometer, vehicleYear } = input;
+  if (currentOdometer == null || !Number.isFinite(currentOdometer) || currentOdometer <= 0) {
+    return band;
+  }
+  if (!vehicleYear || !Number.isFinite(vehicleYear)) return band;
+  // Same age definition as `quickCheckFiring.ageMonths` and Fallback v2 §5 —
+  // months since Jan 1 of the model year, so both docs compute one number.
+  const ageMonths = (now - new Date(vehicleYear, 0, 1).getTime()) / MS_PER_MONTH;
+  // A car in its first weeks has an age near zero, and dividing by it yields a
+  // meaningless velocity. Below a month there is nothing to average over.
+  if (ageMonths < 1) return band;
+  return Math.max(band, currentOdometer / ageMonths);
+}
+
+/**
  * Resolve an answer to an anchor.
  *
  * Returns an EMPTY anchor for "not sure" rather than null. The record is still
@@ -101,7 +142,7 @@ export function resolveQuickCheckAnchor(input: QuickCheckAnchorInput): QuickChec
   }
 
   const monthsAgo = Math.max(0, (now - lastServiceDate) / MS_PER_MONTH);
-  const travelled = monthsAgo * getMonthlyMiles(input.avgMonthlyDriving ?? undefined);
+  const travelled = monthsAgo * resolveVelocity(input, now);
   // Never below zero and never above today's reading — the estimate is a
   // subtraction from a real number, so both ends are hard facts.
   const estimated = Math.round(
