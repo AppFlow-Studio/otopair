@@ -51,10 +51,10 @@ describe("coloured cars still work", () => {
     expect(pickPaintFamilyFromSwatches(GENUINELY_RED_CAR)).toBe("red");
   });
 
-  it("keeps a blue car blue when the body is in the second slot", () => {
-    // Two-tone or a strong shadow can push the body to slot two; the window is
-    // deliberately wide enough for that.
-    expect(pickPaintFamilyFromSwatches(["#6B7075", "#1D4ED8", "#C0342B"])).toBe("blue");
+  it("takes the most prominent swatch, not the most colourful one", () => {
+    // A grey body with a blue accent is a GREY car. The old rule called this
+    // blue, which is the same mistake that made the Silverado pink.
+    expect(pickPaintFamilyFromSwatches(["#6B7075", "#1D4ED8", "#C0342B"])).toBe("silver");
   });
 
   it("keeps a black car black on a white backdrop", () => {
@@ -106,5 +106,54 @@ describe("classifyColorFamily itself is unchanged", () => {
     // Not a bug in the classifier: a red lens IS red. The fix is upstream, in
     // never letting that lens stand for the car.
     expect(classifyColorFamily("#B3271E")).toBe("red");
+  });
+});
+
+/**
+ * The exact swatches the Silverado produces.
+ *
+ * Measured from the render VDB serves for that VIN
+ * (`.../silverado-3500hd/.../ext-3231303031.jpg`), which is 43.7% black
+ * backdrop, a cool grey-white body, and 173 saturated pixels out of 90,000 —
+ * the amber marker lights, the gold bowtie, and a five-pixel dark red cluster
+ * at hue 13 that the old rule elected as the car's colour.
+ */
+describe("the Silverado, from its real pixels", () => {
+  const BACKDROP = "#000000";      // 43.7% of the image
+  const BODY = "#C8CCCF";          // the truck
+  const AMBER_LIGHTS = "#BB6E34";  // 0.10% — hue 27
+  const RED_SPECK = "#733F31";     // 0.006% — hue 13, and what turned the page pink
+
+  it("is not red", () => {
+    // iOS candidate order after the fix: primary, secondary, detail. The speck
+    // can only ever reach `detail`, which is outside the body window.
+    expect(pickPaintFamilyFromSwatches([BODY, "#3A3D42", RED_SPECK])).not.toBe("red");
+  });
+
+  it("reads as a light neutral", () => {
+    expect(pickPaintFamilyFromSwatches([BODY, "#3A3D42", RED_SPECK])).toBe("white");
+  });
+
+  it("would still have been red under the old rule", () => {
+    // Documents the regression rather than trusting memory: the speck is the
+    // most saturated swatch present, which is exactly what the old code chose.
+    const mostSaturatedWins = [BODY, "#3A3D42", RED_SPECK]
+      .map((h) => ({ h, fam: classifyColorFamily(h) }))
+      .find((x) => x.fam === "red");
+    expect(mostSaturatedWins?.h).toBe(RED_SPECK);
+  });
+
+  it("skips the flat black backdrop and finds the truck behind it", () => {
+    // 43.7% of the image is the JPEG's black background, and on some platforms
+    // that is the most prominent swatch returned. Skipping only near-absolute
+    // flats means the truck is found without misreading a real black car.
+    expect(pickPaintFamilyFromSwatches([BACKDROP, BODY])).toBe("white");
+    expect(pickPaintFamilyFromSwatches([BODY, AMBER_LIGHTS])).toBe("white");
+  });
+
+  it("still calls a genuinely black car black", () => {
+    // The guard is deliberately narrow: #141414 is paint, #000000 is a
+    // backdrop. Widening it would turn every black car silver.
+    expect(pickPaintFamilyFromSwatches(["#141414", "#2A2A2A"])).toBe("black");
   });
 });

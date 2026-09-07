@@ -1180,7 +1180,13 @@ export default function CarsHomeScreen() {
     (async () => {
       try {
         const FALLBACK = "#9aa4b2";
-        const res = await getImageColors!(uri, { fallback: FALLBACK, cache: true, key: vin });
+        // Cache key carries an ALGORITHM VERSION, not just the VIN.
+        // `react-native-image-colors` caches natively by key, and the app
+        // caches the derived gradient in `imageGradientByVin` — so a car
+        // sampled under the old accent-hunting rule kept its wrong tint until
+        // the process was killed, and a Fast Refresh preserved it outright.
+        // Bump this whenever the swatch list or the picker changes.
+        const res = await getImageColors!(uri, { fallback: FALLBACK, cache: true, key: `${vin}-paint2` });
         // Candidate swatches, PROMINENT-FIRST per platform. `pickPaint…`
         // reads the ORDER as prominence and only lets the first couple of
         // slots stand in for the car body, so what goes in front matters.

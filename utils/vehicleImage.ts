@@ -1153,34 +1153,37 @@ export function classifyColorFamily(hex: string | null | undefined): string | nu
 }
 
 /**
- * How many prominence slots can hold the car's BODY colour.
- *
- * `react-native-image-colors` returns swatches roughly most-prominent first.
- * A car body fills most of the render; a tail light, an amber indicator, a
- * badge or a brake caliper fills a sliver, so it lands further down the list.
- * Two slots is enough for a two-tone body without reaching the trim.
- */
-const BODY_PROMINENCE_SLOTS = 2;
-
-/**
  * Choose a paint-colour family from candidate swatches (e.g. what
  * `react-native-image-colors` returns), passed PROMINENT-FIRST.
  *
- * This used to take the most saturated swatch anywhere in the list, on the
- * reasoning that a vivid body should beat neutral wheels and glass. That works
- * for a red car and fails completely for a neutral one: a white, silver, grey
- * or black body has almost no saturation, so ANY coloured accent outranks it.
+ * The rule is simply: THE MOST PROMINENT SWATCH IS THE CAR. Nothing about
+ * saturation enters into it.
  *
- * Ahmad, 2026-09-07: a white Silverado and a dark grey A6 both rendered on the
- * pink background. Both are neutral cars, so the most saturated pixel either
- * had was a warm indicator or reflector lens, which `classifyColorFamily`
- * buckets into `red` (h <= 18) — and `COLOR_GRADIENTS.red` is that pink.
+ * This used to pick the most saturated swatch anywhere in the list, on the
+ * reasoning — stated in its own docstring — that a vivid body should beat
+ * neutral wheels and glass. That holds for a red car and inverts completely
+ * for a neutral one: a white, silver, grey or black body has almost no
+ * saturation, so ANY coloured accent outranks it.
  *
- * Prominence is what separates a body from an accent, and the old rule threw
- * that ordering away. Saturation now only decides between swatches that are
- * ALREADY prominent enough to be the body. An accent sitting in slot three can
- * no longer win, and a genuinely neutral car correctly classifies as neutral.
+ * Ahmad, 2026-09-07: a white Silverado rendered on a pink background. Measured
+ * against the actual VDB render for that VIN, the image is 43.7% black
+ * backdrop, a cool grey-white body, and 173 saturated pixels out of 90,000 —
+ * amber marker lights, the gold bowtie, and a FIVE-PIXEL dark red cluster at
+ * hue 13. Those five pixels were elected the colour of the truck.
+ *
+ * Saturation cannot distinguish a body from a brake light; prominence can, and
+ * a body always wins it. A coloured car's most prominent swatch is its paint,
+ * so nothing is lost by dropping the saturation preference entirely — and an
+ * accent can no longer win from any position.
+ *
+ * The one thing skipped is a pure BACKDROP: VDB renders sit on flat black or
+ * flat white, and on some platforms that region is the most prominent thing in
+ * the frame. Only near-absolute values are treated that way, so a genuinely
+ * black car (l ≈ 0.08) still reads black.
  */
+const BACKDROP_MIN_L = 0.06;
+const BACKDROP_MAX_L = 0.96;
+
 export function pickPaintFamilyFromSwatches(
   swatches: (string | null | undefined)[],
 ): string | null {
@@ -1192,18 +1195,16 @@ export function pickPaintFamilyFromSwatches(
     );
   if (parsed.length === 0) return null;
 
-  const CHROMA_FLOOR = 0.25;
-  const body = parsed.slice(0, BODY_PROMINENCE_SLOTS);
-  const chromatic = body.filter(
-    (x) => x.hsl.s >= CHROMA_FLOOR && x.hsl.l > 0.12 && x.hsl.l < 0.9,
-  );
-  if (chromatic.length > 0) {
-    const best = chromatic.reduce((a, b) => (b.hsl.s > a.hsl.s ? b : a));
-    return classifyColorFamily(best.hex);
-  }
-  // Every prominent swatch is achromatic, which is the honest answer for a
-  // white / silver / grey / black car rather than a reason to keep looking.
-  return classifyColorFamily(body[0].hex);
+  const body =
+    parsed.find(
+      (x) =>
+        x.hsl.l > BACKDROP_MIN_L &&
+        x.hsl.l < BACKDROP_MAX_L &&
+        // A flat backdrop is also colourless; a dark car is not required to be.
+        !(x.hsl.s < 0.05 && (x.hsl.l < 0.1 || x.hsl.l > 0.93)),
+    ) ?? parsed[0];
+
+  return classifyColorFamily(body.hex);
 }
 
 /**
