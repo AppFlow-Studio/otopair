@@ -115,55 +115,45 @@ describe('"I know roughly when"', () => {
     expect(a.lastServiceMileage).toBe(0);
   });
 
-  it("estimates backwards from today at the driver's own stated pace", () => {
-    // Three months at "light" (500/mo) = 1,500 miles ago.
+  /**
+   * Re-baselined 2026-09-09. These four pinned a velocity ESTIMATE — current
+   * miles minus (months since × the driver's stated pace) — which the spec
+   * asks for in §7 step 1 and which Ahmad removed after it put a spark-plug
+   * service on a 200,000-mile G-Class at 184,938 miles and called the plugs
+   * healthy. A guessed number that decides a health score is worth less than
+   * saying we do not know.
+   */
+  it("returns a date and NO mileage when the driver did not give one", () => {
     const a = resolveQuickCheckAnchor({
       answer: { answerType: "when", month: 3, year: 2026 },
       currentOdometer: 60_000,
       avgMonthlyDriving: "light",
       now: NOW,
     });
-    const months = (NOW - new Date(2026, 2, 1).getTime()) / MS_PER_MONTH;
-    expect(a.lastServiceMileage).toBe(Math.round(60_000 - months * 500));
-    expect(a.lastServiceMileage).toBeGreaterThan(58_000);
-    expect(a.lastServiceMileage).toBeLessThan(59_000);
+    expect(a.lastServiceDate).toBeDefined();
+    expect(a.lastServiceMileage).toBeUndefined();
   });
 
-  it("uses the same driving-level numbers the status maths uses", () => {
-    // Heavy is 3x light. If these ever diverge from getMonthlyMiles, an
-    // anchor written at onboarding stops agreeing with the interval computed
-    // against it.
-    const light = resolveQuickCheckAnchor({
-      answer: { answerType: "when", month: 6, year: 2025 },
-      currentOdometer: 60_000, avgMonthlyDriving: "light", now: NOW,
-    });
-    const heavy = resolveQuickCheckAnchor({
-      answer: { answerType: "when", month: 6, year: 2025 },
-      currentOdometer: 60_000, avgMonthlyDriving: "heavy", now: NOW,
-    });
-    const lightBack = 60_000 - (light.lastServiceMileage ?? 0);
-    const heavyBack = 60_000 - (heavy.lastServiceMileage ?? 0);
-    expect(heavyBack / lightBack).toBeCloseTo(3, 1);
+  it("ignores the stated driving pace entirely", () => {
+    // Light and heavy used to produce anchors 3x apart. Nothing about how the
+    // driver says they drive can move a fact they did not give us.
+    const at = (pace: string) =>
+      resolveQuickCheckAnchor({
+        answer: { answerType: "when", month: 6, year: 2025 },
+        currentOdometer: 60_000, avgMonthlyDriving: pace, now: NOW,
+      });
+    expect(at("light")).toEqual(at("heavy"));
   });
 
-  it("never estimates below zero on an old service and a young odometer", () => {
-    // Five years back at heavy would subtract 90,000 from a 20,000-mile car.
+  it("uses the driver's own number when they DO give one", () => {
+    // The mileage field is optional on the sheet and this is its whole payoff:
+    // supply it and the service is measured rather than left unknown.
     const a = resolveQuickCheckAnchor({
-      answer: { answerType: "when", month: 6, year: 2021 },
-      currentOdometer: 20_000,
-      avgMonthlyDriving: "heavy",
+      answer: { answerType: "when", month: 3, year: 2026, miles: 58_000 },
+      currentOdometer: 60_000,
       now: NOW,
     });
-    expect(a.lastServiceMileage).toBe(0);
-  });
-
-  it("never estimates above today's reading", () => {
-    const a = resolveQuickCheckAnchor({
-      answer: { answerType: "when", month: 6, year: 2026 },
-      currentOdometer: 1_000,
-      now: NOW,
-    });
-    expect(a.lastServiceMileage).toBeLessThanOrEqual(1_000);
+    expect(a.lastServiceMileage).toBe(58_000);
   });
 
   it("keeps the date and drops the mileage when there is no odometer", () => {

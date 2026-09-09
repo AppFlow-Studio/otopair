@@ -13,12 +13,10 @@
  * `tests/catalogRecencyAnswer.test.ts` and stays as it is for the tracker's
  * own recency prompt.
  *
- * The one thing shared with it is `getMonthlyMiles`, imported rather than
- * copied: two tables of driving-level constants would drift.
+ * Nothing here estimates. A "when" answer without an odometer reading yields a
+ * DATE ONLY — see the note in `resolveQuickCheckAnchor` for why the velocity
+ * estimate that used to live here was removed.
  */
-import { getMonthlyMiles } from "@/utils/maintenanceStatus";
-
-const MS_PER_MONTH = 30.44 * 24 * 60 * 60 * 1000;
 
 /** The subset of a Quick Check answer this module reads. Typed structurally
  *  rather than importing `QuickCheckAnswer` from the sheet — utils must not
@@ -50,47 +48,6 @@ export interface QuickCheckAnchor {
    *  not "unknown" — it says the service happened at delivery, which on a
    *  200,000-mile car reads as an interval consumed many times over. */
   lastServiceMileage?: number;
-}
-
-/**
- * Miles per month for turning a date anchor into a mileage anchor.
- *
- * Spec §2 defines velocity as "the miles-per-year band, cross-checked against
- * calculated velocity (miles / age)". Only the first half was implemented,
- * which is invisible on an ordinary car — a driver who says "average" usually
- * does about 1,000 a month — and badly wrong on the cars that need it most.
- *
- * Ahmad, 2026-09-07: a 2025 G-Class reading 200,000 miles, with the plugs
- * reported done in March 2024. The band said "light" (500/mo), so we credited
- * the car with 15,062 miles over thirty months and filed the plugs under
- * HEALTHY with 44,938 miles of interval left. The odometer says that car
- * covers 200,000 miles in twenty months — about 10,000 a month. We were out
- * by a factor of twenty on a car with a genuinely overdue service.
- *
- * The HIGHER of the two wins (Ahmad's call, same date). A stated band is an
- * estimate and people round down; an odometer and a model year are both
- * facts. Taking the higher can only move a service EARLIER in its interval,
- * never later, so an understated band can no longer hide real wear — and the
- * failure mode it introduces (a used car carrying its previous owner's miles
- * in the average) makes us cautious rather than complacent.
- *
- * Calculated velocity needs both an odometer and an age; with either missing
- * the band stands alone, which is the old behaviour.
- */
-function resolveVelocity(input: QuickCheckAnchorInput, now: number): number {
-  const band = getMonthlyMiles(input.avgMonthlyDriving ?? undefined);
-  const { currentOdometer, vehicleYear } = input;
-  if (currentOdometer == null || !Number.isFinite(currentOdometer) || currentOdometer <= 0) {
-    return band;
-  }
-  if (!vehicleYear || !Number.isFinite(vehicleYear)) return band;
-  // Same age definition as `quickCheckFiring.ageMonths` and Fallback v2 §5 —
-  // months since Jan 1 of the model year, so both docs compute one number.
-  const ageMonths = (now - new Date(vehicleYear, 0, 1).getTime()) / MS_PER_MONTH;
-  // A car in its first weeks has an age near zero, and dividing by it yields a
-  // meaningless velocity. Below a month there is nothing to average over.
-  if (ageMonths < 1) return band;
-  return Math.max(band, currentOdometer / ageMonths);
 }
 
 /**
@@ -135,21 +92,29 @@ export function resolveQuickCheckAnchor(input: QuickCheckAnchorInput): QuickChec
     return { lastServiceDate, lastServiceMileage: answer.miles };
   }
 
-  // No odometer to work back from — keep the date and leave mileage unset.
-  // The months half of the interval still scores; the miles half sits out.
-  if (input.currentOdometer == null || !Number.isFinite(input.currentOdometer)) {
-    return { lastServiceDate };
-  }
-
-  const monthsAgo = Math.max(0, (now - lastServiceDate) / MS_PER_MONTH);
-  const travelled = monthsAgo * resolveVelocity(input, now);
-  // Never below zero and never above today's reading — the estimate is a
-  // subtraction from a real number, so both ends are hard facts.
-  const estimated = Math.round(
-    Math.min(input.currentOdometer, Math.max(0, input.currentOdometer - travelled)),
-  );
-
-  return { lastServiceDate, lastServiceMileage: estimated };
+  // The driver gave a date and no odometer, so we DO NOT KNOW the mileage and
+  // no longer pretend to. The date is returned on its own; the months half of
+  // an interval still measures, and the miles half sits out as unmeasurable.
+  //
+  // Ahmad, 2026-09-09: "in a situation like that where we have to estimate or
+  // guess what the mileage was, I think it's best for us to just say we don't
+  // have enough info and tell them to do a diagnostic scan instead."
+  //
+  // This replaces a velocity estimate — current miles minus (months since ×
+  // miles per month) — which the spec asks for in §7 step 1 and which was
+  // simply not good enough. On a 2025 G-Class reading 200,000 miles it put a
+  // spark-plug service at 184,938 and called the plugs healthy with 44,928
+  // miles left. Cross-checking the driver's stated band against the odometer
+  // narrowed the error but did not remove it: a lifetime average is still a
+  // guess about a specific past interval, and a guessed number that decides a
+  // driver's health score is worth less than admitting we do not know.
+  //
+  // Consequence, deliberate: a MILES-ONLY service — spark plugs, transmission,
+  // differential, brake pads — has no second axis to fall back on, so a date
+  // alone leaves it entirely unmeasurable and it reports unknown, which routes
+  // the driver to the diagnostic scan. That is the honest answer. The optional
+  // mileage field on the sheet is what turns it into a real one.
+  return { lastServiceDate };
 }
 
 // ============================================================================

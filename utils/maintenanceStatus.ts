@@ -671,7 +671,20 @@ export function computeFromOdometerStatus(input: FromOdometerInput): StatusResul
   const label = serviceName ?? "This service";
 
   // ── Mileage axis ──────────────────────────────────────────────────────────
-  const hasMiles = typeof interval_miles === "number" && interval_miles > 0;
+  //
+  // An ABSENT `lastServiceMileage` is not zero. It used to be coerced to it,
+  // which measured from the car being new and reported a service the driver
+  // had just told us about as tens of thousands of miles overdue. It now means
+  // the mileage axis cannot be measured at all, and the axis simply sits out.
+  //
+  // Ahmad, 2026-09-09: a date without an odometer reading no longer produces a
+  // guessed anchor (see `quickCheckAnchor`), so this state is now the normal
+  // result of answering "I know roughly when" without the miles — not an edge
+  // case.
+  const hasMiles =
+    typeof interval_miles === "number" &&
+    interval_miles > 0 &&
+    typeof lastServiceMileage === "number";
   const milesUsed = Math.max(0, currentOdometer - (lastServiceMileage ?? 0));
   const milesRemaining = hasMiles
     ? Math.max(0, (interval_miles as number) - milesUsed)
@@ -938,6 +951,27 @@ function computeHybridStatus(
     } else {
       timeDueDate = new Date(now); // Due now
     }
+  }
+
+  // Neither axis could actually be measured, so there is nothing to report.
+  //
+  // Both ratios default to 0, which reads as a perfectly healthy service — so
+  // a MILES-ONLY interval (brake pads are 35,000 / —) answered with a date and
+  // no odometer used to come back ON TIME on no evidence whatsoever. Since
+  // 2026-09-09 a date-only answer no longer invents a mileage anchor, which
+  // makes that state reachable in normal use rather than a rarity.
+  //
+  // `unknown` routes the row to the diagnostic-scan card and leaves it out of
+  // the weighted average entirely, so it can neither reassure nor penalise.
+  const measuredMileage = interval.miles != null && record.lastServiceMileage != null && currentOdometer != null;
+  const measuredTime = interval.months != null && record.lastServiceDate != null;
+  if (!measuredMileage && !measuredTime) {
+    return {
+      status: "unknown",
+      percentUsed: 0,
+      description: "Add the mileage from that service, or a scan can confirm",
+      detail: "Mileage unknown",
+    };
   }
 
   // Hybrid: whichever comes first
