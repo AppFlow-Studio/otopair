@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/images/repairconnectglasslogo.png" alt="OtoPair Logo" width="120" height="200" />
+  <img src="assets/images/otopair-ai-logo.png" alt="Otopair Logo" width="120" height="120" />
 </p>
 
 <h1 align="center">OtoPair</h1>
@@ -27,6 +27,7 @@ No more endless phone calls, confusing quotes, or uncertainty about repair quali
 ## ✨ Features
 
 ### For Car Owners
+- **🤖 AI Diagnostics** — Get instant vehicle diagnostics powered by FREE open-source AI
 - **🔍 Find Nearby Services** — Discover trusted mechanics and service centers based on your location
 - **📅 Easy Booking** — Schedule appointments with just a few taps
 - **🚙 Vehicle Management** — Keep track of all your vehicles in one place
@@ -71,6 +72,44 @@ No more endless phone calls, confusing quotes, or uncertainty about repair quali
    - Press `i` for iOS Simulator
    - Press `a` for Android Emulator
 
+## 🤖 AI Chat Integration
+
+OtoPair includes an AI-powered diagnostic assistant that helps users diagnose vehicle issues. **It's completely FREE** using open-source models!
+
+### How It Works
+
+```
+User Input → Hugging Face API (FREE) → AI Response
+              ↓ (fallback)
+         Rule-Based System (100% FREE, works offline)
+```
+
+### AI Features
+- 🧠 **Intelligent Diagnostics** — Ask about any car issue
+- 💰 **Cost Estimates** — Get repair cost ranges
+- ⚡ **Urgency Classification** — Know if repairs are urgent
+- 🔧 **Mechanic Recommendations** — Find nearby mechanics
+
+### Cost Comparison
+
+| Provider | Cost per 10K requests |
+|----------|----------------------|
+| OpenAI GPT-4 | ~$300 |
+| Anthropic Claude | ~$80 |
+| **Hugging Face (Our Choice)** | **$0 (Free tier)** |
+| Rule-based Fallback | $0 (Always free) |
+
+### Configuration (Optional)
+
+For higher rate limits, get a free Hugging Face token:
+
+1. Sign up at [huggingface.co](https://huggingface.co)
+2. Go to Settings → Access Tokens
+3. Create a token and add to `.env`:
+   ```bash
+   EXPO_PUBLIC_HF_TOKEN=your_token_here
+   ```
+
 ## 🛠 Tech Stack
 
 | Category | Technology |
@@ -80,7 +119,8 @@ No more endless phone calls, confusing quotes, or uncertainty about repair quali
 | **Styling** | Custom Design System |
 | **Typography** | Urbanist Font Family |
 | **Icons** | Custom SVG Icons |
-| **State Management** | React Hooks |
+| **State Management** | Zustand |
+| **AI Integration** | Hugging Face (Free, Open-Source) |
 
 ## 📁 Project Structure
 
@@ -89,33 +129,37 @@ otopair/
 ├── app/                      # App screens (file-based routing)
 │   ├── (main-tabs)/          # Main tab navigation
 │   │   ├── home/             # Home screen
+│   │   ├── ai-chat/          # AI Chat screen ✨ NEW
 │   │   ├── bookings/         # Bookings management
 │   │   ├── cars/             # Vehicle management
 │   │   └── settings/         # User settings
 │   └── (onboarding)/         # Onboarding flow
 ├── components/
-|   ├── onboarding/ 
-|   ├── home/ 
-|   ├── bookings/ 
-|   ├── cars/ 
-|   ├── settings/ 
+│   ├── ai-chat/              # AI Chat components ✨ NEW
+│   │   ├── AIGreeting.tsx    # Welcome screen
+│   │   ├── AIInputBox.tsx    # Multi-modal input
+│   │   ├── AIMessageBubble.tsx # Message display
+│   │   └── ...
 │   ├── shared-ui/            # Foundational UI components
 │   │   ├── Button.tsx        # Primary, Secondary, Ghost buttons
 │   │   ├── Text.tsx          # Typography with Urbanist font
-│   │   ├── Container.tsx     # Layout wrappers
-│   │   └── Input.tsx         # Form inputs
+│   │   └── ...
 │   └── icons/                # Custom SVG icons
+├── services/                 # API & AI services ✨ NEW
+│   ├── api/
+│   │   ├── aiChat.ts         # Main AI service
+│   │   └── huggingface.ts    # Free AI provider
+│   ├── config/
+│   │   └── ai.config.ts      # AI configuration
+│   └── types/
+│       └── ai.types.ts       # TypeScript types
+├── stores/                   # Zustand stores ✨ NEW
+│   └── useAIChatStore.ts     # AI chat state
 ├── constants/
 │   └── theme.ts              # Colors, typography, spacing
-├── hooks/                    # Custom React hooks
 └── assets/
     ├── fonts/                # Urbanist font files
     └── images/               # App icons and images
-    |   ├── onboarding/ 
-    |   ├── home/ 
-    |   ├── bookings/ 
-    |   ├── cars/ 
-    |   ├── settings/ 
 ```
 
 ## 🎨 Design System

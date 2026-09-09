@@ -1,0 +1,487 @@
+{
+ "ran_at": "2026-08-14T03:40:53.239Z",
+ "target_email": "mansourwaleed06@gmail.com",
+ "repeat": 10,
+ "total": 1,
+ "passed": 0,
+ "failed": 1,
+ "skipped_count": 9,
+ "failed_cases": [
+  {
+   "name": "tires_symptom_routes_to_diagnostic_scan",
+   "failures": [
+    "rep1: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+    "rep1: turn 3: missing tool \"render_book_service\" (saw: update_conversation_state)",
+    "rep1: turn 3: branch \"text_only\" !== \"terminal\"",
+    "rep2: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+    "rep2: turn 3: missing tool \"render_book_service\" (saw: update_conversation_state)",
+    "rep2: turn 3: branch \"text_only\" !== \"terminal\"",
+    "rep3: turn 3: missing tool \"render_book_service\" (saw: get_vehicle_health,get_due_services,update_conversation_state)",
+    "rep3: turn 3: branch \"text_only\" !== \"terminal\"",
+    "rep4: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state,render_quick_replies)",
+    "rep4: turn 3: missing tool \"render_book_service\" (saw: update_conversation_state,render_quick_replies)",
+    "rep5: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+    "rep5: turn 3: missing tool \"render_book_service\" (saw: update_conversation_state)",
+    "rep5: turn 3: branch \"text_only\" !== \"terminal\"",
+    "rep6: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+    "rep6: turn 3: missing tool \"render_book_service\" (saw: update_conversation_state)",
+    "rep6: turn 3: branch \"text_only\" !== \"terminal\"",
+    "rep7: turn 1: missing tool \"update_conversation_state\" (saw: get_vehicle_health,get_due_services,render_quick_replies)",
+    "rep7: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+    "rep7: turn 3: missing tool \"render_book_service\" (saw: update_conversation_state)",
+    "rep7: turn 3: branch \"text_only\" !== \"terminal\"",
+    "rep8: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state,render_quick_replies)",
+    "rep8: turn 3: missing tool \"render_book_service\" (saw: update_conversation_state,render_quick_replies)",
+    "rep9: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+    "rep9: turn 3: missing tool \"render_book_service\" (saw: update_conversation_state)",
+    "rep9: turn 3: branch \"text_only\" !== \"terminal\"",
+    "rep10: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+    "rep10: turn 3: missing tool \"render_book_service\" (saw: update_conversation_state)",
+    "rep10: turn 3: branch \"text_only\" !== \"terminal\""
+   ]
+  }
+ ],
+ "results": [
+  {
+   "name": "tires_symptom_routes_to_diagnostic_scan",
+   "description": "Elimination-test ruling 2026-08-14 (Waleed): a tire rotation does not cure — and can even cause — a steady speed-band vibration (balance/alignment/bent wheel all coexist with a true record), so the trust gate does NOT apply; correct route is get_vehicle_health (mandatory read) then render_book_service with diagnostic-scan prefill. Formerly tires_symptom_triggers_record_confirmation (gate assertion), which encoded the pre-ruling boundary.",
+   "passed": false,
+   "failures": [
+    "rep1: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+    "rep1: turn 3: missing tool \"render_book_service\" (saw: update_conversation_state)",
+    "rep1: turn 3: branch \"text_only\" !== \"terminal\"",
+    "rep2: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+    "rep2: turn 3: missing tool \"render_book_service\" (saw: update_conversation_state)",
+    "rep2: turn 3: branch \"text_only\" !== \"terminal\"",
+    "rep3: turn 3: missing tool \"render_book_service\" (saw: get_vehicle_health,get_due_services,update_conversation_state)",
+    "rep3: turn 3: branch \"text_only\" !== \"terminal\"",
+    "rep4: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state,render_quick_replies)",
+    "rep4: turn 3: missing tool \"render_book_service\" (saw: update_conversation_state,render_quick_replies)",
+    "rep5: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+    "rep5: turn 3: missing tool \"render_book_service\" (saw: update_conversation_state)",
+    "rep5: turn 3: branch \"text_only\" !== \"terminal\"",
+    "rep6: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+    "rep6: turn 3: missing tool \"render_book_service\" (saw: update_conversation_state)",
+    "rep6: turn 3: branch \"text_only\" !== \"terminal\"",
+    "rep7: turn 1: missing tool \"update_conversation_state\" (saw: get_vehicle_health,get_due_services,render_quick_replies)",
+    "rep7: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+    "rep7: turn 3: missing tool \"render_book_service\" (saw: update_conversation_state)",
+    "rep7: turn 3: branch \"text_only\" !== \"terminal\"",
+    "rep8: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state,render_quick_replies)",
+    "rep8: turn 3: missing tool \"render_book_service\" (saw: update_conversation_state,render_quick_replies)",
+    "rep9: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+    "rep9: turn 3: missing tool \"render_book_service\" (saw: update_conversation_state)",
+    "rep9: turn 3: branch \"text_only\" !== \"terminal\"",
+    "rep10: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+    "rep10: turn 3: missing tool \"render_book_service\" (saw: update_conversation_state)",
+    "rep10: turn 3: branch \"text_only\" !== \"terminal\""
+   ],
+   "runs": [
+    {
+     "rep": 1,
+     "turns": [
+      {
+       "user": "My steering wheel vibrates above 50 mph",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "I appreciate you sharing that detail about your preference for comprehensive context — I'm keeping that in mind for this answer.\n\nA steering-wheel vibration above 50 mph usually narrows to a few mechanical causes: an out-of-balance wheel, uneven tire wear, or a bent rim. The speed threshold tells us something useful — it means the issue gets worse as the car settles into a specific harmonic frequency, which is the classic signature of a wheel-balance problem.\n\nQuick question to narrow it: does the vibration feel like it's coming straight up through the wheel itself, or does the whole car shake side-to-side? That distinction matters because a pulling-to-one-side pattern points to alignment or uneven wear, while pure wheel-shake points more directly to balance or a bent rim."
+      },
+      {
+       "user": "Only above 50 mph, goes away under 40, steady wobble — no pulling to one side",
+       "tools": [
+        "get_vehicle_health",
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Got it — that's a helpful pattern. A steady wobble above 50 mph that clears below 40 with no pulling points toward a wheel or tire issue rather than suspension or alignment. Here's what that typically narrows to:\n\nWheel balance is the leading candidate. When a wheel loses balance (usually from damage or lost wheel weight), the imbalance creates a speed-dependent vibration that builds with velocity. The reason it's steady and doesn't pull is because it's purely rotational — once you drop below the speed where the vibration amplitude peaks, it subsides. Balance issues typically emerge or worsen in a narrow speed band (yours sounds like 45–55 mph), which matches your description exactly.\n\nTire wear or damage is the secondary candidate. Uneven tread wear (from alignment or underinflation) or a localized tire bulge / sidewall issue can produce similar speed-dependent vibration. The lack of pulling suggests it's not a severe flat-spot or damaged section of tread — those usually pull the wheel to one side. But a subtle radial run-out (the tire isn't perfectly round) would create the wobble you're describing.\n\nThe good news: Your tire status shows on-time per your records (~2 months ago), and OtoPair monitors tire tread and rotation history. But here's the scope honesty — I have no data on wheel alignment, wheel condition, or TPMS sensors (those systems fall outside what OtoPair tracks). A vibration like yours can include an alignment drift or a bent wheel rim, but the tool can't tell us that.\n\nThe move: A Diagnostic Scan with the mechanic physically inspecting the wheels and tires — checking for balance, wear pattern, sidewall damage, and rim condition — is the right call. The mechanic will likely spin the tires off and confirm balance, check the alignment, and rule out any bent rims. Want me to book that now?"
+      },
+      {
+       "user": "Been doing it consistently for a couple months",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Got it — steering wheel vibration for a couple months that's steady and speed-dependent like that usually points to one of three things: wheel balance (the weight distribution around the rim), tire wear (uneven wear patterns can cause a harmonic vibration), or occasionally bent wheels from a pothole or curb strike. The good news is none of these are urgent safety issues at the moment, but they all point toward the same diagnostic path.\n\nHere's why a Diagnostic Scan makes sense: your tires show on-time in the system from about two months ago, but the scan lets a mechanic actually eyeball the tires — checking for uneven wear, cupping, or other damage — and spin the wheels to check the balance. If it's a balance issue, it's a straightforward fix (rebalance the tires). If it's tire wear or damage, that's something to address sooner rather than later since you've had it for a couple months. A bent wheel would show up visually, too. The mechanic can confirm which of these is actually happening and tell you exactly what needs fixing before any work.\n\nWant to book that service now?"
+      }
+     ],
+     "failures": [
+      "turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+      "turn 3: missing tool \"render_book_service\" (saw: update_conversation_state)",
+      "turn 3: branch \"text_only\" !== \"terminal\""
+     ]
+    },
+    {
+     "rep": 2,
+     "turns": [
+      {
+       "user": "My steering wheel vibrates above 50 mph",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "I hear you — steering vibration above a certain speed is worth pinning down because it can point to a few different things. Let me ask one clarifying question to narrow it down:\n\nDoes the vibration feel like it's coming from the steering wheel itself, or does it feel more like the whole car is shaking? And does it happen at any speed above 50, or does it get worse the faster you go?"
+      },
+      {
+       "user": "Only above 50 mph, goes away under 40, steady wobble — no pulling to one side",
+       "tools": [
+        "get_vehicle_health",
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "That's useful information. Your tires and suspension are outside what I track — but the pattern you're describing is classic and worth being direct about.\n\nA steady wobble above 50 mph that disappears below 40 is almost always one of three things: a tire imbalance (uneven weight distribution on one or more tires), a bent rim, or misalignment. The fact that it's steady and no pulling rules out suspension components like worn bushings, which tend to show up as vague wandering or pulling to one side. A wheel-speed vibration is sharper and more localized to the steering input.\n\nHere's why this matters: a tire imbalance gets worse the faster you go — at highway speeds it's not just annoying, it accelerates wear on your tires and suspension bearings. A bent rim is the same story.\n\nThe right move is a mechanic who can put the car on a lift and actually look — spin the wheels, check the tires for flat spots or chunks, look for obvious bends in the rims, and run a wheel-balance test. A Diagnostic Scan won't catch this because it's a physical inspection, not a code-reading situation. But a mechanic with the car in front of them will nail it in 15 minutes.\n\nWant me to set up a booking for a diagnostic look at the wheels and tires? That's the fastest way to confirm what's actually going on and get it fixed before it compounds."
+      },
+      {
+       "user": "Been doing it consistently for a couple months",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Got it — a couple months of consistent vibration at that speed band is a solid pattern. That timeline rules out something sudden like a recently-thrown weight, and points toward either a bent rim (from a pothole or curb hit you might not have even noticed), progressive wheel imbalance, or a suspension/alignment drift. All three are visual — a mechanic just needs to spin the wheel, look at the rim, and check the balance.\n\nSince the vibration is speed-dependent and localized to the steering (not the whole car), it's definitely wheel or suspension geometry on that side, not a tire-pressure or brake issue. A Diagnostic Scan won't help here — this one's hands-on inspection territory.\n\nReady to book a mechanic for a wheel inspection, or want to think on it?"
+      }
+     ],
+     "failures": [
+      "turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+      "turn 3: missing tool \"render_book_service\" (saw: update_conversation_state)",
+      "turn 3: branch \"text_only\" !== \"terminal\""
+     ]
+    },
+    {
+     "rep": 3,
+     "turns": [
+      {
+       "user": "My steering wheel vibrates above 50 mph",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "I'm hearing that your steering wheel vibrates above 50 mph. That's a narrowing I need to dig into because it points toward a few different things depending on the specifics.\n\nLet me ask one clarifying question to start: Does the vibration happen smoothly and consistently at highway speeds, or does it feel more like a shimmy or pulsing? The difference matters — smooth vibration usually points to tire imbalance or an out-of-round wheel, while a pulsing or rhythmic shimmy often signals something in the braking system.\n\nTap one below:"
+      },
+      {
+       "user": "Only above 50 mph, goes away under 40, steady wobble — no pulling to one side",
+       "tools": [
+        "get_vehicle_health",
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "Got useful detail there — that steady wobble disappearing below 40 is a classic tire signature. Here's what's going on:\n\nSpeed-sensitive vibrations like yours typically come from tire imbalance. When a tire's weight isn't evenly distributed around the wheel, it causes a rhythmic wobble that gets worse as speed increases — which is exactly what you're describing. The vibration starts showing up more noticeably around 50 mph because at that speed the imbalance force becomes more pronounced relative to the car's suspension stiffness. Below 40 it smooths out because the centrifugal forces don't build up as much.\n\nThe fact that there's no pulling to one side is actually reassuring — pulling would point toward an alignment issue (toe-in or camber problem), but a pure wobble without directional pull narrows it to tire imbalance or possibly a bent wheel, both of which a tire shop can diagnose in about five minutes on a balancing machine.\n\nYour tire record shows on-time status with good mileage remaining, so this isn't a wear issue — it's almost certainly a balance problem from something like a weight coming loose inside the tire, or the tire shifting on the rim slightly (happens occasionally after a pothole or hard hit).\n\nThe real question: Did this vibration start suddenly (like after hitting something), or has it been there and slowly gotten more noticeable? That helps me point you in the right direction — either a Tire Balancing service if it's a straightforward rebalance, or a Diagnostic Scan if something more complex is at play."
+      },
+      {
+       "user": "Been doing it consistently for a couple months",
+       "tools": [
+        "get_vehicle_health",
+        "get_due_services",
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Here's what I'm seeing. Your tires are flagged as on-time with 48,500 miles of remaining tread life — you're not at a wear threshold yet. The vibration you're describing — steady wobble above 50 mph that disappears below 40 — is a classic pattern for wheel imbalance or possibly a tire that's developed a flat spot or structural issue.\n\nThe key distinction: OtoPair tracks tire tread wear and rotation history, but not wheel alignment, wheel balance, or TPMS sensor condition. A vibration at speed usually points to one of those systems, and since your tread wear is still on-time, this isn't a straightforward \"time for new tires\" situation. What's likely happening is either:\n\n- Wheel imbalance — one or more wheels lost a balance weight or the weights shifted\n- Tire structural issue — a bubble, flat spot, or internal separation that doesn't show as tread wear yet\n- Wheel alignment — less likely to cause pure steering-wheel vibration (that usually shows as pulling), but possible\n\nA Diagnostic Scan is the right move here. A mechanic can spin your wheels to check balance, inspect the tires for structural damage, and confirm alignment — all in one visit. That gets you a real answer about whether it's a rebalance, new tires, or alignment before you make any expensive moves. Want to book that service now?"
+      }
+     ],
+     "failures": [
+      "turn 3: missing tool \"render_book_service\" (saw: get_vehicle_health,get_due_services,update_conversation_state)",
+      "turn 3: branch \"text_only\" !== \"terminal\""
+     ]
+    },
+    {
+     "rep": 4,
+     "turns": [
+      {
+       "user": "My steering wheel vibrates above 50 mph",
+       "tools": [
+        "get_vehicle_health",
+        "get_due_services",
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "Steering wheel vibration above 50 mph is typically tied to one of a few things: wheel balance, tire condition, wheel alignment, or (less commonly at highway speeds) brake issues. Here's what I'm seeing on your M550i:\n\nYour maintenance status: Your tires, brakes, and overall service history show as on-time (all serviced about 2 months ago), and nothing's flagged as overdue. That's good baseline context. However, OtoPair monitors tire wear and rotation intervals but doesn't track wheel alignment, TPMS sensor health, or specific wheel condition details — so the \"on-time\" status on tires doesn't rule out an alignment issue or a balance problem.\n\nWhat vibration at highway speeds typically indicates: The most common causes, in rough order of likelihood, are:\n\n1. Wheel imbalance — one or more wheels slightly out of balance, which gets worse the faster you go. This is the most common culprit for steering-wheel vibration specifically above a speed threshold (like your 50 mph trigger).\n2. Tire issue — uneven wear, a flat spot, or a bulge in the sidewall can cause vibration.\n3. Wheel alignment — particularly if it's been a while since alignment was checked (common after hitting a pothole or curb).\n4. Bent wheel — less common unless you've hit something, but possible.\n\nThe narrowing question: To help point toward the most likely cause, I'd like to ask: When you hit that 50 mph mark, does the vibration feel like it's centered in the steering wheel itself, or does it feel more like it's coming from under the car generally? A steering-wheel-specific vibration points more toward balance or alignment; a whole-chassis vibration can suggest a tire or suspension concern.\n\nOnce I understand that, I'll know whether a mechanic should start with a wheel balance and tire inspection, or look at alignment and suspension geometry. Either way, this is a \"get a mechanic's eyes on it\" situation — a Diagnostic Scan will let them get under the car and pinpoint what's actually going on."
+      },
+      {
+       "user": "Only above 50 mph, goes away under 40, steady wobble — no pulling to one side",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "I'm updating your facts and moving forward with the narrowing—that's solid detail. A steady wobble without pulling strongly points to wheel balance or tire issues rather than alignment or suspension (which typically show as pulling or harsh feedback). Here's why:\n\nAlignment problems usually pull the steering toward one side, especially under braking. Suspension wear (worn bushings, struts) tends to create a harsher shaking that often worsens with bumps. But a smooth, steady wobble that's isolated to the wheel and goes away below 40 mph is the textbook profile of a wheel out of balance or a tire radial runout issue — both are speed-sensitive (the wobble gets worse as wheel speed climbs) and isolated to that rotating assembly.\n\nOne more narrowing question: when you feel the wobble in the steering wheel, does the whole car seem to shake at the same rhythm, or is it really just the wheel? If it's just the steering wheel, that narrows tighter to a front-wheel balance issue. If the whole car shakes in sync, it could still be balance, but tire or suspension involvement becomes more likely."
+      },
+      {
+       "user": "Been doing it consistently for a couple months",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "Got it — a couple months of steady vibration. One last thing to nail this down: when you feel the wobble, is it just in the steering wheel or does the whole car shake?"
+      }
+     ],
+     "failures": [
+      "turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state,render_quick_replies)",
+      "turn 3: missing tool \"render_book_service\" (saw: update_conversation_state,render_quick_replies)"
+     ]
+    },
+    {
+     "rep": 5,
+     "turns": [
+      {
+       "user": "My steering wheel vibrates above 50 mph",
+       "tools": [
+        "get_vehicle_health",
+        "get_due_services",
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "Steering vibration above 50 mph usually points to one of a few things — wheels (balance, alignment, condition), tires (wear, pressure, sidewall damage), or suspension. Your tires and wheels aren't flagged in your service history, so this is worth getting eyes on.\n\nOne quick thing to narrow it: does the vibration happen the same way on both smooth and rough roads, or does it get worse on bumpy pavement?"
+      },
+      {
+       "user": "Only above 50 mph, goes away under 40, steady wobble — no pulling to one side",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Got it — steady wobble above 50 mph that clears below 40 is a classic speed-band vibration pattern. That usually points to tires: imbalance, flat-spotting from sitting, or uneven wear. Since your last tire service was about two months ago, a tire balance or rotation would be the first move to rule that out.\n\nWant me to book a tire service now?"
+      },
+      {
+       "user": "Been doing it consistently for a couple months",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Got it — a couple months of that vibration is worth fixing before it causes uneven wear. A tire balance or rotation (or both) usually clears that pattern. Want me to book that service now?"
+      }
+     ],
+     "failures": [
+      "turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+      "turn 3: missing tool \"render_book_service\" (saw: update_conversation_state)",
+      "turn 3: branch \"text_only\" !== \"terminal\""
+     ]
+    },
+    {
+     "rep": 6,
+     "turns": [
+      {
+       "user": "My steering wheel vibrates above 50 mph",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "I'll help you figure out what's causing that steering-wheel vibration. Let me ask one clarifying question: does the vibration feel like it's coming from the wheels themselves (a rhythmic shimmy that changes with speed), or more like a buzz through the steering wheel specifically?"
+      },
+      {
+       "user": "Only above 50 mph, goes away under 40, steady wobble — no pulling to one side",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "Got it — steady wobble between 40-50 mph threshold with no pulling narrows this toward a wheel/tire issue rather than steering geometry. Quick follow-up: does the vibration feel like it's coming from the steering wheel specifically, or does the whole front end shimmy along with it?"
+      },
+      {
+       "user": "Been doing it consistently for a couple months",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Got it — a couple months is a solid timeline. So when you hit that speed, does the vibration stay in the steering wheel, or does the whole front end shake along with it? That'll help narrow whether it's a tire/wheel balance issue or something else up front."
+      }
+     ],
+     "failures": [
+      "turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+      "turn 3: missing tool \"render_book_service\" (saw: update_conversation_state)",
+      "turn 3: branch \"text_only\" !== \"terminal\""
+     ]
+    },
+    {
+     "rep": 7,
+     "turns": [
+      {
+       "user": "My steering wheel vibrates above 50 mph",
+       "tools": [
+        "get_vehicle_health",
+        "get_due_services",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "Steering vibration above 50 mph can point to a few different things — wheel balance, alignment, or a worn suspension component. Let me ask one quick question to narrow it down.\n\nWhen you hit highway speeds and feel that vibration: is it a steady shimmy through the whole steering wheel, or more of a rhythmic pulsing like something's out of round?"
+      },
+      {
+       "user": "Only above 50 mph, goes away under 40, steady wobble — no pulling to one side",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "I'm picking up on a steering wheel vibration at highway speeds that smooths out below 40 mph and stays centered. That pattern usually points to a tire or wheel balance issue — less likely to be suspension at those specific thresholds.\n\nQuick question to narrow it: does the wobble feel worse when you brake, or is it the same whether you're coasting or slowing down?"
+      },
+      {
+       "user": "Been doing it consistently for a couple months",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Got it — a couple months is a solid timeframe. One more thing to narrow it down: does the vibration get worse or change at all when you brake, or does it stay the same regardless of braking?"
+      }
+     ],
+     "failures": [
+      "turn 1: missing tool \"update_conversation_state\" (saw: get_vehicle_health,get_due_services,render_quick_replies)",
+      "turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+      "turn 3: missing tool \"render_book_service\" (saw: update_conversation_state)",
+      "turn 3: branch \"text_only\" !== \"terminal\""
+     ]
+    },
+    {
+     "rep": 8,
+     "turns": [
+      {
+       "user": "My steering wheel vibrates above 50 mph",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "I can help narrow that down. A vibration above 50 mph is usually wheel-related — could be imbalance, alignment, or uneven wear. Quick question: does it get worse as you go faster, or does it stay about the same once you hit that 50 mph threshold?"
+      },
+      {
+       "user": "Only above 50 mph, goes away under 40, steady wobble — no pulling to one side",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "Got it — steady vibration at highway speeds with no pulling is a classic pattern. Quick one more: does it feel like it's coming from the steering wheel itself, or more like a shake you feel through the whole car?"
+      },
+      {
+       "user": "Been doing it consistently for a couple months",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "Got it — a couple months of consistent speed-band vibration. One more thing to narrow it: when you're on the highway at that speed, does the whole car feel shaky or is it really just the steering wheel?"
+      }
+     ],
+     "failures": [
+      "turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state,render_quick_replies)",
+      "turn 3: missing tool \"render_book_service\" (saw: update_conversation_state,render_quick_replies)"
+     ]
+    },
+    {
+     "rep": 9,
+     "turns": [
+      {
+       "user": "My steering wheel vibrates above 50 mph",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "I'll help you narrow down what's causing that vibration. A few things can cause steering-wheel shake above a certain speed — let me ask one quick question to point us in the right direction."
+      },
+      {
+       "user": "Only above 50 mph, goes away under 40, steady wobble — no pulling to one side",
+       "tools": [
+        "get_vehicle_health",
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "That speed-band vibration — steady wobble only above 50, gone by 40, no pulling — is a classic tire or wheel pattern. The tires show on-time in your history, but that doesn't rule it out; tire issues can develop between rotations, and wheel alignment can shift.\n\nThis one needs a mechanic to actually see — they'll check tire balance, alignment, and wheel condition. A Diagnostic Scan gets that done. Want me to book one now?"
+      },
+      {
+       "user": "Been doing it consistently for a couple months",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Got it — a couple months is useful context. That kind of steady vibration that kicks in at highway speeds usually points to wheel balance, a bent rim, or alignment being off. Since your tires are on-time but the balance and alignment aren't tracked in your service history, a mechanic needs to take a closer look.\n\nA Diagnostic Scan on the wheel and suspension side will catch what's actually going on — they'll spin the wheels, check the balance, inspect for bent rims, and confirm alignment. Want to book that now?"
+      }
+     ],
+     "failures": [
+      "turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+      "turn 3: missing tool \"render_book_service\" (saw: update_conversation_state)",
+      "turn 3: branch \"text_only\" !== \"terminal\""
+     ]
+    },
+    {
+     "rep": 10,
+     "turns": [
+      {
+       "user": "My steering wheel vibrates above 50 mph",
+       "tools": [
+        "get_vehicle_health",
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "Steering wheel vibration above 50 mph usually points to either wheel balance or alignment — though it can also be tires wearing unevenly. Quick question to narrow it: does the vibration feel like it's coming from the wheel itself (a rhythmic wobble or shimmy), or more like a buzz through the steering wheel?"
+      },
+      {
+       "user": "Only above 50 mph, goes away under 40, steady wobble — no pulling to one side",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Got it — that steady wobble above 50 mph that clears out is the classic wheel-balance signature. Your tires were serviced two months ago, so it's likely a weight shifted on one of the rims post-service, or one wheel just needs rebalancing. A tire rebalance is straightforward and cheap. Want me to set that up?"
+      },
+      {
+       "user": "Been doing it consistently for a couple months",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Sounds like a classic wheel-balance issue then — that kind of steady vibration over time points to weight shift on one or more wheels. A tire rebalance will dial that out. Want me to book that service now?"
+      }
+     ],
+     "failures": [
+      "turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+      "turn 3: missing tool \"render_book_service\" (saw: update_conversation_state)",
+      "turn 3: branch \"text_only\" !== \"terminal\""
+     ]
+    }
+   ]
+  }
+ ],
+ "skipped": [
+  {
+   "name": "polite_exit_after_vague_narrowing",
+   "reason": "Sprint 2 / Wave 7.x: the polite-exit counter (ai_conversations.diagnostic_turn_count, threshold=6) is incremented in chat.ts inside `if (!skipPersist)`. The harness defaults to debug_skip_persist=true, so the counter never advances and the 6th turn never fires the <polite_exit_required> envelope block. Two unblock paths: (A) decouple the counter from skipPersist (a chat.ts-only change, out of scope for the QA-lead adaptation dispatch), or (B) ship a harness-side seed mutation that sets diagnostic_turn_count=5 before the final turn (also touches convex/). Re-enable once either lands. Intent preserved verbatim — do not delete."
+  },
+  {
+   "name": "cat_m_communication_style_outranks_history_anchor",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass)"
+  },
+  {
+   "name": "cat_m_fresh_outranks_stale_within_same_type",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass); also requires Sprint 3 test-helper mutation to stage stale last_reinforced"
+  },
+  {
+   "name": "cat_m_retracted_fact_does_not_surface",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass); also requires Sprint 3 pre_seed_mutations result-threading OR a retract-by-payload-substring mutation"
+  },
+  {
+   "name": "cat_m_vehicle_quirk_surfaces_for_vehicle_owner",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass)"
+  },
+  {
+   "name": "cat_m_no_seeded_rows_envelope_omits_recent_context",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass)"
+  },
+  {
+   "name": "cat_m_top_K_cap_enforced_at_5",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass); assertion fragile if equivalence-v2 collapses overlapping seeds — review on first run"
+  },
+  {
+   "name": "cat_m_adversarial_fact_does_not_surface_in_envelope",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass); threat model contestable — sanitizer at write blocks current attack surface, this is for future bypass paths"
+  },
+  {
+   "name": "book_service_polite_exit_not_sure",
+   "reason": "Sprint 2 / Wave 7.x: the polite-exit counter (ai_conversations.diagnostic_turn_count, threshold=6) is incremented in chat.ts inside `if (!skipPersist)`. The harness defaults to debug_skip_persist=true, so the counter never advances and the 6th turn never fires the <polite_exit_required> envelope block. Same disabled_reason as legacy polite_exit_after_vague_narrowing. Re-enable when counter decouples from skipPersist OR a pre_seed_mutations seed advances the counter."
+  }
+ ]
+}

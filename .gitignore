@@ -30,7 +30,12 @@ yarn-error.*
 .DS_Store
 *.pem
 
+# editor swap files
+*.swp
+*.swo
+
 # local env files
+.env
 .env*.local
 
 # typescript
@@ -41,3 +46,43 @@ app-example
 # generated native folders
 /ios
 /android
+
+# Otopair Developer Guide (Notion)
+Otopair Developer Guide.html
+Otopair Developer Guide_files/
+
+#Cursor
+.cursor
+.cursor/
+
+# Claude local worktrees
+.claude/worktrees/
+
+# Claude Code runtime lock (regenerated per session, not project state)
+.claude/scheduled_tasks.lock
+
+# NOTE: package-lock.json must be committed AND not ignored.
+# EAS Build respects .gitignore when uploading the project, so ignoring the
+# lockfile means EAS never receives it -> it falls back to yarn / `npm ci` fails.
+
+#Convex
+_generated/api.d.ts
+_generated/api.js
+_generated/dataModel.d.ts
+_generated/server.d.ts
+_generated/server.js
+
+# Local backup archives — not for the repo
+*.zip
+
+# Eval run secrets (Clerk JWT, ~1-hour lifetime; refreshed per session)
+scripts/eval/runs/.jwt-env.sh
+
+# Superpowers for Claude
+.superpowers/
+.claude/scheduled_tasks.lock
+
+# Behavioral eval run reports — transient artifacts. The 2026-08-12..14
+# remediation-arc reports are committed as the historical evidence snapshot;
+# everything after stays local.
+scripts/eval/runs/

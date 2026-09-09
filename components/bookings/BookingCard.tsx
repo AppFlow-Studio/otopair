@@ -1,0 +1,1112 @@
+/**
+ * BookingCard
+ *
+ * PURPOSE: Displays a booking card with vehicle info, mechanic details, service information, and action buttons for both upcoming and history bookings
+ *
+ * USED IN: app/(main-tabs)/bookings/index.tsx
+ *
+ * PROPS:
+ *   - booking (Booking): The booking object containing all booking details
+ *   - variant ('upcoming' | 'history'): Determines the card layout and displayed information
+ *   - onViewDetails ((bookingId: string) => void): Called when "View Details" is pressed [optional]
+ *   - onCancelBooking ((bookingId: string) => void): Called when "Cancel Booking" is pressed [optional]
+ *   - onReschedule ((bookingId: string) => void): Called when "Reschedule" is pressed [optional]
+ *   - onDownloadPdf ((bookingId: string) => void): Called when PDF download icon is pressed [optional]
+ *   - onToggleFavorite ((bookingId: string) => void): Called when favorite star icon is pressed [optional]
+ *
+ * EXAMPLE:
+ *   <BookingCard
+ *     booking={bookingData}
+ *     variant="upcoming"
+ *     onViewDetails={(id) => router.push(`/booking/${id}`)}
+ *   />
+ *
+ * OWNER: Ahmad Hamoudeh
+ */
+
+// 1. React & React Native
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Alert, Image, PixelRatio, Platform, Pressable, StyleSheet, View } from 'react-native';
+import type { View as RNView } from 'react-native';
+
+// 2. Expo & Third-party
+import { useGuardedRouter as useRouter } from '@/hooks/useGuardedRouter';
+import { Car, FileText, MessageCircle, Star, User } from 'lucide-react-native';
+import Animated, { FadeOut, LinearTransition, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+
+// 3. Shared UI
+import { FixedPriceBadge, Text } from '@/components/shared-ui';
+import { BookingProgressBar } from '@/components/bookings/BookingProgressBar';
+import { JobBlockedNotice } from '@/components/bookings/JobBlockedNotice';
+import { ApprovalBanner } from '@/components/booking/ApprovalBanner';
+import { getBookingStageView } from '@/utils/bookingStages';
+import { useConnection } from '@/hooks/useConnection';
+import { isBookingActionAllowed } from '@/lib/connection/offlineBookingActions';
+import { OfflineActionsNotice } from '@/components/connection/OfflineActionsNotice';
+import { useRescheduleDecisionOverlayStore } from '@/stores/useRescheduleDecisionOverlayStore';
+import { useBookingActions } from '@/hooks/useBookingActions';
+import { buildCancelCopy } from '@/constants/bookingActionPolicy';
+import type { Id } from '@/convex/_generated/dataModel';
+import { SemanticColors } from '@/constants/theme';
+
+// Android's Reanimated FadeOut exit on this card janks/crashes during the
+// list re-layout after cancel; skip the exit animation there and keep it
+// on iOS where it's smooth. (from daniel-dev)
+const CARD_EXIT_ANIMATION = Platform.OS === 'android' ? undefined : FadeOut.duration(220);
+
+// ============================================================================
+// TYPES
+// ============================================================================
+
+export type BookingStatus = 'pending_shop_acceptance' | 'pending' | 'pending_quote' | 'quotes_ready' | 'quote_expired' | 'pending_customer_acceptance' | 'confirmed' | 'vehicle_at_shop' | 'in_progress' | 'completed' | 'cancelled' | 'delayed' | 'no_show';
+
+export interface Booking {
+  id: string;
+  // Services
+  services: string[];
+  // Car info
+  carModel: string;
+  carYear: string;
+  licensePlate: string;
+  /** Make logo URL from cdn_assets (content); used as car thumbnail when no vehicle image */
+  makeLogoUrl?: string;
+  // Mechanic info
+  mechanicName: string;
+  shopName: string;
+  mechanicImage?: string;
+  // Scheduling
+  date: string;
+  /** Raw `YYYY-MM-DD` from Convex. `date` above is display-formatted
+   *  ("Tuesday, May 26") and cannot be sorted or grouped on. */
+  scheduledDate?: string;
+  time: string;
+  status: BookingStatus;
+  // History-specific
+  totalCost?: number;
+  /** Free-form detail. Used by PendingQuoteCard in Upcoming to display the
+   *  tire specs the user requested before any shop has quoted a price. */
+  notes?: string;
+  /** Epoch ms the booking was created. Drives newest-first ordering in the
+   *  My Bookings lists. Optional only for back-compat with legacy adapters. */
+  createdAt?: number;
+  /** VIN of the vehicle the booking is for. Used by the vehicle-filter
+   *  chip on My Bookings to match by ID instead of name parsing. */
+  vin?: string;
+  /** When status === "in_progress", the convex `live_stage` slug
+   *  (booking_confirmed | service_in_progress | vehicle_ready). Drives
+   *  the 3rd vs 4th segment of the service progress bar. */
+  liveStage?: string;
+  /** Convex shop_id — needed when writing a review on a completed booking. */
+  shopId?: string;
+  /** Convex mechanic_id — optional review association. */
+  mechanicId?: string;
+  /** Shop phone from the cached list payload — keeps the details sheet's
+   *  Contact handoff working offline (live shop query can't resolve). */
+  shopPhone?: string;
+  /** Shop street address from the cached list payload — same offline
+   *  fallback for the Directions handoff. */
+  shopAddress?: string;
+  /** Pre-Job Approval flow: customer-facing range snapshotted at create. */
+  disclosedRangeLowCents?: number;
+  disclosedRangeHighCents?: number;
+  /** Approval/capture lifecycle — drives whether to show range vs final. */
+  paymentApprovalState?: string;
+  /** Final captured amount in cents (set after Stripe capture). */
+  finalCaptureAmountCents?: number;
+  /** Shop-assigned invoice / work-order number. When the mechanic sets one,
+   *  the card surfaces it instead of the last-6 booking id. */
+  invoiceNumber?: string;
+  /** Set on quote-stage bookings ("pending_quote" / "quotes_ready") so the
+   *  Bookings tab knows which QuoteListSheet variant to open. Derived from
+   *  bookings.tire_specs / bookings.rotor_specs in the Convex adapter. */
+  quoteType?: "tire" | "rotor";
+  /** Epoch ms the customer tapped "Request pickup" (vehicle_at_shop). Present
+   *  once requested, until the booking leaves that state. */
+  pickupRequestedAtMs?: number;
+  /** The shop/mechanic's answer to the pickup request, once they respond.
+   *  Drives the status line on the card. */
+  pickupResponse?: "acknowledged" | "bringing_out" | "declined";
+}
+
+export interface BookingCardProps {
+  booking: Booking;
+  variant: 'upcoming' | 'history';
+  onViewDetails?: (bookingId: string) => void;
+  /** feeAcknowledgedCents = the late-cancel fee shown to the customer, if any. */
+  onCancelBooking?: (bookingId: string, feeAcknowledgedCents?: number) => void;
+  onReschedule?: (bookingId: string) => void;
+  /** vehicle_at_shop "Request to cancel & pick up car" — notifies the shop. */
+  onRequestPickup?: (bookingId: string) => void;
+  /** Opens a conversation with the shop (in_progress / contact-shop paths). */
+  onMessageShop?: (bookingId: string) => void;
+  onDownloadPdf?: (bookingId: string) => void;
+  onToggleFavorite?: (bookingId: string) => void;
+  /** Unread Message Shop messages for this booking. When > 0 a tappable count
+   *  badge shows in the title row (opens the chat). Supplied by the active-list
+   *  wrapper (UpcomingBookingCard) that subscribes to the booking's tickets. */
+  unreadMessageCount?: number;
+}
+
+// ============================================================================
+// HELPERS
+// ============================================================================
+
+function titleCase(str: string): string {
+  return str.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+// Copy + colors for the pickup-request status banner. `undefined` response =
+// requested but not yet answered by the shop.
+function pickupStatusView(
+  response?: 'acknowledged' | 'bringing_out' | 'declined',
+): { label: string; bg: string; color: string } {
+  switch (response) {
+    case 'acknowledged':
+      return {
+        label: 'Shop got your request — preparing your vehicle',
+        bg: '#EFF6FF',
+        color: '#1D4ED8',
+      };
+    case 'bringing_out':
+      return {
+        label: 'The shop is bringing your car out',
+        bg: '#ECFDF5',
+        color: '#047857',
+      };
+    case 'declined':
+      return {
+        label: "Shop can't release your car yet — please contact the shop",
+        bg: '#FEF2F2',
+        color: '#B91C1C',
+      };
+    default:
+      return {
+        label: 'Pickup requested — waiting for the shop to respond',
+        bg: '#FFF7ED',
+        color: '#C2410C',
+      };
+  }
+}
+
+const ACTION_BUTTON_GAP = 10;
+const ACTION_BUTTON_HORIZONTAL_PADDING = 32;
+const ACTION_BUTTON_LABEL_MAX_SIZE = 14;
+const ACTION_BUTTON_LABEL_MIN_SIZE = 12;
+// Widest label any action button can render. Drives the auto-fit font size,
+// so it has to be the true longest or the winner gets clipped at
+// numberOfLines={1} — "Pickup requested" is two characters longer than
+// "Cancel Booking".
+const ACTION_BUTTON_LONGEST_LABEL = 'Pickup requested';
+const ACTION_BUTTON_LABEL_WIDTH_RATIO = 0.66;
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
+}
+
+function getActionButtonLabelSize(rowWidth: number, fontScale: number): number {
+  if (rowWidth <= 0) {
+    return ACTION_BUTTON_LABEL_MAX_SIZE;
+  }
+
+  const buttonWidth = (rowWidth - ACTION_BUTTON_GAP) / 2;
+  const availableLabelWidth = buttonWidth - ACTION_BUTTON_HORIZONTAL_PADDING;
+  const fittedSize =
+    availableLabelWidth /
+    (ACTION_BUTTON_LONGEST_LABEL.length * ACTION_BUTTON_LABEL_WIDTH_RATIO * fontScale);
+
+  return clamp(
+    fittedSize,
+    ACTION_BUTTON_LABEL_MIN_SIZE,
+    ACTION_BUTTON_LABEL_MAX_SIZE,
+  );
+}
+
+// ============================================================================
+// STATUS CONFIG
+// ============================================================================
+
+export const STATUS_CONFIG: Record<BookingStatus, { label: string; bgColor: string; textColor: string }> = {
+  pending_shop_acceptance: {
+    label: 'Pending Shop',
+    bgColor: '#fff6ee',
+    textColor: '#f89829',
+  },
+  pending: {
+    label: 'Pending',
+    bgColor: '#fff6ee',
+    textColor: '#f89829',
+  },
+  pending_quote: {
+    label: 'Pending Quote',
+    bgColor: '#FFF8ED',
+    textColor: '#C8972E',
+  },
+  quotes_ready: {
+    label: 'Quotes Ready',
+    bgColor: '#E3F0FF',
+    textColor: '#2F6DCC',
+  },
+  quote_expired: {
+    label: 'Quote Expired',
+    bgColor: SemanticColors.warningAmberLight,
+    textColor: SemanticColors.warningAmber,
+  },
+  pending_customer_acceptance: {
+    label: 'Rescheduled',
+    bgColor: '#FFF6E5',
+    textColor: '#C8972E',
+  },
+  confirmed: {
+    label: 'Confirmed',
+    bgColor: '#e8f5e9',
+    textColor: '#4CAF50',
+  },
+  vehicle_at_shop: {
+    label: 'Checked In',
+    bgColor: '#ECFEFF',
+    textColor: '#0E7490',
+  },
+  in_progress: {
+    label: 'In Progress',
+    bgColor: '#E0E7FF',
+    textColor: '#4F46E5',
+  },
+  completed: {
+    label: 'Completed',
+    bgColor: '#f0fcf5',
+    textColor: '#60d17e',
+  },
+  cancelled: {
+    label: 'Cancelled',
+    bgColor: '#FEE2E2',
+    textColor: '#DC2626',
+  },
+  delayed: {
+    label: 'Delayed',
+    bgColor: '#E5E7EB',
+    textColor: '#6B7280',
+  },
+  no_show: {
+    label: 'No-show',
+    bgColor: '#FEE2E2',
+    textColor: '#DC2626',
+  },
+};
+
+// ============================================================================
+// COMPONENT
+// ============================================================================
+
+export function BookingCard({
+  booking,
+  variant,
+  onViewDetails,
+  onCancelBooking,
+  onReschedule,
+  onRequestPickup,
+  onMessageShop,
+  onDownloadPdf,
+  onToggleFavorite,
+  unreadMessageCount = 0,
+}: BookingCardProps) {
+  const router = useRouter();
+  const openRescheduleDecision = useRescheduleDecisionOverlayStore((s) => s.open);
+  // Offline gate: Cancel/Reschedule are backend writes — while offline the
+  // whole row is replaced by the "last synced info" strip; View Details
+  // stays live (the sheet reads cached data). Keyed on hard `offline` (not
+  // useCanWrite) so a 1–2s socket "reconnecting" blip doesn't flash the
+  // strip in and out.
+  const conn = useConnection();
+  const writeActionsAllowed = isBookingActionAllowed('cancelBooking', conn !== 'offline');
+  // Phase policy — the single source of truth for which actions are allowed
+  // and what a cancellation costs. Shared with BookingDetailsSheet so gating
+  // is identical everywhere.
+  const actions = useBookingActions(booking.id, booking.status);
+  const primaryBtnRef = useRef<RNView | null>(null);
+  const [actionsRowWidth, setActionsRowWidth] = useState(0);
+  // Local "just cancelled" state. The card swaps the badge + dims for ~450ms
+  // before we actually call onCancelBooking; the parent's data-source change
+  // then triggers the FadeOut exit, and `layout` shifts siblings up.
+  const [isCancelling, setIsCancelling] = useState(false);
+  const effectiveStatus = isCancelling ? 'cancelled' : booking.status;
+  // Fall back to a neutral pill when the backend returns a status we
+  // don't have a config for, so an unknown value doesn't crash the card.
+  const statusConfig = STATUS_CONFIG[effectiveStatus] ?? {
+    label: titleCase(String(effectiveStatus ?? 'Unknown').replace(/_/g, ' ')),
+    bgColor: '#E5E7EB',
+    textColor: '#6B7280',
+  };
+
+  const dim = useSharedValue(1);
+  useEffect(() => {
+    if (isCancelling) {
+      dim.value = withTiming(0.45, { duration: 280 });
+    }
+  }, [isCancelling, dim]);
+  const dimStyle = useAnimatedStyle(() => ({ opacity: dim.value }));
+  const [carImageError, setCarImageError] = useState(false);
+  const showCarPlaceholder = !booking.makeLogoUrl?.trim() || carImageError;
+  const fontScale = PixelRatio.getFontScale();
+  const actionButtonLabelSize = useMemo(
+    () => getActionButtonLabelSize(actionsRowWidth, fontScale),
+    [actionsRowWidth, fontScale],
+  );
+  
+  // Invoice number wins when the mechanic has attached one; otherwise
+  // fall back to the last-6 of the convex booking id so the customer
+  // still has something to quote on a support ticket.
+  const idLine = useMemo(() => {
+    const invoice = booking.invoiceNumber?.trim();
+    if (invoice) return invoice;
+    if (!booking.id) return null;
+    return `#${booking.id.slice(-6).toUpperCase()}`;
+  }, [booking.invoiceNumber, booking.id]);
+
+  // Format services display
+  const mainService = booking.services[0] || 'Service';
+  const additionalCount = booking.services.length - 1;
+  const additionalText = variant === 'history' 
+    ? `+${additionalCount} Services` 
+    : `+${additionalCount} More`;
+
+  const handleViewDetails = () => {
+    // Bookings awaiting customer acceptance route to the dedicated
+    // Accept / Decline overlay instead of the generic details sheet —
+    // the action is the whole point of the row.
+    if (booking.status === 'pending_customer_acceptance') {
+      const launch = (rect: { x: number; y: number; width: number; height: number }) => {
+        openRescheduleDecision(rect, booking.id as unknown as Id<'bookings'>);
+      };
+      const node = primaryBtnRef.current as unknown as { measureInWindow?: (...args: any[]) => void } | null;
+      if (node && typeof node.measureInWindow === 'function') {
+        node.measureInWindow((x: number, y: number, width: number, height: number) => {
+          launch({ x, y, width, height });
+        });
+      } else {
+        launch({ x: 16, y: 200, width: 200, height: 48 });
+      }
+      return;
+    }
+    if (onViewDetails) {
+      onViewDetails(booking.id);
+    } else {
+      // Default fallback - booking details page not yet implemented
+      router.push({ pathname: '/coming-soon', params: { serviceName: 'Booking Details' } });
+    }
+  };
+
+  /*
+   * Once the customer has asked for the car back there is nothing further to
+   * ask for, so the button states that instead of inviting a second request.
+   * Covers every shop response, including "declined" — that banner tells the
+   * customer to call the shop, and re-sending the same request would not
+   * change the answer.
+   */
+  const pickupAlreadyRequested =
+    actions.cancelKind === 'request_shop' && booking.pickupRequestedAtMs != null;
+
+  const handleCancelBooking = () => {
+    if (isCancelling) return;
+    const copy = buildCancelCopy(actions);
+
+    // vehicle_at_shop: not a self-cancel — request pickup and notify the shop.
+    // No strikethrough animation; the row stays until the shop acts.
+    if (actions.cancelKind === 'request_shop') {
+      Alert.alert(copy.title, copy.body, [
+        { text: 'Not now', style: 'cancel' },
+        { text: copy.confirmLabel, onPress: () => onRequestPickup?.(booking.id) },
+      ]);
+      return;
+    }
+
+    // Free or late-fee cancel. The fee (when any) is disclosed in the body +
+    // confirm label so it's unmissable before we charge.
+    Alert.alert(copy.title, copy.body, [
+      { text: 'Keep It', style: 'cancel' },
+      {
+        text: copy.confirmLabel,
+        style: 'destructive',
+        onPress: () => {
+          // Show the in-card "cancelled" visual first, THEN fire the
+          // mutation. The data-source removal triggers FadeOut, and
+          // sibling cards shift smoothly via layout transition.
+          setIsCancelling(true);
+          setTimeout(
+            () => onCancelBooking?.(booking.id, actions.feeCentsIfCancelledNow),
+            450,
+          );
+        },
+      },
+    ]);
+  };
+
+  const handleReschedule = () => {
+    // Over the free limit / inside cutoff / car already at shop → the customer
+    // can't self-reschedule; route them to the shop instead.
+    if (actions.rescheduleKind !== 'free') {
+      onMessageShop?.(booking.id);
+      return;
+    }
+    onReschedule?.(booking.id);
+  };
+
+  const handleMessageShop = () => {
+    onMessageShop?.(booking.id);
+  };
+
+  const handleDownloadPdf = () => {
+    onDownloadPdf?.(booking.id);
+  };
+
+  const handleToggleFavorite = () => {
+    onToggleFavorite?.(booking.id);
+  };
+
+
+  const stageView = getBookingStageView(booking.status, booking.liveStage);
+
+  return (
+    <Animated.View
+      style={[styles.card, dimStyle]}
+      exiting={CARD_EXIT_ANIMATION}
+      layout={LinearTransition.duration(260)}
+    >
+      {/* Lifecycle progress bar — see utils/bookingStages.ts. The status
+          badge in the title row below carries the same info textually so
+          the bar reads as visual reinforcement. */}
+      <BookingProgressBar
+        stages={stageView.stages}
+        currentIndex={stageView.currentIndex}
+      />
+
+      {/* Pending-approval or reauth-required CTA. Returns null when the
+          booking isn't in one of those states, so no extra guard needed. */}
+      <ApprovalBanner
+        bookingId={booking.id}
+        paymentApprovalState={booking.paymentApprovalState}
+      />
+
+      {/* Booking identifier — invoice number if the mechanic attached one,
+          else the last-6 of the convex booking id. Tiny gray line above the
+          service title so customers can quote it on a support ticket. */}
+      {idLine ? (
+        <Text
+          weight="semiBold"
+          size="xs"
+          color="#9CA3AF"
+          style={styles.idLine}
+        >
+          {idLine}
+        </Text>
+      ) : null}
+
+      {/* Title Row */}
+      <View style={styles.titleRow}>
+        <View style={styles.servicesContainer}>
+          <Text
+            weight="bold"
+            size="xl"
+            color="#1F2937"
+            numberOfLines={1}
+            style={[styles.mainServiceText, isCancelling ? styles.strikethrough : undefined]}
+          >
+            {mainService}
+          </Text>
+          {additionalCount > 0 && (
+            <>
+              <Text weight="bold" size="xl" color="#1F2937">, </Text>
+              <Text
+                weight="semiBold"
+                size="xl"
+                color="#5299FE"
+                numberOfLines={1}
+                style={isCancelling ? styles.strikethrough : undefined}
+              >
+                {additionalText}
+              </Text>
+            </>
+          )}
+        </View>
+        {unreadMessageCount > 0 ? (
+          <Pressable
+            onPress={handleMessageShop}
+            hitSlop={8}
+            style={({ pressed }) => [
+              styles.unreadBadge,
+              pressed && styles.buttonPressed,
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel={`${unreadMessageCount} unread message${unreadMessageCount === 1 ? '' : 's'} from the shop`}
+          >
+            <MessageCircle size={13} color="#FFFFFF" strokeWidth={2.6} />
+            <Text weight="bold" size="xs" color="#FFFFFF">
+              {unreadMessageCount > 99 ? '99+' : unreadMessageCount}
+            </Text>
+          </Pressable>
+        ) : null}
+        <View style={[styles.statusBadge, { backgroundColor: statusConfig.bgColor }]}>
+          <Text weight="semiBold" size="sm" color={statusConfig.textColor}>
+            {statusConfig.label}
+          </Text>
+        </View>
+      </View>
+
+      {/* Car and Mechanic Info Row */}
+      <View style={styles.infoRow}>
+        {/* Car Info */}
+        <View style={styles.carInfo}>
+          {showCarPlaceholder ? (
+            <View style={styles.carPlaceholder}>
+              <Car size={20} color="#9CA3AF" strokeWidth={1.5} />
+            </View>
+          ) : (
+            <Image
+              source={{ uri: booking.makeLogoUrl! }}
+              style={styles.carImage}
+              resizeMode="contain"
+              onError={() => setCarImageError(true)}
+            />
+          )}
+          <View style={styles.carDetails}>
+            <Text
+              weight="bold"
+              size="sm"
+              color="#1F2937"
+            >
+              {titleCase(booking.carModel)}
+            </Text>
+            <Text weight="regular" size="xs" color="#6B7280">
+              {booking.licensePlate}
+            </Text>
+          </View>
+        </View>
+
+        {/* Mechanic Info */}
+        <View style={styles.mechanicInfo}>
+          {booking.mechanicImage ? (
+            <Image source={{ uri: booking.mechanicImage }} style={styles.mechanicImage} />
+          ) : (
+            <View style={styles.mechanicPlaceholder}>
+              <User size={18} color="#9CA3AF" strokeWidth={1.5} />
+            </View>
+          )}
+          <View style={styles.mechanicDetails}>
+            <Text weight="bold" size="sm" color="#1F2937">
+              {booking.mechanicName}
+            </Text>
+            {/* Server falls back to shopName for `mechanicName` when no
+                mechanic is assigned (e.g. accepted tire quotes). Skip
+                the second line when it's the same string to avoid
+                rendering "Shop / Shop". */}
+            {booking.mechanicName !== booking.shopName ? (
+              <Text weight="regular" size="xs" color="#6B7280">
+                {booking.shopName}
+              </Text>
+            ) : null}
+          </View>
+        </View>
+      </View>
+
+      {/* Date/Time or Completion Info */}
+      {variant === 'upcoming' ? (
+        booking.status === 'pending_quote' ? (
+          <View style={styles.dateTimeContainer}>
+            <Text weight="semiBold" size="sm" color="#C8972E">
+              Awaiting quote
+            </Text>
+            <Text weight="regular" size="sm" color="#6B7280">
+              Time TBD
+            </Text>
+          </View>
+        ) : (
+          <View style={styles.dateTimeContainer}>
+            <Text weight="semiBold" size="sm" color="#5299FE">
+              {booking.date}
+            </Text>
+            <Text weight="semiBold" size="sm" color="#5299FE">
+              {booking.time}
+            </Text>
+          </View>
+        )
+      ) : (
+        <View style={styles.historyInfoContainer}>
+          {/* Cancelled rows shouldn't fake a "Total Cost: $0.00" — many never
+              reached a confirmed quote (tire-quote requests abandoned in
+              pending_quote), so the dollar amount is meaningless. Show a
+              status pill instead, and label the date as "Cancelled On" when
+              one exists. */}
+          {booking.status === 'cancelled' ? (
+            <>
+              {booking.date ? (
+                <View style={styles.historyInfoRow}>
+                  <Text weight="regular" size="sm" color="#6B7280">
+                    Cancelled On
+                  </Text>
+                  <Text weight="semiBold" size="sm" color="#6B7280">
+                    {booking.date}
+                  </Text>
+                </View>
+              ) : null}
+              <View style={styles.historyInfoRow}>
+                <Text weight="regular" size="sm" color="#6B7280">
+                  Status
+                </Text>
+                <Text weight="semiBold" size="sm" color={STATUS_CONFIG.cancelled.textColor}>
+                  Not charged
+                </Text>
+              </View>
+            </>
+          ) : (
+            <>
+              <View style={styles.historyInfoRow}>
+                <Text weight="regular" size="sm" color="#6B7280">
+                  Completed On
+                </Text>
+                <Text weight="semiBold" size="sm" color="#5299FE">
+                  {booking.date}
+                </Text>
+              </View>
+              <View style={styles.historyInfoRow}>
+                <Text weight="regular" size="sm" color="#6B7280">
+                  Total Cost
+                </Text>
+                <View style={styles.historyTotalCostWrap}>
+                  {booking.disclosedRangeLowCents != null &&
+                    booking.disclosedRangeHighCents != null &&
+                    booking.disclosedRangeLowCents === booking.disclosedRangeHighCents && (
+                      <FixedPriceBadge size="sm" />
+                    )}
+                  <Text weight="semiBold" size="sm" color="#5299FE">
+                    ${booking.totalCost?.toFixed(2) || '0.00'}
+                  </Text>
+                </View>
+              </View>
+            </>
+          )}
+        </View>
+      )}
+
+      {/* Held-up notice. Sits above the pickup row because "we can't finish
+          yet" is the more urgent fact — and if the car is blocked, a pickup
+          estimate is answering the wrong question. Renders nothing unless the
+          shop has flagged a hold the driver is meant to know about. */}
+      <JobBlockedNotice bookingId={String(booking.id)} />
+
+      {/* Pickup request status — appears once the customer has requested their
+          car back (vehicle_at_shop). Reflects the shop/mechanic's live response
+          so the round trip is visible right on the card. */}
+      {booking.status === 'vehicle_at_shop' && booking.pickupRequestedAtMs != null && (
+        <View
+          style={[
+            styles.pickupStatus,
+            { backgroundColor: pickupStatusView(booking.pickupResponse).bg },
+          ]}
+        >
+          <Text
+            weight="semiBold"
+            size="sm"
+            color={pickupStatusView(booking.pickupResponse).color}
+          >
+            {pickupStatusView(booking.pickupResponse).label}
+          </Text>
+        </View>
+      )}
+
+      {/* Actions Row. Once a booking is in service the user can no
+          longer cancel or reschedule because service is in flight at the shop. */}
+      {variant === 'upcoming' ? (
+        <View
+          style={styles.actionsStack}
+          onLayout={(event) => setActionsRowWidth(event.nativeEvent.layout.width)}
+          pointerEvents={isCancelling ? 'none' : 'auto'}
+        >
+          <Pressable
+            ref={primaryBtnRef}
+            onPress={handleViewDetails}
+            disabled={isCancelling}
+            style={({ pressed }) => [
+              styles.primaryButton,
+              styles.primaryButtonFull,
+              pressed && styles.buttonPressed,
+            ]}
+          >
+            <Text
+              weight="semiBold"
+              size={actionButtonLabelSize}
+              color="#FFFFFF"
+              numberOfLines={1}
+              lineHeight={1.2}
+              style={styles.actionButtonLabel}
+            >
+              {booking.status === 'pending_customer_acceptance'
+                ? 'Review change'
+                : 'View Details'}
+            </Text>
+          </Pressable>
+
+          {/* Cancel / Reschedule are governed by the phase policy (actions):
+              in_progress → Message shop; terminal → nothing; vehicle_at_shop →
+              Request pickup + Contact shop; otherwise Cancel + Reschedule. */}
+          {actions.blockedReason === 'work_in_progress' ? (
+            <View style={styles.actionsRow}>
+              <Pressable
+                onPress={handleMessageShop}
+                style={({ pressed }) => [
+                  styles.secondaryButton,
+                  pressed && styles.buttonPressed,
+                ]}
+              >
+                <Text
+                  weight="semiBold"
+                  size={actionButtonLabelSize}
+                  color="#1F2937"
+                  numberOfLines={1}
+                  lineHeight={1.2}
+                  style={styles.actionButtonLabel}
+                >
+                  Message shop
+                </Text>
+              </Pressable>
+            </View>
+          ) : (actions.canCancel || actions.canReschedule) ? (
+            writeActionsAllowed ? (
+              <View style={styles.actionsRow}>
+                {actions.canCancel && (
+                  <Pressable
+                    onPress={handleCancelBooking}
+                    disabled={isCancelling || pickupAlreadyRequested}
+                    style={({ pressed }) => [
+                      styles.cancelButton,
+                      pickupAlreadyRequested && styles.cancelButtonRequested,
+                      pressed && !pickupAlreadyRequested && styles.buttonPressed,
+                    ]}
+                  >
+                    <Text
+                      weight="semiBold"
+                      size={actionButtonLabelSize}
+                      color={pickupAlreadyRequested ? '#6B7280' : '#DC2626'}
+                      numberOfLines={1}
+                      lineHeight={1.2}
+                      style={styles.actionButtonLabel}
+                    >
+                      {pickupAlreadyRequested
+                        ? 'Pickup requested'
+                        : actions.cancelKind === 'request_shop'
+                          ? 'Request pickup'
+                          : 'Cancel Booking'}
+                    </Text>
+                  </Pressable>
+                )}
+
+                {actions.canReschedule && (
+                  <Pressable
+                    onPress={handleReschedule}
+                    disabled={isCancelling}
+                    style={({ pressed }) => [
+                      styles.secondaryButton,
+                      pressed && styles.buttonPressed,
+                    ]}
+                  >
+                    <Text
+                      weight="semiBold"
+                      size={actionButtonLabelSize}
+                      color="#1F2937"
+                      numberOfLines={1}
+                      lineHeight={1.2}
+                      style={styles.actionButtonLabel}
+                    >
+                      {actions.rescheduleKind === 'free'
+                        ? 'Reschedule'
+                        : 'Contact shop'}
+                    </Text>
+                  </Pressable>
+                )}
+              </View>
+            ) : (
+              <OfflineActionsNotice />
+            )
+          ) : null}
+        </View>
+      ) : (
+        <View style={styles.actionsRow}>
+          <Pressable
+            onPress={handleDownloadPdf}
+            style={({ pressed }) => [
+              styles.iconButton,
+              pressed && styles.buttonPressed,
+            ]}
+          >
+            <FileText size={20} color="#1F2937" strokeWidth={1.5} />
+          </Pressable>
+          
+          <Pressable
+            onPress={handleToggleFavorite}
+            style={({ pressed }) => [
+              styles.iconButton,
+              pressed && styles.buttonPressed,
+            ]}
+          >
+            <Star size={20} color="#1F2937" strokeWidth={1.5} />
+          </Pressable>
+
+          <View style={{ flex: 1 }} />
+          
+          <Pressable
+            onPress={handleViewDetails}
+            style={({ pressed }) => [
+              styles.filledButton,
+              pressed && styles.buttonPressed,
+            ]}
+          >
+            <Text weight="semiBold" size="sm" color="#FFFFFF">
+              View Receipt
+            </Text>
+          </Pressable>
+        </View>
+      )}
+    </Animated.View>
+  );
+}
+
+// ============================================================================
+// STYLES
+// ============================================================================
+
+const styles = StyleSheet.create({
+  card: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  idLine: {
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    marginBottom: 4,
+  },
+  titleRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  servicesContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    minWidth: 0,
+  },
+  // Lets a long service name ellipsize instead of overflowing into the
+  // status badge; the "+N More" suffix and badge keep their full width.
+  mainServiceText: {
+    flexShrink: 1,
+  },
+  statusBadge: {
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+    borderRadius: 20,
+    flexShrink: 0,
+    marginLeft: 8,
+  },
+  // Unread Message Shop count — blue to match the message feature's accent
+  // (MessageShopSheet's unread dot), sits left of the status badge.
+  unreadBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 5,
+    paddingHorizontal: 9,
+    borderRadius: 20,
+    backgroundColor: '#5299FE',
+    flexShrink: 0,
+    marginLeft: 8,
+  },
+  pickupStatus: {
+    marginBottom: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+  },
+  strikethrough: {
+    textDecorationLine: 'line-through',
+  },
+  infoRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  carInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    minWidth: 0,
+  },
+  carImage: {
+    width: 50,
+    height: 32,
+    marginRight: 8,
+  },
+  carPlaceholder: {
+    width: 36,
+    height: 36,
+    marginRight: 8,
+    borderRadius: 18,
+    backgroundColor: '#E5E7EB',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  carDetails: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  mechanicInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    minWidth: 0,
+  },
+  mechanicImage: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    marginRight: 8,
+  },
+  mechanicPlaceholder: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    marginRight: 8,
+    backgroundColor: '#E5E7EB',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  mechanicDetails: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  dateTimeContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  historyInfoContainer: {
+    marginBottom: 16,
+  },
+  historyInfoRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  historyTotalCostWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  actionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: ACTION_BUTTON_GAP,
+  },
+  actionsStack: {
+    gap: ACTION_BUTTON_GAP,
+  },
+  actionButtonLabel: {
+    textAlign: 'center',
+  },
+  // Upcoming-variant action buttons. flexBasis: 0 + flexGrow: 1 + minWidth: 0
+  // forces equal widths regardless of label length — `flex: 1` alone can let
+  // the longer-label button (e.g. "Cancel Booking") win an extra few pixels
+  // off intrinsic text width. Same pattern is mirrored in PendingQuoteCard.
+  primaryButton: {
+    flexBasis: 0,
+    flexGrow: 1,
+    flexShrink: 1,
+    minWidth: 0,
+    height: 48,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    backgroundColor: '#5299FE',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  primaryButtonFull: {
+    flexBasis: 'auto',
+    flexGrow: 0,
+    width: '100%',
+  },
+  secondaryButton: {
+    flexBasis: 0,
+    flexGrow: 1,
+    flexShrink: 1,
+    minWidth: 0,
+    height: 48,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cancelButtonRequested: {
+    borderColor: '#E5E7EB',
+    backgroundColor: '#F9FAFB',
+  },
+  cancelButton: {
+    flexBasis: 0,
+    flexGrow: 1,
+    flexShrink: 1,
+    minWidth: 0,
+    height: 48,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    backgroundColor: '#FEF2F2',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  // History-variant: small "View Details" pill next to icon buttons.
+  filledButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    backgroundColor: '#5299FE',
+  },
+  iconButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    backgroundColor: '#FFFFFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  buttonPressed: {
+    opacity: 0.7,
+  },
+});
+
+export default BookingCard;

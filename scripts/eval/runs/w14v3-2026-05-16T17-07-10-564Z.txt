@@ -1,0 +1,15 @@
+========================================================================
+Wave 1.4 v3 — programmatic cases — w14v3-2026-05-16T17-07-10-564Z
+mode=mock  repeats=1  category=d  cases=3
+========================================================================
+
+(d) Cross-tenant read  [Day 4]
+------------------------------------------------------------------------
+  PASS  crosstenant-d-001  pass=1/1 (100.0% [20.7..100.0])
+         mode=mock tier=T1 (exp T1) tag=false (exp false) web=false (exp false) assertions=true
+  PASS  crosstenant-d-002  pass=1/1 (100.0% [20.7..100.0])
+         mode=mock tier=T2_HASH (exp T2_HASH) tag=false (exp false) fact.render_tag=false assertions=true
+  PASS  crosstenant-d-003  pass=1/1 (100.0% [20.7..100.0])
+         mode=mock tier=T2_HASH (exp T2_HASH) tag=true (exp true) fact.render_tag=true assertions=true
+========================================================================
+Overall: 3/3 cases passing all repeats

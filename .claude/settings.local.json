@@ -1,0 +1,41 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(done)",
+      "Bash(ls -la \"/c/Users/manso/Desktop/otopair-1/app/\\(main-tabs\\)/\")",
+      "Bash(ls -la \"/c/Users/manso/Desktop/otopair-1/app/\\(main-tabs\\)/settings/\")",
+      "Bash(npx tsc --noEmit --pretty)",
+      "Bash(python -c \"from fpdf import FPDF; print\\(''fpdf available''\\)\")",
+      "Bash(python -c \"from reportlab.lib.pagesizes import letter; print\\(''reportlab available''\\)\")",
+      "Bash(\"C:\\\\Users\\\\manso\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python313\\\\python.exe\" -c \":*)",
+      "Bash(\"C:\\\\Users\\\\manso\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python313\\\\python.exe\" \"c:\\\\Users\\\\manso\\\\Desktop\\\\otopair-1\\\\.claude\\\\generate_pipeline_pdf.py\")",
+      "Bash(node test-pipeline.mjs)",
+      "Bash(npx convex run \"vehicle_mutations:getEngineSpecs\" \"{\"\"engineId\"\":\"\"j9709r5srb05tyqf1prkvzc4rn824y5k\"\"}\")",
+      "Bash(npx convex run \"vehicle_mutations:listAllServices\" \"{}\")",
+      "Bash(npx convex run \"vehicle_specs:list\" \"{}\")",
+      "Bash(npx convex run seed:seed)",
+      "mcp__505f5015-f542-42df-98c9-c0cdfedc73e3__documents_search",
+      "Bash(ls -la /c/Users/manso/Desktop/otopair-1/convex/*.ts)",
+      "mcp__505f5015-f542-42df-98c9-c0cdfedc73e3__documents_list",
+      "Bash(node scripts/migrate-to-temurbek.js --dry-run)",
+      "Bash(node scripts/migrate-to-temurbek.js)",
+      "Bash(git fetch:*)",
+      "Bash(head -1083 convex/schema.ts)",
+      "Bash(tail -n +2272 convex/schema.ts)",
+      "Bash(mv convex/schema.ts.tmp convex/schema.ts)",
+      "Bash(npx tsc:*)",
+      "mcp__claude_ai_Otopair_Convex_MCP__query_by_index",
+      "Bash(git rm *)",
+      "Bash(git add *)",
+      "Bash(sed -n '70,73p' /Users/temurbeksayfutdinov/Documents/AppFlowStudios/otopair/hooks/useCreateBookingConvex.ts)",
+      "Bash(sed -n '748,752p' /Users/temurbeksayfutdinov/Documents/AppFlowStudios/otopair/stores/useBookingStore.ts)",
+      "mcp__claude_ai_Otopair_Convex_MCP__list_tables",
+      "Read(//Users/temurbeksayfutdinov/Documents/AppFlowStudios/otopair-web/convex/**)",
+      "mcp__claude_ai_Otopair_Convex_MCP__get_doc",
+      "Bash(cp /Users/temurbeksayfutdinov/Documents/AppFlowStudios/otopair/ai_feedback.ts /Users/temurbeksayfutdinov/Documents/AppFlowStudios/otopair-web/convex/ai_feedback.ts)",
+      "Bash(cp /Users/temurbeksayfutdinov/Documents/AppFlowStudios/otopair/oto/bookings.ts /Users/temurbeksayfutdinov/Documents/AppFlowStudios/otopair-web/convex/oto/bookings.ts)",
+      "Bash(awk '/^export const|^export async function|^async function|^function/ {last=NR\" \"$0} NR==8067 {print last; exit}' convex/bookings.ts)",
+      "Bash(git ls-tree *)"
+    ]
+  }
+}

@@ -1,0 +1,49 @@
+# OtoPair — .claudeignore
+# Prevents Claude from wasting tokens on large/irrelevant files
+
+# Dependencies
+node_modules/
+
+# Expo build artifacts
+.expo/
+dist/
+build/
+android/
+ios/
+
+# Convex auto-generated (never edit these)
+convex/_generated/
+
+# Git worktrees (Claude Code managed)
+.claude/worktrees/
+
+# Assets (binary files)
+assets/fonts/**/*.ttf
+assets/images/**/*.png
+assets/images/**/*.jpg
+assets/images/**/*.gif
+assets/animations/**/*.json
+
+# PDFs (generated docs)
+*.pdf
+
+# IDE / OS
+.vscode/
+.cursor/
+*.swp
+.DS_Store
+
+# Environment
+.env
+.env.local
+.env.production
+
+# Lock files
+package-lock.json
+
+# Seed data
+*.jsonl
+
+# Cache
+__pycache__/
+*.pyc

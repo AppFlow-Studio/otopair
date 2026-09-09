@@ -1,4 +1,5 @@
 import { Colors, Spacing, type SpacingKey } from '@/constants/theme';
+import { resolveThemeColorScheme } from '@/constants/themeColorScheme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import React from 'react';
 import {
@@ -70,7 +71,7 @@ export function Container({
     children,
     ...viewProps
 }: ContainerProps) {
-    const colorScheme = useColorScheme() ?? 'light';
+    const colorScheme = resolveThemeColorScheme(useColorScheme());
 
     // Determine background color
     let bgColor = backgroundColor;
@@ -119,12 +120,17 @@ export function ScreenContainer(props: Omit<ContainerProps, 'safe' | 'flex'>) {
     return <Container safe flex={1} {...props} />;
 }
 
+/** Screen container with no safe area and full flex */
+export function FullScreenContainer(props: Omit<ContainerProps, 'safe' | 'flex'>) {
+    return <Container  flex={1} {...props} />;
+}
+
 /** Card container with padding and rounded corners */
 export function Card({
     style,
     ...props
 }: Omit<ContainerProps, 'padding'> & { padding?: SpacingKey | number }) {
-    const colorScheme = useColorScheme() ?? 'light';
+    const colorScheme = resolveThemeColorScheme(useColorScheme());
 
     return (
         <Container
@@ -163,7 +169,7 @@ export function Divider({
     thickness?: number;
     marginVertical?: SpacingKey | number;
 }) {
-    const colorScheme = useColorScheme() ?? 'light';
+    const colorScheme = resolveThemeColorScheme(useColorScheme());
     const dividerColor = color ?? (colorScheme === 'dark' ? '#2D3339' : '#E5E7EB');
     const margin = resolveSpacing(marginVertical);
 

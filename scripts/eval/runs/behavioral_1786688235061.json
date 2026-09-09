@@ -1,0 +1,408 @@
+{
+ "ran_at": "2026-08-14T06:17:15.060Z",
+ "target_email": "mansourwaleed06@gmail.com",
+ "repeat": 5,
+ "total": 2,
+ "passed": 1,
+ "failed": 1,
+ "skipped_count": 8,
+ "failed_cases": [
+  {
+   "name": "polite_exit_after_vague_narrowing",
+   "failures": [
+    "rep3: turn 3: missing tool \"render_book_service\" (saw: update_conversation_state,render_quick_replies)",
+    "rep5: turn 2: missing tool \"update_conversation_state\" (saw: render_quick_replies)",
+    "rep5: turn 3: missing tool \"render_book_service\" (saw: update_conversation_state,render_quick_replies)"
+   ]
+  }
+ ],
+ "results": [
+  {
+   "name": "polite_exit_after_vague_narrowing",
+   "description": "Symptom routing safety valve: when narrowing fails to converge after several vague exchanges, fire render_book_service with diagnostic_scan + diagnostic_system='not_sure' (per the polite-exit rule). Sprint 4 Day 1 Pass B §4 dispatch (booking-flow consolidation; render_book_service). RE-AUTHORED + RE-ENABLED 2026-08-14: originally 6 turns for the threshold-4 era, and DISABLED because the polite-exit counter sat inside the skipPersist gate — the harness could never increment it, so the block never fired and the case could never pass. The counter now runs on harness turns and POLITE_EXIT_THRESHOLD=2 enforces the three-state deadline server-side: two unconverged question-turns, the third turn carries <polite_exit_required> and must conclude.",
+   "passed": false,
+   "failures": [
+    "rep3: turn 3: missing tool \"render_book_service\" (saw: update_conversation_state,render_quick_replies)",
+    "rep5: turn 2: missing tool \"update_conversation_state\" (saw: render_quick_replies)",
+    "rep5: turn 3: missing tool \"render_book_service\" (saw: update_conversation_state,render_quick_replies)"
+   ],
+   "runs": [
+    {
+     "rep": 1,
+     "turns": [
+      {
+       "user": "Something feels weird with my car",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "Got it — a weird feeling is worth digging into. Let me ask one thing to narrow it down: what does the weird feeling show up as?"
+      },
+      {
+       "user": "Hard to say, just doesn't feel right",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "Got it — when you say doesn't feel right, are we talking about how it drives (steering, acceleration, braking), a noise you're hearing, something on the dashboard, or would you rather just have a mechanic take a look?"
+      },
+      {
+       "user": "Maybe when driving, sometimes when stopping, I dunno",
+       "tools": [
+        "get_vehicle_health",
+        "update_conversation_state",
+        "render_book_service"
+       ],
+       "branch": "terminal",
+       "text": "Your maintenance records are all on time, but there's a temperature / overheating warning light flagged on your car — that's the one thing I'm seeing that could explain something feeling off. A mechanic needs to look at that to see what's actually going on, whether it's a sensor reading high or something more serious developing.\n\nLet me book you a Diagnostic Scan so a mechanic can plug in and confirm what the car is logging."
+      }
+     ],
+     "failures": []
+    },
+    {
+     "rep": 2,
+     "turns": [
+      {
+       "user": "Something feels weird with my car",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "I hear you — let's narrow it down. What specifically feels off? For instance, is it something you're hearing, feeling (like a vibration or how it handles), seeing on the dash, or something else?"
+      },
+      {
+       "user": "Hard to say, just doesn't feel right",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "Got it — that's the trickiest kind to pin down. Let me ask one thing to get us in the ballpark:\n\nWhen you're driving, is the weirdness more about how it moves (acceleration, braking, handling), how it sounds (engine noise, grinding, squealing), or something on the dashboard (warning lights, gauges doing odd things)?"
+      },
+      {
+       "user": "Maybe when driving, sometimes when stopping, I dunno",
+       "tools": [
+        "get_vehicle_health",
+        "update_conversation_state",
+        "render_book_service"
+       ],
+       "branch": "terminal",
+       "text": "I hear you — \"sometimes when stopping\" gives me something to work with. Let me check your service history and get you booked with a mechanic who can actually see what's going on."
+      }
+     ],
+     "failures": []
+    },
+    {
+     "rep": 3,
+     "turns": [
+      {
+       "user": "Something feels weird with my car",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "I hear you — let's figure out what's going on. To narrow it down, I need a bit more detail.\n\nIs it something you're hearing (a noise), feeling (vibration, soft pedal, pulling), seeing (a warning light), or just the car not driving like it normally does?"
+      },
+      {
+       "user": "Hard to say, just doesn't feel right",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "Got it — that vague \"something's off\" feeling is exactly what we need to pin down. Let me ask one thing to narrow it: what does \"not right\" look like? Is it how it drives (rough acceleration, sluggish, pulling), how it sounds (ticking, grinding, rattling), how it feels (steering, pedals, vibration), or something with the dashboard (lights, gauges)?"
+      },
+      {
+       "user": "Maybe when driving, sometimes when stopping, I dunno",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "Got it — so something feels off when you're driving or stopping. That's helpful. Let me narrow it a bit more: when you say it doesn't feel right, what do you notice? Is it:\n\n- The car pulling or veering to one side?\n- The brakes feeling soft or spongy when you press them?\n- The ride feeling bumpy or stiff?\n- Something else about how it handles?"
+      }
+     ],
+     "failures": [
+      "turn 3: missing tool \"render_book_service\" (saw: update_conversation_state,render_quick_replies)"
+     ]
+    },
+    {
+     "rep": 4,
+     "turns": [
+      {
+       "user": "Something feels weird with my car",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "Got it — let's narrow down what's going on. Can you give me a bit more to work with? Is it something you're hearing, feeling when you drive, seeing on the dashboard, or something else?"
+      },
+      {
+       "user": "Hard to say, just doesn't feel right",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "I hear you — that vague \"something's off\" feeling is worth taking seriously. Let me ask one thing to help narrow it down: when does it happen? Like, does it feel weird when you're just cruising, or when you hit the brakes, or when you accelerate? Or is it all the time?"
+      },
+      {
+       "user": "Maybe when driving, sometimes when stopping, I dunno",
+       "tools": [
+        "update_conversation_state",
+        "render_book_service"
+       ],
+       "branch": "terminal",
+       "text": "I hear you — it's one of those hard-to-pin-down ones. Let me get a real mechanic's eyes on it. I'm going to set up a Diagnostic Scan so someone can put the car on the lift and figure out what's actually going on. You'll describe this same way to them and they'll have tools to dig deeper."
+      }
+     ],
+     "failures": []
+    },
+    {
+     "rep": 5,
+     "turns": [
+      {
+       "user": "Something feels weird with my car",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "I hear you — let's figure out what's going on. Can you describe the weirdness a bit more? Things like: does the car feel different when you drive it, is there a noise, a warning light, or something else? Just give me what you're noticing."
+      },
+      {
+       "user": "Hard to say, just doesn't feel right",
+       "tools": [
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "Got it — that vague feeling is worth pinning down. Let me ask one thing to start narrowing: when does it feel off? Like when you're accelerating, braking, turning, or is it more just driving around in general?"
+      },
+      {
+       "user": "Maybe when driving, sometimes when stopping, I dunno",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "Got it — that's worth pinning down. When it happens during stopping, is the feeling in the brake pedal itself — like it's soft or spongy — or something else like the car pulling to one side, or the whole car shaking?"
+      }
+     ],
+     "failures": [
+      "turn 2: missing tool \"update_conversation_state\" (saw: render_quick_replies)",
+      "turn 3: missing tool \"render_book_service\" (saw: update_conversation_state,render_quick_replies)"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "book_service_polite_exit_not_sure",
+   "description": "Sprint 4 Day 1 Pass B §4 dispatch (booking-flow consolidation; render_book_service). Polite-exit safety valve: after 6 unconverged narrowing turns, Oto fires render_book_service with service_slugs=['diagnostic_scan'] + diagnostic_system='not_sure'. Tool-arg assertion proxied via text_contains 'diagnostic' (the runner has no tool-arg primitive). Replaces the prior polite_exit_after_vague_narrowing intent under the consolidated flow. NOTE: this case may inherit the same disabled_reason as polite_exit_after_vague_narrowing (the diagnostic_turn_count counter is gated by skipPersist in chat.ts and the harness defaults skipPersist=true; the 6th-turn polite-exit envelope block never fires under harness conditions). Disabling explicitly with the same reason as the legacy case so the migration is symmetric — re-enable once the counter is decoupled from skipPersist OR a pre_seed_mutations seed advances the counter. RE-AUTHORED + RE-ENABLED 2026-08-14: originally 6 turns for the threshold-4 era, and DISABLED because the polite-exit counter sat inside the skipPersist gate — the harness could never increment it, so the block never fired and the case could never pass. The counter now runs on harness turns and POLITE_EXIT_THRESHOLD=2 enforces the three-state deadline server-side: two unconverged question-turns, the third turn carries <polite_exit_required> and must conclude.",
+   "passed": true,
+   "failures": [],
+   "runs": [
+    {
+     "rep": 1,
+     "turns": [
+      {
+       "user": "Something feels weird with my car",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "I hear you — let's figure out what's going on. Help me narrow it down: what does \"weird\" feel like? Is it how the car drives (pulling, sluggish, rough), a noise, something you're seeing on the dash, or just a general vibe that's off?"
+      },
+      {
+       "user": "Hard to say, just doesn't feel right",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "I hear you — that's tough when you can't quite put your finger on it. Let me ask one thing to narrow it down: does the weirdness happen while you're driving, when you're starting it up, or is it more something you notice when the car's parked?"
+      },
+      {
+       "user": "I really cannot pin it down, could be anything",
+       "tools": [
+        "get_vehicle_health",
+        "update_conversation_state",
+        "render_book_service"
+       ],
+       "branch": "terminal",
+       "text": "I hear you — that vague \"something's off\" feeling is actually the right time for a mechanic to look. Let me check your car's service history, then we'll get you booked."
+      }
+     ],
+     "failures": []
+    },
+    {
+     "rep": 2,
+     "turns": [
+      {
+       "user": "Something feels weird with my car",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "I can help you narrow that down. A few quick things help me figure out what's going on:\n\nDoes the car feel weird when you're driving, or is it something you notice at startup or when parked?"
+      },
+      {
+       "user": "Hard to say, just doesn't feel right",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "Got it — that vague feeling is worth pinning down. I need one thing to narrow it: when does it happen? Like when you're accelerating, braking, turning, sitting at a stop, or is it more of an all-the-time thing?"
+      },
+      {
+       "user": "I really cannot pin it down, could be anything",
+       "tools": [
+        "get_vehicle_health",
+        "update_conversation_state",
+        "render_book_service"
+       ],
+       "branch": "terminal",
+       "text": "All your routine maintenance is on time — oil, brakes, tires, battery all solid. But I'm seeing one flag in your car's known issues: a temperature / overheating warning light. That could be what you're picking up on — the car feels off because something's heating up.\n\nA Diagnostic Scan will plug in and read what's actually going on. That'll tell the mechanic whether it's the temperature sensor itself, coolant level, thermostat, or something in the cooling system. Let's get that booked."
+      }
+     ],
+     "failures": []
+    },
+    {
+     "rep": 3,
+     "turns": [
+      {
+       "user": "Something feels weird with my car",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "I hear you — let's figure out what's going on. To narrow it down, I need to know what \"weird\" feels like. \n\nIs it a sound, a feeling (like pulling or vibration), a dashboard light, or something else?"
+      },
+      {
+       "user": "Hard to say, just doesn't feel right",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "Got it — vague is tough to narrow from, but we can work through it. A few directions it could be:\n\nIs the issue more about how it drives (acceleration, handling, responsiveness), what you hear (noises, sounds), what you see (lights, gauges), or physical feel (vibration, pedal feedback)?"
+      },
+      {
+       "user": "I really cannot pin it down, could be anything",
+       "tools": [
+        "update_conversation_state",
+        "render_book_service"
+       ],
+       "branch": "terminal",
+       "text": "I hear you — when it's that vague, a mechanic needs to see it. I'm setting up a Diagnostic Scan so they can figure out what's actually going on."
+      }
+     ],
+     "failures": []
+    },
+    {
+     "rep": 4,
+     "turns": [
+      {
+       "user": "Something feels weird with my car",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "I hear you. To narrow it down: what does \"weird\" feel like? Is it a sound, something with how it drives, a dashboard light, or something else?"
+      },
+      {
+       "user": "Hard to say, just doesn't feel right",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "Got it. One thing at a time to narrow it down: is it a sound, a handling/feel issue, or something on the dashboard?"
+      },
+      {
+       "user": "I really cannot pin it down, could be anything",
+       "tools": [
+        "update_conversation_state",
+        "render_book_service"
+       ],
+       "branch": "terminal",
+       "text": "I hear you — sometimes \"something feels off\" is hard to nail down. Let me get a mechanic on this."
+      }
+     ],
+     "failures": []
+    },
+    {
+     "rep": 5,
+     "turns": [
+      {
+       "user": "Something feels weird with my car",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "What's the weirdness feel like? Engine noise, handling, something else?"
+      },
+      {
+       "user": "Hard to say, just doesn't feel right",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "I need one more detail to narrow this down. When you say it doesn't feel right — is it the handling (steering, turning, stability), the engine (power, smoothness, noise), or the brakes (pedal feel, responsiveness)?"
+      },
+      {
+       "user": "I really cannot pin it down, could be anything",
+       "tools": [
+        "update_conversation_state",
+        "render_book_service"
+       ],
+       "branch": "terminal",
+       "text": "I'll get a mechanic to take a proper look. Setting up a Diagnostic Scan now."
+      }
+     ],
+     "failures": []
+    }
+   ]
+  }
+ ],
+ "skipped": [
+  {
+   "name": "battery_self_reported_triggers_record_confirmation",
+   "reason": "0/10 at N=10 on v0.51+v0.22 even with the Example 19 battery arc. Two causes: (1) cold-morning slow-crank is a softer elimination-test contradiction than squeal-after-new-pads (a plausible innocent cold-weather reading exists), so the model explains or narrows instead of gating; (2) one rep DID fire the card but failed the per-turn get_vehicle_health assertion because the read happened a turn earlier — the tools_called_across_turns runner primitive (Sprint 3 carryover) is needed to assert this case fairly. Re-enable after the polite-exit turn-3 termination follow-up + the cross-turn primitive. The brake gate case carries the elimination-test coverage meanwhile (~65-80%)."
+  },
+  {
+   "name": "cat_m_communication_style_outranks_history_anchor",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass)"
+  },
+  {
+   "name": "cat_m_fresh_outranks_stale_within_same_type",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass); also requires Sprint 3 test-helper mutation to stage stale last_reinforced"
+  },
+  {
+   "name": "cat_m_retracted_fact_does_not_surface",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass); also requires Sprint 3 pre_seed_mutations result-threading OR a retract-by-payload-substring mutation"
+  },
+  {
+   "name": "cat_m_vehicle_quirk_surfaces_for_vehicle_owner",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass)"
+  },
+  {
+   "name": "cat_m_no_seeded_rows_envelope_omits_recent_context",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass)"
+  },
+  {
+   "name": "cat_m_top_K_cap_enforced_at_5",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass); assertion fragile if equivalence-v2 collapses overlapping seeds — review on first run"
+  },
+  {
+   "name": "cat_m_adversarial_fact_does_not_surface_in_envelope",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass); threat model contestable — sanitizer at write blocks current attack surface, this is for future bypass paths"
+  }
+ ]
+}

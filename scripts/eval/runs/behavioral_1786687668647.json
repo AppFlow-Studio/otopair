@@ -1,0 +1,228 @@
+{
+ "ran_at": "2026-08-14T06:07:48.646Z",
+ "target_email": "mansourwaleed06@gmail.com",
+ "repeat": 3,
+ "total": 2,
+ "passed": 0,
+ "failed": 2,
+ "skipped_count": 8,
+ "failed_cases": [
+  {
+   "name": "book_service_single_diagnostic",
+   "failures": [
+    "rep1: turn 2: missing tool \"render_book_service\" (saw: update_conversation_state,render_record_confirmation)",
+    "rep1: turn 2: judge: The response deflects by asking a redundant clarification question instead of confirming it is setting up/starting the diagnostic booking the user requested.",
+    "rep2: turn 1: missing tool \"update_conversation_state\" (saw: render_quick_replies)",
+    "rep2: turn 2: missing tool \"render_book_service\" (saw: update_conversation_state)",
+    "rep2: turn 2: branch \"text_only\" !== \"terminal\"",
+    "rep2: turn 2: judge: The response asks a clarifying question rather than confirming it is setting up/starting the diagnostic booking. While gathering information is reasonable, the criteria requires confirmation that the booking process is being initiated, not just asking for more details before proceeding.",
+    "rep3: turn 2: judge: The response does not confirm that the diagnostic booking is being set up or started. It only asks the user to review and confirm, which is a deflection of the actual setup/start action. The assistant should affirmatively state it is setting up or starting the booking, not just asking the user to pr"
+   ]
+  },
+  {
+   "name": "book_service_multi_bundle",
+   "failures": [
+    "rep1: turn 1: judge: The response does not explicitly confirm that both the oil change AND tire rotation are included in the single booking. It only references \"details\" without specifying that both services are covered together.",
+    "rep2: turn 1: judge: The response does not explicitly confirm that both the oil change AND tire rotation are included in the single booking. It only references \"details\" without specifying that both services are covered together.",
+    "rep3: turn 1: judge: The response does not explicitly confirm that both the oil change AND tire rotation are included in the single booking. It only references \"details\" without specifying that both services are covered together."
+   ]
+  }
+ ],
+ "results": [
+  {
+   "name": "book_service_single_diagnostic",
+   "description": "Sprint 4 Day 1 Pass B §4 dispatch (booking-flow consolidation; render_book_service). Single-service diagnostic-scan booking: user reports a symptom that converges on 'needs eyes-on' (multi-cause ambiguity); after Oto's narrowing turn, user confirms 'yes book a diagnostic'. Expect render_book_service fires as the SINGLE terminal booking surface with diagnostic-scan prefill. Booking-ask phrasing must avoid the BANNED 'pull up details' pattern (§1 Voice update).",
+   "passed": false,
+   "failures": [
+    "rep1: turn 2: missing tool \"render_book_service\" (saw: update_conversation_state,render_record_confirmation)",
+    "rep1: turn 2: judge: The response deflects by asking a redundant clarification question instead of confirming it is setting up/starting the diagnostic booking the user requested.",
+    "rep2: turn 1: missing tool \"update_conversation_state\" (saw: render_quick_replies)",
+    "rep2: turn 2: missing tool \"render_book_service\" (saw: update_conversation_state)",
+    "rep2: turn 2: branch \"text_only\" !== \"terminal\"",
+    "rep2: turn 2: judge: The response asks a clarifying question rather than confirming it is setting up/starting the diagnostic booking. While gathering information is reasonable, the criteria requires confirmation that the booking process is being initiated, not just asking for more details before proceeding.",
+    "rep3: turn 2: judge: The response does not confirm that the diagnostic booking is being set up or started. It only asks the user to review and confirm, which is a deflection of the actual setup/start action. The assistant should affirmatively state it is setting up or starting the booking, not just asking the user to pr"
+   ],
+   "runs": [
+    {
+     "rep": 1,
+     "turns": [
+      {
+       "user": "My brakes have been squealing pretty bad when I brake hard on the highway.",
+       "tools": [
+        "get_vehicle_health",
+        "update_conversation_state",
+        "render_record_confirmation"
+       ],
+       "branch": "terminal",
+       "text": "Your brakes are on-time with a service about 2 months back, so squealing on hard highway braking is worth confirming the record first. Our notes show brakes done ~2 months ago — is that still accurate?"
+      },
+      {
+       "user": "Yeah let's book a diagnostic, I want a mechanic to look at it.",
+       "tools": [
+        "update_conversation_state",
+        "render_record_confirmation"
+       ],
+       "branch": "terminal",
+       "text": "I need to pause here — before we book the diagnostic, I want to confirm the brake-service record is still solid. Our records show your brakes were serviced about 2 months ago. Is that still accurate?"
+      }
+     ],
+     "failures": [
+      "turn 2: missing tool \"render_book_service\" (saw: update_conversation_state,render_record_confirmation)",
+      "turn 2: judge: The response deflects by asking a redundant clarification question instead of confirming it is setting up/starting the diagnostic booking the user requested."
+     ]
+    },
+    {
+     "rep": 2,
+     "turns": [
+      {
+       "user": "My brakes have been squealing pretty bad when I brake hard on the highway.",
+       "tools": [
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "I'm going to narrow this down with one question to route you right."
+      },
+      {
+       "user": "Yeah let's book a diagnostic, I want a mechanic to look at it.",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "I'd be happy to help, but I need a bit more context — what symptom or concern are you wanting the mechanic to look at? That way I can prefill the diagnostic with the right details."
+      }
+     ],
+     "failures": [
+      "turn 1: missing tool \"update_conversation_state\" (saw: render_quick_replies)",
+      "turn 2: missing tool \"render_book_service\" (saw: update_conversation_state)",
+      "turn 2: branch \"text_only\" !== \"terminal\"",
+      "turn 2: judge: The response asks a clarifying question rather than confirming it is setting up/starting the diagnostic booking. While gathering information is reasonable, the criteria requires confirmation that the booking process is being initiated, not just asking for more details before proceeding."
+     ]
+    },
+    {
+     "rep": 3,
+     "turns": [
+      {
+       "user": "My brakes have been squealing pretty bad when I brake hard on the highway.",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "I'll narrow this down quickly. When you hit the brakes hard on the highway, does the squeal happen right away or after you're already mid-stop? And does it stick around the whole time you're braking, or fade partway through?"
+      },
+      {
+       "user": "Yeah let's book a diagnostic, I want a mechanic to look at it.",
+       "tools": [
+        "get_vehicle_health",
+        "update_conversation_state",
+        "render_book_service"
+       ],
+       "branch": "terminal",
+       "text": "Everything's set up — review the details and confirm when you're ready to book."
+      }
+     ],
+     "failures": [
+      "turn 2: judge: The response does not confirm that the diagnostic booking is being set up or started. It only asks the user to review and confirm, which is a deflection of the actual setup/start action. The assistant should affirmatively state it is setting up or starting the booking, not just asking the user to pr"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "book_service_multi_bundle",
+   "description": "Sprint 4 Day 1 Pass B §4 dispatch (booking-flow consolidation; render_book_service). Multi-service bundle: user explicitly asks to bundle an oil change and a tire rotation. Oto fires render_book_service ONCE with service_slugs=['oil_change','tire_rotation'] (the bookings.service_ids array already supports multi-service per §4 schema check). Runner-caveat: array-arg values are unobservable; text_contains 'oil' AND 'tire' proxies that both services appear in Oto's framing.",
+   "passed": false,
+   "failures": [
+    "rep1: turn 1: judge: The response does not explicitly confirm that both the oil change AND tire rotation are included in the single booking. It only references \"details\" without specifying that both services are covered together.",
+    "rep2: turn 1: judge: The response does not explicitly confirm that both the oil change AND tire rotation are included in the single booking. It only references \"details\" without specifying that both services are covered together.",
+    "rep3: turn 1: judge: The response does not explicitly confirm that both the oil change AND tire rotation are included in the single booking. It only references \"details\" without specifying that both services are covered together."
+   ],
+   "runs": [
+    {
+     "rep": 1,
+     "turns": [
+      {
+       "user": "Can you book me an oil change and a tire rotation together?",
+       "tools": [
+        "update_conversation_state",
+        "render_book_service"
+       ],
+       "branch": "terminal",
+       "text": "Everything's set up — review the details and confirm when you're ready to book."
+      }
+     ],
+     "failures": [
+      "turn 1: judge: The response does not explicitly confirm that both the oil change AND tire rotation are included in the single booking. It only references \"details\" without specifying that both services are covered together."
+     ]
+    },
+    {
+     "rep": 2,
+     "turns": [
+      {
+       "user": "Can you book me an oil change and a tire rotation together?",
+       "tools": [
+        "update_conversation_state",
+        "render_book_service"
+       ],
+       "branch": "terminal",
+       "text": "Everything's set up — review the details and confirm when you're ready to book."
+      }
+     ],
+     "failures": [
+      "turn 1: judge: The response does not explicitly confirm that both the oil change AND tire rotation are included in the single booking. It only references \"details\" without specifying that both services are covered together."
+     ]
+    },
+    {
+     "rep": 3,
+     "turns": [
+      {
+       "user": "Can you book me an oil change and a tire rotation together?",
+       "tools": [
+        "update_conversation_state",
+        "render_book_service"
+       ],
+       "branch": "terminal",
+       "text": "Everything's set up — review the details and confirm when you're ready to book."
+      }
+     ],
+     "failures": [
+      "turn 1: judge: The response does not explicitly confirm that both the oil change AND tire rotation are included in the single booking. It only references \"details\" without specifying that both services are covered together."
+     ]
+    }
+   ]
+  }
+ ],
+ "skipped": [
+  {
+   "name": "battery_self_reported_triggers_record_confirmation",
+   "reason": "0/10 at N=10 on v0.51+v0.22 even with the Example 19 battery arc. Two causes: (1) cold-morning slow-crank is a softer elimination-test contradiction than squeal-after-new-pads (a plausible innocent cold-weather reading exists), so the model explains or narrows instead of gating; (2) one rep DID fire the card but failed the per-turn get_vehicle_health assertion because the read happened a turn earlier — the tools_called_across_turns runner primitive (Sprint 3 carryover) is needed to assert this case fairly. Re-enable after the polite-exit turn-3 termination follow-up + the cross-turn primitive. The brake gate case carries the elimination-test coverage meanwhile (~65-80%)."
+  },
+  {
+   "name": "cat_m_communication_style_outranks_history_anchor",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass)"
+  },
+  {
+   "name": "cat_m_fresh_outranks_stale_within_same_type",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass); also requires Sprint 3 test-helper mutation to stage stale last_reinforced"
+  },
+  {
+   "name": "cat_m_retracted_fact_does_not_surface",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass); also requires Sprint 3 pre_seed_mutations result-threading OR a retract-by-payload-substring mutation"
+  },
+  {
+   "name": "cat_m_vehicle_quirk_surfaces_for_vehicle_owner",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass)"
+  },
+  {
+   "name": "cat_m_no_seeded_rows_envelope_omits_recent_context",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass)"
+  },
+  {
+   "name": "cat_m_top_K_cap_enforced_at_5",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass); assertion fragile if equivalence-v2 collapses overlapping seeds — review on first run"
+  },
+  {
+   "name": "cat_m_adversarial_fact_does_not_surface_in_envelope",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass); threat model contestable — sanitizer at write blocks current attack surface, this is for future bypass paths"
+  }
+ ]
+}

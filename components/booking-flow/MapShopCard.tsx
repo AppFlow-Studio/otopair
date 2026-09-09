@@ -1,0 +1,180 @@
+/**
+ * MapShopCard — floating white card anchored over the map on Screen 3.
+ *
+ * Shows the default shop the booking will route through: name +
+ * chevron, ⭐ rating + distance, and estimated price range. Tap →
+ * shop detail page.
+ *
+ * Spec: ~/Downloads/<figma frames> Screen 3.
+ */
+
+import React from "react";
+import { Image, Platform, Pressable, StyleSheet, View } from "react-native";
+import { BlurView } from "expo-blur";
+import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
+import { ChevronRight, Star } from "lucide-react-native";
+
+import { Text } from "@/components/shared-ui";
+
+// OtoPair pin mark — placeholder for shops that haven't uploaded a logo.
+const SHOP_LOGO_PLACEHOLDER = require("@/assets/images/pin-logo-3d.png");
+
+interface MapShopCardProps {
+  shopId: string;
+  shopName: string;
+  /** Shop logo (shops.logo_storage_id resolved by shops.list). Renders a
+   *  small avatar before the name — the shop's logo when set, the OtoPair
+   *  pin placeholder when null. */
+  imageUrl?: string | null;
+  rating: number | null;
+  distanceMi: number;
+  priceRange: string | null; // e.g. "~$92 – $108", "$120" (fixed), "From $52" (labor only); null while loading
+  /** True when the price is a guaranteed fixed rate (no range) — swaps
+   *  the "Estimated price" eyebrow for "Fixed price". */
+  isFixed?: boolean;
+  /** True when a selected service needs parts but has NONE priced for this
+   *  vehicle (State 2). Swaps the eyebrow to "LABOR ESTIMATE" + amber badge;
+   *  `priceRange` is already a "From $X" floor from buildShopPriceLabel. */
+  isLaborOnly?: boolean;
+}
+
+export function MapShopCard({
+  shopId,
+  shopName,
+  imageUrl,
+  rating,
+  distanceMi,
+  priceRange,
+  isFixed = false,
+  isLaborOnly = false,
+}: MapShopCardProps) {
+  const router = useRouter();
+
+  return (
+    <Pressable
+      style={styles.card}
+      onPress={() =>
+        router.push({ pathname: "/booking/shop/[id]", params: { id: shopId } })
+      }
+      accessibilityRole="button"
+      accessibilityLabel={`${shopName} details`}
+    >
+      {Platform.OS === "ios" ? (
+        <BlurView
+          intensity={28}
+          tint="light"
+          style={StyleSheet.absoluteFill}
+          pointerEvents="none"
+        />
+      ) : null}
+      <View style={styles.topRow}>
+        <Image
+          source={imageUrl ? { uri: imageUrl } : SHOP_LOGO_PLACEHOLDER}
+          style={styles.logo}
+          resizeMode={imageUrl ? "cover" : "contain"}
+        />
+        <Text size="md" weight="bold" color="#0F172A" numberOfLines={1} style={styles.name}>
+          {shopName}
+        </Text>
+        <ChevronRight size={18} color="#9CA3AF" strokeWidth={2} />
+      </View>
+
+      <View style={styles.metaRow}>
+        {rating != null ? (
+          <>
+            <Star size={13} color="#F59E0B" fill="#F59E0B" strokeWidth={2} />
+            <Text size="xs" weight="medium" color="#4B5563">
+              {rating.toFixed(1)}
+            </Text>
+            <Text size="xs" weight="regular" color="#6B7280">
+              ·
+            </Text>
+          </>
+        ) : null}
+        <Text size="xs" weight="medium" color="#4B5563">
+          {formatMiles(distanceMi)} mi away
+        </Text>
+      </View>
+
+      <View style={styles.eyebrowRow}>
+        {/* Eyebrow only — the "Labor only" pill lives solely on the sheet's
+            ShopPage now, so it isn't duplicated across the map card too. */}
+        <Text size="xs" weight="semiBold" color="#6B7280" style={styles.eyebrow}>
+          {isLaborOnly ? "LABOR ESTIMATE" : isFixed ? "FIXED PRICE" : "ESTIMATED PRICE"}
+        </Text>
+      </View>
+      <View style={styles.priceRow}>
+        <Text size="xl" weight="bold" color="#0F172A" style={styles.price}>
+          {priceRange ?? "—"}
+        </Text>
+      </View>
+    </Pressable>
+  );
+}
+
+function formatMiles(miles: number): string {
+  if (miles < 0.1) return "less than 0.1";
+  if (miles < 10) return miles.toFixed(1);
+  return Math.round(miles).toString();
+}
+
+const styles = StyleSheet.create({
+  card: {
+    backgroundColor: "rgba(255, 255, 255, 0.65)",
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.85)",
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.16,
+    shadowRadius: 18,
+    elevation: 7,
+    minWidth: 240,
+    maxWidth: 320,
+    overflow: "hidden",
+  },
+  topRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+    marginBottom: 4,
+  },
+  name: {
+    flexShrink: 1,
+    flexGrow: 1,
+  },
+  logo: {
+    width: 30,
+    height: 30,
+    borderRadius: 8,
+    backgroundColor: "#F1F5F9",
+  },
+  metaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginBottom: 8,
+  },
+  eyebrowRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 2,
+  },
+  eyebrow: {
+    letterSpacing: 0.7,
+  },
+  priceRow: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  price: {
+    fontSize: 20,
+    lineHeight: 24,
+  },
+});

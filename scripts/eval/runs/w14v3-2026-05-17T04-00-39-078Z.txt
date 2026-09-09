@@ -1,0 +1,17 @@
+========================================================================
+Wave 1.4 v3 — programmatic cases — w14v3-2026-05-17T04-00-39-078Z
+mode=mock  repeats=1  category=h  cases=4
+========================================================================
+
+(h) Forensic completeness   [Wave 3 Day 4]
+------------------------------------------------------------------------
+  PASS  forensic-h-001  pass=1/1 (100.0% [20.7..100.0])
+         expected_throw=ROLE_INVARIANT actual=ROLE_INVARIANT audit_rows=0 (expected 0)
+  PASS  forensic-h-002  pass=1/1 (100.0% [20.7..100.0])
+         expected_throw=ROLE_INVARIANT actual=ROLE_INVARIANT audit_rows=0 (expected 0)
+  PASS  forensic-h-003  pass=1/1 (100.0% [20.7..100.0])
+         helper_ok=true audit_rows=1 (expected 1) envelope_ok=true (CI Rule 12 defends the negative direction)
+  PASS  forensic-h-004  pass=1/1 (100.0% [20.7..100.0])
+         first_ok=true second_expected_throw=DUPLICATE_TURN second_actual=DUPLICATE_TURN audit_rows=1 (expected 1)
+========================================================================
+Overall: 4/4 cases passing all repeats

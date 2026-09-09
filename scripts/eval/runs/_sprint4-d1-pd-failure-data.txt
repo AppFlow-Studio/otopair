@@ -1,0 +1,24 @@
+Loaded 103 cases (94 active, 9 disabled); filter="book_service_" -> 5 matched; REPEAT=3 (each case must pass all 3 attempts)
+Owned vehicles: 5; suffix index size: 60
+
+[1/5] book_service_single_diagnostic (0/3 PASS) ... FAIL
+    [attempt 1] turn 1: text_contains missing: "book"; text_not_contains hit: "pull that up"
+    [attempt 2] turn 1: text_contains missing: "book"
+    [attempt 3] turn 1: text_contains missing: "book"
+[2/5] book_service_single_routine (1/3 PASS) ... FAIL
+    [attempt 1] turn 0: tools_called missing: render_book_service (fired: get_due_services, update_conversation_state); branch expected terminal got text_only
+    [attempt 3] turn 0: text_contains missing: "oil"
+[3/5] book_service_multi_bundle (0/3 PASS) ... FAIL
+    [attempt 1] turn 0: text_contains missing: "oil"; text_contains missing: "tire"
+    [attempt 2] turn 0: text_contains missing: "oil"; text_contains missing: "tire"
+    [attempt 3] turn 0: text_contains missing: "oil"; text_contains missing: "tire"
+[4/5] book_service_diagnostic_phrasing_correct (0/3 PASS) ... FAIL
+    [attempt 1] turn 0: text_contains missing: "book"; text_contains missing: "diagnostic"
+    [attempt 2] turn 0: text_contains missing: "book"; text_contains missing: "diagnostic"
+    [attempt 3] turn 0: text_contains missing: "book"; text_not_contains hit: "pull up a diagnostic"
+[5/5] book_service_deprecated_tools_not_fired (3/3 PASS) ... PASS
+
+========================================================================
+OVERALL: 1/5 cases PASS (all 3 attempts)  (4 FAIL — at least one attempt failed, 9 skipped/disabled)
+========================================================================
+Full result: scripts/eval/runs/_run-eval-cases-result.json

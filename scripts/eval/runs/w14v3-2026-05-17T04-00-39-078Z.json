@@ -1,0 +1,95 @@
+{
+  "run_id": "w14v3-2026-05-17T04-00-39-078Z",
+  "started_at": "2026-05-17T04:00:39.078Z",
+  "completed_at": "2026-05-17T04:00:39.079Z",
+  "mode": "mock",
+  "repeats": 1,
+  "cases": [
+    {
+      "case_id": "forensic-h-001",
+      "category": "h",
+      "passed": true,
+      "notes": "expected_throw=ROLE_INVARIANT actual=ROLE_INVARIANT audit_rows=0 (expected 0)",
+      "details": {
+        "helper_result": {
+          "ok": false,
+          "thrown_code": "ROLE_INVARIANT",
+          "message": "role=assistant requires model_used"
+        }
+      },
+      "repeats": 1,
+      "passes": 1,
+      "pass_rate": 1,
+      "ciLow": 0.20654329147389294,
+      "ciHigh": 1
+    },
+    {
+      "case_id": "forensic-h-002",
+      "category": "h",
+      "passed": true,
+      "notes": "expected_throw=ROLE_INVARIANT actual=ROLE_INVARIANT audit_rows=0 (expected 0)",
+      "details": {
+        "helper_result": {
+          "ok": false,
+          "thrown_code": "ROLE_INVARIANT",
+          "message": "role=user must not carry model_used"
+        }
+      },
+      "repeats": 1,
+      "passes": 1,
+      "pass_rate": 1,
+      "ciLow": 0.20654329147389294,
+      "ciHigh": 1
+    },
+    {
+      "case_id": "forensic-h-003",
+      "category": "h",
+      "passed": true,
+      "notes": "helper_ok=true audit_rows=1 (expected 1) envelope_ok=true (CI Rule 12 defends the negative direction)",
+      "details": {
+        "helper_result": {
+          "ok": true,
+          "audit_id": "ca_1"
+        },
+        "audit_row": {
+          "audit_id": "ca_1",
+          "conversation_id": "ai_conv_eval_h003",
+          "turn_number": 1,
+          "role": "assistant",
+          "content": "Your oil capacity is 3.7 quarts.",
+          "model_used": "haiku",
+          "prompt_version": "v3.2.1",
+          "timestamp": 1778990439079
+        },
+        "ci_rule": "Rule 12"
+      },
+      "repeats": 1,
+      "passes": 1,
+      "pass_rate": 1,
+      "ciLow": 0.20654329147389294,
+      "ciHigh": 1
+    },
+    {
+      "case_id": "forensic-h-004",
+      "category": "h",
+      "passed": true,
+      "notes": "first_ok=true second_expected_throw=DUPLICATE_TURN second_actual=DUPLICATE_TURN audit_rows=1 (expected 1)",
+      "details": {
+        "first_result": {
+          "ok": true,
+          "audit_id": "ca_1"
+        },
+        "second_result": {
+          "ok": false,
+          "thrown_code": "DUPLICATE_TURN",
+          "message": "duplicate (conversation_id, turn_number, role) — append-only invariant violation"
+        }
+      },
+      "repeats": 1,
+      "passes": 1,
+      "pass_rate": 1,
+      "ciLow": 0.20654329147389294,
+      "ciHigh": 1
+    }
+  ]
+}

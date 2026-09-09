@@ -6,6 +6,7 @@ import {
     FontSize,
     Spacing,
 } from '@/constants/theme';
+import { resolveThemeColorScheme } from '@/constants/themeColorScheme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import React, { useState } from 'react';
 import {
@@ -87,7 +88,7 @@ export function Input({
     onBlur,
     ...inputProps
 }: InputProps) {
-    const colorScheme = useColorScheme() ?? 'light';
+    const colorScheme = resolveThemeColorScheme(useColorScheme());
     const [isFocused, setIsFocused] = useState(false);
 
     const sizeStyles = sizePresets[size];

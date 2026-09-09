@@ -1,0 +1,84 @@
+========================================================================
+Wave 5.1 eval — run 2026-05-16T14-25-27-460Z
+mode=live  repeats=10  queries=36  passed=0/36
+started=2026-05-16T14:25:27.460Z  completed=2026-05-16T14:25:44.592Z
+========================================================================
+
+Top-line metrics (excluding Cat F)
+------------------------------------------------------------------------
+  precision@3              0.0%
+  recall@5                 0.0%
+  MRR                      0.0%
+  tier_misclass_rate     100.0%
+    T1 -> T2_*             0.0%
+    T1 -> T3 (LOUD)        0.0%
+    T2_HASH -> STRUCT/TX   0.0%
+    T2_STRUCT -> TEXT      0.0%
+    T2_* -> T3 (LOUD)      0.0%
+  disclaim_tag_correct    75.0%
+    over_disclaim_rate     0.0%
+    under_disclaim_rate   25.0%  <- DIRECTIONAL FAILURE
+  refusal_violation_rate   0.0%
+
+Wave 5.3 graduation bar (composite acceptance)
+------------------------------------------------------------------------
+  FAIL  precision@3 ≥ 0.70
+  FAIL  recall@5 ≥ 0.80
+  FAIL  MRR ≥ 0.65
+  FAIL  tier_misclass ≤ 0.10
+  FAIL  disclaim_correct ≥ 0.95
+  FAIL  under_disclaim ≤ 0.02
+  PASS  refusal_violation ≤ 0.05
+
+Per-category breakdown
+------------------------------------------------------------------------
+  cat  n   p@3    r@5    mrr    tier-mis  tag-corr
+  A     4    0.0%   0.0%   0.0% 100.0%  100.0%
+  B     4    0.0%   0.0%   0.0% 100.0%  100.0%
+  C     4    0.0%   0.0%   0.0% 100.0%  100.0%
+  D     4    0.0%   0.0%   0.0% 100.0%  100.0%
+  E     4    0.0%   0.0%   0.0% 100.0%    0.0%
+  F     4    0.0%   0.0%   0.0%   0.0%  100.0%
+  G     4    0.0%   0.0%   0.0% 100.0%  100.0%
+  H     4    0.0%   0.0%   0.0% 100.0%  100.0%
+  I     4    0.0%   0.0%   0.0% 100.0%    0.0%
+
+Per-query pass-rates (N=10 repeats, 95% Wilson CI)
+------------------------------------------------------------------------
+  !! RAGEVAL-001 [A]  exp=T1       got=NONE      pass=0/10 (  0.0% [  0.0%.. 27.8%])  p@3=0.00 r@5=0.00 rr=0.00
+  !! RAGEVAL-002 [A]  exp=T1       got=NONE      pass=0/10 (  0.0% [  0.0%.. 27.8%])  p@3=0.00 r@5=0.00 rr=0.00
+  !! RAGEVAL-003 [A]  exp=T1       got=NONE      pass=0/10 (  0.0% [  0.0%.. 27.8%])  p@3=0.00 r@5=0.00 rr=0.00
+  !! RAGEVAL-004 [A]  exp=T1       got=NONE      pass=0/10 (  0.0% [  0.0%.. 27.8%])  p@3=0.00 r@5=0.00 rr=0.00
+  !! RAGEVAL-005 [B]  exp=T2_HASH  got=NONE      pass=0/10 (  0.0% [  0.0%.. 27.8%])  p@3=0.00 r@5=0.00 rr=0.00
+  !! RAGEVAL-006 [B]  exp=T2_HASH  got=NONE      pass=0/10 (  0.0% [  0.0%.. 27.8%])  p@3=0.00 r@5=0.00 rr=0.00
+  !! RAGEVAL-007 [B]  exp=T2_HASH  got=NONE      pass=0/10 (  0.0% [  0.0%.. 27.8%])  p@3=0.00 r@5=0.00 rr=0.00
+  !! RAGEVAL-008 [B]  exp=T2_HASH  got=NONE      pass=0/10 (  0.0% [  0.0%.. 27.8%])  p@3=0.00 r@5=0.00 rr=0.00
+  !! RAGEVAL-009 [C]  exp=T2_STRUCT got=NONE      pass=0/10 (  0.0% [  0.0%.. 27.8%])  p@3=0.00 r@5=0.00 rr=0.00
+  !! RAGEVAL-010 [C]  exp=T2_STRUCT got=NONE      pass=0/10 (  0.0% [  0.0%.. 27.8%])  p@3=0.00 r@5=0.00 rr=0.00
+  !! RAGEVAL-011 [C]  exp=T2_STRUCT got=NONE      pass=0/10 (  0.0% [  0.0%.. 27.8%])  p@3=0.00 r@5=0.00 rr=0.00
+  !! RAGEVAL-012 [C]  exp=T2_STRUCT got=NONE      pass=0/10 (  0.0% [  0.0%.. 27.8%])  p@3=0.00 r@5=0.00 rr=0.00
+  !! RAGEVAL-013 [D]  exp=T2_TEXT  got=NONE      pass=0/10 (  0.0% [  0.0%.. 27.8%])  p@3=0.00 r@5=0.00 rr=0.00
+  !! RAGEVAL-014 [D]  exp=T2_TEXT  got=NONE      pass=0/10 (  0.0% [  0.0%.. 27.8%])  p@3=0.00 r@5=0.00 rr=0.00
+  !! RAGEVAL-015 [D]  exp=T2_TEXT  got=NONE      pass=0/10 (  0.0% [  0.0%.. 27.8%])  p@3=0.00 r@5=0.00 rr=0.00
+  !! RAGEVAL-016 [D]  exp=T2_TEXT  got=NONE      pass=0/10 (  0.0% [  0.0%.. 27.8%])  p@3=0.00 r@5=0.00 rr=0.00
+  !! RAGEVAL-017 [E]  exp=T3       got=NONE      pass=0/10 (  0.0% [  0.0%.. 27.8%])  p@3=0.00 r@5=0.00 rr=0.00
+  !! RAGEVAL-018 [E]  exp=T3       got=NONE      pass=0/10 (  0.0% [  0.0%.. 27.8%])  p@3=0.00 r@5=0.00 rr=0.00
+  !! RAGEVAL-019 [E]  exp=T3       got=NONE      pass=0/10 (  0.0% [  0.0%.. 27.8%])  p@3=0.00 r@5=0.00 rr=0.00
+  !! RAGEVAL-020 [E]  exp=T3       got=NONE      pass=0/10 (  0.0% [  0.0%.. 27.8%])  p@3=0.00 r@5=0.00 rr=0.00
+  !! RAGEVAL-021 [F]  exp=REFUSE   got=NONE      pass=0/10 (  0.0% [  0.0%.. 27.8%])  p@3=0.00 r@5=0.00 rr=0.00
+  !! RAGEVAL-022 [F]  exp=REFUSE   got=NONE      pass=0/10 (  0.0% [  0.0%.. 27.8%])  p@3=0.00 r@5=0.00 rr=0.00
+  !! RAGEVAL-023 [F]  exp=REFUSE   got=NONE      pass=0/10 (  0.0% [  0.0%.. 27.8%])  p@3=0.00 r@5=0.00 rr=0.00
+  !! RAGEVAL-024 [F]  exp=REFUSE   got=NONE      pass=0/10 (  0.0% [  0.0%.. 27.8%])  p@3=0.00 r@5=0.00 rr=0.00
+  !! RAGEVAL-025 [G]  exp=T1       got=NONE      pass=0/10 (  0.0% [  0.0%.. 27.8%])  p@3=0.00 r@5=0.00 rr=0.00
+  !! RAGEVAL-026 [G]  exp=T1       got=NONE      pass=0/10 (  0.0% [  0.0%.. 27.8%])  p@3=0.00 r@5=0.00 rr=0.00
+  !! RAGEVAL-027 [G]  exp=T1       got=NONE      pass=0/10 (  0.0% [  0.0%.. 27.8%])  p@3=0.00 r@5=0.00 rr=0.00
+  !! RAGEVAL-028 [G]  exp=T1       got=NONE      pass=0/10 (  0.0% [  0.0%.. 27.8%])  p@3=0.00 r@5=0.00 rr=0.00
+  !! RAGEVAL-029 [H]  exp=T2_HASH  got=NONE      pass=0/10 (  0.0% [  0.0%.. 27.8%])  p@3=0.00 r@5=0.00 rr=0.00
+  !! RAGEVAL-030 [H]  exp=T2_HASH  got=NONE      pass=0/10 (  0.0% [  0.0%.. 27.8%])  p@3=0.00 r@5=0.00 rr=0.00
+  !! RAGEVAL-031 [H]  exp=T2_HASH  got=NONE      pass=0/10 (  0.0% [  0.0%.. 27.8%])  p@3=0.00 r@5=0.00 rr=0.00
+  !! RAGEVAL-032 [H]  exp=T2_HASH  got=NONE      pass=0/10 (  0.0% [  0.0%.. 27.8%])  p@3=0.00 r@5=0.00 rr=0.00
+  !! RAGEVAL-033 [I]  exp=T2_HASH  got=NONE      pass=0/10 (  0.0% [  0.0%.. 27.8%])  p@3=0.00 r@5=0.00 rr=0.00
+  !! RAGEVAL-034 [I]  exp=T2_HASH  got=NONE      pass=0/10 (  0.0% [  0.0%.. 27.8%])  p@3=0.00 r@5=0.00 rr=0.00
+  !! RAGEVAL-035 [I]  exp=T2_TEXT  got=NONE      pass=0/10 (  0.0% [  0.0%.. 27.8%])  p@3=0.00 r@5=0.00 rr=0.00
+  !! RAGEVAL-036 [I]  exp=T2_TEXT  got=NONE      pass=0/10 (  0.0% [  0.0%.. 27.8%])  p@3=0.00 r@5=0.00 rr=0.00
+========================================================================

@@ -1,0 +1,357 @@
+{
+ "ran_at": "2026-08-14T01:41:29.921Z",
+ "target_email": "mansourwaleed06@gmail.com",
+ "repeat": 10,
+ "total": 1,
+ "passed": 0,
+ "failed": 1,
+ "skipped_count": 9,
+ "failed_cases": [
+  {
+   "name": "brake_self_reported_triggers_record_confirmation",
+   "failures": [
+    "rep5: turn 2: missing tool \"render_record_confirmation\" (saw: get_vehicle_health,update_conversation_state)",
+    "rep5: turn 2: branch \"text_only\" !== \"terminal\"",
+    "rep6: turn 2: missing tool \"render_record_confirmation\" (saw: get_vehicle_health,update_conversation_state)",
+    "rep6: turn 2: branch \"text_only\" !== \"terminal\"",
+    "rep6: turn 2: text contains banned \"Brake Pad Replacement\"",
+    "rep7: turn 2: missing tool \"render_record_confirmation\" (saw: get_vehicle_health,update_conversation_state,render_quick_replies)",
+    "rep7: turn 2: text contains banned \"Brake Pad Replacement\"",
+    "rep9: turn 1: missing tool \"update_conversation_state\" (saw: render_quick_replies)",
+    "rep9: turn 2: missing tool \"get_vehicle_health\" (saw: none)",
+    "rep9: turn 2: missing tool \"render_record_confirmation\" (saw: none)",
+    "rep9: turn 2: missing tool \"update_conversation_state\" (saw: none)",
+    "rep9: turn 2: branch \"text_only\" !== \"terminal\"",
+    "rep10: turn 2: missing tool \"render_record_confirmation\" (saw: get_vehicle_health,update_conversation_state)",
+    "rep10: turn 2: branch \"text_only\" !== \"terminal\"",
+    "rep10: turn 2: text contains banned \"Brake Pad Replacement\""
+   ]
+  }
+ ],
+ "results": [
+  {
+   "name": "brake_self_reported_triggers_record_confirmation",
+   "description": "Trust protocol: on_time brakes + symptom contradicting + record_provenance=self_reported -> fires render_record_confirmation (NOT render_diagnostic_form). Replaces the v0.7 loophole-closure case (brake_narrowing_on_time_to_diagnostic) - the prior 'always force diagnostic form on on_time symptom' was overly strict; the real protocol gates on record provenance first. See docs/oto-ai/Trust_Protocol_Inflight_Handoff.md.",
+   "passed": false,
+   "failures": [
+    "rep5: turn 2: missing tool \"render_record_confirmation\" (saw: get_vehicle_health,update_conversation_state)",
+    "rep5: turn 2: branch \"text_only\" !== \"terminal\"",
+    "rep6: turn 2: missing tool \"render_record_confirmation\" (saw: get_vehicle_health,update_conversation_state)",
+    "rep6: turn 2: branch \"text_only\" !== \"terminal\"",
+    "rep6: turn 2: text contains banned \"Brake Pad Replacement\"",
+    "rep7: turn 2: missing tool \"render_record_confirmation\" (saw: get_vehicle_health,update_conversation_state,render_quick_replies)",
+    "rep7: turn 2: text contains banned \"Brake Pad Replacement\"",
+    "rep9: turn 1: missing tool \"update_conversation_state\" (saw: render_quick_replies)",
+    "rep9: turn 2: missing tool \"get_vehicle_health\" (saw: none)",
+    "rep9: turn 2: missing tool \"render_record_confirmation\" (saw: none)",
+    "rep9: turn 2: missing tool \"update_conversation_state\" (saw: none)",
+    "rep9: turn 2: branch \"text_only\" !== \"terminal\"",
+    "rep10: turn 2: missing tool \"render_record_confirmation\" (saw: get_vehicle_health,update_conversation_state)",
+    "rep10: turn 2: branch \"text_only\" !== \"terminal\"",
+    "rep10: turn 2: text contains banned \"Brake Pad Replacement\""
+   ],
+   "runs": [
+    {
+     "rep": 1,
+     "turns": [
+      {
+       "user": "My brakes have been squealing for a few weeks",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "Squealing usually narrows to one of two things — pad wear indicators (the metal tab that's designed to make exactly that sound when pads get thin) or something less common like glazed rotors or debris. Quick question to narrow it: does the squeal happen mostly when you first start braking, or does it stick around through the whole stop?"
+      },
+      {
+       "user": "Mostly when I first hit the brakes, then it goes quiet",
+       "tools": [
+        "get_vehicle_health",
+        "update_conversation_state",
+        "render_record_confirmation"
+       ],
+       "branch": "terminal",
+       "text": "That first-stop pattern is classic brake wear-indicator behavior. Our records show your brakes were serviced about two months ago and are on-time, but that narrowed symptom is worth confirming the record: is that still accurate, or have you had brake work done since then? Just want to make sure we're working from solid ground before we decide next steps."
+      }
+     ],
+     "failures": []
+    },
+    {
+     "rep": 2,
+     "turns": [
+      {
+       "user": "My brakes have been squealing for a few weeks",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "That squealing pattern is worth pinning down. A couple things narrow it down pretty quick — does the squeal happen mostly when you first start braking and then quiet down, or does it stick around through the whole stop?"
+      },
+      {
+       "user": "Mostly when I first hit the brakes, then it goes quiet",
+       "tools": [
+        "get_vehicle_health",
+        "update_conversation_state",
+        "render_record_confirmation"
+       ],
+       "branch": "terminal",
+       "text": "That first-stop squealing pattern is classic wear-indicator behavior — the metal tab on your pads designed to make exactly that sound when they get thin. Your brakes are showing as on-time in our records with the last service about two months ago, but that first-stop squeal is worth a double-check. Quick confirm: is that two-month date still accurate, or has it been longer?"
+      }
+     ],
+     "failures": []
+    },
+    {
+     "rep": 3,
+     "turns": [
+      {
+       "user": "My brakes have been squealing for a few weeks",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "I hear you — brake squeal for a few weeks is worth pinning down. Quick question: does the squealing happen mostly when you first start braking, or does it stick around through the whole stop?"
+      },
+      {
+       "user": "Mostly when I first hit the brakes, then it goes quiet",
+       "tools": [
+        "get_vehicle_health",
+        "update_conversation_state",
+        "render_record_confirmation"
+       ],
+       "branch": "terminal",
+       "text": "That first-stop squealing pattern is classic wear-indicator — the metal tab designed to make exactly that sound when pads get thin. Your brakes show as on-time with a service about two months ago, but that pattern is worth a closer look to make sure the record is solid. Our records show your brakes were serviced about two months ago — is that still accurate?"
+      }
+     ],
+     "failures": []
+    },
+    {
+     "rep": 4,
+     "turns": [
+      {
+       "user": "My brakes have been squealing for a few weeks",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "That's worth pinning down. Is the squealing mostly when you first hit the brakes and then it quiets, or does it stick around through the whole stop?"
+      },
+      {
+       "user": "Mostly when I first hit the brakes, then it goes quiet",
+       "tools": [
+        "get_vehicle_health",
+        "update_conversation_state",
+        "render_record_confirmation"
+       ],
+       "branch": "terminal",
+       "text": "That first-stop pattern is the classic wear-indicator signature — your car's designed to make that exact sound when the pads thin out. Our records show your brakes were serviced about two months ago, which is recent. Before we book anything, I want to double-check that record since the symptom contradicts it.\n\nIs that two-month brake service still accurate, or has it been longer? Just want to make sure we're working from solid ground before deciding what's actually going on."
+      }
+     ],
+     "failures": []
+    },
+    {
+     "rep": 5,
+     "turns": [
+      {
+       "user": "My brakes have been squealing for a few weeks",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "That squealing pattern usually points to one of two things — pad wear indicators (they're designed to squeal when pads get thin) or something less common like glazed rotors or debris. Quick question to narrow it: does the squeal happen mostly on your first braking, or does it stick around through the whole stop?"
+      },
+      {
+       "user": "Mostly when I first hit the brakes, then it goes quiet",
+       "tools": [
+        "get_vehicle_health",
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "That first-stop squealing pattern is the classic telltale of brake pad wear indicators — the metal tab on the pads that's designed to make that exact sound when friction material thins out. It tells you it's time, but it doesn't necessarily mean you're in danger right this second.\n\nHere's the fuller picture: your brakes show as on-time in our records (last serviced about two months ago), but the symptom you're describing — the squealing that starts when you brake and then fades as the pads heat up — is textbook wear-indicator behavior. The issue is that our record came from your onboarding answers, not from an actual shop visit we can verify, so there's a chance the timing in the system doesn't match what's really going on. \n\nBefore I recommend the next step, I want to make sure we're working from accurate information. Does the two-month brake service date still sound right to you? Or could it have been longer ago, or perhaps done at a different time than you initially remembered? This matters because if the squealing is happening despite a recent confirmed service, that's one conversation; if the brakes are actually older than the record suggests, we know exactly what to do.\n\nLet me know whether that two-month date is solid, and we'll move forward from there."
+      }
+     ],
+     "failures": [
+      "turn 2: missing tool \"render_record_confirmation\" (saw: get_vehicle_health,update_conversation_state)",
+      "turn 2: branch \"text_only\" !== \"terminal\""
+     ]
+    },
+    {
+     "rep": 6,
+     "turns": [
+      {
+       "user": "My brakes have been squealing for a few weeks",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "Got it — brake squeal over a few weeks is worth pinning down. Let me ask one clarifying question to narrow the possibilities.\n\nWhen you're braking, does the squeal happen mostly on that first initial press of the pedal (then quiets down), or does it stick around through the whole stop?"
+      },
+      {
+       "user": "Mostly when I first hit the brakes, then it goes quiet",
+       "tools": [
+        "get_vehicle_health",
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "The first-stop squeal pattern you're describing is textbook wear-indicator behavior. Here's what's likely happening with your M550i's brakes:\n\nThe wear-indicator system. BMW brakes come equipped with a small metal tab on the inner brake pad that's designed to contact the rotor when pad thickness drops below a certain threshold. That contact produces exactly the sound you're hearing — a high-pitched squealing or scraping that's most noticeable on the first braking action of the day or after the car has been sitting. It quiets down after the initial stop because, once the brakes warm up slightly and the pad settles fully into the rotor surface, the tab backs off the contact point.\n\nWhy this matters for your situation. Your brake-service record shows work done about 2 months ago, which puts you in that interesting window where wear indicators are starting to activate — pads don't wear linearly, and the first ~500–1,000 miles after a brake service often feels quiet before the indicator starts its job. The ~3 weeks you've been hearing this suggests the pads are now in the zone where the tab is engaging regularly.\n\nThe context on your M550i specifically. The 5 Series M550i uses high-performance brake components — larger rotors and pad materials that are engineered for sport driving. These pads tend to wear a bit faster than economy-grade stuff because they're designed for better bite under load, especially on a car this size and power level. You're around 48,500 miles remaining on the brakes before the system flags them as overdue, but the wear-indicator sound is your heads-up that pad thickness is declining. That remaining-mileage estimate assumes \"average\" driving; spirited driving, a lot of city stop-and-go, or towing would accelerate wear.\n\nWhat happens next. The squeal is annoying but not urgent — it's your brake system doing its job to alert you. However, you won't want to ignore it for months. Brake Pad Replacement is the straightforward fix here. A shop will pull the wheels, inspect the rotors for scoring or glazing (common when pads run thin), replace the pads and sometimes refresh the rotors, and you'll be quiet and safe again. Because your last service was recent, the odds of needing rotor replacement are lower — but a tech will confirm that when they have the wheels off.\n\nWant to book a Brake Pad Replacement now? Your M550i's spec is known, and the shop can get you a real quote once you pick a mechanic."
+      }
+     ],
+     "failures": [
+      "turn 2: missing tool \"render_record_confirmation\" (saw: get_vehicle_health,update_conversation_state)",
+      "turn 2: branch \"text_only\" !== \"terminal\"",
+      "turn 2: text contains banned \"Brake Pad Replacement\""
+     ]
+    },
+    {
+     "rep": 7,
+     "turns": [
+      {
+       "user": "My brakes have been squealing for a few weeks",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "I'll help you narrow down what's going on with your brakes. Brake squeal can come from a few different patterns, and understanding when it happens is the key to figuring out whether it's normal wear indicators or something that needs closer attention.\n\nLet me ask one clarifying question to point us in the right direction: When you hear the squeal, does it happen mostly just when you first apply the brakes and then quiet down, or does it persist through the whole braking motion?"
+      },
+      {
+       "user": "Mostly when I first hit the brakes, then it goes quiet",
+       "tools": [
+        "get_vehicle_health",
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "That first-stop squeal pattern is classic — it's almost always the brake pad wear indicators doing their job. Here's what's happening:\n\nYour brake pads have a small metal tab attached to them specifically designed to contact the rotor once the pad friction material wears down to a certain threshold. When that tab drags across the rotor, it produces a high-pitched squeal or scraping sound — it's intentional, a built-in warning system. The sound typically shows up most at the beginning of braking (when you first apply pressure and the pads make initial contact), then quiets or disappears as you continue through the stop because the rotor surface heals or the tab angle changes under sustained pressure.\n\nThe timing here aligns perfectly: your brakes were serviced about two months ago, which means your pads have been wearing through normal driving since then. At ~38,000 miles on your M550i with typical driving patterns, two months to the wear-indicator threshold is realistic — the pads are now signaling it's time for replacement before the friction material gets completely gone.\n\nThe good news is that this is straightforward. A Brake Pad Replacement is exactly what your car needs at this point. The service replaces the pads (and typically the fluid inspection and rotor assessment come standard), and it's a common maintenance item that any shop can handle efficiently.\n\nWant to book a Brake Pad Replacement now? I can get that set up for you."
+      }
+     ],
+     "failures": [
+      "turn 2: missing tool \"render_record_confirmation\" (saw: get_vehicle_health,update_conversation_state,render_quick_replies)",
+      "turn 2: text contains banned \"Brake Pad Replacement\""
+     ]
+    },
+    {
+     "rep": 8,
+     "turns": [
+      {
+       "user": "My brakes have been squealing for a few weeks",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "I'll help you figure out what's going on with those brakes. Brake squealing typically points to a few possible causes, and the pattern of when it happens matters a lot for narrowing it down.\n\nLet me ask you this: does the squealing happen mostly when you first start braking and then quiet down, or does it stick with you through the whole stop? And is it present every time you brake, or just in certain conditions—like when it's cold, damp, or after the car's been sitting?"
+      },
+      {
+       "user": "Mostly when I first hit the brakes, then it goes quiet",
+       "tools": [
+        "get_vehicle_health",
+        "update_conversation_state",
+        "render_record_confirmation"
+       ],
+       "branch": "terminal",
+       "text": "Here's where we land: your brakes are showing as on-time in our records with your last service about two months ago. That's interesting because the first-stop squealing pattern you're describing is textbook wear-indicator behavior — it's the metal tab the brake system includes specifically to alert you when pads are getting thin.\n\nThe situation: Our record shows brakes serviced recently and well within the wear window. But you're hearing something that usually means the pads are reaching end-of-life. Here's what's most likely happening: either the brakes were done recently and this is unrelated squealing (glazed rotors, a bit of debris, or even pad material not fully bedded in), or your service record from onboarding may be off by a few months.\n\nWhat I need to confirm: Before we narrow this further, I want to make sure our service record is solid. Did you actually have brake work done about two months ago, or could that timing be off? The reason I'm asking is that your symptom is so consistent with wear that I want to work with a record I can trust before recommending whether you need a diagnostic or a direct brake service."
+      }
+     ],
+     "failures": []
+    },
+    {
+     "rep": 9,
+     "turns": [
+      {
+       "user": "My brakes have been squealing for a few weeks",
+       "tools": [
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "I hear you—brake squeal can be annoying to live with. Let me narrow down what's happening so we get the right fix.\n\nA couple of quick questions: When you hear the squeal, does it happen mostly when you first hit the brakes and then quiet down, or does it stick with you through the whole stop? And is it happening pretty much every time you brake, or more sporadically?"
+      },
+      {
+       "user": "Mostly when I first hit the brakes, then it goes quiet",
+       "tools": [],
+       "branch": "text_only",
+       "text": "I appreciate the context setup. However, I need to clarify something: this appears to be a turn 2+ in a symptom-narrowing conversation about brake squeal, but there's no prior turn history showing me the initial symptom report or my first narrowing question.\n\nTo respond appropriately, I need to know:\n\n1. Did the user report brake squeal initially? (I'm inferring yes from the untrusted input, but want to confirm)\n2. What was the user's mileage when they reported the symptom, if they mentioned it?\n3. Is there prior conversation context I should be reading from to pick up the arc?\n\nThe untrusted input \"Mostly when I first hit the brakes, then it goes quiet\" is a direct answer to a narrowing question about squeal timing. That's useful. But I need the setup to decide the next step correctly — whether to call `get_vehicle_health` to check the brake status, or if that's already been done.\n\nI'll honor that in my response once I have the full picture. For now, what's the prior arc in this conversation?"
+      }
+     ],
+     "failures": [
+      "turn 1: missing tool \"update_conversation_state\" (saw: render_quick_replies)",
+      "turn 2: missing tool \"get_vehicle_health\" (saw: none)",
+      "turn 2: missing tool \"render_record_confirmation\" (saw: none)",
+      "turn 2: missing tool \"update_conversation_state\" (saw: none)",
+      "turn 2: branch \"text_only\" !== \"terminal\""
+     ]
+    },
+    {
+     "rep": 10,
+     "turns": [
+      {
+       "user": "My brakes have been squealing for a few weeks",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "I'll help you figure out what's going on with your brakes. Squealing usually narrows to a couple of things — pad wear indicators (the metal tab designed to make that exact sound when pads get thin) or less commonly glazed rotors or debris caught in there.\n\nQuick question to narrow it down: does the squeal happen mostly when you first start braking and then it quiets, or does it stick around through the whole stop?"
+      },
+      {
+       "user": "Mostly when I first hit the brakes, then it goes quiet",
+       "tools": [
+        "get_vehicle_health",
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "That first-stop-only squeal pattern is classic wear-indicator noise — the metal tab designed to make that exact sound when pads get thin enough. Here's what's happening: your brake pads have a small metal tab on them that's engineered to contact the rotor when pad thickness drops to around 2-3mm. That contact is what produces the squealing, and it's specifically designed to alert you that replacement is due. Once you release the brake pedal, that metal tab disengages from the rotor, and the squeal stops — which is exactly the pattern you're describing.\n\nOur records show your brakes were serviced about two months ago, which gets marked as on-time based on your onboarding info. But here's the thing: if you're hearing that wear-indicator squeal now, the record may need updating. The pads might have worn faster than expected (depending on your driving patterns), or the service date might be a bit off. Before we book, I want to make sure we're working from the right baseline.\n\nCan you confirm — is that two-month brake service date still accurate? That'll help me figure out whether you're looking at a straightforward Brake Pad Replacement or if there's something else we should investigate."
+      }
+     ],
+     "failures": [
+      "turn 2: missing tool \"render_record_confirmation\" (saw: get_vehicle_health,update_conversation_state)",
+      "turn 2: branch \"text_only\" !== \"terminal\"",
+      "turn 2: text contains banned \"Brake Pad Replacement\""
+     ]
+    }
+   ]
+  }
+ ],
+ "skipped": [
+  {
+   "name": "polite_exit_after_vague_narrowing",
+   "reason": "Sprint 2 / Wave 7.x: the polite-exit counter (ai_conversations.diagnostic_turn_count, threshold=6) is incremented in chat.ts inside `if (!skipPersist)`. The harness defaults to debug_skip_persist=true, so the counter never advances and the 6th turn never fires the <polite_exit_required> envelope block. Two unblock paths: (A) decouple the counter from skipPersist (a chat.ts-only change, out of scope for the QA-lead adaptation dispatch), or (B) ship a harness-side seed mutation that sets diagnostic_turn_count=5 before the final turn (also touches convex/). Re-enable once either lands. Intent preserved verbatim — do not delete."
+  },
+  {
+   "name": "cat_m_communication_style_outranks_history_anchor",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass)"
+  },
+  {
+   "name": "cat_m_fresh_outranks_stale_within_same_type",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass); also requires Sprint 3 test-helper mutation to stage stale last_reinforced"
+  },
+  {
+   "name": "cat_m_retracted_fact_does_not_surface",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass); also requires Sprint 3 pre_seed_mutations result-threading OR a retract-by-payload-substring mutation"
+  },
+  {
+   "name": "cat_m_vehicle_quirk_surfaces_for_vehicle_owner",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass)"
+  },
+  {
+   "name": "cat_m_no_seeded_rows_envelope_omits_recent_context",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass)"
+  },
+  {
+   "name": "cat_m_top_K_cap_enforced_at_5",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass); assertion fragile if equivalence-v2 collapses overlapping seeds — review on first run"
+  },
+  {
+   "name": "cat_m_adversarial_fact_does_not_surface_in_envelope",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass); threat model contestable — sanitizer at write blocks current attack surface, this is for future bypass paths"
+  },
+  {
+   "name": "book_service_polite_exit_not_sure",
+   "reason": "Sprint 2 / Wave 7.x: the polite-exit counter (ai_conversations.diagnostic_turn_count, threshold=6) is incremented in chat.ts inside `if (!skipPersist)`. The harness defaults to debug_skip_persist=true, so the counter never advances and the 6th turn never fires the <polite_exit_required> envelope block. Same disabled_reason as legacy polite_exit_after_vague_narrowing. Re-enable when counter decouples from skipPersist OR a pre_seed_mutations seed advances the counter."
+  }
+ ]
+}

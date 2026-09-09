@@ -1,0 +1,336 @@
+{
+  "vehicle": {
+    "_id": "pn74y2dpx313cf56gzhct00a0s83n8zv",
+    "vin": "WDDYK8AA2LA025764",
+    "year": 2020,
+    "vehicle_config_id": "xd70jp4e5gve0vvkk6nt2kzw5583mbr0",
+    "engine_id": "j971r2k4x9qtgf8jgcnrpszsg983mqv0",
+    "transmission_id": "qh78ss39zd988fvsqm0fw4hwxh83ntzy",
+    "trim_id": "m578mhah1aw864a0awjrqfj9xs83may1",
+    "created_at": 1774502071432,
+    "updated_at": 1774502692930
+  },
+
+  "make": {
+    "_id": "jh7a0varx02z6rp2k7ajwbe4r98306mt",
+    "name": "Mercedes-Benz",
+    "slug": "mercedes-benz",
+    "country": "Germany",
+    "oem_part_pattern": "^[A-Z]\\d{3}\\s?\\d{3}\\s?\\d{2}\\s?\\d{2}$"
+  },
+
+  "model": {
+    "_id": "js7604hga0sr4jbxvh5mp0ep9x83mww4",
+    "name": "AMG GT",
+    "make_id": "jh7a0varx02z6rp2k7ajwbe4r98306mt"
+  },
+
+  "vehicle_config": {
+    "_id": "xd70jp4e5gve0vvkk6nt2kzw5583mbr0",
+    "config_key": "2020_mercedes_benz_amg_gt_amg_gt_c_m178",
+    "year": 2020,
+    "make_id": "jh7a0varx02z6rp2k7ajwbe4r98306mt",
+    "model_id": "js7604hga0sr4jbxvh5mp0ep9x83mww4",
+    "trim_name": "AMG GT C",
+    "trim_slug": "amg-gt-c",
+    "drivetrain": "RWD",
+    "brake_fluid_type": "DOT 4",
+    "has_brake_pad_sensor": false,
+    "engine_id": "j971r2k4x9qtgf8jgcnrpszsg983mqv0",
+    "transmission_id": "qh78ss39zd988fvsqm0fw4hwxh83ntzy",
+    "enrichment_status": "complete",
+    "enrichment_version": "v8",
+    "fill_rate": 95,
+    "verification_count": 0,
+    "last_enriched_at": 1774502692900,
+    "created_at": 1774502071661
+  },
+
+  "engine": {
+    "_id": "j971r2k4x9qtgf8jgcnrpszsg983mqv0",
+    "engine_code": "M178",
+    "cylinders": 8,
+    "displacement_l": 4.0,
+    "configuration": "V",
+    "aspiration": "turbo",
+    "fuel_type": "Gasoline",
+    "fuel_injection": "direct",
+    "timing_system": "chain",
+    "has_serpentine_belt": true,
+    "oil_viscosity": "0W-40",
+    "oil_capacity_qts": 9.5,
+    "coolant_type": "Mercedes-Benz MB 325.0 (pink/red OAT antifreeze)",
+    "coolant_capacity_qts": 10.6,
+    "spark_plug_quantity": 8,
+    "spark_plug_gap_mm": 0.7,
+    "make_id": "jh7a0varx02z6rp2k7ajwbe4r98306mt",
+    "trim_id": "m578mhah1aw864a0awjrqfj9xs83may1",
+    "data_quality": "enriched"
+  },
+
+  "transmission": {
+    "_id": "qh78ss39zd988fvsqm0fw4hwxh83ntzy",
+    "type": "DCT",
+    "transmission_type": "Automated Manual Transmission (AMT)",
+    "speeds": 7,
+    "fluid_type": "Mercedes-Benz DCT fluid (AMG SPEEDSHIFT DCT 7-speed)",
+    "confidence_score": 0.7,
+    "trim_id": "m578mhah1aw864a0awjrqfj9xs83may1",
+    "data_quality": "enriched"
+  },
+
+  "drivetrain_config": {
+    "_id": "w17d4v7kfy793t5nd2v2xg0brd83nzpc",
+    "drivetrain_type": "RWD",
+    "has_differential": true,
+    "diff_fluid_type": "SAE 75W-90 synthetic gear oil (MB approval)",
+    "has_transfer_case": false,
+    "vehicle_config_id": "xd70jp4e5gve0vvkk6nt2kzw5583mbr0"
+  },
+
+  "trim_specs": {
+    "_id": "qs7a7xqsxd04n31ttb92fke6b983m6wt",
+    "tire_size_front": "265/35R19",
+    "tire_size_rear": "305/30R20",
+    "recommended_tire_pressure_front_psi": 36,
+    "recommended_tire_pressure_rear_psi": 39,
+    "lug_nut_torque_ft_lbs": 133,
+    "wiper_blade_driver_size_in": 22,
+    "battery_group": "H8 / Group 49",
+    "battery_cca": 850,
+    "vehicle_config_id": "xd70jp4e5gve0vvkk6nt2kzw5583mbr0"
+  },
+
+  "service_intervals": [
+    {
+      "service_slug": "oil_change",
+      "service_name": "Oil Change",
+      "interval_miles": 10000,
+      "interval_months": 12,
+      "confidence": 0.95,
+      "data_quality": "enriched"
+    },
+    {
+      "service_slug": "spark_plugs",
+      "service_name": "Spark Plugs",
+      "interval_miles": 50000,
+      "interval_months": 60,
+      "confidence": 0.85,
+      "data_quality": "enriched"
+    },
+    {
+      "service_slug": "filter_replacement",
+      "service_name": "Filter Replacement",
+      "interval_miles": 10000,
+      "interval_months": 24,
+      "confidence": 0.85,
+      "data_quality": "enriched"
+    },
+    {
+      "service_slug": "brake_fluid_flush",
+      "service_name": "Brake Fluid Flush",
+      "interval_miles": 20000,
+      "interval_months": 24,
+      "confidence": 0.9,
+      "data_quality": "enriched"
+    },
+    {
+      "service_slug": "transmission_service",
+      "service_name": "Transmission Service",
+      "interval_miles": 40000,
+      "interval_months": 48,
+      "confidence": 0.85,
+      "data_quality": "enriched"
+    },
+    {
+      "service_slug": "coolant_flush",
+      "service_name": "Coolant Flush",
+      "interval_miles": 120000,
+      "confidence": 0.85,
+      "data_quality": "enriched"
+    },
+    {
+      "service_slug": "differential_service",
+      "service_name": "Differential Service",
+      "interval_miles": 40000,
+      "interval_months": 48,
+      "confidence": 0.85,
+      "data_quality": "enriched"
+    }
+  ],
+
+  "part_fitments": [
+    {
+      "service_type": "oil_change",
+      "part": {
+        "oem_part_number": "176-180-08-00",
+        "name": "Oil Filter",
+        "category": "filter",
+        "subcategory": "oil_filter"
+      },
+      "quantity_needed": 1,
+      "confidence": 0.9
+    },
+    {
+      "service_type": "oil_change",
+      "part": {
+        "oem_part_number": "007603-014106",
+        "name": "Oil Drain Plug Gasket",
+        "category": "gasket",
+        "subcategory": "drain_plug_gasket"
+      },
+      "quantity_needed": 1,
+      "confidence": 0.88
+    },
+    {
+      "service_type": "filter_replacement",
+      "part": {
+        "oem_part_number": "A178-094-00-04",
+        "name": "Engine Air Filter",
+        "category": "filter",
+        "subcategory": "air_filter"
+      },
+      "quantity_needed": 1,
+      "confidence": 0.85
+    },
+    {
+      "service_type": "spark_plugs",
+      "part": {
+        "oem_part_number": "000-159-05-00",
+        "name": "Spark Plug",
+        "category": "ignition",
+        "subcategory": "spark_plug"
+      },
+      "quantity_needed": 8,
+      "confidence": 0.95
+    },
+    {
+      "service_type": "brake_pad_replacement",
+      "position": "front",
+      "part": {
+        "oem_part_number": "000-420-91-00",
+        "name": "Front Brake Pads",
+        "category": "brake",
+        "subcategory": "front_brake_pad"
+      },
+      "quantity_needed": 1,
+      "confidence": 0.8
+    },
+    {
+      "service_type": "brake_pad_replacement",
+      "position": "rear",
+      "part": {
+        "oem_part_number": "000-420-78-03",
+        "name": "Rear Brake Pads",
+        "category": "brake",
+        "subcategory": "rear_brake_pad"
+      },
+      "quantity_needed": 1,
+      "confidence": 0.8
+    },
+    {
+      "service_type": "rotor_replacement",
+      "position": "front",
+      "part": {
+        "oem_part_number": "230-421-12-12",
+        "name": "Front Brake Rotor",
+        "category": "rotor",
+        "subcategory": "front_rotor"
+      },
+      "quantity_needed": 2,
+      "confidence": 0.9
+    },
+    {
+      "service_type": "serpentine_belt",
+      "part": {
+        "oem_part_number": "000-993-39-00",
+        "name": "Serpentine Belt",
+        "category": "belt",
+        "subcategory": "serpentine_belt"
+      },
+      "quantity_needed": 1,
+      "confidence": 0.72
+    },
+    {
+      "service_type": "battery_replacement",
+      "part": {
+        "oem_part_number": "001-982-82-08",
+        "name": "Battery",
+        "category": "electrical",
+        "subcategory": "battery"
+      },
+      "quantity_needed": 1,
+      "confidence": 0.82
+    },
+    {
+      "service_type": "coolant_flush",
+      "part": {
+        "oem_part_number": "Q1030005",
+        "name": "Coolant",
+        "category": "cooling",
+        "subcategory": "coolant"
+      },
+      "quantity_needed": 1,
+      "confidence": 0.92
+    }
+  ],
+
+  "labor_times": [
+    { "service_slug": "oil_change", "book_hours": 0.5, "confidence": 0.75, "source": "training_data" },
+    { "service_slug": "spark_plugs", "book_hours": 3.0, "confidence": 0.75, "source": "training_data" },
+    { "service_slug": "filter_replacement", "book_hours": 0.5, "confidence": 0.75, "source": "training_data" },
+    { "service_slug": "brake_pad_replacement", "book_hours": 1.5, "confidence": 0.75, "source": "training_data" },
+    { "service_slug": "rotor_replacement", "book_hours": 2.0, "confidence": 0.75, "source": "training_data" },
+    { "service_slug": "brake_fluid_flush", "book_hours": 0.8, "confidence": 0.75, "source": "training_data" },
+    { "service_slug": "coolant_flush", "book_hours": 1.0, "confidence": 0.75, "source": "training_data" },
+    { "service_slug": "transmission_service", "book_hours": 1.5, "confidence": 0.75, "source": "training_data" },
+    { "service_slug": "serpentine_belt", "book_hours": 0.5, "confidence": 0.75, "source": "training_data" },
+    { "service_slug": "tire_rotation", "book_hours": 0.5, "confidence": 0.75, "source": "training_data" },
+    { "service_slug": "wiper_blade_replacement", "book_hours": 1.0, "confidence": 0.75, "source": "training_data" },
+    { "service_slug": "battery_replacement", "book_hours": 0.5, "confidence": 0.75, "source": "training_data" }
+  ],
+
+  "enrichment_run": {
+    "_id": "w978e2fv26mqdeakxx048tpkt183m09v",
+    "version": "v8",
+    "trigger": "new_vehicle",
+    "status": "complete",
+    "fill_rate": 95,
+    "fields_filled": 74,
+    "fields_total": 88,
+    "fields_changed_count": 74,
+    "total_tokens_in": 1000529,
+    "total_tokens_out": 20674,
+    "total_web_searches": 40,
+    "duration_ms": 621198,
+    "errors": [
+      "sanity:coolant_flush_months:Coolant flush ≤18 months — known training data contamination",
+      "sanity:transmission_type:Invalid transmission type"
+    ],
+    "started_at": 1774502071632,
+    "completed_at": 1774502692862
+  },
+
+  "_meta": {
+    "description": "Complete A-to-Z data object for a single car as stored across OtoPair's Convex database (13 tables joined)",
+    "tables_represented": [
+      "vehicles",
+      "makes",
+      "models",
+      "vehicle_configs",
+      "engines",
+      "transmissions",
+      "drivetrain_configs",
+      "trim_specs",
+      "service_intervals",
+      "oem_parts",
+      "part_fitments",
+      "labor_times",
+      "enrichment_runs"
+    ],
+    "car": "2020 Mercedes-Benz AMG GT C (M178 4.0L V8 Twin-Turbo)",
+    "vin": "WDDYK8AA2LA025764",
+    "total_tables_joined": 13,
+    "generated_at": "2026-04-13"
+  }
+}

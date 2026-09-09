@@ -1,0 +1,476 @@
+{
+ "ran_at": "2026-08-14T01:48:40.189Z",
+ "target_email": "mansourwaleed06@gmail.com",
+ "repeat": 10,
+ "total": 1,
+ "passed": 0,
+ "failed": 1,
+ "skipped_count": 9,
+ "failed_cases": [
+  {
+   "name": "oil_symptom_triggers_record_confirmation",
+   "failures": [
+    "rep1: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+    "rep1: turn 3: missing tool \"render_record_confirmation\" (saw: update_conversation_state)",
+    "rep1: turn 3: branch \"text_only\" !== \"terminal\"",
+    "rep2: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+    "rep2: turn 3: missing tool \"render_record_confirmation\" (saw: update_conversation_state)",
+    "rep2: turn 3: branch \"text_only\" !== \"terminal\"",
+    "rep3: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+    "rep3: turn 3: missing tool \"render_record_confirmation\" (saw: update_conversation_state)",
+    "rep3: turn 3: branch \"text_only\" !== \"terminal\"",
+    "rep4: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+    "rep4: turn 3: missing tool \"render_record_confirmation\" (saw: update_conversation_state)",
+    "rep4: turn 3: branch \"text_only\" !== \"terminal\"",
+    "rep5: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+    "rep5: turn 3: missing tool \"render_record_confirmation\" (saw: update_conversation_state)",
+    "rep5: turn 3: branch \"text_only\" !== \"terminal\"",
+    "rep6: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state,render_quick_replies)",
+    "rep6: turn 3: missing tool \"render_record_confirmation\" (saw: update_conversation_state,render_quick_replies)",
+    "rep7: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+    "rep7: turn 3: missing tool \"render_record_confirmation\" (saw: update_conversation_state)",
+    "rep7: turn 3: branch \"text_only\" !== \"terminal\"",
+    "rep8: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+    "rep8: turn 3: missing tool \"render_record_confirmation\" (saw: update_conversation_state)",
+    "rep8: turn 3: branch \"text_only\" !== \"terminal\"",
+    "rep9: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+    "rep9: turn 3: missing tool \"render_record_confirmation\" (saw: update_conversation_state)",
+    "rep9: turn 3: branch \"text_only\" !== \"terminal\"",
+    "rep10: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state,render_quick_replies)",
+    "rep10: turn 3: missing tool \"render_record_confirmation\" (saw: update_conversation_state,render_quick_replies)"
+   ]
+  }
+ ],
+ "results": [
+  {
+   "name": "oil_symptom_triggers_record_confirmation",
+   "description": "Trust protocol: fresh self_reported on_time oil record + oil-consumption symptom -> render_record_confirmation. RE-AUTHORED 2026-08-13: the original wording ('smells like burning oil') predates the Wave 2.2 safety classifier and now correctly trips the fire_smoke stop_now override, so the turn becomes a safety flow and the trust gate can never be reached — the case was testing a pre-classifier design. New wording (oil level dropping between changes) is the stable-prompt gate example verbatim and trips no hazard rule. 3-TURN SHAPE (2nd re-author same day): the 2-turn shape expected the gate on the first narrowing answer; the model reliably asks one more question there. Deadline moved to turn 3, matching the tires case and the three-state termination rule.",
+   "passed": false,
+   "failures": [
+    "rep1: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+    "rep1: turn 3: missing tool \"render_record_confirmation\" (saw: update_conversation_state)",
+    "rep1: turn 3: branch \"text_only\" !== \"terminal\"",
+    "rep2: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+    "rep2: turn 3: missing tool \"render_record_confirmation\" (saw: update_conversation_state)",
+    "rep2: turn 3: branch \"text_only\" !== \"terminal\"",
+    "rep3: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+    "rep3: turn 3: missing tool \"render_record_confirmation\" (saw: update_conversation_state)",
+    "rep3: turn 3: branch \"text_only\" !== \"terminal\"",
+    "rep4: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+    "rep4: turn 3: missing tool \"render_record_confirmation\" (saw: update_conversation_state)",
+    "rep4: turn 3: branch \"text_only\" !== \"terminal\"",
+    "rep5: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+    "rep5: turn 3: missing tool \"render_record_confirmation\" (saw: update_conversation_state)",
+    "rep5: turn 3: branch \"text_only\" !== \"terminal\"",
+    "rep6: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state,render_quick_replies)",
+    "rep6: turn 3: missing tool \"render_record_confirmation\" (saw: update_conversation_state,render_quick_replies)",
+    "rep7: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+    "rep7: turn 3: missing tool \"render_record_confirmation\" (saw: update_conversation_state)",
+    "rep7: turn 3: branch \"text_only\" !== \"terminal\"",
+    "rep8: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+    "rep8: turn 3: missing tool \"render_record_confirmation\" (saw: update_conversation_state)",
+    "rep8: turn 3: branch \"text_only\" !== \"terminal\"",
+    "rep9: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+    "rep9: turn 3: missing tool \"render_record_confirmation\" (saw: update_conversation_state)",
+    "rep9: turn 3: branch \"text_only\" !== \"terminal\"",
+    "rep10: turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state,render_quick_replies)",
+    "rep10: turn 3: missing tool \"render_record_confirmation\" (saw: update_conversation_state,render_quick_replies)"
+   ],
+   "runs": [
+    {
+     "rep": 1,
+     "turns": [
+      {
+       "user": "I've had to top up my oil twice between changes lately",
+       "tools": [
+        "get_vehicle_health",
+        "get_vehicle_facts",
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Topping off oil twice between scheduled changes isn't normal — that's a pattern worth flagging. Your M550i's N63 twin-turbo is a solid engine, but it can burn oil under load, especially if driving is spirited or the car's running hot.\n\nOne quick check: when you top it off, is the level dropping gradually between changes (a slow leak or consumption), or are you noticing oil on the driveway or a burning smell when you drive?\n\nThe reason I ask is it could be a few things — a slow leak from a gasket or seal, normal consumption on a higher-mileage turbo engine, or even a temperature issue (I notice your health data flagged a temperature/overheating warning light, which could be compounding oil loss). A Diagnostic Scan will let a mechanic measure actual oil pressure and check for leaks when they scan the engine, so you know what you're dealing with before anything gets worse.\n\nWant to book that diagnostic now, or do you want to gather a bit more info first?"
+      },
+      {
+       "user": "About a quart each time — no drips on the driveway or spots where I park",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "Got it — about a quart each time, and no visible leaks underneath. That's a useful narrowing detail.\n\nHere's what that pattern tells me: a quart between changes is actually in the ballpark for a twin-turbo engine like yours, especially if you're doing city driving or spirited driving where the turbos work harder. But combined with the temperature warning light already flagged, I want to make sure we're not looking at something compounding — either the oil consumption is masking a coolant issue, or they're unrelated problems that both need eyes.\n\nOne quick check: when you top off the oil, does the coolant level look normal in the overflow tank? Just a visual — you don't need to open the radiator."
+      },
+      {
+       "user": "No smoke from the exhaust either, it just quietly goes down over a few weeks",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Good — no smoke rules out the worst-case burn-through. Quiet consumption over weeks with no drips points toward either normal turbo blowby or a slow internal leak (coolant seeping into the oil via a head gasket, which would tie to that temperature warning).\n\nQuick check to narrow it: pop the coolant reservoir and see if the level is noticeably low. If it's down significantly, that's a red flag that coolant's leaving the system — either boiling off (the temperature warning would back that up) or leaking into the oil, both things a mechanic needs to see. If the coolant level is fine, the oil consumption is more likely just the turbo's appetite.\n\nWhat's the coolant looking like?"
+      }
+     ],
+     "failures": [
+      "turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+      "turn 3: missing tool \"render_record_confirmation\" (saw: update_conversation_state)",
+      "turn 3: branch \"text_only\" !== \"terminal\""
+     ]
+    },
+    {
+     "rep": 2,
+     "turns": [
+      {
+       "user": "I've had to top up my oil twice between changes lately",
+       "tools": [
+        "get_vehicle_health",
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Your oil is showing on-time with about 8,500 miles left before the next change. That said, topping it up twice between services isn't normal — oil shouldn't drop that fast under regular driving. A few things could cause it: a slow leak (most common), worn piston rings (letting oil burn into the combustion chamber), or a PCV system issue.\n\nOne thing I'm noticing: there's a temperature / overheating warning light flagged on your car. That's worth mentioning here because overheating can accelerate oil burn-off, and oil leaks near hot surfaces compound quickly. Have you seen the temperature gauge climbing, or any steam or burning smell?\n\nQuick clarification on the oil top-ups: roughly how much were you adding each time, and how many miles were you between the top-ups?"
+      },
+      {
+       "user": "About a quart each time — no drips on the driveway or spots where I park",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Got it — a quart each time with no visible leaks narrows it down. Combined with the temperature warning light, this points to either oil burn-off (which happens when an engine runs hot) or a slow internal leak, not a puddle-under-the-car situation.\n\nQuick question: when you're driving, does the temperature gauge climb into the red, or does it stay in the normal range?"
+      },
+      {
+       "user": "No smoke from the exhaust either, it just quietly goes down over a few weeks",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Got it — no smoke rules out the dramatic burn-off scenario. A quiet drop over weeks points more toward a slow internal leak or the cooling system pulling heat. One clarifier: when you're driving, does the temperature gauge climb toward the red, or does it stay steady in the normal range even though the light is flagged?"
+      }
+     ],
+     "failures": [
+      "turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+      "turn 3: missing tool \"render_record_confirmation\" (saw: update_conversation_state)",
+      "turn 3: branch \"text_only\" !== \"terminal\""
+     ]
+    },
+    {
+     "rep": 3,
+     "turns": [
+      {
+       "user": "I've had to top up my oil twice between changes lately",
+       "tools": [
+        "get_vehicle_health",
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Your last oil change was about 2 months ago and shows on-time, so you've got about 8,500 miles left before the next one. But I'm also seeing a temperature / overheating warning light flagged on your car — that's important because a burning oil symptom + a temperature warning can point to the same root cause.\n\nQuick question: have you noticed the temperature gauge climbing higher than usual, or any smell from the engine bay — burnt oil, coolant, anything like that?"
+      },
+      {
+       "user": "About a quart each time — no drips on the driveway or spots where I park",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "Got it — a quart each time with no visible drips suggests it's either burning internally or going somewhere you're not seeing it. That temperature warning light is the key detail here, though. Overheating can thin the oil and speed up consumption, so those two things might be connected.\n\nQuick question to narrow it: when you start the car in the morning, do you see any smoke or smell anything burning from the engine bay? And have you noticed the temperature gauge climbing, or is it just the warning light?"
+      },
+      {
+       "user": "No smoke from the exhaust either, it just quietly goes down over a few weeks",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Got it — no smoke, no smell, just gradual loss over weeks. That rules out the dramatic stuff. Quick question about the temperature light: when you look at the gauge while driving, is it climbing toward the hot side, or does it stay normal and just the warning pops occasionally?"
+      }
+     ],
+     "failures": [
+      "turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+      "turn 3: missing tool \"render_record_confirmation\" (saw: update_conversation_state)",
+      "turn 3: branch \"text_only\" !== \"terminal\""
+     ]
+    },
+    {
+     "rep": 4,
+     "turns": [
+      {
+       "user": "I've had to top up my oil twice between changes lately",
+       "tools": [
+        "get_vehicle_health",
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "Your oil's showing on-time with about 8,500 miles left before the next change, but having to top up twice between services isn't normal. That usually signals either a small leak, oil consumption from ring wear, or both — neither is something I'd ignore.\n\nHere's the thing: your record shows the oil change was about 2 months ago and came from your onboarding answers, so it's soft data. Before we go further — is that still accurate? Did you actually have an oil change around 2 months back?\n\nI'm also flagging something else: you've got a temperature / overheating warning light on your car right now. That's time-sensitive because overheating compounds fast. Is that light actually on your dash, or is this stale data?"
+      },
+      {
+       "user": "About a quart each time — no drips on the driveway or spots where I park",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Got it — a quart each time with no visible drips points more toward consumption than a leak. That's worth tracking, especially over that interval.\n\nQuick clarification before we narrow further: is that temperature warning light actually on your dash right now, or is it just flagged in our system from before? Just want to make sure I'm working with what's actually happening versus what we have on file."
+      },
+      {
+       "user": "No smoke from the exhaust either, it just quietly goes down over a few weeks",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Got it — no smoke, just quiet consumption over weeks. That's useful.\n\nQuick clarification: is that temperature warning light actually showing on your dash right now, or is it flagged in your car's history from before? The distinction matters for what we're looking at."
+      }
+     ],
+     "failures": [
+      "turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+      "turn 3: missing tool \"render_record_confirmation\" (saw: update_conversation_state)",
+      "turn 3: branch \"text_only\" !== \"terminal\""
+     ]
+    },
+    {
+     "rep": 5,
+     "turns": [
+      {
+       "user": "I've had to top up my oil twice between changes lately",
+       "tools": [
+        "get_vehicle_health",
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Your oil change is on-time — you're ~2 months out from your last one with about 8,500 miles of cushion before the next one's due. The thing is, needing to top up twice between changes isn't normal, and your car's flagging a temperature / overheating warning light too. Those two together — oil consumption + heat warning — point toward something in the engine that needs eyes-on.\n\nHere's what's happening: OtoPair tracks oil-change intervals, but not oil leaks, consumption, or internal engine condition. So the health score won't catch this even though it's real. A Diagnostic Scan is the right call — a mechanic can pull the diagnostic codes, check for leaks around the seals, and see if the engine's running hot or burning oil internally.\n\nWant me to book a Diagnostic Scan?"
+      },
+      {
+       "user": "About a quart each time — no drips on the driveway or spots where I park",
+       "tools": [
+        "update_conversation_state",
+        "render_book_service"
+       ],
+       "branch": "terminal",
+       "text": "That's useful — internal burn rather than a leak is the more likely culprit, which usually points to valve seals or rings. Combined with the temperature light on, something's definitely off. A Diagnostic Scan gets a mechanic eyes-on to read what the engine's logging and confirm whether it's oil-related, cooling-related, or both before you pour money into it."
+      },
+      {
+       "user": "No smoke from the exhaust either, it just quietly goes down over a few weeks",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Got it — so it's a slow, steady drop with no visible signs. That pattern actually tightens things: no smoke rules out a major internal burn, no drips rule out an external leak. That leaves either a slow seep somewhere (valve seals, gasket weeping), the cooling system pulling fluid into the oil, or just a consumption quirk on this engine. The temperature light adds a wrinkle though — that suggests the cooling system's part of the picture.\n\nThe Diagnostic Scan you booked is exactly the right move. When the mechanic plugs in, the codes will tell you if there's a cooling-system fault or if it's purely an oil thing. From there they'll know whether to look at the radiator, thermostat, or internal seals first.\n\nAnything else you want to mention before the appointment, or are you all set?"
+      }
+     ],
+     "failures": [
+      "turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+      "turn 3: missing tool \"render_record_confirmation\" (saw: update_conversation_state)",
+      "turn 3: branch \"text_only\" !== \"terminal\""
+     ]
+    },
+    {
+     "rep": 6,
+     "turns": [
+      {
+       "user": "I've had to top up my oil twice between changes lately",
+       "tools": [
+        "get_vehicle_health",
+        "get_vehicle_facts",
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "There's a temperature / overheating warning light flagged on your car — that's the first thing to address, because rising heat can compound quick.\n\nOn the oil top-ups: your M550i takes 0W-30 and holds 11.1 quarts. Needing to top up twice between changes can mean one of a few things — normal consumption on high-performance engines, a small leak, or an issue with how the level is being read. Here's the thing though: combined with the temperature warning, this is worth a mechanic's eyes. Heat + oil consumption can be related (burning oil under high temps), or they can be separate issues — but they belong in the same diagnostic visit so nothing gets missed.\n\nHave you noticed anything else — steam, a burning smell, the temperature gauge climbing, anything?"
+      },
+      {
+       "user": "About a quart each time — no drips on the driveway or spots where I park",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Got it — a quart each time with no visible leaks narrows this down. That's textbook oil consumption, not a leak. Combined with the temperature warning, this points to one of two things: either the engine's burning oil internally (worn rings, valve seals, PCV system issue), or the cooling system is struggling and heat is accelerating consumption.\n\nQuick question to narrow it: when you top up the oil, how does the coolant level look? And have you noticed any steam from under the hood, or the temperature gauge climbing into the hot zone?"
+      },
+      {
+       "user": "No smoke from the exhaust either, it just quietly goes down over a few weeks",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "Got it — no smoke, oil just quietly drops. That's actually helpful because it narrows away \"burning oil visibly\" and points more toward a slow internal leak or something pulling coolant.\n\nQuick check on the temperature side: when you look at the gauge on the dash, does it stay in the normal zone, or does it creep up toward the hot end? And have you topped off the coolant reservoir yourself, or just the oil?"
+      }
+     ],
+     "failures": [
+      "turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state,render_quick_replies)",
+      "turn 3: missing tool \"render_record_confirmation\" (saw: update_conversation_state,render_quick_replies)"
+     ]
+    },
+    {
+     "rep": 7,
+     "turns": [
+      {
+       "user": "I've had to top up my oil twice between changes lately",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "That's worth paying attention to — topping up oil between changes isn't typical. A couple quick questions to narrow this down:\n\nHow much are you adding each time? A quart or two over several thousand miles is usually normal; a quart every few hundred miles signals something's burning or leaking.\n\nAnd when you check the level — is it low on the dipstick, or have you caught it before it got that low?"
+      },
+      {
+       "user": "About a quart each time — no drips on the driveway or spots where I park",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Got it — a quart each time with no visible leaks narrows this down. That's in the range where it could be normal top-ups (especially if you're driving hard or doing mostly highway miles, which burns oil faster), OR it could be early stages of oil consumption that's worth catching now before it becomes a real issue.\n\nQuick diagnostic question: how many miles are you typically putting on between oil changes, and roughly how long is that time-wise?"
+      },
+      {
+       "user": "No smoke from the exhaust either, it just quietly goes down over a few weeks",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Got it — no smoke, just quiet consumption over a few weeks. That pattern actually narrows things down.\n\nA quart every few weeks without visible smoke or leaks points to one of two things: normal high-mileage consumption (the N63 engine in your M550i can run a little oil-thirsty as miles add up), or early signs of internal wear. The real tell is whether the rate's accelerating or holding steady.\n\nQuick question to nail it down: when you had your last oil change, roughly how many miles were on the odometer? That'll help me check your service history and see if this consumption pattern is something that's been creeping up or if it just started recently."
+      }
+     ],
+     "failures": [
+      "turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+      "turn 3: missing tool \"render_record_confirmation\" (saw: update_conversation_state)",
+      "turn 3: branch \"text_only\" !== \"terminal\""
+     ]
+    },
+    {
+     "rep": 8,
+     "turns": [
+      {
+       "user": "I've had to top up my oil twice between changes lately",
+       "tools": [
+        "get_vehicle_health",
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Your oil status shows on-time with about 8,500 miles left, but having to top it up twice between changes is worth investigating — that's not typical. A few possibilities: normal consumption (some engines burn a little), a small leak you haven't spotted, or early-stage internal wear.\n\nOne quick thing: there's also a temperature / overheating warning light flagged on your car — that's separate from the oil issue but worth surfacing. Combined with oil consumption, it could point to the cooling system working harder than it should, which can increase oil burn. Has the temperature gauge climbed into the red, or is the light just steady?"
+      },
+      {
+       "user": "About a quart each time — no drips on the driveway or spots where I park",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Got it — a quart each time with no visible leaks points toward consumption rather than a leak. That's in the normal range for a high-output twin-turbo engine like yours, especially if you're running it hard or mostly highway miles. The temperature warning light is worth a separate look though, since higher operating temps can increase consumption slightly.\n\nQuick check: when you top up the oil, are you using the same grade and brand the shop used last time, or has that changed?"
+      },
+      {
+       "user": "No smoke from the exhaust either, it just quietly goes down over a few weeks",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Got it — quiet consumption with no smoke or leaks is pretty typical for this generation M550i. Some oil burn is normal with the N63 twin-turbo; you're likely in the expected range for the platform.\n\nThe bigger item here is that temperature warning light still flagged on your record. That one's worth a separate look — overheating or coolant issues can compound fast. Quick question: have you noticed anything on the gauge itself, or is it just the warning light?"
+      }
+     ],
+     "failures": [
+      "turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+      "turn 3: missing tool \"render_record_confirmation\" (saw: update_conversation_state)",
+      "turn 3: branch \"text_only\" !== \"terminal\""
+     ]
+    },
+    {
+     "rep": 9,
+     "turns": [
+      {
+       "user": "I've had to top up my oil twice between changes lately",
+       "tools": [
+        "get_vehicle_health",
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Your oil is showing as on-time from about 2 months ago, but topping up twice between changes isn't normal — that signals either a slow leak or some internal consumption going on. The M550i's N63 turbo engine can burn a bit of oil under load, but twice is on the higher side.\n\nQuick heads-up: your vehicle also has a temperature / overheating warning light flagged. Between that and the oil consumption, a mechanic should take a look — those two things together point toward something worth catching early.\n\nWant to set up a Diagnostic Scan? That'll let a mechanic get eyes on both the oil consumption pattern and the temperature warning in one visit."
+      },
+      {
+       "user": "About a quart each time — no drips on the driveway or spots where I park",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Got it — about a quart each time, and no visible drips or spots. That rules out a major leak, which is good news. On the N63 twin-turbo, some oil consumption is normal (turbos burn a bit), but a quart every few weeks is on the high side even for that engine.\n\nHere's the thing though: you've also got a temperature warning light flagged on your car. That changes the picture — overheating can accelerate oil burn and also cause the consumption you're seeing. Before we book anything, I want to make sure we're not chasing the symptom instead of the root cause.\n\nQuick question: when the temperature light came on, did you notice anything else — steam from under the hood, the gauge climbing into the red, anything overheating-related? Or did it just appear without other symptoms?"
+      },
+      {
+       "user": "No smoke from the exhaust either, it just quietly goes down over a few weeks",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Got it — so it's a slow, steady burn with no smoke and no overheating signs showing up. That's actually good info.\n\nHere's the thing: the N63 turbo does consume oil by design (usually half a quart per 1,000 miles is normal), but topping up a full quart twice in two months is a bit more than typical. Combined with the temperature warning light flagged on your car, I want to make sure we're not looking at a cooling issue feeding into higher consumption.\n\nOne quick check: when that temperature light came on, did you notice anything else — gauge creeping up, the fans running hard, any coolant loss? Or did the light just pop up out of nowhere?"
+      }
+     ],
+     "failures": [
+      "turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state)",
+      "turn 3: missing tool \"render_record_confirmation\" (saw: update_conversation_state)",
+      "turn 3: branch \"text_only\" !== \"terminal\""
+     ]
+    },
+    {
+     "rep": 10,
+     "turns": [
+      {
+       "user": "I've had to top up my oil twice between changes lately",
+       "tools": [
+        "get_vehicle_health",
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Your oil is showing on-time with about 8,500 miles remaining, but topping up twice between changes is a sign something's off — oil doesn't just disappear from a healthy engine. The M550i has a twin-turbo V8, and they can burn or leak oil under load.\n\nHere's what I'd want to rule out: Are you noticing any smoke or burning smell, especially under acceleration or during hard driving? Or any spots under the car when it's parked? Those would point toward internal burn or a leak.\n\nIf you're not seeing either of those, it could be normal consumption under boost — but twice between changes is on the high side and worth getting checked. A mechanic can pull the oil level properly, inspect for leaks, and run a scan to see if the engine's logging any issues.\n\nWant me to set up a Diagnostic Scan so a mechanic can get eyes on it?"
+      },
+      {
+       "user": "About a quart each time — no drips on the driveway or spots where I park",
+       "tools": [
+        "update_conversation_state"
+       ],
+       "branch": "text_only",
+       "text": "Got it — about a quart per topping. No visible leaks rules out the obvious drip scenario, which is good. That consumption pattern on a twin-turbo (the N63 burns a bit of oil by design, especially under boost) sits in the gray zone — could be normal for the engine, could be a sign something's working harder than it should.\n\nQuick thing: you've got a temperature warning light flagged on the car. Is that one active right now, or did it come and go? That matters because if the engine's running hotter than normal, it could explain both the oil consumption spike AND the light."
+      },
+      {
+       "user": "No smoke from the exhaust either, it just quietly goes down over a few weeks",
+       "tools": [
+        "update_conversation_state",
+        "render_quick_replies"
+       ],
+       "branch": "terminal",
+       "text": "Got it — no smoke, just quiet consumption over weeks. That rules out the spectacular failure scenarios. Between the twin-turbo burn and a potential slow internal issue, the temperature light is the real signal here. Let me ask one more thing to narrow it: when you see that temperature warning light come on, what's happening? Is the gauge climbing into the red zone, or is the light just there with the gauge looking normal?"
+      }
+     ],
+     "failures": [
+      "turn 3: missing tool \"get_vehicle_health\" (saw: update_conversation_state,render_quick_replies)",
+      "turn 3: missing tool \"render_record_confirmation\" (saw: update_conversation_state,render_quick_replies)"
+     ]
+    }
+   ]
+  }
+ ],
+ "skipped": [
+  {
+   "name": "polite_exit_after_vague_narrowing",
+   "reason": "Sprint 2 / Wave 7.x: the polite-exit counter (ai_conversations.diagnostic_turn_count, threshold=6) is incremented in chat.ts inside `if (!skipPersist)`. The harness defaults to debug_skip_persist=true, so the counter never advances and the 6th turn never fires the <polite_exit_required> envelope block. Two unblock paths: (A) decouple the counter from skipPersist (a chat.ts-only change, out of scope for the QA-lead adaptation dispatch), or (B) ship a harness-side seed mutation that sets diagnostic_turn_count=5 before the final turn (also touches convex/). Re-enable once either lands. Intent preserved verbatim — do not delete."
+  },
+  {
+   "name": "cat_m_communication_style_outranks_history_anchor",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass)"
+  },
+  {
+   "name": "cat_m_fresh_outranks_stale_within_same_type",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass); also requires Sprint 3 test-helper mutation to stage stale last_reinforced"
+  },
+  {
+   "name": "cat_m_retracted_fact_does_not_surface",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass); also requires Sprint 3 pre_seed_mutations result-threading OR a retract-by-payload-substring mutation"
+  },
+  {
+   "name": "cat_m_vehicle_quirk_surfaces_for_vehicle_owner",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass)"
+  },
+  {
+   "name": "cat_m_no_seeded_rows_envelope_omits_recent_context",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass)"
+  },
+  {
+   "name": "cat_m_top_K_cap_enforced_at_5",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass); assertion fragile if equivalence-v2 collapses overlapping seeds — review on first run"
+  },
+  {
+   "name": "cat_m_adversarial_fact_does_not_surface_in_envelope",
+   "reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass); threat model contestable — sanitizer at write blocks current attack surface, this is for future bypass paths"
+  },
+  {
+   "name": "book_service_polite_exit_not_sure",
+   "reason": "Sprint 2 / Wave 7.x: the polite-exit counter (ai_conversations.diagnostic_turn_count, threshold=6) is incremented in chat.ts inside `if (!skipPersist)`. The harness defaults to debug_skip_persist=true, so the counter never advances and the 6th turn never fires the <polite_exit_required> envelope block. Same disabled_reason as legacy polite_exit_after_vague_narrowing. Re-enable when counter decouples from skipPersist OR a pre_seed_mutations seed advances the counter."
+  }
+ ]
+}

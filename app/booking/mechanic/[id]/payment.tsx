@@ -1,0 +1,1938 @@
+/**
+ * Payment Screen (Review & Pay)
+ *
+ * PURPOSE: Full-screen page for reviewing booking and payment details.
+ *          Shows mechanic info, appointment details, vehicle, detailed services breakdown,
+ *          and inline payment options (Apple Pay, Google Pay, saved cards).
+ *
+ * FLOW: mechanic detail → booking-details → payment → confirmation
+ *
+ * ROUTE: /booking/mechanic/[id]/payment
+ *
+ * OWNER: Waleed Mansour
+ */
+
+// 1. React & React Native
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { ActivityIndicator, AppState, BackHandler, Platform, StyleSheet, TextInput, TouchableOpacity, View } from "react-native";
+
+// 2. Expo & Third-party
+import { useFocusEffect, useLocalSearchParams } from "expo-router";
+import { useMutation, useQuery } from "convex/react";
+import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
+import { Calendar, Car, ChevronRight, Clock, FileText, Info, Smartphone, WifiOff } from "lucide-react-native";
+import { AppleIcon } from "@/components/icons/apple";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
+
+import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
+
+// 3. Shared UI (design system)
+import { BrandColors, ErrorOccurredModal, EstimatePill, FixedPriceBadge, Spacing, Text } from "@/components/shared-ui";
+
+// 4. Flow-specific components
+import { BookingPageHeader } from "@/components/booking/pages";
+import { CollapsibleDetail } from "@/components/booking/shared";
+import { PaymentMethodModal } from "@/components/booking/modals/PaymentMethodModal";
+import { normalizeStripeBrand } from "@/components/payments/BrandedCardVisual";
+import { BRAND_SVG } from "@/components/payments/brandSvg";
+
+// 5. Constants, hooks, types, stores
+import { getPartsBreakdown } from "@/constants/services";
+import { BorderRadius, Shadows } from "@/constants/theme";
+import { useBookingLaborHours } from "@/hooks/useBookingLaborHours";
+import { useBookingPartsBreakdown } from "@/hooks/useBookingPartsBreakdown";
+import { useBookingQuoteFallback } from "@/hooks/useBookingQuoteFallback";
+import { useCanWrite } from "@/hooks/useConnection";
+import { useCreateBookingConvex } from "@/hooks/useCreateBookingConvex";
+import { useShopFixedPricesForServices } from "@/hooks/useShopFixedPricesForServices";
+import { positionFromOption } from "@/constants/serviceVariants";
+import { useWalletCheckout } from "@/hooks/useWalletCheckout";
+import { deriveDisclosedRange, formatRange } from "@/lib/disclosedRange";
+import { formatDurationForCar } from "@/lib/formatDuration";
+import { computeBookingTax } from "@/lib/tax";
+import { computePlatformFeeDollars } from "@/lib/platformFee";
+import { computeDealerLaborSavings } from "@/lib/dealerSavings";
+import { useBookingStore } from "@/stores/useBookingStore";
+import { useMechanicStore } from "@/stores/useMechanicStore";
+import { usePaymentStore } from "@/stores/usePaymentStore";
+import { useShopStore } from "@/stores/useShopStore";
+import { useVehicleStore } from "@/stores/useVehicleStore";
+import { resolveBookingVehicleVin } from "@/utils/bookingVehicle";
+
+// ============================================================================
+// CONSTANTS
+// ============================================================================
+
+// Platform fee + tax math live in lib/platformFee.ts and lib/tax.ts —
+// single source of truth shared with the Convex server side, so what the
+// customer sees here always matches what gets charged.
+// TODO: When subscriptions are wired, waive service fee for Preferred/Elite subscribers
+
+// ============================================================================
+// COMPONENT
+// ============================================================================
+
+export default function PaymentScreen() {
+  // ═══════════════ HOOKS ═══════════════
+  const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const { id, confirmError } = useLocalSearchParams<{ id: string; confirmError?: string }>();
+
+  // ═══════════════ BOOKING STORE ═══════════════
+  const selectedServiceIds = useBookingStore((state) => state.selectedServiceIds);
+  const selectedVehicleVin = useBookingStore((state) => state.selectedVehicleVin);
+  const availableServices = useBookingStore((state) => state.availableServices);
+  const selectedServiceOptions = useBookingStore((state) => state.selectedServiceOptions);
+  const selectedMechanicId = useBookingStore((state) => state.selectedMechanicId);
+  const selectedMechanicSlot = useBookingStore((state) => state.selectedMechanicSlot);
+  const quoteAcceptContext = useBookingStore((state) => state.quoteAcceptContext);
+  const isQuoteAccept = quoteAcceptContext != null;
+  const getFormattedAppointmentDate = useBookingStore((state) => state.getFormattedAppointmentDate);
+  const getFormattedAppointmentTime = useBookingStore((state) => state.getFormattedAppointmentTime);
+  const customerNotes = useBookingStore((state) => state.customerNotes);
+  const setCustomerNotes = useBookingStore((state) => state.setCustomerNotes);
+  const { createBookingConvex } = useCreateBookingConvex();
+  const bookingType = useBookingStore((state) => state.bookingType);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorModalVisible, setErrorModalVisible] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string>("");
+  // Slim payment-method picker (Change → bottom-sheet modal).
+  const [paymentModalVisible, setPaymentModalVisible] = useState(false);
+
+  // Pick up an error bounced back from the /confirming screen and surface
+  // it in the existing error modal. Run once when the param shows up.
+  useEffect(() => {
+    if (confirmError) {
+      setErrorMessage(confirmError);
+      setErrorModalVisible(true);
+      router.setParams({ confirmError: undefined });
+    }
+  }, [confirmError, router]);
+  const setBookingStage = useBookingStore((state) => state.setBookingStage);
+  const skippedBookingDetails = useBookingStore((state) => state.skippedBookingDetails);
+
+  // ═══════════════ SLOT HOLD ═══════════════
+  const holdId = useBookingStore((state) => state.holdId);
+  const holdExpiresAt = useBookingStore((state) => state.holdExpiresAt);
+  const holdSessionId = useBookingStore((state) => state.holdSessionId);
+  const setSlotHold = useBookingStore((state) => state.setSlotHold);
+  const releaseSlotHold = useMutation(api.slotHolds.releaseSlotHold);
+  // Reactive view of the hold row — flips `isExpired` / returns null when the
+  // hold lapses, is released, or another session's booking consumes the slot.
+  const holdState = useQuery(
+    api.slotHolds.getSlotHold,
+    holdId ? { holdId: holdId as Id<"slot_holds"> } : "skip",
+  );
+  const [sessionExpiredVisible, setSessionExpiredVisible] = useState(false);
+
+  // 1s tick off the absolute expiry timestamp — timezone-safe (never derived
+  // from the date/time strings, only from `expiresAt - Date.now()`).
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    if (!holdExpiresAt) return;
+    const t = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [holdExpiresAt]);
+  const remainingMs = holdExpiresAt ? Math.max(0, holdExpiresAt - nowMs) : 0;
+  const holdExpired = holdExpiresAt != null && remainingMs <= 0;
+  const countdown = holdExpiresAt
+    ? `${Math.floor(remainingMs / 60000)}:${String(Math.floor((remainingMs % 60000) / 1000)).padStart(2, "0")}`
+    : null;
+
+  // ═══════════════ MECHANIC STORE ═══════════════
+  const getMechanicById = useMechanicStore((state) => state.getMechanicById);
+
+  // ═══════════════ SHOP STORE (for shop-specific pricing) ═══════════════
+  const getShopById = useShopStore((state) => state.getShopById);
+
+  // ═══════════════ VEHICLE STORE ═══════════════
+  const vehicles = useVehicleStore((state) => state.vehicles);
+
+  // ═══════════════ PAYMENT STORE ═══════════════
+  // Subscribe to the data directly (not the helper functions) so this screen
+  // re-renders whenever the saved-cards list or active selection changes —
+  // e.g., right after AddPaymentScreen attaches a new card and pre-selects it.
+  const paymentMethods = usePaymentStore((state) => state.paymentMethods);
+  const selectedPaymentMethodId = usePaymentStore((state) => state.selectedPaymentMethodId);
+  // Which method the Authorize button should use — a wallet value routes
+  // through the platform wallet sheet, null falls back to the selected card.
+  const walletIntent = usePaymentStore((state) => state.walletIntent);
+
+  // ═══════════════ COMPUTED ═══════════════
+  const appointmentDate = getFormattedAppointmentDate();
+  const appointmentTime = getFormattedAppointmentTime();
+  const bookingVehicleVin = resolveBookingVehicleVin(
+    quoteAcceptContext?.vehicleVin,
+    selectedVehicleVin,
+  );
+  const selectedVehicle = bookingVehicleVin ? vehicles[bookingVehicleVin] : undefined;
+
+  const mechanic = useMemo(() => {
+    if (!selectedMechanicId) return null;
+    return getMechanicById(selectedMechanicId);
+  }, [selectedMechanicId, getMechanicById]);
+
+  const selectedServices = useMemo(
+    () => availableServices.filter((service) => selectedServiceIds.includes(service.id)),
+    [availableServices, selectedServiceIds]
+  );
+
+  // Shop-specific only: labor_rate × default_labor_hours + default_parts_estimate (no default rate)
+  // Shop resolution falls back to the time-slot's shopId so "Any available
+  // mechanic" bookings still resolve a shop — without this fallback the
+  // fixed-price hook below receives undefined and every flat-rate service
+  // re-renders as a range.
+  const resolvedShopId = mechanic?.shopId ?? selectedMechanicSlot?.shopId;
+  const shop = useMemo(() => {
+    return resolvedShopId ? getShopById(resolvedShopId) : null;
+  }, [resolvedShopId, getShopById]);
+  const laborRate = shop?.labor_rate;
+  const mechanicDisplayName = mechanic?.name ?? "Any available mechanic";
+  const mechanicSubtitle =
+    mechanic?.title ?? mechanic?.shopName ?? selectedMechanicSlot?.shopName ?? shop?.name ?? "Shop will assign a mechanic";
+
+  // Real OEM parts (with per-unit prices) for the booking's vehicle. When this
+  // hook returns data, partsCost uses the real per-service totals; otherwise we
+  // fall back to `service.default_parts_estimate`. While `isPricedPartsLoading`
+  // is true the breakdown shows a skeleton row instead of a stale labor-only
+  // band — the band updates once the query lands.
+  const {
+    breakdown: pricedPartsByService,
+    isLoading: isPricedPartsLoading,
+    hasRealData: hasRealPartsData,
+  } = useBookingPartsBreakdown(
+    selectedVehicle?.ownershipId,
+    selectedServiceIds,
+    selectedServiceOptions,
+  );
+
+  // Map serviceId → priced row so per-line lookups are O(1) below. Any service
+  // with at least one fitment qualifies (parts without prices still render as
+  // "Price TBD" rather than silently swapping in the synthetic fallback).
+  const pricedPartsMap = useMemo(() => {
+    const map = new Map<string, (typeof pricedPartsByService)[number]>();
+    for (const row of pricedPartsByService) {
+      if (row.winner !== null) map.set(String(row.serviceId), row);
+    }
+    return map;
+  }, [pricedPartsByService]);
+
+  // Per-service parts cost: priced total when we have any prices; otherwise
+  // the flat default so totals never collapse to $0 just because price data
+  // is incomplete.
+  const getServicePartsCost = useCallback(
+    (service: (typeof selectedServices)[0]) => {
+      const real = pricedPartsMap.get(String(service.id));
+      if (real && real.partsTotal > 0) return real.partsTotal;
+      return service.default_parts_estimate ?? 0;
+    },
+    [pricedPartsMap]
+  );
+
+  // Vehicle-specific labor hours from `labor_times.book_hours` keyed by
+  // vehicle_config_id + service_id. Falls back to `services.default_labor_hours`
+  // for services with no per-vehicle row. Spark plugs on the CR-V drops from
+  // 1.5hr (catalog default) to 0.5hr (book_hours) because the K24W9 is a
+  // 4-cyl inline — much faster than a V6/V8 plug change.
+  const {
+    laborHours: laborHoursByService,
+    isLoading: isLaborHoursLoading,
+    hasFallback: hasLaborFallback,
+  } = useBookingLaborHours(selectedVehicle?.ownershipId, selectedServiceIds);
+
+  // Per-service booking positions for per_axle services (front/rear/both).
+  // Threaded into the engine query so the server-side scaling produces the
+  // correct SERVICE TOTAL for "both axles" — without this, the engine
+  // defaults to 1 axle and the totals come out half-sized.
+  const servicePositions = useMemo(() => {
+    const out: Record<string, "front" | "rear" | "both"> = {};
+    for (const sid of selectedServiceIds) {
+      const pos = positionFromOption(selectedServiceOptions[sid]);
+      if (pos) out[sid] = pos;
+    }
+    return out;
+  }, [selectedServiceIds, selectedServiceOptions]);
+
+  // Pricing v2 engine band + per-quote flags. Drives the "Estimate" pill
+  // below when the engine refused a service or flagged any line as
+  // tier_estimate / fallback_catch / outside-band / etc. Same wiring as
+  // the ReviewPayContent bottom-sheet variant.
+  const quoteFallback = useBookingQuoteFallback(
+    resolvedShopId,
+    selectedVehicle?.ownershipId,
+    selectedServiceIds,
+    servicePositions,
+  );
+
+  const laborHoursMap = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const row of laborHoursByService) {
+      map.set(String(row.serviceId), row.hours);
+    }
+    return map;
+  }, [laborHoursByService]);
+
+  const getServiceLaborHours = useCallback(
+    (service: (typeof selectedServices)[0]) => {
+      const variant = laborHoursMap.get(String(service.id));
+      if (typeof variant === "number") return variant;
+      return service.default_labor_hours ?? 0;
+    },
+    [laborHoursMap]
+  );
+
+  // Per-service labor cost, tier-aware. Uses the Pricing v2 engine's
+  // byService[sid].laborCost (hours × the vehicle's TIER rate) — the exact
+  // number the server bills and that createBatch validates — falling back to
+  // the flat shop.labor_rate only when the engine refused the line (which is
+  // when the server skips its check too). Keeps the customer from seeing a
+  // flat-rate price the server would then reject (LABOR_COST_TIER_MISMATCH) or
+  // silently re-price. Fixed-price lines resolve to engine laborCost = 0.
+  // Mirrors the identical helper in components/booking/sheets/ReviewPayContent.tsx.
+  const getServiceLaborCost = useCallback(
+    (service: (typeof selectedServices)[0]) => {
+      const engine = quoteFallback.byService.get(String(service.id));
+      if (engine && !engine.refused && engine.laborCost != null) {
+        return Math.max(0, engine.laborCost);
+      }
+      return Math.max(0, (laborRate ?? 0) * getServiceLaborHours(service));
+    },
+    [quoteFallback.byService, laborRate, getServiceLaborHours]
+  );
+
+  // Per-(shop, service, tier) flat-price overrides — same hook the mechanic
+  // selection footer + ShopCard call. Hits collapse the parts band and zero
+  // labor for that line; mirrors `computeDisclosedRange` on the server so
+  // the price the customer agrees to here is what `createBatch` will
+  // snapshot onto the booking row.
+  const { map: fixedPriceMap, hasAnyFixed: hasAnyFixedPrice } =
+    useShopFixedPricesForServices(
+      resolvedShopId,
+      selectedVehicle?.ownershipId,
+      selectedServiceIds,
+    );
+
+  // ── Labor-Only pricing state (doc: "Labor-Only Pricing State v1", State 2) ──
+  // `pricedPartsMap` only holds winner!==null rows; read the full breakdown
+  // array here so we can also see `laborOnlyByDesign` and winner===null rows.
+  const partsRowById = useMemo(() => {
+    const m = new Map<string, (typeof pricedPartsByService)[number]>();
+    for (const row of pricedPartsByService) m.set(String(row.serviceId), row);
+    return m;
+  }, [pricedPartsByService]);
+
+  // State 2: service needs parts + labor but none are priced for THIS vehicle
+  // (no fitments, or a winner with no price data). Distinct from labor-only-by-
+  // design services (Diagnostic, Alignment) which never bill parts (State 1).
+  // We surface "From $labor" + an amber disclosure so the eventual parts bill
+  // isn't a surprise — never a fabricated parts range.
+  const isLaborOnlyForVehicle = useCallback(
+    (service: (typeof selectedServices)[0]) => {
+      if (fixedPriceMap.has(String(service.id))) return false; // flat price wins
+      const row = partsRowById.get(String(service.id));
+      if (!row) return false; // query skipped (walk-in / mock ids) → no disclosure
+      // Only warn when the backend EXPLICITLY says this service needs parts.
+      // `!== false` (rather than truthiness of `laborOnlyByDesign`) makes the
+      // feature degrade safely: if the deployed backend predates this field it
+      // returns undefined → no false Labor-Only warning on by-design labor
+      // services (Diagnostic, Alignment). Once web ships the field, it engages.
+      if (row.laborOnlyByDesign !== false) return false; // State 1 or unknown
+      const hasPricedParts = row.winner !== null && row.partsTotal > 0;
+      return !hasPricedParts;
+    },
+    [partsRowById, fixedPriceMap],
+  );
+
+  const isLaborOnlyBooking = useMemo(
+    () => selectedServices.some(isLaborOnlyForVehicle),
+    [selectedServices, isLaborOnlyForVehicle],
+  );
+
+  // Round 6 — flag-only parts: the customer always sees the real AI/OEM
+  // priced number. The engine band is a sanity check, not a price source —
+  // when AI falls outside the band we keep the AI value and let
+  // createBatch stamp `fallback_catch` on the booking row for director
+  // audit. Display metadata (unitCount / unitLabel) is still adopted from
+  // the engine when available, since those are descriptive (e.g.
+  // "× 4 spark plugs"), not price overrides.
+  const getEffectiveParts = useCallback(
+    (service: (typeof selectedServices)[0]) => {
+      const aiCost = getServicePartsCost(service);
+      const engine = quoteFallback.byService.get(String(service.id));
+      const fallbackAi = {
+        cost: aiCost,
+        low: aiCost * 0.92,
+        high: aiCost * 1.08,
+        perUnitLow: aiCost * 0.92,
+        perUnitHigh: aiCost * 1.08,
+        unitCount: 1,
+        unitLabel: null as string | null,
+      };
+      if (engine && engine.refused) {
+        return { ...fallbackAi, source: "ai_estimate" as const };
+      }
+      if (
+        !engine ||
+        engine.partsLow == null ||
+        engine.partsHigh == null ||
+        engine.perUnitLow == null ||
+        engine.perUnitHigh == null
+      ) {
+        return { ...fallbackAi, source: "ai" as const };
+      }
+      const inBand =
+        aiCost >= engine.partsLow * 0.95 && aiCost <= engine.partsHigh * 1.08;
+      return {
+        ...fallbackAi,
+        unitCount: engine.unitCount,
+        unitLabel: engine.unitLabel,
+        source: inBand ? ("ai" as const) : ("ai_out_of_band" as const),
+      };
+    },
+    [getServicePartsCost, quoteFallback.byService],
+  );
+
+  // Calculate detailed breakdown — Pre-Job Approval flow: every variable
+  // line renders as a band, not a single price. Parts vary ±25% (real
+  // variance lives in part fitments + engine variant); labor is fixed.
+  // Tax + platform fee recompute at both parts endpoints so brackets +
+  // platform-fee floor are honored. Matches the server math in
+  // convex/booking_quotes.ts and lib/disclosedRange.ts.
+  const breakdown = useMemo(() => {
+    const laborHours = selectedServices.reduce((sum, s) => sum + getServiceLaborHours(s), 0);
+    // Tier-aware labor per service (engine), NOT flat rate × hours — see
+    // getServiceLaborCost. `laborHours` is kept only for the duration label.
+    const laborCost = selectedServices.reduce(
+      (sum, s) => sum + getServiceLaborCost(s),
+      0,
+    );
+    // Hours attributable to variable services only — drives the "Labor (X mins)"
+    // label so the duration matches the displayed billableLaborCost below.
+    const variableLaborHours = selectedServices.reduce(
+      (sum, s) =>
+        fixedPriceMap.has(String(s.id)) ? sum : sum + getServiceLaborHours(s),
+      0,
+    );
+
+    // Split variable parts (banded) from fixed parts (pinned on both ends).
+    // Mirrors computeDisclosedRange in convex/booking_quotes.ts so the
+    // create call honors the same price the customer agrees to here.
+    // Per-service `getEffectiveParts` always returns the real AI/OEM cost
+    // with a ±8% band. When AI lands outside the engine band, we keep the
+    // AI value (Round 6 — flag-only) and surface `fallback_catch` server-
+    // side for director audit, instead of substituting the engine midpoint.
+    // Labor-only-for-vehicle services (State 2) are ALSO excluded: their parts
+    // aren't priced yet, so we never fold a guessed `default_parts_estimate`
+    // into the band — the customer sees "From $labor" and the amber callout.
+    const variablePartsCost = selectedServices.reduce(
+      (sum, s) =>
+        fixedPriceMap.has(String(s.id)) || isLaborOnlyForVehicle(s)
+          ? sum
+          : sum + getEffectiveParts(s).cost,
+      0,
+    );
+    const variablePartsLowSum = selectedServices.reduce(
+      (sum, s) =>
+        fixedPriceMap.has(String(s.id)) || isLaborOnlyForVehicle(s)
+          ? sum
+          : sum + getEffectiveParts(s).low,
+      0,
+    );
+    const variablePartsHighSum = selectedServices.reduce(
+      (sum, s) =>
+        fixedPriceMap.has(String(s.id)) || isLaborOnlyForVehicle(s)
+          ? sum
+          : sum + getEffectiveParts(s).high,
+      0,
+    );
+    const fixedPartsTotal = selectedServices.reduce(
+      (sum, s) => sum + (fixedPriceMap.get(String(s.id)) ?? 0),
+      0,
+    );
+    const partsCost = variablePartsCost + fixedPartsTotal;
+
+    // Labor on flat-price lines is bundled into the flat — subtract it from
+    // the billable labor used for tax/fee/total math.
+    const fixedLaborCost = selectedServices.reduce(
+      (sum, s) =>
+        fixedPriceMap.has(String(s.id))
+          ? sum + getServiceLaborCost(s)
+          : sum,
+      0,
+    );
+    const billableLaborCost = Math.max(0, laborCost - fixedLaborCost);
+
+    const servicesTotal = billableLaborCost + partsCost;
+    const serviceFee = computePlatformFeeDollars(servicesTotal);
+    const taxesAndFees = computeBookingTax({
+      laborDollars: billableLaborCost,
+      partsDollars: partsCost,
+      state: shop?.state,
+      zip: shop?.zip,
+    }).taxDollars;
+
+    const partsLow = Math.max(0, variablePartsLowSum) + fixedPartsTotal;
+    const partsHigh = Math.max(partsLow, variablePartsHighSum) + fixedPartsTotal;
+    const taxLow = computeBookingTax({
+      laborDollars: billableLaborCost,
+      partsDollars: partsLow,
+      state: shop?.state,
+      zip: shop?.zip,
+    }).taxDollars;
+    const taxHigh = computeBookingTax({
+      laborDollars: billableLaborCost,
+      partsDollars: partsHigh,
+      state: shop?.state,
+      zip: shop?.zip,
+    }).taxDollars;
+    const feeLow = computePlatformFeeDollars(billableLaborCost + partsLow);
+    const feeHigh = computePlatformFeeDollars(billableLaborCost + partsHigh);
+
+    const fixedPriceLines = selectedServices
+      .filter((s) => fixedPriceMap.has(String(s.id)))
+      .map((s) => ({
+        serviceId: String(s.id),
+        laborCost: getServiceLaborCost(s),
+        partsFixed: fixedPriceMap.get(String(s.id)) ?? 0,
+      }));
+    // Pass the engine-aware low/high explicitly so deriveDisclosedRange
+    // doesn't apply a synthetic ±8% on top of an already-banded engine
+    // correction. Variable portion only — fixed lines pin both endpoints
+    // internally via fixedPriceLines.
+    const range = deriveDisclosedRange({
+      laborCost,
+      partsCost: variablePartsCost,
+      partsLowDollars: variablePartsLowSum,
+      partsHighDollars: variablePartsHighSum,
+      state: shop?.state,
+      zip: shop?.zip,
+      fixedPriceLines,
+    });
+
+    const effectiveLaborRate =
+      variableLaborHours > 0
+        ? Math.round(billableLaborCost / variableLaborHours)
+        : (laborRate ?? 0);
+
+    return {
+      laborHours,
+      variableLaborHours,
+      effectiveLaborRate,
+      laborCost: billableLaborCost,
+      partsCost: Math.max(0, partsCost),
+      taxesAndFees,
+      platformFee: serviceFee,
+      subtotal: servicesTotal,
+      total: servicesTotal + taxesAndFees + serviceFee,
+      partsLow,
+      partsHigh,
+      taxLow,
+      taxHigh,
+      feeLow,
+      feeHigh,
+      rangeLow: range.lowDollars,
+      rangeHigh: range.highDollars,
+      rangeFormatted: range.formatted,
+      // State 2: the total is a floor, not a band — parts are still coming.
+      // "From $<low>" where low = labor + any priced parts + tax/fee on what's
+      // known (state-2 parts are excluded above, so they contribute nothing).
+      isLaborOnly: isLaborOnlyBooking,
+      rangeFromFormatted: `From $${range.lowDollars.toFixed(2)}`,
+    };
+  }, [selectedServices, laborRate, shop?.state, shop?.zip, getEffectiveParts, getServiceLaborCost, getServiceLaborHours, fixedPriceMap, isLaborOnlyForVehicle, isLaborOnlyBooking]);
+
+  // Conservative dealer-vs-independent saving (labor-rate delta). Null on
+  // parts-only / diagnostic / flat-fee tickets or when no shop rate resolved,
+  // so the badge self-suppresses where a saving claim isn't credible.
+  const dealerSavings = useMemo(
+    () => computeDealerLaborSavings({ laborHours: breakdown.laborHours, shopLaborRate: laborRate }),
+    [breakdown.laborHours, laborRate],
+  );
+
+  // Tire/rotor quote acceptance: the shop already quoted a firm labor/parts
+  // split (`quoteAcceptContext.laborCost`/`.partsCost`), so there's no live
+  // engine estimate to compute — just the same Taxes/Service Fee math every
+  // other booking gets, applied to the quote's real numbers. Fixed values,
+  // not ranges: this is a firm shop quote, not a Pre-Job Approval estimate.
+  const quoteBreakdown = useMemo(() => {
+    if (!quoteAcceptContext) return null;
+    const taxDollars = computeBookingTax({
+      laborDollars: quoteAcceptContext.laborCost,
+      partsDollars: quoteAcceptContext.partsCost,
+      state: shop?.state,
+      zip: shop?.zip,
+    }).taxDollars;
+    const serviceFeeDollars = computePlatformFeeDollars(
+      quoteAcceptContext.laborCost + quoteAcceptContext.partsCost,
+    );
+    return {
+      taxDollars,
+      serviceFeeDollars,
+      total: quoteAcceptContext.quoteTotal + taxDollars + serviceFeeDollars,
+    };
+  }, [quoteAcceptContext, shop?.state, shop?.zip]);
+
+  // Stash the customer-facing range + fixed-price flag so BookingConfirmStatus
+  // can re-quote the same band the customer just agreed to and decide
+  // whether to render the "Fixed price" / "Estimate" pills alongside it.
+  const setDisclosedRangeFormatted = useBookingStore((s) => s.setDisclosedRangeFormatted);
+  const setDisclosedRangeIsFixedPrice = useBookingStore((s) => s.setDisclosedRangeIsFixedPrice);
+  const setDisclosedRangeIsEstimate = useBookingStore((s) => s.setDisclosedRangeIsEstimate);
+  // Only flags that *actually* mean the displayed band is uncertain. We
+  // intentionally exclude:
+  //   - 'awd_surcharge_applied'  — engine applied a known +10% multiplier;
+  //                                the price is correct, not an estimate
+  //   - 'fixed_price_override'   — guaranteed flat price; FixedPriceBadge
+  //                                already conveys this
+  //   - 'ccb_absolute_pricing'   — fixed CCB price from absolute table
+  //   - 'spread_exceeded'        — engine's own audit signal, not customer-
+  //                                facing context
+  // Without this allowlist the pill fires on basically every booking.
+  const ESTIMATE_TRIGGERING_FLAGS = new Set([
+    "tier_estimate",
+    "fallback_only",
+    "fallback_catch",
+    "engine_corrected_parts",
+    "price_outside_fallback_band",
+  ]);
+  const isEstimateBadgeActive =
+    quoteFallback.refused ||
+    quoteFallback.flags.some((f) => ESTIMATE_TRIGGERING_FLAGS.has(f)) ||
+    hasLaborFallback ||
+    (!isPricedPartsLoading && !hasRealPartsData);
+  useEffect(() => {
+    if (isQuoteAccept) {
+      if (quoteBreakdown) setDisclosedRangeFormatted(`$${quoteBreakdown.total.toFixed(2)}`);
+      return;
+    }
+    setDisclosedRangeFormatted(breakdown.rangeFormatted);
+  }, [isQuoteAccept, quoteBreakdown, breakdown.rangeFormatted, setDisclosedRangeFormatted]);
+  useEffect(() => {
+    // A shop quote is always a firm price, never an estimate band.
+    setDisclosedRangeIsFixedPrice(isQuoteAccept ? true : hasAnyFixedPrice);
+  }, [isQuoteAccept, hasAnyFixedPrice, setDisclosedRangeIsFixedPrice]);
+  useEffect(() => {
+    setDisclosedRangeIsEstimate(isQuoteAccept ? false : isEstimateBadgeActive);
+  }, [isQuoteAccept, isEstimateBadgeActive, setDisclosedRangeIsEstimate]);
+
+  // Per-service line range (labor + parts ±8%) so summary rows show the
+  // same band as the aggregate. The 8% cap matches the disclosed-range
+  // FALLBACK_BAND_RATIO — real source variance after MAD rejection sits
+  // in this band, so a wider spread would overstate uncertainty.
+  const getServiceLineRange = useCallback(
+    (service: (typeof selectedServices)[0]) => {
+      const flat = fixedPriceMap.get(String(service.id));
+      if (flat != null) {
+        return { low: flat, high: flat, isFixed: true as const, isEngineEstimate: false, laborOnly: false as const, from: flat };
+      }
+      const labor = getServiceLaborCost(service);
+      // State 2: parts not priced for this vehicle → show labor as a floor
+      // ("From $labor"), never a fabricated labor+parts band.
+      if (isLaborOnlyForVehicle(service)) {
+        return { low: labor, high: labor, isFixed: false as const, isEngineEstimate: false, laborOnly: true as const, from: labor };
+      }
+      const eff = getEffectiveParts(service);
+      return {
+        low: labor + eff.low,
+        high: labor + eff.high,
+        isFixed: false as const,
+        // True whenever the engine couldn't confidently price this line —
+        // either AI fell outside the engine band (source === "ai_out_of_band")
+        // or the engine refused entirely and we're showing AI with an
+        // explicit estimate marker (source === "ai_estimate").
+        isEngineEstimate:
+          eff.source === "ai_out_of_band" || eff.source === "ai_estimate",
+        laborOnly: false as const,
+        from: labor + eff.low,
+      };
+    },
+    [getServiceLaborCost, getEffectiveParts, getServiceLaborHours, fixedPriceMap, isLaborOnlyForVehicle]
+  );
+
+  // Fallback parts breakdown for services without real OEM-priced data.
+  // Splits each unpriced service's default_parts_estimate across SERVICE_PARTS
+  // labels. Services with real fitments render their own lines below and are
+  // skipped here so we never double-count.
+  const fallbackPartsBreakdown = useMemo(() => {
+    const unpricedNames: string[] = [];
+    let unpricedTotal = 0;
+    for (const service of selectedServices) {
+      // Fixed-price services bundle parts into the flat amount — they
+      // render their own "Parts — Fixed" row, so skip them here.
+      if (fixedPriceMap.has(String(service.id))) continue;
+      if (pricedPartsMap.has(String(service.id))) continue;
+      // State 2: parts aren't priced for this vehicle — never synthesize
+      // "Part — $X" rows from a guessed estimate; the amber callout explains
+      // the shop will price them.
+      if (isLaborOnlyForVehicle(service)) continue;
+      unpricedNames.push(service.name);
+      unpricedTotal += service.default_parts_estimate ?? 0;
+    }
+    return getPartsBreakdown(unpricedNames, unpricedTotal);
+  }, [selectedServices, pricedPartsMap, fixedPriceMap, isLaborOnlyForVehicle]);
+
+  // Format vehicle display
+  const vehicleDisplay = selectedVehicle
+    ? `${selectedVehicle.year} ${selectedVehicle.make} ${selectedVehicle.model}`
+    : "No vehicle selected";
+
+  // Format appointment display
+  const appointmentDisplay =
+    appointmentDate && appointmentTime ? `${appointmentDate} · ${appointmentTime}` : "Not scheduled";
+
+  // Payment method — derived from the live store so add/delete propagate.
+  const selectedPaymentMethod = useMemo(() => {
+    if (selectedPaymentMethodId) {
+      const match = paymentMethods.find((pm) => pm.id === selectedPaymentMethodId);
+      if (match) return match;
+    }
+    return paymentMethods.find((pm) => pm.isDefault) ?? paymentMethods[0] ?? null;
+  }, [paymentMethods, selectedPaymentMethodId]);
+  const hasPayment = paymentMethods.length > 0;
+
+  // ═══════════════ HANDLERS ═══════════════
+  const handleBack = useCallback(() => {
+    // Free the held slot the instant the customer abandons checkout so another
+    // customer can grab it immediately (the server also reclaims it on TTL).
+    if (holdId && holdSessionId) {
+      releaseSlotHold({ holdId: holdId as Id<"slot_holds">, session_id: holdSessionId }).catch(() => {});
+      setSlotHold(null);
+    }
+    if (skippedBookingDetails) {
+      setBookingStage("mechanic_selection", "backward");
+    } else {
+      setBookingStage("booking_details", "backward");
+    }
+    router.back();
+  }, [router, skippedBookingDetails, setBookingStage, holdId, holdSessionId, releaseSlotHold, setSlotHold]);
+
+  // CRITICAL — expiry re-check on resume. If the customer backgrounds the app
+  // mid-checkout and the 15-min hold lapses (or another session takes the
+  // slot), bounce them back to slot selection with a "session expired" prompt.
+  // Runs on foreground + screen-focus. `holdState === undefined` means the
+  // query is still loading — don't bounce yet.
+  const recheckHold = useCallback(() => {
+    if (!holdId) return;
+    const locallyExpired = holdExpiresAt != null && Date.now() >= holdExpiresAt;
+    const serverGone = holdState === null || holdState?.isExpired === true;
+    if (locallyExpired || (holdState !== undefined && serverGone)) {
+      setSlotHold(null);
+      setSessionExpiredVisible(true);
+    }
+  }, [holdId, holdExpiresAt, holdState, setSlotHold]);
+
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (s) => {
+      if (s === "active") recheckHold();
+    });
+    return () => sub.remove();
+  }, [recheckHold]);
+
+  useFocusEffect(useCallback(() => {
+    recheckHold();
+  }, [recheckHold]));
+
+  const canWrite = useCanWrite();
+
+  const handleConfirmPayment = useCallback(() => {
+    if (!canWrite) return;
+    if (!selectedMechanicId && !selectedMechanicSlot?.shopId) return;
+    if (!bookingVehicleVin || !selectedVehicle) {
+      setErrorMessage("This booking is no longer attached to a vehicle. Please reselect the services and try again.");
+      setErrorModalVisible(true);
+      return;
+    }
+    if (!hasPayment || !selectedPaymentMethod) {
+      setErrorMessage("Add a payment method to confirm this booking.");
+      setErrorModalVisible(true);
+      return;
+    }
+    // Hand off to the confirming screen — it runs the mutation alongside
+    // a minimum-display timer for the Lottie loading animation, then
+    // routes forward to /confirmation (or back here with an error param).
+    router.push(`/booking/mechanic/${id}/confirming`);
+  }, [router, id, selectedMechanicId, selectedMechanicSlot?.shopId, bookingVehicleVin, selectedVehicle, hasPayment, selectedPaymentMethod, canWrite]);
+
+  // Apple Pay / Google Pay handlers. The wallet sheet shows the $20 hold
+  // (matches the "$20 hold placed today" disclosure on the screen). The
+  // hook mints a one-time PM via PlatformPay, stashes it in
+  // usePaymentStore.selectedWalletPm, and routes to /confirming with
+  // paymentMode=wallet. The confirming screen preauthorizes the hold before
+  // creating the booking, same as a saved card.
+  const {
+    handleApplePay,
+    handleGooglePay,
+    applePaySupported,
+    googlePaySupported,
+    walletPending,
+    walletError,
+  } = useWalletCheckout({
+    bookingMechanicId: id,
+    totalCents: 2000,
+    enabled:
+      Boolean(selectedMechanicId || selectedMechanicSlot?.shopId) && !isSubmitting,
+  });
+
+  // Bubble wallet errors into the existing error modal so the customer
+  // sees the same surface as other booking failures.
+  useEffect(() => {
+    if (walletError) {
+      setErrorMessage(walletError);
+      setErrorModalVisible(true);
+    }
+  }, [walletError]);
+
+  // Single Authorize CTA. Routes through the platform wallet sheet when the
+  // picker's intent is a supported wallet; otherwise runs the saved-card
+  // path (handleConfirmPayment, which also surfaces the "add a payment
+  // method" error when none is selected). If a wallet intent is set but that
+  // wallet isn't supported on this device, we fall through to the card path
+  // rather than dead-ending.
+  const handleAuthorize = useCallback(() => {
+    if (!canWrite) return;
+    if (!selectedMechanicId && !selectedMechanicSlot?.shopId) return;
+    if (!bookingVehicleVin || !selectedVehicle) {
+      setErrorMessage("This booking is no longer attached to a vehicle. Please reselect the services and try again.");
+      setErrorModalVisible(true);
+      return;
+    }
+    if (walletIntent === "apple_pay" && applePaySupported) {
+      handleApplePay();
+      return;
+    }
+    if (walletIntent === "google_pay" && googlePaySupported) {
+      handleGooglePay();
+      return;
+    }
+    handleConfirmPayment();
+  }, [
+    canWrite,
+    selectedMechanicId,
+    selectedMechanicSlot?.shopId,
+    bookingVehicleVin,
+    selectedVehicle,
+    walletIntent,
+    applePaySupported,
+    googlePaySupported,
+    handleApplePay,
+    handleGooglePay,
+    handleConfirmPayment,
+  ]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (Platform.OS !== "android") {
+        return undefined;
+      }
+
+      const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+        if (errorModalVisible) {
+          setErrorModalVisible(false);
+          return true;
+        }
+
+        handleBack();
+        return true;
+      });
+
+      return () => subscription.remove();
+    }, [errorModalVisible, handleBack])
+  );
+
+  // ═══════════════ RENDER ═══════════════
+  return (
+    <View style={styles.container}>
+      {/* Header — the slot-hold countdown sits in the right action slot so the
+          customer sees how long their time is reserved. Turns red on expiry. */}
+      <BookingPageHeader
+        title="Review & Pay"
+        onBack={handleBack}
+        rightAction={
+          holdExpiresAt != null ? (
+            <View style={[styles.holdBadge, holdExpired && styles.holdBadgeExpired]}>
+              <Clock size={12} color={holdExpired ? "#B91C1C" : BrandColors.secondary} />
+              <Text
+                size="xs"
+                weight="bold"
+                color={holdExpired ? "#B91C1C" : BrandColors.secondary}
+              >
+                {holdExpired ? "Hold expired" : `Held ${countdown}`}
+              </Text>
+            </View>
+          ) : undefined
+        }
+      />
+
+      {/* Scrollable Content — KeyboardAwareScrollView so the "Notes for the
+          mechanic" field scrolls above the keyboard instead of hiding behind
+          it. bottomOffset keeps the focused field clear of the keyboard top. */}
+      <KeyboardAwareScrollView
+        style={styles.scrollView}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: 120 + insets.bottom }]}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+        bottomOffset={24}
+      >
+        {/* Payment — a slim chooser up top instead of a screen-hogging
+            sticky block. One "pay in full" term + the selected method; the
+            full card/wallet list lives behind "Change" (PaymentMethodModal). */}
+        <View style={styles.paySection}>
+          <Text size="xs" weight="bold" color={BrandColors.secondary} style={styles.paySectionLabel}>
+            PAYMENT
+          </Text>
+
+          {/* Pay-in-full term. Single option today ($20 hold now, balance
+              settled after inspection), shown as the selected choice. */}
+          <View style={styles.payTermRow}>
+            <View style={styles.radioOuter}>
+              <View style={styles.radioInner} />
+            </View>
+            <View style={styles.payTermText}>
+              <Text size="sm" weight="semiBold" color={BrandColors.primary}>
+                Pay in full
+              </Text>
+              <Text size="xs" weight="regular" color="#6B7280">
+                $20 authorized today · balance charged after inspection
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.payMethodDivider} />
+
+          {/* Selected method + Change. Wallet intent shows the wallet name;
+              otherwise the saved card brand + last4, or a prompt to add one. */}
+          <TouchableOpacity
+            style={styles.payMethodRow}
+            onPress={() => setPaymentModalVisible(true)}
+            activeOpacity={0.7}
+          >
+            <View style={styles.payMethodIcon}>
+              {walletIntent === "apple_pay" ? (
+                <AppleIcon size={20} color={BrandColors.primary} />
+              ) : walletIntent === "google_pay" ? (
+                <Smartphone size={20} color={BrandColors.primary} />
+              ) : selectedPaymentMethod ? (
+                (() => {
+                  const BrandSvg = BRAND_SVG?.[normalizeStripeBrand(selectedPaymentMethod.brand)];
+                  return BrandSvg ? (
+                    <BrandSvg width={40} height={26} />
+                  ) : (
+                    <Text size="xs" weight="bold" color={BrandColors.secondary}>
+                      {selectedPaymentMethod.brand.toUpperCase().slice(0, 4)}
+                    </Text>
+                  );
+                })()
+              ) : (
+                <ChevronRight size={20} color="#9CA3AF" />
+              )}
+            </View>
+
+            <View style={styles.payMethodText}>
+              {walletIntent === "apple_pay" ? (
+                <Text size="sm" weight="semiBold" color={BrandColors.primary}>
+                  Apple Pay
+                </Text>
+              ) : walletIntent === "google_pay" ? (
+                <Text size="sm" weight="semiBold" color={BrandColors.primary}>
+                  Google Pay
+                </Text>
+              ) : selectedPaymentMethod ? (
+                <>
+                  <Text size="sm" weight="semiBold" color={BrandColors.primary}>
+                    {selectedPaymentMethod.brand.charAt(0).toUpperCase() +
+                      selectedPaymentMethod.brand.slice(1)}{" "}
+                    •••• {selectedPaymentMethod.last4}
+                  </Text>
+                  <Text size="xs" weight="regular" color="#6B7280">
+                    Expires {String(selectedPaymentMethod.expMonth).padStart(2, "0")}/
+                    {String(selectedPaymentMethod.expYear).slice(-2)}
+                  </Text>
+                </>
+              ) : (
+                <Text size="sm" weight="semiBold" color={BrandColors.secondary}>
+                  Add payment method
+                </Text>
+              )}
+            </View>
+
+            <Text size="sm" weight="semiBold" color={BrandColors.secondary}>
+              Change
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Booking summary — service line(s), vehicle/shop and slot stay
+            visible; the itemized labor/parts/tax breakdown tucks behind a
+            "See full breakdown" toggle so the collapsed card reads simple. */}
+        <View style={styles.serviceCard}>
+          <View style={styles.serviceHeader}>
+            <Text size="md" weight="bold" color={BrandColors.primary}>
+              Booking summary
+            </Text>
+            <FileText size={20} color="#9CA3AF" />
+          </View>
+
+          {/* Context: vehicle · shop and the appointment slot. */}
+          <View style={styles.summaryContext}>
+            <View style={styles.summaryContextRow}>
+              <Car size={16} color="#6B7280" />
+              <Text size="sm" weight="medium" color={BrandColors.primary}>
+                {vehicleDisplay} · {shop?.name ?? mechanicSubtitle}
+              </Text>
+            </View>
+            <View style={styles.summaryContextRow}>
+              <Calendar size={16} color="#6B7280" />
+              <Text size="sm" weight="medium" color={BrandColors.primary}>
+                {appointmentDisplay}
+              </Text>
+            </View>
+          </View>
+
+          {isQuoteAccept && quoteBreakdown ? (
+            <>
+              {/* Tire/rotor quote acceptance: these are the shop's actual
+                  agreed-upon line items, not a live-computed estimate — no
+                  ranges, no FixedPriceBadge (the whole card is a fixed
+                  price). */}
+              {quoteAcceptContext.lineItems.map((item, idx) => (
+                <View key={`quote-line-${idx}`} style={styles.serviceRow}>
+                  <Text size="sm" weight="medium" color={BrandColors.primary}>
+                    {item.label}
+                  </Text>
+                  <Text size="sm" weight="semiBold" color={BrandColors.primary}>
+                    ${item.amount.toFixed(2)}
+                  </Text>
+                </View>
+              ))}
+
+              <CollapsibleDetail>
+                <View style={styles.breakdownSection}>
+                  <View style={styles.breakdownRow}>
+                    <Text size="sm" weight="regular" color="#6B7280">
+                      Taxes
+                    </Text>
+                    <Text size="sm" weight="medium" color="#6B7280">
+                      ${quoteBreakdown.taxDollars.toFixed(2)}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.serviceRow}>
+                  <View style={styles.feeRow}>
+                    <Text size="sm" weight="regular" color="#6B7280">
+                      Service Fee — 7%
+                    </Text>
+                    <TouchableOpacity style={styles.infoButton} activeOpacity={0.7}>
+                      <Info size={14} color="#9CA3AF" />
+                    </TouchableOpacity>
+                  </View>
+                  <Text size="sm" weight="medium" color="#6B7280">
+                    ${quoteBreakdown.serviceFeeDollars.toFixed(2)}
+                  </Text>
+                </View>
+              </CollapsibleDetail>
+
+              <View style={styles.serviceDivider} />
+
+              <View style={styles.totalSection}>
+                <View style={styles.totalHeader}>
+                  <Text size="md" weight="bold" color={BrandColors.primary}>
+                    Total
+                  </Text>
+                  <View style={styles.totalHeaderBadges}>
+                    <FixedPriceBadge size="sm" />
+                  </View>
+                </View>
+                <Text
+                  size="2xl"
+                  weight="bold"
+                  color={BrandColors.secondary}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.6}
+                >
+                  ${quoteBreakdown.total.toFixed(2)}
+                </Text>
+              </View>
+
+              <View style={styles.holdInfoBlock}>
+                <Info size={14} color={BrandColors.secondary} style={{ marginTop: 2 }} />
+                <View style={{ flex: 1, marginLeft: 8 }}>
+                  <Text size="sm" weight="semiBold" color={BrandColors.primary}>
+                    A $20 hold will be placed on your card today.
+                  </Text>
+                  <Text size="xs" weight="regular" color="#6B7280" style={styles.holdInfoBody}>
+                    The total above is only charged once the shop completes the work — a $20 hold is placed on your card today.
+                  </Text>
+                </View>
+              </View>
+            </>
+          ) : (
+            <>
+          {/* Collapsed: one summary line — first service (+ N more) and the
+              total estimate. Expanding reveals the full breakdown service by
+              service, then the itemized labor/parts/tax. */}
+          <CollapsibleDetail
+            header={
+              <View style={styles.summaryLine}>
+                <Text
+                  size="sm"
+                  weight="semiBold"
+                  color={BrandColors.primary}
+                  style={styles.summaryLineName}
+                  numberOfLines={1}
+                >
+                  {selectedServices[0]?.name ?? "Your booking"}
+                  {selectedServices.length > 1
+                    ? ` + ${selectedServices.length - 1} more`
+                    : ""}
+                </Text>
+                <View style={styles.summaryLineRight}>
+                  {breakdown.isLaborOnly && <EstimatePill size="sm" label="Labor only" />}
+                  {hasAnyFixedPrice && <FixedPriceBadge size="sm" />}
+                  <Text size="sm" weight="bold" color={BrandColors.secondary} numberOfLines={1}>
+                    {breakdown.isLaborOnly ? breakdown.rangeFromFormatted : breakdown.rangeFormatted}
+                  </Text>
+                </View>
+              </View>
+            }
+          >
+          {/* Full breakdown, service by service (labor + parts ±25% band).
+              Flat-price lines surface the labor duration inline and replace
+              the dollar amount with the flat rate. */}
+          {selectedServices.map((service) => {
+            const lineRange = getServiceLineRange(service);
+            const lineDurationLabel = lineRange.isFixed
+              ? formatDurationForCar(getServiceLaborHours(service))
+              : null;
+            return (
+              <View key={service.id} style={styles.serviceRow}>
+                <View style={styles.serviceNameWrap}>
+                  <Text size="sm" weight="medium" color={BrandColors.primary}>
+                    {service.name}
+                  </Text>
+                  {lineRange.isFixed && <FixedPriceBadge size="sm" />}
+                  {lineRange.laborOnly && <EstimatePill size="sm" label="Labor only" />}
+                  {lineDurationLabel ? (
+                    <Text size="sm" weight="regular" color="#6B7280">
+                      · {lineDurationLabel}
+                    </Text>
+                  ) : null}
+                </View>
+                <Text size="sm" weight="semiBold" color={BrandColors.primary}>
+                  {lineRange.isFixed
+                    ? `$${lineRange.low.toFixed(2)}`
+                    : lineRange.laborOnly
+                      ? `From $${lineRange.from.toFixed(2)}`
+                      : formatRange(lineRange.low, lineRange.high)}
+                </Text>
+              </View>
+            );
+          })}
+          {/* Detailed Breakdown */}
+          <View style={styles.breakdownSection}>
+            {/* Labor — uses per-vehicle book hours from `labor_times` when
+                available; renders a skeleton while that query is in flight
+                so the band doesn't snap from default to variant-aware value
+                in front of the customer. */}
+            {isLaborHoursLoading ? (
+              <View style={styles.breakdownRow}>
+                <View style={styles.skeletonLabel} />
+                <View style={styles.skeletonValue} />
+              </View>
+            ) : breakdown.variableLaborHours > 0 ? (
+              <View style={styles.breakdownRow}>
+                <Text size="sm" weight="regular" color="#6B7280">
+                  {/* Time is the TOTAL mechanic-occupancy duration (variable +
+                      fixed); cost is the variable portion only, since the
+                      fixed lines' labor is already bundled into their flat
+                      amount above. Rate suffix surfaces the per-tier labor
+                      rate so customers see what's being applied — different
+                      vehicle tiers get different shop rates. */}
+                  Labor ({formatDurationForCar(breakdown.laborHours) ?? "0 mins"}
+                  {breakdown.effectiveLaborRate ? ` @ $${breakdown.effectiveLaborRate}/hr` : ""})
+                </Text>
+                <Text size="sm" weight="medium" color="#6B7280">
+                  ${breakdown.laborCost.toFixed(2)}
+                </Text>
+              </View>
+            ) : null}
+
+            {/* Parts: while the priced-parts query is in flight, render a
+                skeleton row per service. When data lands, real OEM parts
+                replace it (name × qty @ unit price). Parts without price
+                data render with "Price TBD". Services with zero fitments
+                fall through to the synthetic SERVICE_PARTS fallback below. */}
+            {isPricedPartsLoading
+              ? selectedServices.map((service) => (
+                  <View key={`skeleton-${service.id}`} style={styles.breakdownRow}>
+                    <View style={styles.skeletonLabel} />
+                    <View style={styles.skeletonValue} />
+                  </View>
+                ))
+              : selectedServices.flatMap((service) => {
+                  // Fixed-price services still surface their parts here so the
+                  // customer sees what's actually being installed — the right
+                  // column reads "Included" instead of a dollar amount, since
+                  // the price contract is the flat shown in the summary row
+                  // above. With no priced-parts data we render nothing extra
+                  // and let the FixedPriceBadge row stand alone.
+                  const isFixedLine = fixedPriceMap.has(String(service.id));
+                  const priced = pricedPartsMap.get(String(service.id));
+                  if (!priced || !priced.winner) return [];
+                  // Round 6: render the real AI/OEM per-line range. When the
+                  // engine refused entirely we show "Price TBD" alongside the
+                  // OEM name + qty so the mechanic knows what's being
+                  // installed without a misleading dollar amount.
+                  // Fallback spec: we NEVER substitute or hide a price we
+                  // actually scraped. `eff.source` (ai_estimate = band engine
+                  // refused, ai_out_of_band = scraped price sits outside the
+                  // engine band) is an AUDIT signal only — it drives the
+                  // `fallback_catch` flag stamped server-side in createBatch so
+                  // the director can review "came out lower/higher than
+                  // expected". The customer still sees the real part + price.
+                  const eff = getEffectiveParts(service);
+                  // Render EVERY locked line (core + default-kit), not just the
+                  // primary winner — secondary core consumables like the
+                  // drain-plug crush washer and oil-filter housing O-ring belong
+                  // on the customer quote too, so it matches the mechanic's
+                  // frozen `priced_parts_snapshot` (which keeps all
+                  // `includeInLockedQuote` rows). `priced.parts` already spans
+                  // both axles for position="both" services. Falls back to
+                  // winner/secondaryWinner for older backends that predate the
+                  // `locked` flag.
+                  const lockedParts = priced.parts.filter((p) => p.locked);
+                  const parts = (
+                    lockedParts.length > 0
+                      ? lockedParts
+                      : [priced.winner, priced.secondaryWinner]
+                  ).filter((p): p is NonNullable<typeof p> => p != null);
+                  return parts.map((part, partIdx) => {
+                    const qtyLabel = part.quantity > 1 ? ` ×${part.quantity}` : "";
+                    // Render the variance the algorithm actually observed —
+                    // qty × kept-set min/max — instead of the single mean
+                    // that gets quoted to the mechanic. When only one source
+                    // priced the part (low === high), apply a synthetic ±8%
+                    // band so the row still reads as a range, matching the
+                    // disclosed-range FALLBACK_BAND_RATIO.
+                    const hasPrice = part.has_price_data && part.line_total_high > 0;
+                    const SINGLE_SOURCE_BAND = 0.08;
+                    const singleSource = part.line_total_low === part.line_total_high;
+                    const lineLow = singleSource
+                      ? part.line_total_low * (1 - SINGLE_SOURCE_BAND)
+                      : part.line_total_low;
+                    const lineHigh = singleSource
+                      ? part.line_total_high * (1 + SINGLE_SOURCE_BAND)
+                      : part.line_total_high;
+                    return (
+                      <View key={`${service.id}-${part.part_id}-${partIdx}`} style={styles.breakdownRow}>
+                        <View style={styles.breakdownLabel}>
+                          <Text size="sm" weight="regular" color="#6B7280">
+                            {part.name} (Part){qtyLabel}
+                          </Text>
+                          {/* DEV-only: surface which part the 7-layer selector
+                              returned + why a row reads "Price TBD". Stripped
+                              from production by the __DEV__ guard. */}
+                          {__DEV__ ? (
+                            <Text size="xs" weight="regular" color="#9CA3AF">
+                              {`${part.oem_part_number} · ${part.role_key ?? "?"} · src=${eff.source} · price=${part.has_price_data ? "Y" : "N"} · n=${part.price_sample_size} · lt=$${part.line_total_low.toFixed(2)}-$${part.line_total_high.toFixed(2)}`}
+                            </Text>
+                          ) : null}
+                        </View>
+                        <Text size="sm" weight="medium" color="#6B7280">
+                          {isFixedLine
+                            ? "Included"
+                            : hasPrice
+                              ? formatRange(lineLow, lineHigh)
+                              : "Price TBD"}
+                        </Text>
+                      </View>
+                    );
+                  });
+                })}
+
+            {!isPricedPartsLoading &&
+              fallbackPartsBreakdown.map((part, index) => (
+                <View key={`fallback-${part.name}-${index}`} style={styles.breakdownRow}>
+                  <Text size="sm" weight="regular" color="#6B7280">
+                    {part.name} (Part)
+                  </Text>
+                  <Text size="sm" weight="medium" color="#6B7280">
+                    {formatRange(part.cost * 0.92, part.cost * 1.08)}
+                  </Text>
+                </View>
+              ))}
+
+            {/* Taxes — recomputed at the parts endpoints. Service Fee
+                renders on its own row below; this row is tax only. */}
+            <View style={styles.breakdownRow}>
+              <Text size="sm" weight="regular" color="#6B7280">
+                Taxes
+              </Text>
+              <Text size="sm" weight="medium" color="#6B7280">
+                {formatRange(breakdown.taxLow, breakdown.taxHigh)}
+              </Text>
+            </View>
+          </View>
+
+          {/* Otopair Service Fee — same band logic as tax. */}
+          <View style={styles.serviceRow}>
+            <View style={styles.feeRow}>
+              <Text size="sm" weight="regular" color="#6B7280">
+                Service Fee — 7%
+              </Text>
+              <TouchableOpacity style={styles.infoButton} activeOpacity={0.7}>
+                <Info size={14} color="#9CA3AF" />
+              </TouchableOpacity>
+            </View>
+            <Text size="sm" weight="medium" color="#6B7280">
+              {formatRange(breakdown.feeLow, breakdown.feeHigh)}
+            </Text>
+          </View>
+          </CollapsibleDetail>
+
+          {dealerSavings !== null && (
+            <View style={styles.savingsRow}>
+              <Text size="xs" weight="semiBold" color={BrandColors.secondary}>
+                → Save ~${dealerSavings} vs dealership
+              </Text>
+            </View>
+          )}
+
+          {/* $20 hold info block — surfaces the deposit mechanic and the
+              "only charged after inspection" promise alongside the range,
+              so the customer never wonders what hits their card today.
+              When Pricing v2 flagged the band as estimate-grade (engine
+              refusal, tier_estimate, fallback_catch, missing labor / parts
+              data) we swap the heading copy to call that out explicitly. */}
+          {breakdown.isLaborOnly ? (
+            // State 2 (amber) — replaces the blue estimate box. Amber and blue
+            // never appear together: incomplete quote (amber) vs complete
+            // estimate (blue). Copy per the Labor-Only Pricing doc, layer 3.
+            <View style={styles.laborOnlyCallout}>
+              <Info size={14} color="#B45309" style={{ marginTop: 1 }} />
+              <View style={styles.laborOnlyCalloutBody}>
+                <Text size="sm" weight="bold" color="#78350F">
+                  Labor only — parts not yet included.
+                </Text>
+                <Text size="xs" weight="regular" color="#57534E" style={styles.laborOnlyCalloutText}>
+                  {`Parts pricing for your ${vehicleDisplay} isn't on file yet. Your shop will price the parts your vehicle needs, and you'll receive your complete quote to review and approve before any work begins. Nothing moves forward without your approval.`}
+                </Text>
+              </View>
+            </View>
+          ) : (
+          <View style={styles.holdInfoBlock}>
+            <Info size={14} color={BrandColors.secondary} style={{ marginTop: 2 }} />
+            <View style={{ flex: 1, marginLeft: 8 }}>
+              <Text size="sm" weight="semiBold" color={BrandColors.primary}>
+                {isEstimateBadgeActive
+                  ? "Estimate — final price confirmed at booking."
+                  : "A $20 hold will be placed on your card today."}
+              </Text>
+              <Text size="xs" weight="regular" color="#6B7280" style={styles.holdInfoBody}>
+                {isEstimateBadgeActive
+                  ? "A $20 hold will be placed on your card today and only charged once your mechanic has inspected your car. If the final total exceeds this range, you'll be asked to approve the new amount before any extra work begins."
+                  : "The final amount within this range is only charged once your mechanic has inspected your car. If the work needed turns out to exceed this range, you'll be asked to approve the new total before any extra work begins."}
+              </Text>
+            </View>
+          </View>
+          )}
+            </>
+          )}
+        </View>
+
+        {/* Notes for the mechanic — read on the schedule card before
+            the job starts (e.g. "wheel lock is in the glovebox"). */}
+        <View style={styles.notesSection}>
+          <View style={styles.notesHeader}>
+            <FileText size={18} color="#6B7280" />
+            <Text size="md" weight="semiBold" color={BrandColors.primary}>
+              Notes for the mechanic
+            </Text>
+          </View>
+          <Text size="sm" weight="regular" color="#6B7280" style={styles.notesHelper}>
+            Anything the mechanic should know before starting? (Optional)
+          </Text>
+          <TextInput
+            value={customerNotes}
+            onChangeText={setCustomerNotes}
+            placeholder="e.g. wheel lock is in the glovebox, please use the rear gate to enter"
+            placeholderTextColor="#9CA3AF"
+            multiline
+            numberOfLines={3}
+            maxLength={500}
+            style={styles.notesInput}
+            textAlignVertical="top"
+          />
+          <Text size="xs" weight="regular" color="#9CA3AF" style={styles.notesCounter}>
+            {customerNotes.length}/500
+          </Text>
+        </View>
+
+      </KeyboardAwareScrollView>
+
+      {/* Footer — a floating "toast" Authorize pill (no bar background).
+          70/30 split: label left, amount centered in the right third.
+          box-none lets touches pass through the transparent area to the
+          scroll content behind it. handleAuthorize opens the wallet sheet
+          when the picker's intent is a wallet, else the saved-card path. */}
+      <View
+        style={[styles.footer, { paddingBottom: insets.bottom + Spacing.md }]}
+        pointerEvents="box-none"
+      >
+        {!canWrite ? (
+          <View style={styles.offlineNote}>
+            <WifiOff size={16} color="#92400E" />
+            <Text size="sm" weight="medium" color="#92400E">
+              You&apos;ll need a connection to book
+            </Text>
+          </View>
+        ) : null}
+
+        <TouchableOpacity
+          style={[
+            styles.authorizeButton,
+            (isSubmitting || walletPending || !canWrite) && styles.confirmButtonDisabled,
+          ]}
+          onPress={handleAuthorize}
+          activeOpacity={0.9}
+          disabled={isSubmitting || walletPending || !canWrite}
+        >
+          {isSubmitting || walletPending ? (
+            <ActivityIndicator color={BrandColors.white} size="small" />
+          ) : (
+            <>
+              <View style={styles.authorizeLabelZone}>
+                <Text size="md" weight="bold" color={BrandColors.white}>
+                  Authorize
+                </Text>
+              </View>
+              <View style={styles.authorizeDivider} />
+              <View style={styles.authorizeAmountZone}>
+                <Text size="md" weight="bold" color={BrandColors.white}>
+                  $20
+                </Text>
+              </View>
+            </>
+          )}
+        </TouchableOpacity>
+      </View>
+
+      {/* Change payment method — full card + supported-wallet list. Wallet
+          selection sets walletIntent so the single Authorize button routes
+          through the platform sheet; card selection clears it. */}
+      <PaymentMethodModal
+        visible={paymentModalVisible}
+        onClose={() => setPaymentModalVisible(false)}
+        totalAmount={isQuoteAccept && quoteBreakdown ? quoteBreakdown.total : breakdown.total}
+        serviceSummary={selectedServices[0]?.name ?? "Your booking"}
+        mechanicName={mechanicDisplayName}
+        applePaySupported={applePaySupported}
+        googlePaySupported={googlePaySupported}
+        onAddCard={() => router.push("/add-payment")}
+      />
+
+      <ErrorOccurredModal
+        visible={errorModalVisible}
+        title="Booking Failed"
+        message={errorMessage}
+        onClose={() => setErrorModalVisible(false)}
+        onRetry={() => {
+          setErrorModalVisible(false);
+          handleConfirmPayment();
+        }}
+      />
+
+      {/* Held-slot expired: no retry-in-place — the slot may be gone, so send
+          the customer back to pick a fresh time. Keeps the checkout session id
+          so re-picking just re-holds via the idempotent holdSlot path. */}
+      <ErrorOccurredModal
+        visible={sessionExpiredVisible}
+        title="Session expired"
+        message="Your held time expired — please pick a new time."
+        onClose={() => {
+          setSessionExpiredVisible(false);
+          router.replace({
+            pathname: "/(booking-flow)/pick-datetime",
+            params: {
+              shopId: resolvedShopId ?? "",
+              ...(selectedMechanicId ? { mechanicId: selectedMechanicId } : {}),
+            },
+          });
+        }}
+      />
+    </View>
+  );
+}
+
+// ============================================================================
+// STYLES
+// ============================================================================
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: "#F9FAFB",
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingHorizontal: Spacing.lg,
+    paddingTop: Spacing.lg,
+    gap: Spacing.lg,
+  },
+  errorContainer: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  // Payment picker (slim, top of screen)
+  paySection: {
+    backgroundColor: BrandColors.white,
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.lg,
+    ...Shadows.sm,
+  },
+  paySectionLabel: {
+    letterSpacing: 0.5,
+    marginBottom: Spacing.md,
+  },
+  payTermRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.md,
+  },
+  radioOuter: {
+    width: 20,
+    height: 20,
+    borderRadius: BorderRadius.full,
+    borderWidth: 2,
+    borderColor: BrandColors.secondary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  radioInner: {
+    width: 10,
+    height: 10,
+    borderRadius: BorderRadius.full,
+    backgroundColor: BrandColors.secondary,
+  },
+  payTermText: {
+    flex: 1,
+    gap: 2,
+  },
+  payMethodDivider: {
+    height: 1,
+    backgroundColor: "#E5E7EB",
+    marginVertical: Spacing.md,
+  },
+  payMethodRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.md,
+  },
+  payMethodIcon: {
+    width: 44,
+    height: 30,
+    borderRadius: BorderRadius.sm,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    backgroundColor: "#F9FAFB",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  payMethodText: {
+    flex: 1,
+    gap: 2,
+  },
+
+  // Booking-summary context rows (vehicle · shop, appointment)
+  summaryContext: {
+    gap: Spacing.xs,
+    marginBottom: Spacing.md,
+    paddingBottom: Spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F3F4F6",
+  },
+  summaryContextRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+  },
+
+  // Authorize CTA (footer)
+  authorizeButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    height: 56,
+    borderRadius: BorderRadius.xl,
+    backgroundColor: BrandColors.primary,
+    // Floats over the content like a toast — the footer wrapper is
+    // transparent, so this shadow is what lifts the pill off the page.
+    ...Shadows.lg,
+  },
+  // 70 / 30 split. Label sits on the left; amount is centered in its third.
+  authorizeLabelZone: {
+    flex: 0.7,
+    justifyContent: "center",
+    alignItems: "flex-start",
+    paddingLeft: Spacing.lg,
+  },
+  authorizeAmountZone: {
+    flex: 0.3,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  authorizeDivider: {
+    width: 1,
+    height: 24,
+    backgroundColor: "rgba(255,255,255,0.35)",
+  },
+
+  // Slot-hold countdown pill (header right action)
+  holdBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 4,
+    borderRadius: BorderRadius.full,
+    backgroundColor: "#EFF6FF",
+  },
+  holdBadgeExpired: {
+    backgroundColor: "#FEE2E2",
+  },
+
+  // Mechanic Card
+  mechanicCard: {
+    backgroundColor: BrandColors.white,
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.lg,
+    ...Shadows.sm,
+  },
+  mechanicRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.md,
+  },
+  avatarWrapper: {
+    position: "relative",
+  },
+  avatar: {
+    width: 64,
+    height: 64,
+    borderRadius: BorderRadius.full,
+  },
+  avatarPlaceholder: {
+    width: 64,
+    height: 64,
+    borderRadius: BorderRadius.full,
+    backgroundColor: "#E5E7EB",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  ratingBadge: {
+    position: "absolute",
+    bottom: -4,
+    left: -4,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+    backgroundColor: BrandColors.primary,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: BorderRadius.full,
+    borderWidth: 2,
+    borderColor: BrandColors.white,
+  },
+  mechanicInfo: {
+    flex: 1,
+    gap: 2,
+  },
+  cardDivider: {
+    height: 1,
+    backgroundColor: "#E5E7EB",
+    marginVertical: Spacing.lg,
+  },
+  appointmentDetails: {
+    gap: Spacing.md,
+  },
+  detailRow: {
+    gap: Spacing.xs,
+  },
+  detailLabel: {
+    letterSpacing: 0.5,
+  },
+  detailContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+  },
+
+  // Service Card
+  serviceCard: {
+    backgroundColor: BrandColors.white,
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.lg,
+    ...Shadows.sm,
+  },
+  serviceHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: Spacing.lg,
+  },
+  serviceRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: Spacing.sm,
+  },
+  serviceNameWrap: {
+    flexShrink: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.xs,
+  },
+  // Collapsed summary line: service name (+ N more) on the left, total
+  // estimate on the right; the CollapsibleDetail chevron sits after it.
+  summaryLine: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: Spacing.sm,
+  },
+  summaryLineName: {
+    flexShrink: 1,
+  },
+  summaryLineRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.xs,
+    flexShrink: 0,
+  },
+  savingsRow: {
+    alignSelf: "flex-start",
+    backgroundColor: "#EFF6FF",
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 4,
+    borderRadius: BorderRadius.md,
+    marginTop: Spacing.sm,
+  },
+  breakdownSection: {
+    marginTop: Spacing.sm,
+    paddingTop: Spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: "#F3F4F6",
+  },
+  breakdownRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: Spacing.xs,
+  },
+  breakdownLabel: {
+    flex: 1,
+    marginRight: Spacing.sm,
+  },
+  skeletonLabel: {
+    flex: 1,
+    height: 12,
+    borderRadius: 4,
+    backgroundColor: "#E5E7EB",
+    marginRight: Spacing.md,
+  },
+  skeletonValue: {
+    width: 64,
+    height: 12,
+    borderRadius: 4,
+    backgroundColor: "#E5E7EB",
+  },
+  feeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.xs,
+  },
+  infoButton: {
+    padding: 2,
+  },
+  serviceDivider: {
+    height: 1,
+    backgroundColor: "#E5E7EB",
+    marginVertical: Spacing.md,
+  },
+  totalSection: {
+    flexDirection: "column",
+    gap: Spacing.sm,
+  },
+  totalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+    flexWrap: "wrap",
+  },
+  totalHeaderBadges: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.xs,
+    flexWrap: "wrap",
+  },
+  // Retained for back-compat; new stacked layout uses `totalHeader`.
+  totalLeft: {
+    gap: Spacing.xs,
+  },
+  savingsBadge: {
+    backgroundColor: "#EFF6FF",
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 4,
+    borderRadius: BorderRadius.md,
+  },
+  holdInfoBlock: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    backgroundColor: "#F0F7FF",
+    borderColor: "#BFDBFE",
+    borderWidth: 1,
+    borderRadius: BorderRadius.md,
+    padding: Spacing.md,
+    marginTop: Spacing.md,
+  },
+  holdInfoBody: {
+    marginTop: 4,
+    lineHeight: 16,
+  },
+  // State 2 (Labor-Only) disclosure — amber, reserved for the incomplete-quote
+  // state (blue holdInfoBlock is the complete-estimate state; never together).
+  laborOnlyCallout: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: Spacing.sm,
+    backgroundColor: "#FFFBEB",
+    borderColor: "#FDE68A",
+    borderWidth: 1,
+    borderRadius: BorderRadius.md,
+    padding: Spacing.md,
+    marginTop: Spacing.md,
+  },
+  laborOnlyCalloutBody: {
+    flex: 1,
+    gap: 4,
+  },
+  laborOnlyCalloutText: {
+    lineHeight: 18,
+  },
+
+  // Notes Section
+  notesSection: {
+    marginBottom: Spacing.lg,
+    padding: Spacing.lg,
+    backgroundColor: BrandColors.white,
+    borderRadius: BorderRadius.xl,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+  },
+  notesHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.xs,
+    marginBottom: Spacing.xs,
+  },
+  notesHelper: {
+    marginBottom: Spacing.sm,
+  },
+  notesInput: {
+    minHeight: 80,
+    padding: Spacing.md,
+    backgroundColor: "#F8FAFC",
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    color: BrandColors.primary,
+    fontSize: 14,
+  },
+  notesCounter: {
+    marginTop: Spacing.xs,
+    textAlign: "right",
+  },
+
+  cardBrandIcon: {
+    width: 60,
+    height: 40,
+    borderRadius: BorderRadius.sm,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    backgroundColor: "#F9FAFB",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  cardDetails: {
+    flex: 1,
+    gap: 2,
+  },
+
+  // Footer — transparent wrapper; the Authorize pill floats inside it. No
+  // bar background, border, or shadow of its own.
+  footer: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    paddingHorizontal: Spacing.lg,
+    gap: Spacing.sm,
+  },
+  offlineNote: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    justifyContent: "center",
+    // Readable chip since it now floats over content, not a white bar.
+    alignSelf: "center",
+    backgroundColor: "#FEF3C7",
+    borderRadius: BorderRadius.full,
+    paddingVertical: Spacing.xs,
+    paddingHorizontal: Spacing.md,
+  },
+  walletButton: {
+    // Full-width CTA. The SVG holds ONLY the wallet mark (Apple/Google
+    // logo + "Pay" paths); the wrapper provides the rounded black
+    // surface, and the SVG's tight viewBox guarantees the mark renders
+    // dead-center horizontally and vertically.
+    width: "100%",
+    height: 64,
+    backgroundColor: "#000008",
+    borderRadius: BorderRadius.xl,
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+  },
+  confirmButtonLabel: {
+    flexShrink: 1,
+  },
+  confirmButtonDisabled: {
+    opacity: 0.7,
+  },
+  priceTag: {
+    backgroundColor: BrandColors.white,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.xs,
+    borderRadius: BorderRadius.lg,
+    flexShrink: 0,
+  },
+  footerCardRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: BrandColors.white,
+    borderRadius: BorderRadius.xl,
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.md,
+    gap: Spacing.md,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+  },
+});
