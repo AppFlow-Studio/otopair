@@ -141,6 +141,7 @@ import type * as directorIntegrations from "../directorIntegrations.js";
 import type * as directorOverview from "../directorOverview.js";
 import type * as directorPartQuality from "../directorPartQuality.js";
 import type * as directorPricing from "../directorPricing.js";
+import type * as directorRoadTo10 from "../directorRoadTo10.js";
 import type * as directorSettings from "../directorSettings.js";
 import type * as directorShopActions from "../directorShopActions.js";
 import type * as directorStripe from "../directorStripe.js";
@@ -487,6 +488,7 @@ import type * as vehicleEnrichment_cacheValidation from "../vehicleEnrichment/ca
 import type * as vehicleEnrichment_capacityResolver from "../vehicleEnrichment/capacityResolver.js";
 import type * as vehicleEnrichment_categoryHarvest from "../vehicleEnrichment/categoryHarvest.js";
 import type * as vehicleEnrichment_claimGathering from "../vehicleEnrichment/claimGathering.js";
+import type * as vehicleEnrichment_cohortDispatch from "../vehicleEnrichment/cohortDispatch.js";
 import type * as vehicleEnrichment_completionGate from "../vehicleEnrichment/completionGate.js";
 import type * as vehicleEnrichment_completionReevaluate from "../vehicleEnrichment/completionReevaluate.js";
 import type * as vehicleEnrichment_contentSanitization from "../vehicleEnrichment/contentSanitization.js";
@@ -541,6 +543,7 @@ import type * as vehicleEnrichment_olpRelabor from "../vehicleEnrichment/olpRela
 import type * as vehicleEnrichment_partIndex from "../vehicleEnrichment/partIndex.js";
 import type * as vehicleEnrichment_partialEnrichment from "../vehicleEnrichment/partialEnrichment.js";
 import type * as vehicleEnrichment_pipelineTest from "../vehicleEnrichment/pipelineTest.js";
+import type * as vehicleEnrichment_priceBackfillSweep from "../vehicleEnrichment/priceBackfillSweep.js";
 import type * as vehicleEnrichment_priceDiscovery from "../vehicleEnrichment/priceDiscovery.js";
 import type * as vehicleEnrichment_priceParser from "../vehicleEnrichment/priceParser.js";
 import type * as vehicleEnrichment_pricePilot from "../vehicleEnrichment/pricePilot.js";
@@ -601,6 +604,7 @@ import type * as vehicleEnrichment_utils_batchClient from "../vehicleEnrichment/
 import type * as vehicleEnrichment_utils_batchSchemas from "../vehicleEnrichment/utils/batchSchemas.js";
 import type * as vehicleEnrichment_utils_chassisLookup from "../vehicleEnrichment/utils/chassisLookup.js";
 import type * as vehicleEnrichment_utils_claudeClient from "../vehicleEnrichment/utils/claudeClient.js";
+import type * as vehicleEnrichment_utils_decisionLog from "../vehicleEnrichment/utils/decisionLog.js";
 import type * as vehicleEnrichment_utils_engineCodeLookup from "../vehicleEnrichment/utils/engineCodeLookup.js";
 import type * as vehicleEnrichment_utils_engineLookup from "../vehicleEnrichment/utils/engineLookup.js";
 import type * as vehicleEnrichment_utils_enrichmentFlags from "../vehicleEnrichment/utils/enrichmentFlags.js";
@@ -775,6 +779,7 @@ declare const fullApi: ApiFromModules<{
   directorOverview: typeof directorOverview;
   directorPartQuality: typeof directorPartQuality;
   directorPricing: typeof directorPricing;
+  directorRoadTo10: typeof directorRoadTo10;
   directorSettings: typeof directorSettings;
   directorShopActions: typeof directorShopActions;
   directorStripe: typeof directorStripe;
@@ -1121,6 +1126,7 @@ declare const fullApi: ApiFromModules<{
   "vehicleEnrichment/capacityResolver": typeof vehicleEnrichment_capacityResolver;
   "vehicleEnrichment/categoryHarvest": typeof vehicleEnrichment_categoryHarvest;
   "vehicleEnrichment/claimGathering": typeof vehicleEnrichment_claimGathering;
+  "vehicleEnrichment/cohortDispatch": typeof vehicleEnrichment_cohortDispatch;
   "vehicleEnrichment/completionGate": typeof vehicleEnrichment_completionGate;
   "vehicleEnrichment/completionReevaluate": typeof vehicleEnrichment_completionReevaluate;
   "vehicleEnrichment/contentSanitization": typeof vehicleEnrichment_contentSanitization;
@@ -1175,6 +1181,7 @@ declare const fullApi: ApiFromModules<{
   "vehicleEnrichment/partIndex": typeof vehicleEnrichment_partIndex;
   "vehicleEnrichment/partialEnrichment": typeof vehicleEnrichment_partialEnrichment;
   "vehicleEnrichment/pipelineTest": typeof vehicleEnrichment_pipelineTest;
+  "vehicleEnrichment/priceBackfillSweep": typeof vehicleEnrichment_priceBackfillSweep;
   "vehicleEnrichment/priceDiscovery": typeof vehicleEnrichment_priceDiscovery;
   "vehicleEnrichment/priceParser": typeof vehicleEnrichment_priceParser;
   "vehicleEnrichment/pricePilot": typeof vehicleEnrichment_pricePilot;
@@ -1235,6 +1242,7 @@ declare const fullApi: ApiFromModules<{
   "vehicleEnrichment/utils/batchSchemas": typeof vehicleEnrichment_utils_batchSchemas;
   "vehicleEnrichment/utils/chassisLookup": typeof vehicleEnrichment_utils_chassisLookup;
   "vehicleEnrichment/utils/claudeClient": typeof vehicleEnrichment_utils_claudeClient;
+  "vehicleEnrichment/utils/decisionLog": typeof vehicleEnrichment_utils_decisionLog;
   "vehicleEnrichment/utils/engineCodeLookup": typeof vehicleEnrichment_utils_engineCodeLookup;
   "vehicleEnrichment/utils/engineLookup": typeof vehicleEnrichment_utils_engineLookup;
   "vehicleEnrichment/utils/enrichmentFlags": typeof vehicleEnrichment_utils_enrichmentFlags;
