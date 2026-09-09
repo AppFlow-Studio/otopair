@@ -16,14 +16,18 @@
  *         the flow feeling like Otopair instead of a generic white checkout.
  *         Same BlurView approach as HomeHeaderBar.
  *
- * NOTE: Presentation only. No Convex, no Clerk, no claim logic — every screen
- *       is driven by the MOCK constant below while the flow is being reviewed.
+ * NOTE: Presentation and copy only. The one exception is
+ *       `useReturningCustomer`, which reads Clerk to tell a first-time
+ *       customer from one who already has an account — the two need different
+ *       wording throughout, and branching in each screen separately is how
+ *       they drift. No claim logic lives here.
  *
  * OWNER: Ahmad Hamoudeh
  */
 
 // 1. React & React Native
 import React from 'react';
+import { useAuth, useUser } from '@clerk/clerk-expo';
 import {
   Image,
   Platform,
@@ -173,6 +177,35 @@ export function useClaimStages(): Stage[] {
     time: formatTime(t.atMs) ?? '—',
     state: !t.reached ? 'todo' : i === lastReached ? 'current' : 'done',
   }));
+}
+
+/**
+ * Is this a customer Otopair already knows, and what do we call them?
+ *
+ * The walk-in flow was written for someone meeting Otopair for the first time,
+ * and every screen says so — "Verify it's me", "Claim this booking", "ready to
+ * save to your Garage". A signed-in customer walking into a shop hits the same
+ * screens, and by the time they see them the claim has already been merged
+ * onto their account (`walkin_claims.claimByToken`), so each of those lines is
+ * asking them to do something already done.
+ *
+ * Ahmad, 2026-09-09: an existing customer "shouldn't really mention things
+ * that make 'em sound like a brand new user".
+ *
+ * The NAME comes from Clerk, not from the claim. The claim's first name is
+ * whatever the shop typed on the counter — fine for greeting a stranger, wrong
+ * for greeting someone whose account already has a name they chose.
+ */
+export function useReturningCustomer(): { isReturning: boolean; firstName: string | null } {
+  const { isSignedIn } = useAuth();
+  const { user } = useUser();
+  const claim = useWalkInClaimStore((s) => s.claim);
+  const fromAccount = user?.firstName?.trim() || null;
+  const fromShop = claim?.firstName?.trim() || null;
+  return {
+    isReturning: !!isSignedIn,
+    firstName: fromAccount ?? fromShop,
+  };
 }
 
 /**
