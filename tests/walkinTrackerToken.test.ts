@@ -161,3 +161,107 @@ describe("what a link must not do", () => {
     expect(r.alreadyMine).toBe(true);
   });
 });
+
+/**
+ * A retired stub must never swallow the customer's next job.
+ *
+ * Ahmad, 2026-09-10: opened a fresh walk-in link, got the tracker (correct),
+ * tapped "Go to my Garage" — and the car was not there, nor the booking in
+ * Bookings.
+ *
+ * `claimByToken` retires a merged stub by keeping the row and stamping
+ * `walkInClaimedAt` + `isPendingDeletion`. Keeping it is right — deleting it
+ * would dangle any id the merge did not know about. But the row keeps its
+ * email and phone, and the shop portal finds customers by exactly those, so
+ * the NEXT walk-in attached to the dead row. The job was invisible from the
+ * real account, and the claim link refused to help because the stub was
+ * already claimed. A dead end built out of two individually-reasonable rules.
+ */
+describe("a merged stub does not capture later walk-ins", () => {
+  it("carries a forwarding pointer once merged", async () => {
+    const t = makeT();
+    const { customerId, late } = await seed(t);
+    const meId = await t.run(async (ctx: any) =>
+      await ctx.db.insert("users", {
+        clerkUserId: "user_realcustomer", onboardingCompleted: true, createdAt: Date.now(),
+      }));
+    await asStaff(t).mutation(api.walkin_claims.mintForBooking, { bookingId: late });
+    const token = await t.run(async (ctx: any) => (await ctx.db.get(late)).tracker_token);
+    await t.withIdentity({ subject: "user_realcustomer" })
+      .mutation(api.walkin_claims.claimByToken, { token });
+    const stub = await t.run(async (ctx: any) => await ctx.db.get(customerId));
+    expect(stub.merged_into_user_id).toBe(meId);
+    expect(stub.isPendingDeletion).toBe(true);
+  });
+
+  it("lets the same owner absorb a job that landed on the stub afterwards", async () => {
+    // The self-healing case: a booking created before the portal learned to
+    // follow the pointer still has a way home.
+    const t = makeT();
+    const { customerId, early, late } = await seed(t);
+    await t.run(async (ctx: any) =>
+      await ctx.db.insert("users", {
+        clerkUserId: "user_realcustomer", onboardingCompleted: true, createdAt: Date.now(),
+      }));
+    const me = t.withIdentity({ subject: "user_realcustomer" });
+
+    await asStaff(t).mutation(api.walkin_claims.mintForBooking, { bookingId: late });
+    const tokLate = await t.run(async (ctx: any) => (await ctx.db.get(late)).tracker_token);
+    await me.mutation(api.walkin_claims.claimByToken, { token: tokLate });
+    // The first merge takes everything the stub owns, `early` included — so a
+    // leftover job only exists if the shop creates one AFTERWARDS, which is
+    // exactly what happened: the portal matched the retired stub by phone.
+    const later = await t.run(async (ctx: any) =>
+      await ctx.db.insert("bookings", {
+        user_id: customerId, shop_id: (await ctx.db.get(early)).shop_id, status: "confirmed",
+        vin: "5XYZU3LB0FG123456", service_ids: [], source: "mechanic_walk_in",
+        scheduled_date: "2026-09-11", scheduled_time: "08:00", created_at: Date.now(),
+      } as any));
+
+    await asStaff(t).mutation(api.walkin_claims.mintForBooking, { bookingId: later });
+    const tokLater = await t.run(async (ctx: any) => (await ctx.db.get(later)).tracker_token);
+    const r: any = await me.mutation(api.walkin_claims.claimByToken, { token: tokLater });
+    expect(r.ok).toBe(true);
+
+    const moved = await t.run(async (ctx: any) => await ctx.db.get(later));
+    expect(moved.user_id).not.toBe(customerId);
+  });
+
+  it("still refuses anyone the stub was NOT merged into", async () => {
+    // The re-merge allowance is scoped to the account that absorbed it. It is
+    // not a general re-claim.
+    const t = makeT();
+    const { early, late } = await seed(t);
+    await t.run(async (ctx: any) => {
+      await ctx.db.insert("users", {
+        clerkUserId: "user_realcustomer", onboardingCompleted: true, createdAt: Date.now(),
+      });
+      await ctx.db.insert("users", {
+        clerkUserId: "user_attacker", onboardingCompleted: true, createdAt: Date.now(),
+      });
+    });
+    await asStaff(t).mutation(api.walkin_claims.mintForBooking, { bookingId: late });
+    const tokLate = await t.run(async (ctx: any) => (await ctx.db.get(late)).tracker_token);
+    await t.withIdentity({ subject: "user_realcustomer" })
+      .mutation(api.walkin_claims.claimByToken, { token: tokLate });
+
+    // A job that lands on the retired stub after the merge — the one case
+    // where the re-merge allowance applies, so the right one to test the
+    // scoping on.
+    const later = await t.run(async (ctx: any) => {
+      const stub = await ctx.db.query("users")
+        .filter((q: any) => q.eq(q.field("first_name"), "Ahmad")).first();
+      return await ctx.db.insert("bookings", {
+        user_id: stub._id, shop_id: (await ctx.db.get(early)).shop_id, status: "confirmed",
+        vin: "5XYZU3LB0FG123456", service_ids: [], source: "mechanic_walk_in",
+        scheduled_date: "2026-09-11", scheduled_time: "08:00", created_at: Date.now(),
+      } as any);
+    });
+    await asStaff(t).mutation(api.walkin_claims.mintForBooking, { bookingId: later });
+    const tokLater = await t.run(async (ctx: any) => (await ctx.db.get(later)).tracker_token);
+    const r: any = await t.withIdentity({ subject: "user_attacker" })
+      .mutation(api.walkin_claims.claimByToken, { token: tokLater });
+    expect(r.ok).toBe(false);
+    expect(r.reason).toBe("already_claimed");
+  });
+});

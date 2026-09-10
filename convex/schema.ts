@@ -2180,6 +2180,17 @@ export default defineSchema({
     // Set when a Clerk user.created webhook claimed a pre-existing
     // "shop-created-*" walk-in stub user by matching email or phone.
     walkInClaimedAt: v.optional(v.number()),
+    // Forwarding pointer, set when a shop-built stub is merged into a real
+    // account by `walkin_claims.claimByToken`.
+    //
+    // The stub row is kept rather than deleted — it may be referenced by rows
+    // the merge does not know about, and a dangling id is worse than a parked
+    // one. But keeping it left it fully discoverable: the shop portal's
+    // customer lookup matches on email and phone, which a retired stub still
+    // carries, so the NEXT walk-in for that person attached to the dead row
+    // and never reached their real account (Ahmad, 2026-09-10). Lookups follow
+    // this pointer instead.
+    merged_into_user_id: v.optional(v.id("users")),
     // URL-safe token embedded in the post-job claim deep link sent to
     // mechanic-created walk-in clients. Resolved by /claim/[token].
     claim_token: v.optional(v.string()),

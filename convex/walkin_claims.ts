@@ -601,7 +601,20 @@ export const claimByToken = mutation({
     if (stub._id === me._id) return { ok: true as const, alreadyMine: true as const };
 
     const now = Date.now();
-    if ((stub as any).walkInClaimedAt) {
+    // A stub this caller has ALREADY absorbed can be merged again.
+    //
+    // Retiring a stub leaves the row in place, and the shop portal's customer
+    // lookup still finds it by phone or email — so a later walk-in for the
+    // same person can land on it before `createByShop` learns to follow the
+    // forwarding pointer. Refusing here would strand that job on a dead row
+    // with no way back. Merging again is idempotent and lands it where it
+    // belongs.
+    //
+    // Scoped to the caller it was merged INTO, so this is not a general
+    // re-claim: anyone else still gets `already_claimed`.
+    const mergedInto = (stub as any).merged_into_user_id as Id<"users"> | undefined;
+    const isRepeatForSameOwner = mergedInto === me._id;
+    if ((stub as any).walkInClaimedAt && !isRepeatForSameOwner) {
       return { ok: false as const, reason: "already_claimed" as const };
     }
     // Only a shop-built stub is ever mergeable. Without this the token would be
@@ -659,6 +672,9 @@ export const claimByToken = mutation({
       claim_token: undefined,
       claim_token_expires_at: undefined,
       isPendingDeletion: true,
+      // Where the customer actually lives now. `createByShop` follows this so
+      // their next walk-in never lands back on this row.
+      merged_into_user_id: me._id,
       lastUpdated: now,
     } as any);
 
