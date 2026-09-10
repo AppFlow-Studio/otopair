@@ -51,6 +51,12 @@ export interface WalkInTracker {
 interface WalkInClaimState {
   /** The token from the deep link, kept so the claim can be completed later. */
   token: string | null;
+  /** VIN of the car this job is about, once `claimByToken` has confirmed the
+   *  caller owns it. Lets "Go to my Garage" open ON that vehicle rather than
+   *  on whichever one happens to be primary. Never populated from the public
+   *  tracker payload, which withholds the VIN by design. */
+  vin: string | null;
+  setVin: (vin: string | null) => void;
   claim: WalkInClaim | null;
   tracker: WalkInTracker | null;
   setClaim: (token: string, claim: WalkInClaim) => void;
@@ -60,9 +66,11 @@ interface WalkInClaimState {
 
 export const useWalkInClaimStore = create<WalkInClaimState>((set) => ({
   token: null,
+  vin: null,
   claim: null,
   tracker: null,
   setClaim: (token, claim) => set({ token, claim }),
+  setVin: (vin) => set({ vin }),
   setTracker: (tracker) => set({ tracker }),
-  clear: () => set({ token: null, claim: null, tracker: null }),
+  clear: () => set({ token: null, vin: null, claim: null, tracker: null }),
 }));

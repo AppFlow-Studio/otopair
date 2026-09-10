@@ -595,10 +595,19 @@ export const claimByToken = mutation({
     if (target.kind === "expired") return { ok: false as const, reason: "expired" as const };
     const stub = target.user;
 
+    // The car this link is about. Returned so the app can open the garage ON
+    // that vehicle instead of whichever one happens to be primary.
+    //
+    // `getTrackerData` deliberately withholds the VIN — that query is public
+    // and the link is shareable, so a bystander must not get one. Here the
+    // caller is authenticated AND owns the booking, so there is nothing to
+    // withhold.
+    const vin = ((target.booking as any)?.vin as string | undefined) ?? null;
+
     // Already on this account — the deep link was opened twice, the signup
     // path adopted it first, or this is a returning customer opening a tracker
     // link for a job that was always theirs. Not an error; nothing to move.
-    if (stub._id === me._id) return { ok: true as const, alreadyMine: true as const };
+    if (stub._id === me._id) return { ok: true as const, alreadyMine: true as const, vin };
 
     const now = Date.now();
     // A stub this caller has ALREADY absorbed can be merged again.
@@ -680,6 +689,7 @@ export const claimByToken = mutation({
 
     return {
       ok: true as const,
+      vin,
       vehiclesMoved,
       bookingsMoved: stubBookings.length,
     };

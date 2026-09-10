@@ -61,6 +61,7 @@ export default function ClaimTokenScreen() {
   const { isSignedIn } = useAuth();
   const claimByToken = useMutation(api.walkin_claims.claimByToken);
   const setClaim = useWalkInClaimStore((s) => s.setClaim);
+  const setVin = useWalkInClaimStore((s) => s.setVin);
   const setTracker = useWalkInClaimStore((s) => s.setTracker);
 
   // `undefined` = still loading; anything else is a resolved result.
@@ -105,7 +106,11 @@ export default function ClaimTokenScreen() {
     // Cars tab is a live Convex subscription, so the car appears the moment it
     // lands, whether or not this screen is still mounted.
     if (isSignedIn) {
-      void claimByToken({ token }).catch(() => {});
+      // Keep the VIN the merge confirms: "Go to my Garage" downstream opens
+      // ON this car rather than on whichever one is primary.
+      void claimByToken({ token })
+        .then((r) => { if (r?.vin) setVin(r.vin); })
+        .catch(() => {});
       // Straight to the live job. The landing screen exists to ask a stranger
       // to identify themselves, and there is nothing to ask someone whose
       // account already owns this booking — the tracker is what the shop
@@ -114,7 +119,7 @@ export default function ClaimTokenScreen() {
       return;
     }
     router.replace('/(walk-in)');
-  }, [token, isClaimable, result, setClaim, router, isSignedIn, claimByToken]);
+  }, [token, isClaimable, result, setClaim, setVin, router, isSignedIn, claimByToken]);
 
   if (result === undefined) {
     return (

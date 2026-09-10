@@ -180,6 +180,26 @@ export function useClaimStages(): Stage[] {
 }
 
 /**
+ * Where "Go to my Garage" should land.
+ *
+ * The Cars tab already honours `?focusVin=` (app/(main-tabs)/cars/index.tsx),
+ * so the only thing needed is the VIN — without it the tab opens on whichever
+ * car is primary and the customer has to go hunting for the one the shop just
+ * worked on (Ahmad, 2026-09-10).
+ *
+ * The VIN comes from `claimByToken`, which is authenticated and confirms the
+ * caller owns the booking. It is deliberately NOT taken from the tracker
+ * payload: that query is public and the link is shareable, so it withholds
+ * the VIN on purpose.
+ */
+export function useGarageHref() {
+  const vin = useWalkInClaimStore((s) => s.vin);
+  return vin
+    ? ({ pathname: '/(main-tabs)/cars', params: { focusVin: vin } } as const)
+    : ('/(main-tabs)/cars' as const);
+}
+
+/**
  * Is this a customer Otopair already knows, and what do we call them?
  *
  * The walk-in flow was written for someone meeting Otopair for the first time,

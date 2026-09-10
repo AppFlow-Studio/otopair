@@ -19,6 +19,7 @@ import {
   GlassCard,
   JobCard,
   useClaimData,
+  useGarageHref,
   useReturningCustomer,
   useClaimStages,
   PrimaryCta,
@@ -31,6 +32,7 @@ import { FontFamily } from '@/constants/theme';
 export default function TrackerScreen() {
   const data = useClaimData();
   const { isReturning, firstName } = useReturningCustomer();
+  const garageHref = useGarageHref();
   const stages = useClaimStages();
   const router = useRouter();
 
@@ -94,7 +96,7 @@ export default function TrackerScreen() {
             </Text>
             <PrimaryCta
               label="Go to my Garage"
-              onPress={() => router.replace('/(main-tabs)/cars')}
+              onPress={() => router.replace(garageHref)}
             />
           </>
         ) : (

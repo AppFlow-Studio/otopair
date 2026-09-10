@@ -265,3 +265,44 @@ describe("a merged stub does not capture later walk-ins", () => {
     expect(r.reason).toBe("already_claimed");
   });
 });
+
+/**
+ * The garage has to open on the right car.
+ *
+ * Ahmad, 2026-09-10: the merge worked and the car was there, but "Go to my
+ * Garage" landed on a different vehicle and he had to go looking for the one
+ * the shop had just worked on.
+ *
+ * The Cars tab already honours `?focusVin=`; the missing piece was the VIN.
+ * It cannot come from `getTrackerData` — that query is public and the link is
+ * shareable, so it withholds the VIN deliberately — so `claimByToken` returns
+ * it instead, where the caller is authenticated and owns the booking.
+ */
+describe("claimByToken hands back the car it is about", () => {
+  it("returns the VIN when it merges a stub", async () => {
+    const t = makeT();
+    const { late } = await seed(t);
+    await t.run(async (ctx: any) =>
+      await ctx.db.insert("users", {
+        clerkUserId: "user_realcustomer", onboardingCompleted: true, createdAt: Date.now(),
+      }));
+    await asStaff(t).mutation(api.walkin_claims.mintForBooking, { bookingId: late });
+    const token = await t.run(async (ctx: any) => (await ctx.db.get(late)).tracker_token);
+    const r: any = await t.withIdentity({ subject: "user_realcustomer" })
+      .mutation(api.walkin_claims.claimByToken, { token });
+    expect(r.vin).toBe("5XYZU3LB0FG123456");
+  });
+
+  it("returns it on the no-op path too", async () => {
+    // Opening your own link a second time still has to point the garage at the
+    // right car — nothing moved, but the question is the same.
+    const t = makeT();
+    const { late } = await seed(t, { claimed: true });
+    await asStaff(t).mutation(api.walkin_claims.mintForBooking, { bookingId: late });
+    const token = await t.run(async (ctx: any) => (await ctx.db.get(late)).tracker_token);
+    const r: any = await t.withIdentity({ subject: "user_realcustomer" })
+      .mutation(api.walkin_claims.claimByToken, { token });
+    expect(r.alreadyMine).toBe(true);
+    expect(r.vin).toBe("5XYZU3LB0FG123456");
+  });
+});

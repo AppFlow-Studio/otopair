@@ -28,6 +28,7 @@ import {
   useClaimStages,
   PrimaryCta,
   ProgressCard,
+  useGarageHref,
   useReturningCustomer,
   WalkInScreen,
   WI,
@@ -37,6 +38,7 @@ import { FontFamily } from '@/constants/theme';
 export default function WalkInLandingScreen() {
   const data = useClaimData();
   const { isReturning, firstName } = useReturningCustomer();
+  const garageHref = useGarageHref();
   const stages = useClaimStages();
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -65,7 +67,7 @@ export default function WalkInLandingScreen() {
             </Text>
             <View style={styles.ctaWrap}>
               <PrimaryCta label="Track this job" onPress={() => router.push('/(walk-in)/tracker')} />
-              <GhostButton label="Go to my Garage" onPress={() => router.replace('/(main-tabs)/cars')} />
+              <GhostButton label="Go to my Garage" onPress={() => router.replace(garageHref)} />
             </View>
           </>
         ) : (
