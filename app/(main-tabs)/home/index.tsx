@@ -446,6 +446,15 @@ export default function HomeScreen() {
   const showTutorial =
     !!me && (me as { tutorialSeenAt?: number }).tutorialSeenAt == null && !tutorialDismissed;
 
+  // Settings' "Replay the app tour" clears the server stamp. Without this the
+  // local dismissal from earlier in the SAME session would still be true and
+  // the replay would silently do nothing — the one case where the two sources
+  // of truth disagree.
+  const tutorialSeenAt = (me as { tutorialSeenAt?: number } | null | undefined)?.tutorialSeenAt;
+  useEffect(() => {
+    if (tutorialSeenAt == null) setTutorialDismissed(false);
+  }, [tutorialSeenAt]);
+
   const dismissTutorial = useCallback(
     (_reason: 'completed' | 'skipped') => {
       // Local first so the overlay closes on the tap rather than on the round

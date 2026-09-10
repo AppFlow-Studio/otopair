@@ -350,6 +350,35 @@ export const markTutorialSeen = mutation({
 });
 
 /**
+ * MUTATION: resetTutorial
+ *
+ * Clears the seen stamp so the first-run tour plays again. This is what keeps
+ * "skip" from being a one-way door: a driver who dismissed the tour on day one
+ * has no other route back to it, and rebuilding the same six screens somewhere
+ * else in Settings would be two copies to keep in step.
+ *
+ * Clearing the flag rather than opening the overlay from here on purpose —
+ * Home already owns the gate, so there is one place that decides whether the
+ * tour shows.
+ */
+export const resetTutorial = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Not authenticated");
+
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_clerkUserId", (q) => q.eq("clerkUserId", identity.subject))
+      .unique();
+
+    if (!user) throw new Error("User not found");
+    await ctx.db.patch(user._id, { tutorialSeenAt: undefined } as any);
+    return user._id;
+  },
+});
+
+/**
  * MUTATION: reactivateAccount
  * Cancels a pending account deletion.
  */
