@@ -102,6 +102,13 @@ export function NotificationsSheet() {
   // Detent index reported by FloatingSheet. 0 = resting, last = expanded.
   const [snapIndex, setSnapIndex] = useState(0);
   const rowRefs = useRef<Map<string, RNView | null>>(new Map());
+  // A navigation deferred until this sheet has finished closing. Tapping a
+  // booking-scoped row used to `router.push` one frame after closeStore(),
+  // while the sheet's native Modal was still dismissing (~280ms). Presenting
+  // the Bookings detail Modal on top of a dismissing Modal races on iOS and
+  // left the Bookings tab frozen. We stash the nav here and run it from
+  // handleSheetClosed, once this Modal has actually unmounted.
+  const pendingNavRef = useRef<(() => void) | null>(null);
 
   // Two detents: a resting height that floats with rounded chrome, and a tall
   // detent that pulls up to full-width (FloatingSheet flattens the corners and
@@ -131,7 +138,24 @@ export function NotificationsSheet() {
   const handleSheetClosed = useCallback(() => {
     wasOpen.current = false;
     closeStore();
+    // Fire any navigation deferred until the sheet finished closing (see
+    // pendingNavRef) — the Modal has unmounted, so presenting the target
+    // screen's sheet no longer races a dismissing Modal.
+    const nav = pendingNavRef.current;
+    pendingNavRef.current = null;
+    if (nav) requestAnimationFrame(nav);
   }, [closeStore]);
+
+  // Close the sheet, then run `nav` once it has fully closed. Use for any tap
+  // that navigates to a screen which itself presents a native Modal (the
+  // Bookings detail / chat sheets), so the two Modals never overlap.
+  const navigateAfterClose = useCallback(
+    (nav: () => void) => {
+      pendingNavRef.current = nav;
+      closeStore();
+    },
+    [closeStore],
+  );
 
   const handleRowPress = (row: NotificationRow) => {
     const spec = getNotificationShape(row.category);
@@ -171,18 +195,33 @@ export function NotificationsSheet() {
       return;
     }
 
+    // From here down every row navigates somewhere — mark it read first.
+    markRead(row._id).catch(() => {});
+    const data = row.payload?.data;
+    const bookingId = row.booking_id ? String(row.booking_id) : null;
+
+    // Shop-ticket replies land the customer straight in the booking's Message
+    // Shop conversation (openChat), not just the booking detail — they tapped
+    // a message, so take them to the thread.
+    const isShopTicket =
+      row.category.startsWith("shop_ticket") || data?.type === "shop_ticket";
+    if (isShopTicket && bookingId) {
+      navigateAfterClose(() => {
+        router.push({
+          pathname: "/(main-tabs)/bookings",
+          params: { bookingId, openChat: "1" },
+        });
+      });
+      return;
+    }
+
     // Generic deep-link path. Approval notifications (and any future
     // category set by convex/booking_approvals.ts or similar) ship a
     // `data.deepLink` string in their payload — route on it so taps
     // actually open the target screen instead of silently dismissing.
-    const deepLink =
-      typeof row.payload?.data?.deepLink === "string"
-        ? row.payload.data.deepLink
-        : null;
-    markRead(row._id).catch(() => {});
+    const deepLink = typeof data?.deepLink === "string" ? data.deepLink : null;
     if (deepLink) {
-      closeStore();
-      requestAnimationFrame(() => {
+      navigateAfterClose(() => {
         routeOtopairDeepLink(router, deepLink);
       });
       return;
@@ -191,12 +230,11 @@ export function NotificationsSheet() {
     // Fallback: booking-scoped notification with no deep link — open the
     // booking detail in the bookings tab so the user lands somewhere
     // actionable instead of nowhere.
-    if (row.booking_id) {
-      closeStore();
-      requestAnimationFrame(() => {
+    if (bookingId) {
+      navigateAfterClose(() => {
         router.push({
           pathname: "/(main-tabs)/bookings",
-          params: { bookingId: String(row.booking_id) },
+          params: { bookingId },
         });
       });
     }

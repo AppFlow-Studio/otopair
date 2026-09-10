@@ -57,6 +57,7 @@ import { OfflineActionsNotice } from "@/components/connection/OfflineActionsNoti
 import { useToast } from "@/hooks/useToast";
 import { useMutationWithToast } from "@/hooks/useMutationWithToast";
 import { useBookingActions } from "@/hooks/useBookingActions";
+import { useShopTicketsForBooking } from "@/hooks/useShopTicketsFromConvex";
 import { buildCancelCopy, isLocalBookingId } from "@/constants/bookingActionPolicy";
 import { buildBookingCalendarEvent, formatBookingReference } from "@/lib/booking-calendar";
 import { useBookingStore } from "@/stores/useBookingStore";
@@ -223,7 +224,10 @@ type ActivityEvent =
 // ============================================================================
 
 export interface BookingDetailsSheetRef {
-  open: (booking: Booking) => void;
+  /** Open the sheet on `booking`. Pass `{ openChat: true }` to auto-open the
+   *  Message Shop chat once the sheet has finished presenting — used when a
+   *  shop-reply notification deep-links the customer into the conversation. */
+  open: (booking: Booking, opts?: { openChat?: boolean }) => void;
   close: () => void;
 }
 
@@ -304,6 +308,9 @@ export const BookingDetailsSheet = forwardRef<BookingDetailsSheetRef, BookingDet
 
     const rescheduleSheetRef = useRef<RescheduleSheetRef>(null);
     const chatSheetRef = useRef<MessageShopSheetRef>(null);
+    // Set by open({ openChat: true }); consumed once the enter animation has
+    // presented this Modal, so the chat Modal doesn't race it (see effect).
+    const pendingOpenChatRef = useRef(false);
 
     const handleRequestReschedule = useCallback(
       (bookingId: string, date: string, time: string) => {
@@ -326,6 +333,14 @@ export const BookingDetailsSheet = forwardRef<BookingDetailsSheetRef, BookingDet
         serviceLabel: (booking.services ?? []).join(" · ") || undefined,
       });
     }, [booking]);
+
+    // Unread Message Shop messages for this booking — badges the "Message
+    // Mechanic" button so the customer sees the shop is waiting on them.
+    const { tickets: shopTickets } = useShopTicketsForBooking(booking?.id);
+    const unreadMessageCount = useMemo(
+      () => shopTickets.reduce((sum, t) => sum + (t.customer_unread_count ?? 0), 0),
+      [shopTickets],
+    );
 
     // Live shop lookup — pulls address + phone so the Directions /
     // Contact buttons in the mid view work without each caller
@@ -383,7 +398,8 @@ export const BookingDetailsSheet = forwardRef<BookingDetailsSheetRef, BookingDet
     const midOpacity = useSharedValue(1);
     const fullOpacity = useSharedValue(0);
 
-    const open = useCallback((b: Booking) => {
+    const open = useCallback((b: Booking, opts?: { openChat?: boolean }) => {
+      pendingOpenChatRef.current = opts?.openChat ?? false;
       setBooking(b);
       setDetentJs(0);
       onOpen?.();
@@ -440,6 +456,18 @@ export const BookingDetailsSheet = forwardRef<BookingDetailsSheetRef, BookingDet
         return () => cancelAnimationFrame(id);
       }
     }, [booking, H_MED, sheetHeight, midOpacity, fullOpacity]);
+
+    // Auto-open the Message Shop chat when the sheet was opened with
+    // { openChat: true } (e.g. tapping a shop-reply notification). Deferred
+    // past the ~420ms enter animation so this sheet's Modal is fully presented
+    // before the chat Modal opens on top of it — presenting one native Modal
+    // while another is still animating in races on iOS.
+    useEffect(() => {
+      if (!booking || !pendingOpenChatRef.current) return;
+      pendingOpenChatRef.current = false;
+      const timer = setTimeout(() => handleOpenChat(), 480);
+      return () => clearTimeout(timer);
+    }, [booking, handleOpenChat]);
 
     // Derive detent index from sheetHeight and bump JS state on threshold cross.
     // Only two detents now: 0 = mid, 1 = full.
@@ -627,6 +655,7 @@ export const BookingDetailsSheet = forwardRef<BookingDetailsSheetRef, BookingDet
                     statusConfig={statusConfig}
                     shopAddress={resolvedShopAddress}
                     shopPhone={resolvedShopPhone}
+                    unreadMessageCount={unreadMessageCount}
                     onClose={close}
                     onOpenChat={handleOpenChat}
                   />
@@ -695,6 +724,8 @@ interface MidContentProps {
   statusConfig: { label: string; bgColor: string; textColor: string };
   shopAddress?: string;
   shopPhone?: string;
+  /** Unread shop messages — shows a count badge on the Message Mechanic button. */
+  unreadMessageCount?: number;
   onClose: () => void;
   onOpenChat: () => void;
 }
@@ -705,6 +736,7 @@ function MidContent({
   statusConfig,
   shopAddress,
   shopPhone,
+  unreadMessageCount = 0,
   onClose,
   onOpenChat,
 }: MidContentProps) {
@@ -844,6 +876,13 @@ function MidContent({
             <Text size="md" weight="semiBold" color="#FFFFFF">
               {primaryActionLabel}
             </Text>
+            {unreadMessageCount > 0 ? (
+              <View style={styles.primaryButtonBadge}>
+                <Text size="xs" weight="bold" color="#5299FE">
+                  {unreadMessageCount > 99 ? "99+" : unreadMessageCount}
+                </Text>
+              </View>
+            ) : null}
           </TouchableOpacity>
         ) : (
           <OfflineActionsNotice style={styles.offlineNoticeMid} />
@@ -2173,6 +2212,18 @@ const styles = StyleSheet.create({
     height: 52,
     borderRadius: 14,
     backgroundColor: "#5299FE",
+    flexDirection: "row",
+    gap: 8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  // White count pill on the blue Message Mechanic button (unread shop messages).
+  primaryButtonBadge: {
+    minWidth: 22,
+    height: 22,
+    borderRadius: 11,
+    paddingHorizontal: 6,
+    backgroundColor: "#FFFFFF",
     alignItems: "center",
     justifyContent: "center",
   },

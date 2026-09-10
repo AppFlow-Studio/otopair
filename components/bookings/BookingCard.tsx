@@ -31,7 +31,7 @@ import type { View as RNView } from 'react-native';
 
 // 2. Expo & Third-party
 import { useGuardedRouter as useRouter } from '@/hooks/useGuardedRouter';
-import { Car, FileText, Star, User } from 'lucide-react-native';
+import { Car, FileText, MessageCircle, Star, User } from 'lucide-react-native';
 import Animated, { FadeOut, LinearTransition, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 
 // 3. Shared UI
@@ -128,7 +128,7 @@ export interface Booking {
   pickupResponse?: "acknowledged" | "bringing_out" | "declined";
 }
 
-interface BookingCardProps {
+export interface BookingCardProps {
   booking: Booking;
   variant: 'upcoming' | 'history';
   onViewDetails?: (bookingId: string) => void;
@@ -141,6 +141,10 @@ interface BookingCardProps {
   onMessageShop?: (bookingId: string) => void;
   onDownloadPdf?: (bookingId: string) => void;
   onToggleFavorite?: (bookingId: string) => void;
+  /** Unread Message Shop messages for this booking. When > 0 a tappable count
+   *  badge shows in the title row (opens the chat). Supplied by the active-list
+   *  wrapper (UpcomingBookingCard) that subscribes to the booking's tickets. */
+  unreadMessageCount?: number;
 }
 
 // ============================================================================
@@ -303,6 +307,7 @@ export function BookingCard({
   onMessageShop,
   onDownloadPdf,
   onToggleFavorite,
+  unreadMessageCount = 0,
 }: BookingCardProps) {
   const router = useRouter();
   const openRescheduleDecision = useRescheduleDecisionOverlayStore((s) => s.open);
@@ -522,6 +527,23 @@ export function BookingCard({
             </>
           )}
         </View>
+        {unreadMessageCount > 0 ? (
+          <Pressable
+            onPress={handleMessageShop}
+            hitSlop={8}
+            style={({ pressed }) => [
+              styles.unreadBadge,
+              pressed && styles.buttonPressed,
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel={`${unreadMessageCount} unread message${unreadMessageCount === 1 ? '' : 's'} from the shop`}
+          >
+            <MessageCircle size={13} color="#FFFFFF" strokeWidth={2.6} />
+            <Text weight="bold" size="xs" color="#FFFFFF">
+              {unreadMessageCount > 99 ? '99+' : unreadMessageCount}
+            </Text>
+          </Pressable>
+        ) : null}
         <View style={[styles.statusBadge, { backgroundColor: statusConfig.bgColor }]}>
           <Text weight="semiBold" size="sm" color={statusConfig.textColor}>
             {statusConfig.label}
@@ -888,6 +910,19 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     paddingHorizontal: 14,
     borderRadius: 20,
+    flexShrink: 0,
+    marginLeft: 8,
+  },
+  // Unread Message Shop count — blue to match the message feature's accent
+  // (MessageShopSheet's unread dot), sits left of the status badge.
+  unreadBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 5,
+    paddingHorizontal: 9,
+    borderRadius: 20,
+    backgroundColor: '#5299FE',
     flexShrink: 0,
     marginLeft: 8,
   },
