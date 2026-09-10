@@ -220,10 +220,21 @@ export function useReturningCustomer(): { isReturning: boolean; firstName: strin
   const { isSignedIn } = useAuth();
   const { user } = useUser();
   const claim = useWalkInClaimStore((s) => s.claim);
+  const demoFlow = useWalkInClaimStore((s) => s.demoFlow);
   const fromAccount = user?.firstName?.trim() || null;
   const fromShop = claim?.firstName?.trim() || null;
+
+  // The demo override wins in dev so both branches can be shown from one link
+  // without signing in and out between takes. `demoFlow` can only be set by a
+  // chooser that is itself behind `__DEV__`, so this reads null in production
+  // and the expression collapses to `!!isSignedIn` — the shipped behaviour.
+  const isReturning =
+    __DEV__ && demoFlow ? demoFlow === 'existing' : !!isSignedIn;
+
   return {
-    isReturning: !!isSignedIn,
+    isReturning,
+    // A forced "existing" demo may not have a signed-in account behind it, so
+    // the shop's name is the fallback rather than a blank greeting.
     firstName: fromAccount ?? fromShop,
   };
 }

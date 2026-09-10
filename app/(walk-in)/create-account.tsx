@@ -28,10 +28,9 @@
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
-import { useAuth } from '@clerk/clerk-expo';
 import { useAction, useMutation } from 'convex/react';
 
-import { PrimaryCta, useClaimData, WalkInScreen, WI } from '@/components/walk-in/WalkInKit';
+import { PrimaryCta, useClaimData, useReturningCustomer, WalkInScreen, WI } from '@/components/walk-in/WalkInKit';
 import { FontFamily } from '@/constants/theme';
 import { useWalkInClaimStore } from '@/stores/useWalkInClaimStore';
 import { api } from '@/convex/_generated/api';
@@ -41,7 +40,11 @@ const FALLBACK_VEHICLE_IMAGE = require('@/assets/images/covered-car.png');
 export default function CreateAccountGateScreen() {
   const router = useRouter();
   const data = useClaimData();
-  const { isSignedIn } = useAuth();
+  // `isReturning` rather than Clerk's `isSignedIn` directly: the dev demo
+  // override decides which flow is being shown, so a presenter walking the
+  // NEW-user path is not bounced out of it just because a real account happens
+  // to be signed in on the device. In production the two are the same value.
+  const { isReturning } = useReturningCustomer();
 
   const token = useWalkInClaimStore((s) => s.token);
   const cachedUrl = useWalkInClaimStore((s) => s.tracker?.vehicle?.imageUrl) ?? null;
@@ -66,7 +69,7 @@ export default function CreateAccountGateScreen() {
   // see their car, and a failed merge is our problem to fix, not a dead end to
   // strand them on. `claimByToken` is idempotent, so a retry costs nothing.
   useEffect(() => {
-    if (!isSignedIn) return;
+    if (!isReturning) return;
     let cancelled = false;
     const go = () => { if (!cancelled) router.replace('/(main-tabs)/cars'); };
     if (!token) { go(); return; }
@@ -75,7 +78,7 @@ export default function CreateAccountGateScreen() {
       .catch(() => {})
       .finally(go);
     return () => { cancelled = true; };
-  }, [isSignedIn, token, claimByToken, clearClaim, router]);
+  }, [isReturning, token, claimByToken, clearClaim, router]);
 
   // The store holds a snapshot from when the token resolved, so a photo
   // fetched after that won't appear there — take the action's return directly.

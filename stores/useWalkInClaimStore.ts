@@ -57,6 +57,12 @@ interface WalkInClaimState {
    *  tracker payload, which withholds the VIN by design. */
   vin: string | null;
   setVin: (vin: string | null) => void;
+  /** DEV ONLY. Forces the flow to render as a first-time or a returning
+   *  customer regardless of whether anyone is actually signed in, so both
+   *  branches can be demoed back to back from one link. Null in production —
+   *  the chooser that sets it is behind `__DEV__` and never renders. */
+  demoFlow: 'new' | 'existing' | null;
+  setDemoFlow: (flow: 'new' | 'existing' | null) => void;
   claim: WalkInClaim | null;
   tracker: WalkInTracker | null;
   setClaim: (token: string, claim: WalkInClaim) => void;
@@ -67,10 +73,12 @@ interface WalkInClaimState {
 export const useWalkInClaimStore = create<WalkInClaimState>((set) => ({
   token: null,
   vin: null,
+  demoFlow: null,
   claim: null,
   tracker: null,
   setClaim: (token, claim) => set({ token, claim }),
   setVin: (vin) => set({ vin }),
+  setDemoFlow: (demoFlow) => set({ demoFlow }),
   setTracker: (tracker) => set({ tracker }),
-  clear: () => set({ token: null, vin: null, claim: null, tracker: null }),
+  clear: () => set({ token: null, vin: null, demoFlow: null, claim: null, tracker: null }),
 }));
