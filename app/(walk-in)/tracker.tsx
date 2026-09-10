@@ -30,7 +30,7 @@ import { FontFamily } from '@/constants/theme';
 
 export default function TrackerScreen() {
   const data = useClaimData();
-  const { isReturning } = useReturningCustomer();
+  const { isReturning, firstName } = useReturningCustomer();
   const stages = useClaimStages();
   const router = useRouter();
 
@@ -48,6 +48,12 @@ export default function TrackerScreen() {
         </View>
       }
     >
+      {/* The greeting lives here rather than on the landing screen, because a
+          returning customer is routed straight past that screen — the link is
+          for the job, not for an introduction. */}
+      {isReturning && firstName ? (
+        <Text style={styles.welcomeBack}>Welcome back, {firstName}</Text>
+      ) : null}
       <JobCard title={data.titleClaimed} plate={data.plateClaimed} />
       <ProgressCard stages={stages} style={styles.progress} />
 
@@ -109,6 +115,12 @@ export default function TrackerScreen() {
 
 const styles = StyleSheet.create({
   content: { paddingBottom: 24 },
+  welcomeBack: {
+    fontFamily: FontFamily.bold,
+    fontSize: 20,
+    color: WI.ink,
+    marginBottom: 12,
+  },
   claimedChip: {
     paddingHorizontal: 12,
     paddingVertical: 5,

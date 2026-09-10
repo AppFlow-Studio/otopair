@@ -2913,6 +2913,20 @@ export default defineSchema({
     source_recommendation_id: v.optional(v.id("job_recommendations")),
     // Booking origin and quote baselines for mechanic-created walk-ins.
     source: v.optional(v.string()),
+    // Tracker deep link for THIS job — `otopair://claim/<token>`, handed to
+    // the customer by the shop.
+    //
+    // Per booking, not per customer. It used to live on `users.claim_token`,
+    // which was fine while a link was only ever minted once for a stranger
+    // with exactly one job. A returning customer can have several walk-ins
+    // open at the same shop — Ahmad's own test data has two on one vehicle on
+    // one day — and a user-level token cannot say which of them a given link
+    // was for; it resolved to whichever sorted most recent.
+    //
+    // `users.claim_token` stays for links already in the wild and for the
+    // account-claim path; the resolvers check this field first and fall back.
+    tracker_token: v.optional(v.string()),
+    tracker_token_expires_at: v.optional(v.number()),
     mechanic_estimated_minutes: v.optional(v.number()),
     catalog_estimated_minutes: v.optional(v.number()),
     mechanic_quoted_price: v.optional(v.number()),
@@ -3175,6 +3189,8 @@ export default defineSchema({
     .index("by_shop_and_date", ["shop_id", "scheduled_date"])
     .index("by_shop_and_status", ["shop_id", "status"])
     .index("by_created_at", ["created_at"])
+    // Tracker deep link, per JOB. See tracker_token below.
+    .index("by_tracker_token", ["tracker_token"])
     .index("by_source_recommendation", ["source_recommendation_id"])
     .index("by_payment_approval_state", ["payment_approval_state"])
     .index("by_vin", ["vin"])

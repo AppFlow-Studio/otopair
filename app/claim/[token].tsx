@@ -7,11 +7,16 @@
  * cannot be used.
  *
  * `walkin_claims.resolveClaimToken` is a public query — no auth — and returns
- * one of four shapes, all handled below:
+ * one of three shapes, all handled below:
  *   null                      → no such token
- *   { expired: true }         → token past claim_token_expires_at
- *   { alreadyClaimed: true }  → walkInClaimedAt already stamped
- *   { email, phone, firstName, lastName, shopName, vehicleSummary } → claimable
+ *   { expired: true }         → token past its expiry
+ *   { alreadyClaimed, email, phone, firstName, lastName, shopName,
+ *     vehicleSummary }        → usable
+ *
+ * `alreadyClaimed` used to be a shape of its OWN, returned instead of the
+ * payload, and this screen rendered it as "This job is already claimed. Sign
+ * in and you'll find it in your Garage." — a wall shown to the person whose
+ * job it actually is. Ahmad, 2026-09-10. It is a flag on the payload now.
  *
  * NOTE: completing the claim is not wired yet. The app syncs users through
  * `users.getOrCreateMe`, which matches on clerkUserId alone and would insert a
@@ -37,8 +42,11 @@ import { FontFamily } from '@/constants/theme';
 type ClaimResult =
   | null
   | { expired: true }
-  | { alreadyClaimed: true }
   | {
+      /** The customer already has an Otopair account. The job is theirs
+       *  either way — this only decides whether the flow asks them to claim
+       *  anything or takes them straight to the tracker. */
+      alreadyClaimed?: boolean;
       email: string | null;
       phone: string | null;
       firstName: string | null;
@@ -69,8 +77,10 @@ export default function ClaimTokenScreen() {
     token ? { token } : 'skip',
   ) as (WalkInTracker & { alreadyClaimed?: boolean }) | null | undefined;
 
-  const isClaimable =
-    !!result && !('expired' in result) && !('alreadyClaimed' in result);
+  // `alreadyClaimed` is a flag on a full payload now, not a payload of its own.
+  // A token that resolves at all is usable; whether the customer needs to
+  // claim anything is a separate question the flow answers downstream.
+  const isClaimable = !!result && !('expired' in result);
 
   useEffect(() => {
     if (tracker) setTracker(tracker);
@@ -96,6 +106,12 @@ export default function ClaimTokenScreen() {
     // lands, whether or not this screen is still mounted.
     if (isSignedIn) {
       void claimByToken({ token }).catch(() => {});
+      // Straight to the live job. The landing screen exists to ask a stranger
+      // to identify themselves, and there is nothing to ask someone whose
+      // account already owns this booking — the tracker is what the shop
+      // handed them a link for.
+      router.replace('/(walk-in)/tracker');
+      return;
     }
     router.replace('/(walk-in)');
   }, [token, isClaimable, result, setClaim, router, isSignedIn, claimByToken]);
@@ -108,18 +124,6 @@ export default function ClaimTokenScreen() {
           <Text style={styles.loading}>Opening your job…</Text>
         </View>
       </WalkInScreen>
-    );
-  }
-
-  // Already claimed — the account exists, so this is a sign-in, not a claim.
-  if (result && 'alreadyClaimed' in result) {
-    return (
-      <ClaimProblem
-        headline="This job is already claimed"
-        body="It's on an existing Otopair account. Sign in and you'll find it in your Garage."
-        ctaLabel="Sign in"
-        onCta={() => router.replace('/(onboarding)')}
-      />
     );
   }
 
