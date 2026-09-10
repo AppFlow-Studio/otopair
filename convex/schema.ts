@@ -2202,6 +2202,14 @@ export default defineSchema({
     // sign-outs (SecureStore doesn't survive).
     onboardingDeferredStep: v.optional(v.string()),
     tellUsAboutCompleted: v.optional(v.boolean()),
+    // First-run tutorial. Stamped when the tour is COMPLETED OR SKIPPED — both
+    // are the driver saying they are done with it, and re-showing a tour
+    // someone dismissed is the fastest way to make it feel like an ad.
+    // Re-entry lives in Settings rather than being automatic.
+    //
+    // On the user row rather than AsyncStorage so it follows the account: a
+    // driver who signs in on a second device has already had the tour.
+    tutorialSeenAt: v.optional(v.number()),
     user_intentions: v.optional(v.any()),
     language: v.optional(v.string()),
     units: v.optional(v.string()),

@@ -320,6 +320,36 @@ export const dismissSetupCard = mutation({
 });
 
 /**
+ * MUTATION: markTutorialSeen
+ *
+ * Stamps the first-run tutorial as done. Called on BOTH completion and skip:
+ * a driver who dismissed the tour has told us their answer, and showing it
+ * again would read as an ad rather than help. Settings keeps a manual re-entry
+ * so skipping is not a one-way door.
+ *
+ * Idempotent — the first stamp wins, so a double-tap or a retry after a flaky
+ * network cannot rewrite when they actually saw it.
+ */
+export const markTutorialSeen = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Not authenticated");
+
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_clerkUserId", (q) => q.eq("clerkUserId", identity.subject))
+      .unique();
+
+    if (!user) throw new Error("User not found");
+    if (typeof (user as any).tutorialSeenAt === "number") return user._id;
+
+    await ctx.db.patch(user._id, { tutorialSeenAt: Date.now() } as any);
+    return user._id;
+  },
+});
+
+/**
  * MUTATION: reactivateAccount
  * Cancels a pending account deletion.
  */

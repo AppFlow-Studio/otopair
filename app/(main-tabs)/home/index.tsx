@@ -66,6 +66,7 @@ import { LeaveReviewSheet, type LeaveReviewSheetRef } from '@/components/booking
 import { ReceiptSheet } from '@/components/receipts/ReceiptSheet';
 import { useMyBookingsWithDetails } from '@/hooks/useMyBookingsWithDetails';
 import { useUserFromConvex } from '@/hooks/useUserFromConvex';
+import { TutorialOverlay } from '@/components/tutorial/TutorialOverlay';
 import { useStagedLocation } from '@/hooks/useStagedLocation';
 import * as SecureStore from 'expo-secure-store';
 
@@ -433,6 +434,28 @@ export default function HomeScreen() {
 
   // ── Data for action cards ──
   const me = useQuery(api.users.getMe);
+
+  // ── First-run tutorial ──
+  //
+  // Gated on the user row rather than local state so it follows the account:
+  // signing in on a second device does not replay a tour already seen. `me`
+  // is undefined while the query is in flight, and the `=== null` check below
+  // is what keeps the overlay from flashing open in that window.
+  const markTutorialSeen = useMutation(api.users.markTutorialSeen);
+  const [tutorialDismissed, setTutorialDismissed] = useState(false);
+  const showTutorial =
+    !!me && (me as { tutorialSeenAt?: number }).tutorialSeenAt == null && !tutorialDismissed;
+
+  const dismissTutorial = useCallback(
+    (_reason: 'completed' | 'skipped') => {
+      // Local first so the overlay closes on the tap rather than on the round
+      // trip. Skip and complete both stamp — a driver who dismissed the tour
+      // has given their answer, and Settings keeps a manual way back in.
+      setTutorialDismissed(true);
+      void markTutorialSeen({}).catch(() => {});
+    },
+    [markTutorialSeen],
+  );
   const allBookings = useQuery(
     api.bookings.getByUserIdWithDetails,
     me?._id ? { userId: me._id } : "skip"
@@ -1840,6 +1863,18 @@ export default function HomeScreen() {
             params: { openStepper: 'true', vehicleOwnerId: v.ownershipId },
           });
         }
+      }}
+    />
+
+    {/* First-run tutorial. Sits last so it covers everything else on Home,
+        and renders only once `me` has resolved — flashing a tour at someone
+        who has already dismissed it is worse than showing it a beat late. */}
+    <TutorialOverlay
+      visible={showTutorial}
+      onDismiss={dismissTutorial}
+      onAddCar={() => {
+        dismissTutorial('completed');
+        router.push('/add-vehicle');
       }}
     />
     </>
