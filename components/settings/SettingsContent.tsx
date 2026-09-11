@@ -64,6 +64,7 @@ import {
   Car,
   CircleDollarSign,
   Clock,
+  Compass,
   CreditCard,
   FileText,
   Fingerprint,
@@ -324,6 +325,7 @@ export function SettingsContent({
   const [isLogoutVisible, setIsLogoutVisible] = useState(false);
   const [isFeedbackVisible, setIsFeedbackVisible] = useState(false);
   const submitAppFeedback = useMutation(api.app_feedback.submit);
+  const resetTutorial = useMutation(api.users.resetTutorial);
 
   const handleConfirmLogout = useCallback(async () => {
     setIsLogoutVisible(false);
@@ -616,6 +618,23 @@ export function SettingsContent({
             icon={<MessageSquare size={18} color="#FFFFFF" />}
             label="Feedback"
             onPress={() => setIsFeedbackVisible(true)}
+          />
+          <SettingsRow
+            icon={<Compass size={18} color="#FFFFFF" />}
+            label="Replay the app tour"
+            onPress={async () => {
+              // Clears the seen stamp and hands off to Home, which owns the
+              // gate. Navigating is the feedback — clearing a flag the driver
+              // cannot see would look like the tap did nothing.
+              try {
+                await resetTutorial({});
+              } catch {
+                // Offline or a flaky round trip. Home re-reads the flag on
+                // arrival either way, so a failure here costs one more tap
+                // rather than stranding them.
+              }
+              router.push("/(main-tabs)/home");
+            }}
           />
           <SettingsRow
             icon={<Star size={18} color="#FFFFFF" />}

@@ -17,7 +17,8 @@
         "ITSAppUsesNonExemptEncryption": false
       },
       "entitlements": {
-        "com.apple.developer.in-app-payments": ["merchant.com.otopair"]
+        "com.apple.developer.in-app-payments": ["merchant.com.otopair"],
+        "com.apple.developer.applesignin": ["Default"]
       }
     },
     "android": {

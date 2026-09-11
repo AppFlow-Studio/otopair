@@ -91,7 +91,22 @@ export const URGENCY_TIER_CUTOFFS = { now: 75, soon: 55, soonish: 25 } as const;
 /** Resolve a maintenance item's id to the CATEGORY_WEIGHTS bucket. Items
  *  whose type isn't a recognized safety/reliability category fall into
  *  "other" (10% weight). */
+/** A catalog row's id is `catalog-<taxonomy slug>`. `extractMaintenanceType`
+ *  stops at the first dash and returns "catalog", which is not a weight
+ *  bucket — so the slug has to be recovered here. */
+function catalogSlugFromId(id?: string): string | undefined {
+  return id?.startsWith("catalog-") ? id.slice("catalog-".length) : undefined;
+}
+
 function categoryWeightForItem(item: MaintenanceItem): number {
+  // Bigger services carry their own weights in the table above —
+  // transmission 18, spark plugs 15, differential 12 — and those numbers were
+  // written for exactly these rows. Reading them as "catalog" dropped every
+  // one to the generic 10.
+  const slug = catalogSlugFromId(item.id);
+  if (slug && slug in CATEGORY_WEIGHTS) {
+    return CATEGORY_WEIGHTS[slug as keyof typeof CATEGORY_WEIGHTS];
+  }
   const type = extractMaintenanceType(item.id);
   if (type in CATEGORY_WEIGHTS) {
     return CATEGORY_WEIGHTS[type as keyof typeof CATEGORY_WEIGHTS];
@@ -166,6 +181,17 @@ export function isScorableMaintenanceItem(item: {
   // deduction — that is the whole point of the model, and the `minor_` prefix
   // only exists on records a mechanic graded yellow or red.
   if (type.startsWith("minor_")) return true;
+  // A catalog row the DRIVER answered scores, at the weight of the service
+  // itself. Yassin, 2026-09-02: "when a user answers a question for any of the
+  // bigger services, we affect the score the same way a mechanic's feedback
+  // would — but only if the user actually has an answer for it."
+  //
+  // The "only if" is carried by `excludeFromScore`, which is checked above:
+  // `utils/mergedMaintenance.ts` clears it solely for a definite answer, so an
+  // unanswered or "not sure" row still leaves the average entirely rather than
+  // being scored as though the passage of time were a finding. That last part
+  // is what this gate originally existed to prevent, and it still does.
+  if (type === "catalog") return true;
   return SCORING_TYPES.has(type);
 }
 

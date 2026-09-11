@@ -8,7 +8,11 @@
  *   GET /vehicle-images/{vin}
  *   GET /vehicle-images/{year}/{make}/{model}/{trim}
  *
- * Coverage: 2011–2026.
+ * Coverage: images run 2011–2025. VDB's ymm-specs endpoints go further —
+ * 2026 returns a full model and trim list — but `vehicle-images` has no
+ * record for those years by YMMT or by VIN, verified 2026-09-03 against the
+ * live API. So a 2026 car resolves a working trim picker and no photograph;
+ * the review screen falls back to a body silhouette rather than a blank.
  *
  * VIN is the most reliable lookup. The YMMT path *requires trim*
  * (the prior YMM endpoint is a different, white-background API). If a
@@ -65,13 +69,40 @@ function isVdbCoolingDown(url: string): boolean {
 
 /**
  * Throttled wrapper around `fetch` for VDB requests. Caps concurrent
- * in-flight calls at VDB_MAX_CONCURRENT (queues the rest) and short-
- * circuits with a synthetic 429 when the endpoint is in a cooldown
- * window (just hit 429 in the last 10s).
+ * in-flight calls at VDB_MAX_CONCURRENT (queues the rest) and handles the
+ * cooldown window (just hit 429 in the last 10s).
+ *
+ * `background` is what separates the two callers, and it matters more than it
+ * looks. A cooldown short-circuit DROPS the request — no retry, nothing to
+ * await — so the caller sees "VDB has no image for this car" when the truth is
+ * "we asked too fast". That is fine for the all-trims prefetch, which is a
+ * nice-to-have and can simply not happen. It is wrong for the image the driver
+ * is looking at right now.
+ *
+ * Ahmad, 2026-09-04: every car stopped showing an image. The prefetch fires one
+ * request per trim the moment the trim list lands — ten or more for a GLE —
+ * which trips VDB's rate limit, and the resulting global 10s cooldown then
+ * short-circuited the FOREGROUND request too. The prefetch was denying service
+ * to the screen it exists to speed up.
  */
-async function vdbFetch(url: string, init?: RequestInit): Promise<Response> {
+async function vdbFetch(
+  url: string,
+  init?: RequestInit,
+  opts?: { background?: boolean },
+): Promise<Response> {
   if (isVdbCoolingDown(url)) {
-    return new Response(null, { status: 429, statusText: "vdb-cooldown" });
+    // Background work gives up; it will be re-tried the next time the screen
+    // mounts, and nothing is waiting on it.
+    if (opts?.background) {
+      return new Response(null, { status: 429, statusText: "vdb-cooldown" });
+    }
+    // Foreground waits the window out rather than reporting a false negative.
+    const until = vdbCooldownUntil.get(vdbCooldownKey(url)) ?? 0;
+    const waitMs = Math.max(0, until - Date.now());
+    if (waitMs > 0) {
+      console.warn(`[vdbThrottle] foreground request waiting ${waitMs}ms for cooldown`);
+      await new Promise<void>((resolve) => setTimeout(resolve, waitMs));
+    }
   }
   if (vdbInFlight >= VDB_MAX_CONCURRENT) {
     await new Promise<void>((resolve) => vdbWaitQueue.push(resolve));
@@ -150,6 +181,7 @@ const VDB_MODELS_CACHE = new Map<string, string[]>();
 export async function fetchVdbModelsForYmm(
   year: number,
   make: string,
+  opts?: { background?: boolean },
 ): Promise<string[]> {
   const cacheKey = `${year}|${make.toLowerCase().trim()}`;
   const cached = VDB_MODELS_CACHE.get(cacheKey);
@@ -159,7 +191,7 @@ export async function fetchVdbModelsForYmm(
     for (const mk of makes) {
       const url = `${MODEL_OPTIONS_URL}/${year}/${encodeURIComponent(mk)}`;
       console.log("[vdbModels] GET", url);
-      const response = await vdbFetch(url, { headers: { "x-AuthKey": API_KEY } });
+      const response = await vdbFetch(url, { headers: { "x-AuthKey": API_KEY } }, opts);
       console.log("[vdbModels] status", response.status);
       if (response.status === 401) {
         console.warn(
@@ -300,6 +332,90 @@ function discoveryCacheKey(year: number, make: string, candidate: string): strin
 }
 
 /**
+ * VDB's verbose trim strings for one of OUR trim names, treating that name as
+ * VDB's model.
+ *
+ * Cached because the image call needs it per trim and the prefetch fires one
+ * per variant — without the cache a five-trim GLE would hit the options
+ * endpoint five times on every re-render, and VDB rate-limits hard enough that
+ * the existing code already carries a concurrency cap and a cooldown.
+ */
+const VDB_VERBOSE_TRIM_CACHE = new Map<string, VdbModelTrims | null>();
+
+export interface VdbModelTrims {
+  /** The name VDB actually catalogs this variant under. */
+  model: string;
+  /** Its verbose trim strings. */
+  trims: string[];
+}
+
+/**
+ * Candidate VDB model names for one of OUR trim names.
+ *
+ * The vocabularies disagree on where AMG goes. Car API and MarketCheck put it
+ * last — "GLE 53 AMG", "GLE 63 AMG S" — and VDB puts it first, with no
+ * variant suffix: "AMG GLE 53", "AMG GLE 63". Probing our spelling returns
+ * nothing, the YMMT URLs never get built, and the image falls back to the VIN
+ * — which is the base trim. That is why 350/450/580 switched correctly and
+ * both AMGs showed the 350.
+ */
+function vdbModelCandidates(ourTrim: string): string[] {
+  const raw = ourTrim.trim().replace(/\s+/g, " ");
+  const out = [raw];
+  const amg = /\bAMG\b/i;
+  if (amg.test(raw)) {
+    const withoutAmg = raw.replace(amg, "").replace(/\s+/g, " ").trim();
+    const fronted = `AMG ${withoutAmg}`;
+    out.push(fronted);
+    // "AMG GLE 63 S" → "AMG GLE 63". VDB drops the single-letter variant
+    // suffix; the S survives in the verbose trim string instead.
+    const noSuffix = fronted.replace(/\s+[A-Za-z]$/, "");
+    if (noSuffix !== fronted) out.push(noSuffix);
+  }
+  return out;
+}
+
+/**
+ * Resolve one of OUR trim names to the VDB model that catalogs it, plus that
+ * model's verbose trim strings.
+ *
+ * Cached — including negative results — because the image call needs this per
+ * trim and the prefetch fires one per variant. Uncached, a five-trim GLE would
+ * hit the options endpoint on every render, and VDB rate-limits hard enough
+ * that this file already carries a concurrency cap and a cooldown.
+ */
+async function vdbVerboseTrimsFor(
+  year: number,
+  make: string,
+  ourTrim: string,
+  opts?: { background?: boolean },
+): Promise<VdbModelTrims | null> {
+  const key = `${year}|${make.toLowerCase()}|${ourTrim.toLowerCase()}`;
+  if (VDB_VERBOSE_TRIM_CACHE.has(key)) return VDB_VERBOSE_TRIM_CACHE.get(key)!;
+  // Match against VDB's model list rather than probing each spelling blind.
+  // Blind probing cost up to three requests per trim, and the prefetch fires
+  // one per variant — a five-trim GLE burst past VDB's three-concurrent cap,
+  // earned a 429 and a ten-second cooldown, and every trim then fell back to
+  // the VIN image. Which is the bug this was meant to fix.
+  //
+  // `fetchVdbModelsForYmm` is cached per (year, make), so this is one shared
+  // request for the whole picker, then a local match.
+  const catalog = await fetchVdbModelsForYmm(year, make, opts);
+  const norm = (v: string) => v.toLowerCase().replace(/[^a-z0-9]/g, "");
+  let resolvedModel: string | null = null;
+  for (const candidate of vdbModelCandidates(ourTrim)) {
+    const target = norm(candidate);
+    const hit = catalog.find((m) => norm(m) === target);
+    if (hit) { resolvedModel = hit; break; }
+  }
+  const found = resolvedModel
+    ? { model: resolvedModel, trims: await probeYmmSpecsTrims(year, make, resolvedModel, opts) }
+    : null;
+  VDB_VERBOSE_TRIM_CACHE.set(key, found && found.trims.length ? found : null);
+  return VDB_VERBOSE_TRIM_CACHE.get(key)!;
+}
+
+/**
  * Probe VDB's `ymm-specs/options/v3/trim` endpoint for the canonical
  * trim list for a year/make/model. Returns `[]` on any failure (non-200,
  * malformed body, network error) — callers treat "no trims" the same
@@ -309,10 +425,11 @@ async function probeYmmSpecsTrims(
   year: number,
   make: string,
   model: string,
+  opts?: { background?: boolean },
 ): Promise<string[]> {
   try {
     const url = `${TRIM_OPTIONS_URL}/${year}/${encodeURIComponent(make)}/${encodeURIComponent(model)}`;
-    const response = await vdbFetch(url, { headers: { "x-AuthKey": API_KEY } });
+    const response = await vdbFetch(url, { headers: { "x-AuthKey": API_KEY } }, opts);
     if (!response.ok) return [];
     const json = await response.json();
     if (json.status !== "success" || !Array.isArray(json.data)) return [];
@@ -617,13 +734,31 @@ export async function fetchVehicleImageUrl(
     // way to hit YMMT. We try YMMT anyway when the caller passes a
     // trim, since some flows (VIN-decoded vehicles) do have a usable
     // trim string.
-    const ymmtUrls =
-      trim && year
-        ? makes.map(
-            (m) =>
-              `${BASE_URL}/${year}/${encodeURIComponent(m)}/${encodeURIComponent(model)}/${encodeURIComponent(trim)}`,
-          )
-        : [];
+    // VDB does not file variants as trims of a family — it files each one as
+    // its own MODEL. There is no "GLE-Class" in its catalog at all; there is
+    // "GLE 350", "GLE 450", "AMG GLE 63", each with its own verbose trim list
+    // ("Base GLE 350 4dr All-Wheel Drive 4MATIC Automatic"). So our (model,
+    // trim) pair maps to VDB's (trim-as-model, verbose-trim), and building the
+    // URL as `{our model}/{our trim}` 400s every time — which is why the image
+    // silently fell back to the VIN and looked identical for every trim.
+    //
+    // Our own trim already IS VDB's model name for these families, so try it
+    // as the model and ask VDB for the verbose trim that goes with it. Falls
+    // back to the naive pairing for makes where the family model does exist.
+    const ymmtUrls: string[] = [];
+    if (trim && year) {
+      for (const m of makes) {
+        const resolved = await vdbVerboseTrimsFor(year, m, trim);
+        for (const v of resolved?.trims ?? []) {
+          ymmtUrls.push(
+            `${BASE_URL}/${year}/${encodeURIComponent(m)}/${encodeURIComponent(resolved!.model)}/${encodeURIComponent(v)}`,
+          );
+        }
+        ymmtUrls.push(
+          `${BASE_URL}/${year}/${encodeURIComponent(m)}/${encodeURIComponent(model)}/${encodeURIComponent(trim)}`,
+        );
+      }
+    }
     // YMMT first when an explicit trim is provided, so the image reflects
     // the user's trim selection. VIN URL stays as fallback.
     const urls: string[] =
@@ -1018,13 +1153,37 @@ export function classifyColorFamily(hex: string | null | undefined): string | nu
 }
 
 /**
- * Choose a paint-color family from candidate swatches (e.g. the colors
- * `react-native-image-colors` returns), passed PROMINENT-FIRST. Picks
- * the most saturated swatch above a chroma floor — so a vivid car body
- * wins over neutral wheels/glass/lighting — then classifies it by hue.
- * If nothing clears the floor (a genuinely neutral car), classifies the
- * most-prominent swatch (→ white/silver/gray/black).
+ * Choose a paint-colour family from candidate swatches (e.g. what
+ * `react-native-image-colors` returns), passed PROMINENT-FIRST.
+ *
+ * The rule is simply: THE MOST PROMINENT SWATCH IS THE CAR. Nothing about
+ * saturation enters into it.
+ *
+ * This used to pick the most saturated swatch anywhere in the list, on the
+ * reasoning — stated in its own docstring — that a vivid body should beat
+ * neutral wheels and glass. That holds for a red car and inverts completely
+ * for a neutral one: a white, silver, grey or black body has almost no
+ * saturation, so ANY coloured accent outranks it.
+ *
+ * Ahmad, 2026-09-07: a white Silverado rendered on a pink background. Measured
+ * against the actual VDB render for that VIN, the image is 43.7% black
+ * backdrop, a cool grey-white body, and 173 saturated pixels out of 90,000 —
+ * amber marker lights, the gold bowtie, and a FIVE-PIXEL dark red cluster at
+ * hue 13. Those five pixels were elected the colour of the truck.
+ *
+ * Saturation cannot distinguish a body from a brake light; prominence can, and
+ * a body always wins it. A coloured car's most prominent swatch is its paint,
+ * so nothing is lost by dropping the saturation preference entirely — and an
+ * accent can no longer win from any position.
+ *
+ * The one thing skipped is a pure BACKDROP: VDB renders sit on flat black or
+ * flat white, and on some platforms that region is the most prominent thing in
+ * the frame. Only near-absolute values are treated that way, so a genuinely
+ * black car (l ≈ 0.08) still reads black.
  */
+const BACKDROP_MIN_L = 0.06;
+const BACKDROP_MAX_L = 0.96;
+
 export function pickPaintFamilyFromSwatches(
   swatches: (string | null | undefined)[],
 ): string | null {
@@ -1036,16 +1195,36 @@ export function pickPaintFamilyFromSwatches(
     );
   if (parsed.length === 0) return null;
 
-  const CHROMA_FLOOR = 0.25;
-  const chromatic = parsed.filter(
-    (x) => x.hsl.s >= CHROMA_FLOOR && x.hsl.l > 0.12 && x.hsl.l < 0.9,
-  );
-  if (chromatic.length > 0) {
-    const best = chromatic.reduce((a, b) => (b.hsl.s > a.hsl.s ? b : a));
-    return classifyColorFamily(best.hex);
-  }
-  // Neutral car — classify the most prominent (first) swatch.
-  return classifyColorFamily(parsed[0].hex);
+  const body =
+    parsed.find(
+      (x) =>
+        x.hsl.l > BACKDROP_MIN_L &&
+        x.hsl.l < BACKDROP_MAX_L &&
+        // A flat backdrop is also colourless; a dark car is not required to be.
+        !(x.hsl.s < 0.05 && (x.hsl.l < 0.1 || x.hsl.l > 0.93)),
+    ) ?? parsed[0];
+
+  return classifyColorFamily(body.hex);
+}
+
+/**
+ * The paint family named by a VDB image URL, or null.
+ *
+ * VDB's per-colour renders carry the paint in the filename —
+ * `.../colors/2023/mercedes-benz/amg-gle-63/<trim>/black.jpg`, or
+ * `summit-white.jpg` — which is the manufacturer's own name for it and beats
+ * anything sampling can infer. Its generic gallery shots do not
+ * (`ext-3231303031.jpg`), and those return null so the caller falls through.
+ *
+ * Only the FILENAME is read, never the path: a path segment like
+ * `work-truck-4x4-regular-cab` is model and trim wording, and matching colour
+ * synonyms against it would invent paint colours out of body styles.
+ */
+export function colorFamilyFromImageUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  const filename = (url.split("?")[0].split("/").pop() ?? "").replace(/\.[a-z0-9]+$/i, "");
+  if (!filename) return null;
+  return inferColorFamily(filename);
 }
 
 /**
@@ -1202,23 +1381,44 @@ export async function fetchVdbColorsForVehicle(args: {
    *  discovery fallbacks twice (guards against an infinite loop when a
    *  ymm-specs trim has no vehicle-images record). */
   __triedDiscovery?: boolean;
+  /** Speculative warm-up rather than the image on screen. Yields to the
+   *  rate-limit cooldown instead of waiting it out — see `vdbFetch`. */
+  background?: boolean;
 }): Promise<VdbColorOption[]> {
   const {
     vin, year, make, model, trim,
     nhtsaModel, nhtsaSeries, nhtsaTrim,
     vdbDecodedModel, vdbDecodedStyle, vdbDecodedTrimAndStyle,
+    background,
   } = args;
+  const fetchOpts = background ? { background: true } : undefined;
   console.log("[vdbColors] inputs:", { vin, year, make, model, trim, nhtsaModel, nhtsaSeries, nhtsaTrim, vdbDecodedModel, vdbDecodedStyle, vdbDecodedTrimAndStyle });
   const normalizedVin = (vin ?? "").toUpperCase().trim();
   const makes = make ? normalizeMakes(make) : [];
 
-  const ymmtUrls =
-    trim && year && make && model
-      ? makes.map(
-          (m) =>
-            `${BASE_URL}/${year}/${encodeURIComponent(m)}/${encodeURIComponent(model)}/${encodeURIComponent(trim)}`,
-        )
-      : [];
+  // Same VDB quirk the image path hit: variants are MODELS in VDB's catalog,
+  // not trims of a family. "GLE-Class" does not exist there — "GLE 350" does,
+  // carrying its own verbose trim. Pairing our model with our trim 400s, the
+  // loop falls through to the VIN URL, and the VIN URL always returns the base
+  // trim's colours. That is why the picture never changed whichever trim was
+  // picked: this function feeds the hero image whenever VDB has colours, and
+  // it was resolving by VIN every time.
+  const ymmtUrls: string[] = [];
+  if (trim && year && make) {
+    for (const m of makes) {
+      const resolved = await vdbVerboseTrimsFor(year, m, trim, fetchOpts);
+      for (const verbose of resolved?.trims ?? []) {
+        ymmtUrls.push(
+          `${BASE_URL}/${year}/${encodeURIComponent(m)}/${encodeURIComponent(resolved!.model)}/${encodeURIComponent(verbose)}`,
+        );
+      }
+      if (model) {
+        ymmtUrls.push(
+          `${BASE_URL}/${year}/${encodeURIComponent(m)}/${encodeURIComponent(model)}/${encodeURIComponent(trim)}`,
+        );
+      }
+    }
+  }
   // When an explicit trim is provided, try the YMMT URLs FIRST so the
   // image/colors reflect the user's actual trim selection (the VIN URL
   // always returns the base trim regardless of `trim`). VIN URL stays as
@@ -1235,7 +1435,7 @@ export async function fetchVdbColorsForVehicle(args: {
 
   for (const url of urls) {
     try {
-      const response = await vdbFetch(url, { headers: { "x-AuthKey": API_KEY } });
+      const response = await vdbFetch(url, { headers: { "x-AuthKey": API_KEY } }, fetchOpts);
       // 429 means VDB rate-limited us — every other URL in this loop
       // hits the same global limit and will also 429. Bail and let the
       // caller render the placeholder until the cooldown expires.
@@ -1300,7 +1500,7 @@ export async function fetchVdbColorsForVehicle(args: {
       const url = `${BASE_URL}/${year}/${encodeURIComponent(make)}/${encodeURIComponent(combo.model)}/${encodeURIComponent(combo.trim)}`;
       console.log("[vdbColors] combo probe", url);
       try {
-        const response = await vdbFetch(url, { headers: { "x-AuthKey": API_KEY } });
+        const response = await vdbFetch(url, { headers: { "x-AuthKey": API_KEY } }, fetchOpts);
         // Bail the entire combo matrix on 429 — same global limit applies
         // to every model/trim permutation. Caller falls through to model
         // discovery which is also gated by the cooldown.
@@ -1411,6 +1611,64 @@ function cacheKey(args: {
   }
   return `ymmt:${args.year ?? ""}|${(args.make ?? "").toLowerCase()}|${(args.model ?? "").toLowerCase()}|${trim}`;
 }
+
+/**
+ * Warm the colour/image cache for every trim in the picker, in parallel.
+ *
+ * VDB has no "all trims" endpoint — `/vehicle-images/{year}/{make}/{model}/
+ * {trim}` takes one trim at a time — so this is N requests, fired once while
+ * the driver is still reading the screen. `useVdbColorsForVin` reads the same
+ * `COLORS_CACHE`, so by the time they open the dropdown every entry is a cache
+ * hit and switching is instant.
+ *
+ * Without it, each trim's first selection ran a full round trip and showed a
+ * loading state — and because image resolution prefers the VIN, that spinner
+ * usually resolved back to the picture already on screen. A wait for nothing.
+ *
+ * Deliberately best-effort: failures are swallowed per trim. A trim VDB does
+ * not recognise (our names come from Car API / MarketCheck, whose vocabulary
+ * differs) simply stays uncached and falls back to the VIN image, which is
+ * what it did before.
+ */
+export function prefetchVdbColorsForTrims(
+  base: Parameters<typeof fetchVdbColorsForVehicle>[0],
+  trims: readonly string[],
+): void {
+  // SERIALLY, one trim at a time, and flagged background.
+  //
+  // This used to fire every trim at once. VDB caps us at 3 concurrent and
+  // answers 429 beyond that, which arms a GLOBAL 10-second cooldown on
+  // /vehicle-images — and the cooldown then short-circuited the foreground
+  // request for the image actually on screen. Ten trims of warm-up were
+  // costing the driver the one picture they were waiting for (Ahmad,
+  // 2026-09-04: "no cars images are showing").
+  //
+  // Serial keeps at most one of the three slots busy, so the screen's own
+  // request always has room, and `background: true` means that if we do trip
+  // the limit anyway, the prefetch is what gets dropped rather than the
+  // foreground fetch.
+  void (async () => {
+    for (const trim of trims) {
+      if (!trim) continue;
+      const args = { ...base, trim, background: true };
+      const k = cacheKey({ ...base, trim });
+      if (COLORS_CACHE.has(k)) continue;
+      // Mark in-flight so two renders cannot both fire the same request.
+      if (PREFETCH_INFLIGHT.has(k)) continue;
+      PREFETCH_INFLIGHT.add(k);
+      try {
+        const result = await fetchVdbColorsForVehicle(args);
+        if (result.length) COLORS_CACHE.set(k, result);
+      } catch {
+        // A warm-up that fails is a warm-up that did not happen.
+      } finally {
+        PREFETCH_INFLIGHT.delete(k);
+      }
+    }
+  })();
+}
+
+const PREFETCH_INFLIGHT = new Set<string>();
 
 /**
  * React hook that returns the VDB color options for a vehicle.
