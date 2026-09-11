@@ -24,6 +24,8 @@ import {
   ALL_MAINTENANCE_TYPES,
   MAINTENANCE_LABELS,
   computeFromOdometerStatus,
+  STATUS_SEVERITY_ORDER,
+  INTERVAL_SCORE_EQUIVALENT,
   type MaintenanceType,
   type OemServiceIntervalsInput,
 } from "@/utils/maintenanceStatus";
@@ -36,6 +38,9 @@ import {
   safeInterval,
 } from "@/utils/serviceIntervalGuardrails";
 import { CLASS_INTERVAL_SLUGS, classInterval } from "@/utils/classIntervals";
+// One definition of "months since the car was new" — the Bigger Services tile
+// measures the time axis from the same place, and the two must agree.
+import { ageMonths } from "@/utils/quickCheckFiring";
 import type { IntervalClassContext } from "@/utils/maintenanceStatus";
 import { TAXONOMY } from "@/constants/serviceTaxonomy";
 import { formatMileage } from "@/lib/vehicle-passport";
@@ -354,6 +359,9 @@ export function buildMergedMaintenanceItems(
   const { serviceSlugById } = input;
   const { currentOdometer, oemIntervals, classCtx } = input;
   const now = input.now ?? Date.now();
+  // With no record on file a time-based interval has been running since the
+  // car was built, so its age is the anchor.
+  const vehicleAgeMonths = ageMonths(vehicleYear ?? null, now);
   const result: MaintenanceItem[] = [];
 
   // Canonical dashboard lights present, folding both knownIssues shapes + the
@@ -524,9 +532,13 @@ export function buildMergedMaintenanceItems(
       // `default_fallback` rows at confidence 0.5; `safeInterval` snaps those
       // to the bounds floor, and a floored guess is worse information than the
       // class table. Same rule as the Bigger Services tile so the two agree.
-      const classMiles = classCtx?.vehicleClass
-        ? classInterval(slug, classCtx.vehicleClass, classCtx)?.miles ?? null
+      const classIv = classCtx?.vehicleClass
+        ? classInterval(slug, classCtx.vehicleClass, classCtx)
         : null;
+      const classMiles = classIv?.miles ?? null;
+      // The time side of the class interval. Enrichment only ever supplies a
+      // mileage number, so unlike `classMiles` this has no OEM tier above it.
+      const classMonths = classIv?.months ?? null;
       // Prefer the class table over an UNTRUSTED enrichment value — but only
       // when there is a class value to prefer. With nothing to fall back to,
       // a floored guess still beats no row at all: the point of the gate is
@@ -543,9 +555,13 @@ export function buildMergedMaintenanceItems(
           })
         : clampClassIntervalToBounds(slug, classMiles);
 
-      // Anchorless — no stored interval AND no conservative default.
+      // Anchorless — no stored interval AND no conservative default, on
+      // EITHER axis. The months check matters: Class B and C brake fluid is
+      // `{miles: null, months: 24}`, so a mileage-only test sent brake fluid
+      // down this path on every Euro car in the app and left it stuck on
+      // "not enough info to say" forever.
       // Row surfaces soft with the diagnostic-scan CTA (Behavior #6).
-      if (bounded == null) {
+      if (bounded == null && classMonths == null) {
         result.push({
           id: `catalog-${slug}`,
           serviceName: entry.label,
@@ -603,11 +619,42 @@ export function buildMergedMaintenanceItems(
           ? Math.max(answeredMileage, minorMileage)
           : answeredMileage ?? minorMileage;
 
+      // Same rule on the time axis. Both writers stamp a date beside the
+      // mileage — `quickCheckAnchor` for a driver answer, booking close-out
+      // for a shop visit — so the two anchors move together.
+      const answeredDate =
+        typeof answered?.lastServiceDate === "number" ? answered.lastServiceDate : undefined;
+      const minorDate =
+        typeof minorAnchor?.lastServiceDate === "number" ? minorAnchor.lastServiceDate : undefined;
+      const anchorLastServiceDate =
+        answeredDate != null && minorDate != null
+          ? Math.max(answeredDate, minorDate)
+          : answeredDate ?? minorDate;
+
+      // A definite answer, not merely a record. "Not sure" writes a row so we
+      // stop asking as insistently; it is still an absence of information and
+      // must not score.
+      const answeredType = (answered?.customInputs as { answerType?: string } | undefined)?.answerType;
+      const driverAnswered = answeredType === "when" || answeredType === "never";
+
       const status = computeFromOdometerStatus({
         interval_miles: bounded,
         currentOdometer,
         lastServiceMileage: anchorLastServiceMileage,
+        // The time side. Without it a service whose interval is mostly about
+        // age — coolant, brake fluid — reads healthy on a low-mileage car that
+        // the Bigger Services tile has already flagged.
+        interval_months: classMonths,
+        lastServiceDate: anchorLastServiceDate,
+        ageMonths: vehicleAgeMonths,
+        now,
         serviceName: entry.label,
+        intervalSource: useOem ? "oem" : "class_default",
+        // A driver answer releases the confidence hold, the same way a
+        // mechanic's grade does. Yassin asked for this on 2026-09-02 after a
+        // car sat at 99 with five services the driver had said were never
+        // done; Ahmad confirmed it on 2026-09-04.
+        confirmed: driverAnswered,
       });
 
       result.push({
@@ -620,16 +667,28 @@ export function buildMergedMaintenanceItems(
         // Either anchor makes this a real measurement rather than an
         // inference from new.
         triggeredBy: anchorLastServiceMileage != null ? "mileage" : "inference",
-        // Still excluded from scoring even once answered. SCORING_TYPES is
-        // explicit that catalog rows "must never score without a mechanic
-        // behind them", and a driver's self-report is not a mechanic — that
-        // gate was added deliberately after these rows started costing people
-        // points for the passage of time. The answer changes what the row
-        // SAYS and which tier it sits in; it does not move the score.
-        excludeFromScore: true,
+        // Scores ONLY once the driver has actually answered — Yassin,
+        // 2026-09-02: a driver's answer on a bigger service should move the
+        // number the way a mechanic's grade does.
+        //
+        // This reverses an earlier blanket exclusion, and the distinction
+        // matters: that gate went in because these rows were costing people
+        // points for the PASSAGE OF TIME, on a car nobody had said anything
+        // about. An answer is not the passage of time. Unanswered and "not
+        // sure" rows still leave the weighted average entirely, so the old
+        // failure cannot come back — and a driver who says nothing is never
+        // penalised for saying nothing.
+        excludeFromScore: !driverAnswered,
         // Lets the row's "when was this done?" button write back to the right
         // record, and lets Book Service resolve the service.
         serviceSlug: slug,
+        // The spec's four-way band and the factor the score should use. These
+        // were being computed and then dropped, so every catalog row scored
+        // off `STATUS_SCORE[status]` — which meant no confidence hold at all,
+        // and an overdue row scored at the severely-overdue 0.10.
+        bandStatus: status.bandStatus,
+        factorApplied: status.factorApplied,
+        rawScore: status.rawScore,
         signals: {
           mileage: `${formatMileage(currentOdometer)} (current)`,
           // Says which tier the number came from. "Typical" rather than "OEM"
@@ -642,9 +701,63 @@ export function buildMergedMaintenanceItems(
     }
   }
 
+  // ── One physical finding, one card ────────────────────────────────────────
+  //
+  // Ahmad, 2026-09-04: a coolant flush showed twice — once as the interval row
+  // ("50,001 mi past interval") and once as the mechanic's eye-check
+  // recommendation ("flagged on eye-check (monitor)"). Both are true; two
+  // cards for one job is not.
+  //
+  // The INTERVAL ROW WINS here, which is the opposite of how the same
+  // collision is resolved for minor eye-check items above — and the asymmetry
+  // is the point. A minor item is a bare grade with no interval behind it, so
+  // the recommendation is strictly richer and takes the card. An interval row
+  // carries the mileage maths AND the driver's own answer, and unlike a
+  // recommendation it SCORES: dropping it in favour of the rec would silently
+  // raise the health score the moment a mechanic mentioned the service.
+  //
+  // So the row stays and absorbs the mechanic's attribution — the "Suggested
+  // by …" line renders off `mechanicProvenance` alone, independent of the
+  // recommendation lifecycle, so nothing else has to come with it.
+  const intervalItemBySlug = new Map<string, MaintenanceItem>();
+  for (const item of result) {
+    const slug =
+      item.serviceSlug ??
+      ANCHOR_TYPE_TO_SLUG[item.id.replace(/^(unknown-|user-|smartcar-)/, "") as MaintenanceType];
+    // First writer wins: a catalog row and a core tile never share a slug, but
+    // if they ever did the core tile is the one the driver was asked about.
+    if (slug && !intervalItemBySlug.has(slug)) intervalItemBySlug.set(slug, item);
+  }
+
   // Mechanic-submitted job recommendations as urgent cards.
   if (driverRecommendations && driverRecommendations.length > 0) {
     for (const rec of driverRecommendations) {
+      const recSlug = rec.service_id ? serviceSlugById?.(rec.service_id) : undefined;
+      const covered = recSlug ? intervalItemBySlug.get(recSlug) : undefined;
+      if (covered) {
+        covered.mechanicProvenance = {
+          shopName: rec.shop_name,
+          mechanicName: rec.mechanic_name,
+        };
+        // A mechanic's finding may make the card louder, never quieter — the
+        // same one-way rule `applyMechanicGrade` uses. Without this, a
+        // mechanic flagging something the interval calls healthy would be
+        // folded into a HEALTHY row and effectively buried.
+        const recStatus = recUrgencyToStatus(rec.urgency);
+        if (
+          STATUS_SEVERITY_ORDER.indexOf(recStatus) >
+          STATUS_SEVERITY_ORDER.indexOf(covered.status)
+        ) {
+          // Display only. `rawScore` is pinned to whatever the INTERVAL said,
+          // so the merge cannot start deducting for a recommendation —
+          // recommendations are excluded from Upkeep today
+          // (`isScorableMaintenanceItem`) and this is not the change that
+          // reverses that.
+          covered.rawScore = covered.rawScore ?? INTERVAL_SCORE_EQUIVALENT[covered.status];
+          covered.status = recStatus;
+        }
+        continue;
+      }
       result.push({
         id: `rec-${rec._id}`,
         serviceName: rec.service_name,

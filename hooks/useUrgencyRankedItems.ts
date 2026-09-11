@@ -65,6 +65,7 @@ function approximatePercentUsedFromStatus(status: MaintenanceStatus): number {
 
 const EMPTY_BY_TIER: Record<UrgencyTier, RankedMaintenanceItem[]> = {
   now: [],
+  attention: [],
   soon: [],
   resting: [],
 };
@@ -106,6 +107,7 @@ export function useUrgencyRankedItems(
 
     const byTier: Record<UrgencyTier, RankedMaintenanceItem[]> = {
       now: [],
+      attention: [],
       soon: [],
       resting: [],
     };

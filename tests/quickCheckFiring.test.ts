@@ -168,3 +168,51 @@ describe("the set as a whole", () => {
     ]);
   });
 });
+
+describe("what we already know suppresses the question", () => {
+  // Yassin, 2026-09-02: "asked me about every single service, then showed I'm
+  // 40-50k miles away from the actual interval". Both rules measured from the
+  // ODOMETER rather than from the last known service, so a car that had just
+  // been serviced looked as though it had never been.
+  const NOW = new Date(2026, 8, 2).getTime();
+
+  it("does not ask about oil that was changed 2,000 miles ago", () => {
+    const asked = firedTiles({
+      currentMiles: 45_000,
+      modelYear: 2023,
+      now: NOW,
+      anchors: { oil: { lastServiceMileage: 43_000, lastServiceDate: NOW - 30 * 24 * 3600 * 1000 } },
+    });
+    expect(asked).not.toContain("oil");
+  });
+
+  it("still asks once the interval has actually run", () => {
+    const asked = firedTiles({
+      currentMiles: 52_000,
+      modelYear: 2023,
+      now: NOW,
+      anchors: { oil: { lastServiceMileage: 43_000, lastServiceDate: NOW - 30 * 24 * 3600 * 1000 } },
+    });
+    expect(asked).toContain("oil");
+  });
+
+  it("reads identically to the old behaviour when nothing is on record", () => {
+    // The anchor defaults to zero miles / the car's build date, which IS
+    // measuring from new — so a car we know nothing about is unaffected.
+    const withNone = firedTiles({ currentMiles: 60_000, modelYear: 2018, now: NOW });
+    const withEmpty = firedTiles({ currentMiles: 60_000, modelYear: 2018, now: NOW, anchors: {} });
+    expect(withEmpty).toEqual(withNone);
+  });
+
+  it("uses the date anchor even when the mileage one is missing", () => {
+    // Battery is months-only, so a dateless anchor would leave it firing on
+    // the car's age forever.
+    const asked = firedTiles({
+      currentMiles: 5_000,
+      modelYear: 2018,
+      now: NOW,
+      anchors: { battery: { lastServiceDate: NOW - 6 * 30.44 * 24 * 3600 * 1000 } },
+    });
+    expect(asked).not.toContain("battery");
+  });
+});

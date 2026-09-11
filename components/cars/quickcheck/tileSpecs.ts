@@ -37,7 +37,13 @@ export interface TileSpec {
   /** Battery has no miles field: a battery's age is what matters and asking
    *  for an odometer reading implies otherwise. */
   showMilesField: boolean;
-  /** Oil only — one toggle inside the picker (§5). */
+  /** A follow-up toggle inside the "when" row: "and was X done too?".
+   *  Oil asks about filters; brakes asks about the fluid flush. Both exist
+   *  because the second service is nearly always done alongside the first,
+   *  so asking it as its own tile is asking twice about one shop visit.
+   *  `companionSlug` is the catalog row the answer writes to. */
+  companion?: { label: string; slug: string };
+  /** @deprecated Use `companion`. Kept so an in-flight draft still reads. */
   filtersToggle?: boolean;
   /** Always-visible chip row, separate from the three answer rows. History and
    *  symptom are different facts; v1 conflated them by letting "feels fine"
@@ -67,7 +73,7 @@ export const TILE_SPECS: Record<FixedTileId, TileSpec> = {
     whenLabel: "I know roughly when",
     neverLabel: "Never on this car",
     showMilesField: true,
-    filtersToggle: true,
+    companion: { label: "Filters done with it?", slug: "filter_replacement" },
   },
   tires: {
     id: "tires",
@@ -91,6 +97,10 @@ export const TILE_SPECS: Record<FixedTileId, TileSpec> = {
     whenLabel: "I know roughly when",
     neverLabel: "Never on this car",
     showMilesField: true,
+    // Yassin: "if brakes are marked as done, it could also mean brake fluid
+    // was flushed — combine those two questions into one." Same shape as oil
+    // and its filters, and it takes brake fluid out of Bigger Services.
+    companion: { label: "Fluid flushed too?", slug: "brake_fluid_flush" },
     symptoms: [
       { id: "noise", label: "Noise" },
       // Soft pedal is the one symptom that earns a calm follow-up rather than
@@ -138,7 +148,10 @@ export interface QuickCheckAnswer {
   /** Odometer at the service, if the driver happened to know it. Optional by
    *  design — the velocity estimate covers its absence. */
   miles?: number;
-  /** Oil only: did the filters go with it? */
+  /** Was the companion service done at the same visit? Absent means the
+   *  driver did not say. */
+  companionDone?: boolean;
+  /** @deprecated Read as `companionDone` on rehydrate. */
   filtersDone?: boolean;
   /** Symptom chip, when the tile has a row. `none` is the default. */
   symptom?: string;

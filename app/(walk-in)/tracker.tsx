@@ -19,6 +19,8 @@ import {
   GlassCard,
   JobCard,
   useClaimData,
+  useGarageHref,
+  useReturningCustomer,
   useClaimStages,
   PrimaryCta,
   ProgressCard,
@@ -29,6 +31,8 @@ import { FontFamily } from '@/constants/theme';
 
 export default function TrackerScreen() {
   const data = useClaimData();
+  const { isReturning, firstName } = useReturningCustomer();
+  const garageHref = useGarageHref();
   const stages = useClaimStages();
   const router = useRouter();
 
@@ -39,10 +43,19 @@ export default function TrackerScreen() {
       contentStyle={styles.content}
       headerRight={
         <View style={styles.claimedChip}>
-          <Text style={styles.claimedText}>CLAIMED</Text>
+          {/* "CLAIMED" describes an action the customer just took. A returning
+              one took no action — the job was already theirs — so the chip
+              states where it lives instead. */}
+          <Text style={styles.claimedText}>{isReturning ? 'IN YOUR GARAGE' : 'CLAIMED'}</Text>
         </View>
       }
     >
+      {/* The greeting lives here rather than on the landing screen, because a
+          returning customer is routed straight past that screen — the link is
+          for the job, not for an introduction. */}
+      {isReturning && firstName ? (
+        <Text style={styles.welcomeBack}>Welcome back, {firstName}</Text>
+      ) : null}
       <JobCard title={data.titleClaimed} plate={data.plateClaimed} />
       <ProgressCard stages={stages} style={styles.progress} />
 
@@ -69,14 +82,34 @@ export default function TrackerScreen() {
 
       <View style={styles.continue}>
         {/* Hint sits above the button: this sits below the fold, so the
-            sentence is what's legible before the user scrolls. */}
-        <Text style={styles.continueHint}>
-          Your {data.vehicleShort} is ready to save to your Garage.
-        </Text>
-        <PrimaryCta
-          label="Continue to the app"
-          onPress={() => router.push('/(walk-in)/create-account')}
-        />
+            sentence is what's legible before the user scrolls.
+
+            A returning customer is not being asked to save anything — the job
+            was merged onto their account before they ever reached the flow —
+            so the sentence states a fact instead of making an offer, and the
+            button goes where they already have a garage rather than to a
+            sign-up screen. */}
+        {isReturning ? (
+          <>
+            <Text style={styles.continueHint}>
+              Your {data.vehicleShort} is already in your Garage.
+            </Text>
+            <PrimaryCta
+              label="Go to my Garage"
+              onPress={() => router.replace(garageHref)}
+            />
+          </>
+        ) : (
+          <>
+            <Text style={styles.continueHint}>
+              Your {data.vehicleShort} is ready to save to your Garage.
+            </Text>
+            <PrimaryCta
+              label="Continue to the app"
+              onPress={() => router.push('/(walk-in)/create-account')}
+            />
+          </>
+        )}
       </View>
     </WalkInScreen>
   );
@@ -84,6 +117,12 @@ export default function TrackerScreen() {
 
 const styles = StyleSheet.create({
   content: { paddingBottom: 24 },
+  welcomeBack: {
+    fontFamily: FontFamily.bold,
+    fontSize: 20,
+    color: WI.ink,
+    marginBottom: 12,
+  },
   claimedChip: {
     paddingHorizontal: 12,
     paddingVertical: 5,

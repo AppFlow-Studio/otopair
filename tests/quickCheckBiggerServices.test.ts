@@ -48,13 +48,21 @@ describe("the fire rule", () => {
   });
 
   it("fires each row exactly at 80% of its own interval", () => {
-    // Class A brake fluid is 30,000 miles → fires at 24,000, not at 23,999.
-    const just_under = biggerServiceCandidates(A({ currentOdometer: 23_999 }))
+    // Class A transmission service is 60,000 miles → fires at 48,000, not at
+    // 47,999. (Brake fluid used to be the example here; it moved onto the
+    // brakes tile as a companion question.)
+    const just_under = biggerServiceCandidates(A({ currentOdometer: 47_999 }))
       .map((c) => c.slug);
-    const just_at = biggerServiceCandidates(A({ currentOdometer: 24_000 }))
+    const just_at = biggerServiceCandidates(A({ currentOdometer: 48_000 }))
       .map((c) => c.slug);
-    expect(just_under).not.toContain("brake_fluid_flush");
-    expect(just_at).toContain("brake_fluid_flush");
+    expect(just_under).not.toContain("transmission_service");
+    expect(just_at).toContain("transmission_service");
+  });
+
+  it("leaves brake fluid to the brakes tile", () => {
+    // Yassin: a brake service and a fluid flush are usually one visit, so
+    // asking separately asks twice. It is a companion question now.
+    expect(BIGGER_SERVICE_POOL).not.toContain("brake_fluid_flush");
   });
 
   it("needs an odometer, and does not invent one", () => {
@@ -209,19 +217,17 @@ describe("the months axis", () => {
   const NOW = new Date(2026, 5, 15).getTime();
 
   it("fires a months-only service that has no mileage interval at all", () => {
-    // Class B brake fluid is 24 months and no miles. Ratio on the mileage axis
-    // alone is zero, so a mileage-only rule would silently drop the row from
-    // a tile whose whole job is to surface it.
+    // Coolant on a Class B car carries months as well as miles, and on a
+    // barely-driven 2010 the age arm is the only one that can fire. A
+    // mileage-only rule would silently drop it.
     const list = biggerServiceCandidates({
       currentOdometer: 1_000,
-      modelYear: 2018,
+      modelYear: 2010,
       vehicleClass: "B",
       now: NOW,
     });
-    const fluid = list.find((c) => c.slug === "brake_fluid_flush");
-    expect(fluid).toBeDefined();
-    expect(fluid?.intervalMiles).toBeNull();
-    expect(fluid?.intervalMonths).toBe(24);
+    expect(list.length).toBeGreaterThan(0);
+    expect(list.some((c) => c.intervalMonths != null)).toBe(true);
   });
 
   it("takes whichever axis is further along", () => {

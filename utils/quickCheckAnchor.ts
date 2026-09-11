@@ -13,12 +13,10 @@
  * `tests/catalogRecencyAnswer.test.ts` and stays as it is for the tracker's
  * own recency prompt.
  *
- * The one thing shared with it is `getMonthlyMiles`, imported rather than
- * copied: two tables of driving-level constants would drift.
+ * Nothing here estimates. A "when" answer without an odometer reading yields a
+ * DATE ONLY — see the note in `resolveQuickCheckAnchor` for why the velocity
+ * estimate that used to live here was removed.
  */
-import { getMonthlyMiles } from "@/utils/maintenanceStatus";
-
-const MS_PER_MONTH = 30.44 * 24 * 60 * 60 * 1000;
 
 /** The subset of a Quick Check answer this module reads. Typed structurally
  *  rather than importing `QuickCheckAnswer` from the sheet — utils must not
@@ -94,21 +92,29 @@ export function resolveQuickCheckAnchor(input: QuickCheckAnchorInput): QuickChec
     return { lastServiceDate, lastServiceMileage: answer.miles };
   }
 
-  // No odometer to work back from — keep the date and leave mileage unset.
-  // The months half of the interval still scores; the miles half sits out.
-  if (input.currentOdometer == null || !Number.isFinite(input.currentOdometer)) {
-    return { lastServiceDate };
-  }
-
-  const monthsAgo = Math.max(0, (now - lastServiceDate) / MS_PER_MONTH);
-  const travelled = monthsAgo * getMonthlyMiles(input.avgMonthlyDriving ?? undefined);
-  // Never below zero and never above today's reading — the estimate is a
-  // subtraction from a real number, so both ends are hard facts.
-  const estimated = Math.round(
-    Math.min(input.currentOdometer, Math.max(0, input.currentOdometer - travelled)),
-  );
-
-  return { lastServiceDate, lastServiceMileage: estimated };
+  // The driver gave a date and no odometer, so we DO NOT KNOW the mileage and
+  // no longer pretend to. The date is returned on its own; the months half of
+  // an interval still measures, and the miles half sits out as unmeasurable.
+  //
+  // Ahmad, 2026-09-09: "in a situation like that where we have to estimate or
+  // guess what the mileage was, I think it's best for us to just say we don't
+  // have enough info and tell them to do a diagnostic scan instead."
+  //
+  // This replaces a velocity estimate — current miles minus (months since ×
+  // miles per month) — which the spec asks for in §7 step 1 and which was
+  // simply not good enough. On a 2025 G-Class reading 200,000 miles it put a
+  // spark-plug service at 184,938 and called the plugs healthy with 44,928
+  // miles left. Cross-checking the driver's stated band against the odometer
+  // narrowed the error but did not remove it: a lifetime average is still a
+  // guess about a specific past interval, and a guessed number that decides a
+  // driver's health score is worth less than admitting we do not know.
+  //
+  // Consequence, deliberate: a MILES-ONLY service — spark plugs, transmission,
+  // differential, brake pads — has no second axis to fall back on, so a date
+  // alone leaves it entirely unmeasurable and it reports unknown, which routes
+  // the driver to the diagnostic scan. That is the honest answer. The optional
+  // mileage field on the sheet is what turns it into a real one.
+  return { lastServiceDate };
 }
 
 // ============================================================================
@@ -125,6 +131,19 @@ export const TILE_RECORD_TYPE = {
 
 export type QuickCheckServiceTile = keyof typeof TILE_RECORD_TYPE;
 
+/**
+ * The catalog service each tile also covers.
+ *
+ * Both pairings exist because the second service is nearly always done in the
+ * same visit as the first, so asking about it separately asks twice about one
+ * shop trip. Anything listed here is deliberately absent from
+ * `BIGGER_SERVICE_POOL`.
+ */
+export const COMPANION_SLUG: Partial<Record<QuickCheckServiceTile, string>> = {
+  oil: "filter_replacement",
+  brakes: "brake_fluid_flush",
+};
+
 /** One `api.maintenance.upsertRecord` call. */
 export interface QuickCheckRecordWrite {
   type: string;
@@ -134,7 +153,9 @@ export interface QuickCheckRecordWrite {
 }
 
 export interface QuickCheckWriteAnswer extends QuickCheckAnchorAnswer {
-  /** Oil only. Absent means the driver said "not sure". */
+  /** Was the companion service done at the same visit? Absent = not said. */
+  companionDone?: boolean;
+  /** @deprecated Older drafts wrote this. Read as `companionDone`. */
   filtersDone?: boolean;
   /** Tiles with a symptom row. `none` is the default. */
   symptom?: string;
@@ -219,14 +240,19 @@ export function quickCheckRecordWrites(
     { type: TILE_RECORD_TYPE[tile], ...anchor, customInputs: base },
   ];
 
-  if (tile === "oil" && answer.filtersDone != null) {
+  // The companion row: filters with an oil change, brake fluid with a brake
+  // service. Anchored to the same visit only on a definite yes — a "no" says
+  // the work was not done then, which is not the same as knowing when it was.
+  const companionSlug = COMPANION_SLUG[tile];
+  const companionDone = answer.companionDone ?? answer.filtersDone;
+  if (companionSlug && companionDone != null) {
     writes.push({
-      type: "catalog_filter_replacement",
-      ...(answer.filtersDone ? anchor : {}),
+      type: `catalog_${companionSlug}`,
+      ...(companionDone ? anchor : {}),
       customInputs: {
         source: "quick_check_v2",
-        answerType: answer.filtersDone ? answer.answerType : "unsure",
-        doneWithOilChange: answer.filtersDone,
+        answerType: companionDone ? answer.answerType : "unsure",
+        doneWithParentService: companionDone,
       },
     });
   }

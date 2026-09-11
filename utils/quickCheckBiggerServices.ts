@@ -20,6 +20,8 @@
  */
 import { BAND_CUTOFFS } from "@/utils/intervalBands";
 import { ageMonths } from "@/utils/quickCheckFiring";
+
+const MS_PER_MONTH = 30.44 * 24 * 60 * 60 * 1000;
 import { classInterval, type ClassIntervalOptions } from "@/utils/classIntervals";
 import type { VehicleClass } from "@/utils/vehicleClass";
 import {
@@ -41,7 +43,9 @@ import { TAXONOMY } from "@/constants/serviceTaxonomy";
  * plausibly sells. Five rows is a question; fifteen is a form.
  */
 export const BIGGER_SERVICE_POOL: readonly string[] = [
-  "brake_fluid_flush",
+  // brake_fluid_flush is NOT here: the brakes tile asks about it as a
+  // companion ("fluid flushed too?"), because a brake service and a fluid
+  // flush are usually the same visit. See COMPANION_SLUG in quickCheckAnchor.
   "coolant_flush",
   "transmission_service",
   "spark_plugs",
@@ -83,6 +87,12 @@ export interface BiggerServicesInput {
   applicableSlugs?: Set<string> | null;
   /** Slugs the driver has already answered, from `catalog_<slug>` records. */
   answeredSlugs?: Set<string>;
+  /** What is already on record per slug — a driver answer (`catalog_<slug>`)
+   *  or a booking close-out (`minor_<slug>`). The ratio measures from here
+   *  rather than from new, so a car serviced at 40,000 and now reading 45,000
+   *  is 5,000 into its interval and does not get asked again. Measuring from
+   *  zero is what made every service fire on a car that was already set up. */
+  anchors?: Record<string, { lastServiceMileage?: number | null; lastServiceDate?: number | null }>;
   pool?: readonly string[];
 }
 
@@ -154,8 +164,20 @@ export function biggerServiceCandidates(
     // takes the worse of the two. Without this a months-only service — Class B
     // brake fluid is 24 months and no mileage at all — could never fire, and
     // would be silently dropped from a tile whose whole job is to surface it.
-    const milesRatio = hasMiles && miles ? currentOdometer! / miles : 0;
-    const monthsRatio = ageMonthsNow != null && months ? ageMonthsNow / months : 0;
+    // Both axes measure from the anchor when there is one. With none, they
+    // measure from new — the interval has been running since the car was
+    // built, which is exactly the case the tile exists to ask about.
+    const anchor = input.anchors?.[slug];
+    const anchorMiles =
+      typeof anchor?.lastServiceMileage === "number" ? anchor.lastServiceMileage : 0;
+    const milesSince = hasMiles ? Math.max(0, currentOdometer! - anchorMiles) : null;
+    const monthsSince =
+      typeof anchor?.lastServiceDate === "number"
+        ? Math.max(0, ((input.now ?? Date.now()) - anchor.lastServiceDate) / MS_PER_MONTH)
+        : ageMonthsNow;
+
+    const milesRatio = milesSince != null && miles ? milesSince / miles : 0;
+    const monthsRatio = monthsSince != null && months ? monthsSince / months : 0;
     const ratio = Math.max(milesRatio, monthsRatio);
     if (ratio < BAND_CUTOFFS.dueSoon) continue;
 
