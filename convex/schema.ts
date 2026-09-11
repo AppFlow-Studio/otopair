@@ -2202,14 +2202,6 @@ export default defineSchema({
     // sign-outs (SecureStore doesn't survive).
     onboardingDeferredStep: v.optional(v.string()),
     tellUsAboutCompleted: v.optional(v.boolean()),
-    // First-run tutorial. Stamped when the tour is COMPLETED OR SKIPPED — both
-    // are the driver saying they are done with it, and re-showing a tour
-    // someone dismissed is the fastest way to make it feel like an ad.
-    // Re-entry lives in Settings rather than being automatic.
-    //
-    // On the user row rather than AsyncStorage so it follows the account: a
-    // driver who signs in on a second device has already had the tour.
-    tutorialSeenAt: v.optional(v.number()),
     user_intentions: v.optional(v.any()),
     language: v.optional(v.string()),
     units: v.optional(v.string()),
@@ -2245,17 +2237,6 @@ export default defineSchema({
     // Set when a Clerk user.created webhook claimed a pre-existing
     // "shop-created-*" walk-in stub user by matching email or phone.
     walkInClaimedAt: v.optional(v.number()),
-    // Forwarding pointer, set when a shop-built stub is merged into a real
-    // account by `walkin_claims.claimByToken`.
-    //
-    // The stub row is kept rather than deleted — it may be referenced by rows
-    // the merge does not know about, and a dangling id is worse than a parked
-    // one. But keeping it left it fully discoverable: the shop portal's
-    // customer lookup matches on email and phone, which a retired stub still
-    // carries, so the NEXT walk-in for that person attached to the dead row
-    // and never reached their real account (Ahmad, 2026-09-10). Lookups follow
-    // this pointer instead.
-    merged_into_user_id: v.optional(v.id("users")),
     // URL-safe token embedded in the post-job claim deep link sent to
     // mechanic-created walk-in clients. Resolved by /claim/[token].
     claim_token: v.optional(v.string()),
@@ -2989,20 +2970,6 @@ export default defineSchema({
     source_recommendation_id: v.optional(v.id("job_recommendations")),
     // Booking origin and quote baselines for mechanic-created walk-ins.
     source: v.optional(v.string()),
-    // Tracker deep link for THIS job — `otopair://claim/<token>`, handed to
-    // the customer by the shop.
-    //
-    // Per booking, not per customer. It used to live on `users.claim_token`,
-    // which was fine while a link was only ever minted once for a stranger
-    // with exactly one job. A returning customer can have several walk-ins
-    // open at the same shop — Ahmad's own test data has two on one vehicle on
-    // one day — and a user-level token cannot say which of them a given link
-    // was for; it resolved to whichever sorted most recent.
-    //
-    // `users.claim_token` stays for links already in the wild and for the
-    // account-claim path; the resolvers check this field first and fall back.
-    tracker_token: v.optional(v.string()),
-    tracker_token_expires_at: v.optional(v.number()),
     mechanic_estimated_minutes: v.optional(v.number()),
     catalog_estimated_minutes: v.optional(v.number()),
     mechanic_quoted_price: v.optional(v.number()),
@@ -3265,8 +3232,6 @@ export default defineSchema({
     .index("by_shop_and_date", ["shop_id", "scheduled_date"])
     .index("by_shop_and_status", ["shop_id", "status"])
     .index("by_created_at", ["created_at"])
-    // Tracker deep link, per JOB. See tracker_token below.
-    .index("by_tracker_token", ["tracker_token"])
     .index("by_source_recommendation", ["source_recommendation_id"])
     .index("by_payment_approval_state", ["payment_approval_state"])
     .index("by_vin", ["vin"])
