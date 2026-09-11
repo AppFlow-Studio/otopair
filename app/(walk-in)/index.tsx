@@ -5,6 +5,11 @@
  * only after the customer can already see their car's status, and
  * "Just watch the status" is a real way out.
  *
+ * A customer who ALREADY has an account gets different words. By the time they
+ * reach this screen the job has been merged onto their account, so "verify
+ * it's you" and "keep this in your Garage" are both asking for something
+ * already done. They get a welcome back and a way through instead.
+ *
  * The progress card is deliberately clipped by the sheet — the half-visible
  * stage is what signals there is more underneath.
  *
@@ -23,6 +28,8 @@ import {
   useClaimStages,
   PrimaryCta,
   ProgressCard,
+  useGarageHref,
+  useReturningCustomer,
   WalkInScreen,
   WI,
 } from '@/components/walk-in/WalkInKit';
@@ -30,6 +37,8 @@ import { FontFamily } from '@/constants/theme';
 
 export default function WalkInLandingScreen() {
   const data = useClaimData();
+  const { isReturning, firstName } = useReturningCustomer();
+  const garageHref = useGarageHref();
   const stages = useClaimStages();
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -41,14 +50,38 @@ export default function WalkInLandingScreen() {
 
       <View style={[styles.sheet, { paddingBottom: insets.bottom + 10 }]}>
         <View style={styles.grabber} />
-        <Text style={styles.headline}>This is your car&apos;s job</Text>
-        <Text style={styles.sub}>
-          Verify it&apos;s you to get updates, message the shop, and keep this in your Garage.
-        </Text>
-        <View style={styles.ctaWrap}>
-          <PrimaryCta label="Verify it's me" onPress={() => router.push('/(walk-in)/verify-phone')} />
-          <GhostButton label="Just watch the status" onPress={() => router.push('/(walk-in)/tracker')} />
-        </View>
+        {isReturning ? (
+          <>
+            {/* Nothing to verify and nothing to claim — `claimByToken` already
+                merged this job onto their account before they got here. The
+                screen's job is to say so and get out of the way. */}
+            <Text style={styles.headline}>
+              {firstName ? `Welcome back, ${firstName}` : 'Welcome back'}
+            </Text>
+            {/* No shop name in this sentence on purpose: `data.shop` falls
+                back to the literal "Your shop", which reads as nonsense in a
+                possessive. The vehicle is the specific detail that matters. */}
+            <Text style={styles.sub}>
+              Your {data.vehicleShort} is in your Garage — we&apos;ll keep this job updated as the
+              shop works.
+            </Text>
+            <View style={styles.ctaWrap}>
+              <PrimaryCta label="Track this job" onPress={() => router.push('/(walk-in)/tracker')} />
+              <GhostButton label="Go to my Garage" onPress={() => router.replace(garageHref)} />
+            </View>
+          </>
+        ) : (
+          <>
+            <Text style={styles.headline}>This is your car&apos;s job</Text>
+            <Text style={styles.sub}>
+              Verify it&apos;s you to get updates, message the shop, and keep this in your Garage.
+            </Text>
+            <View style={styles.ctaWrap}>
+              <PrimaryCta label="Verify it's me" onPress={() => router.push('/(walk-in)/verify-phone')} />
+              <GhostButton label="Just watch the status" onPress={() => router.push('/(walk-in)/tracker')} />
+            </View>
+          </>
+        )}
       </View>
     </WalkInScreen>
   );

@@ -85,7 +85,7 @@ import { computeVehicleHealthScore, type HealthScoreInput } from "@/utils/health
 // 4. Shared UI
 import { Text } from "@/components/shared-ui";
 import { OilIcon, BrakesIcon, TireIcon, BatteryIcon, WarningIcon } from "@/components/cars/ServiceIcons";
-import { fetchVehicleImageUrl, inferColorFamily, pickPaintFamilyFromSwatches } from "@/utils/vehicleImage";
+import { colorFamilyFromImageUrl, fetchVehicleImageUrl, inferColorFamily, pickPaintFamilyFromSwatches } from "@/utils/vehicleImage";
 import { COLOR_GRADIENTS, DEFAULT_GRADIENTS } from "@/constants/colorGradients";
 import { isDarkColor } from "@/utils/contrast";
 import { scale, verticalScale, moderateScale } from '@/utils/responsive';
@@ -932,10 +932,18 @@ export default function CarsHomeScreen() {
       // family id so the gradient lookup hits — otherwise we'd fall
       // through to DEFAULT_GRADIENTS and the bg would tint by list
       // index (e.g. a red Ram getting a saturated blue background).
-      const familyId = inferColorFamily(paintColor);
-      const gradient =
-        (familyId && COLOR_GRADIENTS[familyId]) ||
-        DEFAULT_GRADIENTS[i % DEFAULT_GRADIENTS.length];
+      // Stored paint first, then the image URL. VDB's per-colour renders name
+      // the paint in the filename, which is the manufacturer's own word for it
+      // — better evidence than anything sampling can infer, and free. The
+      // Silverado that started this (Ahmad, 2026-09-07) had `color: ""`, so
+      // there was nothing to fall back to but a guess.
+      const familyId =
+        inferColorFamily(paintColor) ??
+        colorFamilyFromImageUrl(vehicleImageUrls[r.vin] ?? (v as { image_url?: string })?.image_url);
+      // Unknown colour gets ONE neutral, not a palette chosen by list position.
+      // Index-based tinting means the same car changes colour when another is
+      // added ahead of it, and picks a saturated blue for half the garage.
+      const gradient = (familyId && COLOR_GRADIENTS[familyId]) || DEFAULT_GRADIENTS[0];
       const displayMake = titleCase(meta?.make || o?.nickname?.split(" ")[1] || "Vehicle");
       const displayModel = titleCase(meta?.model || o?.nickname?.split(" ").slice(2).join(" ") || r.vin.slice(-6));
       paired.push({
@@ -1172,16 +1180,32 @@ export default function CarsHomeScreen() {
     (async () => {
       try {
         const FALLBACK = "#9aa4b2";
-        const res = await getImageColors!(uri, { fallback: FALLBACK, cache: true, key: vin });
-        // Candidate swatches, PROMINENT-FIRST per platform. pickPaint…
-        // chooses the most saturated (the car body) over neutral
-        // wheels/glass/lighting, then classifies by hue.
+        // Cache key carries an ALGORITHM VERSION, not just the VIN.
+        // `react-native-image-colors` caches natively by key, and the app
+        // caches the derived gradient in `imageGradientByVin` — so a car
+        // sampled under the old accent-hunting rule kept its wrong tint until
+        // the process was killed, and a Fast Refresh preserved it outright.
+        // Bump this whenever the swatch list or the picker changes.
+        const res = await getImageColors!(uri, { fallback: FALLBACK, cache: true, key: `${vin}-paint2` });
+        // Candidate swatches, PROMINENT-FIRST per platform. `pickPaint…`
+        // reads the ORDER as prominence and only lets the first couple of
+        // slots stand in for the car body, so what goes in front matters.
+        //
+        // iOS drops `background` entirely: on a VDB render that is the plain
+        // backdrop behind the car, not the car. Leading with it classified a
+        // black car as white.
+        //
+        // Android drops `vibrant` / `darkVibrant` / `lightVibrant`. Those
+        // swatches are defined as the most SATURATED regions of the image,
+        // which on a neutral car is precisely the indicator lens or badge that
+        // produced the pink background in the first place. `dominant` is the
+        // prominence-ranked one and is the only honest body candidate here.
         const candidates: (string | undefined)[] =
           res?.platform === "ios"
-            ? [res.background, res.primary, res.secondary, res.detail]
+            ? [res.primary, res.secondary, res.detail]
             : res?.platform === "android"
-              ? [res.dominant, res.vibrant, res.darkVibrant, res.lightVibrant, res.muted, res.darkMuted, res.lightMuted, res.average]
-              : [res?.dominant, res?.vibrant, res?.darkVibrant, res?.lightVibrant, res?.muted];
+              ? [res.dominant, res.muted, res.darkMuted, res.lightMuted, res.average]
+              : [res?.dominant, res?.muted];
         const family = pickPaintFamilyFromSwatches(
           candidates.filter((c) => c && c.toLowerCase() !== FALLBACK),
         );
@@ -2561,6 +2585,16 @@ export default function CarsHomeScreen() {
                 );
               }}
               onAddInfo={(id) => {
+                // A catalog row is not a MaintenanceType. `catalog-spark_plugs`
+                // used to fall through this regex untouched and be cast to one,
+                // so the modal opened against a type that does not exist and
+                // wrote a record nothing reads. Route it to the same sheet the
+                // UNKNOWN rows use — it writes `catalog_<slug>` correctly.
+                if (id.startsWith("catalog-")) {
+                  const item = mergedMaintenanceItems.find((i) => i.id === id);
+                  if (item?.serviceSlug) setRecencyItem(item);
+                  return;
+                }
                 const type = id.replace(/^(unknown-|user-)/, "") as MaintenanceType;
                 setMaintenanceModalType(type);
                 setMaintenanceModalVisible(true);

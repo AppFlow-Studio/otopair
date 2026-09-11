@@ -31,15 +31,21 @@ import { extractMaintenanceType } from "@/lib/maintenanceServiceMapping";
 import {
   CATEGORY_WEIGHTS,
   URGENCY_TIEBREAKER_WINDOW,
-  URGENCY_TIER_CUTOFFS,
   URGENCY_WEIGHTS,
 } from "./healthScore";
 
-/** Three buckets only — NOW, SOON, and HEALTHY ("resting"). Ahmad,
- *  2026-08-27: a fourth "on the horizon" tier read as neither urgent nor
- *  fine and made the list harder to scan. See bucketTier for how the old
- *  soon-ish band was folded in. */
-export type UrgencyTier = "now" | "soon" | "resting";
+/** One bucket per interval band, plus the quiet one.
+ *
+ *  Ahmad, 2026-09-04: the section an item lands in is decided by its STATUS,
+ *  so Yassin's four bands map one-to-one onto what the driver sees. Urgency
+ *  still ranks items WITHIN a section — brakes lead inspection inside NEEDS
+ *  ATTENTION — but it no longer decides which section anything lands in.
+ *
+ *  This is not the "on the horizon" tier Ahmad removed on 2026-08-27. That one
+ *  was a fourth SCORE band, so it held items with no shared meaning and read as
+ *  neither urgent nor fine. This one is a band: everything in it is between 1.0
+ *  and 1.5 times its interval, or has been graded yellow by a mechanic. */
+export type UrgencyTier = "now" | "attention" | "soon" | "resting";
 
 /** Numeric severity per status — fills in the gap left by v0's
  *  SEVERITY_ORDER array (`maintenanceStatus.ts:367`), which provides
@@ -81,20 +87,32 @@ function categoryWeightForId(id: string): number {
   return CATEGORY_WEIGHTS.other;
 }
 
-function bucketTier(score: number): UrgencyTier {
-  if (score >= URGENCY_TIER_CUTOFFS.now) return "now";
-  // Three buckets only: NOW, SOON, HEALTHY. Ahmad, 2026-08-27 — the
-  // four-tier split put real findings under a third heading ("on the
-  // horizon") that read as neither urgent nor fine, and the extra step made
-  // the list harder to scan rather than more precise.
-  //
-  // The soonish band folds UP into SOON, not down into healthy: these are
-  // items with genuine signal behind them (a mechanic's yellow grade lands
-  // here), and filing them as healthy would understate them. The cutoff is
-  // kept in URGENCY_TIER_CUTOFFS so the boundary is still tunable and the
-  // urgency_tier_events log stays comparable.
-  if (score >= URGENCY_TIER_CUTOFFS.soonish) return "soon";
-  return "resting";
+/**
+ * Status → section. Deterministic, so the section a driver sees is exactly
+ * what the interval band says.
+ *
+ * The score used to decide this, and it produced a genuinely confusing result:
+ * an overdue brake job scored 85 and led NOW while an overdue state inspection
+ * scored 59 and sat in SOON — same band, same "past due" fact, two different
+ * headings, because the category weight had already been applied. Ranking is
+ * the right place for that judgement; grouping is not.
+ *
+ * `unknown` deliberately files under resting rather than a tier of its own —
+ * the tracker splits it out into its own quiet section downstream, and the
+ * RECOMMENDED diagnostic-scan card is what acts on it.
+ */
+function tierForStatus(status: MaintenanceStatus): UrgencyTier {
+  switch (status) {
+    case "overdue":
+      return "now";
+    case "needs_attention":
+      return "attention";
+    case "due_soon":
+      return "soon";
+    case "on_time":
+    case "unknown":
+      return "resting";
+  }
 }
 
 export function computeUrgency(input: UrgencyInput): UrgencyResult {
@@ -104,7 +122,8 @@ export function computeUrgency(input: UrgencyInput): UrgencyResult {
   const score =
     severity * URGENCY_WEIGHTS.severity +
     proximity * URGENCY_WEIGHTS.proximity;
-  return { score, tier: bucketTier(score) };
+  // The score still orders the list; the status still decides the section.
+  return { score, tier: tierForStatus(input.status) };
 }
 
 /**

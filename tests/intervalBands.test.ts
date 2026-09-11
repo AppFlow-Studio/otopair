@@ -75,24 +75,45 @@ describe("factors", () => {
 });
 
 describe("band → display status", () => {
-  it("collapses both overdue bands into one tier", () => {
-    // The tracker shows NOW / SOON / HEALTHY. Severely overdue is stored and
-    // used for ordering, not shown as a fourth heading.
-    expect(BAND_TO_STATUS.overdue).toBe("overdue");
+  /**
+   * Re-baselined 2026-09-04. This block used to pin the opposite rule — both
+   * overdue bands collapsed onto `overdue`, and `needs_attention` was reserved
+   * for "a human graded this yellow". Ahmad reversed it so Yassin's four bands
+   * and our tiers line up one-to-one, accepting that interval-overdue and a
+   * mechanic's yellow now share a tier.
+   */
+  it("gives each band its own status", () => {
+    expect(BAND_TO_STATUS.on_time).toBe("on_time");
+    expect(BAND_TO_STATUS.due_soon).toBe("due_soon");
+    expect(BAND_TO_STATUS.overdue).toBe("needs_attention");
     expect(BAND_TO_STATUS.severely_overdue).toBe("overdue");
   });
 
-  it("never emits needs_attention", () => {
-    // needs_attention means "a human graded this yellow" — 19 seeded
-    // inspection rows, the mechanic-grade path, tire PSI and brake symptoms
-    // all write it. An interval must not start meaning the same thing.
-    expect(Object.values(BAND_TO_STATUS)).not.toContain("needs_attention");
+  it("maps every band to a distinct status", () => {
+    // The point of the change: four bands in, four tiers out. A collapse
+    // anywhere here means two different findings read identically.
+    const statuses = Object.values(BAND_TO_STATUS);
+    expect(new Set(statuses).size).toBe(statuses.length);
   });
 
-  it("does not soften a genuinely overdue car", () => {
-    // Mapping 1.0-1.5 onto needs_attention would turn a red OVERDUE card
-    // yellow, which is backwards for a car that is actually past due.
-    expect(BAND_TO_STATUS[ratioToBand(1.2)]).toBe("overdue");
+  it("keeps severely overdue as the loudest tier", () => {
+    expect(BAND_TO_STATUS[ratioToBand(1.6)]).toBe("overdue");
+    expect(BAND_TO_STATUS[ratioToBand(1.2)]).toBe("needs_attention");
+  });
+});
+
+describe("the factor column reaches the score", () => {
+  it("agrees with STATUS_SCORE at every band", () => {
+    // This is what the remap bought, and it is worth pinning: before it,
+    // `overdue` carried both the 1.0-1.5 and the >=1.5 bands, and
+    // STATUS_SCORE.overdue is 0.10 — so the spec's 0.35 tier could never be
+    // reached through a status lookup. If these two tables ever disagree
+    // again, a band's factor silently stops being what the score uses.
+    const STATUS_SCORE = { on_time: 1.0, due_soon: 0.7, needs_attention: 0.35, overdue: 0.1 };
+    for (const band of Object.keys(BAND_FACTOR) as IntervalBand[]) {
+      expect(STATUS_SCORE[BAND_TO_STATUS[band] as keyof typeof STATUS_SCORE])
+        .toBe(BAND_FACTOR[band]);
+    }
   });
 });
 

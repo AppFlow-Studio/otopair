@@ -79,6 +79,20 @@ function buildFixtures() {
         odometerMiles,
         knownIssues,
       });
+      // Catalog rows, both gated states. Added 2026-09-02 when a driver's
+      // answer on a bigger service started scoring: the grid had no
+      // `catalog-*` id at all, so the whole path was outside parity coverage
+      // and a divergence between the repos would not have shown up here.
+      out.push({
+        maintenanceItems: [
+          { id: "catalog-spark_plugs", status: "overdue", excludeFromScore: false },
+          { id: "catalog-transmission_service", status: "due_soon", excludeFromScore: false },
+          { id: "catalog-coolant_flush", status: "unknown", excludeFromScore: true },
+          { id: "oil", status: "on_time" },
+        ],
+        odometerMiles,
+        knownIssues,
+      });
       // rawScore + both exclusion paths.
       out.push({
         maintenanceItems: [

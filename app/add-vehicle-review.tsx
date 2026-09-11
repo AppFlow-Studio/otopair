@@ -42,7 +42,8 @@ import { BrandColors, Spacing } from '@/constants/theme';
 import { api } from '@/convex/_generated/api';
 import { Id } from '@/convex/_generated/dataModel';
 import { scale, verticalScale, moderateScale } from '@/utils/responsive';
-import { classifyColorFamily, fetchVehicleImageUrl, pickBestVdbTrim, pickSilhouetteVariant, useVdbColorsForVin } from '@/utils/vehicleImage';
+import { CarSilhouette } from '@/components/shared-ui/CarSilhouette';
+import { classifyColorFamily, fetchVehicleImageUrl, pickBestVdbTrim, pickSilhouetteVariant, prefetchVdbColorsForTrims, useVdbColorsForVin } from '@/utils/vehicleImage';
 import { useYmmTrims } from '@/hooks/useYmmTrims';
 import { COLOR_GRADIENTS } from '@/constants/colorGradients';
 import { ColorSwatchSkeletonRow, VehicleImageSkeleton } from '@/components/shared-ui/ColorSwatchSkeleton';
@@ -218,6 +219,28 @@ export default function AddVehicleReviewScreen() {
   // the merged params model is the correct persisted identity.
   const effectiveModel = params.model;
   const effectiveTrim = selectedTrim ?? params.trim;
+
+  // Warm every trim's images the moment the list lands, so opening the picker
+  // and switching is instant rather than a round trip each time. VDB has no
+  // all-trims endpoint, so this is one request per trim, fired in parallel
+  // while the driver is still reading the page.
+  useEffect(() => {
+    if (ymmTrims.length === 0) return;
+    prefetchVdbColorsForTrims(
+      {
+        vin: params.vin,
+        year: yearNum,
+        make: params.make,
+        model: effectiveModel,
+        nhtsaModel: params.nhtsaModel,
+        nhtsaSeries: params.nhtsaSeries,
+        nhtsaTrim: params.nhtsaTrim,
+      },
+      ymmTrims,
+    );
+  }, [ymmTrims, params.vin, yearNum, params.make, effectiveModel,
+      params.nhtsaModel, params.nhtsaSeries, params.nhtsaTrim]);
+
   useEffect(() => {
     if (showTrimSheet) trimSheetRef.current?.open();
   }, [showTrimSheet]);
@@ -698,8 +721,17 @@ export default function AddVehicleReviewScreen() {
               cachePolicy="memory-disk"
             />
           ) : (
-            <View style={[styles.vehicleIconContainer, { backgroundColor: carCircleBg }]}>
-              <Car size={scale(32)} color="#5299FE" strokeWidth={1.5} />
+            // A body-shaped silhouette rather than a generic car glyph. VDB's
+            // IMAGE coverage stops at 2025 while its specs run into 2026, so a
+            // 2026 car resolves a full trim list and no picture at all — there
+            // is nothing to fetch by YMMT or by VIN. Showing the right shape
+            // reads as "we know what this is, we just have no photo", which is
+            // true, where the generic icon read as a failure.
+            <View style={[styles.vehiclePreviewImage, styles.vehiclePreviewFallback]}>
+              <CarSilhouette
+                width={scale(200)}
+                variant={pickSilhouetteVariant(params.bodyClass)}
+              />
             </View>
           )}
           <Text weight="bold" size="xl" color="#333333" style={styles.vehicleYear}>
@@ -1003,6 +1035,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: scale(16),
+  },
+  // The silhouette is narrower than the reservation box, so it has to be
+  // centred explicitly — the ExpoImage branch fills the box and never needed it.
+  vehiclePreviewFallback: {
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   vehiclePreviewImage: {
     // Wider landscape area replaces the round icon when a VDB image

@@ -451,7 +451,10 @@ interface StatusResult {
 // stays exclusive to the quarterly check-in / Oto "confirm your oil" flows
 // via `isConfirmedHealthy` above).
 
-const STATUS_SEVERITY_ORDER: MaintenanceStatus[] = [
+/** Exported so `mergedMaintenance` can apply the same one-way rule when it
+ *  folds a mechanic's recommendation onto an interval row: louder, never
+ *  quieter. A second copy of this order is how the two would drift apart. */
+export const STATUS_SEVERITY_ORDER: MaintenanceStatus[] = [
   "on_time",
   "unknown",
   "due_soon",
@@ -461,7 +464,7 @@ const STATUS_SEVERITY_ORDER: MaintenanceStatus[] = [
 
 /** Interval-status → 0–1 score equivalent, mirrors utils/healthScore.ts's
  *  STATUS_SCORE so the brakes rawScore blend compares like-for-like. */
-const INTERVAL_SCORE_EQUIVALENT: Partial<Record<MaintenanceStatus, number>> = {
+export const INTERVAL_SCORE_EQUIVALENT: Partial<Record<MaintenanceStatus, number>> = {
   on_time: 1.0,
   due_soon: 0.7,
   needs_attention: 0.35,
@@ -603,15 +606,37 @@ export function computeMaintenanceStatus(
 
 interface FromOdometerInput {
   /** OEM interval in miles, pre-clamped by `safeInterval()` in
-   *  `serviceIntervalGuardrails.ts`. */
-  interval_miles: number;
+   *  `serviceIntervalGuardrails.ts`. Null when this service has no mileage
+   *  side at all — Class B brake fluid is 24 months and no miles — in which
+   *  case `interval_months` carries the whole interval. */
+  interval_miles: number | null;
   currentOdometer: number;
   /** Miles at last known service; `undefined` measures from new. */
   lastServiceMileage?: number;
+  /** The interval's time side. A service can be due on age alone: coolant on
+   *  a 5-year-old car with 1,000 miles on it is the case that exposed this. */
+  interval_months?: number | null;
+  /** Epoch ms of the last known service, the time-side counterpart to
+   *  `lastServiceMileage`. */
+  lastServiceDate?: number | null;
+  /** Months since the car was new, used when there is no `lastServiceDate` —
+   *  with nothing on record the interval has been running since it was built.
+   *  Passed in rather than derived so this stays a pure function of its args. */
+  ageMonths?: number | null;
+  now?: number;
   serviceName?: string;
   /** Where the interval came from. Catalog rows are class defaults unless
    *  enrichment supplied the number, and the hold keys off this. */
   intervalSource?: IntervalSource;
+  /** The driver answered this service on the Quick Check. Releases the
+   *  confidence hold, so the band's own factor applies.
+   *
+   *  Yassin, 2026-09-02, and Ahmad's call on 2026-09-04: a driver's answer on
+   *  a bigger service moves the score the way a mechanic's grade does. Spec
+   *  §7 step 4 releases the hold only on a "Never" at OVERDUE; this is wider
+   *  on purpose — Yassin asked for it after seeing a car sit at 99 with five
+   *  services the driver had said were never done. */
+  confirmed?: boolean;
 }
 
 /**
@@ -622,80 +647,182 @@ interface FromOdometerInput {
  * item's origin. No time-derived fields — inference has no time
  * anchor until a user record lands.
  */
+const MS_PER_MONTH = 30.44 * 24 * 60 * 60 * 1000;
+
+/** "1 month" / "5 months" — a row that reads "1 months until due" undoes a lot
+ *  of care taken elsewhere in the copy. */
+function monthsLabel(n: number): string {
+  return `${n} month${n === 1 ? "" : "s"}`;
+}
+
 export function computeFromOdometerStatus(input: FromOdometerInput): StatusResult {
-  const { interval_miles, currentOdometer, lastServiceMileage, serviceName, intervalSource } = input;
-  const baseline = lastServiceMileage ?? 0;
-  const used = Math.max(0, currentOdometer - baseline);
-  const percentUsed = Math.min(100, Math.max(0, (used / interval_miles) * 100));
-  const remaining = Math.max(0, interval_miles - used);
-
+  const {
+    interval_miles,
+    currentOdometer,
+    lastServiceMileage,
+    interval_months,
+    lastServiceDate,
+    ageMonths,
+    serviceName,
+    intervalSource,
+    confirmed,
+  } = input;
+  const now = input.now ?? Date.now();
   const label = serviceName ?? "This service";
-  // With no stored last-service mileage the interval is measured from zero —
-  // i.e. as though the service had never been done. That is an assumption
-  // drawn from the ABSENCE of a record, not a measurement, so the copy must
-  // not assert it as fact. Saying "115,000 mi past interval — overdue" on a
-  // car we simply hold no record for reads as a hard finding, and sits badly
-  // next to a score that (correctly) ignores it: these rows never deduct,
-  // because only a mechanic's grade may condemn a non-core service.
-  const inferredFromAbsence = lastServiceMileage == null;
-  let status: MaintenanceStatus;
-  let description: string;
 
+  // ── Mileage axis ──────────────────────────────────────────────────────────
+  //
+  // An ABSENT `lastServiceMileage` is not zero. It used to be coerced to it,
+  // which measured from the car being new and reported a service the driver
+  // had just told us about as tens of thousands of miles overdue. It now means
+  // the mileage axis cannot be measured at all, and the axis simply sits out.
+  //
+  // Ahmad, 2026-09-09: a date without an odometer reading no longer produces a
+  // guessed anchor (see `quickCheckAnchor`), so this state is now the normal
+  // result of answering "I know roughly when" without the miles — not an edge
+  // case.
+  const hasMiles =
+    typeof interval_miles === "number" &&
+    interval_miles > 0 &&
+    typeof lastServiceMileage === "number";
+  const milesUsed = Math.max(0, currentOdometer - (lastServiceMileage ?? 0));
+  const milesRemaining = hasMiles
+    ? Math.max(0, (interval_miles as number) - milesUsed)
+    : undefined;
+  const milesRatio = hasMiles ? milesUsed / (interval_miles as number) : null;
+
+  // ── Time axis ─────────────────────────────────────────────────────────────
+  // Added 2026-09-04. This function was mileage-only, which meant every catalog
+  // row silently dropped the months half of its interval: a 2022 GLE with 1,000
+  // miles read "79,000 mi of interval remaining — healthy" for a coolant flush
+  // that is 56 months into a 60-month interval. The Bigger Services tile had
+  // already asked about it, because that side takes the worse of the two axes.
+  // Two surfaces measuring the same service differently is the actual bug.
+  //
+  // It also unblocks months-ONLY intervals. Brake fluid on a Class B or C car
+  // is `{miles: null, months: 24}`; with no mileage side to offer, the caller
+  // used to get `null` back and file the row under "not enough info to say" —
+  // on every Mercedes, BMW, Audi and Porsche in the app, permanently.
+  const hasMonths = typeof interval_months === "number" && interval_months > 0;
+  const monthsSince =
+    typeof lastServiceDate === "number"
+      ? Math.max(0, (now - lastServiceDate) / MS_PER_MONTH)
+      : typeof ageMonths === "number"
+        ? Math.max(0, ageMonths)
+        : null;
+  const monthsRemaining =
+    hasMonths && monthsSince != null
+      ? Math.max(0, Math.round((interval_months as number) - monthsSince))
+      : undefined;
+  const monthsRatio =
+    hasMonths && monthsSince != null ? monthsSince / (interval_months as number) : null;
+
+  // Neither axis is measurable. Callers are expected to filter this out, but a
+  // months-only interval on a car with no age is reachable, and guessing is
+  // worse than admitting it.
+  if (milesRatio == null && monthsRatio == null) {
+    return {
+      status: "unknown",
+      percentUsed: 0,
+      description: "Not enough info to say — a scan can confirm",
+      detail: "No data",
+    };
+  }
+
+  // With no anchor on EITHER axis the interval is measured from zero — i.e. as
+  // though the service had never been done. That is an assumption drawn from
+  // the ABSENCE of a record, not a measurement, so the copy must not assert it
+  // as fact. Saying "115,000 mi past interval — overdue" on a car we simply
+  // hold no record for reads as a hard finding, and sits badly next to a score
+  // that (correctly) ignores it: these rows never deduct, because only a
+  // mechanic's grade may condemn a non-core service.
+  //
+  // Ahmad, 2026-08-27: "it's weird that it says due soon if we actually have no
+  // clue if it's due or not." So it reports unknown — the same answer every
+  // other no-record path now gives — and the section's diagnostic-scan CTA is
+  // what turns it into a real answer. percentUsed is forced to 0 so urgency
+  // ranking can't float these above findings that have actual evidence.
+  const inferredFromAbsence = lastServiceMileage == null && lastServiceDate == null;
   if (inferredFromAbsence) {
-    // Measured from zero — i.e. as though the service had never been done —
-    // because we hold no record, not because we observed anything. Every
-    // interval on a high-mileage car therefore "expires", which is how a
-    // 300,000-mile Q5 got four SOON cards (brake fluid, filters, spark plugs,
-    // transmission fluid) for services that may well have been done twice.
-    //
-    // Ahmad, 2026-08-27: "it's weird that it says due soon if we actually
-    // have no clue if it's due or not." So it reports unknown — the same
-    // answer every other no-record path now gives — and the section's
-    // diagnostic-scan CTA is what turns it into a real answer.
-    //
-    // percentUsed is forced to 0 so urgency ranking can't float these above
-    // findings that have actual evidence behind them.
     return {
       status: "unknown",
       percentUsed: 0,
       description: `No service record on file — a scan can confirm`,
       detail: "Not on file",
-      milesRemaining: remaining,
+      ...(milesRemaining != null ? { milesRemaining } : {}),
     };
   }
 
-  // Same bands as every other path now — this used to run its own ladder
-  // (>=100 / >=90 / >=70), which disagreed with ratioToStatus at every edge and
-  // was the last place an interval could emit `needs_attention`. That status
-  // now means only "a human graded this yellow".
-  const band = ratioToBand(used / interval_miles);
-  status = BAND_TO_STATUS[band];
+  // Whichever axis is further along wins, exactly as `computeHybridStatus`
+  // takes the worse of the two for the anchored core types. Same bands as
+  // every other path — this used to run its own ladder (>=100 / >=90 / >=70),
+  // which disagreed with ratioToStatus at every edge and was the last place an
+  // interval could emit `needs_attention`. That status now means only "a human
+  // graded this yellow".
+  const ratio = Math.max(milesRatio ?? 0, monthsRatio ?? 0);
+  const timeDriven = (monthsRatio ?? 0) > (milesRatio ?? 0);
+  const percentUsed = Math.min(100, Math.max(0, ratio * 100));
+
+  const band = ratioToBand(ratio);
+  const status: MaintenanceStatus = BAND_TO_STATUS[band];
+
+  let description: string;
   if (band === "overdue" || band === "severely_overdue") {
-    description = `${formatMileage(used - interval_miles)} past interval — ${label} overdue`;
+    description = timeDriven
+      ? `${monthsLabel(Math.round(monthsSince! - (interval_months as number)))} past interval — ${label} overdue`
+      : `${formatMileage(milesUsed - (interval_miles as number))} past interval — ${label} overdue`;
   } else if (band === "due_soon") {
-    description = `About ${formatMileage(remaining)} until due`;
+    description = timeDriven
+      ? `Due within about ${monthsLabel(monthsRemaining ?? 0)}`
+      : `About ${formatMileage(milesRemaining ?? 0)} until due`;
   } else {
-    description = `${formatMileage(remaining)} of interval remaining`;
+    description = timeDriven
+      ? `About ${monthsLabel(monthsRemaining ?? 0)} of interval remaining`
+      : `${formatMileage(milesRemaining ?? 0)} of interval remaining`;
   }
 
-  // Detail feeds the signal-pill row (Behavior #1: cite the axis).
-  const detail =
-    lastServiceMileage != null
-      ? `${formatMileage(used)} since last service`
-      : `${formatMileage(currentOdometer)} vs ${formatMileage(interval_miles)} interval`;
+  // Detail feeds the signal-pill row (Behavior #1: cite the axis). It must name
+  // the axis the status actually came from, or a driver reads "1,000 mi since
+  // last service" under a card that went yellow on age and concludes we are
+  // broken.
+  let detail: string;
+  if (timeDriven) {
+    detail =
+      lastServiceDate != null
+        ? `${monthsLabel(Math.round(monthsSince!))} since last service`
+        : `${monthsLabel(Math.round(monthsSince!))} since new`;
+  } else if (lastServiceMileage != null) {
+    detail = `${formatMileage(milesUsed)} since last service`;
+  } else {
+    detail = `${formatMileage(currentOdometer)} vs ${formatMileage(interval_miles as number)} interval`;
+  }
 
-  const factorApplied = appliedFactor({ band, intervalSource: intervalSource ?? "class_default" });
+  const factorApplied = appliedFactor({
+    band,
+    intervalSource: intervalSource ?? "class_default",
+    confirmed,
+  });
 
   return {
     status,
     percentUsed,
     description,
     detail,
-    milesRemaining: remaining,
+    ...(milesRemaining != null ? { milesRemaining } : {}),
+    ...(monthsRemaining != null ? { monthsRemaining } : {}),
     bandStatus: band,
     intervalSource: intervalSource ?? "class_default",
     factorApplied,
-    ...(factorApplied !== BAND_FACTOR[band] ? { rawScore: factorApplied } : {}),
+    // ALWAYS carried, not only when the hold suppresses something.
+    //
+    // `BAND_TO_STATUS` collapses both overdue bands onto `overdue`, and
+    // `STATUS_SCORE.overdue` is 0.10 — the SEVERELY-overdue factor. So
+    // without this the spec's 0.35 tier is unreachable and a service 1% past
+    // its interval scores identically to one at 200%. The four factors line
+    // up with STATUS_SCORE only if you read `overdue` against
+    // `needs_attention`, and `needs_attention` is reserved for "a human
+    // graded this yellow" — nothing on this path ever emits it.
+    rawScore: factorApplied,
   };
 }
 
@@ -824,6 +951,27 @@ function computeHybridStatus(
     } else {
       timeDueDate = new Date(now); // Due now
     }
+  }
+
+  // Neither axis could actually be measured, so there is nothing to report.
+  //
+  // Both ratios default to 0, which reads as a perfectly healthy service — so
+  // a MILES-ONLY interval (brake pads are 35,000 / —) answered with a date and
+  // no odometer used to come back ON TIME on no evidence whatsoever. Since
+  // 2026-09-09 a date-only answer no longer invents a mileage anchor, which
+  // makes that state reachable in normal use rather than a rarity.
+  //
+  // `unknown` routes the row to the diagnostic-scan card and leaves it out of
+  // the weighted average entirely, so it can neither reassure nor penalise.
+  const measuredMileage = interval.miles != null && record.lastServiceMileage != null && currentOdometer != null;
+  const measuredTime = interval.months != null && record.lastServiceDate != null;
+  if (!measuredMileage && !measuredTime) {
+    return {
+      status: "unknown",
+      percentUsed: 0,
+      description: "Add the mileage from that service, or a scan can confirm",
+      detail: "Mileage unknown",
+    };
   }
 
   // Hybrid: whichever comes first
