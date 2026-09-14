@@ -22,8 +22,14 @@
  *          ParsedDocumentSheet (uploaded-document preview).
  */
 
-import React from "react";
-import { Pressable, Share, StyleSheet, Text as RNText, View } from "react-native";
+import React, { useEffect, useRef, useState } from "react";
+import { ActivityIndicator, Pressable, Share, StyleSheet, Text as RNText, View } from "react-native";
+import { File, Paths } from "expo-file-system";
+import * as Sharing from "expo-sharing";
+import { useMutation, useQuery } from "convex/react";
+
+import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 
 import { ServiceLogColors as C, ServiceLogFonts as F } from "@/constants/theme";
 
@@ -95,6 +101,10 @@ export interface ReceiptPayload {
 
 interface Props {
   payload: ReceiptPayload;
+  /** Needed to fetch and, if absent, request the stored invoice PDF. Omitted
+   *  by callers that render a receipt without one (previews, fixtures); the
+   *  share then falls back to text, which is still a real receipt. */
+  bookingId?: Id<"bookings">;
   /** When provided, renders a filled "Leave a review" pill at the bottom. The
    *  home auto-prompt passes it; the sheet routes leave it undefined. */
   onLeaveReview?: () => void;
@@ -232,9 +242,19 @@ function TotalRow({
   );
 }
 
-export function ReceiptContent({ payload, onLeaveReview, onViewJob }: Props) {
+export function ReceiptContent({ payload, bookingId, onLeaveReview, onViewJob }: Props) {
   const { receipt_number, service_date, shop, mechanic, vehicle, line_items, totals, payment } =
     payload;
+
+  // Reactive: once the scheduled render stores the file, this flips from null
+  // to a URL and the effect below picks the share back up.
+  const pdfUrl = useQuery(
+    api.invoices.getInvoicePdfUrl,
+    bookingId ? { bookingId } : "skip",
+  );
+  const requestInvoice = useMutation(api.invoices.requestInvoiceGeneration);
+  const [preparing, setPreparing] = useState(false);
+  const wantsShareRef = useRef(false);
 
   const serviceLines = line_items.filter(
     (l): l is Extract<(typeof line_items)[number], { type: "service" }> => l.type === "service",
@@ -330,14 +350,98 @@ export function ReceiptContent({ payload, onLeaveReview, onViewJob }: Props) {
     return lines.join("\n");
   };
 
+  /**
+   * Share the stored PDF when there is one, and the text when there is not.
+   *
+   * The render pipeline in `convex/invoices_node.ts` has always produced a
+   * real PDF — @react-pdf/renderer, an allocated invoice number, stored in
+   * Convex storage — but nothing in the app could reach it, so the only way
+   * one ever left the system was the confirmation email.
+   *
+   * The PDF is usually absent on the first tap because generation is
+   * scheduled, not synchronous. `requestInvoiceGeneration` kicks it off and
+   * the URL query is reactive, so the effect below fires the share as soon as
+   * the file lands. The text share stays as the fallback for every path that
+   * cannot end in a file: generation failing, a slow render, or a platform
+   * with no sharing UI at all.
+   */
+  const shareFile = async (url: string): Promise<boolean> => {
+    try {
+      if (!(await Sharing.isAvailableAsync())) return false;
+      // Cache, not documents: this is a copy of something the server owns, and
+      // the OS is welcome to reclaim it.
+      const target = new File(Paths.cache, `${receipt_number}.pdf`);
+      const file = await File.downloadFileAsync(url, target);
+      await Sharing.shareAsync(file.uri, {
+        mimeType: "application/pdf",
+        UTI: "com.adobe.pdf",
+        dialogTitle: `Otopair receipt ${receipt_number}`,
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  // Resume the share the moment the PDF exists. A timeout is deliberate: a
+  // render that never completes must not leave the button spinning forever,
+  // and text is a perfectly good receipt to fall back to.
+  useEffect(() => {
+    if (!preparing) return;
+    if (pdfUrl) {
+      const wanted = wantsShareRef.current;
+      wantsShareRef.current = false;
+      setPreparing(false);
+      if (wanted) {
+        void shareFile(pdfUrl).then((ok) => {
+          if (!ok) void shareText();
+        });
+      }
+      return;
+    }
+    const t = setTimeout(() => {
+      if (!wantsShareRef.current) return;
+      wantsShareRef.current = false;
+      setPreparing(false);
+      void shareText();
+    }, 12_000);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preparing, pdfUrl]);
+
+  const shareText = async () => {
+    await Share.share({
+      message: buildShareText(),
+      // iOS shows `title` on the share sheet header and uses it as the
+      // filename for "Save to Files"; the body is what actually travels.
+      title: `Otopair receipt ${receipt_number}`,
+    });
+  };
+
   const handleShare = async () => {
     try {
-      await Share.share({
-        message: buildShareText(),
-        // iOS shows `title` on the share sheet header and uses it as the
-        // filename for "Save to Files"; the body is what actually travels.
-        title: `Otopair receipt ${receipt_number}`,
-      });
+      if (pdfUrl) {
+        if (await shareFile(pdfUrl)) return;
+        await shareText();
+        return;
+      }
+      // No PDF yet. Ask for one and let the effect below share it when it
+      // arrives — the query is reactive, so no polling is needed.
+      if (bookingId) {
+        setPreparing(true);
+        wantsShareRef.current = true;
+        try {
+          await requestInvoice({ bookingId });
+        } catch {
+          // Generation refused (payment not finalized, or already running).
+          // Text is still a real receipt, so do not leave them with nothing.
+          wantsShareRef.current = false;
+          setPreparing(false);
+          await shareText();
+        }
+        return;
+      }
+      await shareText();
     } catch {
       // User dismissed the share sheet — nothing to recover from.
     }
@@ -349,13 +453,18 @@ export function ReceiptContent({ payload, onLeaveReview, onViewJob }: Props) {
       <View style={styles.head}>
         <RNText style={styles.eyebrow}>RECEIPT · {receipt_number}</RNText>
         <Pressable
-          onPress={handleShare}
+          onPress={preparing ? undefined : handleShare}
+          disabled={preparing}
           hitSlop={12}
           accessibilityRole="button"
           accessibilityLabel="Share receipt"
           style={({ pressed }) => (pressed ? styles.pressed : null)}
         >
-          <RNText style={styles.share}>SHARE</RNText>
+          {preparing ? (
+            <ActivityIndicator size="small" color={C.accent} />
+          ) : (
+            <RNText style={styles.share}>SHARE</RNText>
+          )}
         </Pressable>
       </View>
 

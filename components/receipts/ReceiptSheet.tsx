@@ -104,7 +104,14 @@ export const ReceiptSheet = forwardRef<ReceiptSheetRef, Props>(({ bookingId, onC
   } else if (data === null) {
     body = <ReceiptError />;
   } else {
-    body = <ReceiptContent payload={data as ReceiptPayload} onLeaveReview={onLeaveReview} onViewJob={onViewJob} />;
+    body = (
+      <ReceiptContent
+        payload={data as ReceiptPayload}
+        bookingId={bookingId ?? undefined}
+        onLeaveReview={onLeaveReview}
+        onViewJob={onViewJob}
+      />
+    );
   }
 
   return (
