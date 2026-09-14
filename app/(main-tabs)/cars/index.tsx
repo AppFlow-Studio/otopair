@@ -1795,7 +1795,20 @@ export default function CarsHomeScreen() {
               await removeOwner({ vin, userId });
             } catch (err) {
               console.warn("Remove vehicle failed:", err);
-              toast.error("Couldn't remove this vehicle. Try again.");
+              // "Try again" is the wrong advice when the shop still has the
+              // car — retrying will never work, and a driver told to retry a
+              // permanent refusal will keep tapping. Surface the reason the
+              // server gave when it gave one.
+              const raw = err instanceof Error ? err.message : "";
+              const atShop = raw.includes("at the shop right now");
+              toast.error(
+                atShop
+                  ? "This car is at the shop"
+                  : "Couldn't remove this vehicle",
+                atShop
+                  ? "You can remove it once the job is finished."
+                  : "Please try again.",
+              );
             }
           },
         },
