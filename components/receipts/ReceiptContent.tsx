@@ -284,9 +284,60 @@ export function ReceiptContent({ payload, onLeaveReview, onViewJob }: Props) {
     .filter(Boolean)
     .join("  ·  ");
 
+  /**
+   * The receipt as plain text.
+   *
+   * Sharing used to send the title alone — "Otopair Receipt #OTP-VS8CDA23" —
+   * so every target got a bare string with no amount, no shop and no line
+   * items (Ahmad, 2026-09-14). Saving that to Files or pasting it into a
+   * message tells the recipient nothing, which is the one job a shared
+   * receipt has.
+   *
+   * Plain text rather than a PDF on purpose: it pastes into Messages, Mail
+   * and Notes intact, survives Copy, and needs no render pass or native
+   * dependency. A PDF export is the right follow-up for expense filing, and
+   * is a bigger change than this bug deserves.
+   */
+  const buildShareText = (): string => {
+    const lines: string[] = [];
+    lines.push(`Otopair receipt · ${receipt_number}`);
+    if (shop?.name) lines.push(shop.name);
+    if (paidDate) lines.push(`Paid ${paidDate}`);
+
+    const veh = [vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(" ");
+    if (veh) lines.push(veh);
+
+    if (serviceLines.length) {
+      lines.push("", "LABOR");
+      for (const l of serviceLines) {
+        lines.push(`  ${l.name}  ${fmtAmount(l.labor_cost)}`);
+      }
+    }
+    if (partLines.length) {
+      lines.push("", "PARTS");
+      for (const l of partLines) {
+        const qty = l.quantity && l.quantity > 1 ? ` x${l.quantity}` : "";
+        lines.push(`  ${l.name}${qty}  ${fmtAmount(l.cost)}`);
+      }
+    }
+
+    lines.push("");
+    lines.push(`Labor        ${fmtAmount(totals.labor_subtotal)}`);
+    lines.push(`Parts        ${fmtAmount(totals.parts_subtotal)}`);
+    lines.push(`Service fee  ${fmtAmount(totals.platform_fee)}`);
+    lines.push(`Tax          ${fmtAmount(totals.tax)}`);
+    lines.push(`TOTAL        $${fmtAmount(totals.total)}`);
+    return lines.join("\n");
+  };
+
   const handleShare = async () => {
     try {
-      await Share.share({ message: `Otopair Receipt #${receipt_number}` });
+      await Share.share({
+        message: buildShareText(),
+        // iOS shows `title` on the share sheet header and uses it as the
+        // filename for "Save to Files"; the body is what actually travels.
+        title: `Otopair receipt ${receipt_number}`,
+      });
     } catch {
       // User dismissed the share sheet — nothing to recover from.
     }

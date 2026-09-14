@@ -493,6 +493,33 @@ export default function PastServiceDetailScreen() {
                 ))}
               </View>
 
+              {/* ── closing block ───────────────────────────────
+                     A record with no findings and no photos runs out well
+                     before the fold, and the page ended on a row of stars
+                     above a white void that read as a truncated screen
+                     (Ahmad, 2026-09-14).
+
+                     Nothing new is invented here: `handleViewShopInfo` is the
+                     same route the "..." menu already offers, promoted to
+                     where the document ends. Going back to the shop IS the
+                     next thing someone wants after a service they were happy
+                     with, and it is the only action this page can honestly
+                     offer without a booking flow behind it. */}
+              <Pressable
+                onPress={handleViewShopInfo}
+                accessibilityRole="button"
+                accessibilityLabel={`View ${booking.shopName ?? "the shop"}`}
+                style={({ pressed }) => [styles.shopAgain, pressed && styles.pressed]}
+              >
+                <View style={styles.shopAgainCopy}>
+                  <RNText style={styles.shopAgainTitle} numberOfLines={1}>
+                    {booking.shopName ?? "View shop"}
+                  </RNText>
+                  <RNText style={styles.shopAgainSub}>Book here again</RNText>
+                </View>
+                <ChevronRight size={18} color={C.low} strokeWidth={2} />
+              </Pressable>
+
               {AppleZoomTarget ? (
                 <View pointerEvents="none" style={StyleSheet.absoluteFill}>
                   <AppleZoomTarget>
@@ -836,6 +863,36 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 10,
     paddingHorizontal: G,
+  },
+
+  // ── closing block ─────────────────────────────────────────
+  // Quiet by design. This is a way out, not a call to action — the page is a
+  // record of something already finished, and a loud button at the foot of it
+  // would be selling rather than closing.
+  shopAgain: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginTop: 26,
+    marginHorizontal: G,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderRadius: 14,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#EEF1F5",
+  },
+  shopAgainCopy: { flex: 1 },
+  shopAgainTitle: {
+    fontFamily: F.semi,
+    fontSize: 15,
+    color: C.ink,
+  },
+  shopAgainSub: {
+    fontFamily: F.regular,
+    fontSize: 12.5,
+    color: C.low,
+    marginTop: 2,
   },
 
   // ── cta ───────────────────────────────────────────────────
