@@ -27,9 +27,8 @@ const BORDER = "#E5E7EB";
 const TEXT_PRIMARY = "#111827";
 const TEXT_MUTED = "#9CA3AF";
 
-/** How far back the year row goes. Fifteen covers any car a driver is likely
- *  to be reporting service on; older than that and "roughly when" stops
- *  meaning much anyway. */
+/** How far back the year row goes when the model year is UNKNOWN. With a known
+ *  model year the range is derived from the car instead — see `years` below. */
 const YEARS_BACK = 15;
 
 export function MonthYearPicker({
@@ -49,7 +48,24 @@ export function MonthYearPicker({
   const thisMonth = now.getMonth() + 1;
 
   const years = useMemo(() => {
-    const floor = Math.max(minYear ?? thisYear - YEARS_BACK, thisYear - YEARS_BACK);
+    // ONE YEAR BEFORE THE MODEL YEAR, up to today.
+    //
+    // Model years run ahead of the calendar — a 2025 car is on forecourts in
+    // 2024 — so the car's own year is not the floor; the year before it is.
+    //
+    // The old floor was `Math.max(minYear, thisYear - 15)`, which had two
+    // faults. On a new car the `max` was a no-op whenever `minYear` was
+    // missing, so a 2025 car offered service dates back to 2011 (Ahmad,
+    // 2026-09-14). On a car older than fifteen years it was actively wrong the
+    // other way: a 2010 car could not be told it was serviced in 2010, because
+    // the clamp held the floor at `thisYear - 15`.
+    //
+    // Derived from the car when we know it, and only falling back to a flat
+    // window when we do not.
+    const floor =
+      minYear != null && Number.isFinite(minYear)
+        ? Math.min(minYear - 1, thisYear)
+        : thisYear - YEARS_BACK;
     const out: number[] = [];
     for (let y = thisYear; y >= floor; y--) out.push(y);
     return out;

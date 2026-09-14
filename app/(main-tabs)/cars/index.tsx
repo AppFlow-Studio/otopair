@@ -2162,6 +2162,11 @@ export default function CarsHomeScreen() {
               : null
           }
           visible={recencyItem !== null}
+          // Bounds the year row to this car. Without it the picker fell back
+          // to a flat fifteen-year window and offered a 2025 car service dates
+          // in 2011 (Ahmad, 2026-09-14). The stepper always passed this; the
+          // tracker's "Add info" path never did.
+          vehicleYear={activeVehicle?.year}
           onClose={() => setRecencyItem(null)}
           onSubmit={async (slug: string, answer: QuickCheckAnswer) => {
             const item = recencyItem;
