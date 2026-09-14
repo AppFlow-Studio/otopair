@@ -7,14 +7,16 @@
  * count. Ahmad, 2026-08-30: "I don't like healthy and unknown being bunched
  * up, they should be separate."
  */
-export type QuietSectionVariant = "healthy" | "unknown" | "needsDetail";
+export type QuietSectionVariant = "healthy" | "unknown" | "needsInfo";
 
 const CHIP_LABEL: Record<QuietSectionVariant, string> = {
   healthy: "HEALTHY",
   unknown: "UNKNOWN",
-  // Singular-sounding on purpose: the ask really is one field, and a driver
-  // reading "ONE MORE DETAIL" knows the cost of finishing before they tap.
-  needsDetail: "ONE MORE DETAIL",
+  // Not "one more detail": the count is not always one, and a label that
+  // promises a single field is a promise the section cannot keep (Ahmad,
+  // 2026-09-14). "Needs more info" is plain, says what to do rather than how
+  // it feels, and stays true whether one field is missing or several.
+  needsInfo: "NEEDS MORE INFO",
 };
 
 export function healthySectionChip(
@@ -27,10 +29,10 @@ export function healthySectionChip(
 /** Split a tier's items into the two quiet sections. */
 export function splitQuietItems<T extends { status: string; unknownReason?: string }>(
   items: readonly T[],
-): { healthy: T[]; unknown: T[]; needsDetail: T[] } {
+): { healthy: T[]; unknown: T[]; needsInfo: T[] } {
   const healthy: T[] = [];
   const unknown: T[] = [];
-  const needsDetail: T[] = [];
+  const needsInfo: T[] = [];
   for (const item of items) {
     if (item.status !== "unknown") {
       healthy.push(item);
@@ -40,8 +42,8 @@ export function splitQuietItems<T extends { status: string; unknownReason?: stri
     // "we know nothing". Splitting it out is what makes answering VISIBLY do
     // something: the row leaves the unknown list and lands somewhere new
     // (Yassin via Ahmad, 2026-09-14 — "nothing really changes on the screen").
-    if (item.unknownReason === "missing_mileage") needsDetail.push(item);
+    if (item.unknownReason === "missing_mileage") needsInfo.push(item);
     else unknown.push(item);
   }
-  return { healthy, unknown, needsDetail };
+  return { healthy, unknown, needsInfo };
 }

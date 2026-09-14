@@ -590,16 +590,16 @@ function RecommendedLabel() {
  * it and the card still claimed nothing was known. Counting the two states
  * apart keeps the card honest and matches the sections above it.
  */
-function scanCardSubtitle(unknownCount: number, needsDetailCount: number): string {
+function scanCardSubtitle(unknownCount: number, needsInfoCount: number): string {
   const noRecord =
     unknownCount === 1 ? 'One service has no record on file' : `${unknownCount} services have no record on file`;
-  if (needsDetailCount <= 0) {
+  if (needsInfoCount <= 0) {
     return `${noRecord}. A scan confirms what ${unknownCount === 1 ? 'it' : 'they'} actually ${unknownCount === 1 ? 'needs' : 'need'}.`;
   }
   const detail =
-    needsDetailCount === 1 ? 'one needs a mileage' : `${needsDetailCount} need a mileage`;
+    needsInfoCount === 1 ? 'one needs a mileage' : `${needsInfoCount} need a mileage`;
   if (unknownCount <= 0) {
-    return `${needsDetailCount === 1 ? 'One service needs' : `${needsDetailCount} services need`} one more detail. A scan fills it in for you.`;
+    return `${needsInfoCount === 1 ? 'One service needs' : `${needsInfoCount} services need`} one more detail. A scan fills it in for you.`;
   }
   return `${noRecord}, and ${detail}. A scan confirms all of them.`;
 }
@@ -612,7 +612,7 @@ function scanCardSubtitle(unknownCount: number, needsDetailCount: number): strin
  *  then moves is exactly what we do not know yet. */
 function DiagnosticScanCard({
   unknownCount,
-  needsDetailCount = 0,
+  needsInfoCount = 0,
   entryDelay,
   onBookNow,
   isEnriching = false,
@@ -622,7 +622,7 @@ function DiagnosticScanCard({
   /** Services the driver HAS answered that still need one field. Counted
    *  apart so the card stops telling them nothing is on file for a service
    *  they just told us about. */
-  needsDetailCount?: number;
+  needsInfoCount?: number;
   entryDelay: number;
   onBookNow?: (id: string) => void;
   isEnriching?: boolean;
@@ -667,7 +667,7 @@ function DiagnosticScanCard({
         <View style={cardStyles.textColumn}>
           <Text weight="bold" style={cardStyles.title}>Diagnostic scan</Text>
           <Text style={cardStyles.subtitle}>
-            {scanCardSubtitle(unknownCount, needsDetailCount)}
+            {scanCardSubtitle(unknownCount, needsInfoCount)}
           </Text>
         </View>
       </View>
@@ -996,12 +996,15 @@ function HealthyItemRow({
   showSeparator,
   entryDelay,
   onAnswerRecency,
+  onBookNow,
 }: {
   item: MaintenanceItem;
   showSeparator: boolean;
   entryDelay: number;
   onAnswerRecency?: (item: MaintenanceItem) => void;
+  onBookNow?: (itemId: string) => void;
 }) {
+  const isNeedsInfo = item.unknownReason === 'missing_mileage';
   const opacity = useSharedValue(0);
   const translateY = useSharedValue(18);
   useEffect(() => {
@@ -1041,6 +1044,34 @@ function HealthyItemRow({
             </View>
           ) : null}
           <Text style={summaryStyles.itemDesc}>{item.description}</Text>
+          {isNeedsInfo ? (
+            <View style={summaryStyles.detailActions}>
+              {onAnswerRecency ? (
+                <Pressable
+                  onPress={() => onAnswerRecency(item)}
+                  hitSlop={8}
+                  style={({ pressed }) => [summaryStyles.detailBtn, pressed && { opacity: 0.75 }]}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Add the mileage for ${item.serviceName}`}
+                >
+                  <Text weight="semiBold" style={summaryStyles.detailBtnText}>Add mileage</Text>
+                </Pressable>
+              ) : null}
+              {onBookNow ? (
+                <Pressable
+                  onPress={() => onBookNow(item.id)}
+                  hitSlop={8}
+                  style={({ pressed }) => [summaryStyles.detailBtnGhost, pressed && { opacity: 0.75 }]}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Book a diagnostic scan for ${item.serviceName}`}
+                >
+                  <Text weight="semiBold" style={summaryStyles.detailBtnGhostText}>
+                    Don&apos;t know? Book a scan
+                  </Text>
+                </Pressable>
+              ) : null}
+            </View>
+          ) : null}
           {/* Same provenance line UrgentCard carries. A graded item can land in
               any tier — a yellow eye-check grade shows up under "on the
               horizon", not "now" — and the driver deserves the source wherever
@@ -1064,21 +1095,17 @@ function HealthyItemRow({
             per-type spec when the row is a core tile. The objection went with
             it, and "no answer on file" with no way to give one was always the
             odder half of the pair. */}
-        {item.status === 'unknown' && onAnswerRecency ? (
+        {/* A needs-info row carries its actions BELOW the copy instead, so a
+            driver who does not know the mileage can see the way out. Leaving
+            only an "add mileage" button strands them on an ask they cannot
+            answer (Ahmad, 2026-09-14). */}
+        {isNeedsInfo ? null : item.status === 'unknown' && onAnswerRecency ? (
           <Pressable
             onPress={() => onAnswerRecency(item)}
             hitSlop={10}
             style={({ pressed }) => [summaryStyles.answerBtn, pressed && { opacity: 0.7 }]}
           >
-            <Text
-              weight="semiBold"
-              style={[
-                summaryStyles.answerBtnText,
-                item.unknownReason === 'missing_mileage' && summaryStyles.answerBtnTextDetail,
-              ]}
-            >
-              {item.unknownReason === 'missing_mileage' ? 'Add mileage' : 'Add info'}
-            </Text>
+            <Text weight="semiBold" style={summaryStyles.answerBtnText}>Add info</Text>
           </Pressable>
         ) : item.status === 'unknown' ? (
           <Ionicons name="ellipse-outline" size={18} color="#C7C7CC" />
@@ -1099,10 +1126,12 @@ function HealthyItemsCard({
   items,
   cascadeStartDelay,
   onAnswerRecency,
+  onBookNow,
 }: {
   items: MaintenanceItem[];
   cascadeStartDelay: number;
   onAnswerRecency?: (item: MaintenanceItem) => void;
+  onBookNow?: (itemId: string) => void;
 }) {
   const shellOpacity = useSharedValue(0);
   useEffect(() => {
@@ -1125,6 +1154,7 @@ function HealthyItemsCard({
           showSeparator={index < items.length - 1}
           entryDelay={cascadeStartDelay + (index + 1) * HEALTHY_ITEM_STEP_MS}
           onAnswerRecency={onAnswerRecency}
+          onBookNow={onBookNow}
         />
       ))}
     </Animated.View>
@@ -1136,11 +1166,14 @@ function HealthySection({
   variant,
   cascadeStartDelay = 0,
   onAnswerRecency,
+  onBookNow,
 }: {
   items: MaintenanceItem[];
   /** 'healthy' = observed fine (green). 'unknown' = no record on file
-   *  (grey). Separate sections on purpose — see healthySectionChip. */
+   *  (grey). 'needsInfo' = answered, still not measurable (amber). Separate
+   *  sections on purpose — see healthySectionChip. */
   variant: QuietSectionVariant;
+  onBookNow?: (itemId: string) => void;
   cascadeStartDelay?: number;
   onAnswerRecency?: (item: MaintenanceItem) => void;
 }) {
@@ -1167,7 +1200,7 @@ function HealthySection({
   if (items.length === 0) return null;
 
   const isUnknown = variant === 'unknown';
-  const isNeedsDetail = variant === 'needsDetail';
+  const isNeedsInfo = variant === 'needsInfo';
 
   const toggle = () => {
     setExpanded(prev => !prev);
@@ -1187,14 +1220,14 @@ function HealthySection({
               style={[
                 summaryStyles.chip,
                 isUnknown && summaryStyles.chipNeutral,
-                isNeedsDetail && summaryStyles.chipDetail,
+                isNeedsInfo && summaryStyles.chipDetail,
               ]}
             >
               <View
                 style={[
                   summaryStyles.dot,
                   isUnknown && summaryStyles.dotNeutral,
-                  isNeedsDetail && summaryStyles.dotDetail,
+                  isNeedsInfo && summaryStyles.dotDetail,
                 ]}
               />
               <Text
@@ -1202,7 +1235,7 @@ function HealthySection({
                 style={[
                   summaryStyles.chipText,
                   isUnknown && summaryStyles.chipTextNeutral,
-                  isNeedsDetail && summaryStyles.chipTextDetail,
+                  isNeedsInfo && summaryStyles.chipTextDetail,
                 ]}
               >
                 {healthySectionChip(variant, items.length)}
@@ -1221,6 +1254,7 @@ function HealthySection({
           items={items}
           cascadeStartDelay={cascadeStartDelay}
           onAnswerRecency={onAnswerRecency}
+          onBookNow={onBookNow}
         />
       )}
     </View>
@@ -1286,7 +1320,7 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
   const healthyItems = items
     .filter(i => i.status === 'on_time' || i.status === 'unknown')
     .sort((a, b) => STATUS_PRIORITY[a.status] - STATUS_PRIORITY[b.status]);
-  const { healthy: legacyHealthy, unknown: legacyUnknown, needsDetail: legacyNeedsDetail } =
+  const { healthy: legacyHealthy, unknown: legacyUnknown, needsInfo: legacyNeedsInfo } =
     splitQuietItems(healthyItems);
 
   // Cascade-in: each visible section gets its own delay slot so the tracker
@@ -1324,11 +1358,11 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
   tierStep += soonCount;
   // RECOMMENDED sits between SOON and the quiet sections, so it takes its
   // cascade slots there; HEALTHY and UNKNOWN each get their own.
-  const { healthy: restingHealthy, unknown: restingUnknown, needsDetail: restingNeedsDetail } =
+  const { healthy: restingHealthy, unknown: restingUnknown, needsInfo: restingNeedsInfo } =
     splitQuietItems(
     (tieredItems?.resting ?? []).map((r) => r.item),
   );
-  const hasRecommended = restingUnknown.length > 0 || restingNeedsDetail.length > 0;
+  const hasRecommended = restingUnknown.length > 0 || restingNeedsInfo.length > 0;
   const recommendedLabelDelay = hasRecommended ? tierStep++ * STEP_MS : 0;
   const recommendedCardDelay = hasRecommended ? tierStep++ * STEP_MS : 0;
   const healthyRestDelay = restingHealthy.length > 0 ? tierStep++ * STEP_MS : 0;
@@ -1531,7 +1565,7 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
               with the same weight as NOW / SOON because it asks for the same
               kind of action; it sits above the quiet sections so the one
               actionable thing here is not buried under them. */}
-          {(restingUnknown.length > 0 || restingNeedsDetail.length > 0) && onBookNow && (
+          {(restingUnknown.length > 0 || restingNeedsInfo.length > 0) && onBookNow && (
             <>
               <Animated.View entering={FadeInUp.duration(450).delay(recommendedLabelDelay)}>
                 <RecommendedLabel />
@@ -1542,7 +1576,7 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
               <View style={styles.urgentGroup}>
                 <DiagnosticScanCard
                   unknownCount={restingUnknown.length}
-                  needsDetailCount={restingNeedsDetail.length}
+                  needsInfoCount={restingNeedsInfo.length}
                   entryDelay={recommendedCardDelay}
                   onBookNow={onBookNow}
                   isEnriching={isEnriching}
@@ -1556,10 +1590,11 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
               it is the only one the driver can close on their own — the other
               two either need nothing or need a scan. */}
           <HealthySection
-            items={restingNeedsDetail}
-            variant="needsDetail"
+            items={restingNeedsInfo}
+            variant="needsInfo"
             cascadeStartDelay={healthyRestDelay}
             onAnswerRecency={onAnswerRecency}
+            onBookNow={onBookNow}
           />
           <HealthySection
             items={restingHealthy}
@@ -1634,7 +1669,7 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
           {/* Healthy items (expandable). Always expanded by default; user
               can collapse with the chevron. The section handles its own
               per-item cascade animation internally. */}
-          {(legacyUnknown.length > 0 || legacyNeedsDetail.length > 0) && onBookNow && (
+          {(legacyUnknown.length > 0 || legacyNeedsInfo.length > 0) && onBookNow && (
             <>
               <Animated.View entering={FadeInUp.duration(ENTRY_DURATION).delay(healthyDelay)}>
                 <RecommendedLabel />
@@ -1642,7 +1677,7 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
               <View style={styles.urgentGroup}>
                 <DiagnosticScanCard
                   unknownCount={legacyUnknown.length}
-                  needsDetailCount={legacyNeedsDetail.length}
+                  needsInfoCount={legacyNeedsInfo.length}
                   entryDelay={healthyDelay + STEP_MS}
                   onBookNow={onBookNow}
                   isEnriching={isEnriching}
@@ -1652,10 +1687,11 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
             </>
           )}
           <HealthySection
-            items={legacyNeedsDetail}
-            variant="needsDetail"
+            items={legacyNeedsInfo}
+            variant="needsInfo"
             cascadeStartDelay={healthyDelay}
             onAnswerRecency={onAnswerRecency}
+            onBookNow={onBookNow}
           />
           <HealthySection
             items={legacyHealthy}
@@ -2066,6 +2102,24 @@ const summaryStyles = StyleSheet.create({
     letterSpacing: 0.66, // ≈ 0.06em at 11pt
     textTransform: 'uppercase',
   },
+  detailActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 9 },
+  detailBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 9,
+    backgroundColor: '#FEF6E7',
+  },
+  detailBtnText: { fontSize: moderateScale(12), color: '#8A5500' },
+  // Ghost, not a second solid button: adding the mileage is free and a scan
+  // is not, so the cheaper answer has to read as the primary one.
+  detailBtnGhost: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 9,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  detailBtnGhostText: { fontSize: moderateScale(12), color: '#5A6675' },
   capturedRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
   capturedText: { fontSize: moderateScale(11.5), color: '#8A5500' },
   answerBtnTextDetail: { color: '#8A5500' },

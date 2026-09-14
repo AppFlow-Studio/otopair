@@ -1,5 +1,9 @@
 /**
- * "One more detail" — answering has to visibly do something.
+ * "Needs more info" — answering has to visibly do something.
+ *
+ * The label went through one revision: it was "ONE MORE DETAIL", which
+ * promised a count the section cannot keep — sometimes more than one field is
+ * missing (Ahmad, 2026-09-14).
  *
  * Yassin via Ahmad, 2026-09-14: "notice how nothing really changes on the
  * screen besides that little bit of text saying 'not enough info' — to a user
@@ -65,13 +69,14 @@ describe("the row moves", () => {
     // This is the whole fix: something on the screen changes position, not
     // just a line of small grey text.
     const quiet = splitQuietItems(catalogItems([ANSWERED_PLUGS]) as never);
-    expect(quiet.needsDetail).toHaveLength(1);
-    expect(quiet.unknown.every((i: { id: string }) => i.id !== "catalog-spark_plugs")).toBe(true);
+    expect(quiet.needsInfo).toHaveLength(1);
+    const ids = (quiet.unknown as unknown as { id: string }[]).map((i) => i.id);
+    expect(ids).not.toContain("catalog-spark_plugs");
   });
 
   it("is empty before anything is answered", () => {
     const quiet = splitQuietItems(catalogItems([]) as never);
-    expect(quiet.needsDetail).toHaveLength(0);
+    expect(quiet.needsInfo).toHaveLength(0);
     expect(quiet.unknown.length).toBeGreaterThan(0);
   });
 
@@ -79,13 +84,15 @@ describe("the row moves", () => {
     const before = splitQuietItems(catalogItems([]) as never);
     const after = splitQuietItems(catalogItems([ANSWERED_PLUGS]) as never);
     expect(after.unknown.length).toBe(before.unknown.length - 1);
-    expect(after.unknown.length + after.needsDetail.length).toBe(before.unknown.length);
+    expect(after.unknown.length + after.needsInfo.length).toBe(before.unknown.length);
   });
 });
 
 describe("the section chip", () => {
-  it("names the ask rather than the absence", () => {
-    expect(healthySectionChip("needsDetail", 1)).toBe("ONE MORE DETAIL · 1");
+  it("names the ask without promising how much is missing", () => {
+    // "One more detail" was the first label and it over-promised: the count
+    // is not always one (Ahmad, 2026-09-14).
+    expect(healthySectionChip("needsInfo", 2)).toBe("NEEDS MORE INFO · 2");
   });
 
   it("leaves the existing two alone", () => {
