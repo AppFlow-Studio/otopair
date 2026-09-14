@@ -248,6 +248,17 @@ export function buildMaintenanceItems(
       bandStatus: result.bandStatus,
       intervalSource: result.intervalSource,
       factorApplied: result.factorApplied,
+      unknownReason: result.unknownReason,
+      // What the driver told us, echoed back on the row. Only meaningful when
+      // the answer landed and still was not enough — a date on a miles-only
+      // service — which is exactly when `unknownReason` is `missing_mileage`.
+      capturedAnswer:
+        result.unknownReason === "missing_mileage" && typeof rec.lastServiceDate === "number"
+          ? new Date(rec.lastServiceDate).toLocaleDateString(undefined, {
+              month: "long",
+              year: "numeric",
+            })
+          : undefined,
       mechanicFlag: mechanicFlagFrom(rec.customInputs),
     });
   }

@@ -573,6 +573,9 @@ export function buildMergedMaintenanceItems(
           // it said. `unknown` is the tier for everything we have no answer
           // to, whoever left it unanswered.
           status: "unknown",
+          // No interval AND no anchor — there is nothing the driver could add
+          // that would help, so this is not the "one more detail" state.
+          unknownReason: "no_record",
           triggeredBy: "none",
           // Informational only — see MaintenanceItem.excludeFromScore.
           excludeFromScore: true,
@@ -689,6 +692,16 @@ export function buildMergedMaintenanceItems(
         bandStatus: status.bandStatus,
         factorApplied: status.factorApplied,
         rawScore: status.rawScore,
+        unknownReason: status.unknownReason,
+        // Echoed back on the row so an answered-but-incomplete service shows
+        // the driver their own input rather than a bare "not enough info".
+        capturedAnswer:
+          status.unknownReason === "missing_mileage" && anchorLastServiceDate != null
+            ? new Date(anchorLastServiceDate).toLocaleDateString(undefined, {
+                month: "long",
+                year: "numeric",
+              })
+            : undefined,
         signals: {
           mileage: `${formatMileage(currentOdometer)} (current)`,
           // Says which tier the number came from. "Typical" rather than "OEM"
