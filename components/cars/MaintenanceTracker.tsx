@@ -23,7 +23,7 @@
  */
 
 // 1. React & React Native
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Platform, Pressable, StyleSheet, View } from 'react-native';
 
 // 2. Expo & Third-party
@@ -996,13 +996,19 @@ function HealthyItemRow({
   showSeparator,
   entryDelay,
   onAnswerRecency,
-  onBookNow,
+  onBookScan,
+  scanBlocked,
 }: {
   item: MaintenanceItem;
   showSeparator: boolean;
   entryDelay: number;
   onAnswerRecency?: (item: MaintenanceItem) => void;
-  onBookNow?: (itemId: string) => void;
+  /** Already bound to the diagnostic-scan sentinel by the tracker root, so
+   *  the row cannot accidentally book the service it is standing on. */
+  onBookScan?: () => void;
+  /** Same gate the scan CARD uses. Offering a scan the app cannot book while
+   *  the vehicle is still enriching is worse than not offering one. */
+  scanBlocked?: boolean;
 }) {
   const isNeedsInfo = item.unknownReason === 'missing_mileage';
   const opacity = useSharedValue(0);
@@ -1057,9 +1063,9 @@ function HealthyItemRow({
                   <Text weight="semiBold" style={summaryStyles.detailBtnText}>Add mileage</Text>
                 </Pressable>
               ) : null}
-              {onBookNow ? (
+              {onBookScan && !scanBlocked ? (
                 <Pressable
-                  onPress={() => onBookNow(item.id)}
+                  onPress={onBookScan}
                   hitSlop={8}
                   style={({ pressed }) => [summaryStyles.detailBtnGhost, pressed && { opacity: 0.75 }]}
                   accessibilityRole="button"
@@ -1126,12 +1132,14 @@ function HealthyItemsCard({
   items,
   cascadeStartDelay,
   onAnswerRecency,
-  onBookNow,
+  onBookScan,
+  scanBlocked,
 }: {
   items: MaintenanceItem[];
   cascadeStartDelay: number;
   onAnswerRecency?: (item: MaintenanceItem) => void;
-  onBookNow?: (itemId: string) => void;
+  onBookScan?: () => void;
+  scanBlocked?: boolean;
 }) {
   const shellOpacity = useSharedValue(0);
   useEffect(() => {
@@ -1154,7 +1162,8 @@ function HealthyItemsCard({
           showSeparator={index < items.length - 1}
           entryDelay={cascadeStartDelay + (index + 1) * HEALTHY_ITEM_STEP_MS}
           onAnswerRecency={onAnswerRecency}
-          onBookNow={onBookNow}
+          onBookScan={onBookScan}
+          scanBlocked={scanBlocked}
         />
       ))}
     </Animated.View>
@@ -1166,14 +1175,16 @@ function HealthySection({
   variant,
   cascadeStartDelay = 0,
   onAnswerRecency,
-  onBookNow,
+  onBookScan,
+  scanBlocked,
 }: {
   items: MaintenanceItem[];
   /** 'healthy' = observed fine (green). 'unknown' = no record on file
    *  (grey). 'needsInfo' = answered, still not measurable (amber). Separate
    *  sections on purpose — see healthySectionChip. */
   variant: QuietSectionVariant;
-  onBookNow?: (itemId: string) => void;
+  onBookScan?: () => void;
+  scanBlocked?: boolean;
   cascadeStartDelay?: number;
   onAnswerRecency?: (item: MaintenanceItem) => void;
 }) {
@@ -1254,7 +1265,8 @@ function HealthySection({
           items={items}
           cascadeStartDelay={cascadeStartDelay}
           onAnswerRecency={onAnswerRecency}
-          onBookNow={onBookNow}
+          onBookScan={onBookScan}
+          scanBlocked={scanBlocked}
         />
       )}
     </View>
@@ -1308,6 +1320,21 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
     setModalVisible(false);
     setSelectedItem(null);
   };
+
+  // The scan handoff, prepared once at the root.
+  //
+  // `warning-unknown-scan` is the same sentinel the diagnostic-scan CARD
+  // passes: extractMaintenanceType reads it as "warning", which
+  // MAINTENANCE_TYPE_TO_SLUG maps to diagnostic_scan. Binding it here means a
+  // needs-info row cannot accidentally book the very service it is standing
+  // on — passing `item.id` would have started a spark-plug booking from a row
+  // whose whole point is that we do not know whether plugs are due.
+  const handleBookScan = useCallback(() => {
+    onBookNow?.('warning-unknown-scan');
+  }, [onBookNow]);
+  // Mirrors DiagnosticScanCard's own gate so the row and the card agree about
+  // whether a scan is bookable right now.
+  const rootScanBlocked = isBookingBlocked(isEnriching, bookableSlugs, SLUG_DIAGNOSTIC_SCAN);
 
   const overdueItems = items
     .filter(i => i.status === 'overdue')
@@ -1594,7 +1621,8 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
             variant="needsInfo"
             cascadeStartDelay={healthyRestDelay}
             onAnswerRecency={onAnswerRecency}
-            onBookNow={onBookNow}
+            onBookScan={handleBookScan}
+            scanBlocked={rootScanBlocked}
           />
           <HealthySection
             items={restingHealthy}
@@ -1691,7 +1719,8 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
             variant="needsInfo"
             cascadeStartDelay={healthyDelay}
             onAnswerRecency={onAnswerRecency}
-            onBookNow={onBookNow}
+            onBookScan={handleBookScan}
+            scanBlocked={rootScanBlocked}
           />
           <HealthySection
             items={legacyHealthy}
