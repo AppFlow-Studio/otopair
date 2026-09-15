@@ -23,7 +23,7 @@ import { usePathname } from "expo-router";
 
 import { guardedRouter as router } from "@/lib/navigationLock";
 import { useCoachTourStore } from "@/stores/useCoachTourStore";
-import { useCoachRegistry } from "./CoachContext";
+import { useCoachRegistry, type CoachRect } from "./CoachContext";
 import { CoachOverlay } from "./CoachOverlay";
 import { CoachFinale } from "./CoachFinale";
 import { COACH_STEPS } from "./coachSteps";
@@ -39,16 +39,18 @@ const RECT_TIMEOUT_MS = 2000;
 const NAV_DELAY_MS = 200;
 
 /**
- * How long to let the new screen settle before pointing at anything on it.
- *
- * Measured, not guessed: at 320ms the Cars tab had flipped `pathname` but was
- * still painting Home, so the ring and the bubble appeared over the previous
- * screen. usePathname changes when the route changes, which is well before
- * the tab has drawn — there is no "transition finished" signal to hang this
- * on, so it is a duration, and this is the one number to turn if a step ever
- * points at a half-drawn screen again.
+ * A short debounce after the route changes, so we do not start measuring into
+ * a tab that has not begun drawing. The real wait is RECT_STABLE_MS below —
+ * earlier versions tried to do the whole job with a duration here and kept
+ * getting it wrong, because no single number covers every screen's entrance.
  */
-const ARRIVE_SETTLE_MS = 650;
+const ARRIVE_SETTLE_MS = 120;
+
+/**
+ * How long a target must hold still before we will point at it. Covers each
+ * screen's own entrance animation without knowing anything about it.
+ */
+const RECT_STABLE_MS = 260;
 
 export async function markCoachToursSeen(): Promise<void> {
   try {
@@ -107,7 +109,38 @@ export function CoachTour() {
     return () => clearTimeout(t);
   }, [running, onStepScreen, index]);
 
-  const rect = arrived ? (reg?.resolve(step?.target) ?? null) : null;
+  const rawRect = arrived ? (reg?.resolve(step?.target) ?? null) : null;
+
+  /**
+   * ...and only once the target has stopped moving.
+   *
+   * A duration cannot express "the screen has finished arriving", because
+   * some screens keep animating after the tab has drawn: Cars fades and
+   * slides its whole page in on focus, Home animates its sheet. Bookings and
+   * Oto do neither, which is exactly why those two steps looked right while
+   * Home and Cars put the spotlight up before the page.
+   *
+   * So wait for stillness instead of for a clock. The registry only emits a
+   * new rect when the numbers actually change, so any movement restarts this
+   * timer and it fires only once the element has held the same position for
+   * RECT_STABLE_MS. That is true whatever a screen's entrance animation is,
+   * and it needs no knowledge of any of them.
+   */
+  const rawKey = rawRect
+    ? `${Math.round(rawRect.x)}:${Math.round(rawRect.y)}:${Math.round(
+        rawRect.width,
+      )}:${Math.round(rawRect.height)}`
+    : null;
+  const [rect, setRect] = useState<CoachRect | null>(null);
+  useEffect(() => {
+    if (!rawRect) {
+      setRect(null);
+      return;
+    }
+    const t = setTimeout(() => setRect(rawRect), RECT_STABLE_MS);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rawKey]);
 
   // Navigate to the step's tab. Comparing on a prefix because the tab routes
   // resolve to "/home", "/cars" etc. but can carry params.
