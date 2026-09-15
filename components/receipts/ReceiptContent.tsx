@@ -371,14 +371,26 @@ export function ReceiptContent({ payload, bookingId, onLeaveReview, onViewJob }:
       // Cache, not documents: this is a copy of something the server owns, and
       // the OS is welcome to reclaim it.
       const target = new File(Paths.cache, `${receipt_number}.pdf`);
-      const file = await File.downloadFileAsync(url, target);
+      // `idempotent` defaults to FALSE — a second download onto an existing
+      // path throws. That made sharing work once and then silently fall back
+      // to text on every later tap, because the throw landed in the catch
+      // below (Ahmad, 2026-09-15).
+      //
+      // Overwriting rather than reusing the cached copy on purpose:
+      // `invoices.regenerateInvoice` can replace the stored PDF, and a
+      // receipt is the last thing that should be served stale from a cache.
+      const file = await File.downloadFileAsync(url, target, { idempotent: true });
       await Sharing.shareAsync(file.uri, {
         mimeType: "application/pdf",
         UTI: "com.adobe.pdf",
         dialogTitle: `Otopair receipt ${receipt_number}`,
       });
       return true;
-    } catch {
+    } catch (err) {
+      // Never fatal — the text receipt is a real receipt and the caller falls
+      // back to it. Logged because a silent `return false` is what turned a
+      // one-line bug into something that needed reproducing.
+      console.warn("Receipt PDF share failed, falling back to text:", err);
       return false;
     }
   };
