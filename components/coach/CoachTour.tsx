@@ -31,7 +31,11 @@ export const COACH_SEEN_KEY = "otopair.coachMarksSeenAt";
 
 /** Give a target this long to mount and report before giving up on it.
  *  Kept short: this is dead time on a dimmed screen with nothing on it. */
-const RECT_TIMEOUT_MS = 1300;
+const RECT_TIMEOUT_MS = 2000;
+
+/** Let the overlay fade down before the screen changes under it. Matches the
+ *  fade-out in CoachOverlay. */
+const NAV_DELAY_MS = 200;
 
 export async function markCoachToursSeen(): Promise<void> {
   try {
@@ -67,7 +71,22 @@ export function CoachTour() {
   useEffect(() => {
     if (!running || !step) return;
     if (pathname && pathname.startsWith(step.route)) return;
-    router.navigate(step.route as never);
+    /**
+     * Held back a beat on purpose. Navigating the instant the step changes
+     * swaps the screen underneath while the hole is still collapsing and the
+     * card is still fading — three things moving at once, which is what read
+     * as a glitchy hand-off between tabs. Letting the overlay close down
+     * first means the tab change happens under a settled, plain scrim.
+     */
+    const t = setTimeout(
+      // Group-qualified, the way the rest of the app addresses these tabs
+      // (see ServiceSelectionContent). The bare "/ai-chat" silently did
+      // nothing: the tour sat on Home, the composer never mounted, and the
+      // step skipped on a target that was never given a chance to exist.
+      () => router.navigate(`/(main-tabs)${step.route}` as never),
+      NAV_DELAY_MS,
+    );
+    return () => clearTimeout(t);
   }, [running, step, pathname]);
 
   /**
@@ -79,10 +98,17 @@ export function CoachTour() {
    */
   const remeasure = reg?.remeasure;
   useEffect(() => {
-    if (!running || !remeasure) return;
-    const timers = [0, 150, 450, 900].map((d) => setTimeout(remeasure, d));
-    return () => timers.forEach(clearTimeout);
-  }, [running, index, pathname, remeasure]);
+    if (!running || !remeasure || !step?.target) return;
+    // Keep asking until the rect resolves, not for a fixed burst. Tab screens
+    // stay mounted, so revisiting one fires no onLayout at all — its rect is
+    // whatever it was when the driver last left, which is usually off-screen
+    // and therefore rejected. A few timers at the start missed that entirely
+    // and the step skipped on a target that was sitting right there.
+    if (rect) return;
+    remeasure();
+    const iv = setInterval(remeasure, 200);
+    return () => clearInterval(iv);
+  }, [running, index, pathname, remeasure, step, rect]);
 
   // Skip a step whose target never shows up.
   const skipTimer = useRef<ReturnType<typeof setTimeout> | null>(null);

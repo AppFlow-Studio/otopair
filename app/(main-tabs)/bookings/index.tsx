@@ -56,15 +56,9 @@ import { Image, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "
 import Animated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import SegmentedControl from "@react-native-segmented-control/segmented-control";
-import { CoachTarget } from "@/components/coach/CoachTarget";
-
-/** Statuses that mean the car is physically at the shop right now. Mirrors
- *  AT_SHOP_STATUSES in convex/vehicles.ts. */
-const AT_SHOP_STATUSES: ReadonlySet<string> = new Set([
-  "vehicle_at_shop",
-  "in_progress",
-  "delayed",
-]);
+import { CoachDemoBooking } from "@/components/coach/CoachDemoBooking";
+import { useCoachTourStore } from "@/stores/useCoachTourStore";
+import { COACH_STEPS } from "@/components/coach/coachSteps";
 
 // ============================================================================
 // TYPES
@@ -102,6 +96,13 @@ function AllVehiclesGlyph({ size = 40, icon = 22 }: { size?: number; icon?: numb
 // ============================================================================
 
 export default function BookingsScreen() {
+  // True only while the spotlight tour is on the bookings step, so the
+  // sample card never appears in the real list.
+  const coachRunning = useCoachTourStore((st) => st.running);
+  const coachIndex = useCoachTourStore((st) => st.index);
+  const showCoachDemoBooking =
+    coachRunning && COACH_STEPS[coachIndex]?.target === "bookings.live";
+
   const insets = useSafeAreaInsets();
   // historyBookings is still imported because handleViewDetails opens the
   // details sheet for *any* booking id we know about (incl. ones a user
@@ -635,6 +636,9 @@ export default function BookingsScreen() {
               ) : (
                 <>
                   <CustomerLateBanner onReschedule={(bookingId) => handleReschedule(String(bookingId))} />
+                  {/* A sample of the real card, only while the tour is on the
+                      step that explains it. See CoachDemoBooking. */}
+                  {showCoachDemoBooking ? <CoachDemoBooking /> : null}
                   {bookings.length > 0 ? (
                     bookings.map((booking, bookingIdx) => {
                       const card =
@@ -664,21 +668,7 @@ export default function BookingsScreen() {
                           onToggleFavorite={handleToggleFavorite}
                         />
                       );
-                      // Coach-mark target for "Watch it happen" — the first
-                      // card, and only when the car is genuinely AT a shop.
-                      // Spotlighting an upcoming appointment (or worse, the
-                      // empty state) next to copy about live updates is the
-                      // tour describing something that is not on screen. A
-                      // driver with nothing in progress just skips this step.
-                      const live =
-                        bookingIdx === 0 && AT_SHOP_STATUSES.has(String(booking.status));
-                      return live ? (
-                        <CoachTarget key={booking.id} id="bookings.live" radius={20}>
-                          {card}
-                        </CoachTarget>
-                      ) : (
-                        card
-                      );
+                      return card;
                     })
                   ) : (
                     <View style={styles.emptyState}>

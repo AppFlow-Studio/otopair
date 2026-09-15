@@ -83,6 +83,21 @@ export const COACH_STEPS: readonly CoachStep[] = [
     placement: "below",
   },
   {
+    // Deliberately targetless. The Oto tab shows one of three different
+    // screens depending on whether the driver has cars, has chatted before,
+    // or is mid-thread — and the only element common to all of them is the
+    // composer, which the welcome screen does not render. Anchoring any of
+    // them meant the step skipped on the exact screen it was describing.
+    // Dimming the real Oto tab behind a centred card says the same thing and
+    // cannot miss; it is also the shape of the Vivid reference in the brief.
+    id: "oto",
+    target: null,
+    route: "/ai-chat",
+    title: "Ask Oto anything",
+    body: "Describe a noise, a light, a smell — and get a straight answer before you pay anyone to look at it.",
+    placement: "below",
+  },
+  {
     id: "done",
     target: null,
     route: "/home",

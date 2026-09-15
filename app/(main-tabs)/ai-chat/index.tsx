@@ -1720,7 +1720,7 @@ export default function AIChatScreen() {
               </Text>
             </View>
           ) : null}
-          <CoachTarget id="oto.composer" radius={26}>
+          <CoachTarget id="oto.ask" radius={26}>
           <AIInputBox
             value={inputValue}
             onChangeText={setInputValue}

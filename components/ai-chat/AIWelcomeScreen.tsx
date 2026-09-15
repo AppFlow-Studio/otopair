@@ -34,6 +34,7 @@ import { Text } from '@/components/shared-ui';
 
 // 4. Constants, hooks, types
 import { BrandColors, BorderRadius, Spacing, FontFamily, Shadows } from '@/constants/theme';
+import { CoachTarget } from '@/components/coach/CoachTarget';
 
 // OtoPair AI Logo
 const OTOPAIR_AI_LOGO = require('@/assets/images/otopair-ai-logo.png');
@@ -227,6 +228,11 @@ export function AIWelcomeScreen({ onContinue }: AIWelcomeScreenProps) {
               needsOffscreenAlphaCompositing={Platform.OS === 'android'}
               renderToHardwareTextureAndroid={Platform.OS === 'android'}
             >
+              {/* Claims the same coach-mark id as the chat composer. A new
+                  driver only ever sees THIS screen on the Oto tab, so
+                  anchoring the composer alone meant the step had nothing to
+                  point at. The registry resolves whichever is on screen. */}
+              <CoachTarget id="oto.ask" radius={28}>
               <Pressable
                 onPress={onContinue}
                 style={({ pressed }) => [
@@ -239,6 +245,7 @@ export function AIWelcomeScreen({ onContinue }: AIWelcomeScreenProps) {
                   Continue
                 </Text>
               </Pressable>
+              </CoachTarget>
             </Animated.View>
           </Animated.View>
         </View>

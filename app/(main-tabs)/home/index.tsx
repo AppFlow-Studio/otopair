@@ -1450,18 +1450,19 @@ export default function HomeScreen() {
                   Map button opens only the map (sheet stays collapsed). */}
               <View
                 style={styles.searchContainer}
-                ref={searchAnchor.ref}
-                collapsable={false}
                 onLayout={(e) => {
                   // Feed the pinned copy's collapsed→expanded height animation.
                   // PINNED_SEARCH_ROW_PADDING accounts for the pinned row's own
                   // vertical padding, which the in-flow copy doesn't have.
                   searchRowHeightSV.value =
                     e.nativeEvent.layout.height + PINNED_SEARCH_ROW_PADDING;
-                  // Chained, not replaced — this View already owned onLayout.
-                  searchAnchor.onLayout(e);
                 }}
               >
+                {/* Anchored on the bar itself, not on searchContainer: that
+                    container is full-bleed with horizontal padding, so the
+                    hole ran edge to edge while the pill it was pointing at sat
+                    20pt inside it. */}
+                <View {...searchAnchor}>
                 <MechanicSearchBar
                   value={searchQuery}
                   onChangeText={setSearchQuery}
@@ -1470,6 +1471,7 @@ export default function HomeScreen() {
                   onPress={handleSearchPress}
                   placeholderPhrases={SEARCH_PLACEHOLDER_PHRASES}
                 />
+                </View>
               </View>
 
             {/* Content Area */}
