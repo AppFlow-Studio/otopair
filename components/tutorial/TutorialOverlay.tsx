@@ -38,7 +38,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { AnimationDuration, OtoEasing, SpringConfig } from "@/constants/animations";
+import { OtoEasing, SpringConfig } from "@/constants/animations";
 import { BrandColors, FontFamily } from "@/constants/theme";
 import { PhoneMock } from "./PhoneMock";
 import { BookingsCrop } from "./crops/BookingsCrop";
@@ -78,8 +78,15 @@ const COMMIT_FRACTION = 0.35;
  * Now the exit accelerates (holds, then leaves) and only the entrance
  * decelerates, both off the shared OtoEasing curves.
  */
-const PHONE_OUT = AnimationDuration.standard;      // 250
-const PHONE_IN = AnimationDuration.otoTransition;  // 400
+/*
+ * These deliberately sit ABOVE the shared AnimationDuration scale, whose top
+ * end (otoTransition, 400ms) is tuned for a control responding to a tap. This
+ * is neither — it is a full-screen teaching beat where the reader is meant to
+ * watch one phone leave and another arrive, and at scale-appropriate speeds it
+ * reads as a flicker between two states rather than a movement between them.
+ */
+const PHONE_OUT = 450;
+const PHONE_IN = 700;
 /** Copy trails the phone in, so the art leads and the words follow. */
 const COPY_LAG = 60;
 /** Copy starts leaving slightly before the phone does. */
