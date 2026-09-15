@@ -30,7 +30,6 @@ import {
 } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
-  Easing,
   runOnJS,
   useAnimatedStyle,
   useSharedValue,
@@ -39,7 +38,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { SpringConfig } from "@/constants/animations";
+import { AnimationDuration, OtoEasing, SpringConfig } from "@/constants/animations";
 import { BrandColors, FontFamily } from "@/constants/theme";
 import { PhoneMock } from "./PhoneMock";
 import { BookingsCrop } from "./crops/BookingsCrop";
@@ -65,9 +64,26 @@ const { width: SCREEN_W } = Dimensions.get("window");
  *  back. Below it the gesture reads as a peek rather than an intent. */
 const COMMIT_FRACTION = 0.35;
 
-const PHONE_OUT = 180;
-const PHONE_IN = 260;
+/**
+ * Step-to-step crossfade.
+ *
+ * Ahmad, 2026-09-15: the phone "disappears and then reappears way too fast."
+ * Length was half of it; the curve was the rest. Both halves used to run on
+ * Easing.bezier(0.16, 1, 0.3, 1) — a decelerate curve, which is right for
+ * something arriving and wrong for something leaving: its y reaches ~0.9 in
+ * the first fifth of the duration, so the phone was effectively gone about
+ * 50ms into a 180ms fade and then spent the rest of it invisible. That reads
+ * as a blink, not a transition.
+ *
+ * Now the exit accelerates (holds, then leaves) and only the entrance
+ * decelerates, both off the shared OtoEasing curves.
+ */
+const PHONE_OUT = AnimationDuration.standard;      // 250
+const PHONE_IN = AnimationDuration.otoTransition;  // 400
+/** Copy trails the phone in, so the art leads and the words follow. */
 const COPY_LAG = 60;
+/** Copy starts leaving slightly before the phone does. */
+const COPY_OUT_LEAD = 40;
 
 interface TutorialOverlayProps {
   visible: boolean;
@@ -175,17 +191,27 @@ export function TutorialOverlay({ visible, onDismiss, onAddCar }: TutorialOverla
         return;
       }
 
-      const ease = Easing.bezier(0.16, 1, 0.3, 1);
-      phone.value = withTiming(0, { duration: PHONE_OUT, easing: ease }, () => {
-        runOnJS(settle)(next);
-        phone.value = withTiming(1, { duration: PHONE_IN, easing: ease });
-      });
-      copy.value = withTiming(0, { duration: PHONE_OUT - 40, easing: ease }, () => {
-        copy.value = withTiming(1, {
-          duration: PHONE_IN - COPY_LAG,
-          easing: ease,
-        });
-      });
+      phone.value = withTiming(
+        0,
+        { duration: PHONE_OUT, easing: OtoEasing.exit },
+        () => {
+          runOnJS(settle)(next);
+          phone.value = withTiming(1, {
+            duration: PHONE_IN,
+            easing: OtoEasing.enter,
+          });
+        },
+      );
+      copy.value = withTiming(
+        0,
+        { duration: PHONE_OUT - COPY_OUT_LEAD, easing: OtoEasing.exit },
+        () => {
+          copy.value = withTiming(1, {
+            duration: PHONE_IN - COPY_LAG,
+            easing: OtoEasing.enter,
+          });
+        },
+      );
     },
     [index, reduceMotion, phone, copy, settle],
   );
