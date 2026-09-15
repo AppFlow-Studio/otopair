@@ -80,8 +80,13 @@ const FADE_IN_MS = 260;
  */
 function holePath(x: number, y: number, w: number, h: number, r: number) {
   "worklet";
-  const rr = Math.max(0, Math.min(r, Math.min(w, h) / 2));
   const outer = `M0 0 H${SCREEN_W} V${SCREEN_H} H0 Z`;
+  // No hole: a plain full-screen scrim. Without this branch the path kept the
+  // PREVIOUS step's cutout — the shared values still held it — so navigating
+  // to a tab whose target had not reported left a circle from the last screen
+  // floating over the new one.
+  if (w <= 0 || h <= 0) return outer;
+  const rr = Math.max(0, Math.min(r, Math.min(w, h) / 2));
   const inner =
     `M${x + rr} ${y}` +
     ` H${x + w - rr} A${rr} ${rr} 0 0 1 ${x + w} ${y + rr}` +
@@ -210,7 +215,15 @@ export function CoachOverlay({
   const settled = useRef(false);
 
   useEffect(() => {
-    if (!visible || !hole) return;
+    if (!visible) return;
+    if (!hole) {
+      // Collapse it, so the scrim closes over the old cutout rather than
+      // leaving it behind while the next target mounts.
+      hw.value = withTiming(0, { duration: 140 });
+      hh.value = withTiming(0, { duration: 140 });
+      settled.current = false;
+      return;
+    }
     const jump = !settled.current || reduceMotion;
     const t = (v: number) =>
       jump ? v : withTiming(v, { duration: HOLE_MS, easing: OtoEasing.standard });

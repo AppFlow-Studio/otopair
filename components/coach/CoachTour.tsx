@@ -29,8 +29,9 @@ import { COACH_STEPS } from "./coachSteps";
 
 export const COACH_SEEN_KEY = "otopair.coachMarksSeenAt";
 
-/** Give a target this long to mount and report before giving up on it. */
-const RECT_TIMEOUT_MS = 2600;
+/** Give a target this long to mount and report before giving up on it.
+ *  Kept short: this is dead time on a dimmed screen with nothing on it. */
+const RECT_TIMEOUT_MS = 1300;
 
 export async function markCoachToursSeen(): Promise<void> {
   try {
@@ -111,6 +112,10 @@ export function CoachTour() {
   const handleAdvance = useCallback(() => {
     if (index >= COACH_STEPS.length - 1) {
       finish();
+      // The closing card ends on the real first task rather than a dead
+      // "Done" — a tour that closes on an acknowledgement spends the intent
+      // it just built. Same destination the phone-mock tour's last card uses.
+      router.push("/add-vehicle" as never);
       return;
     }
     next();
