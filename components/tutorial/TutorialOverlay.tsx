@@ -173,8 +173,25 @@ export function TutorialOverlay({ visible, onDismiss, onAddCar }: TutorialOverla
     return () => clearTimeout(t);
   }, [visible, phone, copy]);
 
+  /** Swap the step while nothing is on screen. Nothing animates here. */
   const settle = useCallback((next: number) => {
     setIndex(next);
+  }, []);
+
+  /**
+   * Fired when the incoming phone has finished arriving — NOT when it starts.
+   *
+   * The crop's own story (HomeCrop drops a pin on a bouncy spring, then fades
+   * a card in) used to kick off at the same instant as the container's
+   * entrance, so a freshly-mounted subtree was running a spring and a timing
+   * curve inside a view that was itself still moving and fading. Two layers of
+   * motion over the same pixels reads as dropped frames even when nothing is
+   * actually dropping them.
+   *
+   * Unlocking here too: a second tap landing mid-entrance used to start a new
+   * exit from a half-arrived phone, which is the other way this looked broken.
+   */
+  const arrive = useCallback(() => {
     setBeatsPlaying(true);
     busy.current = false;
   }, []);
@@ -190,7 +207,9 @@ export function TutorialOverlay({ visible, onDismiss, onAddCar }: TutorialOverla
         // No translate, no scale, no springs — a crossfade and nothing else.
         phone.value = withTiming(0, { duration: 100 }, () => {
           runOnJS(settle)(next);
-          phone.value = withTiming(1, { duration: 100 });
+          phone.value = withTiming(1, { duration: 100 }, () => {
+            runOnJS(arrive)();
+          });
         });
         copy.value = withTiming(0, { duration: 100 }, () => {
           copy.value = withTiming(1, { duration: 100 });
@@ -203,10 +222,13 @@ export function TutorialOverlay({ visible, onDismiss, onAddCar }: TutorialOverla
         { duration: PHONE_OUT, easing: OtoEasing.exit },
         () => {
           runOnJS(settle)(next);
-          phone.value = withTiming(1, {
-            duration: PHONE_IN,
-            easing: OtoEasing.enter,
-          });
+          phone.value = withTiming(
+            1,
+            { duration: PHONE_IN, easing: OtoEasing.enter },
+            () => {
+              runOnJS(arrive)();
+            },
+          );
         },
       );
       copy.value = withTiming(
@@ -220,7 +242,7 @@ export function TutorialOverlay({ visible, onDismiss, onAddCar }: TutorialOverla
         },
       );
     },
-    [index, reduceMotion, phone, copy, settle],
+    [index, reduceMotion, phone, copy, settle, arrive],
   );
 
   const finish = useCallback(
@@ -316,7 +338,7 @@ export function TutorialOverlay({ visible, onDismiss, onAddCar }: TutorialOverla
           </View>
         </GestureDetector>
 
-        <View style={[styles.footer, { paddingBottom: insets.bottom + 18 }]}>
+        <View style={[styles.footer, { paddingBottom: insets.bottom + 4 }]}>
           {counted >= 0 ? (
             <View
               style={styles.dots}
@@ -418,5 +440,5 @@ const styles = StyleSheet.create({
   ctaPressed: { opacity: 0.9 },
   ctaText: { fontFamily: FontFamily.semiBold, fontSize: 16.5, color: "#FFFFFF" },
   secondary: { fontFamily: FontFamily.medium, fontSize: 15, color: MUTED },
-  secondarySpacer: { height: 18 },
+  secondarySpacer: { height: 8 },
 });
