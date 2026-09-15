@@ -55,6 +55,12 @@ test("successful earliest-time checks replace the transient picker route", () =>
   expect(picker).toMatch(/else \{\s*router\.push\(/);
 });
 
+test("map fast path keeps an Any-mechanic choice server-side", () => {
+  const chooser = source("app/(booking-flow)/choose-mechanic.tsx");
+  expect(chooser).toContain("const bookMechanicId = selectedMechanicId ?? null;");
+  expect(chooser).not.toContain("selectedMechanicId ?? slot.mechanicId ?? null");
+});
+
 test("quote acceptance receives the active checkout hold", () => {
   const confirming = source("app/booking/mechanic/[id]/confirming.tsx");
   expect(confirming).toContain("hold_id");

@@ -651,8 +651,8 @@ export default function ChooseMechanicScreen() {
   // the calendar entirely. We hold the slot + seed the booking store here (the
   // same handoff pick-datetime's Confirm does) and `router.push` payment on top
   // of THIS map screen — so Back from Review & Pay returns to the map, not the
-  // calendar or home. When the user left it on "Any", auto-assign the mechanic
-  // who actually owns that earliest slot. No slot resolved → fall back to the
+  // calendar or home. "Any" stays unpinned so the server selects and holds
+  // a balanced available mechanic for that slot. No slot resolved; fall back to the
   // manual calendar. On a hold conflict (slot just taken) → toast + calendar.
   const onBookEarliest = useCallback(async () => {
     if (!activeShop) return;
@@ -663,7 +663,7 @@ export default function ChooseMechanicScreen() {
     }
     if (isBookingEarliest) return;
 
-    const bookMechanicId = selectedMechanicId ?? slot.mechanicId ?? null;
+    const bookMechanicId = selectedMechanicId ?? null;
     const mechanicName = bookMechanicId
       ? getMechanicById(bookMechanicId)?.name ?? null
       : null;
