@@ -55,6 +55,8 @@ export interface CoachStep {
   placement: "below" | "above";
   /** Label for the advance control. Defaults to Next / Finish. */
   cta?: string;
+  /** Rendered as the full-screen completion moment, not as a coach mark. */
+  finale?: boolean;
 }
 
 export const COACH_STEPS: readonly CoachStep[] = [
@@ -83,28 +85,30 @@ export const COACH_STEPS: readonly CoachStep[] = [
     placement: "below",
   },
   {
-    // Deliberately targetless. The Oto tab shows one of three different
-    // screens depending on whether the driver has cars, has chatted before,
-    // or is mid-thread — and the only element common to all of them is the
-    // composer, which the welcome screen does not render. Anchoring any of
-    // them meant the step skipped on the exact screen it was describing.
-    // Dimming the real Oto tab behind a centred card says the same thing and
-    // cannot miss; it is also the shape of the Vivid reference in the brief.
+    // The Oto tab shows one of three screens and only the chat renders a
+    // composer, so on the welcome screen — the one a new driver lands on —
+    // there was nothing to point at. CoachDemoComposer supplies a real one
+    // for the duration of this step, the same way the Bookings step supplies
+    // a real booking card.
     id: "oto",
-    target: null,
+    target: "oto.ask",
     route: "/ai-chat",
     title: "Ask Oto anything",
     body: "Describe a noise, a light, a smell — and get a straight answer before you pay anyone to look at it.",
-    placement: "below",
+    placement: "above",
   },
   {
+    // Not a coach mark. A tour that ends on another bubble pointing at
+    // nothing reads as having run out rather than finished, so this one is a
+    // screen — see CoachFinale.
     id: "done",
     target: null,
     route: "/home",
-    title: "That's the tour",
-    body: "Add your car and Otopair starts tracking what it needs straight away. Takes about a minute.",
+    title: "You're all set",
+    body: "Add your car and Otopair starts tracking what it needs straight away.",
     placement: "below",
     cta: "Add my car",
+    finale: true,
   },
 ] as const;
 

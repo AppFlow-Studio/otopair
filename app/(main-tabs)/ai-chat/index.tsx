@@ -163,6 +163,7 @@ function friendlyOtoError(err: unknown): string {
 // ============================================================================
 
 export default function AIChatScreen() {
+
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
   const router = useRouter();

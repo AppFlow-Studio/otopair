@@ -25,6 +25,7 @@ import { guardedRouter as router } from "@/lib/navigationLock";
 import { useCoachTourStore } from "@/stores/useCoachTourStore";
 import { useCoachRegistry } from "./CoachContext";
 import { CoachOverlay } from "./CoachOverlay";
+import { CoachFinale } from "./CoachFinale";
 import { COACH_STEPS } from "./coachSteps";
 
 export const COACH_SEEN_KEY = "otopair.coachMarksSeenAt";
@@ -64,7 +65,17 @@ export function CoachTour() {
   const pathname = usePathname();
   const step = COACH_STEPS[index];
   // The closing step has no target — it is a plain card, not a spotlight.
-  const rect = reg?.resolve(step?.target) ?? null;
+  /**
+   * Only accept a rect once we are actually ON the step's screen.
+   *
+   * Tab screens stay mounted, so the NEXT step's target is alive and
+   * reporting a perfectly valid rect while the driver is still looking at the
+   * previous tab. Without this gate the hole and the bubble jumped to the new
+   * position first and the page changed after — the tour appeared to point at
+   * nothing for a beat, then the screen caught up.
+   */
+  const onStepScreen = !!pathname && !!step && pathname.startsWith(step.route);
+  const rect = onStepScreen ? (reg?.resolve(step?.target) ?? null) : null;
 
   // Navigate to the step's tab. Comparing on a prefix because the tab routes
   // resolve to "/home", "/cars" etc. but can carry params.
@@ -148,6 +159,18 @@ export function CoachTour() {
   }, [index, next, finish]);
 
   if (!running || !step) return null;
+
+  if (step.finale) {
+    return (
+      <CoachFinale
+        onPrimary={() => {
+          finish();
+          router.push("/add-vehicle" as never);
+        }}
+        onDismiss={finish}
+      />
+    );
+  }
 
   return (
     <CoachOverlay
