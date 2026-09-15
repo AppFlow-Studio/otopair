@@ -96,6 +96,7 @@ import type { ConversationState, ChatMessage } from "@/services/ai/types";
 import { useAction, useMutation, useQuery, useConvex } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id, Doc } from "@/convex/_generated/dataModel";
+import { CoachTarget } from "@/components/coach/CoachTarget";
 
 // ============================================================================
 // CONSTANTS
@@ -1719,6 +1720,7 @@ export default function AIChatScreen() {
               </Text>
             </View>
           ) : null}
+          <CoachTarget id="oto.composer" radius={26}>
           <AIInputBox
             value={inputValue}
             onChangeText={setInputValue}
@@ -1739,6 +1741,7 @@ export default function AIChatScreen() {
             disabled={!canWrite}
             placeholder={canWrite ? "Ask Oto" : "Reconnect to chat with Oto"}
           />
+          </CoachTarget>
           {isAttachmentOpen && (
             <AIAttachmentPanel
               visible={isAttachmentOpen}

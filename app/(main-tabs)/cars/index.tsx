@@ -112,6 +112,7 @@ import { PostOptimizeBookingSheet } from "@/components/cars/PostOptimizeBookingS
 import { PackageQuestionsSheet } from "@/components/cars/PackageQuestionsSheet";
 import { useVehicleReadiness } from "@/hooks/useVehicleReadiness";
 import { ChevronRight, ScanLine, Wrench } from "lucide-react-native";
+import { useCoachAnchor } from "@/components/coach/useCoachAnchor";
 
 // ============================================================================
 // HELPERS
@@ -300,6 +301,9 @@ export default function CarsHomeScreen() {
   // State mirror of celebrationFlowActive so ref mutations trigger re-renders
   const [celebrationActive, setCelebrationActive] = useState(false);
   const [pendingHealthSheet, setPendingHealthSheet] = useState(false);
+  // Coach-mark anchor. Rides the card View that already exists — no extra
+  // node, no style, so the tour cannot move what it is pointing at.
+  const healthAnchor = useCoachAnchor("cars.health", 24);
   const [showHealthRingSheet, setShowHealthRingSheet] = useState(false);
   // Optimistic "just finished onboarding" flag, scoped to the specific
   // vehicle it was set for (not a global boolean) so it can't leak to
@@ -2275,7 +2279,11 @@ export default function CarsHomeScreen() {
           // key on vin so swiping between two no-tracker cars
           // remounts the card — pulse rings + content arrive fresh
           // every time, same feel as today's tracker↔placeholder switch.
-          <View key={activeVehicle?.vin ?? "no-vehicle"} style={styles.quickReadCard}>
+          <View
+            key={activeVehicle?.vin ?? "no-vehicle"}
+            style={styles.quickReadCard}
+            {...healthAnchor}
+          >
             <View style={{ alignItems: "center", justifyContent: "center", width: scale(140), height: scale(140), marginBottom: scale(12) }}>
               <Animated.View style={{ position: "absolute", width: scale(160), height: scale(160), borderRadius: scale(80), backgroundColor: "#94A3B8", opacity: 0.12, transform: [{ scale: quickReadPulse }] }} />
               <Animated.View style={{ position: "absolute", width: scale(130), height: scale(130), borderRadius: scale(65), backgroundColor: "#94A3B8", opacity: 0.06, transform: [{ scale: quickReadPulse }] }} />
