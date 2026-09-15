@@ -307,7 +307,11 @@ export function TutorialOverlay({ visible, onDismiss, onAddCar }: TutorialOverla
       <View style={styles.root}>
         {/* Skip leads the focus order on purpose: someone reaching for the
             exit should not have to traverse the whole tour to find it. */}
-        {!isLastStep(index) && index !== 0 ? (
+        {/* The opening card used to carry its own "Skip for now", so the
+            header Skip was suppressed on index 0. With that card gone the
+            tour opens on a teaching step, and suppressing it there would
+            leave the first screen with no way out at all. */}
+        {!isLastStep(index) ? (
           <Pressable
             onPress={() => finish("skipped")}
             style={[styles.skip, { top: insets.top + 12 }]}

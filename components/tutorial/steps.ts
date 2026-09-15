@@ -1,15 +1,21 @@
 /**
  * steps.ts — the first-run tutorial's content, as data.
  *
- * The tour is a title card, four teaching steps, and a closing card. Keeping
- * that shape here rather than as JSX means the overlay renders a list instead
- * of a switch, and the copy can be handed to AB without touching the animation
- * code it sits inside.
+ * The tour is four teaching steps and a closing card. Keeping that shape here
+ * rather than as JSX means the overlay renders a list instead of a switch, and
+ * the copy can be handed to AB without touching the animation code it sits
+ * inside.
  *
- * WHY THE MIDDLE FOUR ARE THE ONLY "STEPS": the progress dots count teaching
- * steps, not screens. A title card with "1 of 6" under it promises a longer
- * sit than it delivers, and a closing card with a filled progress bar is
- * telling the driver something they can already see.
+ * WHY THE FIRST FOUR ARE THE ONLY "STEPS": the progress dots count teaching
+ * steps, not screens. A closing card with a filled progress bar is telling the
+ * driver something they can already see.
+ *
+ * Ahmad, 2026-09-15: the tour used to open on a "Your car, sorted. / Take the
+ * tour / Skip for now" card. It is gone — the tour now opens straight on the
+ * first teaching step. Everything below is derived from the array, so removing
+ * it needed no changes here; the one thing it did need was the header Skip
+ * appearing on index 0, which that card used to cover with its own secondary
+ * action. See TutorialOverlay.
  *
  * DESIGN: Figma `kI9Em7mHSzkgAwDCtCNJYi` → T0…T5 · Tutorial, plus the
  * "Tutorial — Interaction Notes" board beside them.
@@ -26,9 +32,9 @@ export interface TutorialStep {
   headline: string;
   /** One sentence. The reason to care, not a description of the tab. */
   body: string;
-  /** Null on the title and closing cards — they carry their own art. */
+  /** Null on the closing card — it carries its own art. */
   crop: TutorialCrop | null;
-  /** Title/closing cards sit outside the counted steps. See the note above. */
+  /** The closing card sits outside the counted steps. See the note above. */
   counted: boolean;
   primaryCta: string;
   /** Rendered under the primary CTA. Null where the header "Skip" is enough. */
@@ -36,15 +42,6 @@ export interface TutorialStep {
 }
 
 export const TUTORIAL_STEPS: readonly TutorialStep[] = [
-  {
-    id: "welcome",
-    headline: "Your car, sorted.",
-    body: "Otopair tracks what your car needs, tells you when it matters, and books it with a shop you can trust.",
-    crop: null,
-    counted: false,
-    primaryCta: "Take the tour",
-    secondaryCta: "Skip for now",
-  },
   {
     id: "home",
     headline: "Find a shop you can trust",
