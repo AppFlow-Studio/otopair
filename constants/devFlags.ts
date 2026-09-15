@@ -9,6 +9,11 @@
  *
  * Flip a flag to `false` to turn it off; delete it once the thing it was for
  * is finished.
+ *
+ * ALL OF THESE SHIP OFF. They are ANDed with `__DEV__` so they cannot reach a
+ * release build at all, but QA runs dev builds too — a flag left on here is a
+ * flag a tester will hit and report as a bug. If you switch one on while
+ * working, switch it back before handing the build over.
  */
 
 /**
@@ -34,7 +39,7 @@ export const FORCE_TUTORIAL_EVERY_LAUNCH = __DEV__ && false;
  * same reason as the flag above: an account used for testing should not end
  * up marked as having seen a tour it is about to be shown again.
  */
-export const FORCE_COACH_MARKS_EVERY_LAUNCH = __DEV__ && true;
+export const FORCE_COACH_MARKS_EVERY_LAUNCH = __DEV__ && false;
 
 /**
  * Start the spotlight tour on a given step instead of the first one.
@@ -46,3 +51,13 @@ export const FORCE_COACH_MARKS_EVERY_LAUNCH = __DEV__ && true;
  * 0 is the real behaviour. Leave it there.
  */
 export const COACH_START_STEP = __DEV__ ? 0 : 0;
+
+/**
+ * Show the walk-in claim flow's "new vs existing customer" chooser.
+ *
+ * Built so both branches could be demoed from one link without signing in and
+ * out between takes. It is not a real screen: a tester who taps through it is
+ * choosing a branch the app would otherwise pick from their auth state, and
+ * whatever they report about that flow is then about a state they selected.
+ */
+export const WALKIN_DEMO_CHOOSER = __DEV__ && false;

@@ -27,6 +27,7 @@ import { useCoachRegistry, type CoachRect } from "./CoachContext";
 import { CoachOverlay } from "./CoachOverlay";
 import { CoachFinale } from "./CoachFinale";
 import { COACH_STEPS } from "./coachSteps";
+import { FORCE_COACH_MARKS_EVERY_LAUNCH } from "@/constants/devFlags";
 
 export const COACH_SEEN_KEY = "otopair.coachMarksSeenAt";
 
@@ -208,6 +209,11 @@ export function CoachTour() {
 
   const finish = useCallback(() => {
     stop();
+    // Don't stamp while forcing a replay — otherwise the device ends up
+    // marked as having seen a tour it is about to be shown again, and the
+    // real gate becomes untestable on it without clearing storage by hand.
+    // The flag's own documentation promised this; the code did not do it.
+    if (FORCE_COACH_MARKS_EVERY_LAUNCH) return;
     void markCoachToursSeen();
   }, [stop]);
 
