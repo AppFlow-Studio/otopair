@@ -449,6 +449,7 @@ export default function HomeScreen() {
   // ride on Views that already exist so the tour cannot move the very
   // elements it is pointing at.
   const searchAnchor = useCoachAnchor("home.search", 16);
+  const priorityAnchor = useCoachAnchor("home.priority", 22);
   const startCoachTour = useCoachTourStore((s) => s.start);
   const coachRunning = useCoachTourStore((s) => s.running);
   const markTutorialSeen = useMutation(api.users.markTutorialSeen);
@@ -1479,7 +1480,7 @@ export default function HomeScreen() {
                 onReschedule={(bookingId) => handleReschedule(String(bookingId))}
               />
               {/* Action Cards Carousel */}
-              {visibleCardIds.length > 0 && <View style={styles.carouselContainer}>
+              {visibleCardIds.length > 0 && <View style={styles.carouselContainer} {...priorityAnchor}>
                 <ActionCardsCarousel
                   // Upcoming Appointment — now uses the same BookingCard
                   // the bookings tab renders, fed by the adapted booking

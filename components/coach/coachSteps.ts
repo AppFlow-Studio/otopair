@@ -12,16 +12,9 @@
  * measured and a hole cannot be cut over them. Every step here points at
  * something inside the screen, and the tour navigates between tabs itself.
  *
- * NOT YET ANCHORED. Two more steps are designed and ready to drop in as
- * soon as their targets get a <CoachTarget>/useCoachAnchor:
- *
- *   home.priority   the NOW card at the top of Home — "We tell you what's
- *                   due", with the reason it fired and a price before you book
- *   bookings.live   the live-tracking card — "Watch it happen"
- *
- * They are left out rather than left in, because a step whose target never
- * reports is skipped, and a tour that silently jumps from 2 to 4 reads as
- * broken rather than as unfinished.
+ * A step whose target never reports is skipped rather than stranding the
+ * driver behind a scrim — so `bookings.live` drops out cleanly for someone
+ * with no bookings yet, which is most new drivers.
  *
  * OWNER: Ahmad Hamoudeh
  */
@@ -51,11 +44,27 @@ export const COACH_STEPS: readonly CoachStep[] = [
     placement: "below",
   },
   {
+    id: "priority",
+    target: "home.priority",
+    route: "/home",
+    title: "We tell you what's due",
+    body: "Your car's next job sits right here — the reason it came up, and a price, before you book anything.",
+    placement: "below",
+  },
+  {
     id: "health",
     target: "cars.health",
     route: "/cars",
     title: "One score for the whole car",
     body: "Tap it any time to see what's pulling the number down — and what it would take to fix.",
+    placement: "below",
+  },
+  {
+    id: "live",
+    target: "bookings.live",
+    route: "/bookings",
+    title: "Watch it happen",
+    body: "Once a shop has your car, every stage lands here live — so you are never left wondering where it is.",
     placement: "below",
   },
   {

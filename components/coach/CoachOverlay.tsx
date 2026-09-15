@@ -16,7 +16,7 @@
  * DESIGN: Figma `kI9Em7mHSzkgAwDCtCNJYi` → C1…C4 + Spec.
  */
 
-import React, { useCallback, useEffect, useMemo, useRef } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AccessibilityInfo,
   Dimensions,
@@ -28,9 +28,13 @@ import Animated, {
   useAnimatedProps,
   useAnimatedStyle,
   useSharedValue,
+  withDelay,
+  withRepeat,
+  withSequence,
   withTiming,
 } from "react-native-reanimated";
 import Svg, { Path } from "react-native-svg";
+import { haptics } from "@/lib/haptics";
 
 import { Text } from "@/components/shared-ui";
 import { FontFamily } from "@/constants/theme";
@@ -107,18 +111,14 @@ export function CoachOverlay({
   const hw = useSharedValue(0);
   const hh = useSharedValue(0);
   const hr = useSharedValue(16);
-  // Starts opaque. The overlay itself is what appears on step 1, so there
-  // is nothing to fade in against — and an opacity that has to animate to
-  // 1 before the tooltip is readable is an opacity that can fail to get
-  // there. It only animates between steps, where the words actually change.
   const copy = useSharedValue(1);
+  const pulse = useSharedValue(0);
 
   /**
    * Targets re-report on every layout pass, and a fresh object each time.
-   * Keying on the NUMBERS instead is what keeps the effects below from
-   * re-running on identity alone — when they did, each run restarted the
-   * fade and the tooltip never reached full opacity. It sat washed out with
-   * the dimmed screen showing through it.
+   * Keying on the NUMBERS is what keeps the effects below from re-running on
+   * identity alone — when they did, each run restarted the fade and the
+   * tooltip never reached full opacity.
    */
   const rectKey = rect
     ? `${Math.round(rect.x)}:${Math.round(rect.y)}:${Math.round(rect.width)}:${Math.round(
@@ -126,20 +126,41 @@ export function CoachOverlay({
       )}:${rect.radius}`
     : null;
 
-  const hole = useMemo(() => {
-    if (!rect) return null;
-    return {
+  /**
+   * The last hole we had, kept while the next one is still mounting.
+   *
+   * Crossing a tab boundary unmounts the old target before the new one
+   * reports, so `rect` is null for a beat. Falling back to "no hole" in that
+   * window sent the tooltip to the middle of the screen and back — a visible
+   * lurch on every step that changed tabs. Holding the previous hole and
+   * fading the words out instead makes the gap read as a transition.
+   */
+  const [shown, setShown] = useState<{
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+    r: number;
+  } | null>(null);
+  const hasRect = rect != null;
+
+  useEffect(() => {
+    if (!rect) return;
+    setShown({
       x: rect.x - PAD,
       y: rect.y - PAD,
       w: rect.width + PAD * 2,
       h: rect.height + PAD * 2,
       r: rect.radius + PAD / 2,
-    };
-    // rectKey, not rect: same reason as above.
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rectKey]);
 
-  /** Which side the tooltip sits on, given the room the target leaves. */
+  /** A target scrolled out of the viewport cannot be pointed at. */
+  const onScreen =
+    !!shown && shown.y + shown.h > 0 && shown.y < SCREEN_H && shown.w > 0 && shown.h > 0;
+  const hole = onScreen ? shown : null;
+
   const below = useMemo(() => {
     if (!hole || !step) return true;
     const roomBelow = SCREEN_H - (hole.y + hole.h);
@@ -152,7 +173,7 @@ export function CoachOverlay({
 
   const settled = useRef(false);
 
-  // Geometry. Follows the target, and never touches opacity — a target that
+  // Geometry follows the target and never touches opacity — a target that
   // re-measures mid-step slides the hole, it does not re-run the transition.
   useEffect(() => {
     if (!visible || !hole) return;
@@ -167,46 +188,75 @@ export function CoachOverlay({
     settled.current = true;
   }, [visible, hole, reduceMotion, hx, hy, hw, hh, hr]);
 
-  // Copy. Fades only when the STEP changes, which is the only time the words
-  // actually change. Re-measuring the same target must not re-fade.
-  const shownIndex = useRef<number | null>(null);
+  // Words fade out while we wait for the next target, and back in when it
+  // lands. Also re-fades on a step change that stays on the same screen.
   useEffect(() => {
-    if (!visible || !hole) return;
-    if (shownIndex.current === index) return;
-    const isFirst = shownIndex.current === null;
-    shownIndex.current = index;
-    if (isFirst) return;
+    if (!visible) return;
+    if (!hasRect) {
+      copy.value = withTiming(0, { duration: 180 });
+      return;
+    }
     copy.value = 0;
     copy.value = withTiming(1, {
       duration: reduceMotion ? 120 : FADE_IN_MS,
       easing: OtoEasing.enter,
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible, index, hole != null, reduceMotion, copy]);
+  }, [visible, hasRect, index, reduceMotion, copy]);
+
+  // The pulse is the affordance. Without it the highlight reads as decoration
+  // and the driver waits for the tooltip to do something.
+  useEffect(() => {
+    if (!visible || reduceMotion || !hole) {
+      pulse.value = 0;
+      return;
+    }
+    pulse.value = 0;
+    pulse.value = withRepeat(
+      withSequence(
+        withTiming(1, { duration: 1200, easing: OtoEasing.standard }),
+        withTiming(0, { duration: 0 }),
+        withDelay(280, withTiming(0, { duration: 0 })),
+      ),
+      -1,
+      false,
+    );
+  }, [visible, reduceMotion, hole, pulse]);
 
   useEffect(() => {
     if (!visible) {
       settled.current = false;
-      shownIndex.current = null;
+      setShown(null);
       copy.value = 1;
+      pulse.value = 0;
     }
-  }, [visible, copy]);
+  }, [visible, copy, pulse]);
 
   const pathProps = useAnimatedProps(() => ({
     d: holePath(hx.value, hy.value, hw.value, hh.value, hr.value),
   }));
   const copyStyle = useAnimatedStyle(() => ({ opacity: copy.value }));
+  const pulseStyle = useAnimatedStyle(() => ({
+    opacity: (1 - pulse.value) * 0.55,
+    transform: [{ scale: 1 + pulse.value * 0.06 }],
+  }));
 
   useEffect(() => {
-    if (visible && hole && step) {
+    if (visible && hasRect && step) {
       AccessibilityInfo.announceForAccessibility?.(
-        `${step.title}. ${coachProgressLabel(index) ?? ""}`,
+        `${step.title}. ${step.body} ${coachProgressLabel(index) ?? ""}`,
       );
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible, index, hole != null]);
+  }, [visible, index, hasRect]);
 
-  const handleHoleTap = useCallback(() => onAdvance(), [onAdvance]);
+  const tap = useCallback(
+    (fn: () => void) => () => {
+      // `step` is the documented intent for a step-advance / sub-CTA tap.
+      haptics.step();
+      fn();
+    },
+    [],
+  );
 
   if (!visible || !step) return null;
 
@@ -219,7 +269,6 @@ export function CoachOverlay({
 
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
-      {/* Scrim. pointerEvents none so the hole is genuinely open. */}
       <Svg
         width={SCREEN_W}
         height={SCREEN_H}
@@ -235,6 +284,20 @@ export function CoachOverlay({
 
       {hole ? (
         <>
+          <Animated.View
+            pointerEvents="none"
+            style={[
+              styles.ring,
+              pulseStyle,
+              {
+                left: hole.x - 5,
+                top: hole.y - 5,
+                width: hole.w + 10,
+                height: hole.h + 10,
+                borderRadius: hole.r + 5,
+              },
+            ]}
+          />
           <View
             pointerEvents="none"
             style={[
@@ -246,7 +309,7 @@ export function CoachOverlay({
               rather than forwarding the touch to the real control: firing the
               live action and advancing would navigate away mid-tour. */}
           <Pressable
-            onPress={handleHoleTap}
+            onPress={tap(onAdvance)}
             style={{ position: "absolute", left: hole.x, top: hole.y, width: hole.w, height: hole.h }}
             accessibilityRole="button"
             accessibilityLabel={`${step.title}. Tap to continue`}
@@ -281,24 +344,25 @@ export function CoachOverlay({
           <Text style={styles.eyebrow}>{`STEP ${index + 1}`}</Text>
           <Text style={styles.title}>{step.title}</Text>
           <Text style={styles.body}>{step.body}</Text>
+          {hole ? <Text style={styles.hint}>Tap the highlight to continue</Text> : null}
           <View style={styles.rule} />
           <View style={styles.footer}>
             {index > 0 ? (
-              <Pressable onPress={onBack} hitSlop={12} accessibilityRole="button">
+              <Pressable onPress={tap(onBack)} hitSlop={12} accessibilityRole="button">
                 <Text style={styles.back}>Back</Text>
               </Pressable>
             ) : (
               <View style={styles.backSpacer} />
             )}
             <Text style={styles.count}>{`${index + 1} of ${COACH_STEP_COUNT}`}</Text>
-            <Pressable onPress={onAdvance} hitSlop={12} accessibilityRole="button">
+            <Pressable onPress={tap(onAdvance)} hitSlop={12} accessibilityRole="button">
               <Text style={styles.next}>{isLastCoachStep(index) ? "Finish" : "Next  \u2192"}</Text>
             </Pressable>
           </View>
         </View>
 
         <Pressable
-          onPress={onSkip}
+          onPress={tap(onSkip)}
           hitSlop={16}
           style={styles.skip}
           accessibilityRole="button"
@@ -357,7 +421,13 @@ const styles = StyleSheet.create({
     color: MUTED,
     marginTop: 8,
   },
-  rule: { height: 1, backgroundColor: DIM, marginTop: 16 },
+  hint: {
+    fontFamily: FontFamily.semiBold,
+    fontSize: 12,
+    color: ACCENT,
+    marginTop: 12,
+  },
+  rule: { height: 1, backgroundColor: DIM, marginTop: 14 },
   footer: {
     flexDirection: "row",
     alignItems: "center",

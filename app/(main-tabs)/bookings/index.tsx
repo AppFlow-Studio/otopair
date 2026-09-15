@@ -56,6 +56,7 @@ import { Image, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "
 import Animated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import SegmentedControl from "@react-native-segmented-control/segmented-control";
+import { CoachTarget } from "@/components/coach/CoachTarget";
 
 // ============================================================================
 // TYPES
@@ -627,7 +628,8 @@ export default function BookingsScreen() {
                 <>
                   <CustomerLateBanner onReschedule={(bookingId) => handleReschedule(String(bookingId))} />
                   {bookings.length > 0 ? (
-                    bookings.map((booking) =>
+                    bookings.map((booking, bookingIdx) => {
+                      const card =
                       booking.status === "pending_quote" ||
                       booking.status === "quotes_ready" ||
                       booking.status === "quote_expired" ? (
@@ -653,8 +655,17 @@ export default function BookingsScreen() {
                           onDownloadPdf={handleDownloadPdf}
                           onToggleFavorite={handleToggleFavorite}
                         />
-                      ),
-                    )
+                      );
+                      // Only the first card is the coach-mark target — a hole
+                      // around the whole list would spotlight nothing.
+                      return bookingIdx === 0 ? (
+                        <CoachTarget key={booking.id} id="bookings.live" radius={20}>
+                          {card}
+                        </CoachTarget>
+                      ) : (
+                        card
+                      );
+                    })
                   ) : (
                     <View style={styles.emptyState}>
                       <View style={styles.emptyIconContainer}>
