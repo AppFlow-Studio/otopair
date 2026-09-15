@@ -38,8 +38,17 @@ const RECT_TIMEOUT_MS = 2000;
  *  fade-out in CoachOverlay. */
 const NAV_DELAY_MS = 200;
 
-/** How long to let the new screen settle before pointing at anything on it. */
-const ARRIVE_SETTLE_MS = 320;
+/**
+ * How long to let the new screen settle before pointing at anything on it.
+ *
+ * Measured, not guessed: at 320ms the Cars tab had flipped `pathname` but was
+ * still painting Home, so the ring and the bubble appeared over the previous
+ * screen. usePathname changes when the route changes, which is well before
+ * the tab has drawn — there is no "transition finished" signal to hang this
+ * on, so it is a duration, and this is the one number to turn if a step ever
+ * points at a half-drawn screen again.
+ */
+const ARRIVE_SETTLE_MS = 650;
 
 export async function markCoachToursSeen(): Promise<void> {
   try {
