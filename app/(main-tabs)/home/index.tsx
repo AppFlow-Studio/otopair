@@ -67,6 +67,7 @@ import { ReceiptSheet } from '@/components/receipts/ReceiptSheet';
 import { useMyBookingsWithDetails } from '@/hooks/useMyBookingsWithDetails';
 import { useUserFromConvex } from '@/hooks/useUserFromConvex';
 import { TutorialOverlay } from '@/components/tutorial/TutorialOverlay';
+import { FORCE_TUTORIAL_EVERY_LAUNCH } from '@/constants/devFlags';
 import { useStagedLocation } from '@/hooks/useStagedLocation';
 import * as SecureStore from 'expo-secure-store';
 
@@ -443,8 +444,13 @@ export default function HomeScreen() {
   // is what keeps the overlay from flashing open in that window.
   const markTutorialSeen = useMutation(api.users.markTutorialSeen);
   const [tutorialDismissed, setTutorialDismissed] = useState(false);
+  // FORCE_TUTORIAL_EVERY_LAUNCH (dev only) ignores the stamp so the tour
+  // replays on every reload while it is being worked on.
   const showTutorial =
-    !!me && (me as { tutorialSeenAt?: number }).tutorialSeenAt == null && !tutorialDismissed;
+    !!me &&
+    (FORCE_TUTORIAL_EVERY_LAUNCH ||
+      (me as { tutorialSeenAt?: number }).tutorialSeenAt == null) &&
+    !tutorialDismissed;
 
   // Settings' "Replay the app tour" clears the server stamp. Without this the
   // local dismissal from earlier in the SAME session would still be true and
@@ -461,6 +467,10 @@ export default function HomeScreen() {
       // trip. Skip and complete both stamp — a driver who dismissed the tour
       // has given their answer, and Settings keeps a manual way back in.
       setTutorialDismissed(true);
+      // Don't stamp while forcing — otherwise a testing account ends up
+      // marked as having seen a tour it is about to be shown again, and
+      // the flag has to be removed before the real gate can be trusted.
+      if (FORCE_TUTORIAL_EVERY_LAUNCH) return;
       void markTutorialSeen({}).catch(() => {});
     },
     [markTutorialSeen],
