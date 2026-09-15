@@ -23,6 +23,19 @@
  * OWNER: Ahmad Hamoudeh
  */
 
+/**
+ * The shop shown inside the mock screens.
+ *
+ * Deliberately generic. It was "Chelala Service Center" — a colleague's
+ * surname, which reads to a new driver as a specific real business we are
+ * recommending before they have seen a single shop.
+ *
+ * Shared because the name appears in two crops that had already drifted apart
+ * (one title-case, one hand-uppercased); the casing is now a style, not a
+ * second copy of the string.
+ */
+export const SAMPLE_SHOP_NAME = "Main Street Auto";
+
 /** Which crop renders inside the phone. `null` on the cards that have none. */
 export type TutorialCrop = "home" | "cars" | "bookings" | "oto";
 

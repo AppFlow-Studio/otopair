@@ -323,6 +323,22 @@ export function TutorialOverlay({ visible, onDismiss, onAddCar }: TutorialOverla
           </Pressable>
         ) : null}
 
+        {/* Back mirrors Skip across the header. A right-swipe already went
+            back, but an invisible gesture is not an affordance — nobody
+            discovers it, and the dots imply a sequence you can move both ways
+            through. Hidden on the first step, where there is nowhere to go. */}
+        {index > 0 ? (
+          <Pressable
+            onPress={() => go(-1)}
+            style={[styles.back, { top: insets.top + 12 }]}
+            hitSlop={16}
+            accessibilityRole="button"
+            accessibilityLabel="Go back to the previous step"
+          >
+            <Text style={styles.skipText}>Back</Text>
+          </Pressable>
+        ) : null}
+
         <GestureDetector gesture={pan}>
           <View style={styles.body}>
             {step.crop ? (
@@ -403,6 +419,7 @@ function Dot({ active, reduceMotion }: { active: boolean; reduceMotion: boolean 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: "#EFF4FA" },
   skip: { position: "absolute", right: 20, zIndex: 10, padding: 8 },
+  back: { position: "absolute", left: 20, zIndex: 10, padding: 8 },
   skipText: { fontFamily: FontFamily.medium, fontSize: 15, color: MUTED },
   body: { flex: 1, alignItems: "center", justifyContent: "center", gap: 44, paddingHorizontal: 40 },
   // Title and closing cards carry their own art; reserving the phone's height
