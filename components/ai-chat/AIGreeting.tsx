@@ -35,7 +35,6 @@ import { Text } from '@/components/shared-ui';
 
 // 4. Constants, hooks, types
 import { BrandColors, BorderRadius, Spacing, FontFamily } from '@/constants/theme';
-import { CoachTarget } from '@/components/coach/CoachTarget';
 
 // ============================================================================
 // TYPES
@@ -268,12 +267,7 @@ export function AIGreeting({
 
       {/* Vehicle Carousel or Single Car */}
       {hasVehicles && (
-        // The spotlight tour's "Ask Oto anything" step points here. This is
-        // the screen a driver actually lands on for Oto, and the car they
-        // pick is the first half of asking a question — the composer is the
-        // second, and is not on screen until they choose one.
-        <CoachTarget id="oto.ask" radius={24} style={styles.vehiclesSection}>
-        <View>
+        <View style={styles.vehiclesSection}>
           {isSingleCar ? (
             // Single car — no carousel, centered
             <View style={styles.singleCarContainer}>
@@ -353,7 +347,6 @@ export function AIGreeting({
             <Text style={styles.swipeHint}>Swipe to switch vehicles</Text>
           )}
         </View>
-        </CoachTarget>
       )}
     </View>
   );

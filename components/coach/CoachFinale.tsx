@@ -171,7 +171,16 @@ const styles = StyleSheet.create({
     elevation: 10,
   },
   copy: { alignItems: "center", marginTop: 34 },
-  headline: { fontFamily: FontFamily.extraBold, fontSize: 30, color: INK, textAlign: "center" },
+  headline: {
+    fontFamily: FontFamily.extraBold,
+    fontSize: 30,
+    // Explicit, and generous. Urbanist ExtraBold at 30 overshoots the default
+    // line box and the ascenders were being clipped flat.
+    lineHeight: 40,
+    paddingTop: 2,
+    color: INK,
+    textAlign: "center",
+  },
   body: {
     fontFamily: FontFamily.regular,
     fontSize: 15,

@@ -21,11 +21,20 @@ interface CoachTargetProps {
   id: string;
   /** Radius of the hole. Match the element's own corner radius. */
   radius?: number;
+  /**
+   * Shrink the reported rect horizontally, in points.
+   *
+   * For wrappers that stretch edge to edge while the thing you can actually
+   * see sits inside them — the Oto composer is full-width with the pill
+   * inset — this trims the hole to the visible control WITHOUT touching the
+   * real layout, which a margin here would.
+   */
+  insetX?: number;
   style?: StyleProp<ViewStyle>;
   children: React.ReactNode;
 }
 
-export function CoachTarget({ id, radius = 16, style, children }: CoachTargetProps) {
+export function CoachTarget({ id, radius = 16, insetX = 0, style, children }: CoachTargetProps) {
   const reg = useCoachRegistry();
   const instance = useCoachInstanceId();
   const ref = useRef<View | null>(null);
@@ -40,9 +49,15 @@ export function CoachTarget({ id, radius = 16, style, children }: CoachTargetPro
     if (!node || !regRef.current) return;
     node.measureInWindow((x, y, width, height) => {
       if (!width || !height) return;
-      regRef.current?.report(id, instance, { x, y, width, height, radius });
+      regRef.current?.report(id, instance, {
+        x: x + insetX,
+        y,
+        width: Math.max(0, width - insetX * 2),
+        height,
+        radius,
+      });
     });
-  }, [id, radius, instance]);
+  }, [id, radius, insetX, instance]);
 
   // Unregister on unmount so a stale rect from a tab we have left cannot be
   // spotlit — that would cut a hole over whatever now occupies those pixels.

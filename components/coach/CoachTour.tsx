@@ -17,7 +17,7 @@
  * scrim the driver cannot dismiss.
  */
 
-import React, { useCallback, useEffect, useRef } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { usePathname } from "expo-router";
 
@@ -37,6 +37,9 @@ const RECT_TIMEOUT_MS = 2000;
 /** Let the overlay fade down before the screen changes under it. Matches the
  *  fade-out in CoachOverlay. */
 const NAV_DELAY_MS = 200;
+
+/** How long to let the new screen settle before pointing at anything on it. */
+const ARRIVE_SETTLE_MS = 320;
 
 export async function markCoachToursSeen(): Promise<void> {
   try {
@@ -75,7 +78,27 @@ export function CoachTour() {
    * nothing for a beat, then the screen caught up.
    */
   const onStepScreen = !!pathname && !!step && pathname.startsWith(step.route);
-  const rect = onStepScreen ? (reg?.resolve(step?.target) ?? null) : null;
+
+  /**
+   * ...and only once the screen has actually settled.
+   *
+   * usePathname flips the moment the route changes, which is BEFORE the tab
+   * transition has finished drawing. Gating on pathname alone still let the
+   * hole and the bubble appear over a screen that was mid-swap. Waiting out
+   * ARRIVE_SETTLE_MS means the page lands first and the coach mark fades up
+   * onto a screen that has stopped moving.
+   */
+  const [arrived, setArrived] = useState(false);
+  useEffect(() => {
+    if (!running || !onStepScreen) {
+      setArrived(false);
+      return;
+    }
+    const t = setTimeout(() => setArrived(true), ARRIVE_SETTLE_MS);
+    return () => clearTimeout(t);
+  }, [running, onStepScreen, index]);
+
+  const rect = arrived ? (reg?.resolve(step?.target) ?? null) : null;
 
   // Navigate to the step's tab. Comparing on a prefix because the tab routes
   // resolve to "/home", "/cars" etc. but can carry params.
