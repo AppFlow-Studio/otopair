@@ -58,6 +58,14 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import SegmentedControl from "@react-native-segmented-control/segmented-control";
 import { CoachTarget } from "@/components/coach/CoachTarget";
 
+/** Statuses that mean the car is physically at the shop right now. Mirrors
+ *  AT_SHOP_STATUSES in convex/vehicles.ts. */
+const AT_SHOP_STATUSES: ReadonlySet<string> = new Set([
+  "vehicle_at_shop",
+  "in_progress",
+  "delayed",
+]);
+
 // ============================================================================
 // TYPES
 // ============================================================================
@@ -656,9 +664,15 @@ export default function BookingsScreen() {
                           onToggleFavorite={handleToggleFavorite}
                         />
                       );
-                      // Only the first card is the coach-mark target — a hole
-                      // around the whole list would spotlight nothing.
-                      return bookingIdx === 0 ? (
+                      // Coach-mark target for "Watch it happen" — the first
+                      // card, and only when the car is genuinely AT a shop.
+                      // Spotlighting an upcoming appointment (or worse, the
+                      // empty state) next to copy about live updates is the
+                      // tour describing something that is not on screen. A
+                      // driver with nothing in progress just skips this step.
+                      const live =
+                        bookingIdx === 0 && AT_SHOP_STATUSES.has(String(booking.status));
+                      return live ? (
                         <CoachTarget key={booking.id} id="bookings.live" radius={20}>
                           {card}
                         </CoachTarget>

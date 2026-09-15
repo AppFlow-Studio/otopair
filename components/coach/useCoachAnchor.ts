@@ -20,7 +20,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import type { LayoutChangeEvent, View } from "react-native";
 
-import { useCoachRegistry } from "./CoachContext";
+import { useCoachInstanceId, useCoachRegistry } from "./CoachContext";
 
 export interface CoachAnchorProps {
   ref: (node: View | null) => void;
@@ -30,6 +30,7 @@ export interface CoachAnchorProps {
 
 export function useCoachAnchor(id: string, radius = 16): CoachAnchorProps {
   const reg = useCoachRegistry();
+  const instance = useCoachInstanceId();
   const node = useRef<View | null>(null);
 
   /**
@@ -56,10 +57,10 @@ export function useCoachAnchor(id: string, radius = 16): CoachAnchorProps {
     requestAnimationFrame(() => {
       n.measureInWindow?.((x, y, width, height) => {
         if (!width || !height) return;
-        regRef.current?.report(id, { x, y, width, height, radius });
+        regRef.current?.report(id, instance, { x, y, width, height, radius });
       });
     });
-  }, [id, radius]);
+  }, [id, radius, instance]);
 
   const setRef = useCallback(
     (n: View | null) => {
@@ -69,10 +70,16 @@ export function useCoachAnchor(id: string, radius = 16): CoachAnchorProps {
     [measure],
   );
 
+  // Re-measure when the tour asks. See CoachRegistry.nudge.
+  const nudge = reg?.nudge ?? 0;
+  useEffect(() => {
+    if (nudge > 0) measure();
+  }, [nudge, measure]);
+
   const onLayout = useCallback((_e: LayoutChangeEvent) => measure(), [measure]);
 
   // Unmount only — see the note on regRef.
-  useEffect(() => () => regRef.current?.report(id, null), [id]);
+  useEffect(() => () => regRef.current?.report(id, instance, null), [id, instance]);
 
   return { ref: setRef, onLayout, collapsable: false };
 }

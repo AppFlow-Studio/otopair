@@ -14,7 +14,7 @@
 import React, { useCallback, useEffect, useRef } from "react";
 import { View, type StyleProp, type ViewStyle } from "react-native";
 
-import { useCoachRegistry } from "./CoachContext";
+import { useCoachInstanceId, useCoachRegistry } from "./CoachContext";
 
 interface CoachTargetProps {
   /** Must match the `target` of a step in coachSteps.ts. */
@@ -27,6 +27,7 @@ interface CoachTargetProps {
 
 export function CoachTarget({ id, radius = 16, style, children }: CoachTargetProps) {
   const reg = useCoachRegistry();
+  const instance = useCoachInstanceId();
   const ref = useRef<View | null>(null);
   // Held in a ref because the registry object is rebuilt on every report —
   // see the note in useCoachAnchor.ts. With `reg` in a dependency array the
@@ -39,15 +40,21 @@ export function CoachTarget({ id, radius = 16, style, children }: CoachTargetPro
     if (!node || !regRef.current) return;
     node.measureInWindow((x, y, width, height) => {
       if (!width || !height) return;
-      regRef.current?.report(id, { x, y, width, height, radius });
+      regRef.current?.report(id, instance, { x, y, width, height, radius });
     });
-  }, [id, radius]);
+  }, [id, radius, instance]);
 
   // Unregister on unmount so a stale rect from a tab we have left cannot be
   // spotlit — that would cut a hole over whatever now occupies those pixels.
   useEffect(() => {
-    return () => regRef.current?.report(id, null);
-  }, [id]);
+    return () => regRef.current?.report(id, instance, null);
+  }, [id, instance]);
+
+  // Re-measure when the tour asks. See CoachRegistry.nudge.
+  const nudge = reg?.nudge ?? 0;
+  useEffect(() => {
+    if (nudge > 0) measure();
+  }, [nudge, measure]);
 
   if (!reg) return <View style={style}>{children}</View>;
 

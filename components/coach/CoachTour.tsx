@@ -58,7 +58,8 @@ export function CoachTour() {
   const reg = useCoachRegistry();
   const pathname = usePathname();
   const step = COACH_STEPS[index];
-  const rect = reg && step ? (reg.rects[step.target] ?? null) : null;
+  // The closing step has no target — it is a plain card, not a spotlight.
+  const rect = reg?.resolve(step?.target) ?? null;
 
   // Navigate to the step's tab. Comparing on a prefix because the tab routes
   // resolve to "/home", "/cars" etc. but can carry params.
@@ -68,6 +69,20 @@ export function CoachTour() {
     router.navigate(step.route as never);
   }, [running, step, pathname]);
 
+  /**
+   * Ask every target to measure itself again when a step begins, and again as
+   * the screen settles. A rect captured at mount was measured against a
+   * scroll offset of zero; by the time the tour arrives the screen has
+   * scrolled, animated in, or both. Without this the tour points at where
+   * things used to be.
+   */
+  const remeasure = reg?.remeasure;
+  useEffect(() => {
+    if (!running || !remeasure) return;
+    const timers = [0, 150, 450, 900].map((d) => setTimeout(remeasure, d));
+    return () => timers.forEach(clearTimeout);
+  }, [running, index, pathname, remeasure]);
+
   // Skip a step whose target never shows up.
   const skipTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
@@ -75,7 +90,8 @@ export function CoachTour() {
       clearTimeout(skipTimer.current);
       skipTimer.current = null;
     }
-    if (!running || !step || rect) return;
+    // A step with no target is never waiting on one.
+    if (!running || !step || !step.target || rect) return;
     skipTimer.current = setTimeout(() => {
       if (__DEV__) {
         console.warn(`[coach] no rect for "${step.target}" — skipping step`);

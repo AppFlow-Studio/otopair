@@ -35,3 +35,14 @@ export const FORCE_TUTORIAL_EVERY_LAUNCH = __DEV__ && false;
  * up marked as having seen a tour it is about to be shown again.
  */
 export const FORCE_COACH_MARKS_EVERY_LAUNCH = __DEV__ && true;
+
+/**
+ * Start the spotlight tour on a given step instead of the first one.
+ *
+ * Each step points at a different element on a different tab, and the only
+ * way to check an anchor is to look at it. Without this, checking step 4
+ * means tapping through three others every reload.
+ *
+ * 0 is the real behaviour. Leave it there.
+ */
+export const COACH_START_STEP = __DEV__ ? 0 : 0;

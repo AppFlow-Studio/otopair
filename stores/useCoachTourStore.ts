@@ -9,6 +9,7 @@
 import { create } from "zustand";
 
 import { COACH_STEPS } from "@/components/coach/coachSteps";
+import { COACH_START_STEP } from "@/constants/devFlags";
 
 interface CoachTourState {
   running: boolean;
@@ -22,7 +23,11 @@ interface CoachTourState {
 export const useCoachTourStore = create<CoachTourState>((set) => ({
   running: false,
   index: 0,
-  start: () => set({ running: true, index: 0 }),
+  start: () =>
+    set({
+      running: true,
+      index: Math.min(Math.max(0, COACH_START_STEP), COACH_STEPS.length - 1),
+    }),
   next: () =>
     set((s) =>
       s.index >= COACH_STEPS.length - 1

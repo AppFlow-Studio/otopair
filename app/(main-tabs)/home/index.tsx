@@ -1480,7 +1480,7 @@ export default function HomeScreen() {
                 onReschedule={(bookingId) => handleReschedule(String(bookingId))}
               />
               {/* Action Cards Carousel */}
-              {visibleCardIds.length > 0 && <View style={styles.carouselContainer} {...priorityAnchor}>
+              {visibleCardIds.length > 0 && <View style={styles.carouselContainer}>
                 <ActionCardsCarousel
                   // Upcoming Appointment — now uses the same BookingCard
                   // the bookings tab renders, fed by the adapted booking
@@ -1623,7 +1623,10 @@ export default function HomeScreen() {
                   Constant offset trimmed all the way (24 → -4) to absorb the
                   28 px carouselContainer.marginTop added above (NOW card
                   slides down without nudging this section). */}
-              <View style={{ marginTop: (visibleCardIds.length > 0 ? getCardMargin(activeCardIndex) : 0) - 4 }}>
+              <View
+                style={{ marginTop: (visibleCardIds.length > 0 ? getCardMargin(activeCardIndex) : 0) - 4 }}
+                {...priorityAnchor}
+              >
                 {hasVehicles ? (
                   <VehicleMaintenanceCard
                     vehicles={mappedVehicles.length > 0 ? mappedVehicles : undefined}

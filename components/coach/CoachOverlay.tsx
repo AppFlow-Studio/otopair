@@ -64,6 +64,12 @@ const GAP = 22;
 const TIP_W = 313;
 /** Below this much room on the preferred side, the tooltip flips. */
 const MIN_ROOM = 210;
+/** Anything taller than this share of the screen is a container, not a target. */
+const MAX_TARGET_FRACTION = 0.45;
+/** Keep the hole off the screen edges. */
+const VIEWPORT_INSET = 8;
+/** Less of the element than this on screen and there is nothing to point at. */
+const MIN_VISIBLE = 44;
 
 const HOLE_MS = 420;
 const FADE_IN_MS = 260;
@@ -105,20 +111,21 @@ export function CoachOverlay({
 }: CoachOverlayProps) {
   const reduceMotion = useReducedMotion();
   const step = COACH_STEPS[index];
+  const wantsTarget = !!step?.target;
 
   const hx = useSharedValue(SCREEN_W / 2);
   const hy = useSharedValue(SCREEN_H / 2);
   const hw = useSharedValue(0);
   const hh = useSharedValue(0);
   const hr = useSharedValue(16);
-  const copy = useSharedValue(1);
+  const copy = useSharedValue(0);
   const pulse = useSharedValue(0);
 
   /**
    * Targets re-report on every layout pass, and a fresh object each time.
-   * Keying on the NUMBERS is what keeps the effects below from re-running on
-   * identity alone — when they did, each run restarted the fade and the
-   * tooltip never reached full opacity.
+   * Keying on the NUMBERS keeps the effects below from re-running on identity
+   * alone — when they did, each run restarted the fade and the tooltip never
+   * reached full opacity.
    */
   const rectKey = rect
     ? `${Math.round(rect.x)}:${Math.round(rect.y)}:${Math.round(rect.width)}:${Math.round(
@@ -127,13 +134,31 @@ export function CoachOverlay({
     : null;
 
   /**
-   * The last hole we had, kept while the next one is still mounting.
-   *
-   * Crossing a tab boundary unmounts the old target before the new one
-   * reports, so `rect` is null for a beat. Falling back to "no hole" in that
-   * window sent the tooltip to the middle of the screen and back — a visible
-   * lurch on every step that changed tabs. Holding the previous hole and
-   * fading the words out instead makes the gap read as a transition.
+   * Cards run past the fold. Rejecting anything tall (the first attempt) meant
+   * the NOW card — a perfectly good target — spotlit nothing at all, and
+   * clamping is what coach-mark libraries actually do: cut the hole over the
+   * part that is ON SCREEN. Below MIN_VISIBLE there is not enough of the
+   * element showing to point at, and the step skips.
+   */
+  const usable = rect;
+
+  useEffect(() => {
+    if (rect && __DEV__ && rect.height > SCREEN_H * MAX_TARGET_FRACTION) {
+      console.warn(
+        `[coach] "${step?.target}" measured ${Math.round(rect.width)}×${Math.round(
+          rect.height,
+        )} — taller than ${Math.round(MAX_TARGET_FRACTION * 100)}% of the screen, so the` +
+          " hole is clamped to the visible part. If that reads as a box around" +
+          " several unrelated things, anchor the element rather than its container.",
+      );
+    }
+  }, [rect, step]);
+
+  /**
+   * The hole for THIS step. Reset on every step change — retaining it across
+   * steps meant that when a target failed to report, the previous step's hole
+   * stayed on screen and the tour appeared to be pointing at something
+   * unrelated on a completely different tab.
    */
   const [shown, setShown] = useState<{
     x: number;
@@ -142,24 +167,35 @@ export function CoachOverlay({
     h: number;
     r: number;
   } | null>(null);
-  const hasRect = rect != null;
 
   useEffect(() => {
-    if (!rect) return;
+    setShown(null);
+    settled.current = false;
+  }, [index]);
+
+  useEffect(() => {
+    if (!usable) return;
+    const rawTop = usable.y - PAD;
+    const rawBottom = usable.y + usable.height + PAD;
+    // Clamp into the viewport, leaving the status bar and the very bottom edge
+    // alone so the hole never bleeds off screen.
+    const top = Math.max(VIEWPORT_INSET, rawTop);
+    const bottom = Math.min(SCREEN_H - VIEWPORT_INSET, rawBottom);
     setShown({
-      x: rect.x - PAD,
-      y: rect.y - PAD,
-      w: rect.width + PAD * 2,
-      h: rect.height + PAD * 2,
-      r: rect.radius + PAD / 2,
+      x: usable.x - PAD,
+      y: top,
+      w: usable.width + PAD * 2,
+      h: bottom - top,
+      r: usable.radius + PAD / 2,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rectKey]);
 
-  /** A target scrolled out of the viewport cannot be pointed at. */
-  const onScreen =
-    !!shown && shown.y + shown.h > 0 && shown.y < SCREEN_H && shown.w > 0 && shown.h > 0;
-  const hole = onScreen ? shown : null;
+  /** Too little of it showing to point at — scrolled away, or clipped. */
+  const hole = shown && shown.h >= MIN_VISIBLE && shown.w > 0 ? shown : null;
+
+  /** Nothing to show yet: navigating, or the target has not reported. */
+  const waiting = wantsTarget && !hole;
 
   const below = useMemo(() => {
     if (!hole || !step) return true;
@@ -168,13 +204,11 @@ export function CoachOverlay({
     if (step.placement === "below") {
       return !(roomBelow < MIN_ROOM && roomAbove > roomBelow);
     }
-    return roomAbove < MIN_ROOM && roomBelow > roomAbove;
+    return !(roomAbove < MIN_ROOM && roomBelow > roomAbove) ? false : true;
   }, [hole, step]);
 
   const settled = useRef(false);
 
-  // Geometry follows the target and never touches opacity — a target that
-  // re-measures mid-step slides the hole, it does not re-run the transition.
   useEffect(() => {
     if (!visible || !hole) return;
     const jump = !settled.current || reduceMotion;
@@ -188,12 +222,12 @@ export function CoachOverlay({
     settled.current = true;
   }, [visible, hole, reduceMotion, hx, hy, hw, hh, hr]);
 
-  // Words fade out while we wait for the next target, and back in when it
-  // lands. Also re-fades on a step change that stays on the same screen.
+  // The card is hidden entirely while waiting. Showing it un-anchored was the
+  // "jumps to the middle of the screen and back" bug.
   useEffect(() => {
     if (!visible) return;
-    if (!hasRect) {
-      copy.value = withTiming(0, { duration: 180 });
+    if (waiting) {
+      copy.value = withTiming(0, { duration: 160 });
       return;
     }
     copy.value = 0;
@@ -201,7 +235,7 @@ export function CoachOverlay({
       duration: reduceMotion ? 120 : FADE_IN_MS,
       easing: OtoEasing.enter,
     });
-  }, [visible, hasRect, index, reduceMotion, copy]);
+  }, [visible, waiting, index, reduceMotion, copy]);
 
   // The pulse is the affordance. Without it the highlight reads as decoration
   // and the driver waits for the tooltip to do something.
@@ -214,8 +248,7 @@ export function CoachOverlay({
     pulse.value = withRepeat(
       withSequence(
         withTiming(1, { duration: 1200, easing: OtoEasing.standard }),
-        withTiming(0, { duration: 0 }),
-        withDelay(280, withTiming(0, { duration: 0 })),
+        withDelay(260, withTiming(0, { duration: 0 })),
       ),
       -1,
       false,
@@ -226,7 +259,7 @@ export function CoachOverlay({
     if (!visible) {
       settled.current = false;
       setShown(null);
-      copy.value = 1;
+      copy.value = 0;
       pulse.value = 0;
     }
   }, [visible, copy, pulse]);
@@ -236,18 +269,18 @@ export function CoachOverlay({
   }));
   const copyStyle = useAnimatedStyle(() => ({ opacity: copy.value }));
   const pulseStyle = useAnimatedStyle(() => ({
-    opacity: (1 - pulse.value) * 0.55,
-    transform: [{ scale: 1 + pulse.value * 0.06 }],
+    opacity: (1 - pulse.value) * 0.5,
+    transform: [{ scale: 1 + pulse.value * 0.07 }],
   }));
 
   useEffect(() => {
-    if (visible && hasRect && step) {
+    if (visible && !waiting && step) {
       AccessibilityInfo.announceForAccessibility?.(
         `${step.title}. ${step.body} ${coachProgressLabel(index) ?? ""}`,
       );
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible, index, hasRect]);
+  }, [visible, index, waiting]);
 
   const tap = useCallback(
     (fn: () => void) => () => {
@@ -265,7 +298,8 @@ export function CoachOverlay({
     : (SCREEN_W - TIP_W) / 2;
   const caretLeft = hole
     ? Math.max(tipLeft + 18, Math.min(hole.x + 40, tipLeft + TIP_W - 36))
-    : SCREEN_W / 2 - 9;
+    : 0;
+  const advanceLabel = step.cta ?? (isLastCoachStep(index) ? "Finish" : "Next  \u2192");
 
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
@@ -338,10 +372,13 @@ export function CoachOverlay({
               ? below
                 ? { top: hole.y + hole.h + GAP }
                 : { bottom: SCREEN_H - (hole.y - GAP) }
-              : { top: SCREEN_H / 2 - 90 },
+              : { top: SCREEN_H / 2 - 120 },
           ]}
+          pointerEvents={waiting ? "none" : "auto"}
         >
-          <Text style={styles.eyebrow}>{`STEP ${index + 1}`}</Text>
+          <Text style={styles.eyebrow}>
+            {isLastCoachStep(index) ? "DONE" : `STEP ${index + 1}`}
+          </Text>
           <Text style={styles.title}>{step.title}</Text>
           <Text style={styles.body}>{step.body}</Text>
           {hole ? <Text style={styles.hint}>Tap the highlight to continue</Text> : null}
@@ -356,20 +393,22 @@ export function CoachOverlay({
             )}
             <Text style={styles.count}>{`${index + 1} of ${COACH_STEP_COUNT}`}</Text>
             <Pressable onPress={tap(onAdvance)} hitSlop={12} accessibilityRole="button">
-              <Text style={styles.next}>{isLastCoachStep(index) ? "Finish" : "Next  \u2192"}</Text>
+              <Text style={styles.next}>{advanceLabel}</Text>
             </Pressable>
           </View>
         </View>
 
-        <Pressable
-          onPress={tap(onSkip)}
-          hitSlop={16}
-          style={styles.skip}
-          accessibilityRole="button"
-          accessibilityLabel="Skip the tour"
-        >
-          <Text style={styles.skipText}>Skip tour</Text>
-        </Pressable>
+        {!isLastCoachStep(index) ? (
+          <Pressable
+            onPress={tap(onSkip)}
+            hitSlop={16}
+            style={styles.skip}
+            accessibilityRole="button"
+            accessibilityLabel="Skip the tour"
+          >
+            <Text style={styles.skipText}>Skip tour</Text>
+          </Pressable>
+        ) : null}
       </Animated.View>
     </View>
   );

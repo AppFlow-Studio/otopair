@@ -52,6 +52,7 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { Text } from '@/components/shared-ui';
 import { fetchVehicleImageUrl } from '@/utils/vehicleImage';
 import { BrandColors, FontFamily } from '@/constants/theme';
+import { CoachTarget } from '@/components/coach/CoachTarget';
 
 // ============================================================================
 // TYPES
@@ -387,7 +388,13 @@ export function VehicleMaintenanceCard({
   ) => {
     const items = maxItems ? vehicle.maintenanceItems.slice(0, maxItems) : vehicle.maintenanceItems;
     const isPreview = maxItems != null;
+    // Both the preview and the full card claim this coach-mark id on
+    // purpose. Which one is on screen depends on the vehicle and the scroll
+    // position, and the registry resolves several claimants to the topmost
+    // visible one (see pickBestRect). Naming them apart meant the visible
+    // card registered under an id no step asked for, and the step skipped.
     return (
+    <CoachTarget id="home.priority" radius={12}>
     <View style={styles.card}>
       {/* Top Section - Vehicle Info (tap handled by the card's Tap gesture) */}
       <View style={styles.topSection}>
@@ -515,6 +522,7 @@ export function VehicleMaintenanceCard({
       </Animated.View>
       )}
     </View>
+    </CoachTarget>
     );
   };
 
