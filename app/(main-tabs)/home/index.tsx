@@ -67,7 +67,9 @@ import { ReceiptSheet } from '@/components/receipts/ReceiptSheet';
 import { useMyBookingsWithDetails } from '@/hooks/useMyBookingsWithDetails';
 import { useUserFromConvex } from '@/hooks/useUserFromConvex';
 import { TutorialOverlay } from '@/components/tutorial/TutorialOverlay';
-import { FORCE_TUTORIAL_EVERY_LAUNCH } from '@/constants/devFlags';
+import { FORCE_TUTORIAL_EVERY_LAUNCH, FORCE_COACH_MARKS_EVERY_LAUNCH } from '@/constants/devFlags';
+import { hasSeenCoachTour } from '@/components/coach/CoachTour';
+import { useCoachTourStore } from '@/stores/useCoachTourStore';
 import { useStagedLocation } from '@/hooks/useStagedLocation';
 import * as SecureStore from 'expo-secure-store';
 
@@ -131,6 +133,7 @@ import {
 } from "@/components/home/FinishCarSetupPickerSheet";
 import { LoyaltyCard } from "@/components/home/LoyaltyCard";
 import { MechanicSearchBar } from "@/components/home/MechanicSearchBar";
+import { useCoachAnchor } from "@/components/coach/useCoachAnchor";
 import { ServiceBundlesSection } from "@/components/home/ServiceBundlesSection";
 import { MoreServicesSection } from "@/components/home/MoreServicesSection";
 import { ProviderTypesSection } from "@/components/home/ProviderTypesSection";
@@ -442,6 +445,12 @@ export default function HomeScreen() {
   // signing in on a second device does not replay a tour already seen. `me`
   // is undefined while the query is in flight, and the `=== null` check below
   // is what keeps the overlay from flashing open in that window.
+  // Coach-mark anchors. These contribute no nodes and no styles; they
+  // ride on Views that already exist so the tour cannot move the very
+  // elements it is pointing at.
+  const searchAnchor = useCoachAnchor("home.search", 16);
+  const startCoachTour = useCoachTourStore((s) => s.start);
+  const coachRunning = useCoachTourStore((s) => s.running);
   const markTutorialSeen = useMutation(api.users.markTutorialSeen);
   const [tutorialDismissed, setTutorialDismissed] = useState(false);
   // FORCE_TUTORIAL_EVERY_LAUNCH (dev only) ignores the stamp so the tour
@@ -460,6 +469,30 @@ export default function HomeScreen() {
   useEffect(() => {
     if (tutorialSeenAt == null) setTutorialDismissed(false);
   }, [tutorialSeenAt]);
+
+  /**
+   * The spotlight tour FOLLOWS the phone-mock tour rather than replacing it:
+   * the mock explains what Otopair does, this points at where it is.
+   *
+   * Gated on the phone tour being finished rather than chained to its
+   * dismiss callback, because the closing card's primary action is "Add my
+   * car" — that leaves Home entirely, and a tour started on the way out
+   * would spotlight a screen the driver is no longer looking at. Checking
+   * on focus instead means it waits for them to come back.
+   */
+  useEffect(() => {
+    if (showTutorial || coachRunning) return;
+    if (!FORCE_COACH_MARKS_EVERY_LAUNCH && tutorialSeenAt == null) return;
+    let cancelled = false;
+    (async () => {
+      const seen = FORCE_COACH_MARKS_EVERY_LAUNCH ? false : await hasSeenCoachTour();
+      if (cancelled || seen) return;
+      startCoachTour();
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [showTutorial, coachRunning, tutorialSeenAt, startCoachTour]);
 
   const dismissTutorial = useCallback(
     (_reason: 'completed' | 'skipped') => {
@@ -1416,12 +1449,16 @@ export default function HomeScreen() {
                   Map button opens only the map (sheet stays collapsed). */}
               <View
                 style={styles.searchContainer}
+                ref={searchAnchor.ref}
+                collapsable={false}
                 onLayout={(e) => {
                   // Feed the pinned copy's collapsed→expanded height animation.
                   // PINNED_SEARCH_ROW_PADDING accounts for the pinned row's own
                   // vertical padding, which the in-flow copy doesn't have.
                   searchRowHeightSV.value =
                     e.nativeEvent.layout.height + PINNED_SEARCH_ROW_PADDING;
+                  // Chained, not replaced — this View already owned onLayout.
+                  searchAnchor.onLayout(e);
                 }}
               >
                 <MechanicSearchBar

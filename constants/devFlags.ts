@@ -24,4 +24,14 @@
  * Dismissing still closes it for the rest of the session; it comes back on
  * the next reload.
  */
-export const FORCE_TUTORIAL_EVERY_LAUNCH = __DEV__ && true;
+export const FORCE_TUTORIAL_EVERY_LAUNCH = __DEV__ && false;
+
+/**
+ * Replay the in-app spotlight tour (components/coach) on every launch.
+ *
+ * The real gate is an AsyncStorage stamp written when the tour finishes or
+ * is skipped. With this on the stamp is ignored AND not written, for the
+ * same reason as the flag above: an account used for testing should not end
+ * up marked as having seen a tour it is about to be shown again.
+ */
+export const FORCE_COACH_MARKS_EVERY_LAUNCH = __DEV__ && true;
