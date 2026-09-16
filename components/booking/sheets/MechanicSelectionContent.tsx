@@ -261,6 +261,11 @@ export function MechanicSelectionContent({
     return filtered;
   }, [mechanics, mechanicIds, searchQuery, filterType, userLocation, getShopById]);
 
+  const hasBay = useMemo(
+    () => filteredMechanics.some((m) => m.isBay),
+    [filteredMechanics],
+  );
+
   // Group mechanics by shop (with labor rates, state, zip for range computation)
   const shopList = useMemo(() => {
     const list = groupMechanicsByShop(filteredMechanics, shopMetaMap);
@@ -523,7 +528,7 @@ export function MechanicSelectionContent({
           <ChevronLeft size={24} color={BrandColors.primary} />
         </Pressable>
         <Text size="xl" weight="bold" color={BrandColors.primary}>
-          Choose Mechanic
+          {hasBay ? "Choose Mechanic or Bay" : "Choose Mechanic"}
         </Text>
         {/* Car selection button — shows selected vehicle thumbnail when available */}
         <Pressable style={styles.carButton} onPress={onCarSelect} hitSlop={8}>
