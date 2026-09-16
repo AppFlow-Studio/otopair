@@ -330,7 +330,19 @@ export default function RootLayout() {
                       name="(onboarding)"
                       options={{ headerShown: false, gestureEnabled: false }}
                     />
-                    <Stack.Screen name="(main-tabs)" options={{ headerShown: false }} />
+                    {/* No transition into the tabs.
+                        The root stack defaults to ios_from_right, which is
+                        right for pushing FORWARD into a detail screen and
+                        wrong for every way you reach the tabs: cold launch
+                        (the app should just open), and ~60 `replace` calls
+                        that are dismissals — finishing a booking, leaving
+                        onboarding, backing out of a flow. Sliding a
+                        dismissal in from the right reads as going deeper
+                        when you are coming back out. */}
+                    <Stack.Screen
+                      name="(main-tabs)"
+                      options={{ headerShown: false, animation: "none" }}
+                    />
                     <Stack.Screen name="(tell-us-about)" options={{ headerShown: false }} />
                     <Stack.Screen name="(tire-booking)" options={{ headerShown: false }} />
                     <Stack.Screen name="(rotor-booking)" options={{ headerShown: false }} />
