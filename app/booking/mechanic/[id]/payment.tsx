@@ -447,11 +447,16 @@ export default function PaymentScreen() {
           : sum + getEffectiveParts(s).high,
       0,
     );
-    const fixedPartsTotal = selectedServices.reduce(
-      (sum, s) => sum + (fixedPriceMap.get(String(s.id)) ?? 0),
+    const fixedPartsLowTotal = selectedServices.reduce(
+      (sum, s) => sum + (fixedPriceMap.get(String(s.id))?.lowDollars ?? 0),
       0,
     );
-    const partsCost = variablePartsCost + fixedPartsTotal;
+    const fixedPartsHighTotal = selectedServices.reduce(
+      (sum, s) => sum + (fixedPriceMap.get(String(s.id))?.highDollars ?? 0),
+      0,
+    );
+    const fixedPartsMidpoint = (fixedPartsLowTotal + fixedPartsHighTotal) / 2;
+    const partsCost = variablePartsCost + fixedPartsMidpoint;
 
     // Labor on flat-price lines is bundled into the flat — subtract it from
     // the billable labor used for tax/fee/total math.
@@ -473,8 +478,8 @@ export default function PaymentScreen() {
       zip: shop?.zip,
     }).taxDollars;
 
-    const partsLow = Math.max(0, variablePartsLowSum) + fixedPartsTotal;
-    const partsHigh = Math.max(partsLow, variablePartsHighSum) + fixedPartsTotal;
+    const partsLow = Math.max(0, variablePartsLowSum) + fixedPartsLowTotal;
+    const partsHigh = Math.max(0, variablePartsHighSum) + fixedPartsHighTotal;
     const taxLow = computeBookingTax({
       laborDollars: billableLaborCost,
       partsDollars: partsLow,
@@ -495,7 +500,8 @@ export default function PaymentScreen() {
       .map((s) => ({
         serviceId: String(s.id),
         laborCost: getServiceLaborCost(s),
-        partsFixed: fixedPriceMap.get(String(s.id)) ?? 0,
+        partsLow: fixedPriceMap.get(String(s.id))?.lowDollars ?? 0,
+        partsHigh: fixedPriceMap.get(String(s.id))?.highDollars ?? 0,
       }));
     // Pass the engine-aware low/high explicitly so deriveDisclosedRange
     // doesn't apply a synthetic ±8% on top of an already-banded engine
@@ -623,9 +629,16 @@ export default function PaymentScreen() {
   // in this band, so a wider spread would overstate uncertainty.
   const getServiceLineRange = useCallback(
     (service: (typeof selectedServices)[0]) => {
-      const flat = fixedPriceMap.get(String(service.id));
-      if (flat != null) {
-        return { low: flat, high: flat, isFixed: true as const, isEngineEstimate: false, laborOnly: false as const, from: flat };
+      const shopPrice = fixedPriceMap.get(String(service.id));
+      if (shopPrice) {
+        return {
+          low: shopPrice.lowDollars,
+          high: shopPrice.highDollars,
+          isFixed: shopPrice.isFixed,
+          isEngineEstimate: false,
+          laborOnly: false as const,
+          from: shopPrice.lowDollars,
+        };
       }
       const labor = getServiceLaborCost(service);
       // State 2: parts not priced for this vehicle → show labor as a floor

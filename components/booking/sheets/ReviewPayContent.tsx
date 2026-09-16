@@ -430,11 +430,16 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
           : sum + getEffectiveParts(s).high,
       0,
     );
-    const fixedPartsTotal = selectedServices.reduce(
-      (sum, s) => sum + (fixedPriceMap.get(String(s.id)) ?? 0),
+    const fixedPartsLowTotal = selectedServices.reduce(
+      (sum, s) => sum + (fixedPriceMap.get(String(s.id))?.lowDollars ?? 0),
       0,
     );
-    const partsCost = variablePartsCost + fixedPartsTotal;
+    const fixedPartsHighTotal = selectedServices.reduce(
+      (sum, s) => sum + (fixedPriceMap.get(String(s.id))?.highDollars ?? 0),
+      0,
+    );
+    const fixedPartsMidpoint = (fixedPartsLowTotal + fixedPartsHighTotal) / 2;
+    const partsCost = variablePartsCost + fixedPartsMidpoint;
 
     // Labor on flat-price lines is bundled into the flat price; subtract
     // those services' labor from the aggregate so it's not double-billed.
@@ -466,7 +471,8 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
       .map((s) => ({
         serviceId: String(s.id),
         laborCost: getServiceLaborCost(s),
-        partsFixed: fixedPriceMap.get(String(s.id)) ?? 0,
+        partsLow: fixedPriceMap.get(String(s.id))?.lowDollars ?? 0,
+        partsHigh: fixedPriceMap.get(String(s.id))?.highDollars ?? 0,
       }));
     // Pass the engine-aware low/high explicitly so deriveDisclosedRange
     // doesn't apply a synthetic band on top of an already-banded engine
@@ -486,8 +492,9 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
     // the band the customer is actually agreeing to. Engine-corrected
     // lines contribute their real spec band; AI-priced lines get ±8% per
     // line; flat lines pin both endpoints.
-    const partsLow = Math.max(0, variablePartsLowSum) + fixedPartsTotal;
-    const partsHigh = Math.max(partsLow, variablePartsHighSum) + fixedPartsTotal;
+    const partsLow = Math.max(0, variablePartsLowSum) + fixedPartsLowTotal;
+    const partsHigh =
+      Math.max(0, variablePartsHighSum) + fixedPartsHighTotal;
     const taxLow = computeBookingTax({
       laborDollars: billableLaborCost,
       partsDollars: partsLow,
@@ -586,9 +593,16 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
   // Fixed-price hits pin both endpoints to the flat amount and zero labor.
   const getServiceLineRange = useCallback(
     (service: (typeof selectedServices)[0]) => {
-      const flat = fixedPriceMap.get(String(service.id));
-      if (flat != null) {
-        return { low: flat, high: flat, isFixed: true as const, isEngineEstimate: false, laborOnly: false as const, from: flat };
+      const shopPrice = fixedPriceMap.get(String(service.id));
+      if (shopPrice) {
+        return {
+          low: shopPrice.lowDollars,
+          high: shopPrice.highDollars,
+          isFixed: shopPrice.isFixed,
+          isEngineEstimate: false,
+          laborOnly: false as const,
+          from: shopPrice.lowDollars,
+        };
       }
       const labor = getServiceLaborCost(service);
       // State 2: parts not priced for this vehicle → show labor as a floor
@@ -1002,7 +1016,7 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
             <View style={styles.totalHeader}>
               <Text size="md" weight="bold" color={BrandColors.primary}>
                 {breakdown.isLaborOnly ||
-                (hasAnyFixedPrice && breakdown.rangeLow === breakdown.rangeHigh)
+                breakdown.rangeLow === breakdown.rangeHigh
                   ? "Estimated price"
                   : "Estimated price range"}
               </Text>
