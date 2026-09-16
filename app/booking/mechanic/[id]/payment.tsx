@@ -29,7 +29,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 
 // 3. Shared UI (design system)
-import { BrandColors, ErrorOccurredModal, EstimatePill, FixedPriceBadge, Spacing, Text } from "@/components/shared-ui";
+import { BrandColors, ErrorOccurredModal, EstimatePill, Spacing, Text } from "@/components/shared-ui";
 
 // 4. Flow-specific components
 import { BookingPageHeader } from "@/components/booking/pages";
@@ -590,8 +590,7 @@ export default function PaymentScreen() {
   // intentionally exclude:
   //   - 'awd_surcharge_applied'  — engine applied a known +10% multiplier;
   //                                the price is correct, not an estimate
-  //   - 'fixed_price_override'   — guaranteed flat price; FixedPriceBadge
-  //                                already conveys this
+  //   - 'fixed_price_override'   — guaranteed flat price
   //   - 'ccb_absolute_pricing'   — fixed CCB price from absolute table
   //   - 'spread_exceeded'        — engine's own audit signal, not customer-
   //                                facing context
@@ -1008,8 +1007,7 @@ export default function PaymentScreen() {
             <>
               {/* Tire/rotor quote acceptance: these are the shop's actual
                   agreed-upon line items, not a live-computed estimate — no
-                  ranges, no FixedPriceBadge (the whole card is a fixed
-                  price). */}
+                  range pill (the whole card is a fixed price). */}
               {quoteAcceptContext.lineItems.map((item, idx) => (
                 <View key={`quote-line-${idx}`} style={styles.serviceRow}>
                   <Text size="sm" weight="medium" color={BrandColors.primary}>
@@ -1055,9 +1053,6 @@ export default function PaymentScreen() {
                   <Text size="md" weight="bold" color={BrandColors.primary}>
                     Total
                   </Text>
-                  <View style={styles.totalHeaderBadges}>
-                    <FixedPriceBadge size="sm" />
-                  </View>
                 </View>
                 <Text
                   size="2xl"
@@ -1105,7 +1100,6 @@ export default function PaymentScreen() {
                 </Text>
                 <View style={styles.summaryLineRight}>
                   {breakdown.isLaborOnly && <EstimatePill size="sm" label="Labor only" />}
-                  {hasAnyFixedPrice && <FixedPriceBadge size="sm" />}
                   <Text size="sm" weight="bold" color={BrandColors.secondary} numberOfLines={1}>
                     {breakdown.isLaborOnly ? breakdown.rangeFromFormatted : breakdown.rangeFormatted}
                   </Text>
@@ -1127,7 +1121,6 @@ export default function PaymentScreen() {
                   <Text size="sm" weight="medium" color={BrandColors.primary}>
                     {service.name}
                   </Text>
-                  {lineRange.isFixed && <FixedPriceBadge size="sm" />}
                   {lineRange.laborOnly && <EstimatePill size="sm" label="Labor only" />}
                   {lineDurationLabel ? (
                     <Text size="sm" weight="regular" color="#6B7280">
@@ -1192,7 +1185,7 @@ export default function PaymentScreen() {
                   // column reads "Included" instead of a dollar amount, since
                   // the price contract is the flat shown in the summary row
                   // above. With no priced-parts data we render nothing extra
-                  // and let the FixedPriceBadge row stand alone.
+                  // and let the summary row stand alone.
                   const isFixedLine = fixedPriceMap.has(String(service.id));
                   const priced = pricedPartsMap.get(String(service.id));
                   if (!priced || !priced.winner) return [];
@@ -1788,12 +1781,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: Spacing.sm,
-    flexWrap: "wrap",
-  },
-  totalHeaderBadges: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.xs,
     flexWrap: "wrap",
   },
   // Retained for back-compat; new stacked layout uses `totalHeader`.

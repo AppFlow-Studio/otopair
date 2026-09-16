@@ -33,7 +33,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 
 // 3. Shared UI (design system)
-import { BrandColors, EstimatePill, FixedPriceBadge, Spacing, Text } from "@/components/shared-ui";
+import { BrandColors, EstimatePill, Spacing, Text } from "@/components/shared-ui";
 import { AppleIcon } from "@/components/icons/apple";
 
 // 4. Constants, hooks, types
@@ -563,7 +563,7 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
   const setDisclosedRangeIsEstimate = useBookingStore((s) => s.setDisclosedRangeIsEstimate);
   // Only flags that *actually* mean the displayed band is uncertain. We
   // intentionally exclude awd_surcharge_applied (real +10%), fixed_price_override
-  // (FixedPriceBadge covers it), ccb_absolute_pricing (fixed CCB), spread_exceeded
+  // (a guaranteed flat amount), ccb_absolute_pricing (fixed CCB), spread_exceeded
   // (engine self-audit). Without this allowlist the pill fires on every booking.
   const ESTIMATE_TRIGGERING_FLAGS = new Set([
     "tier_estimate",
@@ -812,7 +812,6 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
                   <Text size="sm" weight="medium" color={BrandColors.primary}>
                     {service.name}
                   </Text>
-                  {lineRange.isFixed && <FixedPriceBadge size="sm" />}
                   {lineRange.laborOnly && <EstimatePill size="sm" label="Labor only" />}
                   {lineDurationLabel ? (
                     <Text size="sm" weight="regular" color="#6B7280">
@@ -878,7 +877,7 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
                   // column reads "Included" instead of a dollar amount, since
                   // the price contract is the flat shown in the summary row
                   // above. With no priced-parts data we render nothing extra
-                  // and let the FixedPriceBadge row stand alone.
+                  // and let the summary row stand alone.
                   const isFixedLine = fixedPriceMap.has(String(service.id));
                   const priced = pricedPartsMap.get(String(service.id));
                   if (!priced || !priced.winner) return [];
@@ -1022,7 +1021,6 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
               </Text>
               <View style={styles.totalHeaderBadges}>
                 {breakdown.isLaborOnly && <EstimatePill size="sm" label="Labor only" />}
-                {hasAnyFixedPrice && <FixedPriceBadge size="sm" />}
                 {dealerSavings !== null && (
                   <View style={styles.savingsBadge}>
                     <Text size="xs" weight="semiBold" color={BrandColors.secondary}>
