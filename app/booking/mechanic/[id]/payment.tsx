@@ -1433,7 +1433,9 @@ export default function PaymentScreen() {
       <PaymentMethodModal
         visible={paymentModalVisible}
         onClose={() => setPaymentModalVisible(false)}
-        totalAmount={isQuoteAccept && quoteBreakdown ? quoteBreakdown.total : breakdown.total}
+        // No totalAmount: the price contract is the disclosed range shown on
+        // this screen. Surfacing the single midpoint here (= the shop's
+        // total_cost) contradicted that range, so the picker stays price-free.
         serviceSummary={selectedServices[0]?.name ?? "Your booking"}
         mechanicName={mechanicDisplayName}
         applePaySupported={applePaySupported}
