@@ -33,6 +33,9 @@ function build(opts: {
     vehicleYear: opts.year,
     now: NOW,
     currentOdometer: opts.odometer,
+    // No OEM intervals here: this suite exercises the class-table fallback.
+    // Explicit opt-out — the input is required on BuildMergedMaintenanceInput.
+    oemIntervals: undefined,
     scopeId: "v",
     classCtx: CLASS_B as never,
     records: [
