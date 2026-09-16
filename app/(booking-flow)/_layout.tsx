@@ -7,7 +7,9 @@ import { EnrichmentStatusPill } from "@/components/booking-flow/EnrichmentStatus
 import { AddVehicleRequiredSheet } from "@/components/home/AddVehicleRequiredSheet";
 import type { FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
 import { BrandColors } from "@/constants/theme";
+import { useMechanicsFromConvex } from "@/hooks/useMechanicsFromConvex";
 import { useServicesFromConvex } from "@/hooks/useServicesFromConvex";
+import { useShopsFromConvex } from "@/hooks/useShopsFromConvex";
 import { useVehicleOwnershipFromConvex } from "@/hooks/useVehicleOwnershipFromConvex";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
@@ -40,6 +42,12 @@ export default function BookingFlowLayout() {
    * caller is free.
    */
   useServicesFromConvex();
+  // Same story for shops and mechanics: home/_layout and booking/_layout
+  // hydrated them, this group did not, so Choose Mechanic sat on "Finding
+  // shops near you…" forever whenever the flow was reached without passing
+  // through one of those first.
+  useShopsFromConvex();
+  useMechanicsFromConvex();
 
   const { hasVehicles, isLoading } = useVehicleOwnershipFromConvex();
 

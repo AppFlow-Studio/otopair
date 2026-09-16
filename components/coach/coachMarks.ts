@@ -49,6 +49,7 @@ export type CoachRoute =
   // The booking flow. These are group-less paths — `(booking-flow)` is a
   // layout group, so it never appears in `usePathname`.
   | "/select-services"
+  | "/category"
   | "/choose-mechanic"
   | "/pick-datetime";
 
@@ -65,12 +66,13 @@ export interface CoachMark {
   placement: "below" | "above";
   trigger: CoachTrigger;
   /**
-   * Whether the hint swallows taps outside its target. Default true.
+   * Whether the hint swallows taps outside its target. Default true; every
+   * mark today sets it false.
    *
-   * False for the booking walkthrough: those hints sit over a flow the
-   * driver is actively working through, and blocking would force a "Got it"
-   * before every single action. Non-blocking means the hint dims and
-   * explains while they carry on tapping.
+   * A hint that blocks the control it is pointing at is a strange thing: tap
+   * the search bar it is describing and the only thing that happens is the
+   * hint goes away. Non-blocking means the real control fires, the driver
+   * gets where they were going, and the hint counts itself acknowledged.
    */
   blocking?: boolean;
 }
@@ -78,6 +80,7 @@ export interface CoachMark {
 export const COACH_MARKS: readonly CoachMark[] = [
   {
     id: "search",
+    blocking: false,
     target: "home.search",
     route: "/home",
     title: "Find a shop you can trust",
@@ -87,6 +90,7 @@ export const COACH_MARKS: readonly CoachMark[] = [
   },
   {
     id: "health",
+    blocking: false,
     target: "cars.health",
     route: "/cars",
     title: "Your car's health, at a glance",
@@ -107,6 +111,16 @@ export const COACH_MARKS: readonly CoachMark[] = [
     title: "Start with what it needs",
     body: "Pick the services you want — or tap a category to browse. You can choose more than one.",
     placement: "above",
+    trigger: "has_vehicle",
+  },
+  {
+    id: "book_services_detail",
+    blocking: false,
+    target: "booking.serviceList",
+    route: "/category",
+    title: "Add what you need",
+    body: "Tap a service to add it — the cart at the bottom keeps count. The \u201c?\u201d on each row explains what the job actually involves.",
+    placement: "below",
     trigger: "has_vehicle",
   },
   {
@@ -131,6 +145,7 @@ export const COACH_MARKS: readonly CoachMark[] = [
   },
   {
     id: "live",
+    blocking: false,
     target: "bookings.live",
     route: "/bookings",
     // Deliberately not "watch it happen" any more. This now fires on a

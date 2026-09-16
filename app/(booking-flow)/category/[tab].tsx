@@ -75,6 +75,7 @@ import { useBookingStore } from "@/stores/useBookingStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 import { useShopStore } from "@/stores/useShopStore";
 import { hasConsistentBasketVehicle } from "@/utils/bookingVehicle";
+import { useCoachAnchor } from "@/components/coach/useCoachAnchor";
 
 // Fixed-height frosted sheet — content scrolls inside, sheet itself
 // doesn't move. Mirrors Screen 1 (select-services.tsx). Previously a
@@ -111,6 +112,8 @@ const VALID_TABS = new Set<TaxonomyTab>([
 ]);
 
 export default function CategoryDetailScreen() {
+  const serviceListAnchor = useCoachAnchor("booking.serviceList", 22);
+
   const router = useRouter();
   const insets = useSafeAreaInsets();
   // The sheet is bottom-anchored at 92% height, so its top edge lands
@@ -626,7 +629,7 @@ export default function CategoryDetailScreen() {
                 the regular Choose Mechanic surface. */}
             <PinnedShopChip />
 
-            <View style={styles.list}>
+            <View style={styles.list} {...serviceListAnchor}>
               {filteredServices.map((svc) => {
                 const slug = svc.slug;
                 if (!slug) return null;
