@@ -38,6 +38,7 @@ interface MechanicOption {
   /** Earliest-slot caption, e.g. "Fri · 6:30 PM" or "Earliest availability". */
   slotLabel: string;
   verified?: boolean;
+  isBay?: boolean;
 }
 
 interface ShopPageProps {
@@ -138,6 +139,7 @@ export function ShopPage({
         photoUrl: mech.photoUrl,
         slotLabel: earliest ? slotShort(earliest) : "No open times",
         verified: mech.isVerified,
+        isBay: mech.isBay,
       });
     }
     return opts;
@@ -147,6 +149,9 @@ export function ShopPage({
     () => mechanicOptions.filter((o) => o.mechanicId !== null),
     [mechanicOptions],
   );
+  const hasBay = realMechanics.some((o) => o.isBay);
+  const entityWord = hasBay ? "mechanic or bay" : "mechanic";
+  const entityWordPlural = hasBay ? "mechanics or bays" : "mechanics";
 
   // The earliest bookable slot for the current mechanic choice — drives the
   // big RECOMMENDED day/time. "Any" uses the shop's next slot; a specific
@@ -229,7 +234,7 @@ export function ShopPage({
           accessibilityLabel={
             selectedOption && selectedOption.mechanicId
               ? `Mechanic: ${selectedOption.name}. Tap to change.`
-              : `Any of ${realMechanics.length} mechanics. Tap to pick a specific one.`
+              : `Any of ${realMechanics.length} ${realMechanics.length === 1 ? entityWord : entityWordPlural}. Tap to pick a specific one.`
           }
         >
           {selectedOption && selectedOption.mechanicId ? (
@@ -250,7 +255,7 @@ export function ShopPage({
             ) : (
               <>
                 <Text size="md" weight="bold" color="#0F172A" numberOfLines={1}>
-                  Any of {realMechanics.length} mechanic{realMechanics.length === 1 ? "" : "s"}
+                  Any of {realMechanics.length} {realMechanics.length === 1 ? entityWord : entityWordPlural}
                 </Text>
                 <Text size="xs" weight="medium" color="#6B7280" numberOfLines={1}>
                   Pick a specific one

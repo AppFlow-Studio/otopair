@@ -25,6 +25,8 @@ export interface MechanicCarouselItem {
   slotLabel: string;
   /** Show the verified check on real mechanics. */
   verified?: boolean;
+  /** True when this card is a bay rather than a named mechanic. */
+  isBay?: boolean;
 }
 
 interface MechanicCarouselProps {

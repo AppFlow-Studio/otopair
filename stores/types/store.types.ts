@@ -148,6 +148,8 @@ export interface Mechanic {
   shopReviewCount?: number;
   /** Whether the mechanic is verified */
   isVerified: boolean;
+  /** True when this entry is a bay rather than a named mechanic. */
+  isBay?: boolean;
   /** Distance in miles from user */
   distanceMi: number;
   /** Services offered (display names) */
