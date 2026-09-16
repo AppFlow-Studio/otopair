@@ -335,9 +335,12 @@ export function CoachOverlay({
         <AnimatedPath animatedProps={pathProps} fill={INK} fillOpacity={0.72} fillRule="evenodd" />
       </Svg>
 
-      {/* Swallows every tap that is not on the target. Without it the driver
-          wanders off mid-tour and the spotlight points at a dead screen. */}
-      <Pressable style={StyleSheet.absoluteFill} onPress={() => {}} accessible={false} />
+      {/* Swallows every tap that is not on the target — unless the mark is
+          non-blocking, in which case the driver is meant to keep working and
+          the hint is only there to explain. */}
+      {step.blocking === false ? null : (
+        <Pressable style={StyleSheet.absoluteFill} onPress={() => {}} accessible={false} />
+      )}
 
       {hole ? (
         <>
@@ -362,15 +365,17 @@ export function CoachOverlay({
               { left: hole.x, top: hole.y, width: hole.w, height: hole.h, borderRadius: hole.r },
             ]}
           />
-          {/* Tapping the spotlit element advances. It sits OVER the hole
-              rather than forwarding the touch to the real control: firing the
-              live action and advancing would navigate away mid-tour. */}
+          {/* Tap-to-dismiss sits OVER the hole, so the real control never
+              fires by accident. A non-blocking mark skips it entirely — there
+              the point is that the real control DOES fire. */}
+          {step.blocking === false ? null : (
           <Pressable
             onPress={tap(onDismiss)}
             style={{ position: "absolute", left: hole.x, top: hole.y, width: hole.w, height: hole.h }}
             accessibilityRole="button"
             accessibilityLabel={`${step.title}. Tap to dismiss`}
           />
+          )}
         </>
       ) : null}
 

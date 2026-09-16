@@ -7,6 +7,7 @@ import { EnrichmentStatusPill } from "@/components/booking-flow/EnrichmentStatus
 import { AddVehicleRequiredSheet } from "@/components/home/AddVehicleRequiredSheet";
 import type { FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
 import { BrandColors } from "@/constants/theme";
+import { useServicesFromConvex } from "@/hooks/useServicesFromConvex";
 import { useVehicleOwnershipFromConvex } from "@/hooks/useVehicleOwnershipFromConvex";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
@@ -28,6 +29,18 @@ import { useVehicleStore } from "@/stores/useVehicleStore";
  * (no map) just paints its own opaque background over it.
  */
 export default function BookingFlowLayout() {
+  /**
+   * Hydrate the service catalog for this group.
+   *
+   * `availableServices` was only ever filled by home/_layout and
+   * booking/_layout, so the flow relied on having passed through one of them
+   * first. Reached any other way — a deep link, or a return after the store
+   * was cleared — every category read "0 services" over a catalog that had
+   * simply never loaded. The hook is a query plus an effect, so a second
+   * caller is free.
+   */
+  useServicesFromConvex();
+
   const { hasVehicles, isLoading } = useVehicleOwnershipFromConvex();
 
   // Cart-vehicle guard. The cart (`selectedServiceIds`) is snapshotted to

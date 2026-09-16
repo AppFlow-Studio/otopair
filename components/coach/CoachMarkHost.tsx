@@ -18,7 +18,7 @@
  * screen that is still travelling.
  */
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { usePathname } from "expo-router";
 import { useQuery } from "convex/react";
@@ -182,6 +182,33 @@ export function CoachMarkHost() {
   }, [candidate]);
 
   const showing = !!candidate && candidate.id !== skipped && !!rect;
+
+  /**
+   * Acting on a non-blocking hint counts as acknowledging it.
+   *
+   * The booking hints let the driver keep tapping, so tapping a category
+   * takes them to the next screen — and without this the hint vanished with
+   * the route and came straight back when they stepped back. Once they have
+   * moved on from the screen a hint is about, that hint is done.
+   *
+   * Only non-blocking marks: the others swallow taps, so leaving their
+   * screen is not something the driver can do by accident.
+   */
+  const shownId = useRef<string | null>(null);
+  useEffect(() => {
+    if (showing && candidate?.blocking === false) shownId.current = candidate.id;
+  }, [showing, candidate]);
+
+  useEffect(() => {
+    const id = shownId.current;
+    if (!id) return;
+    const mark = COACH_MARKS.find((m) => m.id === id);
+    if (!mark || (pathname && pathname.startsWith(mark.route))) return;
+    shownId.current = null;
+    setSeen((prev) => ({ ...(prev ?? {}), [id]: true }));
+    if (FORCE_COACH_MARKS_EVERY_LAUNCH) return;
+    void markCoachSeen(id);
+  }, [pathname]);
   if (!showing || !candidate) return null;
 
   return (

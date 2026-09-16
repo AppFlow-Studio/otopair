@@ -64,6 +64,15 @@ export interface CoachMark {
   /** Preferred side. The overlay flips it when the target sits near an edge. */
   placement: "below" | "above";
   trigger: CoachTrigger;
+  /**
+   * Whether the hint swallows taps outside its target. Default true.
+   *
+   * False for the booking walkthrough: those hints sit over a flow the
+   * driver is actively working through, and blocking would force a "Got it"
+   * before every single action. Non-blocking means the hint dims and
+   * explains while they carry on tapping.
+   */
+  blocking?: boolean;
 }
 
 export const COACH_MARKS: readonly CoachMark[] = [
@@ -92,6 +101,7 @@ export const COACH_MARKS: readonly CoachMark[] = [
   // so the walkthrough IS the booking rather than a rehearsal of it.
   {
     id: "book_services",
+    blocking: false,
     target: "booking.services",
     route: "/select-services",
     title: "Start with what it needs",
@@ -101,6 +111,7 @@ export const COACH_MARKS: readonly CoachMark[] = [
   },
   {
     id: "book_shop",
+    blocking: false,
     target: "booking.shops",
     route: "/choose-mechanic",
     title: "Compare real shops",
@@ -110,6 +121,7 @@ export const COACH_MARKS: readonly CoachMark[] = [
   },
   {
     id: "book_confirm",
+    blocking: false,
     target: "booking.confirm",
     route: "/pick-datetime",
     title: "Check this before you commit",
