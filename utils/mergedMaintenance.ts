@@ -311,6 +311,18 @@ function buildMinorItems(
   return out;
 }
 
+/**
+ * NOTE ON REQUIREDNESS — the four fields below are deliberately NOT optional.
+ *
+ * They used to be `?`, which meant a new signal could be wired into the Cars
+ * ring and silently skipped by Oto's server-side merge: nothing failed to
+ * compile, no test broke, and Oto quietly reported a narrower item set than the
+ * Cars page. That is exactly how the catalog-coverage drift happened.
+ *
+ * Required (value may still be `undefined`) turns that into a compile error at
+ * every call site, forcing an explicit "pass it, or explicitly opt out" per
+ * caller. If you add a new merge input, add it here as REQUIRED too.
+ */
 export interface BuildMergedMaintenanceInput {
   /** Per-type items already computed from the user's maintenance_records
    *  (buildMaintenanceItems output). */
@@ -329,20 +341,20 @@ export interface BuildMergedMaintenanceInput {
   /** Current odometer in miles. Enables the anchored mileage signal pill and,
    *  together with `oemIntervals`, the from-odometer catalog coverage pass.
    *  Omit (as Oto's server-side score does) to keep the anchored-only merge. */
-  currentOdometer?: number | null;
+  currentOdometer: number | null | undefined;
   /** Slug-keyed OEM intervals from the v3 enrichment pipeline. Drives the
    *  interval signal pill and the catalog coverage pass (Behaviors #6/#7). */
-  oemIntervals?: OemServiceIntervalsInput;
+  oemIntervals: OemServiceIntervalsInput | undefined;
   /** Resolve a catalog service id to its taxonomy slug. Supplied by the app
    *  (which has the services catalog in the booking store) and omitted by
    *  Oto's server-side merge. Used only to suppress a minor eye-check card
    *  when a recommendation already covers the same remedy — without it, both
    *  cards render, which is the pre-existing behaviour. */
-  serviceSlugById?: (serviceId: string) => string | undefined;
+  serviceSlugById: ((serviceId: string) => string | undefined) | undefined;
   /** Vehicle class + turbo/drivetrain, so the catalog pass can fall back to
    *  the class default table when enrichment has not produced an interval.
    *  Omit (as Oto's server-side merge does) to keep the enrichment-only set. */
-  classCtx?: IntervalClassContext;
+  classCtx: IntervalClassContext | undefined;
 }
 
 /**
