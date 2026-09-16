@@ -85,14 +85,20 @@ export default function BookingFlowLayout() {
       <Stack
         screenOptions={{
           headerShown: false,
-          // Calm cross-fade over the shared static map. A horizontal
-          // slide fought the Screen 1→2 shared-element morph (the
-          // category icon/title lifting into the header) by dragging
-          // the morphing element along the slide path; a fade lets the
-          // morph be the only motion, so the flow reads as content
-          // swapping in place rather than screens shoving each other.
-          animation: "fade",
-          animationDuration: 320,
+          // No transition between screens.
+          //
+          // Every screen here is `contentStyle: transparent` so it can
+          // sit over the shared map. That makes a cross-fade reveal the
+          // whole stack at once rather than blending two screens: at 50%
+          // opacity the frosted sheets stop hiding anything and the map,
+          // the outgoing screen and the search screen all show through
+          // together. It reads as text sliding around behind glass.
+          //
+          // Screens 1 and 2 are the same sheet — bottom-anchored, 92%
+          // tall, same corner radius — so with no animation the frame
+          // simply stays put and its contents change, which is what a
+          // drill-down inside one sheet should look like.
+          animation: "none",
           gestureEnabled: true,
           gestureDirection: "horizontal",
           contentStyle: { backgroundColor: "transparent" },

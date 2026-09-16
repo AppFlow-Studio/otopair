@@ -34,7 +34,6 @@ import {
   type LucideIcon,
 } from "lucide-react-native";
 
-import { categoryTitleTransition } from "@/components/booking-flow/CategoryListRow";
 import { FlyToCartGhost } from "@/components/booking-flow/FlyToCartGhost";
 import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
@@ -94,9 +93,8 @@ const FAB_SIZE = 56;
 const FAB_RIGHT_INSET = 16;
 const FAB_BOTTOM_ABOVE_INSETS = 96;
 
-// Same icon mapping as CategoryListRow so the shared-element
-// morph between Screen 1's row and Screen 2's header lands on a
-// matching glyph.
+// Same icon mapping as CategoryListRow so the row and this header
+// show the same glyph for a tab.
 const TAB_ICONS: Record<TaxonomyTab, LucideIcon> = {
   routine_upkeep: Wrench,
   tires_brakes: CircleDot,
@@ -598,19 +596,13 @@ export default function CategoryDetailScreen() {
                 <View style={styles.headerTitleRow}>
                   <Animated.View
                     style={styles.headerIconTile}
-                    sharedTransitionTag={`cat-icon-${tabKey}`}
-                    sharedTransitionStyle={categoryTitleTransition}
                   >
                     {(() => {
                       const Icon = TAB_ICONS[tabKey];
                       return <Icon size={22} color="#4B5563" strokeWidth={2} />;
                     })()}
                   </Animated.View>
-                  <Animated.Text
-                    sharedTransitionTag={`cat-title-${tabKey}`}
-                    sharedTransitionStyle={categoryTitleTransition}
-                    style={styles.titleTarget}
-                  >
+                  <Animated.Text style={styles.titleTarget}>
                     {tab.label}
                   </Animated.Text>
                 </View>
