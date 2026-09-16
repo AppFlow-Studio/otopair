@@ -14,8 +14,6 @@
  *            what a new driver is here to do.
  *   health   the first time they have a car to score.
  *   live     the first time they have a booking to track.
- *   oto      the first time they open the Oto tab THEMSELVES. Nothing drags
- *            them there; if they never go, they never see it.
  *
  * Each is independent: its own trigger, its own seen-flag, no ordering
  * between them and no counter. A driver who books before adding a car gets
@@ -39,10 +37,20 @@ export type CoachTrigger =
   | "first_vehicle"
   /** They have at least one booking. */
   | "first_booking"
+  /** They own a car, so a service is actually bookable for it. */
+  | "has_vehicle"
   /** They navigated to the screen under their own steam. */
   | "first_visit";
 
-export type CoachRoute = "/home" | "/cars" | "/bookings" | "/ai-chat";
+export type CoachRoute =
+  | "/home"
+  | "/cars"
+  | "/bookings"
+  // The booking flow. These are group-less paths — `(booking-flow)` is a
+  // layout group, so it never appears in `usePathname`.
+  | "/select-services"
+  | "/choose-mechanic"
+  | "/pick-datetime";
 
 export interface CoachMark {
   /** Also the storage key suffix — changing it re-shows the mark. */
@@ -77,6 +85,38 @@ export const COACH_MARKS: readonly CoachMark[] = [
     placement: "below",
     trigger: "first_vehicle",
   },
+  // ── The booking walkthrough ──────────────────────────────────────────────
+  // One hint per step of the flow, each gated on owning a car — there is no
+  // point explaining how to book a service to someone with nothing to book
+  // it for. They fire as the driver reaches each screen for the first time,
+  // so the walkthrough IS the booking rather than a rehearsal of it.
+  {
+    id: "book_services",
+    target: "booking.services",
+    route: "/select-services",
+    title: "Start with what it needs",
+    body: "Pick the services you want — or tap a category to browse. You can choose more than one.",
+    placement: "above",
+    trigger: "has_vehicle",
+  },
+  {
+    id: "book_shop",
+    target: "booking.shops",
+    route: "/choose-mechanic",
+    title: "Compare real shops",
+    body: "Swipe between shops to see who covers everything you picked, and what each one charges. The map follows along.",
+    placement: "above",
+    trigger: "has_vehicle",
+  },
+  {
+    id: "book_confirm",
+    target: "booking.confirm",
+    route: "/pick-datetime",
+    title: "Check this before you commit",
+    body: "Your time, the price, and the cancellation window all sit here — nothing is charged until a mechanic has looked at the car.",
+    placement: "above",
+    trigger: "has_vehicle",
+  },
   {
     id: "live",
     target: "bookings.live",
@@ -88,15 +128,6 @@ export const COACH_MARKS: readonly CoachMark[] = [
     body: "Every update from the shop lands on this card — from confirmed, through the work itself, to ready for pickup.",
     placement: "below",
     trigger: "first_booking",
-  },
-  {
-    id: "oto",
-    target: "oto.ask",
-    route: "/ai-chat",
-    title: "Ask Oto anything",
-    body: "Describe a noise, a light, a smell — and get a straight answer before you pay anyone to look at it.",
-    placement: "above",
-    trigger: "first_visit",
   },
 ] as const;
 

@@ -102,6 +102,8 @@ export function CoachMarkHost() {
           return vehicleCount > 0;
         case "first_booking":
           return bookingCount > 0;
+        case "has_vehicle":
+          return vehicleCount > 0;
         case "first_visit":
           return true;
         default:

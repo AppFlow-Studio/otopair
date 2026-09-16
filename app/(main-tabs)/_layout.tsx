@@ -23,8 +23,6 @@ import { NotificationsSheet } from "@/components/notifications/NotificationsShee
 import { RescheduleDecisionOverlay } from "@/components/notifications/RescheduleDecisionOverlay";
 import { shouldRedirectSignedOutFromMainTabs } from "@/lib/auth-routing";
 import { SettingsOverlay } from "@/components/settings/SettingsOverlay";
-import { CoachProvider } from "@/components/coach/CoachContext";
-import { CoachMarkHost } from "@/components/coach/CoachMarkHost";
 import { OfflinePreload } from "@/components/connection/OfflinePreload";
 // OTA update banner only matters in EAS builds. In a local dev build
 // expo-updates' native module isn't linked, and the static import chain
@@ -106,7 +104,7 @@ function ProtectedTabLayout() {
   // Use custom tab bar for Android and iOS <= 25.
   if (!isIOS26OrNewer) {
     return (
-      <CoachProvider>
+      <>
         <HydrateBookingData />
         <OfflinePreload />
         <Tabs
@@ -133,13 +131,12 @@ function ProtectedTabLayout() {
         <SettingsOverlay />
         <UpdateAvailableBanner />
         <MainTabsEnrichmentPill />
-        <CoachMarkHost />
-      </CoachProvider>
+      </>
     );
   }
 
   return (
-    <CoachProvider>
+    <>
       <HydrateBookingData />
       <OfflinePreload />
       {/* Same TAB_ITEMS list the custom bar above uses — order, labels and
@@ -162,7 +159,6 @@ function ProtectedTabLayout() {
       <SettingsOverlay />
       <UpdateAvailableBanner />
       <MainTabsEnrichmentPill />
-      <CoachMarkHost />
-    </CoachProvider>
+    </>
   );
 }

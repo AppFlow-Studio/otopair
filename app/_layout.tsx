@@ -39,6 +39,8 @@ import { useRefreshPushToken } from "@/hooks/useRefreshPushToken";
 import { useOtopairDeepLinks } from "@/hooks/useOtopairDeepLinks";
 import { clearUserSessionState } from "@/lib/session-state";
 import { useAuthStore } from "@/stores/useAuthStore";
+import { CoachProvider } from "@/components/coach/CoachContext";
+import { CoachMarkHost } from "@/components/coach/CoachMarkHost";
 
 LogBox.ignoreLogs([
   /\[CONVEX M\([^\)]+\)\]/,
@@ -316,6 +318,11 @@ export default function RootLayout() {
                       text measurement against the fallback font (clipped labels
                       on slow cold starts). */}
                   <OfflineBootGate fontsReady={fontsReady}>
+                  {/* Coach marks live at the ROOT, not on the tab layout.
+                      The booking flow is its own group outside (main-tabs),
+                      so a host mounted there could never reach the screens
+                      the booking walkthrough points at. */}
+                  <CoachProvider>
                   <Stack
                     screenOptions={{
                       headerShown: false,
@@ -408,6 +415,8 @@ export default function RootLayout() {
                         inside the overlay (Saved Addresses, Payment
                         Methods, etc.) use the normal slide_from_right. */}
                   </Stack>
+                  <CoachMarkHost />
+                  </CoachProvider>
                   </OfflineBootGate>
                   <StatusBar style="auto" />
                 </ThemeProvider>

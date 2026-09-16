@@ -65,6 +65,8 @@ const MAX_TARGET_FRACTION = 0.45;
 const VIEWPORT_INSET = 8;
 /** Less of the element than this on screen and there is nothing to point at. */
 const MIN_VISIBLE = 44;
+/** Keep the tooltip this far from the screen edges. */
+const TIP_MARGIN = 56;
 
 const HOLE_MS = 420;
 const FADE_IN_MS = 260;
@@ -157,6 +159,9 @@ export function CoachOverlay({
    * stayed on screen and the tour appeared to be pointing at something
    * unrelated on a completely different tab.
    */
+  /** Measured tooltip height, so its position can be clamped on screen. */
+  const [tipH, setTipH] = useState(0);
+
   const [shown, setShown] = useState<{
     x: number;
     y: number;
@@ -299,6 +304,21 @@ export function CoachOverlay({
   const tipLeft = hole
     ? Math.max(16, Math.min(hole.x, SCREEN_W - TIP_W - 16))
     : (SCREEN_W - TIP_W) / 2;
+  /**
+   * Always positioned by `top`, and always clamped on screen.
+   *
+   * Placing an "above" hint with `bottom` meant a target that fills the
+   * screen — the booking flow's sheets do — pushed the whole card off the
+   * top, leaving just the "Got it" peeking over the status bar. A preference
+   * for a side is not a promise there is room on it.
+   */
+  const tipTop = (() => {
+    if (!hole) return SCREEN_H / 2 - 120;
+    const h = tipH || 190;
+    const wanted = below ? hole.y + hole.h + GAP : hole.y - GAP - h;
+    return Math.max(TIP_MARGIN, Math.min(wanted, SCREEN_H - h - TIP_MARGIN));
+  })();
+
   const caretLeft = hole
     ? Math.max(tipLeft + 18, Math.min(hole.x + 40, tipLeft + TIP_W - 36))
     : 0;
@@ -361,21 +381,17 @@ export function CoachOverlay({
             style={[
               styles.caret,
               below
-                ? { top: hole.y + hole.h + GAP - 10, left: caretLeft }
-                : { top: hole.y - GAP - 1, left: caretLeft, transform: [{ rotate: "180deg" }] },
+                ? { top: tipTop - 10, left: caretLeft }
+                : { top: tipTop + (tipH || 190) - 1, left: caretLeft, transform: [{ rotate: "180deg" }] },
             ]}
           />
         ) : null}
 
         <View
+          onLayout={(e) => setTipH(e.nativeEvent.layout.height)}
           style={[
             styles.tip,
-            { left: tipLeft },
-            hole
-              ? below
-                ? { top: hole.y + hole.h + GAP }
-                : { bottom: SCREEN_H - (hole.y - GAP) }
-              : { top: SCREEN_H / 2 - 120 },
+            { left: tipLeft, top: tipTop },
           ]}
           pointerEvents={waiting ? "none" : "auto"}
         >

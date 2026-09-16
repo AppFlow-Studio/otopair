@@ -74,6 +74,7 @@ import { useBookingStore } from "@/stores/useBookingStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 import { buildShopPriceLabel } from "@/lib/shopPriceLabel";
 import { weekdayLongFromISO } from "@/utils/timeSlotUtils";
+import { useCoachAnchor } from "@/components/coach/useCoachAnchor";
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
 const SCREEN_HEIGHT = Dimensions.get("window").height;
@@ -137,6 +138,8 @@ function formatBookingDate(iso: string): string {
 }
 
 export default function ChooseMechanicScreen() {
+  const shopsAnchor = useCoachAnchor("booking.shops", 22);
+
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
@@ -1017,6 +1020,7 @@ export default function ChooseMechanicScreen() {
       >
         <BottomSheetView
           style={[styles.sheetContent, { paddingBottom: SHEET_FOOTER_HEIGHT }]}
+          {...shopsAnchor}
         >
           {nearbyShops.length === 0 ? (
             <View style={styles.empty}>
