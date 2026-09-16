@@ -75,7 +75,7 @@ import { useBookingStore } from "@/stores/useBookingStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 import { useShopStore } from "@/stores/useShopStore";
 import { hasConsistentBasketVehicle } from "@/utils/bookingVehicle";
-import { useCoachAnchor } from "@/components/coach/useCoachAnchor";
+import { CoachTarget } from "@/components/coach/CoachTarget";
 
 // Fixed-height frosted sheet — content scrolls inside, sheet itself
 // doesn't move. Mirrors Screen 1 (select-services.tsx). Previously a
@@ -112,7 +112,6 @@ const VALID_TABS = new Set<TaxonomyTab>([
 ]);
 
 export default function CategoryDetailScreen() {
-  const serviceListAnchor = useCoachAnchor("booking.serviceList", 22);
 
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -629,8 +628,8 @@ export default function CategoryDetailScreen() {
                 the regular Choose Mechanic surface. */}
             <PinnedShopChip />
 
-            <View style={styles.list} {...serviceListAnchor}>
-              {filteredServices.map((svc) => {
+            <View style={styles.list}>
+              {filteredServices.map((svc, svcIdx) => {
                 const slug = svc.slug;
                 if (!slug) return null;
                 const entry = TAXONOMY[slug];
@@ -654,7 +653,7 @@ export default function CategoryDetailScreen() {
                   ? `About ${carDuration}`
                   : (entry.estTimeLabel ?? "");
 
-                return (
+                const row = (
                   <ServiceMultiSelectRow
                     key={svc.id}
                     slug={slug}
@@ -669,6 +668,19 @@ export default function CategoryDetailScreen() {
                       rowRefs.current.set(svc.id, node);
                     }}
                   />
+                );
+
+                // The coach hint points at ONE row, not the list. The list is
+                // as tall as the tab has services — on Scheduled service that
+                // is the whole screen, and a hole that size highlights
+                // everything and therefore nothing. One row shows the tap
+                // target and the "?" in the same breath.
+                return svcIdx === 0 ? (
+                  <CoachTarget key={svc.id} id="booking.serviceList" radius={18} insetX={20}>
+                    {row}
+                  </CoachTarget>
+                ) : (
+                  row
                 );
               })}
 
