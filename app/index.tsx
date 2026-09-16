@@ -12,14 +12,14 @@
  */
 
 import { useEffect, useRef } from "react";
-import { View, ActivityIndicator, StyleSheet } from "react-native";
+import { View, StyleSheet } from "react-native";
 import { useRootNavigationState, useSegments } from "expo-router";
 import { guardedRouter as router } from "@/lib/navigationLock";
 import { useAuth } from "@clerk/clerk-expo";
 import { useConvexAuth, useQuery } from "convex/react";
 import * as SecureStore from "expo-secure-store";
+import * as SplashScreen from "expo-splash-screen";
 import { api } from "@/convex/_generated/api";
-import { BrandColors } from "@/constants/theme";
 import { shouldRunStartupRedirect } from "@/lib/auth-routing";
 import { getOnboardingFinishedLaterKey } from "@/lib/onboarding-resume";
 
@@ -184,11 +184,28 @@ export default function Index() {
     })();
   }, [clerkUserId, isLoaded, isSignedIn, me, rawMe, rootNavigationReady, alreadyInApp]);
 
-  return (
-    <View style={styles.loading}>
-      <ActivityIndicator size="large" color={BrandColors.white} />
-    </View>
-  );
+  /**
+   * Hold the splash until this screen goes away.
+   *
+   * The splash used to lift as soon as fonts and Clerk were ready, but routing
+   * also waits on the Convex user record — so for that gap the driver got a
+   * third screen between the splash and Home: dark navy with a spinner, which
+   * then slid away. Hiding on unmount means the splash lifts at the exact
+   * moment we hand off to the real screen, and this one is never seen.
+   *
+   * StartupSplashGate keeps a timeout as a backstop, so a routing path that
+   * never resolves cannot strand anyone on a splash.
+   */
+  useEffect(() => {
+    return () => {
+      SplashScreen.hideAsync().catch(() => {});
+    };
+  }, []);
+
+  // Deliberately empty and splash-coloured rather than a spinner: with the
+  // splash held above it this is never visible, and if it ever does show it
+  // should read as the splash rather than as a fourth screen.
+  return <View style={styles.loading} />;
 }
 
 const styles = StyleSheet.create({
@@ -196,6 +213,9 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: BrandColors.primary,
+    // Matches the splash's background (app.json → expo-splash-screen), not the
+    // brand ink it used to use — the mismatch was what made the hand-off read
+    // as a separate screen.
+    backgroundColor: "#FFFFFF",
   },
 });

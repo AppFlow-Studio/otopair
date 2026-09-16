@@ -48,6 +48,10 @@ LogBox.ignoreLogs([
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
+/** Longest the splash may stay up after fonts + auth are ready. Safety net for
+ *  a routing path that never resolves; the normal hand-off is index unmounting. */
+const SPLASH_MAX_HOLD_MS = 4000;
+
 // Global error handler: log to Convex + show modal
 if (typeof global !== "undefined") {
   const ErrorUtils = (global as any).ErrorUtils;
@@ -160,12 +164,27 @@ function EnsureConvexUserRecord() {
 function StartupSplashGate({ children, fontsReady }: { children: ReactNode; fontsReady: boolean }) {
   const { isLoaded } = useAuth();
 
+  /**
+   * Backstop only. app/index.tsx hides the splash when it unmounts — that is
+   * the real hand-off, and it happens once routing has resolved.
+   *
+   * Hiding here the moment fonts and Clerk were ready used to be the whole
+   * story, but routing also waits on the Convex user record, so the splash
+   * lifted early and exposed the routing screen underneath for that gap.
+   *
+   * This timer exists so a routing path that never resolves — no network, a
+   * Convex query that never settles — cannot leave someone staring at a splash
+   * forever. If it fires, the screen behind is index's own splash-coloured
+   * view, which is why that view is no longer a dark spinner.
+   */
   useEffect(() => {
-    if (fontsReady && isLoaded) {
+    if (!fontsReady || !isLoaded) return;
+    const t = setTimeout(() => {
       SplashScreen.hideAsync().catch((err) => {
         console.error("SplashScreen.hideAsync failed", err);
       });
-    }
+    }, SPLASH_MAX_HOLD_MS);
+    return () => clearTimeout(t);
   }, [fontsReady, isLoaded]);
 
   return <>{children}</>;
