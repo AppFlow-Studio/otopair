@@ -41,12 +41,7 @@ import { FontFamily } from "@/constants/theme";
 import { OtoEasing } from "@/constants/animations";
 import { useReducedMotion } from "@/lib/accessibility";
 import type { CoachRect } from "./CoachContext";
-import {
-  COACH_STEPS,
-  COACH_STEP_COUNT,
-  coachProgressLabel,
-  isLastCoachStep,
-} from "./coachSteps";
+import type { CoachMark } from "./coachMarks";
 
 const AnimatedPath = Animated.createAnimatedComponent(Path);
 
@@ -98,24 +93,21 @@ function holePath(x: number, y: number, w: number, h: number, r: number) {
 
 interface CoachOverlayProps {
   visible: boolean;
-  index: number;
-  /** The rect for the current step, or null while we wait for it. */
+  /** The single hint being shown. */
+  mark: CoachMark;
+  /** Its target's measured rect, already settled by the caller. */
   rect: CoachRect | null;
-  onAdvance: () => void;
-  onBack: () => void;
-  onSkip: () => void;
+  onDismiss: () => void;
 }
 
 export function CoachOverlay({
   visible,
-  index,
+  mark,
   rect,
-  onAdvance,
-  onBack,
-  onSkip,
+  onDismiss,
 }: CoachOverlayProps) {
   const reduceMotion = useReducedMotion();
-  const step = COACH_STEPS[index];
+  const step = mark;
   const wantsTarget = !!step?.target;
 
   const hx = useSharedValue(SCREEN_W / 2);
@@ -176,7 +168,7 @@ export function CoachOverlay({
   useEffect(() => {
     setShown(null);
     settled.current = false;
-  }, [index]);
+  }, [mark.id]);
 
   useEffect(() => {
     if (!usable) return;
@@ -248,7 +240,7 @@ export function CoachOverlay({
       duration: reduceMotion ? 120 : FADE_IN_MS,
       easing: OtoEasing.enter,
     });
-  }, [visible, waiting, index, reduceMotion, copy]);
+  }, [visible, waiting, mark.id, reduceMotion, copy]);
 
   // The pulse is the affordance. Without it the highlight reads as decoration
   // and the driver waits for the tooltip to do something.
@@ -288,12 +280,10 @@ export function CoachOverlay({
 
   useEffect(() => {
     if (visible && !waiting && step) {
-      AccessibilityInfo.announceForAccessibility?.(
-        `${step.title}. ${step.body} ${coachProgressLabel(index) ?? ""}`,
-      );
+      AccessibilityInfo.announceForAccessibility?.(`${step.title}. ${step.body}`);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible, index, waiting]);
+  }, [visible, mark.id, waiting]);
 
   const tap = useCallback(
     (fn: () => void) => () => {
@@ -312,7 +302,7 @@ export function CoachOverlay({
   const caretLeft = hole
     ? Math.max(tipLeft + 18, Math.min(hole.x + 40, tipLeft + TIP_W - 36))
     : 0;
-  const advanceLabel = step.cta ?? (isLastCoachStep(index) ? "Finish" : "Next  \u2192");
+
 
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
@@ -356,10 +346,10 @@ export function CoachOverlay({
               rather than forwarding the touch to the real control: firing the
               live action and advancing would navigate away mid-tour. */}
           <Pressable
-            onPress={tap(onAdvance)}
+            onPress={tap(onDismiss)}
             style={{ position: "absolute", left: hole.x, top: hole.y, width: hole.w, height: hole.h }}
             accessibilityRole="button"
-            accessibilityLabel={`${step.title}. Tap to continue`}
+            accessibilityLabel={`${step.title}. Tap to dismiss`}
           />
         </>
       ) : null}
@@ -389,39 +379,20 @@ export function CoachOverlay({
           ]}
           pointerEvents={waiting ? "none" : "auto"}
         >
-          <Text style={styles.eyebrow}>
-            {isLastCoachStep(index) ? "DONE" : `STEP ${index + 1}`}
-          </Text>
           <Text style={styles.title}>{step.title}</Text>
           <Text style={styles.body}>{step.body}</Text>
-          {hole ? <Text style={styles.hint}>Tap the highlight to continue</Text> : null}
           <View style={styles.rule} />
-          <View style={styles.footer}>
-            {index > 0 ? (
-              <Pressable onPress={tap(onBack)} hitSlop={12} accessibilityRole="button">
-                <Text style={styles.back}>Back</Text>
-              </Pressable>
-            ) : (
-              <View style={styles.backSpacer} />
-            )}
-            <Text style={styles.count}>{`${index + 1} of ${COACH_STEP_COUNT}`}</Text>
-            <Pressable onPress={tap(onAdvance)} hitSlop={12} accessibilityRole="button">
-              <Text style={styles.next}>{advanceLabel}</Text>
+          {/* One hint, one way out. No Back and no "2 of 5" — these fire
+              independently now, so a counter would be counting something the
+              driver never agreed to sit through. */}
+          <View style={styles.footerSingle}>
+            <Pressable onPress={tap(onDismiss)} hitSlop={12} accessibilityRole="button">
+              <Text style={styles.next}>Got it</Text>
             </Pressable>
           </View>
         </View>
 
-        {!isLastCoachStep(index) ? (
-          <Pressable
-            onPress={tap(onSkip)}
-            hitSlop={16}
-            style={styles.skip}
-            accessibilityRole="button"
-            accessibilityLabel="Skip the tour"
-          >
-            <Text style={styles.skipText}>Skip tour</Text>
-          </Pressable>
-        ) : null}
+
       </Animated.View>
     </View>
   );
@@ -480,10 +451,9 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   rule: { height: 1, backgroundColor: DIM, marginTop: 14 },
-  footer: {
+  footerSingle: {
     flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
+    justifyContent: "flex-end",
     marginTop: 14,
   },
   back: { fontFamily: FontFamily.medium, fontSize: 15, color: "#99A1AB" },

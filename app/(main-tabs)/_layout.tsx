@@ -24,7 +24,7 @@ import { RescheduleDecisionOverlay } from "@/components/notifications/Reschedule
 import { shouldRedirectSignedOutFromMainTabs } from "@/lib/auth-routing";
 import { SettingsOverlay } from "@/components/settings/SettingsOverlay";
 import { CoachProvider } from "@/components/coach/CoachContext";
-import { CoachTour } from "@/components/coach/CoachTour";
+import { CoachMarkHost } from "@/components/coach/CoachMarkHost";
 import { OfflinePreload } from "@/components/connection/OfflinePreload";
 // OTA update banner only matters in EAS builds. In a local dev build
 // expo-updates' native module isn't linked, and the static import chain
@@ -133,7 +133,7 @@ function ProtectedTabLayout() {
         <SettingsOverlay />
         <UpdateAvailableBanner />
         <MainTabsEnrichmentPill />
-        <CoachTour />
+        <CoachMarkHost />
       </CoachProvider>
     );
   }
@@ -162,7 +162,7 @@ function ProtectedTabLayout() {
       <SettingsOverlay />
       <UpdateAvailableBanner />
       <MainTabsEnrichmentPill />
-      <CoachTour />
+      <CoachMarkHost />
     </CoachProvider>
   );
 }

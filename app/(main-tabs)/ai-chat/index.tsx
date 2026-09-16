@@ -97,8 +97,7 @@ import { useAction, useMutation, useQuery, useConvex } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id, Doc } from "@/convex/_generated/dataModel";
 import { CoachTarget } from "@/components/coach/CoachTarget";
-import { COACH_STEPS } from "@/components/coach/coachSteps";
-import { useCoachTourStore } from "@/stores/useCoachTourStore";
+import { useCoachMarkPending } from "@/components/coach/CoachMarkHost";
 
 // ============================================================================
 // CONSTANTS
@@ -166,16 +165,9 @@ function friendlyOtoError(err: unknown): string {
 
 export default function AIChatScreen() {
 
-  // Only while the spotlight tour is on the Oto step.
-
-  const coachRunning = useCoachTourStore((st) => st.running);
-
-  const coachIndex = useCoachTourStore((st) => st.index);
-
-  const showCoachOtoStep =
-
-    coachRunning && COACH_STEPS[coachIndex]?.id === "oto";
-
+  // The "Ask Oto" hint points at the composer, and the greeting hides it —
+  // so keep the composer mounted until that hint has been seen.
+  const showCoachOtoStep = useCoachMarkPending("oto");
 
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
