@@ -30,7 +30,6 @@ import {
 } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
-  Easing,
   runOnJS,
   useAnimatedStyle,
   useSharedValue,
@@ -39,7 +38,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { SpringConfig } from "@/constants/animations";
+import { OtoEasing, SpringConfig } from "@/constants/animations";
 import { BrandColors, FontFamily } from "@/constants/theme";
 import { PhoneMock } from "./PhoneMock";
 import { BookingsCrop } from "./crops/BookingsCrop";
@@ -65,9 +64,33 @@ const { width: SCREEN_W } = Dimensions.get("window");
  *  back. Below it the gesture reads as a peek rather than an intent. */
 const COMMIT_FRACTION = 0.35;
 
-const PHONE_OUT = 180;
-const PHONE_IN = 260;
+/**
+ * Step-to-step crossfade.
+ *
+ * Ahmad, 2026-09-15: the phone "disappears and then reappears way too fast."
+ * Length was half of it; the curve was the rest. Both halves used to run on
+ * Easing.bezier(0.16, 1, 0.3, 1) — a decelerate curve, which is right for
+ * something arriving and wrong for something leaving: its y reaches ~0.9 in
+ * the first fifth of the duration, so the phone was effectively gone about
+ * 50ms into a 180ms fade and then spent the rest of it invisible. That reads
+ * as a blink, not a transition.
+ *
+ * Now the exit accelerates (holds, then leaves) and only the entrance
+ * decelerates, both off the shared OtoEasing curves.
+ */
+/*
+ * These deliberately sit ABOVE the shared AnimationDuration scale, whose top
+ * end (otoTransition, 400ms) is tuned for a control responding to a tap. This
+ * is neither — it is a full-screen teaching beat where the reader is meant to
+ * watch one phone leave and another arrive, and at scale-appropriate speeds it
+ * reads as a flicker between two states rather than a movement between them.
+ */
+const PHONE_OUT = 450;
+const PHONE_IN = 700;
+/** Copy trails the phone in, so the art leads and the words follow. */
 const COPY_LAG = 60;
+/** Copy starts leaving slightly before the phone does. */
+const COPY_OUT_LEAD = 40;
 
 interface TutorialOverlayProps {
   visible: boolean;
@@ -150,8 +173,25 @@ export function TutorialOverlay({ visible, onDismiss, onAddCar }: TutorialOverla
     return () => clearTimeout(t);
   }, [visible, phone, copy]);
 
+  /** Swap the step while nothing is on screen. Nothing animates here. */
   const settle = useCallback((next: number) => {
     setIndex(next);
+  }, []);
+
+  /**
+   * Fired when the incoming phone has finished arriving — NOT when it starts.
+   *
+   * The crop's own story (HomeCrop drops a pin on a bouncy spring, then fades
+   * a card in) used to kick off at the same instant as the container's
+   * entrance, so a freshly-mounted subtree was running a spring and a timing
+   * curve inside a view that was itself still moving and fading. Two layers of
+   * motion over the same pixels reads as dropped frames even when nothing is
+   * actually dropping them.
+   *
+   * Unlocking here too: a second tap landing mid-entrance used to start a new
+   * exit from a half-arrived phone, which is the other way this looked broken.
+   */
+  const arrive = useCallback(() => {
     setBeatsPlaying(true);
     busy.current = false;
   }, []);
@@ -167,7 +207,9 @@ export function TutorialOverlay({ visible, onDismiss, onAddCar }: TutorialOverla
         // No translate, no scale, no springs — a crossfade and nothing else.
         phone.value = withTiming(0, { duration: 100 }, () => {
           runOnJS(settle)(next);
-          phone.value = withTiming(1, { duration: 100 });
+          phone.value = withTiming(1, { duration: 100 }, () => {
+            runOnJS(arrive)();
+          });
         });
         copy.value = withTiming(0, { duration: 100 }, () => {
           copy.value = withTiming(1, { duration: 100 });
@@ -175,19 +217,32 @@ export function TutorialOverlay({ visible, onDismiss, onAddCar }: TutorialOverla
         return;
       }
 
-      const ease = Easing.bezier(0.16, 1, 0.3, 1);
-      phone.value = withTiming(0, { duration: PHONE_OUT, easing: ease }, () => {
-        runOnJS(settle)(next);
-        phone.value = withTiming(1, { duration: PHONE_IN, easing: ease });
-      });
-      copy.value = withTiming(0, { duration: PHONE_OUT - 40, easing: ease }, () => {
-        copy.value = withTiming(1, {
-          duration: PHONE_IN - COPY_LAG,
-          easing: ease,
-        });
-      });
+      phone.value = withTiming(
+        0,
+        { duration: PHONE_OUT, easing: OtoEasing.exit },
+        () => {
+          runOnJS(settle)(next);
+          phone.value = withTiming(
+            1,
+            { duration: PHONE_IN, easing: OtoEasing.enter },
+            () => {
+              runOnJS(arrive)();
+            },
+          );
+        },
+      );
+      copy.value = withTiming(
+        0,
+        { duration: PHONE_OUT - COPY_OUT_LEAD, easing: OtoEasing.exit },
+        () => {
+          copy.value = withTiming(1, {
+            duration: PHONE_IN - COPY_LAG,
+            easing: OtoEasing.enter,
+          });
+        },
+      );
     },
-    [index, reduceMotion, phone, copy, settle],
+    [index, reduceMotion, phone, copy, settle, arrive],
   );
 
   const finish = useCallback(
@@ -252,7 +307,11 @@ export function TutorialOverlay({ visible, onDismiss, onAddCar }: TutorialOverla
       <View style={styles.root}>
         {/* Skip leads the focus order on purpose: someone reaching for the
             exit should not have to traverse the whole tour to find it. */}
-        {!isLastStep(index) && index !== 0 ? (
+        {/* The opening card used to carry its own "Skip for now", so the
+            header Skip was suppressed on index 0. With that card gone the
+            tour opens on a teaching step, and suppressing it there would
+            leave the first screen with no way out at all. */}
+        {!isLastStep(index) ? (
           <Pressable
             onPress={() => finish("skipped")}
             style={[styles.skip, { top: insets.top + 12 }]}
@@ -261,6 +320,22 @@ export function TutorialOverlay({ visible, onDismiss, onAddCar }: TutorialOverla
             accessibilityLabel="Skip the tour"
           >
             <Text style={styles.skipText}>Skip</Text>
+          </Pressable>
+        ) : null}
+
+        {/* Back mirrors Skip across the header. A right-swipe already went
+            back, but an invisible gesture is not an affordance — nobody
+            discovers it, and the dots imply a sequence you can move both ways
+            through. Hidden on the first step, where there is nowhere to go. */}
+        {index > 0 ? (
+          <Pressable
+            onPress={() => go(-1)}
+            style={[styles.back, { top: insets.top + 12 }]}
+            hitSlop={16}
+            accessibilityRole="button"
+            accessibilityLabel="Go back to the previous step"
+          >
+            <Text style={styles.skipText}>Back</Text>
           </Pressable>
         ) : null}
 
@@ -283,7 +358,7 @@ export function TutorialOverlay({ visible, onDismiss, onAddCar }: TutorialOverla
           </View>
         </GestureDetector>
 
-        <View style={[styles.footer, { paddingBottom: insets.bottom + 18 }]}>
+        <View style={[styles.footer, { paddingBottom: insets.bottom + 4 }]}>
           {counted >= 0 ? (
             <View
               style={styles.dots}
@@ -344,6 +419,7 @@ function Dot({ active, reduceMotion }: { active: boolean; reduceMotion: boolean 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: "#EFF4FA" },
   skip: { position: "absolute", right: 20, zIndex: 10, padding: 8 },
+  back: { position: "absolute", left: 20, zIndex: 10, padding: 8 },
   skipText: { fontFamily: FontFamily.medium, fontSize: 15, color: MUTED },
   body: { flex: 1, alignItems: "center", justifyContent: "center", gap: 44, paddingHorizontal: 40 },
   // Title and closing cards carry their own art; reserving the phone's height
@@ -385,5 +461,5 @@ const styles = StyleSheet.create({
   ctaPressed: { opacity: 0.9 },
   ctaText: { fontFamily: FontFamily.semiBold, fontSize: 16.5, color: "#FFFFFF" },
   secondary: { fontFamily: FontFamily.medium, fontSize: 15, color: MUTED },
-  secondarySpacer: { height: 18 },
+  secondarySpacer: { height: 8 },
 });

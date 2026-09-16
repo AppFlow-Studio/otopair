@@ -67,6 +67,9 @@ import { ReceiptSheet } from '@/components/receipts/ReceiptSheet';
 import { useMyBookingsWithDetails } from '@/hooks/useMyBookingsWithDetails';
 import { useUserFromConvex } from '@/hooks/useUserFromConvex';
 import { TutorialOverlay } from '@/components/tutorial/TutorialOverlay';
+import { FORCE_TUTORIAL_EVERY_LAUNCH, FORCE_COACH_MARKS_EVERY_LAUNCH } from '@/constants/devFlags';
+import { hasSeenCoachTour } from '@/components/coach/CoachTour';
+import { useCoachTourStore } from '@/stores/useCoachTourStore';
 import { useStagedLocation } from '@/hooks/useStagedLocation';
 import * as SecureStore from 'expo-secure-store';
 
@@ -130,6 +133,7 @@ import {
 } from "@/components/home/FinishCarSetupPickerSheet";
 import { LoyaltyCard } from "@/components/home/LoyaltyCard";
 import { MechanicSearchBar } from "@/components/home/MechanicSearchBar";
+import { useCoachAnchor } from "@/components/coach/useCoachAnchor";
 import { ServiceBundlesSection } from "@/components/home/ServiceBundlesSection";
 import { MoreServicesSection } from "@/components/home/MoreServicesSection";
 import { ProviderTypesSection } from "@/components/home/ProviderTypesSection";
@@ -441,10 +445,22 @@ export default function HomeScreen() {
   // signing in on a second device does not replay a tour already seen. `me`
   // is undefined while the query is in flight, and the `=== null` check below
   // is what keeps the overlay from flashing open in that window.
+  // Coach-mark anchors. These contribute no nodes and no styles; they
+  // ride on Views that already exist so the tour cannot move the very
+  // elements it is pointing at.
+  const searchAnchor = useCoachAnchor("home.search", 16);
+  const priorityAnchor = useCoachAnchor("home.priority", 22);
+  const startCoachTour = useCoachTourStore((s) => s.start);
+  const coachRunning = useCoachTourStore((s) => s.running);
   const markTutorialSeen = useMutation(api.users.markTutorialSeen);
   const [tutorialDismissed, setTutorialDismissed] = useState(false);
+  // FORCE_TUTORIAL_EVERY_LAUNCH (dev only) ignores the stamp so the tour
+  // replays on every reload while it is being worked on.
   const showTutorial =
-    !!me && (me as { tutorialSeenAt?: number }).tutorialSeenAt == null && !tutorialDismissed;
+    !!me &&
+    (FORCE_TUTORIAL_EVERY_LAUNCH ||
+      (me as { tutorialSeenAt?: number }).tutorialSeenAt == null) &&
+    !tutorialDismissed;
 
   // Settings' "Replay the app tour" clears the server stamp. Without this the
   // local dismissal from earlier in the SAME session would still be true and
@@ -455,12 +471,40 @@ export default function HomeScreen() {
     if (tutorialSeenAt == null) setTutorialDismissed(false);
   }, [tutorialSeenAt]);
 
+  /**
+   * The spotlight tour FOLLOWS the phone-mock tour rather than replacing it:
+   * the mock explains what Otopair does, this points at where it is.
+   *
+   * Gated on the phone tour being finished rather than chained to its
+   * dismiss callback, because the closing card's primary action is "Add my
+   * car" — that leaves Home entirely, and a tour started on the way out
+   * would spotlight a screen the driver is no longer looking at. Checking
+   * on focus instead means it waits for them to come back.
+   */
+  useEffect(() => {
+    if (showTutorial || coachRunning) return;
+    if (!FORCE_COACH_MARKS_EVERY_LAUNCH && tutorialSeenAt == null) return;
+    let cancelled = false;
+    (async () => {
+      const seen = FORCE_COACH_MARKS_EVERY_LAUNCH ? false : await hasSeenCoachTour();
+      if (cancelled || seen) return;
+      startCoachTour();
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [showTutorial, coachRunning, tutorialSeenAt, startCoachTour]);
+
   const dismissTutorial = useCallback(
     (_reason: 'completed' | 'skipped') => {
       // Local first so the overlay closes on the tap rather than on the round
       // trip. Skip and complete both stamp — a driver who dismissed the tour
       // has given their answer, and Settings keeps a manual way back in.
       setTutorialDismissed(true);
+      // Don't stamp while forcing — otherwise a testing account ends up
+      // marked as having seen a tour it is about to be shown again, and
+      // the flag has to be removed before the real gate can be trusted.
+      if (FORCE_TUTORIAL_EVERY_LAUNCH) return;
       void markTutorialSeen({}).catch(() => {});
     },
     [markTutorialSeen],
@@ -1414,6 +1458,11 @@ export default function HomeScreen() {
                     e.nativeEvent.layout.height + PINNED_SEARCH_ROW_PADDING;
                 }}
               >
+                {/* Anchored on the bar itself, not on searchContainer: that
+                    container is full-bleed with horizontal padding, so the
+                    hole ran edge to edge while the pill it was pointing at sat
+                    20pt inside it. */}
+                <View {...searchAnchor}>
                 <MechanicSearchBar
                   value={searchQuery}
                   onChangeText={setSearchQuery}
@@ -1422,6 +1471,7 @@ export default function HomeScreen() {
                   onPress={handleSearchPress}
                   placeholderPhrases={SEARCH_PLACEHOLDER_PHRASES}
                 />
+                </View>
               </View>
 
             {/* Content Area */}
@@ -1575,7 +1625,10 @@ export default function HomeScreen() {
                   Constant offset trimmed all the way (24 → -4) to absorb the
                   28 px carouselContainer.marginTop added above (NOW card
                   slides down without nudging this section). */}
-              <View style={{ marginTop: (visibleCardIds.length > 0 ? getCardMargin(activeCardIndex) : 0) - 4 }}>
+              <View
+                style={{ marginTop: (visibleCardIds.length > 0 ? getCardMargin(activeCardIndex) : 0) - 4 }}
+                {...priorityAnchor}
+              >
                 {hasVehicles ? (
                   <VehicleMaintenanceCard
                     vehicles={mappedVehicles.length > 0 ? mappedVehicles : undefined}

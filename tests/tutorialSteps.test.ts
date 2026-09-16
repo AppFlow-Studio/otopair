@@ -17,16 +17,23 @@ import {
 } from "@/components/tutorial/steps";
 
 describe("shape", () => {
-  it("is a title card, four teaching steps and a closing card", () => {
-    expect(TUTORIAL_STEPS).toHaveLength(6);
+  it("is four teaching steps and a closing card", () => {
+    // The opening "Take the tour / Skip for now" card was removed 2026-09-15;
+    // the tour now starts on the first teaching step.
+    expect(TUTORIAL_STEPS).toHaveLength(5);
     expect(COUNTED_STEP_COUNT).toBe(4);
   });
 
+  it("opens on a teaching step, not a card", () => {
+    expect(TUTORIAL_STEPS[0].counted).toBe(true);
+    expect(TUTORIAL_STEPS[0].crop).not.toBeNull();
+  });
+
   it("only counts the steps that teach something", () => {
-    // The cards at either end carry no dots: "1 of 6" under a title card
-    // promises a longer sit than the tour delivers.
-    expect(TUTORIAL_STEPS[0].counted).toBe(false);
+    // The closing card carries no dots: a filled progress bar next to "that's
+    // the tour" tells the driver something they can already see.
     expect(TUTORIAL_STEPS[TUTORIAL_STEPS.length - 1].counted).toBe(false);
+    expect(TUTORIAL_STEPS.filter((s) => s.counted)).toHaveLength(4);
   });
 
   it("gives every counted step a crop and every card its own art", () => {
@@ -53,12 +60,11 @@ describe("shape", () => {
 
 describe("counting", () => {
   it("numbers the teaching steps 0..3 in order", () => {
-    expect(TUTORIAL_STEPS.map((_, i) => countedIndexOf(i))).toEqual([-1, 0, 1, 2, 3, -1]);
+    expect(TUTORIAL_STEPS.map((_, i) => countedIndexOf(i))).toEqual([0, 1, 2, 3, -1]);
   });
 
-  it("returns -1 for the cards rather than a bogus position", () => {
-    expect(countedIndexOf(0)).toBe(-1);
-    expect(countedIndexOf(5)).toBe(-1);
+  it("returns -1 for the closing card rather than a bogus position", () => {
+    expect(countedIndexOf(TUTORIAL_STEPS.length - 1)).toBe(-1);
   });
 
   it("survives an out-of-range index", () => {
@@ -76,13 +82,12 @@ describe("what a screen reader hears matches what the dots show", () => {
   });
 
   it("counts from one, not from zero", () => {
-    expect(progressLabel(1)).toBe("Step 1 of 4");
-    expect(progressLabel(4)).toBe("Step 4 of 4");
+    expect(progressLabel(0)).toBe("Step 1 of 4");
+    expect(progressLabel(3)).toBe("Step 4 of 4");
   });
 
-  it("says nothing on the cards", () => {
-    expect(progressLabel(0)).toBeNull();
-    expect(progressLabel(5)).toBeNull();
+  it("says nothing on the closing card", () => {
+    expect(progressLabel(TUTORIAL_STEPS.length - 1)).toBeNull();
   });
 
   it("never announces a total that disagrees with COUNTED_STEP_COUNT", () => {

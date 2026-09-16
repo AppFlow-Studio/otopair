@@ -27,6 +27,7 @@ import Animated, {
 
 import { BrandColors, FontFamily } from "@/constants/theme";
 import { SCREEN_HEIGHT, SCREEN_WIDTH } from "../PhoneMock";
+import { SAMPLE_SHOP_NAME } from "@/components/tutorial/steps";
 
 const INK = BrandColors.primary;
 const ACCENT = BrandColors.secondary;
@@ -125,7 +126,7 @@ export function BookingsCrop({ play, reduceMotion }: { play: boolean; reduceMoti
     <View style={styles.root}>
       <View style={styles.card}>
         <Text style={styles.shop} numberOfLines={1}>
-          CHELALA SERVICE CENTER
+          {SAMPLE_SHOP_NAME}
         </Text>
         <Text style={styles.vehicle} numberOfLines={1}>
           Your 2020 Audi Q5
@@ -170,7 +171,13 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 8 },
     elevation: 7,
   },
-  shop: { fontFamily: FontFamily.semiBold, fontSize: 9.5, letterSpacing: 0.6, color: MUTED },
+  shop: {
+    fontFamily: FontFamily.semiBold,
+    fontSize: 9.5,
+    letterSpacing: 0.6,
+    color: MUTED,
+    textTransform: "uppercase",
+  },
   vehicle: { fontFamily: FontFamily.bold, fontSize: 14.5, color: INK },
   timeline: { gap: 11 },
   stageRow: { flexDirection: "row", alignItems: "center", gap: 9 },

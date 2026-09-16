@@ -75,6 +75,7 @@ import {
 } from '@/utils/healthScore';
 import { useQuery } from 'convex/react';
 import { api } from '@/convex/_generated/api';
+import { CoachTarget } from '@/components/coach/CoachTarget';
 
 
 // ============================================================================
@@ -2500,6 +2501,7 @@ export function CarCarousel({
 
         {/* Activity Rings - Vehicle Condition (hidden until onboarding is complete) */}
         {showHealthRing && (
+          <CoachTarget id="cars.health" radius={40}>
           <ActivityRings
             pending={healthScorePending}
             healthPercentage={overallCondition}
@@ -2509,6 +2511,7 @@ export function CarCarousel({
             onPress={() => setShowHealthModal(true)}
             isDarkBg={isDarkBg}
           />
+          </CoachTarget>
         )}
       </View>
 

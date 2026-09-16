@@ -69,7 +69,13 @@ describe("miles-only services report unknown", () => {
     (slug) => {
       const r = statusFor(slug);
       expect(r.status).toBe("unknown");
-      expect(r.description).toMatch(/scan/i);
+      // Re-baselined 2026-09-14. The row used to push straight to a scan; it
+      // now asks for the mileage first, because that is free and the driver
+      // may well know it. The scan is still offered by the card above the
+      // section. `unknownReason` is what the tracker keys the new
+      // "one more detail" group off.
+      expect(r.unknownReason).toBe("missing_mileage");
+      expect(r.description).toMatch(/mileage/i);
     },
   );
 

@@ -23,7 +23,7 @@
  */
 
 // 1. React & React Native
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Platform, Pressable, StyleSheet, View } from 'react-native';
 
 // 2. Expo & Third-party
@@ -103,6 +103,19 @@ export interface MaintenanceItem {
   id: string;
   serviceName: string;
   description: string;
+  /**
+   * WHY this row is unknown. Set only when `status === "unknown"`.
+   *
+   * Every unknown used to render the same grey line, so answering a question
+   * changed almost nothing on screen and read as the app ignoring the input
+   * (Yassin via Ahmad, 2026-09-14). `missing_mileage` means the driver DID
+   * answer and the answer was not enough on its own — a miles-only service
+   * given a date. Those rows move to their own section.
+   */
+  unknownReason?: "no_record" | "missing_mileage";
+  /** What they told us, already formatted — e.g. "March 2024". Echoed back so
+   *  the row visibly acknowledges the input it is asking to complete. */
+  capturedAnswer?: string;
   // e.g. "Mar 2025", "Aug 2025", "Unknown"
   detail: string;
   status: MaintenanceStatus;
@@ -569,6 +582,28 @@ function RecommendedLabel() {
   );
 }
 
+/**
+ * Subtitle for the diagnostic-scan card.
+ *
+ * It used to say "N services have no record on file" and count every unknown,
+ * which was wrong the moment a driver answered one — the row had their date on
+ * it and the card still claimed nothing was known. Counting the two states
+ * apart keeps the card honest and matches the sections above it.
+ */
+function scanCardSubtitle(unknownCount: number, needsInfoCount: number): string {
+  const noRecord =
+    unknownCount === 1 ? 'One service has no record on file' : `${unknownCount} services have no record on file`;
+  if (needsInfoCount <= 0) {
+    return `${noRecord}. A scan confirms what ${unknownCount === 1 ? 'it' : 'they'} actually ${unknownCount === 1 ? 'needs' : 'need'}.`;
+  }
+  const detail =
+    needsInfoCount === 1 ? 'one needs a mileage' : `${needsInfoCount} need a mileage`;
+  if (unknownCount <= 0) {
+    return `${needsInfoCount === 1 ? 'One service needs' : `${needsInfoCount} services need`} one more detail. A scan fills it in for you.`;
+  }
+  return `${noRecord}, and ${detail}. A scan confirms all of them.`;
+}
+
 /** The one card in the RECOMMENDED tier: book a diagnostic scan to close the
  *  UNKNOWN list. Deliberately built on UrgentCard's shell — same icon well,
  *  same title/subtitle column, same CTA row — because it asks for the same
@@ -577,12 +612,17 @@ function RecommendedLabel() {
  *  then moves is exactly what we do not know yet. */
 function DiagnosticScanCard({
   unknownCount,
+  needsInfoCount = 0,
   entryDelay,
   onBookNow,
   isEnriching = false,
   bookableSlugs,
 }: {
   unknownCount: number;
+  /** Services the driver HAS answered that still need one field. Counted
+   *  apart so the card stops telling them nothing is on file for a service
+   *  they just told us about. */
+  needsInfoCount?: number;
   entryDelay: number;
   onBookNow?: (id: string) => void;
   isEnriching?: boolean;
@@ -627,9 +667,7 @@ function DiagnosticScanCard({
         <View style={cardStyles.textColumn}>
           <Text weight="bold" style={cardStyles.title}>Diagnostic scan</Text>
           <Text style={cardStyles.subtitle}>
-            {unknownCount === 1
-              ? 'One service has no record on file. A scan confirms what it actually needs.'
-              : `${unknownCount} services have no record on file. A scan confirms what they actually need.`}
+            {scanCardSubtitle(unknownCount, needsInfoCount)}
           </Text>
         </View>
       </View>
@@ -958,12 +996,21 @@ function HealthyItemRow({
   showSeparator,
   entryDelay,
   onAnswerRecency,
+  onBookScan,
+  scanBlocked,
 }: {
   item: MaintenanceItem;
   showSeparator: boolean;
   entryDelay: number;
   onAnswerRecency?: (item: MaintenanceItem) => void;
+  /** Already bound to the diagnostic-scan sentinel by the tracker root, so
+   *  the row cannot accidentally book the service it is standing on. */
+  onBookScan?: () => void;
+  /** Same gate the scan CARD uses. Offering a scan the app cannot book while
+   *  the vehicle is still enriching is worse than not offering one. */
+  scanBlocked?: boolean;
 }) {
+  const isNeedsInfo = item.unknownReason === 'missing_mileage';
   const opacity = useSharedValue(0);
   const translateY = useSharedValue(18);
   useEffect(() => {
@@ -990,7 +1037,47 @@ function HealthyItemRow({
         </View>
         <View style={summaryStyles.itemContent}>
           <Text weight="semiBold" style={summaryStyles.itemName}>{item.serviceName}</Text>
+          {/* Their own answer, first. A row that only says what is MISSING
+              reads as the app having ignored the input; showing what landed
+              before what is still needed is what makes it read as progress
+              (Yassin via Ahmad, 2026-09-14). */}
+          {item.unknownReason === 'missing_mileage' && item.capturedAnswer ? (
+            <View style={summaryStyles.capturedRow}>
+              <Ionicons name="checkmark-circle" size={13} color="#C77700" />
+              <Text weight="semiBold" style={summaryStyles.capturedText}>
+                You said {item.capturedAnswer}
+              </Text>
+            </View>
+          ) : null}
           <Text style={summaryStyles.itemDesc}>{item.description}</Text>
+          {isNeedsInfo ? (
+            <View style={summaryStyles.detailActions}>
+              {onAnswerRecency ? (
+                <Pressable
+                  onPress={() => onAnswerRecency(item)}
+                  hitSlop={8}
+                  style={({ pressed }) => [summaryStyles.detailBtn, pressed && { opacity: 0.75 }]}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Add the mileage for ${item.serviceName}`}
+                >
+                  <Text weight="semiBold" style={summaryStyles.detailBtnText}>Add mileage</Text>
+                </Pressable>
+              ) : null}
+              {onBookScan && !scanBlocked ? (
+                <Pressable
+                  onPress={onBookScan}
+                  hitSlop={8}
+                  style={({ pressed }) => [summaryStyles.detailBtnGhost, pressed && { opacity: 0.75 }]}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Book a diagnostic scan for ${item.serviceName}`}
+                >
+                  <Text weight="semiBold" style={summaryStyles.detailBtnGhostText}>
+                    Don&apos;t know? Book a scan
+                  </Text>
+                </Pressable>
+              ) : null}
+            </View>
+          ) : null}
           {/* Same provenance line UrgentCard carries. A graded item can land in
               any tier — a yellow eye-check grade shows up under "on the
               horizon", not "now" — and the driver deserves the source wherever
@@ -1014,7 +1101,11 @@ function HealthyItemRow({
             per-type spec when the row is a core tile. The objection went with
             it, and "no answer on file" with no way to give one was always the
             odder half of the pair. */}
-        {item.status === 'unknown' && onAnswerRecency ? (
+        {/* A needs-info row carries its actions BELOW the copy instead, so a
+            driver who does not know the mileage can see the way out. Leaving
+            only an "add mileage" button strands them on an ask they cannot
+            answer (Ahmad, 2026-09-14). */}
+        {isNeedsInfo ? null : item.status === 'unknown' && onAnswerRecency ? (
           <Pressable
             onPress={() => onAnswerRecency(item)}
             hitSlop={10}
@@ -1041,10 +1132,14 @@ function HealthyItemsCard({
   items,
   cascadeStartDelay,
   onAnswerRecency,
+  onBookScan,
+  scanBlocked,
 }: {
   items: MaintenanceItem[];
   cascadeStartDelay: number;
   onAnswerRecency?: (item: MaintenanceItem) => void;
+  onBookScan?: () => void;
+  scanBlocked?: boolean;
 }) {
   const shellOpacity = useSharedValue(0);
   useEffect(() => {
@@ -1067,6 +1162,8 @@ function HealthyItemsCard({
           showSeparator={index < items.length - 1}
           entryDelay={cascadeStartDelay + (index + 1) * HEALTHY_ITEM_STEP_MS}
           onAnswerRecency={onAnswerRecency}
+          onBookScan={onBookScan}
+          scanBlocked={scanBlocked}
         />
       ))}
     </Animated.View>
@@ -1078,11 +1175,16 @@ function HealthySection({
   variant,
   cascadeStartDelay = 0,
   onAnswerRecency,
+  onBookScan,
+  scanBlocked,
 }: {
   items: MaintenanceItem[];
   /** 'healthy' = observed fine (green). 'unknown' = no record on file
-   *  (grey). Separate sections on purpose — see healthySectionChip. */
+   *  (grey). 'needsInfo' = answered, still not measurable (amber). Separate
+   *  sections on purpose — see healthySectionChip. */
   variant: QuietSectionVariant;
+  onBookScan?: () => void;
+  scanBlocked?: boolean;
   cascadeStartDelay?: number;
   onAnswerRecency?: (item: MaintenanceItem) => void;
 }) {
@@ -1109,6 +1211,7 @@ function HealthySection({
   if (items.length === 0) return null;
 
   const isUnknown = variant === 'unknown';
+  const isNeedsInfo = variant === 'needsInfo';
 
   const toggle = () => {
     setExpanded(prev => !prev);
@@ -1124,11 +1227,27 @@ function HealthySection({
               for unknown — green is the app's "we checked and it's fine"
               colour and an absence of data has not earned it. */}
           <View style={summaryStyles.headerRow}>
-            <View style={[summaryStyles.chip, isUnknown && summaryStyles.chipNeutral]}>
-              <View style={[summaryStyles.dot, isUnknown && summaryStyles.dotNeutral]} />
+            <View
+              style={[
+                summaryStyles.chip,
+                isUnknown && summaryStyles.chipNeutral,
+                isNeedsInfo && summaryStyles.chipDetail,
+              ]}
+            >
+              <View
+                style={[
+                  summaryStyles.dot,
+                  isUnknown && summaryStyles.dotNeutral,
+                  isNeedsInfo && summaryStyles.dotDetail,
+                ]}
+              />
               <Text
                 weight="bold"
-                style={[summaryStyles.chipText, isUnknown && summaryStyles.chipTextNeutral]}
+                style={[
+                  summaryStyles.chipText,
+                  isUnknown && summaryStyles.chipTextNeutral,
+                  isNeedsInfo && summaryStyles.chipTextDetail,
+                ]}
               >
                 {healthySectionChip(variant, items.length)}
               </Text>
@@ -1146,6 +1265,8 @@ function HealthySection({
           items={items}
           cascadeStartDelay={cascadeStartDelay}
           onAnswerRecency={onAnswerRecency}
+          onBookScan={onBookScan}
+          scanBlocked={scanBlocked}
         />
       )}
     </View>
@@ -1200,6 +1321,21 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
     setSelectedItem(null);
   };
 
+  // The scan handoff, prepared once at the root.
+  //
+  // `warning-unknown-scan` is the same sentinel the diagnostic-scan CARD
+  // passes: extractMaintenanceType reads it as "warning", which
+  // MAINTENANCE_TYPE_TO_SLUG maps to diagnostic_scan. Binding it here means a
+  // needs-info row cannot accidentally book the very service it is standing
+  // on — passing `item.id` would have started a spark-plug booking from a row
+  // whose whole point is that we do not know whether plugs are due.
+  const handleBookScan = useCallback(() => {
+    onBookNow?.('warning-unknown-scan');
+  }, [onBookNow]);
+  // Mirrors DiagnosticScanCard's own gate so the row and the card agree about
+  // whether a scan is bookable right now.
+  const rootScanBlocked = isBookingBlocked(isEnriching, bookableSlugs, SLUG_DIAGNOSTIC_SCAN);
+
   const overdueItems = items
     .filter(i => i.status === 'overdue')
     .sort((a, b) => STATUS_PRIORITY[a.status] - STATUS_PRIORITY[b.status]);
@@ -1211,7 +1347,8 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
   const healthyItems = items
     .filter(i => i.status === 'on_time' || i.status === 'unknown')
     .sort((a, b) => STATUS_PRIORITY[a.status] - STATUS_PRIORITY[b.status]);
-  const { healthy: legacyHealthy, unknown: legacyUnknown } = splitQuietItems(healthyItems);
+  const { healthy: legacyHealthy, unknown: legacyUnknown, needsInfo: legacyNeedsInfo } =
+    splitQuietItems(healthyItems);
 
   // Cascade-in: each visible section gets its own delay slot so the tracker
   // animates in top-to-bottom on mount. Missing sections (no overdue / no
@@ -1248,10 +1385,11 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
   tierStep += soonCount;
   // RECOMMENDED sits between SOON and the quiet sections, so it takes its
   // cascade slots there; HEALTHY and UNKNOWN each get their own.
-  const { healthy: restingHealthy, unknown: restingUnknown } = splitQuietItems(
+  const { healthy: restingHealthy, unknown: restingUnknown, needsInfo: restingNeedsInfo } =
+    splitQuietItems(
     (tieredItems?.resting ?? []).map((r) => r.item),
   );
-  const hasRecommended = restingUnknown.length > 0;
+  const hasRecommended = restingUnknown.length > 0 || restingNeedsInfo.length > 0;
   const recommendedLabelDelay = hasRecommended ? tierStep++ * STEP_MS : 0;
   const recommendedCardDelay = hasRecommended ? tierStep++ * STEP_MS : 0;
   const healthyRestDelay = restingHealthy.length > 0 ? tierStep++ * STEP_MS : 0;
@@ -1454,7 +1592,7 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
               with the same weight as NOW / SOON because it asks for the same
               kind of action; it sits above the quiet sections so the one
               actionable thing here is not buried under them. */}
-          {restingUnknown.length > 0 && onBookNow && (
+          {(restingUnknown.length > 0 || restingNeedsInfo.length > 0) && onBookNow && (
             <>
               <Animated.View entering={FadeInUp.duration(450).delay(recommendedLabelDelay)}>
                 <RecommendedLabel />
@@ -1465,6 +1603,7 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
               <View style={styles.urgentGroup}>
                 <DiagnosticScanCard
                   unknownCount={restingUnknown.length}
+                  needsInfoCount={restingNeedsInfo.length}
                   entryDelay={recommendedCardDelay}
                   onBookNow={onBookNow}
                   isEnriching={isEnriching}
@@ -1474,8 +1613,17 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
             </>
           )}
 
-          {/* Two quiet sections, never merged: "healthy" is a claim we can
-              back, "unknown" is the absence of one. */}
+          {/* Three quiet sections now. "One more detail" leads them because
+              it is the only one the driver can close on their own — the other
+              two either need nothing or need a scan. */}
+          <HealthySection
+            items={restingNeedsInfo}
+            variant="needsInfo"
+            cascadeStartDelay={healthyRestDelay}
+            onAnswerRecency={onAnswerRecency}
+            onBookScan={handleBookScan}
+            scanBlocked={rootScanBlocked}
+          />
           <HealthySection
             items={restingHealthy}
             variant="healthy"
@@ -1549,7 +1697,7 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
           {/* Healthy items (expandable). Always expanded by default; user
               can collapse with the chevron. The section handles its own
               per-item cascade animation internally. */}
-          {legacyUnknown.length > 0 && onBookNow && (
+          {(legacyUnknown.length > 0 || legacyNeedsInfo.length > 0) && onBookNow && (
             <>
               <Animated.View entering={FadeInUp.duration(ENTRY_DURATION).delay(healthyDelay)}>
                 <RecommendedLabel />
@@ -1557,6 +1705,7 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
               <View style={styles.urgentGroup}>
                 <DiagnosticScanCard
                   unknownCount={legacyUnknown.length}
+                  needsInfoCount={legacyNeedsInfo.length}
                   entryDelay={healthyDelay + STEP_MS}
                   onBookNow={onBookNow}
                   isEnriching={isEnriching}
@@ -1565,6 +1714,14 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
               </View>
             </>
           )}
+          <HealthySection
+            items={legacyNeedsInfo}
+            variant="needsInfo"
+            cascadeStartDelay={healthyDelay}
+            onAnswerRecency={onAnswerRecency}
+            onBookScan={handleBookScan}
+            scanBlocked={rootScanBlocked}
+          />
           <HealthySection
             items={legacyHealthy}
             variant="healthy"
@@ -1974,6 +2131,35 @@ const summaryStyles = StyleSheet.create({
     letterSpacing: 0.66, // ≈ 0.06em at 11pt
     textTransform: 'uppercase',
   },
+  detailActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 9 },
+  detailBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 9,
+    backgroundColor: '#FEF6E7',
+  },
+  detailBtnText: { fontSize: moderateScale(12), color: '#8A5500' },
+  // Ghost, not a second solid button: adding the mileage is free and a scan
+  // is not, so the cheaper answer has to read as the primary one.
+  detailBtnGhost: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 9,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  detailBtnGhostText: { fontSize: moderateScale(12), color: '#5A6675' },
+  capturedRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
+  capturedText: { fontSize: moderateScale(11.5), color: '#8A5500' },
+  answerBtnTextDetail: { color: '#8A5500' },
+
+  // ONE MORE DETAIL — amber. Deliberately between green ("we checked, it's
+  // fine") and grey ("we know nothing"): the driver HAS told us something, it
+  // just was not enough on its own, and neither existing colour says that.
+  chipDetail: { backgroundColor: '#FEF6E7' },
+  dotDetail: { backgroundColor: '#C77700' },
+  chipTextDetail: { color: '#8A5500' },
+
   // Neutral grey variant, used when the section holds only items with no
   // record on file. Green is the app's "we checked and it's fine" colour;
   // spending it on an absence of data would be the same overclaim the chip

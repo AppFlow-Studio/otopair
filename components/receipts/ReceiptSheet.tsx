@@ -13,7 +13,7 @@
  *   2. Settings → Booking History → "View Details" on a Completed row.
  */
 
-import React, { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
+import React, { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQuery } from "convex/react";
@@ -43,16 +43,30 @@ interface Props {
   onViewJob?: () => void;
 }
 
+/** Grabber, top padding and the ScrollView's own bottom padding — the chrome
+ *  a measured content height does not include. */
+const SHEET_CHROME = 44;
+
 export const ReceiptSheet = forwardRef<ReceiptSheetRef, Props>(({ bookingId, onClose, onLeaveReview, onViewJob }, ref) => {
   const sheetRef = useRef<FloatingSheetRef>(null);
   const insets = useSafeAreaInsets();
   const { height: screenHeight } = useWindowDimensions();
-  // Two snap heights: resting ~70% (hero card visible behind,
-  // bottom inset shows the floating bottom corners), expanded to
-  // full height (top safe area minus 12pt breathing room).
-  // Drag the grabber up to expand; drag down to collapse / dismiss.
-  const restingHeight = Math.max(0, screenHeight * 0.73);
-  const expandedHeight = Math.max(restingHeight, screenHeight - insets.top - 4);
+  // The sheet HUGS its receipt.
+  //
+  // Resting height used to be a flat 73% of the screen whatever was in it, so
+  // a one-line receipt — a single labor row, no parts — left the bottom third
+  // blank under the shop block (Ahmad, 2026-09-14). A receipt is a document of
+  // whatever length it happens to be; the sheet should be that length.
+  //
+  // Clamped at both ends: a floor so a skeleton or an error still reads as a
+  // sheet rather than a strip, and a ceiling at full height so a long receipt
+  // scrolls instead of overflowing.
+  const expandedHeight = Math.max(0, screenHeight - insets.top - 4);
+  const minHeight = Math.min(expandedHeight, screenHeight * 0.42);
+  const [contentHeight, setContentHeight] = useState(0);
+  const restingHeight = contentHeight > 0
+    ? Math.min(expandedHeight, Math.max(minHeight, contentHeight + insets.bottom + SHEET_CHROME))
+    : Math.min(expandedHeight, screenHeight * 0.73);
 
   useImperativeHandle(ref, () => ({
     present: () => sheetRef.current?.open(),
@@ -90,13 +104,24 @@ export const ReceiptSheet = forwardRef<ReceiptSheetRef, Props>(({ bookingId, onC
   } else if (data === null) {
     body = <ReceiptError />;
   } else {
-    body = <ReceiptContent payload={data as ReceiptPayload} onLeaveReview={onLeaveReview} onViewJob={onViewJob} />;
+    body = (
+      <ReceiptContent
+        payload={data as ReceiptPayload}
+        bookingId={bookingId ?? undefined}
+        onLeaveReview={onLeaveReview}
+        onViewJob={onViewJob}
+      />
+    );
   }
 
   return (
     <FloatingSheet
       ref={sheetRef}
-      snapHeights={[restingHeight, expandedHeight]}
+      snapHeights={
+        restingHeight >= expandedHeight - 1
+          ? [expandedHeight]
+          : [restingHeight, expandedHeight]
+      }
       initialSnapIndex={0}
       cornerRadius={20}
       bottomCornerRadius={0}
@@ -109,6 +134,7 @@ export const ReceiptSheet = forwardRef<ReceiptSheetRef, Props>(({ bookingId, onC
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
+        onContentSizeChange={(_w, h) => setContentHeight(h)}
         bounces
       >
         {body}

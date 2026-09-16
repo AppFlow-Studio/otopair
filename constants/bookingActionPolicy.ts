@@ -171,3 +171,36 @@ export function buildCancelCopy(actions: BookingActionState): CancelCopy {
     isFeeSheet: false,
   };
 }
+
+/**
+ * Pre-booking disclosure defaults.
+ *
+ * Terms of Use §6 promises the cancellation window and fee are "displayed to
+ * you before you confirm the booking," and §5 the same for the hold. The
+ * booking bar used to hard-code "up to 2 hours" against a real cutoff of 24,
+ * which told drivers they could cancel free for 22 hours longer than they can
+ * — and an unstated fee is a fee that is hard to defend charging.
+ *
+ * These MIRROR `POLICY_DEFAULTS` in convex/lib/cancellation_policy.ts, which
+ * is the source of truth. They are duplicated rather than imported because
+ * nothing under components/ or constants/ imports from convex/lib, and this
+ * is not the change that should establish that boundary.
+ * tests/cancellationCopyParity.test.ts fails if the two ever disagree.
+ *
+ * Per-shop overrides (shops.cancel_free_cutoff_hours / cancel_late_fee_cents)
+ * are NOT reflected here — no client query selects those columns today, and no
+ * shop currently sets one, so the defaults are accurate for every shop. Showing
+ * a shop's own window needs those fields added to the shop query.
+ */
+export const CANCEL_FREE_CUTOFF_HOURS_DEFAULT = 24;
+export const CANCEL_LATE_FEE_CENTS_DEFAULT = 2000;
+
+/** The caption under the Confirm Booking button. */
+export function cancellationDisclosure(
+  cutoffHours: number = CANCEL_FREE_CUTOFF_HOURS_DEFAULT,
+  lateFeeCents: number = CANCEL_LATE_FEE_CENTS_DEFAULT,
+): string {
+  const window =
+    cutoffHours === 24 ? "24 hours" : `${cutoffHours} hour${cutoffHours === 1 ? "" : "s"}`;
+  return `Free cancellation up to ${window} before your appointment. After that, or if you don't show, ${formatFeeCents(lateFeeCents)} of your hold is charged.`;
+}

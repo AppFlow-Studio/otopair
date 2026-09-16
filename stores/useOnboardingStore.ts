@@ -58,6 +58,14 @@ interface OnboardingData {
   password: string | null;
   signUpMethod: "email" | "google" | "apple" | null;
   authMode: "signUp" | "login" | null;
+
+  // Legal consent — captured on the signup screen, before any account
+  // exists. The effective dates are recorded alongside the timestamp so a
+  // later amendment can tell which version of each document was accepted;
+  // Terms §25 makes that distinction matter.
+  legalAcceptedAt: number | null;
+  legalTermsEffective: string | null;
+  legalPrivacyEffective: string | null;
   twoFactorEmailEnabled: boolean;
   twoFactorSmsEnabled: boolean;
   biometricLoginEnabled: boolean;
@@ -236,6 +244,9 @@ const INITIAL_DATA: OnboardingData = {
   password: null,
   signUpMethod: null,
   authMode: null,
+  legalAcceptedAt: null,
+  legalTermsEffective: null,
+  legalPrivacyEffective: null,
   twoFactorEmailEnabled: false,
   twoFactorSmsEnabled: false,
   biometricLoginEnabled: false,
