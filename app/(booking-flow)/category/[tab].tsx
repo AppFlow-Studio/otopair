@@ -676,7 +676,15 @@ export default function CategoryDetailScreen() {
                 // everything and therefore nothing. One row shows the tap
                 // target and the "?" in the same breath.
                 return svcIdx === 0 ? (
-                  <CoachTarget key={svc.id} id="booking.serviceList" radius={18} insetX={20}>
+                  <CoachTarget
+                    key={svc.id}
+                    id="booking.serviceList"
+                    radius={18}
+                    insetX={20}
+                    // The row owns a 12pt marginBottom; without trimming it the
+                    // hole hangs into the gap and clips the next row's top.
+                    insetBottom={12}
+                  >
                     {row}
                   </CoachTarget>
                 ) : (

@@ -53,7 +53,7 @@ const MUTED = "#5A6675";
 const DIM = "#D0D7E1";
 
 /** Breathing room between the element and the edge of the hole. */
-const PAD = 6;
+const PAD_DEFAULT = 6;
 /** Gap between the hole and the tooltip, enough for the caret plus air. */
 const GAP = 22;
 const TIP_W = 313;
@@ -175,23 +175,26 @@ export function CoachOverlay({
     settled.current = false;
   }, [mark.id]);
 
+  /** Per-mark halo; a card with its own padding wants less than a bare control. */
+  const pad = mark.pad ?? PAD_DEFAULT;
+
   useEffect(() => {
     if (!usable) return;
-    const rawTop = usable.y - PAD;
-    const rawBottom = usable.y + usable.height + PAD;
+    const rawTop = usable.y - pad;
+    const rawBottom = usable.y + usable.height + pad;
     // Clamp into the viewport, leaving the status bar and the very bottom edge
     // alone so the hole never bleeds off screen.
     const top = Math.max(VIEWPORT_INSET, rawTop);
     const bottom = Math.min(SCREEN_H - VIEWPORT_INSET, rawBottom);
     setShown({
-      x: usable.x - PAD,
+      x: usable.x - pad,
       y: top,
-      w: usable.width + PAD * 2,
+      w: usable.width + pad * 2,
       h: bottom - top,
-      r: usable.radius + PAD / 2,
+      r: usable.radius + pad / 2,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rectKey]);
+  }, [rectKey, pad]);
 
   /** Too little of it showing to point at — scrolled away, or clipped. */
   const hole = shown && shown.h >= MIN_VISIBLE && shown.w > 0 ? shown : null;

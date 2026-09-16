@@ -75,6 +75,15 @@ export interface CoachMark {
    * gets where they were going, and the hint counts itself acknowledged.
    */
   blocking?: boolean;
+
+  /**
+   * Halo around the spotlit element, in points. Default 6.
+   *
+   * A halo reads as "this thing, plus a little air" — right for a control
+   * sitting in open space, too loose round a card that already has its own
+   * padding and a 20pt radius, where the extra ring just looks like a miss.
+   */
+  pad?: number;
 }
 
 export const COACH_MARKS: readonly CoachMark[] = [
@@ -116,6 +125,7 @@ export const COACH_MARKS: readonly CoachMark[] = [
   {
     id: "book_services_detail",
     blocking: false,
+    pad: 2,
     target: "booking.serviceList",
     route: "/category",
     title: "Add what you need",
