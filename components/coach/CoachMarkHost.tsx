@@ -166,16 +166,31 @@ export function CoachMarkHost() {
       )}:${Math.round(rawRect.height)}`
     : null;
 
-  const [rect, setRect] = useState<CoachRect | null>(null);
+  /**
+   * The measured rect, tagged with the target it was measured FROM.
+   *
+   * This is state, so it survives a candidate change — and clearing it runs
+   * in an effect, a render too late. That one render handed the overlay the
+   * NEXT mark against the PREVIOUS mark's rect, which the overlay accepted
+   * and recorded as settled; when the real rect landed a moment later it was
+   * no longer the first position, so the spotlight glided across the screen
+   * from the old target to the new one instead of appearing on it.
+   *
+   * Tagging makes the staleness visible in the same render that causes it.
+   */
+  const [measured, setMeasured] = useState<{ target: string; rect: CoachRect } | null>(null);
   useEffect(() => {
-    if (!rawRect) {
-      setRect(null);
+    if (!rawRect || !candidate) {
+      setMeasured(null);
       return;
     }
-    const t = setTimeout(() => setRect(rawRect), RECT_STABLE_MS);
+    const target = candidate.target;
+    const t = setTimeout(() => setMeasured({ target, rect: rawRect }), RECT_STABLE_MS);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rawKey]);
+  }, [rawKey, candidate?.target]);
+
+  const rect = measured && candidate && measured.target === candidate.target ? measured.rect : null;
 
   // Keep asking until it resolves — tab screens stay mounted, so revisiting
   // one fires no onLayout and its rect is whatever it was when we last left.
