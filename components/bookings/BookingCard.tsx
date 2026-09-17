@@ -301,9 +301,12 @@ export const STATUS_CONFIG: Record<BookingStatus, { label: string; bgColor: stri
     textColor: '#4CAF50',
   },
   vehicle_at_shop: {
+    // Green, per the handoff — specified for CHECKED IN in both the card and
+    // the details sheet. Was cyan, which read as a third status colour next
+    // to the greens already used for confirmed and completed.
     label: 'Checked In',
-    bgColor: '#ECFEFF',
-    textColor: '#0E7490',
+    bgColor: '#ECFDF5',
+    textColor: '#059669',
   },
   in_progress: {
     label: 'In Progress',
