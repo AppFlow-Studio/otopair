@@ -31,6 +31,7 @@ import type { View as RNView } from 'react-native';
 
 // 2. Expo & Third-party
 import { useGuardedRouter as useRouter } from '@/hooks/useGuardedRouter';
+import { vehicleMakeModel } from '@/lib/vehicleName';
 import {
   Calendar,
   Car,
@@ -620,7 +621,7 @@ export function BookingCard({
               numberOfLines={2}
               style={isCancelling ? styles.strikethrough : undefined}
             >
-              {titleCase(booking.carModel)}
+              {titleCase(vehicleMakeModel(booking.carModel))}
             </Text>
             <Text
               weight="regular"
