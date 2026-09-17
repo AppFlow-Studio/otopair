@@ -512,6 +512,11 @@ export function BookingCard({
       <BookingProgressBar
         stages={stageView.stages}
         currentIndex={stageView.currentIndex}
+        // The status pill now names the state, which is the documented
+        // reason this prop exists. Two differently-worded status lines
+        // ("Booked" over "PENDING") also cost ~34pt of height on a card
+        // the redesign wants wide rather than tall.
+        showStageLabel={variant !== 'upcoming'}
       />
 
       {/* Pending-approval or reauth-required CTA. Returns null when the
@@ -609,14 +614,21 @@ export function BookingCard({
           <View style={styles.vehicleText}>
             <Text
               weight="bold"
-              size="xl"
+              size="lg"
+              lineHeight={1.15}
               color={T.textPrimary}
               numberOfLines={2}
               style={isCancelling ? styles.strikethrough : undefined}
             >
               {titleCase(booking.carModel)}
             </Text>
-            <Text weight="regular" size="md" color={T.textSecondary} numberOfLines={1}>
+            <Text
+              weight="regular"
+              size="sm"
+              lineHeight={1.25}
+              color={T.textSecondary}
+              numberOfLines={1}
+            >
               {booking.mechanicName}
             </Text>
             {/* Server falls back to shopName for `mechanicName` when no
@@ -628,6 +640,7 @@ export function BookingCard({
                 <Text
                   weight="regular"
                   size="sm"
+                  lineHeight={1.25}
                   color={T.textMuted}
                   numberOfLines={2}
                   style={styles.shopLineText}
@@ -711,10 +724,22 @@ export function BookingCard({
           <View style={[styles.dateRow, checkedIn && styles.dateRowCheckedIn]}>
             <Calendar size={22} color={checkedIn ? T.green : T.blue} strokeWidth={2} />
             <View style={styles.dateText}>
-              <Text weight="semiBold" size="md" color={T.textPrimary} numberOfLines={1}>
+              <Text
+                weight="semiBold"
+                size="md"
+                lineHeight={1.2}
+                color={T.textPrimary}
+                numberOfLines={1}
+              >
                 {booking.date}
               </Text>
-              <Text weight="regular" size="sm" color={T.textMuted} numberOfLines={1}>
+              <Text
+                weight="regular"
+                size="sm"
+                lineHeight={1.2}
+                color={T.textMuted}
+                numberOfLines={1}
+              >
                 {booking.time}
               </Text>
             </View>
@@ -998,7 +1023,7 @@ const styles = StyleSheet.create({
   card: {
     backgroundColor: '#FFFFFF',
     borderRadius: 20,
-    padding: 20,
+    padding: 16,
     marginBottom: 16,
     shadowColor: '#0F172A',
     shadowOffset: { width: 0, height: 4 },
@@ -1012,12 +1037,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginTop: 12,
-    marginBottom: 12,
+    marginTop: 0,
+    marginBottom: 6,
   },
   statusPill: {
     paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingVertical: 5,
     borderRadius: 999,
   },
   statusPillLabel: {
@@ -1027,16 +1052,16 @@ const styles = StyleSheet.create({
   vehicleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 14,
-    marginBottom: 16,
+    gap: 12,
+    marginBottom: 10,
   },
   vehicleImage: {
-    width: '34%',
-    height: 88,
+    width: '32%',
+    height: 58,
   },
   vehicleImagePlaceholder: {
-    width: '34%',
-    height: 88,
+    width: '32%',
+    height: 58,
     borderRadius: 14,
     backgroundColor: T.surface,
     alignItems: 'center',
@@ -1044,13 +1069,13 @@ const styles = StyleSheet.create({
   },
   vehicleText: {
     flex: 1,
-    gap: 2,
+    gap: 1,
   },
   shopLine: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 6,
-    marginTop: 4,
+    marginTop: 3,
   },
   shopLineText: {
     flex: 1,
@@ -1061,8 +1086,8 @@ const styles = StyleSheet.create({
     gap: 12,
     backgroundColor: T.blueLight,
     borderRadius: 14,
-    padding: 14,
-    marginBottom: 14,
+    padding: 10,
+    marginBottom: 10,
   },
   dateRowCheckedIn: {
     backgroundColor: T.greenLight,
@@ -1075,8 +1100,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
     backgroundColor: '#FFFFFF',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
     borderRadius: 12,
   },
   detailsPillCheckedIn: {
@@ -1288,7 +1313,7 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     flexShrink: 1,
     minWidth: 0,
-    height: 52,
+    height: 46,
     paddingHorizontal: 16,
     borderRadius: 14,
     borderWidth: 1,
@@ -1306,7 +1331,7 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     flexShrink: 1,
     minWidth: 0,
-    height: 52,
+    height: 46,
     paddingHorizontal: 16,
     borderRadius: 14,
     borderWidth: 1,
