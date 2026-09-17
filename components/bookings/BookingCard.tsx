@@ -41,6 +41,7 @@ import {
   MessageCircle,
   Star,
   User,
+  Wrench,
 } from 'lucide-react-native';
 import Animated, { FadeOut, LinearTransition, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 
@@ -158,6 +159,8 @@ export interface BookingCardProps {
    *  badge shows in the title row (opens the chat). Supplied by the active-list
    *  wrapper (UpcomingBookingCard) that subscribes to the booking's tickets. */
   unreadMessageCount?: number;
+  /** The shop is waiting on approval for extra work — raises the banner. */
+  hasUnreadEstimate?: boolean;
 }
 
 // ============================================================================
@@ -344,6 +347,7 @@ export function BookingCard({
   onDownloadPdf,
   onToggleFavorite,
   unreadMessageCount = 0,
+  hasUnreadEstimate = false,
 }: BookingCardProps) {
   const router = useRouter();
   const openRescheduleDecision = useRescheduleDecisionOverlayStore((s) => s.open);
@@ -838,6 +842,37 @@ export function BookingCard({
           have nowhere to show at all. It replaces the badge rather than
           supplementing it. */}
       {variant === 'upcoming' && unreadMessageCount > 0 ? (
+        <View style={styles.messageStack}>
+          {/* Updated-estimate banner. Only for approve_extra_work, because
+              the copy is a specific claim — "we found more than we expected"
+              is not true of a running-late note. It overlaps the row below so
+              the two read as one unit rather than two stacked cards. */}
+          {hasUnreadEstimate ? (
+            <Pressable
+              onPress={handleMessageShop}
+              style={({ pressed }) => [styles.estimateBanner, pressed && styles.buttonPressed]}
+              accessibilityRole="button"
+              accessibilityLabel="Your car requires more than we expected. Tap to review your mechanic's updated estimate"
+            >
+              <View style={styles.estimateAccent} />
+              <View style={styles.estimateIcon}>
+                <Wrench size={18} color={SemanticColors.warningAmber} strokeWidth={2.2} />
+              </View>
+              <View style={styles.estimateText}>
+                <Text weight="bold" size="sm" color={T.textPrimary} numberOfLines={2}>
+                  Your car requires more than we expected
+                </Text>
+                <Text weight="regular" size="sm" color={T.textMuted} numberOfLines={2}>
+                  Tap to review your mechanic&apos;s updated estimate.
+                </Text>
+              </View>
+              <ChevronRight size={20} color={T.textDisabled} strokeWidth={2} />
+            </Pressable>
+          ) : null}
+        </View>
+      ) : null}
+
+      {variant === 'upcoming' && unreadMessageCount > 0 ? (
         <Pressable
           onPress={handleMessageShop}
           style={({ pressed }) => [styles.messageRow, pressed && styles.buttonPressed]}
@@ -1114,6 +1149,48 @@ const styles = StyleSheet.create({
   },
   detailsPillCheckedIn: {
     backgroundColor: '#FFFFFF',
+  },
+  messageStack: {
+    zIndex: 2,
+  },
+  estimateBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    paddingVertical: 12,
+    paddingLeft: 16,
+    paddingRight: 12,
+    // Sits ON the View Message row below it, so the pair reads as one
+    // element. The row's own top padding absorbs the overlap.
+    marginBottom: -8,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    elevation: 4,
+    overflow: 'hidden',
+  },
+  estimateAccent: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 4,
+    backgroundColor: SemanticColors.warningAmber,
+  },
+  estimateIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: SemanticColors.warningAmberLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  estimateText: {
+    flex: 1,
+    gap: 2,
   },
   messageRow: {
     flexDirection: 'row',
