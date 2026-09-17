@@ -75,6 +75,7 @@ import { useVehicleStore } from "@/stores/useVehicleStore";
 import { useShopStore } from "@/stores/useShopStore";
 import { hasConsistentBasketVehicle } from "@/utils/bookingVehicle";
 import { CoachTarget } from "@/components/coach/CoachTarget";
+import { useSatisfyCoachMark } from "@/components/coach/CoachMarkHost";
 
 // Fixed-height frosted sheet — content scrolls inside, sheet itself
 // doesn't move. Mirrors Screen 1 (select-services.tsx). Previously a
@@ -206,6 +207,11 @@ export default function CategoryDetailScreen() {
   const [diagnosticServiceId, setDiagnosticServiceId] = useState<string | null>(null);
 
   // Vehicle context
+  // The hint says "tap a service to add it". The moment one is in the cart
+  // it has been read and acted on, so it retires itself rather than waiting
+  // for a "Got it" the driver has already earned.
+  useSatisfyCoachMark("book_services_detail", selectedServiceIds.length > 0);
+
   const selectedVehicle = useVehicleStore((s) => s.getSelectedVehicle());
   const engineId = selectedVehicle?.engineId;
   const ownershipId = selectedVehicle?.ownershipId;

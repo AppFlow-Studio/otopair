@@ -54,6 +54,34 @@ export async function resetAllCoachMarks(): Promise<void> {
   }
 }
 
+/**
+ * Screens telling the host "the driver just did this".
+ *
+ * Module-level rather than context because `seen` lives in the host's own
+ * state, and the screens that need to fire this are several layers below it.
+ */
+const satisfyListeners = new Set<(id: string) => void>();
+
+/**
+ * Retire a hint the moment the driver does the thing it describes.
+ *
+ * "Tap a service to add it" is advice right up until the first service is in
+ * the cart. After that it is a card sitting on top of the list explaining
+ * something the driver has just demonstrably understood, and making them
+ * clear it by hand is busywork on top of a job they already did.
+ *
+ * `done` is levelled, not edged: it fires once on the first true and never
+ * again, so deselecting everything does not bring the hint back.
+ */
+export function useSatisfyCoachMark(id: string, done: boolean): void {
+  const fired = useRef(false);
+  useEffect(() => {
+    if (!done || fired.current) return;
+    fired.current = true;
+    satisfyListeners.forEach((fn) => fn(id));
+  }, [id, done]);
+}
+
 export function CoachMarkHost() {
   const reg = useCoachRegistry();
   const pathname = usePathname();
@@ -170,6 +198,18 @@ export function CoachMarkHost() {
     }, RECT_TIMEOUT_MS);
     return () => clearTimeout(t);
   }, [candidate?.id, rect]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const onSatisfy = (id: string) => {
+      setSeen((prev) => ({ ...(prev ?? {}), [id]: true }));
+      if (FORCE_COACH_MARKS_EVERY_LAUNCH) return;
+      void markCoachSeen(id);
+    };
+    satisfyListeners.add(onSatisfy);
+    return () => {
+      satisfyListeners.delete(onSatisfy);
+    };
+  }, []);
 
   const dismiss = useCallback(() => {
     if (!candidate) return;
