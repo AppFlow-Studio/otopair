@@ -59,6 +59,9 @@ import { buildCancelCopy } from '@/constants/bookingActionPolicy';
 import type { Id } from '@/convex/_generated/dataModel';
 import { SemanticColors } from '@/constants/theme';
 
+/** The Otopair pin, in place of a generic map marker on the shop line. */
+const OTO_PIN = require('@/assets/images/pin-logo-3d.png');
+
 // Android's Reanimated FadeOut exit on this card janks/crashes during the
 // list re-layout after cancel; skip the exit animation there and keep it
 // on iOS where it's smooth. (from daniel-dev)
@@ -637,7 +640,7 @@ export function BookingCard({
                 render the same string twice. */}
             {booking.mechanicName !== booking.shopName ? (
               <View style={styles.shopLine}>
-                <MapPin size={15} color={T.textMuted} strokeWidth={2} />
+                <Image source={OTO_PIN} style={styles.shopPin} resizeMode="contain" />
                 <Text
                   weight="regular"
                   size="sm"
@@ -1024,7 +1027,7 @@ const styles = StyleSheet.create({
   card: {
     backgroundColor: '#FFFFFF',
     borderRadius: 20,
-    padding: 16,
+    padding: 18,
     marginBottom: 16,
     shadowColor: '#0F172A',
     shadowOffset: { width: 0, height: 4 },
@@ -1038,8 +1041,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginTop: 0,
-    marginBottom: 6,
+    marginTop: 2,
+    marginBottom: 12,
   },
   statusPill: {
     paddingHorizontal: 12,
@@ -1053,16 +1056,16 @@ const styles = StyleSheet.create({
   vehicleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    marginBottom: 10,
+    gap: 14,
+    marginBottom: 16,
   },
   vehicleImage: {
     width: '32%',
-    height: 58,
+    height: 80,
   },
   vehicleImagePlaceholder: {
     width: '32%',
-    height: 58,
+    height: 80,
     borderRadius: 14,
     backgroundColor: T.surface,
     alignItems: 'center',
@@ -1070,13 +1073,17 @@ const styles = StyleSheet.create({
   },
   vehicleText: {
     flex: 1,
-    gap: 1,
+    gap: 3,
   },
   shopLine: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     gap: 6,
-    marginTop: 3,
+    marginTop: 5,
+  },
+  shopPin: {
+    width: 17,
+    height: 17,
   },
   shopLineText: {
     flex: 1,
@@ -1087,8 +1094,8 @@ const styles = StyleSheet.create({
     gap: 12,
     backgroundColor: T.blueLight,
     borderRadius: 14,
-    padding: 10,
-    marginBottom: 10,
+    padding: 14,
+    marginBottom: 16,
   },
   dateRowCheckedIn: {
     backgroundColor: T.greenLight,
@@ -1101,8 +1108,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
     backgroundColor: '#FFFFFF',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
     borderRadius: 12,
   },
   detailsPillCheckedIn: {
@@ -1314,7 +1321,7 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     flexShrink: 1,
     minWidth: 0,
-    height: 46,
+    height: 50,
     paddingHorizontal: 16,
     borderRadius: 14,
     borderWidth: 1,
@@ -1332,7 +1339,7 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     flexShrink: 1,
     minWidth: 0,
-    height: 46,
+    height: 50,
     paddingHorizontal: 16,
     borderRadius: 14,
     borderWidth: 1,
