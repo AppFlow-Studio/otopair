@@ -4,7 +4,7 @@ import { StripeProvider } from "@stripe/stripe-react-native";
 import { tokenCache } from "@clerk/clerk-expo/token-cache";
 import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
 import { DarkTheme, DefaultTheme, ThemeProvider } from "@react-navigation/native";
-import { Stack, useSegments, type ErrorBoundaryProps } from "expo-router";
+import { Stack, useRootNavigationState, useSegments, type ErrorBoundaryProps } from "expo-router";
 import { guardedRouter as router } from "@/lib/navigationLock";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
@@ -41,6 +41,7 @@ import { clearUserSessionState } from "@/lib/session-state";
 import { useAuthStore } from "@/stores/useAuthStore";
 import { CoachProvider } from "@/components/coach/CoachContext";
 import { CoachMarkHost } from "@/components/coach/CoachMarkHost";
+import { START_AT_HOME_ON_RELOAD } from "@/constants/devFlags";
 
 LogBox.ignoreLogs([
   /\[CONVEX M\([^\)]+\)\]/,
@@ -281,6 +282,44 @@ function RootErrorBoundary({ error }: ErrorBoundaryProps) {
 
 export { RootErrorBoundary as ErrorBoundary };
 
+/**
+ * Dev-only: open on Home, ignoring the route a reload restored.
+ *
+ * Renders nothing. Runs once, after the navigator is ready — `useSegments`
+ * is empty until then, which would read as "we are at /" and skip the work.
+ */
+function StartAtHomeOnReload() {
+  const navState = useRootNavigationState();
+  const segments = useSegments();
+  const done = useRef(false);
+
+  useEffect(() => {
+    if (!START_AT_HOME_ON_RELOAD || done.current) return;
+    if (!navState?.key || navState.stale) return;
+    done.current = true;
+
+    // `/` routes itself by auth state, and onboarding must not be jumped out
+    // of — a half-finished signup is exactly the state worth keeping.
+    // Typed as a tuple of known groups, so compare through `string` rather
+    // than narrowing against literals TS has already ruled out.
+    const group = segments[0] as string | undefined;
+    const screen = segments[1] as string | undefined;
+    if (!group || group === "(onboarding)") return;
+    if (group === "(main-tabs)" && screen === "home") return;
+
+    // Drop whatever the restored route was stacked on, so a back-swipe from
+    // Home does not land in the middle of a flow that no longer has its state.
+    try {
+      router.dismissAll();
+    } catch {
+      // Nothing to dismiss.
+    }
+    router.replace("/(main-tabs)/home");
+  }, [navState?.key, navState?.stale, segments]);
+
+  return null;
+}
+
 export default function RootLayout() {
   const colorScheme = useColorScheme();
   const [fontsLoaded, fontError] = useAppFonts();
@@ -415,6 +454,7 @@ export default function RootLayout() {
                         inside the overlay (Saved Addresses, Payment
                         Methods, etc.) use the normal slide_from_right. */}
                   </Stack>
+                  <StartAtHomeOnReload />
                   <CoachMarkHost />
                   </CoachProvider>
                   </OfflineBootGate>

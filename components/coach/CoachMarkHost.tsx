@@ -203,6 +203,23 @@ export function CoachMarkHost() {
 
   /** A target that never reports: drop the mark for this visit, silently. */
   const [skipped, setSkipped] = useState<string | null>(null);
+
+  /**
+   * A skip lasts for one visit, and only until the target turns up.
+   *
+   * The booking screens build their list from Convex, so on a cold cache the
+   * rows — and the CoachTarget inside them — do not exist yet, and the
+   * countdown starts anyway. Without these two resets a single slow load
+   * retired the hint for the rest of the session: `skipped` kept matching the
+   * candidate id, so coming back to the screen showed nothing, which looks
+   * exactly like the hint being broken rather than being late.
+   */
+  useEffect(() => {
+    setSkipped(null);
+  }, [pathname]);
+  useEffect(() => {
+    if (rect) setSkipped(null);
+  }, [rect]);
   useEffect(() => {
     if (!candidate || rect) return;
     const t = setTimeout(() => {
