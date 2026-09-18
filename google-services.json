@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "822529097766",
+    "project_id": "otopair-e40b7",
+    "storage_bucket": "otopair-e40b7.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:822529097766:android:b9580b4aa97d00ebde26e7",
+        "android_client_info": {
+          "package_name": "com.otopair.com"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCpiqayqgBl2I5qtgcOAoghzZtDVXzQCYw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
