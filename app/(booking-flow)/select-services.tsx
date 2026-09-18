@@ -120,10 +120,15 @@ export default function SelectServicesScreen() {
     // Timing curve instead of a spring — the spring's slight
     // overshoot at the top of the sheet read as a "jump" once the
     // sheet hit its full height. A monotonic ease-out lands cleanly.
-    sheetHeight.value = withTiming(SHEET_H_FULL, {
-      duration: 360,
-      easing: Easing.out(Easing.cubic),
-    });
+    // `.set()`/`.get()` instead of `.value =`: the React Compiler treats a
+    // `.value` write as mutating a hook result and skips this whole screen
+    // (verified with babel-plugin-react-compiler); the method form compiles.
+    sheetHeight.set(
+      withTiming(SHEET_H_FULL, {
+        duration: 360,
+        easing: Easing.out(Easing.cubic),
+      }),
+    );
     setIsPeekExpanded(true);
   }, [isPeekExpanded, sheetHeight]);
   // Collapse path is now handled inline by `collapsePanGesture`
@@ -152,14 +157,13 @@ export default function SelectServicesScreen() {
         .activeOffsetY([-20, 20])
         .onBegin(() => {
           "worklet";
-          dragStartHeight.value = sheetHeight.value;
+          dragStartHeight.set(sheetHeight.get());
         })
         .onUpdate((e) => {
           "worklet";
-          const next = dragStartHeight.value - e.translationY;
-          sheetHeight.value = Math.min(
-            SHEET_H_FULL,
-            Math.max(SHEET_H_PEEK, next),
+          const next = dragStartHeight.get() - e.translationY;
+          sheetHeight.set(
+            Math.min(SHEET_H_FULL, Math.max(SHEET_H_PEEK, next)),
           );
         })
         .onEnd((e) => {
@@ -168,12 +172,14 @@ export default function SelectServicesScreen() {
           let goCollapse: boolean;
           if (e.velocityY > 500) goCollapse = true;
           else if (e.velocityY < -500) goCollapse = false;
-          else goCollapse = sheetHeight.value < midpoint;
+          else goCollapse = sheetHeight.get() < midpoint;
           const target = goCollapse ? SHEET_H_PEEK : SHEET_H_FULL;
-          sheetHeight.value = withTiming(target, {
-            duration: 280,
-            easing: Easing.out(Easing.cubic),
-          });
+          sheetHeight.set(
+            withTiming(target, {
+              duration: 280,
+              easing: Easing.out(Easing.cubic),
+            }),
+          );
           runOnJS(setExpandedState)(!goCollapse);
         }),
     [sheetHeight, dragStartHeight, setExpandedState],
@@ -201,7 +207,16 @@ export default function SelectServicesScreen() {
   // later mapShouldBeInteractive block) so the peek-mode zoom /
   // recenter callbacks below can reference `region` for their
   // fallback center.
-  const { setInteractive, setMarkers, mapRef, region } = useBookingFlowMap();
+  const { setInteractive, setMarkers, mapRef, region, registerLocalMap } =
+    useBookingFlowMap();
+  // While the peek-mode local MapView below is mounted it covers the
+  // layout's map completely; on Android the provider unmounts its own
+  // map for the duration (see BookingFlowMap.registerLocalMap).
+  const localMapMounted = !isPeekExpanded && region != null;
+  useEffect(() => {
+    if (!localMapMounted) return;
+    return registerLocalMap();
+  }, [localMapMounted, registerLocalMap]);
   // Local map ref so the camera can pan to the selected shop as
   // the user swipes the carousel. Same pattern choose-mechanic
   // uses for its sheet's internal pager.

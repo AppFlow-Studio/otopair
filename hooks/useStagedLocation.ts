@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Platform } from "react-native";
 import * as Location from "expo-location";
 
 import type { UserLocation } from "@/stores/types/store.types";
@@ -81,8 +82,20 @@ export function useStagedLocation(): StagedLocationState {
     (async () => {
       setIsResolving(true);
       try {
-        const { status } = await Location.requestForegroundPermissionsAsync();
+        // Android: expo's request path always starts the system permission
+        // Activity, even when the permission is already granted. That pauses
+        // the app for ~200 ms, flips AppState (which triggers the foreground
+        // update check) and happens on every mount of this hook — Home and
+        // every booking entry. Read the state first; request only when needed.
+        let { status } =
+          Platform.OS === "android"
+            ? await Location.getForegroundPermissionsAsync()
+            : await Location.requestForegroundPermissionsAsync();
         if (cancelled) return;
+        if (Platform.OS === "android" && status !== "granted") {
+          ({ status } = await Location.requestForegroundPermissionsAsync());
+          if (cancelled) return;
+        }
         if (status !== "granted") {
           setLocation(null);
           setStage("unavailable");

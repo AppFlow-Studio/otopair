@@ -154,9 +154,17 @@ export function EnrichmentStatusPill({
   const vin = scope === "any" ? (inProgressEntry?.vin ?? null) : selectedVin;
   const enrichment = useVehicleEnrichmentStatus(vin);
 
+  const visible =
+    scope === "any" ? inProgressEntry != null : enrichment?.isInProgress === true;
+
   // Rich per-category detail (real data presence + typeable facts) for the
-  // sheet. Skipped until we have a VIN; loads lazily behind the pill.
-  const detail = useQuery(api.vehicles.getEnrichmentDetail, vin ? { vin } : "skip");
+  // sheet. Skipped until we have a VIN *and* the pill is on screen: the
+  // sheet can only open from the visible pill, and this query walks a dozen
+  // tables server-side — it used to run on every booking entry for nothing.
+  const detail = useQuery(
+    api.vehicles.getEnrichmentDetail,
+    visible && vin ? { vin } : "skip",
+  );
   // Real car render (VehicleDatabases) for the sheet hero. Empty make/model
   // until `detail` lands → the hook no-ops and returns a null url.
   const carImage = useVehicleImage(
@@ -167,9 +175,6 @@ export function EnrichmentStatusPill({
     undefined,
     detail?.trim ?? undefined,
   );
-
-  const visible =
-    scope === "any" ? inProgressEntry != null : enrichment?.isInProgress === true;
   // Android: the pill is mounted on Home, Bookings, Cars and the booking flow
   // but renders nothing while no car is enriching, which is nearly always. An
   // endless pulse there still re-ran both animated styles every frame on the

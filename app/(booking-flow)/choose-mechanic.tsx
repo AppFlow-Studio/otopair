@@ -169,7 +169,10 @@ export default function ChooseMechanicScreen() {
   // Engine-adjusted + director-rounded labor (empirical → book →
   // engine-tier → catalog-default) — same source as Review & Pay so the
   // estimate breakdown on each shop page matches what the customer pays.
-  const { laborHoursMap } = useBookingLaborHoursMap(ownershipId, selectedServiceIds);
+  const { laborHoursMap, isLoading: laborHoursLoading } = useBookingLaborHoursMap(
+    ownershipId,
+    selectedServiceIds,
+  );
 
   // Real per-vehicle OEM parts totals (winning fitments × unit price) — the
   // same source as Review & Pay. Without this the estimate is labor-only,
@@ -355,7 +358,16 @@ export default function ChooseMechanicScreen() {
   // truth for the initial camera so the shared map and the local
   // map line up if the user ever sees both during a transition.
   const userLocation = useBookingStore((s) => s.userLocation);
-  const { setInteractive, setMarkers, setShopPins, region } = useBookingFlowMap();
+  const { setInteractive, setMarkers, setShopPins, region, registerLocalMap } =
+    useBookingFlowMap();
+  // The local MapView below covers the layout's map completely; on Android
+  // the provider unmounts its own map while this one is mounted (see
+  // BookingFlowMap.registerLocalMap).
+  const localMapMounted = region != null;
+  useEffect(() => {
+    if (!localMapMounted) return;
+    return registerLocalMap();
+  }, [localMapMounted, registerLocalMap]);
   const mapRef = useRef<MapView | null>(null);
   // Ref to the paged carousel ScrollView so a pin tap can scroll
   // the bottom sheet to that shop's page (the reverse direction of
@@ -587,8 +599,13 @@ export default function ChooseMechanicScreen() {
   // drives the "Book <day time>" CTA label (and the recommended slot the big
   // CTA books). "Any" (null) resolves to the shop's overall next slot. Same
   // duration the ShopPage body uses, so the CTA and the RECOMMENDED row agree.
+  // Wait for labor hours before asking for slots: `totalMinutes` changes
+  // once they land, and every availability query (this one plus two per
+  // ShopPage) used to be issued twice — first with the catalog default
+  // duration, then again with the real one. Skipped queries cost nothing;
+  // the final answer is identical.
   const { slots: activeEarliestSlots } = useNextAvailabilityForShop(
-    activeShop?.id ?? null,
+    laborHoursLoading ? null : (activeShop?.id ?? null),
     selectedMechanicId,
     1,
     totalMinutes,
@@ -673,27 +690,33 @@ export default function ChooseMechanicScreen() {
     setIsBookingEarliest(true);
     const sessionId = ensureHoldSessionId();
     const holdDurationMinutes = totalMinutes > 0 ? totalMinutes : 60;
+    // The hold args and the post-hold ternary live outside the `try`: the
+    // React Compiler cannot yet compile conditionals inside try/catch and
+    // was skipping this entire screen because of this one block. Only the
+    // mutation itself needs the catch.
+    const holdArgs = {
+      shop_id: activeShop.id as Id<"shops">,
+      mechanic_id: bookMechanicId ? (bookMechanicId as Id<"mechanics">) : undefined,
+      date: scheduledDate,
+      start_time: startHHMM,
+      duration_minutes: holdDurationMinutes,
+      session_id: sessionId,
+      held_by: userId ?? undefined,
+    };
+    let res: Awaited<ReturnType<typeof holdSlot>>;
     try {
-      const res = await holdSlot({
-        shop_id: activeShop.id as Id<"shops">,
-        mechanic_id: bookMechanicId ? (bookMechanicId as Id<"mechanics">) : undefined,
-        date: scheduledDate,
-        start_time: startHHMM,
-        duration_minutes: holdDurationMinutes,
-        session_id: sessionId,
-        held_by: userId ?? undefined,
-      });
-      setSlotHold(
-        res?.holdId && res.expiresAt != null
-          ? { holdId: res.holdId, expiresAt: res.expiresAt }
-          : null,
-      );
+      res = await holdSlot(holdArgs);
     } catch {
       setIsBookingEarliest(false);
       toast.error("That time was just taken", "Pick another slot to continue.");
       onOpenCalendar();
       return;
     }
+    setSlotHold(
+      res?.holdId && res.expiresAt != null
+        ? { holdId: res.holdId, expiresAt: res.expiresAt }
+        : null,
+    );
 
     setSelectedMechanicSlot({
       shopId: activeShop.id,
@@ -1038,6 +1061,7 @@ export default function ChooseMechanicScreen() {
                   shop={r.shop}
                   pageWidth={SHEET_WIDTH}
                   totalMinutes={totalMinutes}
+                  durationReady={!laborHoursLoading}
                   selectedCount={selectedCount}
                   selectedServices={selectedServicesForPricing}
                   laborHoursMap={laborHoursMap}

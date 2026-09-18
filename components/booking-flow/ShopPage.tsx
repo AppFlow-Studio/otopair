@@ -45,6 +45,9 @@ interface ShopPageProps {
   pageWidth: number;
   /** Sum of selected services' resolved labor hours × 60. */
   totalMinutes: number;
+  /** False while labor hours are still loading: the availability queries
+   *  wait so they are issued once with the real duration instead of twice. */
+  durationReady?: boolean;
   /** Service count for the summary line. */
   selectedCount: number;
   /** The selected service rows — for the per-shop price breakdown. */
@@ -74,6 +77,7 @@ export function ShopPage({
   shop,
   pageWidth,
   totalMinutes,
+  durationReady = true,
   selectedCount,
   selectedServices,
   laborHoursMap,
@@ -110,10 +114,15 @@ export function ShopPage({
   );
 
   // Next slot for the shop overall (for the Any-mechanic earliest).
-  const { slots: shopSlots } = useNextAvailabilityForShop(shop.id, null, 1, totalMinutes);
+  const availabilityShopId = durationReady ? shop.id : null;
+  const { slots: shopSlots } = useNextAvailabilityForShop(availabilityShopId, null, 1, totalMinutes);
 
   // Per-mechanic earliest slots → picker rows.
-  const { slotsByMechanicId } = useNextAvailabilityPerMechanicForShop(shop.id, undefined, totalMinutes);
+  const { slotsByMechanicId } = useNextAvailabilityPerMechanicForShop(
+    availabilityShopId,
+    undefined,
+    totalMinutes,
+  );
   const allMechanicsMap = useMechanicStore((s) => s.mechanics);
 
   const mechanicOptions = useMemo<MechanicOption[]>(() => {
