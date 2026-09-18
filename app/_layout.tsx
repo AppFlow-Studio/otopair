@@ -14,7 +14,7 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import "react-native-reanimated";
 import { KeyboardProvider } from "react-native-keyboard-controller";
-import { BackHandler, LogBox } from "react-native";
+import { LogBox } from "react-native";
 import { SafeAreaProvider, initialWindowMetrics } from "react-native-safe-area-context";
 
 // Suppress the dev-mode red LogBox overlay for Convex mutation/query
@@ -236,7 +236,7 @@ function PendingDeletionSessionGuard() {
   return null;
 }
 
-function RootErrorBoundary({ error }: ErrorBoundaryProps) {
+function RootErrorBoundary({ error, retry }: ErrorBoundaryProps) {
   useEffect(() => {
     errorBus.set({ visible: true, error });
   }, [error]);
@@ -244,16 +244,24 @@ function RootErrorBoundary({ error }: ErrorBoundaryProps) {
   const message =
     error instanceof Error
       ? error.message
-      : "Something went wrong. Please close and reopen the app.";
+      : "Something went wrong. Tap Try again to reload.";
+
+  // Both buttons re-render the route. The old close handler called
+  // BackHandler.exitApp(), which on Android only backgrounds a singleTask
+  // activity — reopening from Recents landed on the same broken state and
+  // the same modal, with no way out.
+  const recover = () => {
+    errorBus.set({ visible: false, error: undefined });
+    void retry();
+  };
 
   return (
     <ErrorOccurredModal
       visible
       title="Something went wrong"
       message={message}
-      onClose={() => {
-        BackHandler.exitApp();
-      }}
+      onClose={recover}
+      onRetry={recover}
     />
   );
 }
