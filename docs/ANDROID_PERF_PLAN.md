@@ -249,7 +249,10 @@ are deliberately not.
    570–650 ms per 10 s to ~0 and scroll JS from 870 to 150 ms (`ANDROID_PERF_DEEP_DIVE.md` §1.1).
    The pixel check above is the only thing left before committing it. The rest of "why still
    sluggish" is in that doc: permission Activity per mount, React Compiler bail-outs, coach
-   registry, three MapViews.
+   registry, three MapViews. *Later the same day:* the booking-flow half of that list shipped
+   (`ANDROID_PERF_DEEP_DIVE.md` §4.1) — one MapView at a time, no permission Activity on entry,
+   both map screens compiler-memoised; map-tap UI thread 2,560 → 520 ms. Item 8 (B11) below is
+   therefore done for Android.
 1. **P0 — booking-entry crash/ANR on the budget device.** Reproduced live, still uncaptured. Blocks
    clean measurement of the booking flow (the harness already logs the window as dropped). Belongs to
    the crash track but nothing below it is trustworthy while it fires.

@@ -349,6 +349,58 @@ animations → transforms.
 Phase 3 — draw cost on a real phone: elevation/clip trims, `expo-image`,
 phosphor import, deferred fonts.
 
+## 4.1 Booking-flow pass — shipped 2026-09-18 (Android only)
+
+What changed, all gated on `Platform.OS === "android"` where behaviour could
+differ, nothing visual:
+
+| Item | Where | Change |
+|---|---|---|
+| §2.1 permission Activity | `hooks/useStagedLocation.ts` | `getForegroundPermissionsAsync` first; `request` only when not granted |
+| §2.4 region churn | `components/booking-flow/BookingFlowMap.tsx` | `region` keyed on latitude/longitude, not object identity; context value memoised; camera seeded from the store's last fix so the MapView mounts on the first frame of a repeat entry |
+| §2.4 three MapViews | `BookingFlowMap.tsx`, `select-services.tsx`, `choose-mechanic.tsx` | `registerLocalMap()` — while a screen's own full-screen map is mounted (peek mode, choose-mechanic) the provider unmounts its map; skeleton re-runs when it comes back |
+| §2.2 compiler bail-outs | `select-services.tsx` (`.set()/.get()`), `choose-mechanic.tsx` (`holdArgs` hoisted out of `try`) | both screens now compile: 117 and 203 memo slots |
+| §2.6 doubled availability queries | `choose-mechanic.tsx`, `ShopPage.tsx` (`durationReady`) | slot queries wait for labor hours instead of being issued twice |
+| §2.6 invisible pill work | `EnrichmentStatusPill.tsx` | `getEnrichmentDetail` + car-image fetch skipped until the pill is visible |
+| §2.5 Home under the flow | `app/_layout.tsx` | `freezeOnBlur` on the `(main-tabs)` stack screen |
+
+Measured on the Pixel AVD, signed-in account, same script as §1.1
+(`16-tree-dbg` before, `17-flow-dbg` after, warm process):
+
+| Map tap, 10 s window | before | after |
+|---|---|---|
+| `REQUEST_PERMISSIONS` Activity starts | 1 | **0** |
+| App pauses / update checks triggered | 1 / 1 | **0 / 0** |
+| Google Map views on the peek screen | 2 | **1** |
+| Google Map views on choose-mechanic | 2 | **1** |
+| "Initial labeling completed" (map inits) | 2–3 | **1** |
+| UI thread | 2,560 ms | **520 ms** |
+| GL-Map + androidmapsapi threads | 1,330 + 1,360 ms | **650 + 300 ms** |
+| RenderThread (emulator-inflated) | 4,370 ms | 460 ms |
+| p99 frame | 400 ms | 200 ms |
+
+Pixel check (`diff_states.py` over eight captured states): category,
+choose-mechanic, back-to-category at 1 s and at 3 s all **0 px** changed.
+Peek differs only in a Google POI label the tile renderer placed differently
+(0.15 %); the expanded sheet differs by 503 px of sub-pixel edge blending on
+row icons over the translucent sheet (shapes and positions identical, no
+whole-pixel shift explains it).
+
+**The one visible difference:** entering from Home in peek mode now mounts
+only the peek map. The layout map behind the frosted sheet is created when
+the sheet is first expanded, so for up to ~1 s after that first tap the
+sheet shows the skeleton shimmer instead of the already-loaded map (blank
+at 600 ms, fully painted by 1.8 s in the capture). Everything after that,
+including returning from choose-mechanic, is pixel-identical at 1 s. To
+restore the old two-maps-at-entry behaviour, make `registerLocalMap` a
+no-op (one line in `BookingFlowMap.tsx`).
+
+Not done in this pass (Home-side or product-visible): the coach registry
+gate (§2.3), `freezeOnBlur` on the Tabs themselves, the `shop_services.list`
+projection, `search.tsx` re-hydration (Waleed's uncommitted edit is in that
+file), and shortening the 320 ms fade that accommodates a shared-element
+morph that never runs.
+
 ## 5. Measuring the next pass
 
 The Pixel now runs `16-tree-dbg` (versionCode 14, key present, C4, the four
