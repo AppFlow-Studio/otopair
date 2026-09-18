@@ -134,17 +134,12 @@ export function ReceiptViewer({ bookingId }: Props) {
           value={formatCents(breakdown.subtotalCents)}
           subdued
         />
-        {breakdown.taxCents > 0 ? (
+        {(breakdown.taxCents ?? 0) + (breakdown.platformFeeCents ?? 0) > 0 ? (
           <BreakdownRow
-            label="Tax"
-            value={formatCents(breakdown.taxCents)}
-            subdued
-          />
-        ) : null}
-        {breakdown.platformFeeCents > 0 ? (
-          <BreakdownRow
-            label="Service fee"
-            value={formatCents(breakdown.platformFeeCents)}
+            label="Taxes & Fees"
+            value={formatCents(
+              (breakdown.taxCents ?? 0) + (breakdown.platformFeeCents ?? 0),
+            )}
             subdued
           />
         ) : null}

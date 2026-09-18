@@ -1021,28 +1021,15 @@ export default function PaymentScreen() {
 
               <CollapsibleDetail>
                 <View style={styles.breakdownSection}>
+                  {/* Taxes & Fees — tax + Otopair 7% service fee combined. */}
                   <View style={styles.breakdownRow}>
                     <Text size="sm" weight="regular" color="#6B7280">
-                      Taxes
+                      Taxes & Fees
                     </Text>
                     <Text size="sm" weight="medium" color="#6B7280">
-                      ${quoteBreakdown.taxDollars.toFixed(2)}
+                      ${(quoteBreakdown.taxDollars + quoteBreakdown.serviceFeeDollars).toFixed(2)}
                     </Text>
                   </View>
-                </View>
-
-                <View style={styles.serviceRow}>
-                  <View style={styles.feeRow}>
-                    <Text size="sm" weight="regular" color="#6B7280">
-                      Service Fee — 7%
-                    </Text>
-                    <TouchableOpacity style={styles.infoButton} activeOpacity={0.7}>
-                      <Info size={14} color="#9CA3AF" />
-                    </TouchableOpacity>
-                  </View>
-                  <Text size="sm" weight="medium" color="#6B7280">
-                    ${quoteBreakdown.serviceFeeDollars.toFixed(2)}
-                  </Text>
                 </View>
               </CollapsibleDetail>
 
@@ -1272,31 +1259,19 @@ export default function PaymentScreen() {
                 </View>
               ))}
 
-            {/* Taxes — recomputed at the parts endpoints. Service Fee
-                renders on its own row below; this row is tax only. */}
+            {/* Taxes & Fees — tax + Otopair 7% service fee combined into a
+                single line. Band recomputed at the parts endpoints. */}
             <View style={styles.breakdownRow}>
               <Text size="sm" weight="regular" color="#6B7280">
-                Taxes
+                Taxes & Fees
               </Text>
               <Text size="sm" weight="medium" color="#6B7280">
-                {formatRange(breakdown.taxLow, breakdown.taxHigh)}
+                {formatRange(
+                  breakdown.taxLow + breakdown.feeLow,
+                  breakdown.taxHigh + breakdown.feeHigh,
+                )}
               </Text>
             </View>
-          </View>
-
-          {/* Otopair Service Fee — same band logic as tax. */}
-          <View style={styles.serviceRow}>
-            <View style={styles.feeRow}>
-              <Text size="sm" weight="regular" color="#6B7280">
-                Service Fee — 7%
-              </Text>
-              <TouchableOpacity style={styles.infoButton} activeOpacity={0.7}>
-                <Info size={14} color="#9CA3AF" />
-              </TouchableOpacity>
-            </View>
-            <Text size="sm" weight="medium" color="#6B7280">
-              {formatRange(breakdown.feeLow, breakdown.feeHigh)}
-            </Text>
           </View>
           </CollapsibleDetail>
 

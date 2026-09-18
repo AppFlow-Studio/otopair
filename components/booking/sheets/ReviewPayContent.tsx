@@ -973,36 +973,21 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
                 </View>
               ))}
 
-            {/* Taxes & Fees — band recomputed at the parts endpoints. When
+            {/* Taxes & Fees — tax + Otopair 7% service fee combined into a
+                single line. Band recomputed at the parts endpoints; when
                 every line is fixed-price the band collapses to a single
-                value; render `$X` instead of the redundant `$X – $X`. */}
+                value, so render `$X` instead of the redundant `$X – $X`. */}
             <View style={styles.breakdownRow}>
               <Text size="sm" weight="regular" color="#6B7280">
                 Taxes & Fees
               </Text>
               <Text size="sm" weight="medium" color="#6B7280">
-                {breakdown.taxLow.toFixed(2) === breakdown.taxHigh.toFixed(2)
-                  ? `$${breakdown.taxLow.toFixed(2)}`
-                  : `$${breakdown.taxLow.toFixed(2)} – $${breakdown.taxHigh.toFixed(2)}`}
+                {(breakdown.taxLow + breakdown.feeLow).toFixed(2) ===
+                (breakdown.taxHigh + breakdown.feeHigh).toFixed(2)
+                  ? `$${(breakdown.taxLow + breakdown.feeLow).toFixed(2)}`
+                  : `$${(breakdown.taxLow + breakdown.feeLow).toFixed(2)} – $${(breakdown.taxHigh + breakdown.feeHigh).toFixed(2)}`}
               </Text>
             </View>
-          </View>
-
-          {/* Otopair Service Fee — same band logic as tax. */}
-          <View style={styles.serviceRow}>
-            <View style={styles.feeRow}>
-              <Text size="sm" weight="regular" color="#6B7280">
-                Service Fee — 7%
-              </Text>
-              <TouchableOpacity style={styles.infoButton} activeOpacity={0.7}>
-                <Info size={14} color="#9CA3AF" />
-              </TouchableOpacity>
-            </View>
-            <Text size="sm" weight="medium" color="#6B7280">
-              {breakdown.feeLow.toFixed(2) === breakdown.feeHigh.toFixed(2)
-                ? `$${breakdown.feeLow.toFixed(2)}`
-                : `$${breakdown.feeLow.toFixed(2)} – $${breakdown.feeHigh.toFixed(2)}`}
-            </Text>
           </View>
 
           {/* Divider */}

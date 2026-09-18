@@ -344,8 +344,7 @@ export function ReceiptContent({ payload, bookingId, onLeaveReview, onViewJob }:
     lines.push("");
     lines.push(`Labor        ${fmtAmount(totals.labor_subtotal)}`);
     lines.push(`Parts        ${fmtAmount(totals.parts_subtotal)}`);
-    lines.push(`Service fee  ${fmtAmount(totals.platform_fee)}`);
-    lines.push(`Tax          ${fmtAmount(totals.tax)}`);
+    lines.push(`Taxes & Fees ${fmtAmount(totals.platform_fee + totals.tax)}`);
     lines.push(`TOTAL        $${fmtAmount(totals.total)}`);
     return lines.join("\n");
   };
@@ -542,8 +541,10 @@ export function ReceiptContent({ payload, bookingId, onLeaveReview, onViewJob }:
         <TotalRow label="Labor" amount={fmtAmount(totals.labor_subtotal)} />
       ) : null}
       <TotalRow label="Parts" amount={fmtAmount(totals.parts_subtotal)} />
-      <TotalRow label="Service fee" amount={fmtAmount(totals.platform_fee)} />
-      <TotalRow label="Tax" amount={fmtAmount(totals.tax)} />
+      <TotalRow
+        label="Taxes & Fees"
+        amount={fmtAmount(totals.platform_fee + totals.tax)}
+      />
       {totals.parts_saved > 0 ? (
         <TotalRow
           label="You saved on parts"

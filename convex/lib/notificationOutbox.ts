@@ -8,6 +8,62 @@
  */
 
 import { internal } from "../_generated/api";
+import type { Id } from "../_generated/dataModel";
+
+/**
+ * buildCustomerPushPayload — the one shape a customer push must have.
+ *
+ * The Expo dispatcher (push_dispatcher.dispatchPendingPush) only ever forwards
+ * `payload.title`, `payload.body`, and `payload.data` to the device: a missing
+ * title shows a blank "Otopair" banner, and ONLY `payload.data` reaches the
+ * phone, so a deep link and any field the app wants to route/render on must live
+ * under `data`. This helper produces `{ title, body, ...extra, data: { deepLink,
+ * bookingId, vehicleLabel, vin, ...extra } }`.
+ *
+ * `extra` (schedule fields, ids, etc.) is spread BOTH at the top level and under
+ * `data` — additive, never a move. The web portal + in-app feed read some of
+ * these fields at the payload top level (e.g. customer-scheduling-alerts.tsx
+ * reads payload.newEndTime; notifications.getMyNotifications reads
+ * payload.year/make/model), so we keep the top-level copies and mirror them into
+ * `data` for the device. `payload` is an untyped column, so the duplication is
+ * free. When `deepLink` is omitted it defaults to the confirmed base route
+ * `otopair://booking/{bookingId}`.
+ */
+export function buildCustomerPushPayload({
+  title,
+  body,
+  bookingId,
+  deepLink,
+  vehicleLabel,
+  vin,
+  extra,
+}: {
+  title: string;
+  body: string;
+  bookingId?: string | Id<"bookings">;
+  /** Override the deep link; defaults to otopair://booking/{bookingId}. */
+  deepLink?: string;
+  /** e.g. "2021 Toyota Camry" from resolveVehicleDisplay().ymm. */
+  vehicleLabel?: string | null;
+  vin?: string | null;
+  /** Context fields — mirrored top-level (feed/SMS) and under data (device). */
+  extra?: Record<string, unknown>;
+}) {
+  const link =
+    deepLink ?? (bookingId ? `otopair://booking/${String(bookingId)}` : undefined);
+  return {
+    title,
+    body,
+    ...(extra ?? {}),
+    data: {
+      ...(extra ?? {}),
+      ...(link ? { deepLink: link } : {}),
+      ...(bookingId ? { bookingId: String(bookingId) } : {}),
+      ...(vehicleLabel ? { vehicleLabel } : {}),
+      ...(vin ? { vin } : {}),
+    },
+  };
+}
 
 /**
  * Channel → its dispatcher action. Enqueue kicks the matching dispatcher via

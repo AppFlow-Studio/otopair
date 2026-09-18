@@ -1787,8 +1787,12 @@ function ActivityRow({
               event.data.serviceFeeCents != null) ? (
               <Text size="xs" weight="regular" color="#3C3C43" style={styles.activityDetailLine}>
                 Parts {formatCents(event.data.partsSubtotalCents)} · Labor{" "}
-                {formatCents(event.data.laborCents)} · Tax {formatCents(event.data.taxCents)} · Fee{" "}
-                {formatCents(event.data.serviceFeeCents)}
+                {formatCents(event.data.laborCents)} · Taxes & Fees{" "}
+                {event.data.taxCents == null && event.data.serviceFeeCents == null
+                  ? "—"
+                  : formatCents(
+                      (event.data.taxCents ?? 0) + (event.data.serviceFeeCents ?? 0),
+                    )}
               </Text>
             ) : null}
             <Text size="xs" weight="regular" color="#8E8E93" style={styles.activityDetailLine}>
