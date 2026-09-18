@@ -182,6 +182,27 @@ export function EnrichmentStatusPill({
     }
     startPulse(pulse);
   }, [pulse, visible]);
+  // Every REAL fact gathered so far — the "thinking" ticker cycles them.
+  const facts = detail?.facts ?? [];
+  // Reshuffle the order every time the sheet opens so the ticker streams a
+  // fresh random mix of specs + parts each visit (keyed on sheetOpen). Derived
+  // from the join key, not the array ref, so it doesn't reshuffle every render.
+  const factsKey = facts.join("¦");
+  const shuffledFacts = useMemo(() => {
+    const a = factsKey ? factsKey.split("¦") : [];
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  }, [sheetOpen, factsKey]);
+  // Every hook above this line, none below it: `visible` flips false → true
+  // the moment a garage car starts enriching (Convex reports any car added in
+  // the last 15 minutes as in_progress) and back again when it finishes.
+  // With the useMemo below the early return, React counted 14 hooks on one
+  // render and 15 on the next and threw "Rendered more hooks than during the
+  // previous render" — for every new account, never for a garage that is
+  // already enriched.
   if (!visible) return null;
 
   // Mirror the old toast's 7-minute baseline: past it the ETA math is
@@ -222,20 +243,6 @@ export function EnrichmentStatusPill({
       };
 
   const allReady = detail?.phase === "ready";
-  // Every REAL fact gathered so far — the "thinking" ticker cycles them.
-  const facts = detail?.facts ?? [];
-  // Reshuffle the order every time the sheet opens so the ticker streams a
-  // fresh random mix of specs + parts each visit (keyed on sheetOpen). Derived
-  // from the join key, not the array ref, so it doesn't reshuffle every render.
-  const factsKey = facts.join("¦");
-  const shuffledFacts = useMemo(() => {
-    const a = factsKey ? factsKey.split("¦") : [];
-    for (let i = a.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [a[i], a[j]] = [a[j], a[i]];
-    }
-    return a;
-  }, [sheetOpen, factsKey]);
   const etaLine = pastBaseline
     ? "Almost there — finishing up."
     : eta != null
