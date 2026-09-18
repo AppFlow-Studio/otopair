@@ -1,0 +1,106 @@
+{
+  "device": "emulator-5556 (Android 14\n, 1080x2400, android-repair release build)",
+  "steps": [
+    {
+      "settle_s": 0.43,
+      "shot_latency_s": 0.35,
+      "timed_out": false,
+      "action": "tap Home",
+      "frames": {
+        "frames": "44",
+        "janky_pct": "34.09",
+        "p50_ms": "19",
+        "p90_ms": "48",
+        "p99_ms": "61"
+      }
+    },
+    {
+      "settle_s": 0.6,
+      "shot_latency_s": 0.26,
+      "timed_out": false,
+      "action": "tap Bookings",
+      "frames": {
+        "frames": "15",
+        "janky_pct": "33.33",
+        "p50_ms": "20",
+        "p90_ms": "61",
+        "p99_ms": "61"
+      }
+    },
+    {
+      "settle_s": 1.13,
+      "shot_latency_s": 0.34,
+      "timed_out": false,
+      "action": "tap Cars",
+      "frames": {
+        "frames": "71",
+        "janky_pct": "19.72",
+        "p50_ms": "29",
+        "p90_ms": "53",
+        "p99_ms": "150"
+      }
+    },
+    {
+      "settle_s": 0.66,
+      "shot_latency_s": 0.28,
+      "timed_out": false,
+      "action": "tap Oto",
+      "frames": {
+        "frames": "58",
+        "janky_pct": "13.79",
+        "p50_ms": "27",
+        "p90_ms": "57",
+        "p99_ms": "97"
+      }
+    },
+    {
+      "settle_s": 0.64,
+      "shot_latency_s": 0.32,
+      "timed_out": false,
+      "action": "tap Home",
+      "frames": {
+        "frames": "31",
+        "janky_pct": "32.26",
+        "p50_ms": "18",
+        "p90_ms": "48",
+        "p99_ms": "77"
+      }
+    },
+    {
+      "settle_s": 1.95,
+      "shot_latency_s": 0.29,
+      "timed_out": false,
+      "action": "home scroll 4 down + 4 up",
+      "frames": {
+        "frames": "93",
+        "janky_pct": "8.60",
+        "p50_ms": "22",
+        "p90_ms": "28",
+        "p99_ms": "34"
+      }
+    },
+    {
+      "settle_s": 0.94,
+      "shot_latency_s": 0.21,
+      "timed_out": false,
+      "action": "open booking flow (tap Map)",
+      "frames": {
+        "frames": "16",
+        "janky_pct": "43.75",
+        "p50_ms": "32",
+        "p90_ms": "48",
+        "p99_ms": "53"
+      }
+    },
+    {
+      "action": "booking screen idle 10s (no input)",
+      "frames": {
+        "frames": "0",
+        "janky_pct": "0.00",
+        "p50_ms": "4950",
+        "p90_ms": "4950",
+        "p99_ms": "4950"
+      }
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+diff --git a/app.json b/app.json
+index 2d14369d..25350483 100644
+--- a/app.json
++++ b/app.json
+@@ -48,6 +48,15 @@
+     },
+     "plugins": [
+       "expo-router",
++      [
++        "expo-build-properties",
++        {
++          "android": {
++            "enableMinifyInReleaseBuilds": true,
++            "enableShrinkResourcesInReleaseBuilds": true
++          }
++        }
++      ],
+       [
+         "expo-splash-screen",
+         {
