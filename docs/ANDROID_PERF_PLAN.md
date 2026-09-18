@@ -245,6 +245,11 @@ are deliberately not.
    `05_cars_top`; for C4 the whole-screen diff is **not** sufficient — `capture_states.py` masks the
    placeholder as an animated region, so use `stylecheck_searchbar.py` (written for this) and check
    the absolute numbers against `evidence/11-C4/groundtruth/geometry.json`.
+   *2026-09-18:* C4's **performance** side is settled — on the signed-in Home it takes idle JS from
+   570–650 ms per 10 s to ~0 and scroll JS from 870 to 150 ms (`ANDROID_PERF_DEEP_DIVE.md` §1.1).
+   The pixel check above is the only thing left before committing it. The rest of "why still
+   sluggish" is in that doc: permission Activity per mount, React Compiler bail-outs, coach
+   registry, three MapViews.
 1. **P0 — booking-entry crash/ANR on the budget device.** Reproduced live, still uncaptured. Blocks
    clean measurement of the booking flow (the harness already logs the window as dropped). Belongs to
    the crash track but nothing below it is trustworthy while it fires.

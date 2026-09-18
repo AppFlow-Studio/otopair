@@ -58,12 +58,44 @@ and logcat timelines are trustworthy.
 | Permission state | `ACCESS_FINE_LOCATION: granted=true`, `ACCESS_COARSE_LOCATION: granted=true` — the Activity launch is not asking for anything |
 | Warnings | 4× `source.uri should not be an empty string` on Home (an `Image` with `uri: ""`; candidates `NowTierCallout.tsx:109/197`, `UpcomingAppointmentHero.tsx:126`, `ProfileInitialsButton.tsx:156`, `FinishCarSetupPickerSheet.tsx:85`) |
 
-Attempted and abandoned: an A/B of `10-C5.apk` against `11-C4.apk` for the
-idle typewriter cost. A fresh install lands on the sign-up screen, there is
-no guest path, and the uninstall wiped the signed-in session that was on the
-Pixel — that session has to be re-created by signing in before the A/B (or
-any map test) can run again. `15-A8b-dbg` is reinstalled with location
-granted.
+### 1.1 A/B: JS typewriter (installed build) vs the tree's worklet typewriter (C4)
+
+Same signed-in account, same emulator, ten minutes apart, identical script
+(`scratchpad/deep/baseline_then_build.sh`). `16-tree-dbg` is HEAD + the
+uncommitted working tree (C4 `AndroidTypewriterPlaceholder`, C5
+`CarCarousel`, Waleed's `search.tsx`/`MechanicCarouselCard.tsx` edits) built
+with versionCode 14, the Maps key injected into the local manifest for the
+build only, signed with `~/.android/debug.keystore`, installed **over** the
+existing app (data kept).
+
+| Home, signed in | `15-A8b-dbg` (JS typewriter) | `16-tree-dbg` (C4 worklet) |
+|---|---|---|
+| Idle 10 s, frames drawn | 120 / 145 | 128 / 123 |
+| Idle 10 s, **JS thread** | **570 / 650 ms** | **< 10 ms** (not in the top five threads) |
+| Idle 10 s, UI thread | 730 / 670 ms | 560 / 610 ms |
+| Scroll (6 swipes), **JS thread** | **870 ms** | **150 ms** |
+| Scroll, UI thread | 910 ms | 750 ms |
+| Scroll, UI-thread ms/frame p50 / p90 / max | 2.5 / 4.5 / 12.5 | 2.5 / 3.7 / 5.7 |
+
+Verdict: the JS typewriter was the entire idle JS cost of Home and most of
+the JS cost during a scroll. C4 is verified for performance. The frames
+still drawn at idle (~12 a second) are the visible typing itself plus the
+hidden pinned copy (§2.5) — pass `active={false}` to the pinned copy and the
+idle draw count drops too. C4's *pixel* identity (TextInput placeholder vs
+the old Text) still needs the `stylecheck_searchbar.py` + capture diff from
+the plan before it is committed.
+
+Map entry on the two builds (one run each, so state noise applies): the
+baseline run saw three `MapsInitializer` starts and no "Initial labeling
+completed" inside 10 s with the UI thread at 2,560 ms; the C4 run saw two
+starts, both labeled, UI thread 560 ms. Both runs: one `REQUEST_PERMISSIONS`
+Activity, one host pause, one update check, two live Google Map views.
+
+Attempted first and abandoned: an A/B of the older `10-C5.apk` /
+`11-C4.apk` pair by fresh install. A fresh install lands on the sign-up
+screen with no guest path, and the uninstall wiped the signed-in session on
+the Pixel, which Waleed had to re-create. Never uninstall on the emulators;
+install over with a higher versionCode and the matching keystore.
 
 ## 2. Root causes, ranked
 
@@ -200,13 +232,14 @@ local maps with `useIsFocused`) so there is exactly one MapView (B11); seed
 
 ### 2.5 Home never idles — Medium-High (measured + code-verified)
 
-- **JS typewriter ×2.** The Pixel build lacks the uncommitted C4 rewrite
-  (checked: `androidPlaceholderInput` absent from its bundle), so
-  `useTypewriterText` runs the JS `setState`-per-character loop while Home is
-  focused, in the in-flow search bar **and** the pinned copy that is hidden
-  by opacity/height (`home/index.tsx:1479, 1772, 1794`). That is the 170
-  frames / 900 ms JS / 840 ms UI per 10 s of "idle". C4 moves it to a UI
-  worklet but still runs the hidden copy (`MechanicSearchBar.tsx:166-171`
+- **JS typewriter ×2 — measured, C4 fixes it (§1.1).** The installed build
+  lacked the uncommitted C4 rewrite (checked: `androidPlaceholderInput`
+  absent from its bundle), so `useTypewriterText` ran the JS
+  `setState`-per-character loop while Home was focused, in the in-flow
+  search bar **and** the pinned copy that is hidden by opacity/height
+  (`home/index.tsx:1479, 1772, 1794`). That was 570–650 ms of JS per 10 s of
+  idle and 870 ms per scroll; with C4 both drop to ~0 and 150 ms. C4 still
+  runs the hidden copy on the UI thread (`MechanicSearchBar.tsx:166-171`
   gates on `screenFocused` only) — pass `active={false}` to the pinned copy.
 - **Tabs are never frozen.** No `freezeOnBlur` / `enableFreeze` anywhere;
   `app/(main-tabs)/_layout.tsx:112-130`. Once Cars or Bookings has been
@@ -294,6 +327,8 @@ redundant nested `overflow: hidden`.
 Phase 1 — no visual change, each a small diff, together they address the
 measured symptoms:
 
+0. Commit C4 once its pixel check passes (§1.1) — the only item here that
+   is already measured end to end.
 1. §2.1 permission short-circuit + single location resolver + region keyed
    on lat/lng + memoized provider context. Pass/fail: zero
    `REQUEST_PERMISSIONS` starts on Map tap (`adb logcat | grep
@@ -316,9 +351,9 @@ phosphor import, deferred fonts.
 
 ## 5. Measuring the next pass
 
-Both emulators need a signed-in session first (Pixel: fresh
-`15-A8b-dbg`, location granted; budget: on the login screen). Then per
-phase: `scripts/android-perf/rotate.sh` paired rounds as before, plus the
+The Pixel now runs `16-tree-dbg` (versionCode 14, key present, C4, the four
+crash fixes) on Waleed's signed-in account; the budget AVD is still on its
+login screen. Then per phase: `scripts/android-perf/rotate.sh` paired rounds as before, plus the
 three cheap checks used today — per-thread CPU over a 10 s idle and a
 6-swipe scroll (`/proc/<pid>/task/*/stat`), `REQUEST_PERMISSIONS` count on
 Map tap, and the `content-desc="Google Map"` count in a `uiautomator dump`
