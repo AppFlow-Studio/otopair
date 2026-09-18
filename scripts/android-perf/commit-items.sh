@@ -18,6 +18,9 @@ files_for() {
     A4) echo "components/booking-flow/EnrichmentStatusPill.tsx" ;;
     A5) echo "app/(main-tabs)/home/index.tsx app/(main-tabs)/bookings/index.tsx app/(main-tabs)/cars/index.tsx" ;;
     C3) echo "hooks/useTypewriterText.ts components/home/MechanicSearchBar.tsx components/home/ProfileInitialsButton.tsx" ;;
+    C4) echo "components/home/MechanicSearchBar.tsx components/home/AndroidTypewriterPlaceholder.tsx" ;;
+    C5) echo "components/cars/CarCarousel.tsx" ;;
+    C6) echo "app/(main-tabs)/cars/index.tsx" ;;
     A6) echo "assets/images/car-silhouette-sedan.android.png assets/images/car-silhouette-suv.android.png assets/images/car-silhouette-truck.android.png assets/images/lexus.android.png $HERE/make_android_assets.py" ;;
     A7) echo "app.json package.json package-lock.json" ;;
     harness) echo "$HERE docs/ANDROID_PERF_PLAN.md" ;;

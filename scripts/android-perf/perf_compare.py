@@ -147,6 +147,14 @@ class Android:
         return subprocess.run([self.adb, "-s", self.serial, "shell", cmd], capture_output=True,
                               text=True, timeout=60).stdout.replace("\r", "")
 
+    def version_code(self):
+        """Which build actually answered. On 2026-09-17 a foreign versionCode-13 build
+        replaced ours on both emulators mid-rotation; rotate.sh kept measuring because
+        nothing in the run recorded what was installed. Stamp it into every run JSON so
+        a swapped build is visible in the evidence instead of averaged into a median."""
+        m = re.search(r"versionCode=(\d+)", self.sh(f"dumpsys package {PKG}"))
+        return int(m.group(1)) if m else None
+
     def screen(self) -> Image.Image:
         png = subprocess.run([self.adb, "-s", self.serial, "exec-out", "screencap", "-p"],
                              capture_output=True, timeout=30).stdout
@@ -381,6 +389,8 @@ def main():
     print(f"== {dev.name}", flush=True)
     results = {"device": dev.name, "started": time.strftime("%Y-%m-%d %H:%M:%S"),
                "host_load_at_start": host_load(), "steps": []}
+    if kind != "ios":
+        results["version_code"] = dev.version_code()
 
     dev.restart_app()
     if kind != "ios" and not dev.foreground():
@@ -398,6 +408,26 @@ def main():
         r = act(dev, label, bottom_most=True)
         results["steps"].append(r)
         print(f"  {r}", flush=True)
+
+        # 1b. cars scroll: Cars is the tab still reported as sluggish, and its
+        # scroll is only reachable while Cars is the tab on screen — hence here,
+        # inside the loop, rather than as a step of its own. Same gestures, same
+        # settle and the same 10 s window as the home scroll step below, so the
+        # two are directly comparable. The 4 up + 4 down pair leaves Cars back
+        # near the top, so nothing downstream inherits a scroll offset.
+        if label == "Cars" and not r.get("error"):
+            time.sleep(2)
+            dev.window_begin()
+            t0 = time.perf_counter()
+            for _ in range(4):
+                dev.swipe_up()
+            for _ in range(4):
+                dev.swipe_down()
+            rc = settle(dev, t0)
+            rc.update({"action": "cars scroll 4 down + 4 up", "frames": dev.frame_stats()})
+            finish_window(dev, rc, t0, 10.0)
+            results["steps"].append(rc)
+            print(f"  {rc}", flush=True)
 
     # 2. home scroll: 4 flings down the feed, then back up
     time.sleep(2)

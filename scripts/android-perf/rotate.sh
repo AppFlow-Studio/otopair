@@ -25,7 +25,17 @@ for i in $(seq 1 "$ROUNDS"); do
     LABEL="${spec%%:*}"; APK="${spec#*:}"
     OUT="evidence/rot/$LABEL/$DEV"; mkdir -p "$OUT"
     if [ -f "$OUT/run$i.json" ]; then echo "round $i $LABEL $DEV: already done"; continue; fi
-    echo "round $i $LABEL $DEV: install $("$ADB" -s "$SERIAL" install -r "$(cygpath -w "$APK")" 2>&1 | tail -1)"
+    # Abort the round if the install did not take. This used to only echo the adb output and
+    # carry on, so when a foreign build blocked our APKs on 2026-09-17 the script measured
+    # whatever happened to be installed and wrote it out as this build's numbers - a whole
+    # round had to be quarantined. A round we cannot install is a round with no data, which is
+    # strictly better than a round with wrong data.
+    INSTALL_OUT="$("$ADB" -s "$SERIAL" install -r "$(cygpath -w "$APK")" 2>&1)"
+    echo "round $i $LABEL $DEV: install $(printf '%s' "$INSTALL_OUT" | tail -1)"
+    if ! printf '%s' "$INSTALL_OUT" | grep -q "Success"; then
+      echo "round $i $LABEL $DEV: ABORTING ROUND - install failed, refusing to measure a build we did not install" >&2
+      break
+    fi
     py -3 perf_compare.py android "$SERIAL" "$OUT/run$i.json" > "$OUT/run$i.log" 2>&1
     echo "round $i $LABEL $DEV: $(grep -c settle_s "$OUT/run$i.log") steps measured"
   done

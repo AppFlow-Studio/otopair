@@ -136,8 +136,10 @@ Written at the end of the first measuring pass, after sorting the working tree. 
 
 ### 9.1 What survived
 
-Four items are committed. Two of them are proven by round-robin runs on the budget emulator where
-every round agreed; two are kept on their mechanism alone and say so in their own commit body.
+Five items are committed. Two of them are proven by round-robin runs on the budget emulator where
+every round agreed; two are kept on their mechanism alone and say so in their own commit body; the
+fifth (C6) has no rounds at all, because the rig had been taken over by the time it was written —
+its commit body states the absence rather than borrowing a neighbour's numbers.
 
 | Item | Verdict | The numbers that hold up (budget emulator, paired rounds, JS-thread CPU per 10 s window unless stated) |
 |---|---|---|
@@ -145,6 +147,7 @@ every round agreed; two are kept on their mechanism alone and say so in their ow
 | **C3** off-screen typewriter + avatar stand down | **proven** | booking screen idle 940 → 10 ms (−99%), Cars idle 755 → 0 ms (−100%), tap Bookings 405 → 80 ms (−80%), open booking flow 915 → 200 ms (−76%) with UI thread 13 → 8.3 ms/frame (−36%) and settle 3.38 → 2.96 s, tap Home 460 → 255 ms (−34%) with settle 0.72 → 0.52 s. All 2/2 rounds agreeing. |
 | **A4** enrichment pill pulses only when visible | kept, not proven | Home/Cars idle UI thread −15% / −14% over 2 rounds; everything else inside noise. Kept because the pill is mounted on four screens, renders `null` on nearly all of them, and was re-evaluating two animated styles per frame for no pixels. |
 | **A6** right-sized Android images | kept, size win | 5.4 MB of PNG → 1.6 MB; uncompressed APK contents 158.0 → 155.4 MB. No runtime change in the measured flows. |
+| **C6** Cars scroll stops waking the JS thread | kept, **not measured** | No rounds exist — see §9.6. Kept on a mechanism that is checkable without a device: the per-frame `onScroll` hop only ever wrote `scrollOffsetRef`, which nothing in the repo reads, and the native gate means the old `scrollEventThrottle={16}` never throttled anything. Expect `cpu_js_ms` on the cars-scroll window to fall toward the floor and `ui_mean_ms` to stay flat; that is a prediction until 08-locked is run against 09-C6. |
 
 ### 9.2 What was reverted, and why
 
@@ -199,24 +202,60 @@ Stop tuning against emulators. The next measuring pass wants:
 
 ### 9.5 Queue, in order
 
-1. **C6 — Cars scroll handler off the JS thread.** `onScroll` on the Cars tab drives React state;
-   move it to a Reanimated `useAnimatedScrollHandler` / shared value so flinging doesn't wait on JS.
-   This is the remaining user-visible symptom (sluggish Cars scrolling).
-2. **C5 — Cars count-up animations onto the UI thread.** The stat counters tick through React state;
-   they belong in Reanimated worklets with the same easing and end value.
-3. **C4 — Home typewriter onto the UI thread.** C3 stopped it running off-screen; it still costs 16–33
-   React renders a second while Home *is* showing. Same characters, same timing, driven from a worklet.
-4. **P0 — booking-entry crash/ANR on the budget device.** Reproduced live, still uncaptured. Blocks
+**Where C6, C5 and C4 landed (close-out pass, 2026-09-17).** All three were written and built;
+none could be measured or pixel-checked, because the rig was gone (§9.6). One is committed, two
+are deliberately not.
+
+- **C6 — Cars scroll off the JS thread. Committed** (`573afcdf`), **not measured.** Two corrections
+  to what this entry used to say. First, the prescription above — move it to a Reanimated
+  `useAnimatedScrollHandler` — was the wrong fix: the handler had no consumer at all.
+  `scrollOffsetRef` is written on every scrolled frame and **read nowhere in the repository**, so
+  there was nothing to move, only something to stop. Second, deleting the `onScroll` prop would
+  *not* have stopped it: `ScrollView.js:1787` wires `onScroll` to the native view unconditionally,
+  and Android drops a SCROLL event only when `scrollEventThrottle >= max(17, now - lastDispatch)`
+  (`ReactScrollViewHelper.emitScrollEvent`), so the old `16` never throttled anything and an
+  omitted throttle (default `0`) would not either. The fix is the throttle: parked at 1,000,000 on
+  Android, with the ref fed from `onScrollEndDrag` / `onMomentumScrollEnd`, which the gate exempts.
+  Checked and clear: no `stickyHeaderIndices` (would force throttle 1), no native scroll listeners,
+  no `scrollPerfTag`, and `sendMomentumEvents` gates only event emission — fling, paging snap and
+  the post-touch runnable are untouched.
+- **C5 — Cars health-ring count-up onto the UI thread. Written, in the working tree, NOT committed.**
+  Patch at `scripts/android-perf/report/patches/C5.patch`. Also a correction: of the four count-ups
+  this entry pointed at, `MaintenanceTracker.tsx:341` `VehicleHealthRing` is **dead code** — declared
+  and never rendered, so converting it would have bought nothing. The live one on the Cars entry path
+  is `CarCarousel.tsx:1503` `ActivityRings`, which is the one that was done; `MaintenanceDetailView.tsx:115`
+  and `CarCarousel.tsx:~640` are modal-only and still open.
+- **C4 — Home typewriter onto the UI thread. Written, in the working tree, NOT committed.** Patch at
+  `report/patches/C4.patch`. Worth knowing: Home mounts **two** `MechanicSearchBar`s at once when an
+  upcoming-booking hero is showing (`home/index.tsx:1428` and `:1704`), each running its own
+  typewriter, so the JS churn here is doubled in that state.
+
+  **Why C5 and C4 are not committed.** Both replace a `<Text>` with a non-editable `TextInput` — the
+  only RN text node a worklet can write — on visible UI (the Cars hero ring, the Home search bar).
+  Android measures those two view classes differently, and vertical baseline placement is exactly
+  what a screenshot diff settles and what reasoning cannot. §0 rule 2 is pixel-identical, so they
+  wait for the check rather than being argued in. C6 was committed on the same day under the same
+  blackout because its pixel question is answerable from the code: it renders nothing.
+
+**Then, in order:**
+
+0. **Restore the rig and settle the backlog** (§9.6 for the exact ask). Four builds are stacked up
+   unverified: `08-locked`, `09-C6`, `10-C5`, `11-C4`. Settle them **in sequence**, not in one jump,
+   or a failed diff won't say which change caused it. For C5 the screen that matters is
+   `05_cars_top`; for C4 the whole-screen diff is **not** sufficient — `capture_states.py` masks the
+   placeholder as an animated region, so use `stylecheck_searchbar.py` (written for this) and check
+   the absolute numbers against `evidence/11-C4/groundtruth/geometry.json`.
+1. **P0 — booking-entry crash/ANR on the budget device.** Reproduced live, still uncaptured. Blocks
    clean measurement of the booking flow (the harness already logs the window as dropped). Belongs to
    the crash track but nothing below it is trustworthy while it fires.
-5. **A8 — marker repaint gating.** Needs Waleed's yes: the selected pin stops bobbing on
+2. **A8 — marker repaint gating.** Needs Waleed's yes: the selected pin stops bobbing on
    `select-services` and `choose-mechanic`. Pure product call, not a technical one.
-6. **B9 / B10 — list virtualisation.** Home carousels and the Bookings list from `.map()` inside a
+3. **B9 / B10 — list virtualisation.** Home carousels and the Bookings list from `.map()` inside a
    `ScrollView` to `FlatList`, paging and snap behaviour matched pixel for pixel.
-7. **A7 — R8 minify + resource shrinking.** `expo-build-properties` is already in `package.json`
+4. **A7 — R8 minify + resource shrinking.** `expo-build-properties` is already in `package.json`
    (landed with A3, unused); it needs the `app.json` block, a prebuild and a smoke pass over every
    screen that touches Stripe, Maps or Lottie.
-8. **Overdraw pass.** `adb shell setprop debug.hwui.overdraw show` on the real phone, then flatten
+5. **Overdraw pass.** `adb shell setprop debug.hwui.overdraw show` on the real phone, then flatten
    the worst stacked backgrounds. Cheap, and it is the kind of thing an emulator cannot tell you.
 
 ### 9.6 The emulators are no longer in a measurable state — read before the next stage
@@ -237,15 +276,31 @@ Two consequences, both already handled in the evidence but not fixable from here
    `INSTALL_FAILED_VERSION_DOWNGRADE`, and the script does not stop on a failed install — from
    19:17 onward it measured the foreign, logged-out app. Files moved to
    `evidence/rot/_quarantine-round4/`, with the timeline in its `README.txt`. Everything in this
-   section was recomputed from rounds 1–3; the conclusions did not change. **Fix the script before
-   the next pass:** `rotate.sh` must abort the round when `adb install` does not print `Success`,
-   and `perf_compare.py` should record the installed `versionCode` in each run's JSON.
+   section was recomputed from rounds 1–3; the conclusions did not change. **Both fixes landed in
+   the C6 pass:** `rotate.sh` now `break`s the round when `adb install` does not print `Success`,
+   and `perf_compare.py` stamps `version_code` (read from `dumpsys package`) into every run JSON,
+   so a swapped build is visible in the evidence instead of averaged into a median.
 2. **The `08-locked` baseline could not be installed or captured.** The APK is built and sitting at
    `scripts/android-perf/apks/08-locked.apk` (95.3 MB, x86_64 release, contents verified: no
-   `console.log(` in the bundle, the `.android.png` assets present). Installing it needs either an
-   uninstall — which destroys the signed-in state on B that nobody here can restore — or a
-   `versionCode` bump above 13. Neither was done: the first is destructive, the second changes the
-   build under test. **So the 08-locked pixel comparison against 07-A6 has not been run.**
+   `console.log(` in the bundle, the `.android.png` assets present). **So the 08-locked pixel
+   comparison against 07-A6 has not been run.**
+
+   **Correction (C6 pass, 2026-09-17 21:30) — the blocker is the signing key, not the version.**
+   `adb install -r -d` (allow-downgrade) was tried on A and returns
+   `INSTALL_FAILED_UPDATE_INCOMPATIBLE: signatures do not match previously installed version`,
+   not `INSTALL_FAILED_VERSION_DOWNGRADE`. The foreign build (`versionName` 1.3.1, `versionCode` 13,
+   `targetSdk` 36, sideloaded, no installer package) is signed with a different key, so **bumping
+   `versionCode` would not have helped either** — Android refuses a differently-signed replacement
+   at any version, and will not hand it the old app data. `adb uninstall` is the only way in.
+   That is worth doing only together with a sign-in, because:
+   - neither AVD has an OS-level Google account (`dumpsys account` is empty on both), so
+     "Continue with Google" is not a shortcut back into the app;
+   - the only snapshots are `snapshots/default_boot/ram.img` on each AVD, both dated 17:26 with
+     `ram.img.dirty` set — they are the running instances' boot RAM, not a good-state save, so
+     there is no restore point behind the 19:17 install.
+
+   **This needs Waleed.** Uninstall on both AVDs, install `apks/08-locked.apk`, sign in as the dev
+   account (BMW M2 CS) — the credentials are the part no agent here can supply.
 
 **To restart measuring:** put both AVDs back on Waleed's dev account (BMW M2 CS) with a clean
 install of `apks/08-locked.apk`, confirm `adb shell dumpsys package com.otopair.app | grep

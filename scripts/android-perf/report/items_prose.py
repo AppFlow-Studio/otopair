@@ -9,11 +9,12 @@ PAGE = {
     "page_title": "OtoPair Android Perf Pass",
     "eyebrow": "branch android-repair · 17 September 2026",
     "heading": "Making the Android app cheap to draw",
-    "lede": "<p>Seven changes tried and four kept, each Android-only, each measured on two devices "
-            "before and after, "
-            "and each checked pixel by pixel so the Android screens still look exactly as they did. "
-            "That last part is the point: the next job is making iOS match Android, which only works "
-            "if Android's look is the fixed reference.</p>",
+    "lede": "<p>Eight changes tried and five kept, each Android-only. Seven of them were measured on "
+            "two devices before and after and checked pixel by pixel, so the Android screens still "
+            "look exactly as they did; the eighth was written after the test devices were taken out "
+            "from under this work, and it says so where it sits rather than borrowing anyone else's "
+            "numbers. That discipline is the point: the next job is making iOS match Android, which "
+            "only works if Android's look is the fixed reference.</p>",
 }
 
 EXEC_HTML = """
@@ -33,21 +34,27 @@ EXEC_HTML = """
     kept running on screens nobody was looking at: the Home screen carried on animating behind the
     booking flow, and every logging line in the app was quietly being sent to our database as a
     network call.</p>
-    <p><b>What we changed.</b> Seven changes were tried and <b>four were kept</b>, all Android-only,
+    <p><b>What we changed.</b> Eight changes were tried and <b>five were kept</b>, all Android-only,
     none of which changes how a single screen looks. The two that matter most: release builds no
     longer ship developer logging (which was costing a network write per line), and animations now
-    stand still while their screen is hidden. The other three moved no number across repeated
-    rounds and were reverted rather than argued in.</p>
+    stand still while their screen is hidden. Three moved no number across repeated rounds and were
+    reverted rather than argued in. The eighth — Cars scrolling no longer waking JavaScript on
+    every frame to update a value nothing reads — is kept on its mechanism alone, because the test
+    devices were gone by the time it was written.</p>
     <p><b>Where it landed.</b> On the booking flow — the screen that makes money — the app now
     does <b>no JavaScript work at all</b> while you read it, down from a continuous trickle. Idle
     cost on Cars is down about a quarter. Every screen was compared pixel by pixel before and
     after, on two phones, and looks exactly as it did.</p>
     <div class="note warn"><b>Status, honestly.</b> Two changes are proven by repeated rounds that
     all agreed. Three moved nothing outside the run-to-run noise of a machine that is also someone's
-    desktop, and have been reverted. Two more are kept without a number: one stops an animation that
-    ran while drawing nothing, one ships smaller images. And every figure on this page was taken on
-    emulators, which exaggerate the drawing threads; the next pass belongs on a real low-end phone
-    with Perfetto before any of these numbers are quoted outside the team.</div>
+    desktop, and have been reverted. Three more are kept without a number: one stops an animation
+    that ran while drawing nothing, one ships smaller images, and one takes a per-frame callback off
+    the JS thread that was feeding a value nothing reads. Two further changes are written but
+    deliberately <i>not</i> committed, because they alter a visible view class and the pixel check
+    could not be run — the emulators were taken over by another build partway through, which is also
+    why the last item has no figures. And every figure on this page was taken on emulators, which
+    exaggerate the drawing threads; the next pass belongs on a real low-end phone with Perfetto
+    before any of these numbers are quoted outside the team.</div>
   </div>
   <div class="tablewrap"><table class="summary"><caption>Budget phone (Android 9, 2 cores), CPU spent per 10 seconds of standing still</caption>
     <thead><tr><th>Screen</th><th>Before</th><th>After</th><th>What it means</th></tr></thead>
@@ -94,10 +101,12 @@ JS_HTML = """
       <li><b>Keep JavaScript off the per-frame path.</b> Animations that can run on the UI thread
       already do (Reanimated worklets, native-driver Animated). The remaining JS-driven ones are
       the ones that change <i>text</i>, which React has to do — so the fix is to not run them when
-      they are invisible. <span class="muted">Done: C3, A2, A4.</span></li>
-      <li><b>Stop paying for work nobody sees.</b> Freeze blurred tabs, pause off-screen timers,
-      and detach off-screen list sections so neither JavaScript nor the renderer walks them.
-      <span class="muted">Done: A2, A5, C3.</span></li>
+      they are invisible, and to stop native events waking JavaScript for nothing.
+      <span class="muted">Done: C3, A4, C6. Written but not committed: C5, C4.</span></li>
+      <li><b>Stop paying for work nobody sees.</b> Pause off-screen timers, and don't let a scroll
+      report every frame to a listener that does nothing with it.
+      <span class="muted">Done: C3, A4, C6. Freezing blurred tabs (A2) and detaching off-screen
+      sections (A5) were tried and reverted — neither moved a number.</span></li>
       <li><b>Take the network out of hot paths.</b> Release builds no longer ship
       <code>console.log/info/debug</code>, so logging cannot become a database write during a
       scroll. <span class="muted">Done: A3 — the single clearest win we measured.</span></li>
@@ -365,12 +374,92 @@ ITEMS = [
                    "the memory and decode cost paid by drivers whose car has no picture — not something these runs "
                    "can show.</div>"}],
     },
+    {
+        "verdict": "pending", "verdict_label": "kept, not measured",
+        "headline": "no before/after exists — the emulators were taken over by another build before this could be "
+                    "timed; kept because what it removes is a per-frame hop to JavaScript that fed a ref nothing reads",
+        "id": "C6", "group": "Group C — found while measuring",
+        "title": "Cars scrolling stops crossing to the JS thread",
+        "files": ["app/(main-tabs)/cars/index.tsx"],
+        "before_label": "08-locked", "after_label": "09-C6",
+        "states": [], "measured": False, "show_pixels": False,
+        "why": "<p>This one is not in the plan either; it is the other half of the Cars complaint — scrolling felt "
+               "sluggish. The Cars screen handed React Native an <code>onScroll</code> callback and a "
+               "<code>scrollEventThrottle</code> of 16, so every scrolled frame crossed from the native scroll view "
+               "into JavaScript. What the callback did with that frame was stash the offset in a ref: "
+               "<code>scrollOffsetRef.current = e.nativeEvent.contentOffset.y</code>. Nothing in the repository ever "
+               "reads that ref — it is declared, written sixty times a second while you drag, and read nowhere. It "
+               "arrived dead and stayed dead.</p>"
+               "<p><b>The obvious fix would not have worked</b>, which is worth recording because it looks like it "
+               "should. Deleting the <code>onScroll</code> prop does not stop the events: "
+               "<code>ScrollView.js:1787</code> wires <code>onScroll: this._handleScroll</code> to the native "
+               "component unconditionally, whatever the caller passed. And Android's gate is "
+               "<code>scrollEventThrottle &gt;= max(17, now - lastDispatch)</code> "
+               "(<code>ReactScrollViewHelper.emitScrollEvent</code>), so the <code>16</code> that was there never "
+               "throttled a single event — 16 is not ≥ 17 — and an omitted throttle defaults to <code>0</code>, which "
+               "does not either. Removing the prop would have left the native dispatch and the thread hop exactly "
+               "where they were, and shipped a no-op dressed as a fix.</p>",
+        "what": "<p>On Android <code>scrollEventThrottle</code> is parked at <code>ANDROID_SCROLL_EVENTS_OFF</code> "
+                "(1,000,000), which is the one thing that actually suppresses the native <code>SCROLL</code> "
+                "dispatch, and the ref is fed from <code>onScrollEndDrag</code> and <code>onMomentumScrollEnd</code> "
+                "instead — the gate exempts both, so it still holds the last settled offset for whoever eventually "
+                "reads it. iOS keeps the original per-frame closure and the original <code>16</code>, and gets "
+                "<code>undefined</code> for the two settle handlers, so <code>sendMomentumEvents</code> stays false "
+                "there exactly as it was.</p>"
+                "<p>A throttle that high would be the wrong tool if anything else depended on those events, so: this "
+                "<code>ScrollView</code> sets no <code>stickyHeaderIndices</code> (sticky headers force the throttle "
+                "to 1 and would have overridden the constant), the app registers no native scroll listeners, it sets "
+                "no <code>scrollPerfTag</code> so the FPS listener is inert, and <code>mSendMomentumEvents</code> "
+                "gates only event emission — the post-touch runnable, the paging snap and the fling animator all run "
+                "regardless. The scroll behaves identically; it just stops narrating itself to JavaScript.</p>",
+        "extra": [{"title": "Why this one carries no numbers", "html":
+                   "<div class='note warn'>There is no before/after for C6, and the absence does not mean the "
+                   "figures were flat — the rotation was never run. Partway through the pass something outside this "
+                   "work replaced the app on both emulators with a differently-signed build, and these APKs cannot "
+                   "be installed over it: <code>INSTALL_FAILED_UPDATE_INCOMPATIBLE</code> on the budget device, "
+                   "<code>INSTALL_FAILED_VERSION_DOWNGRADE</code> on the Pixel, the same wall by two different "
+                   "errors. No timing rounds, no screenshots, no pixel diff. It is committed anyway because its "
+                   "pixel-neutrality does not rest on a screenshot: the only thing it stops is a write to a ref that "
+                   "nothing reads, so no rendered pixel can depend on it, and the scroll behaviour is unchanged for "
+                   "the reasons above. The saving on the JS thread is a mechanism, not a measurement, until someone "
+                   "restores the devices and runs the pair.</div>"}],
+    },
 ]
 
 NOT_DONE_HTML = """
 <section id="open">
   <h2>Deliberately not done</h2>
   <div class="prose">
+    <h3>C5 and C4 — two count-ups moved to the UI thread, written but not committed</h3>
+    <p>Both are finished, both build, both are sitting in the working tree, and neither is in the
+    history. They do the same thing in two places: the Cars health ring's 0→N% count-up
+    (<code>components/cars/CarCarousel.tsx</code>) and Home's typewriter placeholder
+    (<code>components/home/MechanicSearchBar.tsx</code> plus a new Android-only component) stop
+    being driven by React state — 40 and 16–33 renders a second, on the same thread that has to
+    answer your taps — and are driven by a Reanimated worklet on the UI thread instead. Home is the
+    bigger prize than it looks: it mounts <i>two</i> search bars at once when an upcoming-booking
+    hero is showing, each running its own typewriter.</p>
+    <p>What stops them is the pixel rule, not the performance case. The only React Native text node
+    whose content a worklet can write is a <code>TextInput</code>, so both changes swap a
+    <code>&lt;Text&gt;</code> for a non-editable <code>TextInput</code> — and Android measures those
+    two view classes differently. The computed style was matched line by line from the source
+    (<code>lineHeight</code> taken from what <code>shared-ui</code>'s <code>Text</code> actually
+    computes rather than from what it looks like it computes, padding zeroed,
+    <code>includeFontPadding</code> deliberately left at the shared default rather than set, since
+    both view classes default it to true). Home's was checked further: the widest phrase renders
+    312&nbsp;px into the 342&nbsp;px the row gives it on the narrowest device we ship to, measured
+    off an archived screenshot, so <code>adjustsFontSizeToFit</code> — which has no TextInput
+    equivalent — never fires. What none of that settles is vertical baseline placement, and that is
+    precisely what a screenshot diff settles in a second. The emulators were unavailable, so it
+    could not be run.</p>
+    <p>Shipping the Cars hero widget and the Home search bar on the word "should" is not what this
+    pass is for, so they wait. The patches are kept at <code>report/patches/C5.patch</code> and
+    <code>C4.patch</code>. The check to run first is <code>05_cars_top</code> for C5 — the harness
+    waits 8&nbsp;s before that shot and the animation lasts 1.5&nbsp;s, so both ring and number are
+    at rest and a metrics shift shows up as a real difference rather than as noise — and
+    <code>stylecheck_searchbar.py</code> for C4, which had to be written because the normal capture
+    masks that placeholder as an animated region and would ignore the very pixels at risk.</p>
+
     <h3>A4's other half — rewriting the MaintenanceTracker pulses</h3>
     <p>The plan called for moving eight <code>withRepeat</code> calls out of
     <code>useAnimatedStyle</code> in <code>components/cars/MaintenanceTracker.tsx</code>, on the
@@ -405,6 +494,14 @@ NOT_DONE_HTML = """
     <code>Animated.loop</code> calls on the Cars tab (<code>cars/index.tsx:427</code>,
     <code>CarCarousel.tsx:624</code>) are started without keeping a handle, so they keep running
     after the view that owns them is gone.</p>
+    <p>Two more of the same kind turned up while working on C5 and C6, and both are worth knowing
+    before anyone optimises the wrong thing. <code>VehicleHealthRing</code> in
+    <code>components/cars/MaintenanceTracker.tsx:341</code> is a 60-step count-up that is never
+    rendered — the interface and the function are its only two mentions in the repository — so it
+    was left alone rather than "optimised"; the live ring with that shape is
+    <code>MaintenanceDetailView.tsx:115</code>. And <code>scrollOffsetRef</code> on the Cars screen
+    was written on every scrolled frame and read nowhere, which is what C6 is about. Both were
+    found by grepping for readers before changing anything, which is cheap and has now paid twice.</p>
   </div>
 </section>
 """
