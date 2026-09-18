@@ -1,0 +1,119 @@
+diff --git a/components/home/MechanicSearchBar.tsx b/components/home/MechanicSearchBar.tsx
+index e04db4aa..5a41f99b 100644
+--- a/components/home/MechanicSearchBar.tsx
++++ b/components/home/MechanicSearchBar.tsx
+@@ -25,6 +25,7 @@
+ // 1. React & React Native
+ import React, { useState } from 'react';
+ import {
++    Platform,
+     Pressable,
+     StyleSheet,
+     TextInput,
+@@ -33,6 +34,7 @@ import {
+ } from 'react-native';
+ 
+ // 2. Expo & Third-party
++import { useIsFocused } from '@react-navigation/native';
+ import { Map, Search, X } from 'lucide-react-native';
+ 
+ // 3. Shared UI
+@@ -95,7 +97,13 @@ export function MechanicSearchBar({
+     // (read-only) mode below. The editable TextInput keeps its
+     // native `placeholder` because animating that on iOS / Android
+     // produces a flicker and breaks accessibility.
+-    const animatedPlaceholder = useTypewriterText(placeholderPhrases ?? []);
++    // Android: the placeholder used to keep typing — 16 to 33 React state
++    // updates a second — while Home sat behind another tab or behind the
++    // booking flow. `useIsFocused` is false in both cases.
++    const screenFocused = useIsFocused();
++    const animatedPlaceholder = useTypewriterText(placeholderPhrases ?? [], {
++        paused: Platform.OS === "android" && !screenFocused,
++    });
+     const useAnimatedPlaceholder =
+         !!onPress && placeholderPhrases && placeholderPhrases.length > 0;
+ 
+diff --git a/components/home/ProfileInitialsButton.tsx b/components/home/ProfileInitialsButton.tsx
+index 7e312ba4..82eb3efd 100644
+--- a/components/home/ProfileInitialsButton.tsx
++++ b/components/home/ProfileInitialsButton.tsx
+@@ -14,7 +14,7 @@
+  */
+ 
+ import React, { useEffect, useMemo, useRef } from "react";
+-import { Image, StyleSheet, View } from "react-native";
++import { Image, Platform, StyleSheet, View } from "react-native";
+ import { Gesture, GestureDetector } from "react-native-gesture-handler";
+ import Animated, {
+   runOnJS,
+@@ -25,6 +25,7 @@ import Animated, {
+ import { LinearGradient } from "expo-linear-gradient";
+ import { useQuery } from "convex/react";
+ import { useShallow } from "zustand/react/shallow";
++import { useIsFocused } from "@react-navigation/native";
+ import { usePathname } from "expo-router";
+ 
+ import { Text } from "@/components/shared-ui";
+@@ -41,6 +42,7 @@ const OTO_LOGO_3D = require("@/assets/images/pin-logo-3d.png");
+ export function ProfileInitialsButton() {
+   const viewRef = useRef<View>(null);
+   const pathname = usePathname();
++  const isFocused = useIsFocused();
+   const me = useQuery(api.users.getMe);
+   const { firstName, lastName, profilePhotoUri: storedPhoto } =
+     useOnboardingStore(
+@@ -141,7 +143,12 @@ export function ProfileInitialsButton() {
+         >
+           <AvatarSlider
+             size={BUTTON_SIZE}
+-            paused={overlayLifecycleActive}
++            // Android: also stand still while this screen isn't showing —
++            // all three tabs mount one of these and each ran its own timer.
++            paused={
++              overlayLifecycleActive ||
++              (Platform.OS === "android" && !isFocused)
++            }
+             panels={[
+               photoUri ? (
+                 <Image
+diff --git a/hooks/useTypewriterText.ts b/hooks/useTypewriterText.ts
+index 7d02ef1f..e12bd80f 100644
+--- a/hooks/useTypewriterText.ts
++++ b/hooks/useTypewriterText.ts
+@@ -41,6 +41,10 @@ export interface TypewriterOptions {
+   /** Pause after the line goes empty, before starting the next
+    *  phrase. Default 250. */
+   pauseMs?: number;
++  /** When true, no timer runs. Used to stand the animation down while the
++   *  screen it sits on isn't showing — it re-types from empty on resume,
++   *  which is invisible because nobody was looking. Default false. */
++  paused?: boolean;
+ }
+ 
+ type Phase = "typing" | "holding" | "deleting" | "pausing";
+@@ -54,6 +58,7 @@ export function useTypewriterText(
+     deleteMs = 30,
+     holdMs = 1500,
+     pauseMs = 250,
++    paused = false,
+   } = options;
+ 
+   const [text, setText] = useState<string>(phrases[0] ?? "");
+@@ -65,7 +70,7 @@ export function useTypewriterText(
+   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+ 
+   useEffect(() => {
+-    if (phrases.length === 0) {
++    if (phrases.length === 0 || paused) {
+       setText("");
+       return;
+     }
+@@ -129,7 +134,7 @@ export function useTypewriterText(
+         timerRef.current = null;
+       }
+     };
+-  }, [phrases, typeMs, deleteMs, holdMs, pauseMs]);
++  }, [phrases, typeMs, deleteMs, holdMs, pauseMs, paused]);
+ 
+   return text;
+ }

@@ -1,0 +1,67 @@
+diff --git a/app/(main-tabs)/_layout.tsx b/app/(main-tabs)/_layout.tsx
+index 56685127..5edd1336 100644
+--- a/app/(main-tabs)/_layout.tsx
++++ b/app/(main-tabs)/_layout.tsx
+@@ -26,6 +26,7 @@ import { SettingsOverlay } from "@/components/settings/SettingsOverlay";
+ import { CoachProvider } from "@/components/coach/CoachContext";
+ import { CoachTour } from "@/components/coach/CoachTour";
+ import { OfflinePreload } from "@/components/connection/OfflinePreload";
++import { HydrateConvexData } from "@/components/home/HydrateConvexData";
+ // OTA update banner only matters in EAS builds. In a local dev build
+ // expo-updates' native module isn't linked, and the static import chain
+ // (UpdateAvailableBanner → useEasUpdate → expo-updates) throws "Cannot
+@@ -108,11 +109,18 @@ function ProtectedTabLayout() {
+     return (
+       <CoachProvider>
+         <HydrateBookingData />
++        {/* Mounted by home/_layout.tsx on other platforms; see the note there. */}
++        {Platform.OS === "android" && <HydrateConvexData />}
+         <OfflinePreload />
+         <Tabs
+           tabBar={(props) => <TabBar {...props} />}
+           screenOptions={{
+             headerShown: false,
++            // Android: suspend React rendering of tabs that aren't showing.
++            // Without it every Convex/Zustand update and every running timer
++            // (Home's typewriter placeholder, avatar slider) re-renders all
++            // visited tabs, costing JS time on whichever tab is on screen.
++            freezeOnBlur: Platform.OS === "android",
+           }}
+         >
+           {/* Labels come from TAB_ITEMS so this bar and the NativeTabs one
+diff --git a/app/(main-tabs)/home/_layout.tsx b/app/(main-tabs)/home/_layout.tsx
+index 9b50f62c..1d67afac 100644
+--- a/app/(main-tabs)/home/_layout.tsx
++++ b/app/(main-tabs)/home/_layout.tsx
+@@ -7,25 +7,17 @@
+  *          tab bar on iOS 26.
+  */
+ 
++import { Platform } from "react-native";
+ import { Stack } from "expo-router";
+-import { useMechanicsFromConvex } from "@/hooks/useMechanicsFromConvex";
+-import { useServiceCategoriesFromConvex } from "@/hooks/useServiceCategoriesFromConvex";
+-import { useServicesFromConvex } from "@/hooks/useServicesFromConvex";
+-import { useShopsFromConvex } from "@/hooks/useShopsFromConvex";
+-
+-/** Hydrates stores with Convex data — home discovery cards consume this. */
+-function HydrateConvexData() {
+-  useServicesFromConvex();
+-  useServiceCategoriesFromConvex();
+-  useShopsFromConvex();
+-  useMechanicsFromConvex();
+-  return null;
+-}
++import { HydrateConvexData } from "@/components/home/HydrateConvexData";
+ 
+ export default function HomeLayout() {
+   return (
+     <>
+-      <HydrateConvexData />
++      {/* On Android the (main-tabs) layout mounts this instead: tabs freeze
++          while blurred there, and the booking store these hooks fill is read
++          from every tab, so it can't pause whenever Home isn't showing. */}
++      {Platform.OS !== "android" && <HydrateConvexData />}
+       <Stack screenOptions={{ headerShown: false }}>
+         <Stack.Screen name="index" options={{ presentation: "card" }} />
+       </Stack>
