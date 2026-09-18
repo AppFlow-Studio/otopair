@@ -36,7 +36,7 @@ import Animated, {
   useSharedValue,
   withTiming,
 } from "react-native-reanimated";
-import MapView, { Marker, PROVIDER_DEFAULT } from "react-native-maps";
+import MapView, { PROVIDER_DEFAULT } from "react-native-maps";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
@@ -54,7 +54,7 @@ import { MapBrowseShopCard } from "@/components/booking-flow/MapBrowseShopCard";
 import { MapSwipeHint } from "@/components/booking-flow/MapSwipeHint";
 import { PinnedShopChip } from "@/components/booking-flow/PinnedShopChip";
 import { QuickBookRow } from "@/components/booking-flow/QuickBookRow";
-import { RatingMarkerPill } from "@/components/booking-flow/RatingMarkerPill";
+import { ShopPinMarker } from "@/components/booking-flow/ShopPinMarker";
 import { useNearbyBookingShops } from "@/hooks/useNearbyBookingShops";
 import { useOfflineGuard } from "@/hooks/useOfflineGuard";
 import { SelectedServicesFab } from "@/components/booking-flow/SelectedServicesFab";
@@ -468,22 +468,15 @@ export default function SelectServicesScreen() {
           {nearbyShops
             .filter((r) => r.shop.latitude !== 0 && r.shop.longitude !== 0)
             .map((r) => (
-              <Marker
+              <ShopPinMarker
                 key={r.shop.id}
-                coordinate={{
-                  latitude: r.shop.latitude,
-                  longitude: r.shop.longitude,
-                }}
-                anchor={{ x: 0.5, y: 0.5 }}
-                tracksViewChanges={r.shop.id === selectedShopId}
+                latitude={r.shop.latitude}
+                longitude={r.shop.longitude}
+                rating={r.shop.rating}
+                shopName={r.shop.name}
+                isSelected={r.shop.id === selectedShopId}
                 onPress={() => setSelectedShopId(r.shop.id)}
-              >
-                <RatingMarkerPill
-                  rating={r.shop.rating}
-                  shopName={r.shop.name}
-                  isSelected={r.shop.id === selectedShopId}
-                />
-              </Marker>
+              />
             ))}
         </MapView>
       ) : null}

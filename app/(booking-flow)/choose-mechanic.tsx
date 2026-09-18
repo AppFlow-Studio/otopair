@@ -40,7 +40,7 @@ import BottomSheet, {
   type BottomSheetFooterProps,
 } from "@gorhom/bottom-sheet";
 import { ArrowLeft, ArrowRight, Calendar, Crosshair, Minus, Plus } from "lucide-react-native";
-import MapView, { Marker, PROVIDER_DEFAULT } from "react-native-maps";
+import MapView, { PROVIDER_DEFAULT } from "react-native-maps";
 import Animated, {
   Easing,
   Extrapolation,
@@ -56,7 +56,7 @@ import { Text } from "@/components/shared-ui";
 import { useBookingFlowMap } from "@/components/booking-flow/BookingFlowMap";
 import { MapBrowseShopCard } from "@/components/booking-flow/MapBrowseShopCard";
 import { MapShopCard } from "@/components/booking-flow/MapShopCard";
-import { RatingMarkerPill } from "@/components/booking-flow/RatingMarkerPill";
+import { ShopPinMarker } from "@/components/booking-flow/ShopPinMarker";
 import { ShopPage } from "@/components/booking-flow/ShopPage";
 import { VehiclePuck } from "@/components/booking-flow/VehiclePuck";
 import { useMechanicStore } from "@/stores/useMechanicStore";
@@ -859,22 +859,15 @@ export default function ChooseMechanicScreen() {
           {nearbyShops
             .filter((r) => r.shop.latitude !== 0 && r.shop.longitude !== 0)
             .map((r, idx) => (
-              <Marker
+              <ShopPinMarker
                 key={r.shop.id}
-                coordinate={{
-                  latitude: r.shop.latitude,
-                  longitude: r.shop.longitude,
-                }}
-                anchor={{ x: 0.5, y: 0.5 }}
-                tracksViewChanges={idx === activeIndex}
+                latitude={r.shop.latitude}
+                longitude={r.shop.longitude}
+                rating={r.shop.rating}
+                shopName={r.shop.name}
+                isSelected={idx === activeIndex}
                 onPress={() => onPinTap(idx)}
-              >
-                <RatingMarkerPill
-                  rating={r.shop.rating}
-                  shopName={r.shop.name}
-                  isSelected={idx === activeIndex}
-                />
-              </Marker>
+              />
             ))}
         </MapView>
       ) : null}

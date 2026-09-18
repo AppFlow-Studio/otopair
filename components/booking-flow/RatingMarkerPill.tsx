@@ -28,7 +28,7 @@
  */
 
 import React, { memo, useEffect } from "react";
-import { Image, StyleSheet, View } from "react-native";
+import { Image, Platform, StyleSheet, View } from "react-native";
 import Animated, {
   Easing,
   cancelAnimation,
@@ -73,7 +73,11 @@ function RatingMarkerPillComponent({
   // the native marker snapshot.
   const bob = useSharedValue(0);
   useEffect(() => {
-    if (!isSelected) {
+    // Android: the bob never reaches the screen — react-native-maps draws
+    // the marker from a bitmap that this transform does not refresh — yet
+    // Reanimated kept driving it on the UI thread, ~1 s of CPU per 10 s with
+    // a pin selected (measured, Pixel AVD). Skipping it changes no pixel.
+    if (!isSelected || Platform.OS === "android") {
       cancelAnimation(bob);
       bob.value = 0;
       return;
