@@ -25,6 +25,7 @@
 // 1. React & React Native
 import React, { useState } from 'react';
 import {
+    Platform,
     Pressable,
     StyleSheet,
     TextInput,
@@ -33,6 +34,7 @@ import {
 } from 'react-native';
 
 // 2. Expo & Third-party
+import { useIsFocused } from '@react-navigation/native';
 import { Map, Search, X } from 'lucide-react-native';
 
 // 3. Shared UI
@@ -95,7 +97,13 @@ export function MechanicSearchBar({
     // (read-only) mode below. The editable TextInput keeps its
     // native `placeholder` because animating that on iOS / Android
     // produces a flicker and breaks accessibility.
-    const animatedPlaceholder = useTypewriterText(placeholderPhrases ?? []);
+    // Android: the placeholder used to keep typing — 16 to 33 React state
+    // updates a second — while Home sat behind another tab or behind the
+    // booking flow. `useIsFocused` is false in both cases.
+    const screenFocused = useIsFocused();
+    const animatedPlaceholder = useTypewriterText(placeholderPhrases ?? [], {
+        paused: Platform.OS === "android" && !screenFocused,
+    });
     const useAnimatedPlaceholder =
         !!onPress && placeholderPhrases && placeholderPhrases.length > 0;
 
