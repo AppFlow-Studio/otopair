@@ -30,6 +30,7 @@ import type { FunctionReference } from "convex/server";
 // composes with the shop pager on Android (see the android-gestures
 // source test).
 import { ScrollView } from "react-native-gesture-handler";
+import { MapSwipeHint } from "@/components/booking-flow/MapSwipeHint";
 import { useFocusEffect } from "expo-router";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -1022,6 +1023,16 @@ export default function ChooseMechanicScreen() {
           style={[styles.sheetContent, { paddingBottom: SHEET_FOOTER_HEIGHT }]}
           {...shopsAnchor}
         >
+          {/* The sheet has always been swipe-down-able — `enablePanDownToClose`
+              above — but nothing said so. Screen 1 carries this same hint and
+              testers found the map there; here they panned the map, saw the
+              shop card and the sheet stay put, and reported that the details
+              could not be dismissed. The capability was not missing, the
+              affordance was. */}
+          {nearbyShops.length > 0 ? (
+            <MapSwipeHint label="Swipe down to browse shops" />
+          ) : null}
+
           {nearbyShops.length === 0 ? (
             <View style={styles.empty}>
               <Text size="md" weight="medium" color="#9CA3AF" center>
