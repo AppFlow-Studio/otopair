@@ -31,6 +31,7 @@ import React, {
   useState,
 } from "react";
 import { Platform, StyleSheet, View } from "react-native";
+import { useNavigation } from "expo-router";
 import MapView, {
   Circle,
   Marker,
@@ -100,6 +101,56 @@ interface BookingFlowMapContextValue {
    *  it is unmounted instead of rendering tiles nobody can see — one live
    *  Google Maps instance at a time instead of two or three. No-op on iOS. */
   registerLocalMap: () => () => void;
+}
+
+/** Ceiling on the wait for `transitionEnd`, in case it never arrives (a
+ *  screen mounted outside a transition, for one). The booking-flow stack's
+ *  fade is 320 ms, so this only bites when the event is missing. */
+const MAP_MOUNT_DEFER_MS = 400;
+
+/**
+ * True once it is cheap to create a MapView.
+ *
+ * Creating one costs ~650 ms of MAIN THREAD on a cold process: the Play
+ * services Maps renderer is loaded dynamically ("Making Creator dynamically"
+ * → "early loading native code" → "loadedRenderer"), and that is synchronous.
+ * Mounted during the screen transition it starves the animation — a trace of
+ * one booking entry showed a single 700 ms frame and Android's own "Skipped
+ * 39 frames" right in the middle of the fade.
+ *
+ * So the screens render their skeleton first, let the transition finish, and
+ * create the map after. Same total work, but none of it lands on the frames
+ * the user is watching move. iOS keeps the old immediate mount.
+ */
+export function useDeferredMapMount(): boolean {
+  const [ready, setReady] = useState(Platform.OS !== "android");
+  const navigation = useNavigation();
+  useEffect(() => {
+    if (Platform.OS !== "android") return;
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      setReady(true);
+    };
+    // `transitionEnd` is the real signal. InteractionManager is not: the
+    // native stack runs its animation on the native side and never takes an
+    // interaction handle, so `runAfterInteractions` resolves on the next tick
+    // and defers nothing (measured — the map still initialised at +351 ms).
+    const unsubscribe = navigation.addListener?.(
+      // @ts-expect-error — native-stack emits this; the generic navigation
+      // type does not know about it.
+      "transitionEnd",
+      finish,
+    );
+    const timer = setTimeout(finish, MAP_MOUNT_DEFER_MS);
+    return () => {
+      done = true;
+      unsubscribe?.();
+      clearTimeout(timer);
+    };
+  }, [navigation]);
+  return ready;
 }
 
 const BookingFlowMapContext =
@@ -208,7 +259,21 @@ export function BookingFlowMapProvider({
     setLocalMapCount((n) => n + 1);
     return () => setLocalMapCount((n) => n - 1);
   }, []);
-  const renderProviderMap = !(Platform.OS === "android" && localMapCount > 0);
+  // Android: hold the provider's own map back until the first screen has had
+  // its effects run. The screens that bring their own map (select-services in
+  // peek mode, choose-mechanic) register during that pass, and without this
+  // the provider would render a MapView on the first commit and drop it on
+  // the next — a full Maps SDK init, on the main thread, for a view that is
+  // destroyed a frame later. The trace caught it throwing an internal NPE out
+  // of `MapView.doDestroy` on the way down.
+  const [settled, setSettled] = useState(Platform.OS !== "android");
+  useEffect(() => {
+    if (Platform.OS !== "android") return;
+    setSettled(true);
+  }, []);
+  const deferredReady = useDeferredMapMount();
+  const renderProviderMap =
+    settled && deferredReady && !(Platform.OS === "android" && localMapCount > 0);
   // Android: when the provider map comes back after a local map went away it
   // is a fresh MapView with no tiles for up to a second. Run the skeleton for
   // that mount too instead of showing the bare canvas through the sheet.

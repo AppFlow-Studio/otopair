@@ -53,7 +53,10 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 
 import { Text } from "@/components/shared-ui";
-import { useBookingFlowMap } from "@/components/booking-flow/BookingFlowMap";
+import {
+  useBookingFlowMap,
+  useDeferredMapMount,
+} from "@/components/booking-flow/BookingFlowMap";
 import { MapBrowseShopCard } from "@/components/booking-flow/MapBrowseShopCard";
 import { MapShopCard } from "@/components/booking-flow/MapShopCard";
 import { ShopPinMarker } from "@/components/booking-flow/ShopPinMarker";
@@ -360,6 +363,9 @@ export default function ChooseMechanicScreen() {
   const userLocation = useBookingStore((s) => s.userLocation);
   const { setInteractive, setMarkers, setShopPins, region, registerLocalMap } =
     useBookingFlowMap();
+  // See `useDeferredMapMount`: hold the MapView until the push animation has
+  // finished so its synchronous native init does not land on those frames.
+  const mapMountReady = useDeferredMapMount();
   // The local MapView below covers the layout's map completely; on Android
   // the provider unmounts its own map while this one is mounted (see
   // BookingFlowMap.registerLocalMap).
@@ -848,7 +854,7 @@ export default function ChooseMechanicScreen() {
           forced the local-MapView fix on select-services peek
           mode). Mounting the map as a direct child of the screen
           gives it touches naturally. */}
-      {region ? (
+      {region && mapMountReady ? (
         <MapView
           ref={mapRef}
           style={StyleSheet.absoluteFill}

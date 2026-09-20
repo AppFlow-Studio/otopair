@@ -45,7 +45,10 @@ import { ArrowLeft, Car, Crosshair, Minus, Plus, Search, X } from "lucide-react-
 
 import { Text } from "@/components/shared-ui";
 import { CardShadow } from "@/constants/theme";
-import { useBookingFlowMap } from "@/components/booking-flow/BookingFlowMap";
+import {
+  useBookingFlowMap,
+  useDeferredMapMount,
+} from "@/components/booking-flow/BookingFlowMap";
 import { CategoryListRow } from "@/components/booking-flow/CategoryListRow";
 import { GlassSheetHandle } from "@/components/booking-flow/GlassSheet";
 import { HeroCardClosestShop } from "@/components/booking-flow/HeroCardClosestShop";
@@ -209,6 +212,10 @@ export default function SelectServicesScreen() {
   // fallback center.
   const { setInteractive, setMarkers, mapRef, region, registerLocalMap } =
     useBookingFlowMap();
+  // Creating a MapView blocks the main thread while the Play services Maps
+  // renderer loads. Wait for the screen transition to finish first; the
+  // skeleton below already covers the gap. See `useDeferredMapMount`.
+  const mapMountReady = useDeferredMapMount();
   // While the peek-mode local MapView below is mounted it covers the
   // layout's map completely; on Android the provider unmounts its own
   // map for the duration (see BookingFlowMap.registerLocalMap).
@@ -468,7 +475,7 @@ export default function SelectServicesScreen() {
           of the screen's view tree gives it touches naturally.
           On expand we drop this back to the shared map (the sheet
           covers the area so the map isn't visible anyway). */}
-      {!isPeekExpanded && region ? (
+      {!isPeekExpanded && region && mapMountReady ? (
         <MapView
           ref={localMapRef}
           style={StyleSheet.absoluteFill}
