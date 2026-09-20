@@ -23,6 +23,7 @@ import {
   type RotorAxle,
 } from "@/constants/rotorFlow";
 import { hhmmToDisplayTime } from "@/utils/timeSlotUtils";
+import { formatServiceDisplayNames } from "@/utils/serviceDisplayName";
 
 /** Convert "14:00" → "2:00 PM"; pass through anything that already
  *  contains AM/PM. Empty/undefined returns "". */
@@ -272,7 +273,9 @@ export function adaptConvexBookingWithDetailsToCard(row: ConvexBookingWithDetail
 
   return {
     id: row._id,
-    services: row.serviceNames,
+    // Server-resolved names off the booking row, so they carry whatever the
+    // `services` table says — still "Timing Belt". See utils/serviceDisplayName.ts.
+    services: formatServiceDisplayNames(row.serviceNames),
     carModel,
     carYear,
     licensePlate: row.licensePlate,
