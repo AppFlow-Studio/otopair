@@ -28,6 +28,9 @@ import { useAuth, useSession } from "@clerk/clerk-expo";
 import { useEffect, useRef, useState } from "react";
 
 const PREFIX = "@otopair/offline_cache/";
+/** The last payload written per cache key — see the write site in
+ *  `useSessionCachedQuery`. Cleared by `purgeOfflineSessionCache`. */
+const lastWritten = new Map<string, unknown>();
 /** Remembers which Clerk user the cache belongs to (cheap purge check). */
 const OWNER_KEY = `${PREFIX}owner`;
 
@@ -118,6 +121,9 @@ export async function hasValidOfflineSessionCache(): Promise<boolean> {
 }
 
 export async function purgeOfflineSessionCache(): Promise<void> {
+  // Forget what we think is on disk too, or the write-dedupe below could
+  // skip re-writing a payload we just deleted.
+  lastWritten.clear();
   try {
     const keys = (await AsyncStorage.getAllKeys()).filter((k) =>
       k.startsWith(PREFIX),
@@ -159,7 +165,15 @@ export function useSessionCachedQuery<T>(
     if (key == null) return;
     if (live !== undefined) {
       if (clerkUserId && expireAtMs && expireAtMs > Date.now()) {
-        void writeOfflineSessionCache(key, live, clerkUserId, expireAtMs);
+        // One write per payload, not one per mounted hook. Convex hands every
+        // subscriber of the same (query, args) the same object, and several
+        // screens mount the same cached query at once — so a single push used
+        // to run `JSON.stringify` over the whole payload and hit AsyncStorage
+        // two to four times over with byte-identical content.
+        if (lastWritten.get(key) !== live) {
+          lastWritten.set(key, live);
+          void writeOfflineSessionCache(key, live, clerkUserId, expireAtMs);
+        }
       }
       return;
     }

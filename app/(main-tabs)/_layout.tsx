@@ -113,6 +113,12 @@ function ProtectedTabLayout() {
           tabBar={(props) => <TabBar {...props} />}
           screenOptions={{
             headerShown: false,
+            // Android: a visited tab stays mounted, so Cars and Bookings
+            // kept re-rendering on every Convex push while Home was in
+            // front (Cars alone is ~4,000 lines and re-runs a dozen
+            // queries). Freezing a blurred tab suspends its renders until
+            // it comes back, where it catches up in one pass.
+            freezeOnBlur: Platform.OS === "android",
           }}
         >
           {/* Labels come from TAB_ITEMS so this bar and the NativeTabs one

@@ -19,7 +19,7 @@
 import { Bell } from "lucide-react-native";
 import { ProfileInitialsButton } from "@/components/home/ProfileInitialsButton";
 import { useNotificationsSheetStore } from "@/stores/useNotificationsSheetStore";
-import { useNotificationsFromConvex } from "@/hooks/useNotificationsFromConvex";
+import { useUnreadNotificationCount } from "@/hooks/useNotificationsFromConvex";
 import { type Booking } from "@/components/bookings/BookingCard";
 import { UpcomingBookingCard } from "@/components/bookings/UpcomingBookingCard";
 import { PendingQuoteCard } from "@/components/bookings/PendingQuoteCard";
@@ -224,7 +224,7 @@ export default function BookingsScreen() {
   // the outbox while the customer is sitting on this screen watching the card
   // — without a bell here the notification is written and never seen.
   const openNotificationsSheet = useNotificationsSheetStore((s) => s.open);
-  const { unreadCount: notificationsUnreadCount } = useNotificationsFromConvex();
+  const notificationsUnreadCount = useUnreadNotificationCount();
   const hasUnreadNotifications = notificationsUnreadCount > 0;
 
   const toast = useToast();

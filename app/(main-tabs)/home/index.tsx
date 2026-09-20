@@ -53,7 +53,7 @@ import { canonicalWarningLights } from "@/lib/warningLightVocab";
 import { usePendingNavigationStore } from "@/stores/usePendingNavigationStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 import { useNotificationsSheetStore } from "@/stores/useNotificationsSheetStore";
-import { useNotificationsFromConvex } from "@/hooks/useNotificationsFromConvex";
+import { useUnreadNotificationCount } from "@/hooks/useNotificationsFromConvex";
 import { useShallow } from 'zustand/react/shallow';
 import { useVehicleOwnershipFromConvex } from '@/hooks/useVehicleOwnershipFromConvex';
 import { fetchVehicleImageUrl } from '@/utils/vehicleImage';
@@ -232,11 +232,13 @@ export default function HomeScreen() {
   // `paddingTop: insets.top + 12` on the ScrollView jiggles for a frame
   // when the overlay's <Modal> mounts, shifting the home content (and
   // the profile button) up and then back down on every press.
-  const initialInsetTopRef = useRef<number | null>(null);
-  if (initialInsetTopRef.current === null) {
-    initialInsetTopRef.current = insets.top;
-  }
-  const stableInsetTop = initialInsetTopRef.current;
+  //
+  // Held in state rather than a ref written during render: the React
+  // Compiler refuses to memoise any component that touches a ref while
+  // rendering, and it was skipping this entire screen because of these
+  // three lines. Lazy initialiser, so `insets.top` is still read exactly
+  // once, on the first render — same value, same lock, same behaviour.
+  const [stableInsetTop] = useState(() => insets.top);
   const router = useRouter();
   const { isNewUser, shouldShowReactivationSheet, setShouldShowReactivationSheet } = useAuthStore();
   const { vehicles: listVehicles, hasVehicles, isLoading: vehiclesLoading } = useVehicleOwnershipFromConvex();
@@ -580,11 +582,18 @@ export default function HomeScreen() {
     return allBookings
       .filter((b: any) => b.status === 'in_progress')
       // Soonest first when a customer somehow has two jobs running at once.
-      .sort(
-        (a: any, b: any) =>
-          (a.scheduled_date || '').localeCompare(b.scheduled_date || '') ||
-          (a.scheduled_time || '').localeCompare(b.scheduled_time || ''),
-      )[0] ?? null;
+      // Written as a block, not a chain of `||`s: a logical expression whose
+      // operands are themselves logical expressions trips an invariant in the
+      // React Compiler and made it skip this whole screen. Same ordering.
+      .sort((a: any, b: any) => {
+        const byDate = String(a.scheduled_date || '').localeCompare(
+          String(b.scheduled_date || ''),
+        );
+        if (byDate !== 0) return byDate;
+        return String(a.scheduled_time || '').localeCompare(
+          String(b.scheduled_time || ''),
+        );
+      })[0] ?? null;
   }, [allBookings]);
 
   // Resume booking: user has services selected in an incomplete flow
@@ -1088,7 +1097,7 @@ export default function HomeScreen() {
   // surfaces an unread dot when the customer has pending outbox rows
   // (e.g., a shop has just proposed a reschedule).
   const openNotificationsSheet = useNotificationsSheetStore((s) => s.open);
-  const { unreadCount: notificationsUnreadCount } = useNotificationsFromConvex();
+  const notificationsUnreadCount = useUnreadNotificationCount();
   const hasUnreadNotifications = notificationsUnreadCount > 0;
 
   // userId still consumed by the review-sheet flow below; keep it.

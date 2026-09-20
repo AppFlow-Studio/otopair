@@ -397,13 +397,13 @@ export function VehicleMaintenanceCard({
     <CoachTarget id="home.priority" radius={12}>
     <View style={styles.card}>
       {/* Top Section - Vehicle Info (tap handled by the card's Tap gesture) */}
+      {/* The white fill used to be a `LinearGradient` from #FFFFFF to
+          #FFFFFF — a full native gradient view, rendered once per card and
+          this card renders N+2 copies (one hidden measurement copy per
+          vehicle, plus back / promoting / front). A flat `backgroundColor`
+          paints exactly the same pixels inside the same rounded, clipped,
+          1px-bordered box. */}
       <View style={styles.topSection}>
-        <LinearGradient
-          colors={['#FFFFFF', '#FFFFFF']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 0, y: 1 }}
-          style={StyleSheet.absoluteFill}
-        />
         <View style={styles.topSectionInner}>
           <View style={styles.vehicleInfoSection}>
             <View style={styles.vehicleTextInfo}>
@@ -834,6 +834,8 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   topSection: {
+    // Replaces the white→white LinearGradient that used to fill this box.
+    backgroundColor: '#FFFFFF',
     borderTopLeftRadius: 12,
     borderTopRightRadius: 12,
     borderBottomLeftRadius: 12,
