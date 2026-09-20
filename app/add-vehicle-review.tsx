@@ -50,6 +50,9 @@ import { ColorSwatchSkeletonRow, VehicleImageSkeleton } from '@/components/share
 import { FloatingSheet, type FloatingSheetRef } from '@/components/shared-ui/FloatingSheet';
 import { formatEngineLiters } from '@/utils/vehicleDisplay';
 
+/** Longest the Add Vehicle button will wait on the paint fetch. */
+const COLOR_WAIT_CAP_MS = 8000;
+
 // ============================================================================
 // COMPONENT
 // ============================================================================
@@ -497,6 +500,35 @@ export default function AddVehicleReviewScreen() {
   const displayError = error;
   const isLoading = isConfirming;
 
+  /**
+   * Continue is dead while the paint options are still resolving.
+   *
+   * The colour card renders a skeleton for the whole of `vdbLoading`, so
+   * there is nothing to tap — but Continue stayed live, and a vehicle added
+   * in that window is saved with no colour at all (`color: selectedColor ||
+   * undefined` below). The driver never chose to skip; the choice simply had
+   * not arrived yet.
+   *
+   * Deliberately NOT a requirement that a colour be picked. Testers skipping
+   * the step because they do not realise it is selectable is a separate
+   * discoverability question, called out as out of scope on the ticket.
+   *
+   * Bounded, deliberately. `useVdbColorsForVin` clears isLoading on success,
+   * on error and when there is nothing to look up — but a fetch that never
+   * settles would leave this true forever, and a permanently dead Continue is
+   * a worse bug than the one being fixed here (cf. #231, where the driver was
+   * stranded with no way out). After COLOR_WAIT_CAP_MS the gate lifts and the
+   * old skip-with-no-colour behaviour resumes.
+   */
+  const [colorWaitElapsed, setColorWaitElapsed] = useState(false);
+  useEffect(() => {
+    if (!vdbLoading) return;
+    setColorWaitElapsed(false);
+    const t = setTimeout(() => setColorWaitElapsed(true), COLOR_WAIT_CAP_MS);
+    return () => clearTimeout(t);
+  }, [vdbLoading]);
+  const colorsStillLoading = vdbLoading && !colorWaitElapsed;
+
   // Soft-tint the vehicle-icon circle to match the picked paint
   // color so the color picker feels connected to the card. White
   // (and the no-selection case) falls back to the default light
@@ -883,18 +915,23 @@ export default function AddVehicleReviewScreen() {
         <View style={styles.bottomContainer}>
           <Pressable
             onPress={handleAddVehicle}
-            disabled={isLoading}
+            disabled={isLoading || colorsStillLoading}
+            accessibilityRole="button"
+            accessibilityState={{ disabled: isLoading || colorsStillLoading }}
+            accessibilityHint={
+              colorsStillLoading ? "Available for this vehicle once colors finish loading" : undefined
+            }
             style={({ pressed }) => [
               styles.addButton,
               pressed && styles.buttonPressed,
-              isLoading && styles.buttonDisabled,
+              (isLoading || colorsStillLoading) && styles.buttonDisabled,
             ]}
           >
             {isConfirming ? (
               <ActivityIndicator size="small" color="#5299FE" />
             ) : (
               <Text weight="bold" size="md" color="#5299FE">
-                Continue
+                {colorsStillLoading ? "Loading colors\u2026" : "Continue"}
               </Text>
             )}
           </Pressable>
