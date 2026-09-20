@@ -481,6 +481,75 @@ every row (§2.6) — **that file belongs to otopair-web**, which is the
 canonical source and rsyncs over this copy, so the projection has to be made
 there or it will be wiped.
 
+## 4.3 Frame-level trace of booking entry — 2026-09-20
+
+`scratchpad/deep/trace_entry.sh` + `analyze_trace.py`: `gfxinfo framestats`
+(per-frame phase breakdown), a 200 ms per-thread CPU timeline off
+`/proc/<pid>/task/*/stat`, and timestamped logcat, all anchored on the tap.
+
+**Environment note.** The Pixel AVD's Play services stopped serving location
+after a cold boot: `expo-location` rejects before it ever registers a request
+(`gps provider: ProviderRequest[OFF]`, `last location=null` on every
+provider), so the flow renders its no-location fallback and never mounts a
+map. `adb emu geo fix` does not help — nothing is listening. The traces below
+therefore ran on a **throwaway build** whose `useStagedLocation` publishes a
+fixed Staten Island position; that hack was never committed. It is also a
+live demonstration of crash-audit §6 #21: no fix means no booking flow at
+all, with no retry and no fallback.
+
+### What the trace found
+
+| | before | no create/destroy | + deferred mount |
+|---|---|---|---|
+| frames over 100 ms | 7 | 5 | **2** |
+| p90 frame | 104 ms | 117 ms | **50 ms** |
+| Maps SDK init starts | +390 ms (during the fade) | +351 ms (during the fade) | **+557 ms (after it)** |
+| provider map created then destroyed | yes, with an NPE | no | no |
+| tiles labeled | +2,230 ms | +1,964 ms | +2,167 ms |
+
+**1. A whole MapView was being created and thrown away.** The log has the
+entire arc: `MapsInitializer` at +390 ms, `Making Creator dynamically` →
+`early loading native code` → `loadedRenderer` (the Play services Maps
+renderer, loaded synchronously on the main thread), then at +625 ms
+`MapView: exception with destroying` — a `NullPointerException` out of
+`DeferredLifecycleHelper.onPause`, via `rnmaps MapView.doDestroy` ←
+`onDropViewInstance` ← Fabric's `deleteView`. That is the layout's map being
+dropped one commit after it was created, because the screens that bring their
+own map call `registerLocalMap` from an effect, and effects run after the
+provider has already rendered. Holding the provider's map back one commit
+removes it.
+
+**2. The remaining cost is one ~650 ms main-thread block, and it was landing
+inside the transition.** `Choreographer: Skipped 39 frames` sits right in the
+middle of the 320 ms fade, and the frame breakdown shows the time is not in
+any drawing phase — the frame simply starts ~650 ms after its intended vsync
+because the main thread is busy. Deferring the mount to `transitionEnd` moves
+that block onto a still screen behind the skeleton. The map appears ~200 ms
+later; the animation stops dropping frames.
+
+`InteractionManager.runAfterInteractions` is **not** usable for this: the
+native stack animates natively and never takes an interaction handle, so it
+resolved immediately and deferred nothing (measured — the map still
+initialised at +351 ms).
+
+### What is left on the entry path
+
+- **The Maps SDK load itself, ~205 ms of the block** (`+351 → +556 ms`:
+  creator, native code, renderer). It is once per process, so it is the
+  *first* booking entry that pays. Warming it off the critical path would
+  remove it from entry entirely, but react-native-maps exposes no
+  `MapsInitializer.initialize()` to JS — it needs a small native module, or
+  an off-screen MapView warmed during idle after boot, which costs memory.
+- **Heap growth of ~40 MB during the mount**, with two concurrent GCs logged
+  per entry. Fewer map instances already helps; `liteMode` on a backdrop map
+  would help more, at the cost of interactivity.
+- **The 320 ms fade** in `(booking-flow)/_layout.tsx` was sized for a
+  shared-element morph that never runs (Reanimated has that feature flagged
+  off). Shortening it is free perceived latency.
+- The traces are single runs. The mechanism findings are solid — a create and
+  destroy either happens or it does not — but the frame percentiles should be
+  re-measured in rounds before being quoted as a result.
+
 ## 5. Measuring the next pass
 
 The Pixel now runs `16-tree-dbg` (versionCode 14, key present, C4, the four
