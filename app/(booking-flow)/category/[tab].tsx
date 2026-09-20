@@ -291,13 +291,38 @@ export default function CategoryDetailScreen() {
     [insets.bottom],
   );
 
+  /**
+   * Services whose add is mid-flight.
+   *
+   * The store toggle is deferred until the ghost lands, so
+   * `selectedServiceIds` does NOT contain the service during the flight. A
+   * second tap in that window therefore still sees `isSelected === false`,
+   * spawns another ghost and queues a SECOND toggle — and the pair cancels
+   * out, leaving the row unselected.
+   *
+   * That is both halves of the report: ghosts piling up reads as the card
+   * being added over and over, and an even number of quick taps nets to
+   * nothing, so the card "needs several taps before it registers".
+   */
+  const pendingAddRef = useRef<Set<string>>(new Set());
+
   const flyToCart = useCallback(
     (serviceId: string, slug: string, label: string, onCommit?: () => void) => {
+      // One flight per service. Guarded here rather than at the call sites so
+      // a future caller cannot reintroduce the double-toggle by forgetting.
+      if (pendingAddRef.current.has(serviceId)) return;
+      pendingAddRef.current.add(serviceId);
+
+      const settle = () => {
+        pendingAddRef.current.delete(serviceId);
+        onCommit?.();
+      };
+
       const rowNode = rowRefs.current.get(serviceId);
       // No row → skip the animation and commit immediately so the
       // cart still updates (belt-and-suspenders for the caller).
       if (!rowNode) {
-        onCommit?.();
+        settle();
         return;
       }
       rowNode.measureInWindow((rx, ry, rw, rh) => {
@@ -310,7 +335,7 @@ export default function CategoryDetailScreen() {
             label,
             from: { x: rx, y: ry, w: rw, h: rh },
             to: fabCenter,
-            onCommit,
+            onCommit: settle,
           },
         ]);
       });

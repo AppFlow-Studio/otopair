@@ -133,7 +133,13 @@ export function ServiceMultiSelectRow({
           title's right edge instead of inline in the title row. */}
       <Pressable
         onPress={onInfoPress}
-        hitSlop={14}
+        // 24pt icon + this slop = a 44pt target, the iOS minimum, but biased
+        // AWAY from the card's middle. A uniform 14 gave it 52x52 and that
+        // square sat over the title — taps meant for "add this service" opened
+        // the info sheet instead, which is the half of #239 that reads as
+        // "some cards need several taps before they register". Up and right
+        // run into the card's dead corner, so the slop goes there.
+        hitSlop={{ top: 12, right: 12, bottom: 8, left: 8 }}
         style={styles.infoBtn}
         accessibilityRole="button"
         accessibilityLabel={`More info about ${entry.label}`}
