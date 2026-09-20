@@ -32,6 +32,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 
 import { ServiceLogColors as C, ServiceLogFonts as F } from "@/constants/theme";
+import { formatServiceDisplayName } from "@/utils/serviceDisplayName";
 
 export interface ReceiptPayload {
   receipt_number: string;
@@ -330,14 +331,14 @@ export function ReceiptContent({ payload, bookingId, onLeaveReview, onViewJob }:
     if (serviceLines.length) {
       lines.push("", "LABOR");
       for (const l of serviceLines) {
-        lines.push(`  ${l.name}  ${fmtAmount(l.labor_cost)}`);
+        lines.push(`  ${formatServiceDisplayName(l.name)}  ${fmtAmount(l.labor_cost)}`);
       }
     }
     if (partLines.length) {
       lines.push("", "PARTS");
       for (const l of partLines) {
         const qty = l.quantity && l.quantity > 1 ? ` x${l.quantity}` : "";
-        lines.push(`  ${l.name}${qty}  ${fmtAmount(l.cost)}`);
+        lines.push(`  ${formatServiceDisplayName(l.name)}${qty}  ${fmtAmount(l.cost)}`);
       }
     }
 
@@ -498,7 +499,7 @@ export function ReceiptContent({ payload, bookingId, onLeaveReview, onViewJob }:
           {serviceLines.map((l, i) => (
             <LineItem
               key={`svc-${i}`}
-              name={l.name}
+              name={formatServiceDisplayName(l.name)}
               detail={
                 l.labor_hours != null
                   ? `${fmtLaborHours(l.labor_hours)}${
@@ -518,7 +519,7 @@ export function ReceiptContent({ payload, bookingId, onLeaveReview, onViewJob }:
           {partLines.map((l, i) => (
             <LineItem
               key={`part-${i}`}
-              name={l.name}
+              name={formatServiceDisplayName(l.name)}
               detail={
                 [
                   l.quantity != null && l.unit_cost != null

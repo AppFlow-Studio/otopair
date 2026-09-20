@@ -54,6 +54,7 @@ import { useShopStore } from "@/stores/useShopStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 import { resolveBookingVehicleVin } from "@/utils/bookingVehicle";
 import { openMapsForAddress, openPhone } from "@/utils/linking";
+import { formatServiceDisplayNames } from "@/utils/serviceDisplayName";
 
 // ============================================================================
 // CONSTANTS
@@ -376,7 +377,8 @@ export default function ConfirmationScreen() {
   const shopLocation = fullAddress || shop?.name || localShop?.name || mechanic?.shopName || "Shop Location";
   const shopDisplayName = shop?.name ?? localShop?.name ?? confirmedBooking?.shopName ?? mechanic?.shopName ?? "your shop";
   const calendarServiceNames = useMemo(() => {
-    if (confirmedBooking?.serviceNames?.length) return confirmedBooking.serviceNames;
+    if (confirmedBooking?.serviceNames?.length)
+      return formatServiceDisplayNames(confirmedBooking.serviceNames);
     if (localBooking?.serviceIds?.length) {
       return localBooking.serviceIds
         .map((serviceId) => availableServices.find((service) => service.id === serviceId)?.name ?? serviceId)
