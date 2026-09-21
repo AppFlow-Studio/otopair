@@ -15,10 +15,11 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Switch, View, ActivityIndicator } from 'react-native';
+import { AppState, Linking, Pressable, ScrollView, StyleSheet, Switch, View, ActivityIndicator } from 'react-native';
+import * as Notifications from 'expo-notifications';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useGuardedRouter as useRouter } from '@/hooks/useGuardedRouter';
-import { Tag, Gift, CreditCard, Bell, Calendar, Check } from 'lucide-react-native';
+import { Tag, Gift, CreditCard, Bell, Calendar, Check, BellOff } from 'lucide-react-native';
 import { useQuery } from 'convex/react';
 
 import { BrandColors, Spacing, Text, BlurHeaderOverlay } from '@/components/shared-ui';
@@ -188,6 +189,57 @@ export default function NotificationPreferencesScreen() {
     []
   );
 
+  /**
+   * The OS gate, which this screen used to ignore entirely.
+   *
+   * Every toggle here is an Otopair-side preference. None of them mean
+   * anything until iOS has actually authorised notifications — and nothing in
+   * the app asked for that unless the driver tapped "Enable" on one onboarding
+   * step. Tapping "Not now" there records a local 'denied' while iOS stays
+   * UNDETERMINED, so the app never appears under Settings > Notifications at
+   * all and there is no way in from the OS side either.
+   *
+   * The result is this screen promising five kinds of notification that can
+   * never arrive (#262). It now shows the real state and offers the prompt.
+   */
+  const [osStatus, setOsStatus] = useState<string | null>(null);
+
+  const readOsStatus = useCallback(async () => {
+    try {
+      const res = await Notifications.getPermissionsAsync();
+      setOsStatus(res.status);
+    } catch {
+      setOsStatus(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    void readOsStatus();
+    // Re-read on resume so returning from iOS Settings reflects immediately.
+    const sub = AppState.addEventListener('change', (next) => {
+      if (next === 'active') void readOsStatus();
+    });
+    return () => sub.remove();
+  }, [readOsStatus]);
+
+  const osBlocked = osStatus != null && osStatus !== 'granted' && osStatus !== 'provisional';
+
+  const handleEnableOs = useCallback(async () => {
+    // iOS only shows the prompt once. After that the OS owns the answer and
+    // the only honest move is to hand the driver to Settings — same rule the
+    // Permissions Hub already uses.
+    if (osStatus === 'undetermined') {
+      try {
+        await Notifications.requestPermissionsAsync();
+      } catch {
+        // Fall through to the status re-read; nothing useful to say here.
+      }
+      void readOsStatus();
+      return;
+    }
+    await Linking.openSettings();
+  }, [osStatus, readOsStatus]);
+
   return (
     <View style={styles.screen}>
       <BlurHeaderOverlay
@@ -200,6 +252,29 @@ export default function NotificationPreferencesScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[styles.content, { paddingTop: insets.top + 80 }]}
       >
+        {osBlocked ? (
+          <View style={styles.osBanner}>
+            <View style={styles.osBannerIcon}>
+              <BellOff size={18} color="#B45309" strokeWidth={2} />
+            </View>
+            <View style={styles.osBannerText}>
+              <Text weight="bold" size="sm" color="#92400E">
+                Notifications are off for Otopair
+              </Text>
+              <Text size="xs" color="#B45309">
+                {osStatus === 'undetermined'
+                  ? 'These settings take effect once you allow notifications.'
+                  : 'Turn them on in iOS Settings for these to take effect.'}
+              </Text>
+            </View>
+            <Pressable onPress={handleEnableOs} style={styles.osBannerButton}>
+              <Text weight="bold" size="xs" color="#FFFFFF">
+                {osStatus === 'undetermined' ? 'Turn on' : 'Settings'}
+              </Text>
+            </Pressable>
+          </View>
+        ) : null}
+
         {toggleRows.map((row) => (
           <ToggleRow
             key={row.key}
@@ -259,6 +334,35 @@ const styles = StyleSheet.create({
   content: {
     paddingTop: Spacing['2xl'],
     paddingBottom: Spacing['2xl'],
+  },
+  osBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: '#FFFBEB',
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    borderRadius: 14,
+    padding: 12,
+    marginBottom: 16,
+  },
+  osBannerIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: '#FEF3C7',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  osBannerText: {
+    flex: 1,
+    gap: 2,
+  },
+  osBannerButton: {
+    backgroundColor: '#B45309',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
   },
   sectionTitle: {
     marginBottom: Spacing.sm,
