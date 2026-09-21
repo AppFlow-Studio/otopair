@@ -854,6 +854,25 @@ export default function ChooseMechanicScreen() {
                 }
               : region
           }
+          // Tap the map to put the shop panel away.
+          //
+          // Two testers reported the same thing on the same afternoon (#242,
+          // #250): they wanted to see the map and could not get the shop card
+          // and sheet out of the way. Swiping the sheet down has always done
+          // it and now says so, but the floating card carries no close control
+          // of its own, and tapping the thing you want to look at is how every
+          // maps app dismisses a card. Reversible — a pin or browse-card tap
+          // brings the sheet straight back.
+          //
+          // react-native-maps fires this for MARKER taps as well, tagged
+          // `action: "marker-press"`. Verified on device: without the guard,
+          // tapping a rating pin selected the shop AND dismissed the sheet, so
+          // choosing a shop from the map threw away the panel describing it.
+          // Only a press on the map itself should put the panel away.
+          onPress={(e) => {
+            if (e?.nativeEvent?.action === "marker-press") return;
+            if (!isSheetHidden) bottomSheetRef.current?.close();
+          }}
           showsUserLocation
           scrollEnabled
           zoomEnabled
