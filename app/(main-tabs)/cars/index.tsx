@@ -1602,19 +1602,31 @@ export default function CarsHomeScreen() {
     });
   }, [mainPageSlideX, mainPageFade, healthPageSlideX, healthPageFade, pageSlideX, pageFade]);
 
-  // Auto-open stepper when navigated from Home's "Finish Setup" button
+  // Auto-open stepper when navigated from Home's "Finish Setup" button.
+  //
+  // The guard used to be a plain `useRef(false)` that was set true on the
+  // first open and never reset. This screen is a TAB — it mounts once and
+  // stays mounted for the life of the process — so the stepper auto-opened
+  // exactly once per launch. Every later "Finish Setup -> pick a car" landed
+  // on the vehicle page and did nothing at all: no stepper, no spinner, no
+  // error. With three cars waiting, the second and third both failed that way
+  // (#274).
+  //
+  // The trigger is now the param itself, consumed on arrival. Clearing it
+  // re-arms the ref, so each navigation fires once and the next one still
+  // works. The ref only guards a double-invoke inside one navigation (React
+  // StrictMode runs effects twice in dev).
   const openStepperFired = useRef(false);
   useEffect(() => {
-    if (
-      params.openStepper === 'true' &&
-      !openStepperFired.current &&
-      activeOwnershipId &&
-      isFocused
-    ) {
-      openStepperFired.current = true;
-      openStepperDirectly();
+    if (params.openStepper !== 'true') {
+      openStepperFired.current = false;
+      return;
     }
-  }, [params.openStepper, activeOwnershipId, isFocused, openStepperDirectly]);
+    if (openStepperFired.current || !activeOwnershipId || !isFocused) return;
+    openStepperFired.current = true;
+    router.setParams({ openStepper: undefined });
+    openStepperDirectly();
+  }, [params.openStepper, activeOwnershipId, isFocused, openStepperDirectly, router]);
 
   // Maintenance input modal state
   const [maintenanceModalVisible, setMaintenanceModalVisible] = useState(false);
