@@ -99,6 +99,16 @@ export function NotificationsSheet() {
   // bridge below only fires open()/close() on real transitions.
   const wasOpen = useRef(false);
   const [filter, setFilter] = useState<NotificationFilter>("all");
+  /**
+   * Row whose full message is showing.
+   *
+   * Informational notifications carry no booking_id and no deepLink, so
+   * handleRowPress had nothing to route to and simply fell off the end —
+   * the tap did nothing at all. The body is clamped to two lines in the
+   * list, so the rest of the message was unreachable (#257). These rows
+   * expand in place instead.
+   */
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   // Detent index reported by FloatingSheet. 0 = resting, last = expanded.
   const [snapIndex, setSnapIndex] = useState(0);
   const rowRefs = useRef<Map<string, RNView | null>>(new Map());
@@ -237,7 +247,14 @@ export function NotificationsSheet() {
           params: { bookingId },
         });
       });
+      return;
     }
+
+    // Nothing to navigate to — an informational row. Reveal the rest of the
+    // message here rather than leaving the tap inert. Tapping again collapses
+    // it, so the list does not fill up with expanded rows.
+    const id = String(row._id);
+    setExpandedId((prev) => (prev === id ? null : id));
   };
 
   // Dismiss an informational notification — archives it from the feed.
@@ -393,6 +410,7 @@ export function NotificationsSheet() {
             const spec = getNotificationShape(row.category);
             const isReschedule = spec.action === "reschedule_decision";
             const isActionableRow = spec.shape === "actionable";
+            const isExpanded = expandedId === String(row._id);
             // Inline decision buttons are wired for the families that resolve
             // with just a bookingId; other actionable rows stay tap-through.
             const inlineAction =
@@ -468,7 +486,7 @@ export function NotificationsSheet() {
                       weight={isUnread ? "bold" : "semiBold"}
                       color={BrandColors.primary}
                       style={styles.titleText}
-                      numberOfLines={2}
+                      numberOfLines={isExpanded ? undefined : 2}
                     >
                       {title}
                     </Text>
@@ -501,7 +519,7 @@ export function NotificationsSheet() {
                       size="sm"
                       color="#4B5563"
                       style={styles.rowBody}
-                      numberOfLines={2}
+                      numberOfLines={isExpanded ? undefined : 2}
                     >
                       {body}
                     </Text>
