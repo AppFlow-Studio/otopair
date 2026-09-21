@@ -115,6 +115,14 @@ import { ChevronRight, ScanLine, Wrench } from "lucide-react-native";
 import { useCoachAnchor } from "@/components/coach/useCoachAnchor";
 import { titleCaseVehicleName as titleCase } from '@/lib/vehicleName';
 
+/**
+ * The floating tab bar's own height above the safe-area inset, measured off
+ * the simulator (pill spans ~784-849pt on an 874pt screen), plus the gap that
+ * keeps the last row from sitting flush against it.
+ */
+const TAB_BAR_VISUAL_HEIGHT = 56;
+const TAB_BAR_GAP = 16;
+
 // ============================================================================
 // HELPERS
 // ============================================================================
@@ -260,6 +268,23 @@ const NUMBER_WORDS: Record<number, string> = {
 export default function CarsHomeScreen() {
   const toast = useToast();
   const insets = useSafeAreaInsets();
+  /**
+   * Clearance for the floating tab bar at the end of the scroll.
+   *
+   * styles.scrollContent had a flat scale(120). scale() is a WIDTH ratio, so
+   * the room reserved for a bottom bar grew and shrank with how wide the phone
+   * is, and ignored insets.bottom entirely — the one measurement that actually
+   * moves the bar up and down. On a narrow phone with a tall home-indicator
+   * inset it under-reserves, and the last rows finish underneath the bar
+   * instead of above it (#265).
+   *
+   * Math.max keeps whatever the old constant gave on devices where it was
+   * already sufficient, so this can only ever add clearance, never remove it.
+   */
+  const bottomClearance = Math.max(
+    scale(120),
+    insets.bottom + TAB_BAR_VISUAL_HEIGHT + TAB_BAR_GAP,
+  );
   const aiStepBottomClearance = scale(118) + insets.bottom;
   const isFocused = useIsFocused();
   const router = useRouter();
@@ -1869,7 +1894,10 @@ export default function CarsHomeScreen() {
       <ScrollView
         ref={scrollViewRef}
         style={styles.scrollView}
-        contentContainerStyle={[styles.scrollContent, { paddingTop: insets.top }]}
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingTop: insets.top, paddingBottom: bottomClearance },
+        ]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         automaticallyAdjustKeyboardInsets
