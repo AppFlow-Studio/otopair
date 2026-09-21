@@ -346,6 +346,17 @@ export default function CarsHomeScreen() {
   const buttonFade = useRef(new Animated.Value(0)).current;
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const scoreCountRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // The score count-up is cleared when it finishes and when the health sheet
+  // is closed, but not if the screen goes away mid-animation — it kept ticking
+  // setState into an unmounted tree for up to a second. Cheap to hold, but
+  // this is exactly the shape of thing that accumulates across a long session
+  // (#261).
+  useEffect(
+    () => () => {
+      if (scoreCountRef.current) clearInterval(scoreCountRef.current);
+    },
+    [],
+  );
   // Ref that always holds the latest computed score — avoids stale closures
   const latestScoreRef = useRef(0);
   // Ref that holds the latest estimated (pre-confirmed) score
