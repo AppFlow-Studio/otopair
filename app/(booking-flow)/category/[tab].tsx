@@ -77,6 +77,14 @@ import { hasConsistentBasketVehicle } from "@/utils/bookingVehicle";
 import { CoachTarget } from "@/components/coach/CoachTarget";
 import { useSatisfyCoachMark } from "@/components/coach/CoachMarkHost";
 
+/**
+ * How long a service ignores further taps after one is acted on.
+ *
+ * Long enough to outlast the fly-to-cart flight and the sheet transitions, so
+ * a burst of taps reads as one decision.
+ */
+const SERVICE_TAP_COOLDOWN_MS = 600;
+
 // Fixed-height frosted sheet — content scrolls inside, sheet itself
 // doesn't move. Mirrors Screen 1 (select-services.tsx). Previously a
 // free-drag Pan gesture resized the sheet on vertical swipe, but
@@ -469,9 +477,30 @@ export default function CategoryDetailScreen() {
   }, [focusSlug, filteredServices]);
 
   // Tap handler — slug routing matches the v5 grid + Screen 1 entries
+  /**
+   * One action per service per burst.
+   *
+   * #239 stopped a second ghost spawning mid-flight, but the guard released
+   * the moment the ghost landed — so a tap arriving just after commit saw
+   * isSelected === true and REMOVED the service again. Four fast taps ended
+   * with nothing in the cart, which is #256: "every rapid tap re-triggers the
+   * action".
+   *
+   * A short per-service cooldown covers every branch below — direct add,
+   * remove, the options sheet and the diagnostic sheet — rather than only the
+   * animated one. Keyed per service so tapping two different rows quickly is
+   * still two adds.
+   */
+  const lastServiceActionRef = useRef<Map<string, number>>(new Map());
+
   const handleServicePress = useCallback(
     (service: Service) => {
       if (!service.slug) return;
+
+      const now = Date.now();
+      const last = lastServiceActionRef.current.get(service.id) ?? 0;
+      if (now - last < SERVICE_TAP_COOLDOWN_MS) return;
+      lastServiceActionRef.current.set(service.id, now);
 
       if (service.slug === SLUG_TIRE_REPLACEMENT) {
         router.push("/(tire-booking)");
