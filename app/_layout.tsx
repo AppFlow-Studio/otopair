@@ -16,9 +16,17 @@ import { Stack, useSegments, type ErrorBoundaryProps } from "expo-router";
 import { guardedRouter as router } from "@/lib/navigationLock";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
-import { ConvexReactClient, useQuery } from "convex/react";
-import { ConvexProviderWithClerk } from "convex/react-clerk";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { ConvexProviderWithAuth, ConvexReactClient, useConvexAuth, useQuery } from "convex/react";
+import {
+  type ReactNode,
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import "react-native-reanimated";
 import { KeyboardProvider } from "react-native-keyboard-controller";
@@ -43,6 +51,8 @@ import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useAppFonts } from "@/hooks/use-fonts";
 import { useConsoleToConvex } from "@/hooks/useConsoleToConvex";
 import { useEnsureConvexUser } from "@/hooks/useEnsureConvexUser";
+import { useConnection } from "@/hooks/useConnection";
+import { CONVEX_AUTH_RETRY_MS, shouldRecoverConvexAuth } from "@/lib/connection/convexAuthRecovery";
 import { useRefreshPushToken } from "@/hooks/useRefreshPushToken";
 import { useOtopairDeepLinks } from "@/hooks/useOtopairDeepLinks";
 import { shouldHideSplash } from "@/lib/auth-routing";
@@ -88,14 +98,92 @@ function ConsoleToConvexLogger() {
   return null;
 }
 
+/**
+ * Convex only re-runs `client.setAuth` when the `fetchAccessToken` it holds
+ * changes identity. After a failed token fetch it marks the session logged out
+ * and never retries by itself (see lib/connection/convexAuthRecovery.ts, #269),
+ * so recovery works by handing it a new one: bumping `epoch` does exactly that.
+ */
+const ConvexAuthEpochContext = createContext<{ epoch: number; bump: () => void }>({
+  epoch: 0,
+  bump: () => {},
+});
+
+/**
+ * convex/react-clerk's own `useAuthFromClerk`, unchanged except that the
+ * recovery epoch is part of `fetchAccessToken`'s identity. Kept on the public
+ * ConvexProviderWithAuth API rather than reaching into ConvexProviderWithClerk.
+ */
+function useAuthFromClerk() {
+  const { isLoaded, isSignedIn, getToken, orgId, orgRole, sessionClaims } = useAuth();
+  const { epoch } = useContext(ConvexAuthEpochContext);
+  const fetchAccessToken = useCallback(
+    async ({ forceRefreshToken }: { forceRefreshToken: boolean }) => {
+      try {
+        if (sessionClaims?.aud === "convex") {
+          return await getToken({ skipCache: forceRefreshToken });
+        }
+        return await getToken({ template: "convex", skipCache: forceRefreshToken });
+      } catch {
+        return null;
+      }
+    },
+    // Same deps as Convex's own, plus `epoch`. Clerk's Expo useAuth is not
+    // memoised, so listing getToken/sessionClaims would hand Convex a new
+    // function — and a full re-authentication — on every render. The disable
+    // also keeps the React Compiler off this hook, which is what we want: it
+    // would otherwise re-derive these deps and could make the function stable,
+    // silently switching recovery off.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [orgId, orgRole, epoch],
+  );
+  return useMemo(
+    () => ({ isLoading: !isLoaded, isAuthenticated: isSignedIn ?? false, fetchAccessToken }),
+    [isLoaded, isSignedIn, fetchAccessToken],
+  );
+}
+
+/** Re-authenticates Convex when it has dropped a user Clerk still has signed in. */
+function ConvexAuthRecovery() {
+  const { isSignedIn } = useAuth();
+  const { isLoading, isAuthenticated } = useConvexAuth();
+  const conn = useConnection();
+  const { bump } = useContext(ConvexAuthEpochContext);
+  const lastAttemptRef = useRef(0);
+  const dropped = shouldRecoverConvexAuth({
+    clerkSignedIn: isSignedIn === true,
+    convexLoading: isLoading,
+    convexAuthenticated: isAuthenticated,
+    online: conn === "online",
+  });
+
+  useEffect(() => {
+    if (!dropped) return;
+    // First attempt straight away; after that at most every CONVEX_AUTH_RETRY_MS,
+    // so a failure that keeps recurring cannot hammer the backend.
+    const wait = Math.max(0, lastAttemptRef.current + CONVEX_AUTH_RETRY_MS - Date.now());
+    const timer = setTimeout(() => {
+      lastAttemptRef.current = Date.now();
+      bump();
+    }, wait);
+    return () => clearTimeout(timer);
+  }, [dropped, bump]);
+
+  return null;
+}
+
 function ConvexClerkProvider({ children }: { children: ReactNode }) {
-  // Convex expects the Clerk useAuth hook that matches the provider
-  const auth = useAuth();
+  const [epoch, setEpoch] = useState(0);
+  const bump = useCallback(() => setEpoch((e) => e + 1), []);
+  const authEpoch = useMemo(() => ({ epoch, bump }), [epoch, bump]);
   return (
-    <ConvexProviderWithClerk client={convex} useAuth={() => auth}>
-      <ConsoleToConvexLogger />
-      {children}
-    </ConvexProviderWithClerk>
+    <ConvexAuthEpochContext.Provider value={authEpoch}>
+      <ConvexProviderWithAuth client={convex} useAuth={useAuthFromClerk}>
+        <ConsoleToConvexLogger />
+        <ConvexAuthRecovery />
+        {children}
+      </ConvexProviderWithAuth>
+    </ConvexAuthEpochContext.Provider>
   );
 }
 
