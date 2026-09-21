@@ -1,5 +1,6 @@
 // 1. React & React Native
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ActivityIndicator, BackHandler, Image, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -138,6 +139,15 @@ import { ProviderTypesSection } from "@/components/home/ProviderTypesSection";
 import { VehicleMaintenanceCard } from "@/components/home/VehicleMaintenanceCard";
 import { NowTierCallout } from "@/components/home/NowTierCallout";
 import { OtoPairIcon } from "@/components/icons/oto-pair";
+
+/**
+ * Local mirror of users.tutorialSeenAt. The server stamp is the durable,
+ * cross-device record; this exists so a failed or slow write cannot show a
+ * driver the tour a second time.
+ */
+const TUTORIAL_SEEN_KEY = "otopair.tutorialSeen.v1";
+const TUTORIAL_STAMP_ATTEMPTS = 4;
+const TUTORIAL_STAMP_RETRY_MS = 1500;
 
 function formatBookingDate(dateStr: string): string {
   const [y, m, d] = dateStr.split('-').map(Number);
@@ -450,21 +460,63 @@ export default function HomeScreen() {
   const priorityAnchor = useCoachAnchor("home.priority", 22);
   const markTutorialSeen = useMutation(api.users.markTutorialSeen);
   const [tutorialDismissed, setTutorialDismissed] = useState(false);
+  /**
+   * Local mirror of the seen stamp. `null` = still reading.
+   *
+   * The server stamp is the durable record, but it was the ONLY record, and
+   * the write that sets it was fire-and-forget with a swallowed catch.
+   * markTutorialSeen throws "Not authenticated" until the Clerk JWT reaches
+   * Convex — the same first-run lag behind #252 — so on a cold first run the
+   * stamp simply never landed and nothing said so.
+   *
+   * With no stamp the tour came back twice over: on relaunch, and on any
+   * remount of Home, because `tutorialDismissed` is component state and
+   * vehicle setup unmounts this screen. Two symptoms, one missing write.
+   */
+  const [tutorialSeenLocal, setTutorialSeenLocal] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    AsyncStorage.getItem(TUTORIAL_SEEN_KEY)
+      .then((v) => {
+        if (!cancelled) setTutorialSeenLocal(v === "1");
+      })
+      .catch(() => {
+        if (!cancelled) setTutorialSeenLocal(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const tutorialSeenAt = (me as { tutorialSeenAt?: number } | null | undefined)?.tutorialSeenAt;
+
   // FORCE_TUTORIAL_EVERY_LAUNCH (dev only) ignores the stamp so the tour
-  // replays on every reload while it is being worked on.
+  // replays on every reload while it is being worked on. `=== false` rather
+  // than `!tutorialSeenLocal` so the tour cannot flash during the read.
   const showTutorial =
     !!me &&
     (FORCE_TUTORIAL_EVERY_LAUNCH ||
-      (me as { tutorialSeenAt?: number }).tutorialSeenAt == null) &&
+      (tutorialSeenAt == null && tutorialSeenLocal === false)) &&
     !tutorialDismissed;
 
-  // Settings' "Replay the app tour" clears the server stamp. Without this the
-  // local dismissal from earlier in the SAME session would still be true and
-  // the replay would silently do nothing — the one case where the two sources
-  // of truth disagree.
-  const tutorialSeenAt = (me as { tutorialSeenAt?: number } | null | undefined)?.tutorialSeenAt;
+  /**
+   * Settings' "Replay the app tour" clears the server stamp, and the local
+   * mirror has to follow or replay would silently do nothing.
+   *
+   * Keyed on the TRANSITION number -> null, not on `== null`. A plain null
+   * check also fires on first run, before anything has ever been stamped,
+   * which would wipe the local flag we just wrote and hand the bug straight
+   * back.
+   */
+  const prevSeenAtRef = useRef<number | null | undefined>(undefined);
   useEffect(() => {
-    if (tutorialSeenAt == null) setTutorialDismissed(false);
+    const prev = prevSeenAtRef.current;
+    prevSeenAtRef.current = tutorialSeenAt ?? null;
+    if (prev == null || tutorialSeenAt != null) return;
+    setTutorialDismissed(false);
+    setTutorialSeenLocal(false);
+    void AsyncStorage.removeItem(TUTORIAL_SEEN_KEY).catch(() => {});
   }, [tutorialSeenAt]);
 
   const dismissTutorial = useCallback(
@@ -477,7 +529,26 @@ export default function HomeScreen() {
       // marked as having seen a tour it is about to be shown again, and
       // the flag has to be removed before the real gate can be trusted.
       if (FORCE_TUTORIAL_EVERY_LAUNCH) return;
-      void markTutorialSeen({}).catch(() => {});
+
+      setTutorialSeenLocal(true);
+      void AsyncStorage.setItem(TUTORIAL_SEEN_KEY, "1").catch(() => {});
+
+      // Retry rather than swallow. The usual failure is auth not yet
+      // propagated to Convex, which resolves on its own within seconds — the
+      // old single attempt just happened to land inside that window.
+      void (async () => {
+        for (let attempt = 0; attempt < TUTORIAL_STAMP_ATTEMPTS; attempt++) {
+          try {
+            await markTutorialSeen({});
+            return;
+          } catch {
+            await new Promise((r) => setTimeout(r, TUTORIAL_STAMP_RETRY_MS * (attempt + 1)));
+          }
+        }
+        if (__DEV__) {
+          console.warn("[tutorial] could not stamp tutorialSeenAt; local flag holds the line");
+        }
+      })();
     },
     [markTutorialSeen],
   );
