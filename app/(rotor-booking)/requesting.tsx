@@ -8,7 +8,7 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef } from "react";
-import { type DimensionValue, StyleSheet, useWindowDimensions, View } from "react-native";
+import { StyleSheet, useWindowDimensions, View } from "react-native";
 
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import LottieView from "lottie-react-native";
@@ -164,7 +164,7 @@ export default function RotorRequestingScreen({
         style={[
           styles.copyOverlay,
           isCompactLayout && styles.copyOverlayCompact,
-          { top: confirmLayout.copyTopPercent as DimensionValue },
+          { top: confirmLayout.copyTop },
           copyAnimStyle,
         ]}
         pointerEvents="none"
