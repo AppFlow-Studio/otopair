@@ -11718,6 +11718,14 @@ export const getJobDetail = query({
         );
       }
     }
+    // Single-service bookings can pre-fill each line with the labor the CUSTOMER
+    // WAS QUOTED (the booking's stamped `effectiveEstimatedLaborMinutes`), which
+    // is authoritative for what they agreed to. It reflects the mobile quote,
+    // which may have used a client labor value the backend resolvers don't
+    // reproduce — e.g. a diagnostic quoted at 1 hr while the catalog default is
+    // 0.5 hr and the tier estimate is 0.85 hr. Multi-service bookings have no
+    // per-service booked breakdown, so those keep the recompute chain below.
+    const singleService = (booking.service_ids ?? []).length === 1;
     const bookingServiceLines = (booking.service_ids ?? []).map((sid) => {
       const key = String(sid);
       const shopLine = shopSetLineById.get(key);
@@ -11733,9 +11741,11 @@ export const getJobDetail = query({
         all_in_low_cents: shopLine?.all_in_low_cents ?? null,
         all_in_high_cents: shopLine?.all_in_high_cents ?? null,
         all_in_default_cents: shopLine?.all_in_default_cents ?? null,
-        // Engine projection wins; else the vehicle/catalog labor-time fallback
-        // so shop-priced rows pre-fill with how long the service takes.
+        // The booked labor (single-service) wins so the estimate opens at the
+        // agreed time; else the engine projection, else the vehicle/catalog
+        // labor-time fallback so shop-priced rows pre-fill how long it takes.
         est_labor_minutes:
+          (singleService ? effectiveEstimatedLaborMinutes : null) ??
           estLaborMinutesById.get(key) ??
           fallbackLaborMinutesById.get(key) ??
           null,
@@ -11842,6 +11852,17 @@ export const getJobDetail = query({
       previousMechanicName,
       rescheduleProposedAt: booking.reschedule_proposed_at ?? null,
       invoiceNumber: (booking as any).invoice_number ?? null,
+      // Pickup ("request to cancel & pick up car") round trip, surfaced so the
+      // booking drawer can show + act on it even after the request drops off the
+      // schedule board and the dashboard alert (which filter it once answered /
+      // aged). Active while the car is still vehicle_at_shop; a release routes
+      // through the cancel transition, so the booking leaves that status and the
+      // drawer panel naturally hides.
+      cancelRequestedAtMs: booking.cancel_requested_at_ms ?? null,
+      cancelRequestReason: booking.cancel_request_reason ?? null,
+      pickupResponse: booking.pickup_response ?? null,
+      pickupRespondedAtMs: booking.pickup_responded_at_ms ?? null,
+      pickupRequestResolvedAtMs: booking.pickup_request_resolved_at_ms ?? null,
       customerLateMonitor: lateMonitor && lateMonitor.status === "active" ? {
         pushEnqueuedAtMs: lateMonitor.push_enqueued_at_ms ?? null,
         smsEnqueuedAtMs: lateMonitor.sms_enqueued_at_ms ?? null,
