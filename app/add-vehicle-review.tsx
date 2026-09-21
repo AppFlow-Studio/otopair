@@ -131,7 +131,7 @@ function ColorSwatchItem({
         size="xs"
         color={isSelected ? '#1F2937' : '#6B7280'}
         center
-        numberOfLines={2}
+        numberOfLines={3}
         style={styles.swatchLabel}
       >
         {color.label}
@@ -1330,7 +1330,10 @@ const styles = StyleSheet.create({
     paddingRight: scale(8),
   },
   swatchPress: {
-    width: scale(64),
+    // 64 fitted roughly nine characters a line, which turned every "Designo
+    // ..." variant into the same truncated stub. 78 plus the third line below
+    // resolves most real paint names outright (#266).
+    width: scale(78),
     alignItems: 'center',
   },
   // Always-present wrapper reserves space for the ring so the layout
