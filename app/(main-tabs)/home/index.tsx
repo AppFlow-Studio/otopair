@@ -1,6 +1,7 @@
 // 1. React & React Native
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { titleCaseVehicleName } from '@/lib/vehicleName';
 import { ActivityIndicator, BackHandler, Image, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -785,7 +786,7 @@ export default function HomeScreen() {
         const v = r.vehicle;
         const o = r.ownership;
         const meta = v?.metadata as { make?: string; model?: string } | undefined;
-        const titleCase = (s: string) => s.toLowerCase().split(' ').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+        const titleCase = titleCaseVehicleName;
         const make = meta?.make ? titleCase(meta.make) : "";
         const model = meta?.model ? titleCase(meta.model) : "";
         const rawName = make && model ? `${make}\n${model}` : o?.nickname ?? "My Vehicle";

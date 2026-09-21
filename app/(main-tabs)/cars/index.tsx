@@ -113,6 +113,7 @@ import { PackageQuestionsSheet } from "@/components/cars/PackageQuestionsSheet";
 import { useVehicleReadiness } from "@/hooks/useVehicleReadiness";
 import { ChevronRight, ScanLine, Wrench } from "lucide-react-native";
 import { useCoachAnchor } from "@/components/coach/useCoachAnchor";
+import { titleCaseVehicleName as titleCase } from '@/lib/vehicleName';
 
 // ============================================================================
 // HELPERS
@@ -121,28 +122,6 @@ import { useCoachAnchor } from "@/components/coach/useCoachAnchor";
 // Brand acronyms that should stay fully uppercase even after title-casing
 // (e.g. "BMW 740" was reading as "Bmw 740" before this list). Add new
 // acronyms here rather than special-casing at call sites.
-const BRAND_ACRONYMS = new Set([
-  "BMW",
-  "GMC",
-  "MG",
-  "RAM",
-  "FIAT",
-  "SRT",
-  "BYD",
-  "AMG",
-]);
-
-function titleCase(str: string): string {
-  return str
-    .split(' ')
-    .map((w) => {
-      const upper = w.toUpperCase();
-      if (BRAND_ACRONYMS.has(upper)) return upper;
-      const lower = w.toLowerCase();
-      return lower.charAt(0).toUpperCase() + lower.slice(1);
-    })
-    .join(' ');
-}
 
 // ============================================================================
 // VEHICLE-SPECIFIC DATA

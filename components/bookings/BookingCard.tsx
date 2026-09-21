@@ -59,6 +59,7 @@ import { useBookingActions } from '@/hooks/useBookingActions';
 import { buildCancelCopy } from '@/constants/bookingActionPolicy';
 import type { Id } from '@/convex/_generated/dataModel';
 import { SemanticColors } from '@/constants/theme';
+import { titleCaseVehicleName as titleCase } from '@/lib/vehicleName';
 
 /** The Otopair pin, in place of a generic map marker on the shop line. */
 const OTO_PIN = require('@/assets/images/pin-logo-3d.png');
@@ -167,9 +168,7 @@ export interface BookingCardProps {
 // HELPERS
 // ============================================================================
 
-function titleCase(str: string): string {
-  return str.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
-}
+
 
 // Copy + colors for the pickup-request status banner. `undefined` response =
 // requested but not yet answered by the shop.

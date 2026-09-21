@@ -72,6 +72,7 @@ import {
   type FileDisputeSheetRef,
 } from "@/components/booking/FileDisputeSheet";
 import { deriveDisclosedRange } from "@/lib/disclosedRange";
+import { titleCaseVehicleName as titleCase } from '@/lib/vehicleName';
 
 // ============================================================================
 // CONSTANTS (sheet mechanics — frozen)
@@ -255,9 +256,7 @@ interface BookingDetailsSheetProps {
   onOpen?: () => void;
 }
 
-function titleCase(str: string): string {
-  return str.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
-}
+
 
 // ============================================================================
 // COMPONENT

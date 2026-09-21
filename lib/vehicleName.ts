@@ -74,3 +74,50 @@ export function vehicleYearMakeModel(
     .filter(Boolean)
     .join(" ");
 }
+
+/**
+ * Brands that are initialisms rather than words, so they survive casing.
+ * Longer than the 3-character rule below, or ambiguous without the list.
+ */
+const BRAND_ACRONYMS = new Set(["BMW", "GMC", "MG", "RAM", "FIAT", "SRT", "BYD", "AMG"]);
+
+/** Title-case one alphanumeric run, preserving designators. */
+function titleCaseSegment(segment: string): string {
+  if (!segment) return segment;
+  const upper = segment.toUpperCase();
+  if (BRAND_ACRONYMS.has(upper)) return upper;
+
+  // Already mixed case — the source made a choice; do not overrule it.
+  // Keeps "Class" in "SL-Class" and "iM" in "Scion iM".
+  if (segment !== upper && segment !== segment.toLowerCase()) return segment;
+
+  // A short all-caps run is a designator, not a word: SL, GT, CX, Q7, XSE.
+  if (segment === upper && upper.length <= 3) return upper;
+
+  // A very short all-lowercase run is the same designator arriving from a
+  // source that lost its casing ("sl-class"). Capped at two characters: a
+  // mixed-case source is preserved above, so a real two-letter model name
+  // like Ford's "Ka" never reaches here.
+  if (segment === segment.toLowerCase() && segment.length <= 2) return upper;
+
+  return segment.charAt(0).toUpperCase() + segment.slice(1).toLowerCase();
+}
+
+/**
+ * Casing for a vehicle make/model, consistent across every screen.
+ *
+ * Two different implementations were in the app and they disagreed, which is
+ * what #259 reported: setup showed the raw "MERCEDES-BENZ SL-Class" while Cars
+ * and Oto showed "Mercedes-benz Sl-class".
+ *
+ *   - the Cars copy split on SPACES only, so a hyphen never started a new word
+ *     and "MERCEDES-BENZ" collapsed to "Mercedes-benz"
+ *   - the bookings copy used /\b\w/ which does break on hyphens, but lowercased
+ *     first, so "SL-Class" came out "Sl-Class" — the designator was destroyed
+ *
+ * This replaces alphanumeric runs in place, so every separator the source had
+ * survives, and each run is judged on its own.
+ */
+export function titleCaseVehicleName(str: string): string {
+  return str.replace(/[A-Za-z0-9]+/g, titleCaseSegment);
+}
