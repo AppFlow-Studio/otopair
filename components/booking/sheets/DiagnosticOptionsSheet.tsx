@@ -272,6 +272,26 @@ function AreaCard({
             style={styles.notesInput}
             textAlignVertical="top"
           />
+          {/*
+            One number, one rule, at a time.
+            
+            This line used to read `${trimmedNotesLength}/10 min · ${notes.length}/1000`
+            — the left half counting TRIMMED text and the right half counting
+            RAW text, side by side. Two numbers for the same input, moving at
+            different rates, which is what reads as "the counter counts spaces
+            wrong": the driver watches one number they are not gated on race
+            ahead of the one they are.
+            
+            Both rules are individually right and neither changed. The minimum
+            stays trimmed, or ten spaces would satisfy "at least 10 characters
+            so the mechanic knows what to look for". The maximum stays raw,
+            because maxLength caps raw input — a trimmed number would sit at
+            995/1000 while typing had already stopped.
+            
+            What changed is showing them together. Below the minimum the only
+            useful number is how much more is needed; above it, how much room
+            is left.
+          */}
           <Text
             size="xs"
             weight="regular"
@@ -280,7 +300,9 @@ function AreaCard({
           >
             {notesMeetMinimum
               ? `${notes.length}/${MAX_NOTES}`
-              : `${trimmedNotesLength}/${MIN_NOTES} min · ${notes.length}/${MAX_NOTES}`}
+              : `${MIN_NOTES - trimmedNotesLength} more character${
+                  MIN_NOTES - trimmedNotesLength === 1 ? "" : "s"
+                } needed`}
           </Text>
         </View>
       )}
