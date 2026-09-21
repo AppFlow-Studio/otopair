@@ -92,6 +92,14 @@ export function ReceiptViewer({ bookingId }: Props) {
 
   const { invoiceNumber, status, breakdown, emailedAtMs, url } = receipt;
   const isRefunded = status === "refunded";
+  // A cancellation-fee receipt is the pickup / late-cancel forfeit fee, not a
+  // service bill. The backend already collapses the breakdown to a single line
+  // (parts=[], labor=0, subtotal=total=fee, no tax/platform cut), so rendering
+  // the normal Parts/Labor/Subtotal rows here would print a stack of "$0.00"
+  // lines. Show one "Pickup / cancellation fee" line instead.
+  // See docs/mobile-pickup-past-services-spec.md §3.
+  const isCancellationFee = receipt.receiptKind === "cancellation_fee";
+  const feeCents = receipt.cancellationFeeCents ?? breakdown.totalCents;
 
   return (
     <View style={styles.card}>
@@ -121,28 +129,37 @@ export function ReceiptViewer({ bookingId }: Props) {
       </View>
 
       <View style={styles.breakdown}>
-        <BreakdownRow
-          label={`Parts (${breakdown.parts.length})`}
-          value={formatCents(breakdown.partsTotalCents)}
-        />
-        <BreakdownRow
-          label={`Labor · ${formatLabor(breakdown.laborMinutes)}`}
-          value={formatCents(breakdown.laborCents)}
-        />
-        <BreakdownRow
-          label="Subtotal"
-          value={formatCents(breakdown.subtotalCents)}
-          subdued
-        />
-        {(breakdown.taxCents ?? 0) + (breakdown.platformFeeCents ?? 0) > 0 ? (
+        {isCancellationFee ? (
           <BreakdownRow
-            label="Taxes & Fees"
-            value={formatCents(
-              (breakdown.taxCents ?? 0) + (breakdown.platformFeeCents ?? 0),
-            )}
-            subdued
+            label="Pickup / cancellation fee"
+            value={formatCents(feeCents)}
           />
-        ) : null}
+        ) : (
+          <>
+            <BreakdownRow
+              label={`Parts (${breakdown.parts.length})`}
+              value={formatCents(breakdown.partsTotalCents)}
+            />
+            <BreakdownRow
+              label={`Labor · ${formatLabor(breakdown.laborMinutes)}`}
+              value={formatCents(breakdown.laborCents)}
+            />
+            <BreakdownRow
+              label="Subtotal"
+              value={formatCents(breakdown.subtotalCents)}
+              subdued
+            />
+            {(breakdown.taxCents ?? 0) + (breakdown.platformFeeCents ?? 0) > 0 ? (
+              <BreakdownRow
+                label="Taxes & Fees"
+                value={formatCents(
+                  (breakdown.taxCents ?? 0) + (breakdown.platformFeeCents ?? 0),
+                )}
+                subdued
+              />
+            ) : null}
+          </>
+        )}
         <View style={styles.divider} />
         <BreakdownRow
           label="Total charged"
