@@ -20,8 +20,8 @@ import { useConvexAuth, useQuery } from "convex/react";
 import * as SecureStore from "expo-secure-store";
 import { api } from "@/convex/_generated/api";
 import { BrandColors } from "@/constants/theme";
-import { shouldRunStartupRedirect } from "@/lib/auth-routing";
-import { getOnboardingFinishedLaterKey } from "@/lib/onboarding-resume";
+import { shouldResumeMidSetup, shouldRunStartupRedirect } from "@/lib/auth-routing";
+import { getOnboardingFinishedLaterKey, hasOnboardingInProgress } from "@/lib/onboarding-resume";
 import { useConnection } from "@/hooks/useConnection";
 
 export default function Index() {
@@ -156,6 +156,25 @@ export default function Index() {
 
       // Required account setup is done; optional onboarding can be completed later from home.
       if (me?.essentialOnboardingCompleted === true) {
+        // ...unless they closed the app partway through setup. For Google/Apple
+        // users "essential" lands at the phone step, so without this a relaunch
+        // skipped the rest of onboarding entirely (#235).
+        const resumeMidSetup = shouldResumeMidSetup({
+          onboardingCompleted: me.onboardingCompleted,
+          essentialOnboardingCompleted: true,
+          hasSetupInProgress: await hasOnboardingInProgress(clerkUserId),
+        });
+        if (hasNavigated.current) return;
+        if (resumeMidSetup) {
+          console.log("[onboarding-resume:index] resuming onboarding: closed partway through setup", {
+            convexUserId: me._id,
+            clerkUserId,
+          });
+          if (safeReplace({ pathname: "/(onboarding)", params: { isResumeMode: "true", resumeSource: "midSetup" } })) {
+            hasNavigated.current = true;
+          }
+          return;
+        }
         console.log("[onboarding-resume:index] navigating home: essential onboarding completed", {
           convexUserId: me._id,
           clerkUserId,

@@ -102,6 +102,16 @@ export async function getSavedOnboardingCurrentStep(
   );
 }
 
+/**
+ * Whether this user closed the app partway through onboarding: a saved current
+ * step that is still valid (same user, within the max age). Legacy bare-string
+ * records don't count — they are only trusted once Convex confirms the step is
+ * still incomplete, which app/index cannot check before it routes.
+ */
+export async function hasOnboardingInProgress(clerkUserId: string | null | undefined) {
+  return (await getSavedOnboardingCurrentStep(clerkUserId, [])) !== null;
+}
+
 export async function clearOnboardingResumeState(clerkUserId?: string | null) {
   await Promise.all([
     SecureStore.deleteItemAsync(ONBOARDING_FINISHED_LATER_KEY),

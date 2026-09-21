@@ -62,6 +62,30 @@ export function shouldHideSplash({
   return fontsReady && (authLoaded || ceilingReached);
 }
 
+/**
+ * Whether an essential-complete user should go back into onboarding on launch
+ * instead of to Home.
+ *
+ * Essential onboarding (email, phone, name) unlocks Home and makes the rest
+ * optional. But Google/Apple fill in the name and email themselves, so for
+ * them "essential" completes the moment the phone is verified — the first
+ * step — and any relaunch after that skipped the rest of onboarding for good
+ * (bug #235). A saved in-progress step means they closed the app partway
+ * through, so resume it. "Finish later" and finishing both clear that step,
+ * so those still land on Home, and a fully completed onboarding never resumes.
+ */
+export function shouldResumeMidSetup({
+  onboardingCompleted,
+  essentialOnboardingCompleted,
+  hasSetupInProgress,
+}: {
+  onboardingCompleted?: boolean;
+  essentialOnboardingCompleted?: boolean;
+  hasSetupInProgress: boolean;
+}): boolean {
+  return onboardingCompleted !== true && essentialOnboardingCompleted === true && hasSetupInProgress;
+}
+
 export function shouldRunStartupRedirect({
   authLoaded,
   hasNavigated,

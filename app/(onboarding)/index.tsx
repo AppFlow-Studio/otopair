@@ -63,6 +63,10 @@ export default function OnboardingScreen() {
 
     const isResumeMode = params.isResumeMode === 'true';
     const isCreateAccountResume = params.resumeSource === 'createAccount';
+    // app/index sends an essential-complete user here when they closed the app
+    // partway through setup (#235). Like the Finish-setup card's resume, it must
+    // not be bounced straight back home by the essential-complete rule below.
+    const isMidSetupResume = params.resumeSource === 'midSetup';
     const hasExplicitResumeTarget = !!params.initialStep || !!params.filteredSteps;
     const shouldAutoResumeSignedInEntryRef = useRef<boolean | null>(null);
     if (isLoaded && shouldAutoResumeSignedInEntryRef.current === null) {
@@ -82,6 +86,7 @@ export default function OnboardingScreen() {
     const shouldRedirectHome =
         !hasExplicitResumeTarget &&
         !isCreateAccountResume &&
+        !isMidSetupResume &&
         shouldRedirectCompletedOnboardingToHome({
             isSignedIn: isSignedIn === true,
             onboardingCompleted: me?.onboardingCompleted,
