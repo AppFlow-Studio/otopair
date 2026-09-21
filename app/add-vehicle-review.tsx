@@ -869,10 +869,16 @@ export default function AddVehicleReviewScreen() {
         {(vdbLoading || hasVdbData) && (
           <View style={styles.colorCard}>
             <View style={styles.colorHeaderRow}>
-              <Text weight="semiBold" size="md" color="#1F2937">
+              <Text
+                weight="semiBold"
+                size="md"
+                color="#1F2937"
+                numberOfLines={2}
+                style={styles.colorHeaderTitle}
+              >
                 Choose your {params.make}{"'"}s color
               </Text>
-              <Text size="xs" color="#9CA3AF" numberOfLines={1} style={styles.colorHeaderRight}>
+              <Text size="xs" color="#9CA3AF" numberOfLines={2} style={styles.colorHeaderRight}>
                 {selectedSwatch
                   ? selectedSwatch.label
                   : `${CAR_COLORS.length} ${CAR_COLORS.length === 1 ? 'color' : 'colors'}`}
@@ -1277,14 +1283,29 @@ const styles = StyleSheet.create({
   },
   colorHeaderRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    // flex-start, not center: either side may now wrap to two lines, and
+    // centring a two-line title against a one-line label reads as misaligned.
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
     marginBottom: scale(14),
     paddingRight: scale(8),
     gap: scale(8),
   },
+  colorHeaderTitle: {
+    // RN defaults flex items to flexShrink: 0, so without this the heading
+    // took its full intrinsic width — "Choose your Mercedes-Benz's color" is
+    // wide enough to push the selected-colour label past the right edge and
+    // over itself (#258). It yields first; the colour name is the part the
+    // driver actually needs to read.
+    flexShrink: 1,
+  },
   colorHeaderRight: {
-    maxWidth: scale(140),
+    // Held at its width while the title shrinks, and allowed a second line so
+    // a long name resolves rather than truncating. The swatch captions are
+    // 64pt wide and clip names like "Midnight Black Metallic", so this is the
+    // one place the full name is legible (#266).
+    flexShrink: 0,
+    maxWidth: scale(150),
     textAlign: 'right',
   },
   colorRow: {
