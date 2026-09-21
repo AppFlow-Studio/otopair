@@ -45,6 +45,8 @@ import { Text } from "@/components/shared-ui";
 // 4. Convex & Store & Utilities
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import { useMeFromConvex } from "@/hooks/useMeFromConvex";
+import { useSessionCachedQuery } from "@/lib/offlineSessionCache";
 import { useOnboardingStore } from "@/stores/useOnboardingStore";
 import {
   buildOnboardingResumeData,
@@ -195,13 +197,20 @@ export function FinishAccountSetupCard({
 }: FinishAccountSetupCardProps) {
   const router = useRouter();
   const { userId: clerkUserId } = useAuth();
-  const me = useQuery(api.users.getMe);
+  // Both tick sources are session-cached. Offline they would otherwise read
+  // as undefined and paint every step "not done" — a stale screen showing a
+  // WRONG state, which is worse than a stale screen showing the last true one.
+  const { value: me } = useMeFromConvex();
   const onboardingQa = useQuery(
     api.onboarding_questions_answers.getMyQuestionsAndAnswers,
   );
-  const activeVehicleOwnerships = useQuery(
+  const liveActiveVehicleOwnerships = useQuery(
     api.vehicle_owners.getActiveByUser,
     me?._id ? { userId: me._id } : "skip",
+  );
+  const { value: activeVehicleOwnerships } = useSessionCachedQuery(
+    me?._id ? `active_ownerships:${String(me._id)}` : null,
+    liveActiveVehicleOwnerships,
   );
   const hasCarRegistered = (activeVehicleOwnerships?.length ?? 0) > 0;
   const updateOnboardingData = useOnboardingStore((state) => state.updateData);

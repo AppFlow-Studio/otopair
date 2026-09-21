@@ -2,6 +2,14 @@ import { ClerkProvider, useAuth } from "@clerk/clerk-expo";
 import { StripeProvider } from "@stripe/stripe-react-native";
 // Persistent session: tokenCache uses expo-secure-store so auth survives app reload/restart
 import { tokenCache } from "@clerk/clerk-expo/token-cache";
+// Offline startup. tokenCache alone does NOT let Clerk load without a network:
+// it only holds the session token that authenticates Clerk's API requests, and
+// on launch Clerk still has to fetch its environment + client before `isLoaded`
+// can flip. resourceCache persists those two resources, so an offline cold start
+// loads from disk in a "degraded" state instead of never loading at all — which
+// is what lets a signed-in user reach the session-cached offline mode
+// (lib/offlineSessionCache.ts) rather than stalling on app/index.
+import { resourceCache } from "@clerk/clerk-expo/resource-cache";
 import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
 import { DarkTheme, DefaultTheme, ThemeProvider } from "@react-navigation/native";
 import { Stack, useSegments, type ErrorBoundaryProps } from "expo-router";
@@ -301,7 +309,11 @@ export default function RootLayout() {
   const fontsReady = fontsLoaded || Boolean(fontError);
 
   return (
-    <ClerkProvider publishableKey={process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY!} tokenCache={tokenCache}>
+    <ClerkProvider
+      publishableKey={process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY!}
+      tokenCache={tokenCache}
+      __experimental_resourceCache={resourceCache}
+    >
       <StartupSplashGate fontsReady={fontsReady}>
         <ConvexClerkProvider>
           <SafeAreaProvider initialMetrics={initialWindowMetrics}>

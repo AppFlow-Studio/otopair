@@ -54,6 +54,7 @@ import { usePendingNavigationStore } from "@/stores/usePendingNavigationStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 import { useNotificationsSheetStore } from "@/stores/useNotificationsSheetStore";
 import { useUnreadNotificationCount } from "@/hooks/useNotificationsFromConvex";
+import { useMeFromConvex } from "@/hooks/useMeFromConvex";
 import { useShallow } from 'zustand/react/shallow';
 import { useVehicleOwnershipFromConvex } from '@/hooks/useVehicleOwnershipFromConvex';
 import { fetchVehicleImageUrl } from '@/utils/vehicleImage';
@@ -452,7 +453,10 @@ export default function HomeScreen() {
   }, [shouldShowReactivationSheet, showWelcome, setShouldShowReactivationSheet]);
 
   // ── Data for action cards ──
-  const me = useQuery(api.users.getMe);
+  // Session-cached: Home gates its whole render on `me` (see
+  // isCriticalDataLoading), so offline it must fall back to the last record
+  // seen online or the cached offline mode stalls on this screen's spinner.
+  const { value: me } = useMeFromConvex();
 
   // ── First-run tutorial ──
   //
