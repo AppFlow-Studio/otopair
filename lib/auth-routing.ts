@@ -18,6 +18,25 @@ export function shouldRedirectSignedOutFromMainTabs(
 }
 
 /**
+ * Whether a Clerk sign-in error means this device already holds a session.
+ *
+ * Clerk rejects a new sign-in with `session_exists` ("You're already signed
+ * in.") when the client already carries a session. Seen on a real, working
+ * account with unfinished setup: onboarding had walked a logged-in user back
+ * to the login screen. The session is good, so callers should treat this as a
+ * successful login and route on — surfacing the raw message strands the user,
+ * and signing them out would throw away a valid session.
+ *
+ * Matches the error code first; the message is a fallback for errors that
+ * arrive re-wrapped as a plain Error with only the text preserved.
+ */
+export function isSessionExistsError(err: unknown): boolean {
+  const e = err as { errors?: { code?: string }[]; message?: unknown } | null;
+  if (e?.errors?.some((x) => x?.code === "session_exists")) return true;
+  return typeof e?.message === "string" && e.message.toLowerCase().includes("already signed in");
+}
+
+/**
  * Whether the native splash may be dropped.
  *
  * `authLoaded` (Clerk's `isLoaded`) only flips after a network round-trip, so

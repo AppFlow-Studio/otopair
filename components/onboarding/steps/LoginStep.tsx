@@ -31,6 +31,7 @@ import { Mail } from "lucide-react-native";
 import { useAuthStore } from "@/stores/useAuthStore";
 import { useEnsureConvexUser } from "@/hooks/useEnsureConvexUser";
 import { api } from "@/convex/_generated/api";
+import { isSessionExistsError } from "@/lib/auth-routing";
 import { ForgotPasswordFlow } from "./ForgotPasswordFlow";
 import { OnboardingSurfaceColors } from "../onboardingColors";
 
@@ -149,8 +150,25 @@ export function LoginStep({ onBack }: LoginStepProps) {
     }
   };
 
+  // Clerk says this device is already signed in. It is telling the truth: this
+  // was observed on a real, working account whose setup was unfinished, so the
+  // app had routed a logged-in user back through onboarding to this screen.
+  // Printing the raw "You're already signed in." stranded them — every button
+  // failed the same way. Treat it as the successful login it is and route on,
+  // exactly like the path above; LoginMethodsStep and EmailPasswordLoginStep
+  // already do the same. Never sign the user out here: that would discard a
+  // good session.
+  const continueWithExistingSession = async () => {
+    setIsNewUser(false);
+    setIsAuthenticated(true);
+    explicitLoginNavigationStartedRef.current = true;
+    await navigateAfterLogin();
+  };
+
   const handleOAuthLogin = async (strategy: "google" | "apple") => {
-    if (loading) return;
+    // Wait for Clerk to load, as handleEmailLogin already does, so SSO never
+    // starts against a half-initialised client.
+    if (!isLoaded || loading) return;
     setLoading(strategy);
     setError(null);
 
@@ -178,6 +196,10 @@ export function LoginStep({ onBack }: LoginStepProps) {
       }
     } catch (err) {
       explicitLoginNavigationStartedRef.current = false;
+      if (isSessionExistsError(err)) {
+        await continueWithExistingSession();
+        return;
+      }
       const message = err instanceof Error ? err.message : "Authentication failed";
       setError(message);
     } finally {
@@ -216,6 +238,10 @@ export function LoginStep({ onBack }: LoginStepProps) {
       await navigateAfterLogin();
     } catch (err: any) {
       explicitLoginNavigationStartedRef.current = false;
+      if (isSessionExistsError(err)) {
+        await continueWithExistingSession();
+        return;
+      }
       const message = err?.errors?.[0]?.longMessage || err?.errors?.[0]?.message || err?.message || "Unable to sign in";
       setError(message);
     } finally {
