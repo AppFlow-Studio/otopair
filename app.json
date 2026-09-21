@@ -2,7 +2,7 @@
   "expo": {
     "name": "otopair",
     "slug": "otopair",
-    "version": "1.3.3",
+    "version": "1.3.4",
     "orientation": "portrait",
     "icon": "./assets/images/repairconnectglasslogo.png",
     "scheme": "otopair",
@@ -103,6 +103,7 @@
         }
       ],
       "./plugins/with-root-back-task-behavior",
+      "./plugins/with-debug-updates-disabled",
       [
         "@stripe/stripe-react-native",
         {
