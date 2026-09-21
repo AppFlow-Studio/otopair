@@ -109,10 +109,10 @@ export function CustomerLateBanner({ onReschedule }: Props) {
   const [dismissedIds, setDismissedIds] = React.useState<ReadonlySet<string>>(
     () => new Set(),
   );
-  const dismiss = React.useCallback((id: string) => {
+  const dismissMany = React.useCallback((ids: readonly string[]) => {
     setDismissedIds((prev) => {
       const next = new Set(prev);
-      next.add(id);
+      ids.forEach((id) => next.add(id));
       return next;
     });
   }, []);
@@ -120,8 +120,21 @@ export function CustomerLateBanner({ onReschedule }: Props) {
   const notDismissed = (n: any) => !dismissedIds.has(String(n._id));
   const lateRow =
     notifications?.find((n) => n.category === LATE_CATEGORY && notDismissed(n)) ?? null;
-  const resolutionRow =
-    notifications?.find((n) => n.category === RESOLUTION_CATEGORY && notDismissed(n)) ?? null;
+
+  // A booking can be pushed forward several times — each push enqueues its own
+  // `overrun_customer_resolution` row, so they pile up in the feed. Collapse the
+  // pile into ONE banner: show the newest push (the feed is sorted newest-first)
+  // and treat every same-booking push as a single group so one tap clears them
+  // all, instead of making the customer dismiss each stacked banner in turn.
+  const resolutionRows = (notifications ?? []).filter(
+    (n) => n.category === RESOLUTION_CATEGORY && notDismissed(n),
+  );
+  const resolutionRow = resolutionRows[0] ?? null;
+  const resolutionGroup = resolutionRow
+    ? resolutionRows.filter(
+        (n) => String(n.booking_id) === String(resolutionRow.booking_id),
+      )
+    : [];
 
   if (!lateRow && !resolutionRow) return null;
 
@@ -271,9 +284,10 @@ export function CustomerLateBanner({ onReschedule }: Props) {
                   pressed && styles.pressed,
                 ]}
                 onPress={() => {
-                  // Close immediately, then navigate. The banner clears for
-                  // good server-side when the reschedule lands / booking moves.
-                  dismiss(String(resolutionRow._id));
+                  // Close the whole same-booking group immediately, then
+                  // navigate. The rows clear for good server-side when the
+                  // reschedule lands / booking moves.
+                  dismissMany(resolutionGroup.map((n) => String(n._id)));
                   if (resolutionRow.booking_id && onReschedule)
                     onReschedule(resolutionRow.booking_id);
                 }}
@@ -289,9 +303,12 @@ export function CustomerLateBanner({ onReschedule }: Props) {
                   pressed && styles.pressed,
                 ]}
                 onPress={() => {
-                  // Hide now (optimistic) and archive the notification.
-                  dismiss(String(resolutionRow._id));
-                  void resolve({ notificationId: resolutionRow._id }).catch(() => {});
+                  // Hide the whole same-booking group now (optimistic) and
+                  // archive every stacked push so none resurface behind it.
+                  dismissMany(resolutionGroup.map((n) => String(n._id)));
+                  resolutionGroup.forEach((n) => {
+                    void resolve({ notificationId: n._id }).catch(() => {});
+                  });
                 }}
               >
                 <Text

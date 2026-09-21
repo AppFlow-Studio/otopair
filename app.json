@@ -40,7 +40,8 @@
         "android.permission.WRITE_CALENDAR",
         "android.permission.POST_NOTIFICATIONS",
         "android.permission.VIBRATE"
-      ]
+      ],
+      "googleServicesFile": "./google-services.json"
     },
     "web": {
       "output": "static",
