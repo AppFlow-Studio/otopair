@@ -156,7 +156,15 @@ export default function VehicleAddedScreen() {
   }, []);
 
   const handleBack = () => {
-    router.back();
+    // The vehicle already exists by the time this screen shows — the review
+    // step REPLACED itself on success, so the only thing left behind it is
+    // the VIN entry screen. A bare router.back() therefore dropped the driver
+    // at "enter your VIN" for a car that had just been created, with every
+    // configuration choice gone (#264).
+    //
+    // Same rule car-pre-onboarding already applies one step later: once the
+    // car is real, back means the garage, not the creation flow.
+    router.replace('/(main-tabs)/cars');
   };
 
   const handleViewVehicle = () => {
