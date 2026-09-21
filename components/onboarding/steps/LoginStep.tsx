@@ -58,6 +58,8 @@ export function LoginStep({ onBack }: LoginStepProps) {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState<"google" | "apple" | "email" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Neutral, non-error message — e.g. after a password reset hands back here.
+  const [notice, setNotice] = useState<string | null>(null);
   const [showEmailForm, setShowEmailForm] = useState(false);
   const [showForgotPasswordFlow, setShowForgotPasswordFlow] = useState(false);
   const explicitLoginNavigationStartedRef = useRef(false);
@@ -171,6 +173,7 @@ export function LoginStep({ onBack }: LoginStepProps) {
     if (!isLoaded || loading) return;
     setLoading(strategy);
     setError(null);
+    setNotice(null);
 
     try {
       const ssoStrategy = strategy === "google" ? "oauth_google" : "oauth_apple";
@@ -211,6 +214,7 @@ export function LoginStep({ onBack }: LoginStepProps) {
     if (!isLoaded || !signIn || loading) return;
     setLoading("email");
     setError(null);
+    setNotice(null);
 
     try {
       await signIn.create({
@@ -249,18 +253,6 @@ export function LoginStep({ onBack }: LoginStepProps) {
     }
   };
 
-  const handlePasswordResetAuthenticated = async () => {
-    try {
-      await ensureConvexUserWithRetry();
-    } catch (e) {
-      console.error("Failed to ensure Convex user after password reset", e);
-    }
-    setIsNewUser(false);
-    setIsAuthenticated(true);
-    explicitLoginNavigationStartedRef.current = true;
-    await navigateAfterLogin();
-  };
-
   const canSubmitEmail = email.trim().length > 0 && password.length > 0;
 
   if (showForgotPasswordFlow) {
@@ -272,7 +264,18 @@ export function LoginStep({ onBack }: LoginStepProps) {
           setShowEmailForm(true);
           setError(null);
         }}
-        onAuthenticated={handlePasswordResetAuthenticated}
+        onPasswordReset={(resetEmail, passwordChanged) => {
+          setShowForgotPasswordFlow(false);
+          setShowEmailForm(true);
+          setError(null);
+          if (resetEmail) setEmail(resetEmail);
+          setPassword("");
+          setNotice(
+            passwordChanged
+              ? "Password updated. Log in with your new password."
+              : "You're verified. Log in to continue.",
+          );
+        }}
       />
     );
   }
@@ -381,6 +384,7 @@ export function LoginStep({ onBack }: LoginStepProps) {
                 accessibilityRole="button"
                 onPress={() => {
                   setError(null);
+                  setNotice(null);
                   setShowForgotPasswordFlow(true);
                 }}
                 style={styles.forgotPasswordButton}
@@ -403,6 +407,7 @@ export function LoginStep({ onBack }: LoginStepProps) {
             </View>
           )}
 
+          {notice ? <Text style={styles.noticeText}>{notice}</Text> : null}
           {error ? <Text style={styles.errorText}>{error}</Text> : null}
         </ScrollView>
 
@@ -516,6 +521,14 @@ const styles = StyleSheet.create({
     color: OnboardingSurfaceColors.linkText,
   },
   emailSubmitContainer: { marginTop: 0 },
+  noticeText: {
+    textAlign: "center",
+    color: BrandColors.primary,
+    fontSize: FontSize.sm,
+    fontFamily: FontFamily.medium,
+    marginTop: Spacing.md,
+    paddingHorizontal: Spacing["2xl"],
+  },
   errorText: {
     textAlign: "center",
     color: "#DC2626",

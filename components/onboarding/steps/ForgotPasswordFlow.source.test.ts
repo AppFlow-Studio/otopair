@@ -57,7 +57,12 @@ test("ForgotPasswordFlow matches change password color for Good strength", () =>
   );
 });
 
-test("ForgotPasswordFlow success still delegates to LoginStep navigation", () => {
-  assert.match(forgotPasswordSource, /await onAuthenticated\(\)/);
+test("ForgotPasswordFlow ends signed out, back on LoginStep", () => {
+  // #233: a reset resolves to whichever account owns the email or number
+  // typed. Signing out and handing back to login makes the user pick the
+  // account themselves. The flow still never navigates on its own.
+  assert.match(forgotPasswordSource, /await signOut\(\)/);
+  assert.match(forgotPasswordSource, /onPasswordReset\(/);
+  assert.doesNotMatch(forgotPasswordSource, /setActive/);
   assert.doesNotMatch(forgotPasswordSource, /router\.replace\("\/\(main-tabs\)\/home"\)/);
 });
