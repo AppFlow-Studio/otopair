@@ -11,7 +11,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useConnection, useHasEverConnected, nudgeReconnect } from "@/hooks/useConnection";
 import type { ConnState } from "@/lib/connection/deriveConnState";
-import { computePillVariant } from "@/lib/connection/pillVariant";
+import { computePillVariant, isPillAllowedBeforeFirstConnect } from "@/lib/connection/pillVariant";
+import { useBootCacheStatus } from "@/lib/offlineSessionCache";
 import { ConnectionPill } from "./ConnectionPill";
 
 const RECOVERY_MS = 2000;
@@ -24,6 +25,7 @@ export function ConnectionPillHost() {
   const conn = useConnection();
   // Convex 1.42 removed connectionState().hasEverConnected — use our tracker.
   const hasEverConnected = useHasEverConnected();
+  const bootCache = useBootCacheStatus();
   const insets = useSafeAreaInsets();
   const [showRecovery, setShowRecovery] = useState(false);
   const [retrying, setRetrying] = useState(false);
@@ -69,9 +71,10 @@ export function ConnectionPillHost() {
     setRetrying(true);
   }, []);
 
-  // Cold-start phase: the full-screen OfflineScreen covers this; the pill stays
-  // out of the way until we've connected at least once.
-  if (!hasEverConnected) return null;
+  // Cold-start phase: stay out of the way until we've connected once — the
+  // full-screen OfflineScreen covers a no-cache offline start. Except when the
+  // start booted into the cached offline mode, where nothing else says so.
+  if (!hasEverConnected && !isPillAllowedBeforeFirstConnect({ conn, bootCache })) return null;
 
   const variant = computePillVariant({ conn, showRecovery, retrying });
   if (!variant) return null;
