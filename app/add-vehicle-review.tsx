@@ -878,10 +878,26 @@ export default function AddVehicleReviewScreen() {
               >
                 Choose your {params.make}{"'"}s color
               </Text>
-              <Text size="xs" color="#9CA3AF" numberOfLines={2} style={styles.colorHeaderRight}>
-                {selectedSwatch
-                  ? selectedSwatch.label
-                  : `${CAR_COLORS.length} ${CAR_COLORS.length === 1 ? 'color' : 'colors'}`}
+              {/*
+                Unselected, this slot read "17 colors" — a fact, not an
+                invitation. Testers consistently walked past the row without
+                realising it was tappable, which is the other half of #236 and
+                what #263 reports from the opening state.
+
+                It is deliberately NOT worded as required. A VIN does not
+                encode paint, so there is nothing to preselect and no honest
+                way to claim a choice is mandatory — Continue works without
+                one, by design. So this prompts rather than demands, and turns
+                into the chosen name once a swatch is tapped.
+              */}
+              <Text
+                size="xs"
+                weight={selectedSwatch ? 'regular' : 'semiBold'}
+                color={selectedSwatch ? '#9CA3AF' : '#5299FE'}
+                numberOfLines={2}
+                style={styles.colorHeaderRight}
+              >
+                {selectedSwatch ? selectedSwatch.label : 'Tap to choose'}
               </Text>
             </View>
             {vdbLoading ? (
