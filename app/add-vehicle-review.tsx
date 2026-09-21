@@ -7,7 +7,7 @@
  */
 
 // 1. React & React Native
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -34,7 +34,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useLocalSearchParams } from 'expo-router';
 import { useGuardedRouter as useRouter } from '@/hooks/useGuardedRouter';
 import { ArrowLeft, Bell, Car, Check, ChevronDown, CircleDot, Cog, Droplet, Fuel, Gauge, History, MapPin, Wrench, X } from 'lucide-react-native';
-import { useAction, useMutation, useQuery } from 'convex/react';
+import { useAction, useConvexAuth, useMutation, useQuery } from 'convex/react';
 
 // 3. App imports
 import { Text } from '@/components/shared-ui';
@@ -52,6 +52,19 @@ import { formatEngineLiters } from '@/utils/vehicleDisplay';
 
 /** Longest the Add Vehicle button will wait on the paint fetch. */
 const COLOR_WAIT_CAP_MS = 8000;
+
+/**
+ * Convex auth trails Clerk on a cold first run.
+ *
+ * `useConvexAuth().isAuthenticated` flips true only once the Clerk JWT has
+ * actually reached Convex. Until then every authed call sees a null identity —
+ * confirmVehicleForUser answers `{ success: false, error: "Not authenticated" }`
+ * — which is why the first attempt failed and a second run went through.
+ */
+const AUTH_WAIT_MS = 6000;
+const AUTH_POLL_MS = 150;
+const AUTH_RETRIES = 2;
+const AUTH_RETRY_BASE_MS = 700;
 
 // ============================================================================
 // COMPONENT
@@ -374,6 +387,23 @@ export default function AddVehicleReviewScreen() {
     router.back();
   };
 
+  const { isAuthenticated: convexAuthReady } = useConvexAuth();
+  // Read through a ref so the wait loop below sees the live value rather than
+  // the one captured when the tap happened.
+  const convexAuthReadyRef = useRef(convexAuthReady);
+  useEffect(() => {
+    convexAuthReadyRef.current = convexAuthReady;
+  }, [convexAuthReady]);
+
+  /** Give the JWT a bounded chance to land before calling an authed endpoint. */
+  const waitForConvexAuth = useCallback(async () => {
+    const deadline = Date.now() + AUTH_WAIT_MS;
+    while (!convexAuthReadyRef.current && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, AUTH_POLL_MS));
+    }
+    return convexAuthReadyRef.current;
+  }, []);
+
   const handleAddVehicle = async () => {
     if (!params.vin || !params.trimId || !params.engineId) {
       setError('Missing vehicle data');
@@ -458,7 +488,10 @@ export default function AddVehicleReviewScreen() {
     setError(null);
 
     try {
-      const result = await confirmVehicle({
+      await waitForConvexAuth();
+
+      const submit = () =>
+        confirmVehicle({
         vin: params.vin,
         trimId: params.trimId as Id<'trims'>,
         engineId: params.engineId as Id<'engines'>,
@@ -471,7 +504,20 @@ export default function AddVehicleReviewScreen() {
         cylinders: parseFloat(params.cylinders || '0'),
         fuelType: params.fuelType || 'Gasoline',
         color: selectedColor || undefined,
-      });
+        });
+
+      // Retry only the auth case. Everything else is a real answer and
+      // repeating it would just be slower. The window is short — this is the
+      // JWT arriving, not the network being down.
+      let result = await submit();
+      for (
+        let attempt = 0;
+        attempt < AUTH_RETRIES && !result.success && result.error === 'Not authenticated';
+        attempt++
+      ) {
+        await new Promise((r) => setTimeout(r, AUTH_RETRY_BASE_MS * (attempt + 1)));
+        result = await submit();
+      }
 
       if (result.success) {
         persistImage();
@@ -487,11 +533,21 @@ export default function AddVehicleReviewScreen() {
             vehicleOwnerId: String(result.vehicleOwnerId),
           },
         });
+      } else if (result.error === 'Not authenticated') {
+        // Never show the internal string. It reads as a bug to the driver and
+        // tells them nothing about what to do.
+        setError("We couldn't confirm your session. Check your connection and tap Continue again.");
       } else {
         setError(result.error || 'Failed to add vehicle');
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to add vehicle');
+      // Convex throws carry the function path and a request id — useful in a
+      // log, meaningless to a driver, and they read as a crash. Same reason
+      // "Not authenticated" is mapped above.
+      if (__DEV__) {
+        console.warn('[add-vehicle] confirmVehicleForUser failed', err);
+      }
+      setError("We couldn't add this vehicle. Check your connection and tap Continue again.");
     } finally {
       setIsConfirming(false);
     }
