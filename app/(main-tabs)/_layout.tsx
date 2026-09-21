@@ -10,9 +10,11 @@ const Icon = NativeTabs.Trigger.Icon;
 const Badge = NativeTabs.Trigger.Badge;
 import { Tabs, usePathname, useRootNavigationState } from "expo-router";
 import { guardedRouter as router } from "@/lib/navigationLock";
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { Platform } from "react-native";
 import { useAuth } from "@clerk/clerk-expo";
+import { useConvexAuth } from "convex/react";
+import * as SecureStore from "expo-secure-store";
 import { EnrichmentStatusPill } from "@/components/booking-flow/EnrichmentStatusPill";
 import { TabBar } from "@/components/navigation/TabBar";
 import { TAB_ITEMS } from "@/components/navigation/tabItems";
@@ -21,7 +23,10 @@ import { useUnseenBookingsCount } from "@/hooks/useUnseenBookingsCount";
 import { useVehicleOwnershipFromConvex } from "@/hooks/useVehicleOwnershipFromConvex";
 import { NotificationsSheet } from "@/components/notifications/NotificationsSheet";
 import { RescheduleDecisionOverlay } from "@/components/notifications/RescheduleDecisionOverlay";
-import { shouldRedirectSignedOutFromMainTabs } from "@/lib/auth-routing";
+import { getMainTabsAccess } from "@/lib/auth-routing";
+import { getOnboardingFinishedLaterKey } from "@/lib/onboarding-resume";
+import { useConnection } from "@/hooks/useConnection";
+import { useMeFromConvex } from "@/hooks/useMeFromConvex";
 import { SettingsOverlay } from "@/components/settings/SettingsOverlay";
 import { CoachProvider } from "@/components/coach/CoachContext";
 import { CoachTour } from "@/components/coach/CoachTour";
@@ -79,16 +84,74 @@ export default function TabLayout() {
 }
 
 function SignedOutMainTabsGuard({ children }: { children: React.ReactNode }) {
-  const { isLoaded, isSignedIn } = useAuth();
-  const shouldRedirect = shouldRedirectSignedOutFromMainTabs(isLoaded, isSignedIn);
+  const { isLoaded, isSignedIn, userId } = useAuth();
+  const { isAuthenticated: convexAuthenticated } = useConvexAuth();
+  const conn = useConnection();
+  const { value: me } = useMeFromConvex();
+  const rootNavigationState = useRootNavigationState();
+  // `stale` is typed as always-false, but it is true at runtime while the
+  // navigator rehydrates — navigating then throws, so widen the type to read it.
+  const navStale = (rootNavigationState as { stale?: boolean } | undefined)?.stale === true;
+  const navReady = Boolean(rootNavigationState?.key) && !navStale;
+  const [finishedLaterFlag, setFinishedLaterFlag] = useState<boolean | null>(null);
+  const [hasShownApp, setHasShownApp] = useState(false);
 
-  // Render null to protect main-tabs content when signed out. Navigation to
-  // onboarding is handled exclusively by app/index.tsx (cold start) and
-  // SettingsContent.tsx (runtime logout) to prevent competing router.replace
-  // calls that cause double-screen and "navigate before mounting" errors.
-  if (!isLoaded || shouldRedirect) {
-    return null;
-  }
+  // "Finish later" is also recorded on the device, as a fallback for when the
+  // server flag could not be written. app/index honours it, so this must too,
+  // or the two would bounce the user between Home and setup.
+  useEffect(() => {
+    if (!userId) return;
+    let cancelled = false;
+    SecureStore.getItemAsync(getOnboardingFinishedLaterKey(userId))
+      .then((value) => {
+        if (!cancelled) setFinishedLaterFlag(value === "true");
+      })
+      .catch(() => {
+        if (!cancelled) setFinishedLaterFlag(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
+
+  const access = getMainTabsAccess({
+    isLoaded,
+    isSignedIn,
+    me,
+    convexAuthenticated,
+    offline: conn === "offline",
+    finishedLaterFlag,
+  });
+
+  // Redirect only when the tabs were REACHED blocked — a direct link such as
+  // otopair://home opened while signed out or before the required setup is
+  // done, where app/index never ran. If the tabs were showing and then became
+  // blocked, that is a runtime logout and SettingsContent.tsx owns the
+  // navigation; redirecting here as well is what used to cause the
+  // double-screen and "navigate before mounting" errors, so this stays out.
+  useEffect(() => {
+    if (access === "allow") {
+      setHasShownApp(true);
+      return;
+    }
+    if (hasShownApp || !navReady) return;
+    try {
+      if (access === "signedOut") {
+        router.replace("/(onboarding)");
+      } else if (access === "setupIncomplete") {
+        router.replace({ pathname: "/(onboarding)", params: { isResumeMode: "true" } });
+      }
+    } catch (e) {
+      // Navigator mid-rehydration; the effect re-runs once navReady settles.
+      console.warn("[main-tabs guard] navigation not ready:", e);
+    }
+  }, [access, hasShownApp, navReady]);
+
+  // Once the tabs have been shown in this mount, only a sign-out hides them
+  // again — as before this guard learned about setup. A slow or missing
+  // account record must never blank out someone already using the app.
+  const show = access === "allow" || (hasShownApp && access !== "signedOut");
+  if (!show) return null;
 
   return <>{children}</>;
 }

@@ -86,6 +86,64 @@ export function shouldResumeMidSetup({
   return onboardingCompleted !== true && essentialOnboardingCompleted === true && hasSetupInProgress;
 }
 
+export type MainTabsAccess = "allow" | "wait" | "signedOut" | "setupIncomplete";
+
+/**
+ * Whether the main tabs (Home, Bookings, Cars, Oto) may render.
+ *
+ * Signing in used to be the only check, so a signed-in user who had not
+ * finished the required setup (email, verified phone, name) could reach Home
+ * through a direct link such as otopair://home — app/index, which normally
+ * routes them to setup, never runs on that path.
+ *
+ * "allow" mirrors app/index's own rule for sending someone Home, and is a
+ * superset of it (app/index additionally resumes an essential-complete user
+ * mid-setup), so whatever app/index sends to Home is allowed here and the two
+ * can never bounce a user between Home and setup.
+ *
+ * `me` unknown means "wait" — except offline, where it means "allow": an
+ * offline start only reaches the tabs through OfflineBootGate's valid session
+ * cache, and the record may never arrive, so waiting would strand the user in
+ * the offline mode built for exactly that case.
+ */
+export function getMainTabsAccess({
+  isLoaded,
+  isSignedIn,
+  me,
+  convexAuthenticated,
+  offline,
+  finishedLaterFlag,
+}: {
+  isLoaded: boolean;
+  isSignedIn: boolean | undefined;
+  me:
+    | {
+        onboardingCompleted?: boolean;
+        essentialOnboardingCompleted?: boolean;
+        onboardingDeferred?: boolean;
+      }
+    | null
+    | undefined;
+  /** useConvexAuth().isAuthenticated — a null record before this is true is "not loaded yet", not "no account". */
+  convexAuthenticated: boolean;
+  offline: boolean;
+  /** The device-side "Finish later" flag app/index also honours; null while it is being read. */
+  finishedLaterFlag: boolean | null;
+}): MainTabsAccess {
+  if (!isLoaded) return "wait";
+  if (shouldRedirectSignedOutFromMainTabs(isLoaded, isSignedIn)) return "signedOut";
+  if (me === undefined || (me === null && !convexAuthenticated)) return offline ? "allow" : "wait";
+  if (
+    me?.onboardingCompleted === true ||
+    me?.essentialOnboardingCompleted === true ||
+    me?.onboardingDeferred === true
+  ) {
+    return "allow";
+  }
+  if (finishedLaterFlag === null) return "wait";
+  return finishedLaterFlag ? "allow" : "setupIncomplete";
+}
+
 export function shouldRunStartupRedirect({
   authLoaded,
   hasNavigated,
