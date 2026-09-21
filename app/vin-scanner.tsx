@@ -26,6 +26,7 @@ import { Text } from '@/components/shared-ui';
 import { Spacing } from '@/constants/theme';
 import { scale, verticalScale, moderateScale } from '@/utils/responsive';
 import { api } from '@/convex/_generated/api';
+import { isDecodableVin } from '@/convex/lib/vinIdentity';
 
 // ============================================================================
 // COMPONENT
@@ -67,8 +68,11 @@ export default function VinScannerScreen() {
 
     const { data } = result;
 
-    // VINs are 17 characters
-    if (data && data.length === 17) {
+    // A VIN is 17 characters AND carries a check digit in position 9. The
+    // check digit exists precisely to catch a misread character, which is the
+    // failure mode of a camera scan — so a barcode that fails it is treated as
+    // a bad read and we keep scanning rather than decoding it (bug #275).
+    if (data && isDecodableVin(data.toUpperCase())) {
       setScanned(true);
       setIsDecoding(true);
       setDecodeError(null);
