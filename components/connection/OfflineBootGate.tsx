@@ -20,6 +20,7 @@
  * render underneath the still-visible native splash exactly as before.
  */
 import React, { useEffect, useState, type ReactNode } from "react";
+import * as SplashScreen from "expo-splash-screen";
 
 import { useConnection, useHasEverConnected, nudgeReconnect } from "@/hooks/useConnection";
 import { hasValidOfflineSessionCache } from "@/lib/offlineSessionCache";
@@ -51,6 +52,20 @@ export function OfflineBootGate({ children, fontsReady }: OfflineBootGateProps) 
       cancelled = true;
     };
   }, []);
+
+  const showOffline =
+    fontsReady && conn === "offline" && !hasEverConnected && cacheStatus === "none";
+
+  // RootLayout bounds the splash on wall-clock, but that ceiling is a backstop
+  // for a stall it cannot see into. Here we can see: we're offline, there's no
+  // cache to boot from, and OfflineScreen is already what we're about to
+  // render. Nothing is still hydrating, so drop the splash now rather than
+  // making the user wait out a timeout behind a frozen launch icon. hideAsync
+  // is idempotent — RootLayout's own call is harmless after this one.
+  useEffect(() => {
+    if (!showOffline) return;
+    SplashScreen.hideAsync().catch(() => {});
+  }, [showOffline]);
 
   if (fontsReady && conn === "offline" && !hasEverConnected) {
     // Valid unexpired session cache → boot the app; the bookings and

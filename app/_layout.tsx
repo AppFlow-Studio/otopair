@@ -37,6 +37,7 @@ import { useConsoleToConvex } from "@/hooks/useConsoleToConvex";
 import { useEnsureConvexUser } from "@/hooks/useEnsureConvexUser";
 import { useRefreshPushToken } from "@/hooks/useRefreshPushToken";
 import { useOtopairDeepLinks } from "@/hooks/useOtopairDeepLinks";
+import { shouldHideSplash } from "@/lib/auth-routing";
 import { clearUserSessionState } from "@/lib/session-state";
 import { useAuthStore } from "@/stores/useAuthStore";
 
@@ -154,19 +155,45 @@ function EnsureConvexUserRecord() {
 }
 
 /**
+ * Hard ceiling on how long the native splash may cover the app.
+ *
+ * Generous on purpose: this is a backstop for a startup signal that never
+ * arrives, NOT a racer against the normal path. A healthy cold start resolves
+ * `isLoaded` well inside it, so the usual splash-to-content handoff is
+ * untouched.
+ */
+const SPLASH_CEILING_MS = 5000;
+
+/**
  * Keeps the splash visible while startup dependencies hydrate, without
  * blocking the root navigator from mounting on the first render.
+ *
+ * The ceiling is not a nicety. Clerk's `isLoaded` only flips after a network
+ * round-trip, so with no connectivity it never resolves, the effect below
+ * never runs, and the native splash covers the app forever — a frozen launch
+ * icon with no spinner, no offline message and no timeout. The tree
+ * underneath is alive and rendering the whole time (OfflineBootGate owns the
+ * cold-start offline screen, and ConnectionPillHost deliberately stays quiet
+ * because of it), so the app has something perfectly good to show and the
+ * splash is the only thing hiding it. Bound it on wall-clock so no startup
+ * signal — this one or a future one — can strand the app behind it.
  */
 function StartupSplashGate({ children, fontsReady }: { children: ReactNode; fontsReady: boolean }) {
   const { isLoaded } = useAuth();
+  const [ceilingReached, setCeilingReached] = useState(false);
 
   useEffect(() => {
-    if (fontsReady && isLoaded) {
+    const timer = setTimeout(() => setCeilingReached(true), SPLASH_CEILING_MS);
+    return () => clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    if (shouldHideSplash({ fontsReady, authLoaded: isLoaded, ceilingReached })) {
       SplashScreen.hideAsync().catch((err) => {
         console.error("SplashScreen.hideAsync failed", err);
       });
     }
-  }, [fontsReady, isLoaded]);
+  }, [fontsReady, isLoaded, ceilingReached]);
 
   return <>{children}</>;
 }

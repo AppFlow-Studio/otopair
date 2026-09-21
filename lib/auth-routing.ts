@@ -17,6 +17,32 @@ export function shouldRedirectSignedOutFromMainTabs(
   return isLoaded && isSignedIn !== true;
 }
 
+/**
+ * Whether the native splash may be dropped.
+ *
+ * `authLoaded` (Clerk's `isLoaded`) only flips after a network round-trip, so
+ * offline it stays false forever. Gating the splash on it alone left the app
+ * covered indefinitely — a frozen launch icon with no spinner, no message and
+ * no timeout, while the tree underneath was alive and rendering. `ceilingReached`
+ * is the wall-clock backstop that makes the gate unwedgeable by ANY startup
+ * signal, present or future.
+ *
+ * `fontsReady` stays a hard requirement on purpose: useAppFonts resolves from
+ * bundled assets and reports ready on error too, so it always settles — with or
+ * without a network — and cannot itself be the thing that hangs.
+ */
+export function shouldHideSplash({
+  fontsReady,
+  authLoaded,
+  ceilingReached,
+}: {
+  fontsReady: boolean;
+  authLoaded: boolean;
+  ceilingReached: boolean;
+}): boolean {
+  return fontsReady && (authLoaded || ceilingReached);
+}
+
 export function shouldRunStartupRedirect({
   authLoaded,
   hasNavigated,
