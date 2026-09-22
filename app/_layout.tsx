@@ -51,8 +51,13 @@ import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useAppFonts } from "@/hooks/use-fonts";
 import { useConsoleToConvex } from "@/hooks/useConsoleToConvex";
 import { useEnsureConvexUser } from "@/hooks/useEnsureConvexUser";
-import { useConnection } from "@/hooks/useConnection";
-import { CONVEX_AUTH_RETRY_MS, shouldRecoverConvexAuth } from "@/lib/connection/convexAuthRecovery";
+import { untilOnline, useConnection } from "@/hooks/useConnection";
+import {
+  CONVEX_AUTH_RETRY_MS,
+  TOKEN_FETCH_RETRY_FLOOR_MS,
+  isTokenFetchNetworkError,
+  shouldRecoverConvexAuth,
+} from "@/lib/connection/convexAuthRecovery";
 import { useRefreshPushToken } from "@/hooks/useRefreshPushToken";
 import { useOtopairDeepLinks } from "@/hooks/useOtopairDeepLinks";
 import { shouldHideSplash } from "@/lib/auth-routing";
@@ -119,13 +124,21 @@ function useAuthFromClerk() {
   const { epoch } = useContext(ConvexAuthEpochContext);
   const fetchAccessToken = useCallback(
     async ({ forceRefreshToken }: { forceRefreshToken: boolean }) => {
-      try {
-        if (sessionClaims?.aud === "convex") {
-          return await getToken({ skipCache: forceRefreshToken });
+      // A dead network is not an answer. Handing Convex "no token" logs the user
+      // out of it while Clerk still has them signed in, and every query then
+      // answers as if to a stranger — Home turned into a new account's (#269).
+      // So wait for the network and ask again; only a real refusal returns null.
+      for (;;) {
+        try {
+          if (sessionClaims?.aud === "convex") {
+            return await getToken({ skipCache: forceRefreshToken });
+          }
+          return await getToken({ template: "convex", skipCache: forceRefreshToken });
+        } catch (error) {
+          if (!isTokenFetchNetworkError(error)) return null;
+          await new Promise((resolve) => setTimeout(resolve, TOKEN_FETCH_RETRY_FLOOR_MS));
+          await untilOnline();
         }
-        return await getToken({ template: "convex", skipCache: forceRefreshToken });
-      } catch {
-        return null;
       }
     },
     // Same deps as Convex's own, plus `epoch`. Clerk's Expo useAuth is not

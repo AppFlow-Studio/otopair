@@ -23,14 +23,13 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import { LinearGradient } from "expo-linear-gradient";
-import { useQuery } from "convex/react";
 import { useShallow } from "zustand/react/shallow";
 import { useIsFocused } from "@react-navigation/native";
 import { usePathname } from "expo-router";
 
 import { Text } from "@/components/shared-ui";
 import { AvatarSlider } from "@/components/settings/AvatarSlider";
-import { api } from "@/convex/_generated/api";
+import { useMeFromConvex } from "@/hooks/useMeFromConvex";
 import { useOnboardingStore } from "@/stores/useOnboardingStore";
 import { useSettingsOverlayStore } from "@/stores/useSettingsOverlayStore";
 import { computeInitials } from "@/utils/userInitials";
@@ -43,7 +42,7 @@ export function ProfileInitialsButton() {
   const viewRef = useRef<View>(null);
   const pathname = usePathname();
   const isFocused = useIsFocused();
-  const me = useQuery(api.users.getMe);
+  const { value: me } = useMeFromConvex();
   const { firstName, lastName, profilePhotoUri: storedPhoto } =
     useOnboardingStore(
       useShallow((s) => ({
