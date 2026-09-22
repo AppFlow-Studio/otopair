@@ -53,10 +53,11 @@ import {
 import { api } from "@/convex/_generated/api";
 import { useOnboardingStore } from "@/stores/useOnboardingStore";
 import { useAccountDeletion } from "@/hooks/useAccountDeletion";
+import { calculateFloatingSheetLayout } from "@/lib/floatingSheetLayout";
 
 export default function DeleteAccountScreen() {
   const insets = useSafeAreaInsets();
-  const { width } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
   const router = useRouter();
 
   // Hook for account deletion logic
@@ -85,7 +86,15 @@ export default function DeleteAccountScreen() {
   const shouldExitAfterSheetDismiss = useRef(false);
   const sheetRef = useRef<BottomSheetModal>(null);
   const sheetScrollRef = useRef<BottomSheetScrollView>(null);
-  const snapPoints = useMemo(() => ["70%"], []);
+  const sheetLayout = useMemo(
+    () =>
+      calculateFloatingSheetLayout({
+        windowHeight: height,
+        safeAreaTop: insets.top,
+        safeAreaBottom: insets.bottom,
+      }),
+    [height, insets.top, insets.bottom],
+  );
   const isCodeComplete = useMemo(() => code.join("").length === 6, [code]);
 
   useEffect(() => {
@@ -586,13 +595,21 @@ export default function DeleteAccountScreen() {
 
       <BottomSheetModal
         ref={sheetRef}
-        snapPoints={snapPoints}
         backdropComponent={BlurBackdrop}
         // Dynamic sizing so the sheet hugs its content — combined
         // with `bottomInset` below, that makes it read as a compact
         // floating card in the lower portion of the screen (matches
         // PM reference).
+        //
+        // No `snapPoints`: a percentage detent would only set where the
+        // sheet RESTS, while the scroll viewport is sized from the tallest
+        // detent — and a `detached` sheet has no clipping mask, so the
+        // survey's seven options + Submit spilled off the bottom of small
+        // screens with nothing to scroll. Capping the growth instead keeps
+        // the sheet inside the safe area and leaves the scroll view a real
+        // scroll range once the content outgrows it.
         enableDynamicSizing
+        maxDynamicContentSize={sheetLayout.maxHeight}
         enableContentPanningGesture={false}
         keyboardBehavior="interactive"
         keyboardBlurBehavior="restore"
@@ -601,7 +618,7 @@ export default function DeleteAccountScreen() {
         // indicator so all four rounded corners of the sheet are
         // visible against the background.
         detached
-        bottomInset={insets.bottom + 12}
+        bottomInset={sheetLayout.bottomInset}
         style={styles.sheetFloatingContainer}
         onDismiss={handleSheetDismiss}
         handleIndicatorStyle={styles.sheetHandle}
@@ -611,7 +628,10 @@ export default function DeleteAccountScreen() {
           ref={sheetScrollRef}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
-          scrollEnabled={false}
+          // Scrollable: on short screens the survey is taller than the
+          // capped sheet, and this is the only way to reach Submit. There
+          // is no scroll range when the content fits, so taller screens
+          // are unaffected.
           bounces={false}
           contentContainerStyle={[
             styles.sheetContentContainer,
