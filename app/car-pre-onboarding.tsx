@@ -33,9 +33,14 @@ import { BlurView } from "expo-blur";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { Text } from "@/components/shared-ui";
-import { BorderRadius, BrandColors, FontFamily, Spacing } from "@/constants/theme";
+import { BorderRadius, BrandColors, FontFamily, SemanticColors, Spacing } from "@/constants/theme";
 import { scale, verticalScale, moderateScale } from '@/utils/responsive';
 import { useUserFromConvex } from "@/hooks/useUserFromConvex";
+import {
+  checkCurrentMileage,
+  currentMileageBelowPurchaseMessage,
+  parseMileageInput,
+} from "@/lib/pre-onboarding-mileage";
 
 type StepId =
   | "ownershipType"
@@ -71,13 +76,6 @@ const STEP_COPY: Record<StepId, { title: string; subtitle: string }> = {
   },
 };
 
-function toNumber(raw: string): number | undefined {
-  const normalized = raw.replace(/,/g, "").trim();
-  if (!normalized) return undefined;
-  const parsed = Number(normalized);
-  return Number.isFinite(parsed) ? parsed : undefined;
-}
-
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 const FOOTER_AREA_HEIGHT = scale(110);
 const OPTION_CARD_HEIGHT = SCREEN_HEIGHT * 0.065;
@@ -103,6 +101,10 @@ export default function CarPreOnboardingScreen() {
   const [mileageAtPurchase, setMileageAtPurchase] = useState("");
   const [mileageAtPurchaseNotSure, setMileageAtPurchaseNotSure] = useState(false);
   const [currentMileage, setCurrentMileage] = useState("");
+  // Set once the user presses Continue on the odometer step with a value that
+  // contradicts the mileage at purchase. Visibility is derived from this plus
+  // the live check, so fixing either number clears the message on its own.
+  const [currentMileageErrorShown, setCurrentMileageErrorShown] = useState(false);
   const [annualMileageBand, setAnnualMileageBand] = useState<AnnualMileageBand | undefined>();
   const [usagePattern, setUsagePattern] = useState<UsagePattern | undefined>();
   const [keyboardTop, setKeyboardTop] = useState<number | null>(null);
@@ -227,6 +229,20 @@ export default function CarPreOnboardingScreen() {
     animateTransition(nextIndex, 'forward');
   }, [steps.length, stepIndex, animateTransition]);
 
+  // Recomputed from the live answers, so raising the purchase mileage after
+  // the odometer was already filled in catches it on the way forward too.
+  const currentMileageCheck = useMemo(
+    () =>
+      checkCurrentMileage({
+        ownershipType,
+        ownedSinceNew,
+        mileageAtPurchaseNotSure,
+        mileageAtPurchaseInput: mileageAtPurchase,
+        currentMileageInput: currentMileage,
+      }),
+    [ownershipType, ownedSinceNew, mileageAtPurchaseNotSure, mileageAtPurchase, currentMileage],
+  );
+
   const canContinue = useMemo(() => {
     switch (currentStep) {
       case "ownershipType":
@@ -234,9 +250,9 @@ export default function CarPreOnboardingScreen() {
       case "ownedSinceNew":
         return ownedSinceNew !== undefined;
       case "mileageAtPurchase":
-        return mileageAtPurchaseNotSure || toNumber(mileageAtPurchase) !== undefined;
+        return mileageAtPurchaseNotSure || parseMileageInput(mileageAtPurchase) !== undefined;
       case "currentMileage":
-        return toNumber(currentMileage) !== undefined;
+        return parseMileageInput(currentMileage) !== undefined;
       case "mileageAndUsage":
         return !!annualMileageBand && !!usagePattern;
       default:
@@ -298,6 +314,13 @@ export default function CarPreOnboardingScreen() {
     Keyboard.dismiss();
     setKeyboardTop(null);
     ctaLiftAnim.value = withTiming(0, { duration: 250 });
+    // An odometer below the mileage at purchase is impossible. Report it on
+    // press and hold the step, the way add-vehicle reports a bad VIN — the
+    // greyed-out CTA here only ever means "this step has no answer yet".
+    if (currentStep === "currentMileage" && currentMileageCheck.status === "below_purchase") {
+      setCurrentMileageErrorShown(true);
+      return;
+    }
     if (!isLastStep) {
       transitionToStep(stepIndex + 1);
       return;
@@ -311,7 +334,7 @@ export default function CarPreOnboardingScreen() {
       router.replace("/(main-tabs)/cars");
       return;
     }
-    const parsedCurrentMileage = toNumber(currentMileage);
+    const parsedCurrentMileage = parseMileageInput(currentMileage);
     if (parsedCurrentMileage === undefined || !ownershipType || !annualMileageBand || !usagePattern) {
       return;
     }
@@ -321,7 +344,7 @@ export default function CarPreOnboardingScreen() {
         vehicleOwnerId: vehicleOwnerId as Id<"vehicle_owners">,
         ownershipType,
         ownedSinceNew,
-        mileageAtPurchase: mileageAtPurchaseNotSure ? undefined : toNumber(mileageAtPurchase),
+        mileageAtPurchase: mileageAtPurchaseNotSure ? undefined : parseMileageInput(mileageAtPurchase),
         currentMileage: parsedCurrentMileage,
         annualMileageBand,
         usagePattern,
@@ -383,14 +406,27 @@ export default function CarPreOnboardingScreen() {
         );
       case "currentMileage":
         return (
-          <TextInput
-            style={styles.input}
-            value={currentMileage}
-            onChangeText={setCurrentMileage}
-            keyboardType="number-pad"
-            placeholder="e.g. 45,000"
-            placeholderTextColor="#829BAD"
-          />
+          <View>
+            <TextInput
+              style={styles.input}
+              value={currentMileage}
+              onChangeText={setCurrentMileage}
+              keyboardType="number-pad"
+              placeholder="e.g. 45,000"
+              placeholderTextColor="#829BAD"
+            />
+            {currentMileageErrorShown && currentMileageCheck.status === "below_purchase" ? (
+              <Text
+                size="sm"
+                weight="medium"
+                color={SemanticColors.errorRed}
+                style={styles.errorText}
+                accessibilityRole="alert"
+              >
+                {currentMileageBelowPurchaseMessage(currentMileageCheck.mileageAtPurchase)}
+              </Text>
+            ) : null}
+          </View>
         );
       case "mileageAndUsage":
         return (
@@ -739,6 +775,12 @@ const styles = StyleSheet.create({
     fontFamily: FontFamily.medium,
     fontSize: moderateScale(17),
     color: "#111827",
+  },
+  errorText: {
+    marginTop: scale(10),
+    // Line up with the value typed inside the pill-shaped input.
+    paddingHorizontal: scale(16),
+    lineHeight: moderateScale(20),
   },
   notSureRow: {
     marginTop: scale(10),
