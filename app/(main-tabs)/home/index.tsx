@@ -48,6 +48,7 @@ import {
   findServiceForMaintenanceType,
   findServiceFromDescription,
 } from '@/lib/maintenanceServiceMapping';
+import { selectHomeVehicleRows } from "@/lib/homeVehicleCards";
 import { buildWarningLightItem } from "@/lib/warningLightItems";
 import { canonicalWarningLights } from "@/lib/warningLightVocab";
 import { usePendingNavigationStore } from "@/stores/usePendingNavigationStore";
@@ -757,13 +758,12 @@ export default function HomeScreen() {
   // ── Vehicle data with maintenance (no image dep — avoids cascading recomputation) ──
   const vehicleBaseData = useMemo<HomeVehicleBaseData[]>(() => {
     if (!listVehicles?.length) return [];
-    const seen = new Set<string>();
-    return listVehicles
-      .filter((r: any) => {
-        if (seen.has(r.vin)) return false;
-        seen.add(r.vin);
-        return true;
-      })
+    // One card (and one page dot) per real vehicle. `listVehiclesByUser`
+    // returns a row per ACTIVE ownership with `vehicle` looked up separately,
+    // so a dangling ownership comes back with `vehicle: null` — the same rows
+    // `useVehicleOwnershipFromConvex` already drops before hydrating the
+    // vehicle store, which is why the Cars tab never showed them.
+    return selectHomeVehicleRows(listVehicles)
       .map((r: any) => {
         const v = r.vehicle;
         const o = r.ownership;
@@ -1655,9 +1655,15 @@ export default function HomeScreen() {
                 style={{ marginTop: (visibleCardIds.length > 0 ? getCardMargin(activeCardIndex) : 0) - 4 }}
                 {...priorityAnchor}
               >
-                {hasVehicles ? (
+                {/* `vehicles={undefined}` makes the card fall back to its
+                    built-in Lamborghini / Tesla / Lexus sample set, so the
+                    empty case has to render nothing instead — `hasVehicles`
+                    counts raw ownership rows and can be true while
+                    `mappedVehicles` is still empty (rows still loading, or
+                    every row dangling). */}
+                {hasVehicles && mappedVehicles.length > 0 ? (
                   <VehicleMaintenanceCard
-                    vehicles={mappedVehicles.length > 0 ? mappedVehicles : undefined}
+                    vehicles={mappedVehicles}
                     onBookNow={(vehicleId, serviceId) => {
                       useVehicleStore.getState().selectVehicle(vehicleId);
                       // serviceId here is the row id, shaped like "<type>-<ownershipId>"
@@ -1697,7 +1703,7 @@ export default function HomeScreen() {
                     onSwipeStart={() => setIsCardSwiping(true)}
                     onSwipeEnd={() => setIsCardSwiping(false)}
                   />
-                ) : (
+                ) : hasVehicles ? null : (
                   <AddFirstVehicleCard showAccountSetup={showAccountSetup} />
                 )}
               </View>

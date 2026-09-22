@@ -22,10 +22,11 @@
  */
 
 // 1. React & React Native
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useState } from 'react';
 import {
   Dimensions,
   Image,
+  type ImageSourcePropType,
   Platform,
   Pressable,
   StyleSheet,
@@ -51,8 +52,17 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 // 3. Shared UI
 import { Text } from '@/components/shared-ui';
 import { fetchVehicleImageUrl } from '@/utils/vehicleImage';
+import {
+  resolveCardHeight,
+  resolveVehicleCardImageUri,
+} from '@/lib/homeVehicleCards';
 import { BrandColors, FontFamily } from '@/constants/theme';
 import { CoachTarget } from '@/components/coach/CoachTarget';
+
+// Same covered-car art every other vehicle surface falls back to (Cars tab,
+// Bookings, the booking car picker, add-car-info). A card with no usable image
+// URL keeps its full 160x90 image slot and shows this instead of a blank hole.
+const FALLBACK_VEHICLE_IMAGE: ImageSourcePropType = require('@/assets/images/covered-car.png');
 
 // ============================================================================
 // TYPES
@@ -70,7 +80,7 @@ interface Vehicle {
   name: string;
   vin: string;
   imageUrl: string;
-  localImage?: any;
+  localImage?: ImageSourcePropType;
   maintenanceItems: MaintenanceItem[];
   _fetchParams?: { make: string; model: string; year?: number };
 }
@@ -150,6 +160,52 @@ function PaginationDot({ index, activeIndex }: { index: number; activeIndex: num
 }
 
 // ============================================================================
+// BOTTOM SECTION — the maintenance / "All systems healthy" rows.
+//
+// Owns its own curtain drop (Ahmad's signature: starts ABOVE its final
+// position at translateY -40 / opacity 0, sits for a beat, then slides DOWN
+// into place) instead of reading a shared value owned by the card.
+//
+// That ownership is the point. The animation used to run off one
+// component-wide pair of shared values that `finishPromotion` reset to
+// (-40, 0) BEFORE the state update that re-armed them, and only an effect
+// keyed on the active INDEX put them back. Every mounted copy of the card —
+// front card plus one per measurement card — read that same pair, so any path
+// where the re-arming effect didn't fire left the status row and its
+// Book Now / View button invisible while the measured card height still
+// reserved their space: a card collapsed to name + VIN with empty space under
+// it. Mounting per vehicle (see the `key` at the call site) makes the row's
+// visibility a function of the mount, not of a reset that has to be undone.
+// ============================================================================
+
+function CardBottomSection({ children }: { children: React.ReactNode }) {
+  const translateY = useSharedValue(-40);
+  const opacity = useSharedValue(0);
+
+  useEffect(() => {
+    translateY.value = withDelay(
+      200,
+      withTiming(0, { duration: 600, easing: Easing.out(Easing.cubic) }),
+    );
+    opacity.value = withDelay(
+      200,
+      withTiming(1, { duration: 600, easing: Easing.out(Easing.cubic) }),
+    );
+  }, [opacity, translateY]);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+    transform: [{ translateY: translateY.value }],
+  }));
+
+  return (
+    <Animated.View style={[styles.bottomSection, animatedStyle]}>
+      {children}
+    </Animated.View>
+  );
+}
+
+// ============================================================================
 // COMPONENT
 // ============================================================================
 
@@ -168,6 +224,10 @@ export function VehicleMaintenanceCard({
   const [promotingIndex, setPromotingIndex] = useState<number | null>(null);
   const [fetchedImageUrls, setFetchedImageUrls] = useState<Record<string, string>>({});
   const [measuredHeights, setMeasuredHeights] = useState<Record<string, number>>({});
+  // Image URLs that failed to load, keyed by URI (not by vehicle) so a later
+  // URL for the same car still gets a chance. A failed URL falls back to the
+  // covered-car placeholder — it never hides the image slot.
+  const [failedImageUris, setFailedImageUris] = useState<Record<string, true>>({});
 
   // Animated values for the front card
   const translateX = useSharedValue(0);
@@ -180,12 +240,6 @@ export function VehicleMaintenanceCard({
   // card you saw peeking behind is literally the same card that's
   // now under your finger. See Daniel's commit b799c2e for source.
   const promotionProgress = useSharedValue(0);
-  // Bottom section slide-down animation. Driven manually via
-  // useEffect below (instead of Reanimated's `entering` prop) so
-  // the direction is unambiguous: starts ABOVE final position
-  // (translateY = -40) and slides DOWN to translateY = 0.
-  const bottomTranslateY = useSharedValue(0);
-  const bottomOpacity = useSharedValue(1);
   // Inner-press flag — set to 1 while the touch lives inside an
   // interactive child Pressable (e.g. the Book Now button), so the
   // parent's Gesture.Tap onEnd skips its "open the Cars tab" route.
@@ -194,6 +248,16 @@ export function VehicleMaintenanceCard({
   // winning on quick taps, sending the user to /cars instead of the
   // booking flow.
   const innerPressedSV = useSharedValue(0);
+
+  // Every index is wrapped before use. `vehicles` can shrink under a mounted
+  // card (delete a car from the Cars tab) and `renderCardContent` dereferences
+  // `vehicle.maintenanceItems` — an out-of-range index took the whole Home
+  // screen down rather than showing a stale card.
+  const vehicleCount = vehicles.length;
+  const safeIndex = vehicleCount > 0 ? currentIndex % vehicleCount : 0;
+  const safeBackIndex = vehicleCount > 0 ? backIndex % vehicleCount : 0;
+  const safePromotingIndex =
+    promotingIndex != null && vehicleCount > 0 ? promotingIndex % vehicleCount : null;
 
   useEffect(() => {
     vehicles.forEach((v) => {
@@ -214,25 +278,17 @@ export function VehicleMaintenanceCard({
   };
 
   const finishPromotion = (nextIndex: number) => {
-    // Order matters here. We reset the front card's transform +
-    // opacity BEFORE we bump currentIndex so the moment React
-    // re-renders with the new vehicle content, the front card is
-    // already at (0, 0, 0, scale 1) and fully opaque — the promoting
-    // card was visually at exactly that spot on the previous frame,
-    // so the swap is seamless.
+    // Park the outgoing card back at (0, 0) so the front slot is ready for
+    // the new vehicle. It stays at opacity 0 here: this function runs from a
+    // Reanimated completion callback, so anything written to `cardOpacity`
+    // lands on the very next UI frame, while `setCurrentIndex` below only
+    // takes effect once React commits — an unbounded gap on a tree as heavy
+    // as Home. Restoring opacity here therefore repaints the PREVIOUS
+    // vehicle, full-strength, in the front slot on top of the card that just
+    // arrived. The layout effect below ties the repaint to the commit that
+    // swaps the content instead.
     translateX.value = 0;
     rotation.value = 0;
-    cardOpacity.value = 1;
-    // Pre-hide the bottom section BEFORE setCurrentIndex triggers a
-    // re-render. Otherwise the shared values still read from the
-    // previous curtain drop (opacity 1, translateY 0), the new front
-    // card paints with the bottom visible for one frame, and only
-    // then does the useEffect below hide it — a flash right at the
-    // swap. Setting the values synchronously here means the very
-    // first paint of the new front card already has the bottom
-    // parked above at opacity 0.
-    bottomTranslateY.value = -40;
-    bottomOpacity.value = 0;
     setCurrentIndex(nextIndex);
     setBackIndex((nextIndex + 1) % vehicles.length);
     // Retire the promoting card on the next frame so it and the
@@ -265,30 +321,24 @@ export function VehicleMaintenanceCard({
     );
   };
 
-  // Bottom curtain drop — Ahmad's signature. Fires on every vehicle
-  // change: bottom section resets ABOVE its final position (translateY
-  // -40, opacity 0), sits for a short beat while the top of the
-  // promoted card settles, then slides DOWN into place. Direction is
-  // unambiguous: starts above, ends at 0 — clear top-to-bottom
-  // curtain. Delay tightened from 400 → 200ms since we no longer wait
-  // for a fade-in grow-forward on the top half.
-  useEffect(() => {
-    bottomTranslateY.value = -40;
-    bottomOpacity.value = 0;
-    bottomTranslateY.value = withDelay(
-      200,
-      withTiming(0, { duration: 600, easing: Easing.out(Easing.cubic) }),
-    );
-    bottomOpacity.value = withDelay(
-      200,
-      withTiming(1, { duration: 600, easing: Easing.out(Easing.cubic) }),
-    );
-  }, [currentIndex]);
-
-  const bottomAnimStyle = useAnimatedStyle(() => ({
-    opacity: bottomOpacity.value,
-    transform: [{ translateY: bottomTranslateY.value }],
-  }));
+  // Reveal the front card in the same commit that gives it the new vehicle's
+  // content. `promoteNextCard` hides it (opacity 0) for the slide-in;
+  // `finishPromotion` deliberately does NOT put it back, because that write
+  // lands frames before React swaps the content. A layout effect runs
+  // straight after the commit that changes `currentIndex`, so the card
+  // becomes visible and correct on the same frame.
+  useLayoutEffect(() => {
+    cardOpacity.value = 1;
+  }, [currentIndex, cardOpacity]);
+  // Backstop for the one case the effect above can't catch: two promotions
+  // racing means `finishPromotion` can call `setCurrentIndex` with the index
+  // it already holds, React bails out, and nothing re-runs. Retiring the
+  // promoting card always commits though, so hang the recovery off that —
+  // whatever happened, the front card is never left invisible.
+  useLayoutEffect(() => {
+    if (safePromotingIndex !== null) return;
+    cardOpacity.value = 1;
+  }, [safePromotingIndex, cardOpacity]);
 
   const panGesture = Gesture.Pan()
     .activeOffsetX([-15, 15])
@@ -388,6 +438,13 @@ export function VehicleMaintenanceCard({
   ) => {
     const items = maxItems ? vehicle.maintenanceItems.slice(0, maxItems) : vehicle.maintenanceItems;
     const isPreview = maxItems != null;
+    // Null when the vehicle has no usable URL (Home only supplies one for a
+    // cached transparent-background image) or when the URL already failed.
+    const remoteImageUri = resolveVehicleCardImageUri(
+      fetchedImageUrls[vehicle.id],
+      vehicle.imageUrl,
+      failedImageUris,
+    );
     // Both the preview and the full card claim this coach-mark id on
     // purpose. Which one is on screen depends on the vehicle and the scroll
     // position, and the registry resolves several claimants to the topmost
@@ -441,31 +498,37 @@ export function VehicleMaintenanceCard({
               </Text>
             </View>
             <Image
-              source={vehicle.localImage || { uri: fetchedImageUrls[vehicle.id] || vehicle.imageUrl }}
+              source={
+                vehicle.localImage ??
+                (remoteImageUri ? { uri: remoteImageUri } : FALLBACK_VEHICLE_IMAGE)
+              }
               style={styles.vehicleImage}
               resizeMode="contain"
+              onError={
+                remoteImageUri
+                  ? () => handleImageLoadError(remoteImageUri)
+                  : undefined
+              }
             />
           </View>
         </View>
       </View>
 
       {/* Bottom Section - Maintenance List.
-          Slides down from ABOVE its final position (translateY -40
-          → 0) with a 400ms delay after the card mounts. Driven by
-          `bottomAnimStyle` — a shared-value pair reset + animated
-          per vehicle change in a useEffect. Reanimated's built-in
-          `entering` FadeInDown was too subtle (25pt travel) and
-          the perceived direction wasn't clear enough; controlling
-          it explicitly makes the top-to-bottom curtain drop
-          unambiguous.
+          Keyed by vehicle so it REMOUNTS on every card change: the
+          curtain drop then replays from its own mount state instead
+          of from a card-wide shared value that has to be reset and
+          re-armed (see CardBottomSection's header for what that cost
+          us). Reanimated's built-in `entering` FadeInDown was too
+          subtle (25pt travel) and the perceived direction wasn't
+          clear enough; controlling it explicitly makes the
+          top-to-bottom curtain drop unambiguous.
           Skipped entirely when `hideBottom` is set (back card) —
           otherwise the back card's bottom would sit at full opacity
           under the front card's drop-down and the user would see
           the same content twice. */}
       {hideBottom ? null : (
-      <Animated.View
-        style={[styles.bottomSection, bottomAnimStyle]}
-      >
+      <CardBottomSection key={`bottom-${vehicle.id}`}>
         <View style={styles.maintenanceList}>
           {items.map((item, index) => (
             <View
@@ -519,22 +582,22 @@ export function VehicleMaintenanceCard({
             </View>
           ))}
         </View>
-      </Animated.View>
+      </CardBottomSection>
       )}
     </View>
     </CoachTarget>
     );
   };
 
-  const frontVehicle = vehicles[currentIndex];
-  const canSwipe = vehicles.length > 1;
+  const frontVehicle = vehicles[safeIndex];
+  const canSwipe = vehicleCount > 1;
 
   // Tap the active card → open it on the Cars tab. Implemented as an RNGH
   // Tap (not an RN Pressable) so it can be made EXCLUSIVE with the swipe
   // pan — a horizontal swipe activates the pan, which suppresses the tap,
   // so swiping no longer registers as a press.
   const handleCardPress = () => {
-    const vin = vehicles[currentIndex]?.vin;
+    const vin = vehicles[safeIndex]?.vin;
     // Drive the shared vehicle store; the Cars carousel listens to this
     // (Effect A) and rotates to the matching car, which in turn syncs the
     // page background + maintenance tracker via its onActiveIndexChange.
@@ -561,19 +624,22 @@ export function VehicleMaintenanceCard({
   // a vertical drag recognizes NEITHER (pan needs horizontal, tap fails on
   // move) so the touch falls through to the ScrollView.
   const composedGesture = Gesture.Race(panGesture, tapGesture);
-  // Size the swiper container to the ACTIVE vehicle's measured card height
-  // (not Math.max across all vehicles). Otherwise a short "All systems healthy"
-  // card sits inside a container sized for the tallest possible card and the
-  // More Services section below gets pushed down with dead air. The back-card
-  // preview is `position: absolute` so it doesn't affect this measurement.
-  // Falls back to max when the active vehicle's height hasn't been measured yet
-  // so we never collapse the slot.
-  const resolvedCardHeight = (() => {
-    const heights = Object.values(measuredHeights);
-    if (heights.length === 0) return undefined;
-    const activeHeight = frontVehicle ? measuredHeights[frontVehicle.id] : undefined;
-    return activeHeight ?? Math.max(...heights);
-  })();
+  // Size the swiper container to the measured height of the vehicle whose card
+  // is actually ON SCREEN (not Math.max across all vehicles — a short "All
+  // systems healthy" card would then sit in a container sized for the tallest
+  // possible card and the More Services section below gets pushed down with
+  // dead air). During a promotion that vehicle is the INCOMING one: the
+  // promoting card is already in the front slot while `currentIndex` still
+  // points at the outgoing card, so sizing from `currentIndex` held the wrong
+  // height for the whole 260ms slide plus React's commit latency and then
+  // snapped — the height jump between cards. The back-card preview is
+  // `position: absolute` so it doesn't affect this measurement.
+  const visibleVehicle = vehicles[safePromotingIndex ?? safeIndex];
+  const resolvedCardHeight = resolveCardHeight(
+    measuredHeights,
+    visibleVehicle?.id,
+    vehicles.map((v) => v.id),
+  );
 
   // Smooth post-swipe reflow: the swipe gesture itself only transforms the
   // front card (no layout change). When the swipe settles and the active
@@ -605,6 +671,10 @@ export function VehicleMaintenanceCard({
       }
       return { ...prev, [vehicleId]: height };
     });
+  };
+
+  const handleImageLoadError = (uri: string) => {
+    setFailedImageUris((prev) => (prev[uri] ? prev : { ...prev, [uri]: true }));
   };
 
   return (
@@ -639,7 +709,7 @@ export function VehicleMaintenanceCard({
             Only show it once there are actually 3+ vehicles so the stack
             depth stays proportional to the car count (1→flat, 2→two tiers,
             3+→capped three tiers). */}
-        {vehicles.length >= 3 && (
+        {vehicleCount >= 3 && (
           <View style={styles.stackedCard}>
             <BlurView
               intensity={40}
@@ -663,7 +733,7 @@ export function VehicleMaintenanceCard({
               here means the back card is identical to what the
               incoming front card will show, so the fade-in is
               actually seamless. */}
-          {canSwipe && promotingIndex === null && (
+          {canSwipe && safePromotingIndex === null && (
             <View style={styles.backCard}>
               {/* Back card renders TOP ONLY (image + name + VIN).
                   Bottom section is deliberately hidden so it doesn't
@@ -672,7 +742,7 @@ export function VehicleMaintenanceCard({
                   running on top — otherwise the user sees the same
                   content twice: once from the back card, then
                   again as the front card's bottom slides in. */}
-              {renderCardContent(vehicles[backIndex], undefined, true)}
+              {renderCardContent(vehicles[safeBackIndex], undefined, true)}
             </View>
           )}
 
@@ -682,11 +752,11 @@ export function VehicleMaintenanceCard({
               `promotionProgress` climbs to 1. Top-only content so the
               bottom-curtain drop on the incoming front card doesn't
               double up under the promotion. */}
-          {canSwipe && promotingIndex !== null && (
+          {canSwipe && safePromotingIndex !== null && (
             <Animated.View
               style={[styles.backCard, styles.promotingCard, promotingCardStyle]}
             >
-              {renderCardContent(vehicles[promotingIndex], undefined, true, true)}
+              {renderCardContent(vehicles[safePromotingIndex], undefined, true, true)}
             </Animated.View>
           )}
 
@@ -707,10 +777,10 @@ export function VehicleMaintenanceCard({
         </Animated.View>
 
         {/* Swipe indicator — only when there's more than one vehicle. */}
-        {vehicles.length > 1 && (
+        {vehicleCount > 1 && (
           <View style={styles.dotsRow}>
             {vehicles.map((_, i) => (
-              <PaginationDot key={i} index={i} activeIndex={currentIndex} />
+              <PaginationDot key={i} index={i} activeIndex={safeIndex} />
             ))}
           </View>
         )}
