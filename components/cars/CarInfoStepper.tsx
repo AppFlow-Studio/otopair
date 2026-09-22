@@ -67,6 +67,7 @@ import {
   useVehicleFallbackProfile,
 } from "@/hooks/useOemServiceIntervals";
 import { useBookableServices } from "@/hooks/useBookableServices";
+import { footerPaddingBottom } from "@/lib/footerSafeArea";
 
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -530,6 +531,15 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
   vehicleConfigId = null,
 }: CarInfoStepperProps, ref) {
   const insets = useSafeAreaInsets();
+  // The stepping footer is the only screen-anchored block in this component,
+  // and on Android it has to clear the system navigation bar. iOS keeps the
+  // hand-tuned flat value — see the comment at the footer itself.
+  const footerPadBottom = footerPaddingBottom({
+    isAndroid: Platform.OS === "android",
+    bottomInset: insets.bottom,
+    base: scale(20),
+    gap: scale(8),
+  });
 
   // Which tiles this specific car is worth asking about — Quick Check Spec v2
   // §4. Single source of truth: the grid, the "N of M" counter, canGoNext,
@@ -1273,13 +1283,21 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
           </Animated.View>
 
           {/* Footer */}
-          {/* paddingBottom was originally `insets.bottom + scale(4)`
-              (~38pt above screen bottom), then scale(4) (flush with
-              home indicator). Ahmad asked for "slightly higher" than
-              flush — scale(20) lands the Finish for now link a clean
-              ~20pt above the home indicator. Dots / Complete pill
-              ride above that. */}
-          <Animated.View style={[s.steppingFooter, { paddingBottom: scale(20), opacity: mountFooterFade }]}>
+          {/* iOS keeps the tuned flat value. paddingBottom was originally
+              `insets.bottom + scale(4)` (~38pt above screen bottom), then
+              scale(4) (flush with the home indicator); Ahmad asked for
+              "slightly higher" than flush, and scale(20) lands the Finish
+              for now link a clean ~20pt above the indicator with the dots /
+              Complete pill riding above it.
+
+              Android cannot take a flat value: there the bottom strip is a
+              real system navigation bar that swallows touches, so scale(20)
+              rendered "Finish for now" INSIDE it and the link could not be
+              pressed at all (3-button nav, insets.bottom ~48dp). There we add
+              insets.bottom back, with scale(20) kept as the floor. The flex:1
+              body pays for the extra height and the square cards shrink to
+              fit — see the squareCardHeight budget in renderServiceGrid. */}
+          <Animated.View style={[s.steppingFooter, { paddingBottom: footerPadBottom, opacity: mountFooterFade }]}>
             {/* Progress dots */}
             <View style={s.dotsRow}>
               {fired.map((id) => (
@@ -1511,7 +1529,8 @@ const s = StyleSheet.create({
     // the footer reads as its own block, but small enough that the
     // flex:1 body doesn't shrink below the cards' fixed heights
     // (going to scale(96) made the cards overflow up into the
-    // header).
+    // header). The Android nav-bar inset added to paddingBottom
+    // spends from the same budget, so treat scale(48) as a ceiling.
     paddingTop: scale(48),
     gap: scale(12),
     alignItems: "center",
