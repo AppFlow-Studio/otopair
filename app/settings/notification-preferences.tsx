@@ -14,7 +14,7 @@
  * TICKET: OTO-XXX
  */
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState, Linking, Pressable, ScrollView, StyleSheet, Switch, View, ActivityIndicator } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -43,12 +43,12 @@ const ToggleRow = ({
   value: boolean;
   onValueChange: (next: boolean) => void;
   icon: any;
-  /** iOS has not authorised notifications, so nothing here can be delivered
-   *  yet. The row stays EDITABLE — the banner promises these apply once
-   *  permission is granted, and preferences are stored server-side, so a
-   *  driver setting them up first is doing something useful. It is only
-   *  de-emphasised, because five vivid blue switches under a "notifications
-   *  are off" banner read as a contradiction (Ahmad, 2026-09-23). */
+  /** iOS has not authorised notifications, so nothing here can be delivered.
+   *  The row renders OFF and is non-interactive: a switch you can slide to ON
+   *  while the banner above says notifications are off is the contradiction
+   *  this screen exists to remove. The driver's stored preferences are NOT
+   *  changed — they are only hidden behind the real OS state, and reappear
+   *  exactly as they were the moment permission is granted. */
   pending?: boolean;
 }) => (
   // Plain row — the native Switch is the only toggle control (tapping the
@@ -67,8 +67,9 @@ const ToggleRow = ({
     </View>
     {/* Native iOS toggle. */}
     <Switch
-      value={value}
+      value={pending ? false : value}
       onValueChange={onValueChange}
+      disabled={pending}
       trackColor={{ false: '#D1D5DB', true: BrandColors.secondary }}
       ios_backgroundColor="#D1D5DB"
     />
@@ -230,6 +231,35 @@ export default function NotificationPreferencesScreen() {
     return () => sub.remove();
   }, [readOsStatus]);
 
+  /**
+   * Ask iOS on every visit, for as long as it has never been asked.
+   *
+   * "Not now" on the onboarding step records a local 'denied' WITHOUT asking
+   * the OS, so iOS stays `undetermined` — and while it is undetermined the
+   * system dialog still shows. So a driver who skipped the step gets a real
+   * prompt each time they open this screen, which is the behaviour asked for.
+   *
+   * The hard limit, and the reason this is not a blanket "always prompt":
+   * iOS shows that dialog ONCE. The moment the driver answers it — either way
+   * — the status leaves `undetermined` and requestPermissionsAsync returns the
+   * stored answer silently, with nothing on screen. Re-asking then would be a
+   * button that visibly does nothing, so from that point the banner switches
+   * to deep-linking into Settings instead.
+   */
+  const promptedThisVisit = useRef(false);
+  useEffect(() => {
+    if (osStatus !== 'undetermined' || promptedThisVisit.current) return;
+    promptedThisVisit.current = true;
+    (async () => {
+      try {
+        await Notifications.requestPermissionsAsync();
+      } catch {
+        // Nothing useful to say; the status re-read below reflects reality.
+      }
+      void readOsStatus();
+    })();
+  }, [osStatus, readOsStatus]);
+
   const osBlocked = osStatus != null && osStatus !== 'granted' && osStatus !== 'provisional';
 
   const handleEnableOs = useCallback(async () => {
@@ -376,9 +406,9 @@ const styles = StyleSheet.create({
   sectionTitle: {
     marginBottom: Spacing.sm,
   },
-  // Deliberately opacity rather than a greyed track: the switch must still
-  // show WHICH way it is set. A neutral track would read as "off" and lose
-  // the driver's actual choice.
+  // Rows are forced OFF and non-interactive while iOS has not authorised.
+  // The dimming says "not yours to set yet" rather than "you turned these
+  // off" — without it a row of dead grey switches reads as a saved choice.
   toggleRowPending: { opacity: 0.55 },
   toggleRow: {
     flexDirection: 'row',
