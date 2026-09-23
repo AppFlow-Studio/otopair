@@ -642,7 +642,14 @@ export default function DeleteAccountScreen() {
               paddingBottom:
                 24 +
                 (isSurveyStep
-                  ? Math.max(sheetKeyboardInset - insets.bottom, 0) * 0.32 + 8
+                  ? Platform.OS === "android"
+                    // Android draws edge to edge: the keyboard covers the
+                    // sheet instead of resizing the window, and a sheet at its
+                    // height cap cannot rise clear of it. Scroll room for the
+                    // part it can cover lets the scrollToEnd on keyboard-show
+                    // bring the details field, Submit and Skip above it.
+                    ? Math.max(sheetKeyboardInset - sheetLayout.bottomInset, 0) + 8
+                    : Math.max(sheetKeyboardInset - insets.bottom, 0) * 0.32 + 8
                   : 0),
             },
           ]}
