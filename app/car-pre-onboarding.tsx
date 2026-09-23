@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  BackHandler,
   Dimensions,
   Keyboard,
   KeyboardAvoidingView,
@@ -25,7 +26,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useLocalSearchParams } from "expo-router";
+import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { useMutation, useQuery } from "convex/react";
 import { ArrowLeft, Check } from "lucide-react-native";
@@ -297,7 +298,7 @@ export default function CarPreOnboardingScreen() {
     width: `${progressWidth.value}%`,
   }));
 
-  const handleBack = () => {
+  const handleBack = useCallback(() => {
     Keyboard.dismiss();
     setKeyboardTop(null);
     ctaLiftAnim.value = withTiming(0, { duration: 250 });
@@ -308,7 +309,21 @@ export default function CarPreOnboardingScreen() {
       return;
     }
     animateTransition(stepIndex - 1, 'back');
-  };
+  }, [animateTransition, ctaLiftAnim, router, stepIndex]);
+
+  // Android's back button steps back through the questions like the arrow
+  // at the top. Unhandled, it popped the whole questionnaire and dropped the
+  // user on the previous screen mid-way through.
+  useFocusEffect(
+    useCallback(() => {
+      if (Platform.OS !== "android") return undefined;
+      const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+        handleBack();
+        return true;
+      });
+      return () => subscription.remove();
+    }, [handleBack]),
+  );
 
   const handleContinue = async () => {
     Keyboard.dismiss();
