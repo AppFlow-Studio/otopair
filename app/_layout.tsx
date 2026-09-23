@@ -35,6 +35,7 @@ import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useAppFonts } from "@/hooks/use-fonts";
 import { useConsoleToConvex } from "@/hooks/useConsoleToConvex";
 import { useEnsureConvexUser } from "@/hooks/useEnsureConvexUser";
+import { useNotificationHandler } from "@/hooks/useNotificationHandler";
 import { useRefreshPushToken } from "@/hooks/useRefreshPushToken";
 import { useOtopairDeepLinks } from "@/hooks/useOtopairDeepLinks";
 import { clearUserSessionState } from "@/lib/session-state";
@@ -95,6 +96,7 @@ function EnsureConvexUserRecord() {
   const ensureUser = useEnsureConvexUser();
   const lastUserRef = useRef<string | null>(null);
   const [retryTrigger, setRetryTrigger] = useState(0);
+  useNotificationHandler();
   useRefreshPushToken();
   useOtopairDeepLinks();
 

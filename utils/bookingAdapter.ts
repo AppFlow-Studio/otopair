@@ -102,6 +102,24 @@ export interface ConvexBookingWithDetails {
   pickupRequestedAtMs?: number | null;
   pickupResponse?: "acknowledged" | "bringing_out" | "declined" | null;
   pickupRespondedAtMs?: number | null;
+  /** History-list classification (terminal bookings only; null while the
+   *  booking is still active). Lets the card tell a real completed service
+   *  from a cancelled-with-pickup booking that only captured the $20 forfeit
+   *  fee — which used to read as e.g. a "$20 Diagnostic Scan". See
+   *  convex getByUserIdWithDetails / docs/mobile-pickup-past-services-spec.md §1. */
+  historyOutcome?:
+    | "completed"
+    | "cancelled_pickup"
+    | "cancelled"
+    | "no_show"
+    | null;
+  /** Amount to render on the history row, resolved server-side: the captured
+   *  service total when completed, else the cancellation / pickup fee in cents
+   *  (0 when waived). */
+  historyAmountCents?: number | null;
+  /** Raw pickup / cancellation fee context (0 = waived). */
+  cancellation_fee_cents?: number | null;
+  cancellation_kind?: "free" | "late_cancel" | "no_show" | null;
   quote_state?: "pending" | "ready" | "expired" | "cancelled" | null;
   quote_expires_at?: number | null;
   quote_dismissed_at_ms?: number | null;
@@ -305,6 +323,10 @@ export function adaptConvexBookingWithDetailsToCard(row: ConvexBookingWithDetail
     invoiceNumber: row.invoice_number,
     pickupRequestedAtMs: row.pickupRequestedAtMs ?? undefined,
     pickupResponse: row.pickupResponse ?? undefined,
+    historyOutcome: row.historyOutcome ?? undefined,
+    historyAmountCents: row.historyAmountCents ?? undefined,
+    cancellationFeeCents: row.cancellation_fee_cents ?? undefined,
+    cancellationKind: row.cancellation_kind ?? undefined,
     quoteType,
   };
 }
