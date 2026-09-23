@@ -42,6 +42,17 @@ export const FORCE_TUTORIAL_EVERY_LAUNCH = __DEV__ && false;
 export const FORCE_COACH_MARKS_EVERY_LAUNCH = __DEV__ && false;
 
 /**
+ * Always open on Home, ignoring the route a reload restored.
+ *
+ * Expo Router keeps the current URL across a dev reload, so reloading while
+ * three screens deep into the booking flow drops you back in three screens
+ * deep — with whatever half-state that screen expects already gone. A cold
+ * start in production always lands on Home, so this is dev catching up with
+ * how the app actually behaves for a driver, not a behaviour change.
+ */
+export const START_AT_HOME_ON_RELOAD = __DEV__ && false;
+
+/**
  * Start the spotlight tour on a given step instead of the first one.
  *
  * Each step points at a different element on a different tab, and the only

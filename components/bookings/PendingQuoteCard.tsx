@@ -28,6 +28,7 @@ import { Text } from "@/components/shared-ui";
 import { type Booking } from "@/components/bookings/BookingCard";
 import { BookingProgressBar } from "@/components/bookings/BookingProgressBar";
 import { getBookingStageView } from "@/utils/bookingStages";
+import { titleCaseVehicleName as titleCase } from '@/lib/vehicleName';
 
 // ============================================================================
 // HELPERS
@@ -83,9 +84,7 @@ function parseRotorSpecs(notes: string | undefined): {
   };
 }
 
-function titleCase(str: string): string {
-  return str.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
-}
+
 
 // ============================================================================
 // COMPONENT

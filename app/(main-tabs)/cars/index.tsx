@@ -113,6 +113,15 @@ import { PackageQuestionsSheet } from "@/components/cars/PackageQuestionsSheet";
 import { useVehicleReadiness } from "@/hooks/useVehicleReadiness";
 import { ChevronRight, ScanLine, Wrench } from "lucide-react-native";
 import { useCoachAnchor } from "@/components/coach/useCoachAnchor";
+import { titleCaseVehicleName as titleCase } from '@/lib/vehicleName';
+
+/**
+ * The floating tab bar's own height above the safe-area inset, measured off
+ * the simulator (pill spans ~784-849pt on an 874pt screen), plus the gap that
+ * keeps the last row from sitting flush against it.
+ */
+const TAB_BAR_VISUAL_HEIGHT = 56;
+const TAB_BAR_GAP = 16;
 
 // ============================================================================
 // HELPERS
@@ -121,28 +130,6 @@ import { useCoachAnchor } from "@/components/coach/useCoachAnchor";
 // Brand acronyms that should stay fully uppercase even after title-casing
 // (e.g. "BMW 740" was reading as "Bmw 740" before this list). Add new
 // acronyms here rather than special-casing at call sites.
-const BRAND_ACRONYMS = new Set([
-  "BMW",
-  "GMC",
-  "MG",
-  "RAM",
-  "FIAT",
-  "SRT",
-  "BYD",
-  "AMG",
-]);
-
-function titleCase(str: string): string {
-  return str
-    .split(' ')
-    .map((w) => {
-      const upper = w.toUpperCase();
-      if (BRAND_ACRONYMS.has(upper)) return upper;
-      const lower = w.toLowerCase();
-      return lower.charAt(0).toUpperCase() + lower.slice(1);
-    })
-    .join(' ');
-}
 
 // ============================================================================
 // VEHICLE-SPECIFIC DATA
@@ -290,6 +277,23 @@ const NUMBER_WORDS: Record<number, string> = {
 export default function CarsHomeScreen() {
   const toast = useToast();
   const insets = useSafeAreaInsets();
+  /**
+   * Clearance for the floating tab bar at the end of the scroll.
+   *
+   * styles.scrollContent had a flat scale(120). scale() is a WIDTH ratio, so
+   * the room reserved for a bottom bar grew and shrank with how wide the phone
+   * is, and ignored insets.bottom entirely — the one measurement that actually
+   * moves the bar up and down. On a narrow phone with a tall home-indicator
+   * inset it under-reserves, and the last rows finish underneath the bar
+   * instead of above it (#265).
+   *
+   * Math.max keeps whatever the old constant gave on devices where it was
+   * already sufficient, so this can only ever add clearance, never remove it.
+   */
+  const bottomClearance = Math.max(
+    scale(120),
+    insets.bottom + TAB_BAR_VISUAL_HEIGHT + TAB_BAR_GAP,
+  );
   const aiStepBottomClearance = scale(118) + insets.bottom;
   const isFocused = useIsFocused();
   const router = useRouter();
@@ -376,6 +380,17 @@ export default function CarsHomeScreen() {
   const buttonFade = useRef(new Animated.Value(0)).current;
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const scoreCountRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // The score count-up is cleared when it finishes and when the health sheet
+  // is closed, but not if the screen goes away mid-animation — it kept ticking
+  // setState into an unmounted tree for up to a second. Cheap to hold, but
+  // this is exactly the shape of thing that accumulates across a long session
+  // (#261).
+  useEffect(
+    () => () => {
+      if (scoreCountRef.current) clearInterval(scoreCountRef.current);
+    },
+    [],
+  );
   // Ref that always holds the latest computed score — avoids stale closures
   const latestScoreRef = useRef(0);
   // Ref that holds the latest estimated (pre-confirmed) score
@@ -1596,19 +1611,31 @@ export default function CarsHomeScreen() {
     });
   }, [mainPageSlideX, mainPageFade, healthPageSlideX, healthPageFade, pageSlideX, pageFade]);
 
-  // Auto-open stepper when navigated from Home's "Finish Setup" button
+  // Auto-open stepper when navigated from Home's "Finish Setup" button.
+  //
+  // The guard used to be a plain `useRef(false)` that was set true on the
+  // first open and never reset. This screen is a TAB — it mounts once and
+  // stays mounted for the life of the process — so the stepper auto-opened
+  // exactly once per launch. Every later "Finish Setup -> pick a car" landed
+  // on the vehicle page and did nothing at all: no stepper, no spinner, no
+  // error. With three cars waiting, the second and third both failed that way
+  // (#274).
+  //
+  // The trigger is now the param itself, consumed on arrival. Clearing it
+  // re-arms the ref, so each navigation fires once and the next one still
+  // works. The ref only guards a double-invoke inside one navigation (React
+  // StrictMode runs effects twice in dev).
   const openStepperFired = useRef(false);
   useEffect(() => {
-    if (
-      params.openStepper === 'true' &&
-      !openStepperFired.current &&
-      activeOwnershipId &&
-      isFocused
-    ) {
-      openStepperFired.current = true;
-      openStepperDirectly();
+    if (params.openStepper !== 'true') {
+      openStepperFired.current = false;
+      return;
     }
-  }, [params.openStepper, activeOwnershipId, isFocused, openStepperDirectly]);
+    if (openStepperFired.current || !activeOwnershipId || !isFocused) return;
+    openStepperFired.current = true;
+    router.setParams({ openStepper: undefined });
+    openStepperDirectly();
+  }, [params.openStepper, activeOwnershipId, isFocused, openStepperDirectly, router]);
 
   // Maintenance input modal state
   const [maintenanceModalVisible, setMaintenanceModalVisible] = useState(false);
@@ -1888,7 +1915,10 @@ export default function CarsHomeScreen() {
       <ScrollView
         ref={scrollViewRef}
         style={styles.scrollView}
-        contentContainerStyle={[styles.scrollContent, { paddingTop: insets.top }]}
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingTop: insets.top, paddingBottom: bottomClearance },
+        ]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         automaticallyAdjustKeyboardInsets

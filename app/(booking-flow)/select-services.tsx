@@ -66,6 +66,7 @@ import { VehiclePuck } from "@/components/booking-flow/VehiclePuck";
 import { TABS, type TaxonomyTab } from "@/constants/serviceTaxonomy";
 import { useBookingStore } from "@/stores/useBookingStore";
 import type { ServiceCategory } from "@/stores/types/store.types";
+import { useCoachAnchor } from "@/components/coach/useCoachAnchor";
 
 /** Map the legacy `initialServiceCategory` signal (set by home cards /
  *  maintenance / recommendation deep-links pre-v5) onto a v5 tab.
@@ -101,6 +102,8 @@ const SHEET_H_FULL = SCREEN_HEIGHT * 0.92;
 const SHEET_H_PEEK = SCREEN_HEIGHT * 0.18;
 
 export default function SelectServicesScreen() {
+  const servicesAnchor = useCoachAnchor("booking.services", 26);
+
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { entry } = useLocalSearchParams<{ entry?: string }>();
@@ -698,8 +701,11 @@ export default function SelectServicesScreen() {
             <HeroCardMostBooked />
           </View>
 
-          {/* Category list */}
-          <View style={styles.list}>
+          {/* Category list. Also the coach anchor for the booking
+              walkthrough's first hint — the sheet itself fills the screen,
+              and a hole that big points at everything and therefore at
+              nothing. */}
+          <View style={styles.list} {...servicesAnchor}>
             {Platform.OS === "ios" ? (
               <BlurView intensity={25} tint="light" style={StyleSheet.absoluteFill} />
             ) : null}

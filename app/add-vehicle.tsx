@@ -32,6 +32,7 @@ import { useAction } from 'convex/react';
 import { Text } from '@/components/shared-ui';
 import { Spacing } from '@/constants/theme';
 import { api } from '@/convex/_generated/api';
+import { isRealVin, hasValidVinCheckDigit } from '@/convex/lib/vinIdentity';
 import { checkVehicleEligibility } from '@/lib/vehicleEligibility';
 import { scale, moderateScale } from '@/utils/responsive';
 
@@ -86,7 +87,18 @@ export default function AddVehicleScreen() {
   const handleVinSubmit = async () => {
     const vin = vinNumber.trim().toUpperCase();
     if (vin.length !== 17) {
-      setDecodeError('VIN must be exactly 17 characters');
+      setDecodeError('A VIN is exactly 17 characters — this one is ' + vin.length + '.');
+      return;
+    }
+    // Bug #275. Checked here as well as in the action so a typo is caught
+    // instantly instead of after a decode round trip, and so the message says
+    // what is actually wrong rather than "could not decode".
+    if (!isRealVin(vin)) {
+      setDecodeError('A VIN never contains the letters I, O or Q. Check for a 1 or a 0.');
+      return;
+    }
+    if (!hasValidVinCheckDigit(vin)) {
+      setDecodeError("This VIN doesn't add up — one character looks wrong. Please check it and try again.");
       return;
     }
 
@@ -269,10 +281,22 @@ export default function AddVehicleScreen() {
       {/* Title - Overlaid on image (hidden when keyboard is up) */}
       <Animated.View style={[styles.titleContainer, { top: insets.top + scale(40) }, titleAnimatedStyle]}>
         <Text weight="bold" size="2xl" color="#333333" style={styles.title}>
-          ADD YOUR VEHICLE
+          {isDecoding ? 'READING YOUR VIN' : 'ADD YOUR VEHICLE'}
         </Text>
+        {/*
+          While decoding, the page used to keep showing the "here is where to
+          find your VIN" instruction — a static block of help text for a step
+          the driver had already completed. With the button's spinner dimmed
+          to 0.6 on the disabled style, nothing on screen moved or changed, so
+          a slow decode read as a freeze (#267).
+
+          Swapping the copy is the whole indicator: it says what is happening
+          and roughly how long, without a full-screen overlay.
+        */}
         <Text size="sm" color="#666666" style={styles.description}>
-          Scan or enter your VIN to add your vehicle. You can find your 17-digit Vehicle Identification Number (VIN) on your driver side door panel or on the windshield.
+          {isDecoding
+            ? 'Looking up your vehicle. This usually takes a few seconds.'
+            : 'Scan or enter your VIN to add your vehicle. You can find your 17-digit Vehicle Identification Number (VIN) on your driver side door panel or on the windshield.'}
         </Text>
       </Animated.View>
 
@@ -356,7 +380,11 @@ export default function AddVehicleScreen() {
               style={({ pressed }) => [
                 styles.scanVinButton,
                 pressed && styles.scanVinButtonPressed,
-                isDecoding && styles.buttonDisabled,
+                // Deliberately NOT styles.buttonDisabled here: at 0.6 opacity
+                // the spinner — the one moving element on the screen — faded
+                // into the gradient. The button is already non-interactive via
+                // `disabled`, so it does not need to look switched off too.
+                isDecoding && styles.buttonWorking,
               ]}
             >
               <LinearGradient
@@ -569,5 +597,9 @@ const styles = StyleSheet.create({
   },
   buttonDisabled: {
     opacity: 0.6,
+  },
+  /** Working, not disabled — dimmed just enough to read as busy. */
+  buttonWorking: {
+    opacity: 0.9,
   },
 });

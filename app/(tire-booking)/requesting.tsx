@@ -14,7 +14,7 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef } from "react";
-import { type DimensionValue, StyleSheet, useWindowDimensions, View } from "react-native";
+import { StyleSheet, useWindowDimensions, View } from "react-native";
 
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import LottieView from "lottie-react-native";
@@ -36,6 +36,7 @@ import { TIRE_TIERS, TIRE_TYPES } from "@/constants/tireFlow";
 import { useCreateTireQuoteRequest } from "@/hooks/useCreateTireQuoteRequest";
 import { calculateBookingConfirmLayout } from "@/lib/bookingConfirmSheet";
 import { useTireBookingStore } from "@/stores/useTireBookingStore";
+import { useToast } from "@/hooks/useToast";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 
 interface TireRequestingScreenProps {
@@ -49,6 +50,7 @@ interface TireRequestingScreenProps {
 
 export default function TireRequestingScreen({ onClose, onConfirmed }: TireRequestingScreenProps = {}) {
   const router = useRouter();
+  const toast = useToast();
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const statusSheetRef = useRef<FloatingSheetRef>(null);
   const confirmSheetRef = useRef<QuoteRequestConfirmationSheetRef>(null);
@@ -87,7 +89,23 @@ export default function TireRequestingScreen({ onClose, onConfirmed }: TireReque
   // Fired after the status FloatingSheet finishes its close animation
   // via the Go back path.
   const handleStatusSheetClosed = useCallback(() => {
-    if (confirmedRef.current) return;
+    if (confirmedRef.current) {
+      // Confirmed path: hand over to the confirmation Modal now, not on a
+      // timer.
+      //
+      // FloatingSheet renders inside a native <Modal> and so does the
+      // confirmation sheet. The old code opened the second one 250ms after
+      // calling close(), but FloatingSheet does not unmount until 280ms — so
+      // the confirmation Modal was presented ON TOP of a status sheet that was
+      // still up, and 30ms later that one came down and took its child with
+      // it. iOS dismisses anything presented over a view controller it
+      // dismisses. The result was no confirmation, no error and no control:
+      // the driver was left on the bare "Searching for nearby shops" screen.
+      //
+      // This fires after unmount(), so there is nothing left to present over.
+      confirmSheetRef.current?.open();
+      return;
+    }
     if (onClose) {
       onClose();
       return;
@@ -117,7 +135,11 @@ export default function TireRequestingScreen({ onClose, onConfirmed }: TireReque
       .filter(Boolean)
       .join(" · ");
 
-    void createTireQuoteRequest({
+    // The submit is intentionally not awaited — the confirmation is
+    // optimistic. But a rejection must not vanish: the hook throws when the
+    // user or VIN is still loading, and that used to leave the driver with a
+    // "request sent" screen for a request that was never made.
+    createTireQuoteRequest({
       tiresLabel,
       vehicleVin: requestVehicleVin,
       tireSpecs: {
@@ -127,15 +149,17 @@ export default function TireRequestingScreen({ onClose, onConfirmed }: TireReque
         quantity: count,
         positions: selectedTirePositions,
       },
+    }).catch((err: unknown) => {
+      const message =
+        err instanceof Error ? err.message : "Please try again in a moment.";
+      toast.error("Couldn't request tire quotes", message);
     });
 
-    // Close the status sheet first, then slide up the confirmation Modal.
-    // Stagger so the nested Modal doesn't race the FloatingSheet's close.
+    // Close the status sheet. The confirmation Modal is opened from that
+    // sheet's onClose, once it has actually unmounted — see
+    // handleStatusSheetClosed.
     statusSheetRef.current?.close();
-    setTimeout(() => {
-      confirmSheetRef.current?.open();
-    }, 250);
-  }, [createTireQuoteRequest, requestVehicleVin, selectedTirePositions, tier, tireSize, tireType]);
+  }, [createTireQuoteRequest, requestVehicleVin, selectedTirePositions, tier, tireSize, tireType, toast]);
 
   const handleBackToBooking = useCallback(() => {
     confirmSheetRef.current?.close();
@@ -172,7 +196,7 @@ export default function TireRequestingScreen({ onClose, onConfirmed }: TireReque
         style={[
           styles.copyOverlay,
           isCompactLayout && styles.copyOverlayCompact,
-          { top: confirmLayout.copyTopPercent as DimensionValue },
+          { top: confirmLayout.copyTop },
           copyAnimStyle,
         ]}
         pointerEvents="none"

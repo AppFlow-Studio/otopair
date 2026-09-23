@@ -1,3 +1,7 @@
+// NOTE: this file is NOT run by the suite — vitest's include is `tests/**`, so
+// a test sitting beside its source is invisible. The layout assertions that do
+// run live in tests/bookingConfirmLayout.test.ts. Kept in sync so it is not a
+// trap for whoever eventually wires it up.
 import test from "node:test";
 import assert from "node:assert/strict";
 
@@ -19,17 +23,16 @@ test("booking confirmation sheet keeps a usable minimum on taller phones", () =>
 });
 
 test("booking confirmation layout shortens the sheet on wider compact devices", () => {
-  assert.deepEqual(calculateBookingConfirmLayout({ width: 393, height: 667 }), {
-    copyTopPercent: "22%",
-    lottieTranslateY: -28,
-    sheetHeight: 420,
-  });
+  const layout = calculateBookingConfirmLayout({ width: 393, height: 667 });
+  assert.equal(layout.lottieTranslateY, -28);
+  assert.equal(layout.sheetHeight, 420);
+  // The copy is derived from the pin now, not a fixed percentage.
+  assert.ok(layout.copyTop >= Math.round(667 * 0.31) + layout.lottieTranslateY);
 });
 
 test("booking confirmation layout preserves the tighter narrow phone staging", () => {
-  assert.deepEqual(calculateBookingConfirmLayout({ width: 360, height: 827 }), {
-    copyTopPercent: "29%",
-    lottieTranslateY: -66,
-    sheetHeight: 468,
-  });
+  const layout = calculateBookingConfirmLayout({ width: 360, height: 827 });
+  assert.equal(layout.lottieTranslateY, -66);
+  assert.equal(layout.sheetHeight, 468);
+  assert.ok(layout.copyTop >= Math.round(827 * 0.31) + layout.lottieTranslateY);
 });

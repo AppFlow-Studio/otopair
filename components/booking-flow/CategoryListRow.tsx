@@ -7,8 +7,6 @@
 import React from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import Animated, {
-  SharedTransition,
-  Easing,
 } from "react-native-reanimated";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import {
@@ -24,16 +22,6 @@ import { Text } from "@/components/shared-ui";
 import type { TaxonomyTab } from "@/constants/serviceTaxonomy";
 
 // Shared transition between Screen 1's CategoryListRow title and
-// Screen 2's header title. Reanimated 4's SharedTransition is a
-// ComplexAnimationBuilder — chainable .duration().easing() form
-// is the right way to spec a custom curve. Duration matches the
-// booking-flow stack's fade (320ms) so the icon/title morph and the
-// screen cross-fade settle together; ease-out cubic-bezier reads as
-// a smooth, glassy morph rather than a snappy spring.
-export const categoryTitleTransition = SharedTransition.duration(320).easing(
-  Easing.bezier(0.22, 1, 0.36, 1),
-);
-
 interface CategoryListRowProps {
   tabKey: TaxonomyTab;
   label: string;
@@ -65,17 +53,11 @@ export function CategoryListRow({ tabKey, label, serviceCount }: CategoryListRow
     >
       <Animated.View
         style={styles.iconTile}
-        sharedTransitionTag={`cat-icon-${tabKey}`}
-        sharedTransitionStyle={categoryTitleTransition}
       >
         <Icon size={20} color="#4B5563" strokeWidth={2} />
       </Animated.View>
       <View style={styles.text}>
-        <Animated.Text
-          sharedTransitionTag={`cat-title-${tabKey}`}
-          sharedTransitionStyle={categoryTitleTransition}
-          style={styles.titleSource}
-        >
+        <Animated.Text style={styles.titleSource}>
           {label}
         </Animated.Text>
         <Text size="sm" weight="regular" color="#6B7280">

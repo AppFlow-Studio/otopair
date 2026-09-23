@@ -22,6 +22,10 @@ import { useNotificationsSheetStore } from "@/stores/useNotificationsSheetStore"
 import { useNotificationsFromConvex } from "@/hooks/useNotificationsFromConvex";
 import { type Booking } from "@/components/bookings/BookingCard";
 import { UpcomingBookingCard } from "@/components/bookings/UpcomingBookingCard";
+import {
+  MessageShopSheet,
+  type MessageShopSheetRef,
+} from "@/components/bookings/MessageShopSheet";
 import { PendingQuoteCard } from "@/components/bookings/PendingQuoteCard";
 import { QuoteListSheet, type QuoteListSheetRef } from "@/components/bookings/QuoteListSheet";
 import {
@@ -56,9 +60,7 @@ import { Image, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "
 import Animated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import SegmentedControl from "@react-native-segmented-control/segmented-control";
-import { CoachDemoBooking } from "@/components/coach/CoachDemoBooking";
-import { useCoachTourStore } from "@/stores/useCoachTourStore";
-import { COACH_STEPS } from "@/components/coach/coachSteps";
+import { CoachTarget } from "@/components/coach/CoachTarget";
 
 // ============================================================================
 // TYPES
@@ -96,12 +98,6 @@ function AllVehiclesGlyph({ size = 40, icon = 22 }: { size?: number; icon?: numb
 // ============================================================================
 
 export default function BookingsScreen() {
-  // True only while the spotlight tour is on the bookings step, so the
-  // sample card never appears in the real list.
-  const coachRunning = useCoachTourStore((st) => st.running);
-  const coachIndex = useCoachTourStore((st) => st.index);
-  const showCoachDemoBooking =
-    coachRunning && COACH_STEPS[coachIndex]?.target === "bookings.live";
 
   const insets = useSafeAreaInsets();
   // historyBookings is still imported because handleViewDetails opens the
@@ -348,10 +344,37 @@ export default function BookingsScreen() {
 
   // "Message shop" (in_progress / contact-shop paths) opens the details sheet,
   // which owns the mechanic chat entry — one hop to the conversation.
+  /**
+   * "View Message" opens the conversation, not the booking.
+   *
+   * It used to open the details sheet, which is the booking's own screen —
+   * the driver then had to find and tap Message Mechanic, and landed on a
+   * ticket list after that. Two screens between a tap that says "view
+   * message" and the message. This goes straight there.
+   */
+  const chatSheetRef = useRef<MessageShopSheetRef>(null);
   const handleMessageShop = useCallback(
     (bookingId: string) => {
       const booking = allBookings.find((b) => b.id === bookingId);
-      if (booking) detailsSheetRef.current?.open(booking);
+      if (!booking) return;
+      // A quote request has no shop yet, so there is no thread to open;
+      // the details sheet is the only useful destination.
+      if (!booking.shopId) {
+        detailsSheetRef.current?.open(booking);
+        return;
+      }
+      chatSheetRef.current?.open({
+        bookingId: booking.id,
+        shopId: booking.shopId,
+        status: booking.status,
+        mechanicName: booking.mechanicName,
+        shopName: booking.shopName,
+        mechanicImage: booking.mechanicImage,
+        vehicleLabel:
+          [booking.carYear, booking.carModel].filter(Boolean).join(" ") || undefined,
+        serviceLabel: (booking.services ?? []).join(" \u00b7 ") || undefined,
+        focus: "thread",
+      });
     },
     [allBookings],
   );
@@ -636,9 +659,6 @@ export default function BookingsScreen() {
               ) : (
                 <>
                   <CustomerLateBanner onReschedule={(bookingId) => handleReschedule(String(bookingId))} />
-                  {/* A sample of the real card, only while the tour is on the
-                      step that explains it. See CoachDemoBooking. */}
-                  {showCoachDemoBooking ? <CoachDemoBooking /> : null}
                   {bookings.length > 0 ? (
                     bookings.map((booking, bookingIdx) => {
                       const card =
@@ -668,7 +688,17 @@ export default function BookingsScreen() {
                           onToggleFavorite={handleToggleFavorite}
                         />
                       );
-                      return card;
+                      // The "your booking lives here" hint points at the
+                      // first card. No sample card any more — this hint only
+                      // fires once they actually have a booking, so the real
+                      // one is always there to point at.
+                      return bookingIdx === 0 ? (
+                        <CoachTarget key={booking.id} id="bookings.live" radius={20}>
+                          {card}
+                        </CoachTarget>
+                      ) : (
+                        card
+                      );
                     })
                   ) : (
                     <View style={styles.emptyState}>
@@ -703,6 +733,10 @@ export default function BookingsScreen() {
     />
 
     <BookingDetailsSheet ref={detailsSheetRef} />
+      {/* Mounted here as well as inside the details sheet, so a card's
+          "View Message" can open the thread without presenting the booking
+          screen first. */}
+      <MessageShopSheet ref={chatSheetRef} />
 
     <QuoteListSheet ref={quoteListSheetRef} onQuoteUnavailable={handleQuoteUnavailable} />
 

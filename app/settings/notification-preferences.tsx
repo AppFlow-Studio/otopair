@@ -14,11 +14,12 @@
  * TICKET: OTO-XXX
  */
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Switch, View, ActivityIndicator } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AppState, Linking, Pressable, ScrollView, StyleSheet, Switch, View, ActivityIndicator } from 'react-native';
+import * as Notifications from 'expo-notifications';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useGuardedRouter as useRouter } from '@/hooks/useGuardedRouter';
-import { Tag, Gift, CreditCard, Bell, Calendar, Check } from 'lucide-react-native';
+import { Tag, Gift, CreditCard, Bell, Calendar, Check, BellOff } from 'lucide-react-native';
 import { useQuery } from 'convex/react';
 
 import { BrandColors, Spacing, Text, BlurHeaderOverlay } from '@/components/shared-ui';
@@ -35,16 +36,24 @@ const ToggleRow = ({
   value,
   onValueChange,
   icon: Icon,
+  pending = false,
 }: {
   title: string;
   description: string;
   value: boolean;
   onValueChange: (next: boolean) => void;
   icon: any;
+  /** iOS has not authorised notifications, so nothing here can be delivered.
+   *  The row renders OFF and is non-interactive: a switch you can slide to ON
+   *  while the banner above says notifications are off is the contradiction
+   *  this screen exists to remove. The driver's stored preferences are NOT
+   *  changed — they are only hidden behind the real OS state, and reappear
+   *  exactly as they were the moment permission is granted. */
+  pending?: boolean;
 }) => (
   // Plain row — the native Switch is the only toggle control (tapping the
   // row too would double-fire and cancel the switch out).
-  <View style={styles.toggleRow}>
+  <View style={[styles.toggleRow, pending && styles.toggleRowPending]}>
     <View style={styles.iconContainer}>
       <Icon size={22} color="#4B5563" />
     </View>
@@ -58,8 +67,9 @@ const ToggleRow = ({
     </View>
     {/* Native iOS toggle. */}
     <Switch
-      value={value}
+      value={pending ? false : value}
       onValueChange={onValueChange}
+      disabled={pending}
       trackColor={{ false: '#D1D5DB', true: BrandColors.secondary }}
       ios_backgroundColor="#D1D5DB"
     />
@@ -188,6 +198,86 @@ export default function NotificationPreferencesScreen() {
     []
   );
 
+  /**
+   * The OS gate, which this screen used to ignore entirely.
+   *
+   * Every toggle here is an Otopair-side preference. None of them mean
+   * anything until iOS has actually authorised notifications — and nothing in
+   * the app asked for that unless the driver tapped "Enable" on one onboarding
+   * step. Tapping "Not now" there records a local 'denied' while iOS stays
+   * UNDETERMINED, so the app never appears under Settings > Notifications at
+   * all and there is no way in from the OS side either.
+   *
+   * The result is this screen promising five kinds of notification that can
+   * never arrive (#262). It now shows the real state and offers the prompt.
+   */
+  const [osStatus, setOsStatus] = useState<string | null>(null);
+
+  const readOsStatus = useCallback(async () => {
+    try {
+      const res = await Notifications.getPermissionsAsync();
+      setOsStatus(res.status);
+    } catch {
+      setOsStatus(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    void readOsStatus();
+    // Re-read on resume so returning from iOS Settings reflects immediately.
+    const sub = AppState.addEventListener('change', (next) => {
+      if (next === 'active') void readOsStatus();
+    });
+    return () => sub.remove();
+  }, [readOsStatus]);
+
+  /**
+   * Ask iOS on every visit, for as long as it has never been asked.
+   *
+   * "Not now" on the onboarding step records a local 'denied' WITHOUT asking
+   * the OS, so iOS stays `undetermined` — and while it is undetermined the
+   * system dialog still shows. So a driver who skipped the step gets a real
+   * prompt each time they open this screen, which is the behaviour asked for.
+   *
+   * The hard limit, and the reason this is not a blanket "always prompt":
+   * iOS shows that dialog ONCE. The moment the driver answers it — either way
+   * — the status leaves `undetermined` and requestPermissionsAsync returns the
+   * stored answer silently, with nothing on screen. Re-asking then would be a
+   * button that visibly does nothing, so from that point the banner switches
+   * to deep-linking into Settings instead.
+   */
+  const promptedThisVisit = useRef(false);
+  useEffect(() => {
+    if (osStatus !== 'undetermined' || promptedThisVisit.current) return;
+    promptedThisVisit.current = true;
+    (async () => {
+      try {
+        await Notifications.requestPermissionsAsync();
+      } catch {
+        // Nothing useful to say; the status re-read below reflects reality.
+      }
+      void readOsStatus();
+    })();
+  }, [osStatus, readOsStatus]);
+
+  const osBlocked = osStatus != null && osStatus !== 'granted' && osStatus !== 'provisional';
+
+  const handleEnableOs = useCallback(async () => {
+    // iOS only shows the prompt once. After that the OS owns the answer and
+    // the only honest move is to hand the driver to Settings — same rule the
+    // Permissions Hub already uses.
+    if (osStatus === 'undetermined') {
+      try {
+        await Notifications.requestPermissionsAsync();
+      } catch {
+        // Fall through to the status re-read; nothing useful to say here.
+      }
+      void readOsStatus();
+      return;
+    }
+    await Linking.openSettings();
+  }, [osStatus, readOsStatus]);
+
   return (
     <View style={styles.screen}>
       <BlurHeaderOverlay
@@ -200,6 +290,29 @@ export default function NotificationPreferencesScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[styles.content, { paddingTop: insets.top + 80 }]}
       >
+        {osBlocked ? (
+          <View style={styles.osBanner}>
+            <View style={styles.osBannerIcon}>
+              <BellOff size={18} color="#B45309" strokeWidth={2} />
+            </View>
+            <View style={styles.osBannerText}>
+              <Text weight="bold" size="sm" color="#92400E">
+                Notifications are off for Otopair
+              </Text>
+              <Text size="xs" color="#B45309">
+                {osStatus === 'undetermined'
+                  ? 'These settings take effect once you allow notifications.'
+                  : 'Turn them on in iOS Settings for these to take effect.'}
+              </Text>
+            </View>
+            <Pressable onPress={handleEnableOs} style={styles.osBannerButton}>
+              <Text weight="bold" size="xs" color="#FFFFFF">
+                {osStatus === 'undetermined' ? 'Turn on' : 'Settings'}
+              </Text>
+            </Pressable>
+          </View>
+        ) : null}
+
         {toggleRows.map((row) => (
           <ToggleRow
             key={row.key}
@@ -208,6 +321,7 @@ export default function NotificationPreferencesScreen() {
             value={values[row.key]}
             onValueChange={(next) => handleToggle(row.key, next)}
             icon={row.icon}
+            pending={osBlocked}
           />
         ))}
 
@@ -260,9 +374,42 @@ const styles = StyleSheet.create({
     paddingTop: Spacing['2xl'],
     paddingBottom: Spacing['2xl'],
   },
+  osBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: '#FFFBEB',
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    borderRadius: 14,
+    padding: 12,
+    marginBottom: 16,
+  },
+  osBannerIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: '#FEF3C7',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  osBannerText: {
+    flex: 1,
+    gap: 2,
+  },
+  osBannerButton: {
+    backgroundColor: '#B45309',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+  },
   sectionTitle: {
     marginBottom: Spacing.sm,
   },
+  // Rows are forced OFF and non-interactive while iOS has not authorised.
+  // The dimming says "not yours to set yet" rather than "you turned these
+  // off" — without it a row of dead grey switches reads as a saved choice.
+  toggleRowPending: { opacity: 0.55 },
   toggleRow: {
     flexDirection: 'row',
     alignItems: 'center',

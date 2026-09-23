@@ -4,7 +4,7 @@ import { StripeProvider } from "@stripe/stripe-react-native";
 import { tokenCache } from "@clerk/clerk-expo/token-cache";
 import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
 import { DarkTheme, DefaultTheme, ThemeProvider } from "@react-navigation/native";
-import { Stack, useSegments, type ErrorBoundaryProps } from "expo-router";
+import { Stack, useRootNavigationState, useSegments, type ErrorBoundaryProps } from "expo-router";
 import { guardedRouter as router } from "@/lib/navigationLock";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
@@ -40,6 +40,9 @@ import { useRefreshPushToken } from "@/hooks/useRefreshPushToken";
 import { useOtopairDeepLinks } from "@/hooks/useOtopairDeepLinks";
 import { clearUserSessionState } from "@/lib/session-state";
 import { useAuthStore } from "@/stores/useAuthStore";
+import { CoachProvider } from "@/components/coach/CoachContext";
+import { CoachMarkHost } from "@/components/coach/CoachMarkHost";
+import { START_AT_HOME_ON_RELOAD } from "@/constants/devFlags";
 
 LogBox.ignoreLogs([
   /\[CONVEX M\([^\)]+\)\]/,
@@ -48,6 +51,10 @@ LogBox.ignoreLogs([
 ]);
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
+
+/** Longest the splash may stay up after fonts + auth are ready. Safety net for
+ *  a routing path that never resolves; the normal hand-off is index unmounting. */
+const SPLASH_MAX_HOLD_MS = 4000;
 
 // Global error handler: log to Convex + show modal
 if (typeof global !== "undefined") {
@@ -162,12 +169,27 @@ function EnsureConvexUserRecord() {
 function StartupSplashGate({ children, fontsReady }: { children: ReactNode; fontsReady: boolean }) {
   const { isLoaded } = useAuth();
 
+  /**
+   * Backstop only. app/index.tsx hides the splash when it unmounts — that is
+   * the real hand-off, and it happens once routing has resolved.
+   *
+   * Hiding here the moment fonts and Clerk were ready used to be the whole
+   * story, but routing also waits on the Convex user record, so the splash
+   * lifted early and exposed the routing screen underneath for that gap.
+   *
+   * This timer exists so a routing path that never resolves — no network, a
+   * Convex query that never settles — cannot leave someone staring at a splash
+   * forever. If it fires, the screen behind is index's own splash-coloured
+   * view, which is why that view is no longer a dark spinner.
+   */
   useEffect(() => {
-    if (fontsReady && isLoaded) {
+    if (!fontsReady || !isLoaded) return;
+    const t = setTimeout(() => {
       SplashScreen.hideAsync().catch((err) => {
         console.error("SplashScreen.hideAsync failed", err);
       });
-    }
+    }, SPLASH_MAX_HOLD_MS);
+    return () => clearTimeout(t);
   }, [fontsReady, isLoaded]);
 
   return <>{children}</>;
@@ -270,6 +292,44 @@ function RootErrorBoundary({ error, retry }: ErrorBoundaryProps) {
 
 export { RootErrorBoundary as ErrorBoundary };
 
+/**
+ * Dev-only: open on Home, ignoring the route a reload restored.
+ *
+ * Renders nothing. Runs once, after the navigator is ready — `useSegments`
+ * is empty until then, which would read as "we are at /" and skip the work.
+ */
+function StartAtHomeOnReload() {
+  const navState = useRootNavigationState();
+  const segments = useSegments();
+  const done = useRef(false);
+
+  useEffect(() => {
+    if (!START_AT_HOME_ON_RELOAD || done.current) return;
+    if (!navState?.key || navState.stale) return;
+    done.current = true;
+
+    // `/` routes itself by auth state, and onboarding must not be jumped out
+    // of — a half-finished signup is exactly the state worth keeping.
+    // Typed as a tuple of known groups, so compare through `string` rather
+    // than narrowing against literals TS has already ruled out.
+    const group = segments[0] as string | undefined;
+    const screen = segments[1] as string | undefined;
+    if (!group || group === "(onboarding)") return;
+    if (group === "(main-tabs)" && screen === "home") return;
+
+    // Drop whatever the restored route was stacked on, so a back-swipe from
+    // Home does not land in the middle of a flow that no longer has its state.
+    try {
+      router.dismissAll();
+    } catch {
+      // Nothing to dismiss.
+    }
+    router.replace("/(main-tabs)/home");
+  }, [navState?.key, navState?.stale, segments]);
+
+  return null;
+}
+
 export default function RootLayout() {
   const colorScheme = useColorScheme();
   const [fontsLoaded, fontError] = useAppFonts();
@@ -307,6 +367,11 @@ export default function RootLayout() {
                       text measurement against the fallback font (clipped labels
                       on slow cold starts). */}
                   <OfflineBootGate fontsReady={fontsReady}>
+                  {/* Coach marks live at the ROOT, not on the tab layout.
+                      The booking flow is its own group outside (main-tabs),
+                      so a host mounted there could never reach the screens
+                      the booking walkthrough points at. */}
+                  <CoachProvider>
                   <Stack
                     screenOptions={{
                       headerShown: false,
@@ -321,15 +386,33 @@ export default function RootLayout() {
                       name="(onboarding)"
                       options={{ headerShown: false, gestureEnabled: false }}
                     />
-                    {/* Android: suspend the tabs while a flow is pushed on top.
-                        Home otherwise re-renders under the booking flow on every
-                        cart toggle, location fix and Convex push (it is 2,200
-                        lines and not compiler-memoised), and Cars/Bookings keep
-                        their loops alive. Frozen screens catch up with one render
-                        on return. */}
+                    {/* No transition into the tabs.
+                        The root stack defaults to ios_from_right, which is
+                        right for pushing FORWARD into a detail screen and
+                        wrong for every way you reach the tabs: cold launch
+                        (the app should just open), and ~60 `replace` calls
+                        that are dismissals — finishing a booking, leaving
+                        onboarding, backing out of a flow. Sliding a
+                        dismissal in from the right reads as going deeper
+                        when you are coming back out.
+
+                        Android also suspends the tabs while a flow is pushed
+                        on top (Temur). Home otherwise re-renders under the
+                        booking flow on every cart toggle, location fix and
+                        Convex push (it is 2,200 lines and not compiler-
+                        memoised), and Cars/Bookings keep their loops alive.
+                        Frozen screens catch up with one render on return.
+
+                        The two are independent — one governs the transition,
+                        the other what happens to the screen underneath — so
+                        the merge keeps both rather than picking a side. */}
                     <Stack.Screen
                       name="(main-tabs)"
-                      options={{ headerShown: false, freezeOnBlur: Platform.OS === "android" }}
+                      options={{
+                        headerShown: false,
+                        animation: "none",
+                        freezeOnBlur: Platform.OS === "android",
+                      }}
                     />
                     <Stack.Screen name="(tell-us-about)" options={{ headerShown: false }} />
                     <Stack.Screen name="(tire-booking)" options={{ headerShown: false }} />
@@ -396,6 +479,9 @@ export default function RootLayout() {
                         inside the overlay (Saved Addresses, Payment
                         Methods, etc.) use the normal slide_from_right. */}
                   </Stack>
+                  <StartAtHomeOnReload />
+                  <CoachMarkHost />
+                  </CoachProvider>
                   </OfflineBootGate>
                   <StatusBar style="auto" />
                 </ThemeProvider>

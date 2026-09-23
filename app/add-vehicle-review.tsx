@@ -7,7 +7,7 @@
  */
 
 // 1. React & React Native
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -34,7 +34,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useLocalSearchParams } from 'expo-router';
 import { useGuardedRouter as useRouter } from '@/hooks/useGuardedRouter';
 import { ArrowLeft, Bell, Car, Check, ChevronDown, CircleDot, Cog, Droplet, Fuel, Gauge, History, MapPin, Wrench, X } from 'lucide-react-native';
-import { useAction, useMutation, useQuery } from 'convex/react';
+import { useAction, useConvexAuth, useMutation, useQuery } from 'convex/react';
 
 // 3. App imports
 import { Text } from '@/components/shared-ui';
@@ -49,6 +49,23 @@ import { COLOR_GRADIENTS } from '@/constants/colorGradients';
 import { ColorSwatchSkeletonRow, VehicleImageSkeleton } from '@/components/shared-ui/ColorSwatchSkeleton';
 import { FloatingSheet, type FloatingSheetRef } from '@/components/shared-ui/FloatingSheet';
 import { formatEngineLiters } from '@/utils/vehicleDisplay';
+import { vehicleLabel } from '@/lib/vehicleName';
+
+/** Longest the Add Vehicle button will wait on the paint fetch. */
+const COLOR_WAIT_CAP_MS = 8000;
+
+/**
+ * Convex auth trails Clerk on a cold first run.
+ *
+ * `useConvexAuth().isAuthenticated` flips true only once the Clerk JWT has
+ * actually reached Convex. Until then every authed call sees a null identity —
+ * confirmVehicleForUser answers `{ success: false, error: "Not authenticated" }`
+ * — which is why the first attempt failed and a second run went through.
+ */
+const AUTH_WAIT_MS = 6000;
+const AUTH_POLL_MS = 150;
+const AUTH_RETRIES = 2;
+const AUTH_RETRY_BASE_MS = 700;
 
 // ============================================================================
 // COMPONENT
@@ -115,7 +132,7 @@ function ColorSwatchItem({
         size="xs"
         color={isSelected ? '#1F2937' : '#6B7280'}
         center
-        numberOfLines={2}
+        numberOfLines={3}
         style={styles.swatchLabel}
       >
         {color.label}
@@ -371,6 +388,23 @@ export default function AddVehicleReviewScreen() {
     router.back();
   };
 
+  const { isAuthenticated: convexAuthReady } = useConvexAuth();
+  // Read through a ref so the wait loop below sees the live value rather than
+  // the one captured when the tap happened.
+  const convexAuthReadyRef = useRef(convexAuthReady);
+  useEffect(() => {
+    convexAuthReadyRef.current = convexAuthReady;
+  }, [convexAuthReady]);
+
+  /** Give the JWT a bounded chance to land before calling an authed endpoint. */
+  const waitForConvexAuth = useCallback(async () => {
+    const deadline = Date.now() + AUTH_WAIT_MS;
+    while (!convexAuthReadyRef.current && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, AUTH_POLL_MS));
+    }
+    return convexAuthReadyRef.current;
+  }, []);
+
   const handleAddVehicle = async () => {
     if (!params.vin || !params.trimId || !params.engineId) {
       setError('Missing vehicle data');
@@ -455,7 +489,10 @@ export default function AddVehicleReviewScreen() {
     setError(null);
 
     try {
-      const result = await confirmVehicle({
+      await waitForConvexAuth();
+
+      const submit = () =>
+        confirmVehicle({
         vin: params.vin,
         trimId: params.trimId as Id<'trims'>,
         engineId: params.engineId as Id<'engines'>,
@@ -468,7 +505,20 @@ export default function AddVehicleReviewScreen() {
         cylinders: parseFloat(params.cylinders || '0'),
         fuelType: params.fuelType || 'Gasoline',
         color: selectedColor || undefined,
-      });
+        });
+
+      // Retry only the auth case. Everything else is a real answer and
+      // repeating it would just be slower. The window is short — this is the
+      // JWT arriving, not the network being down.
+      let result = await submit();
+      for (
+        let attempt = 0;
+        attempt < AUTH_RETRIES && !result.success && result.error === 'Not authenticated';
+        attempt++
+      ) {
+        await new Promise((r) => setTimeout(r, AUTH_RETRY_BASE_MS * (attempt + 1)));
+        result = await submit();
+      }
 
       if (result.success) {
         persistImage();
@@ -484,11 +534,21 @@ export default function AddVehicleReviewScreen() {
             vehicleOwnerId: String(result.vehicleOwnerId),
           },
         });
+      } else if (result.error === 'Not authenticated') {
+        // Never show the internal string. It reads as a bug to the driver and
+        // tells them nothing about what to do.
+        setError("We couldn't confirm your session. Check your connection and tap Continue again.");
       } else {
         setError(result.error || 'Failed to add vehicle');
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to add vehicle');
+      // Convex throws carry the function path and a request id — useful in a
+      // log, meaningless to a driver, and they read as a crash. Same reason
+      // "Not authenticated" is mapped above.
+      if (__DEV__) {
+        console.warn('[add-vehicle] confirmVehicleForUser failed', err);
+      }
+      setError("We couldn't add this vehicle. Check your connection and tap Continue again.");
     } finally {
       setIsConfirming(false);
     }
@@ -496,6 +556,35 @@ export default function AddVehicleReviewScreen() {
 
   const displayError = error;
   const isLoading = isConfirming;
+
+  /**
+   * Continue is dead while the paint options are still resolving.
+   *
+   * The colour card renders a skeleton for the whole of `vdbLoading`, so
+   * there is nothing to tap — but Continue stayed live, and a vehicle added
+   * in that window is saved with no colour at all (`color: selectedColor ||
+   * undefined` below). The driver never chose to skip; the choice simply had
+   * not arrived yet.
+   *
+   * Deliberately NOT a requirement that a colour be picked. Testers skipping
+   * the step because they do not realise it is selectable is a separate
+   * discoverability question, called out as out of scope on the ticket.
+   *
+   * Bounded, deliberately. `useVdbColorsForVin` clears isLoading on success,
+   * on error and when there is nothing to look up — but a fetch that never
+   * settles would leave this true forever, and a permanently dead Continue is
+   * a worse bug than the one being fixed here (cf. #231, where the driver was
+   * stranded with no way out). After COLOR_WAIT_CAP_MS the gate lifts and the
+   * old skip-with-no-colour behaviour resumes.
+   */
+  const [colorWaitElapsed, setColorWaitElapsed] = useState(false);
+  useEffect(() => {
+    if (!vdbLoading) return;
+    setColorWaitElapsed(false);
+    const t = setTimeout(() => setColorWaitElapsed(true), COLOR_WAIT_CAP_MS);
+    return () => clearTimeout(t);
+  }, [vdbLoading]);
+  const colorsStillLoading = vdbLoading && !colorWaitElapsed;
 
   // Soft-tint the vehicle-icon circle to match the picked paint
   // color so the color picker feels connected to the card. White
@@ -738,7 +827,7 @@ export default function AddVehicleReviewScreen() {
             {params.year}
           </Text>
           <Text weight="semiBold" size="lg" color="#333333" style={styles.vehicleName}>
-            {params.make} {params.model}
+            {vehicleLabel(params.make, params.model)}
           </Text>
           <Pressable
             onPress={() => { if (ymmTrims.length > 0) setShowTrimSheet(true); }}
@@ -781,13 +870,35 @@ export default function AddVehicleReviewScreen() {
         {(vdbLoading || hasVdbData) && (
           <View style={styles.colorCard}>
             <View style={styles.colorHeaderRow}>
-              <Text weight="semiBold" size="md" color="#1F2937">
+              <Text
+                weight="semiBold"
+                size="md"
+                color="#1F2937"
+                numberOfLines={2}
+                style={styles.colorHeaderTitle}
+              >
                 Choose your {params.make}{"'"}s color
               </Text>
-              <Text size="xs" color="#9CA3AF" numberOfLines={1} style={styles.colorHeaderRight}>
-                {selectedSwatch
-                  ? selectedSwatch.label
-                  : `${CAR_COLORS.length} ${CAR_COLORS.length === 1 ? 'color' : 'colors'}`}
+              {/*
+                Unselected, this slot read "17 colors" — a fact, not an
+                invitation. Testers consistently walked past the row without
+                realising it was tappable, which is the other half of #236 and
+                what #263 reports from the opening state.
+
+                It is deliberately NOT worded as required. A VIN does not
+                encode paint, so there is nothing to preselect and no honest
+                way to claim a choice is mandatory — Continue works without
+                one, by design. So this prompts rather than demands, and turns
+                into the chosen name once a swatch is tapped.
+              */}
+              <Text
+                size="xs"
+                weight={selectedSwatch ? 'regular' : 'semiBold'}
+                color={selectedSwatch ? '#9CA3AF' : '#5299FE'}
+                numberOfLines={2}
+                style={styles.colorHeaderRight}
+              >
+                {selectedSwatch ? selectedSwatch.label : 'Tap to choose'}
               </Text>
             </View>
             {vdbLoading ? (
@@ -883,18 +994,23 @@ export default function AddVehicleReviewScreen() {
         <View style={styles.bottomContainer}>
           <Pressable
             onPress={handleAddVehicle}
-            disabled={isLoading}
+            disabled={isLoading || colorsStillLoading}
+            accessibilityRole="button"
+            accessibilityState={{ disabled: isLoading || colorsStillLoading }}
+            accessibilityHint={
+              colorsStillLoading ? "Available for this vehicle once colors finish loading" : undefined
+            }
             style={({ pressed }) => [
               styles.addButton,
               pressed && styles.buttonPressed,
-              isLoading && styles.buttonDisabled,
+              (isLoading || colorsStillLoading) && styles.buttonDisabled,
             ]}
           >
             {isConfirming ? (
               <ActivityIndicator size="small" color="#5299FE" />
             ) : (
               <Text weight="bold" size="md" color="#5299FE">
-                Continue
+                {colorsStillLoading ? "Loading colors\u2026" : "Continue"}
               </Text>
             )}
           </Pressable>
@@ -922,7 +1038,7 @@ export default function AddVehicleReviewScreen() {
               color="#6B7280"
               style={styles.trimSheetSubtitle}
             >
-              {params.year} {params.make} {params.model}
+              {vehicleLabel(params.make, params.model, params.year)}
             </Text>
           </View>
           <Pressable
@@ -1184,14 +1300,29 @@ const styles = StyleSheet.create({
   },
   colorHeaderRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    // flex-start, not center: either side may now wrap to two lines, and
+    // centring a two-line title against a one-line label reads as misaligned.
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
     marginBottom: scale(14),
     paddingRight: scale(8),
     gap: scale(8),
   },
+  colorHeaderTitle: {
+    // RN defaults flex items to flexShrink: 0, so without this the heading
+    // took its full intrinsic width — "Choose your Mercedes-Benz's color" is
+    // wide enough to push the selected-colour label past the right edge and
+    // over itself (#258). It yields first; the colour name is the part the
+    // driver actually needs to read.
+    flexShrink: 1,
+  },
   colorHeaderRight: {
-    maxWidth: scale(140),
+    // Held at its width while the title shrinks, and allowed a second line so
+    // a long name resolves rather than truncating. The swatch captions are
+    // 64pt wide and clip names like "Midnight Black Metallic", so this is the
+    // one place the full name is legible (#266).
+    flexShrink: 0,
+    maxWidth: scale(150),
     textAlign: 'right',
   },
   colorRow: {
@@ -1200,7 +1331,10 @@ const styles = StyleSheet.create({
     paddingRight: scale(8),
   },
   swatchPress: {
-    width: scale(64),
+    // 64 fitted roughly nine characters a line, which turned every "Designo
+    // ..." variant into the same truncated stub. 78 plus the third line below
+    // resolves most real paint names outright (#266).
+    width: scale(78),
     alignItems: 'center',
   },
   // Always-present wrapper reserves space for the ring so the layout
