@@ -14,4 +14,11 @@ describe("Review & Pay fixed-price presentation", () => {
       expect(read(path)).not.toContain("FixedPriceBadge");
     }
   });
+
+  test("uses the labor-only explanation instead of inline Labor only pills", () => {
+    const payment = read("app/booking/mechanic/[id]/payment.tsx");
+
+    expect(payment).toContain("Labor only — parts not yet included.");
+    expect(payment).not.toContain('label="Labor only"');
+  });
 });

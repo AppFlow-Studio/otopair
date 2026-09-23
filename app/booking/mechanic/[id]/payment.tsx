@@ -29,7 +29,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 
 // 3. Shared UI (design system)
-import { BrandColors, ErrorOccurredModal, EstimatePill, Spacing, Text } from "@/components/shared-ui";
+import { BrandColors, ErrorOccurredModal, Spacing, Text } from "@/components/shared-ui";
 
 // 4. Flow-specific components
 import { BookingPageHeader } from "@/components/booking/pages";
@@ -1086,7 +1086,6 @@ export default function PaymentScreen() {
                     : ""}
                 </Text>
                 <View style={styles.summaryLineRight}>
-                  {breakdown.isLaborOnly && <EstimatePill size="sm" label="Labor only" />}
                   <Text size="sm" weight="bold" color={BrandColors.secondary} numberOfLines={1}>
                     {breakdown.isLaborOnly ? breakdown.rangeFromFormatted : breakdown.rangeFormatted}
                   </Text>
@@ -1108,7 +1107,6 @@ export default function PaymentScreen() {
                   <Text size="sm" weight="medium" color={BrandColors.primary}>
                     {service.name}
                   </Text>
-                  {lineRange.laborOnly && <EstimatePill size="sm" label="Labor only" />}
                   {lineDurationLabel ? (
                     <Text size="sm" weight="regular" color="#6B7280">
                       · {lineDurationLabel}
