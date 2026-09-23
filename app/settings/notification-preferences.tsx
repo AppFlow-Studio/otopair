@@ -36,16 +36,24 @@ const ToggleRow = ({
   value,
   onValueChange,
   icon: Icon,
+  pending = false,
 }: {
   title: string;
   description: string;
   value: boolean;
   onValueChange: (next: boolean) => void;
   icon: any;
+  /** iOS has not authorised notifications, so nothing here can be delivered
+   *  yet. The row stays EDITABLE — the banner promises these apply once
+   *  permission is granted, and preferences are stored server-side, so a
+   *  driver setting them up first is doing something useful. It is only
+   *  de-emphasised, because five vivid blue switches under a "notifications
+   *  are off" banner read as a contradiction (Ahmad, 2026-09-23). */
+  pending?: boolean;
 }) => (
   // Plain row — the native Switch is the only toggle control (tapping the
   // row too would double-fire and cancel the switch out).
-  <View style={styles.toggleRow}>
+  <View style={[styles.toggleRow, pending && styles.toggleRowPending]}>
     <View style={styles.iconContainer}>
       <Icon size={22} color="#4B5563" />
     </View>
@@ -283,6 +291,7 @@ export default function NotificationPreferencesScreen() {
             value={values[row.key]}
             onValueChange={(next) => handleToggle(row.key, next)}
             icon={row.icon}
+            pending={osBlocked}
           />
         ))}
 
@@ -367,6 +376,10 @@ const styles = StyleSheet.create({
   sectionTitle: {
     marginBottom: Spacing.sm,
   },
+  // Deliberately opacity rather than a greyed track: the switch must still
+  // show WHICH way it is set. A neutral track would read as "off" and lose
+  // the driver's actual choice.
+  toggleRowPending: { opacity: 0.55 },
   toggleRow: {
     flexDirection: 'row',
     alignItems: 'center',
