@@ -50,7 +50,7 @@ export const FORCE_COACH_MARKS_EVERY_LAUNCH = __DEV__ && false;
  * start in production always lands on Home, so this is dev catching up with
  * how the app actually behaves for a driver, not a behaviour change.
  */
-export const START_AT_HOME_ON_RELOAD = __DEV__ && true;
+export const START_AT_HOME_ON_RELOAD = __DEV__ && false;
 
 /**
  * Start the spotlight tour on a given step instead of the first one.
