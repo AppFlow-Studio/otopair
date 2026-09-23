@@ -14,7 +14,7 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import "react-native-reanimated";
 import { KeyboardProvider } from "react-native-keyboard-controller";
-import { BackHandler, LogBox } from "react-native";
+import { LogBox, Platform } from "react-native";
 import { SafeAreaProvider, initialWindowMetrics } from "react-native-safe-area-context";
 
 // Suppress the dev-mode red LogBox overlay for Convex mutation/query
@@ -35,6 +35,7 @@ import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useAppFonts } from "@/hooks/use-fonts";
 import { useConsoleToConvex } from "@/hooks/useConsoleToConvex";
 import { useEnsureConvexUser } from "@/hooks/useEnsureConvexUser";
+import { useNotificationHandler } from "@/hooks/useNotificationHandler";
 import { useRefreshPushToken } from "@/hooks/useRefreshPushToken";
 import { useOtopairDeepLinks } from "@/hooks/useOtopairDeepLinks";
 import { clearUserSessionState } from "@/lib/session-state";
@@ -102,6 +103,7 @@ function EnsureConvexUserRecord() {
   const ensureUser = useEnsureConvexUser();
   const lastUserRef = useRef<string | null>(null);
   const [retryTrigger, setRetryTrigger] = useState(0);
+  useNotificationHandler();
   useRefreshPushToken();
   useOtopairDeepLinks();
 
@@ -258,7 +260,7 @@ function PendingDeletionSessionGuard() {
   return null;
 }
 
-function RootErrorBoundary({ error }: ErrorBoundaryProps) {
+function RootErrorBoundary({ error, retry }: ErrorBoundaryProps) {
   useEffect(() => {
     errorBus.set({ visible: true, error });
   }, [error]);
@@ -266,16 +268,24 @@ function RootErrorBoundary({ error }: ErrorBoundaryProps) {
   const message =
     error instanceof Error
       ? error.message
-      : "Something went wrong. Please close and reopen the app.";
+      : "Something went wrong. Tap Try again to reload.";
+
+  // Both buttons re-render the route. The old close handler called
+  // BackHandler.exitApp(), which on Android only backgrounds a singleTask
+  // activity — reopening from Recents landed on the same broken state and
+  // the same modal, with no way out.
+  const recover = () => {
+    errorBus.set({ visible: false, error: undefined });
+    void retry();
+  };
 
   return (
     <ErrorOccurredModal
       visible
       title="Something went wrong"
       message={message}
-      onClose={() => {
-        BackHandler.exitApp();
-      }}
+      onClose={recover}
+      onRetry={recover}
     />
   );
 }
@@ -384,10 +394,25 @@ export default function RootLayout() {
                         that are dismissals — finishing a booking, leaving
                         onboarding, backing out of a flow. Sliding a
                         dismissal in from the right reads as going deeper
-                        when you are coming back out. */}
+                        when you are coming back out.
+
+                        Android also suspends the tabs while a flow is pushed
+                        on top (Temur). Home otherwise re-renders under the
+                        booking flow on every cart toggle, location fix and
+                        Convex push (it is 2,200 lines and not compiler-
+                        memoised), and Cars/Bookings keep their loops alive.
+                        Frozen screens catch up with one render on return.
+
+                        The two are independent — one governs the transition,
+                        the other what happens to the screen underneath — so
+                        the merge keeps both rather than picking a side. */}
                     <Stack.Screen
                       name="(main-tabs)"
-                      options={{ headerShown: false, animation: "none" }}
+                      options={{
+                        headerShown: false,
+                        animation: "none",
+                        freezeOnBlur: Platform.OS === "android",
+                      }}
                     />
                     <Stack.Screen name="(tell-us-about)" options={{ headerShown: false }} />
                     <Stack.Screen name="(tire-booking)" options={{ headerShown: false }} />

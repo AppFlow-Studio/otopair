@@ -342,9 +342,9 @@ export const markTutorialSeen = mutation({
       .unique();
 
     if (!user) throw new Error("User not found");
-    if (typeof (user as any).tutorialSeenAt === "number") return user._id;
+    if (typeof user.tutorialSeenAt === "number") return user._id;
 
-    await ctx.db.patch(user._id, { tutorialSeenAt: Date.now() } as any);
+    await ctx.db.patch(user._id, { tutorialSeenAt: Date.now() });
     return user._id;
   },
 });
@@ -373,7 +373,7 @@ export const resetTutorial = mutation({
       .unique();
 
     if (!user) throw new Error("User not found");
-    await ctx.db.patch(user._id, { tutorialSeenAt: undefined } as any);
+    await ctx.db.patch(user._id, { tutorialSeenAt: undefined });
     return user._id;
   },
 });
@@ -767,26 +767,32 @@ export const upsertFromClerk = mutation({
     const now = Date.now();
 
     if (existing) {
-      const nextUser = {
-        ...existing,
-        email: args.email,
-        first_name: args.first_name,
-        last_name: args.last_name,
-        profile_photo_url: args.profile_photo_url ?? undefined,
-        ...(args.phone ? { phone: args.phone } : {}),
-        ...(args.role ? { role: args.role } : {}),
-      };
+      // Sync Clerk profile data to Convex on login/update.
+      const updates: Record<string, any> = {};
+      if (args.email && existing.email !== args.email) {
+        updates.email = args.email;
+      }
+      if (args.first_name && !existing.first_name) {
+        updates.first_name = args.first_name;
+      }
+      if (args.last_name && !existing.last_name) {
+        updates.last_name = args.last_name;
+      }
+      if (args.profile_photo_url && !existing.profile_photo_url && !existing.profile_photo_storage_id) {
+        updates.profile_photo_url = args.profile_photo_url;
+      }
+      if (args.phone && !existing.phone) {
+        updates.phone = normalizePhoneE164(args.phone);
+      }
+      if (args.role && !existing.role) {
+        updates.role = args.role;
+      }
+      if (args.authProvider && !existing.auth_provider) {
+        updates.auth_provider = args.authProvider;
+      }
+      const nextUser = { ...existing, ...updates };
       await ctx.db.patch(existing._id, {
-        email: args.email,
-        first_name: args.first_name,
-        last_name: args.last_name,
-        profile_photo_url: args.profile_photo_url ?? undefined,
-        ...(args.phone ? { phone: args.phone } : {}),
-        ...(args.role ? { role: args.role } : {}),
-        // Signup method — first-touch: only set if we don't already have one.
-        ...(args.authProvider && !existing.auth_provider
-          ? { auth_provider: args.authProvider }
-          : {}),
+        ...updates,
         // Verification flags + username refresh whenever Clerk sends them.
         ...(args.emailConfirmed !== undefined ? { emailConfirmed: args.emailConfirmed } : {}),
         ...(args.phoneVerified !== undefined ? { phoneVerified: args.phoneVerified } : {}),

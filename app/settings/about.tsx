@@ -25,7 +25,6 @@ import {
   CheckCheck,
   Droplet,
   FileText,
-  Info,
   Rocket,
   Share2,
   Sparkles,
@@ -253,28 +252,15 @@ export default function AboutOtopairScreen() {
                   </Text>
                 </View>
 
+                {/* Taxes & Fees — tax + Otopair 7% service fee combined. */}
                 <View style={styles.showcaseBreakdownRow}>
                   <Text size="sm" weight="regular" color="#6B7280">
                     Taxes & Fees
                   </Text>
                   <Text size="sm" weight="medium" color="#6B7280">
-                    $5.00
+                    $9.99
                   </Text>
                 </View>
-              </View>
-
-              <View style={styles.showcaseServiceRow}>
-                <View style={styles.showcaseFeeRow}>
-                  <Text size="sm" weight="regular" color="#6B7280">
-                    Service Fee — 7%
-                  </Text>
-                  <View style={styles.showcaseInfoButton}>
-                    <Info size={14} color="#9CA3AF" />
-                  </View>
-                </View>
-                <Text size="sm" weight="medium" color="#6B7280">
-                  $4.99
-                </Text>
               </View>
 
               <View style={styles.showcaseServiceDivider} />

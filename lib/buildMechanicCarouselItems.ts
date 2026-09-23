@@ -78,6 +78,7 @@ export function buildMechanicCarouselItems({
       photoUrl: mech.photoUrl,
       slotLabel,
       verified: mech.isVerified,
+      isBay: mech.isBay,
     });
   }
 

@@ -1,0 +1,59 @@
+diff --git a/app/(main-tabs)/bookings/index.tsx b/app/(main-tabs)/bookings/index.tsx
+index 76dd24a1..19d044c4 100644
+--- a/app/(main-tabs)/bookings/index.tsx
++++ b/app/(main-tabs)/bookings/index.tsx
+@@ -52,7 +52,7 @@ import { useFocusEffect, useLocalSearchParams } from "expo-router";
+ import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
+ import { Calendar, CalendarX, Check, ChevronRight, LayoutGrid, ListFilter, Star } from "lucide-react-native";
+ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+-import { Image, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
++import { Image, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
+ import Animated from "react-native-reanimated";
+ import { useSafeAreaInsets } from "react-native-safe-area-context";
+ import SegmentedControl from "@react-native-segmented-control/segmented-control";
+@@ -496,6 +496,9 @@ export default function BookingsScreen() {
+             showsVerticalScrollIndicator={false}
+             onScroll={scrollHandler}
+             scrollEventThrottle={16}
++            // Android: detach sections that are fully off screen, so
++            // RenderThread stops replaying them on every frame.
++            removeClippedSubviews={Platform.OS === "android"}
+             refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#3B82F6" />}
+           >
+             {/* Header — profile button left, title centered, mirrored
+diff --git a/app/(main-tabs)/cars/index.tsx b/app/(main-tabs)/cars/index.tsx
+index 8cfced28..7ddcce5c 100644
+--- a/app/(main-tabs)/cars/index.tsx
++++ b/app/(main-tabs)/cars/index.tsx
+@@ -1885,6 +1885,9 @@ export default function CarsHomeScreen() {
+         automaticallyAdjustKeyboardInsets
+         onScroll={(e) => { scrollOffsetRef.current = e.nativeEvent.contentOffset.y; }}
+         scrollEventThrottle={16}
++        // Android: detach sections that are fully off screen, so
++        // RenderThread stops replaying them on every frame.
++        removeClippedSubviews={Platform.OS === "android"}
+         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#6B7280" />}
+       >
+         {/* Scrolling Gradient — uses the active vehicle's color tinted
+diff --git a/app/(main-tabs)/home/index.tsx b/app/(main-tabs)/home/index.tsx
+index 9f580764..53064b75 100644
+--- a/app/(main-tabs)/home/index.tsx
++++ b/app/(main-tabs)/home/index.tsx
+@@ -1,6 +1,6 @@
+ // 1. React & React Native
+ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+-import { ActivityIndicator, BackHandler, Image, Pressable, StyleSheet, View } from 'react-native';
++import { ActivityIndicator, BackHandler, Image, Platform, Pressable, StyleSheet, View } from 'react-native';
+ import { useSafeAreaInsets } from 'react-native-safe-area-context';
+ import { StatusBar } from 'expo-status-bar';
+ import Animated, {
+@@ -1359,6 +1359,9 @@ export default function HomeScreen() {
+             automaticallyAdjustContentInsets={false}
+             onScroll={scrollHandler}
+             scrollEventThrottle={16}
++            // Android: detach feed sections that are fully off screen, so
++            // RenderThread stops replaying them on every frame.
++            removeClippedSubviews={Platform.OS === "android"}
+           >
+             {/* Appointment banner. Only the banner lives in the scroll flow
+                 now — the header sits in the fixed chrome below, outside the

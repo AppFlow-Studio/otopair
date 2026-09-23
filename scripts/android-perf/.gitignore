@@ -1,0 +1,8 @@
+perf/
+evidence/
+apks/
+*.log
+report/out/
+report/extra_img/
+report/commit-msg/
+__pycache__/

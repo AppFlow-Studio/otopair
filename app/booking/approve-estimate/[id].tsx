@@ -895,7 +895,7 @@ function ApprovalDecisionView({
             )}
             {breakdown.remainder > 0 && (
               <View style={styles.totalRow}>
-                <Text style={styles.totalLabel}>Tax + service fee</Text>
+                <Text style={styles.totalLabel}>Taxes & Fees</Text>
                 <Text style={styles.totalValue}>
                   {formatUsd(breakdown.remainder)}
                 </Text>
@@ -1592,7 +1592,7 @@ function ReauthView({
               )}
               {breakdown.taxCents + breakdown.feeCents > 0 && (
                 <View style={styles.totalRow}>
-                  <Text style={styles.totalLabel}>Tax + service fee</Text>
+                  <Text style={styles.totalLabel}>Taxes & Fees</Text>
                   <Text style={styles.totalValue}>
                     {formatUsd(breakdown.taxCents + breakdown.feeCents)}
                   </Text>

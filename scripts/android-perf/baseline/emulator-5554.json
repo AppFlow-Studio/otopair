@@ -1,0 +1,97 @@
+{
+  "device": "emulator-5554 (Android 9\n, 720x1280, android-repair release build)",
+  "steps": [
+    {
+      "settle_s": 0.51,
+      "shot_latency_s": 0.24,
+      "timed_out": false,
+      "action": "tap Home",
+      "frames": {
+        "frames": "16",
+        "janky_pct": "100.00",
+        "p50_ms": "109",
+        "p90_ms": "150",
+        "p99_ms": "150"
+      }
+    },
+    {
+      "settle_s": 0.9,
+      "shot_latency_s": 0.33,
+      "timed_out": false,
+      "action": "tap Bookings",
+      "frames": {
+        "frames": "10",
+        "janky_pct": "100.00",
+        "p50_ms": "85",
+        "p90_ms": "150",
+        "p99_ms": "150"
+      }
+    },
+    {
+      "settle_s": 2.16,
+      "shot_latency_s": 0.59,
+      "timed_out": false,
+      "action": "tap Cars",
+      "frames": {
+        "frames": "28",
+        "janky_pct": "100.00",
+        "p50_ms": "200",
+        "p90_ms": "200",
+        "p99_ms": "300"
+      }
+    },
+    {
+      "settle_s": 2.34,
+      "shot_latency_s": 0.45,
+      "timed_out": false,
+      "action": "tap Oto",
+      "frames": {
+        "frames": "37",
+        "janky_pct": "100.00",
+        "p50_ms": "105",
+        "p90_ms": "150",
+        "p99_ms": "200"
+      }
+    },
+    {
+      "settle_s": 0.81,
+      "shot_latency_s": 0.28,
+      "timed_out": false,
+      "action": "tap Home",
+      "frames": {
+        "frames": "13",
+        "janky_pct": "100.00",
+        "p50_ms": "150",
+        "p90_ms": "200",
+        "p99_ms": "200"
+      }
+    },
+    {
+      "settle_s": 7.94,
+      "shot_latency_s": 0.44,
+      "timed_out": false,
+      "action": "home scroll 4 down + 4 up",
+      "frames": {
+        "frames": "63",
+        "janky_pct": "100.00",
+        "p50_ms": "150",
+        "p90_ms": "550",
+        "p99_ms": "900"
+      }
+    },
+    {
+      "action": "open booking flow (tap Map)",
+      "error": "not found"
+    },
+    {
+      "action": "booking screen idle 10s (no input)",
+      "frames": {
+        "frames": "0",
+        "janky_pct": "0.00",
+        "p50_ms": "4950",
+        "p90_ms": "4950",
+        "p99_ms": "4950"
+      }
+    }
+  ]
+}

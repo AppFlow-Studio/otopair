@@ -38,6 +38,7 @@ interface MechanicOption {
   /** Earliest-slot caption, e.g. "Fri · 6:30 PM" or "Earliest availability". */
   slotLabel: string;
   verified?: boolean;
+  isBay?: boolean;
 }
 
 interface ShopPageProps {
@@ -45,6 +46,9 @@ interface ShopPageProps {
   pageWidth: number;
   /** Sum of selected services' resolved labor hours × 60. */
   totalMinutes: number;
+  /** False while labor hours are still loading: the availability queries
+   *  wait so they are issued once with the real duration instead of twice. */
+  durationReady?: boolean;
   /** Service count for the summary line. */
   selectedCount: number;
   /** The selected service rows — for the per-shop price breakdown. */
@@ -74,6 +78,7 @@ export function ShopPage({
   shop,
   pageWidth,
   totalMinutes,
+  durationReady = true,
   selectedCount,
   selectedServices,
   laborHoursMap,
@@ -110,10 +115,15 @@ export function ShopPage({
   );
 
   // Next slot for the shop overall (for the Any-mechanic earliest).
-  const { slots: shopSlots } = useNextAvailabilityForShop(shop.id, null, 1, totalMinutes);
+  const availabilityShopId = durationReady ? shop.id : null;
+  const { slots: shopSlots } = useNextAvailabilityForShop(availabilityShopId, null, 1, totalMinutes);
 
   // Per-mechanic earliest slots → picker rows.
-  const { slotsByMechanicId } = useNextAvailabilityPerMechanicForShop(shop.id, undefined, totalMinutes);
+  const { slotsByMechanicId } = useNextAvailabilityPerMechanicForShop(
+    availabilityShopId,
+    undefined,
+    totalMinutes,
+  );
   const allMechanicsMap = useMechanicStore((s) => s.mechanics);
 
   const mechanicOptions = useMemo<MechanicOption[]>(() => {
@@ -138,6 +148,7 @@ export function ShopPage({
         photoUrl: mech.photoUrl,
         slotLabel: earliest ? slotShort(earliest) : "No open times",
         verified: mech.isVerified,
+        isBay: mech.isBay,
       });
     }
     return opts;
@@ -147,6 +158,9 @@ export function ShopPage({
     () => mechanicOptions.filter((o) => o.mechanicId !== null),
     [mechanicOptions],
   );
+  const hasBay = realMechanics.some((o) => o.isBay);
+  const entityWord = hasBay ? "mechanic or bay" : "mechanic";
+  const entityWordPlural = hasBay ? "mechanics or bays" : "mechanics";
 
   // The earliest bookable slot for the current mechanic choice — drives the
   // big RECOMMENDED day/time. "Any" uses the shop's next slot; a specific
@@ -229,7 +243,7 @@ export function ShopPage({
           accessibilityLabel={
             selectedOption && selectedOption.mechanicId
               ? `Mechanic: ${selectedOption.name}. Tap to change.`
-              : `Any of ${realMechanics.length} mechanics. Tap to pick a specific one.`
+              : `Any of ${realMechanics.length} ${realMechanics.length === 1 ? entityWord : entityWordPlural}. Tap to pick a specific one.`
           }
         >
           {selectedOption && selectedOption.mechanicId ? (
@@ -250,7 +264,7 @@ export function ShopPage({
             ) : (
               <>
                 <Text size="md" weight="bold" color="#0F172A" numberOfLines={1}>
-                  Any of {realMechanics.length} mechanic{realMechanics.length === 1 ? "" : "s"}
+                  Any of {realMechanics.length} {realMechanics.length === 1 ? entityWord : entityWordPlural}
                 </Text>
                 <Text size="xs" weight="medium" color="#6B7280" numberOfLines={1}>
                   Pick a specific one

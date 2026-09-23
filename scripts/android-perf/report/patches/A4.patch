@@ -1,0 +1,75 @@
+diff --git a/components/booking-flow/EnrichmentStatusPill.tsx b/components/booking-flow/EnrichmentStatusPill.tsx
+index 4f6af4ed..c1561b09 100644
+--- a/components/booking-flow/EnrichmentStatusPill.tsx
++++ b/components/booking-flow/EnrichmentStatusPill.tsx
+@@ -38,11 +38,13 @@
+  */
+ 
+ import React, { useEffect, useMemo, useRef, useState } from "react";
+-import { ActivityIndicator, Dimensions, Image, Pressable, StyleSheet, View } from "react-native";
++import { ActivityIndicator, Dimensions, Image, Platform, Pressable, StyleSheet, View } from "react-native";
+ import Animated, {
++  cancelAnimation,
+   Easing,
+   FadeIn,
+   FadeOut,
++  type SharedValue,
+   useAnimatedStyle,
+   useSharedValue,
+   withRepeat,
+@@ -77,6 +79,18 @@ const SHEET_CHROME = 28;
+ // OtoPair AI mark — pulses Claude-style beside the streaming facts.
+ const OTOPAIR_AI_LOGO = require("@/assets/images/otopair-ai-logo.png");
+ 
++/** Subtle 1.7s breathe shared by the compact sparkle and the sheet's logo. */
++function startPulse(pulse: SharedValue<number>) {
++  pulse.value = withRepeat(
++    withSequence(
++      withTiming(1, { duration: 850, easing: Easing.inOut(Easing.quad) }),
++      withTiming(0, { duration: 850, easing: Easing.inOut(Easing.quad) }),
++    ),
++    -1,
++    false,
++  );
++}
++
+ interface EnrichmentStatusPillProps {
+   /** "top" hangs under the status bar (booking flow); "bottom" hovers
+    *  bottom-right above the tab bar (main tabs). Default "top". */
+@@ -107,14 +121,9 @@ export function EnrichmentStatusPill({
+   // compact. Started once on mount.
+   const pulse = useSharedValue(0);
+   useEffect(() => {
+-    pulse.value = withRepeat(
+-      withSequence(
+-        withTiming(1, { duration: 850, easing: Easing.inOut(Easing.quad) }),
+-        withTiming(0, { duration: 850, easing: Easing.inOut(Easing.quad) }),
+-      ),
+-      -1,
+-      false,
+-    );
++    // Android starts and stops the pulse with the pill's visibility (below).
++    if (Platform.OS === "android") return;
++    startPulse(pulse);
+   }, [pulse]);
+   const sparkleStyle = useAnimatedStyle(() => ({
+     transform: [{ scale: 1 + pulse.value * 0.12 }],
+@@ -161,6 +170,18 @@ export function EnrichmentStatusPill({
+ 
+   const visible =
+     scope === "any" ? inProgressEntry != null : enrichment?.isInProgress === true;
++  // Android: the pill is mounted on Home, Bookings, Cars and the booking flow
++  // but renders nothing while no car is enriching, which is nearly always. An
++  // endless pulse there still re-ran both animated styles every frame on the
++  // UI thread for no pixels, so only run it while the pill is on screen.
++  useEffect(() => {
++    if (Platform.OS !== "android") return;
++    if (!visible) {
++      cancelAnimation(pulse);
++      return;
++    }
++    startPulse(pulse);
++  }, [pulse, visible]);
+   if (!visible) return null;
+ 
+   // Mirror the old toast's 7-minute baseline: past it the ETA math is

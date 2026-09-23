@@ -14,7 +14,7 @@
  */
 
 import React, { useEffect, useMemo, useRef } from "react";
-import { Image, StyleSheet, View } from "react-native";
+import { Image, Platform, StyleSheet, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
   runOnJS,
@@ -25,6 +25,7 @@ import Animated, {
 import { LinearGradient } from "expo-linear-gradient";
 import { useQuery } from "convex/react";
 import { useShallow } from "zustand/react/shallow";
+import { useIsFocused } from "@react-navigation/native";
 import { usePathname } from "expo-router";
 
 import { Text } from "@/components/shared-ui";
@@ -41,6 +42,7 @@ const OTO_LOGO_3D = require("@/assets/images/pin-logo-3d.png");
 export function ProfileInitialsButton() {
   const viewRef = useRef<View>(null);
   const pathname = usePathname();
+  const isFocused = useIsFocused();
   const me = useQuery(api.users.getMe);
   const { firstName, lastName, profilePhotoUri: storedPhoto } =
     useOnboardingStore(
@@ -141,7 +143,12 @@ export function ProfileInitialsButton() {
         >
           <AvatarSlider
             size={BUTTON_SIZE}
-            paused={overlayLifecycleActive}
+            // Android: also stand still while this screen isn't showing —
+            // all three tabs mount one of these and each ran its own timer.
+            paused={
+              overlayLifecycleActive ||
+              (Platform.OS === "android" && !isFocused)
+            }
             panels={[
               photoUri ? (
                 <Image

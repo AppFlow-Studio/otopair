@@ -1,5 +1,17 @@
 /**
  * Intercepts console.error, console.warn, console.log, etc. and forwards to Convex.
+ *
+ * The forwarder must never be the thing that breaks: it runs inside the global
+ * error handler and inside componentDidCatch, so it cannot throw, cannot
+ * recurse, and cannot wedge. Three properties keep that true:
+ *   - every argument is serialised inside try/catch (circular structures,
+ *     BigInt and hostile toString() fall back to String(a));
+ *   - a bounded queue drains one message at a time, and a send that never
+ *     settles (Convex queues mutations while the socket is down) gives up
+ *     its turn after SEND_TIMEOUT_MS so later messages still go out;
+ *   - Convex's own client logger reports through console.warn/error with a
+ *     "[CONVEX" prefix; forwarding those would log the log, so they are
+ *     skipped, as is anything logged while a send is being prepared.
  */
 
 type LogLevel = "error" | "warn" | "log" | "info" | "debug";
@@ -12,9 +24,31 @@ type LogToConvexFn = (args: {
   session_id?: string;
 }) => Promise<unknown>;
 
+type QueuedLog = { level: LogLevel; args: unknown[] };
+
+// Oldest entries drop first; a crash writes a burst of 5-20 lines and a
+// runaway loop writes thousands, and neither should grow without bound.
+const MAX_QUEUE = 50;
+// How long one mutation may block the queue. Convex keeps the mutation
+// itself queued for delivery regardless; this only frees the next message.
+const SEND_TIMEOUT_MS = 10_000;
+
 let sessionId: string | undefined;
-let isSending = false;
 let activeCleanup: (() => void) | null = null;
+
+function safeString(value: unknown): string {
+  try {
+    if (value instanceof Error) return value.message;
+    if (typeof value === "object" && value !== null) return JSON.stringify(value);
+    return String(value);
+  } catch {
+    try {
+      return Object.prototype.toString.call(value);
+    } catch {
+      return "[unserialisable]";
+    }
+  }
+}
 
 function safeStringify(value: unknown): unknown {
   if (value === undefined || value === null) return value;
@@ -25,18 +59,12 @@ function safeStringify(value: unknown): unknown {
     }
     return JSON.parse(JSON.stringify(value, (_key, val) => (typeof val === "function" ? undefined : val)));
   } catch {
-    return String(value);
+    return safeString(value);
   }
 }
 
 function buildMessage(args: unknown[]): string {
-  return args
-    .map((a) => {
-      if (a instanceof Error) return a.message;
-      if (typeof a === "object" && a !== null) return JSON.stringify(a);
-      return String(a);
-    })
-    .join(" ");
+  return args.map(safeString).join(" ");
 }
 
 function extractStack(args: unknown[]): string | undefined {
@@ -50,6 +78,29 @@ function extractMetadata(args: unknown[]): unknown {
   return safeStringify(rest.length > 1 ? rest.slice(1) : rest[0]);
 }
 
+/** The Convex client logs its own transport failures through console; sending
+ *  those back to Convex would produce a log for every log. */
+function isConvexInternal(args: unknown[]): boolean {
+  const first = args[0];
+  return typeof first === "string" && first.startsWith("[CONVEX");
+}
+
+function withTimeout(promise: Promise<unknown>, ms: number): Promise<unknown> {
+  return new Promise((resolve) => {
+    const t = setTimeout(resolve, ms);
+    promise.then(
+      () => {
+        clearTimeout(t);
+        resolve(undefined);
+      },
+      () => {
+        clearTimeout(t);
+        resolve(undefined);
+      },
+    );
+  });
+}
+
 export function setupConsoleToConvex(logToConvex: LogToConvexFn): () => void {
   activeCleanup?.();
 
@@ -57,61 +108,90 @@ export function setupConsoleToConvex(logToConvex: LogToConvexFn): () => void {
     sessionId = `session_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
   }
 
-  const originalError = console.error;
-  const originalWarn = console.warn;
-  const originalLog = console.log;
-  const originalInfo = console.info;
-  const originalDebug = console.debug;
+  const originals = {
+    error: console.error,
+    warn: console.warn,
+    log: console.log,
+    info: console.info,
+    debug: console.debug,
+  };
+
+  const queue: QueuedLog[] = [];
+  let draining = false;
+  let preparing = false;
+  let disposed = false;
+
+  const drain = async () => {
+    if (draining) return;
+    draining = true;
+    try {
+      while (queue.length > 0 && !disposed) {
+        const next = queue.shift()!;
+        let payload: Parameters<LogToConvexFn>[0];
+        try {
+          preparing = true;
+          payload = {
+            level: next.level,
+            message: buildMessage(next.args).slice(0, 10_000),
+            stack: extractStack(next.args)?.slice(0, 20_000),
+            metadata: extractMetadata(next.args),
+            session_id: sessionId,
+          };
+        } catch {
+          continue;
+        } finally {
+          preparing = false;
+        }
+        try {
+          await withTimeout(logToConvex(payload), SEND_TIMEOUT_MS);
+        } catch {
+          // Suppressed: the line already reached the console.
+        }
+      }
+    } finally {
+      draining = false;
+    }
+  };
 
   const intercept =
     (level: LogLevel, original: (...args: unknown[]) => void) =>
     (...args: unknown[]) => {
       original.apply(console, args);
-
-      if (isSending) return;
-      isSending = true;
-
-      const message = buildMessage(args);
-      const stack = extractStack(args);
-      const metadata = extractMetadata(args);
-
-      logToConvex({
-        level,
-        message: message.slice(0, 10_000),
-        stack: stack?.slice(0, 20_000),
-        metadata,
-        session_id: sessionId,
-      })
-        .catch(() => {
-          // Suppress - avoid recursion. Log already went to console.
-        })
-        .finally(() => {
-          isSending = false;
-        });
+      try {
+        if (disposed || preparing || isConvexInternal(args)) return;
+        if (queue.length >= MAX_QUEUE) queue.shift();
+        queue.push({ level, args });
+        void drain();
+      } catch {
+        // Never let the forwarder become the error.
+      }
     };
 
-  const nextError = intercept("error", originalError);
-  const nextWarn = intercept("warn", originalWarn);
-  const nextLog = intercept("log", originalLog);
-  const nextInfo = intercept("info", originalInfo);
-  const nextDebug = intercept("debug", originalDebug);
-
-  console.error = nextError;
-  console.warn = nextWarn;
-  console.log = nextLog;
-  console.info = nextInfo;
-  console.debug = nextDebug;
-
-  activeCleanup = () => {
-    if (console.error === nextError) console.error = originalError;
-    if (console.warn === nextWarn) console.warn = originalWarn;
-    if (console.log === nextLog) console.log = originalLog;
-    if (console.info === nextInfo) console.info = originalInfo;
-    if (console.debug === nextDebug) console.debug = originalDebug;
-    activeCleanup = null;
+  const patched = {
+    error: intercept("error", originals.error),
+    warn: intercept("warn", originals.warn),
+    log: intercept("log", originals.log),
+    info: intercept("info", originals.info),
+    debug: intercept("debug", originals.debug),
   };
 
-  return () => {
-    activeCleanup?.();
+  console.error = patched.error;
+  console.warn = patched.warn;
+  console.log = patched.log;
+  console.info = patched.info;
+  console.debug = patched.debug;
+
+  const cleanup = () => {
+    disposed = true;
+    if (console.error === patched.error) console.error = originals.error;
+    if (console.warn === patched.warn) console.warn = originals.warn;
+    if (console.log === patched.log) console.log = originals.log;
+    if (console.info === patched.info) console.info = originals.info;
+    if (console.debug === patched.debug) console.debug = originals.debug;
+    if (activeCleanup === cleanup) activeCleanup = null;
   };
+  activeCleanup = cleanup;
+
+  // Return this install's own cleanup, not whatever is active later.
+  return cleanup;
 }

@@ -41,7 +41,7 @@ import Animated, {
 import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
 
-import { ArrowRight, Bell, Calendar as CalendarIcon, CalendarX, Car, Check, CheckCircle2, ChevronDown, ChevronRight, Clock, FileText, MessageCircle, Navigation, Phone, ReceiptText, User, Warehouse, Wrench, X } from "lucide-react-native";
+import { ArrowRight, Bell, Calendar as CalendarIcon, CalendarX, Car, Check, CheckCircle2, ChevronDown, ChevronRight, Clock, CreditCard, FileText, MessageCircle, Navigation, Phone, ReceiptText, User, Warehouse, Wrench, X } from "lucide-react-native";
 
 import { openMapsForAddress, openPhone } from "@/utils/linking";
 import { useQuery } from "convex/react";
@@ -217,6 +217,41 @@ type ActivityEvent =
         oemNumber: string | null;
         oldValue: string | null;
         newValue: string | null;
+      };
+    }
+  | {
+      // The customer's card was charged. Synthesized backend-side from the
+      // payments row (see convex/booking_activity.ts). `kind` disambiguates a
+      // normal service charge from a pickup / late-cancel forfeit fee (the $20
+      // deposit captured when a car is released for pickup) — the latter reads
+      // as a fee, not a payment for work performed.
+      type: "payment_captured";
+      at: number;
+      actor: ActivityActor;
+      data: {
+        amountCents: number;
+        cardBrand: string | null;
+        last4: string | null;
+        kind: "service" | "cancellation_fee";
+      };
+    }
+  | {
+      // Customer tapped "Request to cancel & pick up car" while the vehicle was
+      // at the shop. Synthesized from the booking's own fields (latest round
+      // only). See convex/booking_activity.ts / spec §4.
+      type: "pickup_requested";
+      at: number;
+      actor: ActivityActor;
+      data: { reason: string | null };
+    }
+  | {
+      // The shop's answer to the pickup request.
+      type: "pickup_response";
+      at: number;
+      actor: ActivityActor;
+      data: {
+        response: "acknowledged" | "bringing_out" | "declined";
+        note: string | null;
       };
     };
 
@@ -1361,6 +1396,54 @@ function FullContent({
             //     locked once it lands inside the disclosed range)
             //   - disclosed range present → show range pair
             //   - legacy → show singular total_cost
+            // A cancelled / no-show / released-for-pickup booking's captured
+            // amount is a forfeit fee, not a service bill. Gate on the terminal
+            // status (NOT on a captured amount — cancelled bookings now carry
+            // one too), so we never render the itemized "serviced" breakdown or
+            // an "Estimated total" range for them. Show a short release /
+            // cancellation summary + the fee receipt instead; the pickup
+            // round-trip lives in the Activity timeline below.
+            // See docs/mobile-pickup-past-services-spec.md §2.
+            if (booking.status === "cancelled" || booking.status === "no_show") {
+              const isPickup =
+                booking.historyOutcome === "cancelled_pickup" ||
+                (booking.status === "cancelled" &&
+                  booking.pickupRequestedAtMs != null);
+              const feeCents =
+                booking.historyAmountCents ?? booking.cancellationFeeCents ?? 0;
+              const headline = isPickup
+                ? `You picked up your ${titleCase(booking.carModel)} early`
+                : booking.status === "no_show"
+                  ? "Missed appointment"
+                  : "Booking cancelled";
+              const feeLabel = isPickup ? "Pickup fee" : "Cancellation fee";
+              return (
+                <>
+                  <Text size="md" weight="semiBold" color="#1A1A1A">
+                    {headline}
+                  </Text>
+                  <View style={styles.paymentRow}>
+                    <Text size="md" weight="regular" color="#1A1A1A">
+                      {feeCents > 0 ? feeLabel : "Fee"}
+                    </Text>
+                    <Text
+                      size="md"
+                      weight="bold"
+                      color={feeCents > 0 ? "#1A1A1A" : "#8E8E93"}
+                    >
+                      {feeCents > 0
+                        ? formatCents(feeCents)
+                        : isPickup
+                          ? "Waived — no charge"
+                          : "No charge"}
+                    </Text>
+                  </View>
+                  {/* Renders the collapsed "Pickup / cancellation fee" receipt
+                      when the fee was captured; null when waived / uncharged. */}
+                  <ReceiptViewer bookingId={booking.id} />
+                </>
+              );
+            }
             const isCaptured = booking.paymentApprovalState === "captured";
             const hasRange =
               booking.disclosedRangeLowCents != null &&
@@ -1670,6 +1753,17 @@ function activitySummary(ev: ActivityEvent, isCustomer: boolean): string {
           ? `Service time auto-extended by ${ext.minutes} min`
           : `Service time extended by ${ext.minutes} min`;
       }
+      // The shop releasing a car for early pickup is a cancel with a specific
+      // reason — surface it as a release, not a bare "→ Cancelled". The waived
+      // variant says so; the fee itself is a separate payment_captured entry.
+      if (ev.data.to === "cancelled") {
+        if (ev.data.reason === "shop_released_pickup") {
+          return "Vehicle released for pickup";
+        }
+        if (ev.data.reason === "shop_released_fee_waived") {
+          return "Vehicle released for pickup — pickup fee waived, no charge";
+        }
+      }
       return `${statusFriendlyLabel(ev.data.from)} → ${statusFriendlyLabel(ev.data.to)}`;
     }
     case "estimate_submitted": {
@@ -1723,6 +1817,36 @@ function activitySummary(ev: ActivityEvent, isCustomer: boolean): string {
         default: return `Mechanic adjusted ${noun}`;
       }
     }
+    case "payment_captured": {
+      const amount = formatCents(ev.data.amountCents);
+      const card = ev.data.last4
+        ? ` · ${ev.data.cardBrand ? titleCase(ev.data.cardBrand) : "Card"} ••${ev.data.last4}`
+        : "";
+      // A capture on a released / no-show booking is the forfeit fee, not a
+      // payment for work performed — label it accordingly.
+      if (ev.data.kind === "cancellation_fee") {
+        return `Cancellation fee collected — ${amount}${card}`;
+      }
+      return `Payment charged — ${amount}${card}`;
+    }
+    case "pickup_requested": {
+      const reason = ev.data.reason?.trim();
+      return reason ? `Pickup requested · ${reason}` : "Pickup requested";
+    }
+    case "pickup_response": {
+      const note = ev.data.note?.trim();
+      const base =
+        ev.data.response === "acknowledged"
+          ? "Shop acknowledged pickup"
+          : ev.data.response === "bringing_out"
+            ? "Bringing the car out"
+            : "Pickup declined";
+      return note ? `${base} · ${note}` : base;
+    }
+    // Unknown event types (backend drift) degrade to a neutral label instead of
+    // returning undefined. Keep in sync with the activityIcon default above.
+    default:
+      return "Booking updated";
   }
 }
 
@@ -1736,9 +1860,17 @@ function activityIcon(ev: ActivityEvent): { Icon: any; bg: string; fg: string } 
     case "booking_created":
       return { Icon: FileText, bg: "rgba(82,153,254,0.12)", fg: "#5299FE" };
     case "status_change":
-      return parseOverrunExtension(ev.data.reason)
-        ? { Icon: Clock, bg: "#FFFBEB", fg: "#D97706" }
-        : { Icon: ArrowRight, bg: "#F2F2F7", fg: "#8E8E93" };
+      if (parseOverrunExtension(ev.data.reason)) {
+        return { Icon: Clock, bg: "#FFFBEB", fg: "#D97706" };
+      }
+      if (
+        ev.data.to === "cancelled" &&
+        (ev.data.reason === "shop_released_pickup" ||
+          ev.data.reason === "shop_released_fee_waived")
+      ) {
+        return { Icon: Car, bg: "#EFF6FF", fg: "#1D4ED8" };
+      }
+      return { Icon: ArrowRight, bg: "#F2F2F7", fg: "#8E8E93" };
     case "estimate_submitted":
       return { Icon: ReceiptText, bg: "#FFFBEB", fg: "#D97706" };
     case "estimate_decision": {
@@ -1754,6 +1886,23 @@ function activityIcon(ev: ActivityEvent): { Icon: any; bg: string; fg: string } 
         : { Icon: Wrench, bg: "#F2F2F7", fg: "#8E8E93" };
     case "part_edit":
       return { Icon: Wrench, bg: "#F2F2F7", fg: "#8E8E93" };
+    case "payment_captured":
+      // A forfeit fee is amber (a fee), a service payment is green (money for
+      // work done) — same as the receipt / history-row treatment.
+      return ev.data.kind === "cancellation_fee"
+        ? { Icon: CreditCard, bg: "#FFFBEB", fg: "#D97706" }
+        : { Icon: CreditCard, bg: "#ECFDF5", fg: "#059669" };
+    case "pickup_requested":
+      return { Icon: Car, bg: "#EFF6FF", fg: "#1D4ED8" };
+    case "pickup_response":
+      return ev.data.response === "declined"
+        ? { Icon: X, bg: "#FEF2F2", fg: "#DC2626" }
+        : { Icon: Car, bg: "#ECFDF5", fg: "#059669" };
+    // Fallback for any event type the backend adds before this file mirrors it.
+    // Never return undefined — the row destructures { Icon, bg, fg } and a
+    // single unknown event would otherwise crash the whole sheet.
+    default:
+      return { Icon: Bell, bg: "#F2F2F7", fg: "#8E8E93" };
   }
 }
 
@@ -1852,8 +2001,12 @@ function ActivityRow({
               event.data.serviceFeeCents != null) ? (
               <Text size="xs" weight="regular" color="#3C3C43" style={styles.activityDetailLine}>
                 Parts {formatCents(event.data.partsSubtotalCents)} · Labor{" "}
-                {formatCents(event.data.laborCents)} · Tax {formatCents(event.data.taxCents)} · Fee{" "}
-                {formatCents(event.data.serviceFeeCents)}
+                {formatCents(event.data.laborCents)} · Taxes & Fees{" "}
+                {event.data.taxCents == null && event.data.serviceFeeCents == null
+                  ? "—"
+                  : formatCents(
+                      (event.data.taxCents ?? 0) + (event.data.serviceFeeCents ?? 0),
+                    )}
               </Text>
             ) : null}
             <Text size="xs" weight="regular" color="#8E8E93" style={styles.activityDetailLine}>

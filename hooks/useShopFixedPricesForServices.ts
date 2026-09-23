@@ -1,8 +1,8 @@
 /**
  * useShopFixedPricesForServices
  *
- * Resolves per-(shop, service) flat-price overrides for the customer's
- * vehicle tier. Wraps `api.shopServiceFixedPrices.getForBooking` — the
+ * Resolves per-(shop, service) fixed/range overrides for the customer's
+ * vehicle tier. Wraps `api.shopServiceFixedPrices.getPricingForBooking` — the
  * server picks the right tier from the vehicle's pricing_tier (or detects
  * it), so the client never has to know what tier a car is in.
  *
@@ -18,18 +18,22 @@ import { useMemo } from "react";
 
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import {
+  servicePricingMapFromCents,
+  type ShopServicePriceMap,
+} from "@/lib/shopServicePricing";
 
-export type FixedPriceMap = Map<string, number>;
+export type FixedPriceMap = ShopServicePriceMap;
 
 export type UseShopFixedPricesForServicesResult = {
-  /** serviceId → flat price in dollars. Only flagged services are present. */
+  /** serviceId → normalized dollar endpoints. Only shop overrides are present. */
   map: FixedPriceMap;
   /** True while Convex is hydrating. False once a definitive answer (even
    *  an empty map) has been received. */
   isLoading: boolean;
-  /** Convenience flag — true iff `map.size > 0`. UI uses this to decide
-   *  whether to render the "Fixed price" badge at the total level. */
+  /** True when at least one override collapses to one fixed amount. */
   hasAnyFixed: boolean;
+  hasAnyRange: boolean;
 };
 
 export function useShopFixedPricesForServices(
@@ -41,7 +45,7 @@ export function useShopFixedPricesForServices(
     !!shopId && !!vehicleOwnerId && serviceIds.length > 0;
 
   const result = useQuery(
-    api.shopServiceFixedPrices.getForBooking,
+    api.shopServiceFixedPrices.getPricingForBooking,
     canQuery
       ? {
           shop_id: shopId as Id<"shops">,
@@ -52,16 +56,12 @@ export function useShopFixedPricesForServices(
   );
 
   return useMemo(() => {
-    const map: FixedPriceMap = new Map();
-    if (result) {
-      for (const [serviceId, cents] of Object.entries(result)) {
-        map.set(serviceId, (cents as number) / 100);
-      }
-    }
+    const map = servicePricingMapFromCents(result);
     return {
       map,
       isLoading: canQuery && result === undefined,
-      hasAnyFixed: map.size > 0,
+      hasAnyFixed: Array.from(map.values()).some((price) => price.isFixed),
+      hasAnyRange: Array.from(map.values()).some((price) => !price.isFixed),
     };
   }, [result, canQuery]);
 }

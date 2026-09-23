@@ -30,7 +30,7 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { StyleSheet, View } from "react-native";
+import { Platform, StyleSheet, View } from "react-native";
 import MapView, {
   Circle,
   Marker,
@@ -94,6 +94,12 @@ interface BookingFlowMapContextValue {
    *  shop names and tap handlers). Iterated separately from `markers`
    *  in the render block so a caller can use either or both. */
   setShopPins: (pins: BookingFlowShopPin[]) => void;
+  /** Android only: a screen that mounts its own full-screen MapView calls
+   *  this while that map is mounted (returns the unregister). While any
+   *  local map is up the provider's map is fully covered, so on Android
+   *  it is unmounted instead of rendering tiles nobody can see — one live
+   *  Google Maps instance at a time instead of two or three. No-op on iOS. */
+  registerLocalMap: () => () => void;
 }
 
 const BookingFlowMapContext =
@@ -116,17 +122,30 @@ export function BookingFlowMapProvider({
 }) {
   const mapRef = useRef<MapView | null>(null);
   const { location: resolvedLocation, stage, isResolving } = useStagedLocation();
+  // Android: a previous booking entry this session already resolved a fix
+  // (the store keeps it). Start the camera there so the MapView mounts on
+  // the first frame instead of after the permission check and the first
+  // fix; the staged hook still runs and takes over as it publishes.
+  const [seedLocation] = useState<UserLocation | null>(() =>
+    Platform.OS === "android" ? useBookingStore.getState().userLocation : null,
+  );
+  const effectiveLocation = resolvedLocation ?? seedLocation;
+  // Keyed on the coordinates, not the object: the staged hook publishes a
+  // new object for every label patch (up to six per entry), and each new
+  // `region` identity used to re-run `animateToRegion` on every screen.
+  const regionLatitude = effectiveLocation?.latitude;
+  const regionLongitude = effectiveLocation?.longitude;
   const region = useMemo<Region | null>(
     () =>
-      resolvedLocation
+      regionLatitude != null && regionLongitude != null
         ? {
-            latitude: resolvedLocation.latitude,
-            longitude: resolvedLocation.longitude,
+            latitude: regionLatitude,
+            longitude: regionLongitude,
             latitudeDelta: 0.05,
             longitudeDelta: 0.05,
           }
         : null,
-    [resolvedLocation],
+    [regionLatitude, regionLongitude],
   );
   const setBookingUserLocation = useBookingStore((s) => s.setUserLocation);
   const clearBookingUserLocation = useBookingStore((s) => s.clearUserLocation);
@@ -180,17 +199,40 @@ export function BookingFlowMapProvider({
     [],
   );
 
+  // See `registerLocalMap` on the context type. Count, not boolean: the
+  // peek map on select-services and choose-mechanic's map can overlap
+  // during a transition.
+  const [localMapCount, setLocalMapCount] = useState(0);
+  const registerLocalMap = useCallback(() => {
+    if (Platform.OS !== "android") return () => {};
+    setLocalMapCount((n) => n + 1);
+    return () => setLocalMapCount((n) => n - 1);
+  }, []);
+  const renderProviderMap = !(Platform.OS === "android" && localMapCount > 0);
+  // Android: when the provider map comes back after a local map went away it
+  // is a fresh MapView with no tiles for up to a second. Run the skeleton for
+  // that mount too instead of showing the bare canvas through the sheet.
+  useEffect(() => {
+    if (Platform.OS === "android" && renderProviderMap) setMapReady(false);
+  }, [renderProviderMap]);
+
+  // Memoised so a provider re-render (skeleton, interactivity, pins) does
+  // not re-render every screen in the stack through the context.
+  const value = useMemo<BookingFlowMapContextValue>(
+    () => ({
+      mapRef,
+      region,
+      userLocation: resolvedLocation,
+      setInteractive: setInteractiveCb,
+      setMarkers: setMarkersCb,
+      setShopPins: setShopPinsCb,
+      registerLocalMap,
+    }),
+    [region, resolvedLocation, setInteractiveCb, setMarkersCb, setShopPinsCb, registerLocalMap],
+  );
+
   return (
-    <BookingFlowMapContext.Provider
-      value={{
-        mapRef,
-        region,
-        userLocation: resolvedLocation,
-        setInteractive: setInteractiveCb,
-        setMarkers: setMarkersCb,
-        setShopPins: setShopPinsCb,
-      }}
-    >
+    <BookingFlowMapContext.Provider value={value}>
       <View style={styles.root} pointerEvents="box-none">
         {/* Persistent map behind every screen. Gesture props on the
             MapView are ALWAYS on — react-native-maps has been spotty
@@ -204,7 +246,7 @@ export function BookingFlowMapProvider({
           style={StyleSheet.absoluteFill}
           pointerEvents={interactive ? "auto" : "none"}
         >
-          {region ? (
+          {region && renderProviderMap ? (
             <MapView
               ref={mapRef}
               style={StyleSheet.absoluteFill}
@@ -243,7 +285,7 @@ export function BookingFlowMapProvider({
                 />
               ))}
             </MapView>
-          ) : (
+          ) : region ? null : (
             <View style={[StyleSheet.absoluteFill, styles.fallback]}>
               <Text size="sm" weight="semiBold" color={SemanticColors.textMuted}>
                 {stage === "unavailable"
@@ -265,7 +307,7 @@ export function BookingFlowMapProvider({
             condition left the skeleton shimmering permanently on top of
             that message. Skeleton is for "map is coming"; the fallback is
             for "there is no map to come". */}
-        {!region || mapReady ? null : <MapSkeleton />}
+        {!region || mapReady || !renderProviderMap ? null : <MapSkeleton />}
 
         {/* Children (the booking-flow Stack) wrapped in a controlled
             pointerEvents layer. When the map is interactive, this

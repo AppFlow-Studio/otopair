@@ -416,6 +416,9 @@ export default function HomeScreen() {
 
   // Reactivation bottom sheet (from temur-dev)
   const sheetRef = useRef<BottomSheetModal>(null);
+  // Tracks whether the reactivation sheet is presented, for the back handler
+  // below: gorhom's modal registers no hardwareBackPress handler of its own.
+  const reactivationSheetOpenRef = useRef(false);
   const hasPresentedReactivationRef = useRef(false);
   const snapPoints = useMemo(() => ["42%"], []);
   const noVehicleSheetRef = useRef<FloatingSheetRef>(null);
@@ -426,9 +429,18 @@ export default function HomeScreen() {
     }
   }, [shouldShowReactivationSheet, showWelcome]);
 
+  // Home is the root: back leaves the app. But only when Home itself is what
+  // the user is looking at — with the reactivation sheet up, back closes the
+  // sheet. (FloatingSheet-based overlays render in a Modal whose own
+  // onRequestClose handles back before this ever runs.) Exiting from under an
+  // open sheet was the "it just closed" report that never logs anything.
   useFocusEffect(
     useCallback(() => {
       const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+        if (reactivationSheetOpenRef.current) {
+          sheetRef.current?.dismiss();
+          return true;
+        }
         BackHandler.exitApp();
         return true;
       });
@@ -440,6 +452,7 @@ export default function HomeScreen() {
     if (!shouldShowReactivationSheet || showWelcome || hasPresentedReactivationRef.current) return;
     hasPresentedReactivationRef.current = true;
     requestAnimationFrame(() => {
+      reactivationSheetOpenRef.current = true;
       sheetRef.current?.present();
       setShouldShowReactivationSheet(false);
     });
@@ -1856,6 +1869,9 @@ export default function HomeScreen() {
           <BottomSheetModal
             ref={sheetRef}
             snapPoints={snapPoints}
+            onDismiss={() => {
+              reactivationSheetOpenRef.current = false;
+            }}
             backdropComponent={BlurBackdrop}
             enableDynamicSizing={false}
             enableContentPanningGesture={false}

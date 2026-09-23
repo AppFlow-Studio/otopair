@@ -35,6 +35,7 @@ function mapConvexMechanicToStore(mechanic: ConvexMechanicListRow): Mechanic {
     shopRating: mechanic.shopRating ?? 0,
     shopReviewCount: mechanic.shopReviewCount ?? 0,
     isVerified: false,
+    isBay: (mechanic as any).entity_type === "bay",
     distanceMi: 0,
     services: [],
     specialties: [],
