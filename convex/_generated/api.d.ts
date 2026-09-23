@@ -242,6 +242,7 @@ import type * as lib_push_dispatcher from "../lib/push_dispatcher.js";
 import type * as lib_quoteEngine from "../lib/quoteEngine.js";
 import type * as lib_quoteHoldOwnership from "../lib/quoteHoldOwnership.js";
 import type * as lib_quoteNotifications from "../lib/quoteNotifications.js";
+import type * as lib_quoteSlotHold from "../lib/quoteSlotHold.js";
 import type * as lib_reviewFieldMap from "../lib/reviewFieldMap.js";
 import type * as lib_robustStats from "../lib/robustStats.js";
 import type * as lib_rotorMin from "../lib/rotorMin.js";
@@ -894,6 +895,7 @@ declare const fullApi: ApiFromModules<{
   "lib/quoteEngine": typeof lib_quoteEngine;
   "lib/quoteHoldOwnership": typeof lib_quoteHoldOwnership;
   "lib/quoteNotifications": typeof lib_quoteNotifications;
+  "lib/quoteSlotHold": typeof lib_quoteSlotHold;
   "lib/reviewFieldMap": typeof lib_reviewFieldMap;
   "lib/robustStats": typeof lib_robustStats;
   "lib/rotorMin": typeof lib_rotorMin;
