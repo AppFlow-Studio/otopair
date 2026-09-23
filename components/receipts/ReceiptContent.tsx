@@ -35,6 +35,10 @@ import { ServiceLogColors as C, ServiceLogFonts as F } from "@/constants/theme";
 
 export interface ReceiptPayload {
   receipt_number: string;
+  /** Stable OTP-<last8> order code (always present). */
+  booking_number?: string | null;
+  /** Real billing number INV-YYYY-NNNNNN; null until the job is captured. */
+  invoice_number?: string | null;
   service_date: string | null;
   completed_at: number | null;
   shop: {
@@ -90,12 +94,22 @@ export interface ReceiptPayload {
   };
   payment: {
     method: string | null;
+    card_brand?: string | null;
     card_last4: string | null;
     amount: number;
     status: string;
     stripe_intent_id: string | null;
     charged_at: number | null;
     invoice_storage_id: string | null;
+    refunded_amount_cents?: number | null;
+    last_refunded_at_ms?: number | null;
+  } | null;
+  /** Present only once money has been returned on this booking. */
+  refund?: {
+    amount_cents: number;
+    refunded_at_ms: number | null;
+    is_full: boolean;
+    net_paid_cents: number | null;
   } | null;
 }
 
@@ -243,7 +257,7 @@ function TotalRow({
 }
 
 export function ReceiptContent({ payload, bookingId, onLeaveReview, onViewJob }: Props) {
-  const { receipt_number, service_date, shop, mechanic, vehicle, line_items, totals, payment } =
+  const { receipt_number, booking_number, invoice_number, service_date, shop, mechanic, vehicle, line_items, totals, payment, refund } =
     payload;
 
   // Reactive: once the scheduled render stores the file, this flips from null
@@ -268,13 +282,12 @@ export function ReceiptContent({ payload, bookingId, onLeaveReview, onViewJob }:
     : "";
 
   const paidDate = fmtLongDate(payment?.charged_at ?? service_date);
-  /** `card_last4` is not persisted yet (see convex/bookings.ts getReceipt), so
-   *  most rows only carry a bare method string like "card". Title-case it
-   *  rather than printing lowercase mid-sentence, and drop it entirely when
-   *  it adds nothing over the word "Paid". */
+  /** Card brand + last-4 are persisted now (payments.card_brand/card_last4).
+   *  Fall back to a title-cased method string, and drop it entirely when it
+   *  adds nothing over the word "Paid". */
   const method = payment?.method?.trim() ?? "";
   const tender = payment?.card_last4
-    ? `Visa ···· ${payment.card_last4}`
+    ? `${payment.card_brand ?? "Card"} ···· ${payment.card_last4}`
     : method && method.toLowerCase() !== "card"
       ? method.charAt(0).toUpperCase() + method.slice(1)
       : null;
@@ -462,7 +475,7 @@ export function ReceiptContent({ payload, bookingId, onLeaveReview, onViewJob }:
     <View style={styles.root}>
       {/* ── masthead ─────────────────────────────────────────── */}
       <View style={styles.head}>
-        <RNText style={styles.eyebrow}>RECEIPT · {receipt_number}</RNText>
+        <RNText style={styles.eyebrow}>RECEIPT · {booking_number ?? receipt_number}</RNText>
         <Pressable
           onPress={preparing ? undefined : handleShare}
           disabled={preparing}
@@ -556,6 +569,21 @@ export function ReceiptContent({ payload, bookingId, onLeaveReview, onViewJob }:
       <View style={styles.ruleTight} />
       <TotalRow label="Total" amount={fmtUSD(totals.total)} hero />
 
+      {/* ── refund (only once money has been returned) ───────── */}
+      {refund ? (
+        <>
+          <View style={styles.rule} />
+          <TotalRow
+            label={refund.is_full ? "Refunded" : "Partially refunded"}
+            amount={`−${fmtAmount(refund.amount_cents / 100)}`}
+            positive
+          />
+          {refund.net_paid_cents != null ? (
+            <TotalRow label="Net paid" amount={fmtUSD(refund.net_paid_cents / 100)} />
+          ) : null}
+        </>
+      ) : null}
+
       {/* ── provenance ───────────────────────────────────────── */}
       <View style={styles.rule} />
       <View style={styles.footer}>
@@ -564,6 +592,7 @@ export function ReceiptContent({ payload, bookingId, onLeaveReview, onViewJob }:
         {vehicleLine ? <RNText style={styles.footerMeta}>{vehicleLine}</RNText> : null}
         {idLine ? <RNText style={styles.footerMeta}>{idLine}</RNText> : null}
         {odoLine ? <RNText style={styles.footerMeta}>{odoLine}</RNText> : null}
+        {invoice_number ? <RNText style={styles.footerMeta}>INVOICE {invoice_number}</RNText> : null}
       </View>
 
       {onViewJob ? (

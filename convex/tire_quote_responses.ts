@@ -15,6 +15,7 @@ import {
   isMechanicAvailableForWindow,
 } from "./lib/timeSlotAvailability";
 import { notifyCustomerQuoteReceived } from "./lib/quoteNotifications";
+import { assertPriceWithinCap } from "./lib/priceCap";
 import {
   QUOTE_HOLD_DURATION_MS,
   assertQuoteNotHeldForCheckout,
@@ -55,6 +56,9 @@ export const create = mutation({
     estimated_duration_minutes: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
+    assertPriceWithinCap(args.per_tire_price, "Per-tire price");
+    assertPriceWithinCap(args.labor_cost, "Labor cost");
+
     const booking = await ctx.db.get(args.booking_id);
     if (!booking) {
       throw new Error("We couldn't find that quote request. It may have been withdrawn.");
@@ -184,6 +188,9 @@ export const requote = mutation({
     estimated_duration_minutes: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
+    assertPriceWithinCap(args.per_tire_price, "Per-tire price");
+    assertPriceWithinCap(args.labor_cost, "Labor cost");
+
     const response = await ctx.db.get(args.response_id);
     if (!response) throw new Error("Quote not found.");
     await requireQuoteShopAccess(ctx, response.shop_id);

@@ -118,6 +118,7 @@ export default function AddVehicleScreen() {
             vin: result.vin,
             make: result.make,
             model: result.model,
+            displayModel: result.displayModel ?? "",
             year: String(result.year),
             trim: result.trim,
             trimId: result.trimId,

@@ -43,7 +43,7 @@ import { api } from '@/convex/_generated/api';
 import { Id } from '@/convex/_generated/dataModel';
 import { scale, verticalScale, moderateScale } from '@/utils/responsive';
 import { CarSilhouette } from '@/components/shared-ui/CarSilhouette';
-import { classifyColorFamily, fetchVehicleImageUrl, pickBestVdbTrim, pickSilhouetteVariant, prefetchVdbColorsForTrims, useVdbColorsForVin } from '@/utils/vehicleImage';
+import { classifyColorFamily, fetchVehicleImageUrl, pickSilhouetteVariant, prefetchVdbColorsForTrims, scoreBestTrim, useVdbColorsForVin, type TrimMatchHints } from '@/utils/vehicleImage';
 import { useYmmTrims } from '@/hooks/useYmmTrims';
 import { COLOR_GRADIENTS } from '@/constants/colorGradients';
 import { ColorSwatchSkeletonRow, VehicleImageSkeleton } from '@/components/shared-ui/ColorSwatchSkeleton';
@@ -63,6 +63,13 @@ type CardSpecs = {
   mpgHighway: number | null;
   mpgCombined: number | null;
   fuelCostPerYearUsd: number | null;
+  /** Upper ends of an MPG range — set when two near-identical EPA listings
+   *  can't be told apart by VIN (manual vs DCT). Absent on older backends. */
+  mpgCityMax?: number | null;
+  mpgHighwayMax?: number | null;
+  mpgCombinedMax?: number | null;
+  /** EPA gearbox label(s): "7-spd DCT" or "6-spd Manual / 7-spd DCT". */
+  transmissionLabel?: string | null;
   frontTireSize: string | null;
   rearTireSize: string | null;
   frontTirePressure: number | null;
@@ -131,6 +138,9 @@ export default function AddVehicleReviewScreen() {
     vin: string;
     make: string;
     model: string;
+    /** Family nameplate for the title ("5 Series" while `model` is the
+     *  catalog/halo line "M5"). Empty on older backends. */
+    displayModel?: string;
     year: string;
     trim: string;
     trimId: string;
@@ -204,16 +214,35 @@ export default function AddVehicleReviewScreen() {
   // the base trim, so we let the user override here, defaulting to the entry
   // that best matches the decoded trim. Images/colors below stay on VDB and
   // resolve primarily by VIN, so the trim source swap doesn't affect them.
-  const { trims: ymmTrims } = useYmmTrims(yearNum, params.make ?? '', params.model ?? '');
+  const { trims: catalogTrims } = useYmmTrims(
+    yearNum, params.make ?? '', params.model ?? '', params.trim,
+  );
+  const titleModel = params.displayModel || params.model;
+  const trimHints = useMemo<TrimMatchHints>(() => ({
+    bodyClass: params.bodyClass || null,
+    drivetrain: params.drivetrain && params.drivetrain !== 'unknown' ? params.drivetrain : null,
+  }), [params.bodyClass, params.drivetrain]);
+  // When nothing in the catalog list names the decoded trim, the decoded
+  // trim itself goes first and is preselected. The old fallback took the
+  // alphabetically-first entry, which is how an M5 became a "530i" and an
+  // AWD R8 a "GT". "Base" is the decoder's placeholder, never a real name.
+  const decodedTrimName = (params.trim ?? '').trim();
+  const trimMatch = useMemo(
+    () => scoreBestTrim(catalogTrims, [params.trim, params.nhtsaTrim], trimHints),
+    [catalogTrims, params.trim, params.nhtsaTrim, trimHints],
+  );
+  const ymmTrims = useMemo(() => {
+    if (catalogTrims.length === 0 || trimMatch.score > 0) return catalogTrims;
+    if (!decodedTrimName || /^base$/i.test(decodedTrimName)) return catalogTrims;
+    return [decodedTrimName, ...catalogTrims];
+  }, [catalogTrims, trimMatch.score, decodedTrimName]);
   const [selectedTrim, setSelectedTrim] = useState<string | null>(null);
   const [showTrimSheet, setShowTrimSheet] = useState(false);
   const trimSheetRef = useRef<FloatingSheetRef>(null);
   useEffect(() => {
     if (selectedTrim || ymmTrims.length === 0) return;
-    const bestTrim = pickBestVdbTrim(ymmTrims, [params.trim, params.nhtsaTrim]);
-    const match = ymmTrims.find((t) => t === bestTrim) ?? ymmTrims[0];
-    setSelectedTrim(match);
-  }, [ymmTrims, selectedTrim, params.trim, params.nhtsaTrim]);
+    setSelectedTrim(trimMatch.score > 0 && trimMatch.trim ? trimMatch.trim : ymmTrims[0]);
+  }, [ymmTrims, selectedTrim, trimMatch]);
   // The VDB catalog model for images is resolved inside useVdbColorsForVin
   // from the decode hints below, so we no longer need a per-trim model here —
   // the merged params model is the correct persisted identity.
@@ -235,6 +264,7 @@ export default function AddVehicleReviewScreen() {
         nhtsaModel: params.nhtsaModel,
         nhtsaSeries: params.nhtsaSeries,
         nhtsaTrim: params.nhtsaTrim,
+        hints: trimHints,
       },
       ymmTrims,
     );
@@ -265,6 +295,7 @@ export default function AddVehicleReviewScreen() {
     vdbDecodedModel: params.vdbDecodedModel,
     vdbDecodedStyle: params.vdbDecodedStyle,
     vdbDecodedTrimAndStyle: params.vdbDecodedTrimAndStyle,
+    hints: trimHints,
   });
   const CAR_COLORS: ColorOption[] = vdbColors.map((c) => ({
     id: c.id,
@@ -384,7 +415,12 @@ export default function AddVehicleReviewScreen() {
       const pickedVdbColor = vdbColors.find((c) => c.id === selectedColor);
       const imageToSave = pickedVdbColor?.imageUrl ?? exteriorFallbackUrl;
       if (imageToSave && params.vin) {
-        saveVehicleImageUrl({ vin: params.vin, image_url: imageToSave }).catch(() => {
+        saveVehicleImageUrl({
+          vin: params.vin,
+          image_url: imageToSave,
+          // Only a trim-matched render may replace the shared config image.
+          trim_matched: pickedVdbColor?.trimMatched === true,
+        }).catch(() => {
           // Non-fatal: cars page useEffect will retry.
         });
       }
@@ -591,19 +627,27 @@ export default function AddVehicleReviewScreen() {
       : DASH;
   const engineLine2 = hp ? `${hp} hp` : DASH;
 
-  // Transmission tile: "Automatic 8sp" primary, "AWD" secondary.
+  // Transmission tile: "Automatic 8sp" primary, "AWD" secondary. Many VINs
+  // (manual vs DCT) don't encode the gearbox; EPA's listings for the engine
+  // then fill it, as one label or the "6-spd Manual / 7-spd DCT" choices.
   const transLine1 =
     transType || transSpeeds
       ? `${transType}${transType && transSpeeds ? ' ' : ''}${transSpeeds ? `${transSpeeds}sp` : ''}`.trim()
-      : DASH;
+      : (cardSpecs?.transmissionLabel || DASH);
   const transLine2 = drivetrain || DASH;
 
   // MPG tile: "City 22 / Hwy 31" primary, "Combined 25" secondary.
+  // A max is only set when the card-specs figures came back as a range.
+  const withMax = (v: number | null, max?: number | null) =>
+    v == null ? DASH : max != null && max !== v ? `${v}–${max}` : `${v}`;
+  const fromCard = cardSpecs?.mpgCity != null;
   const mpgLine1 =
     mpgCity || mpgHighway
-      ? `${mpgCity ?? DASH} / ${mpgHighway ?? DASH}`
+      ? `${withMax(mpgCity, fromCard ? cardSpecs?.mpgCityMax : null)} / ${withMax(mpgHighway, fromCard ? cardSpecs?.mpgHighwayMax : null)}`
       : DASH;
-  const mpgLine2 = mpgCombined ? `Combined ${mpgCombined}` : DASH;
+  const mpgLine2 = mpgCombined
+    ? `Combined ${withMax(mpgCombined, fromCard ? cardSpecs?.mpgCombinedMax : null)}`
+    : DASH;
 
   // Tires tile: front tire size primary, "F33 R33 psi" secondary.
   // If front/rear match, show one. Otherwise show separately.
@@ -623,7 +667,13 @@ export default function AddVehicleReviewScreen() {
     : DASH;
 
   // Engine-code tile: OEM engine code primary, body class secondary.
-  const engineCodeLine1 = params.engineCode || DASH;
+  // The backend falls back to a descriptor like "5.2l_10cyl" when no OEM code
+  // resolves. It keys the config, so it still travels in params — but it is
+  // not an engine code and must not be shown as one.
+  const engineCodeLine1 =
+    params.engineCode && !/^[\d.]+l_\d+cyl$|^unknown/i.test(params.engineCode)
+      ? params.engineCode
+      : DASH;
   const bodyClassLine = params.bodyClass || DASH;
 
   const specsTiles: {
@@ -738,7 +788,7 @@ export default function AddVehicleReviewScreen() {
             {params.year}
           </Text>
           <Text weight="semiBold" size="lg" color="#333333" style={styles.vehicleName}>
-            {params.make} {params.model}
+            {params.make} {titleModel}
           </Text>
           <Pressable
             onPress={() => { if (ymmTrims.length > 0) setShowTrimSheet(true); }}
@@ -922,7 +972,7 @@ export default function AddVehicleReviewScreen() {
               color="#6B7280"
               style={styles.trimSheetSubtitle}
             >
-              {params.year} {params.make} {params.model}
+              {params.year} {params.make} {titleModel}
             </Text>
           </View>
           <Pressable

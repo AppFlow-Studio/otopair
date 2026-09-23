@@ -211,7 +211,10 @@ export async function fetchVdbModelsForYmm(
         return models;
       }
     }
-    VDB_MODELS_CACHE.set(cacheKey, []);
+    // Not cached: a miss here is almost always transient — a 429, or the
+    // cooldown's synthetic 429 answered to a background prefetch. Caching []
+    // emptied the (year, make) catalog for the whole session, after which
+    // every AMG/variant image lookup fell back to the VIN image or nothing.
     return [];
   } catch {
     return [];
@@ -288,38 +291,106 @@ export function extractModelCandidates(args: {
   return candidates;
 }
 
+/** Body/door/drive hints from the decode, used to break trim-score ties. */
+export interface TrimMatchHints {
+  /** NHTSA body class ("Coupe", "Sedan/Saloon", "Sport Utility Vehicle …"). */
+  bodyClass?: string | null;
+  /** Decoded door count. */
+  doors?: number | null;
+  /** Canonical drivetrain ("AWD", "RWD", …). */
+  drivetrain?: string | null;
+}
+
+// Letter/digit-split tokens, dotted engine sizes kept whole: "AMG GT63" →
+// ["amg", "gt", "63"], "3.0T Prestige" → ["3.0t", "prestige"]. Splitting the
+// letter/digit seam is what lets a decoded "GT63" meet a catalog "GT 63".
+function trimTokens(s: string): string[] {
+  return (
+    s
+      .toLowerCase()
+      .match(/\d+\.\d+[a-z]?|[a-z]+|\d+/g) ?? []
+  );
+}
+
+const OPEN_TOP = /\b(spyder|spider|convertible|cabriolet|cabrio|roadster|volante)\b/i;
+
+/**
+ * How well a trim string's body/doors/drive words agree with the decode:
+ * positive for agreement, negative for a contradiction (a Spyder for a coupe,
+ * "2dr" for a 4-door, RWD for an AWD car), 0 when it says nothing.
+ */
+function hintValue(trim: string, hints?: TrimMatchHints): number {
+  if (!hints) return 0;
+  const body = (hints.bodyClass ?? "").toLowerCase();
+  const doors = hints.doors ?? null;
+  const drive = (hints.drivetrain ?? "").toUpperCase();
+  const toks = trimTokens(trim);
+  let hint = 0;
+  if (body && OPEN_TOP.test(trim) !== OPEN_TOP.test(body)) hint -= 2;
+  const bodyWord = /coupe/.test(body) ? "coupe" : /sedan|saloon/.test(body) ? "sedan"
+    : /sport utility|suv/.test(body) ? "suv" : /wagon/.test(body) ? "wagon" : "";
+  if (bodyWord && toks.includes(bodyWord)) hint += 1;
+  const dr = trim.match(/\b(\d)\s*-?\s*(?:dr|door)\b/i);
+  if (doors && dr) hint += parseInt(dr[1], 10) === doors ? 1 : -2;
+  if (drive === "AWD" || drive === "4WD" || drive === "RWD" || drive === "FWD") {
+    const saysAwd = /\b(awd|4wd|all[- ]wheel|quattro|xdrive|4matic|4motion)\b/i.test(trim);
+    const saysRwd = /\b(rwd|rear[- ]wheel|sdrive)\b/i.test(trim);
+    const wantAwd = drive === "AWD" || drive === "4WD";
+    if ((wantAwd && saysRwd) || (!wantAwd && saysAwd)) hint -= 2;
+    else if ((wantAwd && saysAwd) || (!wantAwd && saysRwd)) hint += 1;
+  }
+  return hint;
+}
+
+/**
+ * Score every candidate trim against the decoded trim(s) and return the best,
+ * with its score. Token overlap first; then body/door/drivetrain hints push
+ * a 4-door GT 63 off the 2-door row and a coupe off the Spyder. Ties go to
+ * the shorter (simpler) name. `score` is the token overlap alone — 0 means
+ * nothing in the list names this vehicle's trim.
+ */
+export function scoreBestTrim(
+  canonicalTrims: string[],
+  targets: Array<string | undefined | null>,
+  hints?: TrimMatchHints,
+): { trim: string | undefined; score: number } {
+  if (canonicalTrims.length === 0) return { trim: undefined, score: 0 };
+  const targetTokens = new Set(
+    targets.filter((t): t is string => !!t).flatMap(trimTokens),
+  );
+  let best = canonicalTrims[0];
+  let bestScore = -1;
+  let bestHint = -Infinity;
+  for (const trim of canonicalTrims) {
+    const score = trimTokens(trim).filter((t) => targetTokens.has(t)).length;
+    const hint = hintValue(trim, hints);
+    const better =
+      score > bestScore ||
+      (score === bestScore && hint > bestHint) ||
+      (score === bestScore && hint === bestHint && trim.length < best.length);
+    if (better) {
+      best = trim;
+      bestScore = score;
+      bestHint = hint;
+    }
+  }
+  return { trim: best, score: Math.max(bestScore, 0) };
+}
+
 /**
  * From VDB's canonical trim list, pick the entry that best matches the
- * vehicle's actual trim. Scores each canonical trim by how many tokens
- * of the target trim(s) it contains, e.g. decoded "3.0T Prestige" →
- * VDB's "3.0T Prestige quattro 4dr All-Wheel Drive Sedan 8sp Automatic".
- * Falls back to the first canonical trim when nothing overlaps, so the
- * image still resolves (same body, possibly a different sub-trim).
+ * vehicle's actual trim, e.g. decoded "3.0T Prestige" → VDB's "3.0T
+ * Prestige quattro 4dr All-Wheel Drive Sedan 8sp Automatic". When nothing
+ * overlaps it still returns the hint-best entry (so an image resolves with
+ * the right body, possibly a different sub-trim) — callers that must know
+ * whether it truly matched use `scoreBestTrim`.
  */
 export function pickBestVdbTrim(
   canonicalTrims: string[],
-  targets: Array<string | undefined>,
+  targets: Array<string | undefined | null>,
+  hints?: TrimMatchHints,
 ): string | undefined {
-  if (canonicalTrims.length === 0) return undefined;
-  // Keep dotted tokens together ("3.0t") so engine sizes match.
-  const tokenize = (s: string) =>
-    s.toLowerCase().split(/[^a-z0-9.]+/).filter((t) => t.length > 0);
-  const targetTokens = new Set(
-    targets.filter((t): t is string => !!t).flatMap(tokenize),
-  );
-  if (targetTokens.size === 0) return canonicalTrims[0];
-
-  let best = canonicalTrims[0];
-  let bestScore = -1;
-  for (const trim of canonicalTrims) {
-    const score = tokenize(trim).filter((t) => targetTokens.has(t)).length;
-    // Higher overlap wins; tie → prefer the shorter (simpler) trim.
-    if (score > bestScore || (score === bestScore && trim.length < best.length)) {
-      best = trim;
-      bestScore = score;
-    }
-  }
-  return bestScore > 0 ? best : canonicalTrims[0];
+  return scoreBestTrim(canonicalTrims, targets, hints).trim;
 }
 
 // Module-level cache keyed by `${year}|${make-normalized}|${candidate}`.
@@ -408,34 +479,36 @@ async function vdbVerboseTrimsFor(
     const hit = catalog.find((m) => norm(m) === target);
     if (hit) { resolvedModel = hit; break; }
   }
-  const found = resolvedModel
-    ? { model: resolvedModel, trims: await probeYmmSpecsTrims(year, make, resolvedModel, opts) }
-    : null;
-  VDB_VERBOSE_TRIM_CACHE.set(key, found && found.trims.length ? found : null);
-  return VDB_VERBOSE_TRIM_CACHE.get(key)!;
+  const trims = resolvedModel ? await probeYmmSpecsTrims(year, make, resolvedModel, opts) : [];
+  const found = resolvedModel && trims && trims.length ? { model: resolvedModel, trims } : null;
+  // Only cache a definitive answer: a catalog we actually read, and a trim
+  // probe that actually answered. A rate-limited miss must be retryable.
+  if (catalog.length > 0 && trims !== null) VDB_VERBOSE_TRIM_CACHE.set(key, found);
+  return found;
 }
 
 /**
  * Probe VDB's `ymm-specs/options/v3/trim` endpoint for the canonical
- * trim list for a year/make/model. Returns `[]` on any failure (non-200,
- * malformed body, network error) — callers treat "no trims" the same
- * regardless of cause.
+ * trim list for a year/make/model. Returns `[]` when VDB answered with no
+ * trims and `null` on a transient failure (429, network, 5xx) — callers
+ * cache the former and retry the latter.
  */
 async function probeYmmSpecsTrims(
   year: number,
   make: string,
   model: string,
   opts?: { background?: boolean },
-): Promise<string[]> {
+): Promise<string[] | null> {
   try {
     const url = `${TRIM_OPTIONS_URL}/${year}/${encodeURIComponent(make)}/${encodeURIComponent(model)}`;
     const response = await vdbFetch(url, { headers: { "x-AuthKey": API_KEY } }, opts);
+    if (response.status === 429 || response.status >= 500) return null;
     if (!response.ok) return [];
     const json = await response.json();
     if (json.status !== "success" || !Array.isArray(json.data)) return [];
     return json.data.filter((t: unknown): t is string => typeof t === "string");
   } catch {
-    return [];
+    return null;
   }
 }
 
@@ -462,12 +535,13 @@ export async function discoverVdbModel(args: {
     }
 
     const trims = await probeYmmSpecsTrims(year, make, candidate);
-    if (trims.length > 0) {
+    if (trims && trims.length > 0) {
       const result = { model: candidate, trims };
       VDB_MODEL_DISCOVERY_CACHE.set(key, result);
       return result;
     }
-    VDB_MODEL_DISCOVERY_CACHE.set(key, null);
+    // Cache only a definitive empty answer; a rate-limited probe retries.
+    if (trims !== null) VDB_MODEL_DISCOVERY_CACHE.set(key, null);
   }
   return null;
 }
@@ -526,7 +600,7 @@ async function aggregateVdbVariantsForFamily(
   // (model, trim) pairs.
   const results = await Promise.all(
     matching.map(async (model) => {
-      const trims = await probeYmmSpecsTrims(year, make, model);
+      const trims = (await probeYmmSpecsTrims(year, make, model)) ?? [];
       return trims.map((trim) => ({ model, trim }));
     }),
   );
@@ -1244,6 +1318,10 @@ export interface VdbColorOption {
   label: string;
   hex: string;
   imageUrl: string;
+  /** True when the image came from a VDB record for this vehicle's own trim
+   *  (not the VIN/base-trim record or a no-overlap fallback trim). Only such
+   *  an image may replace the shared per-config image server-side. */
+  trimMatched?: boolean;
 }
 
 /**
@@ -1377,10 +1455,16 @@ export async function fetchVdbColorsForVehicle(args: {
   vdbDecodedModel?: string;
   vdbDecodedStyle?: string;
   vdbDecodedTrimAndStyle?: string;
+  /** Decode hints that break trim-score ties (coupe vs Spyder, 4dr vs 2dr,
+   *  AWD vs RWD) when picking among VDB's verbose trims. */
+  hints?: TrimMatchHints;
   /** Internal: set on the discovery re-entry so we never re-run the
    *  discovery fallbacks twice (guards against an infinite loop when a
    *  ymm-specs trim has no vehicle-images record). */
   __triedDiscovery?: boolean;
+  /** Internal: whether the discovery re-entry's trim actually overlapped the
+   *  decoded trim (score > 0) — drives `trimMatched` on the result. */
+  __discoveryMatched?: boolean;
   /** Speculative warm-up rather than the image on screen. Yields to the
    *  rate-limit cooldown instead of waiting it out — see `vdbFetch`. */
   background?: boolean;
@@ -1389,7 +1473,7 @@ export async function fetchVdbColorsForVehicle(args: {
     vin, year, make, model, trim,
     nhtsaModel, nhtsaSeries, nhtsaTrim,
     vdbDecodedModel, vdbDecodedStyle, vdbDecodedTrimAndStyle,
-    background,
+    background, hints,
   } = args;
   const fetchOpts = background ? { background: true } : undefined;
   console.log("[vdbColors] inputs:", { vin, year, make, model, trim, nhtsaModel, nhtsaSeries, nhtsaTrim, vdbDecodedModel, vdbDecodedStyle, vdbDecodedTrimAndStyle });
@@ -1407,7 +1491,15 @@ export async function fetchVdbColorsForVehicle(args: {
   if (trim && year && make) {
     for (const m of makes) {
       const resolved = await vdbVerboseTrimsFor(year, m, trim, fetchOpts);
-      for (const verbose of resolved?.trims ?? []) {
+      // Rank the verbose trims instead of queueing them in VDB's order: the
+      // first one that answered used to win, so a model covering both a
+      // coupe and a Spyder (or 2dr and 4dr) showed whichever came first.
+      const ranked = [...(resolved?.trims ?? [])].sort((a, b) => {
+        const sa = scoreBestTrim([a], [trim, nhtsaTrim], hints);
+        const sb = scoreBestTrim([b], [trim, nhtsaTrim], hints);
+        return sb.score - sa.score || hintValue(b, hints) - hintValue(a, hints);
+      });
+      for (const verbose of ranked) {
         ymmtUrls.push(
           `${BASE_URL}/${year}/${encodeURIComponent(m)}/${encodeURIComponent(resolved!.model)}/${encodeURIComponent(verbose)}`,
         );
@@ -1419,6 +1511,9 @@ export async function fetchVdbColorsForVehicle(args: {
       }
     }
   }
+  // Trim-derived URLs name this vehicle's trim; the VIN URL returns the base
+  // trim. On the discovery re-entry the trim is only as good as its score.
+  const ymmtMatched = args.__triedDiscovery ? !!args.__discoveryMatched : true;
   // When an explicit trim is provided, try the YMMT URLs FIRST so the
   // image/colors reflect the user's actual trim selection (the VIN URL
   // always returns the base trim regardless of `trim`). VIN URL stays as
@@ -1465,6 +1560,7 @@ export async function fetchVdbColorsForVehicle(args: {
       const colorUrls: string[] = json.data?.images?.colors ?? [];
       if (colorUrls.length === 0) continue;
 
+      const trimMatched = ymmtMatched && !url.endsWith(`/${normalizedVin}`);
       const seenLabels = new Set<string>();
       const options: VdbColorOption[] = [];
       for (const colorUrl of colorUrls) {
@@ -1472,7 +1568,7 @@ export async function fetchVdbColorsForVehicle(args: {
         if (!parsed) continue;
         if (seenLabels.has(parsed.label)) continue;
         seenLabels.add(parsed.label);
-        options.push(parsed);
+        options.push({ ...parsed, trimMatched });
       }
       if (options.length > 0) return options;
     } catch {
@@ -1567,7 +1663,8 @@ export async function fetchVdbColorsForVehicle(args: {
         // trim instead of blindly taking the first one — so an Audi A6
         // "3.0T Prestige" maps to VDB's "3.0T Prestige quattro ..."
         // rather than the base "2.0T Premium" variant.
-        const bestTrim = pickBestVdbTrim(discovered.trims, [trim, nhtsaTrim]);
+        const best = scoreBestTrim(discovered.trims, [trim, nhtsaTrim], hints);
+        const bestTrim = best.trim;
         console.log(
           `[vdbColors] discovered VDB model "${discovered.model}" for ${year} ${make} (caller model "${model}"). Picked trim "${bestTrim}" from ${discovered.trims.length} canonical trims`,
         );
@@ -1579,6 +1676,7 @@ export async function fetchVdbColorsForVehicle(args: {
           model: discovered.model,
           trim: bestTrim,
           __triedDiscovery: true,
+          __discoveryMatched: best.score > 0,
         });
       } else {
         console.log("[vdbColors] discovery exhausted — no candidate matched VDB catalog");
@@ -1698,6 +1796,8 @@ export function useVdbColorsForVin(args: {
   vdbDecodedModel?: string;
   vdbDecodedStyle?: string;
   vdbDecodedTrimAndStyle?: string;
+  /** Body/door/drive decode hints for picking among VDB's verbose trims. */
+  hints?: TrimMatchHints;
 }): { colors: VdbColorOption[]; isLoading: boolean; hasVdbData: boolean } {
   const key = cacheKey(args);
   const cached = COLORS_CACHE.get(key);
@@ -1733,7 +1833,10 @@ export function useVdbColorsForVin(args: {
     fetchVdbColorsForVehicle(args)
       .then((result) => {
         if (cancelled) return;
-        COLORS_CACHE.set(k, result);
+        // Cache hits only. An empty result is usually a rate-limited burst
+        // (the trim prefetch shares VDB's 3-concurrent cap), and caching it
+        // pinned the silhouette for the rest of the session.
+        if (result.length) COLORS_CACHE.set(k, result);
         setColors(result);
         setIsLoading(false);
       })
@@ -1747,7 +1850,7 @@ export function useVdbColorsForVin(args: {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [args.vin, args.year, args.make, args.model, args.trim, args.nhtsaModel, args.nhtsaSeries, args.nhtsaTrim, args.vdbDecodedModel, args.vdbDecodedStyle, args.vdbDecodedTrimAndStyle]);
+  }, [args.vin, args.year, args.make, args.model, args.trim, args.nhtsaModel, args.nhtsaSeries, args.nhtsaTrim, args.vdbDecodedModel, args.vdbDecodedStyle, args.vdbDecodedTrimAndStyle, args.hints?.bodyClass, args.hints?.doors, args.hints?.drivetrain]);
 
   return { colors, isLoading, hasVdbData: colors.length > 0 };
 }

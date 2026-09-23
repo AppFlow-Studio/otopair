@@ -83,6 +83,7 @@ export default function VinScannerScreen() {
               vin: decoded.vin,
               make: decoded.make,
               model: decoded.model,
+              displayModel: decoded.displayModel ?? "",
               year: String(decoded.year),
               trim: decoded.trim,
               trimId: decoded.trimId,

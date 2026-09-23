@@ -18,6 +18,9 @@ export function useYmmTrims(
   year: number | undefined,
   make: string,
   model: string,
+  /** VIN-decoded trim — lets the backend add sibling catalog models it names
+   *  ("AMG GT63" → "AMG GT 63"). Optional. */
+  decodedTrim?: string,
 ): { trims: string[]; isLoading: boolean } {
   const resolveTrims = useAction(api.ymmtCatalog.resolveTrimsForYmm);
   const [trims, setTrims] = useState<string[]>([]);
@@ -31,7 +34,7 @@ export function useYmmTrims(
     }
     let cancelled = false;
     setIsLoading(true);
-    resolveTrims({ year, make, model })
+    resolveTrims({ year, make, model, decodedTrim: decodedTrim?.trim() || undefined })
       .then((res) => {
         if (cancelled) return;
         setTrims(res?.trims ?? []);
@@ -45,7 +48,7 @@ export function useYmmTrims(
     return () => {
       cancelled = true;
     };
-  }, [year, make, model, resolveTrims]);
+  }, [year, make, model, decodedTrim, resolveTrims]);
 
   return { trims, isLoading };
 }

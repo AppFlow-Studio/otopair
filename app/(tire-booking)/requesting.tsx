@@ -190,6 +190,12 @@ export default function TireRequestingScreen({ onClose, onConfirmed }: TireReque
         snapHeights={[confirmLayout.sheetHeight]}
         onClose={handleStatusSheetClosed}
         cornerRadius={24}
+        // This screen is a full-screen takeover (no tab bar behind it) in
+        // BOTH route mode and the ServiceBottomSheet-embedded modal mode, so
+        // the native-Modal wrapper is never needed here — and nesting it
+        // inside the embedded fullScreen Modal is the iOS modal-over-modal
+        // race that silently drops the sheet. Always render inline.
+        renderInModal={false}
       >
         <QuoteRequestStatus
           onGoBack={handleGoBack}
@@ -202,6 +208,7 @@ export default function TireRequestingScreen({ onClose, onConfirmed }: TireReque
         ref={confirmSheetRef}
         onViewBooking={handleBackToBooking}
         vehicleVin={requestVehicleVin}
+        renderInModal={false}
       />
     </View>
   );
