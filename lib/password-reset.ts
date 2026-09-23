@@ -200,6 +200,12 @@ export function getPasswordResetErrorMessage(
       : "We couldn't find an account with that email.";
   }
 
+  // An account made with Google or Apple has no password to reset, and Clerk
+  // answers with this code — which on its own read as a dead end (#296).
+  if (options.phase === "send" && normalized.includes("strategy_for_user_invalid")) {
+    return "This account uses Google or Apple sign-in. Log in with that button, then create a password in Settings.";
+  }
+
   if (normalized.includes("expired")) {
     return "This code expired. Send a new one.";
   }
