@@ -60,6 +60,8 @@ const SHAPES: Record<string, NotificationShapeSpec> = {
   pickup_request_response: ACKNOWLEDGE,
   booking_auto_dropped: ACKNOWLEDGE,
   booking_request_expired: ACKNOWLEDGE,
+  booking_cancelled_by_shop: ACKNOWLEDGE,
+  booking_no_show_by_shop: ACKNOWLEDGE,
   customer_cancel_pickup_request: ACKNOWLEDGE,
   walkin_booking_confirmed: ACKNOWLEDGE,
   walkin_vehicle_at_shop: ACKNOWLEDGE,

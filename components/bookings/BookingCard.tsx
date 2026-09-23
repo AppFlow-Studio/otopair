@@ -38,6 +38,7 @@ import Animated, { FadeOut, LinearTransition, useAnimatedStyle, useSharedValue, 
 import { FixedPriceBadge, Text } from '@/components/shared-ui';
 import { BookingProgressBar } from '@/components/bookings/BookingProgressBar';
 import { JobBlockedNotice } from '@/components/bookings/JobBlockedNotice';
+import { CancelledBookingNotice } from '@/components/bookings/CancelledBookingNotice';
 import { ApprovalBanner } from '@/components/booking/ApprovalBanner';
 import { getBookingStageView } from '@/utils/bookingStages';
 import { useConnection } from '@/hooks/useConnection';
@@ -136,6 +137,12 @@ export interface Booking {
   /** Pickup / cancellation fee in cents (0 = waived). */
   cancellationFeeCents?: number;
   cancellationKind?: "free" | "late_cancel" | "no_show";
+  /** When the booking was cancelled/declined (ms). The upcoming list keeps a
+   *  cancelled card for 24h from this moment. */
+  cancelledAtMs?: number;
+  cancelledByRole?: "shop" | "customer" | "system" | string;
+  /** Customer-safe reason, e.g. "Parts weren't available". */
+  cancellationReasonLabel?: string;
 }
 
 export interface BookingCardProps {
@@ -403,7 +410,19 @@ export function BookingCard({
       dim.value = withTiming(0.45, { duration: 280 });
     }
   }, [isCancelling, dim]);
+  // Cancelled bookings now stay on the list for 24h (see
+  // useMyBookingsWithDetails), so once the server confirms the cancel this
+  // same card re-renders as a "Cancelled" card — drop the local
+  // mid-cancel dim/strikethrough instead of leaving it greyed out.
+  useEffect(() => {
+    if (isCancelling && booking.status === 'cancelled') {
+      setIsCancelling(false);
+      dim.value = withTiming(1, { duration: 200 });
+    }
+  }, [isCancelling, booking.status, dim]);
   const dimStyle = useAnimatedStyle(() => ({ opacity: dim.value }));
+  const isCancelledCard =
+    variant === 'upcoming' && booking.status === 'cancelled' && !isCancelling;
   const [carImageError, setCarImageError] = useState(false);
   const showCarPlaceholder = !booking.makeLogoUrl?.trim() || carImageError;
   const fontScale = PixelRatio.getFontScale();
@@ -694,10 +713,20 @@ export function BookingCard({
           </View>
         ) : (
           <View style={styles.dateTimeContainer}>
-            <Text weight="semiBold" size="sm" color="#5299FE">
+            <Text
+              weight="semiBold"
+              size="sm"
+              color={isCancelledCard ? '#9CA3AF' : '#5299FE'}
+              style={isCancelledCard ? styles.strikethrough : undefined}
+            >
               {booking.date}
             </Text>
-            <Text weight="semiBold" size="sm" color="#5299FE">
+            <Text
+              weight="semiBold"
+              size="sm"
+              color={isCancelledCard ? '#9CA3AF' : '#5299FE'}
+              style={isCancelledCard ? styles.strikethrough : undefined}
+            >
               {booking.time}
             </Text>
           </View>
@@ -772,6 +801,17 @@ export function BookingCard({
           estimate is answering the wrong question. Renders nothing unless the
           shop has flagged a hold the driver is meant to know about. */}
       <JobBlockedNotice bookingId={String(booking.id)} />
+
+      {/* Recently cancelled (shop, customer, or auto-expiry): explain what
+          happened and when the card leaves the list. */}
+      {isCancelledCard ? (
+        <CancelledBookingNotice
+          cancelledAtMs={booking.cancelledAtMs}
+          cancelledByRole={booking.cancelledByRole}
+          shopName={booking.shopName}
+          reasonLabel={booking.cancellationReasonLabel}
+        />
+      ) : null}
 
       {/* Pickup request status — appears once the customer has requested their
           car back (vehicle_at_shop). Reflects the shop/mechanic's live response
