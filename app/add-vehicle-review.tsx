@@ -49,6 +49,7 @@ import { COLOR_GRADIENTS } from '@/constants/colorGradients';
 import { ColorSwatchSkeletonRow, VehicleImageSkeleton } from '@/components/shared-ui/ColorSwatchSkeleton';
 import { FloatingSheet, type FloatingSheetRef } from '@/components/shared-ui/FloatingSheet';
 import { formatEngineLiters } from '@/utils/vehicleDisplay';
+import { vehicleLabel } from '@/lib/vehicleName';
 
 /** Longest the Add Vehicle button will wait on the paint fetch. */
 const COLOR_WAIT_CAP_MS = 8000;
@@ -826,7 +827,7 @@ export default function AddVehicleReviewScreen() {
             {params.year}
           </Text>
           <Text weight="semiBold" size="lg" color="#333333" style={styles.vehicleName}>
-            {params.make} {params.model}
+            {vehicleLabel(params.make, params.model)}
           </Text>
           <Pressable
             onPress={() => { if (ymmTrims.length > 0) setShowTrimSheet(true); }}
@@ -1037,7 +1038,7 @@ export default function AddVehicleReviewScreen() {
               color="#6B7280"
               style={styles.trimSheetSubtitle}
             >
-              {params.year} {params.make} {params.model}
+              {vehicleLabel(params.make, params.model, params.year)}
             </Text>
           </View>
           <Pressable

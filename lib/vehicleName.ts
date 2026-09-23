@@ -121,3 +121,28 @@ function titleCaseSegment(segment: string): string {
 export function titleCaseVehicleName(str: string): string {
   return str.replace(/[A-Za-z0-9]+/g, titleCaseSegment);
 }
+
+/**
+ * Display label for a vehicle assembled from parts that may be missing.
+ *
+ * Exists because the Add-Vehicle review screen renders `params.make` and
+ * `params.model` straight from route params, which is how "MERCEDES-BENZ
+ * SL-Class" reached the setup screen while Cars and Oto showed something else
+ * (bug #259). Interpolating those params directly also renders the literal
+ * string "undefined" when one is absent, so absent parts are dropped here
+ * rather than left to the caller.
+ *
+ * The year is prepended verbatim — it is digits, and passing it through the
+ * casing rule would be a no-op that only invites doubt.
+ */
+export function vehicleLabel(
+  make?: string | null,
+  model?: string | null,
+  year?: string | number | null,
+): string {
+  const name = titleCaseVehicleName(
+    [make, model].filter((p) => p != null && String(p).trim() !== "").join(" "),
+  );
+  const y = year != null && String(year).trim() !== "" ? String(year).trim() : "";
+  return [y, name].filter(Boolean).join(" ");
+}

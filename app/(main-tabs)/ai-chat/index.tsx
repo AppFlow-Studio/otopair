@@ -88,6 +88,7 @@ import { useVoiceRecording } from "@/hooks/useVoiceRecording";
 import { useVehicleOwnershipFromConvex } from "@/hooks/useVehicleOwnershipFromConvex";
 import { useUserFromConvex } from "@/hooks/useUserFromConvex";
 import { formatMake } from "@/utils/formatMake";
+import { titleCaseVehicleName } from "@/lib/vehicleName";
 import { createInitialState, processUserMessage, WELCOME_SUGGESTIONS } from "@/services/ai/scenarioEngine";
 import type { ConversationState, ChatMessage } from "@/services/ai/types";
 
@@ -331,7 +332,7 @@ export default function AIChatScreen() {
         vin: r.vin,
         year: v?.year ?? 0,
         make: formatMake(make),
-        model: model.charAt(0).toUpperCase() + model.slice(1).toLowerCase(),
+        model: titleCaseVehicleName(model),
         imageUrl,
         localImage,
       };

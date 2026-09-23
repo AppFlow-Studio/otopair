@@ -9,11 +9,7 @@
  * The cases below are the ones a naive "first two words" would get wrong.
  */
 import { describe, expect, it } from "vitest";
-import {
-  titleCaseVehicleName,
-  vehicleMakeModel,
-  vehicleYearMakeModel,
-} from "../lib/vehicleName";
+import { titleCaseVehicleName, vehicleMakeModel, vehicleYearMakeModel, vehicleLabel } from "../lib/vehicleName";
 
 describe("the reported cases", () => {
   it("drops AMG G63", () => {
@@ -162,5 +158,57 @@ describe("vehicle name casing", () => {
       const once = titleCaseVehicleName(v);
       expect(titleCaseVehicleName(once)).toBe(once);
     }
+  });
+});
+
+describe("the screens #259 missed the first time", () => {
+  // Ahmad, 2026-09-23: the Cars tab read "GLE-Class" while the Oto tab read
+  // "Gle-class" on the same car. The shared rule was correct; two screens were
+  // not calling it. The Oto tab had its own
+  // `charAt(0).toUpperCase() + slice(1).toLowerCase()` and the Add-Vehicle
+  // review screen interpolated the raw route params.
+  it("casts the reported model the way the Cars tab already did", () => {
+    expect(titleCaseVehicleName("GLE-CLASS")).toBe("GLE-Class");
+    expect(titleCaseVehicleName("GLE-Class")).toBe("GLE-Class");
+  });
+
+  it("is what the old per-screen rule got wrong", () => {
+    // The exact expression the Oto tab used, kept here so the failure it
+    // produced stays legible to whoever reads this next.
+    const oldOtoRule = (m: string) => m.charAt(0).toUpperCase() + m.slice(1).toLowerCase();
+    expect(oldOtoRule("GLE-CLASS")).toBe("Gle-class");
+    expect(titleCaseVehicleName("GLE-CLASS")).not.toBe(oldOtoRule("GLE-CLASS"));
+  });
+
+  it("cannot un-break a value another screen already flattened", () => {
+    // "Gle" is mixed case, and preserving deliberate mixed case is what keeps
+    // "iM" and "Class" intact — so a value that arrives pre-mangled stays
+    // mangled. Stated as an expectation so it reads as a known limit: the fix
+    // is to call this on the RAW value, never to clean up after another rule.
+    expect(titleCaseVehicleName("Gle-class")).toBe("Gle-Class");
+  });
+});
+
+describe("vehicleLabel", () => {
+  it("builds the setup screen's label with the shared rule", () => {
+    expect(vehicleLabel("MERCEDES-BENZ", "GLE-CLASS")).toBe("Mercedes-Benz GLE-Class");
+    expect(vehicleLabel("MERCEDES-BENZ", "GLE-CLASS", "2023")).toBe(
+      "2023 Mercedes-Benz GLE-Class",
+    );
+  });
+
+  it("drops missing parts instead of printing the word undefined", () => {
+    // The review screen reaches this from route params, which are not always
+    // populated. `{params.make} {params.model}` rendered "undefined undefined".
+    expect(vehicleLabel(undefined, undefined)).toBe("");
+    expect(vehicleLabel(null, "GLE-CLASS")).toBe("GLE-Class");
+    expect(vehicleLabel("BMW", null, 2024)).toBe("2024 BMW");
+    expect(vehicleLabel("  ", "  ")).toBe("");
+  });
+
+  it("agrees with what the Cars tab renders for the same car", () => {
+    const make = "MERCEDES-BENZ";
+    const model = "GLE-CLASS";
+    expect(vehicleLabel(make, model)).toBe(titleCaseVehicleName(`${make} ${model}`));
   });
 });
