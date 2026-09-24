@@ -1756,7 +1756,7 @@ function ActivityRow({
           <View style={styles.activityDetail}>
             {event.data.services.length > 0 ? (
               <Text size="xs" weight="regular" color="#3C3C43">
-                {event.data.services.join(" · ")}
+                {formatServiceDisplayNames(event.data.services).join(" · ")}
               </Text>
             ) : null}
             {/* Quoted Parts/Labor/Tax+Fee breakdown is the mechanic-facing

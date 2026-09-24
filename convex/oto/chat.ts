@@ -78,6 +78,7 @@ import {
   type TurnSample,
 } from "./telemetryAssembly";
 import { mapToolMoodToEpisodic } from "./moodMap";
+import { formatServiceDisplayName } from "../../utils/serviceDisplayName";
 
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_VERSION = "2023-06-01";
@@ -3397,8 +3398,8 @@ function buildCallables(
       if (!svc) throw new Error(`Service "${slug}" not in catalog.`);
       return {
         slug: svc.slug,
-        name: svc.name,
-        description: svc.description ?? null,
+        name: formatServiceDisplayName(svc.name),
+        description: svc.description ? formatServiceDisplayName(svc.description) : null,
         default_labor_hours: svc.default_labor_hours ?? null,
         has_options: svc.has_options === true,
         is_labor_only: svc.is_labor_only === true,

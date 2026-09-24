@@ -30,6 +30,8 @@ import { query, internalQuery } from "../_generated/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import { resolveVehicleDisplay } from "../lib/bookingEnrichment";
+// The `services` rows still read "Timing Belt"; customers see "Drive Belt" (#244).
+import { formatServiceDisplayName } from "../../utils/serviceDisplayName";
 
 // "Active" is everything not finished — the Bookings tab's rule
 // (TERMINAL_BOOKING_STATUSES in convex/bookings.ts). The old allow-list
@@ -126,7 +128,7 @@ async function _getBookingsCore(
         id: b._id,
         status: b.status,
         service_slugs: seen.map((s) => s.slug).filter((x): x is string => !!x),
-        service_names: seen.map((s) => s.name),
+        service_names: seen.map((s) => formatServiceDisplayName(s.name)),
         shop_name: shop?.name ?? null,
         mechanic_name: mechanic
           ? `${mechanic.first_name} ${mechanic.last_name}`.trim()
@@ -236,7 +238,7 @@ async function _getPendingBookingsCore(
         id: b._id,
         status: b.status,
         service_slugs: seen.map((s) => s.slug).filter((x): x is string => !!x),
-        service_names: seen.map((s) => s.name),
+        service_names: seen.map((s) => formatServiceDisplayName(s.name)),
         shop_name: shop?.name ?? null,
         mechanic_name: mechanic
           ? `${mechanic.first_name} ${mechanic.last_name}`.trim()
