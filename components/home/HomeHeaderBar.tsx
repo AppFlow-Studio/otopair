@@ -210,11 +210,17 @@ const styles = StyleSheet.create({
     paddingLeft: 0,
     marginBottom: 6,
   },
+  // `minWidth: 0` on this row and on `locationText`, plus `flexShrink: 0` on
+  // `headerRight`, keep a long location ("Al Farafra, The New Valley
+  // Governorate") inside the space left of the bell, so `numberOfLines={1}`
+  // ends it with an ellipsis instead of running it under the bell (#287; the
+  // #131 fix, lost when this header moved out of home/index.tsx).
   locationSection: {
     flexDirection: "row",
     alignItems: "center",
     gap: 2,
     flex: 1,
+    minWidth: 0,
     paddingLeft: 0,
   },
   profileButton: {
@@ -222,6 +228,8 @@ const styles = StyleSheet.create({
     marginTop: -8,
   },
   locationText: {
+    flex: 1,
+    minWidth: 0,
     gap: 0,
     marginTop: -7,
     marginLeft: 12,
@@ -237,6 +245,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
+    flexShrink: 0,
   },
   bellButton: {
     padding: 4,
