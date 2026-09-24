@@ -37,7 +37,7 @@ import Animated, {
   withSequence,
 } from 'react-native-reanimated';
 import { Image } from 'expo-image';
-import { Copy, Volume2, ThumbsUp, ThumbsDown, Check } from 'lucide-react-native';
+import { Copy, Volume2, ThumbsUp, ThumbsDown, Check, Square } from 'lucide-react-native';
 
 // 3. Shared UI (design system)
 import { Text } from '@/components/shared-ui';
@@ -80,6 +80,8 @@ interface AIMessageBubbleProps {
   message: AIMessage;
   onCopy?: () => void;
   onSpeak?: () => void;
+  /** This message is being read aloud — the speaker button shows Stop. */
+  isSpeaking?: boolean;
   onLike?: () => void;
   onDislike?: () => void;
   onQuickReplySelect?: (reply: QuickReply) => void;
@@ -269,6 +271,7 @@ export function AIMessageBubble({
   message,
   onCopy,
   onSpeak,
+  isSpeaking,
   onLike,
   onDislike,
   onQuickReplySelect,
@@ -481,6 +484,8 @@ export function AIMessageBubble({
               />
               <ActionButton
                 icon={<Volume2 size={18} color="rgba(0,0,0,0.25)" />}
+                activeIcon={<Square size={15} color={BrandColors.secondary} fill={BrandColors.secondary} />}
+                isActive={isSpeaking}
                 onPress={onSpeak}
               />
               <ActionButton

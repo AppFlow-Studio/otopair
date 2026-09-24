@@ -969,14 +969,35 @@ export default function AIChatScreen() {
     setInputValue(content);
   }, []);
 
-  // Handle speak message
-  const handleSpeak = useCallback((content: string) => {
+  // Read a reply aloud — one at a time (#273). expo-speech queues every
+  // speak() call, so a second tap (on the same reply or another) used to wait
+  // for the first to finish and then play. Stop first; tapping the reply that
+  // is playing just stops it.
+  const [speakingId, setSpeakingId] = useState<string | null>(null);
+  const handleSpeak = useCallback((id: string, content: string) => {
+    Speech.stop();
+    if (speakingId === id) {
+      setSpeakingId(null);
+      return;
+    }
+    setSpeakingId(id);
+    // Only clear if this reply is still the current one: the stopped reply's
+    // onStopped arrives after the next one's id is set.
+    const clear = () => setSpeakingId((current) => (current === id ? null : current));
     Speech.speak(content, {
       language: "en-US",
       rate: 1.0,
+      onDone: clear,
+      onStopped: clear,
+      onError: clear,
     });
     showToast("Playing audio...", Volume2);
-  }, [showToast]);
+  }, [speakingId, showToast]);
+
+  // Leaving the chat stops whatever is being read aloud.
+  useEffect(() => () => {
+    Speech.stop();
+  }, []);
 
   // Sprint 4 — thumbs up / down open the feedback modal so the user can add
   // a comment + tags. The modal submits to api.ai_feedback.submit; the row
@@ -1613,7 +1634,8 @@ export default function AIChatScreen() {
                     <AIMessageBubble
                       message={messageForBubble as AIMessage}
                       onCopy={() => handleCopy(message.content)}
-                      onSpeak={() => handleSpeak(message.content)}
+                      onSpeak={() => handleSpeak(message.id, message.content)}
+                      isSpeaking={speakingId === message.id}
                       onLike={() => openFeedbackModal("thumbs_up", message)}
                       onDislike={() => openFeedbackModal("thumbs_down", message)}
                       onQuickReplySelect={handleQuickReplySelect}
