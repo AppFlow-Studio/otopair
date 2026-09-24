@@ -8,7 +8,9 @@
 // service was Y months ago at Shop Z, and you have an upcoming W on Friday."
 //
 // status_filter:
-//   • "active"    → pending | confirmed | in_progress
+//   • "active"    → every booking that isn't finished: pending, confirmed,
+//                   vehicle_at_shop (car dropped off), in_progress, and the
+//                   quote / acceptance stages
 //   • "completed" → completed
 //   • "all"       → everything (no filter)
 //
@@ -29,7 +31,12 @@ import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import { resolveVehicleDisplay } from "../lib/bookingEnrichment";
 
-const ACTIVE_STATUSES = new Set(["pending", "confirmed", "in_progress"]);
+// "Active" is everything not finished — the Bookings tab's rule
+// (TERMINAL_BOOKING_STATUSES in convex/bookings.ts). The old allow-list
+// (pending, confirmed, in_progress) left out vehicle_at_shop, where an arrived
+// car waits — including through estimate approval — so mid-job Oto told a
+// customer their car wasn't at a shop (#317).
+const TERMINAL_STATUSES = new Set(["cancelled", "completed", "no_show", "declined"]);
 
 export interface OtoBookingSummary {
   id: string;
@@ -44,6 +51,23 @@ export interface OtoBookingSummary {
   vehicle_ymm: string | null;
   scheduled_date: string | null;
   created_at: number;
+  /** The car is with the shop right now: dropped off, or work under way. */
+  car_at_shop: boolean;
+  /** Where the visit is (e.g. "inspection_complete"), when the shop tracks it. */
+  live_stage: string | null;
+  /** When the customer asked for the car back, if they have (ms). */
+  pickup_requested_at: number | null;
+  /** The shop's answer to that request: acknowledged | bringing_out | declined. */
+  pickup_response: string | null;
+}
+
+function visitState(b: any) {
+  return {
+    car_at_shop: b.status === "vehicle_at_shop" || b.status === "in_progress",
+    live_stage: b.live_stage ?? null,
+    pickup_requested_at: b.cancel_requested_at_ms ?? null,
+    pickup_response: b.pickup_response ?? null,
+  };
 }
 
 // Convex query({...}) generic resolution previously exceeded TS depth at this
@@ -75,7 +99,7 @@ async function _getBookingsCore(
   // Filter by status_filter first to avoid enriching rows we'll drop.
   const filtered = rows.filter((b: any) => {
     if (status_filter === "all") return true;
-    if (status_filter === "active") return ACTIVE_STATUSES.has(b.status);
+    if (status_filter === "active") return !TERMINAL_STATUSES.has(b.status);
     if (status_filter === "completed") return b.status === "completed";
     return false;
   });
@@ -111,6 +135,7 @@ async function _getBookingsCore(
         vehicle_ymm: vehicle?.ymm ?? null,
         scheduled_date: b.scheduled_date ?? null,
         created_at: b._creationTime,
+        ...visitState(b),
       };
     }),
   );
@@ -167,7 +192,7 @@ export const getBookingsForUser = internalQuery({
 // Strict subset of `getBookings`: returns only `pending` rows (NOT confirmed,
 // NOT in_progress). Backs the `get_pending_bookings` AI tool, which Haiku
 // calls when the user specifically asks about pending / unconfirmed bookings.
-// For the broader active set (pending + confirmed + in_progress) Haiku uses
+// For the broader active set (every booking not yet finished) Haiku uses
 // get_bookings(status_filter: "active"). Same OtoBookingSummary shape and
 // same auth pattern as getBookings; differences are scoped to the arg surface
 // (no status_filter arg) and the filter (b.status === "pending").
@@ -220,6 +245,7 @@ async function _getPendingBookingsCore(
         vehicle_ymm: vehicle?.ymm ?? null,
         scheduled_date: b.scheduled_date ?? null,
         created_at: b._creationTime,
+        ...visitState(b),
       };
     }),
   );

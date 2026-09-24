@@ -3470,7 +3470,7 @@ function buildCallables(
     /**
      * get_pending_bookings — Sprint 3 Day 5 §14.3. Strict subset of
      * get_bookings: returns ONLY status === "pending" rows (not the broader
-     * "active" set of pending + confirmed + in_progress). Identity pulled
+     * "active" set of every booking not yet finished). Identity pulled
      * from auth in the query handler; no user_id passes the tool boundary.
      * Default limit is enforced by the schema validator (5, max 20).
      */
