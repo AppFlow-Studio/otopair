@@ -45,6 +45,8 @@ import { scale, verticalScale, moderateScale } from '@/utils/responsive';
 import { CarSilhouette } from '@/components/shared-ui/CarSilhouette';
 import { classifyColorFamily, fetchVehicleImageUrl, pickBestVdbTrim, pickSilhouetteVariant, prefetchVdbColorsForTrims, useVdbColorsForVin } from '@/utils/vehicleImage';
 import { useYmmTrims } from '@/hooks/useYmmTrims';
+import { useVehicleOwnershipFromConvex } from '@/hooks/useVehicleOwnershipFromConvex';
+import { DUPLICATE_GARAGE_VIN_MESSAGE, isVinInGarage } from '@/lib/garageDuplicate';
 import { COLOR_GRADIENTS } from '@/constants/colorGradients';
 import { ColorSwatchSkeletonRow, VehicleImageSkeleton } from '@/components/shared-ui/ColorSwatchSkeleton';
 import { FloatingSheet, type FloatingSheetRef } from '@/components/shared-ui/FloatingSheet';
@@ -366,6 +368,7 @@ export default function AddVehicleReviewScreen() {
   }, [settledGradient, overlayOpacity]);
 
   const me = useQuery(api.users.getMe);
+  const { vehicles: garage } = useVehicleOwnershipFromConvex();
 
   const handleBack = () => {
     router.back();
@@ -451,6 +454,11 @@ export default function AddVehicleReviewScreen() {
     }
 
     // ───── Normal add: create the vehicle + ownership ─────
+    // Re-adding a car already in the garage would overwrite it (#308).
+    if (isVinInGarage(params.vin, garage)) {
+      setError(DUPLICATE_GARAGE_VIN_MESSAGE);
+      return;
+    }
     setIsConfirming(true);
     setError(null);
 
