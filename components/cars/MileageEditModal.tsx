@@ -12,14 +12,13 @@
 import React, { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  KeyboardAvoidingView,
   Modal,
-  Platform,
   Pressable,
   StyleSheet,
   TextInput,
   View,
 } from "react-native";
+import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 
 import { Text } from "@/components/shared-ui";
 
@@ -100,8 +99,13 @@ export function MileageEditModal({
     >
       <Pressable style={styles.backdrop} onPress={saving ? undefined : onClose}>
         {/* Stop tap-to-dismiss from firing when the user taps inside the card. */}
+        {/* Android had no keyboard avoidance here at all, so on shorter phones
+            the keyboard covered Save (#310). The app draws edge to edge, so
+            the window no longer resizes for the keyboard; keyboard-controller's
+            view follows it inside a Modal on both platforms, as the role
+            sheet's liftWithKeyboard already does. */}
         <KeyboardAvoidingView
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          behavior="padding"
           style={styles.center}
           pointerEvents="box-none"
         >
@@ -196,9 +200,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 24,
   },
+  // Fills the backdrop so the keyboard padding shrinks the space the card is
+  // centred in, rather than padding a card-sized box (which only moved the
+  // card by half the overlap).
   center: {
+    flex: 1,
     width: "100%",
     alignItems: "center",
+    justifyContent: "center",
   },
   card: {
     width: "100%",
