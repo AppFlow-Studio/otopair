@@ -13,7 +13,7 @@
  */
 
 // 1. React & React Native
-import React, { useCallback, useEffect, useMemo } from "react";
+import React, { useCallback, useEffect, useMemo, useRef } from "react";
 import { Alert, BackHandler, Image, Platform, ScrollView, StyleSheet, TouchableOpacity, View, useWindowDimensions } from "react-native";
 
 // 2. Expo & Third-party
@@ -46,6 +46,7 @@ import { BorderRadius, Shadows } from "@/constants/theme";
 import { useBookingStatusToasts } from "@/hooks/useBookingStatusToasts";
 import { useToast } from "@/hooks/useToast";
 import { buildBookingCalendarEvent, formatBookingReference } from "@/lib/booking-calendar";
+import { shouldResetBookingAfterConfirmation } from "@/lib/bookingCompletionReset";
 import { getBookingCompletionCopy, isBookingRescheduleMode } from "@/lib/reschedule-flow";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
@@ -247,6 +248,7 @@ export default function ConfirmationScreen() {
   const quoteAcceptContext = useBookingStore((state) => state.quoteAcceptContext);
   const scheduledAppointment = useBookingStore((state) => state.scheduledAppointment);
   const resetBookingFlow = useBookingStore((state) => state.resetBookingFlow);
+  const didResetCompletedBooking = useRef(false);
   const getBookingById = useBookingStore((state) => state.getBookingById);
   const availableServices = useBookingStore((state) => state.availableServices);
   const getMechanicById = useMechanicStore((state) => state.getMechanicById);
@@ -254,6 +256,20 @@ export default function ConfirmationScreen() {
   const getShopById = useShopStore((state) => state.getShopById);
   const settingsOverlayOpen = useSettingsOverlayStore((s) => s.isOpen);
   const requestCloseSettingsOverlay = useSettingsOverlayStore((s) => s.requestClose);
+
+  useEffect(() => {
+    if (!shouldResetBookingAfterConfirmation({
+      bookingId: bookingDbId,
+      hasConfirmedBooking: Boolean(confirmedBooking),
+      isReschedule,
+      alreadyReset: didResetCompletedBooking.current,
+    })) {
+      return;
+    }
+
+    didResetCompletedBooking.current = true;
+    resetBookingFlow();
+  }, [bookingDbId, confirmedBooking, isReschedule, resetBookingFlow]);
 
   // Look up local booking by route param (fallback when booking flow is reset)
   const localBooking = useMemo(() => {
