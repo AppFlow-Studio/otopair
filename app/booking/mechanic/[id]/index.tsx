@@ -31,6 +31,7 @@ import { BorderRadius, BrandColors, ScreenContainer, Shadows, Spacing, Text } fr
 // 4. Flow-specific components
 import { MechanicDetailHeader } from "@/components/booking/MechanicDetailHeader";
 import { MechanicDetailTabs, type MechanicDetailTab } from "@/components/booking/MechanicDetailTabs";
+import { ShopHeroCard } from "@/components/shop/ShopHeroCard";
 import { ShopDetails } from "@/components/booking/ShopDetails";
 import { MechanicReviewsSection } from "@/components/booking/MechanicReviewsSection";
 import { ShopPortfolioSection } from "@/components/booking/ShopPortfolioSection";
@@ -71,6 +72,7 @@ export default function MechanicDetailScreen() {
   const getMechanicById = useMechanicStore((state) => state.getMechanicById);
   const getShopById = useShopStore((state) => state.getShopById);
   const setBookingTypeAndProceed = useBookingStore((state) => state.setBookingTypeAndProceed);
+  const setPreSelectedShop = useBookingStore((state) => state.setPreSelectedShop);
   const resetBookingFlow = useBookingStore((state) => state.resetBookingFlow);
   const bookingStage = useBookingStore((state) => state.bookingStage);
 
@@ -156,6 +158,15 @@ export default function MechanicDetailScreen() {
     setShowBookingModal(false);
     setBookingMechanicId(null);
   }, []);
+
+  /** Same routing the shop screen's CTA uses: pin this shop and REPLACE the
+   *  detail screen rather than pushing, so the booking-flow sheet doesn't
+   *  render over a still-mounted detail page. */
+  const handleSchedulePress = useCallback(() => {
+    if (!shop) return;
+    setPreSelectedShop(shop.id);
+    router.replace("/(booking-flow)/select-services");
+  }, [router, setPreSelectedShop, shop]);
 
   const handleTabChange = useCallback((tab: MechanicDetailTab) => {
     setActiveTab(tab);
@@ -247,6 +258,18 @@ export default function MechanicDetailScreen() {
       </Animated.View>
 
       {/* Scrollable Content */}
+      {/* Fixed top block — map, shop info card and tabs stay pinned, so only
+          the tab content scrolls. Matches app/booking/shop/[id] exactly: this
+          screen is reached from Settings > My Mechanics and used to render a
+          different page for the same shop — everything scrolled away, there
+          was no info card and no Book CTA (Ahmad, 2026-09-24). */}
+      <MechanicDetailHeader shop={shop} onBack={handleBack} />
+
+      <ShopHeroCard shop={shop} onSchedulePress={handleSchedulePress} />
+
+      <MechanicDetailTabs activeTab={activeTab} onTabChange={handleTabChange} />
+
+      {/* Scrollable tab content ONLY — the block above is fixed. */}
       <Animated.ScrollView
         ref={scrollRef}
         style={styles.scrollView}
@@ -254,15 +277,20 @@ export default function MechanicDetailScreen() {
         showsVerticalScrollIndicator={false}
         scrollEventThrottle={16}
       >
-        {/* Header with Map - Part of scroll content */}
-        <MechanicDetailHeader shop={shop} onBack={handleBack} />
-
-        {/* Tab Navigation */}
-        <MechanicDetailTabs activeTab={activeTab} onTabChange={handleTabChange} />
-
-        {/* Tab Content */}
         <View style={styles.tabContentContainer}>{renderTabContent()}</View>
       </Animated.ScrollView>
+
+      {/* Sticky bottom CTA */}
+      <View style={[styles.stickyCta, { paddingBottom: Math.max(insets.bottom - Spacing.md, Spacing.xs) }]}>
+        <Pressable
+          onPress={handleSchedulePress}
+          style={({ pressed }) => [styles.ctaButton, pressed && styles.ctaButtonPressed]}
+        >
+          <Text size="md" weight="semiBold" color="#FFFFFF">
+            Book a Service
+          </Text>
+        </Pressable>
+      </View>
 
       {/* Modal-based components - work reliably from any component hierarchy */}
       <AddServicesModal visible={showAddServicesModal} onClose={handleCloseAddServicesModal} />
@@ -281,9 +309,33 @@ export default function MechanicDetailScreen() {
 // ============================================================================
 
 const styles = StyleSheet.create({
+  stickyCta: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    paddingHorizontal: Spacing.lg,
+    paddingTop: Spacing.md,
+    backgroundColor: "rgba(245, 245, 247, 0.94)",
+  },
+  ctaButton: {
+    height: 54,
+    borderRadius: BorderRadius.full,
+    backgroundColor: BrandColors.secondary,
+    alignItems: "center",
+    justifyContent: "center",
+    ...Shadows.md,
+  },
+  ctaButtonPressed: {
+    opacity: 0.9,
+    transform: [{ scale: 0.99 }],
+  },
   container: {
     flex: 1,
-    backgroundColor: BrandColors.white,
+    // Matches app/booking/shop/[id] — the off-white page surface the tab
+    // content sits on. This screen was pure white, which is part of why the
+    // same shop looked like a different page depending on how you got here.
+    backgroundColor: "#F5F5F7",
   },
   stickyHeader: {
     position: "absolute",
