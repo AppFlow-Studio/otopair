@@ -49,6 +49,14 @@ import { X } from "lucide-react-native";
 import { OnboardingSurfaceColors } from "../onboardingColors";
 import { destroyOtherPhoneNumbers } from "@/lib/clerk-phone-numbers";
 
+const RESEND_COOLDOWN_SECONDS = 60;
+const VERIFICATION_NOT_STARTED_MESSAGE =
+  "Verification wasn't started. Go back and confirm your number to receive a code.";
+
+function clerkErrorMessage(err: any, fallback: string): string {
+  return err?.errors?.[0]?.longMessage || err?.errors?.[0]?.message || err?.message || fallback;
+}
+
 interface ConfirmPhoneNumberStepProps {
   onNext: () => void;
   onBack: () => void;
@@ -67,9 +75,13 @@ export function ConfirmPhoneNumberStep({ onNext, onBack, progress }: ConfirmPhon
 
   const [code, setCode] = useState(["", "", "", "", "", ""]);
   const [focusedIndex, setFocusedIndex] = useState(0);
-  const [timeRemaining, setTimeRemaining] = useState(60);
+  const [timeRemaining, setTimeRemaining] = useState(RESEND_COOLDOWN_SECONDS);
   const [showErrorModal, setShowErrorModal] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  // Set for resend failures so the modal shows the real message instead of "Incorrect code entered".
+  const [errorTitle, setErrorTitle] = useState<string | null>(null);
+  const [isResending, setIsResending] = useState(false);
+  const [resendNotice, setResendNotice] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(false);
   const inputRefs = useRef<(TextInput | null)[]>([]);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -125,21 +137,22 @@ export function ConfirmPhoneNumberStep({ onNext, onBack, progress }: ConfirmPhon
   const verifyPhoneCode = async (fullCode: string) => {
     setVerifying(true);
     setErrorMessage(null);
+    setErrorTitle(null);
 
     try {
       // No valid path: verification was never prepared (e.g. user landed here without sending a code)
       if (isSignUpFlow && !signUp) {
-        setErrorMessage("Verification wasn't started. Go back and confirm your number to receive a code.");
+        setErrorMessage(VERIFICATION_NOT_STARTED_MESSAGE);
         setShowErrorModal(true);
         return;
       }
       if (!isSignUpFlow && !user) {
-        setErrorMessage("Verification wasn't started. Go back and confirm your number to receive a code.");
+        setErrorMessage(VERIFICATION_NOT_STARTED_MESSAGE);
         setShowErrorModal(true);
         return;
       }
       if (!isSignUpFlow && user && !data.phoneNumberId && (!user.phoneNumbers || user.phoneNumbers.length === 0)) {
-        setErrorMessage("Verification wasn't started. Go back and confirm your number to receive a code.");
+        setErrorMessage(VERIFICATION_NOT_STARTED_MESSAGE);
         setShowErrorModal(true);
         return;
       }
@@ -184,7 +197,7 @@ export function ConfirmPhoneNumberStep({ onNext, onBack, progress }: ConfirmPhon
             verifiedPhoneNumberResource = latestPhone;
             console.log("Phone verified successfully (fallback)");
           } else {
-            setErrorMessage("Verification wasn't started. Go back and confirm your number to receive a code.");
+            setErrorMessage(VERIFICATION_NOT_STARTED_MESSAGE);
             setShowErrorModal(true);
             return;
           }
@@ -206,7 +219,7 @@ export function ConfirmPhoneNumberStep({ onNext, onBack, progress }: ConfirmPhon
         );
         onNext();
       } else {
-        setErrorMessage("Verification wasn't started. Go back and confirm your number to receive a code.");
+        setErrorMessage(VERIFICATION_NOT_STARTED_MESSAGE);
         setShowErrorModal(true);
         return;
       }
@@ -274,36 +287,50 @@ export function ConfirmPhoneNumberStep({ onNext, onBack, progress }: ConfirmPhon
   };
 
   const handleResendCode = async () => {
-    setTimeRemaining(60);
-    setCode(["", "", "", "", "", ""]);
-    setFocusedIndex(0);
-    inputRefs.current[0]?.focus();
+    if (timeRemaining > 0 || isResending) return;
+    setResendNotice(null);
 
+    const phoneNumberResource =
+      !isSignUpFlow && user ? user.phoneNumbers.find((p) => p.id === data.phoneNumberId) : undefined;
+    if ((isSignUpFlow && !signUp) || (!isSignUpFlow && !phoneNumberResource)) {
+      setErrorTitle(null);
+      setErrorMessage(VERIFICATION_NOT_STARTED_MESSAGE);
+      setShowErrorModal(true);
+      return;
+    }
+
+    setIsResending(true);
     try {
       if (isSignUpFlow && signUp) {
         await signUp.preparePhoneNumberVerification({ strategy: "phone_code" });
-        console.log("Resent verification code via signUp");
-      } else if (user) {
-        const phoneNumberId = data.phoneNumberId;
-        const phoneNumberResource = user.phoneNumbers.find((p) => p.id === phoneNumberId);
-        if (phoneNumberResource) {
-          await phoneNumberResource.prepareVerification();
-          console.log("Resent verification code via user");
-        }
+      } else {
+        await phoneNumberResource!.prepareVerification();
       }
+      setCode(["", "", "", "", "", ""]);
+      setFocusedIndex(0);
+      inputRefs.current[0]?.focus();
+      setTimeRemaining(RESEND_COOLDOWN_SECONDS);
+      setResendNotice(`New code sent to ${formatPhoneNumberForDisplay()}.`);
     } catch (err) {
       console.error("Failed to resend code:", err);
+      setErrorTitle("Couldn't resend code");
+      setErrorMessage(clerkErrorMessage(err, "Unable to send a new code. Please try again."));
+      setShowErrorModal(true);
+    } finally {
+      setIsResending(false);
     }
   };
 
   const handleCloseErrorModal = () => {
     setShowErrorModal(false);
     setErrorMessage(null);
+    setErrorTitle(null);
   };
 
   const handleGoBackFromError = () => {
     setShowErrorModal(false);
     setErrorMessage(null);
+    setErrorTitle(null);
     onBack();
   };
 
@@ -365,13 +392,16 @@ export function ConfirmPhoneNumberStep({ onNext, onBack, progress }: ConfirmPhon
         </View>
 
         <View style={styles.resendContainer}>
-          {timeRemaining > 0 ? (
+          {isResending ? (
+            <Text style={styles.resendTimer}>Sending code…</Text>
+          ) : timeRemaining > 0 ? (
             <Text style={styles.resendTimer}>Resend code in {formatTimer(timeRemaining)}</Text>
           ) : (
             <Pressable onPress={handleResendCode}>
               <Text style={styles.resendButton}>Resend code</Text>
             </Pressable>
           )}
+          {resendNotice && <Text style={styles.resendNotice}>{resendNotice}</Text>}
         </View>
 
         <View style={{ flex: 1 }} />
@@ -400,12 +430,13 @@ export function ConfirmPhoneNumberStep({ onNext, onBack, progress }: ConfirmPhon
               <X size={48} color="#EF4444" strokeWidth={3} />
             </View>
             <Text style={styles.errorTitle}>
-              {errorMessage && isVerificationNotStartedError(errorMessage)
-                ? "Verification not started"
-                : "Incorrect code entered"}
+              {errorTitle
+                ?? (errorMessage && isVerificationNotStartedError(errorMessage)
+                  ? "Verification not started"
+                  : "Incorrect code entered")}
             </Text>
             <Text style={styles.errorMessage}>
-              {errorMessage && isVerificationNotStartedError(errorMessage)
+              {errorTitle || (errorMessage && isVerificationNotStartedError(errorMessage))
                 ? errorMessage
                 : "Please try again."}
             </Text>
@@ -494,6 +525,13 @@ const styles = StyleSheet.create({
     fontFamily: FontFamily.semiBold,
     color: "#1E40AF",
     opacity: 1,
+  },
+  resendNotice: {
+    marginTop: Spacing.md,
+    fontSize: FontSize.sm,
+    fontFamily: FontFamily.regular,
+    color: "#047857",
+    textAlign: "center",
   },
   errorModalBackdrop: {
     flex: 1,

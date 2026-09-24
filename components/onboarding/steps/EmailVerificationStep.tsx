@@ -36,6 +36,15 @@ import { useEnsureConvexUser } from '@/hooks/useEnsureConvexUser';
 import { X } from 'lucide-react-native';
 import { OnboardingSurfaceColors } from '../onboardingColors';
 
+const RESEND_COOLDOWN_SECONDS = 30;
+
+function clerkErrorMessage(err: any, fallback: string): string {
+    return err?.errors?.[0]?.longMessage
+        || err?.errors?.[0]?.message
+        || err?.message
+        || fallback;
+}
+
 interface EmailVerificationStepProps {
     onNext: () => void;
     onBack: () => void;
@@ -53,7 +62,12 @@ export function EmailVerificationStep({ onNext, onBack, progress }: EmailVerific
     const [focusedIndex, setFocusedIndex] = useState(0);
     const [showErrorModal, setShowErrorModal] = useState(false);
     const [errorMessage, setErrorMessage] = useState('');
+    const [errorTitle, setErrorTitle] = useState('Verification failed');
     const [verifying, setVerifying] = useState(false);
+    const [isResending, setIsResending] = useState(false);
+    // The initial code was just sent by EmailSignupStep, so start on a cooldown.
+    const [resendTimer, setResendTimer] = useState(RESEND_COOLDOWN_SECONDS);
+    const [resendNotice, setResendNotice] = useState<string | null>(null);
     const inputRefs = useRef<(TextInput | null)[]>([]);
     const slideAnim = useRef(new Animated.Value(height)).current;
 
@@ -61,6 +75,14 @@ export function EmailVerificationStep({ onNext, onBack, progress }: EmailVerific
         const sub = BackHandler.addEventListener("hardwareBackPress", () => { onBack(); return true; });
         return () => sub.remove();
     }, [onBack]);
+
+    useEffect(() => {
+        if (resendTimer <= 0) return;
+        const id = setInterval(() => {
+            setResendTimer((t) => (t > 0 ? t - 1 : 0));
+        }, 1000);
+        return () => clearInterval(id);
+    }, [resendTimer > 0]);
 
     useEffect(() => {
         if (showErrorModal) {
@@ -122,20 +144,21 @@ export function EmailVerificationStep({ onNext, onBack, progress }: EmailVerific
                 // Proceed to next onboarding step (phone number)
                 onNext();
             } else {
-                setErrorMessage('Verification incomplete. Please try again.');
-                setShowErrorModal(true);
+                showError('Verification failed', 'Verification incomplete. Please try again.');
                 resetCode();
             }
         } catch (err: any) {
-            const message = err?.errors?.[0]?.longMessage
-                || err?.errors?.[0]?.message
-                || 'Invalid verification code';
-            setErrorMessage(message);
-            setShowErrorModal(true);
+            showError('Verification failed', clerkErrorMessage(err, 'Invalid verification code'));
             resetCode();
         } finally {
             setVerifying(false);
         }
+    };
+
+    const showError = (title: string, message: string) => {
+        setErrorTitle(title);
+        setErrorMessage(message);
+        setShowErrorModal(true);
     };
 
     const resetCode = () => {
@@ -174,14 +197,40 @@ export function EmailVerificationStep({ onNext, onBack, progress }: EmailVerific
     };
 
     const handleResend = async () => {
-        if (!isLoaded || !signUp) return;
+        if (resendTimer > 0 || isResending) return;
+        setResendNotice(null);
+
+        if (!isLoaded || !signUp) {
+            showError("Couldn't resend code", "We couldn't reach sign-up. Please go back and try again.");
+            return;
+        }
+        if (signUp.verifications?.emailAddress?.status === 'verified') {
+            onNext();
+            return;
+        }
+        if (!signUp.emailAddress) {
+            showError(
+                "Couldn't resend code",
+                'Your sign-up session expired. Please go back and enter your email again.',
+            );
+            return;
+        }
+
+        setIsResending(true);
         try {
             await signUp.prepareEmailAddressVerification({ strategy: 'email_code' });
             resetCode();
-        } catch (err) {
+            setResendTimer(RESEND_COOLDOWN_SECONDS);
+            setResendNotice(`New code sent to ${signUp.emailAddress}. Check spam if it doesn't arrive in a minute.`);
+        } catch (err: any) {
             console.error('Failed to resend code:', err);
+            showError("Couldn't resend code", clerkErrorMessage(err, 'Unable to send a new code. Please try again.'));
+        } finally {
+            setIsResending(false);
         }
     };
+
+    const resendDisabled = resendTimer > 0 || isResending;
 
     const containerPadding = Spacing['2xl'] * 2;
     const boxMargin = Spacing.sm * 2;
@@ -238,9 +287,18 @@ export function EmailVerificationStep({ onNext, onBack, progress }: EmailVerific
                 </View>
 
                 <View style={styles.resendContainer}>
-                    <Pressable onPress={handleResend}>
-                        <Text style={styles.resendButton}>Resend code</Text>
+                    <Pressable onPress={handleResend} disabled={resendDisabled}>
+                        <Text style={[styles.resendButton, resendDisabled && styles.resendDisabled]}>
+                            {isResending
+                                ? 'Sending code…'
+                                : resendTimer > 0
+                                    ? `Resend code in ${resendTimer}s`
+                                    : 'Resend code'}
+                        </Text>
                     </Pressable>
+                    {resendNotice && (
+                        <Text style={styles.resendNotice}>{resendNotice}</Text>
+                    )}
                 </View>
 
                 <View style={{ flex: 1 }} />
@@ -269,7 +327,7 @@ export function EmailVerificationStep({ onNext, onBack, progress }: EmailVerific
                         <View style={styles.errorIconContainer}>
                             <X size={48} color="#EF4444" strokeWidth={3} />
                         </View>
-                        <Text style={styles.errorTitle}>Verification failed</Text>
+                        <Text style={styles.errorTitle}>{errorTitle}</Text>
                         <Text style={styles.errorMessage}>{errorMessage}</Text>
                         <TouchableOpacity
                             style={styles.errorButton}
@@ -346,6 +404,14 @@ const styles = StyleSheet.create({
         fontSize: FontSize.md,
         fontFamily: FontFamily.semiBold,
         color: '#1E40AF',
+    },
+    resendDisabled: { opacity: 0.5 },
+    resendNotice: {
+        marginTop: Spacing.md,
+        fontSize: FontSize.sm,
+        fontFamily: FontFamily.regular,
+        color: '#047857',
+        textAlign: 'center',
     },
     errorModalBackdrop: {
         flex: 1,
