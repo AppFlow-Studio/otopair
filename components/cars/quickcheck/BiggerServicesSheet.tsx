@@ -15,6 +15,7 @@ import { Dimensions, Pressable, ScrollView, StyleSheet, View } from "react-nativ
 import { Check, ChevronRight } from "lucide-react-native";
 
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
+import { useSheetFloatBottom } from "@/hooks/useSheetFloatBottom";
 import { Text } from "@/components/shared-ui";
 import { Spacing } from "@/constants/theme";
 import { moderateScale, scale } from "@/utils/responsive";
@@ -47,6 +48,7 @@ export function BiggerServicesSheet({
   onDone: () => void;
 }) {
   const sheetRef = useRef<FloatingSheetRef>(null);
+  const floatBottom = useSheetFloatBottom();
   const [contentHeight, setContentHeight] = React.useState(SHEET_MIN);
 
   useEffect(() => {
@@ -64,7 +66,7 @@ export function BiggerServicesSheet({
       snapHeights={[Math.min(SHEET_MAX, Math.max(SHEET_MIN, contentHeight + SHEET_CHROME))]}
       showBackdrop
       liftWithKeyboard
-      floatBottomInset={12}
+      floatBottomInset={floatBottom}
       onClose={onClose}
     >
       <ScrollView

@@ -12,11 +12,12 @@
  */
 
 import React, { useEffect, useRef, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
+import { Dimensions, Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
 import { Briefcase, Car, Route, Star, Sun, Users } from "lucide-react-native";
 
 import { Text } from "@/components/shared-ui";
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
+import { useSheetFloatBottom } from "@/hooks/useSheetFloatBottom";
 import { BrandColors, Spacing } from "@/constants/theme";
 import { moderateScale, scale } from "@/utils/responsive";
 
@@ -28,9 +29,15 @@ const SECONDARY_ROLES: Array<{ id: string; Icon: typeof Car }> = [
   { id: "Work", Icon: Briefcase },
 ];
 
-// Sized for the new layout: title block + primary hero + 2-row grid +
-// custom input + footer. liftWithKeyboard handles the keyboard offset.
-const SHEET_HEIGHT = 520;
+// Sized to the measured content (title block + primary hero + 2-row grid +
+// custom input + footer). A fixed 520 clipped the bottom rows on wider
+// phones — the content is built from scale(), so it grows with screen width —
+// and "Clear role" disappeared with them (#285). 520 stays as the floor.
+// liftWithKeyboard handles the keyboard offset.
+const SHEET_MIN = 520;
+const SHEET_MAX = Math.round(Dimensions.get("window").height * 0.82);
+/** Grabber + its padding, above the body (same as QuickCheckSheet). */
+const SHEET_CHROME = 34;
 
 const BLUE = "#5299FE";
 const BLUE_BG = "#EEF4FF";
@@ -56,7 +63,10 @@ export function VehicleRoleSheet({
   onSelect,
 }: VehicleRoleSheetProps) {
   const sheetRef = useRef<FloatingSheetRef>(null);
+  const floatBottom = useSheetFloatBottom();
   const [custom, setCustom] = useState("");
+  const [contentHeight, setContentHeight] = useState(SHEET_MIN);
+  const sheetHeight = Math.min(SHEET_MAX, Math.max(SHEET_MIN, contentHeight + SHEET_CHROME));
 
   useEffect(() => {
     if (visible) {
@@ -77,17 +87,18 @@ export function VehicleRoleSheet({
   return (
     <FloatingSheet
       ref={sheetRef}
-      snapHeights={[SHEET_HEIGHT]}
+      snapHeights={[sheetHeight]}
       showBackdrop
       liftWithKeyboard
-      floatBottomInset={12}
+      floatBottomInset={floatBottom}
       onClose={onClose}
     >
       <ScrollView
         contentContainerStyle={styles.body}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
-        scrollEnabled={false}
+        scrollEnabled={contentHeight + SHEET_CHROME > SHEET_MAX}
+        onContentSizeChange={(_w, h) => setContentHeight(h)}
       >
         {/* Header */}
         <Text size={28} weight="extraBold" color={BrandColors.primary}>

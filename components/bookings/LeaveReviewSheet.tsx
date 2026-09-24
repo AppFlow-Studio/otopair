@@ -36,6 +36,7 @@ import { useMutation } from "convex/react";
 import { ChevronLeft, Star } from "lucide-react-native";
 
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
+import { useSheetFloatBottom } from "@/hooks/useSheetFloatBottom";
 import { Text } from "@/components/shared-ui";
 import { BrandColors } from "@/constants/theme";
 import { OfflineActionsNotice } from "@/components/connection/OfflineActionsNotice";
@@ -87,6 +88,7 @@ interface Props {
 export const LeaveReviewSheet = forwardRef<LeaveReviewSheetRef, Props>(
   ({ onClose, onSubmitted }, ref) => {
     const sheetRef = React.useRef<FloatingSheetRef>(null);
+    const floatBottom = useSheetFloatBottom();
     const insets = useSafeAreaInsets();
     const { height: screenHeight } = useWindowDimensions();
     const [booking, setBooking] = useState<Booking | null>(null);
@@ -357,7 +359,7 @@ export const LeaveReviewSheet = forwardRef<LeaveReviewSheetRef, Props>(
         onClose={handleClose}
         showBackdrop
         liftWithKeyboard
-        floatBottomInset={12}
+        floatBottomInset={floatBottom}
       >
         <View style={styles.body}>
           {/* Step indicator + back (only when a mechanic step exists) */}
