@@ -1,7 +1,11 @@
 import { ClerkProvider, useAuth } from "@clerk/clerk-expo";
 import { StripeProvider } from "@stripe/stripe-react-native";
-// Persistent session: tokenCache uses expo-secure-store so auth survives app reload/restart
-import { tokenCache } from "@clerk/clerk-expo/token-cache";
+// Persistent session: the client token lives in expo-secure-store so auth
+// survives a restart. Stored exactly as @clerk/clerk-expo/token-cache stores it
+// (same key and keychain option), but a failed read no longer deletes it — see
+// lib/clerkCaches.ts (#188).
+import * as SecureStore from "expo-secure-store";
+import { createSafeTokenCache, guardClerkResourceStorage } from "@/lib/clerkCaches";
 // Offline startup. tokenCache alone does NOT let Clerk load without a network:
 // it only holds the session token that authenticates Clerk's API requests, and
 // on launch Clerk still has to fetch its environment + client before `isLoaded`
@@ -63,6 +67,12 @@ import { useOtopairDeepLinks } from "@/hooks/useOtopairDeepLinks";
 import { shouldHideSplash } from "@/lib/auth-routing";
 import { clearUserSessionState } from "@/lib/session-state";
 import { useAuthStore } from "@/stores/useAuthStore";
+
+const tokenCache = createSafeTokenCache(SecureStore, {
+  keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK,
+});
+// Never saves Clerk's offline placeholder over the real cached client (#188).
+const guardedResourceCache = guardClerkResourceStorage(resourceCache);
 
 LogBox.ignoreLogs([
   /\[CONVEX M\([^\)]+\)\]/,
@@ -413,7 +423,7 @@ export default function RootLayout() {
     <ClerkProvider
       publishableKey={process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY!}
       tokenCache={tokenCache}
-      __experimental_resourceCache={resourceCache}
+      __experimental_resourceCache={guardedResourceCache}
     >
       <StartupSplashGate fontsReady={fontsReady}>
         <ConvexClerkProvider>
