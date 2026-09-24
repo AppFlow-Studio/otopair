@@ -86,60 +86,43 @@ import { useShopsFromConvex } from "@/hooks/useShopsFromConvex";
 import type { BookServicePayload } from "@/services/ai/types";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
+import { matchCatalogService, resolvePrefill } from "@/lib/bookServicePrefill";
 import { useShopStore } from "@/stores/useShopStore";
 import { formatProximityDistanceFromMiles } from "@/utils/geo";
 import { displayTimeToHHMM, MIN_ADVANCE_NOTICE_LABEL, minBookableHHMM, todayLocalISO } from "@/utils/timeSlotUtils";
 
-// Local service catalog (12 entries). Static client-side metadata; the
+// Local service catalog (12 curated entries). Static client-side metadata; the
 // authoritative booking-time service rows live in Convex (`services` table)
-// and are resolved via LOCAL_ID_TO_STORE_ID at Book & Pay. Keep the slugs in
-// SLUG_TO_LOCAL_ID below in sync with this list.
+// and are matched at Book & Pay by `slug` (the canonical catalog slug, where a
+// row has one), then by name. Oto's pre-picks map onto these rows through
+// SLUG_TO_CARD_ID in lib/bookServicePrefill.ts — keep the two in sync.
 type ServiceCategory = "maintenance" | "tires" | "brakes" | "diagnostics";
 interface ServiceOption {
   id: string;
+  slug?: string;
   name: string;
   description: string;
   category: ServiceCategory;
   duration: string;
 }
 const DEFAULT_SERVICES: ServiceOption[] = [
-  { id: "svc_oil_change", name: "Oil Change", description: "Full synthetic oil & filter replacement", category: "maintenance", duration: "30 min" },
-  { id: "svc_air_filter", name: "Air Filter", description: "Engine air filter replacement", category: "maintenance", duration: "15 min" },
+  { id: "svc_oil_change", slug: "oil_change", name: "Oil Change", description: "Full synthetic oil & filter replacement", category: "maintenance", duration: "30 min" },
+  { id: "svc_air_filter", slug: "filter_replacement", name: "Air Filter", description: "Engine air filter replacement", category: "maintenance", duration: "15 min" },
   { id: "svc_fluid_check", name: "Fluid Top-Off", description: "Check & top off all fluids", category: "maintenance", duration: "20 min" },
-  { id: "svc_tire_rotation", name: "Tire Rotation", description: "Rotate tires for even wear", category: "tires", duration: "30 min" },
-  { id: "svc_tire_balance", name: "Wheel Balance", description: "Balance all four wheels", category: "tires", duration: "45 min" },
+  { id: "svc_tire_rotation", slug: "tire_rotation", name: "Tire Rotation", description: "Rotate tires for even wear", category: "tires", duration: "30 min" },
+  { id: "svc_tire_balance", slug: "tire_balance", name: "Wheel Balance", description: "Balance all four wheels", category: "tires", duration: "45 min" },
   { id: "svc_tire_pressure", name: "TPMS Check", description: "Tire pressure sensor inspection", category: "tires", duration: "15 min" },
   { id: "svc_brake_inspection", name: "Brake Inspection", description: "Full brake system check", category: "brakes", duration: "30 min" },
-  { id: "svc_brake_pads", name: "Brake Pads", description: "Front or rear pad replacement", category: "brakes", duration: "1-2 hrs" },
-  { id: "svc_brake_fluid", name: "Brake Fluid", description: "Brake fluid flush & fill", category: "brakes", duration: "45 min" },
-  { id: "svc_diagnostic_scan", name: "Diagnostic Scan", description: "Computer scan for error codes", category: "diagnostics", duration: "30 min" },
-  { id: "svc_check_engine", name: "Check Engine Light", description: "Diagnose warning light cause", category: "diagnostics", duration: "1 hr" },
-  { id: "svc_battery_test", name: "Battery Test", description: "Battery & charging system test", category: "diagnostics", duration: "15 min" },
+  { id: "svc_brake_pads", slug: "brake_pad_replacement", name: "Brake Pads", description: "Front or rear pad replacement", category: "brakes", duration: "1-2 hrs" },
+  { id: "svc_brake_fluid", slug: "brake_fluid_flush", name: "Brake Fluid", description: "Brake fluid flush & fill", category: "brakes", duration: "45 min" },
+  { id: "svc_diagnostic_scan", slug: "diagnostic_scan", name: "Diagnostic Scan", description: "Computer scan for error codes", category: "diagnostics", duration: "30 min" },
+  { id: "svc_check_engine", slug: "check_engine_light", name: "Check Engine Light", description: "Diagnose warning light cause", category: "diagnostics", duration: "1 hr" },
+  { id: "svc_battery_test", slug: "battery_test", name: "Battery Test", description: "Battery & charging system test", category: "diagnostics", duration: "15 min" },
 ];
 
 // ============================================================================
 // CONSTANTS — service catalog + diagnostic systems + priority chips
 // ============================================================================
-
-// Maps Oto's canonical service slugs (the payload contract from
-// `render_book_service`) to the local catalog IDs used by DEFAULT_SERVICES
-// AND to the booking-store service IDs used by `useCreateBookingConvex`.
-// Mirror of the mapping table in `handleBookNow` (ai-chat/index.tsx) so the
-// store-population step at Book & Pay produces the same store shape.
-const SLUG_TO_LOCAL_ID: Record<string, string> = {
-  oil_change: "svc_oil_change",
-  air_filter: "svc_air_filter",
-  fluid_top_off: "svc_fluid_check",
-  tire_rotation: "svc_tire_rotation",
-  wheel_balance: "svc_tire_balance",
-  tpms_check: "svc_tire_pressure",
-  brake_inspection: "svc_brake_inspection",
-  brake_pads: "svc_brake_pads",
-  brake_fluid: "svc_brake_fluid",
-  diagnostic_scan: "svc_diagnostic_scan",
-  check_engine_light: "svc_check_engine",
-  battery_test: "svc_battery_test",
-};
 
 // Booking-store service-id mapping used by `useCreateBookingConvex`. Same
 // table as `handleBookNow` lines 695-708 — kept here so the Book & Pay path
@@ -307,20 +290,40 @@ export function BookServiceComponent({
   // stage and back-nav to revise.
   // ──────────────────────────────────────────────────────────────────────
 
-  // Sub-stage 1: which services are selected. Resolve payload slugs to
-  // local catalog IDs; ignore slugs we don't recognize (Oto's vocabulary may
-  // outpace the local catalog, but the catalog wins for what we can book).
-  const initialSelectedIds = useMemo(() => {
-    const ids = new Set<string>();
-    for (const slug of payload.service_slugs ?? []) {
-      const id = SLUG_TO_LOCAL_ID[slug];
-      if (id) ids.add(id);
-    }
-    return ids;
-  }, [payload.service_slugs]);
+  // Sub-stage 1: which services are selected. Oto's canonical slugs map onto
+  // the curated rows; a pick the curated list lacks comes from the live
+  // catalog so it still shows checked (#268). Slugs in neither are dropped.
+  const prefill = useMemo(
+    () => resolvePrefill(payload.service_slugs, availableConvexServices),
+    [payload.service_slugs, availableConvexServices],
+  );
+  const initialSelectedIds = useMemo(() => new Set(prefill.selectedIds), [prefill]);
+  const serviceOptions: ServiceOption[] = useMemo(
+    () => [
+      ...prefill.catalogOnly.map((c) => ({
+        id: c.cardId,
+        slug: c.slug,
+        name: c.name,
+        description: c.description ?? "",
+        category: "maintenance" as const,
+        duration: "",
+      })),
+      ...DEFAULT_SERVICES,
+    ],
+    [prefill],
+  );
 
   const [stage, setStage] = useState<Stage>(1);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(initialSelectedIds);
+  // The catalog can hydrate after mount — pre-check a catalog-only pick once
+  // it resolves (once only, so unticking it sticks).
+  const appliedCatalogPicksRef = useRef(new Set<string>());
+  useEffect(() => {
+    const fresh = prefill.catalogOnly.filter((c) => !appliedCatalogPicksRef.current.has(c.cardId));
+    if (fresh.length === 0) return;
+    for (const c of fresh) appliedCatalogPicksRef.current.add(c.cardId);
+    setSelectedIds((prev) => new Set([...prev, ...fresh.map((c) => c.cardId)]));
+  }, [prefill]);
 
   // Sub-stage 3: diagnostic notes (only relevant if diagnostic_scan selected).
   const [diagnosticSystem, setDiagnosticSystem] = useState<DiagnosticSystem>(
@@ -361,8 +364,8 @@ export function BookServiceComponent({
 
   const hasDiagnostic = selectedIds.has("svc_diagnostic_scan");
   const selectedServiceOptions: ServiceOption[] = useMemo(
-    () => DEFAULT_SERVICES.filter((s) => selectedIds.has(s.id)),
-    [selectedIds],
+    () => serviceOptions.filter((s) => selectedIds.has(s.id)),
+    [serviceOptions, selectedIds],
   );
 
   // ──────────────────────────────────────────────────────────────────────
@@ -583,7 +586,8 @@ export function BookServiceComponent({
     if (!selectedMechanicId || !selectedSlot) return;
 
     // Resolve each selected local catalog service to its real Convex
-    // `Id<"services">` by name match. We must never put a local-catalog
+    // `Id<"services">` — by canonical slug, then by name ("Air Filter" only
+    // ever matched "Filter Replacement" through its slug). We must never put a local-catalog
     // string into the booking store — the pay-screen's
     // `useCreateBookingConvex` filters availableServices by Convex `_id`
     // and a missing match throws "No services selected". If the Convex
@@ -591,9 +595,7 @@ export function BookServiceComponent({
     // and let the user retry once the data lands.
     const convexIdsToToggle: string[] = [];
     for (const s of selectedServiceOptions) {
-      const convexMatch = availableConvexServices.find(
-        (cs) => cs.name.trim().toLowerCase() === s.name.trim().toLowerCase(),
-      );
+      const convexMatch = matchCatalogService(s, availableConvexServices);
       if (convexMatch) {
         convexIdsToToggle.push(convexMatch.id);
       }
@@ -823,6 +825,7 @@ export function BookServiceComponent({
         >
           {stage === 1 && (
             <Stage1Services
+              services={serviceOptions}
               selectedIds={selectedIds}
               initialSelectedIds={initialSelectedIds}
               onToggle={toggleServiceLocal}
@@ -1022,11 +1025,13 @@ function headerSubtitle(
 // ============================================================================
 
 function Stage1Services({
+  services,
   selectedIds,
   initialSelectedIds,
   onToggle,
   disabled,
 }: {
+  services: ServiceOption[];
   selectedIds: Set<string>;
   initialSelectedIds: Set<string>;
   onToggle: (id: string) => void;
@@ -1039,17 +1044,19 @@ function Stage1Services({
   // the full catalog. No prefill (rare) → full list from the start.
   const [expanded, setExpanded] = useState(initialSelectedIds.size === 0);
   const visibleServices = expanded
-    ? DEFAULT_SERVICES
-    : DEFAULT_SERVICES.filter(
+    ? services
+    : services.filter(
         (s) => selectedIds.has(s.id) || initialSelectedIds.has(s.id),
       );
 
   return (
     <View style={styles.stageBody}>
       <Text style={styles.helperText} size="sm">
-        {expanded
-          ? "Pre-checked from our chat. Add or remove anything that should ride along — bundling saves a shop trip."
-          : "Pre-checked from our chat — here's what we talked about. Add anything that should ride along; bundling saves a shop trip."}
+        {initialSelectedIds.size === 0
+          ? "Pick what you'd like done — bundling saves a shop trip."
+          : expanded
+            ? "Pre-checked from our chat. Add or remove anything that should ride along — bundling saves a shop trip."
+            : "Pre-checked from our chat — here's what we talked about. Add anything that should ride along; bundling saves a shop trip."}
       </Text>
       <View style={styles.serviceList}>
         {visibleServices.map((s, i) => {
