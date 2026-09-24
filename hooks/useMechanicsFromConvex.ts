@@ -18,6 +18,10 @@ type ConvexMechanicListRow = Doc<"mechanics"> & {
   shop?: { name: string } | null;
   shopRating?: number;
   shopReviewCount?: number;
+  /** Resolved download URL for `photo` (a storage id), added by
+   *  `mechanics.list`. Absent from the raw Doc, which is why this row type
+   *  has to state it — and why it went unnoticed that the mapper dropped it. */
+  photoUrl?: string | null;
 };
 
 function mapConvexMechanicToStore(mechanic: ConvexMechanicListRow): Mechanic {
@@ -29,7 +33,14 @@ function mapConvexMechanicToStore(mechanic: ConvexMechanicListRow): Mechanic {
     name,
     title: mechanic.title,
     shopName,
-    photoUrl: null,
+    // `mechanics.list` resolves this from the mechanic's `photo` storage id
+    // (convex/mechanics.ts → resolveMechanicPhotoUrl) and returns it on every
+    // row. This mapper used to hardcode null, so a photo a shop uploaded in
+    // the portal's Team page never reached the app — every mechanic rendered
+    // as initials no matter what the shop did. The other zeroed fields below
+    // ARE correct: the mechanics table has no specialties / years_experience /
+    // is_verified columns, so there is genuinely nothing upstream to map.
+    photoUrl: mechanic.photoUrl ?? null,
     rating: mechanic.rating ?? 0,
     reviewCount: mechanic.review_count != null ? Math.round(Number(mechanic.review_count)) : undefined,
     shopRating: mechanic.shopRating ?? 0,
