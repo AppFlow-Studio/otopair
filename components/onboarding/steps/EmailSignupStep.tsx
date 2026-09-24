@@ -30,6 +30,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useOnboardingStore } from "@/stores/useOnboardingStore";
+import { getSignUpErrorMessage } from "@/lib/signup-password-error";
 
 interface EmailSignupStepProps {
   onNext: () => void;
@@ -88,13 +89,8 @@ export function EmailSignupStep({
       });
 
       onNext();
-    } catch (err: any) {
-      const message =
-        err?.errors?.[0]?.longMessage ||
-        err?.errors?.[0]?.message ||
-        err?.message ||
-        "Failed to create account";
-      setError(message);
+    } catch (err: unknown) {
+      setError(getSignUpErrorMessage(err));
     } finally {
       setLoading(false);
     }
