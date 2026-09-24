@@ -38,9 +38,13 @@ const SHAPES: Record<string, NotificationShapeSpec> = {
   // ── Actionable: a decision blocks the booking ────────────────────────────
   booking_reschedule_proposed: { shape: "actionable", action: "reschedule_decision" },
   booking_forced_delay_proposed: { shape: "actionable", action: "reschedule_decision" },
-  booking_prejob_pending: { shape: "actionable", action: "estimate_decision" },
-  booking_midjob_pending: { shape: "actionable", action: "estimate_decision" },
-  booking_postjob_pending: { shape: "actionable", action: "estimate_decision" },
+  // Server emits `booking_${cycle}_pending` with cycle ∈ pre_job|mid_job|post_job
+  // (convex/booking_approvals.ts) — e.g. the "requires more than we expected"
+  // prompt. These MUST match that underscored form or the card silently falls
+  // back to a dismissable acknowledge FYI instead of an actionable decision.
+  booking_pre_job_pending: { shape: "actionable", action: "estimate_decision" },
+  booking_mid_job_pending: { shape: "actionable", action: "estimate_decision" },
+  booking_post_job_pending: { shape: "actionable", action: "estimate_decision" },
   booking_reauth_required: { shape: "actionable", action: "confirm_payment" },
   walkin_completed_claim: { shape: "actionable", action: "claim" },
   // The shop is waiting on a late customer — the customer taps "On my way"
@@ -50,6 +54,7 @@ const SHAPES: Record<string, NotificationShapeSpec> = {
 
   // ── Acknowledge: FYI / self-resolving ────────────────────────────────────
   booking_estimate_in_range: ACKNOWLEDGE,
+  booking_estimate_below_range: ACKNOWLEDGE,
   booking_estimate_withdrawn: ACKNOWLEDGE,
   booking_reschedule_withdrawn: ACKNOWLEDGE,
   booking_reschedule_auto_reverted: ACKNOWLEDGE,
@@ -62,6 +67,14 @@ const SHAPES: Record<string, NotificationShapeSpec> = {
   booking_request_expired: ACKNOWLEDGE,
   booking_cancelled_by_shop: ACKNOWLEDGE,
   booking_no_show_by_shop: ACKNOWLEDGE,
+  // Booking lifecycle milestones (app customer): FYI, self-resolve as the
+  // booking moves on. Raised in convex applyBookingStatusTransition; the submit
+  // ack is raised in create/createBatch.
+  booking_request_sent: ACKNOWLEDGE,
+  booking_confirmed_for_customer: ACKNOWLEDGE,
+  booking_vehicle_checked_in: ACKNOWLEDGE,
+  booking_work_started: ACKNOWLEDGE,
+  booking_service_completed: ACKNOWLEDGE,
   customer_cancel_pickup_request: ACKNOWLEDGE,
   walkin_booking_confirmed: ACKNOWLEDGE,
   walkin_vehicle_at_shop: ACKNOWLEDGE,
