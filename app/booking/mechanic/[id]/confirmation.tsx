@@ -232,8 +232,7 @@ export default function ConfirmationScreen() {
   // Listen for the shop's acceptance toast while the user celebrates here.
   // If they stay on this screen long enough for `pending_shop_acceptance` →
   // `confirmed` to flip, they'll see the Trust-Moment toast in real time.
-  // If they navigate away, booking-details.tsx picks up the subscription
-  // on their next return. Diagnostic 2026-05-21 Part B.
+  // This screen owns the real-time acceptance toast while it is open.
   useBookingStatusToasts(bookingDbId as Id<"bookings"> | undefined);
   const confirmedBooking = useQuery(
     api.bookings.getBookingByIdForCustomer,

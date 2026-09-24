@@ -12,6 +12,7 @@ import {
   type LucideIcon,
 } from "lucide-react-native";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
+import { bookingDetailsRoute } from "@/lib/bookingDetailsRoute";
 
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -42,8 +43,8 @@ interface TransitionConfig {
   variant: Variant;
   title: string;
   body?: string;
-  /** Optional tap route. Most are deferred — see ROUTE-GAPS.md. */
-  href?: string;
+  /** Optional tap destination. Most are deferred — see ROUTE-GAPS.md. */
+  href?: "bookings" | "home";
   /** Action-matching icon override; falls back to the variant icon. */
   icon?: LucideIcon;
 }
@@ -53,13 +54,13 @@ const TRANSITION_TO_TOAST: Record<string, TransitionConfig> = {
     variant: "trust",
     title: "Booking confirmed",
     body: "Your shop accepted this appointment.",
-    href: "booking-details",
+    href: "bookings",
     icon: CalendarCheck,
   },
   pending_shop_acceptance: {
     variant: "info",
     title: "Waiting on the shop to accept",
-    href: "booking-details",
+    href: "bookings",
     icon: Clock,
   },
   declined_by_shop: {
@@ -73,14 +74,14 @@ const TRANSITION_TO_TOAST: Record<string, TransitionConfig> = {
     variant: "info",
     title: "Vehicle checked in",
     body: "Your mechanic will review shortly.",
-    href: "booking-details",
+    href: "bookings",
     icon: Car,
   },
   in_progress: {
     variant: "info",
     title: "Work started",
     body: "Your mechanic is on it.",
-    href: "booking-details",
+    href: "bookings",
     icon: Wrench,
   },
   completed: {
@@ -98,33 +99,33 @@ const TRANSITION_TO_TOAST: Record<string, TransitionConfig> = {
   rescheduled: {
     variant: "info",
     title: "Booking rescheduled",
-    href: "booking-details",
+    href: "bookings",
     icon: CalendarClock,
   },
   no_show: {
     variant: "warning",
     title: "Marked as no-show",
     body: "Open booking to dispute or reschedule.",
-    href: "booking-details",
+    href: "bookings",
   },
   quote_revised: {
     variant: "warning",
     title: "Quote revised",
     body: "Review the change before approving.",
-    href: "booking-details",
+    href: "bookings",
     icon: FileText,
   },
   eta_updated: {
     variant: "info",
     title: "Mechanic ETA updated",
-    href: "booking-details",
+    href: "bookings",
     icon: Clock,
   },
   diagnostic_resolved: {
     variant: "trust",
     title: "Diagnostic complete",
     body: "No additional work needed.",
-    href: "booking-details",
+    href: "bookings",
     icon: Stethoscope,
   },
   // cancelled_by_user intentionally NOT mapped — the mutation wrapper
@@ -180,7 +181,7 @@ export function useBookingStatusToasts(bookingId: Id<"bookings"> | undefined) {
         "Open booking to see what changed.",
         {
           onPress: bookingId
-            ? () => router.push(`/booking/mechanic/${bookingId}/booking-details`)
+            ? () => router.push(bookingDetailsRoute(bookingId))
             : undefined,
         },
       );
@@ -197,8 +198,8 @@ export function useBookingStatusToasts(bookingId: Id<"bookings"> | undefined) {
       const onPress = config.href
         ? () => {
             if (!bookingId) return;
-            if (config.href === "booking-details") {
-              router.push(`/booking/mechanic/${bookingId}/booking-details`);
+            if (config.href === "bookings") {
+              router.push(bookingDetailsRoute(bookingId));
             } else if (config.href === "home") {
               router.push("/(main-tabs)/home");
             }

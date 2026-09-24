@@ -7,6 +7,7 @@ import {
   type LucideIcon,
 } from "lucide-react-native";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
+import { bookingDetailsRoute } from "@/lib/bookingDetailsRoute";
 
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -28,7 +29,7 @@ interface PaymentConfig {
   variant: Variant;
   title: string;
   body?: string;
-  href?: "booking-details" | "payments";
+  href?: "bookings" | "payments";
   /** Action-matching icon override; falls back to the variant icon. */
   icon?: LucideIcon;
 }
@@ -38,40 +39,40 @@ const STATUS_TO_TOAST: Record<string, PaymentConfig> = {
     variant: "info",
     title: "Card held",
     body: "You're only charged after service.",
-    href: "booking-details",
+    href: "bookings",
     icon: CreditCard,
   },
   captured: {
     variant: "success",
     title: "Payment captured",
     body: "Charged to your saved card.",
-    href: "booking-details",
+    href: "bookings",
     icon: CreditCard,
   },
   refunded: {
     variant: "success",
     title: "Refund issued",
     body: "Funds will appear on your statement within 7 days.",
-    href: "booking-details",
+    href: "bookings",
     icon: RotateCcw,
   },
   partial_refund: {
     variant: "info",
     title: "Partial refund issued",
-    href: "booking-details",
+    href: "bookings",
     icon: RotateCcw,
   },
   failed: {
     variant: "error",
     title: "Payment didn't go through",
     body: "Update your card from booking details.",
-    href: "booking-details",
+    href: "bookings",
   },
   declined: {
     variant: "error",
     title: "Card declined",
     body: "Update your card from booking details.",
-    href: "booking-details",
+    href: "bookings",
   },
   dispute_opened: {
     variant: "warning",
@@ -119,8 +120,8 @@ export function usePaymentStatusToasts(bookingId: Id<"bookings"> | undefined) {
 
     const onPress = config.href
       ? () => {
-          if (config.href === "booking-details" && bookingId) {
-            router.push(`/booking/mechanic/${bookingId}/booking-details`);
+          if (config.href === "bookings" && bookingId) {
+            router.push(bookingDetailsRoute(bookingId));
           } else if (config.href === "payments") {
             router.push("/payments");
           }
