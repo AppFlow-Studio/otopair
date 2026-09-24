@@ -313,6 +313,10 @@ export const sendMessage = action({
     // assistant turn. Lets the harness iterate freely without polluting
     // ai_messages history. No effect unless `debug` is also true.
     debug_skip_persist: v.optional(v.boolean()),
+    // Editing a sent message (#272): this turn replaces that user message and
+    // everything after it — the model never sees the replaced tail, and the
+    // old rows are deleted once this turn persists.
+    replaceFromMessageId: v.optional(v.id("ai_messages")),
   },
   // `quickReplies` typed loose (v.any()) so the shape can evolve as we add
   // render tools without churning the validator on every change.
@@ -320,6 +324,9 @@ export const sendMessage = action({
     text: v.string(),
     // Persisted assistant ai_messages row id (D-13/D-15 supersession check).
     assistantMessageId: v.optional(v.id("ai_messages")),
+    // Persisted user ai_messages row id — lets the client edit a message it
+    // just sent (#272).
+    userMessageId: v.optional(v.id("ai_messages")),
     // Render directives — any of these may be present depending on which
     // render tool fired. The mobile app and harness pick the renderer based
     // on which fields are set. All are loose v.any() since their shapes
@@ -373,6 +380,7 @@ type SendMessageResult = {
   // runs). The client threads it into the live ChatMessage so the
   // vehicle-update card can run the D-13/D-15 supersession check.
   assistantMessageId?: Id<"ai_messages">;
+  userMessageId?: Id<"ai_messages">;
   quickReplies?: unknown[];
   showRecordConfirmation?: { vehicle_id: string; maintenance_type: string };
   // render_vehicle_update — vehicle-truth confirm card (mileage / service
@@ -432,6 +440,7 @@ async function sendMessageHandler(
     vehicleVin?: string;
     debug?: boolean;
     debug_skip_persist?: boolean;
+    replaceFromMessageId?: Id<"ai_messages">;
   },
 ): Promise<SendMessageResult> {
   try {
@@ -522,12 +531,14 @@ export async function sendMessageHandlerCore(
     vehicleVin,
     debug,
     debug_skip_persist,
+    replaceFromMessageId,
   }: {
     conversationId: Id<"ai_conversations">;
     message: string;
     vehicleVin?: string;
     debug?: boolean;
     debug_skip_persist?: boolean;
+    replaceFromMessageId?: Id<"ai_messages">;
   },
 ): Promise<SendMessageResult> {
   // Trace accumulator — populated only when debug=true. `null` in production.
@@ -557,8 +568,34 @@ export async function sendMessageHandlerCore(
     internal.ai_messages.getByConversationIdInternal,
     { conversationId },
   );
-  const sortedMessages = [...allMessages].sort((a, b) => a.timestamp - b.timestamp);
+  const allSortedMessages = [...allMessages].sort((a, b) => a.timestamp - b.timestamp);
+  // Editing a sent message (#272): the turn replaces that user message and
+  // every row after it, so the model must not see them. The rows are only
+  // deleted when this turn persists (step 8) — a failed model call leaves the
+  // conversation as it was. The lookup is scoped to this conversation's
+  // messages, which the ownership check above already covers.
+  let editCutoff: number | null = null;
+  if (replaceFromMessageId) {
+    const target = allSortedMessages.find((m) => m._id === replaceFromMessageId);
+    if (!target || target.role !== "user") {
+      throw new Error("That message can't be edited.");
+    }
+    editCutoff = target.timestamp;
+  }
+  const sortedMessages =
+    editCutoff === null
+      ? allSortedMessages
+      : allSortedMessages.filter((m) => m.timestamp < editCutoff!);
   const history = sortedMessages.slice(-HISTORY_TURNS);
+  // Turn index for the append-only logs (conversation_audit,
+  // conversation_facts): the pre-turn message count — unless an edit has
+  // shortened the conversation, in which case counting again would reuse
+  // numbers the logs already hold, so continue past the highest logged turn.
+  const lastAuditTurn: number = await ctx.runQuery(
+    internal.oto.memoryEditing.getLastAuditTurnNumber,
+    { conversationId },
+  );
+  const logTurnIndex = Math.max(sortedMessages.length, lastAuditTurn + 1);
 
   // ── 2.5. Wave 7.2 pre-turn degradation-ladder gate ────────────────────
   //
@@ -1019,7 +1056,7 @@ export async function sendMessageHandlerCore(
   )
     ? [...convoState.established_facts]
     : [];
-  const conversationFactTurnNumber = sortedMessages.length;
+  const conversationFactTurnNumber = logTurnIndex;
   // Pre-turn snapshot for the commitEpisodic mirror. `null` here is the
   // legacy-unset sentinel; the diff logic in update_conversation_state
   // treats `null !== "neutral"` as a change (initEpisodicControl seeds the
@@ -2327,6 +2364,7 @@ export async function sendMessageHandlerCore(
   // vehicle-update card can compare itself against the supersession pointer
   // (history-loaded cards use their own row id). Null on harness runs.
   let assistantMessageId: Id<"ai_messages"> | null = null;
+  let userMessageId: Id<"ai_messages"> | null = null;
   if (!skipPersist) {
     // B-P2: lock the conversation's vehicle anchor on first send. setVehicleId
     // had ZERO production call sites, so ai_conversations.vehicle_id stayed
@@ -2344,7 +2382,15 @@ export async function sendMessageHandlerCore(
       }
     }
 
-    await ctx.runMutation(internal.ai_messages.create, {
+    // Editing (#272): the replacement turn succeeded, so the edited message
+    // and everything after it go now, just before the new pair is written.
+    if (editCutoff !== null) {
+      await ctx.runMutation(internal.ai_messages.truncateFromInternal, {
+        conversationId,
+        fromTimestamp: editCutoff,
+      });
+    }
+    userMessageId = await ctx.runMutation(internal.ai_messages.create, {
       conversation_id: conversationId,
       role: "user",
       content: message,
@@ -2447,7 +2493,7 @@ export async function sendMessageHandlerCore(
     // (the cascade origin per Locked Principle #2) so the assistant-row
     // satisfies the role-conditional invariant; log loudly so the drift
     // is visible.
-    const turnNumber = sortedMessages.length;
+    const turnNumber = logTurnIndex;
     // Translate the full Anthropic model ID to the short literal the
     // recordTurn validator accepts. Default to "haiku" on any unmapped
     // value (the cascade origin per Locked Principle #2); log loudly so
@@ -2810,6 +2856,7 @@ export async function sendMessageHandlerCore(
   return {
     text: finalText,
     ...(assistantMessageId ? { assistantMessageId } : {}),
+    ...(userMessageId ? { userMessageId } : {}),
     ...(quickReplies ? { quickReplies } : {}),
     ...(showRecordConfirmation ? { showRecordConfirmation } : {}),
     ...(showVehicleUpdate !== undefined ? { showVehicleUpdate } : {}),
