@@ -838,7 +838,8 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.03,
     shadowRadius: 4,
-    elevation: 1,
+    // No `elevation`: Android draws it as a dark rim on the rounded corners,
+    // which iOS's soft shadow doesn't have.
   },
   stackedCardHighlight: {
     position: 'absolute',
@@ -899,7 +900,8 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.1,
     shadowRadius: 12,
-    elevation: 5,
+    // No `elevation`: Android draws it as a dark rim on the rounded corners,
+    // which iOS's soft shadow doesn't have.
     overflow: 'hidden',
   },
   topSection: {

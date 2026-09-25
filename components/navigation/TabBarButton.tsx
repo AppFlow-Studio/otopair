@@ -104,7 +104,8 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.08,
     shadowRadius: 10,
-    elevation: 2,
+    // No `elevation`: Android draws it as a dark rim on the rounded corners,
+    // which iOS's soft shadow doesn't have.
     borderWidth: 0.5,
     borderColor: "rgba(255, 255, 255, 1)",
   },

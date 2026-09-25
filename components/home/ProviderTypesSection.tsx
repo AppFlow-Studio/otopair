@@ -186,7 +186,8 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.08,
     shadowRadius: 6,
-    elevation: 2,
+    // No `elevation`: Android draws it as a dark rim on the rounded corners,
+    // which iOS's soft shadow doesn't have.
   },
   cardPressed: {
     opacity: 0.7,

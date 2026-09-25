@@ -189,7 +189,7 @@ const styles = StyleSheet.create({
         shadowRadius: 24,
       },
       android: {
-        elevation: 8,
+        boxShadow: '0px 6px 20px rgba(0, 0, 0, 0.10)',
       },
     }),
   },
@@ -202,6 +202,9 @@ const styles = StyleSheet.create({
   },
   activeCapsuleWrapper: {
     position: 'absolute',
+      // Not `elevation`: Android pooled it into a dark rim at the rounded
+      // ends. `boxShadow` blurs evenly, like the iOS shadow, and draws
+      // outside the bounds, so `overflow: 'hidden'` doesn't clip it.
     height: '100%',
     top: 6,
     left: 6,
