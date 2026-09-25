@@ -10,13 +10,15 @@ const Icon = NativeTabs.Trigger.Icon;
 const Badge = NativeTabs.Trigger.Badge;
 import { Tabs, usePathname, useRootNavigationState } from "expo-router";
 import { guardedRouter as router } from "@/lib/navigationLock";
-import React, { useEffect, useState } from "react";
-import { Platform } from "react-native";
+import React, { useEffect, useRef, useState } from "react";
+import { Platform, type View } from "react-native";
 import { useAuth } from "@clerk/clerk-expo";
 import { useConvexAuth } from "convex/react";
 import * as SecureStore from "expo-secure-store";
 import { EnrichmentStatusPill } from "@/components/booking-flow/EnrichmentStatusPill";
 import { TabBar } from "@/components/navigation/TabBar";
+import { TabBlurTarget } from "@/components/navigation/TabBlurTarget";
+import { ANDROID_REAL_BLUR, AndroidBlurTarget } from "@/components/shared-ui/AndroidBlurTarget";
 import { TAB_ITEMS } from "@/components/navigation/tabItems";
 import { useBookingsFromConvex } from "@/hooks/useBookingsFromConvex";
 import { useUnseenBookingsCount } from "@/hooks/useUnseenBookingsCount";
@@ -166,40 +168,56 @@ function ProtectedTabLayout() {
   const unseenBookingsCount = useUnseenBookingsCount();
   const showBookingsBadge = unseenBookingsCount > 0;
 
+  // What the Settings overlay frosts on Android 12+: the whole tab navigator,
+  // bar included, as iOS blurs everything behind it. The overlay sits outside
+  // it (a BlurView inside its own target would blur itself).
+  const tabsBlurTargetRef = useRef<View>(null);
+
   // Use custom tab bar for Android and iOS <= 25.
   if (!isIOS26OrNewer) {
     return (
       <CoachProvider>
         <HydrateBookingData />
         <OfflinePreload />
-        <Tabs
-          tabBar={(props) => <TabBar {...props} />}
-          screenOptions={{
-            headerShown: false,
-            // Android: a visited tab stays mounted, so Cars and Bookings
-            // kept re-rendering on every Convex push while Home was in
-            // front (Cars alone is ~4,000 lines and re-runs a dozen
-            // queries). Freezing a blurred tab suspends its renders until
-            // it comes back, where it catches up in one pass.
-            freezeOnBlur: Platform.OS === "android",
-          }}
-        >
-          {/* Labels come from TAB_ITEMS so this bar and the NativeTabs one
-              below can't drift — "My Cars" here versus "Cars" there was
-              exactly that drift. */}
-          {TAB_ITEMS.map((t) => (
-            <Tabs.Screen key={t.name} name={t.name} options={{ title: t.label }} />
-          ))}
-          <Tabs.Screen
-            name="index"
-            options={{
-              href: null,
+        <AndroidBlurTarget targetRef={tabsBlurTargetRef}>
+          <Tabs
+            tabBar={(props) => <TabBar {...props} />}
+            // Android 12+: each tab screen is a blur target, so the tab bar can
+            // frost what scrolls under it like the iOS bar does.
+            screenLayout={
+              ANDROID_REAL_BLUR
+                ? ({ children, route }) => (
+                    <TabBlurTarget routeKey={route.key}>{children}</TabBlurTarget>
+                  )
+                : undefined
+            }
+            screenOptions={{
+              headerShown: false,
+              // Android: a visited tab stays mounted, so Cars and Bookings
+              // kept re-rendering on every Convex push while Home was in
+              // front (Cars alone is ~4,000 lines and re-runs a dozen
+              // queries). Freezing a blurred tab suspends its renders until
+              // it comes back, where it catches up in one pass.
+              freezeOnBlur: Platform.OS === "android",
             }}
-          />
-        </Tabs>
+          >
+            {/* Labels come from TAB_ITEMS so this bar and the NativeTabs one
+                below can't drift — "My Cars" here versus "Cars" there was
+                exactly that drift. */}
+            {TAB_ITEMS.map((t) => (
+              <Tabs.Screen key={t.name} name={t.name} options={{ title: t.label }} />
+            ))}
+            <Tabs.Screen
+              name="index"
+              options={{
+                href: null,
+              }}
+            />
+          </Tabs>
+        </AndroidBlurTarget>
         <NotificationsSheet />
         <RescheduleDecisionOverlay />
-        <SettingsOverlay />
+        <SettingsOverlay blurTarget={tabsBlurTargetRef} />
         <UpdateAvailableBanner />
         <MainTabsEnrichmentPill />
         <CoachTour />

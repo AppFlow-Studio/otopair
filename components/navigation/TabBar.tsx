@@ -13,6 +13,9 @@ import Animated, {
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 // Tab taps intentionally do not fire haptics — see docs/notifications/PLAN.md §B.4.
 import { useTabBarVisibilityStore } from "@/stores/useTabBarVisibilityStore";
+import { useSettingsOverlayStore } from "@/stores/useSettingsOverlayStore";
+import { useTabBlurTargetStore } from "@/stores/useTabBlurTargetStore";
+import { ANDROID_REAL_BLUR } from "@/components/shared-ui/AndroidBlurTarget";
 
 export function TabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
@@ -97,6 +100,13 @@ export function TabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   // `useTabBarVisibilityStore` flag (set by nested screens like
   // home/map that can't reach this navigator's descriptor via setOptions).
   const hiddenByStore = useTabBarVisibilityStore((s) => s.hidden);
+  // Android 12+: the focused screen's blur target (see TabBlurTarget).
+  // Undefined until that screen has mounted, and while Settings is open:
+  // Settings frosts the whole screen itself, and a live blur inside its
+  // source would be re-rendered inside that blur every frame.
+  const focusedBlurTarget = useTabBlurTargetStore((s) => s.targets[state.routes[state.index].key]);
+  const settingsOpen = useSettingsOverlayStore((s) => s.isOpen);
+  const blurTarget = settingsOpen ? undefined : focusedBlurTarget;
   const tabBarStyle = StyleSheet.flatten(focusedOptions.tabBarStyle) as any;
   if (hiddenByStore || tabBarStyle?.display === 'none') {
     return null;
@@ -105,10 +115,14 @@ export function TabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   return (
     <View style={[styles.container, { bottom: insets.bottom + 8 }]}>
       <GestureDetector gesture={panGesture}>
-        <BlurView 
-          intensity={80} 
-          tint="light" 
+        <BlurView
+          intensity={80}
+          tint="light"
           style={styles.blurContainer}
+          // Without a target, asking for the blur method only logs a warning
+          // and falls back to a flat tint, so ask only once there is one.
+          blurMethod={blurTarget ? "dimezisBlurViewSdk31Plus" : undefined}
+          blurTarget={blurTarget}
         >
           <View onLayout={onTabbarLayout} style={styles.tabbar}>
             {/* Sliding Capsule */}
@@ -188,6 +202,9 @@ const styles = StyleSheet.create({
         shadowOpacity: 0.12,
         shadowRadius: 24,
       },
+      // Not `elevation`: Android pooled it into a dark rim at the rounded
+      // ends. `boxShadow` blurs evenly, like the iOS shadow, and draws
+      // outside the bounds, so `overflow: 'hidden'` doesn't clip it.
       android: {
         boxShadow: '0px 6px 20px rgba(0, 0, 0, 0.10)',
       },
@@ -198,13 +215,18 @@ const styles = StyleSheet.create({
     padding: 6,
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: 'rgba(255, 255, 255, 0.65)',
+    // Android 12+ really blurs (the BlurView's light tint is the frost), so it
+    // needs no fill. Older Android can't blur, and at 65% the page showed
+    // through sharply where iOS frosts it out, so it keeps a near-opaque fill.
+    backgroundColor:
+      Platform.OS === 'ios'
+        ? 'rgba(255, 255, 255, 0.65)'
+        : ANDROID_REAL_BLUR
+          ? 'transparent'
+          : 'rgba(255, 255, 255, 0.92)',
   },
   activeCapsuleWrapper: {
     position: 'absolute',
-      // Not `elevation`: Android pooled it into a dark rim at the rounded
-      // ends. `boxShadow` blurs evenly, like the iOS shadow, and draws
-      // outside the bounds, so `overflow: 'hidden'` doesn't clip it.
     height: '100%',
     top: 6,
     left: 6,

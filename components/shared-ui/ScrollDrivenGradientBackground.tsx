@@ -70,14 +70,22 @@ export function ScrollDrivenGradientBackground({
   return (
     <>
       <View style={StyleSheet.absoluteFill}>
-        <LinearGradient
-          colors={STATIC_GRADIENT}
-          start={{ x: 0.5, y: 0 }}
-          end={{ x: 0.5, y: 1 }}
-          style={StyleSheet.absoluteFill}
-        />
+        <PageGradient />
       </View>
       {children(scrollHandler, scrollY)}
     </>
+  );
+}
+
+/** The shared page gradient on its own, filling its parent — for a surface
+ *  that needs its own copy, e.g. inside a BlurTargetView so a blur sees it. */
+export function PageGradient() {
+  return (
+    <LinearGradient
+      colors={STATIC_GRADIENT}
+      start={{ x: 0.5, y: 0 }}
+      end={{ x: 0.5, y: 1 }}
+      style={StyleSheet.absoluteFill}
+    />
   );
 }
