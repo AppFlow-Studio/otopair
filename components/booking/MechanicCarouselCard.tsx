@@ -117,10 +117,14 @@ function MechanicCarouselCardComponent({
 
       {/* Rating Row */}
       <View style={styles.ratingRow}>
-        <Star size={16} color="#F5C254" fill="#F5C254" />
-        <Text weight="semiBold" size="sm" color={BrandColors.primary}>
-          {mechanic.rating.toFixed(1)}
-        </Text>
+        {mechanic.rating ? (
+          <>
+            <Star size={16} color="#F5C254" fill="#F5C254" />
+            <Text weight="semiBold" size="sm" color={BrandColors.primary}>
+              {mechanic.rating.toFixed(1)}
+            </Text>
+          </>
+        ) : null}
         <Text size="sm" color="#6B7280">
           • {mechanic.yearsExperience} years exp
         </Text>
