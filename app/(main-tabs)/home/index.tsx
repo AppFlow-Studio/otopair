@@ -1,6 +1,6 @@
 // 1. React & React Native
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, BackHandler, Image, Pressable, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, BackHandler, Image, Platform, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import Animated, {
@@ -1797,6 +1797,10 @@ export default function HomeScreen() {
                     placeholderPhrases={SEARCH_PLACEHOLDER_PHRASES}
                   />
                 </View>
+                // Android only: fade as one layer, like iOS does. By default
+                // Android fades each child on its own, so mid-fade the search
+                // bar's shadow showed through it as a wireframe outline.
+                needsOffscreenAlphaCompositing={Platform.OS === 'android' ? true : undefined}
               </Animated.View>
             </View>
           )}
@@ -1818,6 +1822,8 @@ export default function HomeScreen() {
                   onPress={handleSearchPress}
                   placeholderPhrases={SEARCH_PLACEHOLDER_PHRASES}
                 />
+              // See the hero variant's pinned row: one-layer fade on Android.
+              needsOffscreenAlphaCompositing={Platform.OS === 'android' ? true : undefined}
               </View>
             </Animated.View>
           )}
@@ -2118,7 +2124,8 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     zIndex: 10,
-    elevation: 20,
+    // No `elevation`: the bar has no fill of its own, so while it fades the
+    // shadow under it showed through as a dark band. zIndex keeps it on top.
     paddingBottom: 10,
     overflow: 'hidden',
     // Hairline separation from the content scrolling beneath it.
