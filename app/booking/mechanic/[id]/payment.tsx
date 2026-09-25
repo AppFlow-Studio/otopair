@@ -5,7 +5,7 @@
  *          Shows mechanic info, appointment details, vehicle, detailed services breakdown,
  *          and inline payment options (Apple Pay, Google Pay, saved cards).
  *
- * FLOW: mechanic detail → booking-details → payment → confirmation
+ * FLOW: mechanic detail → payment → confirmation
  *
  * ROUTE: /booking/mechanic/[id]/payment
  *

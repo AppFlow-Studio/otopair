@@ -9,8 +9,8 @@
  * USED IN: app/settings/terms-and-conditions.tsx, app/settings/privacy-policy.tsx
  */
 
-import React from "react";
-import { ScrollView, StyleSheet, View } from "react-native";
+import React, { useEffect } from "react";
+import { BackHandler, ScrollView, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
@@ -60,6 +60,14 @@ interface LegalDocumentProps {
 export function LegalDocument({ data, headerTitle }: LegalDocumentProps) {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+      router.back();
+      return true;
+    });
+    return () => subscription.remove();
+  }, [router]);
 
   return (
     <View style={styles.screen}>

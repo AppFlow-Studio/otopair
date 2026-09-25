@@ -2,7 +2,7 @@
  * Booking Group Layout
  *
  * PURPOSE: Stack navigator for the booking flow (map → service select →
- *          mechanic/shop → booking-details → payment → confirming →
+ *          mechanic/shop → payment → confirming →
  *          confirmation).
  *
  * NOTE: This group lives at app root, outside (main-tabs), so the root

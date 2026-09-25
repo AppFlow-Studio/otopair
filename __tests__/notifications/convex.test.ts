@@ -72,11 +72,7 @@ test("FINDING #5 (N/A — self-filter not implemented via changed_by)", () => {
 // 6. Convex Id type for bookingId param
 // -----------------------------------------------------------------------------
 test("bookingId type safety: hook accepts Id<'bookings'> | undefined", () => {
-  // booking-details.tsx wraps the URL `id` param with a string-prefix check
-  // and casts to Id<"bookings">. If the param is a malformed Convex id
-  // (string that doesn't decode), useQuery throws server-side. Recommend a
-  // try/catch around the cast or a regex guard. Currently relies on the
-  // booking-details screen's filter (excludes "tire_quote_" / "booking_"
-  // prefixes only).
+  // The Bookings tab receives a string query parameter and looks it up in
+  // its loaded booking list. An unknown ID safely leaves the sheet closed.
   assert.ok(true);
 });

@@ -13,8 +13,8 @@
  */
 
 // 1. React & React Native
-import React, { useCallback, useEffect, useMemo } from "react";
-import { Alert, BackHandler, Image, Platform, ScrollView, StyleSheet, TouchableOpacity, View, useWindowDimensions } from "react-native";
+import React, { useCallback, useEffect, useMemo, useRef } from "react";
+import { ActivityIndicator, Alert, BackHandler, Image, Platform, ScrollView, StyleSheet, TouchableOpacity, View, useWindowDimensions } from "react-native";
 
 // 2. Expo & Third-party
 import * as Calendar from "expo-calendar";
@@ -46,6 +46,8 @@ import { BorderRadius, Shadows } from "@/constants/theme";
 import { useBookingStatusToasts } from "@/hooks/useBookingStatusToasts";
 import { useToast } from "@/hooks/useToast";
 import { buildBookingCalendarEvent, formatBookingReference } from "@/lib/booking-calendar";
+import { shouldShowBookingConfirmationLoading } from "@/lib/bookingConfirmationLoading";
+import { shouldResetBookingAfterConfirmation } from "@/lib/bookingCompletionReset";
 import { getBookingCompletionCopy, isBookingRescheduleMode } from "@/lib/reschedule-flow";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
@@ -232,8 +234,7 @@ export default function ConfirmationScreen() {
   // Listen for the shop's acceptance toast while the user celebrates here.
   // If they stay on this screen long enough for `pending_shop_acceptance` →
   // `confirmed` to flip, they'll see the Trust-Moment toast in real time.
-  // If they navigate away, booking-details.tsx picks up the subscription
-  // on their next return. Diagnostic 2026-05-21 Part B.
+  // This screen owns the real-time acceptance toast while it is open.
   useBookingStatusToasts(bookingDbId as Id<"bookings"> | undefined);
   const confirmedBooking = useQuery(
     api.bookings.getBookingByIdForCustomer,
@@ -248,6 +249,7 @@ export default function ConfirmationScreen() {
   const quoteAcceptContext = useBookingStore((state) => state.quoteAcceptContext);
   const scheduledAppointment = useBookingStore((state) => state.scheduledAppointment);
   const resetBookingFlow = useBookingStore((state) => state.resetBookingFlow);
+  const didResetCompletedBooking = useRef(false);
   const getBookingById = useBookingStore((state) => state.getBookingById);
   const availableServices = useBookingStore((state) => state.availableServices);
   const getMechanicById = useMechanicStore((state) => state.getMechanicById);
@@ -255,6 +257,25 @@ export default function ConfirmationScreen() {
   const getShopById = useShopStore((state) => state.getShopById);
   const settingsOverlayOpen = useSettingsOverlayStore((s) => s.isOpen);
   const requestCloseSettingsOverlay = useSettingsOverlayStore((s) => s.requestClose);
+  const isBookingDetailsLoading = shouldShowBookingConfirmationLoading({
+    bookingId: bookingDbId,
+    bookingQueryResult: confirmedBooking,
+    isReschedule,
+  });
+
+  useEffect(() => {
+    if (!shouldResetBookingAfterConfirmation({
+      bookingId: bookingDbId,
+      hasConfirmedBooking: Boolean(confirmedBooking),
+      isReschedule,
+      alreadyReset: didResetCompletedBooking.current,
+    })) {
+      return;
+    }
+
+    didResetCompletedBooking.current = true;
+    resetBookingFlow();
+  }, [bookingDbId, confirmedBooking, isReschedule, resetBookingFlow]);
 
   // Look up local booking by route param (fallback when booking flow is reset)
   const localBooking = useMemo(() => {
@@ -552,7 +573,14 @@ export default function ConfirmationScreen() {
           </Text>
 
           {/* Mechanic Card - Matching Payment Screen Style */}
-          {mechanic && (
+          {isBookingDetailsLoading ? (
+            <View style={styles.loadingCard}>
+              <ActivityIndicator size="large" color={BrandColors.secondary} />
+              <Text size="md" weight="medium" color="#6B7280" center style={styles.loadingLabel}>
+                Loading booking details...
+              </Text>
+            </View>
+          ) : mechanic && (
             <View style={[styles.mechanicCard, isCompactLayout && styles.mechanicCardCompact, isVeryCompactLayout && styles.mechanicCardVeryCompact]}>
               {/* Mechanic Info Row */}
               <View style={[styles.mechanicRow, isCompactLayout && styles.mechanicRowCompact]}>
@@ -716,23 +744,27 @@ export default function ConfirmationScreen() {
           ) : null}
           */}
 
-          {/* Add to Calendar Button */}
-          <TouchableOpacity
-            style={[styles.calendarButton, isCompactLayout && styles.calendarButtonCompact]}
-            onPress={handleAddToCalendar}
-            activeOpacity={0.8}
-          >
-            <Text size={isVeryCompactLayout ? "sm" : "md"} weight="semiBold" color={BrandColors.white}>
-              Add to Calendar
-            </Text>
-          </TouchableOpacity>
+          {!isBookingDetailsLoading && (
+            <>
+              {/* Add to Calendar Button */}
+              <TouchableOpacity
+                style={[styles.calendarButton, isCompactLayout && styles.calendarButtonCompact]}
+                onPress={handleAddToCalendar}
+                activeOpacity={0.8}
+              >
+                <Text size={isVeryCompactLayout ? "sm" : "md"} weight="semiBold" color={BrandColors.white}>
+                  Add to Calendar
+                </Text>
+              </TouchableOpacity>
 
-          {/* Back to Home Link */}
-          <TouchableOpacity style={[styles.backToHomeButton, isCompactLayout && styles.backToHomeButtonCompact]} onPress={handleBackToHome} activeOpacity={0.7}>
-            <Text size={isVeryCompactLayout ? "sm" : "md"} weight="medium" color={BrandColors.secondary}>
-              Back to Home
-            </Text>
-          </TouchableOpacity>
+              {/* Back to Home Link */}
+              <TouchableOpacity style={[styles.backToHomeButton, isCompactLayout && styles.backToHomeButtonCompact]} onPress={handleBackToHome} activeOpacity={0.7}>
+                <Text size={isVeryCompactLayout ? "sm" : "md"} weight="medium" color={BrandColors.secondary}>
+                  Back to Home
+                </Text>
+              </TouchableOpacity>
+            </>
+          )}
         </View>
       </ScrollView>
     </View>
@@ -852,6 +884,19 @@ const styles = StyleSheet.create({
   },
   mechanicCardVeryCompact: {
     padding: Spacing.sm + 2,
+  },
+  loadingCard: {
+    backgroundColor: BrandColors.white,
+    borderRadius: BorderRadius.xl,
+    width: "100%",
+    minHeight: 260,
+    marginBottom: Spacing.lg,
+    alignItems: "center",
+    justifyContent: "center",
+    ...Shadows.sm,
+  },
+  loadingLabel: {
+    marginTop: Spacing.md,
   },
   mechanicRow: {
     flexDirection: "row",
