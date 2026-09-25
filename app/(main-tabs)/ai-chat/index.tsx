@@ -35,6 +35,8 @@ import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { haptics } from "@/lib/haptics";
 import { useToast } from "@/hooks/useToast";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
+import { useFocusEffect } from "expo-router";
+import { AndroidSoftInputModes, KeyboardController } from "react-native-keyboard-controller";
 import { useCanWrite } from "@/hooks/useConnection";
 import { AlignLeft, SquarePen, Ellipsis, History, CarFront, Copy, Volume2, Clock, ImageOff, AlertCircle, WifiOff, type LucideIcon } from "lucide-react-native";
 import { MenuView } from "@react-native-menu/menu";
@@ -428,6 +430,19 @@ export default function AIChatScreen() {
 
   // Track keyboard height + visibility (plain View, no KAV or Animated.View)
   const [keyboardHeight, setKeyboardHeight] = useState(0);
+
+  // Android: the composer is placed from the keyboard height, which is right
+  // only while the window is in resize mode. keyboard-controller resets the
+  // whole app to the manifest's pan mode whenever one of its views unmounts —
+  // e.g. closing the Cars mileage editor — and under pan the window also
+  // slides up, so the composer floated far above the keyboard. Re-assert
+  // resize every time this tab comes into focus.
+  useFocusEffect(
+    useCallback(() => {
+      if (Platform.OS !== "android") return;
+      KeyboardController.setInputMode(AndroidSoftInputModes.SOFT_INPUT_ADJUST_RESIZE);
+    }, []),
+  );
 
   useEffect(() => {
     const showSub = Keyboard.addListener(
