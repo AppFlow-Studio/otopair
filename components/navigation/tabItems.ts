@@ -32,6 +32,7 @@
  * this costs nothing at runtime or in bundle size.
  */
 import type Ionicons from "@expo/vector-icons/Ionicons";
+import { Platform } from "react-native";
 
 type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
 
@@ -51,8 +52,15 @@ export const TAB_ITEMS: TabItem[] = [
   { name: "home", label: "Home", sf: "house.fill", ion: "home" },
   // calendar → solid; iOS renders this one filled in the tab bar.
   { name: "bookings", label: "Bookings", sf: "calendar", ion: "calendar" },
-  // car → outline. The only glyph iOS leaves hollow in this bar.
-  { name: "cars", label: "Cars", sf: "car", ion: "car-outline" },
+  // car → solid on Android. iOS 26's tab bar draws every SF Symbol in its
+  // .fill variant, so the plain `car` renders filled there and the outline
+  // was a mismatch. iOS ≤25's custom bar keeps the outline it always had.
+  {
+    name: "cars",
+    label: "Cars",
+    sf: "car",
+    ion: Platform.OS === "android" ? "car" : "car-outline",
+  },
   // bubble.left.and.bubble.right.fill → "chatbubbles" is genuinely TWO
   // overlapping bubbles, not one. Singular would be "chatbubble".
   {

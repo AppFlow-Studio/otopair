@@ -1,4 +1,4 @@
-import { Pressable, StyleSheet, Text as RNText, View } from "react-native";
+import { Platform, Pressable, StyleSheet, Text as RNText, View } from "react-native";
 import React, { useEffect } from "react";
 import Animated, {
   useAnimatedStyle,
@@ -63,7 +63,10 @@ const TabBarButton = ({
                 same way SF pairs house.fill with house — never by painting
                 an outline icon's interior, which is what broke the first
                 attempt. Colour is the only thing focus changes. */}
-            <Ionicons name={iconName} size={24} color={tint} />
+            {/* Android: 27, not 24 — measured against iOS 26's native bar,
+                whose glyphs run 23–27pt wide; at 24 these drew ~19–22dp.
+                iOS ≤25, which also uses this bar, stays at 24. */}
+            <Ionicons name={iconName} size={Platform.OS === "android" ? 27 : 24} color={tint} />
             {showBookingsBadge ? <View style={styles.badgeDot} /> : null}
           </View>
           <Animated.Text
