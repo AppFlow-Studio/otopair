@@ -799,7 +799,6 @@ const styles = StyleSheet.create({
   },
   sectionHeader: {
     marginBottom: 28,
-    fontStyle: 'italic',
   },
   swiperWrapper: {
     position: 'relative',

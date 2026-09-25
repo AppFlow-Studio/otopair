@@ -1274,7 +1274,6 @@ const styles = StyleSheet.create({
   },
   diagnosticNotes: {
     marginTop: Spacing.xs,
-    fontStyle: "italic",
   },
 
   // Service Card

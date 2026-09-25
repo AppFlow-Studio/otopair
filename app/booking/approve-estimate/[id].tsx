@@ -1881,7 +1881,6 @@ const styles = StyleSheet.create({
   partJustification: {
     fontSize: 12,
     color: SemanticColors.warningAmber,
-    fontStyle: "italic",
     marginTop: 4,
   },
   partTotal: { fontSize: 15, color: BrandColors.primary, marginLeft: Spacing.md },
@@ -1900,7 +1899,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
     color: SemanticColors.textSecondary,
-    fontStyle: "italic",
   },
 
   // ── Mechanic scope photos ─────────────────────────────────────────────

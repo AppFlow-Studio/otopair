@@ -2393,7 +2393,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   paymentPending: {
-    fontStyle: "italic",
   },
 
   // Secondary actions

@@ -222,7 +222,6 @@ const styles = StyleSheet.create({
   },
   sectionHeader: {
     marginBottom: 20,
-    fontStyle: 'italic',
   },
   scrollContent: {
     paddingLeft: 34.5,
