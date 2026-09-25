@@ -27,7 +27,7 @@
  */
 
 import React from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { Platform, Pressable, StyleSheet, View } from "react-native";
 import Animated, { useAnimatedStyle, withTiming, type SharedValue } from "react-native-reanimated";
 import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
@@ -99,6 +99,12 @@ export function HomeHeaderBar({
   // up to 25% of whatever is behind leak through at the midpoint. An opaque
   // base plus one fading layer is a true blend between the two colours.
   const onDarkStyle = useAnimatedStyle(() => ({ opacity: tone ? 1 - tone.value : 1 }));
+
+  // Android can't blur here — expo-blur without a blur method is a flat tint —
+  // so the dark-tinted "glass" read as grey smoked glass next to the light
+  // Liquid Glass chip iOS 26 draws over the same blue gradient. Android gets a
+  // plain light-glass fill instead, colour-matched to the iOS chip.
+  const androidLightGlass = Platform.OS === "android" && variant === "onGradient";
 
   const renderBellIcon = (color: string) => (
     <Bell size={22} color={color} fill="none" strokeWidth={2} />
@@ -178,18 +184,24 @@ export function HomeHeaderBar({
 
               {/* Dark-surface chip: the original smoked glass, fading off it. */}
               <Animated.View
-                style={[styles.bellChipFill, styles.bellChipDark, onDarkStyle]}
+                style={[
+                  styles.bellChipFill,
+                  androidLightGlass ? styles.bellChipAndroidGlass : styles.bellChipDark,
+                  onDarkStyle,
+                ]}
                 pointerEvents="none"
               >
-                <BlurView intensity={10} tint="dark" style={StyleSheet.absoluteFill}>
-                  <View style={styles.glassOverlay} />
-                  <LinearGradient
-                    colors={["rgba(255,255,255,0.25)", "rgba(255,255,255,0.05)"]}
-                    start={{ x: 0.5, y: 0 }}
-                    end={{ x: 0.5, y: 0.5 }}
-                    style={StyleSheet.absoluteFill}
-                  />
-                </BlurView>
+                {androidLightGlass ? null : (
+                  <BlurView intensity={10} tint="dark" style={StyleSheet.absoluteFill}>
+                    <View style={styles.glassOverlay} />
+                    <LinearGradient
+                      colors={["rgba(255,255,255,0.25)", "rgba(255,255,255,0.05)"]}
+                      start={{ x: 0.5, y: 0 }}
+                      end={{ x: 0.5, y: 0.5 }}
+                      style={StyleSheet.absoluteFill}
+                    />
+                  </BlurView>
+                )}
               </Animated.View>
 
               {bellStack}
@@ -277,6 +289,11 @@ const styles = StyleSheet.create({
   },
   bellChipDark: {
     borderColor: "rgba(255,255,255,0.5)",
+  },
+  bellChipAndroidGlass: {
+    backgroundColor: "rgba(210,238,255,0.6)",
+    borderColor: "rgba(255,255,255,0.8)",
+    borderWidth: 1.5,
   },
   bellChipLight: {
     backgroundColor: "rgba(15,23,42,0.05)",
