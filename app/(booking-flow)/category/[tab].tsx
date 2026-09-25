@@ -40,6 +40,7 @@ import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 
 import { Text } from "@/components/shared-ui";
+import { ANDROID_REAL_BLUR } from "@/components/shared-ui/AndroidBlurTarget";
 import { useBookingFlowMap } from "@/components/booking-flow/BookingFlowMap";
 import { PinnedShopChip } from "@/components/booking-flow/PinnedShopChip";
 import { ServiceInfoSheet } from "@/components/booking-flow/ServiceInfoSheet";
@@ -236,7 +237,7 @@ export default function CategoryDetailScreen() {
 
   // Shared persistent map (lives in the layout) — locked backdrop,
   // same as Screen 1. Re-assert locked mode + recenter on focus.
-  const { setInteractive, setMarkers, mapRef, region } = useBookingFlowMap();
+  const { setInteractive, setMarkers, mapRef, region, mapBlurTarget } = useBookingFlowMap();
   useFocusEffect(
     useCallback(() => {
       setInteractive(false);
@@ -553,11 +554,20 @@ export default function CategoryDetailScreen() {
       {/* Map is the shared persistent backdrop rendered by the layout. */}
 
       <View style={[styles.sheet, { height: SHEET_H }]}>
-          {/* Real frosted-glass sheet — iOS BlurView blurs the
-              map underneath; Android falls back to a thick
-              translucent white. Same pattern as Screen 1. */}
+          {/* Real frosted-glass sheet — iOS BlurView blurs the map
+              underneath, and so does Android 12+ through the shared map's
+              blur target. Older Android falls back to a thick translucent
+              white. Same pattern as Screen 1. */}
           {Platform.OS === "ios" ? (
             <BlurView intensity={60} tint="light" style={StyleSheet.absoluteFill} />
+          ) : ANDROID_REAL_BLUR ? (
+            <BlurView
+              intensity={60}
+              tint="light"
+              style={StyleSheet.absoluteFill}
+              blurMethod="dimezisBlurViewSdk31Plus"
+              blurTarget={mapBlurTarget}
+            />
           ) : (
             <View
               style={[StyleSheet.absoluteFill, styles.sheetAndroidFallback]}

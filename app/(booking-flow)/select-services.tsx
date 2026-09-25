@@ -44,6 +44,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ArrowLeft, Car, Crosshair, Minus, Plus, Search, X } from "lucide-react-native";
 
 import { Text } from "@/components/shared-ui";
+import { ANDROID_REAL_BLUR, AndroidBlurTarget } from "@/components/shared-ui/AndroidBlurTarget";
 import { CardShadow } from "@/constants/theme";
 import {
   useBookingFlowMap,
@@ -210,7 +211,7 @@ export default function SelectServicesScreen() {
   // later mapShouldBeInteractive block) so the peek-mode zoom /
   // recenter callbacks below can reference `region` for their
   // fallback center.
-  const { setInteractive, setMarkers, mapRef, region, registerLocalMap } =
+  const { setInteractive, setMarkers, mapRef, region, registerLocalMap, mapBlurTarget } =
     useBookingFlowMap();
   // Creating a MapView blocks the main thread while the Play services Maps
   // renderer loads. Wait for the screen transition to finish first; the
@@ -224,6 +225,18 @@ export default function SelectServicesScreen() {
     if (!localMapMounted) return;
     return registerLocalMap();
   }, [localMapMounted, registerLocalMap]);
+  // Android 12+: what the frosted sheet blurs — the peek map while it is up,
+  // the layout's shared map once expanded. Undefined until the peek map has
+  // mounted: a BlurView only reads a target when it receives it, so it must
+  // never be handed one whose view doesn't exist yet.
+  const peekMapTargetRef = useRef<View>(null);
+  const sheetBlurTarget = !ANDROID_REAL_BLUR
+    ? undefined
+    : isPeekExpanded
+      ? mapBlurTarget
+      : localMapMounted && mapMountReady
+        ? peekMapTargetRef
+        : undefined;
   // Local map ref so the camera can pan to the selected shop as
   // the user swipes the carousel. Same pattern choose-mechanic
   // uses for its sheet's internal pager.
@@ -476,31 +489,33 @@ export default function SelectServicesScreen() {
           On expand we drop this back to the shared map (the sheet
           covers the area so the map isn't visible anyway). */}
       {!isPeekExpanded && region && mapMountReady ? (
-        <MapView
-          ref={localMapRef}
-          style={StyleSheet.absoluteFill}
-          provider={PROVIDER_DEFAULT}
-          initialRegion={region}
-          showsUserLocation
-          scrollEnabled
-          zoomEnabled
-          pitchEnabled={false}
-          rotateEnabled
-        >
-          {nearbyShops
-            .filter((r) => r.shop.latitude !== 0 && r.shop.longitude !== 0)
-            .map((r) => (
-              <ShopPinMarker
-                key={r.shop.id}
-                latitude={r.shop.latitude}
-                longitude={r.shop.longitude}
-                rating={r.shop.rating}
-                shopName={r.shop.name}
-                isSelected={r.shop.id === selectedShopId}
-                onPress={() => setSelectedShopId(r.shop.id)}
-              />
-            ))}
-        </MapView>
+        <AndroidBlurTarget targetRef={peekMapTargetRef}>
+          <MapView
+            ref={localMapRef}
+            style={StyleSheet.absoluteFill}
+            provider={PROVIDER_DEFAULT}
+            initialRegion={region}
+            showsUserLocation
+            scrollEnabled
+            zoomEnabled
+            pitchEnabled={false}
+            rotateEnabled
+          >
+            {nearbyShops
+              .filter((r) => r.shop.latitude !== 0 && r.shop.longitude !== 0)
+              .map((r) => (
+                <ShopPinMarker
+                  key={r.shop.id}
+                  latitude={r.shop.latitude}
+                  longitude={r.shop.longitude}
+                  rating={r.shop.rating}
+                  shopName={r.shop.name}
+                  isSelected={r.shop.id === selectedShopId}
+                  onPress={() => setSelectedShopId(r.shop.id)}
+                />
+              ))}
+          </MapView>
+        </AndroidBlurTarget>
       ) : null}
 
       {/* Peek-mode back button — top-left over the map. In peek mode the
@@ -596,12 +611,20 @@ export default function SelectServicesScreen() {
           and taps the sheet. Content scrolls inside (no Pan gesture
           that resizes the sheet mid-scroll). */}
       <Animated.View style={[styles.sheet, sheetAnimatedStyle]}>
-          {/* Real frosted-glass sheet — same pattern Settings uses
-              for its blurred header. On iOS BlurView blurs the
-              map underneath; on Android we fall back to a thick
-              translucent white since BlurView there is unreliable. */}
+          {/* Real frosted-glass sheet. On iOS BlurView blurs the map
+              underneath; Android 12+ does too, through the map's blur
+              target (sheetBlurTarget). Older Android can't blur, so it
+              falls back to a thick translucent white. */}
           {Platform.OS === "ios" ? (
             <BlurView intensity={60} tint="light" style={StyleSheet.absoluteFill} />
+          ) : ANDROID_REAL_BLUR ? (
+            <BlurView
+              intensity={60}
+              tint="light"
+              style={StyleSheet.absoluteFill}
+              blurMethod={sheetBlurTarget ? "dimezisBlurViewSdk31Plus" : undefined}
+              blurTarget={sheetBlurTarget}
+            />
           ) : (
             <View
               style={[StyleSheet.absoluteFill, styles.sheetAndroidFallback]}

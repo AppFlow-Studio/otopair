@@ -39,6 +39,7 @@ import MapView, {
   type Region,
 } from "react-native-maps";
 import { Text } from "@/components/shared-ui";
+import { AndroidBlurTarget } from "@/components/shared-ui/AndroidBlurTarget";
 import { BrandColors, SemanticColors } from "@/constants/theme";
 import { useStagedLocation } from "@/hooks/useStagedLocation";
 import { useBookingStore } from "@/stores/useBookingStore";
@@ -101,6 +102,10 @@ interface BookingFlowMapContextValue {
    *  it is unmounted instead of rendering tiles nobody can see — one live
    *  Google Maps instance at a time instead of two or three. No-op on iOS. */
   registerLocalMap: () => () => void;
+  /** Android 12+: the shared map (and its skeleton) as a blur target, so a
+   *  screen's frosted sheet can really blur it the way the iOS sheet does.
+   *  Screens sit outside it, so their BlurViews never blur themselves. */
+  mapBlurTarget: React.RefObject<View | null>;
 }
 
 /** Ceiling on the wait for `transitionEnd`, in case it never arrives (a
@@ -172,6 +177,7 @@ export function BookingFlowMapProvider({
   children: React.ReactNode;
 }) {
   const mapRef = useRef<MapView | null>(null);
+  const mapBlurTarget = useRef<View>(null);
   const { location: resolvedLocation, stage, isResolving } = useStagedLocation();
   // Android: a previous booking entry this session already resolved a fix
   // (the store keeps it). Start the camera there so the MapView mounts on
@@ -292,6 +298,7 @@ export function BookingFlowMapProvider({
       setMarkers: setMarkersCb,
       setShopPins: setShopPinsCb,
       registerLocalMap,
+      mapBlurTarget,
     }),
     [region, resolvedLocation, setInteractiveCb, setMarkersCb, setShopPinsCb, registerLocalMap],
   );
@@ -299,80 +306,82 @@ export function BookingFlowMapProvider({
   return (
     <BookingFlowMapContext.Provider value={value}>
       <View style={styles.root} pointerEvents="box-none">
-        {/* Persistent map behind every screen. Gesture props on the
-            MapView are ALWAYS on — react-native-maps has been spotty
-            about re-applying scrollEnabled/zoomEnabled mid-mount, so
-            we let the MapView always think it's interactive and gate
-            real touches at the wrapper's pointerEvents instead. When
-            `interactive` is false the wrapper blocks all touches, so
-            the MapView never sees a gesture; when true, touches
-            arrive on an already-configured MapView. */}
-        <View
-          style={StyleSheet.absoluteFill}
-          pointerEvents={interactive ? "auto" : "none"}
-        >
-          {region && renderProviderMap ? (
-            <MapView
-              ref={mapRef}
-              style={StyleSheet.absoluteFill}
-              provider={PROVIDER_DEFAULT}
-              initialRegion={region}
-              onMapLoaded={() => setMapReady(true)}
-              showsUserLocation
-              scrollEnabled
-              zoomEnabled
-              pitchEnabled={false}
-              rotateEnabled
-            >
-              {resolvedLocation?.accuracyMeters && resolvedLocation.source !== "precise" ? (
-                <Circle
-                  center={{
-                    latitude: resolvedLocation.latitude,
-                    longitude: resolvedLocation.longitude,
-                  }}
-                  radius={Math.max(resolvedLocation.accuracyMeters, 250)}
-                  fillColor="rgba(82, 153, 254, 0.16)"
-                  strokeColor="rgba(82, 153, 254, 0.35)"
-                  strokeWidth={1}
-                />
-              ) : null}
-              {markers.map((m) => (
-                <Marker
-                  key={m.id}
-                  coordinate={{ latitude: m.latitude, longitude: m.longitude }}
-                  title={m.title}
-                />
-              ))}
-              {shopPins.map((p) => (
-                <BookingFlowShopPinMarker
-                  key={p.shopId}
-                  pin={p}
-                />
-              ))}
-            </MapView>
-          ) : region ? null : (
-            <View style={[StyleSheet.absoluteFill, styles.fallback]}>
-              <Text size="sm" weight="semiBold" color={SemanticColors.textMuted}>
-                {stage === "unavailable"
-                  ? "Enable location to see nearby shops"
-                  : "Finding your location..."}
-              </Text>
-            </View>
-          )}
-        </View>
+        <AndroidBlurTarget targetRef={mapBlurTarget}>
+          {/* Persistent map behind every screen. Gesture props on the
+              MapView are ALWAYS on — react-native-maps has been spotty
+              about re-applying scrollEnabled/zoomEnabled mid-mount, so
+              we let the MapView always think it's interactive and gate
+              real touches at the wrapper's pointerEvents instead. When
+              `interactive` is false the wrapper blocks all touches, so
+              the MapView never sees a gesture; when true, touches
+              arrive on an already-configured MapView. */}
+          <View
+            style={StyleSheet.absoluteFill}
+            pointerEvents={interactive ? "auto" : "none"}
+          >
+            {region && renderProviderMap ? (
+              <MapView
+                ref={mapRef}
+                style={StyleSheet.absoluteFill}
+                provider={PROVIDER_DEFAULT}
+                initialRegion={region}
+                onMapLoaded={() => setMapReady(true)}
+                showsUserLocation
+                scrollEnabled
+                zoomEnabled
+                pitchEnabled={false}
+                rotateEnabled
+              >
+                {resolvedLocation?.accuracyMeters && resolvedLocation.source !== "precise" ? (
+                  <Circle
+                    center={{
+                      latitude: resolvedLocation.latitude,
+                      longitude: resolvedLocation.longitude,
+                    }}
+                    radius={Math.max(resolvedLocation.accuracyMeters, 250)}
+                    fillColor="rgba(82, 153, 254, 0.16)"
+                    strokeColor="rgba(82, 153, 254, 0.35)"
+                    strokeWidth={1}
+                  />
+                ) : null}
+                {markers.map((m) => (
+                  <Marker
+                    key={m.id}
+                    coordinate={{ latitude: m.latitude, longitude: m.longitude }}
+                    title={m.title}
+                  />
+                ))}
+                {shopPins.map((p) => (
+                  <BookingFlowShopPinMarker
+                    key={p.shopId}
+                    pin={p}
+                  />
+                ))}
+              </MapView>
+            ) : region ? null : (
+              <View style={[StyleSheet.absoluteFill, styles.fallback]}>
+                <Text size="sm" weight="semiBold" color={SemanticColors.textMuted}>
+                  {stage === "unavailable"
+                    ? "Enable location to see nearby shops"
+                    : "Finding your location..."}
+                </Text>
+              </View>
+            )}
+          </View>
 
-        {/* Above the map, below the screens. `pointerEvents="none"`
-            inside `MapSkeleton` keeps it out of the touch path, so a
-            late `onMapReady` can't strand gestures behind it.
+          {/* Above the map, below the screens. `pointerEvents="none"`
+              inside `MapSkeleton` keeps it out of the touch path, so a
+              late `onMapReady` can't strand gestures behind it.
 
-            Gated on HAVING a region, not just on readiness. With no region
-            the branch above already renders the staged-location fallback
-            ("Enable location…" / "Finding your location…"), and `region &&
-            mapReady` can never become true without one — so the old
-            condition left the skeleton shimmering permanently on top of
-            that message. Skeleton is for "map is coming"; the fallback is
-            for "there is no map to come". */}
-        {!region || mapReady || !renderProviderMap ? null : <MapSkeleton />}
+              Gated on HAVING a region, not just on readiness. With no region
+              the branch above already renders the staged-location fallback
+              ("Enable location…" / "Finding your location…"), and `region &&
+              mapReady` can never become true without one — so the old
+              condition left the skeleton shimmering permanently on top of
+              that message. Skeleton is for "map is coming"; the fallback is
+              for "there is no map to come". */}
+          {!region || mapReady || !renderProviderMap ? null : <MapSkeleton />}
+        </AndroidBlurTarget>
 
         {/* Children (the booking-flow Stack) wrapped in a controlled
             pointerEvents layer. When the map is interactive, this
