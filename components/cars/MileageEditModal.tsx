@@ -13,18 +13,38 @@ import React, { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Modal,
+  Platform,
   Pressable,
   StyleSheet,
   TextInput,
   View,
 } from "react-native";
-import { KeyboardAvoidingView } from "react-native-keyboard-controller";
+import Animated, { useAnimatedStyle } from "react-native-reanimated";
+import {
+  KeyboardAvoidingView,
+  useReanimatedKeyboardAnimation,
+} from "react-native-keyboard-controller";
 
 import { Text } from "@/components/shared-ui";
 
 const INK = "#0F172A";
 const MUTED = "#6B7280";
 const ACCENT = "#5299FE";
+
+/** Android: rest the card just above the keyboard instead of centring it in
+ *  the space that's left, which floated it far up on tall phones. */
+const ANCHOR_TO_KEYBOARD = Platform.OS === "android";
+/** Gap between the card and the top of the keyboard. */
+const KEYBOARD_GAP = 12;
+
+/** The space under the card. It matches the space above while the keyboard is
+ *  down, so the card stays centred, and shrinks to KEYBOARD_GAP as the
+ *  keyboard rises, so the card rides up with it. */
+function KeyboardGapSpacer() {
+  const { progress } = useReanimatedKeyboardAnimation();
+  const style = useAnimatedStyle(() => ({ flexGrow: 1 - progress.value }));
+  return <Animated.View style={[styles.spacer, style]} pointerEvents="none" />;
+}
 
 interface MileageEditModalProps {
   visible: boolean;
@@ -106,9 +126,10 @@ export function MileageEditModal({
             sheet's liftWithKeyboard already does. */}
         <KeyboardAvoidingView
           behavior="padding"
-          style={styles.center}
+          style={ANCHOR_TO_KEYBOARD ? styles.column : styles.center}
           pointerEvents="box-none"
         >
+          {ANCHOR_TO_KEYBOARD ? <View style={styles.spacer} pointerEvents="none" /> : null}
           <Pressable style={styles.card} onPress={() => {}}>
             <Text weight="bold" size="lg" color={INK} style={styles.title}>
               Update mileage
@@ -186,6 +207,7 @@ export function MileageEditModal({
               </Pressable>
             </View>
           </Pressable>
+          {ANCHOR_TO_KEYBOARD ? <KeyboardGapSpacer /> : null}
         </KeyboardAvoidingView>
       </Pressable>
     </Modal>
@@ -208,6 +230,16 @@ const styles = StyleSheet.create({
     width: "100%",
     alignItems: "center",
     justifyContent: "center",
+  },
+  // Android: the card between two spacers (see KeyboardGapSpacer).
+  column: {
+    flex: 1,
+    width: "100%",
+    alignItems: "center",
+  },
+  spacer: {
+    flexGrow: 1,
+    minHeight: KEYBOARD_GAP,
   },
   card: {
     width: "100%",
