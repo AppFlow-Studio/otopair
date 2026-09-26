@@ -1749,9 +1749,24 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
           }
           vehicleLabel={vehicleLabel}
           onClose={handleModalClosed}
-          bookingDisabled={isEnriching && !selectedItem.sourceRecommendationId}
+          // Per-service, not per-vehicle. These two were the last call sites
+          // still asking the vehicle-level question `isEnriching` — the
+          // reason a diagnostic scan (bookable throughout enrichment, and
+          // exactly what a driver needs when we know nothing about the car)
+          // rendered "Setting up your car…" here while Home let you book the
+          // same thing. That contradiction is #307. isBookingBlocked already
+          // existed for this and is used correctly everywhere else in the
+          // file; these two just never got it.
+          bookingDisabled={
+            !selectedItem.sourceRecommendationId &&
+            isBookingBlocked(isEnriching, bookableSlugs, selectedItem.serviceSlug)
+          }
           onBookService={() => {
-            if (isEnriching && !selectedItem.sourceRecommendationId) return;
+            if (
+              !selectedItem.sourceRecommendationId &&
+              isBookingBlocked(isEnriching, bookableSlugs, selectedItem.serviceSlug)
+            )
+              return;
             handleModalClosed();
             onBookNow?.(selectedItem.id);
           }}
