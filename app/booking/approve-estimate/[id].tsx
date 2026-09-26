@@ -651,6 +651,30 @@ function ApprovalDecisionView({
   }
 
   if (isLoading || !approval || !breakdown) {
+    // Landing here is almost always a STALE NOTIFICATION, not an error: the
+    // estimate card stayed in the bell after the customer answered it, and
+    // tapping it again finds no open row. "No estimate is waiting for your
+    // review." was the whole screen — no explanation, no way forward — so it
+    // read as "your approval didn't go through". It had. Bug #343.
+    //
+    // The booking's own state says what actually happened, so say that, and
+    // always offer the way back to the booking.
+    const pas = (booking as { payment_approval_state?: string } | null)
+      ?.payment_approval_state;
+    const settled = (() => {
+      if (isLoading) return null;
+      if (!pas) return null;
+      if (pas.endsWith("_approved") || pas === "hold_processing" || pas === "captured" || pas === "in_range") {
+        return "You've already approved this update. Nothing else is needed.";
+      }
+      if (pas.endsWith("_declined")) {
+        return "You declined this update. Your mechanic has been told.";
+      }
+      if (pas === "sla_expired") {
+        return "This estimate expired before it was answered. Your mechanic will be in touch.";
+      }
+      return null;
+    })();
     return (
       <View style={[styles.root, { paddingTop: insets.top + Spacing.lg }]}>
         <Pressable onPress={() => router.back()} style={styles.backBtn}>
@@ -658,9 +682,27 @@ function ApprovalDecisionView({
           <Text style={styles.backLabel}>Back</Text>
         </Pressable>
         <View style={styles.center}>
-          <Text style={{ color: SemanticColors.textMuted }}>
-            {isLoading ? "Loading…" : "No estimate is waiting for your review."}
+          <Text style={[styles.emptyText, { color: SemanticColors.textMuted }]}>
+            {isLoading
+              ? "Loading…"
+              : (settled ?? "No estimate is waiting for your review.")}
           </Text>
+          {!isLoading ? (
+            <Pressable
+              onPress={() =>
+                router.replace({
+                  pathname: "/(main-tabs)/bookings",
+                  params: { bookingId: String(bookingId) },
+                } as never)
+              }
+              style={styles.emptyCta}
+              accessibilityRole="button"
+            >
+              <Text weight="semiBold" style={styles.emptyCtaLabel}>
+                View booking details
+              </Text>
+            </Pressable>
+          ) : null}
         </View>
       </View>
     );
@@ -1812,6 +1854,19 @@ const styles = StyleSheet.create({
   },
   backLabel: { color: BrandColors.primary, marginLeft: 2 },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
+  emptyText: {
+    textAlign: "center",
+    paddingHorizontal: Spacing.xl,
+    lineHeight: 22,
+  },
+  emptyCta: {
+    marginTop: Spacing.lg,
+    paddingHorizontal: Spacing.xl,
+    paddingVertical: Spacing.md,
+    borderRadius: 12,
+    backgroundColor: SemanticColors.primaryBlue,
+  },
+  emptyCtaLabel: { color: "#FFFFFF" },
 
   // ── Hero ──────────────────────────────────────────────────────────────
   hero: {
