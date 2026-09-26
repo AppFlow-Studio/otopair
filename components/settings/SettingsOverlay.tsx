@@ -103,7 +103,13 @@ const FALLBACK_RECT: SettingsOverlayRect = {
 const isIOS26OrNewer =
   Platform.OS === "ios" && parseInt(String(Platform.Version), 10) >= 26;
 
-export function SettingsOverlay() {
+interface SettingsOverlayProps {
+  /** What the Android 12+ transition frosts behind Settings (the tab
+   *  navigator). Unused on iOS, which blurs natively. */
+  blurTarget?: React.RefObject<View | null>;
+}
+
+export function SettingsOverlay({ blurTarget }: SettingsOverlayProps) {
   // Layout-mounted: this component lives in app/(main-tabs)/_layout.tsx as
   // a sibling of NotificationsSheet / RescheduleDecisionOverlay. It renders
   // nothing unless the store's isOpen is true (so it doesn't intercept
@@ -119,7 +125,10 @@ export function SettingsOverlay() {
 
   if (!isIOS26OrNewer) {
     return (
-      <SettingsContainerTransformOverlay onUnmount={() => setMounted(false)} />
+      <SettingsContainerTransformOverlay
+        onUnmount={() => setMounted(false)}
+        blurTarget={blurTarget}
+      />
     );
   }
 

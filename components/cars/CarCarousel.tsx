@@ -44,6 +44,7 @@ import { Easing } from 'react-native';
 import ReAnimated, {
   Extrapolate,
   interpolate,
+  useAnimatedProps,
   useAnimatedStyle,
   useSharedValue,
   withDelay,
@@ -1486,6 +1487,12 @@ const modalStyles = StyleSheet.create({
 // APPLE ACTIVITY RINGS COMPONENT
 // ============================================================================
 
+// Android-only count-up targets. On iOS the ring below still animates through
+// React state exactly as it always has; these two are only ever rendered
+// inside a `Platform.OS === 'android'` branch.
+const AnimatedRingCircle = ReAnimated.createAnimatedComponent(Circle);
+const AnimatedPercentInput = ReAnimated.createAnimatedComponent(TextInput);
+
 interface ActivityRingsProps {
   healthPercentage: number;
   maintenancePercentage?: number;
@@ -1508,8 +1515,15 @@ const ActivityRings = ({
   pending = false,
 }: ActivityRingsProps) => {
   const [animatedHealth, setAnimatedHealth] = useState(0);
+  // Android only. Same count-up, held on the UI thread instead of in React
+  // state — see the effect below and `androidRingProps` / `androidPercentProps`.
+  const androidHealth = useSharedValue(0);
 
   useEffect(() => {
+    // Android drives this from a worklet; running the timer here as well would
+    // re-render the component 40 times a second for nothing.
+    if (Platform.OS === 'android') return;
+
     const duration = 1500;
     const steps = 60;
     const stepDuration = duration / steps;
@@ -1526,11 +1540,33 @@ const ActivityRings = ({
     return () => clearInterval(interval);
   }, [healthPercentage]);
 
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    // `Easing.out(Easing.cubic)` is exactly the `1 - (1 - t)^3` the interval
+    // above steps through, over the same 1500 ms, to the same end value — but
+    // sampled continuously on the UI thread rather than in 60 setState hops.
+    androidHealth.value = 0;
+    androidHealth.value = withTiming(healthPercentage, {
+      duration: 1500,
+      easing: REasing.out(REasing.cubic),
+    });
+  }, [healthPercentage]);
+
   const strokeWidth = scale(8);
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
   const strokeDashoffset = circumference * (1 - animatedHealth / 100);
   const center = size / 2;
+
+  // Android only. Same two expressions as the JS path directly above and in
+  // the centered label below, evaluated on the UI thread.
+  const androidRingProps = useAnimatedProps(() => ({
+    strokeDashoffset: circumference * (1 - androidHealth.value / 100),
+  }));
+  const androidPercentProps = useAnimatedProps(() => {
+    const text = `${Math.round(androidHealth.value)}%`;
+    return { text, defaultValue: text };
+  });
 
   // Color based on health percentage
   const getColor = () => {
@@ -1577,44 +1613,102 @@ const ActivityRings = ({
           strokeWidth={strokeWidth}
           fill="none"
         />
-        {/* Progress ring */}
-        <Circle
-          cx={center}
-          cy={center}
-          r={radius}
-          stroke="url(#ringGradient)"
-          strokeWidth={strokeWidth}
-          fill="none"
-          strokeDasharray={circumference}
-          strokeDashoffset={strokeDashoffset}
-          strokeLinecap="round"
-          rotation={-90}
-          origin={`${center}, ${center}`}
-        />
-        {/* Glow effect */}
-        <Circle
-          cx={center}
-          cy={center}
-          r={radius}
-          stroke={ringColor}
-          strokeWidth={strokeWidth + 4}
-          fill="none"
-          strokeDasharray={circumference}
-          strokeDashoffset={strokeDashoffset}
-          strokeLinecap="round"
-          rotation={-90}
-          origin={`${center}, ${center}`}
-          opacity={0.2}
-        />
+        {Platform.OS === 'android' ? (
+          <>
+            {/* Progress ring — identical to the iOS pair below, with the one
+                animated prop fed from the UI thread instead of React state. */}
+            <AnimatedRingCircle
+              cx={center}
+              cy={center}
+              r={radius}
+              stroke="url(#ringGradient)"
+              strokeWidth={strokeWidth}
+              fill="none"
+              strokeDasharray={circumference}
+              animatedProps={androidRingProps}
+              strokeLinecap="round"
+              rotation={-90}
+              origin={`${center}, ${center}`}
+            />
+            {/* Glow effect */}
+            <AnimatedRingCircle
+              cx={center}
+              cy={center}
+              r={radius}
+              stroke={ringColor}
+              strokeWidth={strokeWidth + 4}
+              fill="none"
+              strokeDasharray={circumference}
+              animatedProps={androidRingProps}
+              strokeLinecap="round"
+              rotation={-90}
+              origin={`${center}, ${center}`}
+              opacity={0.2}
+            />
+          </>
+        ) : (
+          <>
+            {/* Progress ring */}
+            <Circle
+              cx={center}
+              cy={center}
+              r={radius}
+              stroke="url(#ringGradient)"
+              strokeWidth={strokeWidth}
+              fill="none"
+              strokeDasharray={circumference}
+              strokeDashoffset={strokeDashoffset}
+              strokeLinecap="round"
+              rotation={-90}
+              origin={`${center}, ${center}`}
+            />
+            {/* Glow effect */}
+            <Circle
+              cx={center}
+              cy={center}
+              r={radius}
+              stroke={ringColor}
+              strokeWidth={strokeWidth + 4}
+              fill="none"
+              strokeDasharray={circumference}
+              strokeDashoffset={strokeDashoffset}
+              strokeLinecap="round"
+              rotation={-90}
+              origin={`${center}, ${center}`}
+              opacity={0.2}
+            />
+          </>
+        )}
       </Svg>
       {/* Centered percentage. While the deferred write is queued the number
           on hand is pre-service, so it is withheld rather than shown as
           current — and no prediction is put in its place. */}
-      <View style={activityRingStyles.centerContainer}>
-        <Text style={[activityRingStyles.percentageText, { color: isDarkBg ? '#FFFFFF' : '#1F2937' }]}>
-          {pending ? '· · ·' : `${Math.round(animatedHealth)}%`}
-        </Text>
-      </View>
+      {Platform.OS === 'android' && !pending ? (
+        // Android: a TextInput is the only RN text node whose content can be
+        // written from a worklet, so the count-up costs no React renders.
+        // `pointerEvents="none"` on the wrapper keeps the ring's Pressable
+        // reachable — unlike the <Text> it stands in for, a TextInput would
+        // otherwise take the tap itself.
+        <View style={activityRingStyles.centerContainer} pointerEvents="none">
+          <AnimatedPercentInput
+            style={[
+              activityRingStyles.percentageText,
+              activityRingStyles.androidPercentageInput,
+              { color: isDarkBg ? '#FFFFFF' : '#1F2937' },
+            ]}
+            animatedProps={androidPercentProps}
+            editable={false}
+            caretHidden
+            underlineColorAndroid="transparent"
+          />
+        </View>
+      ) : (
+        <View style={activityRingStyles.centerContainer}>
+          <Text style={[activityRingStyles.percentageText, { color: isDarkBg ? '#FFFFFF' : '#1F2937' }]}>
+            {pending ? '· · ·' : `${Math.round(animatedHealth)}%`}
+          </Text>
+        </View>
+      )}
     </View>
   );
 
@@ -1638,6 +1732,22 @@ const activityRingStyles = StyleSheet.create({
   percentageText: {
     fontSize: moderateScale(16),
     fontFamily: 'Urbanist-Bold',
+  },
+  // Android only, layered on top of `percentageText` for the TextInput that
+  // stands in for the <Text> above. It has to measure like that <Text>:
+  //  - lineHeight 24 — shared-ui <Text> computes `fontSize * 1.5` from its own
+  //    default size (FontSize.md = 16) whenever no `lineHeight` prop is given,
+  //    and `percentageText` overrides only fontFamily and fontSize, so the live
+  //    label really does render at 24 rather than at moderateScale(16) * 1.5.
+  //  - padding 0 — an EditText carries its own; a Text does not.
+  //  - textAlign center — a TextInput stretches to its parent instead of
+  //    shrink-wrapping like a Text, so the glyphs have to be centred inside it.
+  // includeFontPadding is deliberately left alone: RN's <Text> and <TextInput>
+  // both default to true on Android, so matching means not touching it.
+  androidPercentageInput: {
+    lineHeight: 24,
+    padding: 0,
+    textAlign: 'center',
   },
 });
 

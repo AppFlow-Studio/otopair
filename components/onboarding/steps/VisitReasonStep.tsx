@@ -39,6 +39,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BackHandler, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
 import { useOnboardingQuestion } from '@/hooks/useOnboardingQuestion';
+import { resolveSelectedOptionId } from '@/lib/onboarding-selected-option';
 import {
   AlertCircle,
   UserCheck,
@@ -66,7 +67,11 @@ export function VisitReasonStep({ onNext, onBack, progress }: VisitReasonStepPro
   const { updateData, data } = useOnboardingStore();
   const { saveQuestionAnswer } = useOnboardingQuestion('visitReason');
 
-  const [selected, setSelected] = useState<string | null>(data.visitReason ?? null);
+  // The store can hold the option's label rather than its id by the time the
+  // user steps back here — see resolveSelectedOptionId.
+  const [selected, setSelected] = useState<string | null>(
+    resolveSelectedOptionId(FALLBACK_OPTIONS, data.visitReason),
+  );
 
   useEffect(() => {
     const sub = BackHandler.addEventListener("hardwareBackPress", () => { onBack(); return true; });

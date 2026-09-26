@@ -277,7 +277,7 @@ export const MOCK_MECHANICS: MockMechanic[] = [
     isVerified: true,
     photoUrl: null,
     distanceMi: 4.2,
-    services: ["Complete Engine Overhaul", "Timing Belt Replacement", "Head Gasket Repair"],
+    services: ["Complete Engine Overhaul", "Drive Belt Replacement", "Head Gasket Repair"],
     specialties: ["svc_oil_change", "svc_tire_rotation", "svc_brake_pads"],
     yearsExperience: 14,
     isAvailable: true,

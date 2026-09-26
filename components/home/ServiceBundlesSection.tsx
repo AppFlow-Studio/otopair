@@ -281,7 +281,6 @@ const styles = StyleSheet.create({
   },
   sectionHeader: {
     marginBottom: Spacing.lg,
-    fontStyle: "italic",
   },
   scrollView: {
     marginHorizontal: -Spacing.lg,

@@ -47,7 +47,7 @@ import { useOnboardingPersistence } from "@/hooks/useOnboardingPersistence";
 import { useEnsureConvexUser } from "@/hooks/useEnsureConvexUser";
 import { X } from "lucide-react-native";
 import { OnboardingSurfaceColors } from "../onboardingColors";
-import { destroyOtherPhoneNumbers } from "@/lib/clerk-phone-numbers";
+import { verifyUserPhoneNumber } from "@/lib/clerk-phone-numbers";
 
 const RESEND_COOLDOWN_SECONDS = 60;
 const VERIFICATION_NOT_STARTED_MESSAGE =
@@ -181,31 +181,21 @@ export function ConfirmPhoneNumberStep({ onNext, onBack, progress }: ConfirmPhon
         );
         onNext();
       } else if (user) {
-        // OAuth flow: verify via user object
-        const phoneNumberId = data.phoneNumberId;
-        const phoneNumberResource = user.phoneNumbers.find((p) => p.id === phoneNumberId);
-        let verifiedPhoneNumberResource = phoneNumberResource;
-
-        if (phoneNumberResource) {
-          await phoneNumberResource.attemptVerification({ code: fullCode });
-          console.log("Phone verified successfully");
-        } else {
-          // Fallback: try the most recent phone number
-          const latestPhone = user.phoneNumbers?.[user.phoneNumbers.length - 1];
-          if (latestPhone) {
-            await latestPhone.attemptVerification({ code: fullCode });
-            verifiedPhoneNumberResource = latestPhone;
-            console.log("Phone verified successfully (fallback)");
-          } else {
-            setErrorMessage(VERIFICATION_NOT_STARTED_MESSAGE);
-            setShowErrorModal(true);
-            return;
-          }
+        // OAuth flow: verify via user object. Falls back to the most recent
+        // number when the prepared id is gone.
+        const verifiedPhoneNumberResource =
+          user.phoneNumbers.find((p) => p.id === data.phoneNumberId) ??
+          user.phoneNumbers?.[user.phoneNumbers.length - 1];
+        if (!verifiedPhoneNumberResource) {
+          setErrorMessage(VERIFICATION_NOT_STARTED_MESSAGE);
+          setShowErrorModal(true);
+          return;
         }
 
-        if (verifiedPhoneNumberResource?.id) {
-          await destroyOtherPhoneNumbers(user, verifiedPhoneNumberResource.id, { makePrimary: true });
-        }
+        // Only a genuinely unverified number throws out of here — see
+        // verifyUserPhoneNumber for why housekeeping no longer can (#235).
+        await verifyUserPhoneNumber(user, verifiedPhoneNumberResource.id, fullCode);
+        console.log("Phone verified successfully");
 
         const phoneToSave =
           data.phoneNumber ??

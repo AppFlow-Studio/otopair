@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Platform } from "react-native";
 import * as Location from "expo-location";
 
+import { formatLocationLabel } from "@/lib/locationLabel";
 import type { UserLocation } from "@/stores/types/store.types";
 
 export type LocationStage =
@@ -47,6 +48,9 @@ async function getAddressLabel(location: UserLocation): Promise<Partial<UserLoca
       longitude: location.longitude,
     });
     if (!address) return null;
+    // Android's geocoder fills these fields differently; formatLocationLabel
+    // brings it to the "City, ST" iOS shows (see lib/locationLabel.ts).
+    if (Platform.OS === "android") return formatLocationLabel(address);
     const city = address.city || address.subregion || "";
     const state = address.region || "";
     const label = [city || "Current Location", state].filter(Boolean).join(", ");

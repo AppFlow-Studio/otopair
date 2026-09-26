@@ -282,7 +282,12 @@ export const SERVICE_COPY: Record<string, ServiceCopy> = {
     },
   },
 
-  // ── #9 · Timing Belt (belt-driven engines only) ──
+  // ── #9 · Drive Belt (belt-driven engines only) ──
+  // Slug stays `timing_belt`; the customer-facing name is "Drive Belt".
+  // NOTE: the explainer prose below still describes a timing belt's job —
+  // cam/crank sync, interference engines, TDC marks. Per Yassin (Sept 15)
+  // only the NAME was in scope, so the copy is left as written and flagged
+  // for him rather than rewritten here.
   timing_belt: {
     quickSummary: [
       "A belt keeps your engine parts moving in time.",
@@ -307,7 +312,7 @@ export const SERVICE_COPY: Record<string, ServiceCopy> = {
     },
     technician: {
       whatItIs:
-        "Replace the timing belt and associated wear items — tensioner, idler pulleys, cam/crank seals, and (if belt-driven) the water pump and coolant; often the accessory belt too. Set cam/crank timing to TDC marks and verify tension to spec. On interference engines, correct timing is mandatory or valve-to-piston contact occurs.",
+        "Replace the drive belt and associated wear items — tensioner, idler pulleys, cam/crank seals, and (if belt-driven) the water pump and coolant; often the accessory belt too. Set cam/crank timing to TDC marks and verify tension to spec. On interference engines, correct timing is mandatory or valve-to-piston contact occurs.",
       whyItMatters:
         "The belt is a service-life rubber component; failure on an interference engine causes valve, piston, and head damage. Replacing the kit on interval avoids catastrophic, costly failure. Timing-chain engines are N/A.",
       signs:

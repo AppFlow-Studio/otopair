@@ -45,9 +45,12 @@ try {
 } catch {
   // Native module unavailable — fallback chrome will render.
 }
+import { useFocusEffect } from 'expo-router';
 import Animated, {
+  cancelAnimation,
   Easing as REasing,
   FadeInUp,
+  type SharedValue,
   useAnimatedStyle,
   useSharedValue,
   withDelay,
@@ -436,27 +439,54 @@ const ringStyles = StyleSheet.create({
 // GROUP LABELS
 // ============================================================================
 
-function OverdueLabel() {
-  const pulseStyle = useAnimatedStyle(() => ({
-    opacity: withRepeat(
-      withSequence(
-        withTiming(0.5, { duration: 1000 }),
-        withTiming(1, { duration: 1000 }),
-      ),
-      -1,
-    ),
-    transform: [
-      {
-        scale: withRepeat(
+/**
+ * The 0 → 1 → 0 driver behind every pulsing tier dot, started when Cars is
+ * focused and cancelled when it isn't.
+ *
+ * Each label used to build its own `withRepeat` INSIDE `useAnimatedStyle`,
+ * which has two costs: the animation is rebuilt every time the worklet
+ * re-evaluates, and it never stops — five of these ran forever on the UI
+ * thread once the driver had visited Cars, including while Home was in
+ * front. One shared value per label, driven from an effect, fixes both.
+ *
+ * The dots look the same. `withTiming` eases the driver and the styles map
+ * it with `1 - 0.5 * p` and `1 + 0.4 * p`; an affine map of an eased
+ * interpolation is the same curve between the same endpoints (1 → 0.5 → 1
+ * opacity, 1 → 1.4 → 1 scale), so the motion is unchanged frame for frame.
+ */
+function usePulseDriver(): SharedValue<number> {
+  const pulse = useSharedValue(0);
+  useFocusEffect(
+    useCallback(() => {
+      pulse.set(
+        withRepeat(
           withSequence(
-            withTiming(1.4, { duration: 1000 }),
             withTiming(1, { duration: 1000 }),
+            withTiming(0, { duration: 1000 }),
           ),
           -1,
         ),
-      },
-    ],
+      );
+      return () => {
+        cancelAnimation(pulse);
+        pulse.set(0);
+      };
+    }, [pulse]),
+  );
+  return pulse;
+}
+
+/** The shared pulse styles, so the five labels cannot drift apart. */
+function usePulseStyle() {
+  const pulse = usePulseDriver();
+  return useAnimatedStyle(() => ({
+    opacity: 1 - 0.5 * pulse.get(),
+    transform: [{ scale: 1 + 0.4 * pulse.get() }],
   }));
+}
+
+function OverdueLabel() {
+  const pulseStyle = usePulseStyle();
 
   return (
     <View style={groupLabelStyles.row}>
@@ -471,26 +501,7 @@ function OverdueLabel() {
 /** Action Engine "Now" tier label — same pulsing-red treatment as
  *  OverdueLabel. v0 path keeps "OVERDUE"; v1 tier path uses "NOW". */
 function NowLabel() {
-  const pulseStyle = useAnimatedStyle(() => ({
-    opacity: withRepeat(
-      withSequence(
-        withTiming(0.5, { duration: 1000 }),
-        withTiming(1, { duration: 1000 }),
-      ),
-      -1,
-    ),
-    transform: [
-      {
-        scale: withRepeat(
-          withSequence(
-            withTiming(1.4, { duration: 1000 }),
-            withTiming(1, { duration: 1000 }),
-          ),
-          -1,
-        ),
-      },
-    ],
-  }));
+  const pulseStyle = usePulseStyle();
   return (
     <View style={groupLabelStyles.row}>
       <View style={[groupLabelStyles.chip, groupLabelStyles.chipNow]}>
@@ -504,26 +515,7 @@ function NowLabel() {
 /** Action Engine "Soon" tier label — same pulsing-amber treatment as
  *  NeedsAttentionLabel, relabeled per the v1 spec tier naming. */
 function SoonLabel() {
-  const pulseStyle = useAnimatedStyle(() => ({
-    opacity: withRepeat(
-      withSequence(
-        withTiming(0.5, { duration: 1000 }),
-        withTiming(1, { duration: 1000 }),
-      ),
-      -1,
-    ),
-    transform: [
-      {
-        scale: withRepeat(
-          withSequence(
-            withTiming(1.4, { duration: 1000 }),
-            withTiming(1, { duration: 1000 }),
-          ),
-          -1,
-        ),
-      },
-    ],
-  }));
+  const pulseStyle = usePulseStyle();
   return (
     <View style={groupLabelStyles.row}>
       <View style={[groupLabelStyles.chip, groupLabelStyles.chipSoon]}>
@@ -539,26 +531,7 @@ function SoonLabel() {
  *  this is past due, but not far enough past to lead the list. Pulses like the
  *  two tiers either side of it, because it is a finding, not a suggestion. */
 function AttentionLabel() {
-  const pulseStyle = useAnimatedStyle(() => ({
-    opacity: withRepeat(
-      withSequence(
-        withTiming(0.5, { duration: 1000 }),
-        withTiming(1, { duration: 1000 }),
-      ),
-      -1,
-    ),
-    transform: [
-      {
-        scale: withRepeat(
-          withSequence(
-            withTiming(1.4, { duration: 1000 }),
-            withTiming(1, { duration: 1000 }),
-          ),
-          -1,
-        ),
-      },
-    ],
-  }));
+  const pulseStyle = usePulseStyle();
   return (
     <View style={groupLabelStyles.row}>
       <View style={[groupLabelStyles.chip, groupLabelStyles.chipAttention]}>
@@ -731,26 +704,7 @@ function ResolvedLabel({ count }: { count: number }) {
 }
 
 function NeedsAttentionLabel() {
-  const pulseStyle = useAnimatedStyle(() => ({
-    opacity: withRepeat(
-      withSequence(
-        withTiming(0.5, { duration: 1000 }),
-        withTiming(1, { duration: 1000 }),
-      ),
-      -1,
-    ),
-    transform: [
-      {
-        scale: withRepeat(
-          withSequence(
-            withTiming(1.4, { duration: 1000 }),
-            withTiming(1, { duration: 1000 }),
-          ),
-          -1,
-        ),
-      },
-    ],
-  }));
+  const pulseStyle = usePulseStyle();
 
   return (
     <View style={groupLabelStyles.row}>

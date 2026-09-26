@@ -72,6 +72,7 @@ import {
   type FileDisputeSheetRef,
 } from "@/components/booking/FileDisputeSheet";
 import { deriveDisclosedRange } from "@/lib/disclosedRange";
+import { formatServiceDisplayNames } from "@/utils/serviceDisplayName";
 
 // ============================================================================
 // CONSTANTS (sheet mechanics — frozen)
@@ -1153,7 +1154,12 @@ function FullContent({
 
     const eventDetails = buildBookingCalendarEvent({
       shopName: booking.shopName,
-      serviceNames: bookingDetail?.serviceNames ?? booking.services,
+      // `bookingDetail.serviceNames` is resolved server-side off the
+      // `services` table, so it still reads "Timing Belt"; `booking.services`
+      // already went through the adapter. See utils/serviceDisplayName.ts.
+      serviceNames: bookingDetail?.serviceNames
+        ? formatServiceDisplayNames(bookingDetail.serviceNames)
+        : booking.services,
       date,
       time,
       location: shopAddress,
@@ -1899,7 +1905,7 @@ function ActivityRow({
           <View style={styles.activityDetail}>
             {event.data.services.length > 0 ? (
               <Text size="xs" weight="regular" color="#3C3C43">
-                {event.data.services.join(" · ")}
+                {formatServiceDisplayNames(event.data.services).join(" · ")}
               </Text>
             ) : null}
             {/* Quoted Parts/Labor/Tax+Fee breakdown is the mechanic-facing
@@ -2540,7 +2546,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   paymentPending: {
-    fontStyle: "italic",
   },
 
   // Secondary actions

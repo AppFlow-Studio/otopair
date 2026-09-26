@@ -43,6 +43,7 @@ import { Text } from '../shared-ui';
 // 4. Constants, hooks, types
 import { BrandColors, FontFamily, FontSize, SemanticColors, Spacing } from '@/constants/theme';
 import { useTypewriterText } from '@/hooks/useTypewriterText';
+import { AndroidTypewriterPlaceholder } from './AndroidTypewriterPlaceholder';
 
 // ============================================================================
 // TYPES
@@ -101,11 +102,19 @@ export function MechanicSearchBar({
     // updates a second — while Home sat behind another tab or behind the
     // booking flow. `useIsFocused` is false in both cases.
     const screenFocused = useIsFocused();
+    // Android now runs the whole state machine on the UI thread instead
+    // (AndroidTypewriterPlaceholder), so this hook is parked outright there
+    // rather than only while the screen is away. On every other platform the
+    // expression is unchanged: `Platform.OS === "android"` is false, so
+    // `paused` is false, exactly as before.
     const animatedPlaceholder = useTypewriterText(placeholderPhrases ?? [], {
-        paused: Platform.OS === "android" && !screenFocused,
+        paused: Platform.OS === "android",
     });
     const useAnimatedPlaceholder =
         !!onPress && placeholderPhrases && placeholderPhrases.length > 0;
+    // Only Android takes the worklet path; everything else keeps the <Text>.
+    const useAndroidTypewriter =
+        Platform.OS === "android" && !!useAnimatedPlaceholder;
 
     // Use controlled or uncontrolled value
     const searchValue = value !== undefined ? value : internalValue;
@@ -141,23 +150,38 @@ export function MechanicSearchBar({
             {onPress ? (
                 <Pressable
                     onPress={onPress}
+                    // Android's placeholder is an EditText held out of the
+                    // accessibility tree, so the label has to live here or
+                    // TalkBack would announce nothing. Undefined elsewhere,
+                    // leaving the existing behaviour alone.
+                    accessibilityLabel={
+                        useAndroidTypewriter ? placeholder : undefined
+                    }
                     style={({ pressed }) => [
                         styles.searchSection,
                         pressed && styles.searchSectionPressed,
                     ]}
                 >
                     <Search size={20} color={BrandColors.black} strokeWidth={2} />
-                    <Text
-                        size="lg"
-                        weight="regular"
-                        color={SemanticColors.textDisabled}
-                        numberOfLines={1}
-                        adjustsFontSizeToFit
-                        minimumFontScale={0.72}
-                        style={styles.placeholderText}
-                    >
-                        {useAnimatedPlaceholder ? animatedPlaceholder : placeholder}
-                    </Text>
+                    {useAndroidTypewriter ? (
+                        <AndroidTypewriterPlaceholder
+                            phrases={placeholderPhrases ?? []}
+                            active={screenFocused}
+                            style={styles.androidPlaceholderInput}
+                        />
+                    ) : (
+                        <Text
+                            size="lg"
+                            weight="regular"
+                            color={SemanticColors.textDisabled}
+                            numberOfLines={1}
+                            adjustsFontSizeToFit
+                            minimumFontScale={0.72}
+                            style={styles.placeholderText}
+                        >
+                            {useAnimatedPlaceholder ? animatedPlaceholder : placeholder}
+                        </Text>
+                    )}
                 </Pressable>
             ) : (
                 <View style={styles.searchSection}>
@@ -258,6 +282,47 @@ const styles = StyleSheet.create({
         flex: 1,
         flexShrink: 1,
         minWidth: 0,
+    },
+    // Android only. Must render the same glyphs in the same place as the
+    // <Text> above, whose computed style is what shared-ui Text derives from
+    // size="lg" weight="regular" color={SemanticColors.textDisabled}:
+    //   fontFamily  Urbanist-Regular   (FontFamily.regular)
+    //   fontSize    18                 (FontSize.lg)
+    //   lineHeight  27                 (Text.tsx: fontSize * 1.5)
+    //   color       #9CA3AF            (SemanticColors.textDisabled)
+    // plus the three layout values of `placeholderText` above.
+    //
+    // padding/margin 0: Android's EditText carries default padding a <Text>
+    // does not (the editable `input` style below already does this).
+    // height is pinned to the same 27 the <Text>'s lineHeight box occupies,
+    // with the glyphs centred in it, so the row's vertical centring is
+    // unchanged — RN gives a lineHeight'd <Text> a box of exactly that
+    // height and centres the line inside it.
+    //
+    // includeFontPadding is deliberately NOT set. RN 0.83.10 defaults it to
+    // true for BOTH Text (ReactBaseTextShadowNode.kt:142) and TextInput
+    // (AndroidTextInputNativeComponent.js:699), so setting it here would
+    // create the very mismatch it looks like it prevents.
+    //
+    // There is no adjustsFontSizeToFit equivalent on an Android TextInput,
+    // and it is not needed: at 18dp Urbanist-Regular the widest phrase
+    // ("Mechanics near me") measures 312px against the 342px the search row
+    // gives the label on the narrowest device we ship to (720x1280 @320dpi,
+    // measured off evidence/07-A6/A/shots/01_home_top.png). The <Text> never
+    // shrinks today. A phrase past ~171dp would shrink on the <Text> and
+    // clip here, so keep new phrases under that.
+    androidPlaceholderInput: {
+        flex: 1,
+        flexShrink: 1,
+        minWidth: 0,
+        fontFamily: FontFamily.regular,
+        fontSize: FontSize.lg,
+        lineHeight: FontSize.lg * 1.5,
+        height: FontSize.lg * 1.5,
+        color: SemanticColors.textDisabled,
+        padding: 0,
+        margin: 0,
+        textAlignVertical: 'center',
     },
     input: {
         flex: 1,

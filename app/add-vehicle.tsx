@@ -32,6 +32,8 @@ import { useAction } from 'convex/react';
 import { Text } from '@/components/shared-ui';
 import { Spacing } from '@/constants/theme';
 import { api } from '@/convex/_generated/api';
+import { useVehicleOwnershipFromConvex } from '@/hooks/useVehicleOwnershipFromConvex';
+import { DUPLICATE_GARAGE_VIN_MESSAGE, isVinInGarage } from '@/lib/garageDuplicate';
 import { checkVehicleEligibility } from '@/lib/vehicleEligibility';
 import { scale, moderateScale } from '@/utils/responsive';
 
@@ -78,6 +80,7 @@ export default function AddVehicleScreen() {
   const { progress: keyboardProgress } = useReanimatedKeyboardAnimation();
 
   const decodeVin = useAction(api.vehicle_pipeline.decodeVin);
+  const { vehicles: garage } = useVehicleOwnershipFromConvex();
 
   const handleBack = () => {
     router.back();
@@ -87,6 +90,11 @@ export default function AddVehicleScreen() {
     const vin = vinNumber.trim().toUpperCase();
     if (vin.length !== 17) {
       setDecodeError('VIN must be exactly 17 characters');
+      return;
+    }
+    // Re-adding a car already in the garage would overwrite it (#308).
+    if (isVinInGarage(vin, garage)) {
+      setDecodeError(DUPLICATE_GARAGE_VIN_MESSAGE);
       return;
     }
 

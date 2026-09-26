@@ -113,6 +113,7 @@ import { PackageQuestionsSheet } from "@/components/cars/PackageQuestionsSheet";
 import { useVehicleReadiness } from "@/hooks/useVehicleReadiness";
 import { ChevronRight, ScanLine, Wrench } from "lucide-react-native";
 import { useCoachAnchor } from "@/components/coach/useCoachAnchor";
+import { formatServiceDisplayNames } from "@/utils/serviceDisplayName";
 
 // ============================================================================
 // HELPERS
@@ -1411,7 +1412,7 @@ export default function CarsHomeScreen() {
       )
       .map((r) => ({
         id: String(r._id),
-        services: (r.serviceNames as string[] | undefined) ?? [],
+        services: formatServiceDisplayNames(r.serviceNames as string[] | undefined),
         completedAt:
           (r.completed_at_ms as number | undefined) ??
           (r.completed_at as number | undefined) ??

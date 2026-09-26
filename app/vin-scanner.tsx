@@ -26,6 +26,8 @@ import { Text } from '@/components/shared-ui';
 import { Spacing } from '@/constants/theme';
 import { scale, verticalScale, moderateScale } from '@/utils/responsive';
 import { api } from '@/convex/_generated/api';
+import { useVehicleOwnershipFromConvex } from '@/hooks/useVehicleOwnershipFromConvex';
+import { DUPLICATE_GARAGE_VIN_MESSAGE, isVinInGarage } from '@/lib/garageDuplicate';
 
 // ============================================================================
 // COMPONENT
@@ -51,6 +53,7 @@ export default function VinScannerScreen() {
   const [decodeError, setDecodeError] = useState<string | null>(null);
 
   const decodeVin = useAction(api.vehicle_pipeline.decodeVin);
+  const { vehicles: garage } = useVehicleOwnershipFromConvex();
 
   useEffect(() => {
     if (!permission?.granted) {
@@ -69,6 +72,12 @@ export default function VinScannerScreen() {
 
     // VINs are 17 characters
     if (data && data.length === 17) {
+      // Re-adding a car already in the garage would overwrite it (#308).
+      // Stay on the camera so a different VIN can still be scanned.
+      if (isVinInGarage(data, garage)) {
+        setDecodeError(DUPLICATE_GARAGE_VIN_MESSAGE);
+        return;
+      }
       setScanned(true);
       setIsDecoding(true);
       setDecodeError(null);

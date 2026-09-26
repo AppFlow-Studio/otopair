@@ -29,6 +29,8 @@ import React, {
 } from "react";
 import { Dimensions } from "react-native";
 
+import { useCoachTourStore } from "@/stores/useCoachTourStore";
+
 const { height: SCREEN_H } = Dimensions.get("window");
 
 export interface CoachRect {
@@ -108,6 +110,16 @@ export function CoachProvider({ children }: { children: React.ReactNode }) {
       });
       return;
     }
+    // Nothing reads a rect unless a tour is on screen, and publishing one
+    // costs a re-render of every consumer — which includes HomeScreen, via
+    // its two `useCoachAnchor` calls. Home wraps the vehicle card in an
+    // anchor, and three height animations in the scroll content move that
+    // wrapper, so `onLayout` fired per frame and re-rendered the whole
+    // screen for a tour that is off ~always. Reading the flag imperatively
+    // keeps the provider from subscribing to it. `CoachTour` calls
+    // `remeasure()` when a step begins (and again on a 200 ms timer until
+    // the rect lands), so every anchor re-reports the moment this opens.
+    if (!useCoachTourStore.getState().running) return;
     const key = `${Math.round(rect.x)},${Math.round(rect.y)},${Math.round(
       rect.width,
     )},${Math.round(rect.height)},${rect.radius}`;

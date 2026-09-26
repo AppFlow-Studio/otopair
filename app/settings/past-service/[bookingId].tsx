@@ -60,6 +60,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useMyBookingsWithDetails } from "@/hooks/useMyBookingsWithDetails";
 import { useUserFromConvex } from "@/hooks/useUserFromConvex";
+import { formatServiceDisplayName } from "@/utils/serviceDisplayName";
 
 /**
  * `Link.AppleZoomTarget` only exists on iOS builds of expo-router, and pairs
@@ -170,7 +171,8 @@ export default function PastServiceDetailScreen() {
     const lines = lineItems.filter((l) => l.type === "service");
     if (lines.length > 0) {
       return lines.map((l) => ({
-        name: l.name ?? "Service",
+        // Receipt lines carry the DB service name — see utils/serviceDisplayName.ts.
+        name: formatServiceDisplayName(l.name) || "Service",
         hours: l.labor_hours ?? null,
       }));
     }

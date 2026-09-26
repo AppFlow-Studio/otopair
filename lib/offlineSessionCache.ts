@@ -28,6 +28,9 @@ import { useAuth, useSession } from "@clerk/clerk-expo";
 import { useEffect, useRef, useState } from "react";
 
 const PREFIX = "@otopair/offline_cache/";
+/** The last payload written per cache key — see the write site in
+ *  `useSessionCachedQuery`. Cleared by `purgeOfflineSessionCache`. */
+const lastWritten = new Map<string, unknown>();
 /** Remembers which Clerk user the cache belongs to (cheap purge check). */
 const OWNER_KEY = `${PREFIX}owner`;
 
@@ -44,8 +47,9 @@ function isEnvelopeValid(
   clerkUserId?: string | null,
 ): boolean {
   if (Date.now() >= env.sessionExpireAt) return false;
-  // When the caller knows who's signed in (Clerk hydrates from
-  // SecureStore even offline), the entry must belong to them. When it
+  // When the caller knows who's signed in (Clerk loads offline from its
+  // resource cache — see the ClerkProvider in app/_layout.tsx; the token
+  // cache alone is NOT enough), the entry must belong to them. When it
   // doesn't (very early boot), the OWNER_KEY purge discipline means
   // whatever is stored belongs to the last signed-in user.
   if (clerkUserId && env.clerkUserId !== clerkUserId) return false;
@@ -117,7 +121,34 @@ export async function hasValidOfflineSessionCache(): Promise<boolean> {
   }
 }
 
+/** Resolved once per launch: the boot decision must not change mid-session. */
+let bootCacheCheck: Promise<boolean> | null = null;
+
+/**
+ * Whether this launch started with a valid session cache — checked once and
+ * shared, so OfflineBootGate (which boots into the cached offline mode on it)
+ * and ConnectionPillHost (which must then say the app is offline, since the
+ * full-screen OfflineScreen will not) can never disagree.
+ */
+export function useBootCacheStatus(): "checking" | "valid" | "none" {
+  const [status, setStatus] = useState<"checking" | "valid" | "none">("checking");
+  useEffect(() => {
+    let cancelled = false;
+    if (!bootCacheCheck) bootCacheCheck = hasValidOfflineSessionCache();
+    void bootCacheCheck.then((valid) => {
+      if (!cancelled) setStatus(valid ? "valid" : "none");
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return status;
+}
+
 export async function purgeOfflineSessionCache(): Promise<void> {
+  // Forget what we think is on disk too, or the write-dedupe below could
+  // skip re-writing a payload we just deleted.
+  lastWritten.clear();
   try {
     const keys = (await AsyncStorage.getAllKeys()).filter((k) =>
       k.startsWith(PREFIX),
@@ -159,7 +190,15 @@ export function useSessionCachedQuery<T>(
     if (key == null) return;
     if (live !== undefined) {
       if (clerkUserId && expireAtMs && expireAtMs > Date.now()) {
-        void writeOfflineSessionCache(key, live, clerkUserId, expireAtMs);
+        // One write per payload, not one per mounted hook. Convex hands every
+        // subscriber of the same (query, args) the same object, and several
+        // screens mount the same cached query at once — so a single push used
+        // to run `JSON.stringify` over the whole payload and hit AsyncStorage
+        // two to four times over with byte-identical content.
+        if (lastWritten.get(key) !== live) {
+          lastWritten.set(key, live);
+          void writeOfflineSessionCache(key, live, clerkUserId, expireAtMs);
+        }
       }
       return;
     }
