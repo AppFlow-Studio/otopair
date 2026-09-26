@@ -314,14 +314,23 @@ export default function ChooseMechanicScreen() {
   // Per-(shop, service, tier) flat-price overrides for the active shop.
   // When a service is offered at a fixed rate the price renders as a
   // single guaranteed `$N` instead of an estimate range.
-  const { map: activeFixedMap } = useShopFixedPricesForServices(
-    activeShop?.id ?? null,
-    ownershipId ?? null,
-    selectedServiceIds,
-  );
+  const { map: activeFixedMap, isLoading: activeFixedLoading } =
+    useShopFixedPricesForServices(
+      activeShop?.id ?? null,
+      ownershipId ?? null,
+      selectedServiceIds,
+    );
+  // While this shop's fixed-price overrides are still in flight, render no
+  // price rather than a confident wrong one. `activeShop` flips the instant
+  // the map selection changes, but `activeFixedMap` is still the PREVIOUS
+  // shop's until the query resolves — so the card used to show a price
+  // computed from the new shop against the old shop's overrides, then jump
+  // when the real data landed. That jump is bug #301. MapShopCard's own prop
+  // doc already specifies `null while loading`; the screen just never passed
+  // it.
   const activePriceLabel = useMemo(
     () =>
-      activeShop
+      activeShop && !activeFixedLoading
         ? buildShopPriceLabel({
             shop: activeShop,
             selectedServices: selectedServicesForPricing,
@@ -330,7 +339,14 @@ export default function ChooseMechanicScreen() {
             laborOnlyCandidateIds,
           })
         : { text: null, isFixed: false, isLaborOnly: false },
-    [activeShop, selectedServicesForPricing, laborHoursMap, activeFixedMap, laborOnlyCandidateIds],
+    [
+      activeShop,
+      activeFixedLoading,
+      selectedServicesForPricing,
+      laborHoursMap,
+      activeFixedMap,
+      laborOnlyCandidateIds,
+    ],
   );
 
   // Per-shop mechanic selection — null = Any. Reset when the active
