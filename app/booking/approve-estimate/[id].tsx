@@ -1143,6 +1143,9 @@ interface ReauthBreakdown {
   laborHours: number | null;
   notes: string | null;
   parts: ReauthBreakdownPart[];
+  /** Mechanic's scope-justification photos. `[]` on the quote fallback, and
+   *  on any deploy that predates the field — hence the optional. */
+  scopePhotos?: { storage_id: string; url: string }[];
 }
 
 /**
@@ -1221,6 +1224,8 @@ function ReauthView({
   const [submitting, setSubmitting] = useState(false);
   // Payment picker (Apple Pay / Google Pay / saved cards / add card).
   const [pickerVisible, setPickerVisible] = useState(false);
+  // Full-screen viewer for a tapped mechanic scope photo (null = closed).
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const toast = useToast();
   // Phase policy — same source of truth as the booking card / details sheet.
   // Drives whether "Cancel booking" shows here and what it does. A completed
@@ -1568,6 +1573,38 @@ function ReauthView({
               </View>
             ) : null}
 
+            {/* The visual half of "why the change". Same strip, same position
+                relative to the reason, as the approve/decline screen — this is
+                the screen an in-range change is actually shown on, so leaving
+                it out here meant the photos had nowhere to land. */}
+            {(breakdown.scopePhotos ?? []).length > 0 ? (
+              <View style={styles.scopePhotos}>
+                <Text weight="semiBold" style={styles.scopePhotosLabel}>
+                  Photos from your mechanic
+                </Text>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.scopePhotoStrip}
+                >
+                  {(breakdown.scopePhotos ?? []).map((p) => (
+                    <Pressable
+                      key={p.storage_id}
+                      onPress={() => setLightboxUrl(p.url)}
+                      accessibilityRole="imagebutton"
+                      accessibilityLabel="View mechanic photo"
+                    >
+                      <Image
+                        source={{ uri: p.url }}
+                        style={styles.scopeThumb}
+                        resizeMode="cover"
+                      />
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              </View>
+            ) : null}
+
             <View style={styles.cardDivider} />
 
             <View style={styles.totalsBlock}>
@@ -1727,6 +1764,40 @@ function ReauthView({
         googlePaySupported={googlePaySupported}
         onAddCard={() => router.push({ pathname: "/add-payment" } as any)}
       />
+
+      {/* Full-screen scope-photo viewer — same behaviour as the approve/decline
+          screen. Tap the backdrop or the close button to dismiss. */}
+      <Modal
+        visible={lightboxUrl !== null}
+        transparent
+        statusBarTranslucent
+        animationType="fade"
+        onRequestClose={() => setLightboxUrl(null)}
+      >
+        <Pressable
+          style={styles.lightboxBackdrop}
+          onPress={() => setLightboxUrl(null)}
+        >
+          {lightboxUrl ? (
+            <Image
+              source={{ uri: lightboxUrl }}
+              style={styles.lightboxImage}
+              resizeMode="contain"
+            />
+          ) : null}
+          <View style={[styles.lightboxTopBar, { top: insets.top + Spacing.md }]}>
+            <Pressable
+              onPress={() => setLightboxUrl(null)}
+              hitSlop={10}
+              accessibilityRole="button"
+              accessibilityLabel="Close photo"
+              style={styles.lightboxClose}
+            >
+              <X size={20} color="#FFFFFF" strokeWidth={2.5} />
+            </Pressable>
+          </View>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
