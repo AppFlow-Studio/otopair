@@ -849,7 +849,18 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
                       amount above. Rate suffix surfaces the per-tier labor
                       rate so customers see what's being applied — different
                       vehicle tiers get different shop rates. */}
-                  Labor ({formatDurationForCar(breakdown.laborHours) ?? "0 mins"}
+                  {/* "Includes" is load-bearing. This amount is ALREADY inside
+                      the service prices listed above, but it sat in the same
+                      column of figures as Taxes & Fees — which genuinely does
+                      add — so it read as a second charge. On a labor-only
+                      service the two are identical to the cent: Tire Rotation
+                      $75.00, then Labor (30 mins @ $150/hr) $75.00, under an
+                      $80.25 total containing one of them. The total was always
+                      right; only the breakdown misread (#322).
+                      Not a section header, because Taxes & Fees shares this
+                      section and labelling the whole block "included" would
+                      mislabel an actual charge. */}
+                  Includes labor ({formatDurationForCar(breakdown.laborHours) ?? "0 mins"}
                   {breakdown.effectiveLaborRate ? ` @ $${breakdown.effectiveLaborRate}/hr` : ""})
                 </Text>
                 <Text size="sm" weight="medium" color="#6B7280">
