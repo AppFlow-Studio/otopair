@@ -6569,6 +6569,10 @@ export default defineSchema({
     // Optional OEM part numbers the customer is disputing.
     disputed_part_keys: v.optional(v.array(v.string())),
     notes: v.optional(v.string()),
+    /** Photos the customer attached. Part of the v1 scope for #374 — the
+     *  notes placeholder already invited them long before they could be sent.
+     *  Capped at 4 on the client and again server-side. */
+    photo_ids: v.optional(v.array(v.id("_storage"))),
 
     // "open" | "in_review" | "resolved_refund" | "resolved_no_refund"
     // | "withdrawn"
@@ -6576,7 +6580,13 @@ export default defineSchema({
 
     filed_at_ms: v.number(),
     resolved_at_ms: v.optional(v.number()),
+    /** @deprecated Wrong table. A dispute is resolved by OPS, who live in
+     *  `director_users`, not `users`. Kept for rows written before the role
+     *  gate landed — where it recorded the CUSTOMER, since resolveDispute was
+     *  callable by any signed-in user. New rows write
+     *  `resolved_by_director_id`. */
     resolved_by_user_id: v.optional(v.id("users")),
+    resolved_by_director_id: v.optional(v.id("director_users")),
     resolution_notes: v.optional(v.string()),
     // "no_refund" | "partial_refund" | "full_refund"
     resolution: v.optional(v.string()),

@@ -1594,7 +1594,10 @@ function FullContent({
         </View>
 
         {/* Dispute sheet — rendered inline so it overlays this view. Opens
-            from PaymentBreakdown's "Something wrong with this charge?" CTA. */}
+            from PaymentBreakdown's "Something not right?" CTA. That CTA only
+            renders when `capturedAtMs` is non-null, and this query returned no
+            payment fields at all until #336 — so the whole refund path was
+            unreachable in the app, which is what #374 describes. */}
         <FileDisputeSheet ref={disputeSheetRef} />
 
         {/* SECONDARY ACTIONS — Reschedule/Message shop are governed by the
