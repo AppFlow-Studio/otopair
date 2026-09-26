@@ -30,7 +30,7 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { Platform, StyleSheet, View } from "react-native";
+import { AppState, Linking, Platform, Pressable, StyleSheet, View } from "react-native";
 import MapView, {
   Circle,
   Marker,
@@ -125,7 +125,12 @@ export function BookingFlowMapProvider({
   children: React.ReactNode;
 }) {
   const mapRef = useRef<MapView | null>(null);
-  const { location: resolvedLocation, stage, isResolving } = useStagedLocation();
+  const {
+    location: resolvedLocation,
+    stage,
+    isResolving,
+    retry: retryLocation,
+  } = useStagedLocation();
   // Android: a previous booking entry this session already resolved a fix
   // (the store keeps it). Start the camera there so the MapView mounts on
   // the first frame instead of after the permission check and the first
@@ -168,6 +173,20 @@ export function BookingFlowMapProvider({
   useEffect(() => {
     setLocationLoading(isResolving);
   }, [isResolving, setLocationLoading]);
+
+  // Refusing location used to be permanent for the life of the screen: the
+  // resolve ran once on mount, so granting it in Settings changed nothing
+  // until the whole flow was re-entered. Re-check on foreground, but ONLY
+  // while location is actually unavailable — the resolve calls expo's
+  // request path, which on Android starts a permission Activity that itself
+  // flips AppState, and re-running it unconditionally would loop (#321).
+  useEffect(() => {
+    if (stage !== "unavailable") return;
+    const sub = AppState.addEventListener("change", (next) => {
+      if (next === "active") retryLocation();
+    });
+    return () => sub.remove();
+  }, [stage, retryLocation]);
 
   useEffect(() => {
     if (resolvedLocation) {
@@ -313,6 +332,22 @@ export function BookingFlowMapProvider({
                   ? "Enable location to see nearby shops"
                   : "Finding your location..."}
               </Text>
+              {/* A sentence on a grey panel was the whole of it — no way
+                  forward, which is why refusing location read as "the map is
+                  broken". iOS only asks once, so Settings is the only route
+                  back; the resume listener above picks the grant up. */}
+              {stage === "unavailable" ? (
+                <Pressable
+                  onPress={() => void Linking.openSettings()}
+                  style={styles.fallbackAction}
+                  accessibilityRole="button"
+                  accessibilityLabel="Open Settings to enable location"
+                >
+                  <Text size="sm" weight="bold" color={BrandColors.secondary}>
+                    Open Settings
+                  </Text>
+                </Pressable>
+              ) : null}
             </View>
           )}
         </View>
@@ -385,6 +420,11 @@ function BookingFlowShopPinMarker({ pin }: { pin: BookingFlowShopPin }) {
 }
 
 const styles = StyleSheet.create({
+  fallbackAction: {
+    marginTop: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
   root: {
     flex: 1,
     backgroundColor: BrandColors.background,
