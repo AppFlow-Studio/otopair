@@ -145,8 +145,16 @@ import { OtoPairIcon } from "@/components/icons/oto-pair";
  * Local mirror of users.tutorialSeenAt. The server stamp is the durable,
  * cross-device record; this exists so a failed or slow write cannot show a
  * driver the tour a second time.
+ *
+ * NAMESPACED PER USER. v1 was a single device-wide key, which meant the
+ * mirror outlived the account it belonged to: once ANY account finished the
+ * tour on a device, every later account on that device was treated as having
+ * seen it and the tour never appeared again. That is #306, and it is this
+ * mirror over-correcting the #251 fix rather than anything to do with adding
+ * a car. The server stamp it mirrors is per-account, so the mirror has to be
+ * too.
  */
-const TUTORIAL_SEEN_KEY = "otopair.tutorialSeen.v1";
+const tutorialSeenKey = (userId: string) => `otopair.tutorialSeen.v2.${userId}`;
 const TUTORIAL_STAMP_ATTEMPTS = 4;
 const TUTORIAL_STAMP_RETRY_MS = 1500;
 
@@ -489,9 +497,22 @@ export default function HomeScreen() {
    */
   const [tutorialSeenLocal, setTutorialSeenLocal] = useState<boolean | null>(null);
 
+  /** Convex user id — namespaces the local mirror so it belongs to ONE
+   *  account, like the server stamp it mirrors. Declared above the effect
+   *  that reads it and listed in its deps: `me` resolves asynchronously, so
+   *  a mount-only read would run while this is still null and never re-run,
+   *  leaving the gate shut and the tour permanently hidden. */
+  const meId = (me as { _id?: string } | null | undefined)?._id ?? null;
+
   useEffect(() => {
     let cancelled = false;
-    AsyncStorage.getItem(TUTORIAL_SEEN_KEY)
+    if (!meId) {
+      // No user yet — leave the flag null so the gate stays closed rather
+      // than reading someone else's answer.
+      setTutorialSeenLocal(null);
+      return;
+    }
+    AsyncStorage.getItem(tutorialSeenKey(meId))
       .then((v) => {
         if (!cancelled) setTutorialSeenLocal(v === "1");
       })
@@ -501,7 +522,7 @@ export default function HomeScreen() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [meId]);
 
   const tutorialSeenAt = (me as { tutorialSeenAt?: number } | null | undefined)?.tutorialSeenAt;
 
@@ -530,7 +551,7 @@ export default function HomeScreen() {
     if (prev == null || tutorialSeenAt != null) return;
     setTutorialDismissed(false);
     setTutorialSeenLocal(false);
-    void AsyncStorage.removeItem(TUTORIAL_SEEN_KEY).catch(() => {});
+    if (meId) void AsyncStorage.removeItem(tutorialSeenKey(meId)).catch(() => {});
   }, [tutorialSeenAt]);
 
   const dismissTutorial = useCallback(
@@ -545,7 +566,7 @@ export default function HomeScreen() {
       if (FORCE_TUTORIAL_EVERY_LAUNCH) return;
 
       setTutorialSeenLocal(true);
-      void AsyncStorage.setItem(TUTORIAL_SEEN_KEY, "1").catch(() => {});
+      if (meId) void AsyncStorage.setItem(tutorialSeenKey(meId), "1").catch(() => {});
 
       // Retry rather than swallow. The usual failure is auth not yet
       // propagated to Convex, which resolves on its own within seconds — the
