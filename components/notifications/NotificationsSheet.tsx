@@ -109,6 +109,38 @@ export function NotificationsSheet() {
    * expand in place instead.
    */
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  /**
+   * Rows whose body is actually being cut off, so only those get a
+   * "Show more".
+   *
+   * Detected from the CLAMPED render: with `numberOfLines={2}` iOS reports at
+   * most two lines, so "reported 2" means "filled both lines and may have run
+   * over". It over-offers only for a body that happens to be exactly two full
+   * lines, where expanding is a harmless no-op. Measuring properly would mean
+   * rendering every body twice, which is not worth it for a "…".
+   */
+  const [lineCounts, setLineCounts] = useState<Record<string, number>>({});
+  const markLines = useCallback((id: string, lines: number) => {
+    setLineCounts((prev) => (prev[id] === lines ? prev : { ...prev, [id]: lines }));
+  }, []);
+  /**
+   * Whether to offer this row a "Show more".
+   *
+   * Measurement first. If `onTextLayout` never reports for a row — it is a
+   * platform callback and I could not confirm it fires on a clamped Text on
+   * this RN version — fall back to body length, so the control still appears
+   * rather than the whole fix silently doing nothing. The fallback can
+   * over-offer on a body that is long but happens to fit; expanding it is then
+   * a no-op, which is a much cheaper failure than an unreadable message.
+   */
+  const shouldOfferExpand = useCallback(
+    (id: string, body: string) => {
+      const measured = lineCounts[id];
+      if (measured != null) return measured >= 2;
+      return body.length > 80;
+    },
+    [lineCounts],
+  );
   // Detent index reported by FloatingSheet. 0 = resting, last = expanded.
   const [snapIndex, setSnapIndex] = useState(0);
   const rowRefs = useRef<Map<string, RNView | null>>(new Map());
@@ -514,15 +546,60 @@ export function NotificationsSheet() {
                     </View>
                   </View>
 
+                  {/* The body is clamped to two lines, and for a BOOKING-scoped
+                      row the tap navigates away — to Booking Details, which
+                      never renders the notification text. So the rest of the
+                      message had nowhere to be read: not in the list, not at
+                      the destination. That is fine for "tap to review your
+                      estimate", and not fine at all for "came in at $111.76,
+                      under yo…", which is the whole message. #346.
+
+                      Only rows with no booking and no deep link expanded on tap
+                      (the #257 fix). This gives every clamped row its own
+                      expand control, independent of where the row navigates —
+                      so reading the message and acting on it stop competing for
+                      the same gesture. */}
                   {body ? (
-                    <Text
-                      size="sm"
-                      color="#4B5563"
-                      style={styles.rowBody}
-                      numberOfLines={isExpanded ? undefined : 2}
-                    >
-                      {body}
-                    </Text>
+                    <>
+                      <Text
+                        size="sm"
+                        color="#4B5563"
+                        style={styles.rowBody}
+                        numberOfLines={isExpanded ? undefined : 2}
+                        onTextLayout={(e) =>
+                          markLines(
+                            String(row._id),
+                            e.nativeEvent.lines.length,
+                          )
+                        }
+                      >
+                        {body}
+                      </Text>
+                      {shouldOfferExpand(String(row._id), body) ? (
+                        <Pressable
+                          onPress={() => {
+                            const id = String(row._id);
+                            setExpandedId((prev) => (prev === id ? null : id));
+                          }}
+                          hitSlop={8}
+                          accessibilityRole="button"
+                          accessibilityLabel={
+                            isExpanded
+                              ? "Show less of this message"
+                              : "Show the full message"
+                          }
+                          style={styles.showMore}
+                        >
+                          <Text
+                            size="xs"
+                            weight="semiBold"
+                            color={SemanticColors.primaryBlue}
+                          >
+                            {isExpanded ? "Show less" : "Show more"}
+                          </Text>
+                        </Pressable>
+                      ) : null}
+                    </>
                   ) : null}
 
                   {expiryLabel ? (
@@ -771,6 +848,10 @@ const styles = StyleSheet.create({
   rowBody: {
     marginTop: 3,
     lineHeight: 18,
+  },
+  showMore: {
+    marginTop: 4,
+    alignSelf: "flex-start",
   },
   rowExpiry: {
     marginTop: 4,
