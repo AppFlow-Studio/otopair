@@ -541,6 +541,17 @@ export const BookingDetailsSheet = forwardRef<BookingDetailsSheetRef, BookingDet
     const buildDragGesture = useCallback(
       () =>
         Gesture.Pan()
+          // Only claim the touch once it is clearly a vertical DRAG. Without
+          // this the pan activates on the first pixel of movement and wins the
+          // race against the TouchableOpacitys underneath, so a tap that
+          // wanders a hair gets swallowed and the control "does nothing".
+          //
+          // It hits small targets hardest: the 19px phone and chat icons in
+          // ShopRow lose far more often than the wide footer buttons, which is
+          // exactly the reported asymmetry — Contact works, the icon beside the
+          // mechanic is dead (#325). Both were always wired to the same
+          // openPhone(shopPhone).
+          .activeOffsetY([-10, 10])
           .onBegin(() => {
             startHeight.value = sheetHeight.value;
           })
