@@ -146,6 +146,19 @@ export default function PastServiceDetailScreen() {
     booking ? { bookingId: booking.id as Id<"bookings"> } : "skip",
   );
 
+  // The review this user already left for this visit, if any. Without it the
+  // stars below rendered five empty outlines whether or not a review existed,
+  // so a submitted review looked like it had not saved — and nothing stopped
+  // a second submit, which the server then correctly rejected as a duplicate.
+  // That pairing is bug #303.
+  const myReview = useQuery(
+    api.reviews.getMyReviewForBooking,
+    booking && userId
+      ? { bookingId: booking.id as Id<"bookings">, userId: userId as Id<"users"> }
+      : "skip",
+  );
+  const myRating = myReview?.rating ?? null;
+
   const reviewSheetRef = useRef<LeaveReviewSheetRef>(null);
   const actionsSheetRef = useRef<PastServiceActionsSheetRef>(null);
   const disputeSheetRef = useRef<DisputeSheetRef>(null);
@@ -478,19 +491,45 @@ export default function PastServiceDetailScreen() {
               </Pressable>
 
               {/* ── rate ──────────────────────────────────────── */}
-              <RNText style={styles.label}>RATE THIS VISIT</RNText>
+              <RNText style={styles.label}>
+                {myRating != null ? "YOU RATED THIS VISIT" : "RATE THIS VISIT"}
+              </RNText>
               <View style={styles.stars}>
-                {[1, 2, 3, 4, 5].map((n) => (
-                  <Pressable
-                    key={n}
-                    onPress={() => handleReviewWithRating(n)}
-                    hitSlop={8}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Rate ${n} star${n === 1 ? "" : "s"}`}
-                  >
-                    <Star size={30} color={C.star} strokeWidth={1.6} />
-                  </Pressable>
-                ))}
+                {[1, 2, 3, 4, 5].map((n) => {
+                  const filled = myRating != null && n <= Math.round(myRating);
+                  return (
+                    <Pressable
+                      key={n}
+                      // Already reviewed → inert. The submit mutation allows
+                      // one shop review per booking and throws on a second,
+                      // so leaving these live only produced an error.
+                      onPress={
+                        myRating != null
+                          ? undefined
+                          : () => handleReviewWithRating(n)
+                      }
+                      disabled={myRating != null}
+                      hitSlop={8}
+                      accessibilityRole={myRating != null ? "image" : "button"}
+                      accessibilityLabel={
+                        myRating != null
+                          ? `You rated this visit ${Math.round(myRating)} out of 5`
+                          : `Rate ${n} star${n === 1 ? "" : "s"}`
+                      }
+                    >
+                      {/* Amber when filled, matching LeaveReviewSheet — the
+                          sheet this rating was given in. C.star (#C9CDD4) is
+                          the empty-state grey; filling WITH it made a 5-star
+                          review read as five disabled controls. */}
+                      <Star
+                        size={30}
+                        color={filled ? "#F59E0B" : C.star}
+                        strokeWidth={1.6}
+                        fill={filled ? "#F59E0B" : "transparent"}
+                      />
+                    </Pressable>
+                  );
+                })}
               </View>
 
               {/* ── closing block ───────────────────────────────
