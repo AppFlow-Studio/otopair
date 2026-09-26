@@ -224,6 +224,17 @@ export default function SelectServicesScreen() {
   // the user swipes the carousel. Same pattern choose-mechanic
   // uses for its sheet's internal pager.
   const localMapRef = useRef<MapView | null>(null);
+  /** True only when the driver has actually picked a shop — tapped a pin or
+   *  swiped the carousel. Distinct from `selectedIndex`, which collapses "no
+   *  selection" to 0 so the carousel has a resting position. Conflating the
+   *  two is bug #289: the camera treated "nothing selected" as "shop 0" and
+   *  flew there on open, so the map never showed you where YOU were. */
+  const hasShopSelection = useMemo(
+    () =>
+      selectedShopId != null &&
+      nearbyShops.some((r) => r.shop.id === selectedShopId),
+    [selectedShopId, nearbyShops],
+  );
   const selectedIndex = useMemo(() => {
     if (!selectedShopId) return 0;
     const i = nearbyShops.findIndex((r) => r.shop.id === selectedShopId);
@@ -254,6 +265,11 @@ export default function SelectServicesScreen() {
   // freshly-mounted MapView is silently dropped on iOS.
   useEffect(() => {
     if (isPeekExpanded) return;
+    // No selection → stay on the driver's own location. The camera used to
+    // pan to nearbyShops[0] regardless, which is what "the map shoots over to
+    // the recent shop" was (#289) — it was not the recent shop, it was
+    // whichever shop happened to sort first.
+    if (!hasShopSelection) return;
     const r = nearbyShops[selectedIndex];
     if (!r) return;
     const { latitude, longitude } = r.shop;
@@ -270,7 +286,7 @@ export default function SelectServicesScreen() {
       );
     }, 80);
     return () => clearTimeout(t);
-  }, [isPeekExpanded, selectedIndex, nearbyShops]);
+  }, [isPeekExpanded, selectedIndex, nearbyShops, hasShopSelection]);
   // Peek-mode map zoom + recenter controls. Mirror the pattern
   // choose-mechanic uses — a `zoomDeltaRef` tracks the current
   // zoom span, +/- buttons halve or double it, and the crosshair
