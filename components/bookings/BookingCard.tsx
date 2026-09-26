@@ -360,12 +360,18 @@ export const STATUS_CONFIG: Record<BookingStatus, { label: string; bgColor: stri
     textColor: '#4CAF50',
   },
   vehicle_at_shop: {
-    // Green, per the handoff — specified for CHECKED IN in both the card and
-    // the details sheet. Was cyan, which read as a third status colour next
-    // to the greens already used for confirmed and completed.
-    label: 'Checked In',
-    bgColor: '#ECFDF5',
-    textColor: '#059669',
+    // Presents as In Progress to the customer (#294) — same label and colour
+    // as in_progress, so the two are indistinguishable once the car is at the
+    // shop. Yassin's ruling: the customer-facing status flips at check-in.
+    //
+    // NOTE this overrides the Bookings Redesign handoff, which specified a
+    // green CHECKED IN pill here. Flagged on the ticket — the handoff and the
+    // ruling disagree and the ruling is the later, more specific decision.
+    // The `checkedIn` behaviour below still keys on the STATUS, not the label,
+    // so request-pickup is unaffected.
+    label: 'In Progress',
+    bgColor: '#E0E7FF',
+    textColor: '#4F46E5',
   },
   in_progress: {
     label: 'In Progress',

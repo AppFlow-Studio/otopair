@@ -96,7 +96,8 @@ const STATUS_CONFIG: Record<BookingStatus, { label: string; bgColor: string; tex
   quotes_ready: { label: "Quotes Ready", bgColor: "#E3F0FF", textColor: "#2F6DCC" },
   pending_customer_acceptance: { label: "Action needed", bgColor: "#FFF6E5", textColor: "#C8972E" },
   confirmed: { label: "Confirmed", bgColor: "#e8f5e9", textColor: "#4CAF50" },
-  vehicle_at_shop: { label: "Checked In", bgColor: "#ECFEFF", textColor: "#0E7490" },
+  // #294 — customer-facing status flips to In Progress at check-in.
+  vehicle_at_shop: { label: "In Progress", bgColor: "#E0E7FF", textColor: "#4F46E5" },
   in_progress: { label: "In Progress", bgColor: "#E0E7FF", textColor: "#4F46E5" },
   completed: { label: "Completed", bgColor: "#f0fcf5", textColor: "#60d17e" },
   cancelled: { label: "Cancelled", bgColor: "#FEE2E2", textColor: "#DC2626" },
@@ -1706,7 +1707,7 @@ function statusFriendlyLabel(status: string | null | undefined): string {
     case "pending_quote": return "Awaiting quote";
     case "quotes_ready": return "Quotes ready";
     case "confirmed": return "Confirmed";
-    case "vehicle_at_shop": return "Vehicle at shop";
+    case "vehicle_at_shop": return "In progress"; // #294
     case "in_progress": return "In progress";
     case "completed": return "Completed";
     case "cancelled": return "Cancelled";

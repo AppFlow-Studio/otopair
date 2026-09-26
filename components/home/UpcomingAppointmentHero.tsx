@@ -56,12 +56,18 @@ function serviceTitle(services: string[]): string {
  *  not read "UPCOMING". Mirrors getTrackerData's displayStatus grammar so the
  *  hero and the tracker agree. */
 function eyebrowLabel(status: string, liveStage?: string): string {
-  if (status === "in_progress") {
+  // vehicle_at_shop reads the same as in_progress to the CUSTOMER. Per
+  // Yassin's ruling on #294 the customer-facing status flips once the car
+  // reaches the shop — including during the pre-check — rather than waiting
+  // for the mechanic to tap Start Job. It used to say "AT THE SHOP" until
+  // Start Job fired, so a car actively being worked on still read as parked.
+  // This amends Inspection Phase Split Spec v2 §8. Shop-portal states
+  // (Checked in → Inspecting → In Progress) are deliberately untouched.
+  if (status === "in_progress" || status === "vehicle_at_shop") {
     if (liveStage === "vehicle_ready") return "READY FOR PICKUP";
     if (liveStage === "service_in_progress") return "IN SERVICE";
     return "IN PROGRESS";
   }
-  if (status === "vehicle_at_shop") return "AT THE SHOP";
   return "UPCOMING";
 }
 
