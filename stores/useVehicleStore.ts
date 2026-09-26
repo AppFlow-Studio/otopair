@@ -164,8 +164,20 @@ export const useVehicleStore = create<VehicleState>()((set, get) => ({
         ownershipId: r.ownership?._id,
         imageSource: isTransparent ? { uri: imageUrl } : undefined,
       };
+      // Keyed by VIN, and the id list is deduped to match. `vehiclesRecord`
+      // collapses two rows for the same VIN into one entry, but `ids` used to
+      // take both — so a list mapping over vehicleIds rendered the same car
+      // twice off a single record. That is the shape of #309, "another car
+      // was added to the list".
+      //
+      // addOwner already prevents a second ownership row for a (vin, user)
+      // pair, and there are none in the data, so this is a guard rather than
+      // the root cause — but several other paths insert vehicle_owners
+      // directly (bookings walk-in, inspections, preSignups, seeds) without
+      // going through it, and none of them should be able to double a car in
+      // someone's garage.
+      if (vehiclesRecord[vin] === undefined) ids.push(vin);
       vehiclesRecord[vin] = v;
-      ids.push(vin);
     });
     const primary = data.find((r) => r.ownership?.is_primary) ?? data[0];
     const currentSelected = get().selectedVehicleId;
