@@ -307,7 +307,13 @@ export const LeaveReviewSheet = forwardRef<LeaveReviewSheetRef, Props>(
 
     const summaryLine = useMemo(() => {
       if (!booking) return "";
-      const services = booking.services?.[0] ?? "Service";
+      // Every other surface names the WHOLE job — CompletedBookingReviewCard
+      // and the Bookings pending-review row both render
+      // `services.join(", ") || "Service"`. This one took `services[0]`, so a
+      // two-service visit was listed in full on the card the customer taps and
+      // then silently became "Oil Change" on both review steps. Same `Booking`
+      // object, same array; joining makes the three agree by construction.
+      const services = (booking.services ?? []).join(", ") || "Service";
       const cost =
         typeof booking.totalCost === "number"
           ? ` · $${booking.totalCost.toFixed(2)}`
