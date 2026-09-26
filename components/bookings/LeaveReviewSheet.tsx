@@ -27,6 +27,7 @@ import {
   Animated,
   Pressable,
   StyleSheet,
+  Keyboard,
   TextInput,
   useWindowDimensions,
   View,
@@ -35,6 +36,7 @@ import {
 import { useMutation } from "convex/react";
 import { ChevronLeft, Star } from "lucide-react-native";
 
+import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
 import { Text } from "@/components/shared-ui";
 import { BrandColors } from "@/constants/theme";
@@ -362,10 +364,39 @@ export const LeaveReviewSheet = forwardRef<LeaveReviewSheetRef, Props>(
         snapHeights={snapHeights}
         onClose={handleClose}
         showBackdrop
-        liftWithKeyboard
+        keyboardToolbar
         floatBottomInset={12}
       >
-        <View style={styles.body}>
+        {/* Keyboard handling — the same shape that fixed #149 on the
+            diagnostic sheet, which this is the sibling of.
+            
+            NOT `liftWithKeyboard`. Raising a ~648pt sheet by a ~336pt keyboard
+            needs ~1000pt on an ~874pt screen, so the sheet's own top — step
+            bar, Back — went ~120pt off the display. That is the "Back is
+            unreachable" half of the report, and it is arithmetic, not a race.
+            An aware scroll view scrolls the FOCUSED FIELD up instead of the
+            whole sheet, which costs nothing off the top.
+
+            Three dismiss routes, matching the three the tester tried:
+              - `keyboardToolbar` on the sheet → an explicit Done above the keys
+              - `keyboardDismissMode="interactive"` → swipe down
+              - the Pressable below → tap outside the field
+            Both notes are MULTILINE, so Return inserts a newline and can never
+            be one of them. Before this there were none at all, and
+            force-quitting was the only way out — which is what cost the
+            tester their half-written review. */}
+        <KeyboardAwareScrollView
+          contentContainerStyle={styles.body}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
+          showsVerticalScrollIndicator={false}
+          bottomOffset={24}
+        >
+        <Pressable
+          onPress={Keyboard.dismiss}
+          accessible={false}
+          style={styles.bodyInner}
+        >
           {/* Step indicator + back (only when a mechanic step exists) */}
           {mechanicAvailable ? (
             <View style={styles.stepBar}>
@@ -632,7 +663,8 @@ export const LeaveReviewSheet = forwardRef<LeaveReviewSheetRef, Props>(
               </Pressable>
             </>
           )}
-        </View>
+        </Pressable>
+        </KeyboardAwareScrollView>
       </FloatingSheet>
     );
   },
@@ -641,10 +673,16 @@ export const LeaveReviewSheet = forwardRef<LeaveReviewSheetRef, Props>(
 LeaveReviewSheet.displayName = "LeaveReviewSheet";
 
 const styles = StyleSheet.create({
+  // Scroll CONTENT container — padding only. The gap lives on `bodyInner`
+  // because the content container now has exactly one child (the tap-to-
+  // dismiss Pressable), so a gap here would have nothing to space.
   body: {
+    flexGrow: 1,
     paddingHorizontal: 20,
     paddingTop: 4,
     paddingBottom: 24,
+  },
+  bodyInner: {
     gap: 18,
   },
   stepBar: {
