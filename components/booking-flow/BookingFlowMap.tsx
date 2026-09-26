@@ -48,10 +48,14 @@ import {
 import { MapSkeleton } from "@/components/booking-flow/MapSkeleton";
 import type { UserLocation } from "@/stores/types/store.types";
 
-/** Hard stop on the skeleton. `onMapLoaded` is not guaranteed to fire —
- *  a misconfigured Google Maps key, for one, leaves it silent — and a
- *  surface that shimmers forever reads worse than a static one. Past
- *  this we drop the skeleton and show whatever the map managed. */
+/** Hard stop on the skeleton. `onMapLoaded` is not guaranteed to fire — a
+ *  misconfigured Google Maps key, for one, leaves it silent — and a surface
+ *  that shimmers forever reads worse than a static one. Past this we drop the
+ *  skeleton and show whatever the map managed.
+ *
+ *  This is a FALLBACK, not a schedule. On iOS it had become the only path
+ *  (see the onMapReady note below), which is what made every map entry take
+ *  six seconds. */
 const MAP_READY_TIMEOUT_MS = 6000;
 
 export interface BookingFlowMarker {
@@ -252,7 +256,24 @@ export function BookingFlowMapProvider({
               style={StyleSheet.absoluteFill}
               provider={PROVIDER_DEFAULT}
               initialRegion={region}
+              // Android: `onMapLoaded` means tiles are drawn, which is the
+              // right signal there — Google paints a blank beige canvas long
+              // before it has anything to show.
+              //
+              // iOS: `onMapLoaded` NEVER FIRES. It is implemented only in
+              // ios/AirGoogleMaps; ios/AirMaps (Apple Maps, which is what
+              // PROVIDER_DEFAULT resolves to here) does not emit it —
+              // mapViewDidFinishRenderingMap calls finishLoading and sends no
+              // event. So the skeleton could only ever clear via the 6s
+              // fallback, on every single map entry. That is bug #295, "the
+              // map takes forever to load": it was six seconds, every time.
+              //
+              // Apple Maps emits onMapReady from mapViewWillStartRenderingMap,
+              // which is the earliest honest signal that surface has.
               onMapLoaded={() => setMapReady(true)}
+              onMapReady={
+                Platform.OS === "ios" ? () => setMapReady(true) : undefined
+              }
               showsUserLocation
               scrollEnabled
               zoomEnabled
