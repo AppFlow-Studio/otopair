@@ -18482,8 +18482,19 @@ export const getBookingByIdForCustomer = query({
         }
       : null;
 
+    // Stripe hold lifecycle. `.order("desc").first()` rather than `.unique()`:
+    // a reauth can leave a second row behind, and `.unique()` would throw out
+    // of a QUERY — blanking the whole Booking Details sheet, which is a worse
+    // failure than the one being fixed here.
+    const payment = await ctx.db
+      .query("payments")
+      .withIndex("by_booking_id", (q: any) => q.eq("booking_id", booking._id))
+      .order("desc")
+      .first();
+
     return {
       id: booking._id,
+      userId: booking.user_id,
       status: booking.status,
       scheduledDate: booking.scheduled_date,
       scheduledTime: booking.scheduled_time,
@@ -18504,6 +18515,41 @@ export const getBookingByIdForCustomer = query({
       totalCost: booking.total_cost,
       statusHistory,
       lateMonitor,
+
+      // ── Payment ────────────────────────────────────────────────────────
+      // Every field below is read by the Payment section of BookingDetailsSheet
+      // and none of them were ever returned, so the section fell through every
+      // branch to the "Pending confirmation" placeholder and stayed there
+      // forever. Bug #336.
+      mechanicSetPriceCents: booking.mechanic_set_price_cents ?? null,
+      /**
+       * The agreed price, or null while nothing is agreed.
+       *
+       * `estimate_approved_at_ms` is stamped on all three agreed paths — the
+       * customer's explicit approval, the reauth approval, and an in-range
+       * auto-approval — so it is the one honest "this number is settled"
+       * signal. The ceiling is the amount that was agreed to; the set price
+       * backs it up for rows written before the ceiling was tracked.
+       */
+      approvedTotalCents:
+        booking.estimate_approved_at_ms != null
+          ? (booking.running_approved_ceiling_cents ??
+             booking.mechanic_set_price_cents ??
+             null)
+          : null,
+      // Dollars, matching the rest of the booking row. The client recomputes
+      // the disclosed band from these with the same helper Review & Pay uses.
+      laborCost: booking.labor_cost ?? null,
+      partsCost: booking.parts_cost ?? null,
+      shopState: (shop as any)?.state ?? null,
+      shopZip: (shop as any)?.zip ?? null,
+      holdAmountCents: payment?.hold_amount_cents ?? null,
+      finalCaptureAmountCents:
+        booking.final_capture_amount_cents ??
+        payment?.captured_amount_cents ??
+        null,
+      finalPartsUsedAtCapture: booking.final_parts_used_at_capture ?? null,
+      capturedAtMs: payment?.captured_at_ms ?? null,
     };
   },
 });

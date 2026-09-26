@@ -1487,6 +1487,30 @@ function FullContent({
                 </>
               );
             }
+            // The customer agreed a price. That IS the contract, and it is what
+            // this section should show — in range or not.
+            //
+            // The only branch that collapsed the band was `isMechanicPriceInRange`,
+            // which by definition never fires for the out-of-range case — and
+            // out-of-range is the ONLY kind that asks the customer to approve
+            // anything. So the screen that records "you approved $198.21" in
+            // Activity had no way to say so in Payment. It fell past every
+            // branch to the placeholder and stayed there, which is why the
+            // tester still saw it two hours later: nothing was going to change
+            // it.
+            const approvedTotalCents = bookingDetail?.approvedTotalCents ?? null;
+            if (approvedTotalCents != null) {
+              return (
+                <View style={styles.paymentRow}>
+                  <Text size="md" weight="regular" color="#1A1A1A">
+                    Agreed total
+                  </Text>
+                  <Text size="md" weight="bold" color="#1A1A1A">
+                    {formatCents(approvedTotalCents)}
+                  </Text>
+                </View>
+              );
+            }
             if (isMechanicPriceInRange && mechanicSetPriceCents != null) {
               // Mechanic completed pre-job and submitted a price that
               // landed inside the disclosed range — that becomes the
