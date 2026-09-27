@@ -49,7 +49,6 @@ import { Check, ChevronLeft } from 'lucide-react-native';
 // 3. Constants
 import { BrandColors, FontFamily, OtoGradient } from '@/constants/theme';
 import { useWalkInClaimStore } from '@/stores/useWalkInClaimStore';
-import { WALKIN_DEMO_CHOOSER } from '@/constants/devFlags';
 import { formatServiceDisplayName } from '@/utils/serviceDisplayName';
 
 /** The app's mark — same asset the home hero and map pin use. */
@@ -222,21 +221,15 @@ export function useReturningCustomer(): { isReturning: boolean; firstName: strin
   const { isSignedIn } = useAuth();
   const { user } = useUser();
   const claim = useWalkInClaimStore((s) => s.claim);
-  const demoFlow = useWalkInClaimStore((s) => s.demoFlow);
   const fromAccount = user?.firstName?.trim() || null;
   const fromShop = claim?.firstName?.trim() || null;
 
-  // The demo override wins in dev so both branches can be shown from one link
-  // without signing in and out between takes. `demoFlow` can only be set by a
-  // chooser that is itself behind `__DEV__`, so this reads null in production
-  // and the expression collapses to `!!isSignedIn` — the shipped behaviour.
-  const isReturning =
-    WALKIN_DEMO_CHOOSER && demoFlow ? demoFlow === 'existing' : !!isSignedIn;
+  const isReturning = !!isSignedIn;
 
   return {
     isReturning,
-    // A forced "existing" demo may not have a signed-in account behind it, so
-    // the shop's name is the fallback rather than a blank greeting.
+    // A returning customer's own name if we have it, else the name the shop
+    // took at the counter — better than a blank greeting either way.
     firstName: fromAccount ?? fromShop,
   };
 }
