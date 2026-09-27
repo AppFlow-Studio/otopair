@@ -5,7 +5,7 @@
  *          Shows mechanic info, appointment details, vehicle, detailed services breakdown,
  *          and inline payment options (Apple Pay, Google Pay, saved cards).
  *
- * FLOW: mechanic detail → booking-details → payment → confirmation
+ * FLOW: mechanic detail → payment → confirmation
  *
  * ROUTE: /booking/mechanic/[id]/payment
  *
@@ -29,7 +29,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 
 // 3. Shared UI (design system)
-import { BrandColors, ErrorOccurredModal, EstimatePill, FixedPriceBadge, Spacing, Text } from "@/components/shared-ui";
+import { BrandColors, ErrorOccurredModal, Spacing, Text } from "@/components/shared-ui";
 
 // 4. Flow-specific components
 import { BookingPageHeader } from "@/components/booking/pages";
@@ -60,6 +60,7 @@ import { usePaymentStore } from "@/stores/usePaymentStore";
 import { useShopStore } from "@/stores/useShopStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 import { resolveBookingVehicleVin } from "@/utils/bookingVehicle";
+import { formatServiceDisplayName } from "@/utils/serviceDisplayName";
 
 // ============================================================================
 // CONSTANTS
@@ -447,11 +448,16 @@ export default function PaymentScreen() {
           : sum + getEffectiveParts(s).high,
       0,
     );
-    const fixedPartsTotal = selectedServices.reduce(
-      (sum, s) => sum + (fixedPriceMap.get(String(s.id)) ?? 0),
+    const fixedPartsLowTotal = selectedServices.reduce(
+      (sum, s) => sum + (fixedPriceMap.get(String(s.id))?.lowDollars ?? 0),
       0,
     );
-    const partsCost = variablePartsCost + fixedPartsTotal;
+    const fixedPartsHighTotal = selectedServices.reduce(
+      (sum, s) => sum + (fixedPriceMap.get(String(s.id))?.highDollars ?? 0),
+      0,
+    );
+    const fixedPartsMidpoint = (fixedPartsLowTotal + fixedPartsHighTotal) / 2;
+    const partsCost = variablePartsCost + fixedPartsMidpoint;
 
     // Labor on flat-price lines is bundled into the flat — subtract it from
     // the billable labor used for tax/fee/total math.
@@ -473,8 +479,8 @@ export default function PaymentScreen() {
       zip: shop?.zip,
     }).taxDollars;
 
-    const partsLow = Math.max(0, variablePartsLowSum) + fixedPartsTotal;
-    const partsHigh = Math.max(partsLow, variablePartsHighSum) + fixedPartsTotal;
+    const partsLow = Math.max(0, variablePartsLowSum) + fixedPartsLowTotal;
+    const partsHigh = Math.max(0, variablePartsHighSum) + fixedPartsHighTotal;
     const taxLow = computeBookingTax({
       laborDollars: billableLaborCost,
       partsDollars: partsLow,
@@ -495,7 +501,8 @@ export default function PaymentScreen() {
       .map((s) => ({
         serviceId: String(s.id),
         laborCost: getServiceLaborCost(s),
-        partsFixed: fixedPriceMap.get(String(s.id)) ?? 0,
+        partsLow: fixedPriceMap.get(String(s.id))?.lowDollars ?? 0,
+        partsHigh: fixedPriceMap.get(String(s.id))?.highDollars ?? 0,
       }));
     // Pass the engine-aware low/high explicitly so deriveDisclosedRange
     // doesn't apply a synthetic ±8% on top of an already-banded engine
@@ -584,8 +591,7 @@ export default function PaymentScreen() {
   // intentionally exclude:
   //   - 'awd_surcharge_applied'  — engine applied a known +10% multiplier;
   //                                the price is correct, not an estimate
-  //   - 'fixed_price_override'   — guaranteed flat price; FixedPriceBadge
-  //                                already conveys this
+  //   - 'fixed_price_override'   — guaranteed flat price
   //   - 'ccb_absolute_pricing'   — fixed CCB price from absolute table
   //   - 'spread_exceeded'        — engine's own audit signal, not customer-
   //                                facing context
@@ -623,9 +629,16 @@ export default function PaymentScreen() {
   // in this band, so a wider spread would overstate uncertainty.
   const getServiceLineRange = useCallback(
     (service: (typeof selectedServices)[0]) => {
-      const flat = fixedPriceMap.get(String(service.id));
-      if (flat != null) {
-        return { low: flat, high: flat, isFixed: true as const, isEngineEstimate: false, laborOnly: false as const, from: flat };
+      const shopPrice = fixedPriceMap.get(String(service.id));
+      if (shopPrice) {
+        return {
+          low: shopPrice.lowDollars,
+          high: shopPrice.highDollars,
+          isFixed: shopPrice.isFixed,
+          isEngineEstimate: false,
+          laborOnly: false as const,
+          from: shopPrice.lowDollars,
+        };
       }
       const labor = getServiceLaborCost(service);
       // State 2: parts not priced for this vehicle → show labor as a floor
@@ -995,8 +1008,7 @@ export default function PaymentScreen() {
             <>
               {/* Tire/rotor quote acceptance: these are the shop's actual
                   agreed-upon line items, not a live-computed estimate — no
-                  ranges, no FixedPriceBadge (the whole card is a fixed
-                  price). */}
+                  range pill (the whole card is a fixed price). */}
               {quoteAcceptContext.lineItems.map((item, idx) => (
                 <View key={`quote-line-${idx}`} style={styles.serviceRow}>
                   <Text size="sm" weight="medium" color={BrandColors.primary}>
@@ -1010,28 +1022,15 @@ export default function PaymentScreen() {
 
               <CollapsibleDetail>
                 <View style={styles.breakdownSection}>
+                  {/* Taxes & Fees — tax + Otopair 7% service fee combined. */}
                   <View style={styles.breakdownRow}>
                     <Text size="sm" weight="regular" color="#6B7280">
-                      Taxes
+                      Taxes & Fees
                     </Text>
                     <Text size="sm" weight="medium" color="#6B7280">
-                      ${quoteBreakdown.taxDollars.toFixed(2)}
+                      ${(quoteBreakdown.taxDollars + quoteBreakdown.serviceFeeDollars).toFixed(2)}
                     </Text>
                   </View>
-                </View>
-
-                <View style={styles.serviceRow}>
-                  <View style={styles.feeRow}>
-                    <Text size="sm" weight="regular" color="#6B7280">
-                      Service Fee — 7%
-                    </Text>
-                    <TouchableOpacity style={styles.infoButton} activeOpacity={0.7}>
-                      <Info size={14} color="#9CA3AF" />
-                    </TouchableOpacity>
-                  </View>
-                  <Text size="sm" weight="medium" color="#6B7280">
-                    ${quoteBreakdown.serviceFeeDollars.toFixed(2)}
-                  </Text>
                 </View>
               </CollapsibleDetail>
 
@@ -1042,9 +1041,6 @@ export default function PaymentScreen() {
                   <Text size="md" weight="bold" color={BrandColors.primary}>
                     Total
                   </Text>
-                  <View style={styles.totalHeaderBadges}>
-                    <FixedPriceBadge size="sm" />
-                  </View>
                 </View>
                 <Text
                   size="2xl"
@@ -1091,8 +1087,6 @@ export default function PaymentScreen() {
                     : ""}
                 </Text>
                 <View style={styles.summaryLineRight}>
-                  {breakdown.isLaborOnly && <EstimatePill size="sm" label="Labor only" />}
-                  {hasAnyFixedPrice && <FixedPriceBadge size="sm" />}
                   <Text size="sm" weight="bold" color={BrandColors.secondary} numberOfLines={1}>
                     {breakdown.isLaborOnly ? breakdown.rangeFromFormatted : breakdown.rangeFormatted}
                   </Text>
@@ -1114,8 +1108,6 @@ export default function PaymentScreen() {
                   <Text size="sm" weight="medium" color={BrandColors.primary}>
                     {service.name}
                   </Text>
-                  {lineRange.isFixed && <FixedPriceBadge size="sm" />}
-                  {lineRange.laborOnly && <EstimatePill size="sm" label="Labor only" />}
                   {lineDurationLabel ? (
                     <Text size="sm" weight="regular" color="#6B7280">
                       · {lineDurationLabel}
@@ -1179,7 +1171,7 @@ export default function PaymentScreen() {
                   // column reads "Included" instead of a dollar amount, since
                   // the price contract is the flat shown in the summary row
                   // above. With no priced-parts data we render nothing extra
-                  // and let the FixedPriceBadge row stand alone.
+                  // and let the summary row stand alone.
                   const isFixedLine = fixedPriceMap.has(String(service.id));
                   const priced = pricedPartsMap.get(String(service.id));
                   if (!priced || !priced.winner) return [];
@@ -1231,7 +1223,7 @@ export default function PaymentScreen() {
                       <View key={`${service.id}-${part.part_id}-${partIdx}`} style={styles.breakdownRow}>
                         <View style={styles.breakdownLabel}>
                           <Text size="sm" weight="regular" color="#6B7280">
-                            {part.name} (Part){qtyLabel}
+                            {formatServiceDisplayName(part.name)} (Part){qtyLabel}
                           </Text>
                           {/* DEV-only: surface which part the 7-layer selector
                               returned + why a row reads "Price TBD". Stripped
@@ -1266,31 +1258,19 @@ export default function PaymentScreen() {
                 </View>
               ))}
 
-            {/* Taxes — recomputed at the parts endpoints. Service Fee
-                renders on its own row below; this row is tax only. */}
+            {/* Taxes & Fees — tax + Otopair 7% service fee combined into a
+                single line. Band recomputed at the parts endpoints. */}
             <View style={styles.breakdownRow}>
               <Text size="sm" weight="regular" color="#6B7280">
-                Taxes
+                Taxes & Fees
               </Text>
               <Text size="sm" weight="medium" color="#6B7280">
-                {formatRange(breakdown.taxLow, breakdown.taxHigh)}
+                {formatRange(
+                  breakdown.taxLow + breakdown.feeLow,
+                  breakdown.taxHigh + breakdown.feeHigh,
+                )}
               </Text>
             </View>
-          </View>
-
-          {/* Otopair Service Fee — same band logic as tax. */}
-          <View style={styles.serviceRow}>
-            <View style={styles.feeRow}>
-              <Text size="sm" weight="regular" color="#6B7280">
-                Service Fee — 7%
-              </Text>
-              <TouchableOpacity style={styles.infoButton} activeOpacity={0.7}>
-                <Info size={14} color="#9CA3AF" />
-              </TouchableOpacity>
-            </View>
-            <Text size="sm" weight="medium" color="#6B7280">
-              {formatRange(breakdown.feeLow, breakdown.feeHigh)}
-            </Text>
           </View>
           </CollapsibleDetail>
 
@@ -1427,7 +1407,9 @@ export default function PaymentScreen() {
       <PaymentMethodModal
         visible={paymentModalVisible}
         onClose={() => setPaymentModalVisible(false)}
-        totalAmount={isQuoteAccept && quoteBreakdown ? quoteBreakdown.total : breakdown.total}
+        // No totalAmount: the price contract is the disclosed range shown on
+        // this screen. Surfacing the single midpoint here (= the shop's
+        // total_cost) contradicted that range, so the picker stays price-free.
         serviceSummary={selectedServices[0]?.name ?? "Your booking"}
         mechanicName={mechanicDisplayName}
         applePaySupported={applePaySupported}
@@ -1775,12 +1757,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: Spacing.sm,
-    flexWrap: "wrap",
-  },
-  totalHeaderBadges: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.xs,
     flexWrap: "wrap",
   },
   // Retained for back-compat; new stacked layout uses `totalHeader`.

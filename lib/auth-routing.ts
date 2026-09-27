@@ -17,6 +17,133 @@ export function shouldRedirectSignedOutFromMainTabs(
   return isLoaded && isSignedIn !== true;
 }
 
+/**
+ * Whether a Clerk sign-in error means this device already holds a session.
+ *
+ * Clerk rejects a new sign-in with `session_exists` ("You're already signed
+ * in.") when the client already carries a session. Seen on a real, working
+ * account with unfinished setup: onboarding had walked a logged-in user back
+ * to the login screen. The session is good, so callers should treat this as a
+ * successful login and route on — surfacing the raw message strands the user,
+ * and signing them out would throw away a valid session.
+ *
+ * Matches the error code first; the message is a fallback for errors that
+ * arrive re-wrapped as a plain Error with only the text preserved.
+ */
+export function isSessionExistsError(err: unknown): boolean {
+  const e = err as { errors?: { code?: string }[]; message?: unknown } | null;
+  if (e?.errors?.some((x) => x?.code === "session_exists")) return true;
+  return typeof e?.message === "string" && e.message.toLowerCase().includes("already signed in");
+}
+
+/**
+ * Whether the native splash may be dropped.
+ *
+ * `authLoaded` (Clerk's `isLoaded`) only flips after a network round-trip, so
+ * offline it stays false forever. Gating the splash on it alone left the app
+ * covered indefinitely — a frozen launch icon with no spinner, no message and
+ * no timeout, while the tree underneath was alive and rendering. `ceilingReached`
+ * is the wall-clock backstop that makes the gate unwedgeable by ANY startup
+ * signal, present or future.
+ *
+ * `fontsReady` stays a hard requirement on purpose: useAppFonts resolves from
+ * bundled assets and reports ready on error too, so it always settles — with or
+ * without a network — and cannot itself be the thing that hangs.
+ */
+export function shouldHideSplash({
+  fontsReady,
+  authLoaded,
+  ceilingReached,
+}: {
+  fontsReady: boolean;
+  authLoaded: boolean;
+  ceilingReached: boolean;
+}): boolean {
+  return fontsReady && (authLoaded || ceilingReached);
+}
+
+/**
+ * Whether an essential-complete user should go back into onboarding on launch
+ * instead of to Home.
+ *
+ * Essential onboarding (email, phone, name) unlocks Home and makes the rest
+ * optional. But Google/Apple fill in the name and email themselves, so for
+ * them "essential" completes the moment the phone is verified — the first
+ * step — and any relaunch after that skipped the rest of onboarding for good
+ * (bug #235). A saved in-progress step means they closed the app partway
+ * through, so resume it. "Finish later" and finishing both clear that step,
+ * so those still land on Home, and a fully completed onboarding never resumes.
+ */
+export function shouldResumeMidSetup({
+  onboardingCompleted,
+  essentialOnboardingCompleted,
+  hasSetupInProgress,
+}: {
+  onboardingCompleted?: boolean;
+  essentialOnboardingCompleted?: boolean;
+  hasSetupInProgress: boolean;
+}): boolean {
+  return onboardingCompleted !== true && essentialOnboardingCompleted === true && hasSetupInProgress;
+}
+
+export type MainTabsAccess = "allow" | "wait" | "signedOut" | "setupIncomplete";
+
+/**
+ * Whether the main tabs (Home, Bookings, Cars, Oto) may render.
+ *
+ * Signing in used to be the only check, so a signed-in user who had not
+ * finished the required setup (email, verified phone, name) could reach Home
+ * through a direct link such as otopair://home — app/index, which normally
+ * routes them to setup, never runs on that path.
+ *
+ * "allow" mirrors app/index's own rule for sending someone Home, and is a
+ * superset of it (app/index additionally resumes an essential-complete user
+ * mid-setup), so whatever app/index sends to Home is allowed here and the two
+ * can never bounce a user between Home and setup.
+ *
+ * `me` unknown means "wait" — except offline, where it means "allow": an
+ * offline start only reaches the tabs through OfflineBootGate's valid session
+ * cache, and the record may never arrive, so waiting would strand the user in
+ * the offline mode built for exactly that case.
+ */
+export function getMainTabsAccess({
+  isLoaded,
+  isSignedIn,
+  me,
+  convexAuthenticated,
+  offline,
+  finishedLaterFlag,
+}: {
+  isLoaded: boolean;
+  isSignedIn: boolean | undefined;
+  me:
+    | {
+        onboardingCompleted?: boolean;
+        essentialOnboardingCompleted?: boolean;
+        onboardingDeferred?: boolean;
+      }
+    | null
+    | undefined;
+  /** useConvexAuth().isAuthenticated — a null record before this is true is "not loaded yet", not "no account". */
+  convexAuthenticated: boolean;
+  offline: boolean;
+  /** The device-side "Finish later" flag app/index also honours; null while it is being read. */
+  finishedLaterFlag: boolean | null;
+}): MainTabsAccess {
+  if (!isLoaded) return "wait";
+  if (shouldRedirectSignedOutFromMainTabs(isLoaded, isSignedIn)) return "signedOut";
+  if (me === undefined || (me === null && !convexAuthenticated)) return offline ? "allow" : "wait";
+  if (
+    me?.onboardingCompleted === true ||
+    me?.essentialOnboardingCompleted === true ||
+    me?.onboardingDeferred === true
+  ) {
+    return "allow";
+  }
+  if (finishedLaterFlag === null) return "wait";
+  return finishedLaterFlag ? "allow" : "setupIncomplete";
+}
+
 export function shouldRunStartupRedirect({
   authLoaded,
   hasNavigated,

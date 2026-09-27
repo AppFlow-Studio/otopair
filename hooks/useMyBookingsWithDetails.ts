@@ -42,8 +42,25 @@ function hasPendingApproval(row: ConvexBookingWithDetails): boolean {
   );
 }
 
-function isUpcoming(row: ConvexBookingWithDetails): boolean {
-  if (row.status === "cancelled") return false;
+/** How long a cancelled/declined booking stays on the Bookings tab so the
+ *  customer can see what happened before it moves to History only. */
+export const CANCELLED_CARD_TTL_MS = 24 * 60 * 60_000;
+
+function cancelledCardExpiresAt(row: ConvexBookingWithDetails): number | null {
+  if (row.status !== "cancelled" && row.status !== "declined") return null;
+  if (row.cancelled_at_ms == null) return null;
+  return row.cancelled_at_ms + CANCELLED_CARD_TTL_MS;
+}
+
+function isUpcoming(row: ConvexBookingWithDetails, nowMs: number): boolean {
+  if (row.status === "cancelled" || row.status === "declined") {
+    // Recently cancelled (by the shop or the customer) stays visible as a
+    // "Cancelled" card for 24h regardless of its scheduled date. Quote
+    // requests that never reached a shop have no booking to explain — skip.
+    if (!row.shop_id) return false;
+    const expiresAt = cancelledCardExpiresAt(row);
+    return expiresAt != null && nowMs < expiresAt;
+  }
   if (row.status === "completed" && !hasPendingApproval(row)) return false;
   if (row.status === "in_progress") return false;
   if (row.status === "pending_quote") return true;
@@ -73,6 +90,7 @@ function isHistory(row: ConvexBookingWithDetails): boolean {
   // On <date>" — a stale past-date pending row is a backend concern
   // (auto-cancel / expire), not a UI one.
   if (row.status === "cancelled") return true;
+  if (row.status === "declined") return true;
   if (row.status === "no_show") return true;
   if (row.status === "completed") return !hasPendingApproval(row);
   return false;
@@ -106,11 +124,16 @@ export function useMyBookingsWithDetails() {
   const [quoteClock, setQuoteClock] = useState(() => Date.now());
   useEffect(() => {
     const nextBoundary = (rows ?? [])
-      .flatMap((row) =>
-        row.quote_expires_at == null
-          ? []
-          : [row.quote_expires_at, row.quote_expires_at + 24 * 60 * 60_000],
-      )
+      .flatMap((row) => {
+        const boundaries =
+          row.quote_expires_at == null
+            ? []
+            : [row.quote_expires_at, row.quote_expires_at + 24 * 60 * 60_000];
+        // Also re-render when a cancelled card's 24h window closes.
+        const cancelledExpiry = cancelledCardExpiresAt(row);
+        if (cancelledExpiry != null) boundaries.push(cancelledExpiry);
+        return boundaries;
+      })
       .filter((value) => value > quoteClock)
       .sort((a, b) => a - b)[0];
     if (nextBoundary == null) return;
@@ -124,7 +147,7 @@ export function useMyBookingsWithDetails() {
   return useMemo(() => {
     const list = rows ?? [];
     const liveRows = list.filter(isLive);
-    const upcomingRows = list.filter(isUpcoming);
+    const upcomingRows = list.filter((row) => isUpcoming(row, quoteClock));
     const historyRows = list.filter(isHistory);
 
     const liveBooking: BookingCardBooking | null =

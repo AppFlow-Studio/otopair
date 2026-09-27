@@ -49,6 +49,8 @@ import { Check, ChevronLeft } from 'lucide-react-native';
 // 3. Constants
 import { BrandColors, FontFamily, OtoGradient } from '@/constants/theme';
 import { useWalkInClaimStore } from '@/stores/useWalkInClaimStore';
+import { WALKIN_DEMO_CHOOSER } from '@/constants/devFlags';
+import { formatServiceDisplayName } from '@/utils/serviceDisplayName';
 
 /** The app's mark — same asset the home hero and map pin use. */
 export const OTOPAIR_LOGO = require('@/assets/images/pin-logo-3d.png');
@@ -229,7 +231,7 @@ export function useReturningCustomer(): { isReturning: boolean; firstName: strin
   // chooser that is itself behind `__DEV__`, so this reads null in production
   // and the expression collapses to `!!isSignedIn` — the shipped behaviour.
   const isReturning =
-    __DEV__ && demoFlow ? demoFlow === 'existing' : !!isSignedIn;
+    WALKIN_DEMO_CHOOSER && demoFlow ? demoFlow === 'existing' : !!isSignedIn;
 
   return {
     isReturning,
@@ -264,7 +266,7 @@ export function useClaimData() {
   const vehicle = vehicleLabel(tracker?.vehicle) || claim?.vehicleSummary?.trim() || null;
   const fullName = [claim?.firstName, claim?.lastName].filter(Boolean).join(' ').trim();
   const pretty = formatPhone(claim?.phone);
-  const service = tracker?.primaryService?.trim() || null;
+  const service = formatServiceDisplayName(tracker?.primaryService?.trim()) || null;
   const plateLast4 = tracker?.vehicle?.plateLast4 || null;
   const eta = formatEta(tracker?.estimatedReadyIso);
   const shop = tracker?.shopName?.trim() || claim?.shopName?.trim() || null;

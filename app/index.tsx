@@ -20,8 +20,9 @@ import { useConvexAuth, useQuery } from "convex/react";
 import * as SecureStore from "expo-secure-store";
 import { api } from "@/convex/_generated/api";
 import { BrandColors } from "@/constants/theme";
-import { shouldRunStartupRedirect } from "@/lib/auth-routing";
-import { getOnboardingFinishedLaterKey } from "@/lib/onboarding-resume";
+import { shouldResumeMidSetup, shouldRunStartupRedirect } from "@/lib/auth-routing";
+import { getOnboardingFinishedLaterKey, hasOnboardingInProgress } from "@/lib/onboarding-resume";
+import { useConnection } from "@/hooks/useConnection";
 
 export default function Index() {
   const { isSignedIn, isLoaded, userId: clerkUserId } = useAuth();
@@ -59,6 +60,7 @@ export default function Index() {
         : rawMe.clerkUserId === clerkUserId
           ? rawMe
           : undefined;
+  const conn = useConnection();
   // Fire the redirect exactly once per mount to prevent re-fires during onboarding.
   const hasNavigated = useRef(false);
 
@@ -108,6 +110,23 @@ export default function Index() {
 
     // Wait for Convex user record to finish loading (undefined = still loading)
     if (me === undefined) {
+      // Offline cold start into the session-cached offline mode. The user record
+      // comes from Convex, so with no network it never arrives, and waiting for
+      // it left a signed-in user on this spinner forever (Clerk itself loads
+      // offline from its resource cache — see app/_layout.tsx). OfflineBootGate
+      // only lets an offline cold start reach this screen when a valid session
+      // cache exists, so go to the app and let the cached screens hydrate from
+      // disk. Skipping the onboarding check is deliberate: the onboarding flow
+      // needs the network anyway, and Home carries the Finish-setup card.
+      if (conn === "offline") {
+        try {
+          router.replace("/(main-tabs)/home");
+          hasNavigated.current = true;
+        } catch (e) {
+          console.warn("[onboarding-resume:index] navigation not ready, will retry:", e);
+        }
+        return;
+      }
       console.log("[onboarding-resume:index] waiting for Convex user record");
       return;
     }
@@ -137,6 +156,25 @@ export default function Index() {
 
       // Required account setup is done; optional onboarding can be completed later from home.
       if (me?.essentialOnboardingCompleted === true) {
+        // ...unless they closed the app partway through setup. For Google/Apple
+        // users "essential" lands at the phone step, so without this a relaunch
+        // skipped the rest of onboarding entirely (#235).
+        const resumeMidSetup = shouldResumeMidSetup({
+          onboardingCompleted: me.onboardingCompleted,
+          essentialOnboardingCompleted: true,
+          hasSetupInProgress: await hasOnboardingInProgress(clerkUserId),
+        });
+        if (hasNavigated.current) return;
+        if (resumeMidSetup) {
+          console.log("[onboarding-resume:index] resuming onboarding: closed partway through setup", {
+            convexUserId: me._id,
+            clerkUserId,
+          });
+          if (safeReplace({ pathname: "/(onboarding)", params: { isResumeMode: "true", resumeSource: "midSetup" } })) {
+            hasNavigated.current = true;
+          }
+          return;
+        }
         console.log("[onboarding-resume:index] navigating home: essential onboarding completed", {
           convexUserId: me._id,
           clerkUserId,
@@ -182,7 +220,7 @@ export default function Index() {
         }
       }
     })();
-  }, [clerkUserId, isLoaded, isSignedIn, me, rawMe, rootNavigationReady, alreadyInApp]);
+  }, [clerkUserId, conn, isLoaded, isSignedIn, me, rawMe, rootNavigationReady, alreadyInApp]);
 
   return (
     <View style={styles.loading}>

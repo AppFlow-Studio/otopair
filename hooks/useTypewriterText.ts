@@ -41,6 +41,10 @@ export interface TypewriterOptions {
   /** Pause after the line goes empty, before starting the next
    *  phrase. Default 250. */
   pauseMs?: number;
+  /** When true, no timer runs. Used to stand the animation down while the
+   *  screen it sits on isn't showing — it re-types from empty on resume,
+   *  which is invisible because nobody was looking. Default false. */
+  paused?: boolean;
 }
 
 type Phase = "typing" | "holding" | "deleting" | "pausing";
@@ -54,6 +58,7 @@ export function useTypewriterText(
     deleteMs = 30,
     holdMs = 1500,
     pauseMs = 250,
+    paused = false,
   } = options;
 
   const [text, setText] = useState<string>(phrases[0] ?? "");
@@ -65,7 +70,7 @@ export function useTypewriterText(
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    if (phrases.length === 0) {
+    if (phrases.length === 0 || paused) {
       setText("");
       return;
     }
@@ -129,7 +134,7 @@ export function useTypewriterText(
         timerRef.current = null;
       }
     };
-  }, [phrases, typeMs, deleteMs, holdMs, pauseMs]);
+  }, [phrases, typeMs, deleteMs, holdMs, pauseMs, paused]);
 
   return text;
 }

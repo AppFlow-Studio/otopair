@@ -436,6 +436,21 @@ interface StatusResult {
   /** The factor the score actually used, after the hold. Equals
    *  `BAND_FACTOR[bandStatus]` unless a class default is being held at 1.00. */
   factorApplied?: number;
+  /**
+   * WHY this item is unknown. Set only when `status === "unknown"`.
+   *
+   * The tracker showed every unknown identically, so a driver who had just
+   * answered a question saw the same grey line as one who had never been
+   * asked — "nothing really changes on the screen" (Yassin via Ahmad,
+   * 2026-09-14). These are different states and the UI has to be able to tell
+   * them apart before it can say so.
+   *
+   *  - `no_record`       nothing on file. We never asked, or they skipped.
+   *  - `missing_mileage` they gave a DATE, and this service is measured in
+   *                      miles only — so the answer landed and still is not
+   *                      enough. That distinction is the whole point.
+   */
+  unknownReason?: "no_record" | "missing_mileage";
 }
 
 // ============================================================================
@@ -721,11 +736,18 @@ export function computeFromOdometerStatus(input: FromOdometerInput): StatusResul
   // months-only interval on a car with no age is reachable, and guessing is
   // worse than admitting it.
   if (milesRatio == null && monthsRatio == null) {
+    // A date on file means the driver answered and we still cannot measure it
+    // — a miles-only interval with no odometer reading. Distinct from having
+    // been told nothing at all, and the tracker renders them differently.
+    const answered = lastServiceDate != null;
     return {
       status: "unknown",
       percentUsed: 0,
-      description: "Not enough info to say — a scan can confirm",
-      detail: "No data",
+      description: answered
+        ? "Add the mileage from that service and we can track this one"
+        : "Not enough info to say — a scan can confirm",
+      detail: answered ? "Mileage needed" : "No data",
+      unknownReason: answered ? "missing_mileage" : "no_record",
     };
   }
 
@@ -749,6 +771,7 @@ export function computeFromOdometerStatus(input: FromOdometerInput): StatusResul
       percentUsed: 0,
       description: `No service record on file — a scan can confirm`,
       detail: "Not on file",
+      unknownReason: "no_record",
       ...(milesRemaining != null ? { milesRemaining } : {}),
     };
   }
@@ -911,7 +934,13 @@ function computeHybridStatus(
 
   // No service data at all → unknown
   if (!record.lastServiceDate && !record.lastServiceMileage) {
-    return { status: "unknown", percentUsed: 0, description: "No service history", detail: "Unknown" };
+    return {
+      status: "unknown",
+      percentUsed: 0,
+      description: "No service history",
+      detail: "Unknown",
+      unknownReason: "no_record",
+    };
   }
 
   const monthlyMiles = getMonthlyMiles(avgMonthlyDriving);
@@ -969,8 +998,9 @@ function computeHybridStatus(
     return {
       status: "unknown",
       percentUsed: 0,
-      description: "Add the mileage from that service, or a scan can confirm",
-      detail: "Mileage unknown",
+      description: "Add the mileage from that service and we can track this one",
+      detail: "Mileage needed",
+      unknownReason: record.lastServiceDate != null ? "missing_mileage" : "no_record",
     };
   }
 

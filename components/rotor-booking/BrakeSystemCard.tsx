@@ -76,7 +76,6 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   preamble: {
-    fontStyle: "italic",
   },
   options: {
     backgroundColor: "#FFFFFF",

@@ -37,6 +37,9 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useOnboardingStore } from "@/stores/useOnboardingStore";
+import { LegalConsentRow } from "@/components/legal/LegalConsentRow";
+import { PRIVACY_POLICY } from "@/constants/legal/privacyPolicy";
+import { TERMS_OF_USE } from "@/constants/legal/termsOfUse";
 import { useEnsureConvexUser } from "@/hooks/useEnsureConvexUser";
 import { Mail } from "lucide-react-native";
 import { FontAwesome } from "@expo/vector-icons";
@@ -167,6 +170,33 @@ export function SignupStep({ onBack, onEmailSignup, onLogin }: SignupStepProps) 
     ssoNavigationPending,
   ]);
 
+  /**
+   * Consent gate. Every path off this screen creates an account — Google and
+   * Apple finalise one through Clerk SSO, Email walks to the email form — so
+   * all three are gated here rather than on a later screen. An OAuth user who
+   * never crossed a consent screen never agreed to arbitration, which is the
+   * specific hole this closes.
+   *
+   * Starts false on every mount: never pre-checked.
+   */
+  const [legalAccepted, setLegalAccepted] = useState(false);
+  const [consentNudge, setConsentNudge] = useState(0);
+
+  const requireConsent = useCallback(() => {
+    if (legalAccepted) return true;
+    setConsentNudge((n) => n + 1);
+    setError("Please accept the Terms of Use and Privacy Policy to continue.");
+    return false;
+  }, [legalAccepted]);
+
+  const recordConsent = useCallback(() => {
+    updateData({
+      legalAcceptedAt: Date.now(),
+      legalTermsEffective: TERMS_OF_USE.effectiveDate,
+      legalPrivacyEffective: PRIVACY_POLICY.effectiveDate,
+    });
+  }, [updateData]);
+
   const dynamicStyles = {
     container: { paddingTop: insets.top + Spacing.lg },
     bottomContainer: { paddingBottom: insets.bottom + Spacing.lg },
@@ -174,6 +204,8 @@ export function SignupStep({ onBack, onEmailSignup, onLogin }: SignupStepProps) 
 
   const handleOAuthSignup = async (strategy: "google" | "apple") => {
     if (loading) return;
+    if (!requireConsent()) return;
+    recordConsent();
     setLoading(strategy);
     setError(null);
     setIsNewUser(true);
@@ -252,6 +284,8 @@ export function SignupStep({ onBack, onEmailSignup, onLogin }: SignupStepProps) 
   };
 
   const handleEmailSignupPress = () => {
+    if (!requireConsent()) return;
+    recordConsent();
     setIsNewUser(true);
     onEmailSignup();
   };
@@ -297,9 +331,19 @@ export function SignupStep({ onBack, onEmailSignup, onLogin }: SignupStepProps) 
 
         {/* Auth Buttons */}
         <View style={[styles.buttonsContainer, dynamicStyles.bottomContainer]}>
+          {/* Consent — immediately above the buttons it gates. */}
+          <LegalConsentRow
+            checked={legalAccepted}
+            onChange={(next) => {
+              setLegalAccepted(next);
+              if (next) setError(null);
+            }}
+            nudgeKey={consentNudge}
+          />
+
           {/* Google */}
           <Pressable
-            style={[styles.oauthButton, styles.googleButton]}
+            style={[styles.oauthButton, styles.googleButton, !legalAccepted && styles.buttonAwaitingConsent]}
             onPress={() => handleOAuthSignup("google")}
             disabled={loading !== null}
           >
@@ -315,7 +359,7 @@ export function SignupStep({ onBack, onEmailSignup, onLogin }: SignupStepProps) 
 
           {/* Apple */}
           <Pressable
-            style={[styles.oauthButton, styles.appleButton]}
+            style={[styles.oauthButton, styles.appleButton, !legalAccepted && styles.buttonAwaitingConsent]}
             onPress={() => handleOAuthSignup("apple")}
             disabled={loading !== null}
           >
@@ -331,7 +375,7 @@ export function SignupStep({ onBack, onEmailSignup, onLogin }: SignupStepProps) 
 
           {/* Email */}
           <Pressable
-            style={[styles.oauthButton, styles.emailButton]}
+            style={[styles.oauthButton, styles.emailButton, !legalAccepted && styles.buttonAwaitingConsent]}
             onPress={handleEmailSignupPress}
             disabled={loading !== null}
           >
@@ -437,6 +481,9 @@ const styles = StyleSheet.create({
     fontSize: FontSize.md,
     fontFamily: FontFamily.semiBold,
     color: BrandColors.white,
+  },
+  buttonAwaitingConsent: {
+    opacity: 0.45,
   },
   errorText: {
     textAlign: "center",

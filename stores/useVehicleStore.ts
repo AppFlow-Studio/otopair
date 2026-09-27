@@ -171,6 +171,42 @@ export const useVehicleStore = create<VehicleState>()((set, get) => ({
     const currentSelected = get().selectedVehicleId;
     // Only set selectedVehicleId if not already set (preserve user's selection during booking)
     const keepSelection = currentSelected != null && ids.includes(currentSelected);
+    // Bail when the mapped result is the same data we already hold.
+    //
+    // This runs once per mounted `useVehicleOwnershipFromConvex` — the tabs
+    // layout, Home, Cars, AI chat, the booking-flow layout and OfflinePreload
+    // all mount one — on every push of `listVehiclesByUser`, and it rebuilt
+    // every Vehicle object each time. Selectors that return objects
+    // (`s.vehicles[vin]`, `getSelectedVehicle()`) then saw a new identity and
+    // re-rendered their screens, several times per push, for unchanged data.
+    // Field-wise because the objects are freshly built above and can never be
+    // reference-equal.
+    const prev = get().vehicles;
+    const prevIds = get().vehicleIds;
+    const unchanged =
+      prevIds.length === ids.length &&
+      prevIds.every((id, i) => id === ids[i]) &&
+      ids.every((id) => {
+        const a = prev[id];
+        const b = vehiclesRecord[id];
+        return (
+          !!a &&
+          a.vin === b.vin &&
+          a.year === b.year &&
+          a.make === b.make &&
+          a.model === b.model &&
+          a.mileage === b.mileage &&
+          a.isDefault === b.isDefault &&
+          a.engineId === b.engineId &&
+          a.ownershipId === b.ownershipId &&
+          (a.imageSource as { uri?: string } | undefined)?.uri ===
+            (b.imageSource as { uri?: string } | undefined)?.uri
+        );
+      });
+    // `keepSelection` in the guard, not just `unchanged`: if the stored
+    // selection has gone stale (not in `ids`), fall through so the set below
+    // can correct it, exactly as it did before.
+    if (unchanged && keepSelection) return;
     set({
       vehicles: vehiclesRecord,
       vehicleIds: ids,

@@ -18,6 +18,7 @@
 
 import { deriveDisclosedRange } from "@/lib/disclosedRange";
 import type { Service } from "@/stores/types/store.types";
+import type { ShopServicePriceMap } from "@/lib/shopServicePricing";
 
 export type ShopPriceLabel = {
   /** `$120` (fixed) · `~$90` (single estimate) · `~$70 – $86` (range) ·
@@ -39,7 +40,7 @@ export function buildShopPriceLabel(args: {
   /** Resolved per-service labor hours (empirical → book → default). */
   laborHoursMap: Map<string, number>;
   /** serviceId → flat price (dollars) for this shop + vehicle tier. */
-  fixedPriceMap: Map<string, number>;
+  fixedPriceMap: ShopServicePriceMap;
   /** Service ids that need parts but have NONE priced for this vehicle
    *  (State 2 candidates, vehicle-scoped). A shop-specific fixed price wins,
    *  so a flat-priced line here is never treated as labor-only. */
@@ -49,7 +50,7 @@ export function buildShopPriceLabel(args: {
   if (selectedServices.length === 0) return { text: null, isFixed: false, isLaborOnly: false };
 
   const laborRate = shop.labor_rate ?? 0;
-  const hasAnyFixed = selectedServices.some((s) => fixedPriceMap.has(s.id));
+  const hasAnyFixed = selectedServices.some((s) => fixedPriceMap.get(s.id)?.isFixed);
   const isServiceLaborOnly = (s: Service) =>
     !fixedPriceMap.has(s.id) && (laborOnlyCandidateIds?.has(s.id) ?? false);
   const isLaborOnly = selectedServices.some(isServiceLaborOnly);
@@ -72,7 +73,8 @@ export function buildShopPriceLabel(args: {
     .map((s) => ({
       serviceId: s.id,
       laborCost: laborRate * hoursFor(s),
-      partsFixed: fixedPriceMap.get(s.id) ?? 0,
+      partsLow: fixedPriceMap.get(s.id)?.lowDollars ?? 0,
+      partsHigh: fixedPriceMap.get(s.id)?.highDollars ?? 0,
     }));
   const laborCost = selectedServices.reduce(
     (sum, s) => sum + laborRate * hoursFor(s),

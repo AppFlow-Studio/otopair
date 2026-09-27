@@ -5,7 +5,7 @@
  *          services, reviews, portfolio, and staff. Displays a blurred map header
  *          with shop location pin and shop information.
  *
- * FLOW: search/carousel → shop detail → booking-details → payment → confirmation
+ * FLOW: search/carousel → shop detail → payment → confirmation
  *
  * USED IN: Navigation from HomeSearchOverlay or MechanicCarouselSheet
  *

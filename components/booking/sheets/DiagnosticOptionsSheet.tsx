@@ -13,14 +13,19 @@
 
 import React, { useEffect, useState } from "react";
 import {
+  Keyboard,
   Modal,
   Pressable,
-  ScrollView,
   StyleSheet,
   TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
+import {
+  KeyboardAwareScrollView,
+  KeyboardProvider,
+  KeyboardToolbar,
+} from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import {
@@ -42,6 +47,14 @@ import type { DiagnosticSystem } from "@/lib/diagnostic-checklist-templates";
 
 const MAX_NOTES = 1000;
 const MIN_NOTES = 10;
+
+/**
+ * Room kept between the focused notes input and the keyboard. It has to clear
+ * the "Done" toolbar (which sits above the keyboard and isn't part of the
+ * measured keyboard height) plus ~one input-height of breathing space, so the
+ * whole field lands comfortably in view instead of tucked behind the toolbar.
+ */
+const KEYBOARD_SCROLL_OFFSET = 144;
 
 type IconComponent = React.ComponentType<{ size: number; color: string }>;
 
@@ -118,62 +131,75 @@ export function DiagnosticOptionsSheet({
       presentationStyle="pageSheet"
       onRequestClose={onClose}
     >
-      <View style={[styles.container, { paddingTop: insets.top }]}>
-        <View style={styles.header}>
-          <Pressable style={styles.backButton} onPress={onClose} hitSlop={8}>
-            <ChevronLeft size={24} color={BrandColors.primary} />
+      {/* Re-establish the keyboard-controller context: an RN Modal renders in a
+          separate native view hierarchy, so the root KeyboardProvider (and its
+          keyboard measurements) don't reach inside a pageSheet. Without this the
+          aware-scroll and Done toolbar below would see a zero-height keyboard. */}
+      <KeyboardProvider>
+        <View style={[styles.container, { paddingTop: insets.top }]}>
+          {/* Tapping anywhere in the header (outside the back button) is a
+              generous, discoverable way to dismiss the keyboard. */}
+          <Pressable style={styles.header} onPress={() => Keyboard.dismiss()}>
+            <Pressable style={styles.backButton} onPress={onClose} hitSlop={8}>
+              <ChevronLeft size={24} color={BrandColors.primary} />
+            </Pressable>
+            <View style={styles.headerTitleWrap}>
+              <Text size="xl" weight="bold" color={BrandColors.primary}>
+                What needs service?
+              </Text>
+            </View>
+            <View style={styles.headerSpacer} />
           </Pressable>
-          <View style={styles.headerTitleWrap}>
-            <Text size="xl" weight="bold" color={BrandColors.primary}>
-              What needs service?
-            </Text>
-          </View>
-          <View style={styles.headerSpacer} />
-        </View>
 
-        <ScrollView
-          style={styles.scrollView}
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-        >
-          <Text size="sm" weight="medium" color="#6B7280" style={styles.subtitle}>
-            Select the main issue you're experiencing. The selected area
-            expands so you can describe it in your own words.
-          </Text>
-
-          <View style={styles.optionsContainer}>
-            {DIAGNOSTIC_AREAS.map((area) => {
-              const isSelected = selectedSystem === area.value;
-              return (
-                <AreaCard
-                  key={area.value}
-                  area={area}
-                  isSelected={isSelected}
-                  onSelect={() => setSelectedSystem(area.value)}
-                  notes={notes}
-                  onChangeNotes={(t) => setNotes(t.slice(0, MAX_NOTES))}
-                  notesMeetMinimum={notesMeetMinimum}
-                  trimmedNotesLength={trimmedNotesLength}
-                />
-              );
-            })}
-          </View>
-        </ScrollView>
-
-        <View style={[styles.footer, { paddingBottom: insets.bottom + Spacing.md }]}>
-          <TouchableOpacity
-            style={[styles.confirmButton, !canConfirm && styles.confirmButtonDisabled]}
-            onPress={handleConfirm}
-            disabled={!canConfirm}
-            activeOpacity={0.85}
+          <KeyboardAwareScrollView
+            style={styles.scrollView}
+            contentContainerStyle={styles.scrollContent}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="interactive"
+            bottomOffset={KEYBOARD_SCROLL_OFFSET}
           >
-            <Text size="md" weight="bold" color={BrandColors.white}>
-              Add to cart
+            <Text size="sm" weight="medium" color="#6B7280" style={styles.subtitle}>
+              Select the main issue you're experiencing. The selected area
+              expands so you can describe it in your own words.
             </Text>
-          </TouchableOpacity>
+
+            <View style={styles.optionsContainer}>
+              {DIAGNOSTIC_AREAS.map((area) => {
+                const isSelected = selectedSystem === area.value;
+                return (
+                  <AreaCard
+                    key={area.value}
+                    area={area}
+                    isSelected={isSelected}
+                    onSelect={() => setSelectedSystem(area.value)}
+                    notes={notes}
+                    onChangeNotes={(t) => setNotes(t.slice(0, MAX_NOTES))}
+                    notesMeetMinimum={notesMeetMinimum}
+                    trimmedNotesLength={trimmedNotesLength}
+                  />
+                );
+              })}
+            </View>
+          </KeyboardAwareScrollView>
+
+          <View style={[styles.footer, { paddingBottom: insets.bottom + Spacing.md }]}>
+            <TouchableOpacity
+              style={[styles.confirmButton, !canConfirm && styles.confirmButtonDisabled]}
+              onPress={handleConfirm}
+              disabled={!canConfirm}
+              activeOpacity={0.85}
+            >
+              <Text size="md" weight="bold" color={BrandColors.white}>
+                Add to cart
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
-      </View>
+        {/* One-tap "Done" bar pinned above the keyboard. The sheet has a single
+            input, so hide the prev/next field arrows. */}
+        <KeyboardToolbar showArrows={false} />
+      </KeyboardProvider>
     </Modal>
   );
 }

@@ -11,6 +11,8 @@ import React from "react";
 import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ArrowRight } from "lucide-react-native";
+
+import { cancellationDisclosure } from "@/constants/bookingActionPolicy";
 import {
   moderateScale,
   moderateVerticalScale,
@@ -70,7 +72,7 @@ export function ConfirmBookingBar({
         )}
       </Pressable>
       <Text size="xs" weight="regular" color="#6B7280" style={styles.caption} center>
-        Free cancellation up to 2 hours before your appointment
+        {cancellationDisclosure()}
       </Text>
     </View>
   );

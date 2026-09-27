@@ -112,6 +112,8 @@ import { PostOptimizeBookingSheet } from "@/components/cars/PostOptimizeBookingS
 import { PackageQuestionsSheet } from "@/components/cars/PackageQuestionsSheet";
 import { useVehicleReadiness } from "@/hooks/useVehicleReadiness";
 import { ChevronRight, ScanLine, Wrench } from "lucide-react-native";
+import { useCoachAnchor } from "@/components/coach/useCoachAnchor";
+import { formatServiceDisplayNames } from "@/utils/serviceDisplayName";
 
 // ============================================================================
 // HELPERS
@@ -267,6 +269,15 @@ function desaturateForHeroTint(
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
+/** Android only. RN's Android ScrollView drops a SCROLL event only when
+ *  `scrollEventThrottle >= max(17, msSinceLastDispatch)`
+ *  (`ReactScrollViewHelper.emitScrollEvent`), so the `16` this screen passes on
+ *  iOS never throttles anything here — every scrolled frame was crossing to the
+ *  JS thread. Parking the throttle this high stops the native dispatch outright.
+ *  `END_DRAG` and `MOMENTUM_END` are exempt from that gate, so the offset ref
+ *  below still gets refreshed whenever the scroll settles. */
+const ANDROID_SCROLL_EVENTS_OFF = 1_000_000;
+
 // ============================================================================
 // MAIN COMPONENT
 // ============================================================================
@@ -300,6 +311,9 @@ export default function CarsHomeScreen() {
   // State mirror of celebrationFlowActive so ref mutations trigger re-renders
   const [celebrationActive, setCelebrationActive] = useState(false);
   const [pendingHealthSheet, setPendingHealthSheet] = useState(false);
+  // Coach-mark anchor. Rides the card View that already exists — no extra
+  // node, no style, so the tour cannot move what it is pointing at.
+  const healthAnchor = useCoachAnchor("cars.health", 24);
   const [showHealthRingSheet, setShowHealthRingSheet] = useState(false);
   // Optimistic "just finished onboarding" flag, scoped to the specific
   // vehicle it was set for (not a global boolean) so it can't leak to
@@ -1398,7 +1412,7 @@ export default function CarsHomeScreen() {
       )
       .map((r) => ({
         id: String(r._id),
-        services: (r.serviceNames as string[] | undefined) ?? [],
+        services: formatServiceDisplayNames(r.serviceNames as string[] | undefined),
         completedAt:
           (r.completed_at_ms as number | undefined) ??
           (r.completed_at as number | undefined) ??
@@ -1795,7 +1809,20 @@ export default function CarsHomeScreen() {
               await removeOwner({ vin, userId });
             } catch (err) {
               console.warn("Remove vehicle failed:", err);
-              toast.error("Couldn't remove this vehicle. Try again.");
+              // "Try again" is the wrong advice when the shop still has the
+              // car — retrying will never work, and a driver told to retry a
+              // permanent refusal will keep tapping. Surface the reason the
+              // server gave when it gave one.
+              const raw = err instanceof Error ? err.message : "";
+              const atShop = raw.includes("at the shop right now");
+              toast.error(
+                atShop
+                  ? "This car is at the shop"
+                  : "Couldn't remove this vehicle",
+                atShop
+                  ? "You can remove it once the job is finished."
+                  : "Please try again.",
+              );
             }
           },
         },
@@ -1866,8 +1893,26 @@ export default function CarsHomeScreen() {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         automaticallyAdjustKeyboardInsets
-        onScroll={(e) => { scrollOffsetRef.current = e.nativeEvent.contentOffset.y; }}
-        scrollEventThrottle={16}
+        // `scrollOffsetRef` is only ever stashed, never read mid-scroll, so on
+        // Android the per-frame hop to JS bought nothing: keep the ref current
+        // from the two settle events instead (see ANDROID_SCROLL_EVENTS_OFF).
+        // iOS keeps the original per-frame handler untouched.
+        onScroll={
+          Platform.OS === "android"
+            ? undefined
+            : (e) => { scrollOffsetRef.current = e.nativeEvent.contentOffset.y; }
+        }
+        scrollEventThrottle={Platform.OS === "android" ? ANDROID_SCROLL_EVENTS_OFF : 16}
+        onScrollEndDrag={
+          Platform.OS === "android"
+            ? (e) => { scrollOffsetRef.current = e.nativeEvent.contentOffset.y; }
+            : undefined
+        }
+        onMomentumScrollEnd={
+          Platform.OS === "android"
+            ? (e) => { scrollOffsetRef.current = e.nativeEvent.contentOffset.y; }
+            : undefined
+        }
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#6B7280" />}
       >
         {/* Scrolling Gradient — uses the active vehicle's color tinted
@@ -2162,6 +2207,11 @@ export default function CarsHomeScreen() {
               : null
           }
           visible={recencyItem !== null}
+          // Bounds the year row to this car. Without it the picker fell back
+          // to a flat fifteen-year window and offered a 2025 car service dates
+          // in 2011 (Ahmad, 2026-09-14). The stepper always passed this; the
+          // tracker's "Add info" path never did.
+          vehicleYear={activeVehicle?.year}
           onClose={() => setRecencyItem(null)}
           onSubmit={async (slug: string, answer: QuickCheckAnswer) => {
             const item = recencyItem;
@@ -2257,7 +2307,11 @@ export default function CarsHomeScreen() {
           // key on vin so swiping between two no-tracker cars
           // remounts the card — pulse rings + content arrive fresh
           // every time, same feel as today's tracker↔placeholder switch.
-          <View key={activeVehicle?.vin ?? "no-vehicle"} style={styles.quickReadCard}>
+          <View
+            key={activeVehicle?.vin ?? "no-vehicle"}
+            style={styles.quickReadCard}
+            {...healthAnchor}
+          >
             <View style={{ alignItems: "center", justifyContent: "center", width: scale(140), height: scale(140), marginBottom: scale(12) }}>
               <Animated.View style={{ position: "absolute", width: scale(160), height: scale(160), borderRadius: scale(80), backgroundColor: "#94A3B8", opacity: 0.12, transform: [{ scale: quickReadPulse }] }} />
               <Animated.View style={{ position: "absolute", width: scale(130), height: scale(130), borderRadius: scale(65), backgroundColor: "#94A3B8", opacity: 0.06, transform: [{ scale: quickReadPulse }] }} />

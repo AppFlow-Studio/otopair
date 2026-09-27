@@ -43,8 +43,12 @@ interface PaymentMethodModalProps {
   visible: boolean;
   /** Called when modal should close */
   onClose: () => void;
-  /** Total amount to display */
-  totalAmount: number;
+  /** Firm amount to display in the header (e.g. a mechanic-set price or reauth
+   *  hold). Omit on the pre-booking picker — the price contract there is the
+   *  disclosed range on the screen behind the modal, so surfacing a single
+   *  number here would contradict it. When omitted, the header shows a
+   *  "Choose payment method" title instead. */
+  totalAmount?: number;
   /** Service name/summary to display */
   serviceSummary: string;
   /** Mechanic name to display */
@@ -237,14 +241,25 @@ export function PaymentMethodModal({
           {/* Handle Bar */}
           <View style={styles.handleBar} />
 
-          {/* Header */}
+          {/* Header — a firm amount (approve-estimate: mechanic-set price /
+              reauth hold) when passed; otherwise a plain picker title, since
+              the pre-booking price contract is the disclosed range behind the
+              modal, not a single number. */}
           <View style={styles.header}>
-            <Text size="xs" weight="medium" color="#9CA3AF" style={styles.headerLabel}>
-              TOTAL AMOUNT
-            </Text>
-            <Text size="3xl" weight="bold" color={BrandColors.primary}>
-              ${totalAmount.toFixed(2)}
-            </Text>
+            {typeof totalAmount === "number" ? (
+              <>
+                <Text size="xs" weight="medium" color="#9CA3AF" style={styles.headerLabel}>
+                  TOTAL AMOUNT
+                </Text>
+                <Text size="3xl" weight="bold" color={BrandColors.primary}>
+                  ${totalAmount.toFixed(2)}
+                </Text>
+              </>
+            ) : (
+              <Text size="xl" weight="bold" color={BrandColors.primary}>
+                Choose payment method
+              </Text>
+            )}
             <Text size="sm" weight="medium" color="#6B7280">
               {serviceSummary} • {mechanicName}
             </Text>

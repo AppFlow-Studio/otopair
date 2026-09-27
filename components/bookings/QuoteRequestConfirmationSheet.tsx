@@ -56,6 +56,12 @@ interface Props {
   onClose?: () => void;
   /** VIN captured when this quote request started. */
   vehicleVin: string | null;
+  /** When true (default) the sheet presents inside a native <Modal>. Set false
+   *  when this sheet is already rendered inside another native Modal (the
+   *  ServiceBottomSheet-embedded tire/rotor requesting flow): presenting a
+   *  Modal-over-Modal on iOS is racy and gets silently dropped, so we overlay
+   *  the same content as an absolute-fill View instead. */
+  renderInModal?: boolean;
 }
 
 // ============================================================================
@@ -63,7 +69,7 @@ interface Props {
 // ============================================================================
 
 export const QuoteRequestConfirmationSheet = forwardRef<QuoteRequestConfirmationSheetRef, Props>(
-  ({ onViewBooking, onClose, vehicleVin }, ref) => {
+  ({ onViewBooking, onClose, vehicleVin, renderInModal = true }, ref) => {
     const insets = useSafeAreaInsets();
 
     // Plain full-screen <Modal> with native slide animation — no FloatingSheet
@@ -118,14 +124,7 @@ export const QuoteRequestConfirmationSheet = forwardRef<QuoteRequestConfirmation
       onViewBooking();
     };
 
-    return (
-      <Modal
-        visible={modalVisible}
-        animationType="slide"
-        presentationStyle="overFullScreen"
-        statusBarTranslucent
-        onRequestClose={handleRequestClose}
-      >
+    const content = (
       <View style={styles.fullScreen}>
         <ScrollView
           contentContainerStyle={[styles.scroll, { paddingTop: insets.top + 24 }]}
@@ -203,6 +202,25 @@ export const QuoteRequestConfirmationSheet = forwardRef<QuoteRequestConfirmation
           </Pressable>
         </View>
       </View>
+    );
+
+    // Inline mode — this sheet is rendered inside another native Modal (the
+    // ServiceBottomSheet-embedded tire/rotor requesting flow). Presenting a
+    // Modal-over-Modal on iOS is racy and can be silently dropped, so overlay
+    // the same content as an absolute-fill View instead of nesting a Modal.
+    if (!renderInModal) {
+      return modalVisible ? <View style={styles.inlineOverlay}>{content}</View> : null;
+    }
+
+    return (
+      <Modal
+        visible={modalVisible}
+        animationType="slide"
+        presentationStyle="overFullScreen"
+        statusBarTranslucent
+        onRequestClose={handleRequestClose}
+      >
+        {content}
       </Modal>
     );
   },
@@ -278,6 +296,13 @@ const styles = StyleSheet.create({
   fullScreen: {
     flex: 1,
     backgroundColor: "#FFFFFF",
+  },
+  // Inline (non-Modal) overlay — fills the parent screen so the confirmation
+  // content covers everything behind it without a nested native Modal.
+  inlineOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "#FFFFFF",
+    zIndex: 100,
   },
   scroll: {
     paddingHorizontal: 20,

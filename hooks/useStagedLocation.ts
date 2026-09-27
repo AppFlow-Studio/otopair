@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
+import { Platform } from "react-native";
 import * as Location from "expo-location";
 
+import { formatLocationLabel } from "@/lib/locationLabel";
 import type { UserLocation } from "@/stores/types/store.types";
 
 export type LocationStage =
@@ -46,6 +48,9 @@ async function getAddressLabel(location: UserLocation): Promise<Partial<UserLoca
       longitude: location.longitude,
     });
     if (!address) return null;
+    // Android's geocoder fills these fields differently; formatLocationLabel
+    // brings it to the "City, ST" iOS shows (see lib/locationLabel.ts).
+    if (Platform.OS === "android") return formatLocationLabel(address);
     const city = address.city || address.subregion || "";
     const state = address.region || "";
     const label = [city || "Current Location", state].filter(Boolean).join(", ");
@@ -81,8 +86,20 @@ export function useStagedLocation(): StagedLocationState {
     (async () => {
       setIsResolving(true);
       try {
-        const { status } = await Location.requestForegroundPermissionsAsync();
+        // Android: expo's request path always starts the system permission
+        // Activity, even when the permission is already granted. That pauses
+        // the app for ~200 ms, flips AppState (which triggers the foreground
+        // update check) and happens on every mount of this hook — Home and
+        // every booking entry. Read the state first; request only when needed.
+        let { status } =
+          Platform.OS === "android"
+            ? await Location.getForegroundPermissionsAsync()
+            : await Location.requestForegroundPermissionsAsync();
         if (cancelled) return;
+        if (Platform.OS === "android" && status !== "granted") {
+          ({ status } = await Location.requestForegroundPermissionsAsync());
+          if (cancelled) return;
+        }
         if (status !== "granted") {
           setLocation(null);
           setStage("unavailable");

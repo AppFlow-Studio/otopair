@@ -4,7 +4,7 @@
  * PURPOSE: Consistent header component for booking flow pages.
  *          Provides back button, centered title, and optional right action.
  *
- * USED IN: booking-details.tsx, payment.tsx
+ * USED IN: payment.tsx
  *
  * PROPS:
  *   - title (string): Header title text

@@ -25,6 +25,7 @@ import {
 } from "@/hooks/useRecHistoryFromConvex";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 import { moderateScale, scale } from "@/utils/responsive";
+import { formatServiceDisplayName } from "@/utils/serviceDisplayName";
 
 type Group = "hidden" | "resolved" | "other";
 
@@ -85,7 +86,7 @@ function Row({ item, onPress }: { item: RecHistoryItem; onPress?: () => void }) 
     >
       <View style={styles.rowMain}>
         <Text weight="semiBold" style={styles.rowTitle}>
-          {item.service_name}
+          {formatServiceDisplayName(item.service_name)}
         </Text>
         <Text style={styles.rowSub}>
           {item.mechanic_name ?? "Your mechanic"}

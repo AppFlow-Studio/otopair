@@ -38,6 +38,7 @@ import Animated, { FadeOut, LinearTransition, useAnimatedStyle, useSharedValue, 
 import { FixedPriceBadge, Text } from '@/components/shared-ui';
 import { BookingProgressBar } from '@/components/bookings/BookingProgressBar';
 import { JobBlockedNotice } from '@/components/bookings/JobBlockedNotice';
+import { CancelledBookingNotice } from '@/components/bookings/CancelledBookingNotice';
 import { ApprovalBanner } from '@/components/booking/ApprovalBanner';
 import { getBookingStageView } from '@/utils/bookingStages';
 import { useConnection } from '@/hooks/useConnection';
@@ -126,6 +127,22 @@ export interface Booking {
   /** The shop/mechanic's answer to the pickup request, once they respond.
    *  Drives the status line on the card. */
   pickupResponse?: "acknowledged" | "bringing_out" | "declined";
+  /** History-list classification from the backend (terminal bookings only).
+   *  Drives whether a history row reads as a completed service or a
+   *  cancellation / pickup-fee forfeit. See getByUserIdWithDetails. */
+  historyOutcome?: "completed" | "cancelled_pickup" | "cancelled" | "no_show";
+  /** Amount for the history row in cents — the service total when completed,
+   *  else the pickup / cancellation fee (0 when waived). */
+  historyAmountCents?: number;
+  /** Pickup / cancellation fee in cents (0 = waived). */
+  cancellationFeeCents?: number;
+  cancellationKind?: "free" | "late_cancel" | "no_show";
+  /** When the booking was cancelled/declined (ms). The upcoming list keeps a
+   *  cancelled card for 24h from this moment. */
+  cancelledAtMs?: number;
+  cancelledByRole?: "shop" | "customer" | "system" | string;
+  /** Customer-safe reason, e.g. "Parts weren't available". */
+  cancellationReasonLabel?: string;
 }
 
 export interface BookingCardProps {
@@ -185,6 +202,56 @@ function pickupStatusView(
         bg: '#FFF7ED',
         color: '#C2410C',
       };
+  }
+}
+
+// History-row presentation for a terminal booking. Cancelled / picked-up /
+// no-show rows must NOT read as a service the customer paid for: the title
+// becomes an outcome label (not the service name) and the amount is a fee
+// (or "No fee" when waived), never a service price. `completed` keeps the
+// normal service-name + total rendering untouched.
+// See docs/mobile-pickup-past-services-spec.md §1.
+type HistoryOutcome = 'completed' | 'cancelled_pickup' | 'cancelled' | 'no_show';
+
+function resolveHistoryOutcome(booking: Booking): HistoryOutcome {
+  if (booking.historyOutcome) return booking.historyOutcome;
+  // Fallback for rows predating the backend field (e.g. an offline cache
+  // captured before the deploy). A cancelled row with a pickup request is a
+  // pickup release; otherwise a plain cancel.
+  if (booking.status === 'no_show') return 'no_show';
+  if (booking.status === 'cancelled') {
+    return booking.pickupRequestedAtMs != null ? 'cancelled_pickup' : 'cancelled';
+  }
+  return 'completed';
+}
+
+function historyOutcomeView(outcome: HistoryOutcome): {
+  title: string;
+  dateLabel: string;
+  feeLabel: string;
+} {
+  switch (outcome) {
+    case 'cancelled_pickup':
+      return {
+        title: 'Cancelled — picked up early',
+        dateLabel: 'Picked up early',
+        feeLabel: 'Pickup fee',
+      };
+    case 'no_show':
+      return {
+        title: 'Missed appointment',
+        dateLabel: 'Missed on',
+        feeLabel: 'Cancellation fee',
+      };
+    case 'cancelled':
+      return {
+        title: 'Cancelled',
+        dateLabel: 'Cancelled on',
+        feeLabel: 'Cancellation fee',
+      };
+    case 'completed':
+    default:
+      return { title: '', dateLabel: 'Completed On', feeLabel: '' };
   }
 }
 
@@ -343,7 +410,19 @@ export function BookingCard({
       dim.value = withTiming(0.45, { duration: 280 });
     }
   }, [isCancelling, dim]);
+  // Cancelled bookings now stay on the list for 24h (see
+  // useMyBookingsWithDetails), so once the server confirms the cancel this
+  // same card re-renders as a "Cancelled" card — drop the local
+  // mid-cancel dim/strikethrough instead of leaving it greyed out.
+  useEffect(() => {
+    if (isCancelling && booking.status === 'cancelled') {
+      setIsCancelling(false);
+      dim.value = withTiming(1, { duration: 200 });
+    }
+  }, [isCancelling, booking.status, dim]);
   const dimStyle = useAnimatedStyle(() => ({ opacity: dim.value }));
+  const isCancelledCard =
+    variant === 'upcoming' && booking.status === 'cancelled' && !isCancelling;
   const [carImageError, setCarImageError] = useState(false);
   const showCarPlaceholder = !booking.makeLogoUrl?.trim() || carImageError;
   const fontScale = PixelRatio.getFontScale();
@@ -365,9 +444,23 @@ export function BookingCard({
   // Format services display
   const mainService = booking.services[0] || 'Service';
   const additionalCount = booking.services.length - 1;
-  const additionalText = variant === 'history' 
-    ? `+${additionalCount} Services` 
+  const additionalText = variant === 'history'
+    ? `+${additionalCount} Services`
     : `+${additionalCount} More`;
+
+  // History rows classify into completed vs cancelled/pickup/no-show. Only a
+  // completed row renders the service name + a price; the rest render an
+  // outcome label + a fee (or "No fee"), so they never read as a service the
+  // customer paid for. See docs/mobile-pickup-past-services-spec.md §1.
+  const historyOutcome: HistoryOutcome =
+    variant === 'history' ? resolveHistoryOutcome(booking) : 'completed';
+  const isCompletedHistory = historyOutcome === 'completed';
+  const outcomeView = historyOutcomeView(historyOutcome);
+  const showOutcomeLabel = variant === 'history' && !isCompletedHistory;
+  const displayTitle = showOutcomeLabel ? outcomeView.title : mainService;
+  // Fee shown on a non-completed history row (0 => waived => "No fee").
+  const historyFeeCents =
+    booking.historyAmountCents ?? booking.cancellationFeeCents ?? 0;
 
   const handleViewDetails = () => {
     // Bookings awaiting customer acceptance route to the dedicated
@@ -506,13 +599,13 @@ export function BookingCard({
           <Text
             weight="bold"
             size="xl"
-            color="#1F2937"
+            color={showOutcomeLabel ? '#6B7280' : '#1F2937'}
             numberOfLines={1}
             style={[styles.mainServiceText, isCancelling ? styles.strikethrough : undefined]}
           >
-            {mainService}
+            {displayTitle}
           </Text>
-          {additionalCount > 0 && (
+          {additionalCount > 0 && !showOutcomeLabel && (
             <>
               <Text weight="bold" size="xl" color="#1F2937">, </Text>
               <Text
@@ -620,27 +713,38 @@ export function BookingCard({
           </View>
         ) : (
           <View style={styles.dateTimeContainer}>
-            <Text weight="semiBold" size="sm" color="#5299FE">
+            <Text
+              weight="semiBold"
+              size="sm"
+              color={isCancelledCard ? '#9CA3AF' : '#5299FE'}
+              style={isCancelledCard ? styles.strikethrough : undefined}
+            >
               {booking.date}
             </Text>
-            <Text weight="semiBold" size="sm" color="#5299FE">
+            <Text
+              weight="semiBold"
+              size="sm"
+              color={isCancelledCard ? '#9CA3AF' : '#5299FE'}
+              style={isCancelledCard ? styles.strikethrough : undefined}
+            >
               {booking.time}
             </Text>
           </View>
         )
       ) : (
         <View style={styles.historyInfoContainer}>
-          {/* Cancelled rows shouldn't fake a "Total Cost: $0.00" — many never
-              reached a confirmed quote (tire-quote requests abandoned in
-              pending_quote), so the dollar amount is meaningless. Show a
-              status pill instead, and label the date as "Cancelled On" when
-              one exists. */}
-          {booking.status === 'cancelled' ? (
+          {/* Non-completed history rows (cancelled / picked-up-early /
+              no-show) must never read as a paid service. Show the outcome's
+              date label + the forfeit fee — or "No fee" when it was waived or
+              the booking never reached a charged state (e.g. a tire-quote
+              request abandoned in pending_quote). The captured amount here is
+              a fee, not a service price. See spec §1. */}
+          {!isCompletedHistory ? (
             <>
               {booking.date ? (
                 <View style={styles.historyInfoRow}>
                   <Text weight="regular" size="sm" color="#6B7280">
-                    Cancelled On
+                    {outcomeView.dateLabel}
                   </Text>
                   <Text weight="semiBold" size="sm" color="#6B7280">
                     {booking.date}
@@ -649,10 +753,16 @@ export function BookingCard({
               ) : null}
               <View style={styles.historyInfoRow}>
                 <Text weight="regular" size="sm" color="#6B7280">
-                  Status
+                  {outcomeView.feeLabel}
                 </Text>
-                <Text weight="semiBold" size="sm" color={STATUS_CONFIG.cancelled.textColor}>
-                  Not charged
+                <Text
+                  weight="semiBold"
+                  size="sm"
+                  color={historyFeeCents > 0 ? STATUS_CONFIG.cancelled.textColor : '#6B7280'}
+                >
+                  {historyFeeCents > 0
+                    ? `$${(historyFeeCents / 100).toFixed(2)}`
+                    : 'No fee'}
                 </Text>
               </View>
             </>
@@ -691,6 +801,17 @@ export function BookingCard({
           estimate is answering the wrong question. Renders nothing unless the
           shop has flagged a hold the driver is meant to know about. */}
       <JobBlockedNotice bookingId={String(booking.id)} />
+
+      {/* Recently cancelled (shop, customer, or auto-expiry): explain what
+          happened and when the card leaves the list. */}
+      {isCancelledCard ? (
+        <CancelledBookingNotice
+          cancelledAtMs={booking.cancelledAtMs}
+          cancelledByRole={booking.cancelledByRole}
+          shopName={booking.shopName}
+          reasonLabel={booking.cancellationReasonLabel}
+        />
+      ) : null}
 
       {/* Pickup request status — appears once the customer has requested their
           car back (vehicle_at_shop). Reflects the shop/mechanic's live response

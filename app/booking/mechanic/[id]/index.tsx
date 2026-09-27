@@ -5,7 +5,7 @@
  *          specialties, and booking options. Displays a blurred map header with
  *          shop location pin and shop information.
  *
- * FLOW: mechanic_selection (ServiceBottomSheet) → mechanic detail → booking-details → payment → confirmation
+ * FLOW: mechanic selection → mechanic detail → payment → confirmation
  *
  * USED IN: Navigation from components/booking/sheets/MechanicSelectionContent.tsx
  *
@@ -31,11 +31,9 @@ import { BorderRadius, BrandColors, ScreenContainer, Shadows, Spacing, Text } fr
 // 4. Flow-specific components
 import { MechanicDetailHeader } from "@/components/booking/MechanicDetailHeader";
 import { MechanicDetailTabs, type MechanicDetailTab } from "@/components/booking/MechanicDetailTabs";
-import { ShopDetails } from "@/components/booking/ShopDetails";
 import { MechanicReviewsSection } from "@/components/booking/MechanicReviewsSection";
 import { ShopPortfolioSection } from "@/components/booking/ShopPortfolioSection";
 import { ShopMechanicsSection } from "@/components/booking/ShopMechanicsSection";
-import { AddServicesModal, ShopBookingModal } from "@/components/booking/modals";
 
 // 5. Constants, hooks, types, stores
 import { useBookingStore } from "@/stores/useBookingStore";
@@ -63,14 +61,10 @@ export default function MechanicDetailScreen() {
 
   // ═══════════════ STATE ═══════════════
   const [activeTab, setActiveTab] = useState<MechanicDetailTab>("reviews");
-  const [showAddServicesModal, setShowAddServicesModal] = useState(false);
-  const [showBookingModal, setShowBookingModal] = useState(false);
-  const [bookingMechanicId, setBookingMechanicId] = useState<string | null>(null);
 
   // ═══════════════ STORES ═══════════════
   const getMechanicById = useMechanicStore((state) => state.getMechanicById);
   const getShopById = useShopStore((state) => state.getShopById);
-  const setBookingTypeAndProceed = useBookingStore((state) => state.setBookingTypeAndProceed);
   const resetBookingFlow = useBookingStore((state) => state.resetBookingFlow);
   const bookingStage = useBookingStore((state) => state.bookingStage);
 
@@ -130,33 +124,6 @@ export default function MechanicDetailScreen() {
     router.back();
   }, [bookingStage, resetBookingFlow, router]);
 
-  const handleBookNow = useCallback(
-    (mechanicId: string) => {
-      // Since user selected a specific time slot, this is a scheduled booking
-      setBookingTypeAndProceed("schedule_later", mechanicId);
-      router.push(`/booking/mechanic/${id}/booking-details`);
-    },
-    [setBookingTypeAndProceed, router, id],
-  );
-
-  const handleAddMoreServices = useCallback(() => {
-    setShowAddServicesModal(true);
-  }, []);
-
-  const handleViewAllAvailability = useCallback((mechanicId: string) => {
-    setBookingMechanicId(mechanicId);
-    setShowBookingModal(true);
-  }, []);
-
-  const handleCloseAddServicesModal = useCallback(() => {
-    setShowAddServicesModal(false);
-  }, []);
-
-  const handleCloseBookingModal = useCallback(() => {
-    setShowBookingModal(false);
-    setBookingMechanicId(null);
-  }, []);
-
   const handleTabChange = useCallback((tab: MechanicDetailTab) => {
     setActiveTab(tab);
   }, []);
@@ -168,22 +135,12 @@ export default function MechanicDetailScreen() {
       }
 
       const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
-        if (showAddServicesModal) {
-          setShowAddServicesModal(false);
-          return true;
-        }
-
-        if (showBookingModal) {
-          handleCloseBookingModal();
-          return true;
-        }
-
         handleBack();
         return true;
       });
 
       return () => subscription.remove();
-    }, [handleBack, handleCloseBookingModal, showAddServicesModal, showBookingModal])
+    }, [handleBack])
   );
 
   // ═══════════════ RENDER ═══════════════
@@ -263,15 +220,6 @@ export default function MechanicDetailScreen() {
         {/* Tab Content */}
         <View style={styles.tabContentContainer}>{renderTabContent()}</View>
       </Animated.ScrollView>
-
-      {/* Modal-based components - work reliably from any component hierarchy */}
-      <AddServicesModal visible={showAddServicesModal} onClose={handleCloseAddServicesModal} />
-      <ShopBookingModal
-        visible={showBookingModal}
-        shopId={shop.id}
-        mechanicId={bookingMechanicId}
-        onClose={handleCloseBookingModal}
-      />
     </FullScreenContainer>
   );
 }

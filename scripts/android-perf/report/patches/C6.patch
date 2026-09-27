@@ -1,0 +1,49 @@
+diff --git a/app/(main-tabs)/cars/index.tsx b/app/(main-tabs)/cars/index.tsx
+index 8cfced28..f3484ea4 100644
+--- a/app/(main-tabs)/cars/index.tsx
++++ b/app/(main-tabs)/cars/index.tsx
+@@ -268,6 +268,15 @@ function desaturateForHeroTint(
+ 
+ const { width: SCREEN_WIDTH } = Dimensions.get("window");
+ 
++/** Android only. RN's Android ScrollView drops a SCROLL event only when
++ *  `scrollEventThrottle >= max(17, msSinceLastDispatch)`
++ *  (`ReactScrollViewHelper.emitScrollEvent`), so the `16` this screen passes on
++ *  iOS never throttles anything here — every scrolled frame was crossing to the
++ *  JS thread. Parking the throttle this high stops the native dispatch outright.
++ *  `END_DRAG` and `MOMENTUM_END` are exempt from that gate, so the offset ref
++ *  below still gets refreshed whenever the scroll settles. */
++const ANDROID_SCROLL_EVENTS_OFF = 1_000_000;
++
+ // ============================================================================
+ // MAIN COMPONENT
+ // ============================================================================
+@@ -1883,8 +1892,26 @@ export default function CarsHomeScreen() {
+         showsVerticalScrollIndicator={false}
+         keyboardShouldPersistTaps="handled"
+         automaticallyAdjustKeyboardInsets
+-        onScroll={(e) => { scrollOffsetRef.current = e.nativeEvent.contentOffset.y; }}
+-        scrollEventThrottle={16}
++        // `scrollOffsetRef` is only ever stashed, never read mid-scroll, so on
++        // Android the per-frame hop to JS bought nothing: keep the ref current
++        // from the two settle events instead (see ANDROID_SCROLL_EVENTS_OFF).
++        // iOS keeps the original per-frame handler untouched.
++        onScroll={
++          Platform.OS === "android"
++            ? undefined
++            : (e) => { scrollOffsetRef.current = e.nativeEvent.contentOffset.y; }
++        }
++        scrollEventThrottle={Platform.OS === "android" ? ANDROID_SCROLL_EVENTS_OFF : 16}
++        onScrollEndDrag={
++          Platform.OS === "android"
++            ? (e) => { scrollOffsetRef.current = e.nativeEvent.contentOffset.y; }
++            : undefined
++        }
++        onMomentumScrollEnd={
++          Platform.OS === "android"
++            ? (e) => { scrollOffsetRef.current = e.nativeEvent.contentOffset.y; }
++            : undefined
++        }
+         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#6B7280" />}
+       >
+         {/* Scrolling Gradient — uses the active vehicle's color tinted

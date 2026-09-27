@@ -43,6 +43,7 @@ import { api } from "@/convex/_generated/api";
 
 // 4. Shared UI (design system)
 import { Text } from "@/components/shared-ui";
+import { formatServiceDisplayName } from "@/utils/serviceDisplayName";
 
 // 5. Constants, hooks, types
 import {
@@ -119,6 +120,11 @@ function humanizeSlug(slug: string): string {
     .join(" ");
 }
 
+/** A service slug as customers see it — timing_belt → "Drive Belt" (#244). */
+function humanizeService(slug: string): string {
+  return formatServiceDisplayName(humanizeSlug(slug));
+}
+
 /** check_engine → "Check-Engine" (special-cased), otherwise title-cased. */
 function humanizeLight(code: string): string {
   if (code.toLowerCase() === "check_engine") return "Check-Engine";
@@ -152,7 +158,7 @@ function buildRows(payload: VehicleUpdatePayload): string[] {
     rows.push(`Update odometer to ${num(payload.mileage)} mi`);
   }
   for (const claim of payload.service_claims ?? []) {
-    const label = humanizeSlug(claim.service_slug);
+    const label = humanizeService(claim.service_slug);
     if (claim.kind === "completed") {
       // Surface the past anchor the user is about to write, so the confirm is honest.
       const when: string[] = [];
@@ -206,12 +212,12 @@ function appliedMessage(res: TruthResult): string {
     const hedged = new Set(res.servicesCompletedHedged ?? []);
     parts.push(
       `logged ${res.servicesCompleted
-        .map((s) => humanizeSlug(s) + (hedged.has(s) ? " (noted as unsure)" : ""))
+        .map((s) => humanizeService(s) + (hedged.has(s) ? " (noted as unsure)" : ""))
         .join(", ")} as done`,
     );
   }
   if (res.servicesFlagged?.length)
-    parts.push(`flagged ${res.servicesFlagged.map(humanizeSlug).join(", ")}`);
+    parts.push(`flagged ${res.servicesFlagged.map(humanizeService).join(", ")}`);
   if (res.faultLightsAdded?.length)
     parts.push(`logged ${res.faultLightsAdded.map(humanizeLight).join(", ")}`);
   return parts.length ? capitalize(parts.join(" · ")) : "Done";

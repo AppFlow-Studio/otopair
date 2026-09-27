@@ -256,6 +256,10 @@ export default function PickDateTimeScreen() {
       }),
     [slotsByMechanicId, allMechanicsMap, shopNextSlots.length],
   );
+  const hasBay = useMemo(
+    () => mechanicCarouselItems.some((item) => item.isBay),
+    [mechanicCarouselItems],
+  );
 
   // Which month the day picker is showing. null = the default
   // today-anchored view (current month). A non-null value comes from
@@ -726,7 +730,7 @@ export default function PickDateTimeScreen() {
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
               <Text size="lg" weight="bold" color="#0F172A">
-                Choose your mechanic
+                {hasBay ? "Choose your mechanic or bay" : "Choose your mechanic"}
               </Text>
             </View>
             <MechanicCarousel

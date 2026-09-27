@@ -22,13 +22,24 @@
  *          ParsedDocumentSheet (uploaded-document preview).
  */
 
-import React from "react";
-import { Pressable, Share, StyleSheet, Text as RNText, View } from "react-native";
+import React, { useEffect, useRef, useState } from "react";
+import { ActivityIndicator, Pressable, Share, StyleSheet, Text as RNText, View } from "react-native";
+import { File, Paths } from "expo-file-system";
+import * as Sharing from "expo-sharing";
+import { useMutation, useQuery } from "convex/react";
+
+import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 
 import { ServiceLogColors as C, ServiceLogFonts as F } from "@/constants/theme";
+import { formatServiceDisplayName } from "@/utils/serviceDisplayName";
 
 export interface ReceiptPayload {
   receipt_number: string;
+  /** Stable OTP-<last8> order code (always present). */
+  booking_number?: string | null;
+  /** Real billing number INV-YYYY-NNNNNN; null until the job is captured. */
+  invoice_number?: string | null;
   service_date: string | null;
   completed_at: number | null;
   shop: {
@@ -84,17 +95,31 @@ export interface ReceiptPayload {
   };
   payment: {
     method: string | null;
+    card_brand?: string | null;
     card_last4: string | null;
     amount: number;
     status: string;
     stripe_intent_id: string | null;
     charged_at: number | null;
     invoice_storage_id: string | null;
+    refunded_amount_cents?: number | null;
+    last_refunded_at_ms?: number | null;
+  } | null;
+  /** Present only once money has been returned on this booking. */
+  refund?: {
+    amount_cents: number;
+    refunded_at_ms: number | null;
+    is_full: boolean;
+    net_paid_cents: number | null;
   } | null;
 }
 
 interface Props {
   payload: ReceiptPayload;
+  /** Needed to fetch and, if absent, request the stored invoice PDF. Omitted
+   *  by callers that render a receipt without one (previews, fixtures); the
+   *  share then falls back to text, which is still a real receipt. */
+  bookingId?: Id<"bookings">;
   /** When provided, renders a filled "Leave a review" pill at the bottom. The
    *  home auto-prompt passes it; the sheet routes leave it undefined. */
   onLeaveReview?: () => void;
@@ -232,9 +257,19 @@ function TotalRow({
   );
 }
 
-export function ReceiptContent({ payload, onLeaveReview, onViewJob }: Props) {
-  const { receipt_number, service_date, shop, mechanic, vehicle, line_items, totals, payment } =
+export function ReceiptContent({ payload, bookingId, onLeaveReview, onViewJob }: Props) {
+  const { receipt_number, booking_number, invoice_number, service_date, shop, mechanic, vehicle, line_items, totals, payment, refund } =
     payload;
+
+  // Reactive: once the scheduled render stores the file, this flips from null
+  // to a URL and the effect below picks the share back up.
+  const pdfUrl = useQuery(
+    api.invoices.getInvoicePdfUrl,
+    bookingId ? { bookingId } : "skip",
+  );
+  const requestInvoice = useMutation(api.invoices.requestInvoiceGeneration);
+  const [preparing, setPreparing] = useState(false);
+  const wantsShareRef = useRef(false);
 
   const serviceLines = line_items.filter(
     (l): l is Extract<(typeof line_items)[number], { type: "service" }> => l.type === "service",
@@ -248,13 +283,12 @@ export function ReceiptContent({ payload, onLeaveReview, onViewJob }: Props) {
     : "";
 
   const paidDate = fmtLongDate(payment?.charged_at ?? service_date);
-  /** `card_last4` is not persisted yet (see convex/bookings.ts getReceipt), so
-   *  most rows only carry a bare method string like "card". Title-case it
-   *  rather than printing lowercase mid-sentence, and drop it entirely when
-   *  it adds nothing over the word "Paid". */
+  /** Card brand + last-4 are persisted now (payments.card_brand/card_last4).
+   *  Fall back to a title-cased method string, and drop it entirely when it
+   *  adds nothing over the word "Paid". */
   const method = payment?.method?.trim() ?? "";
   const tender = payment?.card_last4
-    ? `Visa ···· ${payment.card_last4}`
+    ? `${payment.card_brand ?? "Card"} ···· ${payment.card_last4}`
     : method && method.toLowerCase() !== "card"
       ? method.charAt(0).toUpperCase() + method.slice(1)
       : null;
@@ -284,9 +318,155 @@ export function ReceiptContent({ payload, onLeaveReview, onViewJob }: Props) {
     .filter(Boolean)
     .join("  ·  ");
 
+  /**
+   * The receipt as plain text.
+   *
+   * Sharing used to send the title alone — "Otopair Receipt #OTP-VS8CDA23" —
+   * so every target got a bare string with no amount, no shop and no line
+   * items (Ahmad, 2026-09-14). Saving that to Files or pasting it into a
+   * message tells the recipient nothing, which is the one job a shared
+   * receipt has.
+   *
+   * Plain text rather than a PDF on purpose: it pastes into Messages, Mail
+   * and Notes intact, survives Copy, and needs no render pass or native
+   * dependency. A PDF export is the right follow-up for expense filing, and
+   * is a bigger change than this bug deserves.
+   */
+  const buildShareText = (): string => {
+    const lines: string[] = [];
+    lines.push(`Otopair receipt · ${receipt_number}`);
+    if (shop?.name) lines.push(shop.name);
+    if (paidDate) lines.push(`Paid ${paidDate}`);
+
+    const veh = [vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(" ");
+    if (veh) lines.push(veh);
+
+    if (serviceLines.length) {
+      lines.push("", "LABOR");
+      for (const l of serviceLines) {
+        lines.push(`  ${formatServiceDisplayName(l.name)}  ${fmtAmount(l.labor_cost)}`);
+      }
+    }
+    if (partLines.length) {
+      lines.push("", "PARTS");
+      for (const l of partLines) {
+        const qty = l.quantity && l.quantity > 1 ? ` x${l.quantity}` : "";
+        lines.push(`  ${formatServiceDisplayName(l.name)}${qty}  ${fmtAmount(l.cost)}`);
+      }
+    }
+
+    lines.push("");
+    lines.push(`Labor        ${fmtAmount(totals.labor_subtotal)}`);
+    lines.push(`Parts        ${fmtAmount(totals.parts_subtotal)}`);
+    lines.push(`Taxes & Fees ${fmtAmount(totals.platform_fee + totals.tax)}`);
+    lines.push(`TOTAL        $${fmtAmount(totals.total)}`);
+    return lines.join("\n");
+  };
+
+  /**
+   * Share the stored PDF when there is one, and the text when there is not.
+   *
+   * The render pipeline in `convex/invoices_node.ts` has always produced a
+   * real PDF — @react-pdf/renderer, an allocated invoice number, stored in
+   * Convex storage — but nothing in the app could reach it, so the only way
+   * one ever left the system was the confirmation email.
+   *
+   * The PDF is usually absent on the first tap because generation is
+   * scheduled, not synchronous. `requestInvoiceGeneration` kicks it off and
+   * the URL query is reactive, so the effect below fires the share as soon as
+   * the file lands. The text share stays as the fallback for every path that
+   * cannot end in a file: generation failing, a slow render, or a platform
+   * with no sharing UI at all.
+   */
+  const shareFile = async (url: string): Promise<boolean> => {
+    try {
+      if (!(await Sharing.isAvailableAsync())) return false;
+      // Cache, not documents: this is a copy of something the server owns, and
+      // the OS is welcome to reclaim it.
+      const target = new File(Paths.cache, `${receipt_number}.pdf`);
+      // `idempotent` defaults to FALSE — a second download onto an existing
+      // path throws. That made sharing work once and then silently fall back
+      // to text on every later tap, because the throw landed in the catch
+      // below (Ahmad, 2026-09-15).
+      //
+      // Overwriting rather than reusing the cached copy on purpose:
+      // `invoices.regenerateInvoice` can replace the stored PDF, and a
+      // receipt is the last thing that should be served stale from a cache.
+      const file = await File.downloadFileAsync(url, target, { idempotent: true });
+      await Sharing.shareAsync(file.uri, {
+        mimeType: "application/pdf",
+        UTI: "com.adobe.pdf",
+        dialogTitle: `Otopair receipt ${receipt_number}`,
+      });
+      return true;
+    } catch (err) {
+      // Never fatal — the text receipt is a real receipt and the caller falls
+      // back to it. Logged because a silent `return false` is what turned a
+      // one-line bug into something that needed reproducing.
+      console.warn("Receipt PDF share failed, falling back to text:", err);
+      return false;
+    }
+  };
+
+  // Resume the share the moment the PDF exists. A timeout is deliberate: a
+  // render that never completes must not leave the button spinning forever,
+  // and text is a perfectly good receipt to fall back to.
+  useEffect(() => {
+    if (!preparing) return;
+    if (pdfUrl) {
+      const wanted = wantsShareRef.current;
+      wantsShareRef.current = false;
+      setPreparing(false);
+      if (wanted) {
+        void shareFile(pdfUrl).then((ok) => {
+          if (!ok) void shareText();
+        });
+      }
+      return;
+    }
+    const t = setTimeout(() => {
+      if (!wantsShareRef.current) return;
+      wantsShareRef.current = false;
+      setPreparing(false);
+      void shareText();
+    }, 12_000);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preparing, pdfUrl]);
+
+  const shareText = async () => {
+    await Share.share({
+      message: buildShareText(),
+      // iOS shows `title` on the share sheet header and uses it as the
+      // filename for "Save to Files"; the body is what actually travels.
+      title: `Otopair receipt ${receipt_number}`,
+    });
+  };
+
   const handleShare = async () => {
     try {
-      await Share.share({ message: `Otopair Receipt #${receipt_number}` });
+      if (pdfUrl) {
+        if (await shareFile(pdfUrl)) return;
+        await shareText();
+        return;
+      }
+      // No PDF yet. Ask for one and let the effect below share it when it
+      // arrives — the query is reactive, so no polling is needed.
+      if (bookingId) {
+        setPreparing(true);
+        wantsShareRef.current = true;
+        try {
+          await requestInvoice({ bookingId });
+        } catch {
+          // Generation refused (payment not finalized, or already running).
+          // Text is still a real receipt, so do not leave them with nothing.
+          wantsShareRef.current = false;
+          setPreparing(false);
+          await shareText();
+        }
+        return;
+      }
+      await shareText();
     } catch {
       // User dismissed the share sheet — nothing to recover from.
     }
@@ -296,15 +476,20 @@ export function ReceiptContent({ payload, onLeaveReview, onViewJob }: Props) {
     <View style={styles.root}>
       {/* ── masthead ─────────────────────────────────────────── */}
       <View style={styles.head}>
-        <RNText style={styles.eyebrow}>RECEIPT · {receipt_number}</RNText>
+        <RNText style={styles.eyebrow}>RECEIPT · {booking_number ?? receipt_number}</RNText>
         <Pressable
-          onPress={handleShare}
+          onPress={preparing ? undefined : handleShare}
+          disabled={preparing}
           hitSlop={12}
           accessibilityRole="button"
           accessibilityLabel="Share receipt"
           style={({ pressed }) => (pressed ? styles.pressed : null)}
         >
-          <RNText style={styles.share}>SHARE</RNText>
+          {preparing ? (
+            <ActivityIndicator size="small" color={C.accent} />
+          ) : (
+            <RNText style={styles.share}>SHARE</RNText>
+          )}
         </Pressable>
       </View>
 
@@ -326,7 +511,7 @@ export function ReceiptContent({ payload, onLeaveReview, onViewJob }: Props) {
           {serviceLines.map((l, i) => (
             <LineItem
               key={`svc-${i}`}
-              name={l.name}
+              name={formatServiceDisplayName(l.name)}
               detail={
                 l.labor_hours != null
                   ? `${fmtLaborHours(l.labor_hours)}${
@@ -346,7 +531,7 @@ export function ReceiptContent({ payload, onLeaveReview, onViewJob }: Props) {
           {partLines.map((l, i) => (
             <LineItem
               key={`part-${i}`}
-              name={l.name}
+              name={formatServiceDisplayName(l.name)}
               detail={
                 [
                   l.quantity != null && l.unit_cost != null
@@ -370,8 +555,10 @@ export function ReceiptContent({ payload, onLeaveReview, onViewJob }: Props) {
         <TotalRow label="Labor" amount={fmtAmount(totals.labor_subtotal)} />
       ) : null}
       <TotalRow label="Parts" amount={fmtAmount(totals.parts_subtotal)} />
-      <TotalRow label="Service fee" amount={fmtAmount(totals.platform_fee)} />
-      <TotalRow label="Tax" amount={fmtAmount(totals.tax)} />
+      <TotalRow
+        label="Taxes & Fees"
+        amount={fmtAmount(totals.platform_fee + totals.tax)}
+      />
       {totals.parts_saved > 0 ? (
         <TotalRow
           label="You saved on parts"
@@ -383,6 +570,21 @@ export function ReceiptContent({ payload, onLeaveReview, onViewJob }: Props) {
       <View style={styles.ruleTight} />
       <TotalRow label="Total" amount={fmtUSD(totals.total)} hero />
 
+      {/* ── refund (only once money has been returned) ───────── */}
+      {refund ? (
+        <>
+          <View style={styles.rule} />
+          <TotalRow
+            label={refund.is_full ? "Refunded" : "Partially refunded"}
+            amount={`−${fmtAmount(refund.amount_cents / 100)}`}
+            positive
+          />
+          {refund.net_paid_cents != null ? (
+            <TotalRow label="Net paid" amount={fmtUSD(refund.net_paid_cents / 100)} />
+          ) : null}
+        </>
+      ) : null}
+
       {/* ── provenance ───────────────────────────────────────── */}
       <View style={styles.rule} />
       <View style={styles.footer}>
@@ -391,6 +593,7 @@ export function ReceiptContent({ payload, onLeaveReview, onViewJob }: Props) {
         {vehicleLine ? <RNText style={styles.footerMeta}>{vehicleLine}</RNText> : null}
         {idLine ? <RNText style={styles.footerMeta}>{idLine}</RNText> : null}
         {odoLine ? <RNText style={styles.footerMeta}>{odoLine}</RNText> : null}
+        {invoice_number ? <RNText style={styles.footerMeta}>INVOICE {invoice_number}</RNText> : null}
       </View>
 
       {onViewJob ? (

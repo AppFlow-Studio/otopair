@@ -222,7 +222,6 @@ const styles = StyleSheet.create({
   },
   sectionHeader: {
     marginBottom: 20,
-    fontStyle: 'italic',
   },
   scrollContent: {
     paddingLeft: 34.5,
@@ -248,7 +247,8 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.12,
     shadowRadius: 12,
-    elevation: 4,
+    // No `elevation`: Android draws it as a dark rim on the rounded corners,
+    // which iOS's soft shadow doesn't have.
   },
   cardContent: {
     width: '100%',

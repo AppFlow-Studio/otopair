@@ -10,6 +10,7 @@
 
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import { formatServiceDisplayName } from "@/utils/serviceDisplayName";
 
 export interface RecHistoryItem {
   _id: string;
@@ -46,7 +47,11 @@ export function useRecHistoryFromConvex(vin: string | null | undefined) {
   ) as RecHistoryItem[] | undefined;
 
   return {
-    history: history ?? [],
+    // Server-resolved service names — see utils/serviceDisplayName.ts.
+    history: (history ?? []).map((h) => ({
+      ...h,
+      service_name: formatServiceDisplayName(h.service_name),
+    })),
     isLoading: vin != null && history === undefined,
   };
 }

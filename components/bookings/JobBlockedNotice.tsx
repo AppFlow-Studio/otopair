@@ -23,6 +23,7 @@ import { useQuery } from "convex/react";
 import { AlertTriangle, Clock, PhoneCall } from "lucide-react-native";
 import { api } from "@/convex/_generated/api";
 import { Text } from "@/components/shared-ui";
+import { isLocalBookingId } from "@/constants/bookingActionPolicy";
 
 type Blocker = {
   _id: string;
@@ -46,9 +47,14 @@ function heldFor(openedAt: number): string {
 }
 
 export function JobBlockedNotice({ bookingId }: { bookingId: string }) {
+  // Local ids (`booking_*`, `tire_quote_*`) belong to no server booking, so
+  // this query throws a Convex server error on them. useBookingActions has
+  // always skipped for the same reason; this one did not, which took the
+  // whole Bookings tab down to a white screen the moment any local booking
+  // rendered a card.
   const blockers = useQuery(
     (api as any).jobBlockers.activeForMyBooking,
-    bookingId ? { bookingId } : "skip",
+    bookingId && !isLocalBookingId(bookingId) ? { bookingId } : "skip",
   ) as Blocker[] | undefined;
 
   if (!blockers || blockers.length === 0) return null;

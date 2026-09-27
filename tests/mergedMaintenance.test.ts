@@ -42,6 +42,13 @@ function merge(overrides: {
     driverRecommendations: overrides.driverRecommendations,
     scopeId: overrides.scopeId ?? "owner_1",
     now: NOW,
+    // This suite exercises the anchored-only merge; the catalog-pass inputs are
+    // explicitly opted out rather than forgotten (see the requiredness note on
+    // BuildMergedMaintenanceInput).
+    currentOdometer: undefined,
+    oemIntervals: undefined,
+    classCtx: undefined,
+    serviceSlugById: undefined,
   });
 }
 
@@ -126,6 +133,8 @@ describe("buildMergedMaintenanceItems (shared Cars-page / Oto merge)", () => {
       now: NOW,
       currentOdometer,
       oemIntervals,
+      classCtx: undefined,
+      serviceSlugById: undefined,
     });
     expect(before.find((i) => i.id === "catalog-coolant_flush")?.status).toBe("unknown");
 
@@ -146,6 +155,8 @@ describe("buildMergedMaintenanceItems (shared Cars-page / Oto merge)", () => {
       now: NOW,
       currentOdometer,
       oemIntervals,
+      classCtx: undefined,
+      serviceSlugById: undefined,
     });
     const coolant = after.find((i) => i.id === "catalog-coolant_flush");
     expect(coolant?.status).toBe("on_time");

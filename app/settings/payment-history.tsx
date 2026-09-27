@@ -117,7 +117,15 @@ export default function PaymentHistoryScreen() {
   const paid = useMemo(
     () =>
       (rows ?? [])
-        .filter((p) => p.status === "completed" && paidAmount(p) > 0)
+        // Include fully-refunded charges too: a refund flips the status to
+        // "refunded", and dropping it would make a returned charge disappear
+        // from the ledger. paidAmount stays the captured amount, so the row
+        // still reads as "what was charged", now annotated with the refund.
+        .filter(
+          (p) =>
+            (p.status === "completed" || p.status === "refunded") &&
+            paidAmount(p) > 0,
+        )
         .sort((a, b) => paymentMs(b) - paymentMs(a)),
     [rows],
   );
@@ -265,13 +273,26 @@ function Row({
   const tender = tenderLabel(payment);
   const amount = fmtUSD(paidAmount(payment));
 
+  // Refund annotation. refunded_amount_cents is the authoritative cumulative
+  // total (recomputed as SUM(payment_refunds) on every settle).
+  const refunded = (payment.refunded_amount_cents ?? 0) / 100;
+  const fullyRefunded =
+    refunded > 0 &&
+    (payment.status === "refunded" ||
+      (payment.captured_amount_cents != null &&
+        (payment.refunded_amount_cents ?? 0) >= payment.captured_amount_cents));
+  const refundNote =
+    refunded > 0
+      ? `${fullyRefunded ? "Refunded" : "Partially refunded"} ${fmtUSD(refunded)}`
+      : null;
+
   return (
     <View>
       {!isFirst ? <View style={styles.rowRule} /> : null}
       <Pressable
         onPress={onPress}
         accessibilityRole="button"
-        accessibilityLabel={`${amount} on ${date}, ${tender}. View receipt.`}
+        accessibilityLabel={`${amount} on ${date}, ${tender}.${refundNote ? ` ${refundNote}.` : ""} View receipt.`}
         style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
       >
         <View style={styles.plate}>
@@ -284,8 +305,15 @@ function Row({
           <RNText numberOfLines={1} style={styles.rowMeta}>
             {tender}
           </RNText>
+          {refundNote ? (
+            <RNText numberOfLines={1} style={styles.rowRefund}>
+              {refundNote}
+            </RNText>
+          ) : null}
         </View>
-        <RNText style={styles.rowAmount}>{amount}</RNText>
+        <RNText style={[styles.rowAmount, fullyRefunded && styles.rowAmountRefunded]}>
+          {amount}
+        </RNText>
         <ChevronRight size={16} color={C.low} strokeWidth={2} style={styles.chevron} />
       </Pressable>
     </View>
@@ -391,6 +419,18 @@ const styles = StyleSheet.create({
     fontSize: 15,
     letterSpacing: -0.2,
     color: C.ink,
+  },
+  // Fully-refunded charge — struck through and muted so the row reads as
+  // "charged, then returned" at a glance.
+  rowAmountRefunded: {
+    textDecorationLine: "line-through",
+    color: C.low,
+  },
+  rowRefund: {
+    fontFamily: F.microRegular,
+    fontSize: 11,
+    letterSpacing: 0.3,
+    color: C.positive,
   },
   chevron: {
     marginLeft: 2,

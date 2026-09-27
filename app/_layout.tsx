@@ -1,20 +1,40 @@
 import { ClerkProvider, useAuth } from "@clerk/clerk-expo";
 import { StripeProvider } from "@stripe/stripe-react-native";
-// Persistent session: tokenCache uses expo-secure-store so auth survives app reload/restart
-import { tokenCache } from "@clerk/clerk-expo/token-cache";
+// Persistent session: the client token lives in expo-secure-store so auth
+// survives a restart. Stored exactly as @clerk/clerk-expo/token-cache stores it
+// (same key and keychain option), but a failed read no longer deletes it — see
+// lib/clerkCaches.ts (#188).
+import * as SecureStore from "expo-secure-store";
+import { createSafeTokenCache, guardClerkResourceStorage } from "@/lib/clerkCaches";
+// Offline startup. tokenCache alone does NOT let Clerk load without a network:
+// it only holds the session token that authenticates Clerk's API requests, and
+// on launch Clerk still has to fetch its environment + client before `isLoaded`
+// can flip. resourceCache persists those two resources, so an offline cold start
+// loads from disk in a "degraded" state instead of never loading at all — which
+// is what lets a signed-in user reach the session-cached offline mode
+// (lib/offlineSessionCache.ts) rather than stalling on app/index.
+import { resourceCache } from "@clerk/clerk-expo/resource-cache";
 import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
 import { DarkTheme, DefaultTheme, ThemeProvider } from "@react-navigation/native";
 import { Stack, useSegments, type ErrorBoundaryProps } from "expo-router";
 import { guardedRouter as router } from "@/lib/navigationLock";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
-import { ConvexReactClient, useQuery } from "convex/react";
-import { ConvexProviderWithClerk } from "convex/react-clerk";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { ConvexProviderWithAuth, ConvexReactClient, useConvexAuth, useQuery } from "convex/react";
+import {
+  type ReactNode,
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import "react-native-reanimated";
 import { KeyboardProvider } from "react-native-keyboard-controller";
-import { BackHandler, LogBox } from "react-native";
+import { LogBox, Platform } from "react-native";
 import { SafeAreaProvider, initialWindowMetrics } from "react-native-safe-area-context";
 
 // Suppress the dev-mode red LogBox overlay for Convex mutation/query
@@ -35,10 +55,25 @@ import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useAppFonts } from "@/hooks/use-fonts";
 import { useConsoleToConvex } from "@/hooks/useConsoleToConvex";
 import { useEnsureConvexUser } from "@/hooks/useEnsureConvexUser";
+import { useNotificationHandler } from "@/hooks/useNotificationHandler";
+import { untilOnline, useConnection } from "@/hooks/useConnection";
+import {
+  CONVEX_AUTH_RETRY_MS,
+  TOKEN_FETCH_RETRY_FLOOR_MS,
+  isTokenFetchNetworkError,
+  shouldRecoverConvexAuth,
+} from "@/lib/connection/convexAuthRecovery";
 import { useRefreshPushToken } from "@/hooks/useRefreshPushToken";
 import { useOtopairDeepLinks } from "@/hooks/useOtopairDeepLinks";
+import { shouldHideSplash } from "@/lib/auth-routing";
 import { clearUserSessionState } from "@/lib/session-state";
 import { useAuthStore } from "@/stores/useAuthStore";
+
+const tokenCache = createSafeTokenCache(SecureStore, {
+  keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK,
+});
+// Never saves Clerk's offline placeholder over the real cached client (#188).
+const guardedResourceCache = guardClerkResourceStorage(resourceCache);
 
 LogBox.ignoreLogs([
   /\[CONVEX M\([^\)]+\)\]/,
@@ -79,14 +114,100 @@ function ConsoleToConvexLogger() {
   return null;
 }
 
+/**
+ * Convex only re-runs `client.setAuth` when the `fetchAccessToken` it holds
+ * changes identity. After a failed token fetch it marks the session logged out
+ * and never retries by itself (see lib/connection/convexAuthRecovery.ts, #269),
+ * so recovery works by handing it a new one: bumping `epoch` does exactly that.
+ */
+const ConvexAuthEpochContext = createContext<{ epoch: number; bump: () => void }>({
+  epoch: 0,
+  bump: () => {},
+});
+
+/**
+ * convex/react-clerk's own `useAuthFromClerk`, unchanged except that the
+ * recovery epoch is part of `fetchAccessToken`'s identity. Kept on the public
+ * ConvexProviderWithAuth API rather than reaching into ConvexProviderWithClerk.
+ */
+function useAuthFromClerk() {
+  const { isLoaded, isSignedIn, getToken, orgId, orgRole, sessionClaims } = useAuth();
+  const { epoch } = useContext(ConvexAuthEpochContext);
+  const fetchAccessToken = useCallback(
+    async ({ forceRefreshToken }: { forceRefreshToken: boolean }) => {
+      // A dead network is not an answer. Handing Convex "no token" logs the user
+      // out of it while Clerk still has them signed in, and every query then
+      // answers as if to a stranger — Home turned into a new account's (#269).
+      // So wait for the network and ask again; only a real refusal returns null.
+      for (;;) {
+        try {
+          if (sessionClaims?.aud === "convex") {
+            return await getToken({ skipCache: forceRefreshToken });
+          }
+          return await getToken({ template: "convex", skipCache: forceRefreshToken });
+        } catch (error) {
+          if (!isTokenFetchNetworkError(error)) return null;
+          await new Promise((resolve) => setTimeout(resolve, TOKEN_FETCH_RETRY_FLOOR_MS));
+          await untilOnline();
+        }
+      }
+    },
+    // Same deps as Convex's own, plus `epoch`. Clerk's Expo useAuth is not
+    // memoised, so listing getToken/sessionClaims would hand Convex a new
+    // function — and a full re-authentication — on every render. The disable
+    // also keeps the React Compiler off this hook, which is what we want: it
+    // would otherwise re-derive these deps and could make the function stable,
+    // silently switching recovery off.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [orgId, orgRole, epoch],
+  );
+  return useMemo(
+    () => ({ isLoading: !isLoaded, isAuthenticated: isSignedIn ?? false, fetchAccessToken }),
+    [isLoaded, isSignedIn, fetchAccessToken],
+  );
+}
+
+/** Re-authenticates Convex when it has dropped a user Clerk still has signed in. */
+function ConvexAuthRecovery() {
+  const { isSignedIn } = useAuth();
+  const { isLoading, isAuthenticated } = useConvexAuth();
+  const conn = useConnection();
+  const { bump } = useContext(ConvexAuthEpochContext);
+  const lastAttemptRef = useRef(0);
+  const dropped = shouldRecoverConvexAuth({
+    clerkSignedIn: isSignedIn === true,
+    convexLoading: isLoading,
+    convexAuthenticated: isAuthenticated,
+    online: conn === "online",
+  });
+
+  useEffect(() => {
+    if (!dropped) return;
+    // First attempt straight away; after that at most every CONVEX_AUTH_RETRY_MS,
+    // so a failure that keeps recurring cannot hammer the backend.
+    const wait = Math.max(0, lastAttemptRef.current + CONVEX_AUTH_RETRY_MS - Date.now());
+    const timer = setTimeout(() => {
+      lastAttemptRef.current = Date.now();
+      bump();
+    }, wait);
+    return () => clearTimeout(timer);
+  }, [dropped, bump]);
+
+  return null;
+}
+
 function ConvexClerkProvider({ children }: { children: ReactNode }) {
-  // Convex expects the Clerk useAuth hook that matches the provider
-  const auth = useAuth();
+  const [epoch, setEpoch] = useState(0);
+  const bump = useCallback(() => setEpoch((e) => e + 1), []);
+  const authEpoch = useMemo(() => ({ epoch, bump }), [epoch, bump]);
   return (
-    <ConvexProviderWithClerk client={convex} useAuth={() => auth}>
-      <ConsoleToConvexLogger />
-      {children}
-    </ConvexProviderWithClerk>
+    <ConvexAuthEpochContext.Provider value={authEpoch}>
+      <ConvexProviderWithAuth client={convex} useAuth={useAuthFromClerk}>
+        <ConsoleToConvexLogger />
+        <ConvexAuthRecovery />
+        {children}
+      </ConvexProviderWithAuth>
+    </ConvexAuthEpochContext.Provider>
   );
 }
 
@@ -95,6 +216,7 @@ function EnsureConvexUserRecord() {
   const ensureUser = useEnsureConvexUser();
   const lastUserRef = useRef<string | null>(null);
   const [retryTrigger, setRetryTrigger] = useState(0);
+  useNotificationHandler();
   useRefreshPushToken();
   useOtopairDeepLinks();
 
@@ -154,19 +276,45 @@ function EnsureConvexUserRecord() {
 }
 
 /**
+ * Hard ceiling on how long the native splash may cover the app.
+ *
+ * Generous on purpose: this is a backstop for a startup signal that never
+ * arrives, NOT a racer against the normal path. A healthy cold start resolves
+ * `isLoaded` well inside it, so the usual splash-to-content handoff is
+ * untouched.
+ */
+const SPLASH_CEILING_MS = 5000;
+
+/**
  * Keeps the splash visible while startup dependencies hydrate, without
  * blocking the root navigator from mounting on the first render.
+ *
+ * The ceiling is not a nicety. Clerk's `isLoaded` only flips after a network
+ * round-trip, so with no connectivity it never resolves, the effect below
+ * never runs, and the native splash covers the app forever — a frozen launch
+ * icon with no spinner, no offline message and no timeout. The tree
+ * underneath is alive and rendering the whole time (OfflineBootGate owns the
+ * cold-start offline screen, and ConnectionPillHost deliberately stays quiet
+ * because of it), so the app has something perfectly good to show and the
+ * splash is the only thing hiding it. Bound it on wall-clock so no startup
+ * signal — this one or a future one — can strand the app behind it.
  */
 function StartupSplashGate({ children, fontsReady }: { children: ReactNode; fontsReady: boolean }) {
   const { isLoaded } = useAuth();
+  const [ceilingReached, setCeilingReached] = useState(false);
 
   useEffect(() => {
-    if (fontsReady && isLoaded) {
+    const timer = setTimeout(() => setCeilingReached(true), SPLASH_CEILING_MS);
+    return () => clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    if (shouldHideSplash({ fontsReady, authLoaded: isLoaded, ceilingReached })) {
       SplashScreen.hideAsync().catch((err) => {
         console.error("SplashScreen.hideAsync failed", err);
       });
     }
-  }, [fontsReady, isLoaded]);
+  }, [fontsReady, isLoaded, ceilingReached]);
 
   return <>{children}</>;
 }
@@ -236,7 +384,7 @@ function PendingDeletionSessionGuard() {
   return null;
 }
 
-function RootErrorBoundary({ error }: ErrorBoundaryProps) {
+function RootErrorBoundary({ error, retry }: ErrorBoundaryProps) {
   useEffect(() => {
     errorBus.set({ visible: true, error });
   }, [error]);
@@ -244,16 +392,24 @@ function RootErrorBoundary({ error }: ErrorBoundaryProps) {
   const message =
     error instanceof Error
       ? error.message
-      : "Something went wrong. Please close and reopen the app.";
+      : "Something went wrong. Tap Try again to reload.";
+
+  // Both buttons re-render the route. The old close handler called
+  // BackHandler.exitApp(), which on Android only backgrounds a singleTask
+  // activity — reopening from Recents landed on the same broken state and
+  // the same modal, with no way out.
+  const recover = () => {
+    errorBus.set({ visible: false, error: undefined });
+    void retry();
+  };
 
   return (
     <ErrorOccurredModal
       visible
       title="Something went wrong"
       message={message}
-      onClose={() => {
-        BackHandler.exitApp();
-      }}
+      onClose={recover}
+      onRetry={recover}
     />
   );
 }
@@ -266,7 +422,11 @@ export default function RootLayout() {
   const fontsReady = fontsLoaded || Boolean(fontError);
 
   return (
-    <ClerkProvider publishableKey={process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY!} tokenCache={tokenCache}>
+    <ClerkProvider
+      publishableKey={process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY!}
+      tokenCache={tokenCache}
+      __experimental_resourceCache={guardedResourceCache}
+    >
       <StartupSplashGate fontsReady={fontsReady}>
         <ConvexClerkProvider>
           <SafeAreaProvider initialMetrics={initialWindowMetrics}>
@@ -311,7 +471,16 @@ export default function RootLayout() {
                       name="(onboarding)"
                       options={{ headerShown: false, gestureEnabled: false }}
                     />
-                    <Stack.Screen name="(main-tabs)" options={{ headerShown: false }} />
+                    {/* Android: suspend the tabs while a flow is pushed on top.
+                        Home otherwise re-renders under the booking flow on every
+                        cart toggle, location fix and Convex push (it is 2,200
+                        lines and not compiler-memoised), and Cars/Bookings keep
+                        their loops alive. Frozen screens catch up with one render
+                        on return. */}
+                    <Stack.Screen
+                      name="(main-tabs)"
+                      options={{ headerShown: false, freezeOnBlur: Platform.OS === "android" }}
+                    />
                     <Stack.Screen name="(tell-us-about)" options={{ headerShown: false }} />
                     <Stack.Screen name="(tire-booking)" options={{ headerShown: false }} />
                     <Stack.Screen name="(rotor-booking)" options={{ headerShown: false }} />

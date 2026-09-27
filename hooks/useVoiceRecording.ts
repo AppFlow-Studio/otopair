@@ -73,6 +73,10 @@ export function useVoiceRecording(): UseVoiceRecordingReturn {
   const meteringIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // True once we've asked the recognizer to stop, so `end` finalizes.
   const stoppingRef = useRef(false);
+  // True between a press-in and its press-out.
+  const pressHeldRef = useRef(false);
+  // True from start() until the session ends, is stopped or is cancelled.
+  const sessionActiveRef = useRef(false);
 
   const stopMeteringSimulation = useCallback(() => {
     if (meteringIntervalRef.current) {
@@ -93,6 +97,7 @@ export function useVoiceRecording(): UseVoiceRecordingReturn {
     (result: string | null) => {
       stopMeteringSimulation();
       stoppingRef.current = false;
+      sessionActiveRef.current = false;
       if (finalizeTimerRef.current) {
         clearTimeout(finalizeTimerRef.current);
         finalizeTimerRef.current = null;
@@ -124,6 +129,7 @@ export function useVoiceRecording(): UseVoiceRecordingReturn {
     if (stoppingRef.current) {
       finalize(transcriptRef.current.trim() || null);
     } else {
+      sessionActiveRef.current = false;
       setState((prev) => ({ ...prev, isRecording: false }));
     }
   });
@@ -151,18 +157,33 @@ export function useVoiceRecording(): UseVoiceRecordingReturn {
 
   // ── Public API ───────────────────────────────────────────────────────
   const startRecording = useCallback(async () => {
-    transcriptRef.current = '';
-    stoppingRef.current = false;
+    // A session is already running (e.g. the button was pressed again before
+    // the last one finished): leave it — resetting here wiped its transcript.
+    if (sessionActiveRef.current) return;
+    pressHeldRef.current = true;
 
-    const perm = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
-    if (!perm.granted) {
-      Alert.alert(
-        'Microphone access needed',
-        'Enable microphone and speech recognition access in Settings to talk to Oto.',
-        [{ text: 'OK' }],
-      );
+    const current = await ExpoSpeechRecognitionModule.getPermissionsAsync();
+    if (!current.granted) {
+      // The press that raises the system prompt only grants access. The
+      // finger has left the button by the time the prompt is answered, so
+      // starting now would record with nothing held and no release to send
+      // it (#271). The next hold records.
+      const perm = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
+      if (!perm.granted) {
+        Alert.alert(
+          'Microphone access needed',
+          'Enable microphone and speech recognition access in Settings to talk to Oto.',
+          [{ text: 'OK' }],
+        );
+      }
       return;
     }
+    // Released while the permission check ran.
+    if (!pressHeldRef.current) return;
+
+    transcriptRef.current = '';
+    stoppingRef.current = false;
+    sessionActiveRef.current = true;
 
     setState({
       isRecording: true,
@@ -186,10 +207,10 @@ export function useVoiceRecording(): UseVoiceRecordingReturn {
   }, [startMeteringSimulation, finalize]);
 
   const stopRecording = useCallback(async (): Promise<string | null> => {
-    // Not recording (e.g. permission was denied) — nothing to finalize.
-    if (!stoppingRef.current && !meteringIntervalRef.current) {
-      // Fall through only if we actually started; otherwise resolve empty.
-    }
+    pressHeldRef.current = false;
+    // Nothing started (permission prompt, denied access, or a tap released
+    // before the check finished) — nothing to finalize.
+    if (!sessionActiveRef.current) return null;
     stoppingRef.current = true;
     setState((prev) => ({
       ...prev,
@@ -215,6 +236,8 @@ export function useVoiceRecording(): UseVoiceRecordingReturn {
 
   const cancelRecording = useCallback(async () => {
     stoppingRef.current = false;
+    pressHeldRef.current = false;
+    sessionActiveRef.current = false;
     stopMeteringSimulation();
     if (finalizeTimerRef.current) {
       clearTimeout(finalizeTimerRef.current);

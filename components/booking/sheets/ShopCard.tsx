@@ -331,8 +331,21 @@ export const ShopCard = memo(function ShopCard({
       selectedServices.every((s) => s.default_labor_hours != null && s.default_parts_estimate != null);
 
     if (!hasFormulaParams) {
-      const totalPrice = selectedServices.reduce((sum, s) => sum + s.price + (s.state_fee ?? 0), 0);
-      return hasAnyFixed ? `$${Math.round(totalPrice)}` : `~$${Math.round(totalPrice)}`;
+      const totals = selectedServices.reduce(
+        (sum, service) => {
+          const shopPrice = fixedPriceMap.get(service.id);
+          const fallback = service.price + (service.state_fee ?? 0);
+          return {
+            low: sum.low + (shopPrice?.lowDollars ?? fallback),
+            high: sum.high + (shopPrice?.highDollars ?? fallback),
+          };
+        },
+        { low: 0, high: 0 },
+      );
+      if (Math.round(totals.low) === Math.round(totals.high)) {
+        return hasAnyFixed ? `$${Math.round(totals.low)}` : `~$${Math.round(totals.low)}`;
+      }
+      return `~$${Math.round(totals.low)} – $${Math.round(totals.high)}`;
     }
 
     const variablePartsCost = selectedServices.reduce(
@@ -345,7 +358,8 @@ export const ShopCard = memo(function ShopCard({
       .map((s) => ({
         serviceId: s.id,
         laborCost: laborRate! * (s.default_labor_hours ?? 0),
-        partsFixed: fixedPriceMap.get(s.id) ?? 0,
+        partsLow: fixedPriceMap.get(s.id)?.lowDollars ?? 0,
+        partsHigh: fixedPriceMap.get(s.id)?.highDollars ?? 0,
       }));
     const laborCost = selectedServices.reduce(
       (sum, s) => sum + laborRate! * (s.default_labor_hours ?? 0),

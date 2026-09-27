@@ -23,6 +23,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { TAXONOMY, type TaxonomyEntry, type TaxonomyTab } from "@/constants/serviceTaxonomy";
 import type { Service, ServiceCategory } from "@/stores/types/store.types";
 import { useBookingStore } from "@/stores/useBookingStore";
+import { formatServiceDisplayName } from "@/utils/serviceDisplayName";
 
 /**
  * Map v5 tab key to the legacy 4-key `ServiceCategory` enum so
@@ -65,8 +66,14 @@ function mapConvexServiceToStore(doc: ConvexServiceDoc, entry: TaxonomyEntry): S
     // hyphenated legacy slug. TAXONOMY accepts either form (see HYPHEN_ALIASES
     // in constants/serviceTaxonomy.ts); the store always stores the canonical form.
     slug: entry.slug,
-    name: doc.name,
-    description: doc.description,
+    // The `services` rows still read "Timing Belt" on every deployment, and
+    // ~145 call sites read `service.name` straight off this store, so the
+    // rename happens here rather than at each of them. Taxonomy-sourced
+    // fields below (`displayLabel`, `subtitle`) are already correct.
+    name: doc.name ? formatServiceDisplayName(doc.name) : doc.name,
+    description: doc.description
+      ? formatServiceDisplayName(doc.description)
+      : doc.description,
     price: default_parts_estimate ?? 0,
     category: tabToLegacyCategory(entry.tab),
     default_labor_hours: doc.default_labor_hours,

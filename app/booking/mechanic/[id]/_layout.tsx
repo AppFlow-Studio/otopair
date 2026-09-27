@@ -6,7 +6,6 @@
  *
  * SCREENS:
  *   - index (Mechanic Detail)
- *   - booking-details (Booking Details)
  *   - payment (Review & Pay)
  *   - confirming (Loading screen — runs the booking mutation)
  *   - confirmation (Booking Confirmed)
@@ -27,7 +26,6 @@ export default function MechanicBookingLayout() {
             }}
         >
             <Stack.Screen name="index" />
-            <Stack.Screen name="booking-details" />
             <Stack.Screen name="payment" />
             <Stack.Screen
                 name="confirming"

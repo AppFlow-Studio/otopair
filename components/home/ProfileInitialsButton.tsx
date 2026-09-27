@@ -14,7 +14,7 @@
  */
 
 import React, { useEffect, useMemo, useRef } from "react";
-import { Image, StyleSheet, View } from "react-native";
+import { Image, Platform, StyleSheet, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
   runOnJS,
@@ -23,13 +23,13 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import { LinearGradient } from "expo-linear-gradient";
-import { useQuery } from "convex/react";
 import { useShallow } from "zustand/react/shallow";
+import { useIsFocused } from "@react-navigation/native";
 import { usePathname } from "expo-router";
 
 import { Text } from "@/components/shared-ui";
 import { AvatarSlider } from "@/components/settings/AvatarSlider";
-import { api } from "@/convex/_generated/api";
+import { useMeFromConvex } from "@/hooks/useMeFromConvex";
 import { useOnboardingStore } from "@/stores/useOnboardingStore";
 import { useSettingsOverlayStore } from "@/stores/useSettingsOverlayStore";
 import { computeInitials } from "@/utils/userInitials";
@@ -41,7 +41,8 @@ const OTO_LOGO_3D = require("@/assets/images/pin-logo-3d.png");
 export function ProfileInitialsButton() {
   const viewRef = useRef<View>(null);
   const pathname = usePathname();
-  const me = useQuery(api.users.getMe);
+  const isFocused = useIsFocused();
+  const { value: me } = useMeFromConvex();
   const { firstName, lastName, profilePhotoUri: storedPhoto } =
     useOnboardingStore(
       useShallow((s) => ({
@@ -141,7 +142,12 @@ export function ProfileInitialsButton() {
         >
           <AvatarSlider
             size={BUTTON_SIZE}
-            paused={overlayLifecycleActive}
+            // Android: also stand still while this screen isn't showing —
+            // all three tabs mount one of these and each ran its own timer.
+            paused={
+              overlayLifecycleActive ||
+              (Platform.OS === "android" && !isFocused)
+            }
             panels={[
               photoUri ? (
                 <Image

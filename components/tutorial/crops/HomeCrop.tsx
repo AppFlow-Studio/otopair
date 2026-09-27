@@ -30,6 +30,7 @@ import Animated, {
 import { BrandColors, FontFamily } from "@/constants/theme";
 import { SpringConfig } from "@/constants/animations";
 import { SCREEN_HEIGHT, SCREEN_WIDTH } from "../PhoneMock";
+import { SAMPLE_SHOP_NAME } from "@/components/tutorial/steps";
 
 const INK = BrandColors.primary;
 const ACCENT = BrandColors.secondary;
@@ -75,7 +76,7 @@ export function HomeCrop({ play, reduceMotion }: { play: boolean; reduceMotion: 
 
       <Animated.View style={[styles.card, cardStyle]}>
         <Text style={styles.shop} numberOfLines={1}>
-          Chelala Service Center
+          {SAMPLE_SHOP_NAME}
         </Text>
         <Text style={styles.meta} numberOfLines={1}>
           ★ 4.9 · 1.2 mi · Opens 8 AM

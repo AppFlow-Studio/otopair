@@ -115,10 +115,13 @@ test("Choose Mechanic availability labels use the selected services duration", (
     "utf8",
   );
 
+  // 9014152d gates both lookups until the duration is known, so the shop id
+  // goes through `availabilityShopId`; the duration still reaches both calls.
+  expect(shopPage).toMatch(/const availabilityShopId = durationReady \? shop\.id : null;/);
   expect(shopPage).toMatch(
-    /useNextAvailabilityForShop\(shop\.id, null, 1, totalMinutes\)/,
+    /useNextAvailabilityForShop\(availabilityShopId, null, 1, totalMinutes\)/,
   );
   expect(shopPage).toMatch(
-    /useNextAvailabilityPerMechanicForShop\(shop\.id, undefined, totalMinutes\)/,
+    /useNextAvailabilityPerMechanicForShop\(\s*availabilityShopId,\s*undefined,\s*totalMinutes,?\s*\)/,
   );
 });

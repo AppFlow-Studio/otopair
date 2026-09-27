@@ -33,6 +33,7 @@ import {
 import { useVehicleStore } from "@/stores/useVehicleStore";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { scale, moderateScale } from "@/utils/responsive";
+import { formatServiceDisplayName } from "@/utils/serviceDisplayName";
 
 const SEVERITY_DOT: Record<"high" | "medium" | "low", string> = {
   high: "#EF4444",
@@ -212,7 +213,7 @@ export default function RecommendationDetailScreen() {
 
         {/* Title block */}
         <Text weight="bold" style={styles.title}>
-          {rec.service_name}
+          {formatServiceDisplayName(rec.service_name)}
         </Text>
         <Text style={styles.subtitle}>{urgencyTimeframeLabel(rec.urgency)}</Text>
 

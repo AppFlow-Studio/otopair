@@ -10,7 +10,8 @@
  * progress bar (`BookingProgressBar`) at the top showing where the
  * booking sits in its lifecycle, so users can glance-track without
  * jumping tabs. History (completed + cancelled) lives at
- * Settings → My Garage → Booking History.
+ * Settings → My Garage → Booking History; a freshly cancelled booking also
+ * stays here for 24h as a "Cancelled" card (see useMyBookingsWithDetails).
  *
  * USED IN: app/(main-tabs)/bookings/_layout.tsx
  *
@@ -19,7 +20,7 @@
 import { Bell } from "lucide-react-native";
 import { ProfileInitialsButton } from "@/components/home/ProfileInitialsButton";
 import { useNotificationsSheetStore } from "@/stores/useNotificationsSheetStore";
-import { useNotificationsFromConvex } from "@/hooks/useNotificationsFromConvex";
+import { useUnreadNotificationCount } from "@/hooks/useNotificationsFromConvex";
 import { type Booking } from "@/components/bookings/BookingCard";
 import { UpcomingBookingCard } from "@/components/bookings/UpcomingBookingCard";
 import { PendingQuoteCard } from "@/components/bookings/PendingQuoteCard";
@@ -56,6 +57,9 @@ import { Image, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "
 import Animated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import SegmentedControl from "@react-native-segmented-control/segmented-control";
+import { CoachDemoBooking } from "@/components/coach/CoachDemoBooking";
+import { useCoachTourStore } from "@/stores/useCoachTourStore";
+import { COACH_STEPS } from "@/components/coach/coachSteps";
 
 // ============================================================================
 // TYPES
@@ -93,6 +97,13 @@ function AllVehiclesGlyph({ size = 40, icon = 22 }: { size?: number; icon?: numb
 // ============================================================================
 
 export default function BookingsScreen() {
+  // True only while the spotlight tour is on the bookings step, so the
+  // sample card never appears in the real list.
+  const coachRunning = useCoachTourStore((st) => st.running);
+  const coachIndex = useCoachTourStore((st) => st.index);
+  const showCoachDemoBooking =
+    coachRunning && COACH_STEPS[coachIndex]?.target === "bookings.live";
+
   const insets = useSafeAreaInsets();
   // historyBookings is still imported because handleViewDetails opens the
   // details sheet for *any* booking id we know about (incl. ones a user
@@ -214,7 +225,7 @@ export default function BookingsScreen() {
   // the outbox while the customer is sitting on this screen watching the card
   // — without a bell here the notification is written and never seen.
   const openNotificationsSheet = useNotificationsSheetStore((s) => s.open);
-  const { unreadCount: notificationsUnreadCount } = useNotificationsFromConvex();
+  const notificationsUnreadCount = useUnreadNotificationCount();
   const hasUnreadNotifications = notificationsUnreadCount > 0;
 
   const toast = useToast();
@@ -626,8 +637,12 @@ export default function BookingsScreen() {
               ) : (
                 <>
                   <CustomerLateBanner onReschedule={(bookingId) => handleReschedule(String(bookingId))} />
+                  {/* A sample of the real card, only while the tour is on the
+                      step that explains it. See CoachDemoBooking. */}
+                  {showCoachDemoBooking ? <CoachDemoBooking /> : null}
                   {bookings.length > 0 ? (
-                    bookings.map((booking) =>
+                    bookings.map((booking, bookingIdx) => {
+                      const card =
                       booking.status === "pending_quote" ||
                       booking.status === "quotes_ready" ||
                       booking.status === "quote_expired" ? (
@@ -653,8 +668,9 @@ export default function BookingsScreen() {
                           onDownloadPdf={handleDownloadPdf}
                           onToggleFavorite={handleToggleFavorite}
                         />
-                      ),
-                    )
+                      );
+                      return card;
+                    })
                   ) : (
                     <View style={styles.emptyState}>
                       <View style={styles.emptyIconContainer}>

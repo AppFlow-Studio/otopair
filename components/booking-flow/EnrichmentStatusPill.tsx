@@ -38,11 +38,13 @@
  */
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Dimensions, Image, Pressable, StyleSheet, View } from "react-native";
+import { ActivityIndicator, Dimensions, Image, Platform, Pressable, StyleSheet, View } from "react-native";
 import Animated, {
+  cancelAnimation,
   Easing,
   FadeIn,
   FadeOut,
+  type SharedValue,
   useAnimatedStyle,
   useSharedValue,
   withRepeat,
@@ -77,6 +79,18 @@ const SHEET_CHROME = 28;
 // OtoPair AI mark — pulses Claude-style beside the streaming facts.
 const OTOPAIR_AI_LOGO = require("@/assets/images/otopair-ai-logo.png");
 
+/** Subtle 1.7s breathe shared by the compact sparkle and the sheet's logo. */
+function startPulse(pulse: SharedValue<number>) {
+  pulse.value = withRepeat(
+    withSequence(
+      withTiming(1, { duration: 850, easing: Easing.inOut(Easing.quad) }),
+      withTiming(0, { duration: 850, easing: Easing.inOut(Easing.quad) }),
+    ),
+    -1,
+    false,
+  );
+}
+
 interface EnrichmentStatusPillProps {
   /** "top" hangs under the status bar (booking flow); "bottom" hovers
    *  bottom-right above the tab bar (main tabs). Default "top". */
@@ -107,14 +121,9 @@ export function EnrichmentStatusPill({
   // compact. Started once on mount.
   const pulse = useSharedValue(0);
   useEffect(() => {
-    pulse.value = withRepeat(
-      withSequence(
-        withTiming(1, { duration: 850, easing: Easing.inOut(Easing.quad) }),
-        withTiming(0, { duration: 850, easing: Easing.inOut(Easing.quad) }),
-      ),
-      -1,
-      false,
-    );
+    // Android starts and stops the pulse with the pill's visibility (below).
+    if (Platform.OS === "android") return;
+    startPulse(pulse);
   }, [pulse]);
   const sparkleStyle = useAnimatedStyle(() => ({
     transform: [{ scale: 1 + pulse.value * 0.12 }],
@@ -145,9 +154,17 @@ export function EnrichmentStatusPill({
   const vin = scope === "any" ? (inProgressEntry?.vin ?? null) : selectedVin;
   const enrichment = useVehicleEnrichmentStatus(vin);
 
+  const visible =
+    scope === "any" ? inProgressEntry != null : enrichment?.isInProgress === true;
+
   // Rich per-category detail (real data presence + typeable facts) for the
-  // sheet. Skipped until we have a VIN; loads lazily behind the pill.
-  const detail = useQuery(api.vehicles.getEnrichmentDetail, vin ? { vin } : "skip");
+  // sheet. Skipped until we have a VIN *and* the pill is on screen: the
+  // sheet can only open from the visible pill, and this query walks a dozen
+  // tables server-side — it used to run on every booking entry for nothing.
+  const detail = useQuery(
+    api.vehicles.getEnrichmentDetail,
+    visible && vin ? { vin } : "skip",
+  );
   // Real car render (VehicleDatabases) for the sheet hero. Empty make/model
   // until `detail` lands → the hook no-ops and returns a null url.
   const carImage = useVehicleImage(
@@ -158,9 +175,39 @@ export function EnrichmentStatusPill({
     undefined,
     detail?.trim ?? undefined,
   );
-
-  const visible =
-    scope === "any" ? inProgressEntry != null : enrichment?.isInProgress === true;
+  // Android: the pill is mounted on Home, Bookings, Cars and the booking flow
+  // but renders nothing while no car is enriching, which is nearly always. An
+  // endless pulse there still re-ran both animated styles every frame on the
+  // UI thread for no pixels, so only run it while the pill is on screen.
+  useEffect(() => {
+    if (Platform.OS !== "android") return;
+    if (!visible) {
+      cancelAnimation(pulse);
+      return;
+    }
+    startPulse(pulse);
+  }, [pulse, visible]);
+  // Every REAL fact gathered so far — the "thinking" ticker cycles them.
+  const facts = detail?.facts ?? [];
+  // Reshuffle the order every time the sheet opens so the ticker streams a
+  // fresh random mix of specs + parts each visit (keyed on sheetOpen). Derived
+  // from the join key, not the array ref, so it doesn't reshuffle every render.
+  const factsKey = facts.join("¦");
+  const shuffledFacts = useMemo(() => {
+    const a = factsKey ? factsKey.split("¦") : [];
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  }, [sheetOpen, factsKey]);
+  // Every hook above this line, none below it: `visible` flips false → true
+  // the moment a garage car starts enriching (Convex reports any car added in
+  // the last 15 minutes as in_progress) and back again when it finishes.
+  // With the useMemo below the early return, React counted 14 hooks on one
+  // render and 15 on the next and threw "Rendered more hooks than during the
+  // previous render" — for every new account, never for a garage that is
+  // already enriched.
   if (!visible) return null;
 
   // Mirror the old toast's 7-minute baseline: past it the ETA math is
@@ -201,20 +248,6 @@ export function EnrichmentStatusPill({
       };
 
   const allReady = detail?.phase === "ready";
-  // Every REAL fact gathered so far — the "thinking" ticker cycles them.
-  const facts = detail?.facts ?? [];
-  // Reshuffle the order every time the sheet opens so the ticker streams a
-  // fresh random mix of specs + parts each visit (keyed on sheetOpen). Derived
-  // from the join key, not the array ref, so it doesn't reshuffle every render.
-  const factsKey = facts.join("¦");
-  const shuffledFacts = useMemo(() => {
-    const a = factsKey ? factsKey.split("¦") : [];
-    for (let i = a.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [a[i], a[j]] = [a[j], a[i]];
-    }
-    return a;
-  }, [sheetOpen, factsKey]);
   const etaLine = pastBaseline
     ? "Almost there — finishing up."
     : eta != null

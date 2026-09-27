@@ -1,0 +1,54 @@
+{
+  "device": "iPhone 15 Pro (iOS 26.2, production build)",
+  "steps": [
+    {
+      "settle_s": 1.38,
+      "shot_latency_s": 0.2,
+      "timed_out": false,
+      "action": "tap Home",
+      "frames": null
+    },
+    {
+      "settle_s": 1.15,
+      "shot_latency_s": 0.18,
+      "timed_out": false,
+      "action": "tap Bookings",
+      "frames": null
+    },
+    {
+      "settle_s": 1.71,
+      "shot_latency_s": 0.21,
+      "timed_out": false,
+      "action": "tap Cars",
+      "frames": null
+    },
+    {
+      "settle_s": 2.29,
+      "shot_latency_s": 0.15,
+      "timed_out": false,
+      "action": "tap Oto",
+      "frames": null
+    },
+    {
+      "settle_s": 1.23,
+      "shot_latency_s": 0.2,
+      "timed_out": false,
+      "action": "tap Home",
+      "frames": null
+    },
+    {
+      "settle_s": 17.51,
+      "shot_latency_s": 0.23,
+      "timed_out": true,
+      "action": "home scroll 4 down + 4 up",
+      "frames": null
+    },
+    {
+      "settle_s": 1.88,
+      "shot_latency_s": 0.29,
+      "timed_out": false,
+      "action": "open booking flow (tap Map)",
+      "frames": null
+    }
+  ]
+}

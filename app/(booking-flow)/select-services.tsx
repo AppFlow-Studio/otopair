@@ -36,7 +36,7 @@ import Animated, {
   useSharedValue,
   withTiming,
 } from "react-native-reanimated";
-import MapView, { Marker, PROVIDER_DEFAULT } from "react-native-maps";
+import MapView, { PROVIDER_DEFAULT } from "react-native-maps";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
@@ -44,8 +44,12 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ArrowLeft, Car, Crosshair, Minus, Plus, Search, X } from "lucide-react-native";
 
 import { Text } from "@/components/shared-ui";
+import { ANDROID_REAL_BLUR, AndroidBlurTarget } from "@/components/shared-ui/AndroidBlurTarget";
 import { CardShadow } from "@/constants/theme";
-import { useBookingFlowMap } from "@/components/booking-flow/BookingFlowMap";
+import {
+  useBookingFlowMap,
+  useDeferredMapMount,
+} from "@/components/booking-flow/BookingFlowMap";
 import { CategoryListRow } from "@/components/booking-flow/CategoryListRow";
 import { GlassSheetHandle } from "@/components/booking-flow/GlassSheet";
 import { HeroCardClosestShop } from "@/components/booking-flow/HeroCardClosestShop";
@@ -54,7 +58,7 @@ import { MapBrowseShopCard } from "@/components/booking-flow/MapBrowseShopCard";
 import { MapSwipeHint } from "@/components/booking-flow/MapSwipeHint";
 import { PinnedShopChip } from "@/components/booking-flow/PinnedShopChip";
 import { QuickBookRow } from "@/components/booking-flow/QuickBookRow";
-import { RatingMarkerPill } from "@/components/booking-flow/RatingMarkerPill";
+import { ShopPinMarker } from "@/components/booking-flow/ShopPinMarker";
 import { useNearbyBookingShops } from "@/hooks/useNearbyBookingShops";
 import { useOfflineGuard } from "@/hooks/useOfflineGuard";
 import { SelectedServicesFab } from "@/components/booking-flow/SelectedServicesFab";
@@ -120,10 +124,15 @@ export default function SelectServicesScreen() {
     // Timing curve instead of a spring — the spring's slight
     // overshoot at the top of the sheet read as a "jump" once the
     // sheet hit its full height. A monotonic ease-out lands cleanly.
-    sheetHeight.value = withTiming(SHEET_H_FULL, {
-      duration: 360,
-      easing: Easing.out(Easing.cubic),
-    });
+    // `.set()`/`.get()` instead of `.value =`: the React Compiler treats a
+    // `.value` write as mutating a hook result and skips this whole screen
+    // (verified with babel-plugin-react-compiler); the method form compiles.
+    sheetHeight.set(
+      withTiming(SHEET_H_FULL, {
+        duration: 360,
+        easing: Easing.out(Easing.cubic),
+      }),
+    );
     setIsPeekExpanded(true);
   }, [isPeekExpanded, sheetHeight]);
   // Collapse path is now handled inline by `collapsePanGesture`
@@ -152,14 +161,13 @@ export default function SelectServicesScreen() {
         .activeOffsetY([-20, 20])
         .onBegin(() => {
           "worklet";
-          dragStartHeight.value = sheetHeight.value;
+          dragStartHeight.set(sheetHeight.get());
         })
         .onUpdate((e) => {
           "worklet";
-          const next = dragStartHeight.value - e.translationY;
-          sheetHeight.value = Math.min(
-            SHEET_H_FULL,
-            Math.max(SHEET_H_PEEK, next),
+          const next = dragStartHeight.get() - e.translationY;
+          sheetHeight.set(
+            Math.min(SHEET_H_FULL, Math.max(SHEET_H_PEEK, next)),
           );
         })
         .onEnd((e) => {
@@ -168,12 +176,14 @@ export default function SelectServicesScreen() {
           let goCollapse: boolean;
           if (e.velocityY > 500) goCollapse = true;
           else if (e.velocityY < -500) goCollapse = false;
-          else goCollapse = sheetHeight.value < midpoint;
+          else goCollapse = sheetHeight.get() < midpoint;
           const target = goCollapse ? SHEET_H_PEEK : SHEET_H_FULL;
-          sheetHeight.value = withTiming(target, {
-            duration: 280,
-            easing: Easing.out(Easing.cubic),
-          });
+          sheetHeight.set(
+            withTiming(target, {
+              duration: 280,
+              easing: Easing.out(Easing.cubic),
+            }),
+          );
           runOnJS(setExpandedState)(!goCollapse);
         }),
     [sheetHeight, dragStartHeight, setExpandedState],
@@ -201,7 +211,32 @@ export default function SelectServicesScreen() {
   // later mapShouldBeInteractive block) so the peek-mode zoom /
   // recenter callbacks below can reference `region` for their
   // fallback center.
-  const { setInteractive, setMarkers, mapRef, region } = useBookingFlowMap();
+  const { setInteractive, setMarkers, mapRef, region, registerLocalMap, mapBlurTarget } =
+    useBookingFlowMap();
+  // Creating a MapView blocks the main thread while the Play services Maps
+  // renderer loads. Wait for the screen transition to finish first; the
+  // skeleton below already covers the gap. See `useDeferredMapMount`.
+  const mapMountReady = useDeferredMapMount();
+  // While the peek-mode local MapView below is mounted it covers the
+  // layout's map completely; on Android the provider unmounts its own
+  // map for the duration (see BookingFlowMap.registerLocalMap).
+  const localMapMounted = !isPeekExpanded && region != null;
+  useEffect(() => {
+    if (!localMapMounted) return;
+    return registerLocalMap();
+  }, [localMapMounted, registerLocalMap]);
+  // Android 12+: what the frosted sheet blurs — the peek map while it is up,
+  // the layout's shared map once expanded. Undefined until the peek map has
+  // mounted: a BlurView only reads a target when it receives it, so it must
+  // never be handed one whose view doesn't exist yet.
+  const peekMapTargetRef = useRef<View>(null);
+  const sheetBlurTarget = !ANDROID_REAL_BLUR
+    ? undefined
+    : isPeekExpanded
+      ? mapBlurTarget
+      : localMapMounted && mapMountReady
+        ? peekMapTargetRef
+        : undefined;
   // Local map ref so the camera can pan to the selected shop as
   // the user swipes the carousel. Same pattern choose-mechanic
   // uses for its sheet's internal pager.
@@ -453,39 +488,34 @@ export default function SelectServicesScreen() {
           of the screen's view tree gives it touches naturally.
           On expand we drop this back to the shared map (the sheet
           covers the area so the map isn't visible anyway). */}
-      {!isPeekExpanded && region ? (
-        <MapView
-          ref={localMapRef}
-          style={StyleSheet.absoluteFill}
-          provider={PROVIDER_DEFAULT}
-          initialRegion={region}
-          showsUserLocation
-          scrollEnabled
-          zoomEnabled
-          pitchEnabled={false}
-          rotateEnabled
-        >
-          {nearbyShops
-            .filter((r) => r.shop.latitude !== 0 && r.shop.longitude !== 0)
-            .map((r) => (
-              <Marker
-                key={r.shop.id}
-                coordinate={{
-                  latitude: r.shop.latitude,
-                  longitude: r.shop.longitude,
-                }}
-                anchor={{ x: 0.5, y: 0.5 }}
-                tracksViewChanges={r.shop.id === selectedShopId}
-                onPress={() => setSelectedShopId(r.shop.id)}
-              >
-                <RatingMarkerPill
+      {!isPeekExpanded && region && mapMountReady ? (
+        <AndroidBlurTarget targetRef={peekMapTargetRef}>
+          <MapView
+            ref={localMapRef}
+            style={StyleSheet.absoluteFill}
+            provider={PROVIDER_DEFAULT}
+            initialRegion={region}
+            showsUserLocation
+            scrollEnabled
+            zoomEnabled
+            pitchEnabled={false}
+            rotateEnabled
+          >
+            {nearbyShops
+              .filter((r) => r.shop.latitude !== 0 && r.shop.longitude !== 0)
+              .map((r) => (
+                <ShopPinMarker
+                  key={r.shop.id}
+                  latitude={r.shop.latitude}
+                  longitude={r.shop.longitude}
                   rating={r.shop.rating}
                   shopName={r.shop.name}
                   isSelected={r.shop.id === selectedShopId}
+                  onPress={() => setSelectedShopId(r.shop.id)}
                 />
-              </Marker>
-            ))}
-        </MapView>
+              ))}
+          </MapView>
+        </AndroidBlurTarget>
       ) : null}
 
       {/* Peek-mode back button — top-left over the map. In peek mode the
@@ -581,12 +611,20 @@ export default function SelectServicesScreen() {
           and taps the sheet. Content scrolls inside (no Pan gesture
           that resizes the sheet mid-scroll). */}
       <Animated.View style={[styles.sheet, sheetAnimatedStyle]}>
-          {/* Real frosted-glass sheet — same pattern Settings uses
-              for its blurred header. On iOS BlurView blurs the
-              map underneath; on Android we fall back to a thick
-              translucent white since BlurView there is unreliable. */}
+          {/* Real frosted-glass sheet. On iOS BlurView blurs the map
+              underneath; Android 12+ does too, through the map's blur
+              target (sheetBlurTarget). Older Android can't blur, so it
+              falls back to a thick translucent white. */}
           {Platform.OS === "ios" ? (
             <BlurView intensity={60} tint="light" style={StyleSheet.absoluteFill} />
+          ) : ANDROID_REAL_BLUR ? (
+            <BlurView
+              intensity={60}
+              tint="light"
+              style={StyleSheet.absoluteFill}
+              blurMethod={sheetBlurTarget ? "dimezisBlurViewSdk31Plus" : undefined}
+              blurTarget={sheetBlurTarget}
+            />
           ) : (
             <View
               style={[StyleSheet.absoluteFill, styles.sheetAndroidFallback]}

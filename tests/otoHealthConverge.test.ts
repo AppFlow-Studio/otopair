@@ -59,6 +59,13 @@ function ringScore(opts: {
     vehicleYear: undefined,
     driverRecommendations: opts.driverRecommendations,
     scopeId: opts.scopeId,
+    // These score-convergence cases seed no odometer/intervals, so the catalog
+    // pass is explicitly opted out. Item-set parity (which DOES exercise it)
+    // is covered by tests/otoRingItemParity.test.ts.
+    currentOdometer: undefined,
+    oemIntervals: undefined,
+    classCtx: undefined,
+    serviceSlugById: undefined,
   });
   return computeVehicleHealthScore({
     maintenanceItems: items,

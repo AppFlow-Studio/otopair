@@ -38,6 +38,7 @@ import { api } from '@/convex/_generated/api';
 import { useWalkInClaimStore, type WalkInTracker } from '@/stores/useWalkInClaimStore';
 import { GhostButton, PrimaryCta, WalkInScreen, WI } from '@/components/walk-in/WalkInKit';
 import { FontFamily } from '@/constants/theme';
+import { WALKIN_DEMO_CHOOSER } from '@/constants/devFlags';
 
 type ClaimResult =
   | null
@@ -71,8 +72,8 @@ export default function ClaimTokenScreen() {
   // makes them awkward to demo back to back. This lets the presenter pick.
   // `__DEV__` is compiled out of release builds, so a real customer never sees
   // it and `treatAsReturning` collapses to `isSignedIn`.
-  const showDemoChooser = __DEV__ && demoFlow === null;
-  const treatAsReturning = __DEV__ && demoFlow ? demoFlow === 'existing' : !!isSignedIn;
+  const showDemoChooser = WALKIN_DEMO_CHOOSER && demoFlow === null;
+  const treatAsReturning = WALKIN_DEMO_CHOOSER && demoFlow ? demoFlow === 'existing' : !!isSignedIn;
 
   // `undefined` = still loading; anything else is a resolved result.
   const result = useQuery(

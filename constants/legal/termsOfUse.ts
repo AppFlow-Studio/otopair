@@ -12,7 +12,7 @@ export const TERMS_OF_USE: LegalDocumentData = {
   {
     heading: `1. Acceptance of These Terms`,
     blocks: [
-      { type: "p", text: `These Terms of Use (these “Terms”) are a binding agreement between you and [Otopair, Inc.], a [Delaware] corporation (“Otopair,” “we,” “us,” or “our”), governing your use of Otopair’s mobile applications, website at [otopair.com], and related services (collectively, the “Platform”). By creating an account, checking the acceptance box presented at registration, or using the Platform, you accept these Terms and our Privacy Policy, which is incorporated into these Terms by reference. If you do not agree to these Terms, do not use the Platform.` },
+      { type: "p", text: `These Terms of Use (these “Terms”) are a binding agreement between you and Otopair Inc., a Delaware corporation (“Otopair,” “we,” “us,” or “our”), governing your use of Otopair’s mobile applications, website at otopair.com, and related services (collectively, the “Platform”). By creating an account, checking the acceptance box presented at registration, or using the Platform, you accept these Terms and our Privacy Policy, which is incorporated into these Terms by reference. If you do not agree to these Terms, do not use the Platform.` },
       { type: "p", text: `You must be at least 18 years of age and legally capable of entering into a binding contract to use the Platform.` },
       { type: "p", text: `IMPORTANT: SECTION 21 OF THESE TERMS CONTAINS AN ARBITRATION AGREEMENT AND A WAIVER OF CLASS ACTIONS AND JURY TRIALS. IT AFFECTS HOW DISPUTES BETWEEN YOU AND OTOPAIR ARE RESOLVED. PLEASE READ IT CAREFULLY. YOU MAY OPT OUT OF ARBITRATION AS DESCRIBED IN SECTION 21.` },
     ],
@@ -30,7 +30,7 @@ export const TERMS_OF_USE: LegalDocumentData = {
   {
     heading: `3. Accounts`,
     blocks: [
-      { type: "p", text: `You agree to provide accurate, current, and complete information when creating an account and to keep it updated. You represent that, for each vehicle you add to the Platform, you are the owner of that vehicle or are otherwise authorized to provide information about it and to authorize services for it. You are responsible for maintaining the confidentiality of your credentials and for all activity under your account. Notify us promptly at [support@otopair.com] of any unauthorized use. You may maintain only one account, and you may not transfer your account to another person. We may suspend or terminate accounts as described in Section 24.` },
+      { type: "p", text: `You agree to provide accurate, current, and complete information when creating an account and to keep it updated. You represent that, for each vehicle you add to the Platform, you are the owner of that vehicle or are otherwise authorized to provide information about it and to authorize services for it. You are responsible for maintaining the confidentiality of your credentials and for all activity under your account. Notify us promptly at support@otopair.com of any unauthorized use. You may maintain only one account, and you may not transfer your account to another person. We may suspend or terminate accounts as described in Section 24.` },
     ],
   },
   {
@@ -55,6 +55,7 @@ export const TERMS_OF_USE: LegalDocumentData = {
     heading: `6. Cancellations, No-Shows, and Refunds`,
     blocks: [
       { type: "p", text: `Cancellation by you. When you confirm a booking, Otopair places a $20 authorization hold on your payment method. You may cancel a booking at no charge until 24 hours before the scheduled appointment, and the hold is released. If you cancel within 24 hours of the scheduled appointment, or if you do not appear for a confirmed booking, the hold may be converted into a charge of up to $20. The amount and the applicable window are shown to you before you confirm the booking. This amount compensates Otopair and the Partner Shop for the reserved appointment, and Otopair may retain it or a portion of it.` },
+      { type: "p", text: `Once work has begun. Once work on your vehicle has begun, cancellation is no longer available in the app. If you withdraw your vehicle after work has begun, you remain responsible for authorized work performed and parts installed up to that point. Message the Partner Shop through the app to arrange pickup.` },
       { type: "p", text: `Cancellation by the Partner Shop. If a Partner Shop cancels or is unable to honor a confirmed booking, we will notify you and refund all amounts paid for that booking, including the Service Fee, and release any authorization hold.` },
       { type: "p", text: `Refunds. Except as stated in these Terms or required by applicable law, payments for completed services are non-refundable through Otopair. Concerns about the quality of a completed service are addressed under Section 8. Approved refunds are issued to your original payment method and typically post within 5–10 business days.` },
     ],
@@ -75,10 +76,14 @@ export const TERMS_OF_USE: LegalDocumentData = {
     ],
   },
   {
-    heading: `9. Vehicle Health and Recommendations`,
+    heading: `9. Vehicle Health, Recommendations, and Oto`,
     blocks: [
       { type: "p", text: `Otopair provides service recommendations, service timing, and estimated cost ranges based on the vehicle information you provide, mileage you report or that we estimate, service history recorded on the Platform, and general manufacturer service intervals.` },
       { type: "p", text: `These recommendations are informational. They are not a diagnosis, they are not a substitute for inspection by a qualified technician, and they cannot identify every condition a vehicle may have. Your vehicle may require service that Otopair has not identified, and a recommendation that no service is presently due does not mean your vehicle is free of defects. You remain responsible for your vehicle’s condition and maintenance, and your manufacturer’s recommended maintenance schedule governs.` },
+      { type: "p", text: `Oto. The Platform includes Oto, an automated assistant that can answer questions about your vehicle, help you understand symptoms and warning lights, and suggest services. Oto is an artificial-intelligence system. It is not a person and it is not a mechanic. Its responses are generated automatically from the information you provide, your vehicle’s recorded history, and general automotive information, and they can be incomplete, out of date, or wrong.` },
+      { type: "p", text: `Oto’s responses are informational only. They are not a diagnosis, are not professional advice, and are not a substitute for inspection by a qualified technician. Do not rely on Oto for any decision affecting the safety of your vehicle or its occupants. If you believe your vehicle may be unsafe to drive, stop driving it and have it inspected. Oto cannot help in an emergency; in an emergency, call 911. Any booking, approval, or payment is made by you, not by Oto, and is governed by these Terms. Oto cannot make commitments on behalf of Otopair or any Partner Shop. Oto’s statements about Otopair’s policies, prices, fees, or these Terms do not modify these Terms; if Oto says something different from these Terms or from a price displayed in the Platform, these Terms and the displayed price control.` },
+      { type: "p", text: `Your conversations with Oto are recorded. Otopair may review them and use them to operate, secure, and improve the Platform, as described in the Privacy Policy. Do not share information with Oto that you do not want stored.` },
+      { type: "p", text: `Other content in the Platform, including service descriptions and Vehicle Health information, may be generated or enhanced by artificial intelligence.` },
     ],
   },
   {
@@ -86,9 +91,9 @@ export const TERMS_OF_USE: LegalDocumentData = {
     blocks: [
       { type: "p", text: `By providing your mobile phone number, you consent to receive text messages from Otopair related to your account and bookings, including verification codes, booking confirmations, reminders, and service updates. Message frequency varies, and message and data rates may apply. Reply STOP to unsubscribe or HELP for help. We also honor plain-language requests to stop, such as “stop,” “end,” “unsubscribe,” “cancel,” or “quit.” Marketing text messages will be sent only with your separate express consent, which is never a condition of purchasing any service. You may revoke your consent to any Otopair text messaging program by any reasonable means, and we will honor your request within ten business days. Unless you tell us otherwise, a revocation applies to all Otopair text messaging programs. Opting out of marketing texts does not stop transactional messages necessary to the service.` },
       { type: "p", text: `Consent to electronic records and signatures. By checking the box presented at registration, you consent to receive electronically all records, notices, disclosures, agreements, and confirmations that Otopair is required or elects to provide to you in writing, for as long as you maintain an Otopair account. This consent applies to all such records and not only to a particular transaction, and you agree that electronic communications satisfy any legal requirement that a communication be in writing.` },
-      { type: "p", text: `Paper copies. You may request a paper copy of any record at no charge by emailing [records@otopair.com] or writing to us at the address in Section 28. We will mail it within ten business days.` },
-      { type: "p", text: `Withdrawing consent. You may withdraw this consent at any time, without closing your account, by emailing [records@otopair.com] or by turning off Electronic Delivery in Settings → Account. Withdrawal takes effect once we have had a reasonable time to process it and does not affect the validity of records provided electronically before that time. If you withdraw consent, we will send required records by U.S. mail to the address on file, and certain features that depend on electronic delivery may become unavailable. We do not charge a fee for paper delivery.` },
-      { type: "p", text: `Keeping your information current. Update your email address and mailing address in Settings → Account, or email [records@otopair.com].` },
+      { type: "p", text: `Paper copies. You may request a paper copy of any record at no charge by emailing support@otopair.com or writing to us at the address in Section 28. We will mail it within ten business days.` },
+      { type: "p", text: `Withdrawing consent. You may withdraw this consent at any time, without closing your account, by emailing support@otopair.com or by turning off Electronic Delivery in Settings → Account. Withdrawal takes effect once we have had a reasonable time to process it and does not affect the validity of records provided electronically before that time. If you withdraw consent, we will send required records by U.S. mail to the address on file, and certain features that depend on electronic delivery may become unavailable. We do not charge a fee for paper delivery.` },
+      { type: "p", text: `Keeping your information current. Update your email address and mailing address in Settings → Account, or email support@otopair.com.` },
       { type: "p", text: `System requirements. To access and retain electronic records you need a device with internet access; a current version of iOS [ ] or later or Android [ ] or later, or a current version of Chrome, Safari, Edge, or Firefox; a valid email address; a PDF reader; and the ability to save or print records. If we change these requirements in a way that creates a material risk that you can no longer access or retain electronic records, we will provide a revised statement and ask you to confirm your consent again.` },
     ],
   },
@@ -108,7 +113,7 @@ export const TERMS_OF_USE: LegalDocumentData = {
   {
     heading: `13. Copyright and DMCA`,
     blocks: [
-      { type: "p", text: `If you believe content on the Platform infringes your copyright, send a notice containing the elements required by 17 U.S.C. § 512(c)(3) to our designated agent: [Otopair, Inc.], Attn: Copyright Agent, [Street Address], [Staten Island, NY ZIP]; [legal@otopair.com]; [telephone].` },
+      { type: "p", text: `If you believe content on the Platform infringes your copyright, send a notice containing the elements required by 17 U.S.C. § 512(c)(3) to our designated agent: Otopair Inc., Attn: Copyright Agent, 200 Vesey Street, 24th Floor, New York, NY 10281; support@otopair.com; [telephone].` },
       { type: "p", text: `Counter-notification. If your content was removed and you believe the removal was the result of error or misidentification, you may send a counter-notification containing the elements required by 17 U.S.C. § 512(g)(3) to the same agent. We may restore the content in accordance with that section.` },
       { type: "p", text: `Repeat infringers. Otopair maintains a policy of terminating, in appropriate circumstances, the accounts of members and Partner Shops who are repeat infringers.` },
     ],
@@ -130,7 +135,7 @@ export const TERMS_OF_USE: LegalDocumentData = {
   {
     heading: `16. Privacy`,
     blocks: [
-      { type: "p", text: `Our collection, use, and disclosure of information is described in the Otopair Privacy Policy, available at [otopair.com/privacy], which is incorporated into these Terms by reference.` },
+      { type: "p", text: `Our collection, use, and disclosure of information is described in the Otopair Privacy Policy, available at otopair.com/privacy, which is incorporated into these Terms by reference.` },
     ],
   },
   {
@@ -163,7 +168,7 @@ export const TERMS_OF_USE: LegalDocumentData = {
   {
     heading: `21. Dispute Resolution; Arbitration; Class Waiver`,
     blocks: [
-      { type: "p", text: `Informal resolution first. Before filing a claim, you and Otopair each agree to try to resolve the dispute informally: send a written description of the dispute to [legal@otopair.com] (or, from Otopair, to your account email), and the parties will negotiate in good faith for 60 days. Most concerns can be resolved this way.` },
+      { type: "p", text: `Informal resolution first. Before filing a claim, you and Otopair each agree to try to resolve the dispute informally: send a written description of the dispute to support@otopair.com (or, from Otopair, to your account email), and the parties will negotiate in good faith for 60 days. Most concerns can be resolved this way.` },
       { type: "p", text: `Agreement to arbitrate. Except as provided below, any dispute, claim, or controversy arising out of or relating to these Terms, the Platform, or any transaction facilitated through the Platform will be resolved by final and binding arbitration administered by the American Arbitration Association (AAA) under its Consumer Arbitration Rules. The Federal Arbitration Act governs this Section. The arbitration will be conducted by a single arbitrator, in the county where you reside or remotely by videoconference, and arbitration fees will be allocated as provided in the AAA Consumer Arbitration Rules.` },
       { type: "p", text: `Delegation. The arbitrator, and not any federal, state, or local court or agency, has exclusive authority to resolve any dispute relating to the interpretation, applicability, enforceability, unconscionability, or formation of this arbitration agreement, including any claim that all or any part of it is void or voidable. The parties agree that this delegation provision is a separate and independent agreement.` },
       { type: "p", text: `Exceptions. Notwithstanding the delegation provision: (a) the enforceability, validity, and scope of the Class Waiver below will be decided exclusively by a court and not by an arbitrator; (b) either party may bring an individual claim in small claims court; (c) either party may seek injunctive or other equitable relief in a court of competent jurisdiction for actual or threatened infringement or misuse of intellectual property or for unauthorized access to or extraction of data from the Platform; and (d) as provided by 9 U.S.C. §§ 401–402, a claim alleging sexual assault or sexual harassment is not subject to this arbitration agreement unless you elect otherwise after the dispute arises.` },
@@ -173,7 +178,7 @@ export const TERMS_OF_USE: LegalDocumentData = {
       { type: "p", text: `All applicable statutes of limitations and contractual limitations periods are tolled for each claimant from the date their demand is submitted, or from the date they are identified on a notice of intent to arbitrate, until their claim is resolved or they elect to opt out under the following paragraph.` },
       { type: "p", text: `If a claimant’s individual arbitration has not been assigned to a merits arbitrator within twelve months of the filing of their demand, that claimant may, at their sole election, opt out of arbitration and pursue the claim in a court of competent jurisdiction, including small claims court.` },
       { type: "p", text: `No conflicting terms. This arbitration agreement governs all disputes between you and Otopair. No promotion, sweepstakes, contest, referral program, rewards program, partner program, or other agreement supersedes this Section unless it expressly states, in capital letters, that it does so.` },
-      { type: "p", text: `Your right to opt out. You may opt out of this arbitration agreement and Class Waiver by emailing [legal@otopair.com] with the subject line “Arbitration Opt-Out,” including your name and account email, within 30 days of your first use of the Platform. Opting out does not affect any other provision of these Terms.` },
+      { type: "p", text: `Your right to opt out. You may opt out of this arbitration agreement and Class Waiver by emailing support@otopair.com with the subject line “Arbitration Opt-Out,” including your name and account email, within 30 days of your first use of the Platform. Opting out does not affect any other provision of these Terms.` },
     ],
   },
   {
@@ -194,7 +199,7 @@ export const TERMS_OF_USE: LegalDocumentData = {
   {
     heading: `24. Termination`,
     blocks: [
-      { type: "p", text: `You may stop using the Platform at any time and may delete your account in the app (Settings → Account → Delete Account) or at [otopair.com/delete-account]. Otopair may suspend or terminate your access to the Platform, with notice where practicable, if you breach these Terms, if we reasonably suspect fraud or misuse, or where required for legal, security, or risk reasons. Upon termination, Sections 5 (with respect to amounts owed), 8, 11–15, and 18–27 survive, along with any other provision that by its nature should survive.` },
+      { type: "p", text: `You may stop using the Platform at any time and may delete your account in the app (Settings → Account → Delete Account) or at otopair.com/delete-account. Otopair may suspend or terminate your access to the Platform, with notice where practicable, if you breach these Terms, if we reasonably suspect fraud or misuse, or where required for legal, security, or risk reasons. Upon termination, Sections 5 (with respect to amounts owed), 8, 11–15, and 18–27 survive, along with any other provision that by its nature should survive.` },
     ],
   },
   {
@@ -209,7 +214,7 @@ export const TERMS_OF_USE: LegalDocumentData = {
   {
     heading: `26. Accessibility`,
     blocks: [
-      { type: "p", text: `Otopair is working toward conformance with the Web Content Accessibility Guidelines (WCAG) 2.1 Level AA. If you encounter a barrier to using the Platform, contact us at [accessibility@otopair.com] and we will work with you to provide the information or service you need.` },
+      { type: "p", text: `Otopair is working toward conformance with the Web Content Accessibility Guidelines (WCAG) 2.1 Level AA. If you encounter a barrier to using the Platform, contact us at support@otopair.com and we will work with you to provide the information or service you need.` },
     ],
   },
   {
@@ -223,10 +228,10 @@ export const TERMS_OF_USE: LegalDocumentData = {
   {
     heading: `28. Contact`,
     blocks: [
-      { type: "p", text: `[Otopair, Inc.]` },
+      { type: "p", text: `Otopair Inc.` },
       { type: "p", text: `Attn: Legal` },
-      { type: "p", text: `[Street Address], [Staten Island, NY ZIP]` },
-      { type: "p", text: `Email: [legal@otopair.com]` },
+      { type: "p", text: `200 Vesey Street, 24th Floor, New York, NY 10281` },
+      { type: "p", text: `Email: support@otopair.com` },
     ],
   },
   ],

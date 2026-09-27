@@ -429,7 +429,7 @@ export function ServiceBottomSheet({
   // Per-(shop, service, tier) flat-price overrides for the focused mechanic.
   // Folded into deriveDisclosedRange below so the footer band already reflects
   // any flat-price short-circuits the booking-create call will honor.
-  const { map: footerFixedPriceMap, hasAnyFixed: footerHasAnyFixed } =
+  const { map: footerFixedPriceMap } =
     useShopFixedPricesForServices(
       selectedMechanicSlot?.shopId,
       selectedVehicle?.ownershipId,
@@ -454,16 +454,22 @@ export function ServiceBottomSheet({
 
     let laborHours = 0;
     let variablePartsCost = 0;
-    const fixedPriceLines: { serviceId: string; laborCost: number; partsFixed: number }[] = [];
+    const fixedPriceLines: {
+      serviceId: string;
+      laborCost: number;
+      partsLow: number;
+      partsHigh: number;
+    }[] = [];
     for (const s of selectedServices) {
       const hours = laborHoursMap.get(String(s.id)) ?? s.default_labor_hours ?? 0;
       laborHours += hours;
-      const flat = footerFixedPriceMap.get(String(s.id));
-      if (flat != null) {
+      const shopPrice = footerFixedPriceMap.get(String(s.id));
+      if (shopPrice) {
         fixedPriceLines.push({
           serviceId: String(s.id),
           laborCost: hours * laborRate,
-          partsFixed: flat,
+          partsLow: shopPrice.lowDollars,
+          partsHigh: shopPrice.highDollars,
         });
         continue;
       }
@@ -481,7 +487,12 @@ export function ServiceBottomSheet({
       zip: shop?.zip,
       fixedPriceLines,
     });
-    return { formatted: range.formatted, isLoading, hasAnyFixed: fixedPriceLines.length > 0 };
+    return {
+      formatted: range.formatted,
+      isLoading,
+      hasAnyFixed:
+        fixedPriceLines.length > 0 && range.lowDollars === range.highDollars,
+    };
   }, [
     selectedMechanicSlot?.shopId,
     shops,
