@@ -26,7 +26,7 @@ import Animated, {
   useDerivedValue,
 } from 'react-native-reanimated';
 import { KeyboardStickyView, useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller';
-import { useAction } from 'convex/react';
+import { useAction, useQuery } from 'convex/react';
 
 // 3. App imports
 import { Text } from '@/components/shared-ui';
@@ -76,6 +76,14 @@ export default function AddVehicleScreen() {
   const [vinNumber, setVinNumber] = useState('');
   const [isDecoding, setIsDecoding] = useState(false);
   const [decodeError, setDecodeError] = useState<string | null>(null);
+  /** Set when the typed VIN is a car the driver already owns — see
+   *  handleVinSubmit. Carries the label so the notice can name the car. */
+  const [alreadyOwned, setAlreadyOwned] = useState<{ vin: string; label: string } | null>(null);
+
+  /* Already-deployed, auth-scoped, and returns ACTIVE ownerships only — which
+     is exactly the right set. A car the driver previously removed SHOULD be
+     re-addable (addOwner reactivates it), so it must not appear here. */
+  const myVehicles = useQuery(api.vehicles.getMyVehicles);
   const { progress: keyboardProgress } = useReanimatedKeyboardAnimation();
 
   const decodeVin = useAction(api.vehicle_pipeline.decodeVin);
@@ -99,6 +107,41 @@ export default function AddVehicleScreen() {
     }
     if (!hasValidVinCheckDigit(vin)) {
       setDecodeError("This VIN doesn't add up — one character looks wrong. Please check it and try again.");
+      return;
+    }
+
+    /* Already in the garage.
+     *
+     * `vehicles.addOwner` is a correct idempotent upsert on (vin, user_id), so
+     * this never produced a duplicate car — which is exactly why it was hard to
+     * notice. Nothing anywhere told the driver. They typed a VIN they already
+     * owned, we ran a PAID decode on it, showed the whole review screen, they
+     * tapped Add Vehicle, it "succeeded", and they landed back in a garage that
+     * looked identical. Every step said yes and nothing happened.
+     *
+     * Two reasons to stop it here rather than shrug:
+     *   - the decode costs money and is guaranteed worthless before it is made
+     *     (same argument as the check-digit gate above, #275)
+     *   - addOwner patches nickname / is_primary / mileage from the new
+     *     submission, so re-adding a car you own can OVERWRITE its name and
+     *     odometer, and move which car is your primary. That part is not
+     *     harmless.
+     *
+     * Checked against ACTIVE ownerships only: re-adding a car you previously
+     * deleted is legitimate and still reactivates it. `undefined` means the
+     * query hasn't landed — fall through rather than block on a slow network;
+     * the server upsert stays correct either way.
+     */
+    const owned = myVehicles?.find((v) => v.vin?.toUpperCase() === vin);
+    if (owned) {
+      const meta = (owned.vehicle?.metadata ?? {}) as { make?: string; model?: string };
+      const label =
+        owned.ownership?.nickname?.trim() ||
+        [owned.vehicle?.year, meta.make, meta.model].filter(Boolean).join(' ') ||
+        'this car';
+      setAlreadyOwned({ vin, label });
+      setDecodeError(null);
+      Keyboard.dismiss();
       return;
     }
 
@@ -351,6 +394,32 @@ export default function AddVehicleScreen() {
             </View>
           ) : null}
 
+          {/* Already in the garage. Deliberately NOT styled as an error — the
+              driver did nothing wrong, they just already have the car. Red here
+              would read as "that VIN is invalid", which is the one thing it
+              isn't. It carries the way through, because a notice that only
+              says no is the dead end we're removing. */}
+          {alreadyOwned ? (
+            <View style={styles.ownedBanner}>
+              <Text size="sm" color="#1F6FEB" style={styles.errorText}>
+                Your {alreadyOwned.label} is already in your garage.
+              </Text>
+              <Pressable
+                onPress={() => {
+                  const vin = alreadyOwned.vin;
+                  setAlreadyOwned(null);
+                  router.push({ pathname: '/(main-tabs)/cars', params: { focusVin: vin } } as never);
+                }}
+                hitSlop={8}
+                accessibilityRole="button"
+              >
+                <Text size="sm" weight="semiBold" color="#1F6FEB" style={styles.ownedAction}>
+                  Open it
+                </Text>
+              </Pressable>
+            </View>
+          ) : null}
+
           {/* VIN Input Field */}
           <TextInput
             style={styles.vinInput}
@@ -363,6 +432,7 @@ export default function AddVehicleScreen() {
               // the keyboard and misses paste/autofill).
               setVinNumber(text.toUpperCase());
               if (decodeError) setDecodeError(null);
+              if (alreadyOwned) setAlreadyOwned(null);
             }}
             autoCapitalize="characters"
             autoCorrect={false}
@@ -594,6 +664,17 @@ const styles = StyleSheet.create({
   },
   errorText: {
     textAlign: 'center',
+  },
+  ownedBanner: {
+    backgroundColor: '#EFF6FF',
+    borderRadius: moderateScale(12),
+    paddingVertical: scale(10),
+    paddingHorizontal: scale(16),
+    alignItems: 'center',
+    gap: scale(4),
+  },
+  ownedAction: {
+    textDecorationLine: 'underline',
   },
   buttonDisabled: {
     opacity: 0.6,
